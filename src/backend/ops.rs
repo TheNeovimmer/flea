@@ -112,7 +112,7 @@ pub(crate) fn dir_writable(path: &Path) -> bool {
     let bytes = std::os::unix::ffi::OsStrExt::as_bytes(path.as_os_str());
     let Ok(c) = std::ffi::CString::new(bytes) else { return false };
     extern "C" {
-        fn access(path: *const i8, mode: i32) -> i32;
+        fn access(path: *const std::ffi::c_char, mode: std::ffi::c_int) -> std::ffi::c_int;
     }
     unsafe { access(c.as_ptr(), 2) == 0 }
 }
