@@ -402,17 +402,18 @@ Item {
                 return
             }
             // The rows a request named were another numbering's, so only that request ended, see src/backend/rowguard.rs.
-            if (!Swap.failListing(pane, where)) {
-                if (input === "paths") {
-                    var claim = pane.pathsPending
-                    if (claim && claim.kind === "drag") {
-                        pane.pathsPending = null
-                        claim.deliver(null, claim)
-                        return
-                    }
-                    if (claim) pane.pathsPending = null
-                    else pane.clipPending = null
-                }
+            // A paths failure clears its claim either way. Leaving it set blocks the next copy.
+            var listingEnded = Swap.failListing(pane, where)
+            if (input === "paths") {
+                var claim = pane.pathsPending
+                if (claim && claim.kind === "drag") {
+                    pane.pathsPending = null
+                    claim.deliver(null, claim)
+                    if (!listingEnded) return
+                } else if (claim) pane.pathsPending = null
+                else pane.clipPending = null
+            }
+            if (!listingEnded) {
                 pane.message(text, true)
                 return
             }

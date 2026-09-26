@@ -267,17 +267,21 @@ function reachNote(canLeave) {
 }
 
 // Sample marker: "<instance>\n1,3\nmove\n/source\n42"; feedback never becomes destination row indices.
-function feedbackFor(marker, urls, shelf) {
+function feedbackFor(marker, urls, shelf, proposed) {
     var fields = String(marker).split("\n")
     var own = fields[0] === INSTANCE
     var paths = pathsFromUrls(urls)
-    // Rule 4: the shelf fixed its verb at the lift, so Flea says that word rather than deriving one
-    // from a marker the shelf never sent, which would read as a copy for every move.
     if (shelfToken(shelf).length > 0) {
         return { own: true, copy: shelfCopying(shelf), dev: 0, fixed: shelfCopying(shelf),
                  count: paths.length, canLeave: paths.length > 0 }
     }
-    return { own: own, copy: fields[2] === "copy", shift: fields[6] === "1",
+    var copy = fields[2] === "copy"
+    var shift = fields[6] === "1"
+    if (!marker) {
+        if ((proposed & Qt.MoveAction) !== 0 && (proposed & Qt.CopyAction) === 0) shift = true
+        else if ((proposed & Qt.CopyAction) !== 0 && (proposed & Qt.MoveAction) === 0) copy = true
+    }
+    return { own: own, copy: copy, shift: shift,
              dev: Number(fields[4]) || 0, deletable: fields[5] !== "0",
              count: own && fields[1] ? fields[1].split(",").length : paths.length,
              canLeave: paths.length > 0 }

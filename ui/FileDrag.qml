@@ -152,8 +152,8 @@ Item {
         bar.setActivity(root, text, Ops.emptyTransfer())
     }
 
-    function enterTarget(marker, urls, name, destDev, shelf) {
-        root.feedback = DragOps.feedbackFor(marker, urls, shelf)
+    function enterTarget(marker, urls, name, destDev, shelf, proposed) {
+        root.feedback = DragOps.feedbackFor(marker, urls, shelf, proposed)
         root.showTarget(name, destDev)
     }
 

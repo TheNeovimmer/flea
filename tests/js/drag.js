@@ -281,8 +281,8 @@ function run(check) {
     check("ctrl survives the feedback handoff", Drag.feedbackLine(Drag.feedbackFor(
         Drag.markerPayload([1], true, "/source", 56), ["file:///source/a.txt"]), "folder", 56), "Copy 1 item to folder")
 
-  // DragOut rule 4: Flea is the shelf's one named receiver, so the word it says while a shelf drag
-  // hovers is the intent the lift fixed, not the one a missing rows marker would imply.
+    check("an outside offer of move alone says move",
+        Drag.feedbackLine(Drag.feedbackFor("", ["file:///p/one"], "", Qt.MoveAction), "drafts", 0), "Move 1 item to drafts · ctrl copies and shift moves, read at lift")
   var moveDrag = "9f2c\nmove"
   var copyDrag = "9f2c\ncopy"
   check("a shelf drag's own verb is what the hover says",
