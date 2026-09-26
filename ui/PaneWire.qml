@@ -1,6 +1,7 @@
 import QtQuick
 import "." as Flea
 import "js/DirSizes.js" as DirSizes
+import "js/DragOut.js" as DragOut
 import "js/Errors.js" as Errors
 import "js/Anchor.js" as Anchor
 import "js/Nav.js" as Nav
@@ -31,6 +32,7 @@ Item {
                  && (root.pane.viewMode === "list" || root.pane.viewMode === "grid")
         pane: root.pane
         dest: root.pane ? root.pane.dropPath : ""
+        refuseLoading: DragOut.refuseLoading(root.pane && root.pane.listInFlight, false, false)
         // Unknown until the listed reply lands, because dirDev is still the directory being left.
         destDev: root.pane && root.pane.backend && !root.pane.listInFlight ? root.pane.backend.dirDev : 0
     }
@@ -400,7 +402,16 @@ Item {
             }
             // The rows a request named were another numbering's, so only that request ended, see src/backend/rowguard.rs.
             if (!Swap.failListing(pane, where)) {
-                if (input === "paths") { pane.clipPending = null; pane.pathsPending = null }
+                if (input === "paths") {
+                    var claim = pane.pathsPending
+                    if (claim && claim.kind === "drag") {
+                        pane.pathsPending = null
+                        claim.deliver(null, claim)
+                        return
+                    }
+                    if (claim) pane.pathsPending = null
+                    else pane.clipPending = null
+                }
                 pane.message(text, true)
                 return
             }

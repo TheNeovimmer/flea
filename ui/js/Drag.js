@@ -1,5 +1,6 @@
 .pragma library
 
+.import "DragOut.js" as DragOut
 .import "Ops.js" as Ops
 .import "Swap.js" as Swap
 
@@ -63,18 +64,7 @@ function drop(pane, rows, index, copy, listing) {
 // not one is left behind rather than guessed at, so a drag from a browser carrying an http link
 // contributes nothing instead of a bogus path. The wire form is percent-encoded, so it is decoded here.
 function pathsFromUrls(urls) {
-    var paths = []
-    if (!urls) {
-        return paths
-    }
-    for (var i = 0; i < urls.length; i++) {
-        var url = String(urls[i])
-        if (url.indexOf("file:///") !== 0) {
-            continue
-        }
-        paths.push(decodeURIComponent(url.substring(7)))
-    }
-    return paths
+    return DragOut.filePaths(urls)
 }
 
 
@@ -198,40 +188,25 @@ function mimeFor(pane, rows, copy) {
 // directory, or a folder row reached after the listing changed under the drag. A drop into the
 // directory the rows came from is nothing to do and is refused; a drag with no uri-list, which is a
 // selection too wide to leave the window, carries no paths to send and is refused too.
-function canDropInto(marker, urls, dest) {
-    if (isOwnDrag(marker) && markerSource(marker) === dest) {
-        return false
-    }
-    var paths = pathsFromUrls(urls)
-    for (var i = 0; i < paths.length; i++) {
-        // A folder into itself or its own subtree: copy_dir would read its own fresh copy until the
-        // disk is full, so the drop is refused here and again in src/backend/opsreq.rs.
-        if (dest === paths[i] || dest.indexOf(paths[i] + "/") === 0) {
-            return false
-        }
-        // An item into the folder it already lives in, which a foreign drag can ask for: a copy onto itself.
-        var slash = paths[i].lastIndexOf("/")
-        if ((slash === 0 ? "/" : paths[i].substring(0, slash)) === dest) {
-            return false
-        }
-    }
-    return paths.length > 0
+function canDropInto(marker, urls, dest, plain) {
+    if (isOwnDrag(marker) && markerSource(marker) === dest) return false
+    var paths = DragOut.sources(urls, plain, marker, "")
+    return paths.length > 0 && DragOut.refusal(paths, dest, marker, "") === ""
 }
 
 // The transfer for a drop that resolves by path. verbFor decides move against copy the same way a
 // row drop does, from the marker's own device against the destination's; a drop from anywhere but
 // this window copies, so no source deletes a file on the strength of a drop it did not deliver.
-function dropInto(pane, marker, urls, dest, destDev, shelf) {
-    if (!canDropInto(marker, urls, dest)) {
-        return false
-    }
+function dropInto(pane, marker, urls, dest, destDev, shelf, plain) {
+    var paths = DragOut.sources(urls, plain, marker, shelf)
+    if (!canDropInto(marker, urls, dest, plain) && shelfToken(shelf).length === 0) return false
     // Rule 4: a shelf drag is redeemed rather than re-read as a list of URIs, because a fallback to
     // a URI copy after the shelf promised a move is the silent wrong answer it forbids; its URIs only ask first.
     if (shelfToken(shelf).length > 0) {
         return pane.collide.ask({ c: "transfer", op: "", paths: [], dest: dest, shelf: shelfToken(shelf) }, pathsFromUrls(urls))
     }
     var verb = verbFor(isOwnDrag(marker), markerCopying(marker), markerDev(marker), destDev)
-    return pane.collide.ask({ c: "transfer", op: verb, paths: pathsFromUrls(urls), dest: dest })
+    return pane.collide.ask({ c: "transfer", op: verb, paths: paths, dest: dest })
 }
 
 // THE one place the verb is decided, so the label the operator reads and the request that is sent

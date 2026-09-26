@@ -1,5 +1,6 @@
 import QtQuick
 import "js/Drag.js" as DragOps
+import "js/DragOut.js" as DragOut
 import "js/Ops.js" as Ops
 
 // The platform drag belongs to the view: a tab switch may destroy the pressed delegate inside QDrag.exec().
@@ -12,6 +13,8 @@ Item {
     property real dragListing: 0
     property int dropIndex: -1
     property bool dragCopy: false
+    property bool awaitingPaths: false
+    property bool buttonUp: false
     property var dragMime: ({})
     property var feedback: null
 
@@ -24,11 +27,46 @@ Item {
 
     function liftBegan(index, centroid) {
         if (!root.pane || root.pane.listInFlight || index < 0 || !root.pane.rowFor(index)) return
+        root.buttonUp = false
+        root.awaitingPaths = false
         root.dragRows = DragOps.carried(root.pane, index)
         root.dragListing = root.pane.backend ? root.pane.backend.heldListing : 0
         root.dropIndex = -1
-        root.liftMoved(centroid)
+        // Ctrl is the threshold's, and a paths reply must not sample it again.
+        root.dragCopy = DragOps.copying(centroid.modifiers)
         root.dragMime = DragOps.mimeFor(root.pane, root.dragRows, root.dragCopy)
+        if (root.dragMime["text/uri-list"]) {
+            root.startOffer()
+            return
+        }
+        if (!root.pane.backend || !DragOut.askAllowed(root.pane.pathsPending, root.pane.clipPending)) {
+            root.cannotLeave()
+            return
+        }
+        root.awaitingPaths = true
+        var dev = root.pane.backend.dirDev || 0
+        root.feedback = { own: true, copy: root.dragCopy, dev: dev, count: root.dragRows.length, canLeave: true }
+        root.say(DragOps.feedbackLine(root.feedback, "", dev))
+        var rows = root.dragRows.slice()
+        var listing = root.dragListing
+        var copy = root.dragCopy
+        root.pane.pathsPending = {
+            kind: "drag", rows: rows, listing: listing, copy: copy,
+            deliver: function (list, pending) { root.deliverPaths(list, pending) }
+        }
+        root.pane.backend.send({ c: "paths", rows: rows, listing: listing })
+    }
+
+    function liftReleased() {
+        root.buttonUp = true
+    }
+
+    function liftMoved(centroid) {
+        if (root.awaitingPaths) return
+        root.dragCopy = DragOps.copying(centroid.modifiers)
+    }
+
+    function startOffer() {
         root.feedback = DragOps.feedbackFor(root.dragMime[DragOps.ROWS_MIME],
             (root.dragMime["text/uri-list"] || "").split("\r\n"))
         root.showTarget("", root.feedback.dev)
@@ -36,8 +74,31 @@ Item {
         root.Drag.active = true
     }
 
-    function liftMoved(centroid) {
-        root.dragCopy = DragOps.copying(centroid.modifiers)
+    function deliverPaths(list, pending) {
+        root.awaitingPaths = false
+        var held = root.pane && root.pane.backend ? root.pane.backend.heldListing : 0
+        if (root.buttonUp || held !== pending.listing || !list || list.length !== pending.rows.length) {
+            root.cannotLeave()
+            return
+        }
+        root.dragCopy = pending.copy
+        root.dragMime = root.mimeForPaths(pending.rows, list, pending.copy)
+        root.startOffer()
+    }
+
+    function mimeForPaths(rows, paths, copy) {
+        var mime = {}
+        var dev = root.pane.backend ? root.pane.backend.dirDev : 0
+        mime[DragOps.ROWS_MIME] = DragOps.markerPayload(rows, copy, root.pane.path, dev)
+        var uris = []
+        for (var i = 0; i < paths.length; i++) uris.push(DragOps.uriFor(paths[i]))
+        mime["text/uri-list"] = uris.join("\r\n") + "\r\n"
+        mime["text/plain"] = paths.join("\n")
+        return mime
+    }
+
+    function cannotLeave() {
+        root.say(DragOps.line(root.dragRows.length, "", root.dragCopy) + DragOps.reachNote(false))
     }
 
     function verbAt(marker, row) {
