@@ -70,17 +70,19 @@ Item {
                     return
                 }
             }
-            if (root.dropped(marker, drop.urls, shelf, plain))
+            if (root.dropped(marker, drop.urls, shelf, plain, drop.proposedAction)) {
+                if (root.pane.backend) root.pane.backend.dragLanded = true
                 drop.accept(Qt.CopyAction)
+            }
         }
     }
 
     // The drop apart from its platform event, which tests/js/collide.js cannot build: answers whether it was taken.
-    function dropped(marker, urls, shelf, plain) {
+    function dropped(marker, urls, shelf, plain, proposed) {
         var accepted = false
         if (root.row && root.row.d === true) {
             if (DragOps.hasPaths(urls) || (plain && !marker && !shelf))
-                accepted = DragOps.dropInto(root.pane, marker, urls, root.pane.join(root.pane.path, root.row.n), root.row.v, shelf, plain)
+                accepted = DragOps.dropInto(root.pane, marker, urls, root.pane.join(root.pane.path, root.row.n), root.row.v, shelf, plain, proposed)
             else if (DragOps.canDropByIndex(marker, root.pane.path, root.session.dragRows, root.listingIndex))
                 accepted = DragOps.drop(root.pane, root.session.dragRows, root.listingIndex,
                     root.session.verbAt(marker, root.row) === "copy", root.session.dragListing)

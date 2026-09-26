@@ -13,17 +13,21 @@ Item {
     property real dragListing: 0
     property int dropIndex: -1
     property bool dragCopy: false
+    property bool dragShift: false
     property bool awaitingPaths: false
     property bool buttonUp: false
     property var dragMime: ({})
     property var feedback: null
 
     Drag.dragType: Drag.Automatic
-    // Foreign applications see copy only; Flea resolves its own move from the source identity and device.
-    Drag.supportedActions: Qt.CopyAction
-    Drag.proposedAction: Qt.CopyAction
+    // A plain lift offers both. Files then moves on the same device and copies across.
+    // Ctrl offers copy alone and Shift offers move alone: a receiver that takes move
+    // whenever it is offered would otherwise ignore the key held at the lift.
+    // Chromium prefers move when it is offered, and an uploader may refuse that drag.
+    Drag.supportedActions: root.dragCopy ? Qt.CopyAction : root.dragShift ? Qt.MoveAction : (Qt.CopyAction | Qt.MoveAction)
+    Drag.proposedAction: root.dragCopy ? Qt.CopyAction : Qt.MoveAction
     Drag.mimeData: root.dragMime
-    Drag.onDragFinished: root.liftEnded()
+    Drag.onDragFinished: function (dropAction) { root.liftEnded(dropAction) }
 
     function liftBegan(index, centroid) {
         if (!root.pane || root.pane.listInFlight || index < 0 || !root.pane.rowFor(index)) return
@@ -34,7 +38,8 @@ Item {
         root.dropIndex = -1
         // Ctrl is the threshold's, and a paths reply must not sample it again.
         root.dragCopy = DragOps.copying(centroid.modifiers)
-        root.dragMime = DragOps.mimeFor(root.pane, root.dragRows, root.dragCopy)
+        root.dragShift = DragOps.shifting(centroid.modifiers)
+        root.dragMime = DragOps.mimeFor(root.pane, root.dragRows, root.dragCopy, root.dragShift)
         if (root.dragMime["text/uri-list"]) {
             root.startOffer()
             return
@@ -45,13 +50,15 @@ Item {
         }
         root.awaitingPaths = true
         var dev = root.pane.backend.dirDev || 0
-        root.feedback = { own: true, copy: root.dragCopy, dev: dev, count: root.dragRows.length, canLeave: true }
+        root.feedback = { own: true, copy: root.dragCopy, shift: root.dragShift, dev: dev,
+                          deletable: DragOps.listingDeletable(root.pane), count: root.dragRows.length, canLeave: true }
         root.say(DragOps.feedbackLine(root.feedback, "", dev))
         var rows = root.dragRows.slice()
         var listing = root.dragListing
         var copy = root.dragCopy
+        var shift = root.dragShift
         root.pane.pathsPending = {
-            kind: "drag", rows: rows, listing: listing, copy: copy,
+            kind: "drag", rows: rows, listing: listing, copy: copy, shift: shift,
             deliver: function (list, pending) { root.deliverPaths(list, pending) }
         }
         root.pane.backend.send({ c: "paths", rows: rows, listing: listing })
@@ -62,8 +69,9 @@ Item {
     }
 
     function liftMoved(centroid) {
-        if (root.awaitingPaths) return
+        if (root.awaitingPaths || root.Drag.active) return
         root.dragCopy = DragOps.copying(centroid.modifiers)
+        root.dragShift = DragOps.shifting(centroid.modifiers)
     }
 
     function startOffer() {
@@ -82,14 +90,15 @@ Item {
             return
         }
         root.dragCopy = pending.copy
-        root.dragMime = root.mimeForPaths(pending.rows, list, pending.copy)
+        root.dragShift = pending.shift === true
+        root.dragMime = root.mimeForPaths(pending.rows, list, pending.copy, root.dragShift)
         root.startOffer()
     }
 
-    function mimeForPaths(rows, paths, copy) {
+    function mimeForPaths(rows, paths, copy, shift) {
         var mime = {}
         var dev = root.pane.backend ? root.pane.backend.dirDev : 0
-        mime[DragOps.ROWS_MIME] = DragOps.markerPayload(rows, copy, root.pane.path, dev)
+        mime[DragOps.ROWS_MIME] = DragOps.markerPayload(rows, copy, root.pane.path, dev, DragOps.listingDeletable(root.pane), shift === true)
         var uris = []
         for (var i = 0; i < paths.length; i++) uris.push(DragOps.uriFor(paths[i]))
         mime["text/uri-list"] = uris.join("\r\n") + "\r\n"
@@ -103,16 +112,23 @@ Item {
 
     function verbAt(marker, row) {
         return DragOps.verbFor(DragOps.isOwnDrag(marker), DragOps.markerCopying(marker),
-                               DragOps.markerDev(marker), row ? row.v : 0)
+                               DragOps.markerShift(marker), DragOps.markerDev(marker),
+                               row ? row.v : 0, DragOps.markerDeletable(marker))
     }
 
-    function liftEnded() {
+    function liftEnded(dropAction) {
+        var landed = !!(root.pane && root.pane.backend && root.pane.backend.dragLanded)
+        // Files moves a uri-list after it accepts the drag. Deleting on that acceptance
+        // puts the files in Trash before Files has read them. releaseDeletes stays false.
+        DragOps.releaseDeletes(dropAction, landed)
+        if (root.pane && root.pane.backend) root.pane.backend.dragLanded = false
         root.Drag.active = false
         root.dragRows = []
         root.dragListing = 0
         root.dragMime = ({})
         root.dropIndex = -1
         root.dragCopy = false
+        root.dragShift = false
         root.feedback = null
         // A different view may now speak for this gesture; its activity is separate from every transfer.
         var bar = root.pane ? root.pane.statusBar : null

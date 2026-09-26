@@ -284,6 +284,7 @@ Item {
         // that took their place selected, so the next delete needs no mouse. The whole selection is
         // gone from disk, so there is nothing to carry over but the position.
         function onTrashed(ok, failed) {
+            if (ok === 0 && failed === 0) return
             pane.sticky("")
             pane.message(Ops.trashed(ok, failed), ok === 0)
             pane.clearSelection()

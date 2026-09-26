@@ -33,8 +33,10 @@ class Receiver(Gtk.Application):
         label.set_hexpand(True)
         label.set_vexpand(True)
         window.set_child(label)
-        target = Gtk.DropTargetAsync.new(Gdk.DragAction.COPY | Gdk.DragAction.MOVE)
-        target.set_formats(Gdk.ContentFormats.new(["text/uri-list", "text/plain"]))
+        target = Gtk.DropTargetAsync.new(
+            Gdk.ContentFormats.new(["text/uri-list", "text/plain"]),
+            Gdk.DragAction.COPY | Gdk.DragAction.MOVE,
+        )
         target.connect("drop", self.on_drop)
         label.add_controller(target)
         window.present()

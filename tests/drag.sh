@@ -414,14 +414,9 @@ check "a plain drag is a move, so the source is gone" \
 # ---------------------------------------------------------------- R3
 echo
 echo "== R3: ctrl decides copy versus move, and the lift is where it is read =="
-# The modifier used to ride drag.proposedAction, which Qt recomputes from the live keyboard, so ctrl
-# pressed after the final motion still reached the drop. It cannot any more: the drag advertises
-# Qt.CopyAction alone so Chromium stops reporting dropEffect move, and Qt clamps a DragEvent's
-# proposedAction to what the source advertised. Measured on Qt 6.11.2 from the DropArea itself, the
-# receiver read proposedAction 2 of supported 3 under copy|move and 1 of 1 under copy alone, and
-# Copy|Link reads 1 of 5, so no pair of actions both discriminates ctrl and keeps the copy promise.
-# ui/js/Drag.js's own row marker carries it instead, baked when the DragHandler activates, so ctrl
-# is held from before the press here and a ctrl pressed mid-drag now leaves the drag a move.
+# Ctrl and Shift are read when the drag starts. Drag.active then runs a nested loop in which the
+# window receives no keys, so a ctrl pressed after that leaves the verb as it was at the lift.
+# The drag offers both copy and move. This case holds Ctrl before the press, so the drop copies.
 set -- $(screen_centre r3.txt); sx=$1; sy=$2
 set -- $(screen_centre aaa);    ax=$1; ay=$2
 warp "$sx" "$sy"; sleep 0.4
@@ -449,7 +444,7 @@ press; sleep 0.3
 glide_to "$bx" "$by"; sleep 0.8
 MID=$(ipc stickyMessage)
 release; sleep 0.6
-check "the line names the folder under the pointer" "$MID" "Move 1 item to bbb · ctrl at lift copies"
+check "the line names the folder under the pointer" "$MID" "Move 1 item to bbb · ctrl copies and shift moves, read at lift"
 
 # ---------------------------------------------------------------- R1
 echo
@@ -840,7 +835,7 @@ dual_drag_diagnostic() {
 
 visit_targets() {
   local destination="$1" verb="$2" suffix=""
-  [[ "$verb" != Move ]] || suffix=' · ctrl at lift copies'
+  [[ "$verb" != Move ]] || suffix=' · ctrl copies and shift moves, read at lift'
   glide_to "$folder_x" "$folder_y"
   expect_feedback "$destination" "$verb 2 items to folder$suffix"
   glide_to "$floor_x" "$floor_y"
