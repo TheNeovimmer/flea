@@ -4673,7 +4673,7 @@ case_middleclick() {
         wait_tabs "$count" "a middle click on alpha in $view"
         wait_path "$dir/alpha"
         printf 'MIDDLECLICK %s tabs=%s labels=%s\n' "$view" "$(ipc tabCount)" "$(ipc tabLabels)"
-        key 1 >/dev/null
+        click_tab 0
         wait_path "$dir"
         wait_listing 3
     done
