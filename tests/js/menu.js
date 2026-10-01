@@ -197,7 +197,7 @@ function run(check) {
     // locked folder's own menu, never the parent's background one.
     var locked = LockedMenu.lockedEntries({ lockedMode: 0o040000, hiddenActions: [] })
     check("the Locked tile offers only rows that act without listing the folder",
-          actions(locked), "openTerminal,permissions,copyAs")
+          actions(locked), "openTerminal,permissions,copypath")
     // One check per locked row: each offered action is the dispatch ui/Pane.qml performLocked
     // switches on, so a row renamed on either side strands the other. The signal carry itself
     // (ContextMenu.lockedChosen) is QML-only and is covered by the controller's live check.
@@ -205,8 +205,8 @@ function run(check) {
           entry(locked, "openTerminal").action, "openTerminal")
     check("its Permissions row carries the permissions dispatch",
           entry(locked, "permissions").action, "permissions")
-    check("its Copy as row carries the copy dispatch",
-          entry(locked, "copyAs").action, "copyAs")
+    check("its Copy path row carries the copy dispatch",
+          entry(locked, "copypath").action, "copypath")
     check("and no row that would create in, paste into or sort the parent",
           ["newFolder", "newFile", "paste", "selectAll", "sort", "toggleHidden", "settings"].every(function (a) {
               return entry(locked, a).action === undefined
@@ -221,12 +221,12 @@ function run(check) {
           refusal(entry(unreadable, "permissions")), "true|true|undefined")
     check("hiding Open in terminal takes it off the Locked tile as well",
           entry(LockedMenu.lockedEntries({ lockedMode: 0o040000, hiddenActions: ["openTerminal"] }), "openTerminal").action, undefined)
-    var shippedHidden = ["delete", "openTerminal", "placeMenu", "runScript", "moveto", "copyto", "properties", "permissions", "copypath", "extThumbs"]
+    var shippedHidden = ["delete", "openTerminal", "placeMenu", "runScript", "moveto", "copyto", "properties", "permissions", "copyAs", "extThumbs"]
     check("the shipped hidden set leaves the Locked tile with no row",
           LockedMenu.lockedEntries({ lockedMode: 0o040000, hiddenActions: shippedHidden }).length, 0)
     check("and it refuses with the Menus switch sentence",
           LockedMenu.lockedRefusal({ lockedMode: 0o040000, hiddenActions: shippedHidden }),
-          "Open in terminal, Permissions and Copy path are hidden in Settings > Menus.")
+          "Open in terminal, Permissions and Copy as are hidden in Settings > Menus.")
     check("one row shown yields that row alone",
           actions(LockedMenu.lockedEntries({ lockedMode: 0o040000, hiddenActions: ["openTerminal", "permissions"] })), "copypath")
     check("and it refuses nothing then",

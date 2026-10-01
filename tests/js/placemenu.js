@@ -71,10 +71,10 @@ function run(check) {
     PlaceMenu.perform("openTerminal", "place:-1:/home/gm/Downloads", acting, null)
     check("and so does Open in terminal", acting.navigationPane.terminal, "/home/gm/Downloads")
     PlaceMenu.perform("copypath", "place:-1:/home/gm/Downloads", acting, null)
-    check("Copy path copies that path", acting.navigationPane.copied.join(","), "copyAs:copyPath:/home/gm/Downloads")
+    check("Copy path copies that path", acting.navigationPane.copied.join(","), "copypath:/home/gm/Downloads")
     PlaceMenu.perform("copyAs:copyQuoted", "place:-1:/home/gm/Downloads", acting, null)
     check("and a Copy as leaf copies it in its own form", acting.navigationPane.copied.join(","),
-          "copyAs:copyPath:/home/gm/Downloads,copyAs:copyQuoted:/home/gm/Downloads")
+          "copypath:/home/gm/Downloads,copyAs:copyQuoted:/home/gm/Downloads")
 
     var favourites = { records: [{ label: "Work", path: "/home/gm/Work" }], added: [], removed: [],
                        add: function (path, label) { this.added.push(path + " as " + label) },

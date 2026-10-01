@@ -100,7 +100,7 @@ fn fs_name(path: &Path) -> String {
         if fields.len() < 10 {
             continue;
         }
-        let mount_point = unescape(&fields[4]);
+        let mount_point = unescape(fields[4]);
         let fs_type = fields[8].to_string();
         if path.starts_with(&mount_point)
             && best.as_ref().map(|(len, _)| mount_point.len() > *len).unwrap_or(true)

@@ -314,9 +314,7 @@ pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<
         }
     }
     ops.journal.push(Entry { op: "link".to_string(), steps });
-    if failed == 0 && first_err.is_empty() {
-        writeln!(out, "{}", super::proto::linked_line(ok, failed, skipped)).ok();
-    } else if ok > 0 || skipped > 0 {
+    if (failed == 0 && first_err.is_empty()) || ok > 0 || skipped > 0 {
         writeln!(out, "{}", super::proto::linked_line(ok, failed, skipped)).ok();
     } else {
         writeln!(out, "{}", error_line(&op_err("link", dest, &first_err))).ok();
@@ -356,7 +354,7 @@ pub(crate) fn do_permissions_batch(out: &mut impl Write, ops: &mut Ops, paths: V
         out.flush().ok();
         return;
     }
-    let items: Vec<(PathBuf, String)> = paths.into_iter().zip(modes.into_iter()).map(|(p, m)| (PathBuf::from(p), m)).collect();
+    let items: Vec<(PathBuf, String)> = paths.into_iter().zip(modes).map(|(p, m)| (PathBuf::from(p), m)).collect();
     // The reply names the first target mode; per-file modes differ only where
     // mixed boxes kept each file's own bits.
     let shown = items.first().map(|(_, m)| m.clone()).unwrap_or_default();

@@ -780,7 +780,6 @@ FocusScope {
         // MenuAdditions040: Permissions takes the whole selection, so the row
         // carries every target's mode beside the cursor row's own.
         selectionModes: root.permissionModes()
-        rowMode: root.permissionSelection() ? root.permissionSelection().p : 0
         dropboxInstalled: !root.backend.providers.dropbox || root.backend.providers.dropbox.installed !== false
         localSend: ({ installed: (root.backend.providers.localsend || {}).installed === true, checking: menuActions.localSend.checking,
                       peers: (root.cursorRow && !root.cursorRow.d) ? menuActions.localSend.peers : [], answeredOnce: menuActions.localSend.answeredOnce })

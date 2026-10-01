@@ -8,7 +8,7 @@ import "flea" as Flea
 ShellRoot {
     id: root
 
-    readonly property string want: "Open in terminal, Permissions and Copy path are hidden in Settings > Menus."
+    readonly property string want: "Open in terminal, Permissions and Copy as are hidden in Settings > Menus."
     property int checks: 0
     property var failures: []
     property var refused: []
