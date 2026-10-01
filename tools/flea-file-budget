@@ -68,7 +68,7 @@ ui/ColumnsArea.qml 474
 ui/ContextMenu.qml 625
 ui/ConvertDialog.qml 440
 ui/GridArea.qml 410
-ui/Ipc.qml 824
+ui/Ipc.qml 825
 ui/KeymapSheet.qml 585
 ui/List.qml 424
 ui/NetworkDialog.qml 449
@@ -80,7 +80,7 @@ ui/PaneWire.qml 511
 ui/PermissionsDialog.qml 589
 ui/PickerWindow.qml 770
 ui/Preview.qml 607
-ui/PreviewColumn.qml 552
+ui/PreviewColumn.qml 556
 ui/PreviewMarkdown.qml 473
 ui/Row.qml 478
 ui/SettingsPanel.qml 542

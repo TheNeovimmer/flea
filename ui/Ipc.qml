@@ -524,6 +524,7 @@ QtObject {
         function columnLinesRect(): string { return root.columns ? root.fleaWindow.rectOf(root.columns.linesItem()) : "" }
         function columnArchiveRect(): string { return root.columns ? root.fleaWindow.rectOf(root.columns.archiveItem()) : "" }
         function previewSurfaceRect(): string { return root.fleaWindow.rectOf(root.pane.preview.surfaceItem()) }
+        function previewPictureRect(): string { var p = root.pane.preview; if (!p) return ""; if (p.isImage) { var im = p.surfaceItem(); return im ? root.fleaWindow.rectOf(im.pictureItem) : "" } if (p.isMedia) { var me = p.surfaceItem(); return me ? root.fleaWindow.rectOf(me.contentItem) : "" } return "" }
         function previewMediaLoaded(): bool { return root.pane.preview.mediaLoaded() }
         function previewText(): string { return root.pane.preview.textShown() }
         function previewArchiveNames(): string { return root.pane.preview.archiveNames() }

@@ -89,6 +89,17 @@ Item {
         visible: root.kind === "video"
     }
 
+    // The drawn video content for ui/Ipc.qml's picture readers: VideoOutput letterboxes inside its
+    // own item, so the item rect is the surface and this anchor is the picture. Empty until frames flow.
+    Item {
+        id: contentAnchor
+        x: video.contentRect.x
+        y: video.contentRect.y
+        width: video.contentRect.width
+        height: video.contentRect.height
+    }
+    readonly property Item contentItem: contentAnchor
+
     Flea.Glyph {
         anchors.centerIn: parent
         maxSize: Theme.stateMarkSize

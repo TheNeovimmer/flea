@@ -119,6 +119,9 @@ Item {
         color: "#ffffff"
     }
 
+    // The drawn page itself, for the geometry gate: sized to the contain of the viewport at the
+    // zoom, so its rect is the picture and not the frame it is centred in.
+    readonly property Item pageItem: page
     // The page is the only light surface in the app, which is exactly what the canvas draws.
     PdfPageImage {
         id: page

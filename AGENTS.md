@@ -499,6 +499,20 @@ real `ColumnsArea`. `tests/ui-noblank.sh` reads `previewSwapState` (holds, fallb
 original replacing the cache file draws twice between the settled frames. It is the decode finishing,
 not a half-built preview, and the count is pinned rather than fixed.
 
+**The geometry gate: a picture drawn at the wrong size never ships again.** GM saw a small clip's
+poster drawing at its own pixel size in a Columns frame no suite measured, so the rule table is now
+measured on every commit: images draw at min(own pixel size, aspect-fit), never enlarged, in the
+Columns column and Quick Look; a video poster and any playing video fill the frame on the limiting
+side like the player, enlarged when the clip is small; an office thumbnail fills only when its
+embedded picture reaches cache size and otherwise draws own-size; a PDF page contains. The headless
+`tests/preview-geometry.sh` (36 cells over both surfaces, both frame widths, every source-size class,
+one `GEOMETRY` line each plus a `GEOMETRY_SHEET` contact sheet) and the native `previewmatrix` case
+in `tests/ui-captures.sh` (real files, column poster and player content rects, Quick Look picture
+rect, `PREVIEWMATRIX_SHEET` contact sheet) assert every cell within 1 px headless and 2 px native,
+centred. A change to any preview surface runs both and its contact sheet is looked at before the
+change is called done. Quick Look PDF has no geometry cell yet: its page item is unexposed, so its
+contain rule is stated from `ui/PreviewPdf.qml` and not measured.
+
 ## Why the listing is an arena
 
 `Listing` (`listing.rs`) holds one `String` with every entry's name written back to

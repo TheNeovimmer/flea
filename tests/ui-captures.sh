@@ -352,3 +352,174 @@ case_cap_sheet() {
     printf 'CAP_SHEET rest=ok query=tag\n'
     kill_flea
 }
+
+# The preview geometry matrix, AGENTS.md "The preview swap". ed359d78 fixed one case a human
+# saw (a small clip's poster drew at its own pixel size) that no suite measured; this case and
+# tests/preview-geometry.sh measure the whole class instead. A small image draws at its own size,
+# a large image and a small clip's poster fill the frame on the limiting side, the player fills it
+# too, and Quick Look follows the same rules on its own surface. Not in the default wanted list.
+matrix_check() {
+    local label="$1" frame="$2" picture="$3" src="$4" mode="$5" inset="$6"
+    python3 - "$label" "$frame" "$picture" "$src" "$mode" "$inset" <<'PYEOF' || fail "previewmatrix: $label drew outside its rule"
+import sys
+label, frame, picture, src, mode, inset = sys.argv[1:7]
+inset = float(inset)
+fx, fy, fw, fh = [float(v) for v in frame.split()]
+px, py, pw, ph = [float(v) for v in picture.split()]
+sw, sh = [float(v) for v in src.split()]
+if mode == "ownsize":
+    want_w, want_h = sw, sh
+else:
+    scale = min((fw - inset) / sw, (fh - inset) / sh)
+    want_w, want_h = sw * scale, sh * scale
+assert abs(pw - want_w) <= 2, "width %s, rule wants %s" % (pw, want_w)
+assert abs(ph - want_h) <= 2, "height %s, rule wants %s" % (ph, want_h)
+assert abs(2 * px + pw - (2 * fx + fw)) <= 4, "not centred horizontally"
+assert abs(2 * py + ph - (2 * fy + fh)) <= 4, "not centred vertically"
+print("PREVIEWMATRIX %s frame=%sx%s drawn=%sx%s rule=%s ok" % (label, fw, fh, pw, ph, mode))
+PYEOF
+}
+
+# A column picture that is decoded and on screen: the state, the shown mark and the ready frame.
+matrix_wait_column() {
+    local want="$1" state
+    local end=$((SECONDS + 25))
+    while (( SECONDS < end )); do
+        state=$(ipc previewColumnState)
+        [[ "$state" == "$want" && "$(ipc columnThumbShown)" == "true" ]] && break
+        sleep 0.1
+    done
+    [[ "$state" == "$want" && "$(ipc columnThumbShown)" == "true" ]] \
+        || fail "previewmatrix: the column shows $state, thumb shown $(ipc columnThumbShown), not $want"
+    end=$((SECONDS + 10))
+    while (( SECONDS < end )); do
+        [[ "$(ipc columnFrameReady)" == "true" ]] && return 0
+        sleep 0.1
+    done
+    fail "previewmatrix: the column frame never read Ready"
+}
+
+matrix_click_play() {
+    local cx cy wx wy
+    read -r cx cy <<< "$(ipc columnPlayCentre)"
+    [[ -n "$cy" ]] || fail "previewmatrix: the transport has no play centre to press"
+    read -r wx wy _ww _wh < <(window_box) || fail "native window coordinates unavailable"
+    omarchy-drive click "$((cx + wx))" "$((cy + wy))" left >/dev/null
+}
+
+case_previewmatrix() {
+    command -v ffmpeg >/dev/null || fail "ffmpeg is missing, so the clip fixtures cannot be built"
+    command -v magick >/dev/null || fail "magick is missing, so the image fixtures cannot be built"
+    local dir="$fixture_root/previewmatrix"
+    sandbox_scratch "$dir"
+    magick -size 64x48 xc:'#7aa2f7' "$dir/a-small.png" \
+        || fail "previewmatrix: the 64x48 fixture failed"
+    magick -size 1920x1080 xc:'#7aa2f7' "$dir/b-large.jpg" \
+        || fail "previewmatrix: the 1920x1080 fixture failed"
+    magick -size 1080x1920 xc:'#e0af68' "$dir/c-portrait.png" \
+        || fail "previewmatrix: the portrait fixture failed"
+    # Fifteen seconds, not one: an ipc round trip costs 190 to 565 ms, so a short clip leaves the
+    # play poll one or two samples to land inside, the miss case_preview already caught once.
+    ffmpeg -y -f lavfi -i "testsrc=duration=15:size=64x64:rate=10" "$dir/d-tiny.mp4" >/dev/null 2>&1 \
+        || fail "previewmatrix: ffmpeg could not make d-tiny.mp4"
+    ffmpeg -y -f lavfi -i "testsrc=duration=15:size=1920x1080:rate=10" "$dir/e-big.mp4" >/dev/null 2>&1 \
+        || fail "previewmatrix: ffmpeg could not make e-big.mp4"
+
+    seed_ui_state "$fixture_root/previewmatrix-state" '{"keys":"default","view":"columns"}'
+    launch "$dir"
+    wait_listing 5
+    settle
+    [[ "$(ipc viewMode)" == columns ]] || fail "previewmatrix: the fixture did not open its columns view"
+
+    # Columns, one row per class: the small image at its own size, everything else filling.
+    seek_row_named "a-small.png"
+    matrix_wait_column image
+    matrix_check "columns a-small.png" "$(ipc columnFrameRect)" "$(ipc columnPictureRect)" "64 48" ownsize 2
+    shot matrix-col-a-small
+    seek_row_named "b-large.jpg"
+    matrix_wait_column image
+    matrix_check "columns b-large.jpg" "$(ipc columnFrameRect)" "$(ipc columnPictureRect)" "1920 1080" fill 2
+    shot matrix-col-b-large
+    seek_row_named "c-portrait.png"
+    matrix_wait_column image
+    matrix_check "columns c-portrait.png" "$(ipc columnFrameRect)" "$(ipc columnPictureRect)" "1080 1920" fill 2
+    shot matrix-col-c-portrait
+    seek_row_named "d-tiny.mp4"
+    matrix_wait_column video
+    matrix_check "columns d-tiny.mp4 poster" "$(ipc columnFrameRect)" "$(ipc columnPictureRect)" "64 64" fill 2
+    shot matrix-col-d-poster
+    seek_row_named "e-big.mp4"
+    matrix_wait_column video
+    matrix_check "columns e-big.mp4 poster" "$(ipc columnFrameRect)" "$(ipc columnPictureRect)" "1920 1080" fill 2
+    shot matrix-col-e-poster
+
+    # The column player, on the small and the large clip: the content rect fills the same way.
+    seek_row_named "d-tiny.mp4"
+    matrix_wait_column video
+    matrix_click_play
+    local end=$((SECONDS + 10))
+    while (( SECONDS < end )); do
+        [[ "$(ipc columnMediaPlaying)" == "true" ]] && break
+        sleep 0.1
+    done
+    [[ "$(ipc columnMediaPlaying)" == "true" ]] || fail "previewmatrix: the column player never played d-tiny.mp4"
+    matrix_check "columns d-tiny.mp4 player" "$(ipc columnFrameRect)" "$(ipc columnPictureRect)" "64 64" fill 2
+    shot matrix-col-d-player
+    seek_row_named "e-big.mp4"
+    matrix_wait_column video
+    matrix_click_play
+    end=$((SECONDS + 10))
+    while (( SECONDS < end )); do
+        [[ "$(ipc columnMediaPlaying)" == "true" ]] && break
+        sleep 0.1
+    done
+    [[ "$(ipc columnMediaPlaying)" == "true" ]] || fail "previewmatrix: the column player never played e-big.mp4"
+    matrix_check "columns e-big.mp4 player" "$(ipc columnFrameRect)" "$(ipc columnPictureRect)" "1920 1080" fill 2
+    shot matrix-col-e-player
+
+    # Quick Look, one Space per file: the same rules on the overlay surface, which plays video itself.
+    seek_row_named "a-small.png"
+    matrix_wait_column image
+    key -k space >/dev/null
+    settle
+    [[ "$(ipc previewOpen)" == "true" && "$(ipc previewKind)" == "image" ]] \
+        || fail "previewmatrix: Space never opened the image overlay"
+    matrix_check "quicklook a-small.png" "$(ipc previewSurfaceRect)" "$(ipc previewPictureRect)" "64 48" ownsize 0
+    shot matrix-look-a-small
+    key -k Escape >/dev/null
+    settle
+    seek_row_named "b-large.jpg"
+    matrix_wait_column image
+    key -k space >/dev/null
+    settle
+    [[ "$(ipc previewOpen)" == "true" && "$(ipc previewKind)" == "image" ]] \
+        || fail "previewmatrix: Space never opened the large overlay"
+    matrix_check "quicklook b-large.jpg" "$(ipc previewSurfaceRect)" "$(ipc previewPictureRect)" "1920 1080" fill 0
+    shot matrix-look-b-large
+    key -k Escape >/dev/null
+    settle
+    seek_row_named "d-tiny.mp4"
+    matrix_wait_column video
+    key -k space >/dev/null
+    wait_preview_state playing
+    matrix_check "quicklook d-tiny.mp4" "$(ipc previewSurfaceRect)" "$(ipc previewPictureRect)" "64 64" fill 0
+    shot matrix-look-d-player
+    key -k Escape >/dev/null
+    settle
+    seek_row_named "e-big.mp4"
+    matrix_wait_column video
+    key -k space >/dev/null
+    wait_preview_state playing
+    matrix_check "quicklook e-big.mp4" "$(ipc previewSurfaceRect)" "$(ipc previewPictureRect)" "1920 1080" fill 0
+    shot matrix-look-e-player
+    key -k Escape >/dev/null
+    settle
+
+    # One contact sheet for the whole matrix, labelled by file name, beside the shot evidence.
+    magick montage "$evidence_dir"/matrix-*.png -tile 4x -geometry 320x240+4+4 -label '%f' \
+        "$evidence_dir/previewmatrix-sheet.png" \
+        || fail "previewmatrix: the contact sheet failed"
+    printf 'PREVIEWMATRIX cells=11 ok=11\n'
+    printf 'PREVIEWMATRIX_SHEET %s\n' "$evidence_dir/previewmatrix-sheet.png"
+    kill_flea
+}

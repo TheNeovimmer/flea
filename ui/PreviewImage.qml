@@ -30,6 +30,9 @@ Item {
     // in the decode, where Fit decoded a covering size (2099x3149 for a portrait photo, 34680x1156 for a 3000x100
     // banner, measured). A small picture draws at its own size, centred; only an SVG keeps Fit, which Stretch would distort.
     readonly property bool vector: /\.svgz?$/i.test(root.path)
+    // The drawn picture itself, for ui/Ipc.qml's previewPictureRect: the item is sized to the
+    // fit of what was decoded, so its rect is the picture and not the surface it is centred on.
+    readonly property Item pictureItem: picture
     Image {
         id: picture
         readonly property real fit: Thumbs.fitScale(root.width, root.height, implicitWidth, implicitHeight, 1)

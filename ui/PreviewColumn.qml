@@ -107,8 +107,10 @@ Item {
     readonly property bool thumbShown: root.wantsThumb && root.thumbDrawn
     // For ui/Ipc.qml's columnFrameRect: the box a playing video's pixels must change inside.
     readonly property Item frameItem: frame
-    // For ui/Ipc.qml's columnPictureRect: the drawn poster itself, so a test can prove it fills the frame.
-    readonly property Item pictureItem: frameThumb
+    // For ui/Ipc.qml's columnPictureRect: the drawn picture itself, so a test can prove it fills the frame.
+    // The player's content rect while it plays, the poster otherwise: frameThumb is hidden under the
+    // player but keeps its geometry, so reading it then would measure a stale poster as the picture.
+    readonly property Item pictureItem: playerLoader.visible && playerLoader.item ? playerLoader.item.contentItem : frameThumb
     readonly property Item linesItem: lines
     readonly property Item archiveItem: archivePane
     // Ready is the decoded picture on screen; thumbShown is already true while it loads.
@@ -444,6 +446,8 @@ Item {
     // Whether a PdfDocument exists at all, which is what makes the Loader worth having.
     function pdfLoaded() { return pdfLoader.item !== null }
 
+    // For the geometry gate: the drawn PDF page, null until the document below built it.
+    function pdfPageItem() { return pdfLoader.item ? pdfLoader.item.pageItem : null }
     // Read back through shell.qml's IPC so a test can prove the transport plays and seeks.
     function mediaPlaying() { return mediaLoader.item ? mediaLoader.item.playing : false }
     function mediaPosition() { return mediaLoader.item ? mediaLoader.item.position : 0 }
