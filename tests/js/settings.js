@@ -234,6 +234,27 @@ function runCompletionRows(check) {
     check("Preview rail mark differs from the three-column view", Settings.SECTIONS[Settings.sectionIndex("preview")].glyph, "preview")
     check("grouping explains the categories before it is enabled", find(view, "groupByKind").caption, "folders, photos, files")
     check("wrapping explains the boundary before it is enabled", find(view, "wrapAtEnds").caption, "arrow-up at the top")
+    // Issue 29 and ClickAndRefresh: Escape stays put until switched on, one tap opens only in
+    // single mode, and the slow click renames while double mode is on.
+    check("Escape goes up a folder ships off", find(view, "escapeUp").label + "|" + find(view, "escapeUp").on,
+          "Escape goes up a folder|false")
+    check("and explains when it climbs", find(view, "escapeUp").caption, "with nothing to close")
+    check("and a stored on reads back on",
+          find(Settings.rows("view", { data: { escapeUp: true } }), "escapeUp").on, true)
+    check("opening defaults to a double click", find(view, "openMode").selected, "double")
+    check("and its two values are the board's own",
+          find(view, "openMode").values.join(",") + "|" + find(view, "openMode").labels.join("|"),
+          "double,single|Double click|Single click")
+    check("the slow click ships on", find(view, "clickRename").label + "|" + find(view, "clickRename").on,
+          "Click a selected name to rename|true")
+    var single = Settings.rows("view", { data: { openMode: "single" } })
+    check("single mode reads back", find(single, "openMode").selected, "single")
+    check("and greys the slow click in place rather than hiding it",
+          [find(single, "clickRename").available, Settings.focusable(find(single, "clickRename"))].join("|"),
+          "false|false")
+    check("while double mode keeps it a control",
+          [find(view, "clickRename").available, Settings.focusable(find(view, "clickRename"))].join("|"),
+          "true|true")
     check("Highlight today's dates ships off", find(view, "highlightToday").label + "|" + find(view, "highlightToday").on, "Highlight today's dates|false")
     check("and a stored on reads back on", find(Settings.rows("view", { data: { highlightToday: true } }), "highlightToday").on, true)
     check("Columns view limit ships at 3", find(view, "columnsLimit").selected, 3)

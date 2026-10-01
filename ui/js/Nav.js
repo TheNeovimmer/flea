@@ -85,6 +85,8 @@ function openWithoutHistory(pane, newPath, options) {
     Search.leaveWalk(pane)
     pane.listInFlight = true
     pane.listedSeen = false
+    // A manual reload's notice belongs to its own re-read: a navigation that lands first spends it.
+    pane.reloadFrom = -1
     // The path is not written here. A refused listing never answers a listed line, so leaving the
     // pane's own path alone is what keeps a refused hop from moving the breadcrumb onto a directory
     // nobody could read; ui/PaneSwap.qml applyListed takes it from the answer instead. The directory

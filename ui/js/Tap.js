@@ -41,6 +41,34 @@ function tapped(index, tapCount, modifiers, root) {
     root.selectOnly(index)
     if (tapCount === 2 || verb === "reveal")
         root.act(verb)
+    // Single-click mode opens folders and files on one tap, the way the columns view's own middle
+    // column already does; a modifier still only selects, and a search result still reveals.
+    if (tapCount === 1 && verb === "open" && root.singleClick === true)
+        root.act("open")
+}
+
+// A second single click on the name of the only selected row, after the double-click interval,
+// starts rename in place. now and interval are handed in so the window is assertable without a
+// clock; interval is Qt.styleHints.mouseDoubleClickInterval on the live path. The drag state rides
+// along because the views read it off their own drag session, which the pane never sees. It never
+// fires on a double click, a drag, a search result, or in single-click mode, where one tap already opened.
+function slowClick(index, modifiers, now, interval, root, dragging) {
+    var plain = (modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) === 0
+    var drag = dragging === undefined ? root.dragActive : dragging
+    var armed = index >= 0 && plain && root.singleClick !== true && root.clickRename !== false
+        && root.searchMode === "" && root.renamingIndex < 0 && !root.renamePending
+        && root.selectionBand === null && drag !== true
+    var priorAt = root.slowClickAt || 0
+    var priorIndex = root.slowClickIndex === undefined ? -2 : root.slowClickIndex
+    root.slowClickAt = now
+    root.slowClickIndex = index
+    if (!armed)
+        return false
+    var picked = root.selectedIndices()
+    if (picked.length !== 1 || picked[0] !== index || root.cursorIndex !== index)
+        return false
+    var gap = interval > 0 ? interval : 400
+    return priorIndex === index && now - priorAt > gap
 }
 
 // The columns view's own middle column, and ui/ColumnsArea.qml is its only caller, which is what

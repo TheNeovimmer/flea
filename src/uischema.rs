@@ -19,6 +19,9 @@ pub const DEFAULTS: &str = r#"{
   "hiddenLast": false,
   "highlightToday": false,
   "wrapAtEnds": false,
+  "escapeUp": false,
+  "openMode": "double",
+  "clickRename": true,
   "keyHints": false,
   "startIn": "home",
   "startFolder": "",
@@ -170,6 +173,11 @@ pub const SCHEMA: &[(&str, Rule)] = &[
     ("hiddenLast", Rule::Bool),
     ("highlightToday", Rule::Bool),
     ("wrapAtEnds", Rule::Bool),
+    // ClickAndRefresh: Escape climbs when on, the pointer's open mode, and the
+    // slow-click rename it greys. Single click and Escape-up ship off, slow click ships on.
+    ("escapeUp", Rule::Bool),
+    ("openMode", Rule::Word(&["double", "single"])),
+    ("clickRename", Rule::Bool),
     // The Menus section's "Show keyboard hints" row: every menu's key column and the empty
     // directory's own tip, off until it is switched on.
     ("keyHints", Rule::Bool),
@@ -247,7 +255,7 @@ mod tests {
             keys,
             [
                 "view", "density", "columns", "columnsLimit", "columnWidths", "addressBar", "sort", "rememberSort", "folderSorts",
-                "dual", "foldersFirst", "groupByKind", "hidden", "hiddenLast", "highlightToday", "wrapAtEnds", "keyHints", "startIn", "startFolder",
+                "dual", "foldersFirst", "groupByKind", "hidden", "hiddenLast", "highlightToday", "wrapAtEnds", "escapeUp", "openMode", "clickRename", "keyHints", "startIn", "startFolder",
                 "lastPath", "newTab", "trashAutoEmpty", "trashSweptOn", "places", "shelf",
                 "preview", "keys",
                 "display", "menu", "updates", "stateVersion"
@@ -264,6 +272,10 @@ mod tests {
         assert_eq!(d.get("hiddenLast").and_then(Json::as_bool), Some(false));
         assert_eq!(d.get("highlightToday").and_then(Json::as_bool), Some(false));
         assert_eq!(d.get("wrapAtEnds").and_then(Json::as_bool), Some(false));
+        // ClickAndRefresh ships 0.3.4's behaviour: Escape stays put, a double click opens, slow click renames.
+        assert_eq!(d.get("escapeUp").and_then(Json::as_bool), Some(false));
+        assert_eq!(d.get("openMode").and_then(Json::as_str), Some("double"));
+        assert_eq!(d.get("clickRename").and_then(Json::as_bool), Some(true));
         assert_eq!(d.get("keyHints").and_then(Json::as_bool), Some(false));
         assert_eq!(d.get("startIn").and_then(Json::as_str), Some("home"));
         assert_eq!(d.get("startFolder").and_then(Json::as_str), Some(""));
@@ -384,6 +396,9 @@ mod tests {
         for good in [r#"{"display":{"textSize":{"mode":"system"}}}"#, r#"{"display":{"textSize":{"mode":9}}}"#,
                      r#"{"keys":"default"}"#, r#"{"keys":"vim"}"#,
                      r#"{"keys":"mac"}"#, r#"{"keys":"windows"}"#,
+                     r#"{"escapeUp":true}"#, r#"{"escapeUp":false}"#,
+                     r#"{"openMode":"double"}"#, r#"{"openMode":"single"}"#,
+                     r#"{"clickRename":true}"#, r#"{"clickRename":false}"#,
                      r#"{"places":{"favourites":[]}}"#,
                      r#"{"places":{"driveSize":true,"trashCount":true}}"#,
                      r#"{"places":{"driveSize":false,"trashCount":false}}"#,
@@ -399,6 +414,9 @@ mod tests {
                              (r#"{"display":{"opacity":1.0}}"#, "display.opacity"),
                              (r#"{"display":{"shadows":true}}"#, "display.shadows"),
                              (r#"{"menu":{"basic":false}}"#, "menu.basic"),
+                             (r#"{"escapeUp":"yes"}"#, "escapeUp"),
+                             (r#"{"openMode":"triple"}"#, "openMode"),
+                             (r#"{"clickRename":1}"#, "clickRename"),
                              (r#"{"keys":"emacs"}"#, "keys"),
                              (r#"{"language":"en"}"#, "language"),
                              (r#"{"places":{"favourites":"/a"}}"#, "places.favourites"),

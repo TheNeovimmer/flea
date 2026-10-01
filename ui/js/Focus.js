@@ -9,6 +9,7 @@
 .import "Ops.js" as Ops
 .import "PreviewKeys.js" as PreviewKeys
 .import "RailKeys.js" as RailKeys
+.import "Reload.js" as Reload
 .import "Status.js" as Status
 .import "Search.js" as Search
 .import "Sort.js" as Sort
@@ -109,6 +110,9 @@ function lookup(event, root) {
     // show it happening, so both sort keys go quiet for as long as a search owns the header.
     if (action === "sortNext" || action === "sortReverse")
         return root.searchMode.length === 0 ? action : ""
+    // A reload re-lists the folder it is on, so it goes quiet where a walk owns the header.
+    if (action === "reload" && root.searchMode.length > 0)
+        return ""
     return action
 }
 
@@ -142,8 +146,10 @@ function act(action, root, menuId, paths) {
         if (root.filterTyping || root.filterQuery.length > 0) Filter.close(root)
         else if (root.searchMode.length > 0 && root.focusView === LIST) Search.cancel(root)
         else if (root.statusBar && root.statusBar.escapePressed()) return
+        else if (escapeUp(root)) root.openParent()
         else root.escapePressed()
         return
+    case "reload": Reload.begin(root, root.wire); return
     case "preview": PreviewKeys.open(root); return
     case "toggleSelect": root.toggleSelect(); return
     case "extendDown": root.extendSelection(1); return
@@ -217,6 +223,15 @@ function act(action, root, menuId, paths) {
     // a sentence any more: tabs run here, and handleKey opens the path bar before the views see it.
     if (action.indexOf("tab") === 0) { Tabs.act(action, root); return }
     root.message(action + " is not built yet.", false)
+}
+
+// Issue 29: Escape climbs to the parent while the setting is on, and only then: a filter,
+// a search, an open menu, the collision card, a selection or a listing out
+// all keep the key, because each of them is something Escape already unwinds or refuses behind.
+function escapeUp(root) {
+    return root.escapeUp === true && root.searchMode.length === 0
+        && root.filterQuery.length === 0 && !root.filterTyping && !root.menuVisible
+        && !(root.collide && root.collide.opened) && root.selectionCount() === 0 && !root.listInFlight
 }
 
 // Only a step from an end wraps; page overshoots and selection extensions retain their clamps.

@@ -7,7 +7,8 @@ var HOLD_MS = 150
 
 // Answered while a listing is out: the navigations refuse themselves, escape touches no row, the rest change the window.
 var ANSWERED_WHILE_LISTING = ["open", "parent", "historyBack", "historyForward", "escape",
-                              "viewList", "viewColumns", "viewGrid", "sidebar", "windowNew", "togglePreview"]
+                              "viewList", "viewColumns", "viewGrid", "sidebar", "windowNew", "togglePreview",
+                              "reload"]
 
 // What a swallowed key says, the sentence every refused navigation already gives.
 var LOADING = "A directory is already loading."

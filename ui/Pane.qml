@@ -45,6 +45,17 @@ FocusScope {
     property bool showHidden: ViewState.state.hidden === true
     // Issue 27's state-file key: with it on a cursor step past an end comes round; ui/js/Focus.js step is the only reader.
     readonly property bool wrapAtEnds: ViewState.state.wrapAtEnds === true
+    // ClickAndRefresh, all under Settings, View: Escape climbs while on, one tap opens while
+    // single, and the slow click renames while on in double-click mode. ui/js/Focus.js and
+    // ui/js/Tap.js read them; nothing else does.
+    readonly property bool escapeUp: ViewState.state.escapeUp === true
+    readonly property bool singleClick: ViewState.state.openMode === "single"
+    readonly property bool clickRename: ViewState.state.clickRename !== false
+    // A manual reload's own count, or -1; ui/js/Reload.js sets it and ui/PaneSwap.qml spends it.
+    property int reloadFrom: -1
+    // The slow click's own window: the last tap's row and time, read by ui/js/Tap.js alone.
+    property double slowClickAt: 0
+    property int slowClickIndex: -2
     // ui/js/Tabs.js is a .pragma library and cannot reach a QML singleton, so the state it asks
     // ui/js/Startup.js about rides in through the pane, the way every other setting it reads does.
     readonly property var uiState: ViewState.state
@@ -392,8 +403,15 @@ FocusScope {
     // index is a listing row, which is what every caller outside ui/js/Filter.js holds; the clamp
     // and the scroll both happen in view space, because a filter can be narrowing what is drawn.
     function setCursor(index) { Filter.setCursor(root, index) }
+    // The cursor keeps three rows of context above and below: the list and the columns view hold
+    // it through their own showCursor, and the grid keeps Contain, whose tiles are not rows.
     // ListView.Contain has no name inside a .pragma library, so the scroll itself stays here.
-    function showRow(view) { root.listArea.positionViewAtIndex(view, ListView.Contain); root.listArea.restartCoalesce() }
+    function showRow(view) {
+        if (root.viewMode === "columns" && root.columnsArea) root.columnsArea.activeColumn().showCursor(view)
+        else if (root.viewMode === "list") list.showCursor(view)
+        else root.listArea.positionViewAtIndex(view, ListView.Contain)
+        root.listArea.restartCoalesce()
+    }
 
     // A successful pointer commit preserves the newly selected row; a refusal returns to its editor.
     function commitOpenRename() {

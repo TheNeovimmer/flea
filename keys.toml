@@ -60,6 +60,11 @@ action = "pathBar"
 [[ctrl]]
 key = "T"
 action = "openTerminal"
+
+# The browser's own reload chord beside F5 above; every preset leaves both free.
+[[ctrl]]
+key = "R"
+action = "reload"
 # The settings panel's own chord, spelled ctrl-, by both presets and by every editor that has one;
 # the bare comma below is the key the Settings board draws beside the toolbar's sliders button.
 [[ctrl]]
@@ -354,6 +359,12 @@ action = "preview"
 key = "F2"
 action = "rename"
 
+# F5 re-reads the folder through the listing swap, the way a watched change does; the
+# notice names how many rows changed, and only when rows changed. TrashView owns its own.
+[[code]]
+key = "F5"
+action = "reload"
+
 # GM's fix, 2026-09-13: the arrows are the letter pair's own spelling, so Left is h's parent and
 # Right is l's browse-in, in the list, the columns and both dual panes. A preview takes them back
 # through the preview-context rows at the end of this file, where they seek in media and turn the
@@ -565,7 +576,7 @@ move = ["cursorDown", "cursorUp", "cursorFirst", "cursorLast", "pageDown", "page
 look = ["viewList", "viewColumns", "viewGrid", "togglePreview", "loadPreview", "preview",
         "toggleHidden", "sidebar", "zoomIn", "zoomOut", "expand", "mute", "textSizeUp", "textSizeDown",
         "textSizeReset", "keymapSheet"]
-find = ["filter", "search", "reveal", "sortNext", "sortReverse", "pathBar"]
+find = ["filter", "search", "reveal", "sortNext", "sortReverse", "pathBar", "reload"]
 change = ["copy", "cut", "paste", "movePaste", "duplicate", "rename", "trash",
           "deletePermanently", "undo", "redo", "newFolder", "copydirpath", "toggleSelect",
           "selectAll", "extendDown", "extendUp", "menu", "properties", "addNetwork", "eject",
@@ -626,6 +637,11 @@ label = "find"
 keys = "o"
 action = "reveal"
 label = "reveal"
+
+[[sheet]]
+keys = "F5 ^r"
+action = "reload"
+label = "reload"
 
 # Issue 30 asked for a way to search the folder the pane is in, and tab on the query line is it, so
 # the sheet draws the key here rather than leaving the only control the issue got undocumented.

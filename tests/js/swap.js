@@ -194,7 +194,7 @@ function run(check) {
     check("but lets through the navigations, which refuse themselves, escape, and the keys that change the window",
           Swap.ANSWERED_WHILE_LISTING.filter(function (a) { return Swap.swallows(true, a) }).join(",") + "|"
           + Swap.ANSWERED_WHILE_LISTING.join(","),
-          "|open,parent,historyBack,historyForward,escape,viewList,viewColumns,viewGrid,sidebar,windowNew,togglePreview")
+          "|open,parent,historyBack,historyForward,escape,viewList,viewColumns,viewGrid,sidebar,windowNew,togglePreview,reload")
     check("a pane with no listing out swallows nothing", Swap.swallows(false, "trash"), false)
     check("and an unbound key is left to the route that names the filter", Swap.swallows(true, ""), false)
 

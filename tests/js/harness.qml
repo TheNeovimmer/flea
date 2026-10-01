@@ -57,8 +57,11 @@ import "reclick.js" as ReclickSuite
 import "renderer.js" as RendererSuite
 import "rowcells.js" as RowCellsSuite
 import "scroll.js" as ScrollSuite
+import "scrolloff.js" as ScrollOffSuite
 import "search.js" as SearchSuite
 import "selection.js" as SelectionSuite
+import "reload.js" as ReloadSuite
+import "slowclick.js" as SlowClickSuite
 import "scripts.js" as ScriptsSuite
 import "settings.js" as SettingsSuite
 import "settingsmenus.js" as SettingsMenusSuite
@@ -125,8 +128,8 @@ Item {
             ["recentdates", RecentDatesSuite],
             ["reclick", ReclickSuite],
             ["renderer", RendererSuite], ["rowcells", RowCellsSuite],
-            ["scroll", ScrollSuite], ["search", SearchSuite],
-            ["selection", SelectionSuite], ["settings", SettingsSuite], ["settingsmenus", SettingsMenusSuite], ["settingsshelf", SettingsShelfSuite], ["settingsabout", SettingsAboutSuite],
+            ["scroll", ScrollSuite], ["scrolloff", ScrollOffSuite], ["search", SearchSuite],
+            ["selection", SelectionSuite], ["reload", ReloadSuite], ["slowclick", SlowClickSuite], ["settings", SettingsSuite], ["settingsmenus", SettingsMenusSuite], ["settingsshelf", SettingsShelfSuite], ["settingsabout", SettingsAboutSuite],
             ["sort", SortSuite], ["swap", SwapSuite], ["startup", StartupSuite], ["trashdates", TrashDatesSuite], ["permissions", PermissionsSuite], ["status", StatusSuite], ["statusfix", StatusFixSuite], ["taildrop", TaildropSuite], ["textsize", TextSizeSuite],
             ["trash", TrashSuite], ["tap", TapSuite], ["marquee", MarqueeSuite], ["tabs", TabsSuite], ["tabs-switch", TabsSwitchSuite], ["tabmove", TabMoveSuite], ["shelfmodel", ShelfModelSuite],
             ["themes", ThemesSuite], ["thumbs", ThumbsSuite], ["extthumbs", ExtThumbsSuite], ["transfer", TransferSuite], ["uistate", UiStateSuite], ["update", UpdateSuite],

@@ -2924,6 +2924,18 @@ for the generated `{`, `}`, `[`, `]`, ctrl-shift-pageup and ctrl-shift-pagedown 
 1021 to 1035 for the TUI's own move arm. `ui/TabBar.qml` takes the drag state, the `DragHandler`,
 the ghost and the insertion bar at 266, over the soft budget and under the hard cap.
 
+ClickAndRefresh moves eleven recorded ceilings, each re-derived with `wc -l`. `src/uischema.rs` 421 to 439 for
+`escapeUp`, `openMode` and `clickRename` with their defaults, rules and edge tests. `ui/js/Settings.js` 432 to 440
+for the Cursor escape-up check and the Opening open-mode segment with the slow-click check greyed under single
+mode. `ui/js/Focus.js` 373 to 388 for the reload route and the escape-up gate. `ui/Pane.qml` 735 to 753 for the
+three settings mirrors, the reload count, the slow-click stamp and the context-aware `showRow` dispatch.
+`ui/ColumnsArea.qml` 459 to 465 for the slow-click rename in the active column, `ui/List.qml` enters the tool's
+list at 416 for the slow-click rename and the context `showCursor`, and `ui/GridArea.qml` enters it at 405 for the
+slow-click rename. `ui/js/Keymap.js` 320 to 322 for the regenerated reload bindings, over Tabs040's rows. `tests/js/focus.js` 456 to 521
+for the escape-up gate and the reload route, and `tests/js/settings.js` enters it at 319 for the new rows. The reload notice went to the new `ui/js/Reload.js`,
+the three-row context to the new `ui/js/ScrollOff.js` and the slow-click window to `ui/js/Tap.js`, which stays
+inside its budgets; their suites are `tests/js/reload.js`, `tests/js/scrolloff.js` and `tests/js/slowclick.js`.
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.

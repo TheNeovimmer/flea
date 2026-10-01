@@ -340,6 +340,8 @@ function viewRows(state) {
           on: data.rememberSort !== false },
         { kind: "group", label: "Cursor" },
         { kind: "check", id: "wrapAtEnds", label: "Wrap at list ends", caption: "arrow-up at the top", glyph: "arrow-up", on: data.wrapAtEnds === true },
+        // Issue 29: Escape climbs to the parent while on, and stays put while off, which is 0.3.4.
+        { kind: "check", id: "escapeUp", label: "Escape goes up a folder", caption: "with nothing to close", on: data.escapeUp === true },
         { kind: "group", label: "Opening" },
         choice("startIn", "Flea opens in", "house", ["home", "last", "folder"],
                ["Home", "Last folder", "Chosen folder"], data.startIn || "home"),
@@ -348,6 +350,12 @@ function viewRows(state) {
           value: data.startFolder || "Use this folder" },
         choice("newTab", "New tabs open in", "columns", ["current", "home", "start"],
                ["Current folder", "Home", "Start folder"], data.newTab || "current"),
+        // ClickAndRefresh: one tap opens in single mode and selects with a modifier, so the
+        // slow-click rename below has nothing to answer and greys in place, the way hiddenLast does.
+        choice("openMode", "Open items with", undefined, ["double", "single"],
+               ["Double click", "Single click"], data.openMode || "double"),
+        { kind: "check", id: "clickRename", label: "Click a selected name to rename", glyph: "rename",
+          on: data.clickRename !== false, available: data.openMode !== "single" },
         { kind: "hint", footer: true, label: state.saveStatus || "Saved · applied in this process",
           role: (state.saveStatus || "").indexOf("Could not") === 0 ? "error" : "accent" }
     ]

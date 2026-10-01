@@ -5,6 +5,7 @@ import "js/DirSizes.js" as DirSizes
 import "js/ExtThumbs.js" as ExtThumbs
 import "js/Filter.js" as Filter
 import "js/Scroll.js" as Scroll
+import "js/ScrollOff.js" as ScrollOff
 import "js/Tap.js" as Tap
 import "js/Thumbs.js" as Thumbs
 
@@ -132,8 +133,13 @@ ListView {
             onTapped: function (eventPoint, button) {
                 if (button === Qt.RightButton)
                     Tap.tappedMenu(listingIndex, eventPoint, root.pane, root.menu)
-                else
+                else {
                     Tap.tapped(listingIndex, tap.tapCount, tap.point.modifiers, root.pane)
+                    // The slow click renames; a double click opens through tapped() above instead.
+                    if (tap.tapCount === 1 && Tap.slowClick(listingIndex, tap.point.modifiers, Date.now(),
+                            Qt.styleHints.mouseDoubleClickInterval, root.pane, dragSession.Drag.active))
+                        root.pane.act("rename")
+                }
             }
         }
 
@@ -281,6 +287,16 @@ ListView {
         interval: root.pane.coalesceMs
         repeat: false
         onTriggered: root.requestIfDrifted()
+    }
+
+    // The cursor keeps three rows of context above and below while scrolling, and still reaches
+    // the first and last rows; ui/Pane.qml routes every cursor move through here, never Contain.
+    function showCursor(view) {
+        var rowH = Theme.fileRowHeight
+        var first = Math.floor(root.contentY / rowH)
+        var want = ScrollOff.firstFor(first, root.pane.visibleRows, view, root.pane.shownTotal)
+        if (want !== first)
+            root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, want * rowH))
     }
 
     // Resize and filter changes can change the visible work without moving contentY.

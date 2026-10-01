@@ -414,7 +414,13 @@ Item {
             pane: root.pane
             showDivider: root.thirdShown
             // The list's and the grid's own two routes, reached from the one column whose rows are the pane's listing, so a click means the same thing in all three views.
-            onPicked: function (index, tapCount, modifiers) { Tap.tappedMiddle(index, tapCount, modifiers, root.pane) }
+            onPicked: function (index, tapCount, modifiers) {
+                Tap.tappedMiddle(index, tapCount, modifiers, root.pane)
+                // The slow click renames; a double click opens through tappedMiddle() above instead.
+                if (tapCount === 1 && Tap.slowClick(index, modifiers, Date.now(),
+                        Qt.styleHints.mouseDoubleClickInterval, root.pane, active.dragging))
+                    root.pane.act("rename")
+            }
             onMenuRequested: function (index, eventPoint) { Tap.tappedMenu(index, eventPoint, root.pane, root.menu) }
             onBackgroundMenuRequested: function (eventPoint) { root.menu.openBackground(eventPoint.scenePosition) }
             onThumbsApplied: function (work) { root.thumbsApplied(work) }

@@ -5,6 +5,7 @@ import "js/ClipMarks.js" as ClipMarks
 import "js/Filter.js" as Filter
 import "js/ExtThumbs.js" as ExtThumbs
 import "js/Scroll.js" as Scroll
+import "js/ScrollOff.js" as ScrollOff
 import "js/Tap.js" as Tap
 import "js/Thumbs.js" as Thumbs
 import "js/DirSizes.js" as DirSizes
@@ -63,6 +64,20 @@ Item {
     function positionViewAtIndex(index, mode) { view.positionViewAtIndex(index, mode) }
     function itemAtIndex(index) { return view.itemAtIndex(index) }
     function contentY() { return view.contentY }
+    // A platform drag in flight, so a slow click never renames off one; ui/ColumnsArea.qml reads it.
+    readonly property bool dragging: dragSession.Drag.active
+    // The cursor keeps three rows of context above and below, the list's own rule; the wheel path
+    // below still follows the viewport with no margin, the same split ui/List.qml keeps.
+    function showCursor(viewIndex) {
+        var rowH = Theme.fileRowHeight
+        var visibleRows = Math.max(1, Math.ceil(view.height / rowH))
+        var first = Math.floor((view.contentY - view.originY) / rowH)
+        // No pane yet: the column's own rows are the listing, the same fallback its model uses.
+        var total = root.pane ? root.pane.shownTotal : root.rows.length
+        var want = ScrollOff.firstFor(first, visibleRows, viewIndex, total)
+        if (want !== first)
+            view.contentY = Math.max(view.originY, Math.min(view.contentHeight - view.height + view.originY, want * rowH + view.originY))
+    }
     readonly property alias scrollBar: verticalScroll
     function restartSettle() { settle.restart() }
     function restartCoalesce() { coalesce.restart() }
@@ -350,9 +365,9 @@ Item {
         visible: root.drawsEmpty && root.rows.length === 0 && root.lockedMode < 0
     }
 
-    // The cursor can move off screen through the keyboard, so the column follows it.
+    // The cursor can move off screen through the keyboard, so the column follows it with its context.
     onSelectedIndexChanged: {
         if (root.selectedIndex >= 0)
-            view.positionViewAtIndex(root.pane ? Filter.viewOf(root.pane.shown, root.selectedIndex) : root.selectedIndex, ListView.Contain)
+            root.showCursor(root.pane ? Filter.viewOf(root.pane.shown, root.selectedIndex) : root.selectedIndex)
     }
 }

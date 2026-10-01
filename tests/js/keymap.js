@@ -25,6 +25,9 @@ function run(check) {
         key(preset, "PageUp", "", ctrl | shift, "tabMoveLeft")
         key(preset, "BracketLeft", "[", none, "tabPrevious")
         key(preset, "BracketRight", "]", none, "tabNext")
+        // ClickAndRefresh: F5 and Ctrl+R re-list the folder.
+        key(preset, "F5", "", none, "reload")
+        key(preset, "R", "", ctrl, "reload")
         key(preset, "Tab", "", ctrl, "focusPreview")
         key(preset, "Tab", "", none, "focusNext")
         // #182: Shift+Delete deletes permanently in every preset, not only Mac and Windows; plain Delete still trashes.

@@ -103,6 +103,16 @@ function escaper(query, retreated) {
     p.searchRunning = false
     p.backend = { searchcancel: function () { p.cancelled += 1 } }
     p.escapePressed = function () { p.retreated += 1 }
+    // Issue 29's own members: the setting, the menu, the card, the marks and the listing in flight.
+    p.escapeUp = false
+    p.menuVisible = false
+    p.collide = { opened: false }
+    p.listInFlight = false
+    p.climbed = 0
+    p.openParent = function () { p.climbed += 1 }
+    p.selection = { count: function () { return 0 } }
+    p.selectionCount = function () { return 0 }
+    p.wire = { anchor: null, reloaded: 0 }
     return p
 }
 
@@ -201,6 +211,61 @@ function run(check) {
     activeStatus.statusBar.escapePressed = function () { return false }
     Focus.act("escape", activeStatus)
     check("idle status lets Escape clear marks", activeStatus.retreated, 1)
+
+    // Issue 29: Escape climbs while the setting is on, and stays put while off, which is 0.3.4.
+    var stays = escaper("", 0)
+    Focus.act("escape", stays)
+    check("Escape with the setting off clears marks instead of climbing",
+          stays.retreated + "|" + stays.climbed, "1|0")
+    var climbs = escaper("", 0)
+    climbs.escapeUp = true
+    Focus.act("escape", climbs)
+    check("Escape with the setting on climbs to the parent", climbs.climbed + "|" + climbs.retreated, "1|0")
+    var filtered = escaper("scr", 0)
+    filtered.escapeUp = true
+    Focus.act("escape", filtered)
+    check("a standing filter still goes first", filtered.filterQuery + "|" + filtered.climbed, "|0")
+    var marked = escaper("", 0)
+    marked.escapeUp = true
+    marked.selectionCount = function () { return 2 }
+    Focus.act("escape", marked)
+    check("a selection is cleared before any climb", marked.retreated + "|" + marked.climbed, "1|0")
+    var menued = escaper("", 0)
+    menued.escapeUp = true
+    menued.menuVisible = true
+    Focus.act("escape", menued)
+    check("an open menu keeps the key", menued.climbed + "|" + menued.retreated, "0|1")
+    var loading = escaper("", 0)
+    loading.escapeUp = true
+    loading.listInFlight = true
+    Focus.act("escape", loading)
+    check("a listing out keeps the key too", loading.climbed + "|" + loading.retreated, "0|1")
+    var carded = escaper("", 0)
+    carded.escapeUp = true
+    carded.collide = { opened: true }
+    Focus.act("escape", carded)
+    check("and so does the collision card", carded.climbed + "|" + carded.retreated, "0|1")
+
+    // F5 and Ctrl+R re-list the folder they are on through the reload key.
+    var f5 = key(Qt.Key_F5, "", none)
+    check("F5 resolves to reload while browsing", Focus.lookup(f5, pane(closed())), "reload")
+    var ctrlR = key(Qt.Key_R, "\u0012", Qt.ControlModifier)
+    check("ctrl r resolves to reload too", Focus.lookup(ctrlR, pane(closed())), "reload")
+    check("reload goes quiet over search results, the way the sort keys do",
+          Focus.lookup(f5, searching(closed())), "")
+    var reloading = escaper("", 0)
+    reloading.total = 10
+    reloading.held = 0
+    reloading.windowSize = 40
+    reloading.path = "/d"
+    reloading.cursorIndex = 0
+    reloading.rowFor = function () { return null }
+    reloading.openWithoutHistory = function (path) { reloading.listed = path }
+    reloading.backend.window = function () {}
+    reloading.wire = { anchor: null }
+    Focus.act("reload", reloading)
+    check("reload re-lists the folder it is on", reloading.listed, "/d")
+    check("and remembers the count its notice answers against", reloading.reloadFrom, 10)
 
     // The search strip covers the header whole, so its mark cannot be seen moving, and a sort ends
     // the walk in the backend. Both keys go silent while a search is up rather than cancelling one

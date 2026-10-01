@@ -2,6 +2,7 @@ import QtQuick
 import "js/Anchor.js" as Anchor
 import "js/DirSizes.js" as DirSizes
 import "js/Nav.js" as Nav
+import "js/Reload.js" as Reload
 import "js/Search.js" as Search
 import "js/Swap.js" as Swap
 import "js/Tabs.js" as Tabs
@@ -128,6 +129,8 @@ Item {
             pane.rowsAt = Date.now()
         pane.applyPendingSelect()
         root.wire.anchor = Anchor.apply(pane, root.wire.anchor)
+        // A manual reload's notice, said only when rows changed; every other listing owes none.
+        Reload.landed(pane)
         Tabs.applyPending(pane)
         pane.listArea.restartSettle()
         if (pane.listInFlight) {
