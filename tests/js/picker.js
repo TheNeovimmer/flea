@@ -1,5 +1,6 @@
 .import "../../ui/js/Picker.js" as Picker
 .import "../../ui/js/Sort.js" as Sort
+.import "../../ui/js/Keymap.js" as Keymap
 
 function run(check) {
     // The shape tools/flea-portal writes for an OpenFile with two filters, taken from its request_for().
@@ -154,4 +155,30 @@ function run(check) {
     check("chips take room first and the path keeps its minimum", Picker.chipStripWidth(300, 400, 96), 204)
     check("a strip wider than the free width still scrolls", Picker.chipStripWidth(200, 400, 96), 104)
     check("no free width leaves the path whole", Picker.chipStripWidth(50, 400, 96), 0)
+
+    // Issue #225: under the Mac preset Return and keypad Enter look up as rename (Finder's
+    // key), and the picker, which never renames, still activates on them. Other rename keys
+    // stay unhandled, and the default preset is unchanged.
+    var none = Qt.NoModifier
+    function looked(preset, key, text) {
+        return Keymap.lookupFor(preset, key, text, none, "listing", "gui")
+    }
+    check("default Return looks up as open", looked("default", Qt.Key_Return, ""), "open")
+    check("default Enter looks up as open", looked("default", Qt.Key_Enter, ""), "open")
+    check("default Return activates", Picker.activates(looked("default", Qt.Key_Return, ""), Qt.Key_Return), true)
+    check("default Enter activates", Picker.activates(looked("default", Qt.Key_Enter, ""), Qt.Key_Enter), true)
+    check("default r looks up as rename", looked("default", 0, "r"), "rename")
+    check("default r does not activate", Picker.activates("rename", 0), false)
+    check("default F2 looks up as rename", looked("default", Qt.Key_F2, ""), "rename")
+    check("default F2 does not activate", Picker.activates("rename", Qt.Key_F2), false)
+    check("mac Return looks up as rename", looked("mac", Qt.Key_Return, ""), "rename")
+    check("mac Enter looks up as rename", looked("mac", Qt.Key_Enter, ""), "rename")
+    check("mac Return activates", Picker.activates(looked("mac", Qt.Key_Return, ""), Qt.Key_Return), true)
+    check("mac Enter activates", Picker.activates(looked("mac", Qt.Key_Enter, ""), Qt.Key_Enter), true)
+    check("mac r does not activate", Picker.activates(looked("mac", 0, "r"), 0), false)
+    check("mac F2 does not activate", Picker.activates(looked("mac", Qt.Key_F2, ""), Qt.Key_F2), false)
+    check("open activates", Picker.activates("open", Qt.Key_Return), true)
+    check("pageForward activates", Picker.activates("pageForward", Qt.Key_Right), true)
+    check("parent never activates", Picker.activates("parent", Qt.Key_Left), false)
+    check("escape never activates", Picker.activates("escape", Qt.Key_Escape), false)
 }

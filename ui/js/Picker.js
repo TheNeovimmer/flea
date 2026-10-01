@@ -226,6 +226,18 @@ function doubleAction(req, row, rowPath, firstPath, marks) {
     return marked(marks, rowPath) ? DOUBLE_ACCEPT : DOUBLE_MARK_ACCEPT
 }
 
+// The picker never renames, so a rename on Return or keypad Enter (the Mac preset's
+// Finder key) still activates the cursor row. Other rename keys (r, F2) stay unhandled.
+function activates(action, key) {
+    if (action === "open" || action === "pageForward") {
+        return true
+    }
+    if (action !== "rename") {
+        return false
+    }
+    return key === Qt.Key_Return || key === Qt.Key_Enter
+}
+
 function join(dir, name) {
     return dir === "/" ? "/" + name : dir + "/" + name
 }

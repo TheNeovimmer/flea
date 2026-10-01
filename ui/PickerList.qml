@@ -174,7 +174,7 @@ ListView {
             root.moveCursor(root.picker.shownTotal)
         } else if (event.key === Qt.Key_Space && event.modifiers === Qt.NoModifier) {
             root.picker.toggleMark(root.picker.cursorIndex)
-        } else if (action === "open" || action === "pageForward") {
+        } else if (Picker.activates(action, event.key)) {
             root.picker.activate(root.picker.cursorIndex)
         } else if (action === "parent") {
             root.picker.goUp()
