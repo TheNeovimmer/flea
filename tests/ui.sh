@@ -2138,6 +2138,86 @@ case_click() {
     kill_flea
 }
 
+# A click never scrolls the list under the pointer: every cursor move keeps three
+# rows of context while scrolling, so a click within three rows of the edge used to
+# move the row away from the pointer and the second tap of a double click landed on
+# another row. Pointer moves carry context 0 through showCursor; keyboard keeps 3.
+# In List and in Columns, with a listing taller than the window, double click a file
+# on the second-to-last fully visible row (it opens, and the first click moves no
+# contentY), then right click the last fully visible row (the menu opens, same).
+case_clickedge() {
+    local dir="$fixture_root/clickedge" mode
+    sandbox_scratch "$dir"
+    mkdir -p "$dir/bin"
+    local i
+    for i in $(seq -w 1 150); do printf 'body\n' > "$dir/f$i.txt"; done
+    # Outside the directory under test: the stub appends on every open, and a write
+    # inside the listed folder is an outside change that re-reads it under the clicks.
+    local opened="$fixture_root/clickedge-opened.log"
+    : > "$opened"
+    {
+      printf '#!/bin/sh\n'
+      printf '[ "$1" = open ] || exec /usr/bin/gio "$@"\n'
+      printf 'printf "OPENED %%s\\n" "$2" >> %q\n' "$opened"
+    } > "$dir/bin/$open_handoff"
+    chmod +x "$dir/bin/$open_handoff"
+
+    local saved_path="$PATH"
+    export PATH="$dir/bin:$PATH"
+    launch "$dir"
+    export PATH="$saved_path"
+    wait_listing 150
+    for mode in list columns; do
+        if [[ "$mode" != list ]]; then
+            click_chrome "$mode"
+            settle
+            [[ "$(ipc viewMode)" == "$mode" ]] || fail "clickedge: the chrome drew '$(ipc viewMode)', not $mode"
+        fi
+        key -k Home >/dev/null
+        settle
+        [[ "$(ipc viewContentY)" == "0" ]] || fail "clickedge: $mode did not start at the top, contentY $(ipc viewContentY)"
+        local visible target last before after_first after_double target_name want
+        visible=$(ipc visibleRows)
+        [[ "$visible" =~ ^[1-9][0-9]*$ ]] || fail "clickedge: $mode has no visible row count, got [$visible]"
+        target=$((visible - 2))
+        last=$((visible - 1))
+        [[ -n "$(ipc rowCentre "$target")" ]] || fail "clickedge: $mode row $target has no centre, visible $visible"
+        [[ -n "$(ipc rowCentre "$last")" ]] || fail "clickedge: $mode row $last has no centre, visible $visible"
+        target_name=$(ipc rowAt "$target" | cut -d'|' -f1)
+        [[ -n "$target_name" ]] || fail "clickedge: $mode row $target names nothing"
+        before=$(ipc viewContentY)
+        click_row "$target" left
+        settle
+        after_first=$(ipc viewContentY)
+        printf 'CLICKEDGE %s first before=%s after=%s cursor=%s\n' "$mode" "$before" "$after_first" "$(ipc cursor)"
+        [[ "$(ipc cursor)" == "$target" ]] || fail "clickedge: $mode a left click did not move the cursor to $target, it is $(ipc cursor)"
+        [[ "$after_first" == "$before" ]] || fail "clickedge: $mode the first click scrolled $before to $after_first"
+        : > "$opened"
+        click_row "$target" left --double
+        for _attempt in $(seq 1 100); do
+            grep -q "^OPENED $dir/$target_name$" "$opened" && break
+            sleep 0.05
+        done
+        after_double=$(ipc viewContentY)
+        printf 'CLICKEDGE %s double opened=%q before=%s after=%s\n' "$mode" "$(cat "$opened")" "$before" "$after_double"
+        grep -q "^OPENED $dir/$target_name$" "$opened" || fail "clickedge: $mode a double click did not open $target_name, log $(cat "$opened")"
+        [[ "$after_double" == "$before" ]] || fail "clickedge: $mode the double click scrolled $before to $after_double"
+        local before_menu after_menu
+        before_menu=$(ipc viewContentY)
+        click_row "$last" right
+        settle
+        after_menu=$(ipc viewContentY)
+        printf 'CLICKEDGE %s menu before=%s after=%s visible=%s cursor=%s\n' "$mode" "$before_menu" "$after_menu" "$(ipc contextMenuVisible)" "$(ipc cursor)"
+        [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "clickedge: $mode a right click opened no menu"
+        [[ "$after_menu" == "$before_menu" ]] || fail "clickedge: $mode a right click scrolled $before_menu to $after_menu"
+        key -k Escape >/dev/null
+        settle
+        [[ "$(ipc contextMenuVisible)" == "false" ]] || fail "clickedge: $mode Escape left the menu open"
+        printf 'CLICKEDGE %s ok target=%s last=%s\n' "$mode" "$target" "$last"
+    done
+    kill_flea
+}
+
 # Ctrl+click after a plain click, in all three views. The plain click leaves the set empty with the
 # cursor on its row, which every write operation and shift+click read as "that row is the selection";
 # the ctrl+click used to replace it and now adds to it, keys.toml [[pointer]] "add the row to the
@@ -11242,7 +11322,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 . "$repo/tests/ui-captures-markdown.sh"
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick)
 
 : > "$run_log"
 : > "$flea_log"

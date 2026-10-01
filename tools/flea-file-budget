@@ -70,11 +70,11 @@ ui/ConvertDialog.qml 440
 ui/GridArea.qml 410
 ui/Ipc.qml 825
 ui/KeymapSheet.qml 585
-ui/List.qml 424
+ui/List.qml 425
 ui/NetworkDialog.qml 449
 ui/NetworkMounts.qml 838
 ui/OpenWithDialog.qml 592
-ui/Pane.qml 991
+ui/Pane.qml 992
 ui/PaneMenuActions.qml 458
 ui/PaneWire.qml 511
 ui/PermissionsDialog.qml 589

@@ -298,11 +298,12 @@ ListView {
 
     // The cursor keeps three rows of context above and below while scrolling, and still reaches
     // the first and last rows; ui/Pane.qml routes every cursor move through here, never Contain.
-    function showCursor(view) {
+    // A click carries context 0 so the list never moves under the pointer.
+    function showCursor(view, context) {
         var rowH = Theme.fileRowHeight
         var first = Math.floor(root.contentY / rowH)
         var visible = ScrollOff.fullyVisible(root.height, rowH)
-        var want = ScrollOff.firstFor(first, visible, view, root.pane.shownTotal)
+        var want = ScrollOff.firstFor(first, visible, view, root.pane.shownTotal, context)
         if (want !== first || ScrollOff.needsAlign(view, want, visible, root.contentY, root.height, rowH))
             root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, want * rowH))
     }

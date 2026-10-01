@@ -14,6 +14,8 @@
 // timer, which would delay every selection by the whole mouseDoubleClickInterval.
 
 // The listing: the list view, the grid view, and the columns view's own middle column.
+// A click carries context 0 through selectOnly and setCursor so the list never
+// moves under the pointer; the keyboard keeps the default three-row context.
 function tapped(index, tapCount, modifiers, root) {
     if (index < 0) return
     // Finder's two selection modifiers. Neither ever opens, and only the first tap of one counts,
@@ -40,7 +42,7 @@ function tapped(index, tapCount, modifiers, root) {
     // The plain tap replaces the selection with this row, Finder's rule: leaving the old one
     // standing would extend the next shift+click from an anchor nothing on screen names, and every
     // write operation targets the selection ahead of the cursor row.
-    root.selectOnly(index)
+    root.selectOnly(index, 0)
     if (tapCount === 2 || verb === "reveal")
         root.act(verb)
     // Single-click mode opens folders and files on one tap, the way the columns view's own middle
@@ -66,7 +68,7 @@ function tappedMiddle(index, tapCount, modifiers, root) {
     if (tapCount !== 1)
         return
     root.commitOpenRename()
-    root.selectOnly(index)
+    root.selectOnly(index, 0)
     // A directory listed as a search result is still a result, so the one decision point answers here
     // too: it reveals rather than opening, exactly as the same row does in the list view.
     root.act(Search.activateAction(root))
@@ -83,7 +85,7 @@ function tappedMenu(index, eventPoint, root, menu) {
     var picked = root.selectedIndices()
     if (picked.length > 0 && picked.indexOf(index) < 0)
         root.clearSelection()
-    root.setCursor(index)
+    root.setCursor(index, 0)
     menu.openAt(eventPoint.scenePosition)
     if (root.cancelSlowClick) root.cancelSlowClick()
     else SlowClick.cancel(root)

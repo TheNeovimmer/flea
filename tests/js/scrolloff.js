@@ -87,4 +87,39 @@ function run(check) {
           list.indexOf("ScrollOff.needsAlign") >= 0, true)
     check("the columns view aligns a cut cursor row",
           columnPane.indexOf("ScrollOff.needsAlign") >= 0, true)
+
+    // A click never scrolls the list under the pointer: pointer moves carry
+    // context 0 through the one showCursor path, while keyboard moves keep 3.
+    // Viewport 36 rows, first 10: row 43 stands two above the bottom edge.
+    check("a pointer two above the bottom edge moves nothing",
+          ScrollOff.firstFor(10, 36, 43, 100, 0), 10)
+    check("a keyboard move to the same row keeps its three rows",
+          ScrollOff.firstFor(10, 36, 43, 100), 11)
+    check("and the default is the keyboard's three",
+          ScrollOff.firstFor(10, 36, 43, 100, undefined), 11)
+    // The first row past a 42-row window is cut by the bottom edge: a click
+    // shows it whole with one row, a keyboard move keeps three below it.
+    check("a pointer to a cut bottom row shows it whole",
+          ScrollOff.firstFor(0, 42, 42, 150, 0), 1)
+    check("a keyboard move to the same cut row keeps three",
+          ScrollOff.firstFor(0, 42, 42, 150), 4)
+    // Both views carry the click's context through the one path, never a copy.
+    check("the list threads the click context to firstFor",
+          list.indexOf("firstFor(first, visible, view, root.pane.shownTotal, context)") >= 0, true)
+    check("the columns view threads it too",
+          columnPane.indexOf("firstFor(first, visibleRows, viewIndex, total, context)") >= 0, true)
+    var pane = Source.source("ui/Pane.qml")
+    check("the pane threads it to both views",
+          pane.indexOf("showCursor(view, context)") >= 0, true)
+    check("and setCursor carries it", pane.indexOf("Filter.setCursor(root, index, context)") >= 0, true)
+    var filter = Source.source("ui/js/Filter.js")
+    check("the filter carries it to the pane",
+          filter.indexOf("pane.showRow(to, context)") >= 0, true)
+    var tap = Source.source("ui/js/Tap.js")
+    check("a left click carries context 0", tap.indexOf("selectOnly(index, 0)") >= 0, true)
+    check("a right click carries it too", tap.indexOf("setCursor(index, 0)") >= 0, true)
+    var marks = Source.source("ui/js/Marks.js")
+    check("a shift click carries it", marks.indexOf("Filter.setCursor(pane, index, 0)") >= 0, true)
+    check("the columns selection follow keeps context 0",
+          columnPane.indexOf("showCursor(root.pane ? Filter.viewOf(root.pane.shown, root.selectedIndex) : root.selectedIndex, 0)") >= 0, true)
 }

@@ -74,13 +74,14 @@ Item {
     readonly property bool dragging: dragSession.Drag.active
     // The cursor keeps three rows of context above and below, the list's own rule; the wheel path
     // below still follows the viewport with no margin, the same split ui/List.qml keeps.
-    function showCursor(viewIndex) {
+    // A click carries context 0 so the list never moves under the pointer.
+    function showCursor(viewIndex, context) {
         var rowH = Theme.fileRowHeight
         var visibleRows = ScrollOff.fullyVisible(view.height, rowH)
         var first = Math.floor((view.contentY - view.originY) / rowH)
         // No pane yet: the column's own rows are the listing, the same fallback its model uses.
         var total = root.pane ? root.pane.shownTotal : root.rows.length
-        var want = ScrollOff.firstFor(first, visibleRows, viewIndex, total)
+        var want = ScrollOff.firstFor(first, visibleRows, viewIndex, total, context)
         if (want !== first || ScrollOff.needsAlign(viewIndex, want, visibleRows, view.contentY - view.originY, view.height, rowH))
             view.contentY = Math.max(view.originY, Math.min(view.contentHeight - view.height + view.originY, want * rowH + view.originY))
     }
@@ -379,8 +380,10 @@ Item {
     }
 
     // The cursor can move off screen through the keyboard, so the column follows it with its context.
+    // The selection change itself only ensures the row is whole (context 0): the keyboard's own
+    // showRow already spent the three-row margin, and a second margin here would move a clicked row.
     onSelectedIndexChanged: {
         if (root.selectedIndex >= 0)
-            root.showCursor(root.pane ? Filter.viewOf(root.pane.shown, root.selectedIndex) : root.selectedIndex)
+            root.showCursor(root.pane ? Filter.viewOf(root.pane.shown, root.selectedIndex) : root.selectedIndex, 0)
     }
 }

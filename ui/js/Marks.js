@@ -73,23 +73,25 @@ function extend(pane, delta) {
 
 // Shift+click, the absolute twin of extend() above: the anchor latches to the cursor row before the
 // click, which a plain click or ctrl+click already sets, and consecutive shift+clicks share one base.
+// A click carries context 0 so the list never moves under the pointer.
 function extendToRow(pane, index) {
     if (!continuing(pane)) {
         pane.selection.shiftBegin(pane.selectedIndices(), pane.cursorIndex)
         pane.selectionAnchor = pane.cursorIndex
     }
-    Filter.setCursor(pane, index)
+    Filter.setCursor(pane, index, 0)
     extendTo(pane, pane.selectionAnchor)
     pane.selection.shiftMoved(pane.cursorIndex)
     pane.selectionVersion += 1
 }
 
 // Ctrl+click, v's mouse twin. An empty set means the cursor row is selected, so it joins first.
+// A click carries context 0 so the list never moves under the pointer.
 function toggleRow(pane, index) {
     if (pane.selection.count() === 0 && pane.cursorIndex !== index) {
         pane.selection.toggle(pane.cursorIndex)
     }
-    Filter.setCursor(pane, index)
+    Filter.setCursor(pane, index, 0)
     pane.selection.toggle(index)
     pane.selectionAnchor = index
     pane.selectionVersion += 1

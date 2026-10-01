@@ -345,8 +345,8 @@ FocusScope {
     function toggleSelect() { Marks.toggleSelect(root) }
     function selectAll() { Marks.selectAll(root); root.selectionVersion++ }
     function clearSelection() { root.selection.clear(); root.selectionVersion++ }
-    function selectOnly(index) {
-        root.setCursor(index)
+    function selectOnly(index, context) {
+        root.setCursor(index, context)
         root.selection.only(root.cursorIndex)
         root.selectionAnchor = root.cursorIndex
         root.selectionVersion++
@@ -614,13 +614,14 @@ FocusScope {
 
     // index is a listing row, which is what every caller outside ui/js/Filter.js holds; the clamp
     // and the scroll both happen in view space, because a filter can be narrowing what is drawn.
-    function setCursor(index) { Filter.setCursor(root, index) }
+    // A click carries context 0; a keyboard move keeps the default 3.
+    function setCursor(index, context) { Filter.setCursor(root, index, context) }
     // The cursor keeps three rows of context above and below: the list and the columns view hold
     // it through their own showCursor, and the grid keeps Contain, whose tiles are not rows.
     // ListView.Contain has no name inside a .pragma library, so the scroll itself stays here.
-    function showRow(view) {
-        if (root.viewMode === "columns" && root.columnsArea) root.columnsArea.activeColumn().showCursor(view)
-        else if (root.viewMode === "list") list.showCursor(view)
+    function showRow(view, context) {
+        if (root.viewMode === "columns" && root.columnsArea) root.columnsArea.activeColumn().showCursor(view, context)
+        else if (root.viewMode === "list") list.showCursor(view, context)
         else root.listArea.positionViewAtIndex(view, ListView.Contain)
         root.listArea.restartCoalesce()
     }
