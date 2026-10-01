@@ -106,6 +106,16 @@ action = "toggleHidden"
 key = "Period"
 action = "toggleHidden"
 
+# Tabs040 callout 1: the reorder keys beside the drag. Checked before the plain
+# ctrl rows, so Ctrl+Shift+PageUp never falls through to a tab switch.
+[[ctrlshift]]
+key = "PageUp"
+action = "tabMoveLeft"
+
+[[ctrlshift]]
+key = "PageDown"
+action = "tabMoveRight"
+
 # Shift falls through instead of returning, because shift-modified letters already carry their
 # own capital text (see G below); this table only covers the arrow keys, which carry no text.
 # The preset overlay, the four-value chooser the Keys settings section walks: default, vim, mac and
@@ -518,6 +528,29 @@ action = "expand"
 char = "l"
 action = "pageForward"
 
+# Tabs040 callout 1: { and } move the current tab one place, the keys beside the
+# drag. The character is authoritative, so these need no [[shift]] row the way the
+# text-less arrows do; both are free in all four presets.
+[[text]]
+char = "{"
+action = "tabMoveLeft"
+
+[[text]]
+char = "}"
+action = "tabMoveRight"
+
+# Keys040: [ and ] step to the previous and next tab. Bare text like { and }
+# above; the only BracketLeft/BracketRight rows in any preset are mac's
+# super-modified history chords, a different modifier state, so both are free
+# in all four presets.
+[[text]]
+char = "["
+action = "tabPrevious"
+
+[[text]]
+char = "]"
+action = "tabNext"
+
 # KeymapSheet.html rule 1: a binding gets a group and the sheet reads it. The group is named by
 # action rather than written on every binding, because one action is spelled four different ways
 # across the presets and its group is the same in all four; the generator fails the build if an
@@ -528,7 +561,7 @@ action = "pageForward"
 [sheetgroups]
 move = ["cursorDown", "cursorUp", "cursorFirst", "cursorLast", "pageDown", "pageUp", "open",
         "parent", "pageForward", "historyBack", "historyForward", "focusNext", "focusPreview",
-        "tabNew", "tabClose", "tabNext", "tabPrevious", "windowNew", "escape"]
+        "tabNew", "tabClose", "tabNext", "tabPrevious", "tabMoveLeft", "tabMoveRight", "windowNew", "escape"]
 look = ["viewList", "viewColumns", "viewGrid", "togglePreview", "loadPreview", "preview",
         "toggleHidden", "sidebar", "zoomIn", "zoomOut", "expand", "mute", "textSizeUp", "textSizeDown",
         "textSizeReset", "keymapSheet"]

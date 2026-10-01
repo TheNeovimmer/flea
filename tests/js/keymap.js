@@ -16,6 +16,15 @@ function run(check) {
         key(preset, "Space", " ", ctrl, "loadPreview")
         key(preset, "PageDown", "", ctrl, "tabNext")
         key(preset, "PageUp", "", ctrl, "tabPrevious")
+        // Tabs040 callout 1: the reorder keys beside the drag, free in every preset.
+        // Keys040: [ and ] step between tabs; the mac super chords on the same
+        // key codes are a different modifier state and keep their history rows below.
+        key(preset, "BraceLeft", "{", shift, "tabMoveLeft")
+        key(preset, "BraceRight", "}", shift, "tabMoveRight")
+        key(preset, "PageDown", "", ctrl | shift, "tabMoveRight")
+        key(preset, "PageUp", "", ctrl | shift, "tabMoveLeft")
+        key(preset, "BracketLeft", "[", none, "tabPrevious")
+        key(preset, "BracketRight", "]", none, "tabNext")
         key(preset, "Tab", "", ctrl, "focusPreview")
         key(preset, "Tab", "", none, "focusNext")
         // #182: Shift+Delete deletes permanently in every preset, not only Mac and Windows; plain Delete still trashes.

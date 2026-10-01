@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Drives the real Quickshell window with omarchy-drive and asserts through the read-only IPC seam.
-# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|rename|renamelife|taildrop|grid|columns|columnsbackground|reclick|colroot|operations|tabs|openterminal|renderer|settings|makedefault|scrolllane|noblank|previewswap ...]; networklive is opt-in.
+# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|rename|renamelife|taildrop|grid|columns|columnsbackground|reclick|colroot|operations|tabs|tabdrag|openterminal|renderer|settings|makedefault|scrolllane|noblank|previewswap ...]; networklive is opt-in.
 set -u
 set -o pipefail
 # Hard rule 9's guard, which owns FIXTURE_ROOT and every create and delete this suite makes.
@@ -5421,6 +5421,97 @@ case_tabs() {
     kill_flea
 }
 
+# Catches a tab drag not reordering the strip, and the { and } keys beside it.
+# All three move the same strip ui/js/Tabs.js owns: a move lists nothing and the
+# dragged tab stays current. A warp alone sends Qt no motion, so the press and
+# every step go through uinput; ydotool accelerates relative motion about 2x,
+# so each step covers half the remaining distance the way case_scrollbar does.
+tabdrag_to() {
+    local from_x="$1" from_y="$2" to_x="$3" to_y="$4" wx wy ww wh
+    read -r wx wy ww wh < <(window_box) || fail "tabdrag: native window coordinates unavailable"
+    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + from_x)), y = $((wy + from_y))})" >/dev/null
+    sleep 0.2
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 \
+        || fail "tabdrag: pointer press failed"
+    local step cursor_x cursor_y
+    for step in $(seq 1 24); do
+        cursor_x=$(hyprctl cursorpos | tr -d ',' | cut -d' ' -f1)
+        cursor_y=$(hyprctl cursorpos | tr -d ',' | cut -d' ' -f2)
+        if [[ ! "$cursor_x" =~ ^[0-9]+$ || ! "$cursor_y" =~ ^[0-9]+$ ]]; then
+            YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 || true
+            fail "tabdrag: no pointer row from hyprctl cursorpos [$cursor_x,$cursor_y]"
+        fi
+        (( cursor_x >= wx + to_x - 2 && cursor_x <= wx + to_x + 2 && cursor_y >= wy + to_y - 2 && cursor_y <= wy + to_y + 2 )) && break
+        YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" \
+            ydotool mousemove -x "$(( (wx + to_x - cursor_x) / 2 ))" -y "$(( (wy + to_y - cursor_y) / 2 ))" >/dev/null 2>&1 || {
+            YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 || true
+            fail "tabdrag: pointer drag failed"
+        }
+        sleep 0.05
+    done
+    shot tabdrag-held
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 \
+        || fail "tabdrag: pointer release failed"
+    settle
+}
+
+case_tabdrag() {
+    local dir="$fixture_root/tabdrag"
+    sandbox_scratch "$dir"
+    mkdir -p "$dir/alpha" "$dir/beta" "$dir/gamma"
+    launch "$dir"
+    wait_listing 3
+    key t >/dev/null
+    settle
+    key t >/dev/null
+    settle
+    [[ "$(ipc tabCount)" == "3" ]] || fail "tabdrag: t twice did not make 3 tabs, count=$(ipc tabCount)"
+    click_tab 0
+    seek_row_named "alpha" || fail "tabdrag: could not find alpha"
+    key -k Return >/dev/null
+    wait_path "$dir/alpha"
+    click_tab 1
+    seek_row_named "beta" || fail "tabdrag: could not find beta"
+    key -k Return >/dev/null
+    wait_path "$dir/beta"
+    click_tab 2
+    seek_row_named "gamma" || fail "tabdrag: could not find gamma"
+    key -k Return >/dev/null
+    wait_path "$dir/gamma"
+    [[ "$(ipc tabLabels)" == "alpha|beta|gamma" ]] || fail "tabdrag: tabs label [$(ipc tabLabels)], not alpha|beta|gamma"
+    local c0x c0y c1x c1y c2x c2y w
+    read -r c0x c0y <<< "$(ipc tabCentre 0)"
+    read -r c1x c1y <<< "$(ipc tabCentre 1)"
+    read -r c2x c2y <<< "$(ipc tabCentre 2)"
+    w=$((c1x - c0x))
+    (( w > 0 )) || fail "tabdrag: tab centres do not step right [$c0x,$c1x,$c2x]"
+    # Tab 1 past tab 2's far edge: insertion point 3 of 3.
+    tabdrag_to "$c1x" "$c1y" "$((c2x + w / 2 + 3))" "$c2y"
+    [[ "$(ipc tabLabels)" == "alpha|gamma|beta" ]] || fail "tabdrag: drag labelled [$(ipc tabLabels)], not alpha|gamma|beta"
+    [[ "$(ipc tabIndex)" == "2" ]] || fail "tabdrag: the dragged tab is not current, index=$(ipc tabIndex)"
+    # The same tab back before tab 0: insertion point 0 of 3.
+    read -r c0x c0y <<< "$(ipc tabCentre 0)"
+    read -r c2x c2y <<< "$(ipc tabCentre 2)"
+    w=$(( (c2x - c0x) / 2 ))
+    tabdrag_to "$c2x" "$c2y" "$((c0x - w / 2 - 3))" "$c0y"
+    [[ "$(ipc tabLabels)" == "beta|alpha|gamma" ]] || fail "tabdrag: drag back labelled [$(ipc tabLabels)], not beta|alpha|gamma"
+    [[ "$(ipc tabIndex)" == "0" ]] || fail "tabdrag: the dragged tab is not current, index=$(ipc tabIndex)"
+    key "}" >/dev/null
+    settle
+    [[ "$(ipc tabLabels)" == "alpha|beta|gamma" ]] || fail "tabdrag: } labelled [$(ipc tabLabels)], not alpha|beta|gamma"
+    [[ "$(ipc tabIndex)" == "1" ]] || fail "tabdrag: } left index=$(ipc tabIndex), not 1"
+    key "{" >/dev/null
+    settle
+    [[ "$(ipc tabLabels)" == "beta|alpha|gamma" ]] || fail "tabdrag: { labelled [$(ipc tabLabels)], not beta|alpha|gamma"
+    [[ "$(ipc tabIndex)" == "0" ]] || fail "tabdrag: { left index=$(ipc tabIndex), not 0"
+    # A click still selects after a drag, so the DragHandler did not eat the TapHandler.
+    click_tab 2
+    [[ "$(ipc tabIndex)" == "2" ]] || fail "tabdrag: clicking tab 2 after a drag did not select it"
+    printf 'TABDRAG labels=%s index=%s\n' "$(ipc tabLabels)" "$(ipc tabIndex)"
+    shot tabdrag-dropped
+    kill_flea
+}
+
 # The one scene-graph failure found to be raisable here: Qt's GL backend with no EGL vendor file to load.
 case_renderer() {
     kill_flea
@@ -10808,7 +10899,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamelife taildrop providers grid columns columnsbackground operations tabs openterminal renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive)
 
 : > "$run_log"
 : > "$flea_log"

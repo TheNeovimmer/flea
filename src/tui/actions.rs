@@ -527,6 +527,20 @@ fn act(m: &mut Model, action: &str, w: &mut Wire) -> io::Result<()> {
         "focusPreview" | "focusNext" => m.preview_focus = m.preview_visible,
         "tabNext" => return tab(m, (m.tab + 1) % m.tabs.len(), w),
         "tabPrevious" => return tab(m, (m.tab + m.tabs.len() - 1) % m.tabs.len(), w),
+        // Tabs040 callout 1: { and } move the current tab one place, clamping
+        // at either end. The current tab stays current and nothing re-lists.
+        "tabMoveLeft" | "tabMoveRight" => {
+            if m.tabs.len() > 1 {
+                let from = m.tab;
+                let to = (from as isize + if action == "tabMoveRight" { 1 } else { -1 })
+                    .clamp(0, m.tabs.len() as isize - 1) as usize;
+                if to != from {
+                    let tab = m.tabs.remove(from);
+                    m.tabs.insert(to, tab);
+                    m.tab = to;
+                }
+            }
+        }
         "menu" => {
             m.menu = true;
             m.menu_cursor = if m.rows.contains_key(&m.cursor) { 0 } else { 1 };

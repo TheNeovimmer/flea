@@ -113,6 +113,11 @@ mod sort_tests;
 #[path = "trash_tests.rs"]
 mod trash_tests;
 
+// Tabs040's reorder battery, which drives the same echo wire.
+#[cfg(test)]
+#[path = "tabmove_tests.rs"]
+mod tabmove_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;

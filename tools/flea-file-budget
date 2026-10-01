@@ -37,7 +37,7 @@ src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 698
 src/backend/trashdelete.rs 901
 src/gui.rs 501
-src/tui/actions.rs 1021
+src/tui/actions.rs 1035
 src/tui/input.rs 449
 src/tui/model.rs 1247
 src/tui/render.rs 889
@@ -80,10 +80,11 @@ ui/TrashView.qml 475
 ui/WindowBody.qml 547
 ui/js/Filter.js 253
 ui/js/Focus.js 373
-ui/js/Keymap.js 314
+ui/js/Keymap.js 320
 ui/js/Menu.js 337
 ui/js/Ops.js 371
-ui/js/Settings.js 432"
+ui/js/Settings.js 432
+ui/js/Tabs.js 323"
 
 status=0
 

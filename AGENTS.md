@@ -2916,6 +2916,14 @@ e41 R7 integration records tests/js/columns.js at 618, retaining all e39 neighbo
 
 w64 R2 moves two ceilings, each re-derived with `wc -l`: `src/backend/durable.rs` 631 to 661 for the held-file clone baseline (the first held file is cloned once before any close, sharing its pre-write description, then originals close in parallel, syncfs runs on the clone and the clone drops on every path, with clone failure sticky unconfirmed); `src/backend/durable_tests.rs` 1121 to 1248 for the clone lifetime, clone-failure and clone-syncfs-failure pins. `src/backend/movebatch.rs` keeps 469 and `src/backend/movebatch_tests.rs` keeps 751 with no added line.
 
+Tabs040 moves three recorded ceilings, each re-derived with `wc -l` at the commit that
+recorded it. `ui/js/Tabs.js` 299 to 323 for the pane-level `move` and `moveCurrent` over the
+new `ui/js/TabMove.js`, which holds the pure reorder, step and insertion math at 34 lines
+inside both budgets rather than raising that ceiling further. `ui/js/Keymap.js` 314 to 320
+for the generated `{`, `}`, `[`, `]`, ctrl-shift-pageup and ctrl-shift-pagedown rows. `src/tui/actions.rs`
+1021 to 1035 for the TUI's own move arm. `ui/TabBar.qml` takes the drag state, the `DragHandler`,
+the ghost and the insertion bar at 266, over the soft budget and under the hard cap.
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.

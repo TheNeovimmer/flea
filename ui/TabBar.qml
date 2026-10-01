@@ -1,6 +1,7 @@
 import QtQuick
 import "." as Flea
 import "js/Tabs.js" as Tabs
+import "js/TabMove.js" as TabMove
 
 // The window's tab strip. Hidden with no height until a second tab exists, so the default window
 // keeps the chrome-to-list layout every existing click test and the first-paint path already have.
@@ -27,6 +28,29 @@ Item {
 
     // How long a drag rests on a tab before the tab is selected: long enough to cross it on the way elsewhere.
     readonly property int hoverSwitchMs: 400
+
+    // Tabs040 callout 1: a tab drag reorders the strip. dragFrom is the tab
+    // held, dropAt the insertion point (0..tabCount) its pointer names.
+    property int dragFrom: -1
+    property int dropAt: -1
+
+    function dragStarted(index) {
+        root.dragFrom = index
+        root.dropAt = index < 0 ? -1 : index + 1
+    }
+    function dragMoved(x) {
+        if (root.dragFrom < 0)
+            return
+        root.dropAt = TabMove.insertionAt(x, root.tabWidth, root.tabCount)
+    }
+    function dragFinished() {
+        if (root.dragFrom >= 0 && root.dropAt >= 0 && root.pane) {
+            var at = root.dropAt
+            Tabs.move(root.pane, root.dragFrom, at > root.dragFrom ? at - 1 : at)
+        }
+        root.dragFrom = -1
+        root.dropAt = -1
+    }
 
     visible: root.open
     implicitHeight: Theme.chromeHeight
@@ -66,6 +90,8 @@ Item {
                 required property int index
                 width: root.tabWidth
                 height: strip.height
+                // The tab under the pointer draws ghosted while its drag runs.
+                opacity: root.dragFrom === tab.index ? 0.55 : 1.0
 
                 readonly property bool current: root.currentIndex === tab.index
                 // Every input named, so the label re-reads when a tab opens or the pane navigates.
@@ -180,6 +206,26 @@ Item {
                             Tabs.selectAt(pane, tab.index)
                     }
                 }
+
+                // Tabs040 callout 1: a left-button drag reorders rather than selects.
+                // A press without a move still taps above, and a file drag never
+                // enters here, so DropInto's hover switch answers only files.
+                DragHandler {
+                    acceptedButtons: Qt.LeftButton
+                    target: null
+                    onActiveChanged: {
+                        if (active)
+                            root.dragStarted(tab.index)
+                        else
+                            root.dragFinished()
+                    }
+                    onCentroidChanged: {
+                        if (active) {
+                            var pos = tab.mapToItem(strip, centroid.position.x, centroid.position.y)
+                            root.dragMoved(pos.x)
+                        }
+                    }
+                }
             }
         }
 
@@ -205,5 +251,16 @@ Item {
                 onTapped: if (pane) Tabs.openNew(pane)
             }
         }
+    }
+
+    // Tabs040 callout 1: the accent bar where the held tab would land, flush
+    // through the strip's height the way the current tab's own edge is.
+    Rectangle {
+        visible: root.dragFrom >= 0 && root.dropAt >= 0
+        x: Theme.spacing.rowPaddingX + root.dropAt * root.tabWidth - 1
+        width: 2
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        color: Theme.color.accent
     }
 }

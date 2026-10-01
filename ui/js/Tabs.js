@@ -5,6 +5,7 @@
 .import "Search.js" as Search
 .import "Sort.js" as Sort
 .import "Startup.js" as Startup
+.import "TabMove.js" as TabMove
 
 // Hidden tabs are snapshots, so the pane and backend still own only one listing.
 // The nine-tab cap matches TUI's direct digit selection; GUI shortcuts cycle through the same state.
@@ -279,7 +280,30 @@ function closeAt(pane, i) {
     }
 }
 
+function move(pane, from, to) {
+    var items = currentItems(pane)
+    if (items.length < 2)
+        return
+    var index = currentIndex(pane)
+    items[index] = snapshot(pane, restingPath(pane))
+    pane.tabs = pack(items, TabMove.reorder(items, from, to, index))
+}
+
+// Tabs040 callout 1: the { and } keys move the current tab one place. A reorder
+// keeps the strip only: the pane stays on its path and lists nothing.
+function moveCurrent(pane, delta) {
+    var total = count(pane)
+    if (total < 2)
+        return
+    var from = currentIndex(pane)
+    move(pane, from, TabMove.step(from, delta, total))
+}
+
 function act(action, pane) {
+    if (action === "tabMoveLeft" || action === "tabMoveRight") {
+        moveCurrent(pane, action === "tabMoveRight" ? 1 : -1)
+        return
+    }
     if (action === "tabNext" || action === "tabPrevious") {
         var total = count(pane)
         var direction = action === "tabNext" ? 1 : -1
