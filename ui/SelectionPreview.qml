@@ -22,6 +22,8 @@ Flea.PreviewColumn {
     property string settleKey: ""
     // A load queued under the swap's picture, so a duplicate replace queues no clear behind it.
     property string loadQueuedKey: ""
+    // The multi-selection the loaded frame was built for; "" for a lone selection, which never keys on the version.
+    property string loadedSelection: ""
     // Last distinct cursor move, so a held key cannot decode mid-burst: only idleness loads at once.
     property double lastMoveAt: 0
     property string lastMoveKey: ""
@@ -133,6 +135,7 @@ Flea.PreviewColumn {
         var current = root.pane.rowFor(root.pane.cursorIndex)
         return root.loadedIndex === root.pane.cursorIndex && root.loadedDirectory === root.pane.path
             && root.loadedIdentity === root.identity(current)
+            && root.loadedSelection === PreviewSettle.selectionKey(root.pane.selectionCount(), root.pane.selectionVersion)
     }
 
     // Refresh-or-new scheduler: a pending timer already covers this key, otherwise the move clock decides.
@@ -156,6 +159,7 @@ Flea.PreviewColumn {
 
     function clearShown() {
         root.loadQueuedKey = ""
+        root.loadedSelection = ""
         root.pending = false
         root.pendingToken = 0
         root.manualHold = false
@@ -202,6 +206,7 @@ Flea.PreviewColumn {
         root.path = root.pane.join(root.pane.path, candidate.n)
         root.kindName = root.pane.kindNames[candidate.k] || ""
         root.selectionCount = root.pane.selectionCount()
+        root.loadedSelection = PreviewSettle.selectionKey(root.pane.selectionCount(), root.pane.selectionVersion)
         root.selectedRows = root.pane.selectedIndices().map(function (index) { return root.pane.rowFor(index) }).filter(function (row) { return row !== null })
         if (root.swap) root.swap.start(false)
     }
@@ -230,6 +235,7 @@ Flea.PreviewColumn {
         root.path = pane.join(pane.path, current.n)
         root.kindName = pane.kindNames[current.k] || ""
         root.selectionCount = pane.selectionCount()
+        root.loadedSelection = PreviewSettle.selectionKey(pane.selectionCount(), pane.selectionVersion)
         root.selectedRows = pane.selectedIndices().map(function (index) { return pane.rowFor(index) }).filter(function (row) { return row !== null })
         if (root.selectionCount > 1) { root.startSwap(false); return }
         var kind = Facts.state(current, 1, false, "", root.kindName)

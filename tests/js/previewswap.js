@@ -152,6 +152,10 @@ function runFolderDataHold(check) {
 
 // Move-clock settle: idle moves load at once, repeats change nothing, bursts trail once.
 function runPreviewSettle(check) {
+    check("a lone selection never keys on the version", PreviewSettle.selectionKey(0, 9), "")
+    check("a single row never keys on the version", PreviewSettle.selectionKey(1, 7), "")
+    check("a multi-selection keys on its count and version", PreviewSettle.selectionKey(3, 4), "3:4")
+    check("a multi-selection moves with its version", PreviewSettle.selectionKey(3, 5), "3:5")
     check("an idle first move is due at once", PreviewSettle.due(1000, 0, 120), true)
     check("a step exactly one interval on is due", PreviewSettle.due(120, 0, 120), true)
     check("a step inside the interval waits", PreviewSettle.due(119, 0, 120), false)
