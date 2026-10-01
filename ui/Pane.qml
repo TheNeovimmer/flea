@@ -474,7 +474,7 @@ FocusScope {
             var isShebang = code === 0 && shebangProc.stdout.text.substring(0, 2) === "#!"
             if (answered.length > 0 && answered === root.shebangTarget()) {
                 root.rowHasShebang = isShebang
-                if (root.menu.opened && root.menu.hasRow) root.menu.refreshProviderRows()
+                if (menu.opened && menu.hasRow) menu.refreshProviderRows()
             }
             if (root.shebangPending.length > 0) {
                 var next = root.shebangPending
