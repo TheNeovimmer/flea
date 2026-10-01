@@ -121,7 +121,7 @@ case_railpointer() {
     local dual="$fixture_root/railpointer-dual" dstate="$fixture_root/railpointer-dual-state" rect rx ry rw rh cx cy ww hh dual_json
     sandbox_scratch "$dual"
     mkdir -p "$dual/left" "$dual/right"
-    for i in $(seq -w 1 6); do : > "$dual/left/l$i.txt"; : > "$dual/right/r$i.txt"; done
+    for i in $(seq -f '%02g' 1 6); do : > "$dual/left/l$i.txt"; : > "$dual/right/r$i.txt"; done
     seed_ui_state "$dstate" "$(jq -cn --arg l "$dual/left" --arg r "$dual/right" '{view:"dual",dual:{paths:[$l,$r],focus:0}}')"
     launch "$dual/left"
     # An empty panes array reads as not-loading, so the wait requires a pane to exist first.
