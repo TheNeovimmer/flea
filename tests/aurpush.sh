@@ -54,5 +54,34 @@ if command -v makepkg >/dev/null; then
 else
     printf 'SKIP the whole push: makepkg is not installed here, the box runs it\n'
 fi
+# GM 2026-10-01: flea-git is published on every release, so a pkgver-only change
+# pushes; only a byte-identical PKGBUILD pushes nothing. A stub makepkg stands in for
+# the real one, so these run where makepkg is not installed; its .SRCINFO mirrors the
+# PKGBUILD, which is all the identical-files no-op needs.
+mkdir -p "$box/stubbin"
+printf '#!/bin/sh\nif [ "${1:-}" = "--printsrcinfo" ]; then cat PKGBUILD; exit 0; fi\necho "stub makepkg: unexpected argv $*" >&2; exit 1\n' > "$box/stubbin/makepkg"
+chmod 755 "$box/stubbin/makepkg"
+stubpush() { env -u AUR_SSH_KEY PATH="$box/stubbin:$PATH" packaging/aur-push "$@" </dev/null; }
+mkdir -p "$box/remote"
+git init -q --bare -b master "$box/remote/flea-git.git"
+mkdir -p "$box/gitseed"
+printf 'pkgname=flea-git\npkgver=0.3.7.r0.gaaaaaaa\npkgrel=1\narch=(any)\n' > "$box/gitseed/PKGBUILD"
+cp "$box/gitseed/PKGBUILD" "$box/gitseed/.SRCINFO"
+git init -q -b master "$box/gitseed" && git -C "$box/gitseed" -c user.name=seed -c user.email=seed@example.invalid add PKGBUILD .SRCINFO \
+    && git -C "$box/gitseed" -c user.name=seed -c user.email=seed@example.invalid commit -q -m seed \
+    && git -C "$box/gitseed" push -q "$box/remote/flea-git.git" master
+out=$(stubpush flea-git "$box/gitseed/PKGBUILD" 'flea-git v0.3.7' 2>&1)
+status=$?
+check "a byte-identical flea-git PKGBUILD pushes nothing" "0 aur-push: flea-git on the AUR already carries this PKGBUILD, so nothing is pushed" "$status ${out##*$'\n'}"
+check "the no-op pushed no commit" "1" "$(git -C "$box/remote/flea-git.git" rev-list --count master)"
+sed 's/^pkgver=.*/pkgver=0.3.7.r0.gbbbbbbb/' "$box/gitseed/PKGBUILD" > "$box/PKGBUILD.bumped"
+out=$(stubpush flea-git "$box/PKGBUILD.bumped" 'flea-git v0.3.7' 2>&1)
+status=$?
+check "a pkgver-only change on flea-git is pushed" "0" "$status"
+last=${out##*$'\n'}
+check "the pushed line names flea-git" "aur-push: pushed flea-git as" "${last% *}"
+check "the pkgver-only push is a second commit" "2" "$(git -C "$box/remote/flea-git.git" rev-list --count master)"
+check "the pushed commit carries the given message" "flea-git v0.3.7" "$(git -C "$box/remote/flea-git.git" log -1 --format='%s' master)"
+check "the AUR copy carries the new pkgver" "pkgver=0.3.7.r0.gbbbbbbb" "$(git -C "$box/remote/flea-git.git" show master:PKGBUILD | grep '^pkgver=')"
 printf 'aurpush: %d check(s), %d failed\n' "$checks" "$failed"
 [ "$failed" -eq 0 ]

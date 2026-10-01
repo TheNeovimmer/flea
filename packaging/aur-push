@@ -42,12 +42,8 @@ fi
 clone="$work/$pkgname"
 git clone --quiet "$remote_base/$pkgname.git" "$clone"
 
-# A -git package is a VCS package, and the AUR guidelines forbid a commit that only moves its pkgver.
-if [[ "$pkgname" == *-git ]] && [ -f "$clone/PKGBUILD" ] &&
-  diff -q <(grep -v '^pkgver=' "$clone/PKGBUILD") <(grep -v '^pkgver=' "$pkgbuild") >/dev/null; then
-  echo "aur-push: $pkgname on the AUR differs from $2 in pkgver at most, so nothing is pushed"
-  exit 0
-fi
+# GM 2026-10-01: flea-git is published on every release like flea and flea-bin, so even a
+# pkgver-only change pushes; only a byte-identical PKGBUILD pushes nothing (the no-op below).
 
 cp "$pkgbuild" "$clone/PKGBUILD"
 (cd "$clone" && makepkg --printsrcinfo > .SRCINFO)
