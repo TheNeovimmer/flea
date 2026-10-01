@@ -2,7 +2,7 @@ use super::dirsize::{walk_all, walked_bytes, DirSize, SORT_BUDGET_MS};
 use super::listing::Listing;
 use super::meta::stat_all;
 use super::mime::Db;
-use super::sort::{name_order, parse_sort_by, sort_listing};
+use super::sort::{cmp_extension, name_order, parse_sort_by, sort_listing};
 use std::cmp::Ordering;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -116,7 +116,14 @@ pub fn ordered(
             }
             _ => Ordering::Equal,
         };
-        let order = key.then_with(|| name_order(l.name(a).as_bytes(), l.name(b).as_bytes()));
+        let order = key.then_with(|| {
+            // Directories keep name order so folders are unaffected; files break a kind tie by extension first.
+            if by == "kind" && !l.is_dir(a) && !l.is_dir(b) {
+                cmp_extension(l.name(a), l.name(b))
+            } else {
+                Ordering::Equal
+            }
+        }).then_with(|| name_order(l.name(a).as_bytes(), l.name(b).as_bytes()));
         if desc {
             order.reverse()
         } else {

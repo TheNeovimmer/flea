@@ -106,6 +106,30 @@ pub fn is_hidden(name: &str) -> bool {
     name.as_bytes().first() == Some(&b'.')
 }
 
+// The Kind tie-break: the text after the last dot of the last path component.
+// None when there is no dot, only a leading dot, or a trailing dot, so
+// .bashrc and Makefile sort before any extension. Pure name bytes, no stat.
+pub fn extension(name: &str) -> Option<&str> {
+    let base = name.rsplit('/').next().unwrap_or(name);
+    let dot = base.rfind('.')?;
+    if dot == 0 {
+        return None;
+    }
+    let ext = &base[dot + 1..];
+    if ext.is_empty() { None } else { Some(ext) }
+}
+
+// None sorts before any extension; two extensions use the Finder comparison
+// without the byte tie-break, so .lrf and .LRF stay one group for the name to split.
+pub fn cmp_extension(a: &str, b: &str) -> Ordering {
+    match (extension(a), extension(b)) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+        (Some(ea), Some(eb)) => finder_cmp(ea.as_bytes(), eb.as_bytes()),
+    }
+}
+
 pub fn sort_by_name(l: &mut Listing, desc: bool, hidden_last: bool) -> f64 {
     let t = Instant::now();
     // Take the buffer out so the comparator can borrow it while spans are moved.
@@ -326,5 +350,42 @@ mod tests {
         let mut down: Vec<String> = (0..desc.len()).map(|i| desc.name(i).to_string()).collect();
         down.reverse();
         assert_eq!(up, down);
+    }
+
+    #[test]
+    fn extension_reads_the_last_dot_of_the_base_name() {
+        assert_eq!(extension("clip.mp4"), Some("mp4"));
+        assert_eq!(extension("a.tar.gz"), Some("gz"));
+        assert_eq!(extension("Makefile"), None);
+        assert_eq!(extension(".bashrc"), None);
+        assert_eq!(extension("foo."), None);
+        assert_eq!(extension("v1.2/notes.txt"), Some("txt"));
+        assert_eq!(extension("v1.2/notes"), None);
+        assert_eq!(cmp_extension("a.lrf", "b.mp4"), std::cmp::Ordering::Less);
+        assert_eq!(cmp_extension("README", "a.lrf"), std::cmp::Ordering::Less);
+    }
+
+    #[test]
+    fn kind_breaks_ties_by_extension_then_name() {
+        use crate::backend::mime::Db;
+        use crate::backend::ordering::ordered;
+        let d = crate::backend::testdir::TestDir::new("kind-ext");
+        let db = Db::from_str("50:video/mp4:*.mp4\n50:video/mp4:*.lrf\n50:video/mp4:README\n50:video/mp4:.bashrc\n");
+        let pushed = || {
+            let mut l = Listing::new();
+            for n in ["b.MP4", "a.lrf", "c.LRF", "README", ".bashrc", "z.mp4"] { l.push(n, false); }
+            l
+        };
+        let names = |l: &Listing| (0..l.len()).map(|i| l.name(i).to_string()).collect::<Vec<_>>();
+        let mut asc = pushed();
+        ordered(&mut asc, d.path(), &db, "kind", false, true, false, false).unwrap();
+        assert_eq!(names(&asc), [".bashrc", "README", "a.lrf", "c.LRF", "b.MP4", "z.mp4"]);
+        let mut desc = pushed();
+        ordered(&mut desc, d.path(), &db, "kind", true, true, false, false).unwrap();
+        let mut rev = names(&asc); rev.reverse();
+        assert_eq!(names(&desc), rev);
+        let mut f = pushed(); f.push("zebra", true);
+        ordered(&mut f, d.path(), &db, "kind", false, true, false, false).unwrap();
+        assert_eq!(f.name(0), "zebra");
     }
 }
