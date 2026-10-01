@@ -334,6 +334,10 @@ Item {
                     boundsBehavior: Flickable.StopAtBounds
                     activeFocusOnTab: false
                     Keys.forwardTo: [keys]
+                    Flea.FastScrollHandler {
+                        parent: list
+                        flickable: list
+                    }
                     Flea.ViewportScrollBar {
                         parent: list
                         anchors { top: parent.top; right: parent.right }

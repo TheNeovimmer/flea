@@ -2,8 +2,8 @@
 
 // Shared motion constants for Flea's structural transitions: preview open/close, share browser
 // open/close, the Network dialog open/close, the empty state's appearance. The controller's
-// ruling: scroll, the cursor and hover fills stay animation-free forever (see the 60ms
-// CursorSurface note in the KB); only these four gain motion, 150-250ms, one easing curve.
+// ruling: scroll, the cursor and hover fills stay animation-free forever, except touchpad momentum
+// (GM 2026-10-01, Finder's tail), which ui/js/Scroll.js owns; only these four gain motion, 150-250ms, one easing curve.
 
 // Material 3's "emphasized decelerate", the standard CSS cubic-bezier(0.05, 0.7, 0.1, 1.0)
 // control points; QML's BezierSpline wants the implicit (1,1) end point appended.

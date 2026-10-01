@@ -419,6 +419,10 @@ Item {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         onVisibleChanged: contentY = 0
+        Flea.FastScrollHandler {
+            parent: detailView
+            flickable: detailView
+        }
         Flea.ViewportScrollBar {
             parent: detailView
             anchors { top: parent.top; right: parent.right }

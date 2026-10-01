@@ -13,8 +13,8 @@ var GRAB_Z = 1000000
 // Less than half a pixel of range is rounding in the layout, not content worth a bar.
 var OVERFLOW_PX = 0.5
 
-// How far a wheel event moves the content: a touchpad's pixels one to one, like every other
-// application, and a wheel notch as the platform's lines times notchPx times the multiplier.
+// How far a wheel event moves the content: a mouse notch is the platform's lines times
+// notchPx times the multiplier. A touchpad never reaches here, see touchDistance below.
 // Sample input: pixelDeltaY 0, angleDeltaY -120, lines 3, notchPx 24, multiplier 4 gives -288.
 function distance(pixelDeltaY, angleDeltaY, lines, notchPx, multiplier) {
     var pixels = Number(pixelDeltaY) || 0
@@ -22,6 +22,151 @@ function distance(pixelDeltaY, angleDeltaY, lines, notchPx, multiplier) {
         return pixels
     var perNotch = Number(lines) > 0 ? Number(lines) : DEFAULT_LINES
     return (Number(angleDeltaY) || 0) / NOTCH_UNITS * perNotch * notchPx * multiplier
+}
+
+// GM 2026-10-01: touchpad input answers Finder's feel, so the Motion.js animation-free rule and the old
+// touchpad 1:1 no longer hold for it; a mouse wheel notch is unchanged. Touchpad gain is GTK4's own
+// factor, what gtkscrolledwindow.c multiplies touchpad deltas and fling velocity by.
+var TOUCH_GAIN = 2.5
+// Apple's curve: velocity decays by 0.998 per millisecond, so the tail is about 0.5 s of lift velocity.
+var MOMENTUM_DECAY = 0.998
+// The lift velocity is measured over the stroke's last 100 ms by arrival time, QML has no timestamp.
+var VELOCITY_WINDOW_MS = 100
+// Two events in one millisecond take the floor, so they cannot fling.
+var MIN_SPAN_MS = 16
+// 6 px/ms coasts about 3000 px, two screens, so a 1 ms double event cannot fling further.
+var MAX_V_PX_PER_MS = 6
+// Below half a pixel a 60 Hz frame, where the crawl is no longer visible.
+var STOP_V_PX_PER_MS = 0.03
+// Injected for the headless probe; production reads the wall clock.
+var testNowMs = -1
+function now() {
+    return testNowMs >= 0 ? testNowMs : Date.now()
+}
+
+// A touchpad event is any event whose phase is not Qt.NoScrollPhase (0); a wheel carries none.
+function isTouchpad(phase) {
+    return Number(phase) !== 0
+}
+
+// A touchpad stroke moves by pixelDelta only, never angleDelta: a sub-pixel frame arrives as
+// pixelDelta 0 with a nonzero angleDelta and must move nothing, never a wheel notch.
+function touchDistance(pixelDelta) {
+    var pixels = Number(pixelDelta) || 0
+    if (pixels === 0)
+        return 0
+    return pixels * TOUCH_GAIN
+}
+
+// The handler's one entry: touchpad by pixels with gain, a wheel by the notch rule.
+function strokeDistance(pixelDelta, angleDelta, phase, lines, notchPx, multiplier) {
+    if (isTouchpad(phase))
+        return touchDistance(pixelDelta)
+    return distance(pixelDelta, angleDelta, lines, notchPx, multiplier)
+}
+
+// One tail state per Flickable, shared by its body handler and its scrollbar lane handler.
+var _tails = []
+function tailState(view, create) {
+    for (var i = 0; i < _tails.length; i++)
+        if (_tails[i].view === view)
+            return _tails[i].state
+    if (!create)
+        return null
+    var made = { samples: [], vx: 0, vy: 0, active: false, lastY: null, lastX: null }
+    _tails.push({ view: view, state: made })
+    return made
+}
+
+function stopTail(view) {
+    var found = tailState(view, false)
+    if (found !== null) {
+        found.active = false
+        found.vx = 0
+        found.vy = 0
+        found.samples = []
+    }
+}
+
+function forgetTail(view) {
+    for (var i = 0; i < _tails.length; i++)
+        if (_tails[i].view === view) {
+            _tails.splice(i, 1)
+            return
+        }
+}
+
+function pushSample(view, t, dx, dy) {
+    // dx is across (horizontal), dy is down (vertical), both gained pixels.
+    var found = tailState(view, true)
+    found.samples.push({ t: Number(t) || 0, x: Number(dx) || 0, y: Number(dy) || 0 })
+    while (found.samples.length > 0 && found.samples[0].t <= Number(t) - VELOCITY_WINDOW_MS - 50)
+        found.samples.shift()
+}
+
+// The stroke's velocity over the last 100 ms of deltas; fingers paused before the lift give none.
+function liftVelocity(samples, endTime) {
+    var end = Number(endTime) || 0
+    var xs = 0, ys = 0, first = -1, last = -1, n = 0
+    for (var i = 0; i < samples.length; i++) {
+        var s = samples[i]
+        if (s.t > end - VELOCITY_WINDOW_MS && s.t <= end) {
+            xs += s.x
+            ys += s.y
+            if (first < 0)
+                first = s.t
+            last = s.t
+            n += 1
+        }
+    }
+    if (n === 0)
+        return { vx: 0, vy: 0 }
+    var span = Math.max(MIN_SPAN_MS, last - first)
+    var vx = xs / span, vy = ys / span
+    var speed = Math.sqrt(vx * vx + vy * vy)
+    if (speed > MAX_V_PX_PER_MS) {
+        vx *= MAX_V_PX_PER_MS / speed
+        vy *= MAX_V_PX_PER_MS / speed
+        speed = MAX_V_PX_PER_MS
+    }
+    if (speed <= STOP_V_PX_PER_MS)
+        return { vx: 0, vy: 0 }
+    return { vx: vx, vy: vy }
+}
+
+// Wheel-space pixels travelled in ms at v0, the closed form of the decay.
+function tailTravel(v0, ms) {
+    var v = Number(v0) || 0
+    var t = Math.max(0, Number(ms) || 0)
+    if (v === 0 || t === 0)
+        return 0
+    return v * (Math.pow(MOMENTUM_DECAY, t) - 1) / Math.log(MOMENTUM_DECAY)
+}
+
+// The whole tail of v0 until it falls below the stop speed, as a positive distance.
+function tailTotal(v0) {
+    var v = Math.abs(Number(v0) || 0)
+    if (v <= STOP_V_PX_PER_MS)
+        return 0
+    return (v - STOP_V_PX_PER_MS) / -Math.log(MOMENTUM_DECAY)
+}
+
+// One frame's exact integral at v over dtMs, so summed frames equal the closed form.
+function tailStep(v, dtMs) {
+    var vel = Number(v) || 0
+    var dt = Math.max(0, Number(dtMs) || 0)
+    if (vel === 0 || dt === 0)
+        return { dx: 0, v: 0 }
+    var grown = Math.pow(MOMENTUM_DECAY, dt)
+    return { dx: vel * (grown - 1) / Math.log(MOMENTUM_DECAY), v: vel * grown }
+}
+
+function tailSpeed(vx, vy) {
+    return Math.sqrt(Math.pow(Number(vx) || 0, 2) + Math.pow(Number(vy) || 0, 2))
+}
+
+function tailLive(vx, vy) {
+    return tailSpeed(vx, vy) > STOP_V_PX_PER_MS
 }
 
 // A content position kept inside the Flickable: never above its origin, never past its last page.
