@@ -4887,6 +4887,12 @@ column_drag_absolute() {
         x=$(( start_x + delta_x * i / steps ))
         omarchy-drive move "$x" "$y" >/dev/null \
             || fail "columnresize: the absolute drag step failed"
+        # The move above sends wl_pointer.motion with no wl_pointer.frame, so Qt only sees it
+        # when a later frame flushes it; this zero-net uinput nudge produces that frame per step.
+        YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1 \
+            || fail "columnresize: the frame-flush nudge failed"
+        YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x -1 -y 0 >/dev/null 2>&1 \
+            || fail "columnresize: the frame-flush nudge failed"
         sleep 0.1
     done
 }
@@ -4906,7 +4912,7 @@ case_columnresize() {
     [[ "$before_w" =~ ^[0-9]+$ ]] || fail "columnresize: the size header has no width, got $before_w"
 
     # The handle sits on the cell's left edge (Header.qml anchors each ResizeHandle there), not on the painted text centre, which misses the 9 px handle on a right-aligned cell.
-    local cx cy cell_x cell_w edge_x header_left wx wy ww wh start_x start_y delta
+    local cx cy cell_x cell_w edge_x header_left wx wy ww wh start_x start_y
     read -r cx cy <<< "$(ipc headerCellCentre size)"
     [[ -n "$cx" && -n "$cy" ]] || fail "columnresize: the size header has no centre"
     IFS='|' read -r cell_x cell_w <<< "$(column_stable_rect size)"
@@ -4926,13 +4932,27 @@ case_columnresize() {
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 \
         || fail "columnresize: the edge release failed"
     settle
-    local grown_w
+    local grown_w trace trace_start trace_last trace_width trace_preview
     IFS='|' read -r _x grown_w <<< "$(column_stable_rect size)"
     printf 'COLUMNRESIZE before=%s grown=%s mark=%s\n' "$before_w" "$grown_w" "$(ipc sortMark)"
     shot columnresize-drag
-    delta=$(( grown_w - before_w ))
-    (( delta >= 39 && delta <= 41 )) \
-        || fail "columnresize: the header moved size from $before_w to $grown_w (delta $delta), expected +40 within 1 px"
+    trace=$(ipc headerDragTrace)
+    printf 'COLUMNRESIZE trace=%s injected=-40\n' "$trace"
+    IFS='|' read -r trace_start trace_last trace_width trace_preview <<< "$trace"
+    python3 - "$trace_start" "$trace_last" "$before_w" "$grown_w" "$trace_preview" <<'PYEOF' \
+        || fail "columnresize: the header did not follow the pointer as the app saw it, trace=$trace before=$before_w grown=$grown_w"
+import sys
+start, last, before, grown, preview = [float(v) for v in sys.argv[1:6]]
+if not last < start:
+    sys.stderr.write("no leftward drag reached the app: startX=%s lastX=%s\n" % (start, last))
+    sys.exit(1)
+if abs((grown - before) - (start - last)) > 1:
+    sys.stderr.write("drawn delta %s against app-seen travel %s\n" % (grown - before, start - last))
+    sys.exit(1)
+if abs(grown - preview) > 1:
+    sys.stderr.write("drawn %s against the drag preview %s\n" % (grown, preview))
+    sys.exit(1)
+PYEOF
     [[ "$(ipc sortMark)" == "$before_mark" ]] \
         || fail "columnresize: the drag sorted, mark is $(ipc sortMark)"
     [[ "$(ipc columnWidths | jq -er '.size')" == "$grown_w" ]] \
@@ -4970,6 +4990,17 @@ case_columnresize() {
     printf 'COLUMNRESIZE floored=%s\n' "$floored_w"
     shot columnresize-floor
     [[ "$floored_w" == "48" ]] || fail "columnresize: a drag past the floor landed at $floored_w, not 48"
+    trace=$(ipc headerDragTrace)
+    printf 'COLUMNRESIZE floored-trace=%s\n' "$trace"
+    IFS='|' read -r trace_start trace_last trace_width trace_preview <<< "$trace"
+    python3 - "$trace_start" "$trace_last" <<'PYEOF' \
+        || fail "columnresize: the floor drag left no rightward travel in the trace, trace=$trace"
+import sys
+start, last = [float(v) for v in sys.argv[1:3]]
+if not last > start:
+    sys.stderr.write("no rightward drag reached the app: startX=%s lastX=%s\n" % (start, last))
+    sys.exit(1)
+PYEOF
 
     kill_flea
 }

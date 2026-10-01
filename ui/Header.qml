@@ -28,6 +28,7 @@ Item {
     // A drag in flight, so the hairline follows the pointer and one write lands on release.
     property string dragKey: ""
     property real dragStartX: 0
+    property real dragLastX: 0
     property real dragStartWidth: 0
     property real dragPreview: 0
     // True once the pointer travelled, so a click or a fit ending the drag writes nothing.
@@ -262,6 +263,7 @@ Item {
     function beginDrag(key, handle, mouse) {
         root.dragKey = key
         root.dragStartX = handle.mapToItem(root, mouse.x, mouse.y).x
+        root.dragLastX = root.dragStartX
         root.dragStartWidth = root.currentWidthOf(key)
         root.dragPreview = root.dragStartWidth
         root.dragMoved = false
@@ -275,6 +277,7 @@ Item {
         if (Math.abs(x - root.dragStartX) < 1)
             return
         root.dragMoved = true
+        root.dragLastX = x
         root.dragPreview = Columns.clampListWidth(root.dragStartWidth - (x - root.dragStartX))
     }
 

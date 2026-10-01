@@ -483,6 +483,12 @@ QtObject {
             var item = root.pane.header.cell(name)
             return item ? root.fleaWindow.centreOf(item) : ""
         }
+        // The last drag the header saw, "startX|lastX|startWidth|preview", kept after release
+        // until the next press, so a test asserts the column followed the pointer as the app saw it.
+        function headerDragTrace(): string {
+            var h = root.pane.header
+            return h.dragStartX + "|" + h.dragLastX + "|" + h.dragStartWidth + "|" + h.dragPreview
+        }
         // The header's drawn columns beside a row's. Both resolve theirs from their own width
         // through Theme.columns, so a disagreement shows up here rather than as a stray column.
         function columnSet(i: int): string {

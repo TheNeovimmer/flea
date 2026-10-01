@@ -355,9 +355,10 @@ case_cap_sheet() {
 
 # The preview geometry matrix, AGENTS.md "The preview swap". ed359d78 fixed one case a human
 # saw (a small clip's poster drew at its own pixel size) that no suite measured; this case and
-# tests/preview-geometry.sh measure the whole class instead. A small image draws at its own size,
-# a large image and a small clip's poster fill the frame on the limiting side, the player fills it
-# too, and Quick Look follows the same rules on its own surface. Not in the default wanted list.
+# tests/preview-geometry.sh measure the whole class instead. An image draws at min(own
+# pixel size, aspect-fit of its box), never enlarged (GM 2026-09-24); a small clip's poster
+# and the player fill the frame on the limiting side, and Quick Look follows the same rules
+# on its own surface. Not in the default wanted list.
 matrix_check() {
     local label="$1" frame="$2" picture="$3" src="$4" mode="$5" inset="$6"
     python3 - "$label" "$frame" "$picture" "$src" "$mode" "$inset" <<'PYEOF' || fail "previewmatrix: $label drew outside its rule"
@@ -370,6 +371,8 @@ sw, sh = [float(v) for v in src.split()]
 if mode == "ownsize":
     want_w, want_h = sw, sh
 else:
+    # "fit" (an image, never enlarged past its own pixels) and "fill" (a video poster
+    # or player, enlarged when the clip is small) both draw the aspect-fit of the box.
     scale = min((fw - inset) / sw, (fh - inset) / sh)
     want_w, want_h = sw * scale, sh * scale
 assert abs(pw - want_w) <= 2, "width %s, rule wants %s" % (pw, want_w)
@@ -431,18 +434,19 @@ case_previewmatrix() {
     settle
     [[ "$(ipc viewMode)" == columns ]] || fail "previewmatrix: the fixture did not open its columns view"
 
-    # Columns, one row per class: the small image at its own size, everything else filling.
+    # Columns, one row per class: an image draws at min(own pixels, aspect-fit of its box),
+    # so the small file holds its own size and the larger two take the fit; video fills either way.
     seek_row_named "a-small.png"
     matrix_wait_column image
     matrix_check "columns a-small.png" "$(ipc columnFrameRect)" "$(ipc columnPictureRect)" "64 48" ownsize 2
     shot matrix-col-a-small
     seek_row_named "b-large.jpg"
     matrix_wait_column image
-    matrix_check "columns b-large.jpg" "$(ipc columnFrameRect)" "$(ipc columnPictureRect)" "1920 1080" fill 2
+    matrix_check "columns b-large.jpg" "$(ipc columnFrameRect)" "$(ipc columnPictureRect)" "1920 1080" fit 2
     shot matrix-col-b-large
     seek_row_named "c-portrait.png"
     matrix_wait_column image
-    matrix_check "columns c-portrait.png" "$(ipc columnFrameRect)" "$(ipc columnPictureRect)" "1080 1920" fill 2
+    matrix_check "columns c-portrait.png" "$(ipc columnFrameRect)" "$(ipc columnPictureRect)" "1080 1920" fit 2
     shot matrix-col-c-portrait
     seek_row_named "d-tiny.mp4"
     matrix_wait_column video
@@ -478,6 +482,8 @@ case_previewmatrix() {
     shot matrix-col-e-player
 
     # Quick Look, one Space per file: the same rules on the overlay surface, which plays video itself.
+    # The 1920x1080 file is smaller than its 2080x1137 frame on both sides, so it holds its own
+    # size like the small file; the portrait file overflows the frame and takes the fit.
     seek_row_named "a-small.png"
     matrix_wait_column image
     key -k space >/dev/null
@@ -494,7 +500,7 @@ case_previewmatrix() {
     settle
     [[ "$(ipc previewOpen)" == "true" && "$(ipc previewKind)" == "image" ]] \
         || fail "previewmatrix: Space never opened the large overlay"
-    matrix_check "quicklook b-large.jpg" "$(ipc previewSurfaceRect)" "$(ipc previewPictureRect)" "1920 1080" fill 0
+    matrix_check "quicklook b-large.jpg" "$(ipc previewSurfaceRect)" "$(ipc previewPictureRect)" "1920 1080" ownsize 0
     shot matrix-look-b-large
     key -k Escape >/dev/null
     settle

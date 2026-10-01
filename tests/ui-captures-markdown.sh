@@ -33,7 +33,9 @@ var fenced = true;
 ![shot](https://cdn.example.com/shot.png)
 EOF
     launch "$dir/listing"
-    wait_listing 12
+    # The fixture holds one file, so the listing is waited for at the count the fixture
+    # creates rather than a literal carried from a larger fixture.
+    wait_listing "$(find "$dir/listing" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
     goto_row "$(row_index_of notes.md)"
     key -k Space >/dev/null
     for _attempt in $(seq 1 40); do [[ "$(ipc previewOpen)" == "true" ]] && break; sleep 0.1; done
