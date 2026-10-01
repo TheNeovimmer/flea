@@ -465,7 +465,7 @@ launch() {
 
 wait_listing() {
     local want_total="$1"
-    local total row state
+    local total row state shown
     for _attempt in $(seq 1 300); do
         total=$(ipc total 2>/dev/null || printf unavailable)
         if [[ "$want_total" == 0 ]]; then
@@ -475,6 +475,12 @@ wait_listing() {
             continue
         fi
         row=$(ipc rowAt 0 2>/dev/null || printf loading)
+        # rowAt reads the list view's own delegate, which grid and columns leave unbuilt; there the
+        # row the shown view draws stands in for it.
+        if [[ "$row" == loading ]]; then
+            shown=$(ipc visibleRowName 0 2>/dev/null || true)
+            [[ -n "$shown" ]] && row="$shown|"
+        fi
         # The listing swap keeps the old rows and count up while the next listing is out, so the count alone can match early.
         if [[ "$total" == "$want_total" && "$row" != "loading" && "$(ipc listInFlight 2>/dev/null)" == false ]]; then
             return
@@ -1048,10 +1054,13 @@ icon_crop() {
 
 # Same lookup as icon_of, but the row's own index, for a case that needs to seek to it by keyboard.
 row_index_of() {
-    local want="$1" i total
+    local want="$1" i total row
     total=$(ipc total)
     for (( i = 0; i < total; i++ )); do
-        [[ "$(ipc rowAt "$i")" == "$want|"* ]] && { printf '%s' "$i"; return; }
+        row=$(ipc rowAt "$i")
+        [[ "$row" == "$want|"* ]] && { printf '%s' "$i"; return; }
+        # Grid and columns leave the list view's delegate unbuilt; read the row the shown view draws.
+        [[ "$row" == loading && "$(ipc visibleRowName "$i")" == "$want" ]] && { printf '%s' "$i"; return; }
     done
     fail "no row named $want in a listing of $total"
 }
