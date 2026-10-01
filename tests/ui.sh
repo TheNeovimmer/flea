@@ -5556,17 +5556,13 @@ case_middleclick() {
         printf 'MIDDLECLICK %s tabs=%s labels=%s\n' "$view" "$(ipc tabCount)" "$(ipc tabLabels)"
         click_tab 0
         wait_path "$dir"
-        if [[ "$view" == columns ]]; then
-            # rowAt reads the list view's own delegate, which a tab switch back into columns leaves unbuilt;
-            # the row the columns view draws is the one to wait on.
-            for _attempt in $(seq 1 300); do
-                [[ "$(ipc total)" == 3 && "$(ipc visibleRowName 0)" == alpha && "$(ipc listInFlight)" == false ]] && break
-                sleep 0.05
-            done
-            [[ "$(ipc visibleRowName 0)" == alpha ]] || fail "middleclick: columns never drew alpha at row 0 after the tab switch"
-        else
-            wait_listing 3
-        fi
+        # rowAt reads the list view's own delegate, which a tab switch back into grid or columns leaves
+        # unbuilt; the row the shown view draws is the one to wait on.
+        for _attempt in $(seq 1 300); do
+            [[ "$(ipc total)" == 3 && "$(ipc visibleRowName 0)" == alpha && "$(ipc listInFlight)" == false ]] && break
+            sleep 0.05
+        done
+        [[ "$(ipc visibleRowName 0)" == alpha ]] || fail "middleclick: $view never drew alpha at row 0 after the tab switch"
     done
     shot middleclick-views
 
