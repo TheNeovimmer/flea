@@ -77,6 +77,10 @@ var INVENTORY = [
     ["copyto", "Copy to", "copy", "F", "inspect", "copyTo"],
     ["properties", "Properties", "info", "F", "inspect"],
     ["permissions", "Permissions", "lock", "F", "inspect"],
+    // MenuAdditions040 callout 10 and Permissions040 callout 3: Make executable shows only on a
+    // regular file with a shebang and no owner execute bit, and adds that bit. Shown when usable,
+    // no key, in the inspect group where hidden Permissions would sit before it.
+    ["makeExecutable", "Make executable", "play", "F", "inspect", "makeExecutable"],
     // MenuAdditions040: Copy as replaces the hidden Copy path row and ships
     // hidden like it; every variant covers the whole selection, one per line.
     ["copyAs", "Copy as", "file-text", "FP", "inspect", "copyAs"],
@@ -105,7 +109,14 @@ function buildEntries(kind, p) {
     for (var i = 0; i < INVENTORY.length; i++) {
         var spec = INVENTORY[i]
         // Rail rows are never user-hideable: no switch governs them, so the stored set is not read here.
-        if (spec[3].indexOf(kind) < 0 || (kind !== "R" && isHidden(p.hiddenActions, spec[0]))) continue
+        if (spec[3].indexOf(kind) < 0) continue
+        // MenuAdditions040 callout 9: Open in terminal shows in the background menu at defaults,
+        // while file and place menus keep it behind its 0.3.4 switch. One id, one switch; the
+        // background simply does not read the set for this row, so Settings, Menus still lists one
+        // switch meaning file and place.
+        if (kind !== "R" && isHidden(p.hiddenActions, spec[0])) {
+            if (!(kind === "B" && spec[0] === "openTerminal")) continue
+        }
         var entry = { id: spec[0], action: spec[5] || spec[0], label: spec[1], glyph: spec[2] }
         if (!availableEntry(entry, p, kind)) continue
         if (out.length && group !== spec[4]) out.push({ separator: true })
@@ -152,6 +163,10 @@ function availableEntry(e, p, kind) {
         e.disabled = permission.disabled
         if (permission.errored) e.errored = true
     }
+    // MenuAdditions040 callout 10 and Permissions040 callout 3: only on a regular file with a
+    // shebang and no owner execute bit, cursor row only. Absent otherwise, never greyed; the
+    // two-byte shebang read happens at menu open for that one file, never per row.
+    if (e.action === "makeExecutable" && !canMakeExecutable(p.rowMode, count, p.hasShebang, p.cursorIsTarget)) return false
     if (e.action === "runScript") {
         if (!(p.scripts || []).length) return false
         e.submenu = p.scripts.map(function (script) { return { id: script.id, label: script.label } })
@@ -267,6 +282,17 @@ function permissionsEntry(mode, count, modes) {
     var kind = (Number(mode) || 0) & 0o170000
     var allowed = count >= 1 && (kind === 0o100000 || kind === 0o040000)
     return { label: "Permissions", action: "permissions", glyph: "lock", disabled: !allowed, errored: !allowed }
+}
+
+// MenuAdditions040 callout 10 and Permissions040 callout 3: only a regular file with a
+// shebang (#! as its first two bytes) and no owner execute bit, and only when the single target
+// is the cursor row itself. hasShebang is the two-byte read of that one file at menu open, never
+// per row; absent without all three, never greyed.
+function canMakeExecutable(mode, count, hasShebang, cursorIsTarget) {
+    if (count !== 1 || hasShebang !== true || cursorIsTarget !== true) return false
+    var bits = Number(mode) || 0
+    if ((bits & 0o170000) !== 0o100000) return false
+    return (bits & 0o100) === 0
 }
 
 // MenuAdditions040: the Copy as flyout, six leaves in board order, each

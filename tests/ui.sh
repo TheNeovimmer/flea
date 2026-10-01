@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Drives the real Quickshell window with omarchy-drive and asserts through the read-only IPC seam.
-# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|rename|renamelife|taildrop|grid|columns|columnsbackground|reclick|colroot|operations|tabs|tabdrag|openterminal|renderer|settings|makedefault|scrolllane|noblank|previewswap ...|previewswap|recent ...|middleclick]; networklive is opt-in.
+# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|rename|renamelife|taildrop|grid|columns|columnsbackground|reclick|colroot|operations|tabs|tabdrag|openterminal|makeexec|renderer|settings|makedefault|scrolllane|noblank|previewswap ...|previewswap|recent ...|middleclick]; networklive is opt-in.
 set -u
 set -o pipefail
 # Hard rule 9's guard, which owns FIXTURE_ROOT and every create and delete this suite makes.
@@ -2673,9 +2673,9 @@ case_background() {
     [[ "$(ipc contextMenuVisible)" == "true" ]] \
         || fail "background: a right click on empty space opened no menu"
     # Menus.html's background column: New Folder and New File lead it, and GM ruled Add to Favorites stays.
-    [[ "$(ipc contextMenuEntries)" == "New Folder|New File|-|Paste|Select all|-|Add to Favorites|-|Sort by|Show hidden files|-|Settings" ]] \
+    [[ "$(ipc contextMenuEntries)" == "New Folder|New File|-|Paste|Select all|-|Open in terminal|Add to Favorites|-|Sort by|Show hidden files|-|Settings" ]] \
         || fail "background: the menu is not the board's column, it is $(ipc contextMenuEntries)"
-    [[ "$(ipc contextMenuGlyphs)" == "folder-plus|file-plus|-|clipboard|check|-|star|-|sort|eye|-|sliders" ]] \
+    [[ "$(ipc contextMenuGlyphs)" == "folder-plus|file-plus|-|clipboard|check|-|terminal|star|-|sort|eye|-|sliders" ]] \
         || fail "background: a row lost its mark, the set is $(ipc contextMenuGlyphs)"
     # A right click ON a row still gets that row's own menu: the two entrances share one instance,
     # so a hasRow left standing from the last open would be the defect this asserts against.
@@ -2764,7 +2764,7 @@ case_background() {
     # The empty listing is also the strongest case for this menu, and it has no row to aim from.
     click_background
     settle
-    [[ "$(ipc contextMenuEntries)" == "New Folder|New File|-|Paste|Select all|-|Add to Favorites|-|Sort by|Show hidden files|-|Settings" ]] \
+    [[ "$(ipc contextMenuEntries)" == "New Folder|New File|-|Paste|Select all|-|Open in terminal|Add to Favorites|-|Sort by|Show hidden files|-|Settings" ]] \
         || fail "background: an empty directory drew $(ipc contextMenuEntries)"
     # Its own name: the empty-mark poll above already owns background-empty.png.
     shot background-empty-menu
@@ -2805,7 +2805,7 @@ case_background() {
         settle
         printf 'BACKGROUND %s entries=%s\n' "$view" "$(ipc contextMenuEntries)"
         shot "background-$view"
-        [[ "$(ipc contextMenuEntries)" == "New Folder|New File|-|Paste|Select all|-|Add to Favorites|-|Sort by|Show hidden files|-|Settings" ]] \
+        [[ "$(ipc contextMenuEntries)" == "New Folder|New File|-|Paste|Select all|-|Open in terminal|Add to Favorites|-|Sort by|Show hidden files|-|Settings" ]] \
             || fail "background: the $view view drew $(ipc contextMenuEntries)"
         key -k Escape >/dev/null
         settle
@@ -2836,6 +2836,74 @@ case_background() {
         key -k Escape >/dev/null
         settle
     done
+    if [[ -n "$real_state" ]]; then export XDG_STATE_HOME="$real_state"; else unset XDG_STATE_HOME; fi
+}
+
+# MenuAdditions040 callout 10 and Permissions040 callout 3: Make executable shows only on a script
+# missing its bit, adds the owner bit, and one undo restores it. The fixture holds build.sh (a
+# shebang script at 0644) beside notes.txt (0644, no shebang), at defaults, so Permissions stays hidden.
+case_makeexec() {
+    local dir="$fixture_root/makeexec"
+    sandbox_scratch "$dir"
+    printf '#!/bin/sh\necho built\n' > "$dir/build.sh"
+    printf 'plain notes\n' > "$dir/notes.txt"
+    chmod 644 "$dir/build.sh" "$dir/notes.txt"
+    local real_state="${XDG_STATE_HOME-}"
+    seed_ui_state "$fixture_root/makeexec-state" '{"view":"list","keys":"default"}'
+    launch "$dir"
+    wait_listing 2
+
+    # build.sh: the row is present after Move to Trash's group, in the board's specimen g order.
+    seek_row_named "build.sh"
+    click_row "$(ipc cursor)" right
+    local entries="" deadline=$(( $(date +%s%3N) + 15000 ))
+    while (( $(date +%s%3N) < deadline )); do
+        entries=$(ipc contextMenuEntries)
+        [[ "$entries" == *"Make executable"* ]] && break
+        sleep 0.1
+    done
+    printf 'MAKEEXEC build entries=%s\n' "$entries"
+    [[ "$entries" == *"Make executable"* ]] \
+        || fail "makeexec: build.sh offers no Make executable row, got $entries"
+    [[ "${entries%%Make executable*}" == *"Move to Trash"* ]] \
+        || fail "makeexec: Make executable is not after Move to Trash's group in $entries"
+    [[ "${entries##*Make executable}" == "|Add to Favorites"* ]] \
+        || fail "makeexec: Make executable is not before Add to Favorites in $entries"
+    menu_seek "Make executable"
+    key -k Return >/dev/null
+    local mode="" deadline2=$(( $(date +%s%3N) + 15000 ))
+    while (( $(date +%s%3N) < deadline2 )); do
+        mode=$(stat -c '%a' "$dir/build.sh")
+        [[ "$mode" == "744" ]] && break
+        sleep 0.1
+    done
+    [[ "$(stat -c '%a' "$dir/build.sh")" == "744" ]] \
+        || fail "makeexec: build.sh stayed $(stat -c '%a' "$dir/build.sh"), not 744"
+    wait_message "Made it executable. · z undoes"
+    key z >/dev/null
+    local back="" deadline3=$(( $(date +%s%3N) + 15000 ))
+    while (( $(date +%s%3N) < deadline3 )); do
+        back=$(stat -c '%a' "$dir/build.sh")
+        [[ "$back" == "644" ]] && break
+        sleep 0.1
+    done
+    [[ "$(stat -c '%a' "$dir/build.sh")" == "644" ]] \
+        || fail "makeexec: undo left $(stat -c '%a' "$dir/build.sh"), not 644"
+    wait_message "Undid the permissions."
+
+    # notes.txt: the same menu with no shebang offers no such row.
+    key -k Escape >/dev/null
+    settle
+    seek_row_named "notes.txt"
+    click_row "$(ipc cursor)" right
+    settle
+    local plain=""
+    plain=$(ipc contextMenuEntries)
+    printf 'MAKEEXEC notes entries=%s\n' "$plain"
+    [[ "$plain" != *"Make executable"* ]] \
+        || fail "makeexec: notes.txt offers Make executable in $plain"
+    key -k Escape >/dev/null
+    settle
     if [[ -n "$real_state" ]]; then export XDG_STATE_HOME="$real_state"; else unset XDG_STATE_HOME; fi
 }
 
@@ -11147,7 +11215,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick)
 
 : > "$run_log"
 : > "$flea_log"

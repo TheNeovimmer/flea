@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import "." as Flea
 import "js/DirSizes.js" as DirSizes
 import "js/Dropbox.js" as Dropbox
@@ -15,6 +16,7 @@ import "js/Archive.js" as Archive
 import "js/Nav.js" as Nav
 import "js/RecentMode.js" as RecentMode
 import "js/Ops.js" as Ops
+import "js/Permissions.js" as Permissions
 import "js/Selection.js" as Selection
 import "js/SlowClick.js" as SlowClick
 import "js/Sort.js" as Sort
@@ -443,6 +445,92 @@ FocusScope {
         var indices = Ops.targetIndices(root)
         return indices.length === 1 ? root.rowFor(indices[0]) : null
     }
+    // MenuAdditions040 callout 10: Make executable acts on exactly one target and that target is
+    // the cursor row; anything else hides the row and the action refuses.
+    function isSingleCursorTarget() {
+        var indices = Ops.targetIndices(root)
+        return indices.length === 1 && indices[0] === root.cursorIndex
+    }
+    // MenuAdditions040 callout 10: the cursor row's two-byte shebang prefix, read once per menu
+    // open for that one file and never per row or per cursor move. The menu opens first without the
+    // row and refreshes it in when the read lands, the same async shape providers already use.
+    // The flag is cleared when a check starts and an answer lands only on the path asked for, so a
+    // slow read for an earlier file can never arm a later one; a check arriving mid-read queues one
+    // pending path and never runs in parallel.
+    property bool rowHasShebang: false
+    property string shebangAsked: ""
+    property string shebangPending: ""
+    property int makeExecPendingId: 0
+    Process {
+        id: shebangProc
+        stdout: StdioCollector { waitForEnd: true }
+        onExited: function (code, status) {
+            var answered = root.shebangAsked
+            root.shebangAsked = ""
+            var isShebang = code === 0 && shebangProc.stdout.text.substring(0, 2) === "#!"
+            if (answered.length > 0 && answered === root.shebangTarget()) {
+                root.rowHasShebang = isShebang
+                if (root.menu.opened && root.menu.hasRow) root.menu.refreshProviderRows()
+            }
+            if (root.shebangPending.length > 0) {
+                var next = root.shebangPending
+                root.shebangPending = ""
+                root.startShebangRead(next)
+            }
+        }
+    }
+    // The cursor row's own path while it is a regular file without its owner bit, "" otherwise: the
+    // one path a shebang read may answer for, so a landed answer for anywhere else is dropped.
+    function shebangTarget() {
+        var row = root.cursorRow
+        if (!row || row.d) return ""
+        var bits = Number(row.p) || 0
+        if ((bits & 0o170000) !== 0o100000 || (bits & 0o100) !== 0) return ""
+        return root.join(root.path, row.n)
+    }
+    function startShebangRead(path) {
+        root.shebangAsked = path
+        root.rowHasShebang = false
+        shebangProc.command = ["head", "-c", "2", "--", path]
+        shebangProc.running = true
+    }
+    function checkShebang() {
+        var path = root.shebangTarget()
+        if (path.length === 0) {
+            root.shebangAsked = ""
+            root.shebangPending = ""
+            if (shebangProc.running) shebangProc.signal(9)
+            root.rowHasShebang = false
+            return
+        }
+        if (shebangProc.running) {
+            root.rowHasShebang = false
+            root.shebangPending = path
+            return
+        }
+        root.shebangPending = ""
+        root.startShebangRead(path)
+    }
+    // MenuAdditions040 callout 10: adds the owner execute bit through the existing permissions
+    // batch, so one undo restores it and redo re-applies it via Step::Mode. The target is exactly
+    // the cursor row; anything else refuses with the existing sentence. The old mode comes from
+    // that same row with its special bits kept.
+    function makeExecutable(paths) {
+        if (!root.isSingleCursorTarget()) {
+            root.message("Make executable needs a script without its execute bit.", false)
+            return
+        }
+        var row = root.rowFor(root.cursorIndex)
+        if (!row || !Menu.canMakeExecutable(row.p, 1, root.rowHasShebang, true)) {
+            root.message("Make executable needs a script without its execute bit.", false)
+            return
+        }
+        var taken = [root.join(root.path, row.n)]
+        var oldBits = (Number(row.p) || 0) & 0o7777
+        var octal = Permissions.octal((oldBits | 0o100) & 0o7777)
+        root.makeExecPendingId += 1
+        root.backend.send({ c: "permissionsBatch", paths: taken, modes: [octal], id: 1000000 + root.makeExecPendingId })
+    }
     // MenuAdditions040: Permissions takes the whole selection, so the menu
     // row carries every target's mode and the dialog inspects each in turn.
     function permissionModes() {
@@ -787,18 +875,20 @@ FocusScope {
             && Archive.canExtract(root.cursorRow.n, root.backend.extraction)
         rowMode: root.permissionSelection() ? root.permissionSelection().p : 0
         selectionCount: Ops.targetIndices(root).length
+        cursorIsTarget: root.isSingleCursorTarget()
         openWithApps: menuActions.openWithApps
         openWithLoaded: menuActions.openWithLoaded
         selectionIdentity: root.menuSelectionIdentity
         clipboardAvailable: root.clipboard.paths.length > 0
         // MenuAdditions rule 2: the scripts directory is read when a menu opens and never watched.
         // Directive 71: and the devices are asked for then too, the way Taildrop asks for its peers.
-        onSnapshotRequested: { menuActions.snapshot(); Flea.Scripts.refresh(); menuActions.localSend.refresh(menu.localSend.installed) }
+        onSnapshotRequested: { menuActions.snapshot(); Flea.Scripts.refresh(); menuActions.localSend.refresh(menu.localSend.installed); root.checkShebang() }
         onRefused: function(reason) { root.message(reason, true) }
         rowIsArchive: root.cursorRow !== null && !root.cursorRow.d && Archive.isArchive(root.cursorRow.n)
         rowIsImage: root.cursorRow !== null && root.cursorRow.i === "image-x-generic"
         // MenuAdditions040: Show original is visible but only on a symlink.
         rowIsSymlink: root.cursorRow !== null && Format.isSymlink(root.cursorRow.p)
+        rowHasShebang: root.rowHasShebang
         // MenuAdditions040: Permissions takes the whole selection, so the row
         // carries every target's mode beside the cursor row's own.
         selectionModes: root.permissionModes()

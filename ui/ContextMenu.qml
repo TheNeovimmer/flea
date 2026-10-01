@@ -38,6 +38,10 @@ Item {
     property bool rowIsImage: false
     // MenuAdditions040: Show original is visible but only on a symlink.
     property bool rowIsSymlink: false
+    // MenuAdditions040 callout 10: the two-byte shebang read of the cursor row at menu open.
+    property bool rowHasShebang: false
+    // ... and whether the menu's single target is the cursor row itself.
+    property bool cursorIsTarget: false
     property int rowMode: 0
     property int selectionCount: 0
     // MenuAdditions040: Permissions takes the whole selection.
@@ -166,6 +170,7 @@ Item {
             openWithLoaded: root.openWithLoaded,
             rowMode: root.rowMode, selectionCount: root.selectionCount,
             rowIsSymlink: root.rowIsSymlink, selectionModes: root.selectionModes,
+            hasShebang: root.rowHasShebang, cursorIsTarget: root.cursorIsTarget,
             scripts: Flea.Scripts.entries, localSendInstalled: root.localSend.installed, localSendPeers: root.localSend.peers, localSendChecking: view.localSendChecking,
             // The Menus settings section's stored set; ui/js/Menu.js applyHidden is what reads it.
             hiddenActions: ViewState.menuHidden,

@@ -176,6 +176,7 @@ function act(action, root, menuId, paths) {
     case "pasteAs": root.openPasteAs(); return
     case "invertSelection": root.invertSelection(); return
     case "showOriginal": root.showOriginal(); return
+    case "makeExecutable": root.makeExecutable(paths); return
     case "copyPath": Ops.copyAs(root, "path", paths); return
     case "copyName": Ops.copyAs(root, "name", paths); return
     case "copyStem": Ops.copyAs(root, "stem", paths); return

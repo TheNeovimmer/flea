@@ -63,7 +63,11 @@ Item {
             rowMode: 0, selectionCount: 1, scripts: [], localSendInstalled: false,
             localSendPeers: [], localSendChecking: false, hiddenActions: [],
             storageClass: m ? m.storageClass : "", thumbPreview: ViewState.preview,
-            updateVersion: "", hasFolderSort: m ? m.hasFolderSort : false
+            updateVersion: "", hasFolderSort: m ? m.hasFolderSort : false,
+            // MenuAdditions040 callout 10: the sheet lists the cursor row's menu rows the way the
+            // menu does, so it reads the same two-byte shebang flag the menu's own open read.
+            hasShebang: holder.rowHasShebang === true,
+            cursorIsTarget: false,
         }
         try {
             if (holder.permissionSelection) {
@@ -73,6 +77,8 @@ Item {
             }
             if (holder.selectionCount)
                 p.selectionCount = holder.selectionCount()
+            if (holder.isSingleCursorTarget)
+                p.cursorIsTarget = holder.isSingleCursorTarget() === true
         } catch (e) {}
         return Menu.listingEntries(p)
     }
@@ -245,6 +251,9 @@ Item {
         root.recentAsked = false
         root.resultCursor = 0
         recentLoader.active = false
+        // MenuAdditions040 callout 10: one two-byte read for the cursor row, the sheet's own
+        // menu-open moment, so the query finds Make executable the way the menu shows it.
+        try { if (holder && holder.checkShebang) holder.checkShebang() } catch (e) {}
         root.opened = true
         keys.forceActiveFocus()
     }

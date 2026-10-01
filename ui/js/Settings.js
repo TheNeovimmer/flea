@@ -34,7 +34,7 @@ var MENU_GROUPS = [
     { id: "basic", label: "Basic file actions", ids: BASIC },
     { id: "destructive", label: "Destructive", ids: ["delete"] },
     { id: "openInspect", label: "Open and inspect",
-      ids: ["openwith", "openTerminal", "moveto", "copyto", "properties", "permissions", "copyAs", "showOriginal"] },
+      ids: ["openwith", "openTerminal", "moveto", "copyto", "properties", "permissions", "makeExecutable", "copyAs", "showOriginal"] },
     { id: "extras", label: "Extras", features: ["placeMenu"],  // features gate a surface, not a row
       ids: ["shelf", "compress", "extract", "convert", "taildrop", "localsend", "dropbox", "sharelink", "runScript", "placeMenu", "updateFlea", "extThumbs", "pasteAs", "invertSelection"] }
 ]
@@ -45,7 +45,7 @@ var LOCKED = ["open", "toggleHidden"]
 var LABELS = {
     cut: "Cut", copy: "Copy", paste: "Paste", duplicate: "Duplicate", rename: "Rename",
     trash: "Move to Trash", openTerminal: "Open in terminal", copyAs: "Copy as", showOriginal: "Show original",
-    pasteAs: "Paste as", invertSelection: "Invert selection", permissions: "Permissions",
+    pasteAs: "Paste as", invertSelection: "Invert selection", permissions: "Permissions", makeExecutable: "Make executable",
     delete: "Delete permanently", openwith: "Open with", moveto: "Move to", copyto: "Copy to", properties: "Properties",
     compress: "Compress", extract: "Extract", localsend: "Send with LocalSend",
     convert: "Convert", taildrop: "Send with Taildrop", dropbox: "Move to Dropbox",
@@ -61,7 +61,7 @@ var PRESET_LABELS = { "default": "Default", vim: "Vim", mac: "Mac", windows: "Wi
 var GLYPHS = {
     cut: "scissors", copy: "copy", paste: "clipboard", duplicate: "file-plus", rename: "rename",
     trash: "trash", openTerminal: "terminal", copyAs: "file-text", showOriginal: "symlink",
-    pasteAs: "symlink", invertSelection: "contrast", permissions: "lock", compress: "archive",
+    pasteAs: "symlink", invertSelection: "contrast", permissions: "lock", makeExecutable: "play", compress: "archive",
     delete: "trash", openwith: "app-window", moveto: "folder-plus", copyto: "copy", properties: "info",
     extract: "archive-out",
     convert: "sliders", sharelink: "network", open: "folder-open", toggleHidden: "eye", placeMenu: "folder-open", runScript: "terminal",

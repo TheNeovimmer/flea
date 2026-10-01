@@ -350,6 +350,21 @@ Item {
             pane.refresh("")
         }
 
+        // MenuAdditions040 callout 10: Make executable reuses the permissions batch for its one
+        // Mode step, so undo and redo already work. Only the pending id this pane sent is answered
+        // here; the dialog's own batches stay with the dialog.
+        function onPermissionsResult(message) {
+            var pending = 1000000 + pane.makeExecPendingId
+            if (!pane.makeExecPendingId || !message || message.id !== pending || message.op !== "applyMany") return
+            pane.makeExecPendingId = 0
+            if (message.ok === true) {
+                pane.message("Made it executable." + Status.UNDO_HINT, false)
+                pane.refresh("")
+            } else {
+                pane.message(message.error && message.error.length > 0 ? message.error : "That file could not be made executable.", true)
+            }
+        }
+
         function onRedoStarted(id, n, op) {
             var next = Ops.started(id, false, n)
             next.redo = op

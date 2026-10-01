@@ -24,10 +24,10 @@ function separated(rows) {
 }
 function run(check) {
     var file = Menu.listingEntries(state({}))
-    check("Menus and Places inventory has 48 actions", Menu.INVENTORY.length, 48)
+    check("Menus and Places inventory has 49 actions", Menu.INVENTORY.length, 49)
     check("Open with uses the authoritative cut geometry", Icons.pathFor("app-window"), "M3 4h18v16H3z M3 9h18 M6 6.5h.01 M9 6.5h.01")
     check("Restore all uses the authoritative undo geometry", Icons.pathFor("undo"), "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5")
-    check("inventory storage ids are unique", Object.keys(Menu.INVENTORY.reduce(function (out, row) { out[row[0]] = true; return out }, {})).length, 48)
+    check("inventory storage ids are unique", Object.keys(Menu.INVENTORY.reduce(function (out, row) { out[row[0]] = true; return out }, {})).length, 49)
     check("default image menu matches Menus specimen", actions(file),
           "open,openWith,cut,copy,paste,duplicate,rename,compress,convert,addToShelf,taildrop,dropbox,trash,addFavourite,toggleHidden")
     check("empty clipboard leaves Paste visible and disabled", entry(file, "paste").disabled, true)
@@ -35,7 +35,7 @@ function run(check) {
     check("folder omits conversion and extraction", actions(Menu.listingEntries(state({ rowMode: 0o040755, rowIsImage: false }))),
           "open,openWith,cut,copy,paste,duplicate,rename,compress,addToShelf,taildrop,dropbox,trash,addFavourite,toggleHidden")
     check("background menu includes real creation actions in order", actions(Menu.listingEntries(state({ hasRow: false }))),
-          "newFolder,newFile,paste,selectAll,addFavourite,sort,toggleHidden,settings")
+          "newFolder,newFile,paste,selectAll,openTerminal,addFavourite,sort,toggleHidden,settings")
     var background = Menu.listingEntries(state({ hasRow: false, updateVersion: "0.3.4" }))
     check("a known newer build adds Update Flea under Settings, in the same group, with the download mark",
           background.slice(-2).map(function (r) { return (r.separator ? "|" : r.action) + ":" + r.glyph }).join(","),
@@ -88,9 +88,9 @@ function run(check) {
           Icons.pathFor(openTabSpec[2]) === Icons.pathFor("file"), false)
     check("Add to shelf draws the shelf's own cut glyph, not the file fallback",
           Icons.pathFor(shelfSpec[2]) === Icons.pathFor("file"), false)
-    var all = Menu.listingEntries(state({ hiddenActions: [], rowIsSymlink: true }))
+    var all = Menu.listingEntries(state({ hiddenActions: [], rowIsSymlink: true, hasShebang: true, cursorIsTarget: true }))
     check("stored delete id reaches permanent deletion action", entry(all, "deletePermanently").id, "delete")
-    check("all optional file controls exist", ["openWith", "moveTo", "copyTo", "properties", "permissions", "copyAs", "showOriginal", "pasteAs", "openTerminal"].every(function (a) { return !!entry(all, a).action }), true)
+    check("all optional file controls exist", ["openWith", "moveTo", "copyTo", "properties", "permissions", "makeExecutable", "copyAs", "showOriginal", "pasteAs", "openTerminal"].every(function (a) { return !!entry(all, a).action }), true)
     // Invert selection lives on the background menu beside Select all, never on a file row.
     check("while Invert selection lives on the background menu",
         entry(Menu.listingEntries(state({ hasRow: false, hiddenActions: [] })), "invertSelection").action, "invertSelection")
@@ -130,6 +130,34 @@ function run(check) {
         entry(Menu.listingEntries(state({ hasRow: false, selectionCount: 0, hiddenActions: [] })), "invertSelection").action, undefined)
     check("and present once something is",
         entry(Menu.listingEntries(state({ hasRow: false, hiddenActions: [] })), "invertSelection").action, "invertSelection")
+    // MenuAdditions040 callout 9: the background shows Open in terminal at defaults, while file
+    // and place keep it behind the switch.
+    check("the background shows Open in terminal while it stays hidden",
+        entry(Menu.listingEntries(state({ hasRow: false })), "openTerminal").action, "openTerminal")
+    check("and the file menu hides it behind that same switch",
+        entry(Menu.listingEntries(state({})), "openTerminal").action, undefined)
+    check("with the switch off the file menu shows it too",
+        entry(Menu.listingEntries(state({ hiddenActions: ["delete"] })), "openTerminal").action, "openTerminal")
+    // MenuAdditions040 callout 10 and Permissions040 callout 3: Make executable shows only on a
+    // regular file with a shebang and no owner execute bit, cursor row only, no key.
+    check("Make executable shows on a script missing its bit",
+        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, "makeExecutable")
+    check("and wears the play mark no neighbour wears",
+        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, hasShebang: true, cursorIsTarget: true })), "makeExecutable").glyph, "play")
+    check("without a shebang it is absent",
+        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, cursorIsTarget: true })), "makeExecutable").action, undefined)
+    check("with the execute bit already set it is absent too",
+        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100744, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, undefined)
+    check("on a directory it is absent",
+        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o040755, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, undefined)
+    check("on a multi-selection it is absent",
+        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, selectionCount: 2, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, undefined)
+    check("on a single selection that is not the cursor row it is absent",
+        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, hasShebang: true, cursorIsTarget: false })), "makeExecutable").action, undefined)
+    check("and the Menus switch takes it away like any other row",
+        entry(Menu.listingEntries(state({ hiddenActions: ["makeExecutable"], rowMode: 0o100644, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, undefined)
+    check("it sits where hidden Permissions would sit before it",
+        actions(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, hasShebang: true, cursorIsTarget: true, selectionModes: [0o100644] }))).indexOf("permissions,makeExecutable") >= 0, true)
     check("missing converter removes Convert", entry(Menu.listingEntries(state({ canConvert: false })), "convert").action, undefined)
     check("missing archiver removes Compress", entry(Menu.listingEntries(state({ archiveFormats: [] })), "compress").action, undefined)
     var noReader = entry(Menu.listingEntries(state({ rowIsArchive: true, canExtract: false, archiveFormats: ["zip", "tar"] })), "extract")
