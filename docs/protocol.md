@@ -150,9 +150,9 @@ so `window`, `thumb`, `paths` and every other per-row facility keep working with
 anywhere; that is the same shape a `search` listing takes, for the same reason. The client splits
 the last `/` itself when it wants to draw a name rather than a path.
 
-**Nothing is sorted.** The order the client sent is the order it gets back, because the one caller
-is the picker's Recent location and its order is the history's own, newest first; a sort by name
-would throw that away. `read` on the `listed` line is the time this build took and `sort` is always
+**Nothing is sorted.** The order the client sent is the order it gets back, because the callers
+are the picker's Recent location and the main window's Recent place, and their order is the
+history's own, newest first; a sort by name would throw that away. `read` on the `listed` line is the time this build took and `sort` is always
 `0.0`.
 
 **A path that does not exist is dropped, not listed.** The build `lstat`s each one, so a history

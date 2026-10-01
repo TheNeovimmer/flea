@@ -31,7 +31,7 @@ pub const DEFAULTS: &str = r#"{
   "trashSweptOn": 0,
   "places": {
     "favourites": [],
-    "showHome": true, "showNetwork": true,
+    "showHome": true, "showRecent": false, "showNetwork": true,
     "showDevices": true, "showTrash": true,
     "driveSize": false, "trashCount": false, "showUnmounted": true, "rail": "shown", "autoHide": false, "sidebarWidth": 192
   },
@@ -107,6 +107,8 @@ pub const DUAL: &[(&str, Rule)] = &[("paths", Rule::Pair), ("focus", Rule::Count
 pub const PLACES: &[(&str, Rule)] = &[
     ("favourites", Rule::Favourites),
     ("showHome", Rule::Bool),
+    // Sidebar040: the Recent place ships off, so a shared screen never names recent files.
+    ("showRecent", Rule::Bool),
     ("showNetwork", Rule::Bool),
     ("showDevices", Rule::Bool),
     ("showTrash", Rule::Bool),
@@ -309,6 +311,8 @@ mod tests {
         assert_eq!(d.get("places").and_then(|p| p.get("autoHide")).and_then(Json::as_bool), Some(false));
         assert_eq!(d.get("places").and_then(|p| p.get("driveSize")).and_then(Json::as_bool), Some(false));
         assert_eq!(d.get("places").and_then(|p| p.get("trashCount")).and_then(Json::as_bool), Some(false));
+        // Sidebar040: Recent ships off, so a fresh rail names no recent file.
+        assert_eq!(d.get("places").and_then(|p| p.get("showRecent")).and_then(Json::as_bool), Some(false));
         // GM's 0.3.3 ruling: unmounted drives are on the rail unless the operator switches them off.
         assert_eq!(d.get("places").and_then(|p| p.get("showUnmounted")).and_then(Json::as_bool), Some(true));
         assert_eq!(d.get("preview").and_then(|p| p.get("loadOn")).and_then(Json::as_str), Some("automatic"));

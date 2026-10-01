@@ -79,6 +79,9 @@ Item {
             focused: root.pane.railPane.focusView === Focus.RAIL
             trashActive: root.pane.railPane.trash.opened
             onOpened: function(path) { RailKeys.openFrom(root.pane.railPane, path, sidebar) }
+            // Sidebar040: the rail's Recent row answers with the history's own paths, which the
+            // pane lists with listpaths; focus follows into the folder the way a mount's open does.
+            onRecentRequested: function (paths) { root.pane.railPane.openRecent(paths); RailKeys.landed(root.pane.railPane, sidebar) }
             onTrashRequested: root.pane.railPane.trash.open()
             onMessage: function(text, isError) { RailKeys.messaged(sidebar, isError); root.pane.message(text, isError) }
             onForgetMessage: function(text) { root.pane.forgetMessage(text) }

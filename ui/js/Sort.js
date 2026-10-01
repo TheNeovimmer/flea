@@ -2,6 +2,7 @@
 
 .import "DirSizes.js" as DirSizes
 .import "FolderSorts.js" as FolderSorts
+.import "RecentMode.js" as RecentMode
 .import "Thumbs.js" as Thumbs
 
 // What the header's click and the s and S keys do, taking ui/Pane.qml's root the way Nav.js and
@@ -36,7 +37,12 @@ function reverseOrder(by, desc) {
 // ui/Header.qml's click: only ORDERS leave this file except the forget row.
 function column(pane, key) {
     // The flyout's last row (issue 179) forgets the folder and lists it on the default.
+    // Recent stands on the root, so forgetting re-asks its history instead of listing the root over it.
     if (key === "__default__") {
+        if ((pane.recentMode || "").length > 0) {
+            RecentMode.run(pane, pane.recentPaths || [])
+            return
+        }
         if (pane.backend && pane.backend.forgetFolderSort)
             pane.backend.forgetFolderSort(pane.path)
         // A preserved pane skips the reset a list would do, so refresh here or it keeps its old order.
@@ -77,9 +83,10 @@ function resort(pane, key, desc) {
     }
     pane.backend.sortBy = key
     pane.backend.sortDesc = desc
-    // A walk's rows are matches, not the folder's, so sorting them writes nothing.
+    // A walk's rows are matches, not the folder's, so sorting them writes nothing. Recent stands
+    // on the root, so its order is never remembered as the root's own.
     if (pane.backend && pane.backend.rememberFolderSort
-            && (pane.searchMode || "") === "")
+            && (pane.searchMode || "") === "" && (pane.recentMode || "") === "")
         pane.backend.rememberFolderSort(pane.path, key, desc)
     // A reorder moves every row, so the caches keyed by a row index are as stale as a new listing's,
     // and a selection of row indices would silently come to name different files.

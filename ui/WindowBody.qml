@@ -112,7 +112,9 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
+        // A history is a location and not a directory, so the chrome says its own name.
         path: view.currentPane.trash.opened ? "Trash"
+            : view.currentPane.recentMode.length > 0 ? "Recent"
             : view.currentPane.path
         // True only when the drawn path's listing failed, so the bar retries it and nothing else.
         pathFailed: Nav.pathFailed(view.currentPane)

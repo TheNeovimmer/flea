@@ -59,6 +59,7 @@ ShellRoot {
             property var kindNames: []
             property string searchMode: ""
             property string searchQuery: ""
+            property string recentMode: ""
             property string filterQuery: ""
             property var selectionBand: null
             property int previewIndex: -1

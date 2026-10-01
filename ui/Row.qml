@@ -46,13 +46,16 @@ Item {
     // Which of the two is narrowing. A filter keeps the ordinary columns, because its rows are this directory's own and their names are plain names, not paths.
     property bool filtering: false
     // A search row's name is its path relative to the search root, so the name and location split here; see docs/protocol.md "search".
+    // A recent row's name is its path under the history's base, so it splits the way a search row's does.
+    property bool recenting: false
     readonly property bool searching: !root.filtering && root.searchQuery.length > 0 && root.row !== null && root.row.n.length > 0
-    readonly property string displayName: root.row ? (root.searching ? Match.base(root.row.n) : root.row.n) : ""
+    readonly property bool locating: root.searching || root.recenting
+    readonly property string displayName: root.row ? (root.locating ? Match.base(root.row.n) : root.row.n) : ""
     // FleaWindow.html and ThemeRoles.html both spell it "shell -> /usr/share/omarchy".
     readonly property string linkMark: root.row && root.row.l ? " -> " + root.row.l : ""
     // The name, then a link's target; a folder carries no slash, its glyph and the folders-first order already say it.
     readonly property string decoratedName: root.displayName + root.linkMark
-    readonly property string locationText: root.searching ? Match.location(root.row.n) : ""
+    readonly property string locationText: root.locating ? Match.location(root.row.n) : ""
     readonly property var nameRun: Match.run(root.displayName, root.searchQuery)
     // Assigned by List.qml's shared budgets; -2 keeps the local geometry default for PickerList and drop-target rows.
     property int assignedNameBudget: -2
@@ -71,11 +74,12 @@ Item {
     // The columns this row's width affords. A column that is not drawn takes neither its width nor its gap, so the chain collapses onto its right neighbour.
     property var assignedCols: null // Set by List.qml; null keeps the local default below.
     readonly property var cols: root.assignedCols !== null ? root.assignedCols : (root.dualMode ? Theme.dualColumns(root.width, root.hiddenCols) : Theme.columns(root.width, root.hiddenCols, root.dateWidth))
-    readonly property bool modeShown: !root.searching && root.cols.mode
+    readonly property bool modeShown: !root.locating && root.cols.mode
     // The search column set keeps Size and drops the other three, so only this one ignores searching.
     readonly property bool sizeShown: root.cols.size
-    readonly property bool dateShown: !root.searching && root.cols.date
-    readonly property bool kindShown: !root.searching && root.cols.kind
+    // Recent keeps the date as Used, newest first; a search keeps no date at all.
+    readonly property bool dateShown: (!root.searching || root.recenting) && root.cols.date
+    readonly property bool kindShown: !root.locating && root.cols.kind
 
     // A lifted row is the cursor, the pointer, or a selection member; all three take the same fill treatment, per qui Minimal.
     property bool lifted: root.cursor || root.hovered || root.selected || root.dropTarget
@@ -239,7 +243,7 @@ Item {
     // corner: a filename is arbitrary text, so PlainText everywhere; MatchText draws its runs the same way.
     MatchText {
         id: name
-        visible: !root.searching && !root.renaming
+        visible: !root.locating && !root.renaming
         anchors.left: icon.right
         anchors.leftMargin: Theme.spacing.gap
         anchors.right: mode.left
@@ -254,9 +258,9 @@ Item {
     }
 
     // The search column set: the name shrinks to its content so the location beside it has room.
-    // Both are built only while searching, over the same span the two drew in side by side.
+    // Both are built only while a row splits a path that way, over the same span the two drew in side by side.
     Loader {
-        active: root.searching
+        active: root.locating
         anchors.left: icon.right
         anchors.leftMargin: Theme.spacing.gap
         anchors.right: size.left

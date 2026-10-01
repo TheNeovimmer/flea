@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Drives the real Quickshell window with omarchy-drive and asserts through the read-only IPC seam.
-# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|rename|renamelife|taildrop|grid|columns|columnsbackground|reclick|colroot|operations|tabs|tabdrag|openterminal|renderer|settings|makedefault|scrolllane|noblank|previewswap ...]; networklive is opt-in.
+# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|rename|renamelife|taildrop|grid|columns|columnsbackground|reclick|colroot|operations|tabs|tabdrag|openterminal|renderer|settings|makedefault|scrolllane|noblank|previewswap ...|previewswap|recent ...]; networklive is opt-in.
 set -u
 set -o pipefail
 # Hard rule 9's guard, which owns FIXTURE_ROOT and every create and delete this suite makes.
@@ -8607,6 +8607,74 @@ EOS
     sandbox_remove "$fixture_home"
 }
 
+# Sidebar040: the rail's Recent row lists the desktop's history newest first, with the Used
+# mark over it, and Esc hands back the folder it was opened over. The history is a fixture
+# XBEL under a fixture home, so no other application's bookmarks can move the rows.
+case_recent() {
+    local dir="$fixture_root/recent"
+    sandbox_scratch "$dir"
+    printf 'first file\n' > "$dir/alpha.txt"
+    printf 'second file\n' > "$dir/beta.txt"
+
+    local fixture_home="$fixture_root/recent-home"
+    fixture_home_make "$fixture_home"
+    mkdir -p "$fixture_home/.local/share"
+    cat > "$fixture_home/.local/share/recently-used.xbel" <<EOS
+<?xml version="1.0" encoding="UTF-8"?>
+<xbel version="1.0">
+  <bookmark href="file://$dir/beta.txt" added="2026-09-26T10:00:00Z" modified="2026-09-26T10:00:00Z" visited="2026-09-27T10:00:00Z"/>
+  <bookmark href="file://$dir/alpha.txt" added="2026-09-26T09:00:00Z" modified="2026-09-26T09:00:00Z" visited="2026-09-26T09:00:00Z"/>
+</xbel>
+EOS
+
+    local state="$fixture_root/recent-state"
+    seed_ui_state "$state" '{"places":{"showRecent":true}}'
+    local real_home="$HOME"
+    export HOME="$fixture_home"
+    launch "$dir"
+    export HOME="$real_home"
+    wait_listing 2
+    local labels=
+    for _attempt in $(seq 1 100); do
+        labels=$(ipc railLabels 2>/dev/null || printf unavailable)
+        if [[ "|$labels|" == *"|Recent|"* ]]; then break; fi
+        sleep 0.05
+    done
+    [[ "|$labels|" == *"|Recent|"* ]] \
+        || fail "recent: the rail has no Recent row: $labels"
+
+    key -k Tab >/dev/null
+    settle
+    [[ "$(ipc focusView)" == "rail" ]] || fail "recent: Tab did not reach the rail"
+    key j >/dev/null
+    settle
+    [[ "$(ipc railCursor)" == "1" ]] || fail "recent: Recent is not the second rail row"
+    key -k Return >/dev/null
+    local mode=total=
+    for _attempt in $(seq 1 200); do
+        mode=$(ipc recentMode 2>/dev/null || printf unavailable)
+        total=$(ipc total 2>/dev/null || printf unavailable)
+        if [[ "$mode" == "results" && "$total" == "2" && "$(ipc listInFlight 2>/dev/null)" == "false" ]]; then break; fi
+        sleep 0.05
+    done
+    [[ "$mode" == "results" ]] || fail "recent: Enter on the rail row never listed the history"
+    [[ "$total" == "2" ]] || fail "recent: the history listed $total rows, not 2"
+    [[ "$(ipc headerTitles)" == "Name|Size|Used" ]] \
+        || fail "recent: the header does not read Name|Size|Used: $(ipc headerTitles)"
+    [[ "$(ipc rowAt 0)" == *"/beta.txt|file|"* ]] \
+        || fail "recent: the newest bookmark is not first: $(ipc rowAt 0)"
+    [[ "$(ipc rowAt 1)" == *"/alpha.txt|file|"* ]] \
+        || fail "recent: the older bookmark is not second: $(ipc rowAt 1)"
+
+    key -k Escape >/dev/null
+    wait_path "$dir"
+    [[ "$(ipc recentMode)" == "" ]] || fail "recent: Esc left the mode standing"
+
+    printf 'RECENT listing=newest-first used-mark=ok esc-returns=ok\n'
+    kill_flea
+    sandbox_remove "$fixture_home"
+}
+
 # Task 19: F2 renames a Network rail entry in place; "NAS" is bookmark-only, "isos" is mount-only.
 case_rename() {
     local dir="$fixture_root/rename"
@@ -9452,6 +9520,15 @@ settings_places() {
         key -k Space >/dev/null; settle
         settings_wait_value ".places.$flag == true"
     done
+    # Sidebar040: Recent ships off, so its switch runs the other way round: on first, then off.
+    settings_click_control "places.showRecent"
+    settings_wait_value ".places.showRecent == true"
+    ipc railEntries | jq -e 'any(.[]; .group == "recent" and .label == "Recent")' >/dev/null \
+        || fail "settings: showRecent did not add the Recent rail row"
+    key -k Space >/dev/null; settle
+    settings_wait_value ".places.showRecent == false"
+    ipc railEntries | jq -e 'all(.[]; .group != "recent")' >/dev/null \
+        || fail "settings: showRecent did not remove the Recent rail row"
     for flag in driveSize trashCount; do
         settings_wait_value ".places.$flag == false"
         settings_click_control "places.$flag"
@@ -10899,7 +10976,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent)
 
 : > "$run_log"
 : > "$flea_log"

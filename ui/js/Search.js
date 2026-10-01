@@ -62,6 +62,11 @@ function run(root) {
     }
     root.path = scope
     root.searchMode = RESULTS
+    // A walk started from Recent leaves it the way a navigation does: the scope is a directory
+    // the walk can stand on, and the history it stood on is not one.
+    root.recentMode = ""
+    root.recentFrom = ""
+    root.recentPaths = []
     root.searchRunning = true
     root.searchScanned = 0
     root.searchCancelled = false

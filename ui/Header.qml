@@ -51,6 +51,9 @@ Item {
     // A search takes the header's slot whole, but the strip's ground is a plain Rectangle and
     // accepts no input, so the titles under it stay hittable unless the handlers go down with them.
     readonly property bool sortable: root.searchMode.length === 0
+    // Recent draws the search column set's name beside its location, with the date beside them as
+    // Used; Mode and Kind head nothing while it stands, the way no search heads them.
+    property bool recent: false
 
     // The columns this width affords, less the hidden ones; rows draw lane-narrow like this header.
     property var hiddenCols: ViewState.hiddenCols
@@ -82,7 +85,7 @@ Item {
         anchors.left: parent.left
         anchors.leftMargin: Theme.spacing.rowPaddingX + root.leadingSlot + (root.dualMode ? Theme.markSize + Theme.spacing.gap : 0)
         anchors.right: headerMode.left
-        anchors.rightMargin: root.cols.mode ? Theme.spacing.gap : 0
+        anchors.rightMargin: root.cols.mode && !root.recent ? Theme.spacing.gap : 0
         anchors.verticalCenter: parent.verticalCenter
         text: root.title("Name", "name")
         elide: Text.ElideRight
@@ -95,8 +98,8 @@ Item {
         anchors.right: headerSize.left
         anchors.rightMargin: root.cols.size && !root.dualMode ? Theme.spacing.gap : 0
         anchors.verticalCenter: parent.verticalCenter
-        visible: root.cols.mode
-        width: root.cols.mode ? (root.dragKey === "mode" ? root.dragPreview : Theme.column.mode) : 0
+        visible: root.cols.mode && !root.recent
+        width: root.cols.mode && !root.recent ? (root.dragKey === "mode" ? root.dragPreview : Theme.column.mode) : 0
         text: root.title("Mode", "mode")
     }
 
@@ -116,11 +119,11 @@ Item {
     PanelSectionHeader {
         id: headerDate
         anchors.right: headerKind.left
-        anchors.rightMargin: root.cols.kind ? Theme.spacing.gap : 0
+        anchors.rightMargin: root.cols.kind && !root.recent ? Theme.spacing.gap : 0
         anchors.verticalCenter: parent.verticalCenter
         visible: root.cols.date
         width: root.cols.date ? (root.dragKey === "date" ? root.dragPreview : root.dateWidth) : 0
-        text: root.title("Modified", "mtime")
+        text: root.title(root.recent ? "Used" : "Modified", "mtime")
         horizontalAlignment: Text.AlignRight
         elide: Text.ElideRight
 
@@ -133,8 +136,8 @@ Item {
         // The header carries the lane the rows keep: its own padding plus the lane, so titles stay over their cells.
         anchors.rightMargin: 2 * Theme.spacing.rowPaddingX
         anchors.verticalCenter: parent.verticalCenter
-        visible: root.cols.kind
-        width: root.cols.kind ? (root.dragKey === "kind" ? root.dragPreview : Theme.column.kind) : 0
+        visible: root.cols.kind && !root.recent
+        width: root.cols.kind && !root.recent ? (root.dragKey === "kind" ? root.dragPreview : Theme.column.kind) : 0
         text: root.title("Kind", "kind")
         elide: Text.ElideRight
 
@@ -362,11 +365,17 @@ Item {
 
     // What the header case reads, built from the same values the header renders.
     function titles() {
+        if (root.recent)
+            return "Name|Size|Used"
         return "Name|Mode|Size|Modified|Kind"
     }
 
     // What the header is drawing right now, for the seam that reads it beside a row's.
-    function columnSet() { return root.dualMode ? ["name"].concat(root.cols.size ? ["size"] : []).concat(root.cols.date ? ["date"] : []).join(",") : Theme.columnNames(root.contentWidth, root.hiddenCols, root.dateWidth) }
+    function columnSet() {
+        if (root.recent)
+            return ["name"].concat(root.cols.size ? ["size"] : []).concat(root.cols.date ? ["date"] : []).join(",")
+        return root.dualMode ? ["name"].concat(root.cols.size ? ["size"] : []).concat(root.cols.date ? ["date"] : []).join(",") : Theme.columnNames(root.contentWidth, root.hiddenCols, root.dateWidth)
+    }
 
     // The one lookup the geometry reader needs, the same by-key idiom Pane.itemFor uses for rows.
     function cell(key) {

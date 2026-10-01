@@ -2,6 +2,7 @@ import QtQuick
 import qs.Commons
 import "." as Flea
 import "js/Keymap.js" as Keymap
+import "js/SheetQuery.js" as SheetQuery
 
 // The keymap sheet ? opens, drawn as the Keys panel on Operations.dc.html draws it. Every row comes
 // from keys.toml through Keymap.sheetFor, so a key that loses its binding cannot go on being advertised.
@@ -10,7 +11,17 @@ Item {
 
     property bool opened: false
     property Item focusHolder: null
-    readonly property var sheet: Keymap.sheetFor(ViewState.keysPreset, "gui", root.focusHolder ? root.focusHolder.dualMode : false)
+    // The query field appears on the first typed key, never as a permanent field: the sheet at
+    // rest stays the generated sheet it always was. An exact label match ranks first, the way a
+    // place whose name the query matches exactly ranks first once places join the candidates.
+    property string query: ""
+    readonly property var sheet: {
+        var rows = Keymap.sheetFor(ViewState.keysPreset, "gui", root.focusHolder ? root.focusHolder.dualMode : false)
+        if (root.query.length === 0)
+            return rows
+        var candidates = rows.map(function (row) { return { label: row.label, keys: row.keys, section: 0, row: row } })
+        return SheetQuery.rank(candidates, root.query).map(function (candidate) { return candidate.row })
+    }
     // Directive 18's footprint: the four blocks flow into two columns of equal length rather than a
     // 2x2 grid, which paid twice for the taller block of each pair and grew the card to the screen.
     readonly property var columnSlots: {
@@ -120,6 +131,7 @@ Item {
 
     function open(holder) {
         root.focusHolder = holder
+        root.query = ""
         root.opened = true
         keys.forceActiveFocus()
     }
@@ -198,11 +210,32 @@ Item {
                 Text {
                     anchors.right: parent.right
                     anchors.baseline: title.baseline
-                    text: "esc closes"
+                    text: root.query.length > 0 ? "esc clears" : "esc closes"
                     color: Theme.color.muted
                     font.family: Theme.font.family
                     font.pixelSize: Theme.font.caption
                     textFormat: Text.PlainText
+                }
+            }
+
+            // The query the typed keys narrowed the sheet to, drawn only while one stands: at rest
+            // the card holds the title and the rows and nothing else.
+            Item {
+                width: parent.width
+                height: queryLine.visible ? queryLine.implicitHeight : 0
+                visible: root.query.length > 0
+
+                Text {
+                    id: queryLine
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    visible: root.query.length > 0
+                    text: root.query
+                    color: Theme.color.foreground
+                    font.family: Theme.font.family
+                    font.pixelSize: Theme.font.caption
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
                 }
             }
 
@@ -299,8 +332,30 @@ Item {
         anchors.fill: parent
         focus: true
 
-        // Any key closes it: the sheet is a reference and not a mode, and ? is how it comes back.
+        // The sheet is a reference and not a mode: a typed key narrows it instead of closing it,
+        // and ? is how it comes back. Esc clears the query first, then closes on the next press.
         Keys.onPressed: function (event) {
+            if (event.key === Qt.Key_Escape) {
+                if (root.query.length > 0)
+                    root.query = ""
+                else
+                    root.close()
+                event.accepted = true
+                return
+            }
+            if (event.key === Qt.Key_Backspace) {
+                if (root.query.length > 0)
+                    root.query = root.query.substring(0, root.query.length - 1)
+                else
+                    root.close()
+                event.accepted = true
+                return
+            }
+            if (event.text.length === 1 && event.text >= " ") {
+                root.query += event.text
+                event.accepted = true
+                return
+            }
             root.close()
             event.accepted = true
         }

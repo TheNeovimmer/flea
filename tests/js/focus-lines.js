@@ -19,6 +19,7 @@ function queryPane() {
     p.focusView = "list"
     p.viewMode = "list"
     p.searchMode = ""
+    p.recentMode = ""
     p.searchQuery = ""
     p.searchFrom = ""
     p.searchHere = false

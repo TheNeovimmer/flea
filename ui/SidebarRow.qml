@@ -28,6 +28,14 @@ Item {
     signal menuRequested(int index, var scenePosition)
     signal renameCommitted(int index, string text)
     signal renameCancelled(int index)
+    // Sidebar040: favourites reorder by drag, so a favourite carries its store index here and every
+    // other kind leaves -1 and drags nothing. line is the insertion boundary the drag hovers,
+    // fav-relative with lineCount past the last row, and moved(to) is the store index it lands on.
+    property int dragFrom: -1
+    property int line: -1
+    property int lineCount: 0
+    signal moved(int to)
+    signal reorderAt(int line)
 
     // A share or a removable volume carries a mount-state dot; the internal disk is always there
     // and always mounted, so a dot on it would say nothing, and a favourite is not a mount at all.
@@ -278,5 +286,53 @@ Item {
             }
             root.activated(root.index)
         }
+    }
+
+    // A favourite's own reorder drag, the rail's half of the handle ui/SettingsFavourite.qml draws:
+    // the row stays where it is and a 3 px accent bar rides the boundary the drop would land on.
+    DragHandler {
+        id: reorderDrag
+        enabled: root.dragFrom >= 0
+        target: null
+        xAxis.enabled: false
+        property real startY: 0
+        onActiveChanged: {
+            if (active) {
+                startY = persistentTranslation.y
+                return
+            }
+            var n = Math.max(1, root.lineCount)
+            var to = Math.max(0, Math.min(n - 1,
+                root.dragFrom + Math.round((persistentTranslation.y - startY) / Theme.railRowHeight)))
+            root.reorderAt(-1)
+            if (to !== root.dragFrom)
+                root.moved(to)
+        }
+        onCentroidChanged: {
+            if (!active)
+                return
+            var count = Math.max(1, root.lineCount)
+            var dy = persistentTranslation.y - startY
+            root.reorderAt(Math.max(0, Math.min(count,
+                root.dragFrom + Math.round(dy / Theme.railRowHeight) + (dy >= 0 ? 1 : 0))))
+        }
+    }
+
+    // The insertion line the drag hovers: flush over the boundary, the accent's own 3 px weight.
+    Rectangle {
+        visible: root.dragFrom >= 0 && root.line === root.index
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: 3 * Theme.spacing.hairline
+        color: Theme.color.accent
+    }
+    Rectangle {
+        visible: root.dragFrom >= 0 && root.line === root.lineCount && root.index === root.lineCount - 1
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: 3 * Theme.spacing.hairline
+        color: Theme.color.accent
     }
 }

@@ -113,7 +113,10 @@ Item {
                     switchesOnHover: true
                     // The pane's drop path, not its drawn one: a tab selected by the hover switch is
                     // current before its listing lands, and until then pane.path is the tab left behind.
-                    dest: Tabs.pathAt(root.tabs, root.currentIndex, tab.index,
+                    // Sidebar040: a history is not a directory, so a drop onto the tab standing on it
+                    // is refused rather than landing in the root it stands on.
+                    dest: root.pane && root.pane.recentMode.length > 0 && tab.current ? ""
+                        : Tabs.pathAt(root.tabs, root.currentIndex, tab.index,
                                       root.pane ? root.pane.dropPath : root.path)
                     // Unknown while the listed reply is still out, because dirDev is then the directory a hover switch just left; unknown makes verbFor copy, never a move that turns into a cross-device delete.
                     destDev: Tabs.devAt(root.tabs, root.currentIndex, tab.index,

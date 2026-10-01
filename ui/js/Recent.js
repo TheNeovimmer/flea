@@ -66,11 +66,13 @@ function pathOf(href) {
     return decoded
 }
 
-// The rail's rows, newest first. Each bookmark is { href, stamp }, exactly what ui/PickerRecent.qml
-// reads off the XBEL. Sample stamp: "2026-08-30T11:32:04Z", which sorts as a string because it is
-// fixed-width UTC; a stamp in any other shape sorts among its own kind and never throws.
-// A path seen twice keeps its first, newest position, the same rule Places.favorites follows.
-function paths(bookmarks) {
+// The main window's Recent listing keeps each bookmark's own stamp, because the Used
+// column draws when the file was last used and the backend's mtime only says when it
+// changed. entries() is paths() with the stamps kept: same newest-first order, same
+// first-position-wins dedupe, same LIMIT bound. Sample bookmarks: [{ href:
+// "file:///home/gm/a.txt", stamp: "2026-08-30T11:32:04Z" }], answering [{ path:
+// "/home/gm/a.txt", stamp: "2026-08-30T11:32:04Z" }].
+function entries(bookmarks) {
     var rows = []
     for (var i = 0; i < bookmarks.length; i++) {
         var path = pathOf(bookmarks[i].href)
@@ -93,7 +95,38 @@ function paths(bookmarks) {
             continue
         }
         seen[rows[j].path] = true
-        out.push(rows[j].path)
+        out.push({ path: rows[j].path, stamp: rows[j].stamp })
     }
     return out
+}
+
+// A recent row's name and location, split the way docs/protocol.md "listpaths" leaves to the
+// client: the leaf draws as the name and its parent as the caption beside it. A listpaths row
+// carries no leading slash, so the parent is still drawn as the absolute folder it is.
+// Sample input: "/home/gm/a.txt" names "a.txt" in "/home/gm".
+function nameOf(path) {
+    var text = String(path || "")
+    var cut = text.lastIndexOf("/")
+    return cut < 0 ? text : text.substring(cut + 1)
+}
+
+function locationOf(path) {
+    var text = String(path || "")
+    var cut = text.lastIndexOf("/")
+    if (cut < 0) {
+        return ""
+    }
+    var parent = text.substring(0, cut)
+    if (parent.length === 0) {
+        return ""
+    }
+    return parent.charAt(0) === "/" ? parent : "/" + parent
+}
+
+// The rail's rows, newest first. Each bookmark is { href, stamp }, exactly what ui/PickerRecent.qml
+// reads off the XBEL. Sample stamp: "2026-08-30T11:32:04Z", which sorts as a string because it is
+// fixed-width UTC; a stamp in any other shape sorts among its own kind and never throws.
+// A path seen twice keeps its first, newest position, the same rule Places.favorites follows.
+function paths(bookmarks) {
+    return entries(bookmarks).map(function (entry) { return entry.path })
 }

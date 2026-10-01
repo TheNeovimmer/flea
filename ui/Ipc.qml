@@ -600,7 +600,7 @@ QtObject {
         function previewSliderCentre(): string {
             return root.pane.preview.active && root.pane.preview.isMedia ? root.fleaWindow.centreOf(root.pane.preview.seekSlider) : ""
         }
-        // The same lookup as rowCentre, but for a rail row: the rail has no ListView, so Sidebar.railItemFor(i) walks its own two Repeaters instead.
+        // The same lookup as rowCentre, but for a rail row: the rail has no ListView, so Sidebar.railItemFor(i) walks its own Repeaters instead.
         function railRowCentre(i: int): string { return root.fleaWindow.centreOf(root.pane.sidebar.railItemFor(i)) }
         function railLabel(i: int): string { var item = root.pane.sidebar.railItemFor(i); return item ? item.modelData.label : "" }
         function railLabels(): string { var out = []; for (var i = 0; i < root.pane.railCount; i++) { var item = root.pane.sidebar.railItemFor(i); out.push(item ? item.modelData.label : "") } return out.join("|") }
@@ -621,6 +621,11 @@ QtObject {
         function keymapSheetOpen(): bool { return root.keymapSheet ? root.keymapSheet.opened : false }
         // One row per line, "<cap> <wording>", so a test asserts the sheet without OCR.
         function keymapSheetRows(): string { return root.keymapSheet ? root.keymapSheet.rows() : "" }
+        // Sidebar040: the query the typed keys narrowed the sheet to, "" at rest.
+        function keymapQuery(): string { return root.keymapSheet ? root.keymapSheet.query : "" }
+        // Sidebar040: the main window's Recent place, "" off and "results" once the history answered.
+        function recentMode(): string { return root.pane.recentMode }
+        function recentFrom(): string { return root.pane.recentFrom }
         function convertFormat(): string { return root.convertDialog ? root.convertDialog.format : "" }
         function convertStrip(): bool { return root.convertDialog ? root.convertDialog.strip : false }
         function convertState(): string {

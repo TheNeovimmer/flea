@@ -12,6 +12,7 @@ function sortPane(path, sorts) {
         path: path,
         sorts: sorts || {},
         windowSize: 200,
+        recentMode: "",
         remembered: [],
         forgotten: [],
         sent: []

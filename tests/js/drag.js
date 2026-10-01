@@ -78,6 +78,7 @@ function run(check) {
     check("rows dropped where they already live are refused", Drag.canDropInto(wire[Drag.ROWS_MIME], urls, "/d"), false)
     check("and taken into another directory", Drag.canDropInto(wire[Drag.ROWS_MIME], urls, "/e"), true)
     check("a drag carrying no paths is refused", Drag.canDropInto(wire[Drag.ROWS_MIME], [], "/e"), false)
+    check("a drop with no destination is refused", Drag.canDropInto(wire[Drag.ROWS_MIME], urls, ""), false)
     var moved = []
     check("same filesystem, no ctrl: a move", Drag.dropInto(pane(moved, [], rows), wire[Drag.ROWS_MIME], urls, "/e", 42), true)
     check("of those paths into that directory", JSON.stringify(moved),

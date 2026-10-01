@@ -10,6 +10,7 @@
 .import "PreviewKeys.js" as PreviewKeys
 .import "RailKeys.js" as RailKeys
 .import "Reload.js" as Reload
+.import "RecentMode.js" as RecentMode
 .import "Status.js" as Status
 .import "Search.js" as Search
 .import "Sort.js" as Sort
@@ -103,8 +104,8 @@ function lookup(event, root) {
     // The key follows the row: where gio has no Trash the refusal names trashRefused, never arming a d that can only fail.
     if ((action === "trashArm" || action === "trash") && !Mounts.trashable(root.path))
         return "trashRefused"
-    // reveal only means something on a search result, so o is discarded everywhere else.
-    if (action === "reveal" && root.searchMode !== Search.RESULTS)
+    // reveal only means something on a search result or a recent row, so o is discarded everywhere else.
+    if (action === "reveal" && root.searchMode !== Search.RESULTS && root.recentMode !== RecentMode.RESULTS)
         return ""
     // A sort ends the running walk in the backend and the search strip hides the mark that would
     // show it happening, so both sort keys go quiet for as long as a search owns the header.
@@ -145,6 +146,7 @@ function act(action, root, menuId, paths) {
     case "escape":
         if (root.filterTyping || root.filterQuery.length > 0) Filter.close(root)
         else if (root.searchMode.length > 0 && root.focusView === LIST) Search.cancel(root)
+        else if (root.recentMode.length > 0 && root.focusView === LIST) RecentMode.close(root)
         else if (root.statusBar && root.statusBar.escapePressed()) return
         else if (escapeUp(root)) root.openParent()
         else root.escapePressed()
@@ -159,7 +161,7 @@ function act(action, root, menuId, paths) {
     // does: leaving it up would hide every result that did not happen to match it.
     case "search": Filter.close(root); Search.start(root); return
     case "filter": Filter.start(root); return
-    case "reveal": Search.reveal(root); return
+    case "reveal": if (root.recentMode.length > 0) RecentMode.reveal(root); else Search.reveal(root); return
     // The write operations; every one of them is reversible with undo, so none of them confirms.
     case "duplicate": Ops.duplicate(root, menuId); return
     case "trash": Ops.trash(root, menuId); return
@@ -169,8 +171,10 @@ function act(action, root, menuId, paths) {
     case "copy": Ops.clip(root, false, paths); return
     case "copydirpath": root.copyDirPath(); return
     case "cut": Ops.clip(root, true, paths); return
-    case "paste": Ops.paste(root); return
+    // Recent is a history, not a directory: pasting or creating there would land in the root it stands on.
+    case "paste": if (root.recentMode.length > 0) { root.message("This listing is a history, and cannot take a paste.", false); return } Ops.paste(root); return
     case "movePaste":
+        if (root.recentMode.length > 0) { root.message("This listing is a history, and cannot take a paste.", false); return }
         if (root.clipboard.paths.length === 0) { root.message("The clipboard is empty.", false); return }
         root.collide.ask({c: "transfer", op: "move", paths: root.clipboard.paths, dest: root.path}, null, true)
         return
@@ -201,7 +205,7 @@ function act(action, root, menuId, paths) {
     case "viewList": root.chooseView("list"); return
     case "viewColumns": root.chooseView("columns"); return
     case "viewGrid": root.chooseView("grid"); return
-    case "newFolder": Ops.newFolder(root); return
+    case "newFolder": if (root.recentMode.length > 0) { root.message("This listing is a history, and cannot take a new folder.", false); return } Ops.newFolder(root); return
     // The directory being shown, not the row: the menu row and the chord both land here.
     case "openTerminal": root.openTerminal(); return
     // The background menu's Update Flea row, drawn only while an update is known, opens Omarchy's updater through the pane's opener.

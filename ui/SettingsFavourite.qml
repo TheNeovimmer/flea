@@ -17,7 +17,8 @@ Item {
         anchors.left: parent.left
         anchors.leftMargin: Theme.spacing.rowPaddingX
         anchors.verticalCenter: parent.verticalCenter
-        width: Theme.railIconSize
+        // Sidebar040: the Built in rows' own 19 px mark slot, so every label in the pane starts on one column.
+        width: Theme.markSize
         height: width
         name: root.row.glyph || "folder"
         color: root.row.error ? Theme.color.error : Theme.color.muted
@@ -50,15 +51,14 @@ Item {
     }
     // SettingsRest rule 4: an action that acts on one row reads as a mark on that row, where a button
     // under the list leaves its target to be inferred from a cursor somewhere above it.
-    Flea.Glyph {
+    // Sidebar040: the handle and the remove mark draw at the mark size inside flush 24 px boxes.
+    Item {
         id: remove
         anchors.right: parent.right
         anchors.rightMargin: Theme.spacing.rowPaddingX
         anchors.verticalCenter: parent.verticalCenter
         width: Theme.hitMin
         height: Theme.hitMin
-        name: "x"
-        color: Theme.color.muted
         Accessible.role: Accessible.Button
         Accessible.name: "Remove " + (root.row.label || "")
         Accessible.onPressAction: root.removed()
@@ -68,17 +68,29 @@ Item {
             gesturePolicy: TapHandler.ReleaseWithinBounds
             onTapped: root.removed()
         }
+        Flea.Glyph {
+            anchors.centerIn: parent
+            width: Theme.markSize
+            height: Theme.markSize
+            name: "x"
+            color: Theme.color.muted
+        }
     }
 
-    Flea.Glyph {
+    Item {
         id: grip
         anchors.right: remove.left
         anchors.rightMargin: 0
         anchors.verticalCenter: parent.verticalCenter
         width: Theme.hitMin
         height: Theme.hitMin
-        name: "list"
-        color: Theme.color.muted
+        Flea.Glyph {
+            anchors.centerIn: parent
+            width: Theme.markSize
+            height: Theme.markSize
+            name: "list"
+            color: Theme.color.muted
+        }
         DragHandler {
             id: drag
             target: null

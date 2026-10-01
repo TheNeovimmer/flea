@@ -199,6 +199,11 @@ function mimeFor(pane, rows, copy) {
 // directory the rows came from is nothing to do and is refused; a drag with no uri-list, which is a
 // selection too wide to leave the window, carries no paths to send and is refused too.
 function canDropInto(marker, urls, dest) {
+    // No destination is no drop: a tab with no path for its row and the history's base, which
+    // names no folder of its own, both refuse rather than landing wherever "" resolves.
+    if (!dest) {
+        return false
+    }
     if (isOwnDrag(marker) && markerSource(marker) === dest) {
         return false
     }

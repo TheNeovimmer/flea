@@ -23,12 +23,14 @@ Item {
     // The listing's floor as a drop target, under the rows: a drop past the last row, or one a file
     // row refused, lands in the directory being shown. Declared first in ui/Pane.qml, so it sits below.
     // Columns owns its narrower active floor; a search listing's path is the walk scope, not a row's home.
+    // Recent stands on the root, so its floor takes no drop: a row's own folder still does.
     Flea.DropInto {
         x: root.pane ? root.pane.listSlot.x : 0
         y: root.pane ? root.pane.listSlot.y : 0
         width: root.pane ? root.pane.listSlot.width : 0
         height: root.pane ? root.pane.listSlot.height : 0
         enabled: root.pane !== null && !root.pane.trash.opened && root.pane.searchMode === ""
+                 && root.pane.recentMode === ""
                  && (root.pane.viewMode === "list" || root.pane.viewMode === "grid")
         pane: root.pane
         dest: root.pane ? root.pane.dropPath : ""
@@ -359,8 +361,9 @@ Item {
         }
 
         // The backend statfs's its own base, which only moves when a listing succeeds, and Nav.js moves pane.path before one does: a failed hop's figures are of the directory we never left, while a failed refresh's are still of what is on screen.
+        // Recent spans mounts and asks for no figures of its own, so a late answer for its base is refused with the stale ones.
         function onFsInfo(fs, free, path, storageClass) {
-            var ours = path.length === 0 || path === pane.path
+            var ours = (path.length === 0 || path === pane.path) && pane.recentMode.length === 0
             pane.fsName = ours ? fs : ""; pane.fsFree = ours ? free : 0
             if (ours) {
                 pane.storageClass = storageClass || ""

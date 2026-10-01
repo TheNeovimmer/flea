@@ -419,9 +419,12 @@ function placesRows(state) {
             value: entries[i].storedPath, glyph: entries[i].glyph, error: entries[i].error || (state.favouriteStatuses || {})[i] || "", favouriteIndex: i })
     }
     rows.push({ kind: "group", label: "Built in" })
-    var builtins = [["showHome", "Home", "house"], ["showNetwork", "Network", "network"],
-                    ["showDevices", "Devices", "drive"], ["showTrash", "Trash", "trash"]]
-    for (var b = 0; b < builtins.length; b++) rows.push({ kind: "check", id: "places." + builtins[b][0], label: builtins[b][1], glyph: builtins[b][2], on: data[builtins[b][0]] !== false })
+    // Sidebar040: Recent sits beside Home, Network, Devices and Trash, and ships off.
+    // The fourth field is what a key the file never stored reads as, the way the Rail group below reads its own.
+    var builtins = [["showHome", "Home", "house", true], ["showRecent", "Recent", "history", false],
+                    ["showNetwork", "Network", "network", true],
+                    ["showDevices", "Devices", "drive", true], ["showTrash", "Trash", "trash", true]]
+    for (var b = 0; b < builtins.length; b++) rows.push({ kind: "check", id: "places." + builtins[b][0], label: builtins[b][1], glyph: builtins[b][2], on: builtins[b][3] ? data[builtins[b][0]] !== false : data[builtins[b][0]] === true })
     rows.push({ kind: "group", label: "Rail" })
     // The fourth field is src/uischema.rs's shipped value, which is what a key the file never stored reads as.
     var rail = [["driveSize", "Show drive size", "drive", false], ["trashCount", "Show Trash count", "trash", false], ["showUnmounted", "Show unmounted drives", "drive", true], ["autoHide", "Auto-hide sidebar", "maximize", false]]

@@ -91,4 +91,43 @@ function run(check) {
     check("an oldest-first history still stops at the cap", newest.length, Recent.LIMIT)
     check("and the row at the top is the newest bookmark in the file", newest[0], "/home/gm/g549.txt")
     check("and the last row kept is the oldest of the newest LIMIT", newest[Recent.LIMIT - 1], "/home/gm/g50.txt")
+
+    // Sidebar040: the main window's Recent listing keeps each bookmark's own stamp, because
+    // the Used column draws when the file was last used and the backend's mtime only says
+    // when it changed. entries() is paths() with the stamps kept, same order, same cap.
+    var kept = Recent.entries([
+        { href: "file:///home/gm/old.txt", stamp: "2026-08-01T09:00:00Z" },
+        { href: "file:///home/gm/new.png", stamp: "2026-08-30T11:32:04Z" },
+        { href: "smb://nas/share/skip.txt", stamp: "2026-08-31T11:32:04Z" }
+    ])
+    check("entries keeps only the local files", kept.length, 2)
+    check("entries lists newest first", kept[0].path, "/home/gm/new.png")
+    check("entries keeps the stamp the Used column draws", kept[0].stamp, "2026-08-30T11:32:04Z")
+    check("and the older row keeps its own stamp", kept[1].stamp, "2026-08-01T09:00:00Z")
+    var keptTwice = Recent.entries([
+        { href: "file:///home/gm/a.png", stamp: "2026-08-30T11:32:04Z" },
+        { href: "file:///home/gm/a.png", stamp: "2026-08-01T09:00:00Z" }
+    ])
+    check("entries lists a file seen twice once", keptTwice.length, 1)
+    check("and keeps the newest stamp for it", keptTwice[0].stamp, "2026-08-30T11:32:04Z")
+    // A missing history answers no rows, and a malformed XBEL answers rows no path can be
+    // read from, so both list nothing rather than a row for nothing.
+    check("a missing history lists nothing", Recent.entries([]).length, 0)
+    check("bookmarks with no readable path list nothing",
+          Recent.entries([{ href: "", stamp: "2026-08-30T11:32:04Z" },
+                          { href: "not a uri", stamp: "2026-08-30T11:32:04Z" }]).length, 0)
+    var manyEntries = []
+    for (var e = 0; e < Recent.LIMIT + 10; e++) {
+        manyEntries.push({ href: "file:///home/gm/h" + e + ".txt", stamp: "2026-08-30T11:32:04Z" })
+    }
+    check("entries stops at the same cap as paths", Recent.entries(manyEntries).length, Recent.LIMIT)
+
+    // The Location column beside the name: the leaf draws as the name and its parent as the
+    // caption, the split docs/protocol.md "listpaths" leaves to the client. A listpaths row
+    // carries no leading slash, so the parent is still drawn as the absolute folder it is.
+    check("the leaf is the name", Recent.nameOf("/home/gm/a.txt"), "a.txt")
+    check("the parent is the location", Recent.locationOf("/home/gm/a.txt"), "/home/gm")
+    check("a listpaths row names the same leaf", Recent.nameOf("home/gm/a.txt"), "a.txt")
+    check("and the same absolute parent", Recent.locationOf("home/gm/a.txt"), "/home/gm")
+    check("a bare name has no location", Recent.locationOf("a.txt"), "")
 }

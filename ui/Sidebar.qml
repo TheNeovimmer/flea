@@ -6,10 +6,12 @@ import "." as Flea
 import "js/Icons.js" as Icons
 import "js/Eject.js" as Eject
 import "js/Mounts.js" as Mounts
+import "js/Picker.js" as Picker
 import "js/Places.js" as Places
 import "js/PlaceMenu.js" as PlaceMenu
 import "js/RailMenu.js" as RailMenu
 import "js/RailKeys.js" as RailKeys
+import "js/Recent.js" as Recent
 
 // Places, Favorites, Network and Devices share one flat cursor in visual order.
 Item {
@@ -32,7 +34,14 @@ Item {
         return entry
     })
     property var homeEntries: []
-    readonly property var placesEntries: root.homeEntries.concat(root.trashEntries, root.userFavouriteEntries)
+    // Recent sits under Home, ahead of the XDG folders, and ships off, so a shared screen never
+    // names a recent file. Its row carries the location token ui/js/Picker.js names, the same
+    // token the chooser's own Recent row carries, because it is a location and not a path.
+    readonly property var homeLead: root.homeEntries.slice(0, 1)
+    readonly property var homeRest: root.homeEntries.slice(1)
+    readonly property var recentEntries: root.placesState.showRecent === true
+        ? [{ label: Picker.RECENT_LABEL, path: Picker.RECENT, group: "recent", kind: "recent", glyph: "history" }] : []
+    readonly property var placesEntries: root.homeLead.concat(root.recentEntries, root.homeRest, root.trashEntries, root.userFavouriteEntries)
     readonly property int trashCount: trashMonitor.count
     signal trashChanged()
     function refreshTrash() { trashMonitor.refresh() }
@@ -67,11 +76,15 @@ Item {
     readonly property int railSettleMs: 800
     property bool railDeadlineElapsed: false
     property bool bookmarksReady: false
+    // The insertion boundary a favourite drag hovers, fav-relative with the count past the last
+    // row, -1 while no drag is out. A rebuild clears it, because the rows it named are gone.
+    property int reorderLine: -1
     readonly property var railGate: Mounts.railGroupsReady(root.bookmarksReady && root.service !== null && root.service.listingAnswered && root.service.dropboxAnswered, devices.firstAnswered && phones.firstDone, root.railDeadlineElapsed ? root.railSettleMs : 0, root.railSettleMs)
     Timer { interval: root.railSettleMs; running: true; repeat: false; onTriggered: root.railDeadlineElapsed = true }
 
     // Reconcile only the aggregate; evaluating entries from a group's change handler re-enters its binding.
     onEntriesChanged: {
+        root.reorderLine = -1
         var next = Places.railCursorAfter(root.cursorEntries, root.entries, root.cursorIndex)
         if (root.renamingIndex >= 0
             && Places.railCursorAfter(root.cursorEntries, root.entries, root.renamingIndex) !== root.renamingIndex)
@@ -82,6 +95,9 @@ Item {
     }
 
     signal opened(string path)
+    // The rail's Recent row answers with the history's own paths, newest first and bounded the way
+    // the path jump reads them; the pane lists them with listpaths rather than listing a directory.
+    signal recentRequested(var paths)
     signal addRequested()
     // The rail's Edit row asks the window to open the dialog over the saved place.
     signal editRequested(string uri, string label, string password, string reason, bool failedConnect, var origin)
@@ -142,6 +158,60 @@ Item {
     onServiceChanged: { root.arrive(); root.pushBookmarks() }
     // Departure hands the timer back to a flight, if any, and the last listing stands while it is off.
     Component.onDestruction: { if (root.service && root.arrived) root.service.railLeft() }
+
+    // The desktop's own recent history, read and never written, the way the path jump reads it:
+    // kept across opens and re-read only once the watcher has seen a change, so opening Recent
+    // never pays the parse twice, and a re-read is per open, so the rail never serves what another
+    // application appended while this window stood open.
+    property var recentPaths: []
+    property bool recentKept: false
+    property bool recentReading: false
+    property int recentChanges: 0
+    property int recentReadAt: -1
+    // How many times the history has been parsed; the seam reads it the way it reads the jump's.
+    property int recentReads: 0
+    function readRecent() {
+        // One read at a time: its answer opens the listing, so a second press while it is out waits for that one.
+        if (root.recentReading) {
+            return
+        }
+        if (root.recentKept && root.recentReadAt === root.recentChanges) {
+            root.recentRequested(root.recentPaths)
+            return
+        }
+        root.recentReading = true
+        root.recentReadAt = root.recentChanges
+        recentWatcher.path = Recent.historyPath(Quickshell.env("XDG_DATA_HOME"), Quickshell.env("HOME"))
+        recentReader.active = true
+        recentReader.item.refresh()
+    }
+    // Watching only: it never loads the file, and it reports a rename over it, a delete and a re-create alike.
+    FileView {
+        id: recentWatcher
+        preload: false
+        watchChanges: true
+        onFileChanged: root.recentChanges += 1
+    }
+    // The picker's own reader of recently-used.xbel, built for a read and dropped after it, so a
+    // window whose rail never opens Recent loads no XML module at all.
+    Loader {
+        id: recentReader
+        active: false
+        source: "PickerRecent.qml"
+    }
+    Connections {
+        target: recentReader.item
+        function onRefreshed() {
+            root.recentPaths = recentReader.item.paths
+            root.recentKept = true
+            root.recentReading = false
+            root.recentReads += 1
+            // The parsed model goes once its newest paths are kept, which bounds what stays in
+            // memory at Recent.LIMIT paths; later, because the reader is the one emitting this signal.
+            Qt.callLater(function () { if (!root.recentReading) recentReader.active = false })
+            root.recentRequested(root.recentPaths)
+        }
+    }
 
     // The context menu's gate for the two Dropbox rows, so the pane never reaches into the rail.
     readonly property bool dropboxReady: root.service !== null && root.service.dropboxReady
@@ -246,6 +316,13 @@ Item {
         return null
     }
 
+    // The rail's own reorder drag, persisted through the favourites store the way
+    // the Settings handle is; a refused move keeps its row, and the failure names itself.
+    function moveFavourite(from, to) {
+        root.reorderLine = -1
+        if (to !== from)
+            Favourites.move(from, to)
+    }
     // A favourite's path is already real and opens directly; a share or a volume may need its Service.
     function openFavourite(index) {
         var entry = root.userFavouriteEntries[index]
@@ -267,6 +344,7 @@ Item {
         if (!entry) return
         if (entry.kind === "favourite") { root.openFavourite(entry.favouriteIndex); return }
         if (entry.kind === "home") { root.opened(entry.path); return }
+        if (entry.kind === "recent") { root.readRecent(); return }
         if (entry.kind === "trash") { root.trashRequested(); return }
         var rest = index - root.placesEntries.length
         if (rest < root.networkEntries.length) root.service.activate(rest, root.navigationPane)
@@ -392,8 +470,8 @@ Item {
                 textFormat: Text.PlainText
             }
             Repeater {
-                id: homeRepeater
-                model: root.homeEntries
+                id: homeLeadRepeater
+                model: root.homeLead
                 delegate: SidebarRow {
                     cursor: index === root.cursorIndex
                     focused: root.focused
@@ -402,14 +480,34 @@ Item {
                 }
             }
             Repeater {
+                id: recentRepeater
+                model: root.recentEntries
+                delegate: SidebarRow {
+                    cursor: index + root.homeLead.length === root.cursorIndex
+                    focused: root.focused
+                    onActivated: function (idx) { root.activate(idx + root.homeLead.length) }
+                    onMenuRequested: function(idx, pos) { root.openRailMenu(idx + root.homeLead.length, pos) }
+                }
+            }
+            Repeater {
+                id: homeRestRepeater
+                model: root.homeRest
+                delegate: SidebarRow {
+                    cursor: index + root.homeLead.length + root.recentEntries.length === root.cursorIndex
+                    focused: root.focused
+                    onActivated: function (idx) { root.activate(idx + root.homeLead.length + root.recentEntries.length) }
+                    onMenuRequested: function(idx, pos) { root.openRailMenu(idx + root.homeLead.length + root.recentEntries.length, pos) }
+                }
+            }
+            Repeater {
                 id: trashRepeater
                 model: root.trashEntries
                 delegate: SidebarRow {
                     // The menu sets cursorIndex on open, so isCursor also means the open menu is on this row.
-                    cursor: RailKeys.trashCursor(root.trashActive, index + root.homeEntries.length === root.cursorIndex, root.focused, root.menu && root.menu.opened && root.menu.forRail)
+                    cursor: RailKeys.trashCursor(root.trashActive, index + root.homeLead.length + root.recentEntries.length + root.homeRest.length === root.cursorIndex, root.focused, root.menu && root.menu.opened && root.menu.forRail)
                     focused: root.focused || root.trashActive
-                    onActivated: function (idx) { root.activate(idx + root.homeEntries.length) }
-                    onMenuRequested: function(idx, pos) { root.openRailMenu(idx + root.homeEntries.length, pos) }
+                    onActivated: function (idx) { root.activate(idx + root.homeLead.length + root.recentEntries.length + root.homeRest.length) }
+                    onMenuRequested: function(idx, pos) { root.openRailMenu(idx + root.homeLead.length + root.recentEntries.length + root.homeRest.length, pos) }
                 }
             }
 
@@ -430,10 +528,16 @@ Item {
                 id: favRepeater
                 model: root.userFavouriteEntries
                 delegate: SidebarRow {
-                    cursor: index + root.homeEntries.length + root.trashEntries.length === root.cursorIndex
+                    cursor: index + root.homeLead.length + root.recentEntries.length + root.homeRest.length + root.trashEntries.length === root.cursorIndex
                     focused: root.focused
-                    onActivated: function (idx) { root.activate(idx + root.homeEntries.length + root.trashEntries.length) }
-                    onMenuRequested: function (idx, pos) { root.openRailMenu(idx + root.homeEntries.length + root.trashEntries.length, pos) }
+                    // The rail's own reorder drag, persisted through the favourites store.
+                    dragFrom: modelData.favouriteIndex
+                    line: root.reorderLine
+                    lineCount: root.userFavouriteEntries.length
+                    onMoved: function (to) { root.moveFavourite(dragFrom, to) }
+                    onReorderAt: function (line) { root.reorderLine = line }
+                    onActivated: function (idx) { root.activate(idx + root.homeLead.length + root.recentEntries.length + root.homeRest.length + root.trashEntries.length) }
+                    onMenuRequested: function (idx, pos) { root.openRailMenu(idx + root.homeLead.length + root.recentEntries.length + root.homeRest.length + root.trashEntries.length, pos) }
                 }
             }
 
@@ -544,8 +648,12 @@ Item {
     function headingItems() { return [placesHeading, favouritesHeading, netHeading, devHeading] }
     // The rail has no ListView virtualization, so every row already exists; the same itemFor idiom ui/Pane.qml uses for the list, so a test can find a rail row's on-screen box.
     function railItemFor(index) {
-        if (index < root.homeEntries.length) return homeRepeater.itemAt(index)
-        var rest = index - root.homeEntries.length
+        if (index < root.homeLead.length) return homeLeadRepeater.itemAt(index)
+        var rest = index - root.homeLead.length
+        if (rest < root.recentEntries.length) return recentRepeater.itemAt(rest)
+        rest -= root.recentEntries.length
+        if (rest < root.homeRest.length) return homeRestRepeater.itemAt(rest)
+        rest -= root.homeRest.length
         if (rest < root.trashEntries.length) return trashRepeater.itemAt(rest)
         rest -= root.trashEntries.length
         if (rest < root.userFavouriteEntries.length) return favRepeater.itemAt(rest)

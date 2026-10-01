@@ -112,6 +112,8 @@ ListView {
         // ordinary columns, because these rows are still this directory's own and not walk results.
         searchQuery: root.pane.searchMode.length > 0 ? root.pane.searchQuery : root.pane.filterQuery
         filtering: root.pane.shown !== null
+        // Sidebar040: a recent row splits its path into a name and a location, the way a search row does.
+        recenting: root.pane.recentMode.length > 0
         renaming: listingIndex === root.pane.renamingIndex
         renamePane: root.pane
         // -1 is also what Filter.at answers for a stale delegate, so an idle list must never light one.

@@ -8,6 +8,7 @@ function pane(sortBy, sortDesc) {
     var p = {
         windowSize: 200,
         total: 40,
+        recentMode: "",
         thumbState: "stale",
         dirSizeState: "stale",
         cursor: -1,

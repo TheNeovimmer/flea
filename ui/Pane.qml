@@ -13,6 +13,7 @@ import "js/Mounts.js" as Mounts
 import "js/Search.js" as Search
 import "js/Archive.js" as Archive
 import "js/Nav.js" as Nav
+import "js/RecentMode.js" as RecentMode
 import "js/Ops.js" as Ops
 import "js/Selection.js" as Selection
 import "js/Sort.js" as Sort
@@ -74,6 +75,14 @@ FocusScope {
     property bool searchHere: false
     property bool searchRunning: false
     property bool searchCancelled: false
+    // The main window's Recent place, "" off and "results" once the history answered;
+    // ui/js/RecentMode.js owns every transition the way ui/js/Search.js owns the walk's. The pane's
+    // own path is the history's base while it stands, so join keeps working untouched.
+    property string recentMode: ""
+    // Where Recent was opened over, and the listing it hands back on leaving.
+    property string recentFrom: ""
+    // The history paths the listing stands on, so a refresh with the rail hidden re-asks them.
+    property var recentPaths: []
     // The query narrowing the listing in place, and whether its line still has the keyboard;
     // ui/js/Filter.js owns every transition, the way ui/js/Search.js owns the walk's.
     property string filterQuery: ""
@@ -234,6 +243,7 @@ FocusScope {
     onVisibleChanged: if (root.visible) preferences.restart()
     onListInFlightChanged: if (!root.listInFlight) preferences.restart()
     onSearchModeChanged: if (root.searchMode.length === 0) preferences.restart()
+    onRecentModeChanged: if (root.recentMode.length === 0) preferences.restart()
     Timer {
         id: preferences
         interval: 0
@@ -241,6 +251,7 @@ FocusScope {
             var desired = root.listOnly ? "list" : ViewState.view
             if (root.viewMode !== desired) root.viewMode = desired
             if (!root.visible || !root.path || root.listInFlight || root.searchMode.length > 0
+                    || root.recentMode.length > 0
                     || root.appliedListingPreferences === root.listingPreferences) return
             root.openWithoutHistory(root.path)
         }
@@ -257,8 +268,8 @@ FocusScope {
     property var history: []
     property var forwardHistory: []
     property var tabs: null
-    readonly property bool canGoBack: trashHost.opened || root.history.length > 0
-    readonly property bool canGoUp: root.path.length > 1
+    readonly property bool canGoBack: trashHost.opened || root.recentMode.length > 0 || root.history.length > 0
+    readonly property bool canGoUp: root.path.length > 1 || root.recentMode.length > 0
 
     // The filesystem line the status bar draws, refreshed once per directory rather than per row.
     property string fsName: ""
@@ -269,8 +280,11 @@ FocusScope {
     property string storageClass: ""
     property bool storageKnown: false
 
-    function goBack() { if (trashHost.opened) trashHost.close(); else Nav.back(root) }
-    function goForward() { if (!trashHost.opened) Nav.forward(root) }
+    // Back and up close Recent rather than travelling: entering it pushed no history
+    // entry, so the folder it was opened over is what they hand back, the way Esc does.
+    // Forward has nowhere to go from a listing outside the history, so it stays put.
+    function goBack() { if (trashHost.opened) trashHost.close(); else if (root.recentMode.length > 0) RecentMode.close(root); else Nav.back(root) }
+    function goForward() { if (!trashHost.opened && root.recentMode.length === 0) Nav.forward(root) }
 
     // Rename lives in ui/js/Ops.js with the other write operations; ui/List.qml's editor commits through this.
     function commitRename(newName) { Ops.commitRename(root, newName) }
@@ -312,7 +326,12 @@ FocusScope {
 
     function applyPendingSelect() { Nav.applyPendingSelect(root); Nav.applyPendingBackground(root) }
     function openBackgroundMenu(at) { menu.openBackground(at) }
-    function refresh(selectPath) { Nav.refresh(root, selectPath) }
+    function refresh(selectPath) {
+        // Recent re-reads the history rather than re-listing its base, which is the root: see
+        // ui/js/RecentMode.js refresh, and Nav.refresh for every other listing.
+        if (root.recentMode.length > 0) RecentMode.refresh(root, selectPath)
+        else Nav.refresh(root, selectPath)
+    }
 
     function open(newPath) {
         if (trashHost.confirming) return
@@ -322,6 +341,11 @@ FocusScope {
 
     // options.keepHidden is the tab restore's alone: it just put back this tab's own dotfile answer, which the standing preference would overwrite.
     function openWithoutHistory(newPath, options) {
+        // Every real navigation leaves Recent: entering it pushed no history entry, so nothing
+        // carries the mode across, and the folder it was opened over is already gone with it.
+        root.recentMode = ""
+        root.recentFrom = ""
+        root.recentPaths = []
         if (!root.listInFlight) {
             var applied = root.appliedListingPreferences ? JSON.parse(root.appliedListingPreferences) : []
             // Search exit can enter here before the preferences timer consumes a deferred Settings change.
@@ -334,7 +358,9 @@ FocusScope {
     // The toggle re-lists rather than filtering client-side: the model is a row count over the
     // backend's own listing, which never held the dotfiles to begin with when they were off.
     // Re-listing also clears the cursor and selection, the same as opening any other directory.
+    // Recent lists what the history names, dotfiles among them, so the toggle has nothing to hide there.
     function toggleHidden() {
+        if (root.recentMode.length > 0) { root.message("This listing is a history, and keeps the dotfiles it names.", false); return }
         root.showHidden = !root.showHidden
         ViewState.changeKey("hidden", root.showHidden)
         root.open(root.path)
@@ -377,6 +403,8 @@ FocusScope {
         if (action === "openTrash" || action === "emptyTrash" || action === "restoreAll") { trashHost.action(action); return }
         if (action === "settings") { root.settingsPanel.open(root); return }
         if (action === "permissions") { root.openPermissions(); return }
+        // Recent is a history, not a directory: a new file there would land in the root it stands on.
+        if (action === "newFile" && root.recentMode.length > 0) { root.message("This listing is a history, and cannot take a new file.", false); return }
         if (["newFile", "rename", "openWith", "moveTo", "copyTo", "properties", "deletePermanently"].indexOf(action) >= 0) {
             menuActions.open(action, menuId || 0)
             return
@@ -444,7 +472,12 @@ FocusScope {
     // Quoted when it holds whitespace, because this one is pasted into a shell: see ui/js/Format.js.
     function copyDirPath() { wire.opener.copyText(Format.shellQuoted(root.path)) }
 
-    function openParent() { if (trashHost.opened) trashHost.close(); else Nav.parent(root) }
+    function openParent() { if (trashHost.opened) trashHost.close(); else if (root.recentMode.length > 0) RecentMode.close(root); else Nav.parent(root) }
+
+    // The rail's Recent row answers with the history's paths, read bounded the way the
+    // path jump reads them; a second open while one lands replaces it, the way a navigation does.
+    function openRecent(paths) { RecentMode.run(root, paths) }
+    function closeRecent() { RecentMode.close(root) }
 
     function join(base, name) {
         return base === "/" ? "/" + name : base + "/" + name
@@ -469,7 +502,8 @@ FocusScope {
         anchors { left: railHost.right; right: parent.right; top: parent.top }
         height: root.dualMode && !trashHost.opened ? Theme.chromeHeight : 0
         visible: height > 0
-        path: root.path
+        // A history is a location and not a directory, so the strip says its own name.
+        path: root.recentMode.length > 0 ? "Recent" : root.path
         home: root.home
         focused: root.paneFocused
         inputLive: !(root.preview && root.preview.active)
@@ -499,6 +533,7 @@ FocusScope {
         sortBy: root.backend.sortBy
         sortDesc: root.backend.sortDesc
         dualMode: root.dualMode
+        recent: root.recentMode.length > 0
         hiddenCols: root.dualMode ? ["mode", "kind"].concat(ViewState.hiddenCols) : ViewState.hiddenCols
         onSortRequested: function (key) { Sort.column(root, key) }
         onMenuRequested: function (pos) { menu.openForHeader(pos) }
