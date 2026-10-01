@@ -11,6 +11,16 @@ Item {
 
     property string path: ""
 
+    // The row's cache file, held by Quick Look while this decodes: drawn between the
+    // ground and the picture, so it is never hidden by one nor covers the other.
+    property string interimThumb: ""
+    property real interimX: 0
+    property real interimY: 0
+    property real interimWidth: 0
+    property real interimHeight: 0
+    property bool interimVisible: false
+    readonly property bool interimReady: interimPicture.status === Image.Ready
+
     // The same name the media and PDF panes give their unreadable state, so Preview.qml tests one property.
     readonly property bool failed: picture.status === Image.Error
     // Every state is terminal: a decode ends Ready or Error, and a vanished file ends Error too.
@@ -24,6 +34,22 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: Theme.color.background
+    }
+
+    // The cached thumbnail at once, sized to the final's own rect by the caller: the
+    // cache file is already upright, so no turn applies, and Stretch meets that rect.
+    Image {
+        id: interimPicture
+        x: root.interimX
+        y: root.interimY
+        width: root.interimWidth
+        height: root.interimHeight
+        // Only while the decode runs: a final with transparent pixels would show it through.
+        visible: root.interimVisible && root.status === "loading"
+        source: root.interimThumb.length > 0 ? Format.fileUri(root.interimThumb) : ""
+        fillMode: Image.Stretch
+        asynchronous: true
+        cache: false
     }
 
     // Stretch, in an item sized to the fit of what was decoded: Qt then decodes the exact fit and never enlarges

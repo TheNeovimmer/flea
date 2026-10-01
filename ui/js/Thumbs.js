@@ -57,6 +57,18 @@ function forget(state, row) {
     }
 }
 
+// A cache-only miss: on a generating class the row returns to unasked, so plan() asks it
+// again when it scrolls into view; on a cache-only class it stays a miss. Runs through
+// forget/remember above, never a reassign. Sample input: miss({file:{3:"cache-asked"},order:[3]}, 3, true, 240)
+// leaves file[3] undefined, with false it leaves "cache-missed".
+function miss(state, row, generating, cap) {
+    if (generating === true) {
+        forget(state, row)
+        return { file: state.file, order: state.order }
+    }
+    return remember(state, row, "", cap)
+}
+
 // The wrapper is new so a QML binding on it re-evaluates; the map inside is mutated in place.
 function applied(state, work) {
     for (var i = 0; i < work.drop.length; i++) {

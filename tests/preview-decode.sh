@@ -192,6 +192,11 @@ PY
         else
             bad "the $label interim drew $irect against the final $frect (log $log)"
         fi
+        if grep -a -q "PREVIEW INTERIMSTACK $label ok" "$log"; then
+            ok "the $label interim draws above the ground and below the final picture"
+        else
+            bad "the $label interim is not stacked between the ground and the final picture (log $log)"
+        fi
         s0=$(im_line "istart-$label"); s1=$(im_line "iend-$label")
         if [ -z "$s0" ] || [ -z "$s1" ]; then
             bad "an interim sentinel never arrived for $label (log $log)"

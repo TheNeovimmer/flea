@@ -218,8 +218,17 @@ Item {
         }
 
         // A thumbed line for the previous listing is still in the pipe when open() clears the map.
+        // A cache-only miss on a generating class is a prefetch that found nothing cached:
+        // it returns to unasked so the viewport asks it again, while a cache-only class
+        // keeps the miss. Only a prefetch marks CACHE_ASKED on a generating class, since
+        // the column asks full there.
         function onThumbed(row, file) {
-            if (!pane.listInFlight)
+            if (pane.listInFlight)
+                return
+            if (file === "" && pane.thumbState.file[row] === Thumbs.CACHE_ASKED
+                    && (!pane.storageKnown || !ExtThumbs.cacheOnly(pane.storageClass, ViewState.preview)))
+                pane.thumbState = Thumbs.miss(pane.thumbState, row, true, pane.thumbCap)
+            else
                 pane.thumbState = Thumbs.remember(pane.thumbState, row, file, pane.thumbCap)
         }
 

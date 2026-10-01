@@ -69,10 +69,14 @@ function run(check) {
     check("interim shown is whole", PreviewSwap.lookReady("loading", false, false, false, true), true)
     check("interim over a PDF is whole too", PreviewSwap.lookReady("loading", true, false, false, true), true)
     check("without one a loading image still waits", PreviewSwap.lookReady("loading", false, false, false, false), false)
+    check("an interim not yet visible at its rect still waits",
+        PreviewSwap.lookReady("loading", false, false, false, undefined) + "|"
+        + PreviewSwap.lookReady("loading", true, false, false, false), "false|false")
     check("a PDF viewer is ready once a page is on screen",
           PreviewSwap.lookReady("pdf", true, false, false) + "|" + PreviewSwap.lookReady("pdf", true, true, false), "false|true")
     check("or once the document is refused", PreviewSwap.lookReady("This file could not be read.", true, false, true), true)
     check("anything else not loading is whole", PreviewSwap.lookReady("image", false, false, false), true)
+    runInterimRect(check)
     runFolderDataHold(check)
     runPictureHoldLeak(check)
     runPreviewSettle(check)
@@ -115,6 +119,27 @@ function runShowCursorRow(check, area) {
     var retAt = show.indexOf("return")
     check("source: that early return stands before the shown assignments",
         retAt >= 0 && show.indexOf("shownHasRow") > retAt && show.indexOf("shownIsDir") > retAt && show.indexOf("shownChildPath") > retAt, true)
+}
+
+// e81f: the interim rect is the upright original aspect-fit of the surface, never
+// enlarged, sized from the original's pixels and never the cache file's rounded ones.
+function rect(surfaceW, surfaceH, imageW, imageH, orient) {
+    var r = PreviewSwap.interimRect(surfaceW, surfaceH, imageW, imageH, orient)
+    return r === null ? "none" : r.x + "," + r.y + "," + r.w + "x" + r.h
+}
+
+function runInterimRect(check) {
+    check("orient 1 sizes from the original, not its cache file",
+        rect(754, 471, 6000, 4000, 1), "24,0,706.5x471")
+    check("orient 3 keeps the stored sides", rect(754, 471, 6000, 4000, 3), "24,0,706.5x471")
+    check("orient 6 swaps to the upright sides", rect(2080, 1137, 4032, 3024, 6), "614,0,852.75x1137")
+    check("orient 8 swaps the other way", rect(2080, 1137, 3024, 4032, 8), "282,0,1516x1137")
+    check("a swap turns a 60x40 box portrait", rect(100, 100, 60, 40, 6), "30,20,40x60")
+    check("while orient 1 keeps it landscape", rect(100, 100, 60, 40, 1), "20,30,60x40")
+    check("a small original is never enlarged", rect(754, 471, 120, 68, 1), "317,202,120x68")
+    check("unknown pixels are no interim",
+        rect(754, 471, 0, 0, 1) + "|" + rect(754, 471, 640, 0, 1) + "|" + rect(754, 471, 0, 480, 6),
+        "none|none|none")
 }
 
 // A folder peek in Columns holds by data: an unanswered folder keeps the old column, and the landed peek shows it with its rows in one pass.
@@ -284,25 +309,54 @@ function runPictureHoldLeak(check) {
         loadGuard >= 0 && loadBody.indexOf("root.clear()") > loadGuard, true)
 }
 
-// e81: Quick Look shows the held cache file at once, then the full decode replaces it.
+// e81f: Quick Look shows the held cache file at once, then the full decode replaces it.
 function runE81(check) {
     var quick = Source.source("ui/Preview.qml")
     var sel = Source.source("ui/SelectionPreview.qml")
+    var image = Source.source("ui/PreviewImage.qml")
     var openArm = squashed(bodyOf(quick, "function open"))
-    check("Space threads the held thumb in", openArm.indexOf("root.load(newPath, newIcon, newSize, newKind, newThumb)") >= 0, true)
+    check("Space threads the held thumb in", openArm.indexOf("root.load(newPath, newIcon, newSize, newKind, newThumb") >= 0, true)
+    check("open captures the row for the meta ask",
+        openArm.indexOf("root.pane ? root.pane.cursorIndex : -1") >= 0, true)
+    var followArm = squashed(bodyOf(quick, "function follow"))
+    check("follow carries the captured row to the settle",
+        followArm.indexOf("root.pendingImageRow = root.pane ? root.pane.cursorIndex : -1") >= 0
+        && quick.indexOf("root.pendingThumb, root.pendingImageRow") >= 0, true)
     var flat = squashed(quick)
     check("the interim is stamped and replaced, never final",
-        quick.indexOf("root.interimStamp = newPath") >= 0 && flat.indexOf("root.path === root.interimStamp && interimPicture.status === Image.Ready") >= 0
-        && quick.indexOf('visible: root.interimShown && root.status === "loading"') >= 0, true)
+        quick.indexOf("root.interimStamp = newPath") >= 0 && flat.indexOf("root.path === root.interimStamp && root.interimBox !== null") >= 0
+        && image.indexOf("visible: root.interimVisible") >= 0, true)
+    var groundAt = image.indexOf("color: Theme.color.background")
+    var interimAt = image.indexOf("id: interimPicture")
+    var pictureAt = image.indexOf("id: picture")
+    check("the interim draws above the ground and below the final picture",
+        groundAt >= 0 && interimAt > groundAt && pictureAt > interimAt, true)
+    check("the interim takes no turn: a cache file is already upright",
+        quick.indexOf("interimTurned") < 0 && image.indexOf("interimTurned") < 0, true)
     var pre = squashed(bodyOf(quick, "function maybePrefetch"))
     check("prefetch warms one cache entry on rest only",
         pre.indexOf("ViewState.previewAutomatic") >= 0 && pre.indexOf("followSettle.running") >= 0 && pre.indexOf("ExtThumbs.manualHold(") >= 0
         && pre.indexOf("cacheOnly: true") >= 0 && pre.indexOf("backend.thumb(work.ask, true)") >= 0 && pre.indexOf("askMeta") < 0, true)
-    check("the interim takes the final's geometry, capped at the original",
-        flat.indexOf("Thumbs.fitScale(boxW, boxH, implicitWidth, implicitHeight, root.interimLimit)") >= 0
-        && flat.indexOf("? Thumbs.thumbLimit(interimPicture.implicitWidth, interimPicture.implicitHeight, root.imageW, root.imageH) : 1") >= 0, true)
-    check("the original's pixels come off the cursor row's meta",
-        quick.indexOf("root.pane.backend.askMeta(root.imageRow, false, false, false)") >= 0 && quick.indexOf("root.imageW = w") >= 0, true)
-    check("the column single-row ask carries its class gate",
-        sel.indexOf("ExtThumbs.cacheOnly(pane.storageClass, ViewState.preview)") >= 0 && sel.indexOf("pane.backend.thumb(work.ask, work.cacheOnly)") >= 0, true)
+    check("the interim takes the upright original's rect, never the cache pixels",
+        flat.indexOf("PreviewSwap.interimRect(panes.width, panes.height,") >= 0
+        && flat.indexOf("root.interimBox !== null ? root.interimBox.x : 0") >= 0
+        && quick.indexOf("thumbLimit(interimPicture") < 0, true)
+    var askArm = squashed(bodyOf(quick, "function askImage"))
+    check("the meta ask runs once per show and never mid-burst",
+        askArm.indexOf("root.imageAsked") >= 0 && askArm.indexOf("followSettle.running") >= 0
+        && askArm.indexOf("root.pane.backend.askMeta(root.imageRow, false, false, false)") >= 0, true)
+    check("a reply for another row is dropped",
+        flat.indexOf("if (root.isImage && row === root.imageRow)") >= 0, true)
+    var wire = Source.source("ui/PaneWire.qml")
+    check("a prefetch miss on a generating class returns to unasked",
+        wire.indexOf("Thumbs.CACHE_ASKED") >= 0 && wire.indexOf("Thumbs.miss(pane.thumbState, row, true, pane.thumbCap)") >= 0, true)
+    var loadArm = squashed(sel.substring(sel.indexOf("function load()"), sel.indexOf("function askThumb")))
+    check("the column single-row ask runs through its held gate",
+        loadArm.indexOf("root.askThumb()") >= 0 && loadArm.indexOf("pane.backend.thumb(work.ask") < 0, true)
+    var askThumbArm = squashed(bodyOf(sel, "function askThumb"))
+    check("that ask waits for the storage class and carries it",
+        askThumbArm.indexOf("!pane.storageKnown") >= 0
+        && askThumbArm.indexOf("ExtThumbs.cacheOnly(pane.storageClass, ViewState.preview)") >= 0, true)
+    check("the class landing runs the held ask",
+        sel.indexOf("function onStorageKnownChanged() { root.followSelection(); root.askThumb() }") >= 0, true)
 }

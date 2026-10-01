@@ -66,10 +66,25 @@ function columnReady(p) {
 
 // Quick Look's answer: nothing loading, and a PDF with a page on screen or refused.
 // An interim cache thumbnail shown counts as whole, never as a half-built frame.
+// interimShown means visible at the final rect below, never merely decoded.
 function lookReady(status, isPdf, pdfShown, pdfFailed, interimShown) {
     if (interimShown === true)
         return true
     if (status === "loading")
         return false
     return isPdf !== true || pdfShown === true || pdfFailed === true
+}
+
+// The interim's rect: the upright original aspect-fit of the surface, never enlarged.
+// ow, oh are the original's upright pixels, stored swapped when orient >= 5. A cache
+// file is already upright, so its pixels never size this; unknown (either side <= 0)
+// answers null, which is no interim. Sample input: (754, 471, 6000, 4000, 1) is 707x471 at 24,0.
+function interimRect(surfaceW, surfaceH, imageW, imageH, orient) {
+    if (!(imageW > 0) || !(imageH > 0))
+        return null
+    var ow = orient >= 5 ? imageH : imageW
+    var oh = orient >= 5 ? imageW : imageH
+    var s = Math.min(1, surfaceW / ow, surfaceH / oh)
+    var w = ow * s, h = oh * s
+    return { x: Math.round((surfaceW - w) / 2), y: Math.round((surfaceH - h) / 2), w: w, h: h }
 }

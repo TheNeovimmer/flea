@@ -133,13 +133,30 @@ function run(check) {
     check("an image poster keeps its cap", Thumbs.posterLimit(false, 256, 256, 64, 64), 64 / 256)
     check("a 64x64 clip poster in the 754x471 frame fills it",
           drawn(Thumbs.fitScale(754, 471, 256, 256, Thumbs.posterLimit(true, 256, 256, 64, 64)), 256, 256), "471x471")
-    // e81: the interim lands on the final's rect: the surface fit capped at the original's
-    // own pixels, cache pixels while the meta reply is still in flight.
-    function interim(boxW, boxH, cacheW, cacheH, origW, origH) {
-        var limit = origW > 0 && origH > 0 ? Thumbs.thumbLimit(cacheW, cacheH, origW, origH) : 1
-        return drawn(Thumbs.fitScale(boxW, boxH, cacheW, cacheH, limit), cacheW, cacheH)
+    // e81f: a prefetch miss on a generating class leaves the row as if never asked, so the
+    // viewport asks it again; on a cache-only class it stays a miss. The interim's own rect
+    // moved to PreviewSwap.interimRect, which tests/js/previewswap.js pins.
+    function missed(generating) {
+        var s = Thumbs.empty()
+        s = Thumbs.applied(s, { ask: [3], drop: [], cacheOnly: true })
+        return Thumbs.miss(s, 3, generating, 240)
     }
-    check("a 64x48 interim lands on its final's pixels", interim(754, 471, 256, 192, 64, 48), "64x48")
-    check("a 1920x1080 interim lands on its final's box fit", interim(754, 471, 256, 144, 1920, 1080), "754x424")
-    check("unknown draws at cache pixels, growing into the final at most", interim(754, 471, 256, 171, 0, 0), "256x171")
+    var genMiss = missed(true)
+    check("a prefetch miss on a generating class leaves the row undefined", genMiss.file[3], undefined)
+    check("and drops it from the order", genMiss.order.join(","), "")
+    var offMiss = missed(false)
+    check("on a cache-only class it stays a miss", offMiss.file[3], Thumbs.CACHE_MISS)
+    function planned(file) {
+        var s = { file: file, order: [] }
+        for (var k in file) s.order.push(Number(k))
+        var rows = []
+        for (var i = 0; i < 5; i++)
+            rows.push({ n: "f" + i, d: false, t: true, i: "image-x-generic", p: 33188, s: 10, m: 1 })
+        return Thumbs.plan(s, rows, 0, 0, 4, "media").ask.join(",")
+    }
+    var answered = { 0: "/c/0.png", 1: "/c/1.png", 2: "/c/2.png", 4: "/c/4.png" }
+    answered[3] = genMiss.file[3]
+    check("the planner asks a row a prefetch miss left unasked", planned(answered), "3")
+    answered[3] = Thumbs.CACHE_MISS
+    check("and never re-asks a row that stays missed", planned(answered), "")
 }

@@ -242,12 +242,21 @@ Flea.PreviewColumn {
         root.startSwap(kind === Facts.PDF)
         root.pendingToken = pane.backend.askMeta(root.loadedIndex, kind === Facts.TEXT || kind === Facts.CODE,
             kind === Facts.VIDEO || kind === Facts.AUDIO, kind === Facts.ARCHIVE)
-        if (current.t && pane.thumbState.file[root.loadedIndex] === undefined) {
-            var work = { ask: [root.loadedIndex], drop: [] }
-            work.cacheOnly = ExtThumbs.cacheOnly(pane.storageClass, ViewState.preview)
-            root.thumbsApplied(work)
-            pane.backend.thumb(work.ask, work.cacheOnly)
-        }
+        root.askThumb()
+    }
+
+    // The single-row ask, held until the storage class lands: unknown reads as generating,
+    // so asking early would thumbnail a NAS image in full over the network.
+    function askThumb() {
+        var pane = root.pane
+        if (!root.canRead || !pane || !pane.storageKnown || root.loadedIndex < 0 || root.selectionCount > 1) return
+        if (root.manualHold || !root.isShown()) return
+        var current = pane.rowFor(root.loadedIndex)
+        if (!current || !current.t || pane.thumbState.file[root.loadedIndex] !== undefined) return
+        var work = { ask: [root.loadedIndex], drop: [] }
+        work.cacheOnly = ExtThumbs.cacheOnly(pane.storageClass, ViewState.preview)
+        root.thumbsApplied(work)
+        pane.backend.thumb(work.ask, work.cacheOnly)
     }
 
     function startSwap(isPdf) { if (root.swap) root.swap.start(isPdf) }
@@ -287,7 +296,8 @@ Flea.PreviewColumn {
         function onCursorIndexChanged() { if (!root.swap) root.followSelection() }
         // The class lands with fsinfo, after the rows; a settle fired in between spent local.
         function onStorageClassChanged() { root.followSelection() }
-        function onStorageKnownChanged() { root.followSelection() }
+        // A frame loaded before the class lands never asked; the ask runs here, once the gate names it.
+        function onStorageKnownChanged() { root.followSelection(); root.askThumb() }
         function onRowsChanged() {
             if (root.loadedIndex >= 0 && root.loadedIdentity !== root.identity(root.pane.rowFor(root.loadedIndex)))
                 root.replace()

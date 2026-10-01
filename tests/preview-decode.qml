@@ -218,11 +218,12 @@ ShellRoot {
         }
     }
 
-    // The Image inside ui/PreviewImage.qml, found by the property only an Image has, so the test names no id of the pane's.
+    // The Image inside ui/PreviewImage.qml, found by the property only the final picture
+    // sets: the interim beside it leaves autoTransform at its false default.
     function picture() {
         var kids = quickLook.item ? quickLook.item.children : []
         for (var i = 0; i < kids.length; i++)
-            if (kids[i].autoTransform !== undefined) return kids[i]
+            if (kids[i].autoTransform === true) return kids[i]
         return null
     }
 
@@ -302,7 +303,8 @@ ShellRoot {
         return out
     }
 
-    // The interim has no autoTransform; the final picture does, so the two never confuse each other.
+    // The interim leaves autoTransform at false while the final picture sets it, and each
+    // carries its own source, so the two never confuse each other.
     function interimPair() {
         var all = shell.findAll(quickPreview.item, [])
         var inter = null, final = null
@@ -316,6 +318,22 @@ ShellRoot {
 
     function geom(item) {
         return Math.round(item.x) + "," + Math.round(item.y) + "," + Math.round(item.width) + "," + Math.round(item.height)
+    }
+
+    // The interim draws above the pane's ground and below the final picture: siblings in
+    // that order under one parent. On the old tree it lived beside the loader, so the
+    // parents differ and this answers false.
+    function stackOk() {
+        var pair = shell.interimPair()
+        if (!pair[0] || !pair[1] || pair[0].parent !== pair[1].parent) return false
+        var kids = pair[0].parent.children
+        var gi = -1, ii = -1, fi = -1
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i] === pair[0]) ii = i
+            else if (kids[i] === pair[1]) fi = i
+            else if (gi < 0 && kids[i].source === undefined && kids[i].color !== undefined) gi = i
+        }
+        return gi >= 0 && gi < ii && ii < fi
     }
 
     // Sample log line: "PREVIEW INTERIM small irect=317,201,120,68 frect=317,201,120,68".
@@ -332,6 +350,7 @@ ShellRoot {
             if (done) {
                 stop()
                 shell.log("INTERIM " + shell.interimPhase + " irect=" + shell.geom(pair[0]) + " frect=" + shell.geom(pair[1]))
+                shell.log("INTERIMSTACK " + shell.interimPhase + " " + (shell.stackOk() ? "ok" : "bad"))
                 shell.mark("iend-" + shell.interimPhase)
                 if (shell.interimPhase === "small") shell.beginInterim("large", "seed0.jpg", "thumb.png", 640, 480)
                 else quitTimer.restart()

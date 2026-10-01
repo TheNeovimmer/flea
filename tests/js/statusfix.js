@@ -28,7 +28,9 @@ function run(check) {
     check("afterAnimating stays live until ready lands after a release", swap.indexOf("(root.capturing || root.holding || root.dropping || !root.ready) ? root.Window.window : null") >= 0, true)
     check("hold sink keeps Back for the window", swap.indexOf("Qt.AllButtons") < 0, true)
     check("Quick Look asks image meta only with a thumb held",
-        look.indexOf("root.imageRow = root.isImage && root.interimThumb.length > 0") >= 0, true)
+        look.indexOf('root.imageRow = root.isImage && (newThumb || "").length > 0') >= 0, true)
+    check("that ask runs once per show and never mid-burst",
+        look.indexOf("if (root.imageRow < 0 || root.imageAsked || followSettle.running) return") >= 0, true)
     check("Quick Look keeps no EXIF turn", look.indexOf("imageTurn") < 0 && image.indexOf("property int turn") < 0, true)
     check("photo draws on one decode", image.indexOf("retainWhileLoading") < 0 && image.indexOf("showing") < 0, true)
     check("undo split keeps esc ahead of z", Status.withoutUndoKey("esc dismisses · z undoes"), "esc dismisses")
