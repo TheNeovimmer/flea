@@ -10976,6 +10976,106 @@ xwdrag_kill_second() {
     fail "xwdrag: second window $pid survived"
 }
 
+# xw6: a tab dragged onto another Flea window moves there; torn off onto empty space it
+# opens a window of its own. Reuses the xwdrag two-window rig: launch() kills first, so the
+# second window is launched the same way, and every drop point is an absolute screen point.
+xwtab_tab_point() {
+    local id="$1" pid="$2" index="$3" centre cx cy wx wy ww wh
+    centre=$(xwdrag_qs "$id" tabCentre "$index" 2>/dev/null || true)
+    [[ -n "$centre" ]] || return 1
+    read -r cx cy <<< "$centre"
+    read -r wx wy ww wh < <(xwdrag_geometry "$pid") || return 1
+    printf '%s %s\n' "$((wx + cx))" "$((wy + cy))"
+}
+
+xwtab_wait_third() {
+    local before="$1" after pid
+    for _attempt in $(seq 1 60); do
+        after=$(flea_pids | tr '\n' ' ')
+        for pid in $after; do
+            [[ " $before " == *" $pid "* ]] && continue
+            if flea_process_owned "$pid"; then
+                printf '%s\n' "$pid"
+                return 0
+            else
+                fail "xwtab: refusing unowned third window $pid"
+            fi
+        done
+        sleep 0.5
+    done
+    return 1
+}
+
+case_xwtab() {
+    local dir adir bdir
+    dir="$fixture_root/xwtab"
+    sandbox_scratch "$dir"
+    adir="$dir/a"
+    bdir="$dir/b"
+    mkdir -p "$adir/sub1" "$adir/sub2" "$bdir" || fail "xwtab: could not create fixtures"
+    launch "$adir"
+    wait_listing 2
+    local apid aid
+    apid=$(flea_pid) || fail "xwtab: no owned first window"
+    aid=$(xwdrag_qsid "$apid") || fail "xwtab: no qs instance for $apid"
+    # A opens a second tab and puts it on sub1, before the second window exists.
+    key t >/dev/null
+    settle
+    [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: t did not open a second tab"
+    seek_row_named "sub1" || fail "xwtab: could not find sub1"
+    key -k Return >/dev/null
+    wait_path "$adir/sub1"
+    xwdrag_launch_second "$bdir"
+    local bpid bid
+    bpid=$XW_SECOND_PID
+    bid=$XW_SECOND_ID
+    xwdrag_place "$apid" 40 80 1000 720
+    xwdrag_place "$bpid" 1100 80 1000 720
+    # B has one tab and no strip, so anywhere in B takes the tab at the end.
+    xwdrag_focus "$apid"
+    local sx sy dx dy i
+    read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
+    read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwtab: B has no floor"
+    xwdrag_drag "$sx" "$sy" "$dx" "$dy" none
+    for i in $(seq 1 40); do
+        [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "2" ]] && break
+        sleep 0.25
+    done
+    [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: B never gained the tab"
+    [[ "$(xwdrag_qs "$bid" path 2>/dev/null)" == "$adir/sub1" ]] \
+        || fail "xwtab: B shows $(xwdrag_qs "$bid" path 2>/dev/null), not sub1"
+    for i in $(seq 1 40); do [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "1" ]] && break; sleep 0.25; done
+    [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "1" ]] || fail "xwtab: A kept its moved tab"
+    [[ "$(xwdrag_qs "$aid" path 2>/dev/null)" == "$adir" ]] \
+        || fail "xwtab: A shows $(xwdrag_qs "$aid" path 2>/dev/null), not $adir"
+    printf 'XWTAB move ok\n'
+    # B's new tab torn off onto empty desktop space opens a third owned window on it.
+    local mon_h ex ey before cpid cid
+    mon_h=$(hyprctl monitors -j | python3 -c 'import json,sys; ms=json.load(sys.stdin); m=[x for x in ms if x.get("focused")] or ms; print(m[0]["height"])') \
+        || fail "xwtab: no monitor height"
+    (( mon_h >= 950 )) || fail "xwtab: monitor height $mon_h leaves no empty space"
+    ex=600; ey=$((mon_h - 120))
+    before=$(flea_pids | tr '\n' ' ')
+    xwdrag_focus "$bpid"
+    read -r sx sy < <(xwtab_tab_point "$bid" "$bpid" 1) || fail "xwtab: B's second tab has no centre"
+    xwdrag_drag "$sx" "$sy" "$ex" "$ey" none
+    cpid=$(xwtab_wait_third "$before") || fail "xwtab: no third window tore off"
+    cid=$(xwdrag_qsid "$cpid") || fail "xwtab: no qs instance for $cpid"
+    for i in $(seq 1 100); do
+        [[ "$(xwdrag_qs "$cid" path 2>/dev/null)" == "$adir/sub1" \
+            && "$(xwdrag_qs "$cid" listInFlight 2>/dev/null)" == false ]] && break
+        sleep 0.05
+    done
+    [[ "$(xwdrag_qs "$cid" path 2>/dev/null)" == "$adir/sub1" ]] \
+        || fail "xwtab: third window shows $(xwdrag_qs "$cid" path 2>/dev/null), not sub1"
+    for i in $(seq 1 40); do [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "1" ]] && break; sleep 0.25; done
+    [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "1" ]] || fail "xwtab: B kept its torn-off tab"
+    printf 'XWTAB tearoff ok\n'
+    xwdrag_kill_second "$cpid"
+    xwdrag_kill_second "$bpid"
+    kill_flea
+}
+
 # The cursor parks on row 0 above the card, so a press that runs on from an overlay control to any row beneath moves it.
 case_clickthrough() {
     local dir="$fixture_root/clickthrough"

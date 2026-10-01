@@ -1,6 +1,7 @@
 import QtQuick
 import "js/Drag.js" as DragOps
 import "js/DragOut.js" as DragOut
+import "js/Tabs.js" as Tabs
 
 // Delegate input and drop eligibility share a view-owned FileDrag; no platform object lives in this row.
 Item {
@@ -31,6 +32,11 @@ Item {
         anchors.fill: parent
         keys: [DragOps.ROWS_MIME, "text/uri-list", "text/plain"]
         onEntered: function (drag) {
+            // xw6: a tab drag is never a file drop, even though it carries a uri-list.
+            if (drag.getDataAsString(Tabs.TAB_MIME) !== "") {
+                drag.accepted = false
+                return
+            }
             var marker = drag.getDataAsString(DragOps.ROWS_MIME)
             var plain = drag.getDataAsString("text/plain")
             var ok = root.row && root.row.d === true
@@ -62,6 +68,8 @@ Item {
             }
         }
         onDropped: function (drop) {
+            if (drop.getDataAsString(Tabs.TAB_MIME) !== "")
+                return
             var marker = drop.getDataAsString(DragOps.ROWS_MIME)
             var shelf = drop.getDataAsString(DragOps.SHELF_MIME)
             var plain = drop.getDataAsString("text/plain")

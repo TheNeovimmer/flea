@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import "." as Flea
 import "js/DragOut.js" as DragOut
 import "js/Tabs.js" as Tabs
@@ -35,6 +36,28 @@ Item {
     property int dragFrom: -1
     property int dropAt: -1
 
+    // xw6: a tab dragged past the window's edge leaves as a platform drag. outMime is
+    // fixed at the lift, outOutside tracks the pointer against the window, and outActive
+    // owns the gesture from the first step outside until the drop answers. allowWindowClose
+    // is false where the pane shares its window, so a last tab moved there is refused.
+    property var outMime: ({})
+    property bool outActive: false
+    property bool outOutside: false
+    property bool outRefused: false
+    property int outIndex: -1
+    property string outPath: ""
+    property bool allowWindowClose: true
+    signal closeRequested()
+
+    Drag.dragType: Drag.Automatic
+    // Copy and Move both offered with Copy proposed, so a foreign app takes the folder
+    // reference while a Flea window takes the tab with an explicit Move accept. The source
+    // closes its tab only on that Move, which is how a foreign copy keeps the tab standing.
+    Drag.supportedActions: Qt.CopyAction | Qt.MoveAction
+    Drag.proposedAction: Qt.CopyAction
+    Drag.mimeData: root.outMime
+    Drag.onDragFinished: function (dropAction) { root.outFinished(dropAction) }
+
     function dragStarted(index) {
         root.dragFrom = index
         root.dropAt = index < 0 ? -1 : index + 1
@@ -51,6 +74,92 @@ Item {
         }
         root.dragFrom = -1
         root.dropAt = -1
+    }
+
+    // The lift fixes the payload; a rename open refuses the way out, not the reorder.
+    function tabLiftBegan(index) {
+        root.dragStarted(index)
+        root.outIndex = index
+        var info = Tabs.tabInfo(root.pane, index)
+        root.outPath = info ? info.path : ""
+        root.outMime = Tabs.tabDragMime(root.pane, index)
+        root.outOutside = false
+        root.outRefused = false
+    }
+
+    // Inside the strip only the reorder runs. Past the window's edge the platform drag
+    // takes over; the reorder state freezes until the drop answers.
+    function tabLiftMoved(stripX, winX, winY) {
+        root.dragMoved(stripX)
+        if (root.parent)
+            root.outOutside = winX < 0 || winY < 0 || winX > root.parent.width || winY > root.parent.height
+        if (root.outOutside && !root.outActive && root.outMime[Tabs.TAB_MIME]) {
+            var refusal = Tabs.tearRefusal(root.pane)
+            if (refusal.length > 0) {
+                if (!root.outRefused && root.pane)
+                    root.pane.message(refusal, false)
+                root.outRefused = true
+                return
+            }
+            root.outActive = true
+            root.Drag.active = true
+        }
+    }
+
+    // The DragHandler's own release: a platform gesture in flight owns the ending, so no
+    // reorder runs under it. The reset still runs, or the ghost would stand past the drop.
+    function tabLiftEnded() {
+        if (root.outActive) {
+            root.dragFrom = -1
+            root.dropAt = -1
+            return
+        }
+        root.dragFinished()
+    }
+
+    // Move means a Flea window took the tab: close it here, or close the window when it
+    // was the last. Copy means a foreign app took the folder reference and the tab stays.
+    // Ignore past the edge is Finder's tear-off, a new window on the folder; Ignore inside
+    // is a cancel or a refused drop and changes nothing. The clear is deferred past the
+    // DragHandler's own release, whichever answers first, so neither reorders under the other.
+    function outFinished(dropAction) {
+        if (!root.outActive)
+            return
+        if (dropAction === Qt.MoveAction) {
+            root.finishMove()
+        } else if (dropAction === Qt.IgnoreAction && root.outOutside) {
+            root.tearOff()
+        }
+        Qt.callLater(function () { root.outActive = false })
+    }
+
+    function finishMove() {
+        if (!root.pane)
+            return
+        var result = Tabs.closeTabAfterMove(root.pane, Tabs.resolveMovedTab(root.pane, root.outIndex, root.outPath))
+        if (result === "window") {
+            if (root.allowWindowClose)
+                root.closeRequested()
+            else
+                root.pane.message("Can't close the last tab.", false)
+        }
+    }
+
+    // The same launch Ctrl+N uses, on the tab's folder rather than the standing path.
+    function tearOff() {
+        if (root.outPath.length === 0)
+            return
+        Quickshell.execDetached([Quickshell.env("FLEA_BIN") || "flea", root.outPath])
+        root.finishMove()
+    }
+
+    // A tab from another Flea window lands at the drop position. Own drags never reach
+    // here: the reorder owns those, and the per-tab areas below refuse the tab MIME too.
+    function tabEnterOk(drag) {
+        var info = Tabs.parseTabMime(drag.getDataAsString(Tabs.TAB_MIME))
+        if (!info || Tabs.isOwnTab(info))
+            return false
+        return root.pane ? Tabs.canReceive(root.pane) : false
     }
 
     visible: root.open
@@ -216,19 +325,21 @@ Item {
                 // Tabs040 callout 1: a left-button drag reorders rather than selects.
                 // A press without a move still taps above, and a file drag never
                 // enters here, so DropInto's hover switch answers only files.
+                // xw6: past the window's edge the same gesture leaves as a platform tab drag.
                 DragHandler {
                     acceptedButtons: Qt.LeftButton
                     target: null
                     onActiveChanged: {
                         if (active)
-                            root.dragStarted(tab.index)
+                            root.tabLiftBegan(tab.index)
                         else
-                            root.dragFinished()
+                            root.tabLiftEnded()
                     }
                     onCentroidChanged: {
                         if (active) {
                             var pos = tab.mapToItem(strip, centroid.position.x, centroid.position.y)
-                            root.dragMoved(pos.x)
+                            var win = root.parent ? tab.mapToItem(root.parent, centroid.position.x, centroid.position.y) : pos
+                            root.tabLiftMoved(pos.x, win.x, win.y)
                         }
                     }
                 }
@@ -256,6 +367,31 @@ Item {
                 acceptedButtons: Qt.LeftButton
                 onTapped: if (pane) Tabs.openNew(pane)
             }
+        }
+    }
+
+    // xw6: the strip's own tab catcher. A DropArea takes no pointer input, so this
+    // never blocks a tap or a reorder; it only answers the platform tab drag, at the
+    // drop position, while the per-tab file areas refuse the tab MIME outright.
+    DropArea {
+        anchors.left: parent.left
+        anchors.leftMargin: Theme.spacing.rowPaddingX
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        keys: [Tabs.TAB_MIME]
+        onEntered: function (drag) {
+            if (!root.tabEnterOk(drag))
+                drag.accepted = false
+        }
+        onDropped: function (drop) {
+            var payload = drop.getDataAsString(Tabs.TAB_MIME)
+            var info = Tabs.parseTabMime(payload)
+            if (!info || Tabs.isOwnTab(info))
+                return
+            var at = Tabs.dropIndexAt(drop.x, root.tabWidth, root.tabCount)
+            if (root.pane && Tabs.receiveTab(root.pane, payload, at))
+                drop.accept(Qt.MoveAction)
         }
     }
 

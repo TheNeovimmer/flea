@@ -243,4 +243,118 @@ function run(check) {
     Tabs.openCursorTab(emptyPane)
     check("no cursor row opens no tab either", Tabs.count(emptyPane), 1)
     check("and says the same sentence", emptyPane.said[emptyPane.said.length - 1], "Only a folder opens in a new tab.")
+
+    // xw6: a tab dragged past its window's edge leaves as a platform drag carrying the
+    // folder, the view and the cursor file name, plus the folder alone for another app.
+    var tabbed = Fixture.pane("/tmp/a")
+    tabbed.tabs = { items: [{ path: "/tmp/a" }, { path: "/tmp/b", history: [], cursorIndex: 2,
+                            viewMode: "grid", showHidden: false, selected: [],
+                            sortBy: "name", sortDesc: false }],
+                   index: 0, pendingCursor: -1, pendingSortBy: "", pendingSortDesc: false }
+    tabbed.rowFor = function (i) { return i === 4 ? { n: "note.txt", d: false } : null }
+    var info = Tabs.parseTabMime(Tabs.tabPayload(tabbed, 0))
+    check("a tab encodes its folder, view and cursor file",
+          info.path + "|" + info.view + "|" + info.cursor, "/tmp/a|list|note.txt")
+    var hiddenInfo = Tabs.parseTabMime(Tabs.tabPayload(tabbed, 1))
+    check("a hidden tab encodes its own snapshot", hiddenInfo.path + "|" + hiddenInfo.view, "/tmp/b|grid")
+    var lift = Tabs.tabDragMime(tabbed, 0)
+    check("the lift offers the tab MIME", lift[Tabs.TAB_MIME] === Tabs.tabPayload(tabbed, 0), true)
+    check("and the folder as uri-list for another app", lift["text/uri-list"], "file:///tmp/a\r\n")
+    check("and as plain text", lift["text/plain"], "/tmp/a")
+    check("no such tab offers no payload", Tabs.tabPayload(tabbed, 7), "")
+    check("and no MIME at all", Tabs.tabDragMime(tabbed, 7)["text/uri-list"], undefined)
+    check("this window's own drag is never a receive", Tabs.isOwnTab(info), true)
+    check("another window's is", Tabs.isOwnTab(Tabs.parseTabMime(
+        JSON.stringify(["other-instance", "/tmp/a", "list", ""]))), false)
+    check("garbage refuses", Tabs.parseTabMime("not json"), null)
+    check("an empty payload refuses", Tabs.parseTabMime(""), null)
+    check("a relative path refuses",
+          Tabs.parseTabMime(JSON.stringify(["i", "tmp/a", "list", ""])), null)
+    check("a control character refuses",
+          Tabs.parseTabMime(JSON.stringify(["i", "/tmp/ab", "list", ""])), null)
+    check("a wrong arity refuses", Tabs.parseTabMime(JSON.stringify(["i", "/tmp/a"])), null)
+
+    // The strip answers an insertion point; off the strip the tab lands at the end.
+    check("a drop past the last tab lands at the end", Tabs.dropIndexAt(9999, 100, 3), 3)
+    check("a drop before the first lands at zero", Tabs.dropIndexAt(-50, 100, 3), 0)
+    check("a drop over the second tab names its near edge", Tabs.dropIndexAt(140, 100, 3), 1)
+
+    // A tab from another window opens at the drop position and is shown.
+    var receiver = Fixture.pane("/tmp/r")
+    var foreign = JSON.stringify(["other-instance", "/tmp/folder", "grid", "note.txt"])
+    check("a foreign tab opens", Tabs.receiveTab(receiver, foreign, 1), true)
+    check("at the drop position and shown",
+          Tabs.currentIndex(receiver) + "|" + Tabs.count(receiver), "1|2")
+    check("on the folder it names", receiver.path, "/tmp/folder")
+    check("in the view it names", receiver.viewMode, "grid")
+    check("carrying the cursor name", receiver.tabs.items[1].cursorName, "note.txt")
+    var plainView = Fixture.pane("/tmp/r")
+    Tabs.receiveTab(plainView, JSON.stringify(["other-instance", "/tmp/g", "britelite", ""]), -1)
+    check("an unknown view keeps the standing one", plainView.viewMode, "list")
+    check("and off the strip lands at the end", Tabs.currentIndex(plainView), 1)
+    var own = Fixture.pane("/tmp/r")
+    Tabs.receiveTab(own, Tabs.tabPayload(tabbed, 0), 0)
+    check("this window's own drag never receives", Tabs.count(own), 1)
+    var busyReceiver = Fixture.pane("/tmp/r")
+    busyReceiver.listInFlight = true
+    check("a loading window refuses the drop", Tabs.receiveTab(busyReceiver, foreign, 0), false)
+    check("with navigation's own sentence",
+          busyReceiver.said[busyReceiver.said.length - 1], "A directory is already loading.")
+    var fullReceiver = Fixture.pane("/tmp/r")
+    var nineFull = []
+    for (var f = 0; f < 9; f++) nineFull.push({ path: "/tmp/" + f })
+    fullReceiver.tabs = { items: nineFull, index: 0, pendingCursor: -1,
+                          pendingSortBy: "", pendingSortDesc: false }
+    check("a full strip refuses the drop", Tabs.receiveTab(fullReceiver, foreign, 0), false)
+    check("with the cap's own sentence",
+          fullReceiver.said[fullReceiver.said.length - 1], "Nine tabs is the most.")
+
+    // After an accepted drop the source closes the tab that left.
+    var moved = Fixture.pane("/tmp/one")
+    moved.tabs = { items: [{ path: "/tmp/one" }, { path: "/tmp/two", history: [], cursorIndex: 0,
+                           viewMode: "list", showHidden: false, selected: [],
+                           sortBy: "name", sortDesc: false }],
+                   index: 0, pendingCursor: -1, pendingSortBy: "", pendingSortDesc: false }
+    check("a moved tab closes", Tabs.closeTabAfterMove(moved, 1), "closed")
+    check("and is gone", Tabs.count(moved), 1)
+    var only = Fixture.pane("/tmp/only")
+    check("the last tab closes the window instead", Tabs.closeTabAfterMove(only, 0), "window")
+    check("and stands until the drop answers", Tabs.count(only), 1)
+    var kept = Fixture.pane("/tmp/one")
+    kept.listInFlight = true
+    check("a loading source keeps its tab", Tabs.closeTabAfterMove(kept, 0), "kept")
+    check("no such tab keeps everything", Tabs.closeTabAfterMove(moved, 5), "kept")
+
+    // The close resolves by folder when a key pressed mid-drag shifted every index.
+    var shifted = Fixture.pane("/tmp/one")
+    shifted.tabs = { items: [{ path: "/tmp/one" }, { path: "/tmp/two", history: [], cursorIndex: 0,
+                             viewMode: "list", showHidden: false, selected: [],
+                             sortBy: "name", sortDesc: false },
+                             { path: "/tmp/three", history: [], cursorIndex: 0,
+                             viewMode: "list", showHidden: false, selected: [],
+                             sortBy: "name", sortDesc: false }],
+                     index: 0, pendingCursor: -1, pendingSortBy: "", pendingSortDesc: false }
+    check("the lift's index closes while it still names the folder",
+          Tabs.resolveMovedTab(shifted, 1, "/tmp/two"), 1)
+    check("a shifted index follows the folder, not the number",
+          Tabs.resolveMovedTab(shifted, 0, "/tmp/two"), 1)
+    check("a folder no tab names keeps every tab", Tabs.resolveMovedTab(shifted, 1, "/tmp/gone"), -1)
+    check("and nothing resolves off no pane", Tabs.resolveMovedTab(null, 0, "/tmp/two"), -1)
+
+    // A lift may not leave while a rename is open, or the close would take the editor's tab.
+    check("a clean pane tears out", Tabs.tearRefusal(Fixture.pane()), "")
+    var renaming = Fixture.pane()
+    renaming.renamePending = true
+    check("a pending rename refuses the drag",
+          Tabs.tearRefusal(renaming), "Finish the rename before dragging a tab out.")
+    var editing = Fixture.pane()
+    editing.renameEditor = function () { return {} }
+    check("a live editor refuses too",
+          Tabs.tearRefusal(editing), "Finish the rename before dragging a tab out.")
+    var loadingPane = Fixture.pane()
+    loadingPane.listInFlight = true
+    check("a loading listing refuses", Tabs.tearRefusal(loadingPane), "A directory is already loading.")
+    check("a strip with room receives", Tabs.canReceive(Fixture.pane()), true)
+    check("a loading strip does not", Tabs.canReceive(loadingPane), false)
+    check("a full strip does not", Tabs.canReceive(fullReceiver), false)
 }

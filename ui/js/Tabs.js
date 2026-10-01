@@ -1,5 +1,6 @@
 .pragma library
 
+.import "Drag.js" as DragOps
 .import "Filter.js" as Filter
 .import "Format.js" as Format
 .import "RecentMode.js" as RecentMode
@@ -387,4 +388,206 @@ function restoreItems(pane, paths) {
     for (var i = 0; i < paths.length; i++)
         out.push(snapshot(pane, String(paths[i])))
     return out
+}
+
+// xw6: a tab dragged past its window's edge becomes a platform drag. The payload is a JSON
+// array, [instance, path, view, cursor], because a folder path may itself hold a newline and a
+// line format could not carry it: instance tells this window's own drag from another Flea's,
+// path is the folder the tab stands on, view its mode, cursor the cursor row's file name.
+// The drag also carries the folder's uri-list, so another app takes it as a folder drop.
+var TAB_MIME = "application/x-flea-tab"
+
+var TAB_VIEWS = ["list", "grid", "columns"]
+
+// The tab a lift names: the live snapshot for the current tab, the stored one for a hidden
+// tab, with the cursor file name only when the row is at hand. Null when no such tab.
+function tabInfo(pane, index) {
+    if (!pane)
+        return null
+    var total = count(pane)
+    if (index < 0 || index >= total)
+        return null
+    var here = restingPath(pane)
+    var current = currentIndex(pane)
+    var path, view, cursor
+    cursor = ""
+    if (index === current) {
+        path = here
+        view = pane.viewMode
+        if (pane.rowFor && pane.cursorIndex >= 0) {
+            var row = pane.rowFor(pane.cursorIndex)
+            if (row && typeof row.n === "string")
+                cursor = row.n
+        }
+    } else {
+        var items = currentItems(pane, here)
+        var item = items[index] || {}
+        path = String(item.path || "")
+        view = String(item.viewMode || "")
+        if (typeof item.cursorName === "string")
+            cursor = item.cursorName
+    }
+    if (!path || path.charAt(0) !== "/")
+        return null
+    return { path: path, view: view, cursor: cursor }
+}
+
+// The platform payload for a lift: JSON because the path may hold a newline. Each field is
+// stripped of carriage returns first, so the decode never meets a split it did not write.
+function tabPayload(pane, index) {
+    var info = tabInfo(pane, index)
+    if (!info)
+        return ""
+    var clean = function (text) { return String(text).replace(/\r/g, "") }
+    return JSON.stringify([DragOps.INSTANCE, clean(info.path), clean(info.view), clean(info.cursor)])
+}
+
+// What the lift offers: the tab MIME plus the folder's uri-list and plain path, so a foreign
+// app takes the folder while a Flea window takes the tab. Empty when there is no such tab.
+function tabDragMime(pane, index) {
+    var payload = tabPayload(pane, index)
+    if (!payload)
+        return {}
+    var info = tabInfo(pane, index)
+    var mime = {}
+    mime[TAB_MIME] = payload
+    mime["text/uri-list"] = DragOps.uriFor(info.path) + "\r\n"
+    mime["text/plain"] = info.path
+    return mime
+}
+
+// The receiver takes only an absolute folder path with no control character: anything else,
+// a foreign payload or a corrupt one, refuses. Existence and kind are the listing's own
+// error once the tab opens, the way a typed path meets it.
+function parseTabMime(payload) {
+    var fields = null
+    try {
+        fields = JSON.parse(String(payload))
+    } catch (error) {
+        return null
+    }
+    if (!fields || fields.length !== 4)
+        return null
+    var path = String(fields[1] || "")
+    if (path.length === 0 || path.charAt(0) !== "/" || /[\x00-\x1f\x7f]/.test(path))
+        return null
+    return { instance: String(fields[0] || ""), path: path,
+             view: String(fields[2] || ""), cursor: String(fields[3] || "") }
+}
+
+// This window's own drag is the reorder path's, never a receive: without this a platform drag
+// set down back on its own strip would open a second tab on the folder it came from.
+function isOwnTab(info) {
+    return !!info && info.instance === DragOps.INSTANCE
+}
+
+// The strip answers an insertion point, 0 before the first tab and count past the last;
+// off the strip the tab lands at the end, which the caller passes as -1.
+function dropIndexAt(x, tabWidth, tabCount) {
+    return TabMove.insertionAt(x, tabWidth, tabCount)
+}
+
+// Whether the pane may receive a tab: a listing in flight and a full strip both refuse,
+// the first with navigation's own sentence. Silent, so an enter probe refuses for free.
+function canReceive(pane) {
+    if (!pane || pane.listInFlight)
+        return false
+    return count(pane) < MAX
+}
+
+// A tab from another Flea window, opened at the drop position and shown. Own drags refuse,
+// because the reorder owns those; a busy or full strip refuses with its sentence.
+function receiveTab(pane, payload, at) {
+    if (!pane)
+        return false
+    var info = parseTabMime(payload)
+    if (!info || isOwnTab(info))
+        return false
+    if (busy(pane))
+        return false
+    if (count(pane) >= MAX) {
+        pane.message("Nine tabs is the most.", false)
+        return false
+    }
+    closePreview(pane)
+    var dropped = dropOverlay(pane)
+    var here = restingPath(pane)
+    var items = currentItems(pane, here)
+    var index = currentIndex(pane)
+    items[index] = snapshot(pane, here)
+    var snap = snapshot(pane, info.path)
+    if (TAB_VIEWS.indexOf(info.view) >= 0)
+        snap.viewMode = info.view
+    if (info.cursor.length > 0)
+        snap.cursorName = info.cursor
+    var place = at >= 0 && at <= items.length ? at : items.length
+    items.splice(place, 0, snap)
+    pane.tabs = pack(items, place)
+    apply(pane, snap, dropped)
+    return true
+}
+
+// After an accepted drop the source closes the tab that left: "window" when it was the
+// last one, so the caller closes the window the way its last tab does, "kept" when a
+// loading listing refuses, which leaves the duplicate standing rather than losing a tab.
+function closeTabAfterMove(pane, index) {
+    if (!pane)
+        return "kept"
+    var total = count(pane)
+    if (index < 0 || index >= total)
+        return "kept"
+    if (busy(pane))
+        return "kept"
+    if (total <= 1)
+        return "window"
+    closeAt(pane, index)
+    return "closed"
+}
+
+// A lift may not leave the window while a rename is open: the close after an accepted drop
+// would take the tab under the editor. The sentence is the refusal, read at the lift.
+function tearRefusal(pane) {
+    if (!pane)
+        return ""
+    if (pane.listInFlight)
+        return "A directory is already loading."
+    if (pane.renamePending === true)
+        return "Finish the rename before dragging a tab out."
+    if (typeof pane.renameEditor === "function" && pane.renameEditor())
+        return "Finish the rename before dragging a tab out."
+    return ""
+}
+
+// The tab standing on a path: the live one for the current tab, the snapshot's for a
+// hidden one. -1 when no tab names it.
+function indexOfPath(pane, path) {
+    if (!pane || !path)
+        return -1
+    var here = restingPath(pane)
+    var items = currentItems(pane, here)
+    var current = currentIndex(pane)
+    for (var i = 0; i < items.length; i++) {
+        var named = i === current ? here : String((items[i] || {}).path || "")
+        if (named === path)
+            return i
+    }
+    return -1
+}
+
+// Which tab an accepted drop closes: the lift's index while it still names the dragged
+// folder, else the first tab that does. A key pressed mid-drag can shift every index, so
+// the number alone may close the wrong tab; -1 when nothing names it, which keeps all.
+function resolveMovedTab(pane, index, path) {
+    if (!pane || !path)
+        return -1
+    var total = count(pane)
+    if (index >= 0 && index < total) {
+        var here = restingPath(pane)
+        var items = currentItems(pane, here)
+        var current = currentIndex(pane)
+        var named = index === current ? here : String((items[index] || {}).path || "")
+        if (named === path)
+            return index
+    }
+    return indexOfPath(pane, path)
 }

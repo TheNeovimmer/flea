@@ -193,6 +193,32 @@ Rectangle {
         anchors.right: parent.right
         anchors.top: chrome.bottom
         pane: view.currentPane
+        // Dual panes share this window, so a last tab moved there never closes it.
+        allowWindowClose: !view.dualMode
+        onCloseRequested: view.quitBackends()
+    }
+
+    // xw6: with one tab the strip is hidden, so a tab from another window lands
+    // anywhere in this one, at the end. A DropArea takes no pointer input, and the
+    // listing floor refuses the tab MIME, so this is the only thing that answers.
+    DropArea {
+        anchors.fill: parent
+        keys: [Tabs.TAB_MIME]
+        enabled: !view.dualMode && !(view.currentPane.tabs && view.currentPane.tabs.items
+            && view.currentPane.tabs.items.length > 1)
+        onEntered: function (drag) {
+            var info = Tabs.parseTabMime(drag.getDataAsString(Tabs.TAB_MIME))
+            if (!info || Tabs.isOwnTab(info) || !Tabs.canReceive(view.currentPane))
+                drag.accepted = false
+        }
+        onDropped: function (drop) {
+            var payload = drop.getDataAsString(Tabs.TAB_MIME)
+            var info = Tabs.parseTabMime(payload)
+            if (!info || Tabs.isOwnTab(info))
+                return
+            if (Tabs.receiveTab(view.currentPane, payload, -1))
+                drop.accept(Qt.MoveAction)
+        }
     }
 
     Flea.Pane {
