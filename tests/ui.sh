@@ -4681,7 +4681,9 @@ case_header() {
 }
 
 # ListColumns040: dragging a column edge resizes it, remembers the width, and never sorts. Sample input: headerCellRect size prints "400|70".
-# The drag is closed-loop against the live header rect, because ydotool relative motion is accelerated and a step count cannot name a distance.
+# The drag is deterministic absolute motion while the button is held: cursorpos does not follow
+# ydotool relative motion and that motion is accelerated, so neither a step count nor cursorpos
+# names the distance.
 # headerCellRect is polled until two reads agree, so a mid-drag sample never stands in for a settled width.
 column_stable_rect() {
     local key="$1" first second
@@ -4693,22 +4695,14 @@ column_stable_rect() {
     done
     printf '%s' "$second"
 }
-column_drag_to() {
-    local key="$1" target="$2" tries="$3"
-    local rect _x w
-    for (( _drag_i = 0; _drag_i < tries; _drag_i++ )); do
-        IFS='|' read -r _x w <<< "$(ipc headerCellRect "$key")"
-        if (( target >= 0 )); then
-            (( w >= target )) && return 0
-        else
-            (( w <= -target )) && return 0
-        fi
-        YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x "$4" -y 0 >/dev/null 2>&1 \
-            || fail "columnresize: the drag step failed"
+column_drag_absolute() {
+    local start_x="$1" y="$2" delta_x="$3" steps="$4" i x
+    for (( i = 1; i <= steps; i++ )); do
+        x=$(( start_x + delta_x * i / steps ))
+        omarchy-drive move "$x" "$y" >/dev/null \
+            || fail "columnresize: the absolute drag step failed"
         sleep 0.1
     done
-    IFS='|' read -r _x w <<< "$(ipc headerCellRect "$key")"
-    printf '%s' "$w"
 }
 
 case_columnresize() {
@@ -4726,7 +4720,7 @@ case_columnresize() {
     [[ "$before_w" =~ ^[0-9]+$ ]] || fail "columnresize: the size header has no width, got $before_w"
 
     # The handle sits on the cell's left edge (Header.qml anchors each ResizeHandle there), not on the painted text centre, which misses the 9 px handle on a right-aligned cell.
-    local cx cy cell_x cell_w edge_x header_left wx wy ww wh before_x after_x travel delta
+    local cx cy cell_x cell_w edge_x header_left wx wy ww wh start_x start_y delta
     read -r cx cy <<< "$(ipc headerCellCentre size)"
     [[ -n "$cx" && -n "$cy" ]] || fail "columnresize: the size header has no centre"
     IFS='|' read -r cell_x cell_w <<< "$(column_stable_rect size)"
@@ -4735,28 +4729,24 @@ case_columnresize() {
     [[ "$header_left" =~ ^-?[0-9]+$ ]] || fail "columnresize: the header has no left edge, got $header_left"
     edge_x=$(( header_left + cell_x ))
     read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
-    omarchy-drive move "$(( wx + edge_x ))" "$(( wy + cy ))" >/dev/null
+    start_x=$(( wx + edge_x ))
+    start_y=$(( wy + cy ))
+    omarchy-drive move "$start_x" "$start_y" >/dev/null \
+        || fail "columnresize: the edge move failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 \
         || fail "columnresize: the edge press failed"
-    # The header follows the pointer one to one, so the width change equals the real cursor travel
-    # within 1 px; ydotool relative motion is accelerated, so a step count cannot name a distance.
-    before_x=$(hyprctl -j cursorpos | jq -er .x) \
-        || fail "columnresize: no cursor position before the drag"
-    # Closed-loop: ydotool relative motion is accelerated, so the rect decides when to stop.
-    column_drag_to size "$(( before_w + 40 ))" 12 -10
-    after_x=$(hyprctl -j cursorpos | jq -er .x) \
-        || fail "columnresize: no cursor position after the drag"
+    # Deterministic: absolute moves from the handle's x to handle x - 40 while held.
+    column_drag_absolute "$start_x" "$start_y" -40 4
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 \
         || fail "columnresize: the edge release failed"
     settle
     local grown_w
     IFS='|' read -r _x grown_w <<< "$(column_stable_rect size)"
-    printf 'COLUMNRESIZE before=%s grown=%s mark=%s travel=%s\n' "$before_w" "$grown_w" "$(ipc sortMark)" "$(( before_x - after_x ))"
+    printf 'COLUMNRESIZE before=%s grown=%s mark=%s\n' "$before_w" "$grown_w" "$(ipc sortMark)"
     shot columnresize-drag
-    travel=$(( before_x - after_x ))
     delta=$(( grown_w - before_w ))
-    (( delta >= travel - 1 && delta <= travel + 1 )) \
-        || fail "columnresize: the header moved size from $before_w to $grown_w (delta $delta) for $travel px of cursor travel"
+    (( delta >= 39 && delta <= 41 )) \
+        || fail "columnresize: the header moved size from $before_w to $grown_w (delta $delta), expected +40 within 1 px"
     [[ "$(ipc sortMark)" == "$before_mark" ]] \
         || fail "columnresize: the drag sorted, mark is $(ipc sortMark)"
     [[ "$(ipc columnWidths | jq -er '.size')" == "$grown_w" ]] \
@@ -4772,22 +4762,20 @@ case_columnresize() {
     [[ "$(ipc rowCellOverflow 0)" == "0|0|0|0" ]] \
         || fail "columnresize: a cell painted past its resized column, $(ipc rowCellOverflow 0)"
 
-    # To the floor: a rightward drag shrinks to the 48 rail, and six steps past it still read 48.
+    # To the floor: a rightward absolute drag shrinks to the 48 rail, with overshoot still reading 48.
     read -r cx cy <<< "$(ipc headerCellCentre size)"
     IFS='|' read -r cell_x cell_w <<< "$(column_stable_rect size)"
     [[ "$cell_x" =~ ^-?[0-9]+$ ]] || fail "columnresize: the size header has no left edge on the floor pass, got $cell_x"
     header_left=$(ipc headerLeft)
     [[ "$header_left" =~ ^-?[0-9]+$ ]] || fail "columnresize: the header has no left edge on the floor pass, got $header_left"
     edge_x=$(( header_left + cell_x ))
-    omarchy-drive move "$(( wx + edge_x ))" "$(( wy + cy ))" >/dev/null
+    start_x=$(( wx + edge_x ))
+    start_y=$(( wy + cy ))
+    omarchy-drive move "$start_x" "$start_y" >/dev/null \
+        || fail "columnresize: the floor move failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 \
         || fail "columnresize: the floor press failed"
-    column_drag_to size -48 24 10
-    for _over in $(seq 1 6); do
-        YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 10 -y 0 >/dev/null 2>&1 \
-            || fail "columnresize: the overshoot step failed"
-        sleep 0.1
-    done
+    column_drag_absolute "$start_x" "$start_y" "$(( grown_w - 48 + 60 ))" 6
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 \
         || fail "columnresize: the floor release failed"
     settle
