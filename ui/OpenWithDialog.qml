@@ -337,11 +337,11 @@ Item {
                     Flea.FastScrollHandler {
                         parent: list
                         flickable: list
-                    }
-                    Flea.ViewportScrollBar {
-                        parent: list
-                        anchors { top: parent.top; right: parent.right }
-                        flickable: list
+                        // The app list steps the highlight like a menu: one row a notch, one
+                        // row per row height of gained touchpad travel. No bar, no lane.
+                        stepMode: true
+                        stepRowHeight: Theme.rowHeight
+                        stepBy: function (delta) { root.moveCursor(delta) }
                     }
 
                     delegate: Item {

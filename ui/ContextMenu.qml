@@ -446,7 +446,11 @@ Item {
 
         Flea.CardScroll {
             id: scroll
-            gutter: 0 // Menus keep no scroll gutter; the bar overlays.
+            // A menu steps the highlight, never pixel scrolls: one row a notch, one row per
+            // row height of gained touchpad travel, and reveal() follows. No bar, no lane.
+            highlightSteps: true
+            stepRowHeight: Theme.rowHeight
+            stepBy: function (delta) { root.cursor = root.stepCursor(root.cursor, delta) }
             anchors.fill: parent
             anchors.topMargin: Theme.spacing.rowPaddingY
             anchors.bottomMargin: Theme.spacing.rowPaddingY
@@ -512,7 +516,10 @@ Item {
 
         Flea.CardScroll {
             id: subScroll
-            gutter: 0 // Menus keep no scroll gutter; the bar overlays.
+            // The flyout steps like the main frame, through its own cursor and reveal.
+            highlightSteps: true
+            stepRowHeight: Theme.rowHeight
+            stepBy: function (delta) { root.submenuCursor = root.stepSubmenu(root.submenuCursor, delta) }
             anchors.fill: parent
             anchors.topMargin: Theme.spacing.rowPaddingY
             anchors.bottomMargin: Theme.spacing.rowPaddingY

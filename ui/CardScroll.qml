@@ -3,21 +3,28 @@ import "." as Flea
 
 // A card body that can be taller than the window: the content keeps its own height, this viewport
 // clamps to what the card gave it and scrolls the rest, by wheel and by a focus move below the fold.
+// No bar and no lane anywhere it is used: dialogs, sheets, menus and pick lists show files nowhere,
+// so rows fill to the frame's padding and the content still scrolls by wheel, touchpad and keys.
 Flickable {
     id: root
 
     default property alias content: holder.data
     // What the content wants, for the card to clamp against the window.
     readonly property real wanted: holder.childrenRect.height
+    // Menus step the highlight instead of pixel scrolling: one row a notch through stepBy, one
+    // row per stepRowHeight of gained touchpad travel, with no tail. See FastScrollHandler.
+    property bool highlightSteps: false
+    property real stepRowHeight: 0
+    property var stepBy: null
+    // The holder's drawn width, so a probe reads it without walking children.
+    readonly property real holderWidth: holder.width
 
     clip: true
-    // The lane kept clear at the right edge; menus pass 0 so rows use the whole frame.
-    property real gutter: Theme.spacing.rowPaddingX
-    // The holder's drawn width, so a probe reads the reserve without walking children.
-    readonly property real holderWidth: holder.width
     contentWidth: width
     contentHeight: root.wanted
     boundsBehavior: Flickable.StopAtBounds
+    // A highlight-stepped menu follows through reveal(); the Flickable takes no wheel itself.
+    interactive: !root.highlightSteps
 
     // Tab into a field below the fold scrolls it into view, so a form is never typed into blind.
     function reveal(item) {
@@ -47,18 +54,14 @@ Flickable {
     Flea.FastScrollHandler {
         parent: root
         flickable: root
-    }
-
-    Flea.ViewportScrollBar {
-        parent: root
-        // parent, not root: declared in the Flickable it starts in contentItem, where root is no parent or sibling.
-        anchors { top: parent.top; right: parent.right }
-        flickable: root
+        stepMode: root.highlightSteps
+        stepRowHeight: root.stepRowHeight
+        stepBy: root.stepBy
     }
 
     Item {
         id: holder
-        // The scroll lane stays clear at the right edge, the same rule every listing follows.
-        width: Math.max(0, root.width - root.gutter)
+        // No lane: rows fill to the frame's padding on every surface using this.
+        width: Math.max(0, root.width)
     }
 }

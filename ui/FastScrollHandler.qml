@@ -1,11 +1,14 @@
 import QtQuick
 import "js/Scroll.js" as Scroll
+import "js/MenuWheel.js" as MenuWheel
 
 // Writes the bounded position directly, on both axes. A MouseArea because a Flickable consumes wheel
 // events before a child WheelHandler can answer them. Presses pass through untouched: the press arm
 // below stops the momentum tail and leaves the event unaccepted, so the row under the pointer still
 // gets the click. Touchpad strokes (any phase but Qt.NoScrollPhase) move gained pixels with Finder's
 // momentum tail; a wheel notch keeps the Theme rate with none. The arithmetic is ui/js/Scroll.js.
+// stepMode answers menus instead: a notch steps the highlight one row through stepBy, a touchpad
+// stroke one row per stepRowHeight of gained travel, with no tail ever started. CardScroll owns it.
 MouseArea {
     id: root
     objectName: "fleaScroll"
@@ -13,6 +16,11 @@ MouseArea {
     required property var flickable
     property var ctrlWheelAction: null
     property bool tailRunning: false
+    // A menu highlight steps here; null everywhere else, so pixel scrolling is untouched.
+    property bool stepMode: false
+    property real stepRowHeight: 0
+    property var stepBy: null
+    property real stepAccum: 0
 
     anchors.fill: parent
     acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
@@ -105,7 +113,31 @@ MouseArea {
         root.tailRunning = true
     }
 
+    // Menus step the highlight: one row a notch, one row per row height of gained touchpad
+    // travel, no tail. Always consumed while the menu stands, so nothing beneath scrolls.
+    function stepWheel(wheel) {
+        var phase = wheel.phase !== undefined ? wheel.phase : Qt.NoScrollPhase
+        if (Scroll.isTouchpad(phase)) {
+            if (phase === Qt.ScrollBegin)
+                root.stepAccum = 0
+            var folded = MenuWheel.touchSteps(root.stepAccum, Scroll.touchDistance(wheel.pixelDelta.y),
+                                              root.stepRowHeight)
+            root.stepAccum = folded.rest
+            for (var i = 0; i < Math.abs(folded.steps); i++)
+                root.stepBy(folded.steps > 0 ? 1 : -1)
+            return true
+        }
+        var at = MenuWheel.notchStep(root.scrollDistance(wheel.pixelDelta.y, wheel.angleDelta.y))
+        if (at !== 0)
+            root.stepBy(at)
+        return true
+    }
+
     function handleWheel(wheel) {
+        if (root.stepMode && root.stepBy !== null) {
+            wheel.accepted = root.stepWheel(wheel)
+            return wheel.accepted
+        }
         if ((wheel.modifiers & Qt.ControlModifier) && root.ctrlWheelAction !== null) {
             wheel.accepted = root.ctrlWheelAction(wheel)
             if (wheel.accepted) {
