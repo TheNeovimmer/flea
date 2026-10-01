@@ -222,4 +222,68 @@ function run(check) {
     busy.listInFlight = true
     check("a delete re-read is refused while a list is in flight",
           Anchor.afterDelete(busy) === null && busy.sent.length === 0, true)
+
+    // A click-away rename keeps the pointer's row: the reply anchors on the clicked name.
+    var click = watched(0, [{ n: "a-original.md" }, { n: "b-existing.md" }], 1, 1202)
+    click.path = "/dir"
+    var clickReq = { source: "/dir/a-original.md", destination: "/dir/a-clickaway.md", folder: "/dir" }
+    var clickAnchor = Anchor.pointerRow(click, clickReq)
+    check("a click-away anchors on the clicked row, not the renamed one",
+          clickAnchor.name + "|" + clickAnchor.index + "|" + clickAnchor.start + "|" + clickAnchor.select,
+          "b-existing.md|1|0|true")
+    click.rows = [{ n: "a-clickaway.md" }, { n: "b-existing.md" }]
+    click.total = 1202
+    check("and lands on that name after the rows shift",
+          Anchor.apply(click, clickAnchor) + "|" + click.cursorSetTo, "null|1")
+    check("and selects it, so the next write reads the clicked row", click.selectedAt, 1)
+
+    // Enter still sits on the source when the reply lands, so that leaf maps to the dest.
+    var enter = watched(0, [{ n: "a-original.md" }, { n: "b-existing.md" }], 0, 1202)
+    enter.path = "/dir"
+    var enterAnchor = Anchor.pointerRow(enter, clickReq)
+    check("Enter maps the source leaf to the destination leaf",
+          enterAnchor.name + "|" + enterAnchor.index, "a-clickaway.md|0")
+    enter.rows = [{ n: "a-clickaway.md" }, { n: "b-existing.md" }]
+    check("and the renamed row is found in the first window",
+          Anchor.apply(enter, enterAnchor) + "|" + enter.cursorSetTo, "null|0")
+
+    // A deep click-away needs its old window back, the same wait a watched re-read does.
+    var deepClick = watched(900, [{ n: "f1198.txt" }, { n: "f1199.txt" }], 900, 1202)
+    deepClick.path = "/dir"
+    var deepReq = { source: "/dir/f1199.txt", destination: "/dir/f1199-new.txt", folder: "/dir" }
+    var deepAnchor = Anchor.pointerRow(deepClick, deepReq)
+    check("a deep click-away anchors with its old window",
+          deepAnchor.name + "|" + deepAnchor.start, "f1198.txt|900")
+    deepClick.held = 0
+    deepClick.rows = [{ n: "a-original.md" }, { n: "b-existing.md" }]
+    deepClick.total = 1202
+    check("the first window does not resolve a deep click-away",
+          Anchor.apply(deepClick, deepAnchor) === deepAnchor, true)
+    deepClick.held = 900
+    deepClick.rows = [{ n: "f1198.txt" }, { n: "f1199-new.txt" }]
+    check("the asked window puts the cursor back on the clicked row",
+          Anchor.apply(deepClick, deepAnchor) + "|" + deepClick.cursorSetTo, "null|900")
+
+    // A deep Enter misses the first window too, so it waits for the same ask.
+    var deepEnter = watched(900, [{ n: "f1199.txt" }], 900, 1202)
+    deepEnter.path = "/dir"
+    var deepEnterAnchor = Anchor.pointerRow(deepEnter, deepReq)
+    check("a deep Enter maps to the destination leaf",
+          deepEnterAnchor.name + "|" + deepEnterAnchor.start, "f1199-new.txt|900")
+    deepEnter.held = 0
+    deepEnter.rows = [{ n: "a-original.md" }]
+    deepEnter.total = 1202
+    check("its first window waits too",
+          Anchor.apply(deepEnter, deepEnterAnchor) === deepEnterAnchor, true)
+    deepEnter.held = 900
+    deepEnter.rows = [{ n: "f1198.txt" }, { n: "f1199-new.txt" }]
+    check("and its window lands on the renamed row",
+          Anchor.apply(deepEnter, deepEnterAnchor) + "|" + deepEnter.cursorSetTo, "null|901")
+
+    // A cursor past the held window has no name to keep, but its index still stands.
+    var beyond = watched(0, [{ n: "a" }], 5, 1202)
+    beyond.path = "/dir"
+    var beyondAnchor = Anchor.pointerRow(beyond, clickReq)
+    check("a cursor past the held window anchors on no name but keeps its index",
+          beyondAnchor.name + "|" + beyondAnchor.index, "|5")
 }

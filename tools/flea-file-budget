@@ -53,6 +53,7 @@ tests/js/menu.js 307
 tests/js/network.js 306
 tests/js/ops.js 390
 tests/js/settings.js 337
+tests/rename-lifecycle-check.js 351
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 396
@@ -72,7 +73,7 @@ ui/NetworkMounts.qml 838
 ui/OpenWithDialog.qml 592
 ui/Pane.qml 869
 ui/PaneMenuActions.qml 443
-ui/PaneWire.qml 489
+ui/PaneWire.qml 495
 ui/PermissionsDialog.qml 589
 ui/PickerWindow.qml 770
 ui/PreviewColumn.qml 522

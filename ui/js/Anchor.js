@@ -35,6 +35,24 @@ function afterDelete(pane, landed) {
     return anchoredRefresh(pane, true)
 }
 
+// A rename commit keeps the row the operator was on: the pointer's row for a click-away,
+// the renamed row for Enter (the cursor still sits on the source, so that leaf maps to dest).
+function pointerRow(pane, request) {
+    var row = pane.rowFor(pane.cursorIndex)
+    var name = row ? String(row.n) : ""
+    var src = leaf(request.source)
+    var dst = request.destination ? leaf(request.destination) : ""
+    if (name === src && dst.length > 0)
+        name = dst
+    return { name: name, index: pane.cursorIndex, start: pane.held, path: pane.path, select: true }
+}
+
+function leaf(path) {
+    var text = String(path || "")
+    var cut = text.lastIndexOf("/")
+    return cut < 0 ? text : text.substring(cut + 1)
+}
+
 function anchoredRefresh(pane, select) {
     if (pane.listInFlight) {
         return null

@@ -139,12 +139,16 @@ Item {
             pane.act("rename")
     }
 
-    function refreshRename(request, selected) {
+    function refreshRename(request, selected, pointer) {
         if (pane.path !== request.folder) return
         if (pane.listInFlight || pane.searchMode.length > 0) { root.stale = true; return }
         root.stale = false
         watchSettle.stop()
+        var anchor = Anchor.pointerRow(pane, request)
+        var keep = pointer || anchor.start > 0
+        if (keep) root.anchor = anchor
         pane.refresh(selected)
+        if (keep && anchor.start > 0) pane.backend.window(anchor.start, pane.windowSize)
     }
 
     Connections {
@@ -304,7 +308,8 @@ Item {
             if (!request || path !== request.destination) return
             pane.renameRequest = null
             pane.renamingIndex = -1
-            root.refreshRename(request, Nav.renameRefreshTarget(pane, path))
+            var target = Nav.renameRefreshTarget(pane, path)
+            root.refreshRename(request, target, target === "")
         }
 
         // Sample input: {"t":"made","ok":true,"path":"/home/gm/Pictures/New Folder"}
@@ -412,6 +417,7 @@ Item {
                 || (where === "rename" && (input.length === 0 || input.indexOf(request.source + "/") === 0
                     || input.indexOf(request.destination + "/") === 0)))
             if (request && (terminal || (renamePath && ["rename", "journal", "rename-kept"].indexOf(where) >= 0))) {
+                var pointer = pane.renameKeepsPointerRow
                 pane.renameRequest = null
                 pane.renameKeepsPointerRow = false
                 if (terminal) {
@@ -421,7 +427,7 @@ Item {
                     pane.renamingIndex = -1
                     if (where === "journal") text = Errors.capitalised("renamed, but Undo was not recorded: " + message)
                     pane.message(text, true)
-                    root.refreshRename(request, where === "journal" ? request.destination : "")
+                    root.refreshRename(request, pointer ? "" : (where === "journal" ? request.destination : ""), pointer)
                     return
                 } else {
                     var reason = Errors.exists(message) ? Ops.leaf(request.destination) + " already exists." : Errors.capitalised(message)

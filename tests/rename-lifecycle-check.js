@@ -28,29 +28,30 @@ const Ops = library(path.join(repo, "ui/js/Ops.js"));
 const Errors = library(path.join(repo, "ui/js/Errors.js"));
 const Nav = library(path.join(repo, "ui/js/Nav.js"));
 const Swap = library(path.join(repo, "ui/js/Swap.js"));
+const Anchor = library(path.join(repo, "ui/js/Anchor.js"));
 const clearEditor = new Function("root",
     body("Pane.qml", /    onRenamingIndexChanged: ([\s\S]*?)\n    \}/) + "\n}");
 const failed = new Function("pane", "root", "Errors", "Ops", "Nav", "Swap", "where", "input", "message", "mode",
     body("PaneWire.qml", /        function onFailed\(where, input, message, mode\) \{([\s\S]*?)\n        \}/));
 const renamed = new Function("pane", "root", "Nav", "ok", "path",
     body("PaneWire.qml", /        function onRenamed\(ok, path\) \{([\s\S]*?)\n        \}/));
-const refresh = new Function("pane", "root", "watchSettle", "request", "selected",
-    body("PaneWire.qml", /    function refreshRename\(request, selected\) \{([\s\S]*?)\n    \}/));
+const refresh = new Function("pane", "root", "watchSettle", "Anchor", "request", "selected", "pointer",
+    body("PaneWire.qml", /    function refreshRename\(request, selected, pointer\) \{([\s\S]*?)\n    \}/));
 let checked = 0;
 function equal(actual, expected) { assert.deepEqual(actual, expected); checked++; }
 
 function editing() {
-    const p = {path: "/fixture/list", cursorIndex: 7, shown: null, renameRequest: null, renameSource: "", renameError: "",
+    const p = {path: "/fixture/list", cursorIndex: 7, held: 0, windowSize: 350, shown: null, renameRequest: null, renameSource: "", renameError: "",
         renameMenuId: 42, renameKeepsPointerRow: false, listInFlight: false, searchMode: "", listingState: "ready",
-        sent: [], messages: [], refreshed: [], setCursor(index) { this.cursorIndex = index; },
+        sent: [], messages: [], refreshed: [], windowed: [], setCursor(index) { this.cursorIndex = index; },
         rowFor() { return {n: "before.txt"}; }, join(base, name) { return `${base}/${name}`; },
         swap: {drop() {}}, message(text, error) { this.messages.push([text, error]); }, sticky() {},
         refresh(selected) { this.refreshed.push(selected); }};
     let index = -1;
     Object.defineProperty(p, "renamingIndex", {get: () => index, set(value) { index = value; clearEditor(p); }});
     Object.defineProperty(p, "renamePending", {get: () => p.renameRequest !== null});
-    p.backend = {rename(...args) { p.sent.push(args); }};
-    const root = {stale: false, refreshRename(request, selected) { refresh(p, root, {stop() {}}, request, selected); }};
+    p.backend = {rename(...args) { p.sent.push(args); }, window(start, count) { p.windowed.push([start, count]); }};
+    const root = {stale: false, anchor: null, refreshRename(request, selected, pointer) { refresh(p, root, {stop() {}}, Anchor, request, selected, pointer); }};
     p.fail = (where, input, message) => failed(p, root, Errors, Ops, Nav, Swap, where, input, message, 0);
     p.done = name => renamed(p, root, Nav, true, name);
     p.wire = root;
@@ -94,6 +95,56 @@ p.done("/fixture/unrelated");
 equal([p.renamePending, p.renamingIndex, p.refreshed.length], [true, 7, 0]);
 p.done("/fixture/list/after.txt");
 equal([p.renamePending, p.renamingIndex, p.refreshed], [false, -1, ["/fixture/list/after.txt"]]);
+equal([p.wire.anchor, p.windowed.length], [null, 0]);
+
+// A click-away keeps the clicked row: no pendingSelect, anchor on that name.
+p = editing();
+p.renameKeepsPointerRow = true;
+p.cursorIndex = 3;
+p.rowFor = () => ({n: "clicked.txt"});
+p.done("/fixture/list/after.txt");
+equal([p.renamePending, p.renamingIndex, p.refreshed], [false, -1, [""]]);
+equal([p.wire.anchor.name, p.wire.anchor.index, p.wire.anchor.select], ["clicked.txt", 3, true]);
+equal(p.windowed, []);
+
+// A deep click-away asks for its old window too.
+p = editing();
+p.renameKeepsPointerRow = true;
+p.cursorIndex = 900;
+p.held = 900;
+p.rowFor = () => ({n: "f1198.txt"});
+p.done("/fixture/list/after.txt");
+equal(p.refreshed, [""]);
+equal([p.wire.anchor.name, p.wire.anchor.start], ["f1198.txt", 900]);
+equal(p.windowed, [[900, 350]]);
+
+// A deep Enter still carries dest via pendingSelect and waits on the same anchor.
+p = editing();
+p.cursorIndex = 900;
+p.held = 900;
+p.done("/fixture/list/after.txt");
+equal(p.refreshed, ["/fixture/list/after.txt"]);
+equal([p.wire.anchor.name, p.wire.anchor.start], ["after.txt", 900]);
+equal(p.windowed, [[900, 350]]);
+
+// Pointer journal and rename-kept keep the click, never the dest.
+for (const args of [["journal", "/fixture/list/after.txt"], ["rename-kept", "/fixture/list/before.txt"]]) {
+    p = editing();
+    p.renameKeepsPointerRow = true;
+    p.cursorIndex = 3;
+    p.rowFor = () => ({n: "clicked.txt"});
+    p.fail(args[0], args[1], "permission denied");
+    equal(p.refreshed, [""]);
+    equal(p.wire.anchor.name, "clicked.txt");
+}
+// A pointer refusal keeps the editor on the clicked row with no re-list.
+p = editing();
+p.renameKeepsPointerRow = true;
+p.cursorIndex = 3;
+p.rowFor = () => ({n: "clicked.txt"});
+p.fail("rename", "/fixture/list/before.txt", "permission denied");
+equal([p.renamePending, p.renamingIndex, p.refreshed.length], [false, 7, 0]);
+equal(p.renameError, "Permission denied.");
 
 p = editing();
 p.path = "/fixture/another-directory";
