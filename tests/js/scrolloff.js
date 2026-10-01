@@ -1,4 +1,5 @@
 .import "../../ui/js/ScrollOff.js" as ScrollOff
+.import "sourcefixture.js" as Source
 
 // The cursor keeps three rows of context above and below while scrolling, and still
 // reaches the first and last rows. Pure index maths; the views turn the answer into pixels.
@@ -25,4 +26,26 @@ function run(check) {
     // A listing shorter than the viewport never scrolls at all.
     check("a short listing pins to the origin", ScrollOff.firstFor(0, 36, 12, 20), 0)
     check("an empty listing pins too", ScrollOff.firstFor(0, 36, 0, 0), 0)
+
+    // A partly drawn bottom row is not visible: height 1310 at row 31 holds 42
+    // whole rows, not the ceil's 43, so End parks past the last row's bottom.
+    check("the fully visible count exists", typeof ScrollOff.fullyVisible, "function")
+    if (typeof ScrollOff.fullyVisible !== "function")
+        return
+    check("the fully visible count floors a partial row", ScrollOff.fullyVisible(1310, 31), 42)
+    check("a short viewport still holds one row", ScrollOff.fullyVisible(10, 31), 1)
+    var endFirst = ScrollOff.firstFor(0, ScrollOff.fullyVisible(1310, 31), 149, 150)
+    check("End parks at or past the last row's bottom", endFirst * 31 + 1310 >= 150 * 31, true)
+    check("End parks exactly there", endFirst, 108)
+    // The floor must not break the upward context: cursor at the top still pins to the origin.
+    var topFirst = ScrollOff.firstFor(40, ScrollOff.fullyVisible(1310, 31), 0, 150)
+    check("a top-edge move pins to the origin", topFirst, 0)
+    var nearTop = ScrollOff.firstFor(40, ScrollOff.fullyVisible(1310, 31), 1, 150)
+    check("a near-top move keeps its upward context", nearTop, 0)
+    var list = Source.source("ui/List.qml")
+    check("the list scrolls from the fully visible count",
+          list.indexOf("ScrollOff.fullyVisible(root.height, rowH)") >= 0, true)
+    var columnPane = Source.source("ui/ColumnPane.qml")
+    check("the columns view scrolls from the fully visible count",
+          columnPane.indexOf("ScrollOff.fullyVisible(view.height, rowH)") >= 0, true)
 }

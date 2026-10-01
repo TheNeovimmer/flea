@@ -1,4 +1,5 @@
 .import "../../ui/js/Nav.js" as Nav
+.import "../../ui/js/SlowClick.js" as SlowClick
 
 // Nav.js had no suite at all, so nothing loaded it outside the running app and a broken .import in
 // it would first have been seen on the box. These are its two pure functions, which ui/ColumnsArea.qml
@@ -23,6 +24,9 @@ function pane() {
         cursorIndex: 7,
         pendingSelect: "",
         renamingIndex: 4,
+        slowClickIndex: 0,
+        slowClickAt: 1000,
+        cancelled: 0,
         trashArmedAt: 12345,
         listingState: "ready",
         stateMessage: "something",
@@ -37,6 +41,8 @@ function pane() {
     }
     p.clearSelection = function () { p.cleared += 1 }
     p.message = function (text, isError) { p.said.push(text) }
+    // ui/Pane.qml cancelSlowClick stops the timer and clears the tap record.
+    p.cancelSlowClick = function () { p.cancelled += 1; SlowClick.cancel(p) }
     p.listArea = { primeSettle: function () {} }
     // ui/PaneSwap.qml with nothing held, so the reset runs at the request; tests/js/swap.js holds.
     p.swap = { hold: function () { return false } }
@@ -133,6 +139,24 @@ function run(check) {
     // editor over whatever file arrived at that row, and in the parent it was a directory.
     check("and forgets the open rename, whose row is about to be a different file",
           fresh.renamingIndex, -1)
+    // A re-list puts a different file at the tapped index, so the slow-click
+    // record goes with the rename: otherwise the next tap renames the file
+    // that arrived there. -2 is SlowClick.cancel's cleared value.
+    check("and clears the slow-click tap record", fresh.slowClickIndex, -2)
+    check("and stops its timer through the pane", fresh.cancelled, 1)
+    // The direct reset PaneSwap.release runs on a re-read: same clearing by name.
+    var tapped = pane()
+    tapped.slowClickIndex = 0
+    Nav.forget(tapped)
+    check("a re-list clears the slow-click record to SlowClick's cleared value",
+          tapped.slowClickIndex, -2)
+    check("and calls the pane's cancel", tapped.cancelled, 1)
+    // A fixture pane without a slow-click timer is still forgotten, not crashed.
+    var bare = pane()
+    bare.cancelSlowClick = undefined
+    bare.slowClickIndex = 0
+    Nav.forget(bare)
+    check("a pane without the timer is still forgotten", bare.total + "|" + bare.cursorIndex, "0|0")
 
     // The in-flight guard is what stops a second Enter queueing a listing behind one already asked
     // for, and nothing may be forgotten on a navigation that was refused.

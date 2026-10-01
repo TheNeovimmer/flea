@@ -10616,7 +10616,7 @@ views_fixture() {
 # and scrolling under an open menu or card, a click outside the menu selecting the row beneath, and
 # a right click on a card running on to the row under it. Every check runs in all three views.
 case_overlays() {
-    local dir="$fixture_root/overlays" mode n cx cy wx wy
+    local dir="$fixture_root/overlays" mode n cx cy wx wy before after
     views_fixture "$dir"
     launch "$dir"
     wait_listing 406
@@ -10638,12 +10638,14 @@ case_overlays() {
         click_row 2 right
         settle
         [[ "$(ipc contextMenuVisible)" == "true" && "$(ipc cursor)" == "2" ]] || fail "$mode: a right click on row 2 opened no menu (visible $(ipc contextMenuVisible), cursor $(ipc cursor))"
+        before=$(ipc viewContentY)
         hover_row "$n"
         settle
         [[ "$(ipc rowHovered "$n")" == "false" ]] || fail "$mode: row $n lifted under the open menu"
         omarchy-drive scroll down 3 >/dev/null
         settle
-        [[ "$(ipc viewContentY)" == "0" && "$(ipc contextMenuVisible)" == "true" ]] || fail "$mode: the wheel under the menu moved the view to $(ipc viewContentY) (menu $(ipc contextMenuVisible))"
+        after=$(ipc viewContentY)
+        [[ "$after" == "$before" && "$(ipc contextMenuVisible)" == "true" ]] || fail "$mode: the wheel under the menu moved the view from $before to $after (menu $(ipc contextMenuVisible))"
         click_row_beside_menu "$n" left
         settle
         [[ "$(ipc contextMenuVisible)" == "false" && "$(ipc cursor)" == "2" ]] || fail "$mode: the click outside the menu left it $(ipc contextMenuVisible) and moved the cursor to $(ipc cursor)"

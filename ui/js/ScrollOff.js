@@ -7,6 +7,13 @@
 // How many rows stand between the cursor and the viewport edge before the window moves.
 var CONTEXT = 3
 
+// How many rows are fully inside the viewport: a partly drawn bottom row is
+// not one, so the view ends past the last row's bottom. Callers size
+// prefetch and windows from pane.visibleRows and never from this.
+function fullyVisible(height, rowHeight) {
+    return Math.max(1, Math.floor(height / rowHeight))
+}
+
 // The first visible row that keeps the cursor's context: first is the window's own,
 // visible how many rows it holds, cursor a view position, total the listing's rows.
 function firstFor(first, visible, cursor, total, context) {

@@ -50,6 +50,7 @@ tests/js/columns.js 618
 tests/js/focus.js 522
 tests/js/mounts.js 383
 tests/js/menu.js 335
+tests/js/nav.js 323
 tests/js/network.js 306
 tests/js/ops.js 430
 tests/js/settings.js 337
@@ -69,7 +70,7 @@ ui/ConvertDialog.qml 440
 ui/GridArea.qml 410
 ui/Ipc.qml 823
 ui/KeymapSheet.qml 585
-ui/List.qml 423
+ui/List.qml 424
 ui/NetworkDialog.qml 449
 ui/NetworkMounts.qml 838
 ui/OpenWithDialog.qml 592

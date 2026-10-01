@@ -76,7 +76,7 @@ Item {
     // below still follows the viewport with no margin, the same split ui/List.qml keeps.
     function showCursor(viewIndex) {
         var rowH = Theme.fileRowHeight
-        var visibleRows = Math.max(1, Math.ceil(view.height / rowH))
+        var visibleRows = ScrollOff.fullyVisible(view.height, rowH)
         var first = Math.floor((view.contentY - view.originY) / rowH)
         // No pane yet: the column's own rows are the listing, the same fallback its model uses.
         var total = root.pane ? root.pane.shownTotal : root.rows.length

@@ -125,6 +125,9 @@ function forget(pane, keptQuery) {
     // ui/js/Sort.js applyPending already skipped it while this listing is out.
     pane.pendingSort = null
     pane.renamingIndex = -1
+    // A re-list puts a different file at that index, the same reason the
+    // rename goes: a surviving tap record would rename the file that arrived.
+    if (pane.cancelSlowClick) pane.cancelSlowClick()
     // A filter narrows the rows already listed, so a new listing forgets it unless ui/js/Anchor.js hands it back.
     Filter.close(pane)
     if (keptQuery)

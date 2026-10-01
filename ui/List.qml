@@ -301,7 +301,8 @@ ListView {
     function showCursor(view) {
         var rowH = Theme.fileRowHeight
         var first = Math.floor(root.contentY / rowH)
-        var want = ScrollOff.firstFor(first, root.pane.visibleRows, view, root.pane.shownTotal)
+        var visible = ScrollOff.fullyVisible(root.height, rowH)
+        var want = ScrollOff.firstFor(first, visible, view, root.pane.shownTotal)
         if (want !== first)
             root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, want * rowH))
     }
