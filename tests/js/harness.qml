@@ -12,6 +12,7 @@ import "crumbs.js" as CrumbsSuite
 import "ddtarget.js" as DdtargetSuite
 import "dirsizes.js" as DirSizesSuite
 import "drag.js" as DragSuite
+import "dragout.js" as DragOutSuite
 import "dst.js" as DstSuite
 import "errors.js" as ErrorsSuite
 import "facts.js" as FactsSuite
@@ -116,7 +117,7 @@ Item {
 
         var suites = [
             ["archive", ArchiveSuite], ["background", BackgroundSuite], ["buttons", ButtonsSuite], ["collide", CollideSuite], ["clipmarks", ClipMarksSuite], ["columns", ColumnsSuite], ["contrast", ContrastSuite],
-            ["dirsizes", DirSizesSuite], ["drag", DragSuite], ["dst", DstSuite], ["ddtarget", DdtargetSuite],
+            ["dirsizes", DirSizesSuite], ["drag", DragSuite], ["dragout", DragOutSuite], ["dst", DstSuite], ["ddtarget", DdtargetSuite],
             ["copyas", CopyAsSuite], ["invert", InvertSuite],
             ["edmonton", DstSuite],
             ["errors", ErrorsSuite], ["facts", FactsSuite], ["filter", FilterSuite], ["filter-cursor", FilterCursorSuite],
