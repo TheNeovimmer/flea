@@ -203,6 +203,12 @@ QtObject {
         root.changeKey("lastPath", String(path || ""))
     }
 
+    // Tabs040 callout 2: every open tab's folder in order with the current tab's index, written
+    // where lastPath is written and never per cursor move. owe() skips it when nothing moved.
+    function rememberTabs(tabs) {
+        root.changeKey("lastTabs", tabs)
+    }
+
     // Setting ids name either one top-level key or one leaf of an existing group.
     function changeSetting(id, value) {
         // The rail is remembered as a word, so its own Places row writes that word and not a boolean.

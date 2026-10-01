@@ -2924,6 +2924,22 @@ for the generated `{`, `}`, `[`, `]`, ctrl-shift-pageup and ctrl-shift-pagedown 
 1021 to 1035 for the TUI's own move arm. `ui/TabBar.qml` takes the drag state, the `DragHandler`,
 the ghost and the insertion bar at 266, over the soft budget and under the hard cap.
 
+t2-tabrestore moves seven recorded ceilings, each re-derived with `wc -l`: `src/uischema.rs` 439 to
+484 for the `lastTabs` key with its `Rule::LastTabs`, the `MAX_LAST_TABS` cap and the edge tests beside
+the existing ones; `src/uistate.rs` 625 to 653 for the `is_last_tabs` validator beside `is_a_place`;
+`ui/js/Tabs.js` 323 to 375 for `remembered`, the pure `restorePlan` and the `restoreItems` snapshots;
+`ui/js/Settings.js` 440 to 450 for the Last folder hint spliced under its control; `ui/ViewState.qml`
+398 to 404 for the `rememberTabs` writer beside `rememberLastPath`, entering the tool's list as the one
+file this unit pushes over the hard cap; `ui/WindowBody.qml` 547 to 564 for the tab write beside the
+path write, the `rememberTabStrip` the primary pane's `onTabsChanged` signal owes (a strip
+reassignment only, never a cursor move), and the startup restore beside the single open; and
+`tests/js/settings.js` 319 to 334 for the hint's presence-only-under-Last-folder pins. The suite is
+the new `tests/js/tabrestore.js` at 101, inside both budgets, registered in `tests/js/harness.qml`
+at 176; `restoreItems` goes through the same `snapshot()` `openNew` records, so the suite asserts
+equality with a fresh tab rather than literals. Tabs are per pane and dual keeps two
+panes, but dual startup keeps its own pair: only the single view remembers and restores the strip, and
+the TUI never reads the start setting, so it restores nothing.
+
 ClickAndRefresh moves eleven recorded ceilings, each re-derived with `wc -l`. `src/uischema.rs` 421 to 439 for
 `escapeUp`, `openMode` and `clickRename` with their defaults, rules and edge tests. `ui/js/Settings.js` 432 to 440
 for the Cursor escape-up check and the Opening open-mode segment with the slow-click check greyed under single

@@ -278,6 +278,21 @@ function runCompletionRows(check) {
     check("a chosen folder is named by its own path", find(opened, "startFolder").value, "/home/gm/Work")
     check("and the mode beside it reads back", find(opened, "startIn").selected, "folder")
     check("the tab setting reads back too", find(opened, "newTab").selected, "home")
+    // Tabs040 callout 2: the board's own sentence under "Flea opens in", only while Last folder
+    // is chosen. A hint is read-only, so it is never the cursor; kinds() pins that separately.
+    var hinted = Settings.rows("view", { data: { startIn: "last" } })
+    var hints = hinted.filter(function (row) { return row.label === "Last folder reopens every tab you had." })
+    check("Last folder carries the tab restore hint", hints.length, 1)
+    check("as a hint and not a control", hints[0].kind, "hint")
+    check("sitting under the control it explains",
+          hinted.indexOf(hints[0]) - hinted.indexOf(find(hinted, "startIn")), 1)
+    var unhinted = Settings.rows("view", { data: { startIn: "folder" } })
+          .filter(function (row) { return row.label === "Last folder reopens every tab you had." })
+    check("while Chosen folder shows no such hint", unhinted.length, 0)
+    check("and neither does Home",
+          Settings.rows("view", {}).filter(function (row) {
+              return row.label === "Last folder reopens every tab you had."
+          }).length, 0)
     check("the save failure keeps its message and error role",
           Settings.rows("view", { saveStatus: "Could not save settings" }).slice(-1).map(function (row) {
               return row.label + "|" + row.role + "|" + row.footer

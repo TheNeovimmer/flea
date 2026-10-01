@@ -1,7 +1,7 @@
 // The ui.json merges with no disk in them: read a file onto the defaults, apply one caller patch,
 // and carry 0.1.3's view.json across.
 use crate::jsondoc::{self, Json};
-use crate::uischema::{defaults, Rule, COLUMN_KEYS, COLUMN_WIDTH_KEYS, COLUMN_WIDTH_MAX, COLUMN_WIDTH_MIN, OPTIONAL_COLUMNS, SCHEMA, TEXT_SIZE_STOPS, SIDEBAR_STOPS, SORT_KEYS, MAX_FOLDER_SORTS};
+use crate::uischema::{defaults, Rule, COLUMN_KEYS, COLUMN_WIDTH_KEYS, COLUMN_WIDTH_MAX, COLUMN_WIDTH_MIN, MAX_LAST_TABS, OPTIONAL_COLUMNS, SCHEMA, TEXT_SIZE_STOPS, SIDEBAR_STOPS, SORT_KEYS, MAX_FOLDER_SORTS};
 
 // Never fails: a file this cannot read is a file whose every key falls back to the shipped default.
 pub fn from_file(text: &str) -> Json {
@@ -190,6 +190,9 @@ fn fits(rule: &Rule, value: &Json) -> bool {
             None => false,
         },
         Rule::Ids => every_string(value, is_action_id),
+        // Tabs040 callout 2: the whole remembered strip stands or falls together, the way one
+        // bad place costs lastPath rather than healing it.
+        Rule::LastTabs => is_last_tabs(value),
         Rule::FolderSorts => is_folder_sorts(value),
         Rule::ColumnWidths => is_column_widths(value),
         Rule::Count(low, high) => match value.as_f64() {
@@ -238,6 +241,31 @@ fn is_action_id(s: &str) -> bool {
 // A remembered pane is somewhere the restore can list: an absolute path, or a URI naming its root.
 fn is_a_place(s: &str) -> bool {
     s.starts_with('/') || s.contains("://")
+}
+
+// Every open tab's folder in order, with the current tab's index inside the list.
+fn is_last_tabs(value: &Json) -> bool {
+    let pairs = match value.as_object() {
+        Some(pairs) => pairs,
+        None => return false,
+    };
+    if pairs.len() != 2 {
+        return false;
+    }
+    let paths = match pairs.iter().find(|(k, _)| k == "paths").map(|(_, v)| v) {
+        Some(Json::Arr(items)) => items,
+        _ => return false,
+    };
+    if paths.len() > MAX_LAST_TABS || !paths.iter().all(|p| p.as_str().map(is_a_place).unwrap_or(false)) {
+        return false;
+    }
+    match pairs.iter().find(|(k, _)| k == "index").map(|(_, v)| v).and_then(Json::as_f64) {
+        Some(n) if n.fract() == 0.0 && n >= 0.0 => {
+            let at = n as usize;
+            if paths.is_empty() { at == 0 } else { at < paths.len() }
+        }
+        _ => false,
+    }
 }
 
 // ListColumns040's remembered widths: each entry a resizable column key to whole pixels.

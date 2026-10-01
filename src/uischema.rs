@@ -26,6 +26,7 @@ pub const DEFAULTS: &str = r#"{
   "startIn": "home",
   "startFolder": "",
   "lastPath": "",
+  "lastTabs": {"paths": [], "index": 0},
   "newTab": "current",
   "trashAutoEmpty": false,
   "trashSweptOn": 0,
@@ -70,6 +71,8 @@ pub enum Rule {
     Favourites,
     // One place, or "" for a folder the operator has not chosen and a path nothing has recorded yet.
     Place,
+    // Tabs040 callout 2: every open tab's folder in order, with the current tab's index.
+    LastTabs,
     SidebarWidth,
     // dual.paths is the pair handoff 5a specifies, or the empty array that means nothing remembered.
     Pair,
@@ -100,6 +103,8 @@ pub const SORT: &[(&str, Rule)] = &[("key", Rule::Word(&SORT_KEYS)), ("reverse",
 
 // A folder's own sort in sort's own shape; the map holds the 500 most recent folders, oldest first.
 pub const SORT_KEYS: [&str; 4] = ["name", "size", "date", "kind"];
+// Tabs040 callout 2: at most one entry per tab ui/js/Tabs.js MAX allows, in tab order.
+pub const MAX_LAST_TABS: usize = 9;
 pub const MAX_FOLDER_SORTS: usize = 500;
 
 pub const DUAL: &[(&str, Rule)] = &[("paths", Rule::Pair), ("focus", Rule::Count(0.0, 1.0))];
@@ -188,6 +193,7 @@ pub const SCHEMA: &[(&str, Rule)] = &[
     ("startIn", Rule::Word(&["home", "last", "folder"])),
     ("startFolder", Rule::Place),
     ("lastPath", Rule::Place),
+    ("lastTabs", Rule::LastTabs),
     ("newTab", Rule::Word(&["current", "home", "start"])),
     // Settings > Places > Trash. The sweep is off until the operator switches it on, and the day it
     // last ran is whole days since the epoch, which is what keeps it to once a day across launches.
@@ -258,7 +264,7 @@ mod tests {
             [
                 "view", "density", "columns", "columnsLimit", "columnWidths", "addressBar", "sort", "rememberSort", "folderSorts",
                 "dual", "foldersFirst", "groupByKind", "hidden", "hiddenLast", "highlightToday", "wrapAtEnds", "escapeUp", "openMode", "clickRename", "keyHints", "startIn", "startFolder",
-                "lastPath", "newTab", "trashAutoEmpty", "trashSweptOn", "places", "shelf",
+                "lastPath", "lastTabs", "newTab", "trashAutoEmpty", "trashSweptOn", "places", "shelf",
                 "preview", "keys",
                 "display", "menu", "updates", "stateVersion"
             ]
@@ -282,6 +288,8 @@ mod tests {
         assert_eq!(d.get("startIn").and_then(Json::as_str), Some("home"));
         assert_eq!(d.get("startFolder").and_then(Json::as_str), Some(""));
         assert_eq!(d.get("lastPath").and_then(Json::as_str), Some(""));
+        assert_eq!(d.get("lastTabs").and_then(|t| t.get("paths")).and_then(Json::as_array).map(<[Json]>::len), Some(0));
+        assert_eq!(d.get("lastTabs").and_then(|t| t.get("index")).and_then(Json::as_f64), Some(0.0));
         assert_eq!(d.get("newTab").and_then(Json::as_str), Some("current"));
         assert_eq!(d.get("trashAutoEmpty").and_then(Json::as_bool), Some(false));
         assert_eq!(d.get("trashSweptOn").and_then(Json::as_f64), Some(0.0));
@@ -434,6 +442,43 @@ mod tests {
             let message = takes(bad).expect_err("the patch must be refused");
             assert!(message.contains(named), "{} should name {}, got {}", bad, named, message);
         }
+    }
+
+    // Tabs040 callout 2: a bounded list of places in tab order, with the current tab's index
+    // inside it. A file carrying a bad one costs that key its default, the way a bad place does.
+    #[test]
+    fn last_tabs_hold_every_tab_folder_with_its_current_index() {
+        let current = crate::uistate::from_file("{}");
+        let takes = |patch: &str| crate::uistate::patched(&current, &jsondoc::parse(patch).expect("patch parses"));
+        for good in [r#"{"lastTabs":{"paths":[],"index":0}}"#,
+                     r#"{"lastTabs":{"paths":["/home/gm/Work"],"index":0}}"#,
+                     r#"{"lastTabs":{"paths":["/a","smb://nas/isos","/b"],"index":2}}"#] {
+            assert!(takes(good).is_ok(), "{} is a value its key takes", good);
+        }
+        for (bad, named) in [(r#"{"lastTabs":[]}"#, "lastTabs"),
+                             (r#"{"lastTabs":{"paths":[],"index":1}}"#, "lastTabs"),
+                             (r#"{"lastTabs":{"paths":["/a"],"index":1}}"#, "lastTabs"),
+                             (r#"{"lastTabs":{"paths":["/a"],"index":-1}}"#, "lastTabs"),
+                             (r#"{"lastTabs":{"paths":["/a"],"index":0.5}}"#, "lastTabs"),
+                             (r#"{"lastTabs":{"paths":["Work"],"index":0}}"#, "lastTabs"),
+                             (r#"{"lastTabs":{"paths":[""],"index":0}}"#, "lastTabs"),
+                             (r#"{"lastTabs":{"paths":["/a"],"index":0,"by":"x"}}"#, "lastTabs"),
+                             (r#"{"lastTabs":{"paths":"/a","index":0}}"#, "lastTabs")] {
+            let message = takes(bad).expect_err("the patch must be refused");
+            assert!(message.contains(named), "{} should name {}, got {}", bad, named, message);
+        }
+        let mut big = String::from(r#"{"lastTabs":{"paths":["#);
+        for i in 0..MAX_LAST_TABS + 1 {
+            if i > 0 {
+                big.push(',');
+            }
+            big.push_str(&format!(r#""/d{:03}""#, i));
+        }
+        big.push_str(r#"],"index":0}}"#);
+        let message = takes(&big).expect_err("past the tab cap the patch must be refused");
+        assert!(message.contains("lastTabs"), "got {}", message);
+        let read = crate::uistate::from_file(r#"{"lastTabs":{"paths":["/a"],"index":3}}"#);
+        assert_eq!(read.get("lastTabs").and_then(|t| t.get("paths")).and_then(Json::as_array).map(<[Json]>::len), Some(0));
     }
 
     #[test]

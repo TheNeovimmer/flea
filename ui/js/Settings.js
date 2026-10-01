@@ -310,7 +310,7 @@ function viewRows(state) {
     var data = state.data || {}
     var sort = data.sort || {}
     var columns = data.columns || ["name", "size", "date"]
-    return [
+    var out = [
         { kind: "group", label: "View" },
         choice("view", "Last-used view", undefined, ["list", "columns", "grid", "dual"],
                ["List", "Columns", "Grid", "Dual pane"], data.view || "list"),
@@ -359,6 +359,16 @@ function viewRows(state) {
         { kind: "hint", footer: true, label: state.saveStatus || "Saved · applied in this process",
           role: (state.saveStatus || "").indexOf("Could not") === 0 ? "error" : "accent" }
     ]
+    // Tabs040 callout 2, the board's own sentence, under the control it explains and only there.
+    if ((data.startIn || "home") === "last") {
+        for (var i = 0; i < out.length; i++) {
+            if (out[i].id === "startIn") {
+                out.splice(i + 1, 0, { kind: "hint", label: "Last folder reopens every tab you had." })
+                break
+            }
+        }
+    }
+    return out
 }
 
 function previewRows(state) {

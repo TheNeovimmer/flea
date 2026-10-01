@@ -10,6 +10,7 @@ import "js/RailKeys.js" as RailKeys
 import "js/RailMenu.js" as RailMenu
 import "js/Search.js" as Search
 import "js/Startup.js" as Startup
+import "js/Tabs.js" as Tabs
 
 // Everything inside the window ui/boot/shell.qml maps, arriving by file: URL on the first frame
 // because that is the only way Qt caches it; see AGENTS.md "The first window".
@@ -38,10 +39,20 @@ Rectangle {
         // view's own. The primary pane is the one a single-view window opens, so it is the
         // one recorded; a write that lands the value already stored owes nothing, see
         // ui/ViewState.qml "owe".
-        if (initialized && !dualMode && primaryPane.path)
+        if (initialized && !dualMode && primaryPane.path) {
             ViewState.rememberLastPath(primaryPane.path)
+            view.rememberTabStrip()
+        }
         if (!initialized || !dualMode || !secondPane.item || !primaryPane.path || !secondPane.item.pane.path) return
         Qt.callLater(view.rememberDual)
+    }
+    // The strip itself changing (open, close, move, switch) writes the tabs even when no path
+    // changed, so a quit right after a reorder reopens the new order. Hooked on pane.tabs, which
+    // only a strip reassignment fires: a cursor move never touches it, and owe() drops a write
+    // whose strip did not move. Single view only, the strip remembered is the primary pane's.
+    function rememberTabStrip() {
+        if (initialized && !dualMode && primaryPane.path)
+            ViewState.rememberTabs(Tabs.remembered(primaryPane))
     }
     // The mode binding reads ViewState.state; its handlers must finish before persistence replaces it.
     function rememberDual() {
@@ -188,6 +199,7 @@ Rectangle {
         onFocusRequested: view.focusPane(0)
         onSwitchPane: view.focusPane(1)
         onPathChanged: view.rememberPaths()
+        onTabsChanged: view.rememberTabStrip()
         onClipboardChanged: if (secondPane.item && secondPane.item.pane.clipboard !== clipboard) secondPane.item.pane.clipboard = clipboard
         overlayParent: view
         preview: preview
@@ -242,7 +254,7 @@ Rectangle {
                 statusBar: bar
                 onFocusRequested: view.focusPane(1)
                 onSwitchPane: view.focusPane(0)
-                onPathChanged: view.rememberPaths()
+        onPathChanged: view.rememberPaths()
                 onClipboardChanged: if (primaryPane.clipboard !== clipboard) primaryPane.clipboard = clipboard
                 onMessage: function(text, error) { bar.say(text, error) }
                 onOperationResult: function(headline, detail, error) { bar.say(headline, error, detail) }
@@ -511,7 +523,12 @@ Rectangle {
         // Read once, and only on the side that took the named folder; Pane.applyPendingSelect() forgets it after the first rows.
         if (!view.dualMode || pair.launchSide !== 1)
             primaryPane.pendingSelect = Quickshell.env("FLEA_SELECT") || ""
-        primaryPane.open(view.dualMode ? pair.paths[0] : start)
+        // Tabs040 callout 2: Last folder reopens every remembered tab in order at its folder.
+        // Dual startup keeps its own pair, and a named path outranks the strip either way.
+        var plan = view.dualMode ? null : Tabs.restorePlan(ViewState.state, named)
+        if (plan)
+            primaryPane.tabs = Tabs.pack(Tabs.restoreItems(primaryPane, plan.paths), plan.index)
+        primaryPane.open(plan ? plan.paths[plan.index] : (view.dualMode ? pair.paths[0] : start))
         view.initialized = true
         if (view.dualMode) view.focusPane(view.focusSide)
         trashSweep.start()
