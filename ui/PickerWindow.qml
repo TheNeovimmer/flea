@@ -61,9 +61,12 @@ ShellRoot {
         // so a relaunch opens the list again rather than inheriting the main window's view.
         property string viewMode: "list"
         function setView(mode) {
-            if (mode !== "list" && mode !== "grid") return
-            if (win.viewMode === mode) { win.focusView(); return }
-            win.viewMode = mode
+            var next = Picker.viewSwitch(win.viewMode, mode)
+            if (!next) { win.focusView(); return }
+            win.viewMode = next
+            // The user's own switch, and only that, is what the next launch reopens: a launch
+            // reads, and cursor moves never owe the file anything.
+            ViewState.changeKey("pickerView", next)
             win.focusView()
         }
         function viewItem() { return win.viewMode === "grid" ? grid : list }
@@ -694,6 +697,7 @@ ShellRoot {
             // Only an absolute path is a folder, so a caller cannot name the Recent token, or any
             // other text, as the directory this window opens on.
             var start = win.req.folder.charAt(0) === "/" ? win.req.folder : win.home
+            win.viewMode = Picker.rememberedView(ViewState.pickerView)
             win.openWithoutHistory(start)
             // Measured on the box: without this the window has the keyboard but the list does not,
             // so Escape reached the surface below and every other key was dropped.

@@ -109,6 +109,9 @@ QtObject {
     // stored "dual", a window shape and not a view a pane can be in. PR 97, DouglasdeMoura.
     readonly property string view: Settings.contains(["list", "columns", "grid"], root.state.view)
                                    ? root.state.view : "list"
+    // The chooser's own last-used view (`pickerView` in src/uischema.rs); an undrawable word reads as the list.
+    readonly property string pickerView: Settings.contains(["list", "grid"], root.state.pickerView)
+                                         ? root.state.pickerView : "list"
 
     // The Keys section's four-value chooser over the one generated key table, falling back to its
     // first value, Default, which is what SettingsKeys.html says a missing or unknown name means.

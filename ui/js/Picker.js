@@ -254,6 +254,20 @@ function directory(row) {
     return !!row && (row.d === true || (Format.isSymlink(row.p) && row.i === "folder"))
 }
 
+// The view a launch opens in: only the two the picker draws survive, so anything a hand
+// edit or an older file left behind opens the list. Sample input: rememberedView("grid")
+// answers "grid", rememberedView("columns") answers "list".
+function rememberedView(stored) {
+    return stored === "grid" ? "grid" : "list"
+}
+
+// A view switch owes the state file exactly the switches that move it: a repeat press and
+// a word the picker cannot draw write nothing. Sample input: viewSwitch("list", "grid")
+// answers "grid", viewSwitch("grid", "grid") answers "".
+function viewSwitch(current, next) {
+    return (next === "list" || next === "grid") && next !== current ? next : ""
+}
+
 // The grid's visible tiles as listing rows: the tile-row viewport times the column count,
 // the same multiplication ui/GridArea.qml's visibleRange does. Sample input:
 // tileRange(0, 198, 4, 5, 100) answers {first: 0, last: 19}.

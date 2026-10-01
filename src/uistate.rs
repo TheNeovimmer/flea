@@ -363,6 +363,11 @@ mod tests {
         assert_eq!(merged.get("view").and_then(Json::as_str), Some("list"));
         assert_eq!(merged.get("density").and_then(Json::as_str), Some("comfortable"));
         assert_eq!(merged.get("hidden").and_then(Json::as_bool), Some(true));
+        // The picker's own view answers the same way: a word it cannot draw costs the default.
+        let remembered = from_file(r#"{"pickerView":"columns"}"#);
+        assert_eq!(remembered.get("pickerView").and_then(Json::as_str), Some("list"));
+        let kept = from_file(r#"{"pickerView":"grid"}"#);
+        assert_eq!(kept.get("pickerView").and_then(Json::as_str), Some("grid"));
     }
 
     // SettingsKeys.html: a missing or unrecognised preset falls back to Default, discarding nothing.

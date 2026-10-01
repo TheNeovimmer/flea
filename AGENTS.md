@@ -1036,6 +1036,12 @@ key off a cursor step past an end clamps, and with it on a step taken from an en
 key exists because issue 27 asked for the wrap, and it ships off because a second operator reported
 that same jump past the top as a bug.
 
+**`pickerView` is the file chooser's own last-used view and nothing else.** It is `"list"` or
+`"grid"`, default `"list"`, deliberately separate from the main window's `view`, so a grid
+picker never flips the browser and a list browser never flips the picker. The picker reads it
+once at open and writes it when the user switches view, never per cursor move; a stored word
+it cannot draw costs the key its default, like every other key.
+
 **`menu.hidden` stores what is hidden**, and its rule is deliberately open, an action id rather than
 a closed list, because a closed list would make this Flea drop an id a newer one hid. It is the
 Menus section's whole visibility state: the panel's master row over the six basic actions is derived

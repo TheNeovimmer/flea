@@ -145,6 +145,17 @@ function run(check) {
     check("a double click with no first tap sends nothing", Picker.doubleAction(single, file, "/a/b.txt", "", []), "none")
     check("a double click on no row sends nothing", Picker.doubleAction(single, null, "/a/b.txt", "/a/b.txt", []), "none")
 
+    // Issue #191, GM 2026-10-01: the picker reopens in the view last used, and only a switch
+    // that moves it owes the state file a write.
+    check("a remembered grid reopens as grid", Picker.rememberedView("grid"), "grid")
+    check("a remembered list reopens as list", Picker.rememberedView("list"), "list")
+    check("a word the picker cannot draw opens the list", Picker.rememberedView("columns"), "list")
+    check("an empty stored view opens the list", Picker.rememberedView(""), "list")
+    check("a switch to the other view is owed", Picker.viewSwitch("list", "grid"), "grid")
+    check("a switch back is owed too", Picker.viewSwitch("grid", "list"), "list")
+    check("a repeat press owes nothing", Picker.viewSwitch("grid", "grid"), "")
+    check("a word the picker cannot draw owes nothing", Picker.viewSwitch("list", "columns"), "")
+
     // Issue #221: a second tap on another path is a single tap.
     check("a second tap on the same path counts as a double", Picker.sameTap("/a/b.txt", "/a/b.txt"), true)
     check("a second tap on another path is a single tap", Picker.sameTap("/a/b.txt", "/a/c.txt"), false)

@@ -4,6 +4,7 @@ use crate::jsondoc::{self, Json};
 // docs/flea-0.1.4-build-handoff.md section 1's shape and defaults, but density compact (0.3.2), showUnmounted on (0.3.3).
 pub const DEFAULTS: &str = r#"{
   "view": "list",
+  "pickerView": "list",
   "density": "compact",
   "columns": ["name", "size", "date"],
   "columnsLimit": 3,
@@ -164,6 +165,9 @@ pub const UPDATES: &[(&str, Rule)] = &[("autoCheck", Rule::Bool)];
 
 pub const SCHEMA: &[(&str, Rule)] = &[
     ("view", Rule::Word(&["list", "columns", "grid", "dual"])),
+    // The file chooser's own last-used view, separate from the main window's: a grid
+    // picker must not flip the browser, and a list browser must not flip the picker.
+    ("pickerView", Rule::Word(&["list", "grid"])),
     ("density", Rule::Word(&["tight", "compact", "normal", "comfortable"])),
     ("columns", Rule::Columns),
     // ColumnsWidth board: 2 to 5 columns from the window width, capped here, shipping at 3.
@@ -262,7 +266,7 @@ mod tests {
         assert_eq!(
             keys,
             [
-                "view", "density", "columns", "columnsLimit", "columnWidths", "addressBar", "sort", "rememberSort", "folderSorts",
+                "view", "pickerView", "density", "columns", "columnsLimit", "columnWidths", "addressBar", "sort", "rememberSort", "folderSorts",
                 "dual", "foldersFirst", "groupByKind", "hidden", "hiddenLast", "highlightToday", "wrapAtEnds", "escapeUp", "openMode", "clickRename", "keyHints", "startIn", "startFolder",
                 "lastPath", "lastTabs", "newTab", "trashAutoEmpty", "trashSweptOn", "places", "shelf",
                 "preview", "keys",
@@ -271,6 +275,7 @@ mod tests {
         );
         assert_eq!(d.get(STATE_VERSION).and_then(Json::as_f64), Some(1.0), "a fresh document is already stamped");
         assert_eq!(d.get("view").and_then(Json::as_str), Some("list"));
+        assert_eq!(d.get("pickerView").and_then(Json::as_str), Some("list"));
         assert_eq!(d.get("density").and_then(Json::as_str), Some("compact"));
         assert_eq!(d.get("addressBar").and_then(Json::as_str), Some("breadcrumb"));
         assert_eq!(d.get("keys").and_then(Json::as_str), Some("default"));
@@ -408,6 +413,7 @@ mod tests {
         for good in [r#"{"display":{"textSize":{"mode":"system"}}}"#, r#"{"display":{"textSize":{"mode":9}}}"#,
                      r#"{"keys":"default"}"#, r#"{"keys":"vim"}"#,
                      r#"{"keys":"mac"}"#, r#"{"keys":"windows"}"#,
+                     r#"{"pickerView":"list"}"#, r#"{"pickerView":"grid"}"#,
                      r#"{"escapeUp":true}"#, r#"{"escapeUp":false}"#,
                      r#"{"openMode":"double"}"#, r#"{"openMode":"single"}"#,
                      r#"{"clickRename":true}"#, r#"{"clickRename":false}"#,
@@ -430,6 +436,7 @@ mod tests {
                              (r#"{"openMode":"triple"}"#, "openMode"),
                              (r#"{"clickRename":1}"#, "clickRename"),
                              (r#"{"keys":"emacs"}"#, "keys"),
+                             (r#"{"pickerView":"columns"}"#, "pickerView"),
                              (r#"{"language":"en"}"#, "language"),
                              (r#"{"places":{"favourites":"/a"}}"#, "places.favourites"),
                              (r#"{"places":{"driveSize":1}}"#, "places.driveSize"),
