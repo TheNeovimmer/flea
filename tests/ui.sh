@@ -5488,7 +5488,10 @@ case_tabdrag() {
     # Tab 1 past tab 2's far edge: insertion point 3 of 3.
     tabdrag_to "$c1x" "$c1y" "$((c2x + w / 2 + 3))" "$c2y"
     [[ "$(ipc tabLabels)" == "alpha|gamma|beta" ]] || fail "tabdrag: drag labelled [$(ipc tabLabels)], not alpha|gamma|beta"
-    [[ "$(ipc tabIndex)" == "2" ]] || fail "tabdrag: the dragged tab is not current, index=$(ipc tabIndex)"
+    # Tabs040 "Dragged tab": a drag reorders and never selects, so gamma stays current at its new place.
+    [[ "$(ipc tabIndex)" == "1" ]] || fail "tabdrag: the current tab did not stay current, index=$(ipc tabIndex)"
+    click_tab 2
+    [[ "$(ipc tabIndex)" == "2" ]] || fail "tabdrag: clicking the moved tab did not select it, index=$(ipc tabIndex)"
     # The same tab back before tab 0: insertion point 0 of 3.
     read -r c0x c0y <<< "$(ipc tabCentre 0)"
     read -r c2x c2y <<< "$(ipc tabCentre 2)"
