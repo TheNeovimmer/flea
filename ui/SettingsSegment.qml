@@ -11,6 +11,10 @@ Row {
     property string value: ""
     property var glyphs: []
 
+    // The Quick Look's Rendered|Source strip draws the same control 4 px shorter than a
+    // settings row's, so the height is a property and every other row keeps the default.
+    property int controlHeight: Theme.hitMin
+
     // The option a pointer chose, which is never the one already showing.
     signal picked(int index)
 
@@ -30,7 +34,7 @@ Row {
             // The WCAG floor the Blueprint sets for a compact control, which this row has room for.
             width: segment.glyph ? Math.max(Theme.hitMin, Theme.railIconSize + 2 * (Theme.spacing.gap - Theme.spacing.hairline))
                                  : name.implicitWidth + 2 * Theme.spacing.gap
-            height: Theme.hitMin
+            height: root.controlHeight
             // Containers rule 4: a segmented cell is never filled, so the choice reads as brightness.
             color: "transparent"
             // Rule 3: words in a set are Tier B and every member wears the box; glyphs in a strip are

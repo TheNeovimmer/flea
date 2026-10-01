@@ -165,6 +165,8 @@ QtObject {
     readonly property var preview: root.state.preview || ({})
     readonly property bool previewColumn: root.preview.column !== false
     readonly property bool previewAutomatic: root.preview.loadOn !== "manual"
+    // RenderedPreviews: Quick Look's Rendered|Source choice, remembered per kind; unknown reads rendered.
+    readonly property string markdownView: root.preview.markdownView === "source" ? "source" : "rendered"
     readonly property string thumbnailMode: root.preview.thumbnails || "media"
     readonly property string thumbnailSize: root.preview.thumbSize || "medium"
     // Huge 192 and Largest 256 decode nothing new: the shared cache already holds 256.

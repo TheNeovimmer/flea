@@ -216,6 +216,12 @@ out=$(flea_ui '{"preview":{"thumbSize":"huge"}}' 2>&1); rc=$?
 check "a huge thumbnail patch exits 0" "0" "$rc"
 out=$(flea_ui '{"preview":{"thumbSize":"largest"}}' 2>&1); rc=$?
 check "a largest thumbnail patch exits 0" "0" "$rc"
+out=$(flea_ui '{"preview":{"markdownView":"source"}}' 2>&1); rc=$?
+check "a source markdown patch exits 0" "0" "$rc"
+check "the source markdown view landed" "1" "$(grep -c '"markdownView": "source"' "$UI")"
+out=$(flea_ui '{"preview":{"markdownView":"html"}}' 2>&1); rc=$?
+check "a html markdown patch exits 2" "2" "$rc"
+check "and names the key it refused: markdownView" "1" "$(echo "$out" | grep -c "markdownView")"
 
 # G1: two folder patches both survive, a null forgets one, and two widths behave per key.
 fresh

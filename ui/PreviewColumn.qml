@@ -4,6 +4,7 @@ import "." as Flea
 import "js/Facts.js" as Facts
 import "js/Format.js" as Format
 import "js/Icons.js" as Icons
+import "js/Kinds.js" as Kinds
 import "js/PreviewKeys.js" as PreviewKeys
 import "js/Thumbs.js" as Thumbs
 
@@ -85,6 +86,10 @@ Item {
 
     // The canvas's frame is 16 by 10, which is the one proportion every state shares.
     readonly property real frameRatio: 10 / 16
+    // RenderedPreviews: a Markdown row renders instead of listing its first lines, in a frame
+    // tall from the column top down to the name, with no toggle; the remembered choice decides.
+    readonly property bool isMarkdownRow: root.previewState === Facts.TEXT && root.row !== null
+        && Kinds.isMarkdown(root.row.n)
     // Stretch renders a vector to the whole box, so the frame's pictures keep Fit for an SVG alone.
     readonly property bool vectorPath: /\.svgz?$/i.test(root.path)
     // EXIF orientations 5 to 8 swap the sides, and Qt fits its decode before it turns, so the box it is asked for turns too.
@@ -123,7 +128,10 @@ Item {
         Rectangle {
             id: frame
             width: parent.width
-            height: Math.round(width * root.frameRatio)
+            height: root.isMarkdownRow
+                ? Math.max(0, root.height - 2 * Theme.spacing.rowPaddingX - nameText.height
+                    - factsTable.height - 3 * Theme.spacing.gap)
+                : Math.round(width * root.frameRatio)
             color: Theme.color.background
             border.width: Theme.spacing.hairline
             border.color: Theme.color.muted
@@ -220,13 +228,27 @@ Item {
                 id: lines
                 anchors.fill: parent
                 anchors.margins: Theme.spacing.hairline
-                visible: root.previewState === Facts.TEXT || root.previewState === Facts.CODE
-                active: root.visible && !root.manualHold && (root.rowState === Facts.TEXT || root.rowState === Facts.CODE)
+                visible: (root.previewState === Facts.TEXT || root.previewState === Facts.CODE) && !root.isMarkdownRow
+                active: root.visible && !root.manualHold && (root.rowState === Facts.TEXT || root.rowState === Facts.CODE) && !root.isMarkdownRow
                 path: root.path
                 size: root.row ? root.row.s : 0
                 maxBytes: root.textLimit
                 truncate: root.truncateText
                 numbered: root.previewState === Facts.CODE
+            }
+            // RenderedPreviews: the Markdown document rendered, or verbatim as source, flowing
+            // tall instead of the first-lines frame above. No toggle: the remembered choice rules.
+            Flea.PreviewMarkdown {
+                id: markdown
+                anchors.fill: parent
+                anchors.margins: Theme.spacing.hairline
+                visible: root.isMarkdownRow
+                active: root.visible && !root.manualHold && root.rowState === Facts.TEXT && root.isMarkdownRow
+                view: ViewState.markdownView === "source" ? "source" : "rendered"
+                path: root.path
+                size: root.row ? root.row.s : 0
+                maxBytes: root.textLimit
+                truncate: root.truncateText
             }
             // The PDF's own page, which is the frame's whole content for that state. QtPdf is
             // reached only through this Loader, so a folder with no PDF in it never opens one.
@@ -363,6 +385,7 @@ Item {
 
         // corner: a filename is arbitrary text, so PlainText, the same rule every name on this surface follows.
         Text {
+            id: nameText
             width: parent.width
             text: root.nameText()
             color: Theme.color.foreground
@@ -373,6 +396,7 @@ Item {
         }
 
         Flea.FactsTable {
+            id: factsTable
             width: parent.width
             rows: root.factRows
         }
@@ -428,6 +452,8 @@ Item {
     function playerLoaded() { return playerLoader.item !== null }
     // What the text, archive and failure surfaces actually draw, for ui/Ipc.qml: the lines, the member names, the sentence.
     function textLines() { return lines.tooLarge ? "too large" : lines.lines.join("|") }
+    // The swap waits on the text that is actually drawn: the rendered document for Markdown.
+    readonly property bool textLoading: root.isMarkdownRow ? markdown.loading : lines.loading
     function archiveNames() { return root.meta && root.meta.names ? root.meta.names.map(function (e) { return e.n }).join("|") : "" }
     function failureText() { return root.failure }
 
@@ -450,6 +476,7 @@ Item {
         case Facts.PDF:
             return !root.pdfDrawn
         case Facts.TEXT:
+            return root.isMarkdownRow ? markdown.blank : lines.blank
         case Facts.CODE:
             return lines.blank
         case Facts.ARCHIVE:

@@ -74,7 +74,7 @@ Flea.PreviewColumn {
             return false
         return PreviewSwap.columnReady({ state: root.previewState, thumb: root.thumb.length > 0,
             frame: root.frameStatus, noThumbComing: root.noThumbComing, pdfDrawn: root.pdfDrawn,
-            pdfFailed: root.pdfFailed, linesLoading: root.linesItem.loading, meta: root.meta !== null })
+            pdfFailed: root.pdfFailed, linesLoading: root.textLoading, meta: root.meta !== null })
     }
 
     // ExtThumbs: how much of a text file this frame may read; the column passes it on.

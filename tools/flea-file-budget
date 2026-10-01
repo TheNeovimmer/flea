@@ -42,7 +42,7 @@ src/tui/actions.rs 1035
 src/tui/input.rs 449
 src/tui/model.rs 1247
 src/tui/render.rs 889
-src/uischema.rs 496
+src/uischema.rs 500
 src/uistate.rs 659
 src/uistore.rs 540
 src/vulkan.rs 728
@@ -79,8 +79,9 @@ ui/PaneMenuActions.qml 458
 ui/PaneWire.qml 511
 ui/PermissionsDialog.qml 589
 ui/PickerWindow.qml 770
-ui/PreviewColumn.qml 525
-ui/Preview.qml 496
+ui/Preview.qml 607
+ui/PreviewColumn.qml 552
+ui/PreviewMarkdown.qml 473
 ui/Row.qml 478
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
@@ -88,11 +89,12 @@ ui/Sidebar.qml 675
 ui/StatusBar.qml 456
 ui/Theme.qml 415
 ui/TrashView.qml 475
-ui/ViewState.qml 408
+ui/ViewState.qml 410
 ui/WindowBody.qml 580
 ui/js/Filter.js 253
 ui/js/Focus.js 407
-ui/js/Keymap.js 335
+ui/js/Keymap.js 336
+ui/js/Markdown.js 527
 ui/js/Menu.js 425
 ui/js/Ops.js 435
 ui/js/Picker.js 325

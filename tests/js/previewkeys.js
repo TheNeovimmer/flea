@@ -64,4 +64,25 @@ function run(check) {
     var viewerSrc = Source.source("ui/PdfViewer.qml")
     var keysBody = Source.slice(viewerSrc, "Keys.onPressed", "readonly property int page")
     check("the pdf viewer closes on the preview action", keysBody.indexOf('|| action === "preview") root.closed()') >= 0, true)
+
+    // RenderedPreviews callout 1: r switches a Markdown Quick Look and nothing else.
+    function markPane(markdown) {
+        var pane = { switched: 0 }
+        pane.preview = {
+            isMarkdown: markdown,
+            revealStrip: function () {},
+            toggleMarkdownView: function () { pane.switched += 1 }
+        }
+        return pane
+    }
+    var notes = markPane(true)
+    PreviewKeys.act("markdownView", notes)
+    check("r switches a Markdown preview", notes.switched, 1)
+    var photo = markPane(false)
+    PreviewKeys.act("markdownView", photo)
+    check("r does nothing to a non-Markdown preview", photo.switched, 0)
+    check("r maps to markdownView in the preview context",
+        Keymap.lookupFor("default", 0, "r", Qt.NoModifier, "preview", "gui"), "markdownView")
+    check("r stays rename in the listing",
+        Keymap.lookupFor("default", 0, "r", Qt.NoModifier, "listing", "gui"), "rename")
 }
