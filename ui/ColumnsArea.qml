@@ -416,10 +416,11 @@ Item {
             showDivider: root.thirdShown
             // The list's and the grid's own two routes, reached from the one column whose rows are the pane's listing, so a click means the same thing in all three views.
             onPicked: function (index, tapCount, modifiers) {
+                var wasSole = root.pane.slowClickWasSole(index)
                 Tap.tappedMiddle(index, tapCount, modifiers, root.pane)
                 // The slow click renames on the pane's timer; a double click opens through tappedMiddle() above instead.
                 if (tapCount === 2) root.pane.cancelSlowClick()
-                else if (tapCount === 1) root.pane.armSlowClick(index, modifiers, active.dragging)
+                else if (tapCount === 1) root.pane.armSlowClick(index, modifiers, active.dragging, wasSole)
             }
             onMenuRequested: function (index, eventPoint) { Tap.tappedMenu(index, eventPoint, root.pane, root.menu) }
             onTabRequested: function (row) { Tap.tappedTab(row, root.pane.path, root.pane) }

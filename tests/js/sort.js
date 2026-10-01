@@ -1,4 +1,5 @@
 .import "../../ui/js/Sort.js" as Sort
+.import "sourcefixture.js" as Source
 
 // Header clicks and the s/S keys share this path; tests/protocol.sh checks the resulting backend order.
 
@@ -189,4 +190,21 @@ function run(check) {
     Sort.applyPending(unsettled)
     check("a rename still pending keeps the hold", unsettled.sent.join(",") + "|" + JSON.stringify(unsettled.pendingSort),
           "|" + JSON.stringify({ key: "size", desc: false }))
+
+    // A navigation during a slow rename strands the hold with no edit open:
+    // Nav.forget sets renamingIndex -1 and leaves the request pending, so no
+    // index change fires when it settles. The pending-false arm applies it.
+    var stranded = pane("name", false)
+    stranded.renamingIndex = -1
+    stranded.renamePending = true
+    Sort.resort(stranded, "size", false)
+    check("a sort with only a pending rename holds", JSON.stringify(stranded.pendingSort),
+          JSON.stringify({ key: "size", desc: false }))
+    stranded.renamePending = false
+    Sort.applyPending(stranded)
+    check("a hold taken with no edit open applies once the pending rename settles",
+          stranded.sent.join(","), "sort size asc,window 0 200")
+    var wired = Source.source("ui/Pane.qml")
+    check("the pending-false arm applies the held sort",
+          wired.indexOf("onRenamePendingChanged") >= 0 && wired.indexOf("Sort.applyPending(root)") >= 0, true)
 }

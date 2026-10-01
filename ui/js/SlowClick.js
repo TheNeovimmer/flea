@@ -15,8 +15,15 @@
 
 // Whether this tap starts the timer. Records every tap the way the arming tap
 // used to, so a tap on another row re-arms rather than firing: only a second
-// tap on the same row past the interval arms.
-function arm(pane, index, modifiers, now, interval, dragging) {
+// tap on the same row past the interval arms. wasSole is the pre-tap fact the
+// views capture before Tap.tapped selects for this very tap, so a first click
+// on an unselected row never arms off the selection it just made.
+function wasSoleSelection(pane, index) {
+    if (!pane || index < 0) return false
+    var picked = pane.selectedIndices()
+    return picked.length === 1 && picked[0] === index && pane.cursorIndex === index
+}
+function arm(pane, index, modifiers, now, interval, dragging, wasSole) {
     var plain = (modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) === 0
     var drag = dragging === undefined ? pane.dragActive : dragging
     var priorAt = pane.slowClickAt || 0
@@ -27,23 +34,26 @@ function arm(pane, index, modifiers, now, interval, dragging) {
             && pane.searchMode === "" && pane.renamingIndex < 0 && !pane.renamePending
             && pane.selectionBand === null && drag !== true))
         return false
-    var picked = pane.selectedIndices()
-    if (picked.length !== 1 || picked[0] !== index || pane.cursorIndex !== index)
+    if (wasSole !== undefined) {
+        if (!wasSole) return false
+    } else if (!wasSoleSelection(pane, index)) {
         return false
+    }
     var gap = interval > 0 ? interval : 400
     return priorIndex === index && now - priorAt > gap
 }
 
 // The timer firing: renames only when the cursor and the sole selection are
-// still the armed row and nothing else started. Consumes the arm either way,
-// so a later tap re-arms rather than firing twice.
-function fire(pane, now, interval) {
+// still the armed row and nothing else started. The timer owns the window, a
+// second tap in time already cancels, so elapsed time is not rechecked here.
+// Consumes the arm either way, so a later tap re-arms rather than firing twice.
+function fire(pane, now, interval, dragging) {
     var index = pane.slowClickIndex
-    var at = pane.slowClickAt || 0
     pane.slowClickIndex = -2
     if (index === undefined || index < 0) return false
-    var gap = interval > 0 ? interval : 400
-    if (!(now - at > gap)) return false
+    if (pane.menuVisible === true) return false
+    var liveDrag = dragging === undefined ? pane.dragActive : dragging
+    if (liveDrag === true) return false
     if (pane.renamingIndex >= 0 || pane.renamePending) return false
     if (pane.singleClick === true || pane.clickRename === false) return false
     if (pane.searchMode !== "" || pane.selectionBand !== null) return false

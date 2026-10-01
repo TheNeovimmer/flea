@@ -138,10 +138,11 @@ ListView {
                 else if (button === Qt.RightButton)
                     Tap.tappedMenu(listingIndex, eventPoint, root.pane, root.menu)
                 else {
+                    var wasSole = root.pane.slowClickWasSole(listingIndex)
                     Tap.tapped(listingIndex, tap.tapCount, tap.point.modifiers, root.pane)
                     // The slow click renames on the pane's timer; a double click opens through tapped() above instead.
                     if (tap.tapCount === 2) root.pane.cancelSlowClick()
-                    else if (tap.tapCount === 1) root.pane.armSlowClick(listingIndex, tap.point.modifiers, dragSession.Drag.active)
+                    else if (tap.tapCount === 1) root.pane.armSlowClick(listingIndex, tap.point.modifiers, dragSession.Drag.active, wasSole)
                 }
             }
         }

@@ -1,6 +1,7 @@
 .pragma library
 
 .import "Search.js" as Search
+.import "SlowClick.js" as SlowClick
 .import "Tabs.js" as Tabs
 
 // The pointer contract, declared in keys.toml's [[pointer]] table and decided here and nowhere
@@ -84,6 +85,8 @@ function tappedMenu(index, eventPoint, root, menu) {
         root.clearSelection()
     root.setCursor(index)
     menu.openAt(eventPoint.scenePosition)
+    if (root.cancelSlowClick) root.cancelSlowClick()
+    else SlowClick.cancel(root)
 }
 
 // A right click that landed on no row raises the directory's own menu, in all three views and the

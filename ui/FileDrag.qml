@@ -24,6 +24,7 @@ Item {
 
     function liftBegan(index, centroid) {
         if (!root.pane || root.pane.listInFlight || index < 0 || !root.pane.rowFor(index)) return
+        if (root.pane.cancelSlowClick) root.pane.cancelSlowClick()
         root.dragRows = DragOps.carried(root.pane, index)
         root.dragListing = root.pane.backend ? root.pane.backend.heldListing : 0
         root.dropIndex = -1

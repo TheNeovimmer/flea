@@ -69,11 +69,12 @@ FocusScope {
         repeat: false
         onTriggered: SlowClick.fire(root, Date.now(), Qt.styleHints.mouseDoubleClickInterval)
     }
-    function armSlowClick(index, modifiers, dragging) {
-        if (SlowClick.arm(root, index, modifiers, Date.now(), Qt.styleHints.mouseDoubleClickInterval, dragging))
+    function armSlowClick(index, modifiers, dragging, wasSole) {
+        if (SlowClick.arm(root, index, modifiers, Date.now(), Qt.styleHints.mouseDoubleClickInterval, dragging, wasSole))
             slowClickTimer.restart()
         else slowClickTimer.stop()
     }
+    function slowClickWasSole(index) { return SlowClick.wasSoleSelection(root, index) }
     function cancelSlowClick() { slowClickTimer.stop(); SlowClick.cancel(root) }
     // ui/js/Tabs.js is a .pragma library and cannot reach a QML singleton, so the state it asks
     // ui/js/Startup.js about rides in through the pane, the way every other setting it reads does.
@@ -325,6 +326,9 @@ FocusScope {
         // held sort applies on either; a navigation holds listInFlight and drops it.
         Sort.applyPending(root)
     }
+    // A navigation during a slow rename leaves renamingIndex at -1 with the
+    // request still pending, so no index change fires when it settles.
+    onRenamePendingChanged: if (!root.renamePending) Sort.applyPending(root)
 
     // A set of row indices over the current listing, mutated in place; selectionVersion tells a reactive binding (List.qml's delegate, StatusBar's count) to re-read it. Task 8 declined ScriptModel plus ItemSelectionModel on measured memory, see AGENTS.md "The list model".
     property var selection: Selection.create()

@@ -15,6 +15,7 @@ function root() {
         renamePending: false,
         selectionBand: null,
         dragActive: false,
+        menuVisible: false,
         cursorIndex: 4,
         picked: [4],
         slowClickAt: 0,
@@ -131,4 +132,51 @@ function run(check) {
     var plain = root()
     Tap.tapped(9, 1, none, plain)
     check("double-click mode still only selects on one tap", plain.did.join(","), "selectOnly")
+
+    // The timer owns the window: it can fire with Date.now() exactly the
+    // interval after the arm, which the old elapsed recheck rejected.
+    var exact = root()
+    SlowClick.arm(exact, 4, none, 1000, 400)
+    SlowClick.arm(exact, 4, none, 1500, 400)
+    check("firing at exactly arm time plus interval renames", SlowClick.fire(exact, 1900, 400), true)
+    check("and the rename went out", exact.did.join(","), "rename")
+
+    // A first click on an unselected row must not arm off the selection the
+    // tap itself just made: the views capture sole selection before tapped.
+    var firstClick = root()
+    SlowClick.arm(firstClick, 4, none, 1000, 400)
+    firstClick.picked = [4]
+    firstClick.cursorIndex = 4
+    check("a first click on an unselected row arms nothing",
+          SlowClick.arm(firstClick, 4, none, 4000, 400, undefined, false), false)
+    var secondClick = root()
+    SlowClick.arm(secondClick, 4, none, 1000, 400)
+    secondClick.picked = [4]
+    secondClick.cursorIndex = 4
+    check("a true second click on the sole selected row still arms",
+          SlowClick.arm(secondClick, 4, none, 1500, 400, undefined, true), true)
+
+    // An open menu or an active drag blocks the timer, and a menu request
+    // cancels the arm outright.
+    var menud = root()
+    SlowClick.arm(menud, 4, none, 1000, 400)
+    SlowClick.arm(menud, 4, none, 1500, 400)
+    menud.menuVisible = true
+    check("an open menu blocks the timer", SlowClick.fire(menud, 2000, 400), false)
+    var dragd = root()
+    SlowClick.arm(dragd, 4, none, 1000, 400)
+    SlowClick.arm(dragd, 4, none, 1500, 400)
+    dragd.dragActive = true
+    check("an active drag blocks the timer", SlowClick.fire(dragd, 2000, 400), false)
+    var liveDrag = root()
+    SlowClick.arm(liveDrag, 4, none, 1000, 400)
+    SlowClick.arm(liveDrag, 4, none, 1500, 400)
+    check("a live drag passed to fire blocks it too", SlowClick.fire(liveDrag, 2000, 400, true), false)
+    var menureq = root()
+    menureq.slowClickAt = 1000
+    menureq.slowClickIndex = 4
+    menureq.picked = [4]
+    menureq.cursorIndex = 4
+    Tap.tappedMenu(4, { scenePosition: null }, menureq, { openAt: function (pos) {} })
+    check("a menu request cancels the slow click", menureq.slowClickIndex, -2)
 }
