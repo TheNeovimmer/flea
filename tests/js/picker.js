@@ -181,4 +181,23 @@ function run(check) {
     check("pageForward activates", Picker.activates("pageForward", Qt.Key_Right), true)
     check("parent never activates", Picker.activates("parent", Qt.Key_Left), false)
     check("escape never activates", Picker.activates("escape", Qt.Key_Escape), false)
+
+    // Issue #191: the grid steps in tile strides with the main grid's own edge rule, so a
+    // sideways step off its row stays where it is and anything past either end clamps.
+    check("a down step moves one tile row", Picker.gridTarget(5, 5, 5, 12), 10)
+    check("an up step moves one tile row", Picker.gridTarget(7, -5, 5, 12), 2)
+    check("a left step off its row stays", Picker.gridTarget(5, -1, 5, 12), 5)
+    check("a right step off its row stays", Picker.gridTarget(9, 1, 5, 12), 9)
+    check("a step inside its row moves", Picker.gridTarget(6, 1, 5, 12), 7)
+    check("a step past the end stays", Picker.gridTarget(11, 5, 5, 12), 11)
+    check("a step past the top stays", Picker.gridTarget(1, -5, 5, 12), 1)
+
+    // The grid's visible tiles as listing rows: the tile-row viewport times the column count.
+    var range = Picker.tileRange(0, 198, 4, 5, 100)
+    check("a settled grid starts at its first tile", range.first, 0)
+    check("a settled grid ends at its last visible tile", range.last, 19)
+    var scrolled = Picker.tileRange(198, 198, 4, 5, 100)
+    check("a scrolled grid starts one tile row down", scrolled.first, 5)
+    var tail = Picker.tileRange(0, 198, 4, 5, 12)
+    check("a short listing clamps to its last row", tail.last, 11)
 }

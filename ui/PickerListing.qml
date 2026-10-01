@@ -46,6 +46,19 @@ Item {
         if (current && current.running && !current.obsolete && !quitting)
             current.write(JSON.stringify({c: "sort", by: by, desc: desc, foldersFirst: foldersFirst, groupByKind: groupByKind}) + "\n")
     }
+    // Thumbnails are planned against the rows this worker holds, so the ask goes to it and not to
+    // the picker's selection backend, which holds no listing at all. An empty ask names nothing.
+    function thumb(rows, cacheOnly) {
+        if (!rows || rows.length === 0) return
+        if (current && current.running && !current.obsolete && !quitting)
+            current.write(JSON.stringify({c: "thumb", rows: rows, cacheOnly: cacheOnly === true}) + "\n")
+    }
+    // An empty rows cancels everything queued, so an empty list is never sent; see docs/protocol.md.
+    function thumbcancel(rows) {
+        if (!rows || rows.length === 0) return
+        if (current && current.running && !current.obsolete && !quitting)
+            current.write(JSON.stringify({c: "thumbcancel", rows: rows}) + "\n")
+    }
     function quit() {
         quitting = true
         pending = null

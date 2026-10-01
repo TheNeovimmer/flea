@@ -8,6 +8,7 @@ import qs.Commons
 import "." as Flea
 import "js/Picker.js" as Picker
 import "js/Keymap.js" as Keymap
+import "js/Thumbs.js" as Thumbs
 
 // One portal request, one window: the org.freedesktop.impl.portal.FileChooser dialog every caller on
 // the box gets, opened by flea --pick and answered through the reply file tools/flea-portal reads.
@@ -55,6 +56,30 @@ ShellRoot {
         readonly property var shown: null
         readonly property int shownTotal: win.total
         onFilterChanged: if (win.path.length) win.openWithoutHistory(win.path)
+
+        // The view the listing draws in, session-only: the picker persists nothing to ui.json,
+        // so a relaunch opens the list again rather than inheriting the main window's view.
+        property string viewMode: "list"
+        function setView(mode) {
+            if (mode !== "list" && mode !== "grid") return
+            if (win.viewMode === mode) { win.focusView(); return }
+            win.viewMode = mode
+            win.focusView()
+        }
+        function viewItem() { return win.viewMode === "grid" ? grid : list }
+        function focusView() { win.viewItem().forceActiveFocus() }
+        // Whether the listing shows the directory's dotfiles. The worker never sends what a
+        // request did not ask for, so the window re-reads the standing directory when this flips.
+        property bool showHidden: false
+        // The grid's visible-only thumbnail plan, owned here so both views share one map the way
+        // the main pane owns its views' states; only the grid ever asks.
+        property var thumbState: Thumbs.empty()
+        // Seven screens of history at the picker's row height, the main pane's own bound.
+        readonly property int thumbCap: 240
+        // The directory's storage class beside its fsinfo line, never per row; unknown holds the
+        // first settle the way the main pane holds its own, see ui/js/ExtThumbs.js.
+        property string storageClass: ""
+        property bool storageKnown: false
 
         // Where Back goes, and it only ever goes back: Parent is its own button and pushes here too.
         property var history: []
@@ -121,7 +146,7 @@ ShellRoot {
                 recents.refresh()
                 return
             }
-            win.requestListing(backend.listRequest(next, win.windowSize, list.showHidden))
+            win.requestListing(backend.listRequest(next, win.windowSize, win.showHidden))
         }
 
         function requestListing(request) {
@@ -137,6 +162,10 @@ ShellRoot {
             win.cursorIndex = 0
             win.listingState = "loading"
             win.receivingLatestListing = false
+            // A replaced listing renumbers every row, so no thumb answer may outlive it.
+            win.thumbState = Thumbs.empty()
+            win.storageClass = ""
+            win.storageKnown = false
         }
 
         // Sort reorders the worker's filtered listing without re-reading the folder, so marks and save review stay; never written to ui.json.
@@ -150,7 +179,7 @@ ShellRoot {
             listing.sort(order.key, order.desc, ViewState.state.foldersFirst !== false, ViewState.state.groupByKind === true)
             // sort answers a listed line and no rows of its own, so the reordered window is asked for.
             listing.window(0, win.windowSize)
-            list.forceActiveFocus()
+            win.focusView()
         }
 
         function filterRequest() {
@@ -373,6 +402,20 @@ ShellRoot {
                 win.rows = items
                 win.kindNames = kinds
             }
+            // A thumbed line for the previous listing is still in the pipe when clearListing
+            // emptied the map, so only the live listing's answers land.
+            onThumbed: function (row, file) {
+                if (!win.receivingLatestListing) return
+                win.thumbState = Thumbs.remember(win.thumbState, row, file, win.thumbCap)
+            }
+            // The worker stats its own base after the rows, so the class lands after them; a
+            // settle fired in between held on unknown, and restarts now that it is named.
+            onFsInfo: function (fs, free, path, storageClass) {
+                if (path.length > 0 && path !== win.path) return
+                win.storageClass = storageClass || ""
+                win.storageKnown = true
+                grid.restartSettle()
+            }
             onFailed: function (where, input, msg, mode) {
                 if (where === "backend") {
                     win.backendUnavailable = true
@@ -451,9 +494,10 @@ ShellRoot {
                 picker: win
                 onCancelRequested: win.cancel()
                 onAcceptRequested: win.accept()
-                onBackRequested: { list.forceActiveFocus(); win.goBack() }
-                onUpRequested: { list.forceActiveFocus(); win.goUp() }
+                onBackRequested: { win.focusView(); win.goBack() }
+                onUpRequested: { win.focusView(); win.goUp() }
                 onChipChosen: function (index) { win.filterIndex = index }
+                onViewChosen: function (mode) { win.setView(mode) }
             }
 
             Flea.PickerPlaces {
@@ -466,7 +510,7 @@ ShellRoot {
                 current: win.path
                 edge: win.edge
                 offerRecent: !win.saving
-                onChosen: function (path) { win.open(path); list.forceActiveFocus() }
+                onChosen: function (path) { win.open(path); win.focusView() }
                 onNetworkCompleted: function(requestId, uri, success, reason) {
                     if (networkDialog.item) networkDialog.item.mountFinished(requestId, uri, success, reason)
                 }
@@ -487,6 +531,7 @@ ShellRoot {
 
             Flea.PickerList {
                 id: list
+                visible: win.viewMode === "list"
                 anchors.left: places.right
                 anchors.right: parent.right
                 anchors.top: header.bottom
@@ -494,8 +539,29 @@ ShellRoot {
                 picker: win
                 backend: listing
                 clip: true
-                focus: true
+                focus: win.viewMode === "list"
                 enabled: !win.submitting && !win.backendUnavailable
+            }
+
+            // The grid draws the same rows through the main window's tiles, with its own
+            // visible-only thumbnail plan; see ui/PickerGrid.qml.
+            Flea.PickerGrid {
+                id: grid
+                visible: win.viewMode === "grid"
+                anchors.left: places.right
+                anchors.right: parent.right
+                anchors.top: header.bottom
+                anchors.bottom: save.top
+                picker: win
+                backend: listing
+                clip: true
+                focus: win.viewMode === "grid"
+                enabled: !win.submitting && !win.backendUnavailable
+            }
+
+            Connections {
+                target: grid
+                function onThumbsApplied(work) { win.thumbState = Thumbs.applied(win.thumbState, work) }
             }
 
             // The same empty hero the browser window draws, over the list area alone.
@@ -532,7 +598,7 @@ ShellRoot {
                 }
                 Connections {
                     target: shares.item
-                    function onClosed() { list.forceActiveFocus() }
+                    function onClosed() { win.focusView() }
                     function onActivated(uri, label) { places.openChild(uri, label) }
                 }
             }
@@ -606,7 +672,7 @@ ShellRoot {
                 active: false
                 sourceComponent: Component {
                     Flea.NetworkDialog {
-                        onClosed: list.forceActiveFocus()
+                        onClosed: win.focusView()
                         onMountRequested: function(requestId, uri, label, password) { places.retry(requestId, uri, label, password) }
                         onCancelRequested: function(requestId) { places.cancelNetwork(requestId) }
                     }
@@ -631,7 +697,7 @@ ShellRoot {
             win.openWithoutHistory(start)
             // Measured on the box: without this the window has the keyboard but the list does not,
             // so Escape reached the surface below and every other key was dropped.
-            list.forceActiveFocus()
+            win.focusView()
         }
 
         // The seam tests/picker.sh drives, the same read-only shape ui/Ipc.qml has for the window.
@@ -654,16 +720,17 @@ ShellRoot {
             function checks(): string { return JSON.stringify({marksBusy: win.markRequest > 0, saveBusy: win.saveRequest > 0, submitting: win.submitting, canAccept: win.canAccept, saveReady: win.saveReady, collision: win.saveCollision, review: win.saveReview.review || 0}) }
             function markedUris(): string { return JSON.stringify(win.marks.map(function(mark) { return mark.uri })) }
             function controls(): string { return JSON.stringify(chrome.controls().concat(header.controls(), save.controls(), places.controls())) }
-            function rowCentre(index: int): string { return win.centre(list.itemAtIndex(index)) }
+            function rowCentre(index: int): string { return win.centre(win.viewItem().itemAtIndex(index)) }
             function saveState(): string { return JSON.stringify({name: win.saveName, path: win.saveReview.path || "", collision: win.saveCollision, error: win.saveError, field: win.centre(save.fieldItem)}) }
             function snapshot(): string {
                 return JSON.stringify({path: win.path, total: win.total, held: win.held, rows: win.rows,
                     cursor: win.cursorIndex, cursorName: win.rowFor(win.cursorIndex) ? win.rowFor(win.cursorIndex).n : "",
                     marks: win.marks, state: win.listingState, listingFailed: win.listingFailed, sortBy: backend.sortBy, sortDesc: backend.sortDesc, sortable: win.sortable, filter: win.filterIndex, history: win.history,
+                    view: win.viewMode, thumbPending: Object.keys(win.thumbState.file).filter(function(index) { return win.thumbState.file[index] === null || win.thumbState.file[index] === "cache-asked" }).length,
                     marksBusy: win.markRequest > 0, saveBusy: win.saveRequest > 0, submitting: win.submitting, backendUnavailable: win.backendUnavailable,
                     canAccept: win.canAccept, saveReady: win.saveReady, collision: win.saveCollision,
                     saveName: win.saveName, saveError: win.saveError, message: win.message, messageError: win.messageError, hints: statusHints.text,
-                    controls: chrome.controls().concat(header.controls(), save.controls(), places.controls()), headerMark: header.sortBy, listFocus: list.activeFocus,
+                    controls: chrome.controls().concat(header.controls(), save.controls(), places.controls()), headerMark: header.sortBy, listFocus: list.activeFocus, gridFocus: grid.activeFocus,
                     railFocus: places.focusItem.activeFocus, preset: Flea.ViewState.keysPreset,
                     bodySmall: Theme.font.bodySmall, body: Theme.font.body, width: win.width, height: win.height,
                     geometry: {chrome: chrome.height, header: header.height, rail: places.width, row: Theme.rowHeight, footer: status.height,
@@ -687,7 +754,7 @@ ShellRoot {
             return [point.x, point.y, item.width, item.height]
         }
         function stepFocus(from, back) {
-            var items = chrome.focusItems().concat([places.focusItem, list], save.focusItems())
+            var items = chrome.focusItems().concat([places.focusItem, win.viewItem()], save.focusItems())
                 .filter(function(item) { return item.visible && item.enabled && item.activeFocusOnTab })
             if (!items.length) return
             var at = items.indexOf(from)

@@ -16,6 +16,7 @@ Item {
     signal backRequested()
     signal upRequested()
     signal chipChosen(int index)
+    signal viewChosen(string mode)
 
     readonly property var req: root.picker.req
     readonly property var chips: Picker.chips(root.req)
@@ -36,6 +37,8 @@ Item {
         property string name: control.label
         property bool primary: false
         property bool available: true
+        // A mark that is live but not the one in force, like the picker's inactive view mark.
+        property bool dimmed: false
         enabled: available
         activeFocusOnTab: available
         Keys.onTabPressed: function(event) { root.picker.stepFocus(control, (event.modifiers & Qt.ShiftModifier) !== 0) }
@@ -46,7 +49,7 @@ Item {
 
         signal pressed()
 
-        readonly property color ink: control.available ? Theme.color.foreground : Theme.color.muted
+        readonly property color ink: control.dimmed || !control.available ? Theme.color.muted : Theme.color.foreground
 
         implicitWidth: control.glyph.length > 0 ? Theme.hitMin : caption.implicitWidth + 2 * Theme.spacing.gap
         implicitHeight: Theme.hitMin
@@ -249,13 +252,14 @@ Item {
         }
 
         // The caller's filters, and All files beside them; a request with no filters draws no chips.
+        // The view marks keep the far right, so the chips give way through their anchor.
         Flickable {
             id: types
-            anchors.right: parent.right
-            anchors.rightMargin: Theme.spacing.rowPaddingX
+            anchors.right: views.left
+            anchors.rightMargin: Theme.spacing.gap
             anchors.verticalCenter: parent.verticalCenter
             // The chips take room first and the path gives way through its anchor, keeping its minimum.
-            width: Picker.chipStripWidth(where.width - moves.width - 2 * Theme.spacing.rowPaddingX - 2 * Theme.spacing.gap, chipRow.width, Picker.CHIP_PATH_MIN)
+            width: Picker.chipStripWidth(where.width - moves.width - views.width - 2 * Theme.spacing.rowPaddingX - 3 * Theme.spacing.gap, chipRow.width, Picker.CHIP_PATH_MIN)
             height: Theme.hitMin
             contentWidth: chipRow.width
             contentHeight: height
@@ -291,12 +295,41 @@ Item {
         }
     }
 
+    // The board's own view marks at the strip's right: the live one in foreground, the other
+    // muted. Pointer targets and the ctrl-1/ctrl-3 keys; kept out of the Tab walk, which callout
+    // 12 fixes without them.
+    Row {
+        id: views
+        anchors.right: parent.right
+        anchors.rightMargin: Theme.spacing.rowPaddingX
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Theme.spacing.gap
+
+        Framed {
+            id: listButton
+            glyph: "list"
+            name: "List view"
+            dimmed: root.picker.viewMode !== "list"
+            activeFocusOnTab: false
+            onPressed: root.viewChosen("list")
+        }
+
+        Framed {
+            id: gridButton
+            glyph: "grid"
+            name: "Grid view"
+            dimmed: root.picker.viewMode !== "grid"
+            activeFocusOnTab: false
+            onPressed: root.viewChosen("grid")
+        }
+    }
+
     function focusItems() {
         var items = [cancelButton, acceptButton, backButton, upButton]
         for (var i = 0; i < chipRepeater.count; i++) items.push(chipRepeater.itemAt(i))
         return items
     }
     function controls() {
-        return root.focusItems().map(function(item) { return root.picker.control(item.name, item, item.available) })
+        return root.focusItems().concat([listButton, gridButton]).map(function(item) { return root.picker.control(item.name, item, item.available) })
     }
 }

@@ -81,6 +81,7 @@ Row 1.0 Row.qml
 ResizeHandle 1.0 ResizeHandle.qml
 Pane 1.0 Pane.qml
 PickerChrome 1.0 PickerChrome.qml
+PickerGrid 1.0 PickerGrid.qml
 PickerHeader 1.0 PickerHeader.qml
 PickerList 1.0 PickerList.qml
 PickerPlaces 1.0 PickerPlaces.qml

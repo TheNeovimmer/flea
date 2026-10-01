@@ -1,6 +1,7 @@
 .pragma library
 
 .import "Format.js" as Format
+.import "Thumbs.js" as Thumbs
 
 // The portal request tools/flea-portal puts in FLEA_PICKER, and the answer ui/picker.qml writes
 // back. Everything here is pure so tests/js/picker.js can drive it without a window.
@@ -251,6 +252,32 @@ function rowPath(location, name) {
 
 function directory(row) {
     return !!row && (row.d === true || (Format.isSymlink(row.p) && row.i === "folder"))
+}
+
+// The grid's visible tiles as listing rows: the tile-row viewport times the column count,
+// the same multiplication ui/GridArea.qml's visibleRange does. Sample input:
+// tileRange(0, 198, 4, 5, 100) answers {first: 0, last: 19}.
+function tileRange(contentY, cellH, tileRows, columns, total) {
+    var view = Thumbs.viewport(contentY, cellH, tileRows, Math.max(1, Math.ceil(total / Math.max(1, columns))))
+    return {
+        first: view.first * columns,
+        last: Math.min(total - 1, (view.last + 1) * columns - 1)
+    }
+}
+
+// One grid step with the main grid's own edge rule: a sideways step off its row stays
+// where it is, and so does a step past either end, the way ui/js/Grid.js refuses instead of
+// clamping. Sample input: gridTarget(5, -1, 5, 12)
+// answers 5, gridTarget(5, 5, 5, 12) answers 10.
+function gridTarget(index, delta, columns, total) {
+    var next = index + delta
+    if (next < 0 || next >= total) {
+        return Math.max(0, Math.min(total - 1, index))
+    }
+    if ((delta === -1 && index % columns === 0) || (delta === 1 && next % columns === 0)) {
+        return index
+    }
+    return next
 }
 
 function parentOf(path) {

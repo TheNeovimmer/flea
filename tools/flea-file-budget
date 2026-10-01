@@ -70,7 +70,7 @@ ui/Pane.qml 788
 ui/PaneMenuActions.qml 407
 ui/PaneWire.qml 471
 ui/PermissionsDialog.qml 432
-ui/PickerWindow.qml 706
+ui/PickerWindow.qml 766
 ui/PreviewColumn.qml 499
 ui/Preview.qml 463
 ui/Row.qml 478
@@ -87,6 +87,7 @@ ui/js/Focus.js 392
 ui/js/Keymap.js 322
 ui/js/Menu.js 337
 ui/js/Ops.js 371
+ui/js/Picker.js 311
 ui/js/Settings.js 453
 ui/js/Tabs.js 378"
 

@@ -16,10 +16,8 @@ ListView {
     property var picker: null
     property var backend: null
 
-    // Whether the listing shows the directory's dotfiles. The backend never sends what a request
-    // did not ask for, so the window re-reads the standing directory when this flips; `.` and the
-    // preset's toggleHidden chord are the two ways in, and the flag survives every walk.
-    property bool showHidden: false
+    // The hidden flag lives on the window, so the list and the grid read one value; the worker
+    // never sends what a request did not ask for, and the window re-reads when this flips.
 
     readonly property int visibleRows: Math.max(1, Math.ceil(root.height / Theme.rowHeight))
     // The board's content-box dimensions exclude the border; QML Rectangle dimensions include it.
@@ -172,6 +170,10 @@ ListView {
             root.moveCursor(-root.picker.shownTotal)
         } else if (action === "cursorLast") {
             root.moveCursor(root.picker.shownTotal)
+        } else if (action === "viewList") {
+            root.picker.setView("list")
+        } else if (action === "viewGrid") {
+            root.picker.setView("grid")
         } else if (event.key === Qt.Key_Space && event.modifiers === Qt.NoModifier) {
             root.picker.toggleMark(root.picker.cursorIndex)
         } else if (Picker.activates(action, event.key)) {
@@ -185,7 +187,7 @@ ListView {
         } else if (action === "sortReverse") {
             root.picker.requestSort(Sort.reverseOrder(root.picker.sortBy, root.picker.sortDesc))
         } else if (action === "toggleHidden") {
-            root.showHidden = !root.showHidden
+            root.picker.showHidden = !root.picker.showHidden
             if (root.picker.path.length > 0)
                 root.picker.openWithoutHistory(root.picker.path)
         } else {
