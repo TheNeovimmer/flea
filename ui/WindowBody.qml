@@ -41,7 +41,7 @@ Rectangle {
         // ui/ViewState.qml "owe".
         if (initialized && !dualMode && primaryPane.path) {
             ViewState.rememberLastPath(primaryPane.path)
-            view.rememberTabStrip()
+            view.queueTabStrip()
         }
         if (!initialized || !dualMode || !secondPane.item || !primaryPane.path || !secondPane.item.pane.path) return
         Qt.callLater(view.rememberDual)
@@ -50,6 +50,16 @@ Rectangle {
     // changed, so a quit right after a reorder reopens the new order. Hooked on pane.tabs, which
     // only a strip reassignment fires: a cursor move never touches it, and owe() drops a write
     // whose strip did not move. Single view only, the strip remembered is the primary pane's.
+    // Queued past the move: ui/js/Tabs.js reassigns pane.tabs before apply() moves the pane, so a
+    // switch read at the tabs signal writes the old tab's path at the new index. Both signals queue
+    // one deferred write, which lands after the pane has moved.
+    property bool tabStripQueued: false
+    function queueTabStrip() {
+        if (view.tabStripQueued)
+            return
+        view.tabStripQueued = true
+        Qt.callLater(function() { view.tabStripQueued = false; view.rememberTabStrip() })
+    }
     function rememberTabStrip() {
         if (initialized && !dualMode && primaryPane.path)
             ViewState.rememberTabs(Tabs.remembered(primaryPane))
@@ -199,7 +209,7 @@ Rectangle {
         onFocusRequested: view.focusPane(0)
         onSwitchPane: view.focusPane(1)
         onPathChanged: view.rememberPaths()
-        onTabsChanged: view.rememberTabStrip()
+        onTabsChanged: view.queueTabStrip()
         onClipboardChanged: if (secondPane.item && secondPane.item.pane.clipboard !== clipboard) secondPane.item.pane.clipboard = clipboard
         overlayParent: view
         preview: preview

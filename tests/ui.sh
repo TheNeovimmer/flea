@@ -5405,6 +5405,19 @@ case_tabs() {
     [[ "$(ipc tabBarVisible)" == "false" ]] || fail "tabs: the bar stayed up after the last extra tab closed"
     key w >/dev/null
     wait_message "Can't close the last tab."
+    # A remembered strip is a whole value: the close above must have stored the single tabs
+    # dir with its index, never a half patch the backend refuses (which drops lastPath too).
+    local tabs_doc=""
+    for _attempt in $(seq 1 40); do
+        tabs_doc=$(env XDG_STATE_HOME="$suite_state" "$flea_bin" --ui-state 2>/dev/null || true)
+        [[ -n "$tabs_doc" ]] || { sleep 0.25; continue; }
+        if printf '%s' "$tabs_doc" | jq -e --arg dir "$dir" '.lastPath == $dir and .lastTabs == {paths: [$dir], index: 0}' >/dev/null; then
+            break
+        fi
+        sleep 0.25
+    done
+    printf '%s' "$tabs_doc" | jq -e --arg dir "$dir" '.lastPath == $dir and .lastTabs == {paths: [$dir], index: 0}' >/dev/null \
+        || fail "tabs: stored strip is $(printf '%s' "$tabs_doc" | jq -c '{lastPath, lastTabs}' 2>/dev/null || printf 'unreadable'), not the single tabs dir"
     shot tabs-one
     key t >/dev/null
     settle

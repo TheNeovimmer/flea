@@ -122,7 +122,7 @@ function acknowledged(unsaved, patch) {
         return unsaved
     var out = {}
     for (var key in unsaved) {
-        var still = stillOwed(unsaved[key], landed[key])
+        var still = stillOwed(unsaved[key], landed[key], key)
         if (still !== undefined)
             out[key] = still
     }
@@ -132,10 +132,14 @@ function acknowledged(unsaved, patch) {
 // One key of the owed patch against the same key of the landed one: `undefined` when the writer took
 // all of it, and otherwise what is left. Two objects are a settings group and are walked leaf by
 // leaf, because changeLeaf owes the leaf alone and clearing the group would drop a leaf beside it
-// that no writer has taken yet.
-function stillOwed(owed, landed) {
+// that no writer has taken yet. A map (changeMapEntries) owes entry by entry, which is the same
+// walk. A whole-value object key below is the exception: it is compared and cleared whole, because
+// src/uischema.rs Rule::LastTabs stands or falls together and a half value is refused whole.
+function stillOwed(owed, landed, key) {
     if (landed === undefined)
         return owed
+    if (isWholeKey(key) && isGroup(owed) && isGroup(landed))
+        return JSON.stringify(owed) === JSON.stringify(landed) ? undefined : owed
     if (isGroup(owed) && isGroup(landed)) {
         var kept = {}
         var any = false
@@ -153,4 +157,10 @@ function stillOwed(owed, landed) {
 // A settings group, which is the only shape withGroup builds: an array is a whole key's value.
 function isGroup(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+// Whole-value object keys: owed and cleared whole, never leaf by leaf. Today only lastTabs, whose
+// src/uischema.rs Rule::LastTabs takes exactly paths plus index together.
+function isWholeKey(key) {
+    return key === "lastTabs"
 }

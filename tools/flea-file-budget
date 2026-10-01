@@ -87,7 +87,7 @@ ui/StatusBar.qml 456
 ui/Theme.qml 415
 ui/TrashView.qml 475
 ui/ViewState.qml 408
-ui/WindowBody.qml 570
+ui/WindowBody.qml 580
 ui/js/Filter.js 253
 ui/js/Focus.js 406
 ui/js/Keymap.js 335

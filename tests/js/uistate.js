@@ -146,6 +146,18 @@ function run(check) {
     check("a width owes its edge alone",
           JSON.stringify(UiState.withGroup({}, "columnWidths", { size: 120 })), '{"columnWidths":{"size":120}}')
 
+    // Tabs040 callout 2: lastTabs is a whole value (src/uischema.rs Rule::LastTabs stands or
+    // falls together), so a landed half must not leave the other half owed alone: a patch naming
+    // paths without index is one the backend refuses whole.
+    check("a half-landed lastTabs keeps the whole owed strip",
+          JSON.stringify(UiState.acknowledged({ lastTabs: { paths: ["/a", "/b"], index: 0 } },
+                                              '{"lastTabs":{"paths":["/a","/a"],"index":0}}')),
+          '{"lastTabs":{"paths":["/a","/b"],"index":0}}')
+    check("a fully landed lastTabs clears",
+          JSON.stringify(UiState.acknowledged({ lastTabs: { paths: ["/a", "/b"], index: 0 } },
+                                              '{"lastTabs":{"paths":["/a","/b"],"index":0}}')),
+          '{}')
+
     var drained = UiState.exited(queued, 0, THIRD)
     check("the queued patch starts when the writer exits", drained.start, THIRD)
     check("and the exited writer's own patch is what the file now holds", drained.saved, NEW)

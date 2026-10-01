@@ -73,6 +73,15 @@ function run(check) {
     check("a switch is remembered with its new current tab",
           JSON.stringify(Tabs.remembered(strip)),
           JSON.stringify({ paths: ["/a", "/b"], index: 1 }))
+    // The strip a switch writes once the pane has moved: the new tab's own path at the new
+    // index, never the previous tab's path (ui/WindowBody.qml defers the write past the move,
+    // because pane.tabs is reassigned before apply() moves the pane).
+    var nested = Fixture.pane("/tabs/alpha")
+    nested.tabs = Tabs.pack(Tabs.restoreItems(nested, ["/tabs", "/tabs/alpha"]), 1)
+    Tabs.selectAt(nested, 0)
+    check("a switch records the new tab's own path once the pane has moved",
+          JSON.stringify(Tabs.remembered(nested)),
+          JSON.stringify({ paths: ["/tabs", "/tabs/alpha"], index: 0 }))
     Tabs.act("tabNew", strip)
     check("an opened tab joins the remembered strip",
           JSON.stringify(Tabs.remembered(strip)),
