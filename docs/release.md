@@ -31,7 +31,10 @@ replaced by the next tag, so a change goes in by pull request here.
 2. Notes, optionally, in `docs/release-notes-X.Y.Z.md`. The workflow reads that file into the
    release body when it is the one creating the release; a release that already exists keeps
    whatever body it has.
-3. Tag and push. Only GM can create a `v*` tag (the ruleset below):
+3. Run `tools/flea-pkgrel-check` on the candidate commit before tagging: it fails when `pkgver`
+   changed since the previous `vX.Y.Z` tag and `pkgrel` is not 1 in either PKGBUILD, so a fresh
+   version always starts at 1 and only a rebuild of one version keeps a higher number.
+4. Tag and push. Only GM can create a `v*` tag (the ruleset below):
 
    ```
    git tag -a vX.Y.Z -m "Flea X.Y.Z"
