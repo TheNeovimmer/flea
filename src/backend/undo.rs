@@ -49,6 +49,10 @@ pub enum Step {
     // that drive undo's own ladder are what construct it.
     #[cfg_attr(not(test), allow(dead_code))]
     Created { path: PathBuf },
+    // Paste as made `path` a link to `source`: undo removes it only while it
+    // is still that same link, so a folder or file put at that name since
+    // survives, the way a changed copy or new file is left in place.
+    Linked { path: PathBuf, identity: ItemIdentity, source: PathBuf, kind: super::link::LinkKind },
     Copied { from: PathBuf, to: PathBuf, source: ItemIdentity, created: ItemIdentity, manifest: Option<super::copymanifest::Handle> },
     // This operation made the empty directory `path`; reversing it removes it only while it is still
     // empty, because anything inside it now was put there by someone else, never by this operation.
@@ -82,6 +86,7 @@ impl Entry {
                     if created == old { *created = new.clone(); }
                 }
                 Step::MadeFile { identity, .. } | Step::MadeDir { identity, .. } if identity == old => *identity = new.clone(),
+                Step::Linked { identity, .. } if identity == old => *identity = new.clone(),
                 _ => {}
             }
         }
@@ -199,6 +204,7 @@ fn reverse(step: &Step) -> Result<Option<(ItemIdentity, ItemIdentity)>, FleaErro
             return Ok(if current == *after { Some((current, ItemIdentity::inspect(from)?)) } else { None });
         }
         Step::Created { path } => remove(path)?,
+        Step::Linked { path, identity, kind, .. } => remove_link(path, identity, kind)?,
         Step::Copied { to, created, manifest, .. } => {
             if let Some(handle) = manifest {
                 // The manifest names only what the copy made, so the coarse whole-tree checks below are skipped.
@@ -291,6 +297,23 @@ fn remove(path: &PathBuf) -> Result<(), FleaError> {
     r.map_err(|e| from_io("undo", &path.to_string_lossy(), &e))
 }
 
+// A link undo removes only the link this operation made, with remove_file and
+// never remove_dir_all: a folder or file put at that name since is someone
+// else's, so undo refuses and leaves it, the way a changed copy is left.
+fn remove_link(path: &PathBuf, identity: &ItemIdentity, kind: &super::link::LinkKind) -> Result<(), FleaError> {
+    let meta = path.symlink_metadata().map_err(|e| from_io("undo", &path.to_string_lossy(), &e))?;
+    let current = ItemIdentity::record(&meta);
+    let still_link = match kind {
+        super::link::LinkKind::Hard => !meta.file_type().is_symlink() && meta.is_file(),
+        _ => meta.file_type().is_symlink(),
+    };
+    if !identity.same_item(&current) || !still_link {
+        return Err(FleaError { where_: "undo".into(), path: path.to_string_lossy().into(),
+            msg: "the link changed since this operation, so undo left it in place".into() });
+    }
+    std::fs::remove_file(path).map_err(|e| from_io("undo", &path.to_string_lossy(), &e))
+}
+
 // Only ever an empty directory this operation made. A folder the user has filled since is theirs now, so
 // undo refuses and leaves it, the way a rename undo refuses a name something else has taken meanwhile.
 fn remove_empty(path: &PathBuf) -> Result<(), FleaError> {
@@ -312,8 +335,10 @@ fn err(msg: &str) -> FleaError {
 }
 
 // A mode undo restores bits rather than removing a path: a symlink is refused,
-// because chmod would follow it, and any other failure names the path.
-fn restore_mode(path: &PathBuf, mode: u32) -> Result<(), FleaError> {
+// because chmod would follow it, and any other failure names the path. The
+// batch apply rolls back through here too, so a failure there can say what it
+// restored and what stayed applied.
+pub(crate) fn restore_mode(path: &PathBuf, mode: u32) -> Result<(), FleaError> {
     let meta = path.symlink_metadata().map_err(|e| from_io("undo", &path.to_string_lossy(), &e))?;
     if meta.file_type().is_symlink() {
         return Err(FleaError { where_: "undo".to_string(), path: path.to_string_lossy().to_string(),

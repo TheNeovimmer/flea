@@ -27,9 +27,10 @@ src/backend/meta.rs 436
 src/backend/metareq.rs 416
 src/backend/movebatch.rs 469
 src/backend/movebatch_tests.rs 751
-src/backend/opsdispatch.rs 719
+src/backend/opsdispatch.rs 810
 src/backend/opsreq.rs 513
 src/backend/opsreq/tests.rs 461
+src/backend/permissions.rs 477
 src/backend/proto.rs 287
 src/backend/run.rs 454
 src/backend/thumbs.rs 442

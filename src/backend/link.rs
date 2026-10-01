@@ -3,6 +3,15 @@
 use crate::error::{from_io, FleaError};
 use std::path::{Component, Path, PathBuf};
 
+// The three Paste as leaves; the journal records which one made a link so
+// redo recreates the same kind rather than guessing from the bytes.
+#[derive(Clone, Debug, PartialEq)]
+pub enum LinkKind {
+    Relative,
+    Absolute,
+    Hard,
+}
+
 // Sample input: dest "/home/gm/Pictures", source "/home/gm/a.png".
 pub fn dest_path(dest: &Path, source: &Path) -> Option<PathBuf> {
     source.file_name().map(|leaf| dest.join(leaf))

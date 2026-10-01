@@ -27,6 +27,7 @@ fn error(path: &Path, message: &str) -> FleaError {
 fn source(step: &Step) -> Option<&Path> {
     match step {
         Step::Moved { from, .. } | Step::Copied { from, .. } => Some(from),
+        Step::Linked { source, .. } => Some(source),
         Step::Trashed(entry) => Some(&entry.original),
         _ => None,
     }
@@ -35,6 +36,7 @@ fn source(step: &Step) -> Option<&Path> {
 fn destination(step: &Step) -> Option<&Path> {
     match step {
         Step::Moved { to, .. } | Step::Copied { to, .. } => Some(to),
+        Step::Linked { path, .. } => Some(path),
         Step::MadeDir { path, .. } | Step::MadeFile { path, .. } => Some(path),
         _ => None,
     }
@@ -115,6 +117,7 @@ impl Replay {
                         (Step::Copied { created: old, .. }, Step::Copied { created: new, .. }) => changes.push((old.clone(), new.clone())),
                         (Step::MadeFile { identity: old, .. }, Step::MadeFile { identity: new, .. }) => changes.push((old.clone(), new.clone())),
                         (Step::MadeDir { identity: old, .. }, Step::MadeDir { identity: new, .. }) => changes.push((old.clone(), new.clone())),
+                        (Step::Linked { identity: old, .. }, Step::Linked { identity: new, .. }) => changes.push((old.clone(), new.clone())),
                         (_, Step::Moved { after, .. }) => {
                             if let Some(old) = &saved.input { changes.push((old.clone(), after.clone())); }
                         }
@@ -180,6 +183,18 @@ fn apply(saved: &ReplayStep, id: usize, index: usize, cancel: &AtomicBool, tx: &
             Ok(())
         }
         Step::Created { path } => Err(error(path, "this operation has no recorded replay source")),
+        // A link replays through the same exclusive create, so a name taken
+        // since refuses honestly and a fresh identity is recorded.
+        Step::Linked { path, source, kind, .. } => {
+            match kind {
+                super::link::LinkKind::Absolute => super::link::create_absolute(source, path),
+                super::link::LinkKind::Hard => super::link::create_hard(source, path),
+                super::link::LinkKind::Relative => super::link::create_relative(source, path),
+            }.map_err(|e| error(path, &e.msg))?;
+            steps.push(Step::Linked { path: path.clone(), source: source.clone(),
+                kind: kind.clone(), identity: ItemIdentity::inspect(path)? });
+            Ok(())
+        }
         Step::Mode { path, after, .. } => {
             use std::os::unix::fs::PermissionsExt;
             let meta = path.symlink_metadata().map_err(|e| from_io("redo", &path.to_string_lossy(), &e))?;

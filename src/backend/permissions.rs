@@ -65,44 +65,125 @@ fn group_name(gid: u32) -> String {
     String::new()
 }
 
+// A batch failure carries what is still applied, so the caller journals it:
+// a batch that rolled back whole carries nothing and says so honestly.
+#[derive(Debug)]
+pub struct BatchError {
+    pub msg: String,
+    pub applied: Vec<crate::backend::undo::Step>,
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAIL_AT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    static FAIL_RESTORE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+// The k-th apply of the next batch fails, so a test drives a path that
+// vanishes between the check and the apply without removing anything itself.
+#[cfg(test)]
+pub fn test_fail_at(index: Option<usize>) {
+    FAIL_AT.with(|v| v.set(index));
+}
+
+// Every rollback of the next batch fails, so a test drives steps that stay
+// applied without racing the filesystem from another thread.
+#[cfg(test)]
+pub fn test_fail_restore(fail: bool) {
+    FAIL_RESTORE.with(|v| v.set(fail));
+}
+
+fn fail_at(index: usize) -> bool {
+    #[cfg(test)]
+    {
+        FAIL_AT.with(|v| v.get()) == Some(index)
+    }
+    #[cfg(not(test))]
+    {
+        let _ = index;
+        false
+    }
+}
+
+fn fail_restore() -> bool {
+    #[cfg(test)]
+    {
+        FAIL_RESTORE.with(|v| v.get())
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
 // Sample input: items [("/a.txt", "600"), ("/b dir/c.txt", "644")]. Every
 // path is an absolute file or folder, never a link; one Entry holds every
 // change so one undo restores them all. Octal, Owner, Group and the change
 // preview drop out for several items: the grid and Apply are the whole card.
 // A mixed box the operator never touched keeps each file's own bit, because
 // the client sends that file's own target mode rather than one mode for all.
-pub fn apply_many(items: &[(PathBuf, String)]) -> Result<Vec<crate::backend::undo::Step>, String> {
+// A change that fails short rolls back what this call already changed,
+// newest first, so "no change was applied" is true when it is said; what will
+// not go back stays journalled instead, with a count of what changed.
+pub fn apply_many(items: &[(PathBuf, String)]) -> Result<Vec<crate::backend::undo::Step>, BatchError> {
     if items.is_empty() {
-        return Err("Permissions needs at least one selected item.".into());
+        return Err(BatchError { msg: "Permissions needs at least one selected item.".into(), applied: Vec::new() });
     }
     let uid = unsafe { geteuid() };
     let mut checked: Vec<(PathBuf, u32)> = Vec::with_capacity(items.len());
     for (path, text) in items {
-        let requested = mode(text).map_err(|e| e)?;
+        let requested = mode(text).map_err(|e| BatchError { msg: e, applied: Vec::new() })?;
         if !path.is_absolute() {
-            return Err("Permissions requires an absolute path and request identity.".into());
+            return Err(BatchError { msg: "Permissions requires an absolute path and request identity.".into(), applied: Vec::new() });
         }
         let before = path.symlink_metadata()
-            .map_err(|e| format!("Could not inspect permissions: {}.", crate::error::io_message(&e)))?;
+            .map_err(|e| BatchError { msg: format!("Could not inspect permissions: {}.", crate::error::io_message(&e)), applied: Vec::new() })?;
         if !(before.is_file() || before.is_dir()) {
-            return Err("Permissions takes one file or folder, not a link.".into());
+            return Err(BatchError { msg: "Permissions takes one file or folder, not a link.".into(), applied: Vec::new() });
         }
         if before.mode() & SPECIAL_BITS != 0 {
-            return Err("Special permissions cannot be edited.".into());
+            return Err(BatchError { msg: "Special permissions cannot be edited.".into(), applied: Vec::new() });
         }
         if !reason(&before, uid).is_empty() {
-            return Err(reason(&before, uid));
+            return Err(BatchError { msg: reason(&before, uid), applied: Vec::new() });
         }
         checked.push((path.clone(), requested));
     }
     let mut steps = Vec::with_capacity(checked.len());
-    for (path, requested) in checked {
-        let before = path.symlink_metadata()
-            .map_err(|e| format!("Could not inspect permissions: {}.", crate::error::io_message(&e)))?;
-        let before_bits = before.mode() & 0o777;
-        apply_mode_path(&path, requested)
-            .map_err(|e| format!("Could not change mode: {}. No change was applied.", e))?;
-        steps.push(crate::backend::undo::Step::Mode { path, before: before_bits, after: requested });
+    for (index, (path, requested)) in checked.iter().enumerate() {
+        let outcome: Result<crate::backend::undo::Step, String> = (|| {
+            if fail_at(index) {
+                return Err(format!("Could not inspect permissions: {}.",
+                    crate::error::io_message(&std::io::Error::from(std::io::ErrorKind::NotFound))));
+            }
+            let before = path.symlink_metadata()
+                .map_err(|e| format!("Could not inspect permissions: {}.", crate::error::io_message(&e)))?;
+            let before_bits = before.mode() & 0o777;
+            apply_mode_path(path, *requested)
+                .map_err(|e| format!("Could not change mode: {}.", e))?;
+            Ok(crate::backend::undo::Step::Mode { path: path.clone(), before: before_bits, after: *requested })
+        })();
+        match outcome {
+            Ok(step) => steps.push(step),
+            Err(failure) => {
+                let mut stuck = Vec::new();
+                for step in steps.iter().rev() {
+                    if let crate::backend::undo::Step::Mode { path, before, .. } = step {
+                        if fail_restore() || crate::backend::undo::restore_mode(path, *before).is_err() {
+                            stuck.push(step.clone());
+                        }
+                    }
+                }
+                stuck.reverse();
+                if stuck.is_empty() {
+                    return Err(BatchError { msg: format!("{} No change was applied.", failure), applied: Vec::new() });
+                }
+                return Err(BatchError {
+                    msg: format!("{} {} of {} items were changed; undo restores them.", failure, stuck.len(), items.len()),
+                    applied: stuck,
+                });
+            }
+        }
     }
     Ok(steps)
 }
@@ -353,5 +434,44 @@ mod tests {
         for p in [&a, &b, &c] {
             assert_eq!(p.metadata().unwrap().mode() & 0o777, 0o644);
         }
+    }
+    #[test]
+    fn a_mid_batch_failure_rolls_back_and_says_nothing_changed() {
+        let d = TestDir::new("permissions-rollback");
+        let a = d.file("a.txt", "a");
+        let b = d.file("b.txt", "b");
+        for p in [&a, &b] {
+            std::fs::set_permissions(p, Mode::from_mode(0o644)).unwrap();
+        }
+        test_fail_at(Some(1));
+        let result = apply_many(&[(a.clone(), "600".to_string()), (b.clone(), "600".to_string())]);
+        test_fail_at(None);
+        let err = result.unwrap_err();
+        assert!(err.msg.contains("No change was applied"), "unexpected message: {}", err.msg);
+        assert!(err.applied.is_empty(), "a batch that rolled back whole journals nothing");
+        assert_eq!(a.metadata().unwrap().mode() & 0o777, 0o644, "the first change was rolled back");
+        assert_eq!(b.metadata().unwrap().mode() & 0o777, 0o644, "the failed item was never changed");
+    }
+    #[test]
+    fn a_failed_rollback_journals_what_stayed_applied() {
+        let d = TestDir::new("permissions-stuck");
+        let a = d.file("a.txt", "a");
+        let b = d.file("b.txt", "b");
+        for p in [&a, &b] {
+            std::fs::set_permissions(p, Mode::from_mode(0o644)).unwrap();
+        }
+        test_fail_at(Some(1));
+        test_fail_restore(true);
+        let result = apply_many(&[(a.clone(), "600".to_string()), (b.clone(), "600".to_string())]);
+        test_fail_at(None);
+        test_fail_restore(false);
+        let err = result.unwrap_err();
+        assert!(err.msg.contains("1 of 2 items were changed"), "unexpected message: {}", err.msg);
+        assert_eq!(err.applied.len(), 1, "the step that would not go back stays journalled");
+        assert_eq!(a.metadata().unwrap().mode() & 0o777, 0o600, "the stuck change is still applied");
+        let mut journal = crate::backend::undo::Journal::new();
+        journal.push(crate::backend::undo::Entry { op: "permissions".to_string(), steps: err.applied });
+        assert_eq!(journal.undo().expect("one undo restores what stayed applied"), "permissions");
+        assert_eq!(a.metadata().unwrap().mode() & 0o777, 0o644);
     }
 }

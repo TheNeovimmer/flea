@@ -226,7 +226,7 @@ pub(crate) fn do_undo(out: &mut impl Write, ops: &mut Ops) {
 // Paste as links: one symlink or hard link per source inside dest. Links are
 // single syscalls, so this answers on the calling thread like rename and
 // mkdir rather than taking the one-operation slot. Every created link is one
-// Created step in a single Entry, so one undo removes them all, and a name
+// Linked step in a single Entry, so one undo removes them all, and a name
 // that exists goes through the collision card's own policy first.
 pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<String>, dest: &str, collide: super::collide::Ask) {
     let dest_path = match usable_dest(dest) {
@@ -269,32 +269,43 @@ pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<
                         }
                     }
                 }
-                let made = match op {
-                    "absolute" => super::link::create_absolute(src, &to),
-                    "hard" => super::link::create_hard(src, &to),
-                    _ => super::link::create_relative(src, &to),
+                let kind = match op {
+                    "absolute" => super::link::LinkKind::Absolute,
+                    "hard" => super::link::LinkKind::Hard,
+                    _ => super::link::LinkKind::Relative,
+                };
+                let made = match kind {
+                    super::link::LinkKind::Absolute => super::link::create_absolute(src, &to),
+                    super::link::LinkKind::Hard => super::link::create_hard(src, &to),
+                    super::link::LinkKind::Relative => super::link::create_relative(src, &to),
                 };
                 match made {
                     Ok(()) => {
                         for entry in replaced {
                             steps.push(Step::Trashed(entry));
                         }
-                        steps.push(Step::Created { path: to });
-                        ok += 1;
+                        match ItemIdentity::inspect(&to) {
+                            Ok(identity) => {
+                                steps.push(Step::Linked { path: to, identity,
+                                    source: src.to_path_buf(), kind });
+                                ok += 1;
+                            }
+                            Err(e) => {
+                                failed += 1;
+                                if first_err.is_empty() { first_err = e.msg.clone(); }
+                            }
+                        }
                     }
                     Err(e) => {
                         // The trash went through but the link did not: put the old
                         // item straight back when nothing took its name.
-                        let mut restored = false;
                         for entry in replaced {
-                            if to.symlink_metadata().is_err() {
-                                if super::trash::restore(&entry).is_ok() { restored = true; }
-                                else { steps.push(Step::Trashed(entry)); }
-                            } else {
-                                steps.push(Step::Trashed(entry));
+                            if to.symlink_metadata().is_err()
+                                && super::trash::restore(&entry).is_ok() {
+                                continue;
                             }
+                            steps.push(Step::Trashed(entry));
                         }
-                        let _ = restored;
                         failed += 1;
                         if first_err.is_empty() { first_err = e.msg.clone(); }
                     }
@@ -354,8 +365,13 @@ pub(crate) fn do_permissions_batch(out: &mut impl Write, ops: &mut Ops, paths: V
             ops.journal.push(Entry { op: "permissions".to_string(), steps });
             writeln!(out, "{}", super::proto::permissions_batch_line(id, true, &shown, "")).ok();
         }
-        Err(message) => {
-            writeln!(out, "{}", super::proto::permissions_batch_line(id, false, &shown, &message)).ok();
+        Err(failed) => {
+            // What a failed rollback left applied stays journalled, so one
+            // undo restores it; a batch that rolled back whole journals nothing.
+            if !failed.applied.is_empty() {
+                ops.journal.push(Entry { op: "permissions".to_string(), steps: failed.applied });
+            }
+            writeln!(out, "{}", super::proto::permissions_batch_line(id, false, &shown, &failed.msg)).ok();
         }
     }
     out.flush().ok();
@@ -453,7 +469,7 @@ pub(crate) fn report_op(out: &mut impl Write, ops: &mut Ops, msg: OpMsg) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::Ordering;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use crate::backend::testdir::TestDir;
     use crate::backend::undo::Step;
     use std::sync::mpsc::channel;
@@ -702,8 +718,7 @@ mod tests {
     }
 
     #[test]
-    fn an_existing_name_is_refused_and_a_link_to_a_directory_writes_no_marker() {
-        let d = TestDir::new("dispatchlinkrefuse");
+    fn an_existing_name_is_refused_and_a_link_to_a_directory_writes_no_marker() {        let d = TestDir::new("dispatchlinkrefuse");
         let mut o = ops();
         let a = d.file("a.txt", "a");
         let dest = d.dir("dest");
@@ -714,6 +729,82 @@ mod tests {
             vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
         assert!(text(&buf).contains(r#""t":"error","where":"link""#));
         assert!(o.journal.is_empty(), "a link that was not made must not be undoable");
+        assert_eq!(std::fs::read_to_string(dest.join("a.txt")).unwrap(), "someone else");
+    }
+
+    #[test]
+    fn a_folder_put_at_a_link_name_survives_undo() {
+        let d = TestDir::new("dispatchlinkkept");
+        let mut o = ops();
+        let a = d.file("a.txt", "a");
+        let dest = d.dir("dest");
+        let mut buf = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+        do_link(&mut buf, &mut o, "relative",
+            vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        assert!(text(&buf).contains(r#""t":"linked""#));
+        let at = dest.join("a.txt");
+        std::fs::remove_file(&at).unwrap();
+        let folder = d.dir("dest/a.txt");
+        std::fs::write(folder.join("kept.txt"), "kept").unwrap();
+        let mut buf = out();
+        do_undo(&mut buf, &mut o);
+        assert!(text(&buf).contains(r#""t":"error","where":"undo""#), "undo refuses a name that stopped being its link");
+        assert_eq!(std::fs::read_to_string(folder.join("kept.txt")).unwrap(), "kept");
+    }
+
+    #[test]
+    fn undone_links_redo_in_each_kind() {
+        for op in ["relative", "absolute", "hard"] {
+            let d = TestDir::new("dispatchlinkredo");
+            let mut o = ops();
+            let a = d.file("a.txt", "a");
+            let dest = d.dir("dest");
+            let mut buf = out();
+            let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+            do_link(&mut buf, &mut o, op,
+                vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+            assert!(text(&buf).contains(r#""t":"linked""#), "link lands for {op}");
+            let at = dest.join("a.txt");
+            let mut buf = out();
+            do_undo(&mut buf, &mut o);
+            assert!(text(&buf).contains(r#""t":"undone""#), "undo removes the {op} link");
+            assert!(std::fs::symlink_metadata(&at).is_err());
+            let (tx, _rx) = channel();
+            let redone = o.journal.redo(1, &AtomicBool::new(false), &tx);
+            assert_eq!(redone.unwrap(), "link", "redo recreates the {op} link");
+            if op == "hard" {
+                use std::os::unix::fs::MetadataExt;
+                assert!(!at.symlink_metadata().unwrap().file_type().is_symlink());
+                assert_eq!(a.metadata().unwrap().ino(), at.metadata().unwrap().ino());
+            } else {
+                assert!(at.symlink_metadata().unwrap().file_type().is_symlink());
+                assert_eq!(std::fs::read_to_string(&at).unwrap(), "a");
+            }
+            assert!(o.journal.redo_info().is_err(), "a redone entry is undoable, not redoable again");
+            let mut buf = out();
+            do_undo(&mut buf, &mut o);
+            assert!(text(&buf).contains(r#""t":"undone""#));
+            assert!(std::fs::symlink_metadata(&at).is_err());
+        }
+    }
+
+    #[test]
+    fn redo_refuses_a_link_name_taken_since() {
+        let d = TestDir::new("dispatchlinkredotaken");
+        let mut o = ops();
+        let a = d.file("a.txt", "a");
+        let dest = d.dir("dest");
+        let mut buf = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+        do_link(&mut buf, &mut o, "relative",
+            vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        let mut buf = out();
+        do_undo(&mut buf, &mut o);
+        std::fs::write(dest.join("a.txt"), "someone else").unwrap();
+        let (tx, _rx) = channel();
+        let redone = o.journal.redo(1, &AtomicBool::new(false), &tx);
+        assert!(redone.unwrap_err().msg.contains("already exists"));
         assert_eq!(std::fs::read_to_string(dest.join("a.txt")).unwrap(), "someone else");
     }
 }
