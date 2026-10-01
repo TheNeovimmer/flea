@@ -234,4 +234,48 @@ function run(check) {
     check("a refused writer leaves its own setting in the patch behind it",
           refusedUnder.start, '{"keys":"windows","display":{"textSize":{"mode":16}}}')
     check("and the refusal is still reported", refusedUnder.failed, true)
+
+    // xw4: one window's Settings change applies in every other open window. Per-window state is
+    // the view a window shows, its widths, its dual pair, where it was, and the sweep and stamp
+    // keys; everything else is a preference some panel or toggle writes.
+    for (var w = 0; w < ["view", "pickerView", "columnWidths", "dual", "lastPath", "lastTabs"].length; w++)
+        check("a window key is never taken from the file",
+              UiState.isWindowKey(["view", "pickerView", "columnWidths", "dual", "lastPath", "lastTabs"][w]), true)
+    check("a setting key is", UiState.isWindowKey("hidden"), false)
+    check("and so is a group key", UiState.isWindowKey("display"), false)
+    var other = { hidden: false, density: "compact", view: "list", lastPath: "/a",
+                  display: { textSize: { mode: "system" } }, sort: { key: "name", reverse: false },
+                  places: { showUnmounted: true, favourites: [{ label: "Old", path: "/old" }] } }
+    var changedFile = '{"hidden":true,"density":"normal","view":"grid","lastPath":"/b",' +
+        '"display":{"textSize":{"mode":16}},"sort":{"key":"size","reverse":false},' +
+        '"places":{"showUnmounted":false,"favourites":[]},"stateVersion":3}'
+    var applied = UiState.applyExternal(other, {}, changedFile)
+    check("a changed preference applies", applied.state.hidden, true)
+    check("with its group beside it", applied.state.display.textSize.mode, 16)
+    check("and its whole-value beside that", applied.state.sort.key, "size")
+    check("a Places leaf applies too", applied.state.places.showUnmounted, false)
+    check("while the view stays the window's own", applied.state.view, "list")
+    check("and where it was stays too", applied.state.lastPath, "/a")
+    check("favourites are never taken here", JSON.stringify(applied.state.places.favourites), '[{"label":"Old","path":"/old"}]')
+    var sameFile = JSON.stringify(other)
+    check("an own write is never re-applied",
+          UiState.applyExternal(applied.state, { hidden: true }, changedFile).changed, false)
+    check("and a file holding nothing new moves nothing",
+          UiState.applyExternal(other, {}, sameFile).changed, false)
+    check("a half-written file is ignored", UiState.applyExternal(other, {}, "{").changed, false)
+    check("a non-object file is too", UiState.applyExternal(other, {}, "[1,2]").changed, false)
+    check("an empty read is too", UiState.applyExternal(other, {}, "").changed, false)
+    var racing = { hidden: false, display: { textSize: { mode: 16 }, hyprlandIcons: false } }
+    var raced = UiState.applyExternal(racing, { display: { textSize: { mode: 16 } } },
+        '{"hidden":true,"display":{"textSize":{"mode":16},"hyprlandIcons":true}}')
+    check("an owed leaf keeps the window's own value", raced.state.display.textSize.mode, 16)
+    check("while a leaf beside it still applies", raced.state.display.hyprlandIcons, true)
+    check("and a whole key beside that does too", raced.state.hidden, true)
+    var maps = { folderSorts: { "/a": { key: "size", reverse: true } } }
+    var mapped = UiState.applyExternal(maps, { folderSorts: { "/a": { key: "size", reverse: true } } },
+        '{"folderSorts":{"/a":{"key":"size","reverse":true},"/b":{"key":"name","reverse":false}}}')
+    check("an owed map entry keeps the window's own", mapped.state.folderSorts["/a"].key, "size")
+    check("while another window's entry applies", mapped.state.folderSorts["/b"].key, "name")
+    check("a key a newer Flea wrote is kept verbatim",
+          UiState.applyExternal({}, {}, '{"aKeyThisBuildHasNeverHeardOf":true}').state.aKeyThisBuildHasNeverHeardOf, true)
 }

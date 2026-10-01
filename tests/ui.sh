@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Drives the real Quickshell window with omarchy-drive and asserts through the read-only IPC seam.
-# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|rename|renamelife|taildrop|grid|columns|columnsbackground|reclick|colroot|operations|tabs|tabdrag|openterminal|makeexec|renderer|settings|makedefault|scrolllane|noblank|previewswap ...|previewswap|recent ...|middleclick|opentab]; networklive is opt-in.
+# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|xwsettings|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|rename|renamelife|taildrop|grid|columns|columnsbackground|reclick|colroot|operations|tabs|tabdrag|openterminal|makeexec|renderer|settings|makedefault|scrolllane|noblank|previewswap ...|previewswap|recent ...|middleclick|opentab]; networklive is opt-in.
 set -u
 set -o pipefail
 # Hard rule 9's guard, which owns FIXTURE_ROOT and every create and delete this suite makes.
@@ -318,6 +318,11 @@ sandbox_make "$hash_fixture"
 sandbox_make "$stale_fixture"
 
 cleanup() {
+    # xwsettings runs a second window whose qs cmdline carries a copied ui tree, so the
+    # one-window teardown below cannot see it: it is tracked by pid and reaped here instead.
+    if [[ -n "${xwsettings_bpid:-}" ]] && kill -0 "$xwsettings_bpid" 2>/dev/null; then
+        if flea_process_owned "$xwsettings_bpid"; then kill "$xwsettings_bpid" 2>/dev/null || true; fi
+    fi
     # fail is an exit that || true cannot catch, so the reap runs in a subshell and its status is re-raised below.
     if ! ( kill_flea ); then
         printf 'FAIL drain at exit; active fixture roots kept: %s\n' "$fixture_root" >&2
@@ -3168,6 +3173,164 @@ case_hidden() {
     [[ "$(ipc rowAt 0)" == "visible.txt|"* ]] || fail "hidden: toggling back off left the dotfile visible, row 0 is $(ipc rowAt 0)"
 
     printf 'HIDDEN default=ok toggle-on=ok menu-label=ok toggle-off=ok\n'
+    kill_flea
+}
+
+# xw4: one window's Settings change applies live in every other open window, the way Finder's
+# Show hidden files reaches every Finder window at once, while per-window state stays put. Two
+# owned windows share one state file but run different ui trees, because qs ipc routes on the
+# config path and one shared tree cannot address them separately: A keeps the shipped tree and B
+# runs a byte copy of it, and the case proves the routing first by moving only A's cursor. The
+# toggle is pressed in A, the density choice is stepped in B's own Settings panel, and A is read
+# throughout through its own path. B's pid is tracked beside kill_flea because its qs cmdline
+# carries the copied tree and the suite's one-window teardown cannot see it; cleanup() reaps it.
+case_xwsettings() {
+    local root="$fixture_root/xwsettings" dir config state uib
+    dir="$root/files"; config="$root/config"; state="$root/state"; uib="$root/ui-b"
+    sandbox_scratch "$root"
+    [[ -f "$fixture_root/.flea-test-sandbox" ]] \
+        || fail "xwsettings: the sandbox root carries no marker, so nothing here is deletable"
+    mkdir -p "$dir/sub" "$config" "$state" || fail "xwsettings: the sandbox could not be made"
+    : > "$dir/a.txt"; : > "$dir/b.txt"; : > "$dir/.dot"; : > "$dir/sub/c.txt"
+    local real_config="${XDG_CONFIG_HOME-}" real_state="${XDG_STATE_HOME-}"
+    export XDG_CONFIG_HOME="$config"
+    export XDG_STATE_HOME="$state"
+    cp -r "$flea_ui" "$uib" || fail "xwsettings: the second ui tree could not be copied"
+    env XDG_STATE_HOME="$state" "$flea_bin" --ui-state \
+        '{"hidden":false,"density":"compact","view":"list"}' >/dev/null \
+        || fail "xwsettings: the seeding write failed"
+    printf 'XWSETTINGS setup=ok\n'
+
+    # Window A on the shipped tree.
+    kill_flea
+    cat "$flea_log" >> "$run_log" 2>/dev/null || true
+    : > "$flea_log"
+    FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" \
+        setsid nohup "$flea_bin" --gui "$dir" >"$flea_log" 2>&1 </dev/null &
+    omarchy-drive wait window flea --timeout 15 >/dev/null
+    local addrA addrB bpid
+    addrA=$(omarchy-drive windows --json | jq -r '[.windows[] | select(.title == "Flea")] | .[0].address // empty')
+    [[ -n "$addrA" ]] || fail "xwsettings: no Flea window after launching A"
+    omarchy-drive focus "$addrA" >/dev/null
+    assert_window
+    local ipcA=(omarchy-drive ipc -p "$flea_ui/boot" flea)
+    local ipcB=(omarchy-drive ipc -p "$uib/boot" flea)
+    wait_listing 2
+    [[ "$("${ipcA[@]}" path)" == "$dir" ]] || fail "xwsettings: A opened $("${ipcA[@]}" path), not $dir"
+
+    # Window B on the copied tree, over the same state file.
+    FLEA_UI="$uib" FLEA_BIN="$flea_bin" \
+        setsid nohup "$flea_bin" --gui "$dir" >>"$flea_log" 2>&1 </dev/null &
+    bpid=$!
+    xwsettings_bpid=$bpid
+    local attempt count
+    for (( attempt = 0; attempt < 150; attempt++ )); do
+        count=$(omarchy-drive windows --json | jq '[.windows[] | select(.title == "Flea")] | length')
+        [[ "$count" == 2 ]] && break
+        sleep 0.1
+    done
+    [[ "$count" == 2 ]] || fail "xwsettings: the second window never arrived, got $count"
+    addrB=$(omarchy-drive windows --json \
+        | jq -r --arg a "$addrA" '[.windows[] | select(.title == "Flea" and .address != $a)] | .[0].address // empty')
+    [[ -n "$addrB" ]] || fail "xwsettings: the second window has no address of its own"
+    omarchy-drive focus "$addrB" >/dev/null
+    for (( attempt = 0; attempt < 150; attempt++ )); do
+        [[ "$("${ipcB[@]}" path 2>/dev/null)" == "$dir" ]] && break
+        sleep 0.1
+    done
+    [[ "$("${ipcB[@]}" path)" == "$dir" ]] || fail "xwsettings: B never listed $dir"
+
+    # The routing proof: a cursor step addressed to A moves A alone, so every addressed read and
+    # key below is known to reach the window it names rather than whichever answered first.
+    omarchy-drive key --window "$addrA" j >/dev/null
+    settle
+    [[ "$("${ipcA[@]}" cursor)" == "1" ]] || fail "xwsettings: A's cursor did not step, it is $("${ipcA[@]}" cursor)"
+    [[ "$("${ipcB[@]}" cursor)" == "0" ]] || fail "xwsettings: the step addressed to A moved B to $("${ipcB[@]}" cursor)"
+    omarchy-drive key --window "$addrA" k >/dev/null
+    settle
+    printf 'XWSETTINGS route=ok\n'
+
+    # Hidden files, toggled in A and applied in B: the '.' and Ctrl+> keys and the menu row all
+    # write the one global hidden preference, so one keypress stands in for all three entrances.
+    omarchy-drive focus "$addrA" >/dev/null
+    local hid_start hid_ms hid_total=0
+    hid_start=$(date +%s%3N)
+    omarchy-drive key --window "$addrA" . >/dev/null
+    for (( attempt = 0; attempt < 20; attempt++ )); do
+        hid_total=$("${ipcB[@]}" total 2>/dev/null || printf 0)
+        [[ "$hid_total" == 3 ]] && break
+        sleep 0.05
+    done
+    hid_ms=$(( $(date +%s%3N) - hid_start ))
+    [[ "$hid_total" == 3 ]] || fail "xwsettings: B never showed the dotfiles, total is $hid_total"
+    (( hid_ms <= 1000 )) || fail "xwsettings: B took ${hid_ms}ms to show the dotfiles, over the 1s bound"
+    [[ "$("${ipcB[@]}" showHidden)" == "true" ]] || fail "xwsettings: B lists three rows but reports showHidden $("${ipcB[@]}" showHidden)"
+    [[ "$("${ipcA[@]}" showHidden)" == "true" ]] || fail "xwsettings: A's own toggle did not take"
+    printf 'XWSETTINGS hidden=ok elapsed_ms=%s\n' "$hid_ms"
+
+    # Density, stepped in B's own Settings panel and applied in A: compact is the default, so one
+    # step right lands on Normal, the same move settings_view drives on one window.
+    omarchy-drive focus "$addrB" >/dev/null
+    local beforeA afterA sections down target cursor count step
+    beforeA=$("${ipcA[@]}" fileRowHeight)
+    omarchy-drive key --window "$addrB" , >/dev/null
+    settle
+    sections=$("${ipcB[@]}" settingsSections)
+    down=$(printf '%s' "$sections" | jq -r 'map(.id) | index("view") // empty')
+    count=$(printf '%s' "$sections" | jq 'length')
+    [[ "$down" =~ ^[0-9]+$ ]] || fail "xwsettings: B's rail has no view section, it carries $sections"
+    [[ "$("${ipcB[@]}" settingsSide)" == "rail" ]] \
+        || { omarchy-drive key --window "$addrB" -k Tab >/dev/null; settle; }
+    for (( step = 1; step < count; step++ )); do omarchy-drive key --window "$addrB" -k k >/dev/null; done
+    settle
+    [[ "$("${ipcB[@]}" settingsSection)" == "view" ]] || fail "xwsettings: B's rail did not reach View"
+    for (( step = 0; step < down; step++ )); do omarchy-drive key --window "$addrB" -k j >/dev/null; settle; done
+    target=$("${ipcB[@]}" settingsModel | jq -r 'map(.id) | index("density") // empty')
+    count=$("${ipcB[@]}" settingsModel | jq 'length')
+    [[ "$target" =~ ^[0-9]+$ ]] || fail "xwsettings: B's View has no density control"
+    [[ "$("${ipcB[@]}" settingsSide)" == "pane" ]] \
+        || { omarchy-drive key --window "$addrB" -k Tab >/dev/null; settle; }
+    for (( attempt = 0; attempt <= count; attempt++ )); do
+        cursor=$("${ipcB[@]}" settingsCursor)
+        [[ "$cursor" == "$target" ]] && break
+        if (( cursor < target )); then omarchy-drive key --window "$addrB" j >/dev/null
+        else omarchy-drive key --window "$addrB" -k k >/dev/null; fi
+        settle
+    done
+    [[ "$cursor" == "$target" ]] || fail "xwsettings: B's cursor never reached density, it is $cursor"
+    omarchy-drive key --window "$addrB" l >/dev/null
+    for (( attempt = 0; attempt < 30; attempt++ )); do
+        if "${ipcB[@]}" uiSettings 2>/dev/null | jq -e '.density == "normal"' >/dev/null \
+            && jq -e '.density == "normal"' "$state/flea/ui.json" >/dev/null; then break; fi
+        sleep 0.1
+    done
+    "${ipcB[@]}" uiSettings | jq -e '.density == "normal"' >/dev/null \
+        || fail "xwsettings: B's density step never landed"
+    afterA=$("${ipcA[@]}" fileRowHeight)
+    [[ "$afterA" != "$beforeA" ]] || fail "xwsettings: A's rows never changed height, still $afterA"
+    [[ "$afterA" == "$("${ipcB[@]}" fileRowHeight)" ]] \
+        || fail "xwsettings: A draws $afterA while B draws $("${ipcB[@]}" fileRowHeight)"
+    omarchy-drive key --window "$addrB" -k Escape >/dev/null
+    settle
+    printf 'XWSETTINGS density=ok\n'
+
+    # Per-window state stays put: B navigates into sub while A keeps its folder and its view.
+    omarchy-drive focus "$addrB" >/dev/null
+    omarchy-drive key --window "$addrB" -k Return >/dev/null
+    for (( attempt = 0; attempt < 100; attempt++ )); do
+        [[ "$("${ipcB[@]}" path 2>/dev/null)" == "$dir/sub" ]] && break
+        sleep 0.1
+    done
+    [[ "$("${ipcB[@]}" path)" == "$dir/sub" ]] || fail "xwsettings: B never opened sub, it is at $("${ipcB[@]}" path)"
+    [[ "$("${ipcA[@]}" path)" == "$dir" ]] || fail "xwsettings: A left $dir for $("${ipcA[@]}" path)"
+    [[ "$("${ipcA[@]}" viewMode)" == "list" ]] || fail "xwsettings: A's view moved to $("${ipcA[@]}" viewMode)"
+    [[ "$("${ipcA[@]}" total)" == "3" ]] || fail "xwsettings: A lost the applied toggle, total is $("${ipcA[@]}" total)"
+    printf 'XWSETTINGS pinned=ok\n'
+
+    kill "$bpid" 2>/dev/null || true
+    xwsettings_bpid=""
+    if [[ -n "$real_config" ]]; then export XDG_CONFIG_HOME="$real_config"; else unset XDG_CONFIG_HOME; fi
+    if [[ -n "$real_state" ]]; then export XDG_STATE_HOME="$real_state"; else unset XDG_STATE_HOME; fi
     kill_flea
 }
 
@@ -11509,7 +11672,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 . "$repo/tests/ui-captures-markdown.sh"
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick opentab)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden xwsettings selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick opentab)
 
 : > "$run_log"
 : > "$flea_log"

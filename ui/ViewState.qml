@@ -345,6 +345,16 @@ QtObject {
         if (read.state !== root.state) root.state = read.state
         return read.error.length === 0
     }
+
+    // A change another window saved: changed preferences apply live through the same state
+    // assignment the Settings panel's own owe() makes, so bindings, listings and menus update the
+    // way a local change does. Per-window state is left alone, an own write is never re-applied,
+    // and applying writes nothing back. An invalid file is ignored until the next valid write.
+    function applyShared(text) {
+        var applied = UiState.applyExternal(root.state, root.unsaved, text)
+        if (applied.changed)
+            root.state = applied.state
+    }
     function refreshFavourites() {
         stateFile.reload()
         // blockLoading covers only the first read; a reload otherwise returns the previous document.
@@ -365,7 +375,11 @@ QtObject {
         onFileChanged: reload()
         onLoaded: {
             root.favouritesReadError = ""
-            if (root.initialReadComplete) root.syncFavourites(text())
+            if (root.initialReadComplete) {
+                var body = text()
+                root.applyShared(body)
+                root.syncFavourites(body)
+            }
         }
         printErrors: false
         // A file that is not there is a first launch and says nothing; anything else is a file this

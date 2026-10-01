@@ -43,6 +43,93 @@ function favouritesAfter(records, operation) {
     return next
 }
 
+// Keys one window never takes from the state file, because they name where that window is
+// rather than how Flea behaves: the view it shows, the widths it drew, the dual pair and focus,
+// where it was, and stamps the sweep and the migrations own. Everything else is a preference the
+// Settings panel or a global toggle writes, and applies live in every open window.
+var WINDOW_KEYS = ["view", "pickerView", "columnWidths", "dual", "lastPath", "lastTabs",
+                   "trashSweptOn", "stateVersion"]
+
+function isWindowKey(key) {
+    return WINDOW_KEYS.indexOf(key) >= 0
+}
+
+// A change another window saved, read off the file's own bytes. Preference keys the file names and
+// this window does not owe take the file's value, through the same state assignment the Settings
+// panel's own owe() makes, so bindings, listings and menus update the way a local change does.
+// Per-window keys are left alone, and so is anything this window changed and no writer has landed
+// for yet (leaf by leaf inside a group, entry by entry inside a map), so applying never clobbers
+// an in-flight write and never writes in response: the answer is a document, not a patch.
+// A file that does not parse as an object is ignored until the next valid write, the way fromFile
+// already treats a half-written one. Favourites keep their own validated syncFavourites path, so
+// they are never taken here. Returns the state to draw, and whether it moved at all.
+function applyExternal(state, unsaved, text) {
+    var read = fromFile(text)
+    if (read.unreadable)
+        return { state: state, changed: false }
+    var file = read.state
+    var out = {}
+    for (var s in state)
+        out[s] = state[s]
+    var changed = false
+    for (var key in file) {
+        if (isWindowKey(key))
+            continue
+        var value = file[key]
+        if (key === "places" && isGroup(value)) {
+            var merged = {}
+            for (var f in value) {
+                if (f !== "favourites")
+                    merged[f] = value[f]
+            }
+            var held = state.places || {}
+            if (held.favourites !== undefined)
+                merged.favourites = held.favourites
+            var owedPlaces = unsaved ? unsaved.places : undefined
+            if (isGroup(owedPlaces)) {
+                for (var leaf in owedPlaces) {
+                    if (leaf === "favourites")
+                        continue
+                    if (held[leaf] !== undefined)
+                        merged[leaf] = held[leaf]
+                    else
+                        delete merged[leaf]
+                }
+            }
+            if (JSON.stringify(merged) !== JSON.stringify(state.places)) {
+                out.places = merged
+                changed = true
+            }
+            continue
+        }
+        var owed = unsaved ? unsaved[key] : undefined
+        if (owed !== undefined) {
+            if (isGroup(owed) && isGroup(value) && !isWholeKey(key)) {
+                var group = {}
+                for (var g in value)
+                    group[g] = value[g]
+                var current = state[key] || {}
+                for (var o in owed) {
+                    if (current[o] !== undefined)
+                        group[o] = current[o]
+                    else
+                        delete group[o]
+                }
+                if (JSON.stringify(group) !== JSON.stringify(state[key])) {
+                    out[key] = group
+                    changed = true
+                }
+            }
+            continue
+        }
+        if (JSON.stringify(value) !== JSON.stringify(state[key])) {
+            out[key] = value
+            changed = true
+        }
+    }
+    return { state: changed ? out : state, changed: changed }
+}
+
 // A copy of the document with one top-level key replaced, and the nested version of the same. QML
 // notifies on assignment and not on a mutation, so every writer rebuilds rather than reaching in;
 // the nested one merges into the group beside it, because a whole-group assignment would take the
