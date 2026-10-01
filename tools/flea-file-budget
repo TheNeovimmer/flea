@@ -57,12 +57,12 @@ tests/columnsfolder.qml 396
 tests/js/status.js 354
 ui/Backend.qml 431
 ui/ChromeBar.qml 478
-ui/ColumnsArea.qml 465
+ui/ColumnsArea.qml 468
 ui/ContextMenu.qml 584
 ui/ConvertDialog.qml 440
-ui/GridArea.qml 405
+ui/GridArea.qml 407
 ui/Ipc.qml 823
-ui/List.qml 418
+ui/List.qml 420
 ui/NetworkDialog.qml 449
 ui/NetworkMounts.qml 838
 ui/OpenWithDialog.qml 592
@@ -76,7 +76,7 @@ ui/Preview.qml 463
 ui/Row.qml 478
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
-ui/Sidebar.qml 672
+ui/Sidebar.qml 675
 ui/StatusBar.qml 456
 ui/Theme.qml 415
 ui/TrashView.qml 475

@@ -477,6 +477,7 @@ Item {
                     focused: root.focused
                     onActivated: function (idx) { root.activate(idx) }
                     onMenuRequested: function(idx, pos) { root.openRailMenu(idx, pos) }
+                    onTabRequested: function (idx) { PlaceMenu.openTabAt(root, idx) }
                 }
             }
             Repeater {
@@ -497,6 +498,7 @@ Item {
                     focused: root.focused
                     onActivated: function (idx) { root.activate(idx + root.homeLead.length + root.recentEntries.length) }
                     onMenuRequested: function(idx, pos) { root.openRailMenu(idx + root.homeLead.length + root.recentEntries.length, pos) }
+                    onTabRequested: function (idx) { PlaceMenu.openTabAt(root, idx + root.homeLead.length + root.recentEntries.length) }
                 }
             }
             Repeater {
@@ -538,6 +540,7 @@ Item {
                     onReorderAt: function (line) { root.reorderLine = line }
                     onActivated: function (idx) { root.activate(idx + root.homeLead.length + root.recentEntries.length + root.homeRest.length + root.trashEntries.length) }
                     onMenuRequested: function (idx, pos) { root.openRailMenu(idx + root.homeLead.length + root.recentEntries.length + root.homeRest.length + root.trashEntries.length, pos) }
+                    onTabRequested: function (idx) { PlaceMenu.openTabAt(root, idx + root.homeLead.length + root.recentEntries.length + root.homeRest.length + root.trashEntries.length) }
                 }
             }
 

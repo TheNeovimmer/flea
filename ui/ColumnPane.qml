@@ -56,6 +56,9 @@ Item {
     signal neighbourMenuRequested(string name)
     // A right click on a peek's empty space: the peek's drawn directory becomes the listing, and the background menu opens there once its rows land.
     signal neighbourBackgroundRequested(var eventPoint)
+    // A middle click on a directory row, in any of the three columns: ui/js/Tap.js tappedTab opens it in
+    // a new tab, and ui/ColumnsArea.qml supplies which directory this column is showing.
+    signal tabRequested(var row)
     // The thumbnail plan for this column's viewport, computed here and written by the pane, the grid's own contract.
     signal thumbsApplied(var work)
     signal dirSizesApplied(var ask)
@@ -256,11 +259,13 @@ Item {
 
             TapHandler {
                 id: tap
-                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
                 onTapped: function (eventPoint, button) {
                     if (root.pane !== null) {
                         if (cell.listingIndex < 0 || !cell.row) return
-                        if (button === Qt.RightButton)
+                        if (button === Qt.MiddleButton)
+                            root.tabRequested(cell.row)
+                        else if (button === Qt.RightButton)
                             root.menuRequested(cell.listingIndex, eventPoint)
                         else
                             root.picked(cell.listingIndex, tap.tapCount, tap.point.modifiers)
@@ -271,7 +276,9 @@ Item {
                         return
                     }
                     var verb = Tap.tappedColumn(root.rows[index], button, tap.tapCount)
-                    if (verb.length > 0)
+                    if (verb === "openTab")
+                        root.tabRequested(root.rows[index])
+                    else if (verb.length > 0)
                         root.activated(root.rows[index].n, verb === "reveal")
                 }
             }
