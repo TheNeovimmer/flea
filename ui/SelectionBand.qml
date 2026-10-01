@@ -67,6 +67,9 @@ MouseArea {
             return
         }
         root.flickable.cancelFlick()
+        // A press on empty ground holds the button past the slow-click interval, so stop the
+        // pane's timer here or it renames the sole selected row under the held button.
+        if (root.pane && root.pane.cancelSlowClick) root.pane.cancelSlowClick()
         root.start = Qt.point(mouse.x, mouse.y)
         root.anchor = Qt.point(root.flickable.contentX + mouse.x, root.flickable.contentY + mouse.y)
         root.additive = (mouse.modifiers & Qt.ControlModifier) !== 0

@@ -220,4 +220,10 @@ function run(check) {
     var pane = Source.source("ui/Pane.qml")
     check("a press stops the timer without clearing the tap record",
           pane.indexOf("function pressSlowClick() { slowClickTimer.stop() }") >= 0, true)
+    // A press on empty ground holds the button past the interval, so it stops the pane's
+    // slow-click timer or it renames the sole selected row under the held button.
+    var band = Source.source("ui/SelectionBand.qml")
+    var pressedAt = band.indexOf("onPressed")
+    check("an empty-ground press stops the slow-click timer",
+          pressedAt >= 0 && band.indexOf("cancelSlowClick", pressedAt) >= 0, true)
 }
