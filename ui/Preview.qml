@@ -5,6 +5,7 @@ import "js/Facts.js" as Facts
 import "js/Kinds.js" as Kinds
 import "js/ExtThumbs.js" as ExtThumbs
 import "js/Motion.js" as Motion
+import "js/PreviewSettle.js" as PreviewSettle
 import "js/PreviewSwap.js" as PreviewSwap
 
 // The overlay lives inside the Flea window, Finder's Quick Look shape: a second window breaks omarchy-drive focus flea and every test that narrows on it.
@@ -89,6 +90,9 @@ Item {
     property string pendingIcon: ""
     property string pendingKind: ""
     property int pendingSize: 0
+    // Last distinct follow target, so a held key cannot reload mid-burst: only idleness loads at once.
+    property double lastMoveAt: 0
+    property string lastMoveKey: ""
     // The settle idiom Pane's own thumbnail request reuses: a held j/k costs zero reloads until the cursor rests.
     readonly property int followSettleMs: 120
     // The same dim ui/SettingsPanel.qml lays over the listing.
@@ -131,26 +135,49 @@ Item {
     // Space opens on the cursor row; this is immediate, follow() below is the held-key j/k path.
     function open(newPath, newIcon, newSize, newKind) {
         followSettle.stop()
+        root.lastMoveKey = newPath + "\n" + newIcon + "\n" + newSize + "\n" + newKind
+        root.lastMoveAt = Date.now()
         root.load(newPath, newIcon, newSize, newKind)
     }
 
     // The picture is taken now, so the settled load below changes the panes under it.
     function follow(newPath, newIcon, newSize, newKind) {
+        var key = newPath + "\n" + newIcon + "\n" + newSize + "\n" + newKind
+        // Pending covers a repeat; a settled revisit of the shown target stays put, anything else reloads.
+        if (key === root.lastMoveKey && followSettle.running) return
+        if (key === root.lastMoveKey && root.isShown(newPath, newIcon, newSize, newKind)) return
+        var now = Date.now()
+        var idle = PreviewSettle.due(now, root.lastMoveAt, root.followSettleMs)
+        root.lastMoveKey = key
+        root.lastMoveAt = now
         root.pendingPath = newPath
         root.pendingIcon = newIcon
         root.pendingSize = newSize
         root.pendingKind = newKind
         if (root.active) {
             var held = root.ensureSwap()
-            if (held) held.hold(null, newPath)
+            if (held)
+                held.hold(null, newPath)
         }
-        followSettle.restart()
+        if (idle) {
+            followSettle.stop()
+            root.load(newPath, newIcon, newSize, newKind)
+        } else {
+            followSettle.restart()
+        }
+    }
+
+    // Whether the overlay already shows this target: the duplicate test the key clock cannot make.
+    function isShown(newPath, newIcon, newSize, newKind) {
+        return root.active && newPath === root.path && newIcon === root.iconName
+            && newSize === root.size && newKind === root.kindName
     }
 
     // Dropping the loader's source is what stops playback: media dies with the loader.
     function close() {
         if (root.swap) root.swap.cancel()
         followSettle.stop()
+        root.lastMoveKey = ""
         stripHideTimer.stop()
         root.active = false
         root.kind = ""

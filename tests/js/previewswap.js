@@ -2,6 +2,7 @@
 .import "../../ui/js/Facts.js" as Facts
 .import "../../ui/js/Swap.js" as Swap
 .import "../../ui/js/Columns.js" as Columns
+.import "../../ui/js/PreviewSettle.js" as PreviewSettle
 .import "sourcefixture.js" as Source
 
 // The preview swap, AGENTS.md "The preview swap": its moves, its cap, its frame kinds and what each surface waits for.
@@ -71,6 +72,7 @@ function run(check) {
     check("anything else not loading is whole", PreviewSwap.lookReady("image", false, false, false), true)
     runFolderDataHold(check)
     runPictureHoldLeak(check)
+    runPreviewSettle(check)
 }
 
 // The body of one QML function by brace count, so each check reads the arm it names and not a copy elsewhere.
@@ -146,6 +148,66 @@ function runFolderDataHold(check) {
     check("its mark can settle at once", Source.source("ui/FleaMark.qml").indexOf("function settle()") >= 0, true)
     check("a landed empty peek settles its hero whole", peeked.indexOf("Columns.shouldSettleHero(") >= 0
         && peeked.indexOf("markItem.settle()") > peeked.indexOf("Columns.shouldSettleHero("), true)
+}
+
+// Move-clock settle: idle moves load at once, repeats change nothing, bursts trail once.
+function runPreviewSettle(check) {
+    check("an idle first move is due at once", PreviewSettle.due(1000, 0, 120), true)
+    check("a step exactly one interval on is due", PreviewSettle.due(120, 0, 120), true)
+    check("a step inside the interval waits", PreviewSettle.due(119, 0, 120), false)
+    check("a backwards clock reads idle, never wedged", PreviewSettle.due(100, 200, 120), true)
+    check("a pending repeat stays put", PreviewSettle.plan(50, 0, 120, "b", "b", true), "same")
+    check("a settled repeat schedules by the clock", PreviewSettle.plan(1000, 0, 120, "b", "b", false), "now")
+    check("a new row after quiet loads at once", PreviewSettle.plan(1000, 0, 120, "c", "b", false), "now")
+    check("a new row inside the window trails", PreviewSettle.plan(50, 0, 120, "c", "b", false), "later")
+    var lastAt = -1000, lastKey = "a", armed = false, seen = []
+    var moves = [[0, "b"], [30, "c"], [60, "d"], [90, "e"], [120, "f"]]
+    for (var i = 0; i < moves.length; i++) {
+        var decision = PreviewSettle.plan(moves[i][0], lastAt, 120, moves[i][1], lastKey, armed)
+        seen.push(decision)
+        if (decision !== "same") { lastKey = moves[i][1]; lastAt = moves[i][0]; armed = decision === "later" }
+    }
+    check("a 30ms burst loads first once, then trails only", seen.join(","), "now,later,later,later,later")
+    check("a same-key refresh lands on the pending timer",
+        PreviewSettle.plan(100, 90, 120, "e", "e", true), "same")
+    var preview = Source.source("ui/SelectionPreview.qml")
+    check("the column preview imports the settle helper",
+        preview.indexOf('import "js/PreviewSettle.js" as PreviewSettle') >= 0, true)
+    check("it stamps moves beside the settle key", preview.indexOf("property string lastMoveKey") >= 0
+        && preview.indexOf("property double lastMoveAt") >= 0, true)
+    var replaceArm = squashed(bodyOf(preview, "replace"))
+    var dupAt = replaceArm.indexOf("if (key === root.lastMoveKey && root.isShown()) return")
+    var holdAt = replaceArm.indexOf("root.swap.hold(root.clearForMove, key)")
+    var settleAt = replaceArm.indexOf("root.settleFor(key)")
+    check("a true duplicate returns before any clear or picture", dupAt >= 0 && holdAt > dupAt, true)
+    check("a move takes the swap picture before scheduling", holdAt >= 0 && settleAt > holdAt, true)
+    check("the no-swap branch keeps its reset before scheduling",
+        replaceArm.indexOf("if (!root.canRead) { root.clear(); return }") >= 0
+        && replaceArm.indexOf("root.clear()", settleAt) > settleAt, true)
+    var schedArm = squashed(bodyOf(preview, "function settleFor"))
+    check("a pending timer covers its own refresh", schedArm.indexOf("settle.running && root.settleKey === key") >= 0, true)
+    check("settleFor stamps only scheduled moves", schedArm.indexOf("root.lastMoveKey = key") > schedArm.indexOf("return"), true)
+    var fireArm = squashed(bodyOf(preview, "function fireSettle"))
+    check("the timer and the fast path share one decision",
+        fireArm.indexOf("ExtThumbs.manualHold(") >= 0 && preview.indexOf("onTriggered: root.fireSettle()") >= 0, true)
+    check("an unknown class still waits instead of loading",
+        fireArm.indexOf("!root.pane.storageKnown") >= 0 && fireArm.indexOf("root.followSelection()") >= 0, true)
+    var loadArm = squashed(preview.substring(preview.indexOf("function load()"), preview.indexOf("function startSwap")))
+    check("a load stamps no move clock", loadArm.indexOf("lastMoveAt") < 0 && loadArm.indexOf("lastMoveKey") < 0, true)
+    var quick = Source.source("ui/Preview.qml")
+    var followArm = squashed(bodyOf(quick, "function follow"))
+    check("a pending repeat returns first",
+        followArm.indexOf("if (key === root.lastMoveKey && followSettle.running) return") >= 0, true)
+    check("a settled revisit of the shown target stays put",
+        followArm.indexOf("root.isShown(newPath, newIcon, newSize, newKind)") >= 0, true)
+    var qHoldAt = followArm.indexOf("held.hold(null, newPath)")
+    var qIdleAt = followArm.indexOf("if (idle) {")
+    check("Quick Look takes its picture before deciding", qHoldAt >= 0 && qIdleAt > qHoldAt, true)
+    check("an explicit open stamps the move", squashed(bodyOf(quick, "function open")).indexOf("root.lastMoveAt = Date.now()") >= 0, true)
+    check("a close clears the move key", squashed(bodyOf(quick, "function close")).indexOf('root.lastMoveKey = ""') >= 0, true)
+    var thumbs = Source.source("ui/ColumnPane.qml")
+    check("thumbnail sweeps keep their own debounce, never the cursor helper",
+        thumbs.indexOf("PreviewSettle") < 0, true)
 }
 
 // A launch or folder move must never leave the third-column picture up: only a real file row takes one.

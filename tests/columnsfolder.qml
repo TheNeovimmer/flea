@@ -331,6 +331,8 @@ ShellRoot {
         root.assertIdle("w25) a landed folder peek")
         if (root.failures.length > 0) { root.report(); return }
         root.stubPane.storageClass = "local"
+        // Held j arrives inside the prior move: fileC stamps the clock, fileD trails on the real settle.
+        root.stubPane.cursorIndex = 0
         root.stubPane.rows = [root.fileC, root.fileD, root.folderW2, root.folderW3]
         root.stubPane.cursorIndex = 1
         wBackTimer.interval = root.stubPane.settleMs + WorkCap.capMs(false) - 60

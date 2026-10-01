@@ -93,9 +93,9 @@ wait 2>/dev/null
 if grep -q 'PREVIEW FAIL' "$log" || ! grep -q 'PREVIEW DONE' "$log"; then
     bad "the harness did not finish (qs exit $status): $(grep -a 'PREVIEW FAIL' "$log" | head -1) (log $log)"
 else
-    # Sample input, one inotifywait line per event: 'OPEN|t50.png' is the rest row's cache file and 'CREATE|sentinel-rest' opens the rest window once the sweep one closes.
+    # Sample input, one inotifywait line per event: 'OPEN|t0.png' is the first swept row's cache file, 'OPEN|t50.png' the rest row's, and 'CREATE|sentinel-rest' opens the rest window once the sweep one closes.
     got_sweep=0; got_rest=0; got_done=0; phase=0
-    sweep_opens=0; sweep_names=""; rest_big=0; rest_cache=0; rest_sweep=0
+    sweep_t0=0; sweep_other=0; sweep_other_names=""; rest_big=0; rest_cache=0; rest_sweep=0
     events=""; name=""
     while IFS='|' read -r events name || [ -n "$events" ]; do
         case "$events" in
@@ -106,11 +106,12 @@ else
             fi
             ;;
         *OPEN*)
-            # v0.3.4's settle outlasts a 30 ms repeat, so a sweep loads no row: any open but a sentinel's own is a load.
+            # e80 loads a lone move at once: the sweep starts idle, so it loads t0.png only; repeats trail. One load opens t50.png rest_cache times, so t0.png may open at most that often.
             if [ "$phase" -eq 1 ]; then
                 case "$name" in
                 sentinel-*) ;;
-                *) sweep_opens=$((sweep_opens + 1)); [ "$sweep_opens" -le 3 ] && sweep_names="$sweep_names $name" ;;
+                t0.png) sweep_t0=$((sweep_t0 + 1)) ;;
+                *) sweep_other=$((sweep_other + 1)); [ "$sweep_other" -le 3 ] && sweep_other_names="$sweep_other_names $name" ;;
                 esac
             elif [ "$phase" -eq 2 ]; then
                 case "$name" in
@@ -125,10 +126,14 @@ else
     if [ "$got_sweep" != 1 ] || [ "$got_rest" != 1 ] || [ "$got_done" != 1 ]; then
         bad "a phase sentinel never arrived (sweep=$got_sweep rest=$got_rest done=$got_done) (log $log)"
     else
-        if [ "$sweep_opens" -eq 0 ]; then
-            ok "50 moves at key-repeat rate opened no file at all, cache file or original"
+        if [ "$sweep_other" -ne 0 ]; then
+            bad "the sweep opened other row(s):$sweep_other_names besides t0.png (log $log)"
+        elif [ "$sweep_t0" -eq 0 ]; then
+            bad "the sweep opened no file, want the first row t0.png (log $log)"
+        elif [ "$rest_cache" -ge 1 ] && [ "$sweep_t0" -gt "$rest_cache" ]; then
+            bad "the sweep opened t0.png $sweep_t0 time(s), more than one load opens t50.png $rest_cache time(s) (log $log)"
         else
-            bad "the sweep opened $sweep_opens file(s), first:$sweep_names (log $log)"
+            ok "the sweep opened only the first row t0.png $sweep_t0 time(s), within one load"
         fi
         if [ "$rest_cache" -ge 1 ]; then
             ok "a rest drew the rested row's cache file"

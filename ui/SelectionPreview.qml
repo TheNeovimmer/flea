@@ -6,6 +6,7 @@ import "js/Thumbs.js" as Thumbs
 import "js/ExtThumbs.js" as ExtThumbs
 import "js/Keymap.js" as Keymap
 import "js/PreviewKeys.js" as PreviewKeys
+import "js/PreviewSettle.js" as PreviewSettle
 import "js/PreviewSwap.js" as PreviewSwap
 
 // Selection loading is independent of column visibility and the separate Quick Look overlay.
@@ -19,6 +20,9 @@ Flea.PreviewColumn {
     // ui/ColumnsArea.qml's third-column swap, which then drives the cursor moves; null leaves every change immediate.
     property var swap: null
     property string settleKey: ""
+    // Last distinct cursor move, so a held key cannot decode mid-burst: only idleness loads at once.
+    property double lastMoveAt: 0
+    property string lastMoveKey: ""
     signal thumbsApplied(var work)
     onExpandRequested: {
         if (!root.row || !root.pane) return
@@ -106,13 +110,45 @@ Flea.PreviewColumn {
     // A folder or null row keeps the old preview: ColumnsArea holds the old column by data until the peek lands.
     function replace() {
         if (!Columns.isFileRow(root.pane ? root.pane.rowFor(root.pane.cursorIndex) : null)) { settle.stop(); return }
+        var key = root.swapKey()
+        // A true duplicate preserves the frame and timer; a changed identity lets a same-key refresh proceed.
+        if (key === root.lastMoveKey && root.isShown()) return
         if (root.swap && ViewState.previewAutomatic && root.canRead) {
-            root.armSettle()
-            root.swap.hold(root.clearForMove, root.swapKey())
+            // The picture first, the exact contract a deferred load keeps; the scheduler may load under it at once.
+            root.swap.hold(root.clearForMove, key)
+            root.settleFor(key)
             return
         }
+        if (!root.canRead) { root.clear(); return }
+        // No swap takes no picture, so the same scheduler decides after the same duplicate check above.
         root.clear()
-        if (root.canRead) root.armSettle()
+        root.settleFor(key)
+    }
+
+    // Whether the loaded frame already names the cursor row: the duplicate test the key clock cannot make.
+    function isShown() {
+        var current = root.pane.rowFor(root.pane.cursorIndex)
+        return root.loadedIndex === root.pane.cursorIndex && root.loadedDirectory === root.pane.path
+            && root.loadedIdentity === root.identity(current)
+    }
+
+    // Refresh-or-new scheduler: a pending timer already covers this key, otherwise the move clock decides.
+    function settleFor(key) {
+        if (!ViewState.previewAutomatic || !root.pane) return
+        var now = Date.now()
+        var decision = PreviewSettle.plan(now, root.lastMoveAt, settle.interval, key, root.lastMoveKey,
+            settle.running && root.settleKey === key)
+        if (decision === "same") return
+        root.lastMoveKey = key
+        root.lastMoveAt = now
+        if (decision === "now") {
+            settle.stop()
+            root.settleKey = key
+            root.fireSettle()
+        } else {
+            root.settleKey = key
+            settle.restart()
+        }
     }
 
     function clearShown() {
@@ -203,16 +239,20 @@ Flea.PreviewColumn {
 
     function startSwap(isPdf) { if (root.swap) root.swap.start(isPdf) }
 
+    // The settle's whole decision, shared by the timer and the idle fast path, so both spend the same gates.
+    function fireSettle() {
+        if (!ViewState.previewAutomatic) return
+        var hold = root.pane ? (!root.pane.storageKnown || ExtThumbs.manualHold(root.pane.storageClass, ViewState.preview)) : false
+        if (hold) root.followSelection()
+        else root.loadSelection()
+    }
+
     Timer {
         id: settle
         interval: root.pane ? root.pane.settleMs : 120
         // The automatic settle holds an off class; Ctrl+Space's direct loadSelection stays full.
         // Unknown waits through followSelection, so the first settle never spends the class fsinfo has not named yet.
-        onTriggered: if (ViewState.previewAutomatic) {
-            var hold = root.pane ? (!root.pane.storageKnown || ExtThumbs.manualHold(root.pane.storageClass, ViewState.preview)) : false
-            if (hold) root.followSelection()
-            else root.loadSelection()
-        }
+        onTriggered: root.fireSettle()
     }
     onCanReadChanged: {
         // A listing going out leaves the preview to Nav.forget's reset, which clears it when held rows go.

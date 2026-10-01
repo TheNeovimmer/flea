@@ -142,7 +142,7 @@ ShellRoot {
         }
     }
 
-    // Fifty cursor moves at key-repeat rate, each restarting SelectionPreview's settle before it expires.
+    // Fifty cursor moves at key-repeat rate: the first loads at once after idle, the rest trail one settle.
     Timer {
         id: moveTimer
         interval: 30
