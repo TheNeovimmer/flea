@@ -1,5 +1,6 @@
 .import "../../ui/js/SlowClick.js" as SlowClick
 .import "../../ui/js/Tap.js" as Tap
+.import "sourcefixture.js" as Source
 
 // Slow-click rename, one shared mechanism for the three views: a tap arms a
 // pane timer of the double-click interval, a second tap in time cancels it and
@@ -21,6 +22,8 @@ function root() {
         slowClickAt: 0,
         slowClickIndex: -2,
         selectedIndices: function () { return this.picked },
+        selectionCount: function () { return this.picked.length },
+        isSelected: function (i) { return this.picked.indexOf(i) >= 0 },
         commitOpenRename: function () {},
         selectOnly: function (i) { this.picked = [i]; this.cursorIndex = i; this.did.push("selectOnly") },
         toggleSelectAt: function (i) { this.did.push("toggleSelect") },
@@ -179,4 +182,42 @@ function run(check) {
     menureq.cursorIndex = 4
     Tap.tappedMenu(4, { scenePosition: null }, menureq, { openAt: function (pos) {} })
     check("a menu request cancels the slow click", menureq.slowClickIndex, -2)
+
+    // wasSoleSelection reads O(1) facts, never the whole index array: a 100k
+    // select-all would build a 100k array per left tap through selectedIndices.
+    var calls = 0
+    var counted = root()
+    counted.selectedIndices = function () { calls += 1; return this.picked }
+    check("wasSoleSelection answers sole without the array", SlowClick.wasSoleSelection(counted, 4), true)
+    check("and it built no index array to do it", calls, 0)
+
+    // The views capture sole selection before the tap selects for it: a first
+    // click on an unselected row must see pre-tap facts, so the capture reads
+    // above the tap in each view's own handler.
+    var list = Source.source("ui/List.qml")
+    check("the list captures sole selection before it taps",
+          list.indexOf("slowClickWasSole") >= 0 && list.indexOf("slowClickWasSole") < list.indexOf("Tap.tapped("), true)
+    var grid = Source.source("ui/GridArea.qml")
+    check("the grid captures sole selection before it taps",
+          grid.indexOf("slowClickWasSole") >= 0 && grid.indexOf("slowClickWasSole") < grid.indexOf("Tap.tapped("), true)
+    var columns = Source.source("ui/ColumnsArea.qml")
+    check("the columns view captures sole selection before it taps",
+          columns.indexOf("slowClickWasSole") >= 0 && columns.indexOf("slowClickWasSole") < columns.indexOf("Tap.tappedMiddle("), true)
+
+    // A press held past the timer must not fire while the button is still down
+    // on a row about to be dragged; the press stops the timer without clearing
+    // the tap record, so the release still arms.
+    check("a list press stops the slow-click timer",
+          list.indexOf("onPressedChanged: if (pressed) root.pane.pressSlowClick()") >= 0, true)
+    check("a grid press stops the slow-click timer",
+          grid.indexOf("onPressedChanged: if (pressed) root.pane.pressSlowClick()") >= 0, true)
+    var columnPane = Source.source("ui/ColumnPane.qml")
+    check("a columns press emits before the release arms",
+          columnPane.indexOf("signal rowPressed(int index)") >= 0
+          && columnPane.indexOf("onPressedChanged: if (pressed) root.rowPressed(cell.listingIndex)") >= 0, true)
+    check("the columns view stops the timer on that press",
+          columns.indexOf("onRowPressed: root.pane.pressSlowClick()") >= 0, true)
+    var pane = Source.source("ui/Pane.qml")
+    check("a press stops the timer without clearing the tap record",
+          pane.indexOf("function pressSlowClick() { slowClickTimer.stop() }") >= 0, true)
 }

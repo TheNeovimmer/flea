@@ -352,6 +352,7 @@ Item {
                 dim: true
                 showDivider: true
                 onActivated: function (name, isDir) { root.activateNeighbour(root.greatGrandparentPath, name, isDir) }
+                onRowPressed: root.pane.pressSlowClick()
                 onNeighbourMenuRequested: function (name) { root.menuOnNeighbour(root.greatGrandparentPath, name) }
                 onNeighbourBackgroundRequested: function (eventPoint) {
                     if (root.showGreatGrandparent && root.greatGrandparentShown)
@@ -375,6 +376,7 @@ Item {
                 dim: true
                 showDivider: true
                 onActivated: function (name, isDir) { root.activateNeighbour(root.grandparentPath, name, isDir) }
+                onRowPressed: root.pane.pressSlowClick()
                 onNeighbourMenuRequested: function (name) { root.menuOnNeighbour(root.grandparentPath, name) }
                 onNeighbourBackgroundRequested: function (eventPoint) {
                     if (root.showGrandparent && root.grandparentShown)
@@ -396,6 +398,7 @@ Item {
             dim: true
             showDivider: true
             onActivated: function (name, isDir) { root.activateNeighbour(root.parentPath, name, isDir) }
+            onRowPressed: root.pane.pressSlowClick()
             onNeighbourMenuRequested: function (name) { root.menuOnNeighbour(root.parentPath, name) }
             onNeighbourBackgroundRequested: function (eventPoint) {
                 if (root.showParent && root.parentShown)
@@ -423,6 +426,7 @@ Item {
                 else if (tapCount === 1) root.pane.armSlowClick(index, modifiers, active.dragging, wasSole)
             }
             onMenuRequested: function (index, eventPoint) { Tap.tappedMenu(index, eventPoint, root.pane, root.menu) }
+            onRowPressed: root.pane.pressSlowClick()
             onTabRequested: function (row) { Tap.tappedTab(row, root.pane.path, root.pane) }
             onBackgroundMenuRequested: function (eventPoint) { root.menu.openBackground(eventPoint.scenePosition) }
             onThumbsApplied: function (work) { root.thumbsApplied(work) }
@@ -447,6 +451,7 @@ Item {
                 lockedMode: root.deniedMode(root.shownChildPath)
                 drawsEmpty: root.answered(root.shownChildPath)
                 onActivated: function (name, isDir) { root.activateNeighbour(root.shownChildPath, name, isDir) }
+                onRowPressed: root.pane.pressSlowClick()
                 onNeighbourMenuRequested: function (name) { root.menuOnNeighbour(root.shownChildPath, name) }
                 onNeighbourBackgroundRequested: function (eventPoint) {
                     if (root.shownIsDir && root.shownChildPath.length > 0)

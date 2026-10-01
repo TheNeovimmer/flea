@@ -206,5 +206,5 @@ function run(check) {
           stranded.sent.join(","), "sort size asc,window 0 200")
     var wired = Source.source("ui/Pane.qml")
     check("the pending-false arm applies the held sort",
-          wired.indexOf("onRenamePendingChanged") >= 0 && wired.indexOf("Sort.applyPending(root)") >= 0, true)
+          wired.indexOf("onRenamePendingChanged: if (!root.renamePending) Sort.applyPending(root)") >= 0, true)
 }

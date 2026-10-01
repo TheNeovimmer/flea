@@ -75,6 +75,10 @@ FocusScope {
         else slowClickTimer.stop()
     }
     function slowClickWasSole(index) { return SlowClick.wasSoleSelection(root, index) }
+    // A press stops the timer without clearing the tap record, so a hold past
+    // the interval cannot fire while the button is still down; the release
+    // still arms through armSlowClick, and a drag clears fully at lift.
+    function pressSlowClick() { slowClickTimer.stop() }
     function cancelSlowClick() { slowClickTimer.stop(); SlowClick.cancel(root) }
     // ui/js/Tabs.js is a .pragma library and cannot reach a QML singleton, so the state it asks
     // ui/js/Startup.js about rides in through the pane, the way every other setting it reads does.

@@ -47,6 +47,9 @@ Item {
     // its own listing, or a file it hands to the opener. See keys.toml's [[pointer]] table.
     signal activated(string name, bool isDir)
     signal picked(int index, int tapCount, int modifiers)
+    // A row press, so the columns view can stop the slow-click timer before a
+    // hold past the interval fires while the button is still down.
+    signal rowPressed(int index)
     // The row under a right click. Only the column carrying the pane's own listing answers it, because a peeked column's rows are another directory's and every menu action addresses the pane's cursor.
     signal menuRequested(int index, var eventPoint)
     // A right click that landed on no row, which only the pane's own column can answer for the same
@@ -260,6 +263,9 @@ Item {
             TapHandler {
                 id: tap
                 acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+                // A press held past the interval must not fire while the button
+                // is still down; ColumnsArea stops the pane's timer from onRowPressed.
+                onPressedChanged: if (pressed) root.rowPressed(cell.listingIndex)
                 onTapped: function (eventPoint, button) {
                     if (root.pane !== null) {
                         if (cell.listingIndex < 0 || !cell.row) return

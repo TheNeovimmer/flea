@@ -132,6 +132,9 @@ ListView {
             id: tap
             enabled: !cell.renaming
             acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+            // A press held past the interval must not fire while the button is
+            // still down on a row about to be dragged; the release still arms.
+            onPressedChanged: if (pressed) root.pane.pressSlowClick()
             onTapped: function (eventPoint, button) {
                 if (button === Qt.MiddleButton)
                     Tap.tappedTab(root.pane.rowFor(listingIndex), root.pane.path, root.pane)

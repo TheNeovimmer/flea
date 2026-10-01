@@ -20,8 +20,8 @@
 // on an unselected row never arms off the selection it just made.
 function wasSoleSelection(pane, index) {
     if (!pane || index < 0) return false
-    var picked = pane.selectedIndices()
-    return picked.length === 1 && picked[0] === index && pane.cursorIndex === index
+    if (pane.selectionCount() !== 1 || !pane.isSelected(index)) return false
+    return pane.cursorIndex === index
 }
 function arm(pane, index, modifiers, now, interval, dragging, wasSole) {
     var plain = (modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) === 0
