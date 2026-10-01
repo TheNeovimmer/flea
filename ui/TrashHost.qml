@@ -1,6 +1,7 @@
 import QtQuick
 import "js/Focus.js" as Focus
 import "js/Menu.js" as Menu
+import "js/Trash.js" as TrashKeys
 import "js/TrashDates.js" as TrashDates
 
 Loader {
@@ -116,6 +117,13 @@ Loader {
         pane.contextMenu().openForRail("trash", entries, point)
         pane.contextMenu().focusHolder = item
     }
+    // Window-level actions Focus.handleKey answers without reaching pane.act. The host
+    // reaches the same objects: the sheet the pane holds and the two signals WindowBody handles.
+    function directWindowAction(action) {
+        if (action === "keymapSheet") root.pane.keymapSheet.open(root.pane)
+        else if (action === "pathBar") root.pane.pathBarRequested()
+        else root.pane.textSizeRequested(action === "textSizeReset" ? 0 : (action === "textSizeUp" ? 1 : -1))
+    }
     function action(name) {
         if (confirming) return
         if (!opened) { open(name); return }
@@ -139,7 +147,11 @@ Loader {
         function onRequested(message) { root.pane.backend.send(message) }
         function onBackRequested() { root.pane.focusView = Focus.LIST; root.pane.listArea.forceActiveFocus() }
         function onFocusRailRequested() { root.pane.focusView = Focus.RAIL }
-        function onActionRequested(action) { root.pane.act(action) }
+        function onActionRequested(action) {
+            if (root.confirming) return
+            if (TrashKeys.route(action) === "direct") { root.directWindowAction(action); return }
+            root.pane.act(action)
+        }
         function onStatusReported(message, error) { root.pane.message(message, error) }
         function onOperationResult(headline, detail, error) { root.pane.operationResult(headline, detail, error); if (root.pane.sidebar) root.pane.sidebar.refreshTrash() }
         function onContextRequested(x, y, selection) { root.menuAt(root.item.mapToItem(null, x, y), selection) }

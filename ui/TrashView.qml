@@ -294,7 +294,7 @@ FocusScope {
         else if (action === "trashArm") root.armDelete()
         else if (action === "deletePermanently" || action === "trash") root.prepare(false)
         else if (action === "focusNext") root.focusRailRequested()
-        else if (action === "settings" || action === "keymapSheet" || action === "quit") root.actionRequested(action)
+        else if (action === "quit" || TrashKeys.route(action) !== "trash") root.actionRequested(action)
         else if (action === "reload" || event.key === Qt.Key_F5 && unmodified) root.refresh()
         else if (action === "menu") root.contextRequested(root.width / 2, Theme.chromeHeight, root.selectedCount > 0)
         // Trash owns this focus context; ordinary filesystem actions must never reach the covered pane.

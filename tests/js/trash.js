@@ -1,5 +1,6 @@
 .import "../../ui/js/Trash.js" as Trash
 .import "../../ui/js/Ops.js" as Ops
+.import "sourcefixture.js" as Source
 
 // The dd pair, issue 7. A single d used to trash and sat among the letters a name is typed with, so
 // the third keystroke of "Vid" trashed the row. These drive Trash.arm directly, because the stamp
@@ -53,4 +54,36 @@ function run(check) {
     picked.trashArmedAt = Date.now()
     Trash.arm(picked)
     check("the pair trashes the selection when there is one", picked.trashedIdx.join(","), "1,4")
+
+    // Issue 227: window-level keys reach the window handlers from the Trash view instead of
+    // answering "keymapSheet is not built yet". Direct bypasses pane.act the way handleKey does.
+    check("? reaches the sheet without going through the pane", Trash.route("keymapSheet"), "direct")
+    check("the path bar does too", Trash.route("pathBar"), "direct")
+    check("larger text does too", Trash.route("textSizeUp"), "direct")
+    check("smaller text does too", Trash.route("textSizeDown"), "direct")
+    check("reset size does too", Trash.route("textSizeReset"), "direct")
+    check("settings goes through the pane", Trash.route("settings"), "act")
+    check("the rail toggle does too", Trash.route("sidebar"), "act")
+    check("a new tab does too", Trash.route("tabNew"), "act")
+    check("closing a tab does too", Trash.route("tabClose"), "act")
+    check("a numbered tab does too", Trash.route("tab3"), "act")
+    // Trash-own keys stay in Trash; ordinary listing keys never reach the covered pane.
+    check("a Trash cursor key stays in Trash", Trash.route("cursorDown"), "trash")
+    check("the dd arm stays in Trash", Trash.route("trashArm"), "trash")
+    check("the row menu stays in Trash", Trash.route("menu"), "trash")
+    check("a listing search stays out", Trash.route("search"), "trash")
+    check("a listing filter stays out", Trash.route("filter"), "trash")
+    check("the covered pane's terminal stays out", Trash.route("openTerminal"), "trash")
+    check("the covered pane's folder path stays out", Trash.route("copydirpath"), "trash")
+    // Wire pins, not execution: the checks above prove the decision, these prove the QML calls it.
+    var trashSrc = Source.source("ui/TrashView.qml")
+    check("wire pin: Trash forwards by route instead of three names",
+        trashSrc.indexOf('TrashKeys.route(action) !== "trash"') >= 0, true)
+    var hostSrc = Source.source("ui/TrashHost.qml")
+    check("wire pin: host opens the sheet on the pane",
+        hostSrc.indexOf("pane.keymapSheet.open(") >= 0, true)
+    check("wire pin: host asks the bar through the pane signal",
+        hostSrc.indexOf("pane.pathBarRequested()") >= 0, true)
+    check("wire pin: host asks the size through the pane signal",
+        hostSrc.indexOf("pane.textSizeRequested(") >= 0, true)
 }
