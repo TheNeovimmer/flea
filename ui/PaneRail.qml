@@ -28,6 +28,17 @@ Item {
     readonly property real railWidth: rail.active ? rail.width : 0
     readonly property var item: rail.item
 
+    function focusPress(p) {
+        var pane = root.pane
+        if (p.x < 0 || p.y < 0 || p.x >= pane.width || p.y >= pane.height) return
+        // The shown Sidebar can extend past its zero-width overlay host.
+        var sidebar = root.item
+        var r = sidebar ? sidebar.mapFromItem(pane, p.x, p.y) : null
+        if (!root.hidden && r && r.x >= 0 && r.y >= 0 && r.x < sidebar.width && r.y < sidebar.height) {
+            if (root.overlay) pane.railPane.focusView = Focus.RAIL
+        } else { pane.focusView = Focus.LIST; pane.focusRequested() }
+    }
+
     // Long enough that crossing the edge on the way somewhere else does not flash the rail, and that
     // leaving it by a pixel on the way to a row does not drop it.
     readonly property int settleMs: 220

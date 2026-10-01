@@ -5,45 +5,63 @@ case_railpointer() {
     local dir="$fixture_root/railpointer" mode before after suite_home="$XDG_STATE_HOME"
     sandbox_scratch "$dir"
     local i
-    for i in $(seq -w 1 12); do : > "$dir/f$i.txt"; done
+    for i in $(seq -w 1 32); do : > "$dir/f$i.txt"; done
     launch "$dir"
-    wait_listing 12
+    wait_listing 32
     for mode in list grid columns; do
         switch_view "$mode"
+        # Click row with a real lower neighbour from actual total/stride.
+        local total stride click expected
+        total=$(ipc total) || fail "railpointer: $mode: total unavailable"
+        stride=1
+        [[ "$mode" == grid ]] && stride=$(ipc gridColumns)
+        [[ "$stride" =~ ^[0-9]+$ && "$stride" -ge 1 ]] || fail "railpointer: $mode: bad stride $stride"
+        click=8
+        (( click + stride < total )) || click=2
+        (( click + stride < total )) || click=0
+        (( click + stride < total )) || fail "railpointer: $mode: no row with a lower neighbour (total=$total stride=$stride)"
+        expected=$((click + stride))
         click_row 5 left
         settle
         key -k Tab >/dev/null
         settle
         [[ "$(ipc focusView)" == "rail" ]] || fail "railpointer: $mode: Tab did not reach the rail"
-        click_row 8 left
+        click_row "$click" left
         settle
-        [[ "$(ipc focusView)" == "list" ]] || fail "railpointer: $mode: a click on row 8 left the keyboard on the rail (focusView=$(ipc focusView))"
-        [[ "$(ipc cursor)" == "8" ]] || fail "railpointer: $mode: a click on row 8 left the cursor on $(ipc cursor)"
+        [[ "$(ipc focusView)" == "list" ]] || fail "railpointer: $mode: a click on row $click left the keyboard on the rail (focusView=$(ipc focusView))"
+        [[ "$(ipc cursor)" == "$click" ]] || fail "railpointer: $mode: a click on row $click left the cursor on $(ipc cursor)"
         before=$(ipc cursor)
+        # Witness, not a gate: stride versus miss needs geometry on the failing j.
+        printf 'RAILPOINTER_WITNESS mode=%s phase=before-j cursor=%s stride=%s centre=%s rect=%s focus=%s view=%s total=%s click=%s expected=%s\n' "$mode" "$before" "$stride" "$(ipc rowCentre "$click")" "$(ipc rowRect "$click")" "$(ipc focusView)" "$(ipc viewMode)" "$total" "$click" "$expected"
         key j >/dev/null
         settle
         after=$(ipc cursor)
+        printf 'RAILPOINTER_WITNESS mode=%s phase=after-j cursor=%s stride=%s focus=%s\n' "$mode" "$after" "$stride" "$(ipc focusView)"
         [[ "$after" != "$before" ]] || fail "railpointer: $mode: j after a row click stayed on $before"
+        [[ "$after" == "$expected" ]] || fail "railpointer: $mode: j after a row click reached $after, want $expected (total=$total stride=$stride)"
         key -k Tab >/dev/null
         settle
         [[ "$(ipc focusView)" == "rail" ]] || fail "railpointer: $mode: the second Tab did not reach the rail (focusView=$(ipc focusView))"
-        click_row 8 right
+        click_row "$click" right
         settle
         [[ "$(ipc focusView)" == "list" ]] || fail "railpointer: $mode: a right click left the keyboard on $(ipc focusView) instead of returning it to the list"
         key -k Escape >/dev/null
         settle
         [[ "$(ipc focusView)" == "list" ]] || fail "railpointer: $mode: a right click plus Escape left the keyboard on the rail (focusView=$(ipc focusView))"
         before=$(ipc cursor)
+        printf 'RAILPOINTER_WITNESS mode=%s phase=before-right-j cursor=%s stride=%s centre=%s rect=%s focus=%s view=%s total=%s click=%s expected=%s\n' "$mode" "$before" "$stride" "$(ipc rowCentre "$click")" "$(ipc rowRect "$click")" "$(ipc focusView)" "$(ipc viewMode)" "$total" "$click" "$expected"
         key j >/dev/null
         settle
         after=$(ipc cursor)
+        printf 'RAILPOINTER_WITNESS mode=%s phase=after-right-j cursor=%s stride=%s focus=%s\n' "$mode" "$after" "$stride" "$(ipc focusView)"
         [[ "$after" != "$before" ]] || fail "railpointer: $mode: j after right click stayed on $before"
+        [[ "$after" == "$expected" ]] || fail "railpointer: $mode: j after right click reached $after, want $expected (total=$total stride=$stride)"
         printf 'RAILPOINTER %s left=ok right=ok\n' "$mode"
     done
     # A press on the revealed auto-hide rail is a rail press, so it takes the rail keyboard even from the list.
     seed_ui_state "$fixture_root/railpointer-hide" '{"view":"list","places":{"autoHide":true}}'
     launch "$dir"
-    wait_listing 12
+    wait_listing 32
     key -k Tab >/dev/null
     settle
     [[ "$(ipc focusView)" == "rail" ]] || fail "railpointer: auto-hide Tab did not reach the rail"
