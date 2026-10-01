@@ -272,6 +272,46 @@ function run(check) {
     Ops.commitRename(menuRename, "renamed.txt")
     check("committing retains the captured menu identity", renameIdentity, 33)
 
+    // Issue #170: the menu's Rename opens the editor at once instead of queueing
+    // an activate behind the cold Open-with catalogue. With a ready snapshot over
+    // the current selection the editor can open now; otherwise it takes the F2 route.
+    check("the menu rename decision lives in Ops.js", typeof Ops.menuRenameNow, "function")
+    if (typeof Ops.menuRenameNow === "function") {
+        check("a ready snapshot over the current selection opens at once",
+              Ops.menuRenameNow(true, "sel-3", "sel-3"), true)
+        check("a snapshot still in flight takes the F2 route",
+              Ops.menuRenameNow(false, "sel-3", "sel-3"), false)
+        check("a selection that moved takes the F2 route, never the stale snapshot",
+              Ops.menuRenameNow(true, "sel-3", "sel-4"), false)
+        check("an empty identity never opens at once",
+              Ops.menuRenameNow(true, "", ""), false)
+    }
+
+    // Grid closing review G1: with the tile's Loader retired and the rename
+    // refused, no live editor exists to show it, so the refusal goes to the
+    // status bar as an error and the edit closes; otherwise the editor shows it.
+    check("the refusal route lives in Ops.js", typeof Ops.refuseRename, "function")
+    if (typeof Ops.refuseRename === "function") {
+        function refusalPane(editor) {
+            return { renamingIndex: 3, renameError: "",
+                     renameEditor: function () { return editor },
+                     said: [], message: function (text, isError) { this.said.push([text, isError]) } }
+        }
+        var live = refusalPane({})
+        check("a live editor shows the refusal itself",
+              Ops.refuseRename(live, "b-existing.md already exists.") + "|" + live.renameError + "|" + live.said.length + "|" + live.renamingIndex,
+              "editor|b-existing.md already exists.|0|3")
+        var retired = refusalPane(null)
+        check("no live editor sends the same sentence to the status bar and closes the edit",
+              Ops.refuseRename(retired, "b-existing.md already exists.") + "|" + retired.renameError + "|" + JSON.stringify(retired.said) + "|" + retired.renamingIndex,
+              "status||[[\"b-existing.md already exists.\",true]]|-1")
+        var settled = refusalPane(null)
+        settled.renamingIndex = -1
+        check("a settled edit still says the refusal once",
+              Ops.refuseRename(settled, "gone.") + "|" + JSON.stringify(settled.said),
+              "status|[[\"gone.\",true]]")
+    }
+
     var operationIds = []
     var convertedArguments = null
     var menuPane = windowedPane([])

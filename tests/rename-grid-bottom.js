@@ -160,11 +160,14 @@ function pendingRetirementStep(turn) {
     }
     if (turn === 10) {
         editPane.renameRequest = null
-        editPane.renameError = "Permission denied."
+        editPane.said = []
+        Ops.refuseRename(editPane, "Permission denied.")
     }
     if (turn === 11) {
         probe.check(view.renameRetirement === null && editPane.renamingIndex === -1,
             "backend error without live editor releases unclaimed retirement")
+        probe.check(JSON.stringify(editPane.said) === JSON.stringify([["Permission denied.", true]]),
+            "backend error without live editor says the refusal in the status bar")
         editPane.renamingIndex = -1
         probe.restorePendingLoader()
         editPane.renamingIndex = 1201
@@ -295,6 +298,6 @@ const output = result.stdout + result.stderr;
 fs.writeFileSync(path.join(testRoot, "probe.log"), output);
 fs.writeSync(1, `rename-grid-bottom evidence: ${testRoot}\n${output.trim()}\n`);
 assert.equal(result.status, 0);
-assert.equal(output.split(`RENAME_GRID_BOTTOM CHECKS=${({legacy: 66, measurement: 10, pending: 24, focus: 26, owner: owner.checks})[testCase]}`).length - 1, 1);
+assert.equal(output.split(`RENAME_GRID_BOTTOM CHECKS=${({legacy: 66, measurement: 10, pending: 25, focus: 26, owner: owner.checks})[testCase]}`).length - 1, 1);
 assert.equal(output.split("RENAME_GRID_BOTTOM DONE failures=0").length - 1, 1);
 assert.doesNotMatch(output, /\bFAIL\b|\bWARN(?:ING)?\b|Error|error:|Binding loop|failed to load|Unable to assign|Cannot assign/i);

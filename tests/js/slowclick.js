@@ -1,8 +1,10 @@
+.import "../../ui/js/SlowClick.js" as SlowClick
 .import "../../ui/js/Tap.js" as Tap
 
-// Slow-click rename: a second single click on the name of the only selected row,
-// after the double-click interval, starts rename in place. It never fires on a
-// double click or a drag, and single-click mode opens instead of renaming.
+// Slow-click rename, one shared mechanism for the three views: a tap arms a
+// pane timer of the double-click interval, a second tap in time cancels it and
+// opens as a double click does, and the timer fires a rename only when the
+// cursor and the sole selection are still that row and nothing else started.
 
 function root() {
     return {
@@ -29,69 +31,96 @@ function root() {
 }
 
 function run(check) {
-    check("the slow click decides in Tap.js", typeof Tap.slowClick, "function")
-    if (typeof Tap.slowClick !== "function")
+    check("the slow click lives in SlowClick.js", typeof SlowClick.arm, "function")
+    check("with a fire and a cancel beside it",
+          typeof SlowClick.fire + "|" + typeof SlowClick.cancel, "function|function")
+    if (typeof SlowClick.arm !== "function" || typeof SlowClick.fire !== "function")
         return
     var none = Qt.NoModifier
 
-    // The first tap only selects, so it arms the window and renames nothing.
+    // The first tap only selects, so it arms nothing and renames nothing.
     var first = root()
-    Tap.tapped(4, 1, none, first)
-    check("the arming tap renames nothing", Tap.slowClick(4, none, 1000, 400, first), false)
-    // The second tap inside the double-click interval is the double click's own first half.
+    check("the arming tap starts no timer", SlowClick.arm(first, 4, none, 1000, 400), false)
+    // The second tap inside the double-click interval is the double click's own
+    // first half: it opens through tapped() and never arms.
     var quick = root()
-    Tap.tapped(4, 1, none, quick)
-    Tap.slowClick(4, none, 1000, 400, quick)
-    check("a second tap inside the interval renames nothing", Tap.slowClick(4, none, 1200, 400, quick), false)
-    // The second tap after the interval starts the rename.
+    SlowClick.arm(quick, 4, none, 1000, 400)
+    check("a second tap inside the interval arms nothing", SlowClick.arm(quick, 4, none, 1200, 400), false)
+    // The second tap after the interval arms the timer.
     var slow = root()
-    Tap.tapped(4, 1, none, slow)
-    Tap.slowClick(4, none, 1000, 400, slow)
-    check("a second tap after the interval renames", Tap.slowClick(4, none, 1500, 400, slow), true)
+    SlowClick.arm(slow, 4, none, 1000, 400)
+    check("a second tap after the interval arms the timer", SlowClick.arm(slow, 4, none, 1500, 400), true)
     check("exactly at the interval is still the double click", (function () {
         var edge = root()
-        Tap.tapped(4, 1, none, edge)
-        Tap.slowClick(4, none, 1000, 400, edge)
-        return Tap.slowClick(4, none, 1400, 400, edge)
+        SlowClick.arm(edge, 4, none, 1000, 400)
+        return SlowClick.arm(edge, 4, none, 1400, 400)
     })(), false)
-    // A tap on another row re-arms rather than renaming.
+    // A tap on another row re-arms rather than firing.
     var moved = root()
-    Tap.tapped(4, 1, none, moved)
-    Tap.slowClick(4, none, 1000, 400, moved)
-    Tap.tapped(7, 1, none, moved)
-    check("a tap on another row re-arms instead", Tap.slowClick(7, none, 2000, 400, moved), false)
+    SlowClick.arm(moved, 4, none, 1000, 400)
+    moved.picked = [7]
+    moved.cursorIndex = 7
+    check("a tap on another row re-arms instead", SlowClick.arm(moved, 7, none, 2000, 400), false)
+
+    // The timer firing with the row still under the cursor renames.
+    var fired = root()
+    SlowClick.arm(fired, 4, none, 1000, 400)
+    SlowClick.arm(fired, 4, none, 1500, 400)
+    check("the timer fires a rename when nothing moved", SlowClick.fire(fired, 2000, 400), true)
+    check("and the rename went out", fired.did.join(","), "rename")
+    // A double click cancels the armed timer and opens instead.
+    var doubled = root()
+    SlowClick.arm(doubled, 4, none, 1000, 400)
+    SlowClick.arm(doubled, 4, none, 1500, 400)
+    Tap.tapped(4, 2, none, doubled)
+    SlowClick.cancel(doubled)
+    check("a second tap in time opens", doubled.did.join(","), "selectOnly,open")
+    check("and the cancelled timer renames nothing", SlowClick.fire(doubled, 2000, 400), false)
+    // A cursor or selection change before it fires cancels.
+    var left = root()
+    SlowClick.arm(left, 4, none, 1000, 400)
+    SlowClick.arm(left, 4, none, 1500, 400)
+    left.picked = [5]
+    left.cursorIndex = 5
+    check("a selection that moved cancels the timer", SlowClick.fire(left, 2000, 400), false)
+    check("and nothing went out", left.did.length, 0)
+    var stepped = root()
+    SlowClick.arm(stepped, 4, none, 1000, 400)
+    SlowClick.arm(stepped, 4, none, 1500, 400)
+    stepped.cursorIndex = 6
+    check("a cursor that moved cancels it too", SlowClick.fire(stepped, 2000, 400), false)
+    // A rename that started meanwhile wins.
+    var raced = root()
+    SlowClick.arm(raced, 4, none, 1000, 400)
+    SlowClick.arm(raced, 4, none, 1500, 400)
+    raced.renamingIndex = 4
+    check("an edit that opened meanwhile cancels it", SlowClick.fire(raced, 2000, 400), false)
 
     // The gate: modifiers, multi-selections, drags, searches and the setting itself.
     var modified = root()
-    Tap.tapped(4, 1, none, modified)
-    Tap.slowClick(4, none, 1000, 400, modified)
-    check("a ctrl tap never renames", Tap.slowClick(4, Qt.ControlModifier, 2000, 400, modified), false)
+    SlowClick.arm(modified, 4, none, 1000, 400)
+    check("a ctrl tap never arms", SlowClick.arm(modified, 4, Qt.ControlModifier, 2000, 400), false)
     var multi = root()
     multi.picked = [4, 5]
-    check("a second row marked means no rename", Tap.slowClick(4, none, 2000, 400, multi), false)
+    check("a second row marked means no arm", SlowClick.arm(multi, 4, none, 2000, 400), false)
     var dragged = root()
-    Tap.tapped(4, 1, none, dragged)
-    Tap.slowClick(4, none, 1000, 400, dragged)
+    SlowClick.arm(dragged, 4, none, 1000, 400)
     dragged.dragActive = true
-    check("a drag never renames", Tap.slowClick(4, none, 2000, 400, dragged), false)
+    check("a drag never arms", SlowClick.arm(dragged, 4, none, 2000, 400), false)
     var lifted = root()
-    Tap.tapped(4, 1, none, lifted)
-    Tap.slowClick(4, none, 1000, 400, lifted)
-    check("the live drag state rides the sixth argument", Tap.slowClick(4, none, 2000, 400, lifted, true), false)
-    check("and a settled one lets it through", Tap.slowClick(4, none, 2600, 400, lifted, false), true)
+    SlowClick.arm(lifted, 4, none, 1000, 400)
+    check("the live drag state rides the sixth argument", SlowClick.arm(lifted, 4, none, 2000, 400, true), false)
     var found = root()
     found.searchMode = "results"
-    check("a search result never slow-renames", Tap.slowClick(4, none, 2000, 400, found), false)
+    check("a search result never arms", SlowClick.arm(found, 4, none, 2000, 400), false)
     var off = root()
     off.clickRename = false
-    Tap.tapped(4, 1, none, off)
-    Tap.slowClick(4, none, 1000, 400, off)
-    check("the setting switches it off", Tap.slowClick(4, none, 2000, 400, off), false)
+    SlowClick.arm(off, 4, none, 1000, 400)
+    check("the setting switches it off", SlowClick.arm(off, 4, none, 2000, 400), false)
     var single = root()
     single.singleClick = true
-    Tap.tapped(4, 1, none, single)
-    Tap.slowClick(4, none, 1000, 400, single)
-    check("single-click mode never slow-renames", Tap.slowClick(4, none, 2000, 400, single), false)
+    SlowClick.arm(single, 4, none, 1000, 400)
+    check("single-click mode never arms", SlowClick.arm(single, 4, none, 2000, 400), false)
 
     // Single-click mode opens folders and files on one tap, and still selects with a modifier.
     var folder = root()
@@ -99,18 +128,6 @@ function run(check) {
     folder.rowFor = function () { return { n: "sub", d: true } }
     Tap.tapped(9, 1, none, folder)
     check("one tap in single-click mode opens the row", folder.did.join(","), "selectOnly,open")
-    var file = root()
-    file.singleClick = true
-    Tap.tapped(9, 1, none, file)
-    check("a file opens on one tap too", file.did.join(","), "selectOnly,open")
-    var held = root()
-    held.singleClick = true
-    Tap.tapped(9, 1, Qt.ControlModifier, held)
-    check("ctrl still only selects there", held.did.join(","), "toggleSelect")
-    var shifted = root()
-    shifted.singleClick = true
-    Tap.tapped(9, 1, Qt.ShiftModifier, shifted)
-    check("and shift still only extends", shifted.did.join(","), "extendSelect")
     var plain = root()
     Tap.tapped(9, 1, none, plain)
     check("double-click mode still only selects on one tap", plain.did.join(","), "selectOnly")

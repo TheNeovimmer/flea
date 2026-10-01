@@ -14,14 +14,21 @@ function pane(sortBy, sortDesc) {
         cursor: -1,
         cleared: 0,
         said: [],
-        sent: []
+        sent: [],
+        renamingIndex: -1,
+        renamePending: false,
+        pendingSort: null,
+        committed: 0
     }
     p.message = function (text, isError) { p.said.push(text) }
     p.clearSelection = function () { p.cleared += 1 }
     p.setCursor = function (index) { p.cursor = index }
+    p.commitOpenRename = function () { p.committed += 1 }
     p.backend = {
         sortBy: sortBy,
         sortDesc: sortDesc,
+        running: true,
+        quitting: false,
         sort: function (by, desc) { p.sent.push("sort " + by + " " + (desc ? "desc" : "asc")) },
         window: function (start, count) { p.sent.push("window " + start + " " + count) }
     }
@@ -150,4 +157,36 @@ function run(check) {
     check("sorting a search walk still sorts and re-reads",
           walk.sent.join(","), "sort size asc,window 0 200")
     check("but writes no folder sort for its scope", walk.remembered.length, 0)
+
+    // A sort while an edit is open never retargets the editor: it is held and
+    // the open edit is committed the way a click-away commits, applying once
+    // the rename settles and never dropped.
+    var editing = pane("name", false)
+    editing.renamingIndex = 7
+    Sort.resort(editing, "size", false)
+    check("a sort with an edit open sends nothing", editing.sent.join(","), "")
+    check("and holds the requested order instead", JSON.stringify(editing.pendingSort), JSON.stringify({ key: "size", desc: false }))
+    check("and commits the open edit like a click-away", editing.committed, 1)
+    check("and moves neither the cursor nor the caches under the editor",
+          editing.cursor + "|" + editing.thumbState + "|" + editing.dirSizeState + "|" + editing.cleared, "-1|stale|stale|0")
+    var pending = pane("name", false)
+    pending.renamePending = true
+    Sort.resort(pending, "size", false)
+    check("a sort with a rename pending sends nothing either", pending.sent.join(","), "")
+    check("and holds it without recommitting a write already in flight",
+          JSON.stringify(pending.pendingSort) + "|" + pending.committed, JSON.stringify({ key: "size", desc: false }) + "|0")
+    var settled = pane("name", false)
+    settled.pendingSort = { key: "size", desc: false }
+    settled.backend.running = true
+    Sort.applyPending(settled)
+    check("the held sort applies once the edit ends",
+          settled.sent.join(","), "sort size asc,window 0 200")
+    check("and is spent, never applied twice",
+          JSON.stringify(settled.pendingSort) + "|" + settled.backend.sortBy, "null|size")
+    var unsettled = pane("name", false)
+    unsettled.pendingSort = { key: "size", desc: false }
+    unsettled.renamePending = true
+    Sort.applyPending(unsettled)
+    check("a rename still pending keeps the hold", unsettled.sent.join(",") + "|" + JSON.stringify(unsettled.pendingSort),
+          "|" + JSON.stringify({ key: "size", desc: false }))
 }

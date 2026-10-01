@@ -16,6 +16,7 @@ import "js/Nav.js" as Nav
 import "js/RecentMode.js" as RecentMode
 import "js/Ops.js" as Ops
 import "js/Selection.js" as Selection
+import "js/SlowClick.js" as SlowClick
 import "js/Sort.js" as Sort
 import "js/Thumbs.js" as Thumbs
 
@@ -54,9 +55,24 @@ FocusScope {
     readonly property bool clickRename: ViewState.state.clickRename !== false
     // A manual reload's own count, or -1; ui/js/Reload.js sets it and ui/PaneSwap.qml spends it.
     property int reloadFrom: -1
-    // The slow click's own window: the last tap's row and time, read by ui/js/Tap.js alone.
+    // The slow click's own window: the last tap's row and time, read by ui/js/SlowClick.js alone.
     property double slowClickAt: 0
     property int slowClickIndex: -2
+    // The slow-click rename timer, one for the whole pane rather than one per
+    // view: a tap arms it, a second tap in time cancels it and opens as a double
+    // click does, and its firing renames only when the row still holds the cursor.
+    Timer {
+        id: slowClickTimer
+        interval: Qt.styleHints.mouseDoubleClickInterval
+        repeat: false
+        onTriggered: SlowClick.fire(root, Date.now(), Qt.styleHints.mouseDoubleClickInterval)
+    }
+    function armSlowClick(index, modifiers, dragging) {
+        if (SlowClick.arm(root, index, modifiers, Date.now(), Qt.styleHints.mouseDoubleClickInterval, dragging))
+            slowClickTimer.restart()
+        else slowClickTimer.stop()
+    }
+    function cancelSlowClick() { slowClickTimer.stop(); SlowClick.cancel(root) }
     // ui/js/Tabs.js is a .pragma library and cannot reach a QML singleton, so the state it asks
     // ui/js/Startup.js about rides in through the pane, the way every other setting it reads does.
     readonly property var uiState: ViewState.state
@@ -295,11 +311,17 @@ FocusScope {
     property string renameError: ""
     property var renameRequest: null
     readonly property bool renamePending: root.renameRequest !== null
+    // A sort asked for while an edit was open or a rename pending, held by
+    // ui/js/Sort.js and applied when the edit ends; never dropped, see applyPending.
+    property var pendingSort: null
     property var convertSource: null
     onRenamingIndexChanged: if (root.renamingIndex < 0) {
         root.renameMenuId = 0
         root.renameSource = ""
         root.renameError = ""
+        // A rename that settled and an Escape that abandoned both end here, so a
+        // held sort applies on either; a navigation holds listInFlight and drops it.
+        Sort.applyPending(root)
     }
 
     // A set of row indices over the current listing, mutated in place; selectionVersion tells a reactive binding (List.qml's delegate, StatusBar's count) to re-read it. Task 8 declined ScriptModel plus ItemSelectionModel on measured memory, see AGENTS.md "The list model".
@@ -798,6 +820,9 @@ FocusScope {
         tileTarget: root.lockedTarget
         tileMode: root.lockedMode
         onChosen: function (action) {
+            // Issue #170: Rename opens the editor at once by the route F2 takes
+            // rather than queueing an activate behind the cold Open-with catalogue.
+            if (action === "rename") { menuActions.openRenameFromMenu(); return }
             menuActions.activate(action, menu.hasRow && !menu.forHeader)
         }
         // The Locked tile's folder arrives with the row: close() cleared the menu's own copy

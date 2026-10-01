@@ -8772,6 +8772,80 @@ EOS
 }
 
 # Task 19: F2 renames a Network rail entry in place; "NAS" is bookmark-only, "isos" is mount-only.
+case_renamefirst() {
+    # Issue #170: the menu's Rename opens the editor at once instead of queueing
+    # an activate behind the cold Open-with catalogue. The stub's info and mime
+    # legs block until "$dir/release" exists, so the catalogue never answers
+    # while the editor must already be live; the rename then commits first try
+    # with an outside create landing mid-edit.
+    local dir="$fixture_root/renamefirst"
+    sandbox_scratch "$dir"
+    : > "$dir/a-first.txt"
+    local bindir="$fixture_root/renamefirst-bin"
+    sandbox_scratch "$bindir"
+    cat > "$bindir/gio" <<EOS
+#!/bin/sh
+# The catalogue legs block until the release exists; every other leg answers at once.
+if [ "\$1" = info ] || [ "\$1" = mime ]; then
+  while [ ! -e "$dir/release" ]; do sleep 0.05; done
+fi
+if [ "\$1 \$2" = "mount -li" ]; then exit 0; fi
+exit 0
+EOS
+    chmod +x "$bindir/gio"
+
+    local fixture_home="$fixture_root/renamefirst-home"
+    fixture_home_make "$fixture_home"
+    local state="$fixture_root/renamefirst-state"
+    seed_ui_state "$state" '{"view":"list","keys":"default"}'
+    local real_home="$HOME" saved_path="$PATH"
+    export PATH="$bindir:$PATH"
+    export HOME="$fixture_home"
+    launch "$dir"
+    export HOME="$real_home"
+    export PATH="$saved_path"
+    wait_listing 1
+
+    click_row 0 right
+    settle
+    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "renamefirst: right click opened no menu"
+    # The snapshot answers at once and takes no gio on its path; only the
+    # catalogue behind it blocks.
+    local attempt
+    for attempt in $(seq 1 100); do
+        [[ "$(ipc menuState | jq -r '.snapshotReady')" == "true" ]] && break
+        sleep 0.05
+    done
+    [[ "$(ipc menuState | jq -r '.snapshotReady')" == "true" ]] \
+        || fail "renamefirst: the menu never snapshotted"
+    local rename_index rx ry wx wy ww wh
+    rename_index=$(menu_row_index "Rename") || fail "renamefirst: the open menu has no Rename row"
+    read -r rx ry <<< "$(ipc contextMenuRowCentre "$rename_index")"
+    [[ -n "$ry" ]] || fail "renamefirst: the Rename row has no on-screen centre"
+    read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
+    omarchy-drive click "$((wx + rx))" "$((wy + ry))" left >/dev/null
+    # The editor opens at once, ahead of the blocked catalogue: red today, where
+    # the activate waited behind it.
+    local opened=""
+    for attempt in $(seq 1 100); do
+        if [[ "$(ipc renamingIndex)" == "0" && "$(ipc renameEditorLive)" == "true" ]]; then opened="yes"; break; fi
+        sleep 0.05
+    done
+    [[ "$opened" == "yes" ]] \
+        || fail "renamefirst: Rename did not open the editor, renamingIndex is $(ipc renamingIndex)"
+    shot renamefirst-editing
+
+    # An outside create lands while the field is open; the held watch keeps the draft.
+    : > "$dir/x"
+    key "a-renamed" >/dev/null
+    key -k Return >/dev/null
+    settle
+    [[ -e "$dir/a-renamed.txt" ]] || fail "renamefirst: the commit did not land first try"
+    [[ ! -e "$dir/a-first.txt" ]] || fail "renamefirst: the old name is still on disk"
+    : > "$dir/release"
+    shot renamefirst-renamed
+}
+
 case_rename() {
     local dir="$fixture_root/rename"
     sandbox_scratch "$dir"
@@ -11073,7 +11147,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick)
 
 : > "$run_log"
 : > "$flea_log"

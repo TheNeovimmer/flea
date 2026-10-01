@@ -121,6 +121,9 @@ function forget(pane, keptQuery) {
     pane.trashArmedAt = 0
     // The row the editor sat on belongs to the listing being replaced, so the rename goes with it:
     // leaving the index set opened an empty editor over whatever file arrived at that row instead.
+    // A held sort belongs to that same edit, so a navigation drops it with it;
+    // ui/js/Sort.js applyPending already skipped it while this listing is out.
+    pane.pendingSort = null
     pane.renamingIndex = -1
     // A filter narrows the rows already listed, so a new listing forgets it unless ui/js/Anchor.js hands it back.
     Filter.close(pane)

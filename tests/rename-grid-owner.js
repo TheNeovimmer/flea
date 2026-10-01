@@ -16,6 +16,9 @@ function injectPane(fixture, source) {
     assert.ok(failed, "PaneWire.onFailed source is missing");
     paint.registerPaintProof(path.resolve(process.argv.slice(2).find(arg => !arg.startsWith("--")) || path.join(__dirname, "..")));
     fixture = fixture.replace("    function finish()", paint.paintStep.toString() + "\n    function finish()");
+    // The pending turns stub the G1 refusal surface on the fixture pane; the
+    // owner case injects Pane's real renameEditor below, so the stub goes first.
+    fixture = fixture.replace("        function renameEditor() { return probe.editor() }\n", "");
     return fixture.replace('import "flea/js/Ops.js" as Ops', 'import "flea/js/Ops.js" as Ops\nimport "flea/js/Tap.js" as Tap\nimport "flea/js/Errors.js" as Errors')
         .replace("    property int step: 0", `    property Item retainedLoader: null
     property Item liveLoader: null

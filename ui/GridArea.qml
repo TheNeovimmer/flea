@@ -179,10 +179,9 @@ GridView {
                     Tap.tappedMenu(cell.listingIndex, eventPoint, root.pane, root.menu)
                 else {
                     Tap.tapped(cell.listingIndex, tap.tapCount, tap.point.modifiers, root.pane)
-                    // The slow click renames; a double click opens through tapped() above instead.
-                    if (tap.tapCount === 1 && Tap.slowClick(cell.listingIndex, tap.point.modifiers, Date.now(),
-                            Qt.styleHints.mouseDoubleClickInterval, root.pane, dragSession.Drag.active))
-                        root.pane.act("rename")
+                    // The slow click renames on the pane's timer; a double click opens through tapped() above instead.
+                    if (tap.tapCount === 2) root.pane.cancelSlowClick()
+                    else if (tap.tapCount === 1) root.pane.armSlowClick(cell.listingIndex, tap.point.modifiers, dragSession.Drag.active)
                 }
             }
         }

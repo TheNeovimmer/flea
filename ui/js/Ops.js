@@ -187,6 +187,32 @@ function newFolder(pane) {
     pane.backend.mkdir(pane.path)
 }
 
+// Issue #170: the menu's Rename opens the editor at once instead of queueing an
+// activate behind the cold Open-with catalogue the right-click already queued on
+// the menu service's single worker. With a ready snapshot over the current
+// selection the editor can open now by the route F2 takes; commit-time
+// validation is unchanged, do_menu_rename still checks the snapshot id and the
+// dev/ino. Anything else takes the F2 route, which snapshots the cursor row and
+// shows on its reply, cancelling a cold catalogue on the way.
+function menuRenameNow(ready, identity, currentIdentity) {
+    return ready === true && (identity || "") !== "" && identity === currentIdentity
+}
+
+// Grid closing review G1: a refused rename with no live editor to show it is
+// shown nowhere when renameError is set and the edit then closes, losing the
+// typed name in silence. With no live editor the same sentence goes to the
+// status bar as an error and the edit closes; otherwise the editor shows it.
+function refuseRename(pane, reason) {
+    if (pane.renamingIndex >= 0 && pane.renameEditor() !== null) {
+        pane.renameError = reason
+        return "editor"
+    }
+    pane.message(reason, true)
+    if (pane.renamingIndex >= 0)
+        pane.renamingIndex = -1
+    return "status"
+}
+
 // Every view draws the same inline editor: the list and the grid inside the row, the columns view
 // over its active column, see ui/ColumnPane.qml's own corner.
 function startRename(pane, menuId, index) {

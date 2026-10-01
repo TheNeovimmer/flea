@@ -39,6 +39,13 @@ function column(pane, key) {
     // The flyout's last row (issue 179) forgets the folder and lists it on the default.
     // Recent stands on the root, so forgetting re-asks its history instead of listing the root over it.
     if (key === "__default__") {
+        // Forgetting re-lists, which would drop an open edit with its draft the
+        // same way a retarget does, so it holds like any other sort request.
+        if (pane.renamingIndex >= 0 || pane.renamePending) {
+            pane.pendingSort = { forget: true }
+            if (pane.renamingIndex >= 0 && !pane.renamePending) pane.commitOpenRename()
+            return
+        }
         if ((pane.recentMode || "").length > 0) {
             RecentMode.run(pane, pane.recentPaths || [])
             return
@@ -72,6 +79,16 @@ function reverse(pane) {
 // The request goes out for every key, so the refusal is the backend's alone. Only an order it will
 // really produce moves the recorded one, or the mark would describe a listing that never changed.
 function resort(pane, key, desc) {
+    // An edit open or a rename pending: never retarget the editor, whose field
+    // follows the row at its index. The sort is held and an open edit is
+    // committed the way a click-away commits; it applies once the rename settles
+    // through applyPending and is never dropped. A write already in flight is
+    // not recommitted, it is only waited for.
+    if (pane.renamingIndex >= 0 || pane.renamePending) {
+        pane.pendingSort = { key: key, desc: desc }
+        if (pane.renamingIndex >= 0 && !pane.renamePending) pane.commitOpenRename()
+        return
+    }
     // Asking for the order the listing is already in would drop every row-indexed cache and put the
     // cursor back to redraw the rows already on screen, so it is not asked for at all.
     if (pane.backend.sortBy === key && pane.backend.sortDesc === desc) {
@@ -96,4 +113,18 @@ function resort(pane, key, desc) {
     pane.setCursor(0)
     // sort emits no rows of its own, so the reordered window is asked for here; see docs/protocol.md.
     pane.backend.window(0, pane.windowSize)
+}
+
+// The held sort a resort deferred while an edit was open or a rename pending.
+// Runs when the edit ends, through ui/Pane.qml's onRenamingIndexChanged, so a
+// rename that settles and an Escape that abandons both apply what was asked.
+function applyPending(pane) {
+    var held = pane.pendingSort
+    if (!held) return
+    // Not settled yet, or nowhere to send it: the hold stands.
+    if (pane.listInFlight || pane.renamingIndex >= 0 || pane.renamePending) return
+    if (!pane.backend || pane.backend.quitting || !pane.backend.running) { pane.pendingSort = null; return }
+    pane.pendingSort = null
+    if (held.forget) { column(pane, "__default__"); return }
+    resort(pane, held.key, held.desc)
 }

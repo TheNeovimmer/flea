@@ -151,6 +151,23 @@ function run(check) {
 
     wired(check)
     failedClears(check)
+    busyMenu(check)
+}
+
+// A watcher re-read landing while a menu action waits loses the rename: the
+// reply is refused when menuSelectionIdentity flips. busy must hold it back.
+function busyMenu(check) {
+    var at = Fixture.scene(7)
+    var p = at.pane
+    check("a pane at rest holds no watched re-read back for a menu either", Anchor.busy(p), false)
+    p.menuActions.pendingAction = "rename"
+    check("a pending menu action holds the watched re-read", Anchor.busy(p), true)
+    p.menuActions.pendingAction = ""
+    p.menuActions.pendingActivation = true
+    check("a pending menu activation holds the watched re-read", Anchor.busy(p), true)
+    p.menuActions.pendingActivation = false
+    check("a settled menu frees the watched re-read", Anchor.busy(p), false)
+    at.parent.destroy()
 }
 
 // ui/CollideHost.qml onFailed clears the wait only for the production refusal shape: the Backend

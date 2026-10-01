@@ -431,8 +431,9 @@ Item {
                     return
                 } else {
                     var reason = Errors.exists(message) ? Ops.leaf(request.destination) + " already exists." : Errors.capitalised(message)
-                    if (pane.renamingIndex >= 0) pane.renameError = reason
-                    else pane.message(reason, true)
+                    // Grid closing review G1: with no live editor to show it, the
+                    // refusal goes to the status bar and the edit closes.
+                    Ops.refuseRename(pane, reason)
                     return
                 }
             }

@@ -57,6 +57,10 @@ Window {
         property string renameError: ""
         property var renameRequest: null
         readonly property bool renamePending: renameRequest !== null
+        // Grid closing review G1: the status-bar refusal the pending turns assert.
+        property var said: []
+        function message(text, isError) { said.push([text, isError]) }
+        function renameEditor() { return probe.editor() }
         property var selectionBand: null
         property var clipboard: null
         property var thumbState: ({file: {}, order: []})

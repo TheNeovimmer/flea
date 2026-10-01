@@ -6,10 +6,16 @@
 // split out of tests/js/nav.js; ui/js/Nav.js keeps navigation and this keeps the return.
 
 // ui/PaneWire.qml watchBusy: a re-read renumbers every row, so it waits while anything names a row by index or holds one open, the collision card's transfer too.
+// A menu action waiting on its reply waits as well: a re-read landing then flips
+// menuSelectionIdentity and the reply is refused, losing the rename it was for.
 function busy(pane) {
-    return !pane || pane.listInFlight || pane.renamingIndex >= 0 || pane.renamePending
-        || pane.menuVisible || pane.menuActions.opened || pane.filterTyping || pane.searchMode.length > 0
-        || pane.selectionCount() > 0 || pane.selectionBand !== null || pane.collide.pending !== null
+    if (!pane)
+        return true
+    if (pane.menuActions && (pane.menuActions.pendingAction || pane.menuActions.pendingActivation === true))
+        return true
+    return pane.listInFlight || pane.renamingIndex >= 0 || pane.renamePending
+        || pane.menuVisible || (pane.menuActions && pane.menuActions.opened) || pane.filterTyping || pane.searchMode.length > 0
+        || pane.selectionCount() > 0 || pane.selectionBand !== null || (pane.collide && pane.collide.pending !== null)
 }
 
 // A change another program made under the open listing, unlike ui/js/Nav.js refresh() which follows
