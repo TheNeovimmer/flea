@@ -115,6 +115,15 @@ function thumbLimit(thumbWidth, thumbHeight, originalWidth, originalHeight) {
     return thumbLongest < CACHE_SIZE ? 1 : Infinity
 }
 
+// A video poster draws at the player's size, the largest aspect-fit inside the frame, enlarged
+// when the clip is small; an image keeps the never-enlarge cap (GM, 2026-09-24). Sample input:
+// posterLimit(true, 256, 256, 64, 64) is Infinity, posterLimit(false, 256, 256, 64, 64) is 64/256.
+function posterLimit(isVideo, thumbWidth, thumbHeight, originalWidth, originalHeight) {
+    if (isVideo)
+        return Infinity
+    return thumbLimit(thumbWidth, thumbHeight, originalWidth, originalHeight)
+}
+
 // Backend icon identity distinguishes image thumbnails from video without opening any extra file.
 function allowed(row, mode) {
     if (!row || !row.t || mode === "off") return false

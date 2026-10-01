@@ -102,6 +102,8 @@ Item {
     readonly property bool thumbShown: root.wantsThumb && root.thumbDrawn
     // For ui/Ipc.qml's columnFrameRect: the box a playing video's pixels must change inside.
     readonly property Item frameItem: frame
+    // For ui/Ipc.qml's columnPictureRect: the drawn poster itself, so a test can prove it fills the frame.
+    readonly property Item pictureItem: frameThumb
     readonly property Item linesItem: lines
     readonly property Item archiveItem: archivePane
     // Ready is the decoded picture on screen; thumbShown is already true while it loads.
@@ -138,8 +140,9 @@ Item {
                 readonly property real boxHeight: parent.height - 2 * Theme.spacing.hairline
                 readonly property bool vector: root.thumb.length === 0 && root.vectorPath
                 // The fallback is the original, so never enlarged; a cache file up to the original's own size.
+                // A video poster is the exception: it draws at the player's size, enlarged when the clip is small.
                 readonly property real fit: Thumbs.fitScale(boxWidth, boxHeight, implicitWidth, implicitHeight, root.thumb.length === 0 ? 1
-                    : Thumbs.thumbLimit(implicitWidth, implicitHeight, root.meta ? root.meta.w : 0, root.meta ? root.meta.h : 0))
+                    : Thumbs.posterLimit(root.previewState === Facts.VIDEO, implicitWidth, implicitHeight, root.meta ? root.meta.w : 0, root.meta ? root.meta.h : 0))
                 x: vector ? Theme.spacing.hairline : Math.round((parent.width - width) / 2)
                 y: vector ? Theme.spacing.hairline : Math.round((parent.height - height) / 2)
                 width: vector ? boxWidth : implicitWidth * fit

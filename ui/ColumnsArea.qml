@@ -208,6 +208,7 @@ Item {
     function childItemAt(index) { return childColumn.itemAtIndex(index) }
     function childEmptyItem() { return childColumn.emptyItem }
     function frameItem() { return preview.frameItem }
+    function pictureItem() { return preview.pictureItem }
     function playerLoaded() { return preview.playerLoaded() }
     readonly property int previewIndex: preview.visible ? preview.loadedIndex : -1
     function thumbShown() { return preview.thumbShown }

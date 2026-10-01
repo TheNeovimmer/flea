@@ -128,4 +128,9 @@ function run(check) {
     check("a cache file smaller than the cache size is the original's own size, never enlarged",
           drawn(Thumbs.fitScale(754, 471, 64, 48, Thumbs.thumbLimit(64, 48, 0, 0)), 64, 48), "64x48")
     check("a frame smaller than the picture still shrinks it", drawn(Thumbs.fitScale(200, 125, 256, 171, Thumbs.thumbLimit(256, 171, 6000, 4000)), 256, 171), "187x125")
+    // A video poster fills the frame the way its player does; an image keeps the never-enlarge cap.
+    check("a video poster is uncapped", Thumbs.posterLimit(true, 256, 256, 64, 64), Infinity)
+    check("an image poster keeps its cap", Thumbs.posterLimit(false, 256, 256, 64, 64), 64 / 256)
+    check("a 64x64 clip poster in the 754x471 frame fills it",
+          drawn(Thumbs.fitScale(754, 471, 256, 256, Thumbs.posterLimit(true, 256, 256, 64, 64)), 256, 256), "471x471")
 }

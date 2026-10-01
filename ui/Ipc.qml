@@ -531,6 +531,7 @@ QtObject {
         function columnFailure(): string { return root.columns ? root.columns.failureText() : "" }
         function rowThumbRect(i: int): string { var item = root.pane.visibleItemFor(i); return item && item.thumbItem ? root.fleaWindow.rectOf(item.thumbItem) : "" }
         function columnFrameRect(): string { return root.columns ? root.fleaWindow.rectOf(root.columns.frameItem()) : "" }
+        function columnPictureRect(): string { return root.columns ? root.fleaWindow.rectOf(root.columns.pictureItem()) : "" }
         function columnChildEmpty(): string { var e = root.columns ? root.columns.childEmptyItem() : null; return e ? e.visible + " " + e.opacity.toFixed(2) + " " + e.markItem.opacity.toFixed(2) : "" }
         function columnChildMarkRect(): string { var e = root.columns ? root.columns.childEmptyItem() : null; return e ? root.fleaWindow.rectOf(e.markItem) : "" }
         function columnChildRowCentre(i: int): string { return root.columns ? root.fleaWindow.centreOf(root.columns.childItemAt(i)) : "" }

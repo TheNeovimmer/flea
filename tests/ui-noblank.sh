@@ -224,6 +224,45 @@ case_previewswap() {
     printf 'PREVIEWSWAP look holds=%s mid=%s fallbacks=%s\n' \
         "$(jq -r '.look.holds' <<< "$after")" "$after_mid" "$(jq -r '.look.fallbacks' <<< "$after")"
 
+    # A small clip's poster fills the frame the way its player does; a small image keeps its own size.
+    seek_row_named "b-video.mp4"
+    settle
+    for _attempt in $(seq 1 60); do
+        [[ "$(ipc previewColumnState)" == "video" && "$(ipc columnThumbShown)" == "true" ]] && break
+        sleep 0.1
+    done
+    [[ "$(ipc previewColumnState)" == "video" && "$(ipc columnThumbShown)" == "true" ]] \
+        || fail "previewswap: b-video.mp4 shows $(ipc previewColumnState), thumb shown $(ipc columnThumbShown)"
+    for _attempt in $(seq 1 60); do
+        [[ "$(ipc columnFrameReady)" == "true" ]] && break
+        sleep 0.1
+    done
+    read -r fx fy fw fh <<< "$(ipc columnFrameRect)"
+    read -r px py pw ph <<< "$(ipc columnPictureRect)"
+    printf 'PREVIEWSWAP poster frame=%s,%s,%s,%s picture=%s,%s,%s,%s\n' "$fx" "$fy" "$fw" "$fh" "$px" "$py" "$pw" "$ph"
+    (( ph >= fh - 4 && ph <= fh )) \
+        || fail "previewswap: the 64x64 clip poster is $pw x $ph in a $fw x $fh frame, not filled on its limiting side"
+    (( 2 * px + pw - (2 * fx + fw) >= -4 && 2 * px + pw - (2 * fx + fw) <= 4 )) \
+        || fail "previewswap: the clip poster is not centred horizontally in its frame"
+    (( 2 * py + ph - (2 * fy + fh) >= -4 && 2 * py + ph - (2 * fy + fh) <= 4 )) \
+        || fail "previewswap: the clip poster is not centred vertically in its frame"
+    seek_row_named "a-image.jpg"
+    settle
+    for _attempt in $(seq 1 60); do
+        [[ "$(ipc previewColumnState)" == "image" && "$(ipc columnThumbShown)" == "true" ]] && break
+        sleep 0.1
+    done
+    [[ "$(ipc previewColumnState)" == "image" && "$(ipc columnThumbShown)" == "true" ]] \
+        || fail "previewswap: a-image.jpg shows $(ipc previewColumnState), thumb shown $(ipc columnThumbShown)"
+    for _attempt in $(seq 1 60); do
+        [[ "$(ipc columnFrameReady)" == "true" ]] && break
+        sleep 0.1
+    done
+    read -r px py pw ph <<< "$(ipc columnPictureRect)"
+    printf 'PREVIEWSWAP still frame=%s,%s,%s,%s picture=%s,%s,%s,%s\n' "$fx" "$fy" "$fw" "$fh" "$px" "$py" "$pw" "$ph"
+    (( pw >= 62 && pw <= 66 && ph >= 62 && ph <= 66 )) \
+        || fail "previewswap: the 64x64 image draws at $pw x $ph, not its own size"
+
     printf 'PREVIEWSWAP column=ok look=ok %s\n' "$(ipc previewSwapState)"
     kill_flea
 }

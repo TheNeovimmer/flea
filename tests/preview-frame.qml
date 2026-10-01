@@ -5,8 +5,8 @@ import Quickshell
 import "flea" as Flea
 
 // The Columns preview frame drawn by the real ui/PreviewColumn.qml, offscreen: an office file's embedded
-// thumbnail at its own aspect with no "no preview" over it, and a small original at its own size, never
-// enlarged. tests/preview-frame.sh drives it.
+// thumbnail at its own aspect with no "no preview" over it, a small original at its own size, never
+// enlarged, and a small clip's poster filling the frame the way its player does. tests/preview-frame.sh drives it.
 ShellRoot {
     id: root
 
@@ -22,11 +22,11 @@ ShellRoot {
         implicitHeight: 900
         color: "black"
 
-        // The fixtures, drawn here so the test needs no image tool: a portrait office page and an original
-        // smaller than the frame.
+        // The fixtures, drawn here so the test needs no image tool: a portrait office page, an original
+        // smaller than the frame, and a square video poster larger than the clip it stands in for.
         Repeater {
             id: fixtures
-            model: [["office", 181, 256], ["small", 120, 68]]
+            model: [["office", 181, 256], ["small", 120, 68], ["video", 256, 256]]
             delegate: Rectangle {
                 required property var modelData
                 width: modelData[1]
@@ -67,7 +67,7 @@ ShellRoot {
         column.thumb = extra.thumb || ""
         column.row = row
         column.kindName = kindName
-        column.meta = {}
+        column.meta = extra.meta !== undefined ? extra.meta : {}
         column.path = extra.path
     }
 
@@ -94,6 +94,18 @@ ShellRoot {
             } else if (root.step === 2) {
                 if (column.frameStatus !== Image.Ready) return
                 if (thumb.width !== 120 || thumb.height !== 68) root.fail("a 120x68 original drawn at " + thumb.width + "x" + thumb.height)
+                root.step = 3; waited = 0
+                root.show({ n: "clip.mp4", d: false, s: 1, m: 1, p: 33188, i: "video-x-generic", t: true, k: 0 }, "MPEG-4 video",
+                          { thumb: root.dir + "/video.png", path: root.dir + "/clip.mp4",
+                            meta: { w: 64, h: 64, durationMs: 1000 } })
+            } else if (root.step === 3) {
+                if (column.frameStatus !== Image.Ready) return
+                if (column.previewState !== "video") root.fail("video row read as " + column.previewState)
+                // A 64x64 clip's poster fills the frame on its limiting side, the way the player does.
+                if (!root.near(thumb.height, column.frameItem.height - 2)) root.fail("a 64x64 clip poster drawn at " + thumb.width + "x" + thumb.height + " in a " + column.frameItem.width + "x" + column.frameItem.height + " frame")
+                if (!root.near(thumb.width, thumb.height)) root.fail("a square clip poster drawn non-square at " + thumb.width + "x" + thumb.height)
+                if (!root.near(thumb.x, (column.frameItem.width - thumb.width) / 2)) root.fail("a clip poster not centred at x=" + thumb.x)
+                if (!root.near(thumb.y, (column.frameItem.height - thumb.height) / 2)) root.fail("a clip poster not centred at y=" + thumb.y)
                 root.finish()
             }
         }
@@ -104,18 +116,18 @@ ShellRoot {
         for (var f = 0; f < root.failures.length; f++)
             console.log("PREVIEW_FRAME FAIL " + root.failures[f])
         if (root.failures.length === 0)
-            console.log("PREVIEW_FRAME PASS office=fitted small=own-size")
+            console.log("PREVIEW_FRAME PASS office=fitted small=own-size video=fills-frame")
         Quickshell.execDetached(["kill", String(Quickshell.processId)])
     }
 
-    // Saves the four fixtures, then starts on the office row.
+    // Saves the three fixtures, then starts on the office row.
     property int saved: 0
     Component.onCompleted: saveTimer.start()
     Timer {
         id: saveTimer
         interval: 50
         onTriggered: {
-            var names = ["office", "small"]
+            var names = ["office", "small", "video"]
             for (var i = 0; i < names.length; i++) {
                 let name = names[i]
                 fixtures.itemAt(i).grabToImage(function (result) {
