@@ -626,7 +626,8 @@ case_settingsplaces() {
     index=$(ipc railEntries | jq -er 'map(.kind) | index("favourite")')
     click_rail_row "$index" right; settle
     places_require_store
-    places_click_menu Remove
+    # A rail favourite's menu is the folder menu, so its row is Remove from Favorites.
+    places_click_menu 'Remove from Favorites'
     expected=$(jq -c 'del(.[0])' <<< "$expected")
     places_wait_records "$expected"
     launch "$dir/listing"; wait_listing 3

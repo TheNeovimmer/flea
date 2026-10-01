@@ -465,7 +465,7 @@ launch() {
 
 wait_listing() {
     local want_total="$1"
-    local total row state shown
+    local total row=loading state shown
     for _attempt in $(seq 1 300); do
         total=$(ipc total 2>/dev/null || printf unavailable)
         if [[ "$want_total" == 0 ]]; then
@@ -741,13 +741,18 @@ fact_labels() {
 }
 
 # Walks the cursor to a row by name, from the top, so no case depends on an index the sort could move.
+# rowAt reads the list view's own delegate, which grid and columns leave unbuilt; there the
+# row the shown view draws stands in for it, the same fallback wait_listing uses.
 seek_row_named() {
-    local want="$1" i n
+    local want="$1" i n cur got
     n=$(ipc total)
     [[ "$n" =~ ^[0-9]+$ ]] && (( n > 40 )) || n=40
     key g >/dev/null
     for i in $(seq 1 "$n"); do
-        [[ "$(ipc rowAt "$(ipc cursor)")" == "$want|"* ]] && return 0
+        cur=$(ipc cursor)
+        got=$(ipc rowAt "$cur")
+        [[ "$got" == "$want|"* ]] && return 0
+        [[ "$got" == loading && "$(ipc visibleRowName "$cur")" == "$want" ]] && return 0
         key j >/dev/null
     done
     fail "could not put the cursor on $want"
@@ -2169,11 +2174,11 @@ case_ctrlclick() {
         [[ "$(ipc selectedIndices)" == "1,3" ]] \
             || fail "ctrlclick: in the $view ctrl+click selected '$(ipc selectedIndices)', not 1,3"
         [[ "$(ipc cursor)" == "3" ]] || fail "ctrlclick: in the $view the cursor is $(ipc cursor), not 3"
-        # The anchor is the ctrl+clicked row, so a shift+click from it runs 2,3 and never back to 1.
+        # Issue 209 additive-range ruling: a shift range adds to a ctrl selection, so from 1,3 it keeps 1 and adds 2,3.
         click_row 2 left --mods shift
         settle
-        [[ "$(ipc selectedIndices)" == "2,3" ]] \
-            || fail "ctrlclick: in the $view shift+click selected '$(ipc selectedIndices)', not 2,3"
+        [[ "$(ipc selectedIndices)" == "1,2,3" ]] \
+            || fail "ctrlclick: in the $view shift+click selected '$(ipc selectedIndices)', not 1,2,3"
         # PR 106's own case: a cursor row with nothing marked is that row selected to every write
         # operation, so the ctrl+click adds to it rather than replacing it.
         key -k Escape >/dev/null
@@ -3492,7 +3497,8 @@ case_columns() {
     (( $(ipc headerTop) == $(ipc chromeHeight) )) || fail "columns: the column header did not collapse"
 
     # Row 0 is the directory "inner", so the third pane is its contents and not a preview.
-    [[ "$(ipc rowAt 0)" == "inner|dir|"* ]] || fail "columns: row 0 is $(ipc rowAt 0), not the directory"
+    # The hidden list has model 0 in columns, so rowAt reads loading there; visibleRowName reads the shown view.
+    [[ "$(ipc visibleRowName 0)" == "inner" ]] || fail "columns: row 0 is $(ipc visibleRowName 0), not the directory"
 
     # The archive tile: an exact count, an unpacked total, and the entries the frame could name.
     seek_row_named "backup.tar.zst"
@@ -3766,8 +3772,9 @@ case_colroot() {
             [[ -z "$(ipc columnGreatGrandparentRowCentre 0)" ]] \
                 || fail "colroot: limit $n shows a great-grandparent row at /"
         fi
-        [[ "$(ipc rowAt 0)" != "loading" ]] || fail "colroot: limit $n left the active column with no rows"
-        printf 'COLROOT limit=%s count=%s parent=blank active=%s\n' "$n" "$count" "$(ipc rowAt 0 | cut -d'|' -f1)"
+        # The hidden list has model 0 in columns, so rowAt reads loading there; visibleRowName reads the shown view.
+        [[ "$(ipc rowAt 0)" != "loading" || -n "$(ipc visibleRowName 0)" ]] || fail "colroot: limit $n left the active column with no rows"
+        printf 'COLROOT limit=%s count=%s parent=blank active=%s\n' "$n" "$count" "$(ipc visibleRowName 0)"
         shot "colroot-$n"
         kill_flea
     done
@@ -3810,10 +3817,15 @@ case_colroot() {
 }
 
 # The listing at / has no fixed total, so this waits for a settled path rather than a count.
+# The hidden list has model 0 in columns, so rowAt reads loading there; visibleRowName reads the shown view.
 wait_colroot_settled() {
-    local row
+    local row shown
     for _attempt in $(seq 1 300); do
         row=$(ipc rowAt 0 2>/dev/null || printf loading)
+        if [[ "$row" == loading ]]; then
+            shown=$(ipc visibleRowName 0 2>/dev/null || true)
+            [[ -n "$shown" ]] && row="$shown|"
+        fi
         if [[ "$(ipc path 2>/dev/null)" == "/" && "$row" != "loading" && "$(ipc listInFlight 2>/dev/null)" == "false" ]]; then
             return
         fi
@@ -4670,6 +4682,17 @@ case_header() {
 
 # ListColumns040: dragging a column edge resizes it, remembers the width, and never sorts. Sample input: headerCellRect size prints "400|70".
 # The drag is closed-loop against the live header rect, because ydotool relative motion is accelerated and a step count cannot name a distance.
+# headerCellRect is polled until two reads agree, so a mid-drag sample never stands in for a settled width.
+column_stable_rect() {
+    local key="$1" first second
+    for _stable_i in $(seq 1 40); do
+        first=$(ipc headerCellRect "$key")
+        sleep 0.05
+        second=$(ipc headerCellRect "$key")
+        [[ "$first" == "$second" ]] && { printf '%s' "$first"; return 0; }
+    done
+    printf '%s' "$second"
+}
 column_drag_to() {
     local key="$1" target="$2" tries="$3"
     local rect _x w
@@ -4699,14 +4722,14 @@ case_columnresize() {
     wait_listing 3
     local before_mark before_w
     before_mark=$(ipc sortMark)
-    IFS='|' read -r _x before_w <<< "$(ipc headerCellRect size)"
+    IFS='|' read -r _x before_w <<< "$(column_stable_rect size)"
     [[ "$before_w" =~ ^[0-9]+$ ]] || fail "columnresize: the size header has no width, got $before_w"
 
     # The handle sits on the cell's left edge (Header.qml anchors each ResizeHandle there), not on the painted text centre, which misses the 9 px handle on a right-aligned cell.
-    local cx cy cell_x cell_w edge_x header_left wx wy ww wh
+    local cx cy cell_x cell_w edge_x header_left wx wy ww wh before_x after_x travel delta
     read -r cx cy <<< "$(ipc headerCellCentre size)"
     [[ -n "$cx" && -n "$cy" ]] || fail "columnresize: the size header has no centre"
-    IFS='|' read -r cell_x cell_w <<< "$(ipc headerCellRect size)"
+    IFS='|' read -r cell_x cell_w <<< "$(column_stable_rect size)"
     [[ "$cell_x" =~ ^-?[0-9]+$ ]] || fail "columnresize: the size header has no left edge, got $cell_x"
     header_left=$(ipc headerLeft)
     [[ "$header_left" =~ ^-?[0-9]+$ ]] || fail "columnresize: the header has no left edge, got $header_left"
@@ -4715,17 +4738,25 @@ case_columnresize() {
     omarchy-drive move "$(( wx + edge_x ))" "$(( wy + cy ))" >/dev/null
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 \
         || fail "columnresize: the edge press failed"
+    # The header follows the pointer one to one, so the width change equals the real cursor travel
+    # within 1 px; ydotool relative motion is accelerated, so a step count cannot name a distance.
+    before_x=$(hyprctl -j cursorpos | jq -er .x) \
+        || fail "columnresize: no cursor position before the drag"
     # Closed-loop: ydotool relative motion is accelerated, so the rect decides when to stop.
     column_drag_to size "$(( before_w + 40 ))" 12 -10
+    after_x=$(hyprctl -j cursorpos | jq -er .x) \
+        || fail "columnresize: no cursor position after the drag"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 \
         || fail "columnresize: the edge release failed"
     settle
     local grown_w
-    IFS='|' read -r _x grown_w <<< "$(ipc headerCellRect size)"
-    printf 'COLUMNRESIZE before=%s grown=%s mark=%s\n' "$before_w" "$grown_w" "$(ipc sortMark)"
+    IFS='|' read -r _x grown_w <<< "$(column_stable_rect size)"
+    printf 'COLUMNRESIZE before=%s grown=%s mark=%s travel=%s\n' "$before_w" "$grown_w" "$(ipc sortMark)" "$(( before_x - after_x ))"
     shot columnresize-drag
-    (( grown_w >= before_w + 30 && grown_w <= before_w + 70 )) \
-        || fail "columnresize: a leftward 40 px drag moved size from $before_w to $grown_w"
+    travel=$(( before_x - after_x ))
+    delta=$(( grown_w - before_w ))
+    (( delta >= travel - 1 && delta <= travel + 1 )) \
+        || fail "columnresize: the header moved size from $before_w to $grown_w (delta $delta) for $travel px of cursor travel"
     [[ "$(ipc sortMark)" == "$before_mark" ]] \
         || fail "columnresize: the drag sorted, mark is $(ipc sortMark)"
     [[ "$(ipc columnWidths | jq -er '.size')" == "$grown_w" ]] \
@@ -4743,7 +4774,7 @@ case_columnresize() {
 
     # To the floor: a rightward drag shrinks to the 48 rail, and six steps past it still read 48.
     read -r cx cy <<< "$(ipc headerCellCentre size)"
-    IFS='|' read -r cell_x cell_w <<< "$(ipc headerCellRect size)"
+    IFS='|' read -r cell_x cell_w <<< "$(column_stable_rect size)"
     [[ "$cell_x" =~ ^-?[0-9]+$ ]] || fail "columnresize: the size header has no left edge on the floor pass, got $cell_x"
     header_left=$(ipc headerLeft)
     [[ "$header_left" =~ ^-?[0-9]+$ ]] || fail "columnresize: the header has no left edge on the floor pass, got $header_left"
@@ -4761,7 +4792,7 @@ case_columnresize() {
         || fail "columnresize: the floor release failed"
     settle
     local floored_w
-    IFS='|' read -r _x floored_w <<< "$(ipc headerCellRect size)"
+    IFS='|' read -r _x floored_w <<< "$(column_stable_rect size)"
     printf 'COLUMNRESIZE floored=%s\n' "$floored_w"
     shot columnresize-floor
     [[ "$floored_w" == "48" ]] || fail "columnresize: a drag past the floor landed at $floored_w, not 48"
@@ -9360,8 +9391,10 @@ case_dualsort() {
             touch -d "@$((date_epoch + index))" "$dir/$side/$name" || fail 'dualsort: private file date failed'
         done
     done
+    # Per-folder sort defaults on and this folder has no saved sort: rememberSort false keeps
+    # the live default, so this stays about dual-pane independence rather than a stored name:desc.
     seed_ui_state "$state" "$(jq -cn --arg left "$dir/left" --arg right "$dir/right" \
-        '{view:"dual",keys:"default",sort:{key:"name",reverse:false},dual:{paths:[$left,$right],focus:0}}')"
+        '{view:"dual",keys:"default",rememberSort:false,sort:{key:"name",reverse:false},dual:{paths:[$left,$right],focus:0}}')"
     launch "$dir/left"
     menus_expect dualState '.active and .focused == 0 and all(.panes[]; .total == 80 and (.loading | not))' 'both dual listings start independently'
     dual_sort_wait name:asc file-00.txt
@@ -10712,10 +10745,11 @@ case_views() {
         # $pass, not $mode: the "again" pass runs the grid a second time and shot keeps every capture.
         shot "views-$pass-thumbs"
         # Directories sort first, so the fixture's four media files are rows 2 to 5 in this order.
+        # The hidden list has model 0 in grid and columns, so rowAt reads loading there; visibleRowName reads the shown view.
         local names=(a-clip.mp4 b-clip.mp4 c-pic.png d-pic.jpg)
         for r in 2 3 4 5; do
-            [[ "$(ipc rowAt "$r")" == "${names[r - 2]}|"* ]] || fail "$mode: row $r is $(ipc rowAt "$r" | cut -d'|' -f1), not ${names[r - 2]}"
-            [[ "$(ipc rowThumbReady "$r")" == "true" ]] || fail "$mode: row $r ($(ipc rowAt "$r" | cut -d'|' -f1)) has no decoded thumbnail"
+            [[ "$(ipc visibleRowName "$r")" == "${names[r - 2]}" ]] || fail "$mode: row $r is $(ipc visibleRowName "$r"), not ${names[r - 2]}"
+            [[ "$(ipc rowThumbReady "$r")" == "true" ]] || fail "$mode: row $r ($(ipc visibleRowName "$r")) has no decoded thumbnail"
             lit=$(lit_in_rect "$evidence_dir/views-$pass-thumbs.png" $(ipc rowThumbRect "$r"))
             (( lit > 30 )) || fail "$mode: row $r's thumbnail box painted $lit lit pixels"
         done
@@ -10738,8 +10772,9 @@ case_views() {
             read -r wx wy _ww _wh < <(window_box) || fail "native window coordinates unavailable"
             omarchy-drive click "$((wx + fx))" "$((wy + fy))" right >/dev/null
             sleep 1
-            [[ "$(ipc path)" == "$dir/sub" && "$(ipc rowAt "$(ipc cursor)")" == s2.txt\|* && "$(ipc contextMenuVisible)" == "true" ]] \
-                || fail "columns: a right click on a peeked row: path $(ipc path), cursor row $(ipc rowAt "$(ipc cursor)" | cut -d'|' -f1), menu $(ipc contextMenuVisible)"
+            # The hidden list has model 0 in columns, so rowAt reads loading there; visibleRowName reads the shown view.
+            [[ "$(ipc path)" == "$dir/sub" && "$(ipc visibleRowName "$(ipc cursor)")" == s2.txt && "$(ipc contextMenuVisible)" == "true" ]] \
+                || fail "columns: a right click on a peeked row: path $(ipc path), cursor row $(ipc visibleRowName "$(ipc cursor)"), menu $(ipc contextMenuVisible)"
             key -k Escape >/dev/null
             settle
             key -k Backspace >/dev/null

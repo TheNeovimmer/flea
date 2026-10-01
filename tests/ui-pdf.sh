@@ -14,20 +14,38 @@ pdf_controls() {
     pdf_expect "$overlay" '.pages == 3 and .focused and .control == 1 and (.controls[0].enabled | not)' "initial focus"
     key -k Return >/dev/null
     pdf_expect "$overlay" '.page == 1' "Enter activates Next"
-    key -k space >/dev/null
-    pdf_expect "$overlay" '.page == 2 and (.controls[1].enabled | not)' "Space activates Next"
-    key -k space >/dev/null
-    pdf_expect "$overlay" '.page == 2' "disabled Next refuses Space"
+    if [[ "$overlay" == true ]]; then
+        # Space closes Quick Look for every kind, so Enter activates the focused control there.
+        key -k Return >/dev/null
+        pdf_expect "$overlay" '.page == 2 and (.controls[1].enabled | not)' "Return activates Next"
+        key -k Return >/dev/null
+        pdf_expect "$overlay" '.page == 2' "disabled Next refuses Return"
+    else
+        key -k space >/dev/null
+        pdf_expect "$overlay" '.page == 2 and (.controls[1].enabled | not)' "Space activates Next"
+        key -k space >/dev/null
+        pdf_expect "$overlay" '.page == 2' "disabled Next refuses Space"
+    fi
     key -M shift -k Tab -m shift >/dev/null
     pdf_expect "$overlay" '.control == 0' "reverse focus skips disabled Next"
-    key -k space >/dev/null
-    pdf_expect "$overlay" '.page == 1' "Space activates Previous"
+    if [[ "$overlay" == true ]]; then
+        key -k Return >/dev/null
+        pdf_expect "$overlay" '.page == 1' "Return activates Previous"
+    else
+        key -k space >/dev/null
+        pdf_expect "$overlay" '.page == 1' "Space activates Previous"
+    fi
     key -k Tab >/dev/null
     pdf_expect "$overlay" '.control == 1' "Tab reaches Next"
     key -k Tab >/dev/null
     pdf_expect "$overlay" '.control == 3' "Tab skips disabled Zoom Out"
-    key -k space >/dev/null
-    pdf_expect "$overlay" '.zoom == 1.25' "Space activates Zoom In"
+    if [[ "$overlay" == true ]]; then
+        key -k Return >/dev/null
+        pdf_expect "$overlay" '.zoom == 1.25' "Return activates Zoom In"
+    else
+        key -k space >/dev/null
+        pdf_expect "$overlay" '.zoom == 1.25' "Space activates Zoom In"
+    fi
     key -M shift -k Tab -m shift >/dev/null
     pdf_expect "$overlay" '.control == 2' "reverse reaches enabled Zoom Out"
     key -k Return >/dev/null
@@ -131,12 +149,13 @@ case_pdffocus() {
         if [[ "$mode" == grid ]]; then
             [[ "$(ipc viewMode)" == grid ]] || fail "PDF grid entry started in $(ipc viewMode), not grid"
             last_row=$(( $(ipc total) - 1 ))
-            [[ "$last_row" -ge 1 && "$(ipc rowAt "$last_row")" == manual.pdf\|* ]] \
-                || fail "PDF grid fixture order put $(ipc rowAt "$last_row") last, not manual.pdf"
+            # The hidden list has model 0 in grid, so rowAt reads loading there; visibleRowName reads the shown view.
+            [[ "$last_row" -ge 1 && "$(ipc visibleRowName "$last_row")" == manual.pdf ]] \
+                || fail "PDF grid fixture order put $(ipc visibleRowName "$last_row") last, not manual.pdf"
             key -k End >/dev/null
             settle
-            selected_row=$(ipc rowAt "$(ipc cursor)")
-            [[ "$(ipc cursor)" == "$last_row" && "$selected_row" == manual.pdf\|* ]] \
+            selected_row=$(ipc visibleRowName "$(ipc cursor)")
+            [[ "$(ipc cursor)" == "$last_row" && "$selected_row" == manual.pdf ]] \
                 || fail "PDF grid End selected row $(ipc cursor): $selected_row, not manual.pdf at $last_row"
             key -k space >/dev/null
             settle

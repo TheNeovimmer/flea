@@ -740,6 +740,8 @@ case_footerstates() (
     click_row "$(row_index_of photo.heic)" left
     operations_idle_footer 10 1 'ten-item selected idle specimen'
     operations_footer_capture idle '.total == 10 and .selected == 1 and (.left.text | startswith("1 of 10 selected")) and .disk.text == .filesystem and .centre.text == "" and .secondary.text == ""'
+    # A lone selection follows plain cursor moves, so keep the click as a deliberate mark before seeking.
+    key v >/dev/null || fail "footer: cannot keep photo.heic in the selection"
     for name in a.txt b.txt y.txt z.txt; do
         seek_row_named "$name"
         key v >/dev/null || fail "footer: cannot add $name to the selection"
@@ -751,7 +753,7 @@ case_footerstates() (
     operations_footer_capture error-unreadable '(.left.text | startswith("1 of 10 selected")) and .centre.text == "Copy failed: photo.heic · permission denied" and .secondary.text == " · esc dismisses"'
     key -k Escape >/dev/null || fail 'footer: failure acknowledgement failed'
     menus_expect statusActivityState '.errors == 0 and .undoAvailable' 'acknowledgement reveals the actual undoable completion'
-    operations_footer_capture completed-unreadable '(.left.text | startswith("1 of 10 selected")) and .centre.text == "Copied 4 of 5 · 1 failed" and .secondary.text == " · z undoes · photo.heic selected for retry"'
+    operations_footer_capture completed-unreadable '(.left.text | startswith("1 of 10 selected")) and .centre.text == "Copied 4 of 5 · 1 failed" and .secondary.text == " · photo.heic selected for retry" and .undo.text == "z undoes"'
     for name in a.txt b.txt y.txt z.txt; do menus_same_file "committed $name" "$menu_box/payload/$name" "$menu_box/destination/$name"; done
     [[ ! -e "$menu_box/destination/photo.heic" && ! -L "$menu_box/destination/photo.heic" ]] || fail 'footer: the unreadable source left a copy behind'
     chmod 644 "$menu_box/payload/photo.heic" || fail 'footer: cannot make photo.heic readable again'
@@ -863,7 +865,7 @@ case_footertrash() (
     wait_listing 10
     trash_wait '.count == 4 and (.busy | not)' 'four originals reach the private Trash provider'
     trash_guard_store 4
-    operations_footer_capture trash '.left.text == "10 items" and .centre.text == "Moved 4 items to Trash" and .secondary.text == " · z undoes"'
+    operations_footer_capture trash '.total == 10 and .selected == 1 and (.left.text | startswith("1 of 10 selected")) and (.left.text | contains("·")) and .centre.text == "Moved 4 items to Trash" and .secondary.text == "" and .undo.text == "z undoes"'
     trash_guard_store 4
     key z >/dev/null || fail 'footer: native Trash Undo failed'
     wait_listing 14

@@ -327,6 +327,8 @@ providers_selection() {
     # the case had never waited for.
     providers_expect ".selected == [$marked] and .refreshing == false" \
         'the click marked the row, and nothing is refreshing, before the cursor moves'
+    # A lone selection follows plain cursor moves, so keep it as a deliberate mark before moving.
+    key v >/dev/null || fail 'providers: keeping the mark failed'
     key -k Down >/dev/null || fail 'providers: cursor movement failed'
     providers_expect ".cursor == $cursor and .selected == [$marked] and .cursorPath == \"$path/b-cursor.txt\" and .selectedPaths == [\"$path/a-marked.txt\"]" 'cursor remains outside the marked selection'
     key -k Menu >/dev/null || fail 'providers: native Menu delivery failed'

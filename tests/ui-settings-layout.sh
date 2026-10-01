@@ -32,9 +32,27 @@ case_settingscompact() {
             || fail "settingscompact: stable height is not measured View content"
         if [[ "$viewport" == 1100x800 ]]; then
             scroll=$(ipc settingsScrollState)
-            # Border subtraction can differ by one floating-point rounding step, never a pixel tolerance.
-            jq -e '((.pane.height - .compactHeight) | fabs) <= (.compactHeight * pow(2; -52))' <<< "$scroll" >/dev/null \
-                || fail "settingscompact: View has unused space or unexpected scrolling: $scroll"
+            # View has grown past the card clamp, so clamp-and-scroll is intended: no scroll only
+            # when content plus chrome fits the viewport minus two clamp margins, else the card
+            # sits at the clamp and its body scrolls to the last View row.
+            max_h=$(( wh - 16 ))
+            if (( ch < max_h )); then
+                # Border subtraction can differ by one floating-point rounding step, never a pixel tolerance.
+                jq -e '((.pane.height - .compactHeight) | fabs) <= (.compactHeight * pow(2; -52))' <<< "$scroll" >/dev/null \
+                    || fail "settingscompact: View has unused space or unexpected scrolling: $scroll"
+            else
+                [[ "$ch" == "$max_h" ]] \
+                    || fail "settingscompact: clamped View card is $ch high, not the $max_h clamp in $viewport"
+                jq -e '.pane.contentHeight > .pane.height' <<< "$scroll" >/dev/null \
+                    || fail "settingscompact: clamped View has no scrolling: $scroll"
+                last_view=$(ipc settingsModel | jq -er '[.[] | select(.kind == "check")][-1].id')
+                settings_focus_row "$last_view"
+                ipc settingsScrollState | jq -e '.pane.y > 0' >/dev/null \
+                    || fail "settingscompact: clamped View did not scroll to $last_view"
+                read -r rx ry <<< "$(ipc settingsRowCentre "$last_view")"
+                (( ry > cy && ry < cy + ch )) \
+                    || fail "settingscompact: clamped View focus on $last_view is outside the card"
+            fi
         fi
         shot "settings-view-$viewport"
         settings_focus_row columns
