@@ -157,8 +157,71 @@ def has_emoji(text):
     return ""
 
 
+def is_gm(an, ae, cn, ce):
+    return an == WANT_AN and ae == WANT_AE and cn == WANT_AN and ce == WANT_AE
+
+
+# Sample input (a parents field): "aaa... bbb..." (two 40-hex shas, space separated)
+def is_merge(parents):
+    return len(parents.split()) >= 2
+
+
+# Sample input (a merge subject): "Merge PR #229 from alextakitani: middle click opens a folder in a new tab"
+def check_merge_subject(subject):
+    fails = []
+    if not subject.startswith("Merge "):
+        fails.append(f"merge subject must start with 'Merge ': {subject[:80]}")
+    if len(subject) > 80:
+        fails.append(f"subject holds {len(subject)} char(s), want at most 80")
+    return fails
+
+
+# Sample input (a merge body): "Merged onto the head; kept both sides.\nSecond line."
+# Empty body passes; otherwise the same 2 to 4 line rule the normal path uses.
+def check_merge_body(full):
+    lines = full.splitlines()
+    if not lines:
+        return None, ["empty message"]
+    if len(lines) <= 1:
+        return [], []
+    body, berr = body_lines(full)
+    if body == [] and len(berr) == 1 and "holds 0 line(s)" in berr[0]:
+        return [], []
+    return body, berr
+
+
+# Sample input (a kept fail): "attribution 'claude'"
+# Contributor history waives identity, subject, body shape, em dash and emoji.
+def contributor_waived(one):
+    if one.startswith(("identity ", "subject ", "body needs", "body holds ", "empty message")):
+        return True
+    if one in ("em dash U+2014",):
+        return True
+    if one.startswith(("emoji U+", "variation selector", "joiner")):
+        return True
+    return False
+
+
 def check_one(sha, an, ae, cn, ce, parents, full):
     fails = []
+    if is_merge(parents) and is_gm(an, ae, cn, ce):
+        lines = full.splitlines()
+        subject = lines[0] if lines else ""
+        fails.extend(check_merge_subject(subject))
+        body, berr = check_merge_body(full)
+        fails.extend(berr)
+        for line in [subject] + (body or []):
+            hit = attribution_hit(line)
+            if hit:
+                fails.append(hit)
+                break
+        if EM_DASH in full:
+            fails.append("em dash U+2014")
+        else:
+            em = has_emoji(full)
+            if em:
+                fails.append(em)
+        return fails
     if an != WANT_AN or ae != WANT_AE or cn != WANT_AN or ce != WANT_AE:
         fails.append(f"identity an={an} <{ae}> cn={cn} <{ce}>, want GM <{WANT_AE}>")
     lines = full.splitlines()
@@ -181,6 +244,52 @@ def check_one(sha, an, ae, cn, ce, parents, full):
         if em:
             fails.append(em)
     return fails
+
+
+# Sample input (a range tip): the one sha no other record names as a parent.
+# The tip starts the first-parent chain; an ambiguous range yields no waivers.
+def range_tip(by_sha):
+    mentioned = set()
+    for sha, an, ae, cn, ce, parents, full in by_sha.values():
+        for p in parents.split():
+            mentioned.add(p)
+    tips = [sha for sha in by_sha if sha not in mentioned]
+    if len(tips) != 1:
+        return ""
+    return tips[0]
+
+
+# Sample input (a chain link): tip "888..." with parents "777... 666...".
+# Follows first parents only, inside the range.
+def first_parent_chain(by_sha, tip):
+    chain = set()
+    cur = tip
+    while cur and cur in by_sha:
+        chain.add(cur)
+        plist = by_sha[cur][5].split()
+        if not plist:
+            break
+        cur = plist[0]
+        if cur in chain:
+            break
+    return chain
+
+
+# Sample input (a side root): second parent "555..." of a GM merge.
+# Walks every parent link from each second (or later) parent of a GM merge.
+def side_reachable(by_sha):
+    seen = set()
+    for sha, an, ae, cn, ce, parents, full in by_sha.values():
+        plist = parents.split()
+        if len(plist) >= 2 and is_gm(an, ae, cn, ce):
+            stack = list(plist[1:])
+            while stack:
+                cur = stack.pop()
+                if cur in seen or cur not in by_sha:
+                    continue
+                seen.add(cur)
+                stack.extend(by_sha[cur][5].split())
+    return seen
 
 
 def main():
@@ -207,10 +316,34 @@ def main():
     if not recs:
         die(f"{zpath} holds no commit records to judge")
     fails = 0
+    by_sha = {}
+    for sha, an, ae, cn, ce, parents, full in recs:
+        if not re.fullmatch(r"[0-9a-f]{40}", sha):
+            die(f"record names no 40-hex commit: {sha[:40]}")
+        by_sha[sha] = (sha, an, ae, cn, ce, parents, full)
+    tip = range_tip(by_sha)
+    chain = first_parent_chain(by_sha, tip) if tip else set()
+    side = side_reachable(by_sha) if tip else set()
+    contributors = set()
+    for sha in side:
+        if sha in chain:
+            continue
+        an, ae = by_sha[sha][1], by_sha[sha][2]
+        if an != WANT_AN or ae != WANT_AE:
+            contributors.add(sha)
     with open(os.path.join(outdir, "commits-findings.tsv"), "w", encoding="utf-8") as out:
         for sha, an, ae, cn, ce, parents, full in recs:
-            if not re.fullmatch(r"[0-9a-f]{40}", sha):
-                die(f"record names no 40-hex commit: {sha[:40]}")
+            if sha in contributors:
+                all_fails = check_one(sha, an, ae, cn, ce, parents, full)
+                kept = [one for one in all_fails if not contributor_waived(one)]
+                for one in kept:
+                    fails += 1
+                    print(f"FAIL {sha[:12]} {one}")
+                    out.write(f"{sha}\t{one}\n")
+                if not kept:
+                    print(f"ACCEPTED {sha[:12]} contributor history")
+                    out.write(f"{sha}\taccepted contributor history: waived identity, subject, body-shape, em dash and emoji ({len(all_fails)} check(s) waived)\n")
+                continue
             for one in check_one(sha, an, ae, cn, ce, parents, full):
                 fails += 1
                 print(f"FAIL {sha[:12]} {one}")

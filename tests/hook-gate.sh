@@ -294,6 +294,96 @@ expect_grep "commit-rules says ERROR" "$root/fix/hollow.out" "holds an empty rec
 if [ $? -eq 2 ]; then echo "FAIL commit-rules errored on a real git log stream"; fail=1; else echo "ok   commit-rules judges a real git log stream"; fi
 if grep -q "could not judge" "$root/fix/real.out"; then echo "FAIL commit-rules refused a real git log stream"; fail=1; else echo "ok   commit-rules parsed the real stream"; fi
 
+# Contributor history through GM merges: the PR #229 shape passes whole.
+CR_B=$(python3 -c 'print("1" * 40)')
+CR_G1=$(python3 -c 'print("2" * 40)')
+CR_MID=$(python3 -c 'print("3" * 40)')
+CR_G2=$(python3 -c 'print("4" * 40)')
+CR_C1=$(python3 -c 'print("5" * 40)')
+CR_C2=$(python3 -c 'print("6" * 40)')
+CR_C3=$(python3 -c 'print("7" * 40)')
+CR_M1=$(python3 -c 'print("8" * 40)')
+CR_M2=$(python3 -c 'print("9" * 40)')
+CR_T=$(python3 -c 'print("b" * 40)')
+CR_M1B=$'Merge PR #229 from alextakitani: middle click opens a folder in a new tab\n\nMerged onto the 0.3.8 integration head; conflicts with the click,\ntab and Recent ports resolved by keeping both sides.'
+CR_M2B='Merge the PR #229 middle-click branch into 0.3.8'
+CR_C1B=$'feat: a middle click on a folder opens it in a new tab\n\nFirst line with \u2014 dash.\nSecond body line.'
+CR_C2B='test(ui): return to the first tab with click_tab, not the tui-only digit'
+CR_C3B=$'feat: a middle click on a folder opens it in a new tab\n\nLine one.\nLine two.\nLine three.\nLine four.\nLine five.'
+zrec "$CR_T" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$CR_M2" "$GOOD_B" > "$root/fix/contrib.z"
+zrec "$CR_M2" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$CR_G2 $CR_M1" "$CR_M2B" >> "$root/fix/contrib.z"
+zrec "$CR_G2" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$CR_MID" "$GOOD_B" >> "$root/fix/contrib.z"
+zrec "$CR_MID" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$CR_G1" "$GOOD_B" >> "$root/fix/contrib.z"
+zrec "$CR_M1" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$CR_G1 $CR_C3" "$CR_M1B" >> "$root/fix/contrib.z"
+zrec "$CR_G1" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$CR_B" "$GOOD_B" >> "$root/fix/contrib.z"
+zrec "$CR_C3" "Alex Takitani" aftakitani@gmail.com "Alex Takitani" aftakitani@gmail.com "$CR_C2" "$CR_C3B" >> "$root/fix/contrib.z"
+zrec "$CR_C2" "Alex Takitani" aftakitani@gmail.com "Alex Takitani" aftakitani@gmail.com "$CR_C1" "$CR_C2B" >> "$root/fix/contrib.z"
+zrec "$CR_C1" "Alex Takitani" aftakitani@gmail.com "Alex Takitani" aftakitani@gmail.com "$CR_B" "$CR_C1B" >> "$root/fix/contrib.z"
+zrec "$CR_B" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "" "$GOOD_B" >> "$root/fix/contrib.z"
+"$repo/tools/flea-commit-rules" "$root/fix/contrib.z" "$root/out" > "$root/fix/contrib.out" 2>&1
+check "commit-rules accepts merged contributor history" 0 $?
+expect_grep "commit-rules summary is PASS" "$root/fix/contrib.out" "commit-rules: PASS fails=0 commits=10"
+expect_grep "commit-rules waives contributor history" "$root/out/commits-findings.tsv" "accepted contributor history"
+
+# An AI-attributed contributor commit still fails.
+AT_B=$(python3 -c 'print("c" * 40)')
+AT_G1=$(python3 -c 'print("d" * 40)')
+AT_C1=$(python3 -c 'print("e" * 40)')
+AT_M=$(python3 -c 'print("f" * 40)')
+AT_T=$(python3 -c 'print("0" * 40)')
+AT_C1B=$'feat: contributor work\n\nGenerated with Claude.\nSecond body line.'
+AT_MB=$'Merge side work into the release\n\nFirst body line.\nSecond body line.'
+zrec "$AT_T" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$AT_M" "$GOOD_B" > "$root/fix/contrib-attr.z"
+zrec "$AT_M" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$AT_G1 $AT_C1" "$AT_MB" >> "$root/fix/contrib-attr.z"
+zrec "$AT_G1" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$AT_B" "$GOOD_B" >> "$root/fix/contrib-attr.z"
+zrec "$AT_C1" "Alex Takitani" aftakitani@gmail.com "Alex Takitani" aftakitani@gmail.com "$AT_G1" "$AT_C1B" >> "$root/fix/contrib-attr.z"
+zrec "$AT_B" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "" "$GOOD_B" >> "$root/fix/contrib-attr.z"
+"$repo/tools/flea-commit-rules" "$root/fix/contrib-attr.z" "$root/out" > "$root/fix/contrib-attr.out" 2>&1
+check "commit-rules rejects an AI-attributed contributor" 1 $?
+expect_grep "commit-rules names the contributor attribution" "$root/fix/contrib-attr.out" "attribution 'claude'"
+
+# A non-GM commit on the first-parent chain still fails identity.
+CH_B=$(python3 -c 'print("1" * 39 + "2")')
+CH_T=$(python3 -c 'print("1" * 39 + "3")')
+zrec "$CH_T" Someone x@y.z GM gianmarcomorales@icloud.com "$CH_B" "$GOOD_B" > "$root/fix/chain.z"
+zrec "$CH_B" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "" "$GOOD_B" >> "$root/fix/chain.z"
+"$repo/tools/flea-commit-rules" "$root/fix/chain.z" "$root/out" > "$root/fix/chain.out" 2>&1
+check "commit-rules rejects a non-GM commit on the chain" 1 $?
+expect_grep "commit-rules names the chain identity" "$root/fix/chain.out" "identity an=Someone <x@y.z>"
+
+# A GM merge with an 81-character subject fails.
+MG_B=$(python3 -c 'print("2" * 39 + "0")')
+MG_G1=$(python3 -c 'print("2" * 39 + "1")')
+MG_G2=$(python3 -c 'print("2" * 39 + "2")')
+MG_M=$(python3 -c 'print("2" * 39 + "3")')
+MG_81=$(python3 -c 'print("Merge " + "x" * 75)')
+MG_81B=$(printf '%s\n\nFirst body line.\nSecond body line.' "$MG_81")
+zrec "$MG_M" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$MG_G1 $MG_G2" "$MG_81B" > "$root/fix/merge81.z"
+zrec "$MG_G1" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$MG_B" "$GOOD_B" >> "$root/fix/merge81.z"
+zrec "$MG_G2" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$MG_B" "$GOOD_B" >> "$root/fix/merge81.z"
+zrec "$MG_B" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "" "$GOOD_B" >> "$root/fix/merge81.z"
+"$repo/tools/flea-commit-rules" "$root/fix/merge81.z" "$root/out" > "$root/fix/merge81.out" 2>&1
+check "commit-rules rejects a GM merge past eighty" 1 $?
+expect_grep "commit-rules counts the merge subject" "$root/fix/merge81.out" "want at most 80"
+
+# A GM non-merge on a side branch keeps the sixty-character rule.
+SB_B=$(python3 -c 'print("3" * 39 + "0")')
+SB_G1=$(python3 -c 'print("3" * 39 + "1")')
+SB_S=$(python3 -c 'print("3" * 39 + "2")')
+SB_M=$(python3 -c 'print("3" * 39 + "3")')
+SB_T=$(python3 -c 'print("3" * 39 + "4")')
+SB_61=$(python3 -c 'print("fix(hooks): " + "x" * 49)')
+SB_61B=$(printf '%s\n\nFirst body line.\nSecond body line.' "$SB_61")
+SB_MB=$'Merge side work into the release\n\nFirst body line.\nSecond body line.'
+zrec "$SB_T" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$SB_M" "$GOOD_B" > "$root/fix/side61.z"
+zrec "$SB_M" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$SB_G1 $SB_S" "$SB_MB" >> "$root/fix/side61.z"
+zrec "$SB_G1" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$SB_B" "$GOOD_B" >> "$root/fix/side61.z"
+zrec "$SB_S" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$SB_B" "$SB_61B" >> "$root/fix/side61.z"
+zrec "$SB_B" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "" "$GOOD_B" >> "$root/fix/side61.z"
+"$repo/tools/flea-commit-rules" "$root/fix/side61.z" "$root/out" > "$root/fix/side61.out" 2>&1
+check "commit-rules rejects a long GM subject on a side branch" 1 $?
+expect_grep "commit-rules counts the side subject" "$root/fix/side61.out" "want at most 60"
+
 # The commit-msg adapter against the hook's own file and git var identity.
 printf 'fix(hooks): judge the proposed message\n\nFirst body line.\nSecond body line.\n# a git comment line\n' > "$root/fix/msg.txt"
 "$repo/tools/flea-commit-msg" "$root/fix/msg.txt" > "$root/fix/msg.out" 2>&1
