@@ -43,7 +43,7 @@ src/tui/input.rs 449
 src/tui/model.rs 1247
 src/tui/render.rs 889
 src/uischema.rs 496
-src/uistate.rs 658
+src/uistate.rs 659
 src/uistore.rs 540
 src/vulkan.rs 728
 tests/js/columns.js 618

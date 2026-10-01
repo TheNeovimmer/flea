@@ -53,7 +53,7 @@ pub const DEFAULTS: &str = r#"{
             "moveto", "copyto", "properties", "permissions", "copyAs", "pasteAs",
             "invertSelection", "extThumbs"] },
   "updates": { "autoCheck": true },
-  "stateVersion": 1
+  "stateVersion": 2
 }"#;
 
 // The list row's optional columns in the order ui/js/Columns.js lays them out; name is never optional.
@@ -274,7 +274,7 @@ mod tests {
                 "display", "menu", "updates", "stateVersion"
             ]
         );
-        assert_eq!(d.get(STATE_VERSION).and_then(Json::as_f64), Some(1.0), "a fresh document is already stamped");
+        assert_eq!(d.get(STATE_VERSION).and_then(Json::as_f64), Some(2.0), "a fresh document is already stamped");
         assert_eq!(d.get("view").and_then(Json::as_str), Some("list"));
         assert_eq!(d.get("pickerView").and_then(Json::as_str), Some("list"));
         assert_eq!(d.get("density").and_then(Json::as_str), Some("compact"));

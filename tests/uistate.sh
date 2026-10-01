@@ -290,11 +290,11 @@ old_sha=$(sha256sum "$UI" | cut -d' ' -f1)
 out=$(flea_ui 2>&1)
 check "a 0.3.2 file that stored the switch off reads it on" "1" "$(echo "$out" | grep -c '"showUnmounted": true')"
 check "and keeps the file's own choices beside it" "1|1" "$(echo "$out" | grep -c '"view": "grid"')|$(echo "$out" | grep -c '"driveSize": true')"
-check "and the read carries the 0.3.3 stamp" "1" "$(echo "$out" | grep -c '"stateVersion": 1')"
+check "and the read carries the migration stamp" "1" "$(echo "$out" | grep -c '"stateVersion": 2')"
 check "and a read alone writes nothing" "$old_sha" "$(sha256sum "$UI" | cut -d' ' -f1)"
 flea_ui '{"places":{"showUnmounted":false}}' >/dev/null 2>&1
 check "switched off after the migration, the file stores it off" "1" "$(grep -c '"showUnmounted": false' "$UI")"
-check "beside the stamp that keeps the migration from running again" "1" "$(grep -c '"stateVersion": 1' "$UI")"
+check "beside the stamp that keeps the migration from running again" "1" "$(grep -c '"stateVersion": 2' "$UI")"
 check "and the write kept the file's own choices too" "1|1" "$(grep -c '"view": "grid"' "$UI")|$(grep -c '"driveSize": true' "$UI")"
 check "so the next process still reads it off" "1" "$(flea_ui 2>&1 | grep -c '"showUnmounted": false')"
 out=$(flea_ui '{"stateVersion":0}' 2>&1); rc=$?

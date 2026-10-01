@@ -113,7 +113,7 @@ case_unmounted() (
         || fail 'rail: the 0.3.2 state file could not be written'
     launch "$rail_dir"
     rail_wait_entry false
-    [[ "$(jq -c '[.places.showUnmounted, .stateVersion, .density]' "$stored")" == '[true,1,"comfortable"]' ]] \
+    [[ "$(jq -c '[.places.showUnmounted, .stateVersion, .density]' "$stored")" == '[true,2,"comfortable"]' ]] \
         || fail "rail: the launch did not write the migration down beside the file's own choice, ui.json holds $(jq -c '[.places.showUnmounted, .stateVersion, .density]' "$stored")"
     printf 'RAIL migrated=%s\n' "$(ipc deviceEntries | tr '\n' ' ')"
     kill_flea

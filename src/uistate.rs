@@ -488,7 +488,8 @@ mod tests {
         let hidden: Vec<&str> = merged
             .get("menu").and_then(|m| m.get("hidden")).and_then(Json::as_array).expect("menu.hidden")
             .iter().filter_map(Json::as_str).collect();
-        assert_eq!(hidden, ["delete", "newFolder", "copy-path", "copy_path"]);
+        assert_eq!(hidden, ["delete", "newFolder", "copy-path", "copy_path", "pasteAs", "invertSelection"],
+            "the ids survive the read, and the 2.0 migration appends what the file never named");
         // Still bounded: anything that is not an id costs the key its own default, as it always did.
         let shipped = crate::uischema::defaults();
         let shipped = shipped

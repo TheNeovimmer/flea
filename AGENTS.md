@@ -1097,12 +1097,15 @@ changed default alone reaches only a fresh install: every write stores the whole
 nearly every 0.3.2 file holds `"showUnmounted": false` whether or not its operator ever touched the
 switch. GM ruled the switch on for everyone once and respected after that, so an operator who turned
 it off on purpose in 0.3.2 gets it back one time, accepted. `src/uimigrate.rs` holds `STEPS`, each
-change paired with the version it arrived in, and today there is one: version 1 sets
-`places.showUnmounted` to `true`. `migrated` runs inside `uistate::from_file` and reads the stamp off
+change paired with the version it arrived in, and today there are two: version 1 sets
+`places.showUnmounted` to `true`, and version 2 hides the MenuAdditions040 rows once for a file
+stamped below 2, replacing a hidden `copypath` with `copyAs` at the same position (a file that had
+switched Copy path on keeps Copy as visible) and appending `pasteAs` and `invertSelection` when
+absent, leaving every other entry and its order alone. `migrated` runs inside `uistate::from_file` and reads the stamp off
 the document as FOUND, never off the merged one, because the merge fills a missing stamp from the
 shipped default and would call every 0.3.2 file migrated. A file whose stamp is absent, not a number,
 or below a step's version gets that step and that step's stamp; a file at or above it gets nothing.
-The shipped document is already stamped 1, so a fresh install's first write is stamped too and its own
+The shipped document is already stamped 2, so a fresh install's first write is stamped too and its own
 switch-off is never undone. **It happens on read.** `from_file` is under every reader, `Store::read`,
 `flea --ui-state` with or without a patch, the TUI and the base every patch merges onto, so a read
 answers the switch on before anything is written, and a bare `flea --ui-state` still writes nothing.
