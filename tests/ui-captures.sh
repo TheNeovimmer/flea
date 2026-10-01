@@ -1,0 +1,354 @@
+# Defines native 0.3.8 capture cases; tests/ui.sh supplies the guarded fixture and IPC helpers.
+# Each case builds its own fixture under $fixture_root, drives Flea into one board
+# specimen's state with the existing launch/seed_ui_state/wait_listing/click_row/key/
+# menu/settings/ipc/shot/kill_flea idioms, asserts only enough to know the state was
+# reached, and takes one shot per specimen. None is in the default wanted list.
+
+# The harness resizes through the compositor, not through IPC: float the owned window
+# and resize it exact, the permissions_viewport idiom, so a board window size is set
+# rather than assumed. ui.sh has no window-size helper of its own; hyprctl plus
+# omarchy-drive window float/center is the way sidebar_resize and permissions_viewport do it.
+cap_resize() {
+    local target_width="$1" target_height="$2"
+    local client address result wx wy width height end=$((SECONDS + 20))
+    client=$(hyprctl clients -j | jq -ec --argjson pid "$(flea_pid)" '.[] | select(.pid == $pid)') \
+        || fail "captures: owned window unavailable for resize to ${target_width}x${target_height}"
+    address=$(jq -er '.address' <<< "$client") || fail "captures: owned window has no address"
+    [[ "$address" =~ ^0x[0-9a-fA-F]+$ ]] || fail "captures: invalid owned window address $address"
+    if ! jq -e '.floating' <<< "$client" >/dev/null; then
+        omarchy-drive window float "$address" >/dev/null || fail "captures: owned window could not float"
+    fi
+    result=$(hyprctl dispatch "hl.dsp.window.resize({ x = $target_width, y = $target_height, exact = true, window = \"address:$address\" })") \
+        || fail "captures: compositor resize failed"
+    [[ "$result" == ok* ]] || fail "captures: compositor refused resize to ${target_width}x${target_height}: $result"
+    omarchy-drive window center "$address" >/dev/null || fail "captures: owned window could not center"
+    while (( SECONDS < end )); do
+        read -r wx wy width height < <(window_box) || fail "captures: native window coordinates unavailable"
+        [[ "$width" == "$target_width" && "$height" == "$target_height" ]] && return 0
+        sleep 0.05
+    done
+    fail "captures: viewport did not reach ${target_width}x${target_height}, it is ${width}x${height}"
+}
+
+# Tabs040: three tabs with one held mid-drag, then Settings View Opening on Last folder.
+# Board specimens: the 900x541 tab-drag window, and the Opening excerpt with the Last
+# folder hint, New tabs open in, Open items with and Click a selected name to rename.
+case_cap_tabs() {
+    local dir="$fixture_root/cap-tabs"
+    sandbox_scratch "$dir"
+    mkdir -p "$dir/alpha" "$dir/beta" "$dir/gamma"
+    seed_ui_state "$fixture_root/cap-tabs-state" '{"keys":"default","view":"list"}'
+    launch "$dir"
+    wait_listing 3
+    cap_resize 900 541
+    key t >/dev/null
+    settle
+    key t >/dev/null
+    settle
+    [[ "$(ipc tabCount)" == "3" ]] || fail "cap_tabs: t twice did not make 3 tabs, count=$(ipc tabCount)"
+    click_tab 0
+    seek_row_named "alpha" || fail "cap_tabs: could not find alpha"
+    key -k Return >/dev/null
+    wait_path "$dir/alpha"
+    click_tab 1
+    seek_row_named "beta" || fail "cap_tabs: could not find beta"
+    key -k Return >/dev/null
+    wait_path "$dir/beta"
+    click_tab 2
+    seek_row_named "gamma" || fail "cap_tabs: could not find gamma"
+    key -k Return >/dev/null
+    wait_path "$dir/gamma"
+    [[ "$(ipc tabLabels)" == "alpha|beta|gamma" ]] || fail "cap_tabs: tabs label [$(ipc tabLabels)], not alpha|beta|gamma"
+    local c0x c0y c1x c1y c2x c2y w
+    read -r c0x c0y <<< "$(ipc tabCentre 0)"
+    read -r c1x c1y <<< "$(ipc tabCentre 1)"
+    read -r c2x c2y <<< "$(ipc tabCentre 2)"
+    [[ -n "$c1y" && -n "$c2y" ]] || fail "cap_tabs: a tab has no centre"
+    w=$((c1x - c0x))
+    (( w > 0 )) || fail "cap_tabs: tab centres do not step right [$c0x,$c1x,$c2x]"
+    # tabdrag_to presses, moves, shots while held, then releases: the held shot is the specimen.
+    tabdrag_to "$c1x" "$c1y" "$((c2x + w / 2 + 3))" "$c2y" cap-tabs-drag-held
+    [[ "$(ipc tabLabels)" == "alpha|gamma|beta" ]] || fail "cap_tabs: drag labelled [$(ipc tabLabels)], not alpha|gamma|beta"
+    settings_open_key
+    settle
+    settings_section view
+    settings_focus_row startIn
+    key l >/dev/null
+    settle
+    [[ "$(ipc settingsRows)" == *"Last folder reopens every tab you had."* ]] \
+        || fail "cap_tabs: Last folder drew no tab hint, got $(ipc settingsRows)"
+    [[ "$(ipc settingsRows)" == *"New tabs open in"* ]] \
+        || fail "cap_tabs: Opening drew no New tabs row, got $(ipc settingsRows)"
+    [[ "$(ipc settingsRows)" == *"Open items with"* ]] \
+        || fail "cap_tabs: Opening drew no Open items row, got $(ipc settingsRows)"
+    [[ "$(ipc settingsRows)" == *"Click a selected name to rename"* ]] \
+        || fail "cap_tabs: Opening drew no click-rename row, got $(ipc settingsRows)"
+    shot cap-tabs-opening-last-folder
+    key -k Escape >/dev/null
+    settle
+    printf 'CAP_TABS drag=held labels=%s hint=shown\n' "$(ipc tabLabels)"
+    kill_flea
+}
+
+# ClickAndRefresh: a slow-click rename as it opens, then Opening on Single click where
+# Click a selected name to rename greys. Board specimen: the stem selected, ".md" muted.
+case_cap_click() {
+    local dir="$fixture_root/cap-click"
+    sandbox_scratch "$dir"
+    printf 'bench notes\n' > "$dir/field-bench-notes.md"
+    : > "$dir/a.txt"
+    : > "$dir/b.txt"
+    seed_ui_state "$fixture_root/cap-click-state" '{"keys":"default","view":"list","openMode":"double","clickRename":true}'
+    launch "$dir"
+    wait_listing 3
+    seek_row_named "field-bench-notes.md" || fail "cap_click: could not find field-bench-notes.md"
+    local idx
+    idx=$(row_index_of "field-bench-notes.md")
+    click_row "$idx" left
+    settle
+    # A second single click after the double-click interval starts rename in place;
+    # inside the interval it would be a double click and open instead.
+    sleep 0.7
+    click_row "$idx" left
+    settle
+    local waited
+    for waited in $(seq 1 100); do
+        [[ "$(ipc renameEditorLive)" == "true" ]] && break
+        sleep 0.05
+    done
+    [[ "$(ipc renameEditorLive)" == "true" ]] || fail "cap_click: the slow click never opened rename"
+    [[ "$(ipc renameEditorText)" == "field-bench-notes.md" ]] \
+        || fail "cap_click: rename holds '$(ipc renameEditorText)', not field-bench-notes.md"
+    [[ "$(ipc renameState | jq -r .selectedText)" == "field-bench-notes" ]] \
+        || fail "cap_click: rename selects '$(ipc renameState | jq -r .selectedText)', not the stem"
+    shot cap-click-rename-slow
+    key -k Escape >/dev/null
+    settle
+    settings_open_key
+    settle
+    settings_section view
+    settings_focus_row openMode
+    key l >/dev/null
+    settle
+    [[ "$(ipc settingsModel | jq -er '[.[] | select(.id == "openMode")][0].value')" == *"Single"* ]] \
+        || fail "cap_click: Open items with never reached Single click"
+    [[ "$(ipc settingsModel | jq -er '[.[] | select(.id == "clickRename")][0].available')" == "false" ]] \
+        || fail "cap_click: Click a selected name to rename never greyed under Single click"
+    shot cap-click-opening-single
+    key -k Escape >/dev/null
+    settle
+    printf 'CAP_CLICK rename=stem-selected single=greyed\n'
+    kill_flea
+}
+
+# KeyboardFlows "View, Cursor at defaults": the Cursor group with both rows off.
+case_cap_cursor() {
+    local dir="$fixture_root/cap-cursor"
+    sandbox_scratch "$dir"
+    : > "$dir/a.txt"
+    : > "$dir/b.txt"
+    seed_ui_state "$fixture_root/cap-cursor-state" '{"keys":"default","view":"list","wrapAtEnds":false,"escapeUp":false}'
+    launch "$dir"
+    wait_listing 2
+    settings_open_key
+    settle
+    settings_section view
+    [[ "$(ipc settingsRows)" == *"Wrap at list ends"* ]] \
+        || fail "cap_cursor: View drew no Wrap at list ends, got $(ipc settingsRows)"
+    [[ "$(ipc settingsRows)" == *"Escape goes up a folder"* ]] \
+        || fail "cap_cursor: View drew no Escape row, got $(ipc settingsRows)"
+    [[ "$(ipc settingsModel | jq -er '[.[] | select(.id == "wrapAtEnds")][0].on')" == "false" ]] \
+        || fail "cap_cursor: Wrap at list ends is not off"
+    [[ "$(ipc settingsModel | jq -er '[.[] | select(.id == "escapeUp")][0].on')" == "false" ]] \
+        || fail "cap_cursor: Escape goes up a folder is not off"
+    shot cap-cursor-defaults
+    key -k Escape >/dev/null
+    settle
+    printf 'CAP_CURSOR wrap=off escape=off\n'
+    kill_flea
+}
+
+# MenuAdditions040: the file menu with the Copy as flyout open, Paste as once the
+# clipboard holds a file, the symlink menu with Show original, the background menu at
+# defaults, and Settings Menus listing the new rows. Key hints on throughout.
+case_cap_menus() {
+    local dir="$fixture_root/cap-menus"
+    sandbox_scratch "$dir"
+    printf 'target\n' > "$dir/target.txt"
+    ln -s target.txt "$dir/link.txt" || fail "cap_menus: the symlink fixture could not be made"
+    seed_ui_state "$fixture_root/cap-menus-state" '{"keys":"default","view":"list","keyHints":true,"menu":{"hidden":["delete","openTerminal","moveto","copyto","properties","permissions","invertSelection"]}}'
+    launch "$dir"
+    wait_listing 2
+    click_row "$(row_index_of target.txt)" right
+    settle
+    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_menus: the file menu never opened"
+    [[ "|$(ipc contextMenuEntries)|" == *"|Copy as|"* ]] \
+        || fail "cap_menus: the file menu offers no Copy as, got $(ipc contextMenuEntries)"
+    menu_seek "Copy as"
+    key -k Right >/dev/null
+    settle
+    [[ "$(ipc contextMenuSubmenuEntries)" == *"Path"* ]] \
+        || fail "cap_menus: the Copy as flyout offers $(ipc contextMenuSubmenuEntries)"
+    shot cap-menus-file-copyas
+    key -k Escape >/dev/null
+    settle
+    key -k Escape >/dev/null
+    settle
+    [[ "$(ipc contextMenuVisible)" == "false" ]] || fail "cap_menus: the Copy as menu stayed open"
+    click_row "$(row_index_of target.txt)" left
+    settle
+    key y >/dev/null
+    settle
+    [[ "$(ipc keyDeliveryState | jq -er '.clipboard.paths | length')" == "1" ]] \
+        || fail "cap_menus: y put no file on the clipboard"
+    click_row "$(row_index_of target.txt)" right
+    settle
+    menu_seek "Paste as"
+    key -k Right >/dev/null
+    settle
+    [[ "$(ipc contextMenuSubmenuEntries)" == *"Link"* ]] \
+        || fail "cap_menus: the Paste as flyout offers $(ipc contextMenuSubmenuEntries)"
+    shot cap-menus-file-pasteas
+    key -k Escape >/dev/null
+    settle
+    key -k Escape >/dev/null
+    settle
+    [[ "$(ipc contextMenuVisible)" == "false" ]] || fail "cap_menus: the Paste as menu stayed open"
+    click_row "$(row_index_of link.txt)" right
+    settle
+    [[ "|$(ipc contextMenuEntries)|" == *"|Show original|"* ]] \
+        || fail "cap_menus: the symlink menu offers no Show original, got $(ipc contextMenuEntries)"
+    shot cap-menus-symlink
+    key -k Escape >/dev/null
+    settle
+    click_background
+    settle
+    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_menus: the background menu never opened"
+    [[ "|$(ipc contextMenuEntries)|" == *"|New Folder|"* ]] \
+        || fail "cap_menus: the background menu offers $(ipc contextMenuEntries)"
+    shot cap-menus-background
+    key -k Escape >/dev/null
+    settle
+    settings_open_key
+    settle
+    settings_section menus
+    [[ "$(ipc settingsRows)" == *"Copy as"* ]] || fail "cap_menus: Menus lists no Copy as"
+    [[ "$(ipc settingsRows)" == *"Paste as"* ]] || fail "cap_menus: Menus lists no Paste as"
+    [[ "$(ipc settingsRows)" == *"Invert selection"* ]] || fail "cap_menus: Menus lists no Invert selection"
+    [[ "$(ipc settingsRows)" == *"Permissions"* ]] || fail "cap_menus: Menus lists no Permissions"
+    shot cap-menus-settings
+    key -k Escape >/dev/null
+    settle
+    printf 'CAP_MENUS copyas=ok pasteas=ok symlink=ok background=ok settings=ok\n'
+    kill_flea
+}
+
+# Permissions040: the Permissions dialog over a three-row selection with mixed modes.
+case_cap_permissions() {
+    local dir="$fixture_root/cap-permissions"
+    sandbox_scratch "$dir"
+    printf 'one\n' > "$dir/a.txt"
+    printf 'two\n' > "$dir/b.txt"
+    printf 'three\n' > "$dir/c.txt"
+    chmod 0644 "$dir/a.txt" || fail "cap_permissions: the 644 fixture mode failed"
+    chmod 0600 "$dir/b.txt" || fail "cap_permissions: the 600 fixture mode failed"
+    chmod 0755 "$dir/c.txt" || fail "cap_permissions: the 755 fixture mode failed"
+    seed_ui_state "$fixture_root/cap-permissions-state" '{"keys":"default","view":"list","menu":{"hidden":["delete","openTerminal","moveto","copyto","properties","copyAs","pasteAs","invertSelection"]}}'
+    launch "$dir"
+    wait_listing 3
+    cap_resize 904 699
+    click_row 0 left
+    settle
+    click_row 1 left --mods ctrl
+    settle
+    click_row 2 left --mods ctrl
+    settle
+    [[ "$(ipc selectionCount)" == "3" ]] || fail "cap_permissions: three ctrl clicks selected $(ipc selectionCount), not 3"
+    click_row 0 right
+    settle
+    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_permissions: the multi-row menu never opened"
+    [[ "$(ipc menuState | jq -er '[.entries[] | select(.action == "permissions")][0].disabled')" == "false" ]] \
+        || fail "cap_permissions: Permissions is not live over three regular files"
+    menu_seek "Permissions"
+    key -k Return >/dev/null
+    local end=$((SECONDS + 15)) state
+    while (( SECONDS < end )); do
+        state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
+        [[ "$(jq -r .opened <<< "$state")" == "true" && "$(jq -r .busy <<< "$state")" == "false" ]] && break
+        sleep 0.05
+    done
+    [[ "$(jq -r .opened <<< "$state")" == "true" ]] || fail "cap_permissions: Permissions never opened, last $state"
+    shot cap-permissions-multi
+    key -k Escape >/dev/null
+    settle
+    printf 'CAP_PERMISSIONS mixed=3rows dialog=open\n'
+    kill_flea
+}
+
+# Sidebar040: the rail with Recent switched on, Settings Places showing it, and a
+# favourites reorder held mid-drag. The rail drag reuses tabdrag_to's uinput motion:
+# press on one favourite centre, move to the other, shot while held, then release.
+case_cap_sidebar() {
+    local dir="$fixture_root/cap-sidebar"
+    sandbox_scratch "$dir"
+    mkdir -p "$dir/alpha" "$dir/beta"
+    : > "$dir/note.txt"
+    seed_ui_state "$fixture_root/cap-sidebar-state" "$(printf '{"keys":"default","view":"list","places":{"showRecent":true,"favourites":[{"label":"Alpha","path":"%s/alpha"},{"label":"Beta","path":"%s/beta"}]}}' "$dir" "$dir")"
+    launch "$dir"
+    wait_listing 3
+    cap_resize 1120 543
+    wait_rail_label "Recent"
+    [[ "$(ipc railEntries | jq -er 'any(.[]; .label == "Recent")')" == "true" ]] \
+        || fail "cap_sidebar: the rail carries no Recent row"
+    shot cap-sidebar-recent
+    settings_open_key
+    settle
+    settings_section places
+    [[ "$(ipc settingsRows)" == *"Recent"* ]] || fail "cap_sidebar: Places lists no Recent row"
+    shot cap-sidebar-places
+    key -k Escape >/dev/null
+    settle
+    local alpha_index beta_index ax ay bx by before_alpha before_beta after_alpha after_beta
+    alpha_index=$(rail_row_of "Alpha")
+    beta_index=$(rail_row_of "Beta")
+    (( alpha_index < beta_index )) || fail "cap_sidebar: favourites order is not Alpha then Beta"
+    read -r ax ay <<< "$(ipc railRowCentre "$alpha_index")"
+    read -r bx by <<< "$(ipc railRowCentre "$beta_index")"
+    [[ -n "$ay" && -n "$by" ]] || fail "cap_sidebar: a favourite has no rail centre"
+    before_alpha="$alpha_index"
+    tabdrag_to "$ax" "$ay" "$bx" "$by" cap-sidebar-drag-held
+    alpha_index=$(rail_row_of "Alpha")
+    beta_index=$(rail_row_of "Beta")
+    after_alpha="$alpha_index"
+    after_beta="$beta_index"
+    (( after_beta < after_alpha )) || fail "cap_sidebar: the held drag never reordered, Alpha at $after_alpha Beta at $after_beta (was $before_alpha)"
+    printf 'CAP_SIDEBAR recent=on drag=held reorder=ok\n'
+    kill_flea
+}
+
+# CommandPalette: the keymap sheet at rest, then with a query typed.
+case_cap_sheet() {
+    local dir="$fixture_root/cap-sheet"
+    sandbox_scratch "$dir"
+    : > "$dir/a.txt"
+    : > "$dir/b.txt"
+    seed_ui_state "$fixture_root/cap-sheet-state" '{"keys":"default","view":"list"}'
+    launch "$dir"
+    wait_listing 2
+    key '?' >/dev/null
+    settle
+    [[ "$(ipc keymapSheetOpen)" == "true" ]] || fail "cap_sheet: ? opened no keymap sheet"
+    [[ "$(ipc keymapQuery)" == "" ]] || fail "cap_sheet: the resting sheet carries query '$(ipc keymapQuery)'"
+    shot cap-sheet-rest
+    key t >/dev/null
+    key a >/dev/null
+    key g >/dev/null
+    settle
+    [[ "$(ipc keymapQuery)" == "tag" ]] || fail "cap_sheet: the query is '$(ipc keymapQuery)', not tag"
+    [[ "$(ipc keymapSheetRows)" == *"tag"* ]] || fail "cap_sheet: the tag query lists no tag row"
+    shot cap-sheet-query
+    key -k Escape >/dev/null
+    settle
+    printf 'CAP_SHEET rest=ok query=tag\n'
+    kill_flea
+}

@@ -11068,6 +11068,7 @@ case_previewviews() {
 . "$repo/tests/ui-dirsortstale.sh"
 . "$repo/tests/ui-makedefault.sh"
 . "$repo/tests/ui-noblank.sh"
+. "$repo/tests/ui-captures.sh"
 . "$repo/tests/ui-transfer-live.sh"
 . "$repo/tests/ui-columns-background.sh"
 
