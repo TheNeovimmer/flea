@@ -253,18 +253,25 @@ A name that is gone from both falls back to the clamped old index, which keeps t
 user left it. The filter query is put
 back too: it narrows the rows the pane holds rather than choosing which directory it holds.
 
-**The selection is not re-anchored; the re-read waits for it instead.** `ui/js/Selection.js` is a set
+**The selection is re-anchored by file identity; the re-read no longer waits for it.** `ui/js/Selection.js` is a set
 of row indices and its own rule is that a new listing clears them, because an index into a directory
 that has changed names another file. Re-pointing a selection at other files is how a delete hits the
-wrong ones, so `PaneWire`'s `watchBusy`, decided by `ui/js/Anchor.js busy`, defers the re-read while
-a selection stands, and with it while a rename editor is open, the context menu is up, a filter is
-being typed, a search listing is showing, a list is already in flight or a transfer waits on the
-collision card. The debt is kept, not dropped: `onWatchBusyChanged` starts the 400 ms timer the moment
-the last of those clears, and `ui/CollideHost.qml decide` writes its transfer before it clears
-`pending`, so the transfer reaches the backend ahead of any re-read the card held back. A user holding a selection therefore sees the same stale
-listing 0.1.4 always showed, for as long as they hold it. **The debt does not travel**: leaving the
-directory clears it, because the pane's own `onPathChanged` fires before the navigation clears the
-selection that was holding it, and without that a change in the folder being left was paid for by a
+wrong ones, so the watched re-read carries the marks across by NAME instead (`ui/js/Anchor.js`
+`selectedMarks`, recorded in `watched()` and restored in `apply()`): every mark stays on the same
+file, a removed file's mark goes, the cursor stays on its file or on the clamped old index when its
+file went, and the held window is asked for again with no scroll, so the viewport does not jump.
+`PaneWire`'s `watchBusy`, decided by `ui/js/Anchor.js busy`, still defers the re-read while
+a rename editor is open (the re-read would kill it), the context menu is up or a menu action waits
+on its reply (the re-read flips `menuSelectionIdentity` and the reply is refused), a filter is
+being typed (the re-read closes the query line), a search listing is showing (the walk owns the
+rows outright), a rubber-band drag runs, a list is already in flight or a transfer waits on the
+collision card (`ui/CollideHost.qml decide` writes its transfer before it clears `pending`, so the
+transfer reaches the backend ahead of any re-read the card held back). A bare selection, and the
+path-keyed copy and cut marks which never named a row index, are not a reason to hold: another
+window's change shows at once with the same files marked. The debt is kept, not dropped: `onWatchBusyChanged` starts the 400 ms timer the moment
+the last of those clears. **The debt does not travel**: leaving the
+directory clears it, because the pane's own `onPathChanged` fires before the navigation clears
+whatever was holding it, and without that a change in the folder being left was paid for by a
 full re-list of the folder being opened. `ui/Backend.qml`'s `listRequests` counter is what makes
 that assertable, the same idiom as `thumbRequests` and `dirSizeRequests`: `tests/ui.sh watch` counts
 from before the navigation and requires exactly one listing for it.

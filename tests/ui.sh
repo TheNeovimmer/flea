@@ -3338,20 +3338,27 @@ case_watch() {
     [[ "$(ipc rowAt "$(ipc cursor)")" == preview-me.txt\|* ]] \
         || fail "watch: a create above the cursor moved it to $(ipc rowAt "$(ipc cursor)")"
 
-    # A selection names rows by index, so the re-read waits for it rather than re-pointing it.
+    # xw5: a selection no longer holds the re-read back. The change applies at once and every mark
+    # stays on the same file by identity, so a window holding a selection never looks stale.
     key v >/dev/null
     settle
     [[ "$(ipc selectionCount)" == "1" ]] || fail "watch: v did not select the cursor row"
     printf 'held\n' > "$dir/BBB-while-selected.txt"
-    sleep 2
-    [[ "$(ipc total)" == "5" ]] \
-        || fail "watch: the listing re-read to $(ipc total) rows while a selection stood"
-    [[ "$(ipc selectionCount)" == "1" ]] || fail "watch: the held selection was cleared anyway"
-    # Clearing the selection is what pays the debt the notification left standing.
-    key -k Escape >/dev/null
     omarchy-drive wait ipc -p "$flea_ui/boot" flea total 6 --timeout 15 >/dev/null \
-        || fail "watch: clearing the selection did not run the owed re-read, total is $(ipc total)"
-    printf 'WATCH deferred=ok paid=ok total=%s\n' "$(ipc total)"
+        || fail "watch: the listing did not re-read to 6 rows while a selection stood, total is $(ipc total)"
+    settle
+    [[ "$(ipc selectionCount)" == "1" ]] \
+        || fail "watch: the re-read cleared the held selection"
+    [[ "$(ipc rowAt "$(ipc cursor)")" == preview-me.txt\|* ]] \
+        || fail "watch: the re-read moved the cursor to $(ipc rowAt "$(ipc cursor)")"
+    [[ "$(ipc selectedIndices)" == "$(ipc cursor)" ]] \
+        || fail "watch: the held mark is on $(ipc selectedIndices), not on the cursor file"
+    # Clearing the selection now owes nothing: the change was already applied under it.
+    key -k Escape >/dev/null
+    settle
+    [[ "$(ipc selectionCount)" == "0" ]] || fail "watch: Escape did not clear the selection"
+    [[ "$(ipc total)" == "6" ]] || fail "watch: clearing the selection re-read to $(ipc total) rows"
+    printf 'WATCH immediate=ok kept=ok total=%s\n' "$(ipc total)"
 
     # A directory under continuous writing still has to settle. The timer absorbs notifications rather
     # than being restarted by them, so the sample that matters is taken WHILE the writing is still
@@ -3371,9 +3378,10 @@ case_watch() {
     (( during > before )) \
         || fail "watch: nothing re-read while the directory was still being written, total stayed $before"
 
-    # A debt owed by this directory must not be paid by re-listing the next one. The selection is what
-    # holds the debt, and leaving clears that selection, so without the guard the owed re-read fires
-    # against whatever the pane has just opened.
+    # A debt owed by this directory must not be paid by re-listing the next one. The re-read pays
+    # promptly even under a selection now, so the sleep below lets it land before leaving; without
+    # the onPathChanged guard a debt still outstanding at the navigation (held back by a menu, a
+    # rename editor or the collision card) would be paid by a full re-list of the folder being opened.
     key v >/dev/null
     settle
     printf 'owed\n' > "$dir/CCC-owed-on-leaving.txt"
@@ -3393,6 +3401,252 @@ case_watch() {
     key -k Escape >/dev/null
     settle
     assert_window
+    kill_flea
+}
+
+# xw5: another window's change shows at once with the selection kept on the same files.
+#
+# Two owned qs processes on one folder: B selects three files, A creates, renames and deletes
+# through its own UI, and B applies each change with the marks and the cursor still on the same
+# files. The driver is the shell plus A itself, so nothing here stubs gio or the backend: both
+# windows watch the same directory and B answers only its own inotify.
+#
+# The second window needs its own UI copy so qs ipc (-p) addresses exactly one of the two
+# processes; unit xw1's two-window helper is reconciled by the controller. Keys reach a window
+# by its Hyprland address, which resolve_window matches, because the class and title are the
+# same for both. B is read through "$flea_ui/boot" and A through the copy's boot, which assumes
+# qs ipc -p selects the instance serving that config path: if both answer on either path the
+# controller moves the reads behind a focus instead.
+xw_second_window() {
+    local start_path="$1" ui_copy="$2" want
+    mkdir -p "$ui_copy" || fail "xwwatch: could not stage the second window's UI copy"
+    cp -a "$flea_ui/." "$ui_copy/" || fail "xwwatch: could not copy the UI for the second window"
+    FLEA_UI="$ui_copy" FLEA_BIN="$flea_bin" \
+        setsid nohup "$flea_bin" --gui "$start_path" >>"$run_root/flea.A.log" 2>&1 </dev/null &
+    for _attempt in $(seq 1 300); do
+        want=$(omarchy-drive windows --json | jq '[.windows[] | select(.title == "Flea")] | length')
+        [[ "$want" == "2" ]] && break
+        sleep 0.05
+    done
+    [[ "$want" == "2" ]] || fail "xwwatch: the second window never opened"
+}
+
+xw_windows() {
+    omarchy-drive windows --json | jq -r '.windows[] | select(.title == "Flea") | .address'
+}
+
+xw_key() {
+    local addr="$1"
+    shift
+    omarchy-drive key --window "$addr" "$@" >/dev/null
+}
+
+xw_ipc() {
+    local boot="$1"
+    shift
+    omarchy-drive ipc -p "$boot" flea "$@"
+}
+
+# flea_pids matches a window by "$flea_ui" in its cmdline, which the copy's window never
+# carries, so the second window is stopped here rather than in kill_flea; its backend matches
+# "$flea_bin --backend" like any other and drains in kill_flea as usual.
+xw_kill_second() {
+    local copy="$1" pid pids
+    pids=$(pgrep -x qs) || return 0
+    for pid in $pids; do
+        if tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq -- "$copy"; then
+            kill "$pid" || [[ ! -d "/proc/$pid" ]] || fail "xwwatch: could not stop the second window $pid"
+        fi
+    done
+}
+
+# The promptness bound, in seconds: the 400 ms watch settle plus IPC round trips that cost
+# 190 to 565 ms apiece on this box, so 1 s is the aim and 2 s is the bound the case fails on.
+xwwatch_s=2
+
+xw_wait_total() {
+    local boot="$1" want="$2" step="$3" t0 ms
+    t0=$(date +%s%N)
+    omarchy-drive wait ipc -p "$boot" flea total "$want" --timeout 15 >/dev/null \
+        || fail "xwwatch: $step left the window at $(xw_ipc "$boot" total), not $want"
+    ms=$(( ($(date +%s%N) - t0) / 1000000 ))
+    (( ms <= xwwatch_s * 1000 )) || fail "xwwatch: $step took ${ms} ms to show, past the ${xwwatch_s} s bound"
+    printf 'XWWATCH %s ok in %s ms\n' "$step" "$ms"
+}
+
+# A rename moves no count, so no total can wait on it: sweep the rows until the name appears.
+xw_wait_row() {
+    local boot="$1" want="$2" step="$3" t0 ms total row seen
+    t0=$(date +%s%N)
+    for _attempt in $(seq 1 12); do
+        total=$(xw_ipc "$boot" total 2>/dev/null || printf 0)
+        for ((row = 0; row < total; row++)); do
+            seen=$(xw_ipc "$boot" rowAt "$row" 2>/dev/null || true)
+            if [[ "$seen" == "$want|"* ]]; then
+                ms=$(( ($(date +%s%N) - t0) / 1000000 ))
+                (( ms <= xwwatch_s * 1000 )) || fail "xwwatch: $step took ${ms} ms to show, past the ${xwwatch_s} s bound"
+                printf 'XWWATCH %s ok in %s ms\n' "$step" "$ms"
+                return 0
+            fi
+        done
+        sleep 0.05
+    done
+    fail "xwwatch: $step never showed $want"
+}
+
+xw_goto() {
+    local addr="$1" boot="$2" target="$3" n
+    xw_key "$addr" g
+    for ((n = 0; n < target; n++)); do
+        xw_key "$addr" j
+    done
+    sleep "$settle_s"
+}
+
+xw_menu_seek() {
+    local addr="$1" boot="$2" want="$3" entries target i cursor steps step label
+    entries=$(xw_ipc "$boot" contextMenuEntries)
+    target=-1
+    i=0
+    local IFS='|'
+    for label in $entries; do
+        [[ "$label" == "$want" ]] && { target=$i; break; }
+        i=$((i + 1))
+    done
+    unset IFS
+    [[ "$target" -ge 0 ]] || fail "xwwatch: no menu row labelled $want in $entries"
+    steps=$(xw_ipc "$boot" contextMenuModel | jq -er 'length') || fail "xwwatch: could not read menu inventory"
+    for ((step = 0; step <= steps; step++)); do
+        cursor=$(xw_ipc "$boot" contextMenuCursor)
+        [[ "$cursor" == "$target" ]] && return 0
+        xw_key "$addr" -k Down
+        sleep "$settle_s"
+    done
+    fail "xwwatch: could not reach $want, cursor stalled at $(xw_ipc "$boot" contextMenuCursor)"
+}
+
+# Flea windows from an aborted earlier run never match flea_pids (their cmdline carries the
+# UI copy, not "$flea_ui"), so a case that aborts past its teardown would leak one into every
+# later case's assert_window. Sweep them here, before anything owned is running: an operator's
+# own window never carries FIXTURE_ROOT in its cmdline.
+xw_sweep_stale() {
+    local pid pids
+    pids=$(pgrep -x qs) || return 0
+    for pid in $pids; do
+        if tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq -- "$FIXTURE_ROOT"; then
+            kill "$pid" || [[ ! -d "/proc/$pid" ]] || fail "xwwatch: could not stop stale test window $pid"
+        fi
+    done
+}
+
+# A total that matches while rows are still landing proves nothing, so the promptness waits above
+# are followed by this before any mark or cursor is read.
+xw_settled() {
+    local boot="$1" n
+    for ((n = 0; n < 100; n++)); do
+        [[ "$(xw_ipc "$boot" listInFlight 2>/dev/null)" == "false" ]] && return 0
+        sleep 0.05
+    done
+    fail "xwwatch: the listing never settled"
+}
+
+# The rename editor opens a round trip after its key, so typing starts on its focus, not on sleep.
+xw_wait_editor() {
+    local boot="$1" n
+    for ((n = 0; n < 100; n++)); do
+        if xw_ipc "$boot" renameState 2>/dev/null | jq -e '.index >= 0 and .focused' >/dev/null; then
+            return 0
+        fi
+        sleep 0.05
+    done
+    fail "xwwatch: the rename editor never opened"
+}
+
+case_xwwatch() {
+    local dir="$fixture_root/xwwatch" ui_copy="$fixture_root/xwwatch-ui" addrB addrA bootA row
+    xw_sweep_stale
+    sandbox_scratch "$dir"
+    sandbox_scratch "$ui_copy"
+    printf 'one\n' > "$dir/sel-one.txt"
+    printf 'two\n' > "$dir/sel-two.txt"
+    printf 'three\n' > "$dir/sel-three.txt"
+    printf 'four\n' > "$dir/renamed-later.txt"
+    printf 'five\n' > "$dir/untouched.txt"
+    launch "$dir"
+    wait_listing 5
+    addrB=$(xw_windows)
+    [[ -n "$addrB" ]] || fail "xwwatch: no B window address"
+
+    # B selects three files and parks its cursor on the last of them.
+    seek_row_named sel-one.txt
+    key v >/dev/null
+    key j >/dev/null
+    key v >/dev/null
+    key j >/dev/null
+    key v >/dev/null
+    settle
+    [[ "$(ipc selectionCount)" == "3" ]] || fail "xwwatch: B selected $(ipc selectionCount), not 3"
+    [[ "$(ipc rowAt "$(ipc cursor)")" == sel-two.txt\|* ]] \
+        || fail "xwwatch: B cursor is on $(ipc rowAt "$(ipc cursor)"), not sel-two.txt"
+
+    # A opens beside it on the same folder.
+    xw_second_window "$dir" "$ui_copy"
+    bootA="$ui_copy/boot"
+    addrA=$(xw_windows | grep -vxF "$addrB")
+    [[ -n "$addrA" ]] || fail "xwwatch: no A window address beside $addrB"
+    xw_wait_total "$bootA" 5 "second window listing"
+    xw_settled "$bootA"
+
+    # A creates a file through its own New File row; B shows it with the same three marked.
+    xw_key "$addrA" m
+    sleep "$settle_s"
+    xw_menu_seek "$addrA" "$bootA" "New File"
+    xw_key "$addrA" -k Return
+    xw_wait_editor "$bootA"
+    xw_key "$addrA" -M ctrl -k a -m ctrl -k BackSpace
+    xw_key "$addrA" created-by-a.txt
+    xw_key "$addrA" -k Return
+    xw_wait_total "$flea_ui/boot" 6 "create"
+    xw_settled "$flea_ui/boot"
+
+    # A renames a file B never marked; B follows the name with its marks untouched.
+    xw_goto "$addrA" "$bootA" 1
+    [[ "$(xw_ipc "$bootA" rowAt "$(xw_ipc "$bootA" cursor)")" == renamed-later.txt\|* ]] \
+        || fail "xwwatch: A cursor is on $(xw_ipc "$bootA" rowAt "$(xw_ipc "$bootA" cursor)"), not renamed-later.txt"
+    xw_key "$addrA" -k F2
+    xw_wait_editor "$bootA"
+    xw_key "$addrA" -M ctrl -k a -m ctrl -k BackSpace
+    xw_key "$addrA" renamed-by-a.txt
+    xw_key "$addrA" -k Return
+    xw_wait_row "$flea_ui/boot" renamed-by-a.txt "rename"
+    xw_settled "$flea_ui/boot"
+
+    # A deletes a file B holds marked; B drops that mark and keeps the other two.
+    row=0
+    local found=-1
+    for ((row = 0; row < 6; row++)); do
+        if [[ "$(xw_ipc "$bootA" rowAt "$row")" == sel-one.txt\|* ]]; then found=$row; break; fi
+    done
+    [[ "$found" -ge 0 ]] || fail "xwwatch: A never listed sel-one.txt"
+    xw_goto "$addrA" "$bootA" "$found"
+    xw_key "$addrA" -k Delete
+    xw_wait_total "$flea_ui/boot" 5 "delete"
+    xw_settled "$flea_ui/boot"
+    [[ "$(xw_ipc "$flea_ui/boot" selectionCount)" == "2" ]] \
+        || fail "xwwatch: B holds $(xw_ipc "$flea_ui/boot" selectionCount) marks, not the 2 survivors"
+    [[ "$(xw_ipc "$flea_ui/boot" rowAt "$(xw_ipc "$flea_ui/boot" cursor)")" == sel-two.txt\|* ]] \
+        || fail "xwwatch: B cursor is on $(xw_ipc "$flea_ui/boot" rowAt "$(xw_ipc "$flea_ui/boot" cursor)"), not sel-two.txt"
+    local survivor_rows
+    survivor_rows=$(xw_ipc "$flea_ui/boot" selectedIndices)
+    [[ -n "$survivor_rows" ]] || fail "xwwatch: B holds no readable marks"
+    for row in ${survivor_rows//,/ }; do
+        case "$(xw_ipc "$flea_ui/boot" rowAt "$row")" in
+            sel-two.txt\|* | sel-three.txt\|*) ;;
+            *) fail "xwwatch: B mark on row $row is $(xw_ipc "$flea_ui/boot" rowAt "$row"), not a survivor" ;;
+        esac
+    done
+    printf 'XWWATCH survivors ok\n'
+    xw_kill_second "$ui_copy"
     kill_flea
 }
 
@@ -11509,7 +11763,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 . "$repo/tests/ui-captures-markdown.sh"
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick opentab)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch xwwatch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick opentab)
 
 : > "$run_log"
 : > "$flea_log"

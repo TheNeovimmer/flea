@@ -100,6 +100,7 @@ import "extthumbs.js" as ExtThumbsSuite
 import "uistate.js" as UiStateSuite
 import "update.js" as UpdateSuite
 import "watch.js" as WatchSuite
+import "xwwatch.js" as XwWatchSuite
 import "gvfsbridge.js" as GvfsBridgeSuite
 
 Item {
@@ -144,7 +145,7 @@ Item {
             ["sort", SortSuite], ["swap", SwapSuite], ["startup", StartupSuite], ["trashdates", TrashDatesSuite], ["permissions", PermissionsSuite], ["status", StatusSuite], ["statusfix", StatusFixSuite], ["taildrop", TaildropSuite], ["textsize", TextSizeSuite],
             ["trash", TrashSuite], ["tap", TapSuite], ["marquee", MarqueeSuite], ["tabs", TabsSuite], ["tabs-switch", TabsSwitchSuite], ["tabmove", TabMoveSuite], ["tabrestore", TabRestoreSuite], ["shelfmodel", ShelfModelSuite],
             ["themes", ThemesSuite], ["thumbs", ThumbsSuite], ["extthumbs", ExtThumbsSuite], ["transfer", TransferSuite], ["uistate", UiStateSuite], ["update", UpdateSuite],
-            ["watch", WatchSuite], ["gvfsbridge", GvfsBridgeSuite]
+            ["watch", WatchSuite], ["xwwatch", XwWatchSuite], ["gvfsbridge", GvfsBridgeSuite]
         ]
         var argv = Qt.application.arguments
         var only = ""
