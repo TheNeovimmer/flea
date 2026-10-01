@@ -45,3 +45,17 @@ function needsAlign(cursor, want, visible, contentY, height, rowH) {
     var top = cursor * rowH
     return top < contentY || top + rowH > contentY + height
 }
+
+// The pointer case, in pixels and never in rows: a click never scrolls the list
+// under the pointer, except that a row cut by the viewport edge is scrolled just
+// enough to show it whole. top is the row's own top in the same space as
+// contentY, rowH one row, height the view's own. A fully inside row keeps
+// contentY; a row starting above answers its top; a row ending below answers
+// top + rowH - height. The caller clamps, the way the row-grid path does.
+function containY(top, rowH, contentY, height) {
+    if (top < contentY)
+        return top
+    if (top + rowH > contentY + height)
+        return top + rowH - height
+    return contentY
+}

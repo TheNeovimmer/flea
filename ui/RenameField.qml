@@ -137,7 +137,7 @@ Item {
         root.containing = true
         // Grid height changes reposition every tile. Contain its final position, not the old layout.
         if (root.containOnBegin && root.viewport) root.viewport.forceLayout()
-        if (root.ownsEdit() && root.visible && field.activeFocus) root.pane.setCursor(root.editIndex)
+        if (root.ownsEdit() && root.visible && field.activeFocus) root.pane.setCursor(root.editIndex, 0)
         root.containing = false
     }
     // Let the expanded row and Grid cell height settle before containing the complete error editor.

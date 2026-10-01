@@ -456,6 +456,21 @@ Item {
     function playerLoaded() { return playerLoader.item !== null }
     // What the text, archive and failure surfaces actually draw, for ui/Ipc.qml: the lines, the member names, the sentence.
     function textLines() { return lines.tooLarge ? "too large" : lines.lines.join("|") }
+    // The rendered Markdown document as plain text, for ui/Ipc.qml: the heading
+    // markers are gone the way the rendered frame draws them, so a test reads
+    // "Notes" and not "# Notes". Source view keeps the raw bytes.
+    function markdownText() {
+        if (!root.isMarkdownRow) return ""
+        var body = markdown.rawText || ""
+        if (markdown.view === "source") return body
+        var out = body.split("\n")
+        for (var i = 0; i < out.length; i++) {
+            var head = /^#{1,6}\s/.exec(out[i])
+            if (head !== null) out[i] = out[i].slice(head[0].length)
+            else if (/^#{1,6}$/.test(out[i])) out[i] = ""
+        }
+        return out.join("\n")
+    }
     // The swap waits on the text that is actually drawn: the rendered document for Markdown.
     readonly property bool textLoading: root.isMarkdownRow ? markdown.loading : lines.loading
     function archiveNames() { return root.meta && root.meta.names ? root.meta.names.map(function (e) { return e.n }).join("|") : "" }

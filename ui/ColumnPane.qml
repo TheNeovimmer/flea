@@ -77,6 +77,14 @@ Item {
     // A click carries context 0 so the list never moves under the pointer.
     function showCursor(viewIndex, context) {
         var rowH = Theme.fileRowHeight
+        // The pointer case answers in pixels in the originY space, clamped the way
+        // the row-grid path clamps: a cut row moves just enough to show it whole.
+        if (context === 0) {
+            var top = viewIndex * rowH
+            var rel = ScrollOff.containY(top, rowH, view.contentY - view.originY, view.height)
+            view.contentY = Math.max(view.originY, Math.min(view.contentHeight - view.height + view.originY, rel + view.originY))
+            return
+        }
         var visibleRows = ScrollOff.fullyVisible(view.height, rowH)
         var first = Math.floor((view.contentY - view.originY) / rowH)
         // No pane yet: the column's own rows are the listing, the same fallback its model uses.

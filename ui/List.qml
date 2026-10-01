@@ -301,6 +301,13 @@ ListView {
     // A click carries context 0 so the list never moves under the pointer.
     function showCursor(view, context) {
         var rowH = Theme.fileRowHeight
+        // The pointer case answers in pixels, never on the row grid: a row cut by
+        // the edge moves just enough to show it whole, and a whole row moves nothing.
+        if (context === 0) {
+            var top = view * rowH
+            root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, ScrollOff.containY(top, rowH, root.contentY, root.height)))
+            return
+        }
         var first = Math.floor(root.contentY / rowH)
         var visible = ScrollOff.fullyVisible(root.height, rowH)
         var want = ScrollOff.firstFor(first, visible, view, root.pane.shownTotal, context)

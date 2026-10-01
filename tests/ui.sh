@@ -2147,8 +2147,9 @@ case_click() {
 # contentY), then right click the last fully visible row (the menu opens, same).
 case_clickedge() {
     local dir="$fixture_root/clickedge" mode
+    local bindir="$fixture_root/clickedge-bin"
     sandbox_scratch "$dir"
-    mkdir -p "$dir/bin"
+    sandbox_scratch "$bindir"
     local i
     for i in $(seq -w 1 150); do printf 'body\n' > "$dir/f$i.txt"; done
     # Outside the directory under test: the stub appends on every open, and a write
@@ -2159,11 +2160,11 @@ case_clickedge() {
       printf '#!/bin/sh\n'
       printf '[ "$1" = open ] || exec /usr/bin/gio "$@"\n'
       printf 'printf "OPENED %%s\\n" "$2" >> %q\n' "$opened"
-    } > "$dir/bin/$open_handoff"
-    chmod +x "$dir/bin/$open_handoff"
+    } > "$bindir/$open_handoff"
+    chmod +x "$bindir/$open_handoff"
 
     local saved_path="$PATH"
-    export PATH="$dir/bin:$PATH"
+    export PATH="$bindir:$PATH"
     launch "$dir"
     export PATH="$saved_path"
     wait_listing 150
@@ -2183,7 +2184,7 @@ case_clickedge() {
         last=$((visible - 1))
         [[ -n "$(ipc rowCentre "$target")" ]] || fail "clickedge: $mode row $target has no centre, visible $visible"
         [[ -n "$(ipc rowCentre "$last")" ]] || fail "clickedge: $mode row $last has no centre, visible $visible"
-        target_name=$(ipc rowAt "$target" | cut -d'|' -f1)
+        target_name=$(ipc visibleRowName "$target")
         [[ -n "$target_name" ]] || fail "clickedge: $mode row $target names nothing"
         before=$(ipc viewContentY)
         click_row "$target" left
@@ -2213,6 +2214,111 @@ case_clickedge() {
         key -k Escape >/dev/null
         settle
         [[ "$(ipc contextMenuVisible)" == "false" ]] || fail "clickedge: $mode Escape left the menu open"
+        # A click on the row the viewport edge cuts scrolls by exactly the cut
+        # amount, in pixels and never by rows, so the second tap of a double
+        # click still lands on that row. Geometry first: the cut row is the one
+        # whose bottom runs past the listing area while its top stays inside it.
+        key -k Home >/dev/null
+        settle
+        [[ "$(ipc viewContentY)" == "0" ]] || fail "clickedge: $mode Home did not return to the top, contentY $(ipc viewContentY)"
+        local ax ay aw ah
+        read -r ax ay aw ah <<< "$(ipc listAreaRect)"
+        [[ "$ax $ay $aw $ah" =~ ^[0-9]+\ [0-9]+\ [0-9]+\ [0-9]+$ ]] || fail "clickedge: $mode has no listing area, got [$ax $ay $aw $ah]"
+        local cut=-1 crx cry crw crh ci
+        for (( ci = 0; ci < visible + 2; ci++ )); do
+            [[ -n "$(ipc rowRect "$ci")" ]] || break
+            read -r crx cry crw crh <<< "$(ipc rowRect "$ci")"
+            if (( cry + crh > ay + ah && cry < ay + ah )); then cut=$ci; break; fi
+        done
+        if (( cut < 0 )); then
+            printf 'CLICKEDGE %s cut skipped, every row is whole\n' "$mode"
+        else
+            local cut_amount=$((cry + crh - ay - ah)) cut_name before_cut after_cut drift
+            cut_name=$(ipc visibleRowName "$cut")
+            [[ -n "$cut_name" ]] || fail "clickedge: $mode cut row $cut names nothing"
+            before_cut=$(ipc viewContentY)
+            click_row "$cut" left
+            settle
+            after_cut=$(ipc viewContentY)
+            printf 'CLICKEDGE %s cut click row=%s before=%s after=%s want=%s\n' "$mode" "$cut" "$before_cut" "$after_cut" "$((before_cut + cut_amount))"
+            [[ "$(ipc cursor)" == "$cut" ]] || fail "clickedge: $mode a click on the cut row did not move the cursor to $cut"
+            drift=$((after_cut - before_cut - cut_amount))
+            (( drift >= -1 && drift <= 1 )) || fail "clickedge: $mode the cut click scrolled $before_cut to $after_cut, want $((before_cut + cut_amount))"
+            : > "$opened"
+            click_row "$cut" left --double
+            for _attempt in $(seq 1 100); do
+                grep -q "^OPENED $dir/$cut_name$" "$opened" && break
+                sleep 0.05
+            done
+            printf 'CLICKEDGE %s cut double opened=%q contentY=%s\n' "$mode" "$(cat "$opened")" "$(ipc viewContentY)"
+            grep -q "^OPENED $dir/$cut_name$" "$opened" || fail "clickedge: $mode a double click on the cut row did not open $cut_name, log $(cat "$opened")"
+        fi
+        # A slow click on the second-to-last whole row begins a rename and moves
+        # nothing: the reveal carries context 0, so the editor stays under the pointer.
+        key -k Home >/dev/null
+        settle
+        read -r ax ay aw ah <<< "$(ipc listAreaRect)"
+        local whole_last=-1
+        for (( ci = 0; ci < visible + 2; ci++ )); do
+            [[ -n "$(ipc rowRect "$ci")" ]] || break
+            read -r crx cry crw crh <<< "$(ipc rowRect "$ci")"
+            (( cry + crh <= ay + ah )) || break
+            whole_last=$ci
+        done
+        (( whole_last >= 1 )) || fail "clickedge: $mode found no whole rows, last $whole_last"
+        local slow=$((whole_last - 1)) slow_name before_slow after_slow
+        slow_name=$(ipc visibleRowName "$slow")
+        [[ -n "$slow_name" ]] || fail "clickedge: $mode slow row $slow names nothing"
+        before_slow=$(ipc viewContentY)
+        click_row "$slow" left
+        settle
+        sleep 0.7
+        click_row "$slow" left
+        for _attempt in $(seq 1 100); do
+            [[ "$(ipc renameEditorLive)" == "true" ]] && break
+            sleep 0.05
+        done
+        after_slow=$(ipc viewContentY)
+        printf 'CLICKEDGE %s rename row=%s before=%s after=%s live=%s\n' "$mode" "$slow" "$before_slow" "$after_slow" "$(ipc renameEditorLive)"
+        [[ "$(ipc renameEditorLive)" == "true" ]] || fail "clickedge: $mode the slow click never opened rename on row $slow"
+        [[ "$after_slow" == "$before_slow" ]] || fail "clickedge: $mode the slow click scrolled $before_slow to $after_slow"
+        key -k Escape >/dev/null
+        settle
+        [[ "$(ipc renameEditorLive)" == "false" ]] || fail "clickedge: $mode Escape left the rename open"
+        printf 'CLICKEDGE %s rename cancelled row=%s contentY=%s\n' "$mode" "$slow" "$(ipc viewContentY)"
+        # A band drag from an upper row down to the last whole row releases
+        # without scrolling: the release carries context 0 too. The press starts
+        # two pixels past the row's right edge, in the scroll lane no row covers,
+        # which is the empty ground the band starts on.
+        key -k Home >/dev/null
+        settle
+        [[ "$(ipc viewContentY)" == "0" ]] || fail "clickedge: $mode Home did not return to the top before the band, contentY $(ipc viewContentY)"
+        read -r ax ay aw ah <<< "$(ipc listAreaRect)"
+        whole_last=-1
+        for (( ci = 0; ci < visible + 2; ci++ )); do
+            [[ -n "$(ipc rowRect "$ci")" ]] || break
+            read -r crx cry crw crh <<< "$(ipc rowRect "$ci")"
+            (( cry + crh <= ay + ah )) || break
+            whole_last=$ci
+        done
+        local upper=2
+        (( whole_last > upper + 1 )) || fail "clickedge: $mode the window holds no band span, last whole $whole_last"
+        read -r crx cry crw crh <<< "$(ipc rowRect "$upper")"
+        local lane_x=$((crx + crw + 2))
+        (( lane_x < ax + aw )) || fail "clickedge: $mode no lane beside row $upper"
+        local end_cx end_cy before_band after_band
+        read -r end_cx end_cy <<< "$(ipc rowCentre "$whole_last")"
+        marquee_button_down=false
+        marquee_ctrl_down=false
+        before_band=$(ipc viewContentY)
+        marquee_press "$lane_x" "$((cry + crh / 2))"
+        marquee_to "$lane_x" "$end_cy"
+        marquee_release
+        settle
+        after_band=$(ipc viewContentY)
+        printf 'CLICKEDGE %s band from=%s to=%s before=%s after=%s selected=%s\n' "$mode" "$upper" "$whole_last" "$before_band" "$after_band" "$(ipc selectedIndices)"
+        [[ -n "$(ipc selectedIndices)" ]] || fail "clickedge: $mode the band marked nothing"
+        [[ "$after_band" == "$before_band" ]] || fail "clickedge: $mode the band release scrolled $before_band to $after_band"
         printf 'CLICKEDGE %s ok target=%s last=%s\n' "$mode" "$target" "$last"
     done
     kill_flea
@@ -11069,8 +11175,8 @@ case_formats() {
     lit=$(lit_in_rect "$evidence_dir/formats-sample-lines.png" $(ipc columnLinesRect))
     (( lit > 50 )) || fail "formats: sample.txt's lines box painted $lit lit pixels"
     column_expect notes.md text
-    for _attempt in $(seq 1 40); do [[ "$(ipc columnTextLines)" == "# Notes"* ]] && break; sleep 0.1; done
-    [[ "$(ipc columnTextLines)" == "# Notes"* ]] || fail "formats: notes.md's lines read '$(ipc columnTextLines)'"
+    for _attempt in $(seq 1 40); do [[ "$(ipc columnMarkdownText)" == "Notes"* ]] && break; sleep 0.1; done
+    [[ "$(ipc columnMarkdownText)" == "Notes"* ]] || fail "formats: notes.md's rendered text reads '$(ipc columnMarkdownText)'"
     column_expect empty.txt text
     column_expect big.txt text
     for _attempt in $(seq 1 40); do [[ "$(ipc columnTextLines)" == "too large" ]] && break; sleep 0.1; done

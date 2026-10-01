@@ -90,7 +90,7 @@ function finish(pane, state, cancelled) {
         pane.selectionAnchor = state.anchor
         pane.selectionVersion++
     } else if (state.last >= 0) {
-        pane.setCursor(state.last)
+        pane.setCursor(state.last, 0)
         pane.selectionAnchor = state.last
     }
 }

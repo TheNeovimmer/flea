@@ -122,4 +122,46 @@ function run(check) {
     check("a shift click carries it", marks.indexOf("Filter.setCursor(pane, index, 0)") >= 0, true)
     check("the columns selection follow keeps context 0",
           columnPane.indexOf("showCursor(root.pane ? Filter.viewOf(root.pane.shown, root.selectedIndex) : root.selectedIndex, 0)") >= 0, true)
+
+    // The pointer case answers in pixels, never on the row grid: a click never
+    // scrolls the list under the pointer, except that a row cut by the viewport
+    // edge moves just enough to show it whole.
+    check("the pixel contain rule exists", typeof ScrollOff.containY, "function")
+    if (typeof ScrollOff.containY === "function") {
+        // Row 10 at rowH 30 starts at 300; height 310, contentY 0 leaves it cut
+        // 300..310, so just enough is 20, not the row-grid snap to 30.
+        check("a cut bottom row moves just enough to show it whole",
+              ScrollOff.containY(300, 30, 0, 310), 20)
+        // The same row under a 25 px wheel scroll sits fully inside 25..335.
+        check("a fully visible row under a pixel scroll moves nothing",
+              ScrollOff.containY(300, 30, 25, 310), 25)
+        check("a whole row moves nothing",
+              ScrollOff.containY(60, 30, 0, 310), 0)
+        check("a row above answers its top",
+              ScrollOff.containY(60, 30, 90, 310), 60)
+        check("a row below answers top plus row minus height",
+              ScrollOff.containY(340, 30, 0, 310), 60)
+        // The keyboard path keeps today's values beside the new rule.
+        check("an explicit context 3 matches the default",
+              ScrollOff.firstFor(0, 42, 42, 150, 3), ScrollOff.firstFor(0, 42, 42, 150))
+    }
+    check("the list answers the pointer case in pixels",
+          list.indexOf("ScrollOff.containY(top, rowH, root.contentY, root.height)") >= 0, true)
+    check("the list gates the pixel path on context 0",
+          list.indexOf("if (context === 0)") >= 0, true)
+    check("the columns view answers the pointer case in pixels",
+          columnPane.indexOf("ScrollOff.containY(top, rowH, view.contentY - view.originY, view.height)") >= 0, true)
+    check("the columns view gates the pixel path on context 0",
+          columnPane.indexOf("if (context === 0)") >= 0, true)
+    var renameField = Source.source("ui/RenameField.qml")
+    check("the rename reveal carries context 0",
+          renameField.indexOf("setCursor(root.editIndex, 0)") >= 0, true)
+    var marquee = Source.source("ui/js/Marquee.js")
+    check("the band release carries context 0",
+          marquee.indexOf("setCursor(state.last, 0)") >= 0, true)
+    var anchor = Source.source("ui/js/Anchor.js")
+    check("the refresh re-land selects with context 0",
+          anchor.indexOf("selectOnly(index, 0)") >= 0, true)
+    check("the refresh re-land moves with context 0",
+          anchor.indexOf("setCursor(index, 0)") >= 0, true)
 }

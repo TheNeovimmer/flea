@@ -214,6 +214,7 @@ Item {
     function thumbShown() { return preview.thumbShown }
     function frameReady() { return preview.frameStatus === Image.Ready }
     function textLines() { return preview.textLines() }
+    function markdownText() { return preview.markdownText() }
     function linesItem() { return preview.linesItem }
     function archiveItem() { return preview.archiveItem }
     function archiveNames() { return preview.archiveNames() }

@@ -111,7 +111,7 @@ function apply(pane, anchor) {
 // were selected no longer exist and a cursor with nothing marked is a keyboard that has to start over.
 function landOn(pane, index, anchor) {
     if (anchor.select)
-        pane.selectOnly(index)
+        pane.selectOnly(index, 0)
     else
-        pane.setCursor(index)
+        pane.setCursor(index, 0)
 }
