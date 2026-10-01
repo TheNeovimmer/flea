@@ -346,10 +346,15 @@ function runE81(check) {
         askArm.indexOf("root.imageAsked") >= 0 && askArm.indexOf("followSettle.running") >= 0
         && askArm.indexOf("root.pane.backend.askMeta(root.imageRow, false, false, false)") >= 0, true)
     check("a reply for another row is dropped",
-        flat.indexOf("if (root.isImage && row === root.imageRow)") >= 0, true)
+        flat.indexOf("if (root.isImage && row === root.imageRow && root.imageRowShown())") >= 0, true)
+    check("the ask re-resolves a drifted index to the shown file",
+        askArm.indexOf("root.resolveImageRow()") >= 0
+        && squashed(bodyOf(quick, "function resolveImageRow")).indexOf("root.imageRow = -1") >= 0, true)
     var wire = Source.source("ui/PaneWire.qml")
     check("a prefetch miss on a generating class returns to unasked",
         wire.indexOf("Thumbs.CACHE_ASKED") >= 0 && wire.indexOf("Thumbs.miss(pane.thumbState, row, true, pane.thumbCap)") >= 0, true)
+    check("the forgotten row is re-planned through the settled view",
+        wire.indexOf("if (pane.listArea) pane.listArea.restartSettle()") >= 0, true)
     var loadArm = squashed(sel.substring(sel.indexOf("function load()"), sel.indexOf("function askThumb")))
     check("the column single-row ask runs through its held gate",
         loadArm.indexOf("root.askThumb()") >= 0 && loadArm.indexOf("pane.backend.thumb(work.ask") < 0, true)

@@ -281,7 +281,7 @@ ln -s /usr/share/omarchy/shell/Ui "$prefetch_root/config/Ui" || exit 1
 prefetch_pass=$(grep -ac 'THUMBPREFETCH PASS' "$prefetch_log")
 prefetch_fail=$(grep -ac 'THUMBPREFETCH FAIL' "$prefetch_log")
 prefetch_done=$(grep -ac 'THUMBPREFETCH DONE failures=0$' "$prefetch_log")
-check "a rest asks once, nothing asks mid-burst, the trailing rest asks once more" "14" "$prefetch_pass"
+check "a rest asks once, nothing asks mid-burst, the trailing rest asks once more" "23" "$prefetch_pass"
 check "and the probe reports no failure" "0" "$prefetch_fail"
 check "with a clean DONE" "1" "$prefetch_done"
 if [ "$prefetch_done" != 1 ]; then

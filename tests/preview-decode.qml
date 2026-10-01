@@ -19,13 +19,18 @@ ShellRoot {
     property string interimOrig: ""
     property string interimCache: ""
     property string pendingInterim: ""
+    // The interim phase's cursor row, naming the shown file the way production always does.
+    property int interimRowOverride: -1
 
     function log(line) { console.log("PREVIEW " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
     function mark(name) { Quickshell.execDetached(["touch", shell.photoDir + "/sentinel-" + name]) }
 
     // The backend's row shape: a text start row, fifty sweep photos, the big PNG rest row.
+    // The interim phase overrides one row to name the shown file, so the cursor names it too.
     function rowFor(i) {
+        if (i === shell.interimRowOverride && shell.interimOrig !== "")
+            return { n: shell.interimOrig, d: false, t: true, s: 1000, m: 1000, p: 33188, i: "image-x-generic" }
         if (i < 0 || i > shell.restRow) return null
         if (i === 0) return { n: "note.txt", d: false, t: false, s: 64, m: 1000, p: 33188, i: "text-x-generic" }
         if (i === shell.restRow) return { n: "big.png", d: false, t: true, s: 2000000, m: 1051, p: 33188, i: "image-x-generic" }
@@ -269,7 +274,8 @@ ShellRoot {
         shell.interimOrig = orig
         shell.interimCache = cache
         shell.metaWH = [w, h]
-        stub.cursorIndex = 90
+        shell.interimRowOverride = 7
+        stub.cursorIndex = 7
         shell.mark("istart-" + label)
         shell.pendingInterim = label
         if (quickPreview.status === Loader.Ready) shell.openInterim()

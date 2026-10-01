@@ -323,8 +323,32 @@ Item {
     function askImage() {
         if (!root.isImage || root.interimThumb.length === 0 || !root.pane) return
         if (root.imageRow < 0 || root.imageAsked || followSettle.running) return
+        // An insert or a re-sort between capture and ask moves another file to the index,
+        // so the row must still name the shown file before anything is asked for it.
+        root.resolveImageRow()
         root.imageAsked = true
+        if (root.imageRow < 0) return
         root.pane.backend.askMeta(root.imageRow, false, false, false)
+    }
+
+    // The row at imageRow still names the shown file: its name under the pane's path is
+    // the path this show opened, the way the rest of this file identifies a row.
+    function imageRowShown() {
+        if (!root.pane || root.imageRow < 0) return false
+        var row = root.pane.rowFor(root.imageRow)
+        return row !== null && root.pane.join(root.pane.path, row.n) === root.path
+    }
+
+    // The captured index drifted onto another file: take the cursor when it names the
+    // shown file instead, else drop the interim for this show with no ask.
+    function resolveImageRow() {
+        if (root.imageRowShown()) return
+        var at = root.pane ? root.pane.cursorIndex : -1
+        var row = root.pane && at >= 0 ? root.pane.rowFor(at) : null
+        if (row !== null && root.pane.join(root.pane.path, row.n) === root.path)
+            root.imageRow = at
+        else
+            root.imageRow = -1
     }
 
     Connections {
@@ -334,7 +358,7 @@ Item {
                 root.archiveMeta = { entries: entries, unpacked: unpacked, archiveFailed: archiveFailed, names: names }
             if (root.isMedia && row === root.mediaRow)
                 root.mediaRate = sampleRate
-            if (root.isImage && row === root.imageRow) {
+            if (root.isImage && row === root.imageRow && root.imageRowShown()) {
                 root.imageW = w
                 root.imageH = h
                 root.imageOrient = orient

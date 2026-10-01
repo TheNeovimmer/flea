@@ -228,9 +228,13 @@ Item {
             if (pane.listInFlight)
                 return
             if (file === "" && pane.thumbState.file[row] === Thumbs.CACHE_ASKED
-                    && (!pane.storageKnown || !ExtThumbs.cacheOnly(pane.storageClass, ViewState.preview)))
+                    && (!pane.storageKnown || !ExtThumbs.cacheOnly(pane.storageClass, ViewState.preview))) {
                 pane.thumbState = Thumbs.miss(pane.thumbState, row, true, pane.thumbCap)
-            else
+                // The row a prefetch asked and lost is visible work again: the settled
+                // view re-plans it in full, the way a class switch re-asks its misses.
+                // The re-plan never prefetches, so this cannot ask twice in one rest.
+                if (pane.listArea) pane.listArea.restartSettle()
+            } else
                 pane.thumbState = Thumbs.remember(pane.thumbState, row, file, pane.thumbCap)
         }
 
