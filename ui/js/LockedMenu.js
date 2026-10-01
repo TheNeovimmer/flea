@@ -7,7 +7,7 @@
 // tile names the locked folder itself, never the parent behind it, so only rows that act
 // on that folder without listing it are offered: terminal, permissions and path. Kept in
 // ui/js/Menu.js INVENTORY order, one group, so the menu never reorders under its caller.
-var LOCKED_IDS = ["openTerminal", "permissions", "copypath"]
+var LOCKED_IDS = ["openTerminal", "permissions", "copyAs"]
 
 // The bar's sentence when every locked id is hidden, naming the switch that brings them back.
 var LOCKED_REFUSAL = "Open in terminal, Permissions and Copy path are hidden in Settings > Menus."

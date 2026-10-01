@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import "." as Flea
 import "js/LocalSend.js" as LocalSendJs
+import "js/CopyAs.js" as CopyAs
 import "js/Menu.js" as Menu
 import "js/Ops.js" as Ops
 
@@ -29,7 +30,7 @@ Loader {
     }
 
     // A menu opened without a selection carries no paths, so a row action means the row under the
-    // cursor, which is what Copy path has always read and what the send rows read now.
+    // cursor, which is what the path copy has always read and what the send rows read now.
     function targets(paths) {
         if (paths && paths.length) return paths
         return root.pane.cursorRow ? [root.pane.join(root.pane.path, root.pane.cursorRow.n)] : []
@@ -59,13 +60,48 @@ Loader {
         }
     }
 
+    // MenuAdditions040: every Copy as variant covers the whole selection, one
+    // path per line, through wl-copy. The menu's snapshot carries paths a
+    // window cannot hold, so the leaves read them rather than the cursor row.
+    var copyKinds = { copyPath: "path", copyName: "name", copyStem: "stem",
+        copydirpath: "dirpath", copyUri: "uri", copyQuoted: "quoted" }
+    function copyVariant(action, paths) {
+        var leaf = action.indexOf("copyAs:") === 0 ? action.substring("copyAs:".length) : action
+        var kind = copyKinds[leaf]
+        if (kind === undefined) return false
+        var taken = root.targets(paths)
+        if (taken.length === 0) return true
+        root.pane.opener.copyText(CopyAs.lines(taken, kind))
+        return true
+    }
+
     function perform(action, menuId, paths) {
         if (action.indexOf("runScript:") === 0) { Flea.Scripts.run(action.substring("runScript:".length), paths || []); return }
         if (action.indexOf("localsend:") === 0) { LocalSendJs.send(root.pane, localSend, root.pane.backend.providers.localsend, action.substring("localsend:".length), root.targets(paths)); return }
         if (action.indexOf("taildrop:") === 0) { root.pane.sendTaildrop(action.substring("taildrop:".length), root.targets(paths).length === 1 ? root.targets(paths)[0] : ""); return }
         if (action === "addToShelf") { root.shelve(root.targets(paths)); return }
         if (action === "sharelink") { root.pane.copyShareLink(paths && paths.length === 1 ? paths[0] : ""); return }
+        // The listing menu's Copy path row, kept as the alias the Places and
+        // Locked menus still spell while they move onto the Copy as leaves.
         if (action === "copypath") { root.pane.opener.copyText(paths && paths.length ? paths[0] : root.pane.join(root.pane.path, root.pane.cursorRow.n)); return }
+        if (copyVariant(action, paths)) return
+        // MenuAdditions040: Show original reveals the link's target in its own
+        // folder, the same path Show in folder uses.
+        if (action === "showOriginal") {
+            var taken = root.targets(paths)
+            if (taken.length > 0) root.pane.backend.send({ c: "linktarget", path: taken[0] })
+            return
+        }
+        // MenuAdditions040: Paste as links, undoable, through the collision card.
+        // The source is the file clipboard, never the snapshot the menu took:
+        // pasting links the rows y copied or x cut, wherever they were taken.
+        if (action.indexOf("pasteAs:") === 0) {
+            var leaf = action.substring("pasteAs:".length)
+            var kind = leaf === "pasteAbsoluteLink" ? "absolute" : leaf === "pasteHardLink" ? "hard" : "relative"
+            root.pane.pasteLink(kind, null)
+            return
+        }
+        if (action === "invertSelection") { root.pane.invertSelection(); return }
         if (action.indexOf("col:") === 0) { ViewState.toggleColumn(action.substring("col:".length)); return }
         root.pane.act(action, menuId, paths)
     }

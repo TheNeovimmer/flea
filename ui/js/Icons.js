@@ -176,7 +176,10 @@ var PATHS = {
     "copy": "M9 8h12v13H9z M4 16V3h13",
     "clipboard": "M9 2h6v4H9z M6 4H3v18h18V4h-3 M8 12h8 M8 16h5",
     // The Keys section's rail mark: the key caps are the same zero-length-line dots the list mark uses.
-    "keyboard": "M2 6h20v12H2z M6 10L6.01 10 M10 10L10.01 10 M14 10L14.01 10 M18 10L18.01 10 M8 14h8"
+    "keyboard": "M2 6h20v12H2z M6 10L6.01 10 M10 10L10.01 10 M14 10L14.01 10 M18 10L18.01 10 M8 14h8",
+    // The background menu's Invert selection row, lucide's contrast: the outer
+    // ring is a real curve and stays one, and the half moon is lucide's own.
+    "contrast": "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20 M12 18a6 6 0 0 0 0-12v12z"
 }
 
 function pathFor(name) {

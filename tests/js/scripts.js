@@ -32,7 +32,7 @@ function run(check) {
           Scripts.failure("ocr.sh", "  \n", 3), "ocr.sh exited with status 3")
 
     var withScripts = file(parsed)
-    check("the menu carries Run script after Copy path, with the scripts as its submenu",
+    check("the menu carries Run script after Copy as, with the scripts as its submenu",
           row(withScripts, "runScript").label + "|" + row(withScripts, "runScript").submenu.map(function (s) { return s.label }).join(","),
           "Run script|convert-to-webp,ocr,upload-to-s3")
     check("an empty scripts directory offers no row at all", row(file([]), "runScript"), null)

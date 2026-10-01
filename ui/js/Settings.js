@@ -34,9 +34,9 @@ var MENU_GROUPS = [
     { id: "basic", label: "Basic file actions", ids: BASIC },
     { id: "destructive", label: "Destructive", ids: ["delete"] },
     { id: "openInspect", label: "Open and inspect",
-      ids: ["openwith", "openTerminal", "moveto", "copyto", "properties", "permissions", "copypath"] },
+      ids: ["openwith", "openTerminal", "moveto", "copyto", "properties", "permissions", "copyAs", "showOriginal"] },
     { id: "extras", label: "Extras", features: ["placeMenu"],  // features gate a surface, not a row
-      ids: ["shelf", "compress", "extract", "convert", "taildrop", "localsend", "dropbox", "sharelink", "runScript", "placeMenu", "updateFlea", "extThumbs"] }
+      ids: ["shelf", "compress", "extract", "convert", "taildrop", "localsend", "dropbox", "sharelink", "runScript", "placeMenu", "updateFlea", "extThumbs", "pasteAs", "invertSelection"] }
 ]
 
 // Open and Show hidden files draw the lock mark instead of a box, and the board says why: a menu that cannot open the row under the cursor is not a menu, and the hidden toggle is the one background row with no keyboard-independent alternative.
@@ -44,7 +44,8 @@ var LOCKED = ["open", "toggleHidden"]
 
 var LABELS = {
     cut: "Cut", copy: "Copy", paste: "Paste", duplicate: "Duplicate", rename: "Rename",
-    trash: "Move to Trash", openTerminal: "Open in terminal", copypath: "Copy path", permissions: "Permissions",
+    trash: "Move to Trash", openTerminal: "Open in terminal", copyAs: "Copy as", showOriginal: "Show original",
+    pasteAs: "Paste as", invertSelection: "Invert selection", permissions: "Permissions",
     delete: "Delete permanently", openwith: "Open with", moveto: "Move to", copyto: "Copy to", properties: "Properties",
     compress: "Compress", extract: "Extract", localsend: "Send with LocalSend",
     convert: "Convert", taildrop: "Send with Taildrop", dropbox: "Move to Dropbox",
@@ -59,7 +60,8 @@ var PRESET_LABELS = { "default": "Default", vim: "Vim", mac: "Mac", windows: "Wi
 // Every board row carries a left mark, and a switch wears the mark of the row it governs: these are ui/js/Menu.js's own glyphs by action id, which tests/js/settings.js asserts the two agree on.
 var GLYPHS = {
     cut: "scissors", copy: "copy", paste: "clipboard", duplicate: "file-plus", rename: "rename",
-    trash: "trash", openTerminal: "terminal", copypath: "file-text", permissions: "lock", compress: "archive",
+    trash: "trash", openTerminal: "terminal", copyAs: "file-text", showOriginal: "symlink",
+    pasteAs: "symlink", invertSelection: "contrast", permissions: "lock", compress: "archive",
     delete: "trash", openwith: "app-window", moveto: "folder-plus", copyto: "copy", properties: "info",
     extract: "archive-out",
     convert: "sliders", sharelink: "network", open: "folder-open", toggleHidden: "eye", placeMenu: "folder-open", runScript: "terminal",

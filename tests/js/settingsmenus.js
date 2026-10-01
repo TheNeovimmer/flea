@@ -13,15 +13,22 @@ function runInventory(check) {
     var built = {}
     var builtMark = {}
     var shapes = [
-        { rowInDropbox: false, rowIsArchive: true, rowIsImage: true },
-        { rowInDropbox: true, rowIsArchive: false, rowIsImage: false }
+        { rowInDropbox: false, rowIsArchive: true, rowIsImage: true, rowIsSymlink: true,
+          selectionCount: 1, selectionModes: undefined },
+        { rowInDropbox: true, rowIsArchive: false, rowIsImage: false, rowIsSymlink: false,
+          selectionCount: 1, selectionModes: undefined },
+        // Permissions040: Permissions takes the whole selection, so one shape
+        // selects three files and the row still builds.
+        { rowInDropbox: false, rowIsArchive: false, rowIsImage: false, rowIsSymlink: false,
+          selectionCount: 3, selectionModes: [0o100644, 0o100644, 0o040755] }
     ]
     for (var s = 0; s < shapes.length; s++) {
         var rows = Menu.listingEntries({
             showHidden: false, hasRow: true, dropboxPath: "/home/jw/Dropbox",
             taildropPeers: [{ id: "x", label: "Box" }], taildropInstalled: true, dropboxInstalled: true,
             localSendInstalled: true,
-            archiveFormats: ["zip"], canConvert: true, canExtract: true, selectionCount: 1, rowMode: 0o100644,
+            archiveFormats: ["zip"], canConvert: true, canExtract: true, selectionCount: shapes[s].selectionCount,
+            selectionModes: shapes[s].selectionModes, rowMode: 0o100644, rowIsSymlink: shapes[s].rowIsSymlink,
             rowInDropbox: shapes[s].rowInDropbox, rowIsArchive: shapes[s].rowIsArchive,
             rowIsImage: shapes[s].rowIsImage, hiddenActions: [],
             // One script, so the Run script row is built here the way a box with a scripts directory builds it.
@@ -86,7 +93,7 @@ function runMaster(check) {
     check("and the master is unchecked", Settings.masterState(BASIC, BASIC), "none")
     // An unrelated id in the set must not be counted as one of the six, in either direction.
     check("an unrelated hidden id does not change the count",
-          Settings.basicEnabled(["copypath", "compress"], BASIC), 6)
+          Settings.basicEnabled(["showOriginal", "compress"], BASIC), 6)
 
     check("activating a checked master switches all six off",
           Settings.toggleMaster([], BASIC).sort().join(","), BASIC.slice().sort().join(","))
@@ -95,14 +102,14 @@ function runMaster(check) {
     check("activating an unchecked master switches all six on too",
           Settings.toggleMaster(BASIC, BASIC).length, 0)
     check("switching all six on preserves an unrelated hidden id",
-          Settings.toggleMaster(["paste", "copypath"], BASIC).join(","), "copypath")
+          Settings.toggleMaster(["paste", "showOriginal"], BASIC).join(","), "showOriginal")
     check("and switching all six off preserves it as well",
-          Settings.toggleMaster(["copypath"], BASIC).indexOf("copypath") >= 0, true)
+          Settings.toggleMaster(["showOriginal"], BASIC).indexOf("showOriginal") >= 0, true)
 
     check("an individual toggle adds its own id and nothing else",
           Settings.toggleId([], "paste").join(","), "paste")
     check("and toggling it again takes only that id back out",
-          Settings.toggleId(["paste", "copypath"], "paste").join(","), "copypath")
+          Settings.toggleId(["paste", "showOriginal"], "paste").join(","), "showOriginal")
     check("the master recomputes off the individual toggle at once",
           Settings.masterState(Settings.toggleId([], "cut"), BASIC) + " "
           + Settings.basicEnabled(Settings.toggleId([], "cut"), BASIC), "some 5")
@@ -119,8 +126,8 @@ function runMaster(check) {
         .filter(function (row) { return row.kind === "group" })
     check("every heading reports the group it governs, and a group of one row has no master at all",
           groups.map(function (row) { return row.label + "|" + (row.master ? row.value + "|" + row.state : "no master") }).join(", "),
-          "Basic file actions|6 of 6|all, Destructive|no master, Open and inspect|3 of 7|some, "
-          + "Extras|12 of 12|all, Shortcuts|no master, Always shown|no master")
+          "Basic file actions|6 of 6|all, Destructive|no master, Open and inspect|4 of 8|some, "
+          + "Extras|14 of 14|all, Shortcuts|no master, Always shown|no master")
     var inspect = groups[2]
     check("a heading with a master is a focus stop and one without is not",
           Settings.focusable(inspect) + "|" + Settings.focusable(groups[1]), "true|false")

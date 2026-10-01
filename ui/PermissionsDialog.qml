@@ -18,9 +18,24 @@ FocusScope {
     property bool busy: false
     property bool transportFailed: false
     property Item focusHolder: null
-    readonly property bool editable: facts.ok === true && !facts.reason && !busy && !transportFailed
+    // Permissions040: the whole selection's paths, modes in the same order,
+    // and the bits the operator explicitly set or cleared across all of them.
+    // A mixed box the operator never touched keeps each file's own bit.
+    property var multiPaths: []
+    property var multiModes: []
+    property int multiPending: 0
+    property string multiFailed: ""
+    property int explicitSet: 0
+    property int explicitClear: 0
+    property bool applyingMany: false
+    readonly property bool isMulti: multiPaths.length > 1
+    readonly property var multiSummary: isMulti ? Permissions.summarize(multiModes) : null
+    readonly property bool editable: isMulti ? multiFailed.length === 0 && !busy && !transportFailed
+                                             : facts.ok === true && !facts.reason && !busy && !transportFailed
     readonly property int modeValue: Permissions.parse(modeText)
     readonly property bool applying: busy && facts.ok === true
+    // Permissions040: a multi Apply cannot be cancelled either.
+    readonly property bool applyLocked: applying || applyingMany
     readonly property real labelWidth: Math.round(96 * Theme.font.bodySmall / 13)
     readonly property int controlHeight: Math.max(Theme.rowHeight, Math.ceil(Theme.font.body * Theme.lineBoxRatio) + 2 * Theme.spacing.rowPaddingY)
     readonly property real bodyInset: 16 * Theme.font.bodySmall / 13 + Theme.spacing.hairline
@@ -50,6 +65,13 @@ FocusScope {
 
     function open(itemPath, holder) {
         requestId += 1
+        multiPaths = []
+        multiModes = []
+        multiPending = 0
+        multiFailed = ""
+        explicitSet = 0
+        explicitClear = 0
+        applyingMany = false
         path = itemPath
         focusHolder = holder
         facts = ({})
@@ -62,7 +84,33 @@ FocusScope {
         cancelFocus.forceActiveFocus()
         requested({ c: "permissions", op: "inspect", id: requestId, path: path })
     }
+    // Permissions040: one Entry holds every path the Apply changed, so one
+    // undo restores them all. Each file keeps its own bits except the ones
+    // the operator explicitly set or cleared across the whole selection.
+    function openMany(paths, holder) {
+        requestId += 1
+        multiPaths = paths.slice()
+        multiModes = []
+        multiPending = paths.length
+        multiFailed = ""
+        explicitSet = 0
+        explicitClear = 0
+        applyingMany = false
+        path = ""
+        focusHolder = holder
+        facts = ({})
+        modeText = ""
+        errorText = ""
+        transportFailed = false
+        busy = true
+        opened = true
+        body.contentY = 0
+        cancelFocus.forceActiveFocus()
+        for (var i = 0; i < paths.length; i++)
+            requested({ c: "permissions", op: "inspect", id: requestId * 1000 + i, path: paths[i] })
+    }
     function receive(message) {
+        if (isMulti) { receiveMany(message); return }
         if (!opened || transportFailed || message.id !== requestId || message.op === "close") return
         busy = false
         cancelFocus.forceActiveFocus()
@@ -70,6 +118,66 @@ FocusScope {
         if (message.op === "apply") { changed(); close(); return }
         facts = message
         modeText = message.mode
+    }
+    // Permissions040: the grid over several files. An untouched mixed box
+    // keeps each file's own bit; the first click sets the bit everywhere,
+    // the next clears it, and the next after that lets go of it again.
+    function multiBit(bit) {
+        if (!multiSummary) return { on: false, mixed: false }
+        for (var i = 0; i < multiSummary.bits.length; i++) {
+            if (multiSummary.bits[i].mask === bit)
+                return multiSummary.bits[i]
+        }
+        return { on: false, mixed: false }
+    }
+    function multiChecked(bit) {
+        if ((explicitSet & bit) !== 0) return true
+        if ((explicitClear & bit) !== 0) return false
+        return multiBit(bit).on
+    }
+    function multiValue(bit) {
+        if ((explicitSet & bit) !== 0) return "on"
+        if ((explicitClear & bit) !== 0) return "off"
+        var found = multiBit(bit)
+        if (found.mixed) return "some"
+        return found.on ? "on" : "off"
+    }
+    function multiToggle(bit) {
+        if ((explicitSet & bit) !== 0) {
+            explicitSet &= ~bit
+            explicitClear |= bit
+        } else if ((explicitClear & bit) !== 0) {
+            explicitClear &= ~bit
+        } else {
+            explicitSet |= bit
+            explicitClear &= ~bit
+        }
+    }
+    function receiveMany(message) {        if (!opened || transportFailed) return
+        if (message.op === "applyMany") {
+            applyingMany = false
+            if (message.ok === true) { changed(); close(); return }
+            errorText = message.error || "Could not change permissions."
+            busy = false
+            cancelFocus.forceActiveFocus()
+            return
+        }
+        if (message.op !== "inspect") return
+        var at = (message.id || 0) - requestId * 1000
+        if (at < 0 || at >= multiPaths.length) return
+        // Assigned whole, because an index write to a var array notifies nothing.
+        var modes = multiModes.slice()
+        if (message.ok === true) modes[at] = message.mode
+        multiModes = modes
+        if (message.ok !== true && multiFailed.length === 0)
+            multiFailed = message.error || "Could not change permissions."
+        multiPending -= 1
+        if (multiPending <= 0) {
+            multiPending = 0
+            busy = false
+            if (multiFailed.length > 0) errorText = multiFailed
+            cancelFocus.forceActiveFocus()
+        }
     }
     function backendFailed(message) {
         if (!opened || transportFailed) return
@@ -84,18 +192,43 @@ FocusScope {
     }
     function close() {
         // An issued fchmod cannot be cancelled; retain its result before allowing dismissal.
-        if (!opened || applying) return
-        requested({ c: "permissions", op: "close", id: requestId })
+        if (!opened || applying || applyingMany) return
+        if (isMulti) {
+            for (var i = 0; i < multiPaths.length; i++)
+                requested({ c: "permissions", op: "close", id: requestId * 1000 + i })
+        } else {
+            requested({ c: "permissions", op: "close", id: requestId })
+        }
         opened = false
         closed()
         if (focusHolder) focusHolder.forceActiveFocus()
     }
     function apply() {
+        if (isMulti) { applyMany(); return }
         if (!editable || modeValue < 0) return
         root.forceActiveFocus()
         busy = true
         errorText = ""
         requested({ c: "permissions", op: "apply", id: requestId, mode: modeText })
+    }
+    // Permissions040: Apply is one undo step for all the files. Each file
+    // keeps its own bits except the ones the grid explicitly set or cleared.
+    function applyMany() {
+        if (!editable) return
+        root.forceActiveFocus()
+        busy = true
+        applyingMany = true
+        errorText = ""
+        var paths = []
+        var modes = []
+        for (var i = 0; i < multiPaths.length; i++) {
+            var base = Permissions.parse(multiModes[i])
+            if (base < 0) continue
+            var target = (base & ~explicitClear) | explicitSet
+            paths.push(multiPaths[i])
+            modes.push(Permissions.octal(target))
+        }
+        requested({ c: "permissionsBatch", paths: paths, modes: modes, id: requestId })
     }
     function focusItems(item, result) {
         if (!item.visible || !item.enabled) return
@@ -158,7 +291,7 @@ FocusScope {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: Theme.spacing.gap
                 Flea.Glyph { width: Theme.chromeMarkSize; height: title.height; name: "lock"; color: Theme.color.accent }
-                Text { id: title; text: "Permissions"; color: Theme.color.foreground; textFormat: Text.PlainText; font { family: Theme.font.family; pixelSize: Theme.font.caption; bold: true } }
+                    Text { id: title; text: root.isMulti ? "Permissions for " + root.multiPaths.length + " items" : "Permissions"; color: Theme.color.foreground; textFormat: Text.PlainText; font { family: Theme.font.family; pixelSize: Theme.font.caption; bold: true } }
             }
             // Dialogs rule 7: the way out is named beside the mark that performs it, the settings panel's own corner.
             Flea.EscapeHint {
@@ -175,7 +308,7 @@ FocusScope {
                 glyph: "x"; gesturePolicy: TapHandler.ReleaseWithinBounds
                 // The one chrome control here, so brightness is all it has to say where the keyboard is: muted at rest, foreground under focus.
                 restingColor: Theme.color.muted
-                enabled: !root.applying
+                enabled: !root.applyLocked
                 accessName: "Close permissions"
                 activeFocusOnTab: true
                 keyboardFocused: activeFocus
@@ -204,6 +337,9 @@ FocusScope {
                     width: parent.width
                     height: root.controlHeight
                     spacing: Theme.spacing.gap
+                    // Permissions040: for several items the grid and Apply are
+                    // the whole card, so the name row drops out with the rest.
+                    visible: !root.isMulti
                     Flea.Glyph { width: Theme.markSize; height: nameLabel.height; anchors.verticalCenter: parent.verticalCenter; name: root.facts.directory ? "folder" : "file"; color: Theme.color.muted }
                     Text { id: nameLabel; width: parent.width - Theme.markSize - kindLabel.width - 2 * parent.spacing; anchors.verticalCenter: parent.verticalCenter; text: root.path.split("/").pop(); elide: Text.ElideMiddle; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
                     Text { id: kindLabel; anchors.verticalCenter: parent.verticalCenter; text: root.facts.ok ? (root.facts.directory ? "directory" : "file") : ""; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.caption } }
@@ -214,7 +350,7 @@ FocusScope {
                     height: root.headingHeight
                     Item { width: root.labelWidth; height: parent.height }
                     Repeater {
-                        model: ["READ", "WRITE", root.facts.directory ? "ENTER" : "EXEC"]
+                        model: ["READ", "WRITE", root.isMulti || !root.facts.directory ? "EXEC" : "ENTER"]
                         Text { required property string modelData; width: (body.width - root.labelWidth) / 3; height: parent.height; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; text: modelData; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.caption; letterSpacing: Theme.font.caption / 10 } }
                     }
                 }
@@ -236,7 +372,8 @@ FocusScope {
                                 id: checkbox
                                 required property int index
                                 readonly property int bit: 1 << (8 - permissionRow.index * 3 - index)
-                                readonly property bool checked: (root.modeValue >= 0 ? root.modeValue : parseInt(root.facts.mode || "0", 8)) & bit
+                                readonly property bool checked: root.isMulti ? root.multiChecked(bit)
+                                    : (root.modeValue >= 0 ? root.modeValue : parseInt(root.facts.mode || "0", 8)) & bit
                                 width: (body.width - root.labelWidth) / 3
                                 height: permissionRow.height
                                 activeFocusOnTab: true
@@ -246,13 +383,20 @@ FocusScope {
                                 Accessible.checked: checked
                                 Accessible.onPressAction: toggle()
                                 Accessible.onToggleAction: toggle()
-                                function toggle() { if (root.editable) { root.modeText = Permissions.toggle(root.modeText, bit); forceActiveFocus() } }
+                                function toggle() {
+                                    if (!root.editable) return
+                                    if (root.isMulti) root.multiToggle(bit)
+                                    else root.modeText = Permissions.toggle(root.modeText, bit)
+                                    forceActiveFocus()
+                                }
                                 Keys.onSpacePressed: toggle()
                                 Keys.onTabPressed: function(event) { root.stepFocus((event.modifiers & Qt.ShiftModifier) !== 0) }
                                 Keys.onBacktabPressed: root.stepFocus(true)
                                 Flea.CheckBox {
                                     anchors.centerIn: parent
-                                    value: checkbox.checked ? "on" : "off"
+                                    // Permissions040: a bit differing across the
+                                    // files shows a bar until it is clicked.
+                                    value: root.isMulti ? root.multiValue(bit) : checkbox.checked ? "on" : "off"
                                     focused: checkbox.activeFocus
                                     // A disabled row stays checked, so the box dims and keeps its value.
                                     available: root.editable
@@ -271,6 +415,8 @@ FocusScope {
                     width: parent.width
                     height: root.controlHeight
                     spacing: Theme.spacing.gap
+                    // Permissions040: for several items Octal drops out.
+                    visible: !root.isMulti
                     Text { width: root.labelWidth; anchors.verticalCenter: parent.verticalCenter; text: "Octal"; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
                     Rectangle {
                         width: body.width - root.labelWidth - parent.spacing
@@ -293,8 +439,8 @@ FocusScope {
                             verticalAlignment: TextInput.AlignVCenter
                             text: root.modeText
                             readOnly: !root.editable
-                            activeFocusOnTab: true
-                            enabled: root.editable
+                            activeFocusOnTab: !root.isMulti
+                            enabled: root.editable && !root.isMulti
                             Accessible.name: "Octal mode"
                             color: root.editable ? Theme.color.foreground : Theme.color.muted
                             font { family: Theme.font.family; pixelSize: Theme.font.body }
@@ -312,6 +458,8 @@ FocusScope {
                     Row {
                         required property string modelData
                         required property int index
+                        // Permissions040: for several items Owner and Group drop out.
+                        visible: !root.isMulti
                         width: body.width
                         height: root.controlHeight
                         spacing: Theme.spacing.gap
@@ -323,7 +471,8 @@ FocusScope {
                 Rectangle {
                     width: parent.width
                     height: directoryScope.implicitHeight + 2 * Theme.spacing.gap
-                    visible: root.facts.directory === true
+                    // Permissions040: for several items the scope box drops out.
+                    visible: root.facts.directory === true && !root.isMulti
                     color: Theme.color.background
                     border.width: Theme.spacing.hairline
                     border.color: Theme.color.muted
@@ -346,7 +495,8 @@ FocusScope {
                     visible: text.length > 0
                     topPadding: Theme.spacing.gap
                     text: root.errorText || root.facts.reason || (root.busy
-                        ? (root.facts.ok ? "Applying permissions…" : "Reading permissions…")
+                        ? (root.isMulti ? (root.multiPending > 0 ? "Reading permissions…" : "Applying permissions…")
+                                        : (root.facts.ok ? "Applying permissions…" : "Reading permissions…"))
                         : root.facts.ok && root.modeValue < 0 ? "Enter three octal digits or a leading-zero four-digit mode." : "")
                     textFormat: Text.PlainText
                     wrapMode: Text.Wrap
@@ -368,6 +518,9 @@ FocusScope {
                 Text {
                     id: changeSummary
                     width: parent.width
+                    // Permissions040: for several items the grid and Apply are
+                    // the whole card, so the preview drops out with the rest.
+                    visible: !root.isMulti
                     text: (root.facts.ok && !root.facts.reason && root.modeValue >= 0
                         ? "Requested mode " + Permissions.octal(root.modeValue) : "No changes available")
                         + "\nPath " + root.path.replace(/\//g, "/\u200b")
@@ -380,7 +533,9 @@ FocusScope {
                 Text {
                     id: scopeLabel
                     width: parent.width
-                    text: root.scopeText
+                    // Permissions040: a box whose bit differs across the files
+                    // shows a bar and changes nothing until it is clicked.
+                    text: root.isMulti ? Permissions.mixedNote() : root.scopeText
                     textFormat: Text.PlainText
                     wrapMode: Text.Wrap
                     color: Theme.color.foreground
@@ -394,7 +549,7 @@ FocusScope {
                         id: cancelFocus
                         width: cancelButton.implicitWidth; height: cancelButton.implicitHeight
                         activeFocusOnTab: true
-                        enabled: !root.applying
+                        enabled: !root.applyLocked
                         Keys.onTabPressed: function(event) { root.stepFocus((event.modifiers & Qt.ShiftModifier) !== 0) }
                         Keys.onBacktabPressed: root.stepFocus(true)
                         Keys.onReturnPressed: root.close()
@@ -403,7 +558,7 @@ FocusScope {
                             id: cancelButton
                             label: "Cancel"
                             focused: parent.activeFocus
-                            available: !root.applying
+                            available: !root.applyLocked
                             onActivated: root.close()
                         }
                     }
@@ -411,7 +566,9 @@ FocusScope {
                         id: applyFocus
                         width: applyButton.implicitWidth; height: applyButton.implicitHeight
                         activeFocusOnTab: true
-                        enabled: root.editable && root.modeValue >= 0
+                        // Permissions040: the multi card has no octal to
+                        // validate, so Apply enables on the grid alone.
+                        enabled: root.isMulti ? root.editable : root.editable && root.modeValue >= 0
                         Keys.onTabPressed: function(event) { root.stepFocus((event.modifiers & Qt.ShiftModifier) !== 0) }
                         Keys.onBacktabPressed: root.stepFocus(true)
                         Keys.onReturnPressed: root.apply()
@@ -421,7 +578,7 @@ FocusScope {
                             label: "Apply"
                             primary: true
                             focused: parent.activeFocus
-                            available: root.editable && root.modeValue >= 0
+                            available: root.isMulti ? root.editable : root.editable && root.modeValue >= 0
                             onActivated: root.apply()
                         }
                     }

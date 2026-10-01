@@ -2,6 +2,7 @@
 
 .import "Archive.js" as Archive
 .import "Convert.js" as Convert
+.import "CopyAs.js" as CopyAs
 .import "Filter.js" as Filter
 .import "Format.js" as Format
 .import "Transfer.js" as Transfer
@@ -83,6 +84,15 @@ function transferDone(t, ok, failed, skipped, cancelled, durable, note) {
 
 function transferFailure(t, name, error) {
     return (t.moving ? "Move" : "Copy") + " failed: " + name + " · " + error
+}
+
+// MenuAdditions040: Paste as links answers one line per request, and one
+// journal entry, so one undo removes every link it created.
+function linkedLine(ok, failed, skipped) {
+    var line = "Linked " + items(ok)
+    if (failed > 0) line += " · " + Format.count(failed) + " failed"
+    if (skipped > 0) line += " · " + Format.count(skipped) + " skipped"
+    return line + (ok > 0 ? Status.UNDO_HINT : "")
 }
 
 // Only the identity-checked locate reply supplies these selected retry matches.
@@ -248,6 +258,21 @@ function clipResolved(pane, list) {
     pane.message(copied(list.length, moving), false)
 }
 
+// MenuAdditions040: Copy as names absolute paths, because like the clipboard
+// a copy happens in a different directory from the listing it was started
+// from. With paths the text goes out at once; without, the backend resolves
+// the indices while it still can, the same rule clip follows.
+function copyAs(pane, kind, paths) {
+    if (paths && paths.length > 0) {
+        pane.opener.copyText(CopyAs.lines(paths, kind))
+        return
+    }
+    var idx = targetIndices(pane)
+    if (idx.length === 0) return sayNoTarget(pane)
+    pane.pathsPending = { kind: "copyAs", format: kind }
+    pane.backend.askPaths(idx)
+}
+
 // Two kinds of success, said apart: an extract whose archive index could not be read was published
 // without being checked against it, and the operator is the one who decides whether to care.
 function archiveDoneLine(verified) {
@@ -327,6 +352,19 @@ function pathsResolved(pane, list) {
     pane.pathsPending = null
     if (pending && pending.kind === "compress") {
         compressResolved(pane, list, pending.format)
+        return
+    }
+    // MenuAdditions040: every Copy as variant covers the whole selection, one
+    // path per line, through wl-copy; nothing reaches the file clipboard.
+    if (pending && pending.kind === "copyAs") {
+        if (list.length > 0)
+            pane.opener.copyText(CopyAs.lines(list, pending.format))
+        return
+    }
+    // MenuAdditions040: Permissions takes the whole selection, so the dialog
+    // opens over every resolved path rather than the cursor row alone.
+    if (pending && pending.kind === "permissions") {
+        pane.openPermissionsWith(list)
         return
     }
     clipResolved(pane, list)

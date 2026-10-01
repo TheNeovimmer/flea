@@ -29,12 +29,13 @@ QtObject {
     readonly property var defaultColumns: ["name", "size", "date"]
 
     // Mirrors "menu"."hidden" in src/uischema.rs, for the same first launch: six ids this release's
-    // menu cannot build, plus Copy path and Open in terminal, which the SettingsMenus board ships
+    // menu cannot build, plus Copy as and Open in terminal, which the SettingsMenus board ships
     // switched off. Every id here is an action ui/js/Menu.js gives a row, or will give one.
     // Mirrors src/uischema.rs DEFAULTS menu.hidden exactly; the two drifted once and a fresh
     // ui.json then hid a row the shipped schema shows.
     readonly property var defaultMenuHidden: ["delete", "openTerminal", "placeMenu", "runScript",
-                                               "moveto", "copyto", "properties", "permissions", "copypath", "extThumbs"]
+                                               "moveto", "copyto", "properties", "permissions", "copyAs",
+                                               "pasteAs", "invertSelection", "extThumbs"]
 
     // ui.json names what is SHOWN. ui/Header.qml, ui/Row.qml and ui/ContextMenu.qml all ask the
     // opposite question, so the inversion lives here once rather than at each of them.

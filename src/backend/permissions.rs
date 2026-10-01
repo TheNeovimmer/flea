@@ -4,7 +4,6 @@ use crate::oflags::O_NOFOLLOW;
 #[cfg(test)]
 use std::fs::Permissions as Mode;
 use std::fs::{File, Metadata, OpenOptions};
-#[cfg(test)]
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::os::unix::io::AsRawFd;
@@ -64,6 +63,60 @@ fn group_name(gid: u32) -> String {
         }
     }
     String::new()
+}
+
+// Sample input: items [("/a.txt", "600"), ("/b dir/c.txt", "644")]. Every
+// path is an absolute file or folder, never a link; one Entry holds every
+// change so one undo restores them all. Octal, Owner, Group and the change
+// preview drop out for several items: the grid and Apply are the whole card.
+// A mixed box the operator never touched keeps each file's own bit, because
+// the client sends that file's own target mode rather than one mode for all.
+pub fn apply_many(items: &[(PathBuf, String)]) -> Result<Vec<crate::backend::undo::Step>, String> {
+    if items.is_empty() {
+        return Err("Permissions needs at least one selected item.".into());
+    }
+    let uid = unsafe { geteuid() };
+    let mut checked: Vec<(PathBuf, u32)> = Vec::with_capacity(items.len());
+    for (path, text) in items {
+        let requested = mode(text).map_err(|e| e)?;
+        if !path.is_absolute() {
+            return Err("Permissions requires an absolute path and request identity.".into());
+        }
+        let before = path.symlink_metadata()
+            .map_err(|e| format!("Could not inspect permissions: {}.", crate::error::io_message(&e)))?;
+        if !(before.is_file() || before.is_dir()) {
+            return Err("Permissions takes one file or folder, not a link.".into());
+        }
+        if before.mode() & SPECIAL_BITS != 0 {
+            return Err("Special permissions cannot be edited.".into());
+        }
+        if !reason(&before, uid).is_empty() {
+            return Err(reason(&before, uid));
+        }
+        checked.push((path.clone(), requested));
+    }
+    let mut steps = Vec::with_capacity(checked.len());
+    for (path, requested) in checked {
+        let before = path.symlink_metadata()
+            .map_err(|e| format!("Could not inspect permissions: {}.", crate::error::io_message(&e)))?;
+        let before_bits = before.mode() & 0o777;
+        apply_mode_path(&path, requested)
+            .map_err(|e| format!("Could not change mode: {}. No change was applied.", e))?;
+        steps.push(crate::backend::undo::Step::Mode { path, before: before_bits, after: requested });
+    }
+    Ok(steps)
+}
+
+// One fchmod by name, after the caller proved the path is a file or folder;
+// symlinks are refused rather than followed.
+fn apply_mode_path(path: &Path, requested: u32) -> Result<(), String> {
+    let before = path.symlink_metadata().map_err(|e| crate::error::io_message(&e))?;
+    if before.file_type().is_symlink() {
+        return Err("Permissions takes one file or folder, not a link.".into());
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(requested))
+        .map_err(|e| crate::error::io_message(&e))?;
+    Ok(())
 }
 
 impl Permissions {
@@ -279,5 +332,26 @@ mod tests {
         std::fs::set_permissions(&path, Mode::from_mode(0o644)).unwrap();
         let meta = path.metadata().unwrap();
         assert!(reason(&meta, meta.uid().wrapping_add(1)).contains("not the owner"));
+    }
+    #[test]
+    fn apply_many_changes_every_file_and_undoes_once() {
+        let d = TestDir::new("permissions-many");
+        let a = d.file("a.txt", "a");
+        let b = d.file("b.txt", "b");
+        let c = d.file("c.txt", "c");
+        for p in [&a, &b, &c] {
+            std::fs::set_permissions(p, Mode::from_mode(0o644)).unwrap();
+        }
+        let steps = apply_many(&[(a.clone(), "600".to_string()), (b.clone(), "600".to_string()), (c.clone(), "600".to_string())]).expect("three ordinary files");
+        assert_eq!(steps.len(), 3);
+        for p in [&a, &b, &c] {
+            assert_eq!(p.metadata().unwrap().mode() & 0o777, 0o600);
+        }
+        let mut journal = crate::backend::undo::Journal::new();
+        journal.push(crate::backend::undo::Entry { op: "permissions".to_string(), steps });
+        assert_eq!(journal.undo().expect("one undo restores all three"), "permissions");
+        for p in [&a, &b, &c] {
+            assert_eq!(p.metadata().unwrap().mode() & 0o777, 0o644);
+        }
     }
 }

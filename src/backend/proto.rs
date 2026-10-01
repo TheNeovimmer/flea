@@ -52,6 +52,17 @@ pub enum Request {
     // Which archive formats this box actually offers, and whether a converter is installed at all.
     Formats { id: usize },
     Permissions { line: String },
+    // Paste as links: one symlink or hard link per source inside dest, created
+    // exclusively and journaled so undo removes them; see docs/protocol.md "link".
+    Link { op: String, paths: Vec<String>, rows: Vec<usize>, dest: String,
+           collide: super::collide::Ask },
+    // Show original: where a symlink's target lives, the same path Show in
+    // folder uses; see docs/protocol.md "linktarget".
+    LinkTarget { path: String },
+    // Permissions for the whole selection: one Entry holds every path the
+    // Apply changed, so one undo restores them all; see docs/protocol.md
+    // "permissionsBatch".
+    PermissionsBatch { paths: Vec<String>, modes: Vec<String>, id: usize },
     Picker { line: String },
     MenuAction { line: String, rows: Vec<usize> },
     // Directive 71: op is "peers" for the flyout's own list and "send" for the transfer it chooses.
@@ -68,6 +79,21 @@ pub fn parse_request(line: &str) -> Request {
     match field_str(line, "c").as_deref() {
         Some("trashbrowse") => Request::TrashBrowse { line: line.to_string() },
         Some("permissions") => Request::Permissions { line: line.to_string() },
+        Some("permissionsBatch") => Request::PermissionsBatch {
+            paths: field_str_array(line, "paths"),
+            modes: field_str_array(line, "modes"),
+            id: field_usize(line, "id").unwrap_or(0),
+        },
+        Some("link") => Request::Link {
+            // Anything that is not "absolute" or "hard" is a relative link,
+            // so a malformed op can never write an absolute path by accident.
+            op: field_str(line, "op").unwrap_or_default(),
+            paths: field_str_array(line, "paths"),
+            rows: field_usize_array(line, "rows"),
+            dest: field_str(line, "dest").unwrap_or_default(),
+            collide: super::collide::Ask::parse(line),
+        },
+        Some("linktarget") => Request::LinkTarget { path: field_str(line, "path").unwrap_or_default() },
         Some("picker") => Request::Picker { line: line.to_string() },
         Some("menuaction") => Request::MenuAction { line: line.to_string(), rows: field_usize_array(line, "rows") },
         Some("localsend") => Request::LocalSend {
@@ -243,8 +269,7 @@ pub fn dirsized_line(row: usize, bytes: u64, partial: bool, ms: f64) -> String {
 }
 
 // Sample output: {"t":"paths","paths":["/home/gm/a.txt","/home/gm/b.txt"]}
-pub fn paths_line(paths: &[String]) -> String {
-    let mut out = String::from(r#"{"t":"paths","paths":["#);
+pub fn paths_line(paths: &[String]) -> String {    let mut out = String::from(r#"{"t":"paths","paths":["#);
     for (i, p) in paths.iter().enumerate() {
         if i > 0 {
             out.push(',');
@@ -255,6 +280,23 @@ pub fn paths_line(paths: &[String]) -> String {
     }
     out.push_str("]}");
     out
+}
+
+// Sample output: {"t":"linked","ok":2,"failed":0,"skipped":1}
+pub fn linked_line(ok: usize, failed: usize, skipped: usize) -> String {
+    format!(r#"{{"t":"linked","ok":{},"failed":{},"skipped":{}}}"#, ok, failed, skipped)
+}
+
+// Sample output: {"t":"linktarget","path":"/a/link","directory":"/b","name":"f.txt"}
+pub fn linktarget_line(path: &str, directory: &str, name: &str) -> String {
+    format!(r#"{{"t":"linktarget","path":"{}","directory":"{}","name":"{}"}}"#,
+        escape(path), escape(directory), escape(name))
+}
+
+// Sample output: {"t":"permissions","id":7,"op":"applyMany","ok":true,"mode":"0600"}
+pub fn permissions_batch_line(id: usize, ok: bool, mode: &str, error: &str) -> String {
+    format!(r#"{{"t":"permissions","id":{},"op":"applyMany","ok":{},"mode":"{}","error":"{}"}}"#,
+        id, ok, escape(mode), escape(error))
 }
 
 pub fn error_line(e: &FleaError) -> String {

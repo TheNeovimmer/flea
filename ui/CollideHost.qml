@@ -48,7 +48,9 @@ Loader {
     function decide(choice) {
         var request = root.pending
         if (request && choice !== "cancel") {
-            root.pane.backend.send(Collide.transfer(request, choice, root.askId))
+            // MenuAdditions040: Paste as links asks through this same card.
+            root.pane.backend.send(request.c === "link" ? Collide.link(request, choice, root.askId)
+                                                        : Collide.transfer(request, choice, root.askId))
             root.pane.clipboard = ClipMarks.spent(root.pane.clipboard, root.spendsCut)
         }
         root.pending = null

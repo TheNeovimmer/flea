@@ -86,6 +86,7 @@ mod renamecompat;
 pub mod trash;
 pub mod undo;
 pub mod redo;
+pub mod link;
 // The open listing's directory, watched so an outside change reaches the client; see docs/protocol.md "changed".
 pub mod watch;
 // Test-only: the failing-first manifest behaviour for undo of a failed tree copy.

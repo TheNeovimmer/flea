@@ -39,6 +39,13 @@ function route(root, message) {
         root.transferDone(message.id, message.ok, message.failed, message.skipped, message.cancelled, message.retryPaths || [], message.durable === true, message.note || "")
     } else if (message.t === "collisions") {
         root.collisions(message.id, message.total, message.names || [])
+    // MenuAdditions040: Paste as links answers one line per request, and one
+    // journal entry, so one undo removes every link it created.
+    } else if (message.t === "linked") {
+        root.linked(message.ok || 0, message.failed || 0, message.skipped || 0)
+    // MenuAdditions040: Show original reveals the link's target in its own folder.
+    } else if (message.t === "linktarget") {
+        root.linkTarget(message.path || "", message.directory || "", message.name || "")
     } else if (message.t === "trashed") {
         root.trashed(message.ok, message.failed)
     } else if (message.t === "renamed") {

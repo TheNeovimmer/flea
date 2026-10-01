@@ -564,7 +564,7 @@ case_menuscoverage() (
         wait_listing 4
         trash_guard_store "$menus_trashed"
         menus_file_menu a.txt menu-key
-        menus_expect menuState '.entries as $entries | ["open","cut","copy","paste","duplicate","rename","trash","deletePermanently","openWith","openTerminal","moveTo","copyTo","properties","permissions","copypath","toggleHidden"] | all(.[]; . as $action | any($entries[]; .action == $action))' "full applicable plain-file inventory"
+        menus_expect menuState '.entries as $entries | ["open","cut","copy","paste","pasteAs","duplicate","rename","trash","deletePermanently","openWith","openTerminal","moveTo","copyTo","properties","permissions","copyAs","toggleHidden"] | all(.[]; . as $action | any($entries[]; .action == $action))' "full applicable plain-file inventory"
         menus_expect menuState 'any(.entries[]; .action == "paste" and .disabled)' "Paste remains visible with empty clipboard"
         before=$(ipc listContentY)
         menus_seek properties

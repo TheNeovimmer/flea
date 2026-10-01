@@ -56,10 +56,10 @@ function run(check) {
 
     check("a Places row offers the path rows and nothing that cuts, sends or destroys",
           labels(PlaceMenu.entries(placeRow, -1, [])),
-          "Open|New tab|Open in terminal|Copy path|Add to Favorites")
+          "Open|New tab|Open in terminal|Copy as|Add to Favorites")
     check("and a Favorites row ends on Remove rather than Add, so issue 138's duplicate is impossible",
           labels(PlaceMenu.entries(favouriteRow, 2, [])),
-          "Open|New tab|Open in terminal|Copy path|Remove from Favorites")
+          "Open|New tab|Open in terminal|Copy as|Remove from Favorites")
     check("the key carries the path, because the rail rebuilds under an open menu",
           PlaceMenu.key(favouriteRow, 2), "place:2:/home/gm/Work")
     check("and a Places row carries no favourite index", PlaceMenu.key(placeRow, -1), "place:-1:/home/gm/Downloads")
@@ -71,7 +71,10 @@ function run(check) {
     PlaceMenu.perform("openTerminal", "place:-1:/home/gm/Downloads", acting, null)
     check("and so does Open in terminal", acting.navigationPane.terminal, "/home/gm/Downloads")
     PlaceMenu.perform("copypath", "place:-1:/home/gm/Downloads", acting, null)
-    check("Copy path copies that path", acting.navigationPane.copied.join(","), "copypath:/home/gm/Downloads")
+    check("Copy path copies that path", acting.navigationPane.copied.join(","), "copyAs:copyPath:/home/gm/Downloads")
+    PlaceMenu.perform("copyAs:copyQuoted", "place:-1:/home/gm/Downloads", acting, null)
+    check("and a Copy as leaf copies it in its own form", acting.navigationPane.copied.join(","),
+          "copyAs:copyPath:/home/gm/Downloads,copyAs:copyQuoted:/home/gm/Downloads")
 
     var favourites = { records: [{ label: "Work", path: "/home/gm/Work" }], added: [], removed: [],
                        add: function (path, label) { this.added.push(path + " as " + label) },

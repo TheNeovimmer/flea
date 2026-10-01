@@ -36,6 +36,10 @@ Item {
     signal transferDone(int id, int ok, int failed, int skipped, bool cancelled, var retryPaths, bool durable, string note)
     // The names a transfer would land on, asked first; ui/CollideHost.qml holds the transfer until it lands.
     signal collisions(int id, int total, var names)
+    // MenuAdditions040: Paste as links answers one line per request.
+    signal linked(int ok, int failed, int skipped)
+    // MenuAdditions040: Show original reveals the link's target in its own folder.
+    signal linkTarget(string path, string directory, string name)
     signal trashed(int ok, int failed)
     signal renamed(bool ok, string path)
     signal made(bool ok, string path)

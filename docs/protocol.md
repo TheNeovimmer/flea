@@ -32,8 +32,8 @@ The backend numbers its rows, and the number moves whenever what an index names 
 successful `list` or `listpaths`, a `search`, an accepted `sort`, and a walk's ranking. Every `rows`
 line carries the numbering it was written in as its last field, `"listing":<uint>`, and the first
 listing a backend makes is 1. A client names the numbering of the rows it read an index from on any
-request that carries `rows`. A `trash`, `transfer`, `paths`, `collisions` or `menuaction` whose `listing` is not
-the numbering in force is refused before a single index is resolved: `trash`, `transfer`, `paths`
+request that carries `rows`. A `trash`, `transfer`, `link`, `paths`, `collisions` or `menuaction` whose `listing` is not
+the numbering in force is refused before a single index is resolved: `trash`, `transfer`, `link`, `paths`
 and `collisions` answer `{"t":"error","where":"stale","path":"<the command>","msg":"..."}` and nothing else, and a
 `menuaction` answers its own reply with `"ok":false` and an `error` sentence. Nothing was done in
 either case, so a client that wants the action reads the new rows and asks again.
@@ -602,6 +602,64 @@ Copy to closes its dialog, which sends `menuaction` `close` and expires the live
 answer comes back. The capture holds the same device, inode and type identities the live selection
 does, and they are still checked per item when the transfer runs. A `menuId` whose selection has
 already expired answers a `total` of 0, and the `transfer` then answers `Menu selection expired`.
+
+### link
+
+`{"c":"link","op":"<string>","paths":["<string>",...],"dest":"<string>"}`
+
+Example: `{"c":"link","op":"relative","paths":["/home/gm/a.png"],"dest":"/home/gm/Pictures"}`
+
+Creates one link per top-level path inside `dest`. `op` of `"absolute"` stores
+the full path, `"hard"` creates a hard link, and anything else, including a
+missing `op`, links relative from the destination, so a malformed request can
+never write an absolute path by accident. Like `transfer`, this names paths
+rather than row indices, and a `rows` array of indices into the current
+listing may be sent instead of `paths`, resolved the same way; `paths` wins
+when both are present. A `link` whose `listing` is not the numbering in force
+is refused with `where` of `stale` before a single index is resolved, the
+same rule `transfer` follows.
+
+Unlike `transfer`, this answers on the loop's own thread and never takes the
+one-operation slot: every link is one syscall, so there is nothing to show
+progress for and nothing to cancel. The answer is one `linked` line,
+`{"t":"linked","ok":<uint>,"failed":<uint>,"skipped":<uint>}`, and one journal
+entry, so one undo removes every link this request created. A name that
+already exists is refused for that item unless the request carries the
+`collide` and `collideId` choice a `transfer` carries, applied by the same
+rule: only what the question listed, only while the name still holds the same
+item. `keep` lands the link under the name `duplicate` would give it, `skip`
+leaves the item where it is and counts it in `skipped`, and `replace` moves
+the item already there to the trash first and then links under the name. A
+hard link across filesystems is refused with both filesystem names in the
+sentence, and a hard link to a directory is refused outright.
+
+### linktarget
+
+`{"c":"linktarget","path":"<string>"}`
+
+Example: `{"c":"linktarget","path":"/home/gm/latest"}`
+
+Answers one `linktarget` line,
+`{"t":"linktarget","path":"<string>","directory":"<string>","name":"<string>"}`,
+naming the folder the symlink's target lives in and the target's own leaf, the
+same path Show in folder uses. A path that is not a symlink answers an `error`
+line with `where` of `linktarget` and touches nothing.
+
+### permissionsBatch
+
+`{"c":"permissionsBatch","paths":["<string>",...],"modes":["<string>",...],"id":<uint>}`
+
+Example: `{"c":"permissionsBatch","paths":["/home/gm/a.txt","/home/gm/b.txt"],"modes":["600","600"],"id":7}`
+
+Changes the mode of every named path to its own target mode, each following
+the same three-or-leading-zero-four octal rule the dialog's own `apply`
+enforces, and answers one `permissions` line with `op` of `applyMany`,
+`{"t":"permissions","id":7,"op":"applyMany","ok":true,"mode":"0600","error":""}`.
+One journal entry holds every path the Apply changed, so one undo restores
+them all. Octal, Owner, Group and the change preview drop out for several
+items: the grid and Apply are the whole card. A mixed box the operator never
+touched keeps each file's own bit, because the client sends that file's own
+target mode rather than one mode for all.
 
 ### transfercancel
 

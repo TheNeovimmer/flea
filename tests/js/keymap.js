@@ -161,6 +161,26 @@ function run(check) {
         return row.action === "trash"
     })[0].keys.split(" / ").indexOf("d"), -1)
     check("menu-only actions invent no shortcut", Keymap.hintFor("emptyTrash"), "")
+    // MenuAdditions040: c opens Copy as, P opens Paste as, V flips the
+    // selection, and Ctrl+Shift+C copies the paths; every one is free in all
+    // four presets, and each flyout leaf answers its own letter in the menu.
+    for (var k = 0; k < Keymap.PRESETS.length; k++) {
+        var preset = Keymap.PRESETS[k]
+        key(preset, "C", "c", none, "copyAs")
+        key(preset, "P", "P", shift, "pasteAs")
+        key(preset, "V", "V", shift, "invertSelection")
+        key(preset, "C", "", ctrl | shift, "copyPath")
+        key(preset, "P", "p", none, "copyPath", "menu")
+        key(preset, "N", "n", none, "copyName", "menu")
+        key(preset, "E", "e", none, "copyStem", "menu")
+        key(preset, "F", "f", none, "copydirpath", "menu")
+        key(preset, "U", "u", none, "copyUri", "menu")
+        key(preset, "S", "s", none, "copyQuoted", "menu")
+        key(preset, "L", "L", shift, "pasteLink", "menu")
+        key(preset, "A", "a", none, "pasteAbsoluteLink", "menu")
+        key(preset, "H", "H", shift, "pasteHardLink", "menu")
+    }
+    check("Copy as hints its opener", Keymap.hintFor("copyAs"), "c")
     check("a shift chord fills an action no plain key names", Keymap.hintFor("deletePermanently"), "shift-delete")
     // A preset shift row for an action the table binds plain: the plain key must speak for it, since a shift chord only fills what no text or plain row names.
     var keepRows = Keymap.bindingRows

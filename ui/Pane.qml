@@ -159,6 +159,8 @@ FocusScope {
     // The one popup, hosted in shell.qml beside the network dialog rather than inside the pane.
     signal convertRequested(string name)
     signal permissionsRequested(string path)
+    // MenuAdditions040: the whole selection's paths for the multi-row card.
+    signal permissionsBatchRequested(var paths)
     signal pathBarRequested()  // ":" and Ctrl+L; the bar is chrome, so shell.qml opens it as it does the popup above
     signal textSizeRequested(int direction)  // issue 9's zoom pair, +1, -1 or 0 to follow Omarchy again; the size is the window's
 
@@ -419,13 +421,77 @@ FocusScope {
         var indices = Ops.targetIndices(root)
         return indices.length === 1 ? root.rowFor(indices[0]) : null
     }
+    // MenuAdditions040: Permissions takes the whole selection, so the menu
+    // row carries every target's mode and the dialog inspects each in turn.
+    function permissionModes() {
+        var out = []
+        var indices = Ops.targetIndices(root)
+        for (var i = 0; i < indices.length; i++) {
+            var row = root.rowFor(indices[i])
+            if (row) out.push(row.p)
+        }
+        return out
+    }
     function openPermissions() {
-        var row = root.permissionSelection()
-        if (!row || Menu.permissionsEntry(row.p, Ops.targetIndices(root).length).disabled) {
-            root.message("Permissions takes one file or folder, not a link.", true)
+        var idx = Ops.targetIndices(root)
+        if (idx.length === 0) { Ops.sayNoTarget(root); return }
+        // The selection can reach past the held window, so the backend
+        // resolves the indices while it still can, the same rule clip follows.
+        root.pathsPending = { kind: "permissions" }
+        root.backend.askPaths(idx)
+    }
+    function openPermissionsWith(paths) {
+        if (paths.length === 0) { Ops.sayNoTarget(root); return }
+        if (paths.length === 1) {
+            var row = root.rowFor(root.cursorIndex)
+            var single = row ? row.p : 0
+            if (Menu.permissionsEntry(single, 1).disabled) {
+                root.message("Permissions takes one file or folder, not a link.", true)
+                return
+            }
+            root.permissionsRequested(paths[0])
             return
         }
-        root.permissionsRequested(root.join(root.path, row.n))
+        root.permissionsBatchRequested(paths)
+    }
+    // MenuAdditions040: c opens Copy as at the cursor and P opens Paste as,
+    // each with its flyout already open on its first row.
+    function openCopyAs() {
+        if (!root.openCursorMenu()) {
+            root.message("No row under the cursor to open a menu on.", false)
+            return
+        }
+        menu.openSubmenuFor("copyAs")
+    }
+    function openPasteAs() {
+        if (!root.openCursorMenu()) {
+            root.message("No row under the cursor to open a menu on.", false)
+            return
+        }
+        menu.openSubmenuFor("pasteAs")
+    }
+    // MenuAdditions040: V flips the marks over the rows the listing draws;
+    // the filter applies, and a close match is never selected.
+    function invertSelection() { Marks.invert(root) }
+    // MenuAdditions040: Show original reveals a symlink's target in its own
+    // folder, the same path Show in folder uses.
+    function showOriginal() {
+        var row = root.rowFor(root.cursorIndex)
+        if (!row || !Format.isSymlink(row.p)) {
+            root.message("Show original needs the cursor on a symlink.", false)
+            return
+        }
+        root.backend.send({ c: "linktarget", path: root.join(root.path, row.n) })
+    }
+    // MenuAdditions040: Paste as links, undoable, through the collision card;
+    // with paths the links go out of those, else out of the file clipboard.
+    function pasteLink(kind, paths) {
+        var sources = paths && paths.length > 0 ? paths : root.clipboard.paths
+        if (sources.length === 0) {
+            root.message("There is nothing to paste; y copies and x cuts.", false)
+            return
+        }
+        root.collide.ask({ c: "link", op: kind, paths: sources, dest: root.path }, null, false)
     }
 
     // index is a listing row, which is what every caller outside ui/js/Filter.js holds; the clamp
@@ -709,6 +775,12 @@ FocusScope {
         onRefused: function(reason) { root.message(reason, true) }
         rowIsArchive: root.cursorRow !== null && !root.cursorRow.d && Archive.isArchive(root.cursorRow.n)
         rowIsImage: root.cursorRow !== null && root.cursorRow.i === "image-x-generic"
+        // MenuAdditions040: Show original is visible but only on a symlink.
+        rowIsSymlink: root.cursorRow !== null && Format.isSymlink(root.cursorRow.p)
+        // MenuAdditions040: Permissions takes the whole selection, so the row
+        // carries every target's mode beside the cursor row's own.
+        selectionModes: root.permissionModes()
+        rowMode: root.permissionSelection() ? root.permissionSelection().p : 0
         dropboxInstalled: !root.backend.providers.dropbox || root.backend.providers.dropbox.installed !== false
         localSend: ({ installed: (root.backend.providers.localsend || {}).installed === true, checking: menuActions.localSend.checking,
                       peers: (root.cursorRow && !root.cursorRow.d) ? menuActions.localSend.peers : [], answeredOnce: menuActions.localSend.answeredOnce })
@@ -771,6 +843,15 @@ FocusScope {
         if (path.length === 0) return
         if (action === "openTerminal") { wire.opener.openTerminal(path); return }
         if (action === "copypath") { wire.opener.copyText(path); return }
+        // MenuAdditions040: the Locked tile offers Copy as over the one folder
+        // it names, each leaf copying that path in its own form.
+        if (action.indexOf("copyAs:") === 0) {
+            var leaf = action.substring("copyAs:".length)
+            var kinds = { copyPath: "path", copyName: "name", copyStem: "stem",
+                copydirpath: "dirpath", copyUri: "uri", copyQuoted: "quoted" }
+            if (kinds[leaf] !== undefined) { Ops.copyAs(root, kinds[leaf], [path]); return }
+        }
+        if (action === "copyAs") { Ops.copyAs(root, "path", [path]); return }
         if (action === "permissions") { root.permissionsRequested(path); return }
         root.message(action + " is not built yet.", false)
     }

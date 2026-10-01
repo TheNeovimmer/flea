@@ -170,6 +170,20 @@ function act(action, root, menuId, paths) {
     case "trashRefused": root.message(noTrashLine(), true); return
     case "copy": Ops.clip(root, false, paths); return
     case "copydirpath": root.copyDirPath(); return
+    // MenuAdditions040: c opens Copy as at the cursor, P opens Paste as, V
+    // flips the selection, and Ctrl+Shift+C copies the paths at once.
+    case "copyAs": root.openCopyAs(); return
+    case "pasteAs": root.openPasteAs(); return
+    case "invertSelection": root.invertSelection(); return
+    case "showOriginal": root.showOriginal(); return
+    case "copyPath": Ops.copyAs(root, "path", paths); return
+    case "copyName": Ops.copyAs(root, "name", paths); return
+    case "copyStem": Ops.copyAs(root, "stem", paths); return
+    case "copyUri": Ops.copyAs(root, "uri", paths); return
+    case "copyQuoted": Ops.copyAs(root, "quoted", paths); return
+    case "pasteLink": root.pasteLink("relative", paths); return
+    case "pasteAbsoluteLink": root.pasteLink("absolute", paths); return
+    case "pasteHardLink": root.pasteLink("hard", paths); return
     case "cut": Ops.clip(root, true, paths); return
     // Recent is a history, not a directory: pasting or creating there would land in the root it stands on.
     case "paste": if (root.recentMode.length > 0) { root.message("This listing is a history, and cannot take a paste.", false); return } Ops.paste(root); return

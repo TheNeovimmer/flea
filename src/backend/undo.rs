@@ -3,6 +3,7 @@ use crate::backend::renamecompat::rename_path;
 use crate::backend::trash;
 use crate::error::{from_io, FleaError};
 use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -56,6 +57,9 @@ pub enum Step {
     MadeFile { path: PathBuf, identity: ItemIdentity },
     // This operation trashed what was at `original`, and the trash holds it under `uri`.
     Trashed(trash::Entry),
+    // Permissions for several items: one entry holds every path the Apply changed,
+    // so one undo restores them all; a path edited since keeps nothing to restore to.
+    Mode { path: PathBuf, before: u32, after: u32 },
 }
 
 // One user-visible operation, however many steps it took, named the way the status bar already named it.
@@ -219,6 +223,7 @@ fn reverse(step: &Step) -> Result<Option<(ItemIdentity, ItemIdentity)>, FleaErro
         }
         Step::MadeFile { path, identity } => remove_new_file(path, identity)?,
         Step::Trashed(entry) => trash::restore(entry)?,
+        Step::Mode { path, before, .. } => restore_mode(path, *before)?,
     }
     Ok(None)
 }
@@ -304,6 +309,18 @@ fn remove_empty(path: &PathBuf) -> Result<(), FleaError> {
 
 fn err(msg: &str) -> FleaError {
     FleaError { where_: "undo".to_string(), path: String::new(), msg: msg.to_string() }
+}
+
+// A mode undo restores bits rather than removing a path: a symlink is refused,
+// because chmod would follow it, and any other failure names the path.
+fn restore_mode(path: &PathBuf, mode: u32) -> Result<(), FleaError> {
+    let meta = path.symlink_metadata().map_err(|e| from_io("undo", &path.to_string_lossy(), &e))?;
+    if meta.file_type().is_symlink() {
+        return Err(FleaError { where_: "undo".to_string(), path: path.to_string_lossy().to_string(),
+            msg: "the item is a link, so undo left its mode in place".to_string() });
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+        .map_err(|e| from_io("undo", &path.to_string_lossy(), &e))
 }
 
 #[cfg(test)]

@@ -25,6 +25,38 @@ function continuing(pane) {
     return state !== null && pane.cursorIndex === state.last
 }
 
+// Invert selection flips the marks over the rows the listing draws. The filter
+// applies, so under a filter only the exact matches flip; a close match a later
+// filter draws beside them is never in shown and so is never selected here.
+function inverted(total, shown, selected) {
+    var drawn = shown === null ? range(total) : shown.slice()
+    var has = {}
+    for (var s = 0; s < selected.length; s++)
+        has[selected[s]] = true
+    var out = []
+    for (var i = 0; i < drawn.length; i++) {
+        if (has[drawn[i]] !== true)
+            out.push(drawn[i])
+    }
+    return out
+}
+
+function range(total) {
+    var out = []
+    for (var r = 0; r < total; r++)
+        out.push(r)
+    return out
+}
+
+// The pane's own invert, through the same drawn set selectAll reads.
+function invert(pane) {
+    var next = inverted(pane.total, pane.shown, pane.selectedIndices())
+    pane.selection.clear()
+    for (var i = 0; i < next.length; i++)
+        pane.selection.toggle(next[i])
+    pane.selectionVersion += 1
+}
+
 // Shift+J and Shift+K, the whole gesture: the cursor moves through what is drawn and the selection
 // is the base the gesture started from plus the drawn rows between the anchor and the cursor, so
 // several blocks can be marked and the gesture's own range still grows and shrinks.

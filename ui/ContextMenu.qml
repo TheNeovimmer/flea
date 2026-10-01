@@ -36,8 +36,12 @@ Item {
     property bool rowIsFile: false
     property bool rowIsArchive: false
     property bool rowIsImage: false
+    // MenuAdditions040: Show original is visible but only on a symlink.
+    property bool rowIsSymlink: false
     property int rowMode: 0
     property int selectionCount: 0
+    // MenuAdditions040: Permissions takes the whole selection.
+    property var selectionModes: []
     // OpenWith.html's flyout rows, filled by ui/PaneMenuActions.qml when the registry answers.
     property var openWithApps: []
     property bool openWithLoaded: false
@@ -161,6 +165,7 @@ Item {
             openWithApps: root.openWithApps,
             openWithLoaded: root.openWithLoaded,
             rowMode: root.rowMode, selectionCount: root.selectionCount,
+            rowIsSymlink: root.rowIsSymlink, selectionModes: root.selectionModes,
             scripts: Flea.Scripts.entries, localSendInstalled: root.localSend.installed, localSendPeers: root.localSend.peers, localSendChecking: view.localSendChecking,
             // The Menus settings section's stored set; ui/js/Menu.js applyHidden is what reads it.
             hiddenActions: ViewState.menuHidden,
@@ -341,6 +346,20 @@ Item {
         subScroll.contentY = 0
     }
 
+    // MenuAdditions040: c opens Copy as at the cursor and P opens Paste as,
+    // each with its flyout already open on its first row.
+    function openSubmenuFor(action) {
+        for (var i = 0; i < root.entries.length; i++) {
+            if (root.entries[i].action === action && Menu.hasSubmenu(root.entries[i])
+                    && root.entries[i].disabled !== true) {
+                root.cursor = i
+                root.openSubmenu(i)
+                return true
+            }
+        }
+        return false
+    }
+
     // Fresh capabilities use the normal inventory; selection stays on its action and placement uses the existing clamp.
     function refreshProviderRows() {
         if (!root.opened || root.forRail || root.forHeader || root.forLocked) return
@@ -508,11 +527,14 @@ Item {
                     // read-back submenuGlyphs() above and the drawn row cannot answer differently.
                     // A flyout row may carry its own mark and caption: OpenWith.html rides each
                     // application's own Icon in the mark slot and puts "default" in the hint slot,
-                    // and its tail row sits under a separator. Every other flyout keeps one glyph.
+                    // and its tail row sits under a separator. MenuAdditions040 leaves carry a
+                    // keyHint letter instead, drawn only while key hints are on, like every hint.
                     entry: ({ label: subRow.modelData.label, action: "",
                               disabled: subRow.modelData.disabled === true,
                               separator: subRow.modelData.separator === true,
-                              hint: subRow.modelData.hint,
+                              hint: subRow.modelData.hint !== undefined ? subRow.modelData.hint
+                                  : subRow.modelData.keyHint !== undefined && ViewState.keyHints
+                                  ? subRow.modelData.keyHint : undefined,
                               icon: subRow.modelData.icon,
                               glyph: subRow.modelData.glyph !== undefined ? subRow.modelData.glyph
                                    : Menu.submenuGlyph(root.entries[root.openSubmenuRow].action) })
@@ -565,6 +587,20 @@ Item {
             }
             if (action === "parent") { root.openSubmenuRow = -1; return }
             if (action === "menuRight") { root.openSubmenu(root.cursor); return }
+            // MenuAdditions040: each Copy as row's letter copies at once and
+            // each Paste as row's letter links at once, with the flyout open.
+            // Only the flyout they were opened for answers, so a letter never
+            // fires a row of whatever flyout happens to stand open.
+            if (root.submenuOpen) {
+                var opener = root.entries[root.openSubmenuRow]
+                if (opener && (opener.action === "copyAs" || opener.action === "pasteAs")) {
+                    var leaves = root.submenuEntries
+                    for (var l = 0; l < leaves.length; l++) {
+                        if (leaves[l].separator === true) continue
+                        if (leaves[l].id === action) { root.chooseSub(leaves[l].id); return }
+                    }
+                }
+            }
             if (action === "open" || action === "preview") {
                 if (root.submenuOpen) {
                     var sub = root.submenuEntries[root.submenuCursor]

@@ -3013,6 +3013,37 @@ and `ui/js/Photos.js` stays deleted; the rail menus, eject marks and auto-hide r
 are carried untouched. Menu rows, rail places and recent files join the sheet's candidates only with
 provider plumbing, so the sheet ranks the keymap's actions alone and `SheetQuery.rank` already holds
 their section order.
+
+MenuAdditions040 moves sixteen recorded ceilings, each re-derived with `wc -l`
+against the 0.3.8 integration head. `ui/js/Menu.js` 337 to 399 for the Copy as
+and Paste as flyouts with their leaves, Show original and Invert selection with
+their availability rules, and the multi-row Permissions entry, over the 300 hard
+cap and recorded rather than split: the inventory, its availability and its
+flyouts are one subject, and the leaves carry the board's own glyphs.
+`src/backend/opsdispatch.rs` 540 to 719 for the link, link-target and
+permissions-batch operations with their journal entries and the dispatch tests
+that prove one undo removes every created link. `ui/Pane.qml` 735 to 816 for the
+Copy as, Paste as, invert, show-original and multi-permissions routes with the
+menu's new bindings. `ui/PermissionsDialog.qml` 432 to 589 for the multi-row
+card, its mixed bars, its note and its one-step Apply. `ui/PaneMenuActions.qml`
+407 to 443 for the Copy as leaves, Show original, Paste as links and invert
+dispatch. `ui/ContextMenu.qml` 584 to 620 for the copy/paste flyout entrance,
+the leaf letters and the keyHint-gated flyout hint. `ui/js/Ops.js` 371 to 409
+for the Copy as clipboard flow and the link status line. `ui/PaneWire.qml` 468
+to 486 for the linked and link-target replies. `ui/Backend.qml` 431 to 435 for
+the two new reply signals. `ui/js/Focus.js` 373 to 387 for the new listing and
+menu actions. `ui/js/Settings.js` 432 to 434 for the four new Menus switches.
+`ui/js/Keymap.js` 314 to 327 for the generated listing and menu bindings.
+`ui/WindowBody.qml` 547 to 551 for the batch dialog route. `src/backend/run.rs`
+448 to 454 for the three new request arms. `src/uischema.rs` 421 to 422 for the
+hidden list the new rows ship in. `tests/js/menu.js` enters the tool's list at
+307 for the flyout, availability and multi-selection pins, over the 300 hard cap
+and recorded rather than split. The new `ui/js/CopyAs.js` (57 lines) and
+`src/backend/link.rs` (185 lines) sit inside their budgets rather than growing
+`ui/js/Format.js` and `src/backend/ops.rs`; `ui/js/Marks.js` 82 to 114 takes
+invert, `ui/js/Permissions.js` 11 to 36 the multi summary, `ui/js/Collide.js`
+93 to 105 the link question and `ui/js/Messages.js` 97 to 104 the two replies.
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.

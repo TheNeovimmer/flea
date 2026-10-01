@@ -294,7 +294,7 @@ case_oversight() {
         fi
         entries=$(ipc contextMenuEntries) || fail "oversight: default menu entries unavailable"
         hints=$(ipc contextMenuHints) || fail "oversight: default menu hints unavailable"
-        grep -E '(^|\|)(Copy path|Open [Ww]ith|Open in terminal|Move to(\.\.\.)?|Copy to(\.\.\.)?|Properties|Permissions|Delete permanently)(\||$)' <<< "$entries" >/dev/null \
+        grep -E '(^|\|)(Copy as|Open [Ww]ith|Open in terminal|Move to(\.\.\.)?|Copy to(\.\.\.)?|Properties|Permissions|Delete permanently)(\||$)' <<< "$entries" >/dev/null \
             && fail "oversight: default menu exposes a hidden action: $entries"
         [[ "$oversight_arm" != candidate || -n "${hints%%|*}" ]] || fail "oversight: default Open menu row has no key hint"
         oversight_capture defaults-menu "$row"

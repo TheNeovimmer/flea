@@ -7,7 +7,9 @@
 
 function state(changes) {
     var value = { hasRow: true, selectionCount: 1, rowMode: 0o100644, clipboardAvailable: false,
-        hiddenActions: ["delete", "openTerminal", "moveto", "copyto", "properties", "permissions", "copypath"],
+        rowIsSymlink: false,
+        hiddenActions: ["delete", "openTerminal", "moveto", "copyto", "properties", "permissions",
+            "copyAs", "pasteAs", "invertSelection"],
         archiveFormats: ["zip"], canExtract: true, rowIsArchive: false, rowIsImage: true, canConvert: true,
         taildropInstalled: true, taildropPeers: [{ id: "box", label: "Box" }],
         dropboxInstalled: true, dropboxPath: "/tmp/Dropbox", rowInDropbox: false }
@@ -22,10 +24,10 @@ function separated(rows) {
 }
 function run(check) {
     var file = Menu.listingEntries(state({}))
-    check("Menus and Places inventory has 45 actions", Menu.INVENTORY.length, 45)
+    check("Menus and Places inventory has 48 actions", Menu.INVENTORY.length, 48)
     check("Open with uses the authoritative cut geometry", Icons.pathFor("app-window"), "M3 4h18v16H3z M3 9h18 M6 6.5h.01 M9 6.5h.01")
     check("Restore all uses the authoritative undo geometry", Icons.pathFor("undo"), "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5")
-    check("inventory storage ids are unique", Object.keys(Menu.INVENTORY.reduce(function (out, row) { out[row[0]] = true; return out }, {})).length, 45)
+    check("inventory storage ids are unique", Object.keys(Menu.INVENTORY.reduce(function (out, row) { out[row[0]] = true; return out }, {})).length, 48)
     check("default image menu matches Menus specimen", actions(file),
           "open,openWith,cut,copy,paste,duplicate,rename,compress,convert,addToShelf,taildrop,dropbox,trash,addFavourite,toggleHidden")
     check("empty clipboard leaves Paste visible and disabled", entry(file, "paste").disabled, true)
@@ -86,9 +88,14 @@ function run(check) {
           Icons.pathFor(openTabSpec[2]) === Icons.pathFor("file"), false)
     check("Add to shelf draws the shelf's own cut glyph, not the file fallback",
           Icons.pathFor(shelfSpec[2]) === Icons.pathFor("file"), false)
-    var all = Menu.listingEntries(state({ hiddenActions: [] }))
+    var all = Menu.listingEntries(state({ hiddenActions: [], rowIsSymlink: true }))
     check("stored delete id reaches permanent deletion action", entry(all, "deletePermanently").id, "delete")
-    check("all optional file controls exist", ["openWith", "moveTo", "copyTo", "properties", "permissions", "copypath", "openTerminal"].every(function (a) { return !!entry(all, a).action }), true)
+    check("all optional file controls exist", ["openWith", "moveTo", "copyTo", "properties", "permissions", "copyAs", "showOriginal", "pasteAs", "openTerminal"].every(function (a) { return !!entry(all, a).action }), true)
+    // Invert selection lives on the background menu beside Select all, never on a file row.
+    check("while Invert selection lives on the background menu",
+        entry(Menu.listingEntries(state({ hasRow: false, hiddenActions: [] })), "invertSelection").action, "invertSelection")
+    function shown(a) { return entry(Menu.listingEntries(state({ hiddenActions: [], rowIsSymlink: true })), a) }
+    check("Show original draws the link mark in the open group", shown("showOriginal").glyph, "symlink")
     check("permanent deletion carries danger role", entry(all, "deletePermanently").danger, true)
     // Issue 133: ui/Pane.qml hands the menu Mounts.trashable of the folder, and on a share the row that would fail is absent.
     var onShare = Menu.listingEntries(state({ hiddenActions: [], canTrash: Mounts.trashable("/run/user/1000/gvfs/smb-share:server=192.168.21.25,share=data") }))
@@ -96,9 +103,33 @@ function run(check) {
     check("while Delete permanently, which the share can do, stays and stays enabled",
           entry(onShare, "deletePermanently").action + "|" + entry(onShare, "deletePermanently").disabled, "deletePermanently|undefined")
     check("and a local file keeps Move to Trash", entry(Menu.listingEntries(state({ canTrash: Mounts.trashable("/home/gm/Downloads") })), "trash").action, "trash")
-    check("single-item actions stay present but disabled on multi-selection", ["openWith", "properties", "rename", "duplicate", "permissions"].every(function (a) {
+    check("single-item actions stay present but disabled on multi-selection", ["openWith", "properties", "rename", "duplicate"].every(function (a) {
         return entry(Menu.listingEntries(state({ hiddenActions: [], selectionCount: 2 })), a).disabled === true
     }), true)
+    // Permissions040: Permissions takes the whole selection, so it stays
+    // enabled where the single-item rows above grey out.
+    check("multi-selection keeps Permissions enabled on files",
+        entry(Menu.listingEntries(state({ hiddenActions: [], selectionCount: 2, selectionModes: [0o100644, 0o100644] })), "permissions").disabled, false)
+    // MenuAdditions040: Copy as holds six leaves, Paste as three, each with
+    // the board's own mark; the letters ride the menu keymap, not a hint.
+    var copyLeaves = entry(Menu.listingEntries(state({ hiddenActions: [] })), "copyAs").submenu
+    check("Copy as holds Path, Name, Stem, Folder path, URI and Shell-quoted",
+        copyLeaves.map(function (r) { return r.id }).join(","), "copyPath,copyName,copyStem,copydirpath,copyUri,copyQuoted")
+    check("and each leaf wears the board's mark",
+        copyLeaves.map(function (r) { return r.glyph }).join(","), "file-text,type,type,folder,globe,terminal")
+    var pasteLeaves = entry(Menu.listingEntries(state({ hiddenActions: [], clipboardAvailable: true })), "pasteAs").submenu
+    check("Paste as holds Link, Absolute link and Hard link",
+        pasteLeaves.map(function (r) { return r.id }).join(","), "pasteLink,pasteAbsoluteLink,pasteHardLink")
+    check("and Link shares Paste's mark rather than repeating it",
+        pasteLeaves.map(function (r) { return r.glyph }).join(","), "symlink,symlink,copy")
+    check("Show original is absent except on a symlink",
+        entry(Menu.listingEntries(state({ hiddenActions: [] })), "showOriginal").action, undefined)
+    check("and present on one",
+        entry(Menu.listingEntries(state({ hiddenActions: [], rowIsSymlink: true })), "showOriginal").action, "showOriginal")
+    check("Invert selection is absent with nothing selected",
+        entry(Menu.listingEntries(state({ hasRow: false, selectionCount: 0, hiddenActions: [] })), "invertSelection").action, undefined)
+    check("and present once something is",
+        entry(Menu.listingEntries(state({ hasRow: false, hiddenActions: [] })), "invertSelection").action, "invertSelection")
     check("missing converter removes Convert", entry(Menu.listingEntries(state({ canConvert: false })), "convert").action, undefined)
     check("missing archiver removes Compress", entry(Menu.listingEntries(state({ archiveFormats: [] })), "compress").action, undefined)
     var noReader = entry(Menu.listingEntries(state({ rowIsArchive: true, canExtract: false, archiveFormats: ["zip", "tar"] })), "extract")
@@ -153,7 +184,10 @@ function run(check) {
     var perms = function (changes) { return entry(Menu.listingEntries(state(changes)), "permissions") }
     check("the menu row under a parent without execute reads red with no sentence",
           refusal(perms({ hiddenActions: [], rowMode: 0 })), "true|true|undefined")
-    check("the menu row for a multi-selection reads the same way", refusal(perms({ hiddenActions: [], selectionCount: 2 })), "true|true|undefined")
+    check("the menu row for a multi-selection reads plain on files",
+        refusal(perms({ hiddenActions: [], selectionCount: 2, selectionModes: [0o100644, 0o100644] })), "false|undefined|undefined")
+    check("and red when one of them is a link",
+        refusal(perms({ hiddenActions: [], selectionCount: 2, selectionModes: [0o100644, 0o120777] })), "true|true|undefined")
     check("the menu row for a symlink reads the same way", refusal(perms({ hiddenActions: [], rowMode: 0o120777 })), "true|true|undefined")
     check("the menu row for a folder it can change is plain", refusal(perms({ hiddenActions: [], rowMode: 0o040755 })), "false|undefined|undefined")
     check("permissions rejects missing metadata", Menu.permissionsEntry(undefined, 1).disabled, true)
@@ -163,7 +197,7 @@ function run(check) {
     // locked folder's own menu, never the parent's background one.
     var locked = LockedMenu.lockedEntries({ lockedMode: 0o040000, hiddenActions: [] })
     check("the Locked tile offers only rows that act without listing the folder",
-          actions(locked), "openTerminal,permissions,copypath")
+          actions(locked), "openTerminal,permissions,copyAs")
     // One check per locked row: each offered action is the dispatch ui/Pane.qml performLocked
     // switches on, so a row renamed on either side strands the other. The signal carry itself
     // (ContextMenu.lockedChosen) is QML-only and is covered by the controller's live check.
@@ -171,8 +205,8 @@ function run(check) {
           entry(locked, "openTerminal").action, "openTerminal")
     check("its Permissions row carries the permissions dispatch",
           entry(locked, "permissions").action, "permissions")
-    check("its Copy path row carries the copy dispatch",
-          entry(locked, "copypath").action, "copypath")
+    check("its Copy as row carries the copy dispatch",
+          entry(locked, "copyAs").action, "copyAs")
     check("and no row that would create in, paste into or sort the parent",
           ["newFolder", "newFile", "paste", "selectAll", "sort", "toggleHidden", "settings"].every(function (a) {
               return entry(locked, a).action === undefined

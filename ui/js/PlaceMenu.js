@@ -48,7 +48,10 @@ function perform(action, key, sidebar, favourites) {
     if (action === "open") { openPath(path, sidebar, pane); return }
     else if (action === "openTab") Tabs.openNew(pane, path)
     else if (action === "openTerminal") pane.openTerminal(path)
-    else if (action === "copypath") pane.performMenu("copypath", 0, [path])
+    // MenuAdditions040: the Places row offers Copy as over its own path; the
+    // old flat row survives as the Path leaf's own spelling.
+    else if (action === "copypath") pane.performMenu("copyAs:copyPath", 0, [path])
+    else if (action.indexOf("copyAs:") === 0) pane.performMenu(action, 0, [path])
     else if (action === "addFavourite") favourites.add(path, leaf(path))
     else if (action === "removeFavourite") removeAt(sidebar, favourites, index, path)
 }

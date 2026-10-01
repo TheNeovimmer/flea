@@ -7,7 +7,7 @@ use crate::backend::opsreq::{
 };
 use crate::backend::listing::Listing;
 use crate::backend::proto::error_line;
-use crate::backend::undo::{Entry, ItemIdentity, Journal};
+use crate::backend::undo::{Entry, ItemIdentity, Journal, Step};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -220,6 +220,144 @@ pub(crate) fn do_undo(out: &mut impl Write, ops: &mut Ops) {
         Ok(op) => writeln!(out, "{}", undone_line(&op, true)).ok(),
         Err(e) => writeln!(out, "{}", error_line(&e)).ok(),
     };
+    out.flush().ok();
+}
+
+// Paste as links: one symlink or hard link per source inside dest. Links are
+// single syscalls, so this answers on the calling thread like rename and
+// mkdir rather than taking the one-operation slot. Every created link is one
+// Created step in a single Entry, so one undo removes them all, and a name
+// that exists goes through the collision card's own policy first.
+pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<String>, dest: &str, collide: super::collide::Ask) {
+    let dest_path = match usable_dest(dest) {
+        Ok(d) => d,
+        Err(e) => {
+            writeln!(out, "{}", error_line(&e)).ok();
+            out.flush().ok();
+            return;
+        }
+    };
+    let policy = collide.policy(ops.question.take(), &dest_path).for_batch(&paths);
+    let mut steps: Vec<Step> = Vec::new();
+    let mut ok = 0usize;
+    let mut failed = 0usize;
+    let mut skipped = 0usize;
+    let mut first_err = String::new();
+    for source in &paths {
+        let src = Path::new(source);
+        let Some(dst) = super::link::dest_path(&dest_path, src) else {
+            failed += 1;
+            if first_err.is_empty() { first_err = format!("{source} has no file name"); }
+            continue;
+        };
+        let here = src.parent() == Some(dest_path.as_path());
+        match policy.place(src, dst.clone(), here, false) {
+            super::collide::Place::Skip => { skipped += 1; }
+            super::collide::Place::Refuse(msg) => {
+                failed += 1;
+                if first_err.is_empty() { first_err = msg; }
+            }
+            super::collide::Place::Land { to, replace } => {
+                let mut replaced: Vec<super::trash::Entry> = Vec::new();
+                if replace {
+                    match super::trash::trash(std::slice::from_ref(&to)) {
+                        (trashed, 0) => replaced = trashed,
+                        _ => {
+                            failed += 1;
+                            if first_err.is_empty() { first_err = super::collide::TRASH_REFUSED.to_string(); }
+                            continue;
+                        }
+                    }
+                }
+                let made = match op {
+                    "absolute" => super::link::create_absolute(src, &to),
+                    "hard" => super::link::create_hard(src, &to),
+                    _ => super::link::create_relative(src, &to),
+                };
+                match made {
+                    Ok(()) => {
+                        for entry in replaced {
+                            steps.push(Step::Trashed(entry));
+                        }
+                        steps.push(Step::Created { path: to });
+                        ok += 1;
+                    }
+                    Err(e) => {
+                        // The trash went through but the link did not: put the old
+                        // item straight back when nothing took its name.
+                        let mut restored = false;
+                        for entry in replaced {
+                            if to.symlink_metadata().is_err() {
+                                if super::trash::restore(&entry).is_ok() { restored = true; }
+                                else { steps.push(Step::Trashed(entry)); }
+                            } else {
+                                steps.push(Step::Trashed(entry));
+                            }
+                        }
+                        let _ = restored;
+                        failed += 1;
+                        if first_err.is_empty() { first_err = e.msg.clone(); }
+                    }
+                }
+            }
+        }
+    }
+    ops.journal.push(Entry { op: "link".to_string(), steps });
+    if failed == 0 && first_err.is_empty() {
+        writeln!(out, "{}", super::proto::linked_line(ok, failed, skipped)).ok();
+    } else if ok > 0 || skipped > 0 {
+        writeln!(out, "{}", super::proto::linked_line(ok, failed, skipped)).ok();
+    } else {
+        writeln!(out, "{}", error_line(&op_err("link", dest, &first_err))).ok();
+    }
+    out.flush().ok();
+}
+
+// Show original: the symlink's target revealed in its own folder, the same
+// path Show in folder uses. A non-link is refused rather than resolved.
+pub(crate) fn do_link_target(out: &mut impl Write, path: &str) {
+    let target = Path::new(path);
+    let text = match std::fs::read_link(target) {
+        Ok(t) => t,
+        Err(e) => {
+            writeln!(out, "{}", error_line(&op_err("linktarget", path, &crate::error::io_message(&e)))).ok();
+            out.flush().ok();
+            return;
+        }
+    };
+    let absolute = if text.is_absolute() {
+        text.clone()
+    } else {
+        target.parent().unwrap_or(Path::new("/")).join(&text)
+    };
+    let directory = absolute.parent().unwrap_or(Path::new("/")).to_string_lossy().to_string();
+    let name = absolute.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    writeln!(out, "{}", super::proto::linktarget_line(path, &directory, &name)).ok();
+    out.flush().ok();
+}
+
+// Permissions for the whole selection: one Entry holds every path the Apply
+// changed, so one undo restores them all. Octal, Owner, Group and the change
+// preview drop out for several items; the grid and Apply are the whole card.
+pub(crate) fn do_permissions_batch(out: &mut impl Write, ops: &mut Ops, paths: Vec<String>, modes: Vec<String>, id: usize) {
+    if paths.len() != modes.len() {
+        writeln!(out, "{}", super::proto::permissions_batch_line(id, false, "", "every selected item needs its own target mode")).ok();
+        out.flush().ok();
+        return;
+    }
+    let items: Vec<(PathBuf, String)> = paths.into_iter().zip(modes.into_iter()).map(|(p, m)| (PathBuf::from(p), m)).collect();
+    // The reply names the first target mode; per-file modes differ only where
+    // mixed boxes kept each file's own bits.
+    let shown = items.first().map(|(_, m)| m.clone()).unwrap_or_default();
+    match super::permissions::apply_many(&items) {
+        Ok(steps) => {
+            ops.journal.push(Entry { op: "permissions".to_string(), steps });
+            writeln!(out, "{}", super::proto::permissions_batch_line(id, true, &shown, "")).ok();
+        }
+        Err(message) => {
+            writeln!(out, "{}", super::proto::permissions_batch_line(id, false, &shown, &message)).ok();
+        }
+    }
     out.flush().ok();
 }
 
@@ -536,5 +674,46 @@ mod tests {
         assert!(text(&buf).contains(r#""t":"error","where":"mkdir""#), "the refusal is an error line, not a silent no-op");
         assert!(o.journal.is_empty(), "a folder that was not made must not be undoable");
         assert_eq!(std::fs::read_to_string(d.join("taken")).unwrap(), "t");
+    }
+
+    #[test]
+    fn paste_as_links_answers_one_line_and_undo_removes_them() {
+        let d = TestDir::new("dispatchlink");
+        let mut o = ops();
+        let src = d.dir("src");
+        let a = d.file("src/a.txt", "a");
+        let b = d.file("src/b.txt", "b");
+        let dest = d.dir("dest");
+        let _ = src;
+        let mut buf = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+        do_link(&mut buf, &mut o, "relative",
+            vec![a.to_string_lossy().to_string(), b.to_string_lossy().to_string()],
+            &dest.to_string_lossy(), ask);
+        assert_eq!(text(&buf).trim(), r#"{"t":"linked","ok":2,"failed":0,"skipped":0}"#);
+        assert_eq!(o.journal.len(), 1);
+        assert_eq!(std::fs::read_to_string(dest.join("a.txt")).unwrap(), "a");
+        let mut buf = out();
+        do_undo(&mut buf, &mut o);
+        assert!(text(&buf).contains(r#"{"t":"undone","op":"link","ok":true}"#));
+        assert!(std::fs::symlink_metadata(dest.join("a.txt")).is_err());
+        assert!(std::fs::symlink_metadata(dest.join("b.txt")).is_err());
+        assert!(a.exists() && b.exists(), "undo removes the links, never the sources");
+    }
+
+    #[test]
+    fn an_existing_name_is_refused_and_a_link_to_a_directory_writes_no_marker() {
+        let d = TestDir::new("dispatchlinkrefuse");
+        let mut o = ops();
+        let a = d.file("a.txt", "a");
+        let dest = d.dir("dest");
+        d.file("dest/a.txt", "someone else");
+        let mut buf = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+        do_link(&mut buf, &mut o, "relative",
+            vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        assert!(text(&buf).contains(r#""t":"error","where":"link""#));
+        assert!(o.journal.is_empty(), "a link that was not made must not be undoable");
+        assert_eq!(std::fs::read_to_string(dest.join("a.txt")).unwrap(), "someone else");
     }
 }

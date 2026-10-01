@@ -121,6 +121,12 @@ action = "tabMoveLeft"
 key = "PageDown"
 action = "tabMoveRight"
 
+# MenuAdditions040: Ctrl+Shift+C copies the selection's paths, one per line,
+# through wl-copy, without opening a row; c opens Copy as at the cursor.
+[[ctrlshift]]
+key = "C"
+action = "copyPath"
+
 # Shift falls through instead of returning, because shift-modified letters already carry their
 # own capital text (see G below); this table only covers the arrow keys, which carry no text.
 # The preset overlay, the four-value chooser the Keys settings section walks: default, vim, mac and
@@ -507,6 +513,20 @@ action = "addNetwork"
 char = "m"
 action = "menu"
 
+# MenuAdditions040: c opens Copy as at the cursor, P opens Paste as, and V
+# flips the selection; c, P and V work with the rows hidden, like every key.
+[[text]]
+char = "c"
+action = "copyAs"
+
+[[text]]
+char = "P"
+action = "pasteAs"
+
+[[text]]
+char = "V"
+action = "invertSelection"
+
 # The Settings board's own key: "," from anywhere in the window, no modifier chord, because
 # Omarchy's universal clipboard consumes SUPER+C/V/X and a settings panel is the last place to
 # fight for one. ui/Pane.qml routes it from the list and from the rail alike.
@@ -578,9 +598,9 @@ look = ["viewList", "viewColumns", "viewGrid", "togglePreview", "loadPreview", "
         "textSizeReset", "keymapSheet"]
 find = ["filter", "search", "reveal", "sortNext", "sortReverse", "pathBar", "reload"]
 change = ["copy", "cut", "paste", "movePaste", "duplicate", "rename", "trash",
-          "deletePermanently", "undo", "redo", "newFolder", "copydirpath", "toggleSelect",
+          "deletePermanently", "undo", "redo", "newFolder", "copydirpath", "copyPath", "toggleSelect",
           "selectAll", "extendDown", "extendUp", "menu", "properties", "addNetwork", "eject",
-          "openTerminal", "settings", "autofitColumns"]
+          "openTerminal", "settings", "autofitColumns", "copyAs", "pasteAs", "invertSelection"]
 
 # The digit range, expanded by the generator into tab1 through tab9.
 [digits]
@@ -1713,6 +1733,99 @@ key = "h"
 keys = "h"
 action = "parent"
 label = "parent"
+frontend = "all"
+context = "menu"
+
+# MenuAdditions040: each Copy as row's letter copies at once, and each Paste
+# as row's letter links at once. The letters work with key hints off and are
+# drawn only when key hints are on, like every menu hint.
+[[preset]]
+name = "all"
+mods = "text"
+key = "p"
+keys = "p"
+action = "copyPath"
+label = "copy path"
+frontend = "all"
+context = "menu"
+
+[[preset]]
+name = "all"
+mods = "text"
+key = "n"
+keys = "n"
+action = "copyName"
+label = "copy name"
+frontend = "all"
+context = "menu"
+
+[[preset]]
+name = "all"
+mods = "text"
+key = "e"
+keys = "e"
+action = "copyStem"
+label = "copy name without extension"
+frontend = "all"
+context = "menu"
+
+[[preset]]
+name = "all"
+mods = "text"
+key = "f"
+keys = "f"
+action = "copydirpath"
+label = "copy folder path"
+frontend = "all"
+context = "menu"
+
+[[preset]]
+name = "all"
+mods = "text"
+key = "u"
+keys = "u"
+action = "copyUri"
+label = "copy file URI"
+frontend = "all"
+context = "menu"
+
+[[preset]]
+name = "all"
+mods = "text"
+key = "s"
+keys = "s"
+action = "copyQuoted"
+label = "copy shell-quoted"
+frontend = "all"
+context = "menu"
+
+[[preset]]
+name = "all"
+mods = "text"
+key = "L"
+keys = "L"
+action = "pasteLink"
+label = "paste link"
+frontend = "all"
+context = "menu"
+
+[[preset]]
+name = "all"
+mods = "text"
+key = "a"
+keys = "a"
+action = "pasteAbsoluteLink"
+label = "paste absolute link"
+frontend = "all"
+context = "menu"
+
+[[preset]]
+name = "all"
+mods = "text"
+key = "H"
+keys = "H"
+action = "pasteHardLink"
+label = "paste hard link"
 frontend = "all"
 context = "menu"
 

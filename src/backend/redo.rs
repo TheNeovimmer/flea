@@ -180,6 +180,17 @@ fn apply(saved: &ReplayStep, id: usize, index: usize, cancel: &AtomicBool, tx: &
             Ok(())
         }
         Step::Created { path } => Err(error(path, "this operation has no recorded replay source")),
+        Step::Mode { path, after, .. } => {
+            use std::os::unix::fs::PermissionsExt;
+            let meta = path.symlink_metadata().map_err(|e| from_io("redo", &path.to_string_lossy(), &e))?;
+            if meta.file_type().is_symlink() {
+                return Err(error(path, "the item is a link, so redo left its mode in place"));
+            }
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(*after))
+                .map_err(|e| from_io("redo", &path.to_string_lossy(), &e))?;
+            steps.push(saved.step.clone());
+            Ok(())
+        }
     }
 }
 

@@ -28,6 +28,9 @@ var OPEN_WITH_OTHER = "__another__"
 // One order for every menu: F file, B background, T Trash, P Places, R rail rows (never hideable, never in Settings > Menus).
 var INVENTORY = [
     ["open", "Open", "folder-open", "FTPR", "open"],
+    // MenuAdditions040: Show original reveals a symlink's target in its own
+    // folder, the same path Show in folder uses; visible, symlinks only.
+    ["showOriginal", "Show original", "symlink", "F", "open", "showOriginal"],
     // MenuAdditions rule 3: a Places or Favorites row opens this menu for its own path, so the rows
     // it carries are the ones that take a path and not the clipboard, archive, send or destroy ones.
     ["openTab", "New tab", "plus", "P", "open"],
@@ -44,12 +47,18 @@ var INVENTORY = [
     ["cut", "Cut", "scissors", "F", "basic"],
     ["copy", "Copy", "copy", "F", "basic"],
     ["paste", "Paste", "clipboard", "FB", "basic"],
+    // MenuAdditions040: Paste as links, undoable, through the collision
+    // card; hidden, and holding only the three link rows.
+    ["pasteAs", "Paste as", "symlink", "FB", "basic", "pasteAs"],
     ["duplicate", "Duplicate", "file-plus", "F", "basic"],
     ["rename", "Rename", "rename", "FR", "basic"],
     // A saved place's own rows beside Rename; Edit address and Remove from Network are rail-only.
     ["editPlace", "Edit address", "sliders", "R", "basic"],
     ["remove", "Remove from Network", "minus", "R", "rremove"],
     ["selectAll", "Select all", "check", "B", "basic"],
+    // MenuAdditions040: Invert selection flips the marks over the rows the
+    // listing draws; hidden, present only while something is selected.
+    ["invertSelection", "Invert selection", "contrast", "B", "basic", "invertSelection"],
     ["compress", "Compress", "archive", "F", "archive"],
     ["extract", "Extract", "archive-out", "F", "archive"],
     ["convert", "Convert", "sliders", "F", "archive"],
@@ -68,8 +77,10 @@ var INVENTORY = [
     ["copyto", "Copy to", "copy", "F", "inspect", "copyTo"],
     ["properties", "Properties", "info", "F", "inspect"],
     ["permissions", "Permissions", "lock", "F", "inspect"],
-    ["copypath", "Copy path", "file-text", "FP", "inspect"],
-    // MenuAdditions rule 2: after Copy path, one row per executable in ~/.config/flea/scripts, and
+    // MenuAdditions040: Copy as replaces the hidden Copy path row and ships
+    // hidden like it; every variant covers the whole selection, one per line.
+    ["copyAs", "Copy as", "file-text", "FP", "inspect", "copyAs"],
+    // MenuAdditions rule 2: after Copy as, one row per executable in ~/.config/flea/scripts, and
     // absent rather than greyed when that directory is missing or holds none.
     ["runScript", "Run script", "terminal", "F", "inspect"],
     ["addFavourite", "Add to Favorites", "star", "FBP", "inspect"],
@@ -118,10 +129,26 @@ function availableEntry(e, p, kind) {
     if (e.action === "addFavourite" && kind === "F")
         e.disabled = count !== 1 || ((Number(p.rowMode) || 0) & 0o170000) !== 0o040000
     if (e.action === "paste") e.disabled = p.clipboardAvailable !== true
+    // MenuAdditions040: Show original is visible but only on a symlink.
+    if (e.action === "showOriginal" && p.rowIsSymlink !== true) return false
+    // MenuAdditions040: Paste as holds only the three link rows, and only
+    // while the clipboard holds something, like Paste above it.
+    if (e.action === "pasteAs") {
+        e.disabled = p.clipboardAvailable !== true
+        if (p.clipboardAvailable === true)
+            e.submenu = pasteAsEntries()
+    }
+    // MenuAdditions040: Copy as replaces Copy path; every variant covers the
+    // whole selection, one path per line, through wl-copy.
+    if (e.action === "copyAs")
+        e.submenu = copyAsEntries()
+    // MenuAdditions040: Invert selection flips over the rows the listing
+    // draws, so with nothing selected there is nothing to flip from.
+    if (e.action === "invertSelection" && count === 0) return false
     if (["duplicate", "rename", "properties"].indexOf(e.action) >= 0)
         e.disabled = count !== 1
     if (e.action === "permissions") {
-        var permission = permissionsEntry(p.rowMode, count)
+        var permission = permissionsEntry(p.rowMode, count, p.selectionModes)
         e.disabled = permission.disabled
         if (permission.errored) e.errored = true
     }
@@ -226,10 +253,45 @@ function availableRail(e, entry) {
 
 // The mode describes the selected object itself, so a symlink never grants access to its unseen target.
 // Issue 193, GM's ruling of 2026-09-24: a row that cannot act reads red with no sentence, as a provider does.
-function permissionsEntry(mode, count) {
+// MenuAdditions040: Permissions takes the whole selection, so one bad row
+// among modes refuses the row; the dialog inspects each file in turn.
+function permissionsEntry(mode, count, modes) {
+    if (modes !== undefined && modes !== null && modes.length > 0) {
+        for (var i = 0; i < modes.length; i++) {
+            var kind = (Number(modes[i]) || 0) & 0o170000
+            if (!(kind === 0o100000 || kind === 0o040000))
+                return { label: "Permissions", action: "permissions", glyph: "lock", disabled: true, errored: true }
+        }
+        return { label: "Permissions", action: "permissions", glyph: "lock", disabled: false, errored: false }
+    }
     var kind = (Number(mode) || 0) & 0o170000
-    var allowed = count === 1 && (kind === 0o100000 || kind === 0o040000)
+    var allowed = count >= 1 && (kind === 0o100000 || kind === 0o040000)
     return { label: "Permissions", action: "permissions", glyph: "lock", disabled: !allowed, errored: !allowed }
+}
+
+// MenuAdditions040: the Copy as flyout, six leaves in board order, each
+// row's letter copies at once; the letters are drawn only when key hints are
+// on, like every menu hint, so the leaves carry keyHint rather than hint.
+function copyAsEntries() {
+    return [
+        { id: "copyPath", label: "Path", glyph: "file-text", keyHint: "p" },
+        { id: "copyName", label: "Name", glyph: "type", keyHint: "n" },
+        { id: "copyStem", label: "Name without extension", glyph: "type", keyHint: "e" },
+        { id: "copydirpath", label: "Folder path", glyph: "folder", keyHint: "f" },
+        { id: "copyUri", label: "File URI", glyph: "globe", keyHint: "u" },
+        { id: "copyQuoted", label: "Shell-quoted", glyph: "terminal", keyHint: "s" }
+    ]
+}
+
+// MenuAdditions040: the Paste as flyout. Link is relative from the
+// destination, Absolute link stores the full path; l and h open and close a
+// flyout, so the letters are L, a and H.
+function pasteAsEntries() {
+    return [
+        { id: "pasteLink", label: "Link", glyph: "symlink", keyHint: "L" },
+        { id: "pasteAbsoluteLink", label: "Absolute link", glyph: "symlink", keyHint: "a" },
+        { id: "pasteHardLink", label: "Hard link", glyph: "copy", keyHint: "H" }
+    ]
 }
 
 

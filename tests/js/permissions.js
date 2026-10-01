@@ -9,4 +9,14 @@ function run(check) {
     check("owner execute toggle", Permissions.toggle("0644", 64), "0744")
     check("octal and grid one value", Permissions.toggle("0744", 64), "0644")
     check("invalid text preserved", Permissions.toggle("0688", 64), "0688")
+    check("identical modes show no mixed bit",
+        Permissions.summarize(["0644", "0644"]).mixed, false)
+    check("a differing owner-execute bit shows mixed",
+        Permissions.summarize(["0644", "0755"]).bits[2].mixed, true)
+    check("a bit set everywhere reads on",
+        Permissions.summarize(["0644", "0755"]).bits[0].on, true)
+    check("a bit set nowhere reads off",
+        Permissions.summarize(["0644", "0644"]).bits[2].on, false)
+    check("mixed boxes keep each file's own bit note",
+        Permissions.mixedNote(), "Mixed boxes keep each file's own bit unless you change them.")
 }

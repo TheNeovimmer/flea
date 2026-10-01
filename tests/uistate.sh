@@ -49,7 +49,7 @@ fresh
 out=$(flea_ui 2>&1); rc=$?
 check "a read exits 0" "0" "$rc"
 check "a read answers the shipped view" "1" "$(echo "$out" | grep -c '"view": "list"')"
-check "a read answers the shipped menu.hidden" "1" "$(echo "$out" | grep -c '"copypath"')"
+check "a read answers the shipped menu.hidden" "1" "$(echo "$out" | grep -c '"copyAs"')"
 check "a read answers every top-level key" "36" "$(echo "$out" | grep -c '^  "')"
 check "a read leaves no state file behind" "0" "$([ -e "$UI" ] && echo 1 || echo 0)"
 

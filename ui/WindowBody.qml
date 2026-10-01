@@ -214,6 +214,8 @@ Rectangle {
         onSticky: function (text) { bar.setActivity(primaryPane, text, primaryPane.transfer) }
         onConvertRequested: function (name) { convertDialog.open(name, primaryPane) }
         onPermissionsRequested: function (path) { permissionsDialog.open(path, primaryPane) }
+        // Permissions040: the whole selection's paths for the multi-row card.
+        onPermissionsBatchRequested: function (paths) { permissionsDialog.openMany(paths, primaryPane) }
         onPathBarRequested: chrome.startEdit()
         // Issue 9. ViewState persists the stop and Theme derives its own tokens from it, so
         // the whole window follows without any surface reading the chord itself.
@@ -261,6 +263,7 @@ Rectangle {
                 onSticky: function(text) { bar.setActivity(otherPane, text, otherPane.transfer) }
                 onConvertRequested: function(name) { convertDialog.open(name, otherPane) }
                 onPermissionsRequested: function(path) { permissionsDialog.open(path, otherPane) }
+                onPermissionsBatchRequested: function (paths) { permissionsDialog.openMany(paths, otherPane) }
                 onPathBarRequested: chrome.startEdit()
                 onTextSizeRequested: function(direction) { view.applyTextSize(direction) }
                 onOpened: if (otherPane.shareBrowser.owner === otherPane) otherPane.shareBrowser.close()
@@ -350,6 +353,7 @@ Rectangle {
         readonly property bool opened: item !== null && item.opened
         property var owner: null
         function open(path, holder) { owner = holder; active = true; item.open(path, holder) }
+        function openMany(paths, holder) { owner = holder; active = true; item.openMany(paths, holder) }
     }
     Connections {
         target: permissionsDialog.item

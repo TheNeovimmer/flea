@@ -91,3 +91,15 @@ function question(request, probe, id) {
 function transfer(request, choice, id) {
     return Object.assign({}, request, { collide: choice, collideId: id })
 }
+
+// MenuAdditions040: the waiting Paste as links with the answer on it; same
+// question, same card, same collide words as the transfer above. Rows ride
+// along only when the request named them, so a paths-only paste is never
+// refused for a listing it never read.
+function link(request, choice, id) {
+    var out = { c: "link", op: request.op, paths: request.paths || [],
+                dest: request.dest, collide: choice, collideId: id }
+    if (request.rows && request.rows.length > 0) out.rows = request.rows
+    if (request.listing !== undefined) out.listing = request.listing
+    return out
+}

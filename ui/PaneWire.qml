@@ -321,6 +321,24 @@ Item {
             pane.refresh(path)
         }
 
+        // MenuAdditions040: Paste as links answers one line per request, and
+        // one journal entry, so one undo removes every link it created.
+        function onLinked(ok, failed, skipped) {
+            pane.message(Ops.linkedLine(ok, failed, skipped), failed > 0 && ok === 0)
+            pane.refresh("")
+        }
+
+        // MenuAdditions040: Show original reveals the link's target in its own
+        // folder, the same path Show in folder uses.
+        function onLinkTarget(path, directory, name) {
+            if (directory.length === 0 || name.length === 0) {
+                pane.message("That link points nowhere to reveal.", true)
+                return
+            }
+            pane.pendingSelect = directory === "/" ? "/" + name : directory + "/" + name
+            pane.open(directory)
+        }
+
         function onUndone(op, ok) {
             pane.sticky("")
             pane.message(Ops.undone(op), false)
