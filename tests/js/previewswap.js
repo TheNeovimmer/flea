@@ -176,7 +176,7 @@ function runPreviewSettle(check) {
     check("it stamps moves beside the settle key", preview.indexOf("property string lastMoveKey") >= 0
         && preview.indexOf("property double lastMoveAt") >= 0, true)
     var replaceArm = squashed(bodyOf(preview, "replace"))
-    var dupAt = replaceArm.indexOf("if (key === root.lastMoveKey && root.isShown()) return")
+    var dupAt = replaceArm.indexOf("if (key === root.lastMoveKey && (root.isShown() || root.loadQueuedKey === key)) return")
     var holdAt = replaceArm.indexOf("root.swap.hold(root.clearForMove, key)")
     var settleAt = replaceArm.indexOf("root.settleFor(key)")
     check("a true duplicate returns before any clear or picture", dupAt >= 0 && holdAt > dupAt, true)
@@ -194,6 +194,16 @@ function runPreviewSettle(check) {
         fireArm.indexOf("!root.pane.storageKnown") >= 0 && fireArm.indexOf("root.followSelection()") >= 0, true)
     var loadArm = squashed(preview.substring(preview.indexOf("function load()"), preview.indexOf("function startSwap")))
     check("a load stamps no move clock", loadArm.indexOf("lastMoveAt") < 0 && loadArm.indexOf("lastMoveKey") < 0, true)
+    check("the column names the queued load's key",
+        preview.indexOf("property string loadQueuedKey") >= 0, true)
+    var selQueued = squashed(preview.substring(preview.indexOf("function loadSelection()"), preview.indexOf("function load()")))
+    check("a queued load names its key before the hold",
+        selQueued.indexOf("root.loadQueuedKey = key") >= 0
+        && selQueued.indexOf("root.loadQueuedKey = key") < selQueued.indexOf("root.swap.hold(root.load, key, true)"), true)
+    check("a clear forgets the queued key",
+        squashed(bodyOf(preview, "function clearShown")).indexOf('root.loadQueuedKey = ""') >= 0, true)
+    check("a duplicate replace stands down while its load is queued",
+        replaceArm.indexOf("root.loadQueuedKey === key") >= 0, true)
     var quick = Source.source("ui/Preview.qml")
     var followArm = squashed(bodyOf(quick, "function follow"))
     check("a pending repeat returns first",

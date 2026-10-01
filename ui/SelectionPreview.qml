@@ -20,6 +20,8 @@ Flea.PreviewColumn {
     // ui/ColumnsArea.qml's third-column swap, which then drives the cursor moves; null leaves every change immediate.
     property var swap: null
     property string settleKey: ""
+    // A load queued under the swap's picture, so a duplicate replace queues no clear behind it.
+    property string loadQueuedKey: ""
     // Last distinct cursor move, so a held key cannot decode mid-burst: only idleness loads at once.
     property double lastMoveAt: 0
     property string lastMoveKey: ""
@@ -112,7 +114,8 @@ Flea.PreviewColumn {
         if (!Columns.isFileRow(root.pane ? root.pane.rowFor(root.pane.cursorIndex) : null)) { settle.stop(); return }
         var key = root.swapKey()
         // A true duplicate preserves the frame and timer; a changed identity lets a same-key refresh proceed.
-        if (key === root.lastMoveKey && root.isShown()) return
+        // A queued load stands for the same key: clearing behind it would wipe the load when it lands.
+        if (key === root.lastMoveKey && (root.isShown() || root.loadQueuedKey === key)) return
         if (root.swap && ViewState.previewAutomatic && root.canRead) {
             // The picture first, the exact contract a deferred load keeps; the scheduler may load under it at once.
             root.swap.hold(root.clearForMove, key)
@@ -152,6 +155,7 @@ Flea.PreviewColumn {
     }
 
     function clearShown() {
+        root.loadQueuedKey = ""
         root.pending = false
         root.pendingToken = 0
         root.manualHold = false
@@ -206,7 +210,9 @@ Flea.PreviewColumn {
     function loadSelection() {
         if (!root.canRead) return
         if (!Columns.isFileRow(root.pane.rowFor(root.pane.cursorIndex))) { settle.stop(); return }
-        if (root.swap) root.swap.hold(root.load, root.swapKey(), true)
+        var key = root.swapKey()
+        root.loadQueuedKey = key
+        if (root.swap) root.swap.hold(root.load, key, true)
         else root.load()
     }
 

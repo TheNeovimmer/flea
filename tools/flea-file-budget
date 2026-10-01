@@ -75,7 +75,7 @@ ui/PaneMenuActions.qml 443
 ui/PaneWire.qml 489
 ui/PermissionsDialog.qml 589
 ui/PickerWindow.qml 770
-ui/PreviewColumn.qml 499
+ui/PreviewColumn.qml 522
 ui/Preview.qml 490
 ui/Row.qml 478
 ui/SettingsPanel.qml 542

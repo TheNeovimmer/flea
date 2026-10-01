@@ -145,16 +145,15 @@ Item {
                 width: vector ? boxWidth : implicitWidth * fit
                 height: vector ? boxHeight : implicitHeight * fit
                 visible: root.thumbShown && !playerLoader.visible
-                source: root.frameSource()
+                // Owned by root.applyDecodeTarget, never bound: a bound url and a bound
+                // ceiling land in separate passes and each pass reloads the standing file.
+                source: ""
                 fillMode: vector ? Image.PreserveAspectFit : Image.Stretch
                 // The fallback is the camera file itself, whose EXIF turn Qt applies only when asked.
                 autoTransform: true
                 asynchronous: true
                 cache: false
-                // Zero is unbounded to Qt, which is what the small cache PNG wants; only the fallback,
-                // which can be the whole camera file, takes the ceiling ui/PreviewImage.qml sets.
-                sourceSize.width: root.thumb.length > 0 ? 0 : Math.max(1, Math.round(root.turned ? boxHeight : boxWidth))
-                sourceSize.height: root.thumb.length > 0 ? 0 : Math.max(1, Math.round(root.turned ? boxWidth : boxHeight))
+                Component.onCompleted: root.applyDecodeTarget()
             }
 
             // The player, in the frame it paints into; built by the first press of play and not before, and by source rather than type, because QtMultimedia costs 20 MB on import alone.
@@ -467,6 +466,30 @@ Item {
         if (!root.manualHold && root.noThumbComing && root.previewState === Facts.IMAGE && root.path.length > 0)
             return Format.fileUri(root.path)
         return ""
+    }
+
+    // One binding for the whole decode request, so the url and its ceiling change in one
+    // pass. Zero is unbounded to Qt, which is what the small cache PNG wants; only the
+    // fallback, which can be the whole camera file, takes the ceiling ui/PreviewImage.qml sets.
+    readonly property var decodeTarget: ({
+        url: root.frameSource(),
+        w: root.thumb.length > 0 ? 0 : Math.max(1, Math.round(root.turned ? frameThumb.boxHeight : frameThumb.boxWidth)),
+        h: root.thumb.length > 0 ? 0 : Math.max(1, Math.round(root.turned ? frameThumb.boxWidth : frameThumb.boxHeight))
+    })
+    onDecodeTargetChanged: root.applyDecodeTarget()
+
+    // Blank first, then the ceiling, then the url: a ceiling change while a url stands
+    // re-requests that file, so the three never land in separate passes. A request that
+    // changed nothing is skipped, so a relayout over a cache file loads nothing at all.
+    function applyDecodeTarget() {
+        var t = root.decodeTarget
+        if (String(frameThumb.source) === String(t.url)
+                && frameThumb.sourceSize.width === t.w && frameThumb.sourceSize.height === t.h)
+            return
+        frameThumb.source = ""
+        frameThumb.sourceSize.width = t.w
+        frameThumb.sourceSize.height = t.h
+        frameThumb.source = t.url
     }
 
     // Why the frame is showing a mark instead of the thing it meant to draw. Empty for every state
