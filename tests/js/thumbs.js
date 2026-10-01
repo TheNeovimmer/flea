@@ -133,4 +133,13 @@ function run(check) {
     check("an image poster keeps its cap", Thumbs.posterLimit(false, 256, 256, 64, 64), 64 / 256)
     check("a 64x64 clip poster in the 754x471 frame fills it",
           drawn(Thumbs.fitScale(754, 471, 256, 256, Thumbs.posterLimit(true, 256, 256, 64, 64)), 256, 256), "471x471")
+    // e81: the interim lands on the final's rect: the surface fit capped at the original's
+    // own pixels, cache pixels while the meta reply is still in flight.
+    function interim(boxW, boxH, cacheW, cacheH, origW, origH) {
+        var limit = origW > 0 && origH > 0 ? Thumbs.thumbLimit(cacheW, cacheH, origW, origH) : 1
+        return drawn(Thumbs.fitScale(boxW, boxH, cacheW, cacheH, limit), cacheW, cacheH)
+    }
+    check("a 64x48 interim lands on its final's pixels", interim(754, 471, 256, 192, 64, 48), "64x48")
+    check("a 1920x1080 interim lands on its final's box fit", interim(754, 471, 256, 144, 1920, 1080), "754x424")
+    check("unknown draws at cache pixels, growing into the final at most", interim(754, 471, 256, 171, 0, 0), "256x171")
 }

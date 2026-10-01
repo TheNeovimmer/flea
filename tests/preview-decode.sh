@@ -71,6 +71,9 @@ magick -size 3000x100 xc:gray60 "$photos/banner.png" \
     || { echo "preview-decode.sh: banner generation failed"; exit 1; }
 magick -size 120x68 xc:gray40 "$photos/small.png" \
     || { echo "preview-decode.sh: small fixture generation failed"; exit 1; }
+# The interim's own cache files: the small one draws at the original's pixels, the large one at 256 wide.
+cp "$photos/small.png" "$photos/smallcache.png" \
+    || { echo "preview-decode.sh: small cache generation failed"; exit 1; }
 
 # Sample input: 'OPEN|t12.png' is a cache file, 'OPEN|s12.jpg' or 'OPEN|big.png' an original, 'CREATE|sentinel-rest' a phase boundary.
 inotifywait -m -e open -e create --format '%e|%f' "$photos" > "$watchlog" 2>&1 &
@@ -163,7 +166,54 @@ else
         "120x68 120x68") ok "and a 120x68 PNG at its own size, never enlarged" ;;
         *) bad "Quick Look drew the small PNG as '$small', not 120x68 (log $log)" ;;
     esac
+    # The interim draws the cache file under the full decode: the same rect within a pixel,
+    # and the original opened once, the interim adding no open of its own.
+    im_line() { grep -a -n "CREATE|sentinel-$1" "$watchlog" | head -1 | cut -d: -f1; }
+    rect_ok() {
+        python3 - "$1" "$2" <<'PY'
+import sys
+a = [int(x) for x in sys.argv[1].split(",")]
+b = [int(x) for x in sys.argv[2].split(",")]
+sys.exit(0 if len(a) == 4 and len(b) == 4 and all(abs(x - y) <= 1 for x, y in zip(a, b)) else 1)
+PY
+    }
+    for spec in "small small.png smallcache.png" "large seed0.jpg thumb.png"; do
+        set -- $spec
+        label=$1; orig=$2; cache=$3
+        line=$(grep -a "PREVIEW INTERIM $label " "$log" | head -1)
+        irect=$(printf '%s' "$line" | sed -n 's/.* irect=\([0-9,]*\).*/\1/p')
+        frect=$(printf '%s' "$line" | sed -n 's/.* frect=\([0-9,]*\).*/\1/p')
+        if [ -z "$irect" ] || [ -z "$frect" ]; then
+            bad "the interim never reported $label (log $log)"
+            continue
+        fi
+        if rect_ok "$irect" "$frect"; then
+            ok "the $label interim lands on the final's rect ($irect)"
+        else
+            bad "the $label interim drew $irect against the final $frect (log $log)"
+        fi
+        s0=$(im_line "istart-$label"); s1=$(im_line "iend-$label")
+        if [ -z "$s0" ] || [ -z "$s1" ]; then
+            bad "an interim sentinel never arrived for $label (log $log)"
+            continue
+        fi
+        oopens=$(sed -n "${s0},${s1}p" "$watchlog" | grep -c "^OPEN|$orig\$")
+        copens=$(sed -n "${s0},${s1}p" "$watchlog" | grep -c "^OPEN|$cache\$")
+        if [ "$oopens" -eq 1 ]; then
+            ok "and opened its original once, the interim adding none"
+        else
+            bad "the $label original opened $oopens time(s), want exactly 1 (log $log)"
+        fi
+        if [ "$copens" -ge 1 ]; then
+            ok "and drew its cache file"
+        else
+            bad "the $label interim never opened $cache (log $log)"
+        fi
+    done
 fi
 
 printf 'preview-decode: %s check(s), %s failed\n' "$((pass + fail))" "$fail"
+if [ "$fail" -ne 0 ]; then
+    grep -a -E 'TypeError|ReferenceError|ERROR|INTERIM' "$log" | head -20
+fi
 [ "$fail" -eq 0 ]

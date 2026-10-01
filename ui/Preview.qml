@@ -2,7 +2,9 @@ import QtQuick
 import qs.Commons
 import "." as Flea
 import "js/Facts.js" as Facts
+import "js/Format.js" as Format
 import "js/Kinds.js" as Kinds
+import "js/Thumbs.js" as Thumbs
 import "js/ExtThumbs.js" as ExtThumbs
 import "js/Icons.js" as Icons
 import "js/Motion.js" as Motion
@@ -72,8 +74,28 @@ Item {
         return "This file cannot be previewed."
     }
     // The swap's answer: nothing loading, and a PDF with a page on screen or refused.
+    // An interim cache thumbnail shown counts as whole, never as a half-built frame.
     readonly property bool lookReady: !root.active || PreviewSwap.lookReady(root.status, root.isPdf,
-        root.pdfItem !== null && root.pdfItem.shownPage >= 0, root.pdfItem !== null && root.pdfItem.failed)
+        root.pdfItem !== null && root.pdfItem.shownPage >= 0, root.pdfItem !== null && root.pdfItem.failed,
+        root.interimShown)
+    // The cached thumbnail held at open, shown at once under the full decode; the stamp keeps a
+    // stale interim from outliving the path it was read for.
+    property string interimThumb: ""
+    property string interimStamp: ""
+    // True once the interim cache file has decoded; the full decode replaces it and it never stays final.
+    readonly property bool interimShown: root.isImage && root.interimThumb.length > 0
+        && root.path === root.interimStamp && interimPicture.status === Image.Ready
+    // EXIF 5 to 8 swaps the sides, the same turn ui/PreviewColumn.qml reads off the same reply.
+    readonly property bool interimTurned: root.imageOrient >= 5
+    // The final's own rule: aspect-fit of the surface capped at the original's pixels. Unknown
+    // draws at its cache pixels, so it can only grow into the final, never shrink into it.
+    readonly property real interimLimit: (root.imageW > 0 && root.imageH > 0)
+        ? Thumbs.thumbLimit(interimPicture.implicitWidth, interimPicture.implicitHeight, root.imageW, root.imageH) : 1
+    // The original's pixels, off the cursor row's meta reply; 0 until it lands.
+    property int imageW: 0
+    property int imageH: 0
+    property int imageOrient: 1
+    property int imageRow: -1
     function swapState() {
         if (root.swap) return root.swap.describe()
         return { holding: false, capturing: false, fellBack: false, holds: 0, fallbacks: 0,
@@ -95,6 +117,7 @@ Item {
     property string pendingIcon: ""
     property string pendingKind: ""
     property int pendingSize: 0
+    property string pendingThumb: ""
     // Last distinct follow target, so a held key cannot reload mid-burst: only idleness loads at once.
     property double lastMoveAt: 0
     property string lastMoveKey: ""
@@ -138,11 +161,11 @@ Item {
     function toggleExpand() { if (root.isPdf && pdfLoader.item) pdfLoader.item.toggleExpand() }
 
     // Space opens on the cursor row; this is immediate, follow() below is the held-key j/k path.
-    function open(newPath, newIcon, newSize, newKind) {
+    function open(newPath, newIcon, newSize, newKind, newThumb) {
         followSettle.stop()
         root.lastMoveKey = newPath + "\n" + newIcon + "\n" + newSize + "\n" + newKind
         root.lastMoveAt = Date.now()
-        root.load(newPath, newIcon, newSize, newKind)
+        root.load(newPath, newIcon, newSize, newKind, newThumb)
     }
 
     // RenderedPreviews callout 1: r switches Rendered and Source, remembered per kind.
@@ -153,7 +176,7 @@ Item {
     }
 
     // The picture is taken now, so the settled load below changes the panes under it.
-    function follow(newPath, newIcon, newSize, newKind) {
+    function follow(newPath, newIcon, newSize, newKind, newThumb) {
         var key = newPath + "\n" + newIcon + "\n" + newSize + "\n" + newKind
         // Pending covers a repeat; a settled revisit of the shown target stays put, anything else reloads.
         if (key === root.lastMoveKey && followSettle.running) return
@@ -166,6 +189,7 @@ Item {
         root.pendingIcon = newIcon
         root.pendingSize = newSize
         root.pendingKind = newKind
+        root.pendingThumb = newThumb || ""
         if (root.active) {
             var held = root.ensureSwap()
             if (held)
@@ -173,7 +197,7 @@ Item {
         }
         if (idle) {
             followSettle.stop()
-            root.load(newPath, newIcon, newSize, newKind)
+            root.load(newPath, newIcon, newSize, newKind, newThumb)
         } else {
             followSettle.restart()
         }
@@ -190,6 +214,13 @@ Item {
         if (root.swap) root.swap.cancel()
         followSettle.stop()
         root.lastMoveKey = ""
+        root.pendingThumb = ""
+        root.interimThumb = ""
+        root.interimStamp = ""
+        root.imageW = 0
+        root.imageH = 0
+        root.imageOrient = 1
+        root.imageRow = -1
         stripHideTimer.stop()
         root.active = false
         root.kind = ""
@@ -205,11 +236,11 @@ Item {
 
     // Under the held picture when a move took one; Space's own open has none and draws as it builds.
     // The swap starts after its mutation: show runs at once or waits for the capture, start runs with it.
-    function load(newPath, newIcon, newSize, newKind) {
+    function load(newPath, newIcon, newSize, newKind, newThumb) {
         var isPdf = Kinds.quickLookKind(newIcon, newPath) === Kinds.PDF
         var swapItem = root.ensureSwap()
         var show = function () {
-            root.show(newPath, newIcon, newSize, newKind)
+            root.show(newPath, newIcon, newSize, newKind, newThumb)
             if (swapItem) swapItem.start(isPdf)
         }
         if (swapItem && (swapItem.holding || swapItem.capturing))
@@ -218,13 +249,16 @@ Item {
             show()
     }
 
-    function show(newPath, newIcon, newSize, newKind) {
+    function show(newPath, newIcon, newSize, newKind, newThumb) {
         root.kind = Kinds.quickLookKind(newIcon, newPath)
         // A pane of another kind goes before the path moves, or it tries to open a file it cannot draw: an image
         // pane handed a video logged "Unsupported image format" on every move from a picture to a clip.
         if (!root.isMedia) mediaLoader.source = ""
         if (!root.isPdf) pdfLoader.source = ""
         if (!root.isImage) imageLoader.source = ""
+        // The interim holds the path it was read for; a stale one never outlives a move.
+        root.interimThumb = newThumb || ""
+        root.interimStamp = newPath
         root.path = newPath
         root.iconName = newIcon
         root.size = newSize
@@ -236,7 +270,23 @@ Item {
         imageLoader.source = root.isImage ? "PreviewImage.qml" : ""
         root.askArchive()
         root.askMedia()
+        root.askImage()
         root.revealStrip()
+        root.maybePrefetch()
+    }
+
+    // Bounded prefetch: the next row's cache entry only, once per rest, never a decode and never a meta.
+    function maybePrefetch() {
+        if (!root.active || !root.pane || followSettle.running) return
+        if (!ViewState.previewAutomatic || root.pane.listInFlight || !root.pane.storageKnown) return
+        if (ExtThumbs.manualHold(root.pane.storageClass, ViewState.preview)) return
+        var next = root.pane.cursorIndex + 1
+        if (root.pane.thumbState.file[next] !== undefined) return
+        var row = root.pane.rowFor(next)
+        if (!row || row.d || row.t !== true || !Thumbs.allowed(row, ViewState.thumbnailMode)) return
+        var work = { ask: [next], drop: [], cacheOnly: true }
+        root.pane.thumbState = Thumbs.applied(root.pane.thumbState, work)
+        root.pane.backend.thumb(work.ask, true)
     }
 
     // One row, only while an archive is the thing open: the same no-sweep rule the column follows.
@@ -255,6 +305,16 @@ Item {
             root.pane.backend.askMeta(root.mediaRow, false, true, false)
     }
 
+    // The original's pixels, which size the interim like the final; only with a thumb to draw.
+    function askImage() {
+        root.imageW = 0
+        root.imageH = 0
+        root.imageOrient = 1
+        root.imageRow = root.isImage && root.interimThumb.length > 0 && root.pane ? root.pane.cursorIndex : -1
+        if (root.imageRow >= 0)
+            root.pane.backend.askMeta(root.imageRow, false, false, false)
+    }
+
     Connections {
         target: root.pane ? root.pane.backend : null
         function onMeta(row, w, h, orient, durationMs, sampleRate, entries, unpacked, archiveFailed, names, lines, partial, linesFailed, target, targetDir, owner) {
@@ -262,6 +322,11 @@ Item {
                 root.archiveMeta = { entries: entries, unpacked: unpacked, archiveFailed: archiveFailed, names: names }
             if (root.isMedia && row === root.mediaRow)
                 root.mediaRate = sampleRate
+            if (root.isImage && row === root.imageRow) {
+                root.imageW = w
+                root.imageH = h
+                root.imageOrient = orient
+            }
         }
     }
 
@@ -271,6 +336,7 @@ Item {
         function onRowsChanged() {
             if (root.active && root.isArchive && root.archiveMeta === null) root.askArchive()
             if (root.active && root.isMedia && root.mediaRate === 0) root.askMedia()
+            if (root.active && root.isImage && root.imageW === 0) root.askImage()
         }
     }
 
@@ -278,7 +344,7 @@ Item {
         id: followSettle
         interval: root.followSettleMs
         repeat: false
-        onTriggered: root.load(root.pendingPath, root.pendingIcon, root.pendingSize, root.pendingKind)
+        onTriggered: root.load(root.pendingPath, root.pendingIcon, root.pendingSize, root.pendingKind, root.pendingThumb)
     }
 
     Timer {
@@ -475,6 +541,22 @@ Item {
                     item.kindName = Qt.binding(function () { return root.kindName })
                     item.rate = Qt.binding(function () { return root.mediaRate })
                 }
+            }
+
+            // The cached thumbnail at once, under the full decode: the final's own aspect-fit
+            // capped at the original's pixels, so a small file never draws huge then shrinks.
+            Image {
+                id: interimPicture
+                readonly property real boxW: root.interimTurned ? parent.height : parent.width
+                readonly property real boxH: root.interimTurned ? parent.width : parent.height
+                readonly property real fit: Thumbs.fitScale(boxW, boxH, implicitWidth, implicitHeight, root.interimLimit)
+                x: Math.round((parent.width - width) / 2)
+                y: Math.round((parent.height - height) / 2)
+                width: implicitWidth * fit
+                height: implicitHeight * fit
+                asynchronous: true
+                source: root.isImage && root.interimThumb.length > 0 ? Format.fileUri(root.interimThumb) : ""
+                visible: root.interimShown && root.status === "loading"
             }
 
             // source rather than sourceComponent, so a file is decoded only while an image is open and its texture goes with the item.

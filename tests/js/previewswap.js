@@ -66,6 +66,9 @@ function run(check) {
           + column(Facts.MULTI, {}), "true|true|true|true")
 
     check("Quick Look waits while any pane says loading", PreviewSwap.lookReady("loading", false, false, false), false)
+    check("interim shown is whole", PreviewSwap.lookReady("loading", false, false, false, true), true)
+    check("interim over a PDF is whole too", PreviewSwap.lookReady("loading", true, false, false, true), true)
+    check("without one a loading image still waits", PreviewSwap.lookReady("loading", false, false, false, false), false)
     check("a PDF viewer is ready once a page is on screen",
           PreviewSwap.lookReady("pdf", true, false, false) + "|" + PreviewSwap.lookReady("pdf", true, true, false), "false|true")
     check("or once the document is refused", PreviewSwap.lookReady("This file could not be read.", true, false, true), true)
@@ -73,6 +76,7 @@ function run(check) {
     runFolderDataHold(check)
     runPictureHoldLeak(check)
     runPreviewSettle(check)
+    runE81(check)
 }
 
 // The body of one QML function by brace count, so each check reads the arm it names and not a copy elsewhere.
@@ -278,4 +282,27 @@ function runPictureHoldLeak(check) {
     var loadGuard = loadBody.indexOf("Columns.isFileRow(current)")
     check("a folder load keeps the old preview instead of clearing it",
         loadGuard >= 0 && loadBody.indexOf("root.clear()") > loadGuard, true)
+}
+
+// e81: Quick Look shows the held cache file at once, then the full decode replaces it.
+function runE81(check) {
+    var quick = Source.source("ui/Preview.qml")
+    var sel = Source.source("ui/SelectionPreview.qml")
+    var openArm = squashed(bodyOf(quick, "function open"))
+    check("Space threads the held thumb in", openArm.indexOf("root.load(newPath, newIcon, newSize, newKind, newThumb)") >= 0, true)
+    var flat = squashed(quick)
+    check("the interim is stamped and replaced, never final",
+        quick.indexOf("root.interimStamp = newPath") >= 0 && flat.indexOf("root.path === root.interimStamp && interimPicture.status === Image.Ready") >= 0
+        && quick.indexOf('visible: root.interimShown && root.status === "loading"') >= 0, true)
+    var pre = squashed(bodyOf(quick, "function maybePrefetch"))
+    check("prefetch warms one cache entry on rest only",
+        pre.indexOf("ViewState.previewAutomatic") >= 0 && pre.indexOf("followSettle.running") >= 0 && pre.indexOf("ExtThumbs.manualHold(") >= 0
+        && pre.indexOf("cacheOnly: true") >= 0 && pre.indexOf("backend.thumb(work.ask, true)") >= 0 && pre.indexOf("askMeta") < 0, true)
+    check("the interim takes the final's geometry, capped at the original",
+        flat.indexOf("Thumbs.fitScale(boxW, boxH, implicitWidth, implicitHeight, root.interimLimit)") >= 0
+        && flat.indexOf("? Thumbs.thumbLimit(interimPicture.implicitWidth, interimPicture.implicitHeight, root.imageW, root.imageH) : 1") >= 0, true)
+    check("the original's pixels come off the cursor row's meta",
+        quick.indexOf("root.pane.backend.askMeta(root.imageRow, false, false, false)") >= 0 && quick.indexOf("root.imageW = w") >= 0, true)
+    check("the column single-row ask carries its class gate",
+        sel.indexOf("ExtThumbs.cacheOnly(pane.storageClass, ViewState.preview)") >= 0 && sel.indexOf("pane.backend.thumb(work.ask, work.cacheOnly)") >= 0, true)
 }

@@ -2,6 +2,7 @@
 
 .import "Filter.js" as Filter
 .import "Marks.js" as Marks
+.import "Thumbs.js" as Thumbs
 
 // What the preview overlay does with a key, split out of Focus.js at its 300-line hard cap the
 // same way ui/js/Trash.js was: Focus.js decides which surface owns a key, and this is the surface.
@@ -34,10 +35,12 @@ function pdfAction(action, viewer) {
 }
 
 // A directory has no preview kind of its own, so Space on one is a silent no-op rather than an error.
+// The cached thumbnail rides along in memory, so the overlay shows it at once with zero new file work.
 function open(root) {
     var row = root.rowFor(root.cursorIndex)
     if (row && !row.d)
-        root.preview.open(root.join(root.path, row.n), row.i, row.s, root.kindNames[row.k] || "")
+        root.preview.open(root.join(root.path, row.n), row.i, row.s, root.kindNames[row.k] || "",
+            root.thumbState && root.thumbState.file ? Thumbs.fileFor(root.thumbState, root.cursorIndex) : "")
 }
 
 // Preview open: j/k move the cursor and the preview follows; escape always closes, and so does a
@@ -87,5 +90,6 @@ function act(action, root) {
 function follow(root) {
     var row = root.rowFor(root.cursorIndex)
     if (row && !row.d)
-        root.preview.follow(root.join(root.path, row.n), row.i, row.s, root.kindNames[row.k] || "")
+        root.preview.follow(root.join(root.path, row.n), row.i, row.s, root.kindNames[row.k] || "",
+            root.thumbState && root.thumbState.file ? Thumbs.fileFor(root.thumbState, root.cursorIndex) : "")
 }

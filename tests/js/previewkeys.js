@@ -85,4 +85,34 @@ function run(check) {
         Keymap.lookupFor("default", 0, "r", Qt.NoModifier, "preview", "gui"), "markdownView")
     check("r stays rename in the listing",
         Keymap.lookupFor("default", 0, "r", Qt.NoModifier, "listing", "gui"), "rename")
+    runThumbThreading(check)
+}
+
+// The cached thumbnail rides into Quick Look in memory, with zero new file work.
+function thumbRoot(thumbValue) {
+    var calls = []
+    var root = { cursorIndex: 5, path: "/d", thumbState: { file: {}, order: [] },
+        kindNames: ["Kind"],
+        preview: { open: function (p, i, s, k, t) { calls.push(["open", p, t]) },
+            follow: function (p, i, s, k, t) { calls.push(["follow", p, t]) } } }
+    root.thumbState.file[5] = thumbValue
+    root.rowFor = function (i) { return i === 5 ? { n: "b.jpg", d: false, i: "image-x-generic", s: 10, k: 0 } : null }
+    root.join = function (b, n) { return b + "/" + n }
+    return { root: root, calls: calls }
+}
+
+function runThumbThreading(check) {
+    var held = thumbRoot("/cache/5.png")
+    PreviewKeys.open(held.root)
+    check("Space hands the held cache file to Quick Look", held.calls.join(";"), "open,/d/b.jpg,/cache/5.png")
+    PreviewKeys.follow(held.root)
+    check("a cursor move hands it to follow too", held.calls.join(";"),
+        "open,/d/b.jpg,/cache/5.png;follow,/d/b.jpg,/cache/5.png")
+    var missed = thumbRoot(undefined)
+    PreviewKeys.open(missed.root)
+    check("a row with nothing held opens with no interim", missed.calls.join(";"), "open,/d/b.jpg,")
+    var dirRoot = thumbRoot("/cache/5.png")
+    dirRoot.root.rowFor = function () { return { n: "sub", d: true, i: "folder", s: 0, k: 0 } }
+    PreviewKeys.open(dirRoot.root)
+    check("a directory opens nothing at all", dirRoot.calls.length, 0)
 }

@@ -45,9 +45,10 @@ ln -s /usr/share/omarchy/shell/Ui "$swap_work/config/Ui" || exit 1
 
 run_surface() {
     # One local per line: bash expands every word of a local before assigning any, so out would read an unset surface.
-    local surface="$1" direct="${2:-0}" status
+    local surface="$1" direct="${2:-0}" early="${3:-0}" status
     local out="$swap_work/frames-$surface" log="$swap_root/$surface.log"
     [ "$direct" == 1 ] && out="$swap_work/frames-$surface-direct" && log="$swap_root/$surface-direct.log"
+    [ "$early" == 1 ] && out="$swap_work/frames-$surface-early" && log="$swap_root/$surface-early.log"
     mkdir -p "$out" || exit 1
     # Software rendering with a 16 ms update interval samples about one frame per vsync.
     # The harness ends itself with a kill, so the subshell keeps bash's "Terminated" notice out of the report.
@@ -58,19 +59,19 @@ run_surface() {
         QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=16 \
         QT_FORCE_STDERR_LOGGING=1 \
         PREVIEW_SWAP_UI="$PWD/ui" PREVIEW_SWAP_SURFACE="$surface" PREVIEW_SWAP_OUT="$out" \
-        PREVIEW_SWAP_DIRECT="$direct" \
+        PREVIEW_SWAP_DIRECT="$direct" PREVIEW_SWAP_EARLY="$early" \
         timeout 90 qs -p "$swap_work/config" > "$log" 2>&1; exit $? ) 2>/dev/null
     status=$?
     if grep -q 'PREVIEWSWAP FAIL' "$log" || ! grep -q 'PREVIEWSWAP DONE' "$log"; then
         bad "$surface: the harness did not finish (qs exit $status): $(grep -a 'PREVIEWSWAP FAIL' "$log" | head -1)"
         return
     fi
-    judge "$surface" "$direct" "$out" "$log"
+    judge "$surface" "$direct" "$early" "$out" "$log"
 }
 
-# Sample input, one harness line: 'PREVIEWSWAP DONE holds=18 fallbacks=0 bursts=0 held=210 mid=0 loading=0'.
+# Sample input, one harness line: 'PREVIEWSWAP DONE holds=18 fallbacks=0 bursts=0 held=210 mid=0 loading=0 early=18'.
 judge() {
-    local surface="$1" direct="$2" out="$3" log="$4" done holds fallbacks bursts held mid loading wanted
+    local surface="$1" direct="$2" early="$3" out="$4" log="$5" done holds fallbacks bursts held mid loading wanted earlyReleased
     done=$(grep -a 'PREVIEWSWAP DONE' "$log" | tail -1)
     [ -n "$done" ] || { bad "$surface: no DONE line to judge"; return; }
     holds=$(printf '%s' "$done" | sed -n 's/.*holds=\([0-9]*\).*/\1/p')
@@ -79,8 +80,9 @@ judge() {
     held=$(printf '%s' "$done" | sed -n 's/.*held=\([0-9]*\).*/\1/p')
     mid=$(printf '%s' "$done" | sed -n 's/.*mid=\([0-9]*\).*/\1/p')
     loading=$(printf '%s' "$done" | sed -n 's/.*loading=\([0-9]*\).*/\1/p')
-    printf '  %s direct=%s holds=%s fallbacks=%s bursts=%s held=%s mid=%s loading=%s\n' \
-        "$surface" "$direct" "$holds" "$fallbacks" "$bursts" "$held" "$mid" "$loading"
+    earlyReleased=$(printf '%s' "$done" | sed -n 's/.*early=\([0-9]*\).*/\1/p')
+    printf '  %s direct=%s early=%s holds=%s fallbacks=%s bursts=%s held=%s mid=%s loading=%s earlyReleased=%s\n' \
+        "$surface" "$direct" "$early" "$holds" "$fallbacks" "$bursts" "$held" "$mid" "$loading" "$earlyReleased"
     if [ "$direct" == 1 ]; then
         # The control: mutating without a hold draws half-built frames, the defect itself.
         if [ "${mid:-0}" -gt 0 ]; then ok "$surface: mutating without a hold drew $mid mid frame(s), so the harness sees the defect";
@@ -94,6 +96,11 @@ judge() {
     else bad "$surface: file moves drew $mid half-built frame(s)"; fi
     if [ "${fallbacks:-1}" -eq 0 ]; then ok "$surface: no hold ran past the cap";
     else bad "$surface: $fallbacks hold(s) fell back on fast decodes"; fi
+    if [ "$early" == 1 ]; then
+        if [ "${earlyReleased:-0}" -eq "$wanted" ] && [ "${mid:-1}" -eq 0 ]; then
+            ok "$surface: all $wanted holds released early on the interim path with no half-built frame"
+        else bad "$surface: early releases $earlyReleased of $wanted with $mid mid frame(s)"; fi
+    fi
     [ -f "$out/settled.png" ] || bad "$surface: the settled grab never landed"
 }
 
@@ -130,6 +137,7 @@ run_folderguard() {
 
 run_surface column 0
 run_surface quicklook 0
+run_surface quicklook 0 1
 run_surface column 1
 run_surface quicklook 1
 run_folderguard

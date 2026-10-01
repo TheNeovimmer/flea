@@ -244,8 +244,9 @@ Flea.PreviewColumn {
             kind === Facts.VIDEO || kind === Facts.AUDIO, kind === Facts.ARCHIVE)
         if (current.t && pane.thumbState.file[root.loadedIndex] === undefined) {
             var work = { ask: [root.loadedIndex], drop: [] }
+            work.cacheOnly = ExtThumbs.cacheOnly(pane.storageClass, ViewState.preview)
             root.thumbsApplied(work)
-            pane.backend.thumb(work.ask)
+            pane.backend.thumb(work.ask, work.cacheOnly)
         }
     }
 

@@ -13,6 +13,12 @@ ShellRoot {
     readonly property int restRow: 51
 
     property int movesLeft: 0
+    // The interim phase's expected original size, read by the meta stub when Quick Look asks.
+    property var metaWH: [640, 480]
+    property string interimPhase: ""
+    property string interimOrig: ""
+    property string interimCache: ""
+    property string pendingInterim: ""
 
     function log(line) { console.log("PREVIEW " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
@@ -30,15 +36,17 @@ ShellRoot {
     Item {
         id: stubBackend
         signal metaResult(var message)
+        signal meta(int row, int w, int h, int orient)
         property int nextToken: 0
         property var pending: []
+        property var thumbCalls: []
         function askMeta(index, text, media, archive) {
             nextToken += 1
             pending.push({ token: nextToken, index: index })
             metaTimer.restart()
             return nextToken
         }
-        function thumb(rows) {}
+        function thumb(rows) { thumbCalls.push(rows) }
     }
 
     // Local disk answers in milliseconds, so a settled selection is never left waiting on a reply.
@@ -49,7 +57,8 @@ ShellRoot {
             for (var i = 0; i < stubBackend.pending.length; i++) {
                 var req = stubBackend.pending[i]
                 var big = req.index === shell.restRow
-                stubBackend.metaResult({ token: req.token, w: big ? 6016 : 640, h: big ? 3900 : 480 })
+                stubBackend.metaResult({ token: req.token, w: big ? 6016 : shell.metaWH[0], h: big ? 3900 : shell.metaWH[1] })
+                stubBackend.meta(req.index, big ? 6016 : shell.metaWH[0], big ? 3900 : shell.metaWH[1], 1)
             }
             stubBackend.pending = []
         }
@@ -114,6 +123,22 @@ ShellRoot {
             active: false
             source: "file://" + shell.uiDir + "/PreviewImage.qml"
             onStatusChanged: if (status === Loader.Error) { shell.log("FAIL Quick Look's image pane did not load"); shell.quit() }
+        }
+
+        // The production overlay, for the interim phase: the cached thumbnail under the full decode.
+        Loader {
+            id: quickPreview
+            x: 20
+            y: 20
+            width: 754
+            height: 471
+            active: false
+            source: "file://" + shell.uiDir + "/Preview.qml"
+            onLoaded: {
+                item.pane = stub
+                if (shell.pendingInterim !== "") shell.openInterim()
+            }
+            onStatusChanged: if (status === Loader.Error) { shell.log("FAIL Quick Look did not load"); shell.quit() }
         }
     }
 
@@ -227,10 +252,92 @@ ShellRoot {
                           + " drawn=" + Math.round(img.width) + "x" + Math.round(img.height))
                 if (shell.looking === "portrait") shell.lookAt("banner", shell.photoDir + "/banner.png")
                 else if (shell.looking === "banner") shell.lookAt("small", shell.photoDir + "/small.png")
-                else quitTimer.restart()
+                else shell.beginInterim("small", "small.png", "smallcache.png", 120, 68)
             } else if (waited > 5000) {
                 stop()
                 shell.log("FAIL Quick Look never drew " + shell.looking + " (status " + (quickLook.item ? quickLook.item.status : "none") + ")")
+                shell.quit()
+            }
+        }
+    }
+
+    // The interim phase opens the production overlay with the cached thumbnail held, the way
+    // Space does: the interim draws the cache file, the full decode the original, each once.
+    function beginInterim(label, orig, cache, w, h) {
+        shell.interimPhase = label
+        shell.interimOrig = orig
+        shell.interimCache = cache
+        shell.metaWH = [w, h]
+        stub.cursorIndex = 90
+        shell.mark("istart-" + label)
+        shell.pendingInterim = label
+        if (quickPreview.status === Loader.Ready) shell.openInterim()
+        else quickPreview.active = true
+    }
+
+    function openInterim() {
+        shell.pendingInterim = ""
+        // The start marker lands before the open, so the open counter's window holds every open.
+        interimKick.restart()
+    }
+
+    Timer {
+        id: interimKick
+        interval: 100
+        repeat: false
+        onTriggered: {
+            quickPreview.item.open(shell.photoDir + "/" + shell.interimOrig, "image-x-generic",
+                1000, "", shell.photoDir + "/" + shell.interimCache)
+            interimPoll.waited = 0
+            interimPoll.restart()
+        }
+    }
+
+    function findAll(item, out) {
+        var kids = item ? item.children : []
+        for (var i = 0; i < kids.length; i++) {
+            out.push(kids[i])
+            shell.findAll(kids[i], out)
+        }
+        return out
+    }
+
+    // The interim has no autoTransform; the final picture does, so the two never confuse each other.
+    function interimPair() {
+        var all = shell.findAll(quickPreview.item, [])
+        var inter = null, final = null
+        for (var i = 0; i < all.length; i++) {
+            var src = String(all[i].source || "")
+            if (all[i].autoTransform !== undefined && src.endsWith("/" + shell.interimOrig)) final = all[i]
+            else if (src.endsWith("/" + shell.interimCache)) inter = all[i]
+        }
+        return [inter, final]
+    }
+
+    function geom(item) {
+        return Math.round(item.x) + "," + Math.round(item.y) + "," + Math.round(item.width) + "," + Math.round(item.height)
+    }
+
+    // Sample log line: "PREVIEW INTERIM small irect=317,201,120,68 frect=317,201,120,68".
+    Timer {
+        id: interimPoll
+        interval: 10
+        repeat: true
+        property int waited: 0
+        onTriggered: {
+            waited += interval
+            var pair = shell.interimPair()
+            var done = quickPreview.item && quickPreview.item.status === "image" && quickPreview.item.imageW > 0
+                && pair[0] && pair[0].status === Image.Ready && pair[1]
+            if (done) {
+                stop()
+                shell.log("INTERIM " + shell.interimPhase + " irect=" + shell.geom(pair[0]) + " frect=" + shell.geom(pair[1]))
+                shell.mark("iend-" + shell.interimPhase)
+                if (shell.interimPhase === "small") shell.beginInterim("large", "seed0.jpg", "thumb.png", 640, 480)
+                else quitTimer.restart()
+            } else if (waited > 8000) {
+                stop()
+                shell.log("FAIL the interim never settled for " + shell.interimPhase)
                 shell.quit()
             }
         }

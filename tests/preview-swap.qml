@@ -29,6 +29,10 @@ ShellRoot {
     readonly property bool folderGuard: Quickshell.env("PREVIEW_SWAP_FOLDERGUARD") === "1"
     // Swap.HOLD_MS is 150, so the real cap fires inside this wait; the positive control proves it.
     readonly property int guardWaitMs: 600
+    // Interim path: readiness lands with the old picture still up, the way a cache thumbnail
+    // releases the hold before the full decode is whole.
+    readonly property bool early: Quickshell.env("PREVIEW_SWAP_EARLY") === "1"
+    property int earlyReleased: 0
     // Guard loaders settle a frame after kickoff, so the start retries briefly before failing loud.
     readonly property int guardRetryLimit: 20
     readonly property int guardRetryMs: 50
@@ -160,7 +164,7 @@ ShellRoot {
         // The swap starts after its mutation, whether that runs at once or waits for the capture.
         var loaded = function () {
             shell.currentKind = kind
-            shell.simReady = false
+            shell.simReady = shell.early ? true : false
             shell.swap.start(isPdf)
         }
         if (shell.direct) {
@@ -183,6 +187,9 @@ ShellRoot {
         id: landTimer
         repeat: false
         onTriggered: {
+            // An early release already let the hold go before the new content landed.
+            if (shell.early && shell.swap && !shell.swap.holding && !shell.swap.capturing)
+                shell.earlyReleased += 1
             // The data-held folder lands with its rows in one pass, still under no picture.
             if (shell.pendingFolder !== "") {
                 shell.currentKind = shell.pendingFolder
@@ -331,7 +338,8 @@ ShellRoot {
     function finish() {
         var s = shell.swap.describe()
         shell.log("DONE holds=" + s.holds + " fallbacks=" + s.fallbacks + " bursts=" + s.bursts
-            + " held=" + s.heldFrames + " mid=" + s.midFrames + " loading=" + s.loadingFrames)
+            + " held=" + s.heldFrames + " mid=" + s.midFrames + " loading=" + s.loadingFrames
+            + " early=" + shell.earlyReleased)
         grabTimer.restart()
     }
 

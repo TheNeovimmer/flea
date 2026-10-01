@@ -65,7 +65,10 @@ function columnReady(p) {
 }
 
 // Quick Look's answer: nothing loading, and a PDF with a page on screen or refused.
-function lookReady(status, isPdf, pdfShown, pdfFailed) {
+// An interim cache thumbnail shown counts as whole, never as a half-built frame.
+function lookReady(status, isPdf, pdfShown, pdfFailed, interimShown) {
+    if (interimShown === true)
+        return true
     if (status === "loading")
         return false
     return isPdf !== true || pdfShown === true || pdfFailed === true

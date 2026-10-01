@@ -47,6 +47,7 @@ src/uistate.rs 659
 src/uistore.rs 540
 src/vulkan.rs 728
 tests/js/columns.js 618
+tests/js/previewswap.js 308
 tests/js/focus.js 522
 tests/js/mounts.js 383
 tests/js/menu.js 335
@@ -79,7 +80,7 @@ ui/PaneMenuActions.qml 458
 ui/PaneWire.qml 511
 ui/PermissionsDialog.qml 589
 ui/PickerWindow.qml 770
-ui/Preview.qml 607
+ui/Preview.qml 689
 ui/PreviewColumn.qml 556
 ui/PreviewMarkdown.qml 473
 ui/Row.qml 478
