@@ -5427,7 +5427,7 @@ case_tabs() {
 # every step go through uinput; ydotool accelerates relative motion about 2x,
 # so each step covers half the remaining distance the way case_scrollbar does.
 tabdrag_to() {
-    local from_x="$1" from_y="$2" to_x="$3" to_y="$4" wx wy ww wh
+    local from_x="$1" from_y="$2" to_x="$3" to_y="$4" held="${5:-tabdrag-held}" wx wy ww wh
     read -r wx wy ww wh < <(window_box) || fail "tabdrag: native window coordinates unavailable"
     hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + from_x)), y = $((wy + from_y))})" >/dev/null
     sleep 0.2
@@ -5449,7 +5449,7 @@ tabdrag_to() {
         }
         sleep 0.05
     done
-    shot tabdrag-held
+    shot "$held"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 \
         || fail "tabdrag: pointer release failed"
     settle
@@ -5496,7 +5496,7 @@ case_tabdrag() {
     read -r c0x c0y <<< "$(ipc tabCentre 0)"
     read -r c2x c2y <<< "$(ipc tabCentre 2)"
     w=$(( (c2x - c0x) / 2 ))
-    tabdrag_to "$c2x" "$c2y" "$((c0x - w / 2 - 3))" "$c0y"
+    tabdrag_to "$c2x" "$c2y" "$((c0x - w / 2 - 3))" "$c0y" tabdrag-held-back
     [[ "$(ipc tabLabels)" == "beta|alpha|gamma" ]] || fail "tabdrag: drag back labelled [$(ipc tabLabels)], not beta|alpha|gamma"
     [[ "$(ipc tabIndex)" == "0" ]] || fail "tabdrag: the dragged tab is not current, index=$(ipc tabIndex)"
     key "}" >/dev/null
