@@ -56,7 +56,10 @@ Item {
                 root.session.dropIndex = -1
                 root.session.leaveTarget()
             }
-            if (root.session.dragRows.length === 0) root.session.dragCopy = false
+            if (root.session.dragRows.length === 0) {
+                root.session.dragCopy = false
+                root.session.dragLink = false
+            }
         }
         onDropped: function (drop) {
             var marker = drop.getDataAsString(DragOps.ROWS_MIME)
@@ -84,11 +87,12 @@ Item {
             if (DragOps.hasPaths(urls) || (plain && !marker && !shelf))
                 accepted = DragOps.dropInto(root.pane, marker, urls, root.pane.join(root.pane.path, root.row.n), root.row.v, shelf, plain, proposed)
             else if (DragOps.canDropByIndex(marker, root.pane.path, root.session.dragRows, root.listingIndex))
-                accepted = DragOps.drop(root.pane, root.session.dragRows, root.listingIndex,
-                    root.session.verbAt(marker, root.row) === "copy", root.session.dragListing)
+                accepted = DragOps.dropByIndex(root.pane, root.session.dragRows, root.listingIndex,
+                    root.session.verbAt(marker, root.row), root.session.dragListing)
         }
         root.session.dropIndex = -1
         root.session.dragCopy = false
+        root.session.dragLink = false
         root.session.leaveTarget()
         return accepted
     }

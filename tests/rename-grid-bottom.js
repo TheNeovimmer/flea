@@ -268,7 +268,7 @@ write("flea/Util.qml", "pragma Singleton\nimport QtQuick\nQtObject { function al
 write("flea/Glyph.qml", "import QtQuick\nItem { property int maxSize: 128; property string name; property color color }\n");
 write("flea/ViewportScrollBar.qml", "import QtQuick\nItem { property var flickable; property var ctrlWheelAction }\n");
 write("flea/SelectionBand.qml", "import QtQuick\nItem { property var pane; property var flickable; property int columns; property real cellWidth; property real cellHeight }\n");
-write("flea/FileDrag.qml", "import QtQuick\nItem { property var pane; property int dropIndex: -1; property bool dragCopy: false }\n");
+write("flea/FileDrag.qml", "import QtQuick\nItem { property var pane; property int dropIndex: -1; property bool dragCopy: false; property bool dragLink: false }\n");
 write("flea/RowDrag.qml", "import QtQuick\nItem { property var session; property int listingIndex; property var row }\n");
 let fixture = fs.readFileSync(path.join(repo, "tests/rename-grid-bottom.qml"), "utf8");
 if (testCase !== "legacy") {
