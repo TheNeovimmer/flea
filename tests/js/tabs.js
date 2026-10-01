@@ -217,4 +217,30 @@ function run(check) {
           pending.sorted.join(",") + "|" + pending.cursorIndex, "size:true|4")
     Tabs.applyPending(pending)
     check("the next rows reply restores the cursor", pending.cursorIndex, 9)
+
+    // nt1: Ctrl+Return opens the cursor folder in a new tab, the keyboard twin of the middle click.
+    var folder = Fixture.pane("/tmp/base")
+    folder.cursorIndex = 2
+    folder.selection.toggle(1)
+    folder.rowFor = function (i) { return i === 2 ? { n: "sub", d: true } : null }
+    Tabs.openCursorTab(folder)
+    check("a directory opens a tab on that folder", folder.tabs.items[1].path, "/tmp/base/sub")
+    check("and the new tab is shown", Tabs.currentIndex(folder), 1)
+    check("and the tab left behind keeps its cursor", folder.tabs.items[0].cursorIndex, 2)
+    check("and keeps its selection", folder.tabs.items[0].selected.join(","), "1")
+    var filePane = Fixture.pane("/tmp/base")
+    filePane.cursorIndex = 2
+    filePane.selection.toggle(1)
+    filePane.rowFor = function () { return { n: "a.txt", d: false } }
+    Tabs.openCursorTab(filePane)
+    check("a file opens no tab", Tabs.count(filePane), 1)
+    check("and says only a folder does", filePane.said[filePane.said.length - 1], "Only a folder opens in a new tab.")
+    check("and leaves the cursor where it was", filePane.cursorIndex, 2)
+    check("and leaves the selection alone", filePane.selectedIndices().join(","), "1")
+    var emptyPane = Fixture.pane("/tmp/base")
+    emptyPane.cursorIndex = 2
+    emptyPane.rowFor = function () { return null }
+    Tabs.openCursorTab(emptyPane)
+    check("no cursor row opens no tab either", Tabs.count(emptyPane), 1)
+    check("and says the same sentence", emptyPane.said[emptyPane.said.length - 1], "Only a folder opens in a new tab.")
 }

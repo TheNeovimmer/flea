@@ -497,6 +497,24 @@ fn act(m: &mut Model, action: &str, w: &mut Wire) -> io::Result<()> {
             let index = m.tabs.len() - 1;
             tab(m, index, w)?;
         }
+        "openTab" => {
+            if let Some(path) = m.current_path() {
+                if m.rows.get(&m.cursor).is_some_and(|r| r.directory) {
+                    m.tabs.push(Tab {
+                        path: path.clone(),
+                        cursor: 0,
+                        back: Vec::new(),
+                        forward: Vec::new(),
+                    });
+                    let index = m.tabs.len() - 1;
+                    tab(m, index, w)?;
+                } else {
+                    m.say("Only a folder opens in a new tab.".into());
+                }
+            } else {
+                m.say("Only a folder opens in a new tab.".into());
+            }
+        }
         "openTerminal" | "windowNew" => {
             let child = super::terminal::launch(&m.path, action == "windowNew")?;
             m.launches.push((if action == "windowNew" { "New Flea window" } else { "Terminal" }.into(), child));

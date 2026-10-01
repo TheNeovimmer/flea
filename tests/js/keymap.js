@@ -34,6 +34,9 @@ function run(check) {
         key(preset, "Delete", "", shift, "deletePermanently")
         key(preset, "Delete", "", none, "trash")
         key(preset, "W", "", ctrl, "tabClose")
+        // nt1: Ctrl+Return opens the cursor folder in a new tab, free in every preset.
+        key(preset, "Return", "", ctrl, "openTab")
+        key(preset, "Enter", "", ctrl, "openTab")
         key(preset, "S", "s", none, "sortNext")
         key(preset, "S", "S", shift, "sortReverse")
         key(preset, "Slash", "/", none, "filter")
@@ -264,4 +267,9 @@ function run(check) {
     check("F4 fits columns in every preset", f4ok, true)
     var f4row = Keymap.PRESET_KEYS.filter(function (r) { return r.action === "autofitColumns" })[0] || {}
     check("and its keys token is lowercase like every other", f4row.keys, "f4")
+    // nt1: the sheet lists the new tab key beside the other tab keys, with the same label style.
+    check("openTab is claimed by the move group", Keymap.SHEET_GROUPS.move.indexOf("openTab") >= 0, true)
+    var openTabSheet = Keymap.sheetFor("default", "gui").filter(function (row) { return row.action === "openTab" })[0] || {}
+    check("and the sheet draws it as open in new tab", openTabSheet.label, "open in new tab")
+    check("and the sheet caps it as the ctrl enter chord", openTabSheet.keys, "ctrl-enter")
 }

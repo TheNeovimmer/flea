@@ -131,6 +131,7 @@ function act(action, root, menuId, paths) {
     case "pageDown": step(root, Math.max(1, Math.floor(root.visibleRows / 2))); Marks.follow(root); return
     case "pageUp": step(root, -Math.max(1, Math.floor(root.visibleRows / 2))); Marks.follow(root); return
     case "open": root.openCursor(); return
+    case "openTab": Tabs.openCursorTab(root); return
     case "parent": root.openParent(); return
     case "historyBack": root.goBack(); return
     case "historyForward": root.goForward(); return

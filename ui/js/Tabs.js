@@ -235,6 +235,18 @@ function openNew(pane, where) {
         pane.openWithoutHistory(target)
 }
 
+// Ctrl+Return on the cursor row, the keyboard twin of Tap.tappedTab's middle
+// click: that directory in a new tab, leaving the cursor and selection alone.
+function openCursorTab(pane) {
+    var row = pane.rowFor ? pane.rowFor(pane.cursorIndex) : null
+    if (!row || !row.d || typeof row.n !== "string") {
+        pane.message("Only a folder opens in a new tab.", false)
+        return
+    }
+    var base = pane.path
+    openNew(pane, base === "/" ? "/" + row.n : base + "/" + row.n)
+}
+
 function selectAt(pane, i) {
     if (busy(pane))
         return

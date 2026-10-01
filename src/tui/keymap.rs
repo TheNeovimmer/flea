@@ -216,6 +216,7 @@ fn supported(action: &str) -> bool {
             | "sortNext"
             | "sortReverse"
             | "tabNew"
+            | "openTab"
             | "openTerminal"
             | "windowNew"
             | "tabClose"

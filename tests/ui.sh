@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Drives the real Quickshell window with omarchy-drive and asserts through the read-only IPC seam.
-# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|rename|renamelife|taildrop|grid|columns|columnsbackground|reclick|colroot|operations|tabs|tabdrag|openterminal|makeexec|renderer|settings|makedefault|scrolllane|noblank|previewswap ...|previewswap|recent ...|middleclick]; networklive is opt-in.
+# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|rename|renamelife|taildrop|grid|columns|columnsbackground|reclick|colroot|operations|tabs|tabdrag|openterminal|makeexec|renderer|settings|makedefault|scrolllane|noblank|previewswap ...|previewswap|recent ...|middleclick|opentab]; networklive is opt-in.
 set -u
 set -o pipefail
 # Hard rule 9's guard, which owns FIXTURE_ROOT and every create and delete this suite makes.
@@ -5912,6 +5912,56 @@ case_middleclick() {
     kill_flea
 }
 
+# Ctrl+Return opens the cursor folder in a new tab, the keyboard twin of the
+# middle click above, in each of the three views; tests/js/tabs.js holds the
+# decision in ui/js/Tabs.js and this presses it at the real window. A file row
+# is the negative control: the same chord on a row with no folder must leave
+# the count alone and say only a folder does, which is what says the count
+# below moved because of the directory and not because of the chord.
+case_opentab() {
+    local dir="$fixture_root/opentab"
+    sandbox_scratch "$dir"
+    mkdir -p "$dir/alpha"
+    : > "$dir/note.txt"
+    launch "$dir"
+    wait_listing 2
+    [[ "$(ipc tabCount)" == "1" ]] || fail "opentab: started with $(ipc tabCount) tabs, not 1"
+
+    echo "-- a file opens no tab --"
+    seek_row_named "note.txt" || fail "opentab: could not find note.txt"
+    key -M ctrl -k Return -m ctrl >/dev/null
+    wait_message "Only a folder opens in a new tab."
+    [[ "$(ipc tabCount)" == "1" ]] || fail "opentab: Ctrl+Return on a file opened a tab"
+    [[ "$(ipc path)" == "$dir" ]] || fail "opentab: Ctrl+Return on a file left for $(ipc path)"
+
+    echo "-- a directory opens in a new tab, in each view --"
+    local count=1 view chord
+    for view in list grid columns; do
+        [[ "$view" == list ]] || click_chrome "$view"
+        settle
+        [[ "$(ipc viewMode)" == "$view" ]] || fail "opentab: the chrome did not switch to $view"
+        seek_row_named "alpha" || fail "opentab: could not find alpha in $view"
+        local first_cursor
+        first_cursor=$(ipc cursor)
+        if [[ "$view" == grid ]]; then chord="Enter"; else chord="Return"; fi
+        key -M ctrl -k "$chord" -m ctrl >/dev/null
+        count=$((count + 1))
+        wait_tabs "$count" "Ctrl+Return on alpha in $view"
+        wait_path "$dir/alpha"
+        printf 'OPENTAB %s tabs=%s labels=%s\n' "$view" "$(ipc tabCount)" "$(ipc tabLabels)"
+        click_tab 0
+        wait_path "$dir"
+        [[ "$(ipc cursor)" == "$first_cursor" ]] || fail "opentab: $view left the first tab's cursor at $(ipc cursor), not $first_cursor"
+        for _attempt in $(seq 1 300); do
+            [[ "$(ipc total)" == 2 && "$(ipc visibleRowName 0)" == alpha && "$(ipc listInFlight)" == false ]] && break
+            sleep 0.05
+        done
+        [[ "$(ipc visibleRowName 0)" == alpha ]] || fail "opentab: $view never drew alpha at row 0 after the tab switch"
+    done
+    shot opentab-views
+    kill_flea
+}
+
 # The one scene-graph failure found to be raisable here: Qt's GL backend with no EGL vendor file to load.
 case_renderer() {
     kill_flea
@@ -11459,7 +11509,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 . "$repo/tests/ui-captures-markdown.sh"
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick opentab)
 
 : > "$run_log"
 : > "$flea_log"

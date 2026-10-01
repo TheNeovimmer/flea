@@ -61,6 +61,16 @@ action = "pathBar"
 key = "T"
 action = "openTerminal"
 
+# Ctrl+Return opens the cursor folder in a new tab, the keyboard twin of the
+# middle click keys.toml already ships (Tap.tappedTab). Nautilus binds the same.
+[[ctrl]]
+key = "Return"
+action = "openTab"
+
+[[ctrl]]
+key = "Enter"
+action = "openTab"
+
 # The browser's own reload chord beside F5 above; every preset leaves both free.
 [[ctrl]]
 key = "R"
@@ -592,7 +602,7 @@ action = "tabNext"
 [sheetgroups]
 move = ["cursorDown", "cursorUp", "cursorFirst", "cursorLast", "pageDown", "pageUp", "open",
         "parent", "pageForward", "historyBack", "historyForward", "focusNext", "focusPreview",
-        "tabNew", "tabClose", "tabNext", "tabPrevious", "tabMoveLeft", "tabMoveRight", "windowNew", "escape"]
+        "tabNew", "openTab", "tabClose", "tabNext", "tabPrevious", "tabMoveLeft", "tabMoveRight", "windowNew", "escape"]
 look = ["viewList", "viewColumns", "viewGrid", "togglePreview", "loadPreview", "preview",
         "toggleHidden", "sidebar", "zoomIn", "zoomOut", "expand", "mute", "textSizeUp", "textSizeDown",
         "textSizeReset", "keymapSheet"]
@@ -626,6 +636,11 @@ label = "move"
 keys = "enter"
 action = "open"
 label = "open"
+
+[[sheet]]
+keys = "^enter"
+action = "openTab"
+label = "open in new tab"
 
 [[sheet]]
 keys = "h"
