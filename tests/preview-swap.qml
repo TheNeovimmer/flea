@@ -157,21 +157,25 @@ ShellRoot {
             shell.currentKind = kind
             shell.simReady = false
         }
+        // The swap starts after its mutation, whether that runs at once or waits for the capture.
+        var loaded = function () {
+            shell.currentKind = kind
+            shell.simReady = false
+            shell.swap.start(isPdf)
+        }
         if (shell.direct) {
             apply()
         } else {
             if (shell.surfaceKind === "column") {
-                // Column: hold the clear on the move, then the load holds again at work.
+                // Column: hold the clear on the move, then the load starts after it mutates.
                 shell.swap.hold(apply, key)
-                shell.swap.hold(function () { shell.simReady = false }, key, true)
+                shell.swap.hold(loaded, key, true)
             } else {
-                // Quick Look: follow holds with no apply, load mutates under the picture.
+                // Quick Look: follow holds with no apply, load mutates under the picture then starts.
                 shell.swap.hold(null, "/previews/" + kind)
-                shell.swap.hold(apply, "/previews/" + kind, true)
+                shell.swap.hold(loaded, "/previews/" + kind, true)
             }
         }
-        if (!shell.direct)
-            shell.swap.start(isPdf)
         landTimer.restart()
     }
 

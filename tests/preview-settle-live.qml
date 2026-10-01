@@ -17,6 +17,9 @@ ShellRoot {
     property int qlLoads: 0
     property var flow: []
     property bool manual: Quickshell.env("FLEA_PREVIEWSETTLE_MANUAL") === "1"
+    // e80q: the held Quick Look move's pre-landing path and mid-frame count.
+    property string qlOld: ""
+    property int qlMid0: 0
 
     function buildRows() {
         var rows = []
@@ -151,12 +154,19 @@ ShellRoot {
         }
     }
 
-    Flea.Preview {
-        id: quick
+    // Quick Look in its own window, so its swap is visible and takes a picture offscreen.
+    Window {
+        visible: true
         width: 800
         height: 600
-        pane: pane
-        onPathChanged: root.qlLoads += 1
+
+        Flea.Preview {
+            id: quick
+            width: 800
+            height: 600
+            pane: pane
+            onPathChanged: root.qlLoads += 1
+        }
     }
 
     Timer {
@@ -395,6 +405,22 @@ ShellRoot {
         function () {
             root.check("quick reopens the fresh row", quick.active && quick.path === root.imagePath(1)
                 && quick.pendingPath === root.imagePath(1) && root.qlLoads === 4)
+            root.qlOld = quick.path
+            root.qlMid0 = quick.swapState().midFrames
+            quick.lastMoveAt = 0
+            var target = root.imagePath(2)
+            quick.follow(target, "image-x-generic", 1002, "")
+            root.check("quick held move captures before it starts",
+                quick.swap && quick.swap.capturing === true && quick.swap.started === false,
+                "capturing=" + (quick.swap && quick.swap.capturing) + " started=" + (quick.swap && quick.swap.started))
+            root.check("quick held move keeps the old path until the capture lands",
+                quick.path === root.qlOld, "path=" + quick.path)
+            root.qpollFor(target, 3000)
+        },
+        function () {
+            root.check("quick held move lands whole", quick.path === root.imagePath(2)
+                && quick.swapState().midFrames === root.qlMid0,
+                "mid=" + quick.swapState().midFrames + " mid0=" + root.qlMid0)
             root.done()
         }
     ]

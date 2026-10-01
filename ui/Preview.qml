@@ -59,7 +59,9 @@ Item {
     readonly property var seekSlider: mediaStrip.seekItem
     readonly property string status: {
         if (!root.active) return ""
-        if (root.isMedia) return mediaLoader.item ? mediaLoader.item.status : "loading"
+        // A fresh media item still carries its empty path until onLoaded binds it; its
+        // "stopped" there is not a whole preview, so the swap never releases on it.
+        if (root.isMedia) return (mediaLoader.item && mediaLoader.item.path === root.path) ? mediaLoader.item.status : "loading"
         if (root.isPdf) return (pdfLoader.item && pdfLoader.item.failed) ? "This file could not be read." : "pdf"
         if (root.isImage) return imageLoader.item ? imageLoader.item.status : "loading"
         if (root.isArchive) return root.archiveMeta === null ? "loading" : (root.archiveFailed ? "This archive could not be read." : "archive")
@@ -192,14 +194,18 @@ Item {
     }
 
     // Under the held picture when a move took one; Space's own open has none and draws as it builds.
+    // The swap starts after its mutation: show runs at once or waits for the capture, start runs with it.
     function load(newPath, newIcon, newSize, newKind) {
-        var show = function () { root.show(newPath, newIcon, newSize, newKind) }
+        var isPdf = Kinds.quickLookKind(newIcon, newPath) === Kinds.PDF
         var swapItem = root.ensureSwap()
+        var show = function () {
+            root.show(newPath, newIcon, newSize, newKind)
+            if (swapItem) swapItem.start(isPdf)
+        }
         if (swapItem && (swapItem.holding || swapItem.capturing))
             swapItem.hold(show, newPath, true)
         else
             show()
-        if (swapItem) swapItem.start(Kinds.quickLookKind(newIcon, newPath) === Kinds.PDF)
     }
 
     function show(newPath, newIcon, newSize, newKind) {
