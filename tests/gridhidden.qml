@@ -12,7 +12,7 @@ ShellRoot {
     property int cursorRow: 45
     property int rowCount: 60
     property int stage: 0
-    property var copyBoard: ({ paths: ["/probe/item07.txt"], moving: false })
+    property var copyBoard: ({ paths: ["/probe/item45.txt"], moving: false })
     property var cutBoard: ({ paths: ["/probe/item45.txt"], moving: true })
 
     property int baseWindow: -1
@@ -62,7 +62,7 @@ ShellRoot {
             property bool renamePending: false
             property bool paneFocused: true
             property bool dualMode: false
-            property var clipboard: ({ paths: ["/probe/item07.txt"], moving: false })
+            property var clipboard: ({ paths: ["/probe/item45.txt"], moving: false })
             property var selected: ({ 44: true })
             property var thumbState: ({ file: {}, order: [] })
             property var dirSizeState: ({ file: {}, order: [] })
@@ -136,13 +136,13 @@ ShellRoot {
     function fail(text) { root.failures.push(text) }
     function delegateAt(i) { return grid.itemAtIndex(i) }
 
-    // Shown with a deep cursor: delegates exist and a copied tile draws its copy mark.
+    // Shown with a deep cursor: the grid's currentIndex follows it into view, and its copied tile draws the copy mark.
     function measureShown() {
         if (grid.count !== root.rowCount)
             root.fail("shown grids " + grid.count + " rows, want " + root.rowCount)
-        var mark = root.delegateAt(7)
+        var mark = root.delegateAt(root.cursorRow)
         if (mark === null || mark.clipMark !== "copy")
-            root.fail("shown draws no copy mark on item07")
+            root.fail("shown draws no copy mark on the cursor tile " + root.cursorRow)
         if (root.failures.length > 0) { root.report(); return }
         grid.positionViewAtIndex(root.cursorRow, GridView.Contain)
         root.stage = 1
