@@ -71,7 +71,7 @@ ui/ConvertDialog.qml 440
 ui/GridArea.qml 410
 ui/Ipc.qml 832
 ui/KeymapSheet.qml 585
-ui/List.qml 432
+ui/List.qml 435
 ui/NetworkDialog.qml 449
 ui/NetworkMounts.qml 838
 ui/OpenWithDialog.qml 592

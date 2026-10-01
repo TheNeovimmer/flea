@@ -146,9 +146,17 @@ function run(check) {
               ScrollOff.firstFor(0, 42, 42, 150, 3), ScrollOff.firstFor(0, 42, 42, 150))
     }
     check("the list answers the pointer case in pixels",
-          list.indexOf("ScrollOff.containY(top, rowH, root.contentY, root.height)") >= 0, true)
+          list.indexOf("ScrollOff.containY(top, rowH, root.contentY - root.originY, root.height)") >= 0, true)
     check("the list gates the pixel path on context 0",
           list.indexOf("if (context === 0)") >= 0, true)
+    check("the list clamps the pointer path to its origin",
+          list.indexOf("Math.max(root.originY, Math.min(root.contentHeight - root.height + root.originY, rel + root.originY))") >= 0, true)
+    check("the list reads its keyboard window from its origin",
+          list.indexOf("Math.floor((root.contentY - root.originY) / rowH)") >= 0, true)
+    check("the list aligns its keyboard path in its origin space",
+          list.indexOf("ScrollOff.needsAlign(view, want, visible, root.contentY - root.originY, root.height, rowH)") >= 0, true)
+    check("the list clamps its keyboard path to its origin",
+          list.indexOf("want * rowH + root.originY") >= 0, true)
     check("the columns view answers the pointer case in pixels",
           columnPane.indexOf("ScrollOff.containY(top, rowH, view.contentY - view.originY, view.height)") >= 0, true)
     check("the columns view gates the pixel path on context 0",

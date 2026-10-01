@@ -301,18 +301,21 @@ ListView {
     // A click carries context 0 so the list never moves under the pointer.
     function showCursor(view, context) {
         var rowH = Theme.fileRowHeight
-        // The pointer case answers in pixels, never on the row grid: a row cut by
-        // the edge moves just enough to show it whole, and a whole row moves nothing.
+        // The pointer case answers in pixels in the originY space, the way the
+        // columns view does: Qt shifts originY when expanded delegates collapse,
+        // and row offsets start at that origin. A row cut by the edge moves just
+        // enough to show it whole, and a whole row moves nothing.
         if (context === 0) {
             var top = view * rowH
-            root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, ScrollOff.containY(top, rowH, root.contentY, root.height)))
+            var rel = ScrollOff.containY(top, rowH, root.contentY - root.originY, root.height)
+            root.contentY = Math.max(root.originY, Math.min(root.contentHeight - root.height + root.originY, rel + root.originY))
             return
         }
-        var first = Math.floor(root.contentY / rowH)
+        var first = Math.floor((root.contentY - root.originY) / rowH)
         var visible = ScrollOff.fullyVisible(root.height, rowH)
         var want = ScrollOff.firstFor(first, visible, view, root.pane.shownTotal, context)
-        if (want !== first || ScrollOff.needsAlign(view, want, visible, root.contentY, root.height, rowH))
-            root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, want * rowH))
+        if (want !== first || ScrollOff.needsAlign(view, want, visible, root.contentY - root.originY, root.height, rowH))
+            root.contentY = Math.max(root.originY, Math.min(root.contentHeight - root.height + root.originY, want * rowH + root.originY))
     }
 
     // Resize and filter changes can change the visible work without moving contentY.
