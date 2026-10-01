@@ -303,7 +303,7 @@ ListView {
         var first = Math.floor(root.contentY / rowH)
         var visible = ScrollOff.fullyVisible(root.height, rowH)
         var want = ScrollOff.firstFor(first, visible, view, root.pane.shownTotal)
-        if (want !== first)
+        if (want !== first || ScrollOff.needsAlign(view, want, visible, root.contentY, root.height, rowH))
             root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, want * rowH))
     }
 

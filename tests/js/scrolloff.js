@@ -48,4 +48,43 @@ function run(check) {
     var columnPane = Source.source("ui/ColumnPane.qml")
     check("the columns view scrolls from the fully visible count",
           columnPane.indexOf("ScrollOff.fullyVisible(view.height, rowH)") >= 0, true)
+
+    // A viewport shorter than the margin parks the cursor outside it: list 110 px
+    // tall at 31 px rows holds 3, so first 7 cursor 10 Down to 11 must not want 12.
+    check("a short window keeps its margin inside itself", ScrollOff.firstFor(7, 3, 11, 20), 10)
+    var shortVisibles = [1, 2, 3, 4, ScrollOff.fullyVisible(110, 31)]
+    for (var vi = 0; vi < shortVisibles.length; vi++) {
+        var vis = shortVisibles[vi]
+        var total = 20
+        var walk = 0
+        var holds = true
+        for (var down = 0; down < total; down++) {
+            var wDown = ScrollOff.firstFor(walk, vis, down, total)
+            if (down < wDown || down > wDown + vis - 1)
+                holds = false
+            walk = wDown
+        }
+        for (var up = total - 1; up >= 0; up--) {
+            var wUp = ScrollOff.firstFor(walk, vis, up, total)
+            if (up < wUp || up > wUp + vis - 1)
+                holds = false
+            walk = wUp
+        }
+        check("a short viewport of " + vis + " keeps the cursor inside down then up", holds, true)
+    }
+
+    // A pixel wheel scroll can cut the first row at the top edge while the index
+    // window does not move: contentY 20 leaves row 0 20 px under the edge, so
+    // Home finds want 0 === first 0 and must still scroll to align it.
+    check("the pixel align rule exists", typeof ScrollOff.needsAlign, "function")
+    if (typeof ScrollOff.needsAlign === "function") {
+        check("a cut first row needs aligning", ScrollOff.needsAlign(0, 0, 10, 20, 310, 31), true)
+        check("an aligned first row needs nothing", ScrollOff.needsAlign(0, 0, 10, 0, 310, 31), false)
+        check("a middle row never aligns the window", ScrollOff.needsAlign(5, 0, 10, 20, 310, 31), false)
+        check("the index alone misses the cut", ScrollOff.firstFor(0, 10, 0, 20), 0)
+    }
+    check("the list aligns a cut cursor row",
+          list.indexOf("ScrollOff.needsAlign") >= 0, true)
+    check("the columns view aligns a cut cursor row",
+          columnPane.indexOf("ScrollOff.needsAlign") >= 0, true)
 }

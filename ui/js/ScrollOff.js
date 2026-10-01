@@ -17,7 +17,10 @@ function fullyVisible(height, rowHeight) {
 // The first visible row that keeps the cursor's context: first is the window's own,
 // visible how many rows it holds, cursor a view position, total the listing's rows.
 function firstFor(first, visible, cursor, total, context) {
-    var margin = context === undefined ? CONTEXT : context
+    var asked = context === undefined ? CONTEXT : context
+    // Vim's scrolloff rule: the margin never exceeds half the viewport, so the
+    // cursor always fits inside [want, want + visible - 1] on a short list.
+    var margin = Math.min(asked, Math.max(0, Math.floor((visible - 1) / 2)))
     var maxFirst = Math.max(0, total - visible)
     var want = first
     if (cursor - margin < first)
@@ -29,4 +32,16 @@ function firstFor(first, visible, cursor, total, context) {
     if (want > maxFirst)
         want = maxFirst
     return want
+}
+
+// True when the cursor row itself stands outside the viewport's pixels, even
+// though its index sits at the window edge: a pixel wheel scroll can leave the
+// first row cut at the top edge while firstFor answers no move. contentY is in
+// the same space as want * rowH (the columns view passes contentY - originY),
+// height the view's own. Both views scroll when this answers true.
+function needsAlign(cursor, want, visible, contentY, height, rowH) {
+    if (cursor !== want && cursor !== want + visible - 1)
+        return false
+    var top = cursor * rowH
+    return top < contentY || top + rowH > contentY + height
 }

@@ -10690,12 +10690,14 @@ case_overlays() {
         settle
         printf 'OVERLAYS_DIAG %s after settings=%s focus=%s\n' "$mode" "$(ipc settingsOpen)" "$(ipc focusView)"
         [[ "$(ipc settingsOpen)" == "true" ]] || fail "$mode: the comma key did not open settings"
+        before=$(ipc viewContentY)
         hover_row "$n"
         settle
         [[ "$(ipc rowHovered "$n")" == "false" ]] || fail "$mode: row $n lifted under the settings card"
         omarchy-drive scroll down 3 >/dev/null
         settle
-        [[ "$(ipc viewContentY)" == "0" && "$(ipc settingsOpen)" == "true" ]] || fail "$mode: the wheel under settings moved the view to $(ipc viewContentY)"
+        after=$(ipc viewContentY)
+        [[ "$after" == "$before" && "$(ipc settingsOpen)" == "true" ]] || fail "$mode: the wheel under settings moved the view from $before to $after (settings $(ipc settingsOpen))"
         read -r cx cy _cw _ch <<< "$(ipc settingsCardRect)"
         read -r wx wy _ww _wh < <(window_box) || fail "native window coordinates unavailable"
         omarchy-drive click "$((wx + cx + 40))" "$((wy + cy + 40))" right >/dev/null
