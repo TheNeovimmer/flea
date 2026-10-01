@@ -215,10 +215,26 @@ PY
             bad "the $label interim never opened $cache (log $log)"
         fi
     done
+    # e81f-r3: the interim meta-row guards, one PREVIEW GUARD line each.
+    if grep -a -q "PREVIEW GUARD1 PASS" "$log"; then
+        ok "the interim refuses a meta reply for a row that drifted onto another file"
+    else
+        bad "guard 1 did not pass: a drifted row's reply must not size the interim (log $log)"
+    fi
+    if grep -a -q "PREVIEW GUARD2 PASS" "$log"; then
+        ok "a drifted capture re-asks at the cursor row and takes that reply"
+    else
+        bad "guard 2 did not pass: the ask must move to the cursor row (log $log)"
+    fi
+    if grep -a -q "PREVIEW GUARD3 PASS" "$log"; then
+        ok "no row naming the file means no ask and no interim sizing"
+    else
+        bad "guard 3 did not pass: nothing may be asked when no row names the file (log $log)"
+    fi
 fi
 
 printf 'preview-decode: %s check(s), %s failed\n' "$((pass + fail))" "$fail"
 if [ "$fail" -ne 0 ]; then
-    grep -a -E 'TypeError|ReferenceError|ERROR|INTERIM' "$log" | head -20
+    grep -a -E 'TypeError|ReferenceError|ERROR|INTERIM|GUARD' "$log" | head -20
 fi
 [ "$fail" -eq 0 ]
