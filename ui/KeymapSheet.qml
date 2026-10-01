@@ -2,6 +2,8 @@ import QtQuick
 import qs.Commons
 import "." as Flea
 import "js/Keymap.js" as Keymap
+import "js/Menu.js" as Menu
+import "js/Mounts.js" as Mounts
 import "js/SheetQuery.js" as SheetQuery
 
 // The keymap sheet ? opens, drawn as the Keys panel on Operations.dc.html draws it. Every row comes
@@ -12,15 +14,122 @@ Item {
     property bool opened: false
     property Item focusHolder: null
     // The query field appears on the first typed key, never as a permanent field: the sheet at
-    // rest stays the generated sheet it always was. An exact label match ranks first, the way a
-    // place whose name the query matches exactly ranks first once places join the candidates.
+    // rest stays the generated sheet it always was. An exact place name ranks first, above actions.
     property string query: ""
+    // The history read once when the query line opens, never per keystroke, bounded by
+    // Recent.LIMIT with no per-entry stat, listed whether or not the Recent rail row is on.
+    property var recentPaths: []
+    property bool recentAsked: false
+    // The cursor sits on the first row, the menu lift, and arrows move it.
+    property int resultCursor: 0
+    onQueryChanged: root.resultCursor = 0
     readonly property var sheet: {
         var rows = Keymap.sheetFor(ViewState.keysPreset, "gui", root.focusHolder ? root.focusHolder.dualMode : false)
         if (root.query.length === 0)
             return rows
-        var candidates = rows.map(function (row) { return { label: row.label, keys: row.keys, section: 0, row: row } })
-        return SheetQuery.rank(candidates, root.query).map(function (candidate) { return candidate.row })
+        return SheetQuery.rank(SheetQuery.actionCandidates(rows), root.query).map(function (c) { return c })
+    }
+    // The query results across actions, the cursor row's menu, places and recent files, bounded.
+    readonly property var queryResults: {
+        if (root.query.length === 0 || !root.focusHolder)
+            return []
+        var holder = root.focusHolder
+        var rows = Keymap.sheetFor(ViewState.keysPreset, "gui", holder.dualMode)
+        var actions = SheetQuery.actionCandidates(rows)
+        var menus = SheetQuery.menuCandidates(root.menuModel(), function (a) { return Keymap.hintFor(a) })
+        var places = SheetQuery.placeCandidates(root.railModel())
+        var recents = SheetQuery.recentCandidates(root.recentPaths, holder.home)
+        return SheetQuery.rank(actions.concat(menus, places, recents), root.query)
+    }
+    // The cursor row's menu rows from the menu's own model, hidden rows included, so the sheet
+    // still finds a row Settings Menus hides. Disabled state rides along and never runs.
+    function menuModel() {
+        var holder = root.focusHolder
+        if (!holder || !holder.cursorRow)
+            return []
+        var m = holder.contextMenu ? holder.contextMenu() : null
+        var p = {
+            showHidden: holder.showHidden, hasRow: true,
+            rowInDropbox: m ? m.rowInDropbox : false, dropboxPath: m ? m.dropboxPath : "",
+            dropboxInstalled: m ? m.dropboxInstalled : false, dropboxReason: m ? m.dropboxReason : "",
+            taildropPeers: [], taildropInstalled: false, taildropReason: "",
+            taildropRefreshing: false, dropboxRefreshing: false,
+            archiveFormats: m ? m.archiveFormats : [], rowIsArchive: m ? m.rowIsArchive : false,
+            rowIsImage: m ? m.rowIsImage : false, canConvert: m ? m.canConvert : false,
+            canExtract: m ? m.canExtract : false,
+            clipboardAvailable: holder.clipboard && holder.clipboard.paths.length > 0,
+            canTrash: Mounts.trashable(holder.path),
+            openWithApps: [], openWithLoaded: false,
+            rowMode: 0, selectionCount: 1, scripts: [], localSendInstalled: false,
+            localSendPeers: [], localSendChecking: false, hiddenActions: [],
+            storageClass: m ? m.storageClass : "", thumbPreview: ViewState.preview,
+            updateVersion: "", hasFolderSort: m ? m.hasFolderSort : false
+        }
+        try {
+            if (holder.permissionSelection) {
+                var sel = holder.permissionSelection()
+                if (sel)
+                    p.rowMode = sel.p
+            }
+            if (holder.selectionCount)
+                p.selectionCount = holder.selectionCount()
+        } catch (e) {}
+        return Menu.listingEntries(p)
+    }
+    function railModel() {
+        var holder = root.focusHolder
+        var bar = holder ? holder.sidebar : null
+        return bar ? bar.entries : []
+    }
+    function ensureRecent() {
+        if (root.recentAsked)
+            return
+        root.recentAsked = true
+        recentLoader.active = true
+    }
+    // Enter runs the highlighted row: an action as its key would, a menu row as the menu
+    // would, a place like a rail click, a recent file like Enter on that row would, and a
+    // destructive row through the same confirm card with Cancel as default.
+    function activateResult() {
+        var pick = root.queryResults[root.resultCursor]
+        if (!pick)
+            return
+        var decided = SheetQuery.dispatch(pick)
+        var holder = root.focusHolder
+        if (!holder || decided.kind === "disabled" || decided.kind === "none")
+            return
+        if (decided.kind === "action") {
+            root.close()
+            holder.act(decided.action)
+            return
+        }
+        if (decided.kind === "menu" || decided.kind === "confirm") {
+            root.close()
+            holder.menuActions.activate(decided.menuAction, true)
+            return
+        }
+        if (decided.kind === "place") {
+            var bar = holder.sidebar
+            var at = -1
+            if (bar) {
+                for (var i = 0; i < bar.entries.length; i++) {
+                    if (bar.entries[i].label === decided.entry.label
+                            && String(bar.entries[i].group || "") === String(decided.entry.group || "")) {
+                        at = i
+                        break
+                    }
+                }
+            }
+            root.close()
+            if (bar && at >= 0)
+                bar.activate(at)
+            return
+        }
+        if (decided.kind === "recent") {
+            root.close()
+            holder.openFile(decided.path)
+            return
+        }
     }
     // Directive 18's footprint: the four blocks flow into two columns of equal length rather than a
     // 2x2 grid, which paid twice for the taller block of each pair and grew the card to the screen.
@@ -132,8 +241,22 @@ Item {
     function open(holder) {
         root.focusHolder = holder
         root.query = ""
+        root.recentPaths = []
+        root.recentAsked = false
+        root.resultCursor = 0
+        recentLoader.active = false
         root.opened = true
         keys.forceActiveFocus()
+    }
+    Loader {
+        id: recentLoader
+        active: false
+        source: "PickerRecent.qml"
+        onLoaded: item.refresh()
+    }
+    Connections {
+        target: recentLoader.item
+        function onRefreshed() { root.recentPaths = recentLoader.item.paths }
     }
 
     function close() {
@@ -239,7 +362,75 @@ Item {
                 }
             }
 
+            // The query results replace the key grid, one row per match with the run washed.
+            Column {
+                width: parent.width
+                visible: root.query.length > 0
+                Repeater {
+                    model: root.queryResults
+                    delegate: Item {
+                        id: hit
+                        required property var modelData
+                        required property int index
+                        width: parent.width
+                        height: root.rowPitch
+                        clip: true
+                        Rectangle {
+                            anchors.fill: parent
+                            visible: hit.index === root.resultCursor
+                            color: Qt.alpha(Theme.color.foreground, Theme.washHover)
+                        }
+                        Rectangle {
+                            id: hitCap
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: root.capWidth
+                            height: root.capSize
+                            color: "transparent"
+                            border.width: hit.modelData.keys.length > 0 ? Theme.spacing.hairline : 0
+                            border.color: Theme.color.muted
+                            Text {
+                                anchors.fill: parent
+                                anchors.margins: Theme.spacing.hairline
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                text: hit.modelData.keys
+                                color: hit.modelData.disabled === true ? Theme.color.muted : Theme.color.foreground
+                                font.family: Theme.font.family
+                                font.pixelSize: Theme.font.caption
+                                textFormat: Text.PlainText
+                                elide: Text.ElideRight
+                            }
+                        }
+                        Flea.MatchText {
+                            id: hitLabel
+                            anchors.left: hitCap.right
+                            anchors.leftMargin: root.capGap
+                            anchors.right: hitWhere.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: hit.modelData.label
+                            color: hit.modelData.disabled === true ? Theme.color.muted : Theme.color.foreground
+                            pixelSize: Theme.font.caption
+                            matchStart: SheetQuery.matchOf(hit.modelData.label, root.query) ? SheetQuery.matchOf(hit.modelData.label, root.query).start : -1
+                            matchLength: SheetQuery.matchOf(hit.modelData.label, root.query) ? SheetQuery.matchOf(hit.modelData.label, root.query).length : 0
+                        }
+                        Text {
+                            id: hitWhere
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: String(hit.modelData.where || "").length > 0
+                            text: String(hit.modelData.where || "").length > 0 ? "in " + hit.modelData.where : ""
+                            color: Theme.color.muted
+                            font.family: Theme.font.family
+                            font.pixelSize: Theme.font.caption
+                            textFormat: Text.PlainText
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+            }
             Row {
+                visible: root.query.length === 0
                 spacing: Theme.spacing.rowPaddingX
 
                 Repeater {
@@ -334,6 +525,7 @@ Item {
 
         // The sheet is a reference and not a mode: a typed key narrows it instead of closing it,
         // and ? is how it comes back. Esc clears the query first, then closes on the next press.
+        // Printable keys type, arrows move, Enter runs the highlighted row, esc closes.
         Keys.onPressed: function (event) {
             if (event.key === Qt.Key_Escape) {
                 if (root.query.length > 0)
@@ -342,6 +534,25 @@ Item {
                     root.close()
                 event.accepted = true
                 return
+            }
+            if (root.query.length > 0) {
+                if (event.key === Qt.Key_Up) {
+                    if (root.queryResults.length > 0)
+                        root.resultCursor = (root.resultCursor - 1 + root.queryResults.length) % root.queryResults.length
+                    event.accepted = true
+                    return
+                }
+                if (event.key === Qt.Key_Down) {
+                    if (root.queryResults.length > 0)
+                        root.resultCursor = (root.resultCursor + 1) % root.queryResults.length
+                    event.accepted = true
+                    return
+                }
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                    root.activateResult()
+                    event.accepted = true
+                    return
+                }
             }
             if (event.key === Qt.Key_Backspace) {
                 if (root.query.length > 0)
@@ -352,6 +563,8 @@ Item {
                 return
             }
             if (event.text.length === 1 && event.text >= " ") {
+                if (root.query.length === 0)
+                    root.ensureRecent()
                 root.query += event.text
                 event.accepted = true
                 return

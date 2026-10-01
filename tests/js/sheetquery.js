@@ -1,9 +1,9 @@
 .import "../../ui/js/SheetQuery.js" as SheetQuery
 
 function run(check) {
-    // Candidates arrive in section order: the keymap's actions, then the rail's places and
-    // the recent files, each reading "Open <name>" with its "in <where>". Menu rows join
-    // section 1 once their provider plumbing exists; the rank already holds their place.
+    // Candidates arrive in section order: the keymap's actions (0), the cursor row's menu
+    // rows and leaves (1), the rail's places (2) and the recent files (3), each place and
+    // file reading "Open <name>" with its "in <where>".
     function candidate(label, keys, section, where) {
         return { label: label, keys: keys, section: section, where: where || "" }
     }
@@ -36,4 +36,37 @@ function run(check) {
     // A query matching nothing lists nothing rather than the whole sheet.
     check("no match is an empty sheet", SheetQuery.rank(rows, "zzz").length, 0)
     check("a keys-only miss is empty too", SheetQuery.rank(rows, "Open ^z").length, 0)
+    // A place whose NAME the query matches exactly ranks first, above an action whose
+    // label matches exactly: the NAME is compared, not the "Open <name>" label.
+    var trashRows = [
+        { label: "trash", keys: "dd", section: 0, where: "", action: "trash" },
+        { label: "Open Trash", name: "Trash", keys: "", section: 2, where: "Places",
+          railIndex: 0, entry: { label: "Trash" } }
+    ]
+    check("an exact place name beats an exact action label",
+          SheetQuery.rank(trashRows, "trash")[0].label, "Open Trash")
+    // Sections hold their order inside each bucket: actions, menu rows, places, recents.
+    var sections = [
+        candidate("open sesame", "", 0),
+        candidate("Open Sesame", "", 1),
+        candidate("Open Sesame", "", 2),
+        candidate("Open Sesame", "", 3)
+    ]
+    check("section order holds across all four sections",
+          SheetQuery.rank(sections, "sesame").map(function (row) { return row.section }).join("|"), "0|1|2|3")
+    // The result list stays bounded and the cursor starts on the first row, the menu lift.
+    var many = []
+    for (var i = 0; i < 80; i++) {
+        many.push(candidate("open " + i, "", i % 4))
+    }
+    check("the list is bounded", SheetQuery.rank(many, "open").length <= SheetQuery.RESULT_LIMIT, true)
+    // The matched run is what the sheet washes.
+    var at = SheetQuery.matchOf("Compress to .zip", "comp")
+    check("a match names its run start", at && at.start, 0)
+    check("and its run length", at && at.length, 4)
+    check("a miss washes nothing", SheetQuery.matchOf("trash", "zzz"), null)
+    // A key that works in one place only says where, from the key table's own context.
+    check("listing names no place", SheetQuery.whereForContext("listing"), "")
+    check("a multi-context key names none either", SheetQuery.whereForContext("rail,menu"), "")
+    check("a single place is named", SheetQuery.whereForContext("media"), "media")
 }
