@@ -142,15 +142,15 @@ fn a_sort_request_carries_its_cursor_anchor_and_a_bare_one_carries_none() {
 #[test]
 fn an_anchored_listed_line_answers_the_anchor_and_a_bare_one_is_unchanged() {
     assert_eq!(
-        say_listed_anchor(3, 0.0, 2.5, 56, "/home/gm", true, "/home/gm/amber", 1),
+        with_anchor(&say_listed(3, 0.0, 2.5, 56, "/home/gm", true), "/home/gm/amber", 1),
         r#"{"t":"listed","n":3,"read":0.000,"sort":2.500,"v":56,"w":true,"path":"/home/gm","anchor":"/home/gm/amber","anchorIndex":1}"#
     );
     assert_eq!(
-        say_listed_anchor(3, 0.0, 2.5, 56, "/home/gm", true, "/home/gm/gone", -1),
+        with_anchor(&say_listed(3, 0.0, 2.5, 56, "/home/gm", true), "/home/gm/gone", -1),
         r#"{"t":"listed","n":3,"read":0.000,"sort":2.500,"v":56,"w":true,"path":"/home/gm","anchor":"/home/gm/gone","anchorIndex":-1}"#
     );
     // Escaped like every other string on this wire, so a quote in the path cannot break the line.
-    let s = say_listed_anchor(1, 0.0, 0.0, 0, "/home/gm", true, "/home/gm/say \"hi\".txt", 0);
+    let s = with_anchor(&say_listed(1, 0.0, 0.0, 0, "/home/gm", true), "/home/gm/say \"hi\".txt", 0);
     assert_eq!(s.lines().count(), 1);
     assert!(s.contains(r#""anchor":"/home/gm/say \"hi\".txt""#));
     // Without an anchor the reply is byte-for-byte today's line; see the listed test above.
