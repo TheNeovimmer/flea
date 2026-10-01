@@ -217,6 +217,11 @@ QtObject {
         property bool modeShown: false
         property bool renaming: index === editPane.renamingIndex
         property var editor: renameLoader.item
+        // Same interface as ui/GridTile.qml: the extracted Loader schedules this via Qt.callLater onLoaded.
+        function applyRenameHeight() {
+            if (renameLoader.item)
+                renameLoader.item.queueContainment()
+        }
         width: ${grid ? "view.cellWidth" : "view.width"}
         height: ${grid ? "view.cellHeight" : "renaming && editor ? Math.max(31, editor.implicitHeight + 8) : 31"}
         signal renameCommitted(string name)

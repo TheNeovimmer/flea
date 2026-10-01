@@ -53,12 +53,13 @@ tests/js/menu.js 307
 tests/js/network.js 306
 tests/js/ops.js 390
 tests/js/settings.js 337
-tests/rename-lifecycle-check.js 351
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 396
 tests/preview-settle-live.qml 424
 tests/js/status.js 354
+tests/rename-grid-bottom.qml 415
+tests/rename-lifecycle-check.js 356
 ui/Backend.qml 435
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 468

@@ -15,6 +15,9 @@ Window {
     property int plainHeight: 0
     property int heightChanges: 0
     property int replacementChanges: 0
+    property var savedFont: null
+    property var savedGrid: null
+    property int savedRowHeight: 0
     property var pendingRequest: ({source: "/fixture/f1199.txt", destination: "/fixture/pending.md"})
     function check(ok, label) {
         checks++
@@ -237,8 +240,16 @@ Window {
                 editPane.setCursor(1201)
             }
             if (probe.step === 10) {
-                // Exercise begin-time cell growth as well as the native 134 px normal-cell case.
-                Theme.rowHeight = 111
+                // Largest OEM text-size stop (20): font via TextSize ratios, geometry derived as Theme.qml derives it.
+                probe.savedFont = Theme.font
+                probe.savedGrid = Theme.grid
+                probe.savedRowHeight = Theme.rowHeight
+                var tallBodySmall = Math.round(20 * 0.917)
+                var tallCaption = Math.round(20 * 0.833)
+                Theme.font = {family: "monospace", body: 20, bodySmall: tallBodySmall, caption: tallCaption}
+                var tallLine = tallCaption * 15 / 11
+                Theme.grid = {captionHeight: 2 * tallLine, captionLineHeight: tallLine, minCellWidth: 146}
+                Theme.rowHeight = Math.round(tallBodySmall * 1.8) + 2 * Theme.spacing.rowPaddingY
                 editPane.renamingIndex = 1201
             }
             if (probe.step === 11) {
@@ -307,6 +318,10 @@ Window {
                 view.visible = false
             }
             if (probe.step === 18) {
+                // Tall transition done: put the saved stub tokens back so later steps settle to plainHeight.
+                Theme.font = probe.savedFont
+                Theme.grid = probe.savedGrid
+                Theme.rowHeight = probe.savedRowHeight
                 probe.check(editPane.renamingIndex === -1 && editPane.renameError === "", "nonpending hide still abandons")
                 view.visible = true
                 editPane.setCursor(1201)
