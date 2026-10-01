@@ -122,4 +122,13 @@ function run(check) {
     check("Copy path still acts on the row's own path", keeping.navigationPane.copied.join(","), "copypath:/home/gm/Downloads")
     check("and a non-opening row leaves focus on the rail",
           keeping.navigationPane.focusView + "|" + keeping.focusOnOpen, "rail|false")
+    // A middle click opens a Places or Favorites row in a new tab; the rows with no folder of their
+    // own until they are opened answer nothing, and a remote favourite says why.
+    var middle = sidebarStub([])
+    middle.entries = [{ kind: "trash", label: "Trash" }, { kind: "favourite", label: "NAS", path: "smb://nas/data",
+                       original: { label: "NAS", path: "smb://nas/data" } }]
+    PlaceMenu.openTabAt(middle, 0)
+    check("a middle click on the Trash opens nothing", middle.said + middle.navigationPane.tabs.items.length, "0")
+    PlaceMenu.openTabAt(middle, 1)
+    check("and a remote favourite says it opens in this tab only", middle.said, "NAS opens in this tab only.")
 }

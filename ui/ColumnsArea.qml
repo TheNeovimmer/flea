@@ -401,6 +401,7 @@ Item {
                 if (root.showParent && root.parentShown)
                     root.menuOnNeighbourBackground(root.parentPath, eventPoint)
             }
+            onTabRequested: function (row) { Tap.tappedTab(row, root.parentPath, root.pane) }
         }
 
         // The pane's own listing, which is why this column and only this one takes the accent.
@@ -422,6 +423,7 @@ Item {
                     root.pane.act("rename")
             }
             onMenuRequested: function (index, eventPoint) { Tap.tappedMenu(index, eventPoint, root.pane, root.menu) }
+            onTabRequested: function (row) { Tap.tappedTab(row, root.pane.path, root.pane) }
             onBackgroundMenuRequested: function (eventPoint) { root.menu.openBackground(eventPoint.scenePosition) }
             onThumbsApplied: function (work) { root.thumbsApplied(work) }
             onDirSizesApplied: function (ask) { root.dirSizesApplied(ask) }
@@ -450,6 +452,7 @@ Item {
                     if (root.shownIsDir && root.shownChildPath.length > 0)
                         root.menuOnNeighbourBackground(root.shownChildPath, eventPoint)
                 }
+                onTabRequested: function (row) { Tap.tappedTab(row, root.shownChildPath, root.pane) }
             }
 
             Flea.SelectionPreview {
