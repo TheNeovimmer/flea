@@ -3430,8 +3430,9 @@ xw_owned_pid_for_arg() {
 }
 
 # The compositor addresses of one pid right now, empty or several when the window is not up alone.
+# Sample input: hyprctl clients -j answers [{"address":"0xabc","pid":111}] and the helper prints 0xabc for 111.
 xw_window_addr_now() {
-    omarchy-drive windows --json | jq -r --argjson pid "$1" '.windows[] | select(.pid == $pid) | .address'
+    hyprctl clients -j | jq -r --argjson pid "$1" '.[] | select(.pid == $pid) | .address'
 }
 
 # Polls until exactly one compositor client holds the pid, so a window still mapping never reads as missing; only the condition is asserted.
@@ -3458,7 +3459,7 @@ xw_addr_for_pid() {
         addr=""
         sleep $gap_s
     done
-    clients=$(omarchy-drive windows --json 2>&1)
+    clients=$(hyprctl clients -j 2>&1)
     printf 'xwwatch: pid %s has no single window address: %s\n' "$pid" "$clients" >&2
     return 1
 }

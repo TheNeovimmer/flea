@@ -221,30 +221,35 @@ function run(check) {
     clipAsk.clipPending = true
     check("a clipboard resolve in flight holds the re-read", Anchor.busy(clipAsk), true)
 
-    // The cursor's file is gone past the new total, so the cursor lands clamped at once and the locate answer keeps it there.
-    var gone = staged(["a", "b", "c"], 2, [1, 2])
+    // The cursor's file shifts when the head row goes, so identity lands it while an index keep would not.
+    var gone = staged(["a", "b", "c"], 1, [0, 1])
     var goneAnchor = Anchor.watched(gone)
     gone.held = 0
-    gone.rows = [{ n: "a" }, { n: "b" }]
+    gone.rows = [{ n: "b" }, { n: "c" }]
     gone.total = 2
     var goneStanding = Anchor.apply(gone, goneAnchor)
-    check("a gone cursor file waits on its marks with the anchor standing", goneStanding === goneAnchor, true)
-    check("landed on the clamped old index", gone.cursorSetTo, 1)
+    check("a shifted cursor waits on its marks with the anchor standing", goneStanding === goneAnchor, true)
+    check("landed on its file at its new index", gone.cursorSetTo, 0)
     var goneEnd = Anchor.fillLocated(gone, goneStanding, [])
-    check("the locate answer keeps the clamped cursor", goneEnd + "|" + gone.cursorSetTo, "null|1")
-    check("and the surviving mark follows its file", gone.selectedIndices().join(","), "1")
+    check("the locate answer keeps the shifted cursor", goneEnd + "|" + gone.cursorSetTo, "null|0")
+    check("and the surviving mark follows its file", gone.selectedIndices().join(","), "0")
+    check("an index-preserving keep would fail here", gone.selectedIndices().join(",") === "0,1", false)
 
-    // F3: a failed anchor paths ask ends the anchor instead of stranding it.
-    // A settled listing holds its rows across the re-list, so the failed anchor still lands on them.
-    var failed = staged(["a", "b"], 0, [0])
+    // F3: a failed anchor paths ask keeps the anchor so the shifted listing lands it by name.
+    var failed = staged(["a", "b", "c"], 1, [1])
     failed.selection.toggle(9)
     failed.swap = { hold: function () { return true } }
     var failedAnchor = Anchor.watched(failed)
     check("an unheld mark waits on its paths reply", !!failedAnchor.needPaths, true)
-    check("a failed paths reply ends the anchor", Anchor.failAnchor(failed, failedAnchor), null)
+    var failedStanding = Anchor.failAnchor(failed, failedAnchor)
+    check("a failed paths ask keeps the anchor for the shifted listing", failedStanding === failedAnchor, true)
     check("a failed paths reply still lists the changed directory", failed.sent.join(","), "paths:9,list /d,fsinfo")
-    check("on the clamped index", failed.cursorSetTo, 0)
     check("and releases the paths claim", failed.pathsPending, null)
+    failed.held = 0
+    failed.rows = [{ n: "NEW" }, { n: "a" }, { n: "b" }, { n: "c" }]
+    failed.total = 4
+    Anchor.apply(failed, failedStanding)
+    check("an outside create shifts rows and the ask fails, the cursor ends on its file", failed.cursorSetTo, 2)
     var throwing = pane()
     throwing.rows = [{ n: "a" }]
     throwing.total = 1

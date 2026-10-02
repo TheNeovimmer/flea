@@ -105,21 +105,34 @@ function takesPaths(pane, anchor) {
     return !!(anchor && anchor.needPaths && pane.pathsPending && pane.pathsPending.kind === "anchor")
 }
 
-// A failed or refused anchor ask ends the anchor on its found-or-clamped index and releases its tag.
-// Sample input: failAnchor(pane, { name: "gone", index: 4, marks: [], kept: [] }) lands min(4, total - 1).
+// A failed paths ask keeps the anchor so the shifted listing lands it by name; a refused locate ends it.
+// Sample input: failAnchor(pane, { name: "b", index: 1, marks: [], kept: [] }) keeps the anchor for rows ["NEW","a","b","c"].
 function failAnchor(pane, anchor, rowH) {
     if (!anchor)
         return null
+    var hadPaths = !!anchor.needPaths
     anchor.needPaths = null
     anchor.locateDone = true
     if (pane.pathsPending && pane.pathsPending.kind === "anchor")
         pane.pathsPending = null
-    // A failed ask still owes the listing that draws the outside change, unless one is already out.
-    if (!pane.listInFlight)
-        Hold.startList(pane, anchor)
-    var at = indexOf(pane, anchor.name)
+    if (hadPaths) {
+        // Land by name on the held rows before the re-list renumbers them; a miss waits for the shifted listing.
+        var at = indexOf(pane, anchor.name)
+        if (pane.total > 0 && at >= 0) {
+            landOn(pane, at, anchor)
+            Hold.restoreView(pane, anchor, rowH)
+        }
+        // A failed ask still owes the listing that draws the outside change, unless one is already out.
+        if (!pane.listInFlight)
+            Hold.startList(pane, anchor)
+        // Keep the target across the renumber so apply() re-lands it; ending here would strand the pre-list index.
+        if (pane.path !== anchor.path)
+            return null
+        return anchor
+    }
+    var found = indexOf(pane, anchor.name)
     if (pane.total > 0) {
-        landOn(pane, at >= 0 ? at : Math.min(anchor.index, pane.total - 1), anchor)
+        landOn(pane, found >= 0 ? found : Math.min(anchor.index, pane.total - 1), anchor)
         Hold.restoreView(pane, anchor, rowH)
     }
     finishMarks(pane, anchor)
