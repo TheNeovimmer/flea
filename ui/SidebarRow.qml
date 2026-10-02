@@ -2,6 +2,7 @@ import QtQuick
 import qs.Commons
 import "js/Eject.js" as Eject
 import "js/Format.js" as Format
+import "js/TabMove.js" as TabMove
 
 // One rail row, shared by the Favorites, Network and Devices groups so the three read alike; see
 // ui/Sidebar.qml "The rail" for the entry shape each group feeds this delegate.
@@ -306,8 +307,8 @@ Item {
                 return
             }
             var n = Math.max(1, root.lineCount)
-            var to = Math.max(0, Math.min(n - 1,
-                root.dragFrom + Math.round((persistentTranslation.y - startY) / Theme.railRowHeight)))
+            // The landing lives in TabMove.railReorder, beside the tab drag's own arithmetic.
+            var to = TabMove.railReorder(persistentTranslation.y - startY, root.dragFrom, Theme.railRowHeight, n).to
             root.reorderAt(-1)
             if (to !== root.dragFrom)
                 root.moved(to)
@@ -315,10 +316,8 @@ Item {
         onCentroidChanged: {
             if (!active)
                 return
-            var count = Math.max(1, root.lineCount)
-            var dy = persistentTranslation.y - startY
-            root.reorderAt(Math.max(0, Math.min(count,
-                root.dragFrom + Math.round(dy / Theme.railRowHeight) + (dy >= 0 ? 1 : 0))))
+            // The same helper as the landing above, so the line and the drop cannot disagree.
+            root.reorderAt(TabMove.railReorder(persistentTranslation.y - startY, root.dragFrom, Theme.railRowHeight, root.lineCount).line)
         }
     }
 

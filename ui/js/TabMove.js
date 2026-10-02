@@ -17,6 +17,18 @@ function step(from, delta, count) {
     return Math.max(0, Math.min(count - 1, from + delta))
 }
 
+// A favourite drag answers where the row lands and where the line draws, 0 before the first row and count past the last.
+// Sample input: railReorder(40, 1, 30, 5) drops at 2 with the line at 3.
+function railReorder(dy, from, rowHeight, count) {
+    var n = Math.max(1, count)
+    if (!(rowHeight > 0)) {
+        return { to: Math.max(0, Math.min(n - 1, from)), line: Math.max(0, Math.min(n, from + (dy >= 0 ? 1 : 0))) }
+    }
+    var step = Math.round(dy / rowHeight)
+    return { to: Math.max(0, Math.min(n - 1, from + step)),
+        line: Math.max(0, Math.min(n, from + step + (dy >= 0 ? 1 : 0))) }
+}
+
 // Move the entry at from so it ends at index to, keeping the current tab
 // current: the entry dragged along follows, and one crossed over shifts back.
 function reorder(items, from, to, index) {

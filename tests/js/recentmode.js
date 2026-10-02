@@ -158,6 +158,14 @@ function run(check) {
     rootRow.cursorIndex = 0
     RecentMode.reveal(rootRow)
     check("a root-level row reveals the root", rootRow.opened.join(","), "/")
+    // A reveal while a listing lands refuses before it clears the way back.
+    var busy = pane("/home/gm/Work")
+    RecentMode.run(busy, ["/home/gm/a.txt"])
+    busy.rows = [{ n: "home/gm/a.txt", d: false }]
+    RecentMode.reveal(busy)
+    check("a reveal while one lands is refused", busy.said.join(","), "A directory is already loading.")
+    check("and keeps the mode, the way back, and opens nothing",
+          busy.recentMode + "|" + busy.recentFrom + "|" + busy.opened.length, "results|/home/gm/Work|0")
     // Escape while a listing lands refuses before it clears the way back.
     var loading = pane("/home/gm/Work")
     RecentMode.run(loading, ["/home/gm/a.txt"])

@@ -90,6 +90,7 @@ function nameOf(path) {
     return cut < 0 ? text : text.substring(cut + 1)
 }
 
+// Sample input: "home/gm/a.txt" sits in "/home/gm", and "a.txt" in "/".
 function locationOf(path) {
     var text = String(path || "")
     if (text.length === 0) {

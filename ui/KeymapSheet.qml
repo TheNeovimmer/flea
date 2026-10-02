@@ -5,6 +5,7 @@ import "js/Keymap.js" as Keymap
 import "js/Menu.js" as Menu
 import "js/Mounts.js" as Mounts
 import "js/SheetQuery.js" as SheetQuery
+import "js/Swap.js" as Swap
 
 // The keymap sheet ? opens, drawn as the Keys panel on Operations.dc.html draws it. Every row comes
 // from keys.toml through Keymap.sheetFor, so a key that loses its binding cannot go on being advertised.
@@ -105,6 +106,11 @@ Item {
         if (!holder || decided.kind === "disabled" || decided.kind === "none")
             return
         if (decided.kind === "action") {
+            // Enter skips the key gate Focus.js owns, so a listing started under the sheet is refused here too.
+            if (Swap.swallows(holder.listInFlight, decided.action)) {
+                holder.message(Swap.LOADING, false)
+                return
+            }
             root.close()
             holder.act(decided.action)
             return

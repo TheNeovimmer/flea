@@ -1,4 +1,5 @@
 .import "../../ui/js/SheetQuery.js" as SheetQuery
+.import "sourcefixture.js" as Source
 
 function run(check) {
     // Candidates from stub menu, rail and recent models, plus the Enter dispatch.
@@ -21,8 +22,12 @@ function run(check) {
                     { id: ".7z", label: "Compress to .7z", disabled: true }] }
     ]
     var menus = SheetQuery.menuCandidates(entries, hint)
-    check("a hidden row is still found",
-          menus.some(function (row) { return row.label === "Permissions" }), true)
+    // Five top-level entries plus two flyout leaves, the flyout separator skipped.
+    check("every non-separator entry becomes a candidate", menus.length, 7)
+    // The sheet keeps hidden rows findable by asking the menu with no hidden set.
+    var sheet = Source.source("ui/KeymapSheet.qml")
+    check("the sheet asks with no hidden set",
+          Source.slice(sheet, "function menuModel()", "function railModel()").indexOf("hiddenActions: []") >= 0, true)
     check("a row with a key keeps its cap",
           menus.filter(function (row) { return row.label === "Delete permanently"; })[0].keys, "shift-delete")
     check("a keyless row draws no cap",

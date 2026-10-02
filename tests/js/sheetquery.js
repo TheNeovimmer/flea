@@ -1,4 +1,5 @@
 .import "../../ui/js/SheetQuery.js" as SheetQuery
+.import "sourcefixture.js" as Source
 
 function run(check) {
     // Candidates arrive in section order, each place and file reading "Open <name>".
@@ -25,6 +26,10 @@ function run(check) {
     // A place whose name the query matches exactly ranks first, whatever section it is in.
     var exact = SheetQuery.rank(rows, "menu")
     check("an exact label match ranks first", exact[0].label, "menu")
+    // An exact label outranks a substring match even when the substring stands first in section order.
+    var exactRows = [candidate("menu bar", "", 0), candidate("menu", "m", 0)]
+    check("an exact label outranks a substring match ahead of it",
+          SheetQuery.rank(exactRows, "menu").map(function (row) { return row.label }).join("|"), "menu|menu bar")
     var place = SheetQuery.rank(rows, "Open Documents")
     check("an exact place name ranks first", place[0].label, "Open Documents")
     // Keys match when no label does: the cap is what half the sheet is read by.
@@ -75,4 +80,10 @@ function run(check) {
     } }
     SheetQuery.runMenu(holder, "trash")
     check("the sheet snapshots before it activates", calls.join(","), "snapshot,activate:trash:true")
+    // Enter in the sheet skips the key gate Focus.js owns, so an action while a listing is out is refused there too.
+    var keymapSheet = Source.source("ui/KeymapSheet.qml")
+    check("the sheet refuses an action while a listing is out",
+          Source.slice(keymapSheet, "function activateResult()", "// Directive 18").indexOf("Swap.swallows") >= 0, true)
+    check("through the Swap gate it imports",
+          keymapSheet.indexOf('import "js/Swap.js" as Swap') >= 0, true)
 }

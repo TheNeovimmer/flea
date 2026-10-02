@@ -106,6 +106,10 @@ function dropOverlay(pane) {
 
 // o opens the row's own folder; Enter opens the file itself, so the two cannot disagree.
 function reveal(pane) {
+    if (pane.listInFlight) {
+        pane.message("A directory is already loading.", false)
+        return
+    }
     var row = pane.rowFor(pane.cursorIndex)
     if (!row) {
         return
