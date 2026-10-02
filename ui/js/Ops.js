@@ -3,6 +3,7 @@
 .import "Archive.js" as Archive
 .import "Convert.js" as Convert
 .import "CopyAs.js" as CopyAs
+.import "ClipSelection.js" as ClipSelection
 .import "Filter.js" as Filter
 .import "Format.js" as Format
 .import "Transfer.js" as Transfer
@@ -259,30 +260,17 @@ function pathsBusy(pane) {
     pane.message("Still resolving the last selection; try again.", false)
 }
 
-// The clipboard has to hold absolute paths, because a paste happens in a different directory and the
-// listing those indices belonged to is gone by then. The backend resolves them while it still can.
+// Resolve absolute paths with each request's own verb, deferring the latest overlapping selection.
 function clip(pane, moving, paths) {
-    if (paths) {
-        pane.clipboard = {paths: paths, moving: moving}
-        pane.message(copied(paths.length, moving), false)
-        return
-    }
-    if (pane.pathsPending) { pathsBusy(pane); return }
-    var idx = targetIndices(pane)
-    if (idx.length === 0) return sayNoTarget(pane)
-    pane.clipPending = moving
-    pane.backend.askPaths(idx)
+    if (!paths && pane.pathsPending) { pathsBusy(pane); return }
+    var indices = paths ? [] : targetIndices(pane)
+    if (!paths && indices.length === 0) return sayNoTarget(pane)
+    ClipSelection.take(pane, moving, paths, indices, copied)
 }
 
 // The answer to the askPaths above; nothing is on the clipboard until this lands.
 function clipResolved(pane, list) {
-    if (pane.clipPending === null) {
-        return
-    }
-    var moving = pane.clipPending
-    pane.clipPending = null
-    pane.clipboard = { paths: list, moving: moving }
-    pane.message(copied(list.length, moving), false)
+    ClipSelection.resolved(pane, list, copied)
 }
 
 // MenuAdditions040: Copy as names absolute paths, because like the clipboard

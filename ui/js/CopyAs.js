@@ -45,7 +45,7 @@ function one(path, kind) {
     if (kind === "uri")
         return uri(path)
     if (kind === "quoted")
-        return Format.shellQuoted(String(path))
+        return "'" + String(path).split("'").join("'\\''") + "'"
     return String(path)
 }
 

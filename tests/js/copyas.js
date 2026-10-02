@@ -1,6 +1,8 @@
 .import "../../ui/js/CopyAs.js" as CopyAs
 
 function run(check) {
+    check("quoted wraps paths without special characters too",
+        CopyAs.lines(["/home/gm/a.txt"], "quoted"), "'/home/gm/a.txt'")
     check("path keeps a space whole on its own line",
         CopyAs.lines(["/home/gm/directory two/a.txt"], "path"), "/home/gm/directory two/a.txt")
     check("name takes the leaf",

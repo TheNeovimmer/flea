@@ -1,3 +1,4 @@
+.import "menuhunt.js" as MenuHunt
 .import "../../ui/js/Ops.js" as Ops
 .import "../../ui/js/Transfer.js" as Transfer
 
@@ -218,13 +219,7 @@ function run(check) {
     check("Copy as refuses while a drag claim is waiting",
           heldSent.length + "|" + heldPane.pathsPending.kind + "|" + JSON.stringify(heldPane.said),
           "0|drag|[[\"Still resolving the last selection; try again.\",false]]")
-    var cutSent = []
-    var cutPane = pathsPane(cutSent)
-    cutPane.pathsPending = { kind: "drag" }
-    Ops.clip(cutPane, true)
-    check("a cut refuses out loud while a drag claim is waiting",
-          cutSent.length + "|" + String(cutPane.clipPending) + "|" + JSON.stringify(cutPane.said),
-          "0|null|[[\"Still resolving the last selection; try again.\",false]]")
+    MenuHunt.clipboard(check, pathsPane)
     var zipSent = []
     var zipBusy = pathsPane(zipSent)
     zipBusy.clipPending = true

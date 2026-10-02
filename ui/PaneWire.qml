@@ -374,11 +374,11 @@ Item {
             // A stale or foreign id is ignored, so a late reply never yanks a navigation.
             if (!pane.linkTargetPendingId || id !== pane.linkTargetPendingId) return
             pane.linkTargetPendingId = 0
-            if (directory.length === 0 || name.length === 0) {
+            if (directory.length === 0 || (name.length === 0 && directory !== "/")) {
                 pane.message("That link points nowhere to reveal.", true)
                 return
             }
-            pane.pendingSelect = directory === "/" ? "/" + name : directory + "/" + name
+            pane.pendingSelect = name.length === 0 ? "" : directory === "/" ? "/" + name : directory + "/" + name
             pane.open(directory)
         }
 
@@ -505,7 +505,7 @@ Item {
                     claim.deliver(null, claim)
                     if (!listingEnded) return
                 } else if (claim) pane.pathsPending = null
-                else pane.clipPending = null
+                else { pane.clipPending = null; pane.clipQueued = null }
             }
             if (!listingEnded) {
                 pane.message(text, true)

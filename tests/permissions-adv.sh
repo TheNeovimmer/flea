@@ -49,8 +49,8 @@ if [ "$done_count" -ne 1 ]; then
     printf 'FAIL completion receipts %s, want exactly 1 DONE beside the PASS\n' "$done_count"
     verdict=1
 fi
-if [ "$pass_count" -ne 25 ] || [ "$fail_count" -ne 0 ]; then
-    printf 'FAIL the permissions dialog missed a finding: pass=%s fail=%s want 25/0\n' "$pass_count" "$fail_count"
+if [ "$pass_count" -ne 30 ] || [ "$fail_count" -ne 0 ]; then
+    printf 'FAIL the permissions dialog missed a finding: pass=%s fail=%s want 30/0\n' "$pass_count" "$fail_count"
     printf '%s\n' "$output" | grep -aE 'PERMADV|ERROR|error'
     verdict=1
 fi

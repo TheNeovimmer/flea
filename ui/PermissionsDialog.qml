@@ -167,7 +167,7 @@ FocusScope {
         }
     }
     function receiveMany(message) {
-        if (!opened || transportFailed) return
+        if (!opened || transportFailed || (message.op === "applyMany" && (!applyingMany || message.id !== requestId))) return
         if (message.op === "applyMany") {
             applyingMany = false
             if (message.ok === true) {

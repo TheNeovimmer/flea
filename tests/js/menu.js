@@ -1,3 +1,4 @@
+.import "menuhunt.js" as MenuHunt
 .import "../../ui/js/Menu.js" as Menu
 .import "../../ui/js/MenuRefresh.js" as MenuRefresh
 .import "../../ui/js/LockedMenu.js" as LockedMenu
@@ -155,26 +156,7 @@ function run(check) {
         entry(Menu.listingEntries(state({})), "openTerminal").action, undefined)
     check("with the switch off the file menu shows it too",
         entry(Menu.listingEntries(state({ hiddenActions: ["delete"] })), "openTerminal").action, "openTerminal")
-    // MenuAdditions040 callout 10 and Permissions040 callout 3: Make executable shows only on a
-    // regular file with a shebang and no owner execute bit, cursor row only, no key.
-    check("Make executable shows on a script missing its bit",
-        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, "makeExecutable")
-    check("and wears the play mark no neighbour wears",
-        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, hasShebang: true, cursorIsTarget: true })), "makeExecutable").glyph, "play")
-    check("without a shebang it is absent",
-        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, cursorIsTarget: true })), "makeExecutable").action, undefined)
-    check("with the execute bit already set it is absent too",
-        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100744, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, undefined)
-    check("on a directory it is absent",
-        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o040755, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, undefined)
-    check("on a multi-selection it is absent",
-        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, selectionCount: 2, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, undefined)
-    check("on a single selection that is not the cursor row it is absent",
-        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, hasShebang: true, cursorIsTarget: false })), "makeExecutable").action, undefined)
-    check("and the Menus switch takes it away like any other row",
-        entry(Menu.listingEntries(state({ hiddenActions: ["makeExecutable"], rowMode: 0o100644, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, undefined)
-    check("it sits where hidden Permissions would sit before it",
-        actions(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, hasShebang: true, cursorIsTarget: true, selectionModes: [0o100644] }))).indexOf("permissions,makeExecutable") >= 0, true)
+    MenuHunt.executable(check, state, entry, actions)
     check("missing converter removes Convert", entry(Menu.listingEntries(state({ canConvert: false })), "convert").action, undefined)
     check("missing archiver removes Compress", entry(Menu.listingEntries(state({ archiveFormats: [] })), "compress").action, undefined)
     var noReader = entry(Menu.listingEntries(state({ rowIsArchive: true, canExtract: false, archiveFormats: ["zip", "tar"] })), "extract")

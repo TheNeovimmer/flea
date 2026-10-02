@@ -145,7 +145,7 @@ Item {
 
     // The construction lives in ui/js/Menu.js now, so the rows are unit-testable without a window:
     // listingEntries(p) builds the listing's rows from the pane's state and headerEntries() the column titles' own on a right click (ui/Header.qml); this file only routes between them.
-    function buildEntries() {
+    function buildEntries(flyoutAction) {
         // Which release a rail row offers is the rail's knowledge, not the listing's, so the rail
         // hands its rows in already built; see ui/js/Mounts.js "railMenu".
         if (root.forRail)
@@ -184,7 +184,7 @@ Item {
             hasShebang: root.rowHasShebang, cursorIsTarget: root.cursorIsTarget,
             scripts: Flea.Scripts.entries, localSendInstalled: root.localSend.installed, localSendPeers: root.localSend.peers, localSendChecking: view.localSendChecking,
             // The Menus settings section's stored set; ui/js/Menu.js applyHidden is what reads it.
-            hiddenActions: ViewState.menuHidden,
+            hiddenActions: ViewState.menuHidden.filter(function(id) { return id !== flyoutAction }),
             // ExtThumbs: the class row's presence and label read these, never "this drive".
             storageClass: root.storageClass, thumbPreview: ViewState.preview,
             updateVersion: UpdateCheck.menuVersion, hasFolderSort: root.hasFolderSort
@@ -204,8 +204,8 @@ Item {
     // A wheel over the main frame closes the flyout first, the same path moving the pointer
     // onto a plain row takes, and then steps; the highlight never moves where it is not drawn.
     function stepMain(delta) {
-        if (root.submenuOpen)
-            root.openSubmenuRow = -1
+        root.openSubmenuRow = -1
+        root.loneFlyoutAction = ""
         root.cursor = root.stepCursor(root.cursor, delta)
     }
 
@@ -359,23 +359,15 @@ Item {
 
     // One signal covers every submenu: the row's own action, a colon, and the entry chosen inside it.
     function chooseSub(id) {
-        // A lone flyout answers through Menu.loneChoice, refusing on an unknown leaf or a moved selection.
+        var entry = root.entries[root.openSubmenuRow]
+        var action = root.loneFlyoutAction || (entry ? entry.action : "")
         if (root.loneFlyoutAction.length > 0) {
             var lonePick = Menu.loneChoice(root.loneFlyoutAction, id, root.forRail, root.forHeader, root.hasRow, root.openedIdentity, root.selectionIdentity)
-            if (lonePick.kind !== "fire") {
-                root.close()
-                root.refused(lonePick.kind === "moved" ? "Selected items changed; reopen the menu." : "That action is no longer available; reopen the menu.")
-                return
-            }
-            root.close()
-            root.chosen(lonePick.fired)
-            return
+            if (lonePick.kind !== "fire") { root.validateChoice(action, id); return }
         }
-        var entry = root.entries[root.openSubmenuRow]
-        if (!entry || !root.validateChoice(entry.action, id)) return
+        if (!action || !root.validateChoice(action, id)) return
         root.close()
-        if (entry)
-            root.chosen(entry.action + ":" + id)
+        root.chosen(action + ":" + id)
     }
 
     function openSubmenu(index) {
@@ -388,6 +380,14 @@ Item {
 
     // c and P open Copy as and Paste as with the flyout already open.
     function openSubmenuFor(action) {
+        var leaves = Menu.flyoutEntries(action)
+        if (!leaves.length) return false
+        if (action === "pasteAs" && !root.clipboardAvailable) {
+            root.close()
+            root.refused(Menu.EMPTY_CLIPBOARD)
+            return false
+        }
+        if (!root.validateChoice(action, leaves[0].id)) return false
         var pick = Menu.submenuFor(action, root.entries, root.clipboardAvailable)
         if (pick.kind === "row") {
             root.cursor = pick.index
@@ -432,7 +432,7 @@ Item {
     function validateChoice(action, subId) {
         var identityChanged = !root.forRail && !root.forHeader && root.hasRow
                               && root.openedIdentity !== root.selectionIdentity
-        var live = root.buildEntries()
+        var live = root.buildEntries(subId && Menu.flyoutEntries(action).length ? action : "")
         for (var i = 0; !identityChanged && i < live.length; i++) {
             var entry = live[i]
             if (entry.action !== action || entry.disabled === true) continue

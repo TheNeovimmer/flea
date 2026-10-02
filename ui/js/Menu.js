@@ -77,9 +77,7 @@ var INVENTORY = [
     ["copyto", "Copy to", "copy", "F", "inspect", "copyTo"],
     ["properties", "Properties", "info", "F", "inspect"],
     ["permissions", "Permissions", "lock", "F", "inspect"],
-    // MenuAdditions040 callout 10 and Permissions040 callout 3: Make executable shows only on a
-    // regular file with a shebang and no owner execute bit, and adds that bit. Shown when usable,
-    // no key, in the inspect group where hidden Permissions would sit before it.
+    // Both boards place Make executable in inspect, without a key, only on scripts missing every execute bit.
     ["makeExecutable", "Make executable", "play", "F", "inspect", "makeExecutable"],
     // MenuAdditions040: Copy as replaces the hidden Copy path row and ships
     // hidden like it; every variant covers the whole selection, one per line.
@@ -162,9 +160,7 @@ function availableEntry(e, p, kind) {
         e.disabled = permission.disabled
         if (permission.errored) e.errored = true
     }
-    // MenuAdditions040 callout 10 and Permissions040 callout 3: only on a regular file with a
-    // shebang and no owner execute bit, cursor row only. Absent otherwise, never greyed; the
-    // two-byte shebang read happens at menu open for that one file, never per row.
+    // Only a cursor-row script without any execute bit qualifies; its two-byte probe runs once at menu open.
     if (e.action === "makeExecutable" && !canMakeExecutable(p.rowMode, count, p.hasShebang, p.cursorIsTarget)) return false
     if (e.action === "runScript") {
         if (!(p.scripts || []).length) return false
@@ -286,12 +282,12 @@ function permissionsEntry(mode, count, modes) {
     return { label: "Permissions", action: "permissions", glyph: "lock", disabled: !allowed, errored: !allowed }
 }
 
-// Only a single cursor-row regular file with a shebang and no owner execute bit.
+// Only a single cursor-row regular file with a shebang and no execute bit.
 function canMakeExecutable(mode, count, hasShebang, cursorIsTarget) {
     if (count !== 1 || hasShebang !== true || cursorIsTarget !== true) return false
     var bits = Number(mode) || 0
     if ((bits & 0o170000) !== 0o100000) return false
-    return (bits & Format.S_IXUSR) === 0
+    return (bits & 0o111) === 0
 }
 
 // The Copy as flyout: six leaves in board order, letters on keyHint.

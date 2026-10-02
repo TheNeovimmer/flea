@@ -228,6 +228,7 @@ FocusScope {
     property var clipboard: Ops.emptyClipboard()
     // The mode of an askPaths round trip in flight, or null; nothing reaches the clipboard until it answers.
     property var clipPending: null
+    property var clipQueued: null
     // Which asker a pending paths reply belongs to, null meaning the clipboard, which is what every
     // reply meant before compress also had to resolve a selection wider than this pane holds.
     property var pathsPending: null
@@ -500,12 +501,12 @@ FocusScope {
     property int makeExecPendingId: 0
     // Show original's own pending id, dropped by any navigation before its reply lands.
     property int linkTargetPendingId: 0
-    // The one path a shebang answer may land for, "" unless the cursor row is a regular file without its owner bit.
+    // The one path a shebang answer may land for, "" unless the cursor row is a regular file without any execute bit.
     function shebangTarget() {
         var row = root.cursorRow
         if (!row || row.d) return ""
         var bits = Number(row.p) || 0
-        if ((bits & 0o170000) !== 0o100000 || (bits & 0o100) !== 0) return ""
+        if ((bits & 0o170000) !== 0o100000 || (bits & 0o111) !== 0) return ""
         return root.join(root.path, row.n)
     }
     function checkShebang() {
@@ -577,8 +578,7 @@ FocusScope {
         }
         root.permissionsBatchRequested(paths)
     }
-    // MenuAdditions040: c opens Copy as at the cursor and P opens Paste as,
-    // each with its flyout already open on its first row.
+    // c and P open Copy as and Paste as on their first flyout row.
     function openCopyAs() {
         if (!root.openCursorMenu()) {
             root.message("No row under the cursor to open a menu on.", false)
@@ -587,14 +587,14 @@ FocusScope {
         menu.openSubmenuFor("copyAs")
     }
     function openPasteAs() {
-        if (!root.openCursorMenu()) {
-            root.message("No row under the cursor to open a menu on.", false)
-            return
-        }
-        if (!menu.openSubmenuFor("pasteAs")) {
+        if (!root.openCursorMenu())
+            menu[root.cursorRow ? "openAt" : "openBackground"](root.listSlot.mapToItem(null, root.listSlot.width / 2, root.listSlot.height / 2))
+        if (!menu.clipboardAvailable) {
             menu.close()
             root.message("There is nothing to paste; y copies and x cuts.", false)
+            return
         }
+        menu.openSubmenuFor("pasteAs")
     }
     // MenuAdditions040: V flips the marks over the rows the listing draws;
     // the filter applies, and a close match is never selected.
@@ -663,8 +663,8 @@ FocusScope {
     // A path the caller already resolved, for the columns view's neighbour rows, which have no cursor.
     function openFile(path) { wire.opener.open(path) }
 
-    // A terminal in the directory being shown, through ui/Opener.qml's flea --terminal.
-    function openTerminal() { wire.opener.openTerminal(root.path) }
+    // A terminal in the caller's place or the directory being shown, through flea --terminal.
+    function openTerminal(path) { wire.opener.openTerminal(path || root.path) }
 
     function newWindow() { Quickshell.execDetached([Quickshell.env("FLEA_BIN") || "flea", root.path]) }
 
