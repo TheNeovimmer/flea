@@ -15,6 +15,7 @@ import "js/Thumbs.js" as Thumbs
 // The same Backend, Row, Theme and places the browser window draws with, and none of its operations:
 // a chooser that can rename or delete is a file manager wearing a dialog's clothes.
 ShellRoot {
+    property alias pickerWin: win
     FloatingWindow {
         id: win
 
@@ -57,8 +58,7 @@ ShellRoot {
         readonly property int shownTotal: win.total
         onFilterChanged: if (win.path.length) win.openWithoutHistory(win.path)
 
-        // The view the listing draws in, session-only: the picker persists nothing to ui.json,
-        // so a relaunch opens the list again rather than inheriting the main window's view.
+        // The view the listing draws in; a launch reads pickerView and only setView writes it.
         property string viewMode: "list"
         function setView(mode) {
             var next = Picker.viewSwitch(win.viewMode, mode)
@@ -67,6 +67,10 @@ ShellRoot {
             // The user's own switch, and only that, is what the next launch reopens: a launch
             // reads, and cursor moves never owe the file anything.
             ViewState.changeKey("pickerView", next)
+            // A reshow owns its window: the shown view moves to the cursor and refetches there.
+            var at = Math.max(0, Math.min(win.cursorIndex, win.total - 1))
+            if (next === "grid") grid.reshow(at)
+            else list.reshow(at)
             win.focusView()
         }
         function viewItem() { return win.viewMode === "grid" ? grid : list }
@@ -120,7 +124,11 @@ ShellRoot {
 
         readonly property bool saving: win.req.mode === "save"
         readonly property bool folderMode: win.req.directory || win.req.mode === "savefiles"
-        readonly property int windowSize: list.visibleRows + 60
+        // Twice the wider view's screen plus slack, so the screen still fits after the quarter lead.
+        readonly property int windowSize: Picker.windowSize(list.visibleRows, grid.visibleTileRows, grid.columns)
+        // Both views refetch through one interval and lead, the main views' own 16 ms and quarter window.
+        readonly property int coalesceMs: 16
+        readonly property real windowLead: 0.25
 
         // Exactly one answer leaves this window, whichever way it is asked for.
         property bool answered: false
@@ -398,10 +406,7 @@ ShellRoot {
                 win.receivingLatestListing = true
                 win.total = n
                 win.listingState = n === 0 ? "empty" : "ready"
-                // The grid plans thumbnails against the storage class, which only
-                // an fsinfo ask names; the main pane asks the same way when its
-                // own listing lands, see ui/js/Nav.js. Recent spans mounts, so it
-                // asks for nothing, see ui/js/RecentMode.js.
+                // Grid needs the storage class, so ask fsinfo except on Recent.
                 if (!win.recent)
                     listing.fsinfo()
             }

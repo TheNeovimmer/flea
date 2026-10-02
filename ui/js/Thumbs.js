@@ -57,10 +57,7 @@ function forget(state, row) {
     }
 }
 
-// A cache-only miss: on a generating class the row returns to unasked, so plan() asks it
-// again when it scrolls into view; on a cache-only class it stays a miss. Runs through
-// forget/remember above, never a reassign. Sample input: miss({file:{3:"cache-asked"},order:[3]}, 3, true, 240)
-// leaves file[3] undefined, with false it leaves "cache-missed".
+// A miss on a generating class returns to unasked; on a cache-only class it stays a miss.
 function miss(state, row, generating, cap) {
     if (generating === true) {
         forget(state, row)
@@ -127,9 +124,7 @@ function thumbLimit(thumbWidth, thumbHeight, originalWidth, originalHeight) {
     return thumbLongest < CACHE_SIZE ? 1 : Infinity
 }
 
-// A video poster draws at the player's size, the largest aspect-fit inside the frame, enlarged
-// when the clip is small; an image keeps the never-enlarge cap (GM, 2026-09-24). Sample input:
-// posterLimit(true, 256, 256, 64, 64) is Infinity, posterLimit(false, 256, 256, 64, 64) is 64/256.
+// A video poster fills the frame; an image keeps the never-enlarge cap.
 function posterLimit(isVideo, thumbWidth, thumbHeight, originalWidth, originalHeight) {
     if (isVideo)
         return Infinity

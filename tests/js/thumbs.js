@@ -133,9 +133,7 @@ function run(check) {
     check("an image poster keeps its cap", Thumbs.posterLimit(false, 256, 256, 64, 64), 64 / 256)
     check("a 64x64 clip poster in the 754x471 frame fills it",
           drawn(Thumbs.fitScale(754, 471, 256, 256, Thumbs.posterLimit(true, 256, 256, 64, 64)), 256, 256), "471x471")
-    // e81f: a prefetch miss on a generating class leaves the row as if never asked, so the
-    // viewport asks it again; on a cache-only class it stays a miss. The interim's own rect
-    // moved to PreviewSwap.interimRect, which tests/js/previewswap.js pins.
+    // e81f: a prefetch miss on a generating class leaves the row unasked, else a miss.
     function missed(generating) {
         var s = Thumbs.empty()
         s = Thumbs.applied(s, { ask: [3], drop: [], cacheOnly: true })
