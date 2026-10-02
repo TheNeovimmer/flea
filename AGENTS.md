@@ -3012,7 +3012,7 @@ with its watcher cache, and the favourites drag reorder with its insertion line)
 header wire). `ui/Row.qml` 474 to 478 for the `recenting` name split with Used beside it.
 `ui/SidebarRow.qml` keeps inside the hard cap at 338 for the reorder drag and its two insertion
 bars. `ui/SettingsFavourite.qml` keeps inside its budget at 118 for the 19 px mark slot and the
-24 px handle and remove boxes. `ui/KeymapSheet.qml` keeps inside the hard cap at 585 for the
+24 px handle and remove boxes. `ui/KeymapSheet.qml` stands recorded at 585, over the 400 hard cap, for the
 four-section query (actions, menu rows, places, recent files) with its query field that appears on
 the first typed key. `ui/Header.qml` keeps inside the hard cap at 391 for the
 Used title and the hidden Mode and Kind. `ui/js/Settings.js` 432 to 435 for the Built in Recent row.
@@ -3032,6 +3032,22 @@ gone on this head, so the port drops the prepared roll-clearing lines and `ui/js
 deleted; the rail menus, eject marks and auto-hide rail are main's and are carried untouched. The
 sheet ranks all four sections in order and `SheetQuery.rank` holds their exact-place, exact, matched
 and keyed buckets.
+
+kb1b (17f14f7d) moves ten recorded ceilings, each re-derived with `wc -l` at the commit that
+recorded it. `tests/js/focus.js` 522 to 595 for the Escape climb landing-mark, armed-pair and
+sheet-snapshot pins. `tests/js/menu.js` 335 to 348 for the hidden Copy as and Paste as lone-flyout
+pins. `tests/js/tap.js` enters the tool's list at 317 for the single-click tap-count suite, over the
+300 hard cap and recorded rather than split. `ui/ContextMenu.qml` 625 to 675 for the lone-flyout
+state the c and P keys open while their rows hide. `ui/Pane.qml` 992 to 998 for the Recent paste
+refusal in pasteLink. `ui/PermissionsDialog.qml` 589 to 627 for the multi-row card with its
+accumulated inspect and skip notes. `ui/Row.qml` 478 to 479 for the Recent location branch, railed
+in ea0f9a7d on the same merged head. `ui/js/Focus.js` 408 to 439 for the deliberate-marks Escape
+and sheet-snapshot dispatch. `ui/js/Menu.js` 425 to 436 for flyoutEntries over the Copy as and Paste
+as leaves. `ui/js/Tabs.js` 390 to 399 for the pending restore carried across a reorder. kb1c's
+comment cuts then left every one of those files under its ceiling, and kb1d took `ui/Pane.qml` 998
+to 1000 for the two sort declarations Recent hands back. This round takes `ui/Pane.qml` 1000 to
+1003 for the hop restore in openWithoutHistory and its pane route, and `ui/Sidebar.qml` 675 to 677
+for the asker list a history read answers one by one.
 
 MenuAdditions040 moves sixteen recorded ceilings, each re-derived with `wc -l`
 against the 0.3.8 integration head. `ui/js/Menu.js` 337 to 399 for the Copy as

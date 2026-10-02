@@ -163,19 +163,22 @@ Item {
     property bool recentReading: false
     property int recentChanges: 0
     property int recentReadAt: -1
-    property var recentRequester: null
+    // Every asker waiting on the read in flight, null meaning the rail pane itself.
+    property var recentRequesters: []
     // How many times the history has been parsed; the seam reads it the way it reads the jump's.
     property int recentReads: 0
     function readRecent(requester) {
-        // One read at a time: its answer opens the listing, so a second press while it is out waits for that one.
+        // One read at a time: every asker waits on it, so each pane opens once it lands.
+        var asker = requester || null
         if (root.recentReading) {
+            if (root.recentRequesters.indexOf(asker) < 0) root.recentRequesters.push(asker)
             return
         }
         if (root.recentKept && root.recentReadAt === root.recentChanges) {
-            root.recentRequested(root.recentPaths, requester || null)
+            root.recentRequested(root.recentPaths, asker)
             return
         }
-        root.recentRequester = requester || null
+        root.recentRequesters = [asker]
         root.recentReading = true
         root.recentReadAt = root.recentChanges
         recentWatcher.path = Recent.historyPath(Quickshell.env("XDG_DATA_HOME"), Quickshell.env("HOME"))
@@ -206,8 +209,9 @@ Item {
             // The parsed model goes once its newest paths are kept, which bounds what stays in
             // memory at Recent.LIMIT paths; later, because the reader is the one emitting this signal.
             Qt.callLater(function () { if (!root.recentReading) recentReader.active = false })
-            root.recentRequested(root.recentPaths, root.recentRequester)
-            root.recentRequester = null
+            var askers = root.recentRequesters
+            root.recentRequesters = []
+            for (var i = 0; i < askers.length; i++) root.recentRequested(root.recentPaths, askers[i])
         }
     }
 

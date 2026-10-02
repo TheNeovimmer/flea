@@ -67,6 +67,8 @@ function run(root) {
     root.recentMode = ""
     root.recentFrom = ""
     root.recentPaths = []
+    // Through the pane: importing RecentMode.js here would close a Nav import cycle.
+    root.restoreRecentSort()
     root.searchRunning = true
     root.searchScanned = 0
     root.searchCancelled = false

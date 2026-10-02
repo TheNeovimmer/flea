@@ -1,4 +1,5 @@
 .import "../../ui/js/RecentMode.js" as RecentMode
+.import "sourcefixture.js" as Source
 
 // The main window's Recent place. ui/Pane.qml holds the mode, this holds what it does.
 
@@ -8,6 +9,8 @@ function pane(path) {
         recentMode: "",
         recentFrom: "",
         recentPaths: [],
+        recentSortBy: "",
+        recentSortDesc: false,
         listInFlight: false,
         listedSeen: false,
         listingPath: "",
@@ -50,11 +53,27 @@ function pane(path) {
     p.listArea = { primeSettle: function () {} }
     p.thumbState = {}
     p.dirSizeState = {}
-    p.openWithoutHistory = function (next) { p.opened.push(next); p.path = next }
+    // Mirrors ui/Pane.qml openWithoutHistory: every navigation leaves Recent.
+    p.openWithoutHistory = function (next) {
+        p.recentMode = ""
+        p.recentFrom = ""
+        p.recentPaths = []
+        RecentMode.restoreSort(p)
+        p.opened.push(next)
+        p.path = next
+    }
+    // Mirrors ui/Pane.qml restoreRecentSort, which ui/js/Search.js reaches through the pane.
+    p.restoreRecentSort = function () { RecentMode.restoreSort(p) }
     return p
 }
 
 function run(check) {
+    // The pane declares the sort Recent hands back, so run writes a member Qt accepts.
+    var declared = Source.source("ui/Pane.qml")
+    check("the pane declares the sort Recent hands back",
+        declared.indexOf("property string recentSortBy") >= 0, true)
+    check("and whether that sort descended",
+        declared.indexOf("property bool recentSortDesc") >= 0, true)
     // Opening the rail row moves to the history's base and keeps where it stood.
     var standing = pane("/home/gm/Work")
     RecentMode.run(standing, ["/home/gm/a.txt", "/home/gm/b.txt"])
@@ -156,4 +175,24 @@ function run(check) {
     check("dropping the overlay hands the standing order back",
           RecentMode.dropOverlay(switching) + "|" + switching.backend.sortBy + "|" + switching.backend.sortDesc,
           "true|kind|true")
+
+    // A hop out of Recent without close still hands the standing order back.
+    var hopping = pane("/home/gm/Work")
+    hopping.backend.sortBy = "kind"
+    hopping.backend.sortDesc = true
+    RecentMode.run(hopping, ["/home/gm/a.txt"])
+    hopping.listInFlight = false
+    hopping.openWithoutHistory("/home/gm/Elsewhere")
+    check("a hop out of Recent hands the standing order back",
+          hopping.backend.sortBy + "|" + hopping.backend.sortDesc, "kind|true")
+    check("and the mode is off after the hop", hopping.recentMode, "")
+    check("and lands where the hop asked", hopping.opened.join(","), "/home/gm/Elsewhere")
+    // A walk started from Recent restores through the pane, and every navigation restores direct.
+    var searchSrc = Source.source("ui/js/Search.js")
+    check("a walk started from Recent hands the standing order back",
+          searchSrc.indexOf("root.restoreRecentSort()") >= 0, true)
+    check("and the pane answers that call through RecentMode",
+          declared.indexOf("function restoreRecentSort()") >= 0, true)
+    check("and every navigation restores direct",
+          declared.indexOf("RecentMode.restoreSort(root)") >= 0, true)
 }
