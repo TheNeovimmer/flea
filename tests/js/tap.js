@@ -205,8 +205,8 @@ function run(check) {
     Tap.tapped(4, 1, Qt.NoModifier, single)
     check("single-click opens on the first tap", single.did.join(","), "selectOnly,open")
     Tap.tapped(4, 2, Qt.NoModifier, single)
-    check("and its second tap selects without opening again",
-          single.did.join(","), "selectOnly,open,selectOnly")
+    check("and its second tap adds nothing, since the first already moved the listing",
+          single.did.join(","), "selectOnly,open")
     var singleTriple = pane()
     singleTriple.singleClick = true
     for (var s = 1; s <= 3; s++)
