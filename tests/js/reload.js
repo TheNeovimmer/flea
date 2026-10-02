@@ -55,6 +55,23 @@ function run(check) {
     check("and remembers the count it is answering against", plain.reloadFrom, 10)
     check("and holds the cursor anchor for the rows reply", w.anchor !== "kept" && w.anchor !== undefined, true)
 
+    // B6: Recent is a history standing on the root, not the root itself, so a
+    // reload re-reads Recent rather than listing "/" over the place just left.
+    var recent = pane()
+    recent.recentMode = "results"
+    recent.recentFrom = "/home/gm/Work"
+    recent.recentPaths = ["/home/gm/a.txt", "/home/gm/b.txt"]
+    recent.path = "/"
+    recent.askedPaths = []
+    recent.swap = { hold: function () { return true } }
+    recent.backend.listPaths = function (paths) { recent.askedPaths = paths }
+    recent.backend.sortBy = "mtime"
+    recent.backend.sortDesc = true
+    check("a reload in Recent re-reads Recent itself", Reload.begin(recent, wire()), true)
+    check("and never lists the root it stands on",
+          recent.listed.length + "|" + recent.askedPaths.join(","), "0|/home/gm/a.txt,/home/gm/b.txt")
+    check("and still remembers the count its notice answers against", recent.reloadFrom, 10)
+
     var grown = pane()
     grown.said = []
     grown.reloadFrom = 10

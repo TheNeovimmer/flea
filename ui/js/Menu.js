@@ -320,6 +320,17 @@ function pasteAsEntries() {
     ]
 }
 
+// B1: the c and P keys open their flyout even while its row is hidden, so the
+// leaves are built from the action rather than from the visible rows; a
+// visible row keeps the entries the menu already built for it.
+function flyoutEntries(action) {
+    if (action === "copyAs")
+        return copyAsEntries()
+    if (action === "pasteAs")
+        return pasteAsEntries()
+    return []
+}
+
 
 // The Sort by flyout, built from ui/js/Sort.js's own ORDERS so it can only ever offer an order the
 // backend really produces; a fourth key would earn a refusal instead of a listing.

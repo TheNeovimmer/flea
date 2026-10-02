@@ -95,6 +95,21 @@ function key(code, text, modifiers) {
 
 // Only the members the escape case reads. Search.cancel and Pane.escapePressed both record rather
 // than act, because what is being checked is the order they are reached in.
+function armHandle(p) {
+    // handleKey's own members past the escape dispatch: the listing view, no
+    // rename editor, and the pane dispatch recording rather than acting.
+    p.focusView = "list"
+    p.viewMode = "list"
+    p.shown = null
+    p.renameEditor = function () { return null }
+    p.keySequence = ""
+    p.keySequenceIdentity = ""
+    p.trashArmedAt = 0
+    p.message = function (text) { p.said = text }
+    p.acted = []
+    p.act = function (action) { p.acted.push(action); Focus.act(action, p) }
+    return p
+}
 function escaper(query, retreated) {
     var p = pane(closed())
     p.filterQuery = query
@@ -246,6 +261,64 @@ function run(check) {
     carded.collide = { opened: true }
     Focus.act("escape", carded)
     check("and so does the collision card", carded.climbed + "|" + carded.retreated, "0|1")
+
+    // B5a: a climb lands with the child row marked, and that landing highlight
+    // is Flea's rather than the user's, so it never blocks the next climb.
+    var landed = escaper("", 0)
+    landed.escapeUp = true
+    landed.selectionCount = function () { return 1 }
+    landed.selection = { count: function () { return 1 }, follows: function () { return true } }
+    Focus.act("escape", landed)
+    check("a climb's landing mark never blocks the next climb", landed.climbed + "|" + landed.retreated, "1|0")
+    var deliberate = escaper("", 0)
+    deliberate.escapeUp = true
+    deliberate.selectionCount = function () { return 1 }
+    deliberate.selection = { count: function () { return 1 }, follows: function () { return false } }
+    Focus.act("escape", deliberate)
+    check("a deliberate lone mark still unwinds first", deliberate.climbed + "|" + deliberate.retreated, "0|1")
+
+    // B5b: Escape backs out of an armed trash or vim pair and stops, instead
+    // of disarming and climbing behind the arm's own sentence.
+    var armedKey = key(Qt.Key_Escape, "", none)
+    var armedTrash = escaper("", 0)
+    armedTrash.escapeUp = true
+    armHandle(armedTrash)
+    armedTrash.trashArmedAt = Date.now()
+    check("Escape with an armed trash is consumed", Focus.handleKey(armedKey, armedTrash, null), true)
+    check("and cancels the arm instead of climbing",
+          armedTrash.trashArmedAt + "|" + armedTrash.climbed + "|" + armedTrash.retreated, "0|0|0")
+    var armedPair = escaper("", 0)
+    armedPair.escapeUp = true
+    armHandle(armedPair)
+    armedPair.keySequence = "copyArm"
+    armedPair.keySequenceIdentity = "held"
+    check("Escape with an armed vim pair is consumed too", Focus.handleKey(armedKey, armedPair, null), true)
+    check("and drops the pair instead of climbing",
+          armedPair.keySequence + "|" + armedPair.climbed + "|" + armedPair.retreated, "|0|0")
+    var unarmed = escaper("", 0)
+    unarmed.escapeUp = true
+    armHandle(unarmed)
+    check("an unarmed Escape still climbs", Focus.handleKey(armedKey, unarmed, null), true)
+    check("through the same climb", unarmed.climbed + "|" + unarmed.retreated, "1|0")
+
+    // B6: Recent is a history, not a directory, so Paste as and its leaves are
+    // refused there exactly the way Paste is.
+    var historyPaste = escaper("", 0)
+    historyPaste.recentMode = "results"
+    historyPaste.message = function (text) { historyPaste.said = text }
+    historyPaste.openPasteAs = function () { historyPaste.pasted = true }
+    historyPaste.pasteLink = function () { historyPaste.pasted = true }
+    historyPaste.pasted = false
+    Focus.act("pasteAs", historyPaste)
+    check("Paste as is refused in Recent", historyPaste.said + "|" + historyPaste.pasted,
+          "This listing is a history, and cannot take a paste.|false")
+    Focus.act("pasteLink", historyPaste)
+    check("and its relative leaf is refused there too", historyPaste.said + "|" + historyPaste.pasted,
+          "This listing is a history, and cannot take a paste.|false")
+    Focus.act("pasteAbsoluteLink", historyPaste)
+    Focus.act("pasteHardLink", historyPaste)
+    check("and so are the absolute and hard leaves", historyPaste.said + "|" + historyPaste.pasted,
+          "This listing is a history, and cannot take a paste.|false")
 
     // F5 and Ctrl+R re-list the folder they are on through the reload key.
     var f5 = key(Qt.Key_F5, "", none)

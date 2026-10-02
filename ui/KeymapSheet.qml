@@ -111,7 +111,7 @@ Item {
         }
         if (decided.kind === "menu" || decided.kind === "confirm") {
             root.close()
-            holder.menuActions.activate(decided.menuAction, true)
+            SheetQuery.runMenu(holder, decided.menuAction)
             return
         }
         if (decided.kind === "place") {

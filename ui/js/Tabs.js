@@ -301,7 +301,16 @@ function move(pane, from, to) {
         return
     var index = currentIndex(pane)
     items[index] = snapshot(pane, restingPath(pane))
-    pane.tabs = pack(items, TabMove.reorder(items, from, to, index))
+    var kept = pane.tabs || {}
+    var next = pack(items, TabMove.reorder(items, from, to, index))
+    // A reorder lists nothing, so it is safe mid-listing: the switch's pending
+    // restore rides through it instead of a { } or a tab drag during that
+    // listing dropping the restored tab's sort and cursor for good. Refusing
+    // while busy would lose the key press silently; carrying costs nothing.
+    next.pendingCursor = kept.pendingCursor === undefined ? -1 : kept.pendingCursor
+    next.pendingSortBy = kept.pendingSortBy || ""
+    next.pendingSortDesc = kept.pendingSortDesc === true
+    pane.tabs = next
 }
 
 // Tabs040 callout 1: the { and } keys move the current tab one place. A reorder
