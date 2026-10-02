@@ -10,6 +10,10 @@ function sentence(where, message, named) {
         if (denied(where, message)) {
             return named ? "Permission denied on " + named : "Permission denied"
         }
+        // A dead share names itself: stale, disconnected and silent each read differently.
+        if (shareStale(message)) return "That share changed, so this folder is no longer available."
+        if (shareGone(message)) return "That share is disconnected; remount it."
+        if (shareSilent(message)) return "That share is not responding."
         return named ? "That directory could not be read: " + named : "That directory could not be read."
     }
     if (where === "sort") {
@@ -25,6 +29,8 @@ function sentence(where, message, named) {
         return capitalised(message)
     }
     if (where === "rename") {
+        if (nameRefusal(message)) return capitalised(message)
+        if (readOnly(message)) return capitalised(message)
         return exists(message) ? "A file with that name is already here." : "That file could not be renamed."
     }
     // undo reverses a rename through the same call, so this sentence names no direction.
@@ -34,6 +40,8 @@ function sentence(where, message, named) {
     // Deliberately not the capitalised branch: every other mkdir refusal reaches the UI through
     // src/error.rs from_io, which passes std::io::Error::to_string straight through, errno and all.
     if (where === "mkdir") {
+        if (nameRefusal(message)) return capitalised(message)
+        if (readOnly(message)) return capitalised(message)
         return exists(message) ? "A folder or file with that name is already here."
                                : "That folder could not be created."
     }
@@ -46,9 +54,11 @@ function sentence(where, message, named) {
         return "Your saved settings could not be read, so these are the defaults."
     }
     if (where === "duplicate") {
+        if (readOnly(message)) return capitalised(message)
         return "That file could not be duplicated."
     }
     if (where === "trash") {
+        if (readOnly(message)) return capitalised(message)
         return "That could not be moved to Trash."
     }
     // The backend refused rows read from a listing it had already replaced, so nothing ran at all.
@@ -56,7 +66,7 @@ function sentence(where, message, named) {
         return "The listing changed before that arrived, so nothing was done."
     }
     if (where === "transfer" || where === "archive" || where === "convert"
-            || where === "link" || where === "linktarget") {
+            || where === "link" || where === "linktarget" || where === "rename-stranded") {
         return capitalised(message)
     }
     return "That action could not be completed; try again."
@@ -67,6 +77,19 @@ function sentence(where, message, named) {
 function exists(message) {
     var text = String(message).toLowerCase()
     return text.indexOf("file exists") >= 0 || text.indexOf("already exists") >= 0
+}
+
+// A read-only refusal carries its own sentence from src/error.rs, so the write branches keep it.
+function readOnly(message) {
+    return String(message).toLowerCase().indexOf("read-only") >= 0
+}
+
+// A per-filesystem name refusal carries its own sentence from src/backend/fsname.rs, so rename and mkdir keep it.
+function nameRefusal(message) {
+    var text = String(message)
+    return text.indexOf("is not allowed in a name") >= 0 || text.indexOf("is reserved on this") >= 0
+        || text.indexOf("cannot end in a dot") >= 0 || text.indexOf("cannot end in a space") >= 0
+        || text.indexOf("cannot hold control character") >= 0
 }
 
 // The backend already writes these as sentences; this only makes one read like one in the bar.
@@ -83,6 +106,20 @@ function capitalised(message) {
 // disagree about which failure this is.
 function denied(where, message) {
     return where === "scan" && String(message).toLowerCase().indexOf("permission denied") >= 0
+}
+
+// ESTALE, ENOTCONN and ETIMEDOUT each read differently; the backend's words are src/error.rs.
+function shareStale(message) {
+    var text = String(message).toLowerCase()
+    return text.indexOf("stale") >= 0 || text.indexOf("no longer available") >= 0
+}
+function shareGone(message) {
+    var text = String(message).toLowerCase()
+    return text.indexOf("not connected") >= 0
+}
+function shareSilent(message) {
+    var text = String(message).toLowerCase()
+    return text.indexOf("timed out") >= 0 || text.indexOf("timeout") >= 0
 }
 
 // Which state the listing area reaches when a listing fails. A denial is the canvas's Locked tile on

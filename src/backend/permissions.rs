@@ -188,6 +188,33 @@ pub fn apply_many(items: &[(PathBuf, String)]) -> Result<Vec<crate::backend::und
     Ok(steps)
 }
 
+// A filesystem with a fixed mask answers a mode change with success while keeping its mode, so a mismatch refuses with the filesystem named.
+fn verify_applied(path: &Path, requested: u32) -> Result<(), String> {
+    let after = path.symlink_metadata().map(|m| m.mode() & 0o777).map_err(|e| crate::error::io_message(&e))?;
+    if after == requested & 0o777 {
+        return Ok(());
+    }
+    Err(refusal_for(path))
+}
+
+// The mode comes from the held descriptor, so a path swapped after the syscall is not verified.
+fn verify_applied_fd(file: &File, path: &Path, requested: u32) -> Result<(), String> {
+    let after = file.metadata().map(|m| m.mode() & 0o777).map_err(|e| crate::error::io_message(&e))?;
+    if after == requested & 0o777 {
+        return Ok(());
+    }
+    Err(refusal_for(path))
+}
+
+// The filesystem name comes from the path, which names the drive and never the verified object.
+fn refusal_for(path: &Path) -> String {
+    let fs = crate::backend::fsinfo::read(path).map(|info| info.name).unwrap_or_default();
+    if fs.is_empty() {
+        return "This drive ignores permission changes, so nothing was changed.".into();
+    }
+    format!("This {fs} drive ignores permission changes, so nothing was changed.")
+}
+
 // One fchmod by name, after the caller proved the path is a file or folder;
 // symlinks are refused rather than followed.
 fn apply_mode_path(path: &Path, requested: u32) -> Result<(), String> {
@@ -197,7 +224,7 @@ fn apply_mode_path(path: &Path, requested: u32) -> Result<(), String> {
     }
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(requested))
         .map_err(|e| crate::error::io_message(&e))?;
-    Ok(())
+    verify_applied(path, requested)
 }
 
 impl Permissions {
@@ -316,6 +343,10 @@ impl Permissions {
                 crate::error::io_message(&std::io::Error::last_os_error())
             ));
         }
+        // The syscall answers success on a fixed-mask filesystem too, so a mismatch refuses here.
+        if let Err(refusal) = verify_applied_fd(&held.file, &held.path, requested) {
+            return Err(format!("Could not change mode: {refusal} No change was applied."));
+        }
         Ok(format!(
             r#"{{"t":"permissions","id":{},"op":"apply","ok":true,"mode":"{:04o}"}}"#,
             id, requested
@@ -327,6 +358,30 @@ impl Permissions {
 mod tests {
     use super::*;
     use crate::backend::testdir::TestDir;
+    #[test]
+    fn a_mode_the_filesystem_ignored_is_refused_with_the_filesystem_named() {
+        let d = TestDir::new("permissions-verify");
+        let path = d.file("item", "a");
+        std::fs::set_permissions(&path, Mode::from_mode(0o644)).unwrap();
+        assert!(verify_applied(&path, 0o644).is_ok(), "a mode that landed verifies");
+        let err = verify_applied(&path, 0o600).expect_err("a mode that never landed must refuse");
+        assert!(err.contains("ignores permission changes"), "the refusal names the cause: {err}");
+        let fs = crate::backend::fsinfo::read(&path).map(|i| i.name).unwrap_or_default();
+        assert!(!fs.is_empty(), "the fixture sits on a named filesystem");
+        assert!(err.contains(&fs), "the refusal names the filesystem: {err}");
+    }
+    // Sample input: fd opened on a 0600 file, path naming a 0644 file elsewhere.
+    #[test]
+    fn a_verify_reads_the_mode_from_its_descriptor_not_its_path() {
+        let d = TestDir::new("permissions-fd-verify");
+        let held_path = d.file("held", "a");
+        let other = d.file("other", "b");
+        std::fs::set_permissions(&held_path, Mode::from_mode(0o600)).unwrap();
+        std::fs::set_permissions(&other, Mode::from_mode(0o644)).unwrap();
+        let file = OpenOptions::new().read(true).custom_flags(O_NOFOLLOW | O_PATH).open(&held_path).unwrap();
+        assert!(verify_applied_fd(&file, &other, 0o600).is_ok(), "the descriptor's mode verifies against another path's name");
+        assert!(verify_applied(&other, 0o600).is_err(), "the path read sees the other's mode and refuses");
+    }
     #[test]
     fn inspect_failures_report_plain_causes() {
         let d = TestDir::new("permissions-plain-error");

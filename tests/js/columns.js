@@ -554,6 +554,31 @@ function runColumnMenu(check) {
     onFailed(deadBackend.pane, deadBackend.root, "backend", "", "child is gone", 0)
     check("a dead backend drops both intents at once", deadBackend.pane.pendingBackground, "")
     check("with the row one beside it", deadBackend.pane.pendingMenu, false)
+    // A stranded twin with a matching request closes it, and an undo-shaped one with none re-reads the listing.
+    function strandedDoubles(request) {
+        var p = {path: "/a", listingPath: "/a", listInFlight: false, listedSeen: false,
+            pendingMenu: false, pendingBackground: "", pendingBackgroundAt: null,
+            total: 0, held: 0, rows: [], kindNames: [], cursorIndex: 0, renamingIndex: 2,
+            renameRequest: request, renamePending: false, renameKeepsPointerRow: false, renameError: "",
+            transfer: {id: 0}, searchMode: "", clipPending: null, pathsPending: null,
+            listingState: "ready", stateMessage: "", lockedMode: 0, said: [], refreshed: []}
+        p.message = function (t) { p.said.push(t) }
+        p.refresh = function (sel) { p.refreshed.push(sel) }
+        p.renameEditor = function () { return null }
+        p.swap = {drop: function () {}}
+        p.backend = {heldListing: 0}
+        var r = {renameOnArrival: "", stale: false, anchor: null, retryId: 0, retryPaths: [],
+            retryFolder: "", retryListing: "", retrySelectionText: "", renamed: []}
+        r.refreshRename = function (req, sel) { r.renamed.push(sel) }
+        return {pane: p, root: r}
+    }
+    var strandedTwin = strandedDoubles({source: "/a/old.txt", destination: "/a/new.txt"})
+    onFailed(strandedTwin.pane, strandedTwin.root, "rename-stranded", "/a/old.txt", "input/output failed", 0)
+    check("a stranded rename closes its request", strandedTwin.pane.renameRequest, null)
+    check("a stranded rename ends the edit selecting nothing", strandedTwin.root.renamed.length === 1 && strandedTwin.root.renamed[0] === "", true)
+    var strandedUndo = strandedDoubles(null)
+    onFailed(strandedUndo.pane, strandedUndo.root, "rename-stranded", "/a/old.txt", "input/output failed", 0)
+    check("an undo-shaped stranded failure re-reads the listing selecting nothing", strandedUndo.pane.refreshed.length === 1 && strandedUndo.pane.refreshed[0] === "", true)
     function bgListing() {
         var p = {listInFlight: false, path: "/a", listingPath: "", pendingBackground: "", pendingBackgroundAt: null,
             searchMode: "", filterQuery: "", filterTyping: false, listingState: "ready", stateMessage: "", lockedMode: 0,

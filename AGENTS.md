@@ -2270,7 +2270,7 @@ and its tests moved to the module that already owned classifying which rename fa
 Both sides re-derived with `wc -l` on the files after that split and its review rounds:
 `src/backend/ops.rs` was 305 and `src/backend/renamecompat.rs` was 382, so both were under the 400
 hard cap and both over the 250 soft budget, which `tools/flea-file-budget` warns about and does not
-fail on.
+fail on. `src/backend/ops.rs` later crossed the hard cap and is recorded in `tools/flea-file-budget` at 444.
 
 `src/backend/renamecompat.rs` split to `src/backend/mountinfo.rs` at 396: a review round needed one
 more test and the file had four lines left under the hard cap, so `mount_type_in`, the two helpers
@@ -5299,9 +5299,7 @@ inline on the loop's thread. That is an unbounded network transfer in the one pl
 run. A 40 GB rclone folder is downloaded and re-uploaded through FUSE with no progress, because the
 copy's byte sink is discarded, and with no way to cancel, because its flag is a fresh `AtomicBool`
 nothing can set; the loop is the only writer of stdout, so the application is frozen rather than
-slow for the whole transfer. The copied tree also lands with new modification times, since the crate
-has no dependencies and the copy sets none, so a Date Modified column or sort shows when the copy
-ran rather than the file's own history. **The alternative to this freeze is not data loss, and any
+slow for the whole transfer. The copied tree carries the source mtime best effort, so a Date Modified column or sort still shows the file's own history. **The alternative to this freeze is not data loss, and any
 sentence saying it is has been wrong.** `duplicate` and `transfer` already spawn and report through
 `Event::Op`, and `rename` could do the same while still building its target through the exclusive
 copy primitives: spawning the copy and refusing to replace a raced destination are independent
@@ -5326,7 +5324,9 @@ there. Four triggers send only `rename` and its undo down one compatibility path
 rclone 1.75 returns `EINVAL` for `RENAME_NOREPLACE` on a directory under a mount identified exactly
 as `fuse.rclone` in `/proc/self/mountinfo`, and GVFS returns `EIO` for a rename under a
 `/run/user/*/gvfs/dav:` WebDAV mount; `fuse.megafs` answers `EINVAL` the same way, and a rename or
-its undo that crosses filesystems answers `EXDEV`. Ordinary rclone directory rename is never used because it was
+its undo that crosses filesystems answers `EXDEV`.
+corner: the lstat-then-rename window can replace a destination created in between; copy-fallback mounts never reach it because rename_noreplace keeps their EINVAL.
+Ordinary rclone directory rename is never used because it was
 proven to replace even a non-empty target. `renamecompat::rename_path` instead builds the target
 through the existing exclusive copy primitives, removes the source only after the copy completes,
 and uses the same path for undo. On a durable destination (a dav share classifies network) the copy's
@@ -5368,6 +5368,7 @@ the same kind, so the sentence names no direction, warns that the name the copy 
 incomplete, and leaves the refreshed listing to show which names are on disk. The journal spends its
 entry either way, because a failed reversal that stayed would block every older undo behind a step
 that keeps failing.
+A twin stranded by a failed move-back answers `rename-stranded` rather than `rename-kept`: the temp sibling holds the file under a hidden dot name, so `path` is the source, which closes the rename request, and `msg` names the temp leaf with the move-back cause ("the file was left as .flea-case-N-M in this folder: input/output failed"). `ui/js/Errors.js` capitalises it as it does a transfer, `ui/PaneWire.qml` treats it as `rename-kept` for the refresh, and a move through move_any (copyfile.rs:607) carries the same `msg`, on a `redo` error for a redo and on the transfer item error for a non-regular item.
 corner: the copy is not snapshot-isolated, so a source replaced after the copy completes is destroyed
 by the removal that follows, and a concurrent write into the operation-created partial target is lost
 with it; both are accepted rather than defended against.

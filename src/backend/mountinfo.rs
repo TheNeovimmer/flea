@@ -44,6 +44,29 @@ pub(crate) fn mount_entry_in(path: &Path, body: &str) -> Option<MountEntry> {
     best.map(|(_, entry)| entry)
 }
 
+// The super options of the deepest mount owning path, so a caller can read windows_names off ntfs3.
+pub(crate) fn mount_options_in(path: &Path, body: &str) -> Option<String> {
+    let mut best: Option<(usize, String)> = None;
+    for line in body.lines() {
+        let Some((mount, _, _, _)) = parse_line(line) else { continue };
+        if !path.starts_with(&mount) {
+            continue;
+        }
+        let depth = mount.components().count();
+        if best.as_ref().map(|(old, _)| depth >= *old).unwrap_or(true) {
+            best = Some((depth, super_options(line)));
+        }
+    }
+    best.map(|(_, opts)| opts)
+}
+
+// Sample line as above: the fields after the source are the filesystem's super options.
+fn super_options(line: &str) -> String {
+    let fields: Vec<&str> = line.split_whitespace().collect();
+    let Some(split) = fields.iter().position(|field| *field == "-") else { return String::new() };
+    fields.iter().skip(split + 3).copied().collect::<Vec<_>>().join(" ")
+}
+
 // Every mount point and its filesystem type, in file order, read once for a caller that asks about many paths.
 pub(crate) fn mounts_in(body: &str) -> Vec<(PathBuf, String)> {
     body.lines().filter_map(parse_line).map(|(mount, fstype, _, _)| (mount, fstype)).collect()

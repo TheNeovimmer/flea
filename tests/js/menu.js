@@ -122,6 +122,22 @@ function run(check) {
         pasteLeaves.map(function (r) { return r.id }).join(","), "pasteLink,pasteAbsoluteLink,pasteHardLink")
     check("and Link shares Paste's mark rather than repeating it",
         pasteLeaves.map(function (r) { return r.glyph }).join(","), "symlink,symlink,copy")
+    check("a linkless filesystem offers no Paste as rows at all",
+        entry(Menu.listingEntries(state({ hiddenActions: [], clipboardAvailable: true, canLink: false })), "pasteAs").action, undefined)
+    check("a read-only folder turns its background write rows off",
+        ["newFolder", "newFile", "paste"].map(function (a) {
+            return entry(Menu.listingEntries(state({ hasRow: false, hiddenActions: [], clipboardAvailable: true, dirWritable: false })), a).disabled
+        }).join(","), "true,true,true")
+    check("and its row write rows too",
+        ["duplicate", "rename", "trash"].map(function (a) {
+            return entry(Menu.listingEntries(state({ hiddenActions: [], dirWritable: false })), a).disabled
+        }).join(","), "true,true,true")
+    check("while a writable folder leaves them enabled",
+        ["newFolder", "duplicate", "trash"].map(function (a) {
+            var rows = a === "newFolder" ? Menu.listingEntries(state({ hasRow: false, hiddenActions: [], dirWritable: true }))
+                                         : Menu.listingEntries(state({ hiddenActions: [], dirWritable: true }))
+            return entry(rows, a).disabled === true
+        }).join(","), "false,false,false")
     check("Show original is absent except on a symlink",
         entry(Menu.listingEntries(state({ hiddenActions: [] })), "showOriginal").action, undefined)
     check("and present on one",

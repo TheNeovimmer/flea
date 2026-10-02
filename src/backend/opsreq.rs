@@ -96,6 +96,16 @@ pub fn transferitem_line(id: usize, index: usize, name: &str, ok: bool, err: &st
     )
 }
 
+// Sample input: join_link_note(2, "") answers "2 links skipped"; join_link_note(1, "x") joins with " · ".
+fn join_link_note(links: usize, durable: &str) -> String {
+    let links = if links == 0 { String::new() } else if links == 1 { "1 link skipped".to_string() } else { format!("{links} links skipped") };
+    match (links.is_empty(), durable.is_empty()) {
+        (true, _) => durable.to_string(),
+        (false, true) => links,
+        (false, false) => format!("{links} · {durable}"),
+    }
+}
+
 pub fn transferdone_line(id: usize, ok: usize, failed: usize, skipped: usize, cancelled: bool,
                          retry: &[(PathBuf, ItemIdentity)], durable: bool, note: &str) -> String {
     let paths: Vec<_> = retry.iter().map(|(path, _)| format!("\"{}\"", escape(&path.to_string_lossy()))).collect();
@@ -253,6 +263,8 @@ pub(crate) fn run_transfer_checked(
     let mut steps: Vec<Step> = Vec::new();
     let mut retry = Vec::new();
     let (mut ok, mut failed, mut skipped) = (0usize, 0usize, 0usize);
+    // Skipped links are links, not items, so they ride the note and never the item tally.
+    let mut skipped_links = 0usize;
     let mut was_cancelled = false;
     // Resolved once: a destination reached through a symlinked directory names the same inode under
     // another string, and the per-item guards below compare against this rather than the raw path.
@@ -399,6 +411,8 @@ pub(crate) fn run_transfer_checked(
                 let _ = tx.send(OpMsg::Item { id, index, name, ok: false, err: e.msg });
             }
         }
+        // Links a folder copy skipped on a linkless filesystem ride the note as links.
+        skipped_links += crate::backend::copyfile::take_skipped_links();
     }
     // The end closes whatever the loop left staged; a cancel on the way out completes it as cancelled.
     if !batch.is_empty() {
@@ -420,7 +434,8 @@ pub(crate) fn run_transfer_checked(
     }
     let entry = Entry { op: if moving { "move".to_string() } else { "copy".to_string() }, steps };
     let finished = crate::backend::durable::finish(id, &tx, &mut durability, &dest, ok);
-    let _ = tx.send(OpMsg::TransferDone { id, ok, failed, skipped, cancelled: was_cancelled, entry, retry, durable: finished.ok, note: finished.note });
+    let note = join_link_note(skipped_links, &finished.note);
+    let _ = tx.send(OpMsg::TransferDone { id, ok, failed, skipped, cancelled: was_cancelled, entry, retry, durable: finished.ok, note });
 }
 
 // A directory reports the bytes its tree has copied so far and no total, see copyfile.rs Progress.
@@ -455,7 +470,7 @@ fn one_item(
             scanned: settled.load(Ordering::Relaxed),
         });
     };
-    let mut p = Progress { cancel, on_bytes: &mut sink, partial: None, tree: None, manifest: if moving { super::copymanifest::writer_for_move(src, dst) } else { super::copymanifest::writer_for(src, dst) }, durability: Some(durability) };
+    let mut p = Progress { cancel, on_bytes: &mut sink, partial: None, tree: None, manifest: if moving { super::copymanifest::writer_for_move(src, dst) } else { super::copymanifest::writer_for(src, dst) }, durability: Some(durability), for_move: moving };
     let mut outcome = if moving { move_any(src, dst, &mut p) } else { copy_any(src, dst, &mut p) };
     match &outcome {
         Ok(()) if moving => steps.push(undo::moved(src, dst, source)?),

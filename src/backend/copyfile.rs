@@ -10,6 +10,10 @@ const CHUNK: usize = 256 * 1024;
 pub(crate) const CONFIRM_BYTES: u64 = 8 * 1024 * 1024;
 // 1 MiB starts the ramp, so the first confirmed report lands after 1 MiB rather than 16 MiB.
 pub(crate) const FIRST_CONFIRM_BYTES: u64 = 1024 * 1024;
+// Linux statfs magic for vfat, whose files hold at most 4 GiB minus one byte; see linux/magic.h.
+const VFAT_MAGIC: i64 = 0x4D44;
+// A file of 4 GiB or more never starts onto vfat.
+const FOUR_GIB: u64 = 4 * 1024 * 1024 * 1024;
 // rename(2) sets EXDEV when the two paths are on different filesystems, which is the one failure that means "copy instead".
 const EXDEV: i32 = 18;
 use crate::oflags::{O_DIRECTORY, O_NOFOLLOW};
@@ -30,6 +34,8 @@ pub struct Progress<'a> {
     pub manifest: Option<super::copymanifest::Writer>,
     // Some while the destination needs its bytes confirmed: transfer, duplicate and redo each make one for theirs.
     pub durability: Option<&'a mut super::durable::Durability>,
+    // True when the copy is a move's first half, so a skipped link fails instead of counting.
+    pub for_move: bool,
 }
 
 pub fn cancelled(p: &Progress) -> bool {
@@ -75,10 +81,14 @@ fn copy_file_at(src: At, dst: At, total: u64, p: &mut Progress) -> Result<(), Fl
     // O_NOFOLLOW refuses a symlink, and regfile's non-blocking open and fstat refuse every other kind.
     let (mut r, src_meta) = crate::backend::regfile::open_if_regular_with_meta(src.at, O_NOFOLLOW)
         .map_err(|e| from_io("copy", &src.named.to_string_lossy(), &e))?;
+    // A file the destination cannot hold is refused before a byte is written, so EFBIG never leaves a partial.
+    if let Some(refusal) = precheck(dst.named, src_meta.len()) {
+        return Err(copy_err(dst.named, &refusal));
+    }
     // Issue 109: a create takes the umask, so a 0600 source landed 0644 and the copy published what
     // the original kept private. The source's own bits are carried by the create itself, so there is
     // no window where the bytes are on disk under a wider mode, narrowed by the umask and never widened.
-    let mode = keep_mode(src_meta.permissions().mode());
+    let mode = mode_for_source(crate::backend::fsinfo::magic_of(src.at), src_meta.permissions().mode(), false);
     let mut w = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -163,6 +173,8 @@ fn copy_file_at(src: At, dst: At, total: u64, p: &mut Progress) -> Result<(), Fl
     if let Err(e) = w.flush() {
         return Err(left_half_written(p, dst, &w, from_io("copy", &dst.named.to_string_lossy(), &e)));
     }
+    // The copy carries the source mtime, best effort, so a copied tree still sorts by its own history.
+    keep_mtime(&w, &src_meta);
     if durable {
         // A batch_syncfs stick confirms 64 files with one syncfs, so a small file skips its own fsync.
         if p.durability.as_ref().is_some_and(|d| d.batch_syncfs) {
@@ -215,10 +227,122 @@ fn copy_file_at(src: At, dst: At, total: u64, p: &mut Progress) -> Result<(), Fl
     Ok(())
 }
 
+// A file the destination cannot hold is refused before a byte is written, so EFBIG never leaves a partial file.
+fn precheck(dst: &Path, size: u64) -> Option<String> {
+    #[cfg(test)]
+    if let Some((free, blocks, magic)) = TEST_PRECHECK.with(|v| *v.borrow()) {
+        return refuse_for_size(magic, free, blocks, size);
+    }
+    let parent = dst.parent().unwrap_or(dst);
+    let (info, magic) = crate::backend::fsinfo::read_with_magic(parent);
+    let (free, blocks) = info.map(|i| (i.free, i.blocks)).unwrap_or((u64::MAX, 1));
+    refuse_for_size(magic, free, blocks, size)
+}
+
+// Sample input: test_set_precheck(Some(0), Some(0), None) makes the next precheck see unknown room.
+#[cfg(test)]
+thread_local! {
+    static TEST_PRECHECK: std::cell::RefCell<Option<(u64, u64, Option<i64>)>> = const { std::cell::RefCell::new(None) };
+}
+
+// A test injects the free figure precheck sees, so copy_any reaches the room refusal with no mount.
+#[cfg(test)]
+pub fn test_set_precheck(free: Option<u64>, blocks: Option<u64>, magic: Option<i64>) {
+    TEST_PRECHECK.with(|v| *v.borrow_mut() = free.map(|f| (f, blocks.unwrap_or(1), magic)));
+}
+
+// Sample input: (Some(0x4D44), free, 1, 4 GiB) refuses, (Some(ext4), free, 1, 4 GiB) passes.
+fn refuse_for_size(magic: Option<i64>, free: u64, blocks: u64, size: u64) -> Option<String> {
+    if magic == Some(VFAT_MAGIC) && size >= FOUR_GIB {
+        return Some("files of 4 GiB or more do not fit on a vfat drive".to_string());
+    }
+    // A zero-block statfs reports unknown room, so a gvfs mount that omits free never refuses.
+    if blocks == 0 {
+        return None;
+    }
+    if size > free {
+        return Some(format!("the drive holds {free} bytes free but the file needs {size}"));
+    }
+    None
+}
+
+fn copy_err(path: &Path, msg: &str) -> FleaError {
+    FleaError { where_: "copy".to_string(), path: path.to_string_lossy().to_string(), msg: msg.to_string() }
+}
+
+// A symlink onto a filesystem that holds no links is skipped with a count, never fatal to the folder around it.
+const EPERM: i32 = 1;
+const EXFAT_MAGIC: i64 = 0x2011BAB0;
+const LINKSKIP: &str = "linkskip";
+
+fn is_linkless_fs(magic: Option<i64>) -> bool {
+    #[cfg(test)]
+    if FORCE_LINKLESS.with(|f| f.get()) {
+        return true;
+    }
+    magic == Some(VFAT_MAGIC) || magic == Some(EXFAT_MAGIC)
+}
+
+thread_local! {
+    static SKIPPED_LINKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+// Sample input: test_force_linkless(true) makes the next folder copy skip links on any filesystem.
+#[cfg(test)]
+thread_local! {
+    static FORCE_LINKLESS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+// A test makes symlink() answer EPERM on any filesystem, so a linkless destination needs no mount.
+#[cfg(test)]
+pub fn test_force_linkless(force: bool) {
+    FORCE_LINKLESS.with(|f| f.set(force));
+}
+
+fn note_skipped_link() {
+    SKIPPED_LINKS.with(|n| n.set(n.get() + 1));
+}
+
+// The skipped-link count since the last take, so a transfer reports what its folder copies skipped.
+pub fn take_skipped_links() -> usize {
+    SKIPPED_LINKS.with(|n| n.replace(0))
+}
+
 // The permission bits a copy carries: the source's own, minus anything the umask withholds, and never
 // setuid, setgid or the sticky bit, which belong to the file somebody installed and not to its copy.
 pub fn keep_mode(mode: u32) -> u32 {
     mode & 0o777 & !umask()
+}
+
+// A source filesystem with no real modes lends none, so a copy takes the umask default instead of publishing exec bits.
+fn mode_for_source(magic: Option<i64>, mode: u32, is_dir: bool) -> u32 {
+    const EXFAT: i64 = 0x2011BAB0;
+    const NTFS: i64 = 0x5346544E;
+    const NTFS3: i64 = 0x7366746e;
+    match magic {
+        Some(VFAT_MAGIC) | Some(EXFAT) | Some(NTFS) | Some(NTFS3) => {
+            if is_dir {
+                0o777 & !umask()
+            } else {
+                0o666 & !umask()
+            }
+        }
+        _ => keep_mode(mode),
+    }
+}
+
+// One mtime set for the mtime a copy carries, best effort, so a refusing filesystem keeps today's time rather than failing.
+fn keep_mtime(w: &std::fs::File, src_meta: &std::fs::Metadata) {
+    use std::os::unix::fs::MetadataExt;
+    use std::time::{Duration, UNIX_EPOCH};
+    let time = if src_meta.mtime() >= 0 {
+        UNIX_EPOCH.checked_add(Duration::new(src_meta.mtime() as u64, src_meta.mtime_nsec() as u32))
+    } else {
+        UNIX_EPOCH.checked_sub(Duration::new(src_meta.mtime().unsigned_abs(), 0))
+    };
+    if let Some(time) = time {
+        let _ = w.set_modified(time);
+    }
 }
 
 // Sample input, one line of /proc/self/status: "Umask:	0022". Read once, because a copy asks per file
@@ -261,9 +385,27 @@ fn record_open(p: &mut Progress, named: &Path, w: &std::fs::File) {
 }
 
 // A symlink is copied as a symlink and never followed, matching cp -a and every rival in the parity audit.
+fn symlink_one(target: &Path, dst: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    if FORCE_LINKLESS.with(|f| f.get()) {
+        return Err(std::io::Error::from_raw_os_error(EPERM));
+    }
+    std::os::unix::fs::symlink(target, dst)
+}
+
+// A symlink is copied as a symlink and never followed, matching cp -a and every rival in the parity audit.
 fn copy_symlink_at(src: At, dst: At, p: &mut Progress) -> Result<(), FleaError> {
     let target = std::fs::read_link(src.at).map_err(|e| from_io("copy", &src.named.to_string_lossy(), &e))?;
-    std::os::unix::fs::symlink(&target, dst.at).map_err(|e| from_io("copy", &dst.named.to_string_lossy(), &e))?;
+    symlink_one(&target, dst.at).map_err(|e| {
+        if e.raw_os_error() == Some(EPERM) {
+            let parent = dst.named.parent().unwrap_or(dst.named);
+            if is_linkless_fs(crate::backend::fsinfo::magic_of(parent)) {
+                return FleaError { where_: LINKSKIP.to_string(), path: dst.named.to_string_lossy().to_string(),
+                    msg: "this drive cannot hold links".to_string() };
+            }
+        }
+        from_io("copy", &dst.named.to_string_lossy(), &e)
+    })?;
     if let Some(writer) = p.manifest.as_mut() {
         writer.record_stat(dst.at, dst.named);
     }
@@ -314,7 +456,8 @@ fn copy_dir_at(src: At, dst: At, p: &mut Progress) -> Result<(), FleaError> {
     // Issue 109 again, one level up: a 0700 directory landed 0755 and its contents were readable by
     // anyone while the copy ran. It is created with nothing the source does not grant and with the
     // owner's own three bits, which this run needs to write into it, and takes its exact mode at the end.
-    let keep = from.metadata().ok().map(|m| keep_mode(m.permissions().mode()));
+    let source_magic = crate::backend::fsinfo::magic_of(src.at);
+    let keep = from.metadata().ok().map(|m| mode_for_source(source_magic, m.permissions().mode(), true));
     std::fs::DirBuilder::new().mode(keep.unwrap_or(0o700) | 0o700).create(dst.at)
         .map_err(|e| from_io("copy", &dst.named.to_string_lossy(), &e))?;
     let into = open_dir(dst.at).map_err(|e| from_io("copy", &dst.named.to_string_lossy(), &e))?;
@@ -360,6 +503,10 @@ fn copy_dir_at(src: At, dst: At, p: &mut Progress) -> Result<(), FleaError> {
     if let Some(mode) = keep {
         let _ = std::fs::set_permissions(&into_held, std::fs::Permissions::from_mode(mode));
     }
+    // The directory carries the source mtime too, after its children landed inside it.
+    if let Ok(meta) = from.metadata() {
+        keep_mtime(&into, &meta);
+    }
     touch(p, dst.named);
     if let Some(parent) = dst.named.parent() {
         touch(p, parent);
@@ -377,21 +524,33 @@ fn copy_dir_entries(src: At, dst: At, p: &mut Progress) -> Result<(), FleaError>
         let name = entry.file_name();
         let (from_at, from_named) = (src.at.join(&name), src.named.join(&name));
         let (into_at, into_named) = (dst.at.join(&name), dst.named.join(&name));
-        // d_type is free, and copy_file_at's O_NOFOLLOW open plus fstat refuse a swap as copy_at's lstat did.
-        if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+        // A linkskip is counted and the walk goes on, so one symlink cannot fail a folder copy.
+        let outcome = if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
             // The total is unused inside a tree: p.tree is Some here.
             copy_file_at(
                 At { at: &from_at, named: &from_named },
                 At { at: &into_at, named: &into_named },
                 0,
                 p,
-            )?;
+            )
         } else {
             copy_at(
                 At { at: &from_at, named: &from_named },
                 At { at: &into_at, named: &into_named },
                 p,
-            )?;
+            )
+        };
+        match outcome {
+            Err(e) if e.where_ == LINKSKIP => {
+                // A move's first half keeps its source, so a skipped link fails the item instead of counting.
+                if p.for_move {
+                    return Err(e);
+                }
+                note_skipped_link();
+                continue;
+            }
+            Err(e) => return Err(e),
+            Ok(()) => {}
         }
     }
     Ok(())
@@ -443,6 +602,17 @@ fn open_dir(path: &Path) -> std::io::Result<std::fs::File> {
 
 // Same filesystem is a rename; a different one is copy-then-remove, and the source only goes once the copy is complete.
 pub fn move_any(src: &Path, dst: &Path, p: &mut Progress) -> Result<(), FleaError> {
+    // A case twin reverses through the temp sibling, so redo shares the path the rename took.
+    if crate::backend::renamecompat::is_same_item_for_move(src, dst) {
+        crate::backend::renamecompat::case_twin_move(src, dst)?;
+        if let Some(parent) = dst.parent() {
+            touch(p, parent);
+        }
+        if let Some(parent) = src.parent() {
+            touch(p, parent);
+        }
+        return Ok(());
+    }
     match crate::backend::renamecompat::rename_noreplace(src, dst) {
         Ok(()) => {
             // One rename rewrote two directory entries, so both folders are confirmed.
