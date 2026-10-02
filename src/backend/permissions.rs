@@ -4,6 +4,8 @@ use crate::oflags::O_NOFOLLOW;
 #[cfg(test)]
 use std::fs::Permissions as Mode;
 use std::fs::{File, Metadata, OpenOptions};
+#[cfg(test)]
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -240,7 +242,7 @@ pub(crate) fn chmod_pinned(path: &Path, dev: u64, ino: u64, born: Option<(u64, u
     if current.dev() != dev || current.ino() != ino {
         return Err("the item was replaced, so its mode was left in place.".into());
     }
-    if current.mode() & 0o777 != expected {
+    if current.mode() & 0o7777 != expected {
         return Err("the mode changed since, so it was left in place.".into());
     }
     if let (Some(was), Some(now)) = (born, born_of(&current)) {
@@ -255,7 +257,7 @@ pub(crate) fn chmod_pinned(path: &Path, dev: u64, ino: u64, born: Option<(u64, u
     if meta.dev() != dev || meta.ino() != ino {
         return Err("the item was replaced, so its mode was left in place.".into());
     }
-    if meta.mode() & 0o777 != expected {
+    if meta.mode() & 0o7777 != expected {
         return Err("the mode changed since, so it was left in place.".into());
     }
     if let (Some(was), Some(now)) = (born, born_of(&meta)) {
@@ -687,6 +689,21 @@ mod tests {
         assert_eq!(std::fs::metadata(&a).unwrap().mode() & 0o777, 0o600,
             "undo widened a file it never changed");
         drop(held);
+    }
+    #[test]
+    fn undo_refuses_a_mode_with_special_bits_added_since() {
+        let d = TestDir::new("permissions-setuid");
+        let a = d.file("a.txt", "old");
+        std::fs::set_permissions(&a, Mode::from_mode(0o644)).unwrap();
+        let steps = apply_many(&[(a.clone(), "600".to_string())]).expect("one ordinary file");
+        assert_eq!(a.metadata().unwrap().mode() & 0o777, 0o600);
+        std::fs::set_permissions(&a, Mode::from_mode(0o4600)).unwrap();
+        let mut journal = crate::backend::undo::Journal::new();
+        journal.push(crate::backend::undo::Entry { op: "permissions".to_string(), steps });
+        let err = journal.undo().expect_err("a setuid added since keeps nothing to restore to");
+        assert!(err.msg.contains("left in place"), "{}", err.msg);
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(std::fs::metadata(&a).unwrap().mode() & 0o7777, 0o4600, "undo cleared a setuid it never set");
     }
     #[test]
     fn undo_restores_the_rest_when_one_of_several_was_replaced() {

@@ -1,10 +1,8 @@
-// Paste as links: one link per source inside the destination, created
-// exclusively and journaled so undo removes them.
+// Paste as links: one exclusive link per source, journaled for undo.
 use crate::error::{from_io, FleaError};
 use std::path::{Component, Path, PathBuf};
 
-// The three Paste as leaves; the journal records which one made a link so
-// redo recreates the same kind rather than guessing from the bytes.
+// The Paste as leaf kind, journaled so redo recreates it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LinkKind {
     Relative,
@@ -48,15 +46,19 @@ fn dest_dir_of(file: &Path) -> &Path {
 }
 
 pub fn create_relative(source: &Path, dest_file: &Path) -> Result<(), FleaError> {
-    // The kernel resolves `..` from the real folder, so a relative target
-    // computed from the pane path as written dangles under a symlinked
-    // folder; compute it between the canonical source and the canonical
-    // destination folder, falling back to the absolute canonical source.
-    let canonical_src = source.canonicalize()
+    // Both folders are canonicalized but never the source leaf, so a symlink source stays the item named.
+    source.symlink_metadata()
         .map_err(|e| from_io("link", &source.to_string_lossy(), &e))?;
+    let base = match source.parent().filter(|p| !p.as_os_str().is_empty()) {
+        Some(parent) => match parent.canonicalize() {
+            Ok(dir) => dir.join(source.file_name().unwrap_or_default()),
+            Err(_) => source.to_path_buf(),
+        },
+        None => source.to_path_buf(),
+    };
     let target = match dest_dir_of(dest_file).canonicalize() {
-        Ok(canonical_dest) => relative_target(&canonical_dest, &canonical_src),
-        Err(_) => canonical_src.clone(),
+        Ok(canonical_dest) => relative_target(&canonical_dest, &base),
+        Err(_) => base.clone(),
     };
     std::os::unix::fs::symlink(&target, dest_file)
         .map_err(|e| link_err(dest_file, &e))
@@ -67,8 +69,7 @@ pub fn create_absolute(source: &Path, dest_file: &Path) -> Result<(), FleaError>
         .map_err(|e| link_err(dest_file, &e))
 }
 
-// A hard link to a directory is refused before the syscall, which would fail
-// anyway: the sentence names the refusal rather than the OS errno.
+// Refused before the syscall so the sentence names the refusal, not the errno.
 pub fn create_hard(source: &Path, dest_file: &Path) -> Result<(), FleaError> {
     if source.symlink_metadata().map(|m| m.is_dir()).unwrap_or(false) {
         return Err(FleaError {
@@ -79,14 +80,13 @@ pub fn create_hard(source: &Path, dest_file: &Path) -> Result<(), FleaError> {
     }
     std::fs::hard_link(source, dest_file).map_err(|e| {
         if e.raw_os_error() == Some(libc_exdev()) {
+            let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+            let from = super::mountinfo::mount_type_in(source, &body).unwrap_or_else(|| "unknown".to_string());
+            let to = super::mountinfo::mount_type_in(dest_dir_of(dest_file), &body).unwrap_or_else(|| "unknown".to_string());
             FleaError {
                 where_: "link".to_string(),
                 path: dest_file.to_string_lossy().to_string(),
-                msg: format!(
-                    "cannot hard link across filesystems ({} to {})",
-                    fs_name(source),
-                    fs_name(dest_dir_of(dest_file))
-                ),
+                msg: format!("cannot hard link across filesystems ({} to {})", from, to),
             }
         } else {
             link_err(dest_file, &e)
@@ -218,6 +218,34 @@ mod tests {
         create_relative(&src, &at).expect("a fresh name links");
         assert_eq!(std::fs::read_to_string(&at).unwrap(), "a",
             "reported ok but the link dangles: {:?}", std::fs::read_link(&at));
+    }
+
+    #[test]
+    fn a_relative_link_to_a_symlink_names_the_symlink() {
+        let d = TestDir::new("link-rel-symleaf");
+        d.dir("src");
+        let target = d.file("src/v2.txt", "two");
+        let leaf = d.join("src/current.txt");
+        std::os::unix::fs::symlink(&target, &leaf).unwrap();
+        let dest = d.dir("dest");
+        let at = dest_path(&dest, &leaf).unwrap();
+        create_relative(&leaf, &at).expect("a fresh name links");
+        let text = std::fs::read_link(&at).unwrap();
+        assert!(text.to_string_lossy().ends_with("current.txt"), "link text followed the leaf: {:?}", text);
+        assert_eq!(std::fs::read_to_string(&at).unwrap(), "two");
+    }
+
+    #[test]
+    fn a_relative_link_to_a_dangling_symlink_still_links() {
+        let d = TestDir::new("link-rel-dangle");
+        d.dir("src");
+        let leaf = d.join("src/gone-target.txt");
+        std::os::unix::fs::symlink("no-such.txt", &leaf).unwrap();
+        let dest = d.dir("dest");
+        let at = dest_path(&dest, &leaf).unwrap();
+        create_relative(&leaf, &at).expect("a dangling leaf still links");
+        let text = std::fs::read_link(&at).unwrap();
+        assert!(text.to_string_lossy().ends_with("gone-target.txt"), "link text lost the leaf: {:?}", text);
     }
 
     #[test]

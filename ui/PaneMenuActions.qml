@@ -89,7 +89,7 @@ Loader {
         // folder, the same path Show in folder uses.
         if (action === "showOriginal") {
             var taken = root.targets(paths)
-            if (taken.length > 0) root.pane.backend.send({ c: "linktarget", path: taken[0] })
+            if (taken.length > 0) root.pane.requestLinkTarget(taken[0])
             return
         }
         // MenuAdditions040: Paste as links, undoable, through the collision card.

@@ -50,14 +50,10 @@ impl ItemIdentity {
 pub enum Step {
     // A rename or a move: the entry now lives at `to` and came from `from`.
     Moved { from: PathBuf, to: PathBuf, before: ItemIdentity, after: ItemIdentity },
-    // This operation created `path`, so reversing it removes that path; never a path the operation only read.
-    // Undo removes what an op created; nothing in the product writes this step yet, and the tests
-    // that drive undo's own ladder are what construct it.
+    // This operation created `path`, so reversing it removes that path.
     #[cfg_attr(not(test), allow(dead_code))]
     Created { path: PathBuf },
-    // Paste as made `path` a link to `source`: undo removes it only while it
-    // is still that same link, so a folder or file put at that name since
-    // survives, the way a changed copy or new file is left in place.
+    // Paste as made `path` a link: undo removes it only while it is still that link.
     Linked { path: PathBuf, identity: ItemIdentity, source: PathBuf, kind: super::link::LinkKind },
     // manifest_nonce keys the recording backend's in-memory manifest; None means whole-tree fallback.
     Copied { from: PathBuf, to: PathBuf, source: ItemIdentity, created: ItemIdentity, manifest: Option<super::copymanifest::Handle>, manifest_nonce: Option<u64> },
@@ -73,6 +69,8 @@ pub enum Step {
     // A too-big push leaves this payload-free barrier in the shared doc; no window keeps the entry.
     Barrier,
 }
+
+// The codec bounds an op name, so a barrier truncates an over-long one to fit it.
 
 // The codec bounds an op name, so a barrier truncates an over-long one to fit it.
 const MAX_OP_LEN: usize = 128;
@@ -351,18 +349,28 @@ impl Journal {
             None => return Err(err("there is nothing to undo")),
         };
         let mut skipped: Vec<String> = Vec::new();
+        let mut restored: Vec<Step> = Vec::new();
         for step in entry.steps.iter().rev() {
             if matches!(step, Step::Mode { .. }) {
                 if let Err(e) = reverse(step) {
                     skipped.push(format!("{}: {}", e.path, e.msg));
+                } else {
+                    restored.push(step.clone());
                 }
                 continue;
             }
             if let Some((old, new)) = reverse(step)? { self.rebase(&old, &new); }
         }
         if !skipped.is_empty() {
+            // The undone half stays redoable, so redo replays it before anything older.
+            if !restored.is_empty() {
+                restored.reverse();
+                let partial = Entry { op: entry.op.clone(), steps: restored.clone() };
+                self.redo.push(super::redo::Replay::capture(partial));
+            }
             return Err(FleaError { where_: "undo".into(), path: String::new(),
-                msg: format!("{} path(s) left in place: {}", skipped.len(), skipped.join("; ")) });
+                msg: format!("{} path(s) left in place: {}; {} path(s) restored for redo",
+                    skipped.len(), skipped.join("; "), restored.len()) });
         }
         let op = entry.op.clone();
         self.redo.push(super::redo::Replay::capture(entry));
@@ -403,9 +411,7 @@ impl Journal {
     }
 }
 
-// The shelf keeps its one step back in a file rather than in a Journal, because the process that
-// made the move has exited by the time the card presses z; the walk home is still this one, so the
-// no-clobber rename and its cross-filesystem fallback are shared rather than written twice.
+// The shelf's one step back shares this no-clobber rename, its process having exited by then.
 pub fn move_back(to: &std::path::Path, from: &std::path::Path) -> Result<(), FleaError> {
     rename_path(to, from)
 }
@@ -490,11 +496,7 @@ fn remove_new_file(path: &PathBuf, identity: &ItemIdentity) -> Result<(), FleaEr
     std::fs::remove_file(path).map_err(|e| from_io("undo", &path.to_string_lossy(), &e))
 }
 
-// Issue 111: a directory keeps its own ctime while a file inside it is edited, so the root's identity
-// said the tree was untouched and undo removed the work the user had done since; the copy sets the
-// root's mode last, so nothing it wrote is newer than the ctime recorded for the root.
-// corner: neither a change landing between this walk and the removal, the window every check-then-act
-// has, nor one inside the filesystem's own timestamp granularity: tmpfs is coarser than a copy is fast.
+// Issue 111: a directory keeps its own ctime while a file inside it is edited, and the copy sets the root mode last, so the root identity alone cannot prove the tree untouched.
 fn newer_inside(root: &std::path::Path, copied: (i64, i64)) -> Result<Option<PathBuf>, FleaError> {
     let meta = root.symlink_metadata().map_err(|e| from_io("undo", &root.to_string_lossy(), &e))?;
     if !meta.is_dir() || meta.file_type().is_symlink() {
@@ -505,6 +507,7 @@ fn newer_inside(root: &std::path::Path, copied: (i64, i64)) -> Result<Option<Pat
         let entry = entry.map_err(|e| from_io("undo", &root.to_string_lossy(), &e))?;
         let path = entry.path();
         let meta = path.symlink_metadata().map_err(|e| from_io("undo", &path.to_string_lossy(), &e))?;
+        // corner: a change after this walk, or inside the filesystem timestamp granularity such as tmpfs, goes unseen.
         if (meta.ctime(), meta.ctime_nsec()) > copied {
             return Ok(Some(path));
         }
@@ -535,7 +538,7 @@ fn remove_link(path: &Path, identity: &ItemIdentity, source: &Path, kind: &super
     let meta = path.symlink_metadata().map_err(|e| from_io("undo", &path.to_string_lossy(), &e))?;
     let current = ItemIdentity::record(&meta);
     let still_link = match kind {
-        super::link::LinkKind::Hard => meta.is_file() || meta.file_type().is_symlink(),
+        super::link::LinkKind::Hard => !meta.is_dir(),
         _ => meta.file_type().is_symlink(),
     };
     if !identity.same_item(&current) || !still_link {
@@ -561,8 +564,7 @@ fn remove_link(path: &Path, identity: &ItemIdentity, source: &Path, kind: &super
     std::fs::remove_file(path).map_err(|e| from_io("undo", &path.to_string_lossy(), &e))
 }
 
-// Only ever an empty directory this operation made. A folder the user has filled since is theirs now, so
-// undo refuses and leaves it, the way a rename undo refuses a name something else has taken meanwhile.
+// Only ever an empty directory this operation made.
 fn remove_empty(path: &PathBuf) -> Result<(), FleaError> {
     // ENOTEMPTY from Linux errno.h: ErrorKind::DirectoryNotEmpty needs Rust 1.83 over the 1.77 floor.
     const ENOTEMPTY: i32 = 39;

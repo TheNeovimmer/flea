@@ -59,9 +59,12 @@ pub enum Request {
     // Paste as links: one symlink or hard link per source inside dest; see docs/protocol.md "link".
     Link { op: String, paths: Vec<String>, rows: Vec<usize>, dest: String,
            collide: super::collide::Ask },
-    // Show original: where a symlink's target lives; see docs/protocol.md "linktarget".
-    LinkTarget { path: String },
-    // Permissions for the whole selection, one undo for every path; see docs/protocol.md "permissionsBatch".
+    // Show original: where a symlink's target lives, the same path Show in
+    // folder uses; see docs/protocol.md "linktarget".
+    LinkTarget { path: String, id: usize },
+    // Permissions for the whole selection: one Entry holds every path the
+    // Apply changed, so one undo restores them all; see docs/protocol.md
+    // "permissionsBatch".
     PermissionsBatch { paths: Vec<String>, modes: Vec<String>, id: usize },
     Picker { line: String },
     MenuAction { line: String, rows: Vec<usize> },
@@ -92,7 +95,7 @@ pub fn parse_request(line: &str) -> Request {
             dest: field_str(line, "dest").unwrap_or_default(),
             collide: super::collide::Ask::parse(line),
         },
-        Some("linktarget") => Request::LinkTarget { path: field_str(line, "path").unwrap_or_default() },
+        Some("linktarget") => Request::LinkTarget { path: field_str(line, "path").unwrap_or_default(), id: field_usize(line, "id").unwrap_or(0) },
         Some("picker") => Request::Picker { line: line.to_string() },
         Some("menuaction") => Request::MenuAction { line: line.to_string(), rows: field_usize_array(line, "rows") },
         Some("localsend") => Request::LocalSend {
@@ -295,7 +298,8 @@ pub fn dirsized_line(row: usize, bytes: u64, partial: bool, ms: f64) -> String {
 }
 
 // Sample output: {"t":"paths","paths":["/home/gm/a.txt","/home/gm/b.txt"]}
-pub fn paths_line(paths: &[String]) -> String {    let mut out = String::from(r#"{"t":"paths","paths":["#);
+pub fn paths_line(paths: &[String]) -> String {
+    let mut out = String::from(r#"{"t":"paths","paths":["#);
     for (i, p) in paths.iter().enumerate() {
         if i > 0 {
             out.push(',');
@@ -309,14 +313,18 @@ pub fn paths_line(paths: &[String]) -> String {    let mut out = String::from(r#
 }
 
 // Sample output: {"t":"linked","ok":2,"failed":0,"skipped":1}
-pub fn linked_line(ok: usize, failed: usize, skipped: usize) -> String {
-    format!(r#"{{"t":"linked","ok":{},"failed":{},"skipped":{}}}"#, ok, failed, skipped)
+// Sample output: {"t":"linked","ok":1,"failed":1,"skipped":0,"note":"the link left at /d/b.txt could not be removed (stale); the replaced item stays in the trash"}
+pub fn linked_line(ok: usize, failed: usize, skipped: usize, note: &str) -> String {
+    if note.is_empty() {
+        return format!(r#"{{"t":"linked","ok":{},"failed":{},"skipped":{}}}"#, ok, failed, skipped);
+    }
+    format!(r#"{{"t":"linked","ok":{},"failed":{},"skipped":{},"note":"{}"}}"#, ok, failed, skipped, escape(note))
 }
 
-// Sample output: {"t":"linktarget","path":"/a/link","directory":"/b","name":"f.txt"}
-pub fn linktarget_line(path: &str, directory: &str, name: &str) -> String {
-    format!(r#"{{"t":"linktarget","path":"{}","directory":"{}","name":"{}"}}"#,
-        escape(path), escape(directory), escape(name))
+// Sample output: {"t":"linktarget","path":"/a/link","directory":"/b","name":"f.txt","id":3}
+pub fn linktarget_line(path: &str, directory: &str, name: &str, id: usize) -> String {
+    format!(r#"{{"t":"linktarget","path":"{}","directory":"{}","name":"{}","id":{}}}"#,
+        escape(path), escape(directory), escape(name), id)
 }
 
 // Sample output: {"t":"permissions","id":7,"op":"applyMany","ok":true,"mode":"0600","error":""}

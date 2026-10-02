@@ -54,6 +54,7 @@ pub enum OpMsg {
     TransferDone { id: usize, ok: usize, failed: usize, skipped: usize, cancelled: bool, entry: Entry,
                    retry: Vec<(PathBuf, ItemIdentity)>, durable: bool, note: String },
     Trashed { ok: usize, failed: usize, entry: Entry, reason: String },
+    Linked { ok: usize, failed: usize, skipped: usize, entry: Entry, note: String, first_err: String, dest: String },
     Duplicated { ok: bool, path: String, err: String, entry: Entry },
     RedoDone { journal: super::undo::Journal, result: Result<String, FleaError> },
     MenuDeleteDone { line: String },

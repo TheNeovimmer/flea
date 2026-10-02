@@ -3090,7 +3090,14 @@ and recorded rather than split. The new `ui/js/CopyAs.js` (57 lines) and
 invert, `ui/js/Permissions.js` 11 to 36 the multi summary, `ui/js/Collide.js`
 93 to 105 the link question and `ui/js/Messages.js` 97 to 104 the two replies.
 
-e80 optional preview candidate records `ui/Preview.qml` at 490 with its existing scoped ceiling, `ui/SelectionPreview.qml` at 302, `ui/js/PreviewSettle.js` at 14 and `tests/js/previewswap.js` at 267, each re-derived with `wc -l`. The exact `tests/preview-settle-live.qml` ceiling is 450, the file at 450 lines against its recorded cap of 450, for the real Window parent, production-shaped meta and selection signals, runner-provided readable images, gate diagnostics and fresh close/reopen checks. It preserves 38 automatic and 3 seeded manual checks, the 120ms timer and <200ms duplicate bound, storage and no-swap gates, identity refresh, visibility restoration and the exact picture-capture queue order. Its runner generates a tiny JPEG with the existing ffmpeg dependency and copies it into eight names inside each fresh marked sandbox and requires exit 143, one clean DONE, exact PASS counts, no FAIL and no warnings. Native acceptance remains with the controller.
+Advfix-backendops round 2 moves two recorded ceilings, each re-derived with `wc -l`:
+`src/backend/opsdispatch.rs` 719 to 1068 for the link leftover reporting (the inspect and remove
+helpers with their test-only fault hook, the named-leftover failure with its test) and the
+usable_dest refusal pin, and `src/backend/permissions.rs` 477 to 545 for the link, busy and
+permissions-batch operations, their undo steps and their tests (540 at the lk1 merge, recorded at
+543 without re-deriving the 545 HEAD).
+
+e80 optional preview candidate records `ui/Preview.qml` at 490 with its existing scoped ceiling, `ui/SelectionPreview.qml` at 302, `ui/js/PreviewSettle.js` at 14 and `tests/js/previewswap.js` at 267, each re-derived with `wc -l`. The exact `tests/preview-settle-live.qml` ceiling is 424 for the real Window parent, production-shaped meta and selection signals, runner-provided readable images, gate diagnostics and fresh close/reopen checks. It preserves 35 automatic and 3 seeded manual checks, the 120ms timer and <200ms duplicate bound, storage and no-swap gates, identity refresh, visibility restoration and the exact picture-capture queue order. Its runner generates a tiny JPEG with the existing ffmpeg dependency and copies it into eight names inside each fresh marked sandbox and requires exit 143, one clean DONE, exact PASS counts, no FAIL and no warnings. Native acceptance remains with the controller.
 
 The drag verbs and the slow-click rename move nine recorded ceilings, each re-derived with `wc -l` at the commit that recorded it. `0c77b1bf` (Finder verbs between Flea windows) takes `ui/js/Drag.js` 302 to 346 for the verb, offer and modifier decisions and `tests/js/drag.js` 301 to 363 for their pins, with `ui/GridArea.qml` 410 to 411, `ui/List.qml` 435 to 436 and `ui/Row.qml` 478 to 479 for the one drag wire each. `86343a01` (offer copy out, keep refused rows dark) takes `tests/js/drag.js` 363 to 398 for the copy-out offer and the refused-row pins. `5cec3768` (a slow-click rename keeps the scroll still) takes `tests/js/ops.js` 430 to 448 for the context pins, `ui/PaneMenuActions.qml` 458 to 468 for the context-carrying rename route and `ui/js/Ops.js` 438 to 439 for the context argument. `aab6ba79` (the round 1 harness settle) takes `ui/Ipc.qml` 832 to 833 for the one reader it added. `tests/js/drag.js` and `ui/js/Drag.js` sit over the 300-line JS hard cap and are recorded rather than split: the verbs and their pins are one subject.
 
@@ -5307,8 +5314,8 @@ here only as the control that proves this box reads `GLIBC_TUNABLES` at all.
 
 ## Write operations and the undo journal
 
-Ten of the main backend's requests write. Seven are file operations of their own: `transfer`,
-`transfercancel`, `trash`, `rename`, `duplicate`, `mkdir` and `undo`; a New File from the menu writes
+Thirteen of the main backend's requests write. Ten are file operations of their own: `transfer`,
+`transfercancel`, `trash`, `rename`, `duplicate`, `mkdir`, `undo`, `link`, `redo` and `permissionsBatch`; a New File from the menu writes
 through `menuaction` and journals `MadeFile` (`opsdispatch.rs` `do_newfile`), and `archive` and
 `convert` write below. Two helpers write on command loops of their own and journal nothing: the trash
 browser's `restore` and `delete` (`trashbrowse.rs`, `trashdelete.rs`) and the permissions dialog's
@@ -5327,15 +5334,16 @@ rows carry the number of the listing they were read in, as do `paths` and `menua
 its sources the way the `transfer` it precedes will: paths, rows resolved at request time exactly as
 the transfer's are, or a menu's captured selection.
 
-**One of `transfer`, `trash` or `duplicate` runs at a time.** `opsdispatch.rs` holds `Ops::running`, and a second `transfer`,
-`trash` or `duplicate` while one is live answers an `error` line rather than queueing. The reason is the
+**One of `transfer`, `trash`, `duplicate` or `link` runs at a time.** `opsdispatch.rs` holds `Ops::running`, and a second `transfer`,
+`trash`, `duplicate` or `link` while one is live answers an `error` line rather than queueing. `permissionsBatch` is
+refused the same way while one runs, without taking the slot. The reason is the
 surface, not the backend: the operations design gives transfers the status bar's single transient slot,
 so a second concurrent operation would have nowhere to report itself. `rename` and `mkdir` are exempt because
 neither spawns at all. An `archive` extract takes the transfer slot, so a copy, move or second extract
 is refused busy while one runs; a compress and a convert never claim it: `Ops::claim_id` numbers them
 and they run alongside by design, tracked in the detached registry a quit cancels, so the cap was never one write of any kind.
 
-**`rename` and `mkdir` run on the loop's thread, the other three spawn.** Both normally take one
+**`rename` and `mkdir` run on the loop's thread; `transfer`, `trash`, `duplicate` and `link` spawn.** Both normally take one
 syscall, but neither compatibility path below is one: an rclone directory rename copies the whole
 tree and a GVFS WebDAV rename copies whatever the path is, file or tree, before removing the source,
 inline on the loop's thread. That is an unbounded network transfer in the one place nothing else can
@@ -5356,7 +5364,7 @@ exercised live. Say the cost plainly rather than burying it: for a large rclone
 directory this build is worse than the one before it, which failed the rename with a sentence
 instead of hanging the window. Spawning the copy is the first item of the next release.
 `trash` shells to `gio` twice for the list diff plus once to trash; `duplicate` may copy a
-whole tree; a `transfer` is unbounded. Those three send their results back through `Event::Op`,
+whole tree; a `transfer` is unbounded; a `link` Replace moves the name already there through `gio` first. Those four send their results back through `Event::Op`,
 joined onto the loop's receiver exactly the way the thumbnail pool's `Event::Thumb` already is, so
 the loop stays the only writer of stdout.
 
@@ -5430,7 +5438,11 @@ by a transfer that replaced an item, ahead of that item's own step); `Created` e
 for the tests that drive undo's own ladder. A path an operation merely read is never recorded, so an undo
 cannot delete a file the operation did not put there once the step is journaled. An operation
 whose step list is empty is not pushed at all, so a refused rename leaves nothing to undo. Steps reverse
-newest first, and a failing step stops the rest rather than half-reversing. A copy that fails short of a
+newest first, and a failing step stops the rest rather than half-reversing, except a `Mode` step whose
+file was replaced or rechmodded: that step is skipped with a note while the rest restore, and redo
+skips the same way. A partial `permissions` undo captures the restored steps for redo, so redo replays
+the undone half before anything older. A hard link is removed only while its source still holds the same
+dev and inode, so undo leaves the last name in place when the source is gone or replaced. A copy that fails short of a
 cancel (ENOSPC, EPERM, a socket deeper in the tree) leaves the partial destination it created on disk,
 because removing it on a transient error would destroy data, and `copyfile.rs` reports that path in
 `Progress.partial` so `transfer` and `duplicate` journal it as a `Copied` step. A failed tree copy records every path it creates in `copymanifest.rs` as it runs, each identity captured at create from the copy's own descriptor (fstat) or its at-path pin and buffered to an anonymous file on the runtime filesystem in 64 KiB batches, never on the destination, so a full destination cannot fail the manifest and the journal holds no descriptor on the mount being ejected; every directory move is manifested, since EXDEV through a symlinked parent defeats a device check and a rename drops it unread. A failed append latches and the transfer reports it loud beside the copy error. Finish stats nothing, so a failed or cancelled copy answers at once. Each `Copied` manifest stays in the recording backend keyed by a per-entry nonce stored in the file, so a claim by that backend reattaches it and walks it deepest first, removing each recorded path only while it still holds the recorded identity and keeping a file edited after the copy, a path replaced by another inode, and a directory left non-empty by a stray, reporting each kept path with its cause; a claim elsewhere finds no key and takes the whole-tree fallback, and a manifest that never verified a record falls back the same way, while a success journals the plain step with no manifest. A destination that already existed is never reported, because nothing was created there.
@@ -5513,8 +5525,8 @@ menu, since the transfer waiting on the card names the folder it asked about; th
 chrome's own back and up buttons are covered by the card's focus and backdrop, and there is no
 forward mouse button binding to gate. `tests/ui-operations-design.sh` and `tests/ui-providers.sh`
 drove their error and retry footers with a real name collision through Copy to and Move to Dropbox;
-a collision now asks instead, so those flows fail on an unreadable source file and a read-only Dropbox
-folder, both real failures that are not a name.
+a collision now asks instead, so the Copy to flow fails on an unreadable source file and Move to Dropbox
+fails on a source folder that cannot be written, each a real failure that is not a name.
 corner: replacing N items costs 3N `gio` runs, a list before and after each trash, because the URI is
 captured per call; one batch trash up front would have to restore every untouched item on a cancel.
 

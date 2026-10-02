@@ -397,4 +397,97 @@ function providerRefresh(check) {
     check("its refusal names the empty-clipboard sentence", contextSrc.indexOf("root.refused(Menu.EMPTY_CLIPBOARD)") >= 0, true)
     var pasteBody = Source.slice(paneSrc, "function openPasteAs()", "function invertSelection")
     check("Pane.openPasteAs closes and says empty on refuse", pasteBody.indexOf("menu.close()") >= 0 && pasteBody.indexOf("There is nothing to paste; y copies and x cuts.") >= 0, true)
+    // Show original answers only its own pending id, so a late reply never yanks a navigation.
+    // One brace scan serves every shipped body below; an inline copy beside it is the defect this pins.
+    // Sample input: functionBody("head function f(a) { return a } tail", "function f(") answers " return a ".
+    function functionBody(sourceText, mark) {
+        var at = sourceText.indexOf(mark)
+        if (at < 0)
+            throw new Error("sourcefixture: missing " + mark)
+        var brace = sourceText.indexOf("{", at)
+        var scan = brace + 1, depth = 1, quote = "", comment = false
+        while (depth > 0 && scan < sourceText.length) {
+            var ch = sourceText.charAt(scan)
+            if (comment) {
+                if (ch === "\n") comment = false
+            } else if (quote.length > 0) {
+                if (ch === quote) quote = ""
+            } else if (ch === "/" && sourceText.charAt(scan + 1) === "/") comment = true
+            else if (ch === '"' || ch === "'") quote = ch
+            else if (ch === "{") depth += 1
+            else if (ch === "}") depth -= 1
+            scan += 1
+        }
+        if (depth > 0)
+            throw new Error("sourcefixture: unterminated " + mark)
+        return sourceText.substring(brace + 1, scan - 1)
+    }
+    var selfText = Source.source("tests/js/menu.js")
+    check("the brace scan lives in one helper, not three inline loops", selfText.split("Depth +=" + " 1").length - 1, 0)
+    var linkText = Source.source("ui/PaneWire.qml")
+    var onLinkTarget = eval("(function (pane, path, directory, name, id) {"
+        + functionBody(linkText, "function onLinkTarget(") + "})")
+    function linkPane(pending) {
+        var p = {linkTargetPendingId: pending, pendingSelect: "", said: [], opened: []}
+        p.message = function (text) { p.said.push(text) }
+        p.open = function (target) { p.opened.push(target) }
+        return p
+    }
+    var live = linkPane(7)
+    onLinkTarget(live, "/a/l", "/b", "f.txt", 7)
+    check("its own id reveals the target folder", live.opened.join("|"), "/b")
+    check("and selects the target row there", live.pendingSelect, "/b/f.txt")
+    check("and spends the pending id", live.linkTargetPendingId, 0)
+    var foreign = linkPane(7)
+    onLinkTarget(foreign, "/a/l", "/b", "f.txt", 8)
+    check("a foreign id opens nothing", foreign.opened.length, 0)
+    check("and keeps the pending id for the real reply", foreign.linkTargetPendingId, 7)
+    var idle = linkPane(0)
+    onLinkTarget(idle, "/a/l", "/b", "f.txt", 0)
+    check("with nothing pending even id 0 opens nothing", idle.opened.length, 0)
+    var paneText = Source.source("ui/Pane.qml")
+    check("Show original mints its pending id from the backend counter", paneText.indexOf("root.backend.nextLinkTargetId()") >= 0, true)
+    check("and the request carries that id", paneText.indexOf("id: root.linkTargetPendingId") >= 0, true)
+    check("and no pane mints an id of its own", paneText.indexOf("linkTargetPendingId += 1") < 0, true)
+    // The counter never resets, so an id is never handed out twice in one process.
+    var backText = Source.source("ui/Backend.qml")
+    check("the backend owns the linktarget counter", backText.indexOf("linkTargetSeq") >= 0, true)
+    check("and nothing ever resets it", backText.indexOf("linkTargetSeq = 0") < 0, true)
+    var nextLinkTargetId = eval("(function (root) {" + functionBody(backText, "function nextLinkTargetId(") + "})")
+    var sharedBackend = { linkTargetSeq: 0 }
+    check("the counter rises forever", nextLinkTargetId(sharedBackend) + "|" + nextLinkTargetId(sharedBackend), "1|2")
+    // Both entrances send through here, so the test runs the shipped body, not a copy.
+    var requestLinkTarget = eval("(function (root, path) {" + functionBody(paneText, "function requestLinkTarget(") + "})")
+    function linkRequester() {
+        var stub = { linkTargetPendingId: 0, pendingSelect: "", said: [], opened: [], sent: [] }
+        stub.message = function (text) { stub.said.push(text) }
+        stub.open = function (target) { stub.opened.push(target) }
+        stub.backend = { send: function (line) { stub.sent.push(line) } }
+        stub.backend.nextLinkTargetId = function () { return nextLinkTargetId(sharedBackend) }
+        return stub
+    }
+    var firstPane = linkRequester()
+    var secondPane = linkRequester()
+    requestLinkTarget(firstPane, "/a/first")
+    requestLinkTarget(secondPane, "/b/first")
+    check("two panes sharing one backend get different ids", firstPane.linkTargetPendingId === secondPane.linkTargetPendingId, false)
+    check("and each request carries its pending id", firstPane.sent[0].id === firstPane.linkTargetPendingId && secondPane.sent[0].id === secondPane.linkTargetPendingId, true)
+    // Exactly one request stands when the navigation lands, so a per-pane counter would hand its id out again.
+    var navPane = linkRequester()
+    requestLinkTarget(navPane, "/a/second")
+    var staleId = navPane.sent[0].id
+    // A navigation drops the wait, which is what ui/js/Nav.js openWithoutHistory writes.
+    navPane.linkTargetPendingId = 0
+    requestLinkTarget(navPane, "/a/third")
+    var freshId = navPane.linkTargetPendingId
+    check("a navigation and a new request never reuse an id", staleId === freshId, false)
+    onLinkTarget(navPane, "/a/second", "/b", "f.txt", staleId)
+    check("a reply for the older id opens nothing", navPane.opened.length, 0)
+    check("and keeps waiting for the new one", navPane.linkTargetPendingId, freshId)
+    onLinkTarget(navPane, "/a/third", "/c", "g.txt", freshId)
+    check("the new reply still reveals its folder", navPane.opened.join("|"), "/c")
+    // Show original has one route out, so a raw send cannot bypass the pending id.
+    var pmaText = Source.source("ui/PaneMenuActions.qml")
+    check("Show original sends through requestLinkTarget", pmaText.indexOf("requestLinkTarget") >= 0, true)
+    check("and sends no raw linktarget", pmaText.indexOf('"linktarget"') < 0, true)
 }

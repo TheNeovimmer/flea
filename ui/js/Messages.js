@@ -43,10 +43,10 @@ function route(root, message) {
     // MenuAdditions040: Paste as links answers one line per request, and one
     // journal entry, so one undo removes every link it created.
     } else if (message.t === "linked") {
-        root.linked(message.ok || 0, message.failed || 0, message.skipped || 0)
+        root.linked(message.ok || 0, message.failed || 0, message.skipped || 0, message.note || "")
     // MenuAdditions040: Show original reveals the link's target in its own folder.
     } else if (message.t === "linktarget") {
-        root.linkTarget(message.path || "", message.directory || "", message.name || "")
+        root.linkTarget(message.path || "", message.directory || "", message.name || "", message.id || 0)
     } else if (message.t === "trashed") {
         root.trashed(message.ok, message.failed, message.err || "")
     } else if (message.t === "renamed") {

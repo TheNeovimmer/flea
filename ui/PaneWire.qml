@@ -356,14 +356,19 @@ Item {
 
         // MenuAdditions040: Paste as links answers one line per request, and
         // one journal entry, so one undo removes every link it created.
-        function onLinked(ok, failed, skipped) {
-            pane.message(Ops.linkedLine(ok, failed, skipped), failed > 0 && ok === 0)
+        function onLinked(ok, failed, skipped, note) {
+            // A stranded note is shown as an error, so a leftover link is never silent.
+            var stranded = String(note || "").length > 0
+            pane.message(Ops.linkedLine(ok, failed, skipped, note || ""), (failed > 0 && ok === 0) || stranded)
             pane.refresh("")
         }
 
         // MenuAdditions040: Show original reveals the link's target in its own
         // folder, the same path Show in folder uses.
-        function onLinkTarget(path, directory, name) {
+        function onLinkTarget(path, directory, name, id) {
+            // A stale or foreign id is ignored, so a late reply never yanks a navigation.
+            if (!pane.linkTargetPendingId || id !== pane.linkTargetPendingId) return
+            pane.linkTargetPendingId = 0
             if (directory.length === 0 || name.length === 0) {
                 pane.message("That link points nowhere to reveal.", true)
                 return

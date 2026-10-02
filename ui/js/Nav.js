@@ -94,6 +94,7 @@ function openWithoutHistory(pane, newPath, options) {
     // nobody could read; ui/PaneSwap.qml applyListed takes it from the answer instead. The directory
     // asked for is recorded, because a drop landing while the reply is out means that one and not
     // the directory being left; ui/Pane.qml dropPath reads it and only while this listing is out.
+    if (newPath !== pane.path) pane.linkTargetPendingId = 0 // A waiting Show original belongs to the listing being left, so leaving it drops the reveal.
     pane.listingPath = newPath
     // The class below is the directory being left until fsinfo answers for this one, and a
     // settle firing in between would spend it; a re-read of the same path keeps its class.
