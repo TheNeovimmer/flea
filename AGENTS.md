@@ -259,7 +259,13 @@ that has changed names another file. Re-pointing a selection at other files is h
 wrong ones, so `PaneWire`'s `watchBusy`, decided by `ui/js/Anchor.js busy`, defers the re-read while
 a selection stands, and with it while a rename editor is open, the context menu is up, a filter is
 being typed, a search listing is showing, a list is already in flight or a transfer waits on the
-collision card. The debt is kept, not dropped: `onWatchBusyChanged` starts the 400 ms timer the moment
+collision card. A preference re-list is the one re-list that re-marks instead of clearing:
+a settings change to hidden, sort or grouping captures `Anchor.preference` before it re-lists and
+`ui/PaneSwap.qml` re-marks cursor and marks by name when the rows land, following each name to its
+new index. When any selected row lies outside the held window the preference re-list clears the whole
+selection instead of keeping its in-window subset, because a subset would silently drop files from a
+delete or move. The preference anchor resolves only on the rows reply for the window it asked for; a
+scroll elsewhere or a cursor move drops it, so a later unrelated reply never yanks the cursor. The debt is kept, not dropped: `onWatchBusyChanged` starts the 400 ms timer the moment
 the last of those clears, and `ui/CollideHost.qml decide` writes its transfer before it clears
 `pending`, so the transfer reaches the backend ahead of any re-read the card held back. A user holding a selection therefore sees the same stale
 listing 0.1.4 always showed, for as long as they hold it. **The debt does not travel**: leaving the
@@ -1759,11 +1765,16 @@ failure fails the check rather than passing it.
   `thumb` and `thumbcancel` out and `thumbed` in alongside `list`, `window` and `sort`.
 - `ui/ViewState.qml` reads `ui.json` once at startup with a blocking `FileView` and writes nothing
   itself: every change, the header menu's columns and all three settings sections alike, goes back
-  out through `flea --ui-state` as a patch naming that change alone, see "The state file".
+  out through `flea --ui-state` as a patch naming that change alone, see "The state file". It also
+  watches the file and applies another window's settled preferences live through
+  `UiState.applyExternal`, owning the apply/prune settler whose exit and collected text join the
+  landed/whole way before anything is parsed.
 - `ui/js/UiState.js` is `ViewState`'s writer bookkeeping and the two pure rebuilds every writer goes
   through: the newest patch a writer landed, what the running writer carries and what waits behind
   it, and the key and group rebuilds `ViewState` runs over both the state it draws and the patch it
-  owes. It imports no QML, so
+  owes. It also owns the refusal prune (`invalidKeys`, `dropInvalid`, `pruneRefused`,
+  `revertedState`) and the settle join and order (`landed`, `whole`, `pruneAsk`, `settleNext`).
+  It imports no QML, so
   `tests/js/uistate.js` can redden on a mutation of the rule that only a zero exit proves a save.
 - `ui/Theme.qml` owns the singleton palette, type and spacing tokens from the Omarchy
   theme plus the user override.
@@ -7094,3 +7105,5 @@ w61 preserves the complete footer dismissal hint, each re-derived with wc -l: ui
 e68 R4 retires dismissed menu snapshot replies, re-derived with `wc -l`: `ui/PaneMenuActions.qml` 404 to 407 for the retire guard on the snapshot reply (a stale ok reply retires silently only with the menu and dialog closed and no action awaiting; an open menu, a waiting action or a backend refusal keeps its sentence); the probe is the new `tests/menu-snapshot-retire.qml` at 145 with `tests/menu-snapshot-retire.sh` at 72 carrying the offscreen gate, both inside their budgets and registered in `tests/run-all.sh` headless.
 
 k2-markdown renders Markdown previews (RenderedPreviews callouts 1, 2 and 4), each re-derived with `wc -l`: `ui/Preview.qml` 463 to 574 for the Markdown bar (mark, name, line count, the settings segmented control at 20 px, close with the overlay tap policy) and the rendered/source pane under it; `ui/PreviewColumn.qml` 499 to 526 for the Markdown branch (tall frame to the name, remembered choice, no toggle) with the swap reading its load through `textLoading`; `src/uischema.rs` 439 to 443 for `preview.markdownView` with its rule and default assert; `ui/js/Keymap.js` 322 to 323 for the generated preview-context `r` row. The split lives in `ui/js/Markdown.js` at 527, recorded over the 300 hard cap (top-level blocks only: fenced code, quote groups, standalone-image paragraphs, top-level lists, GFM tables, runs of everything else; a quoted fence stays a quote, an unterminated fence runs to the end, whitespace-only runs never block, deeper markers nest into the open item; inline code spans pair by matching backtick runs with CommonMark space stripping and resolve against the chrome hex, inline links and autolinks wrap in a presentational font tag against the ink hex because the importer hardcodes its own link blue over QML linkColor), and the delegates in the new `ui/PreviewMarkdown.qml` at 473, recorded over the 400 hard cap (fence verbatim filled on the chrome surface with no border, quote behind a 2 px muted bar, remote as one dashed box with glyph and sentence on a single left-aligned line, same-folder as an async width-fitted Image, lists as marker rows at the text edge through a two-column grid, tables as a GridLayout with a bold header, muted rules and no verticals hugging content by measured column widths since Markdown tables carry no styling), rather than in `ui/js/Facts.js`, which stands at its 300 hard cap; `ui/js/PreviewKeys.js` takes the guarded toggle at 91, `ui/SettingsSegment.qml` the 20 px height override at 79, `ui/ViewState.qml` the one-line normalised reader at exactly 400, `ui/SelectionPreview.qml` keeps 262 for the one-line readiness mapping, and `tests/js/markdown.js` at 167 with `tests/js/previewkeys.js` at 88 carry the URL, placeholder, toggle, keymap, block, code, link, table and list pins. No code colouring renderer exists on this head (Source and the code preview are verbatim text), so a fenced block keeps plain mono: colouring one by its info string would take a real syntax highlighter, new machinery, not a reuse. Three rendering facts were proved on CI Qt offscreen rather than assumed: `Text.Markdown` is undefined there and every delegate reads `Text.MarkdownText`, the importer keeps structural HTML (`<br>`, `<code>`, `<font>`) while dropping every style attribute, and thin markers antialias without a pure core pixel so the suite counts any ink, which `tests/markdown-render.sh` with `tests/markdown-render.qml` at 399 pins from a grab (chip, markers, rules, hug, fence, box, bar, no default link blue, PNG to `$FLEA_CI_SUITE_LOGS`). Headings render foreground bold at Qt's sizes (the board draws h1/h2 in the foreground, so that is exact), and inline code takes no side padding (the board's 4 px was declined without a capture reading it right). `tests/ui-captures-markdown.sh` carries the display-box capture (`case_cap_markdown`, out of the default wanted list).
+
+xw4r2 records four ceilings, each re-derived with `wc -l`: `ui/ViewState.qml` 495 to 529 for the joined settler halves, the queued prune with its settleNext order, the failure-arm pruneFailed and the per-load favourites sync; `ui/js/UiState.js` 432 to 442 for invalidKeys, dropInvalid and the settle join and order helpers; `tests/js/uistate.js` 329 to 363 for the two-key prune, the owed-differing and the settle-order pins; `tests/js/watch.js` 307 to 334 for the .dot-insertion reorder, the partial-selection clear and the anchor-resolution pins. `ui/Pane.qml` keeps 999 with no added line and `ui/js/Anchor.js` keeps 178 inside the soft budget; `tests/xwsettings.sh` stands at 467 lines of shell the budget scan does not read.

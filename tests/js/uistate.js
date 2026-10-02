@@ -258,8 +258,11 @@ function run(check) {
     check("and where it was stays too", applied.state.lastPath, "/a")
     check("favourites are never taken here", JSON.stringify(applied.state.places.favourites), '[{"label":"Old","path":"/old"}]')
     var sameFile = JSON.stringify(other)
-    check("an own write is never re-applied",
-          UiState.applyExternal(applied.state, { hidden: true }, changedFile).changed, false)
+    // An owed key keeps the window's own value against a file that says otherwise; without the owed branch each of these takes the file's.
+    var ownState = { hidden: false, density: "compact" }
+    var ownKept = UiState.applyExternal(ownState, { hidden: false }, '{"hidden":true,"density":"normal"}')
+    check("an owed whole key keeps the window's own value", ownKept.state.hidden, false)
+    check("while a key beside it still applies", ownKept.state.density, "normal")
     check("and a file holding nothing new moves nothing",
           UiState.applyExternal(other, {}, sameFile).changed, false)
     check("a half-written file is ignored", UiState.applyExternal(other, {}, "{").changed, false)
@@ -267,13 +270,13 @@ function run(check) {
     check("an empty read is too", UiState.applyExternal(other, {}, "").changed, false)
     var racing = { hidden: false, display: { textSize: { mode: 16 }, hyprlandIcons: false } }
     var raced = UiState.applyExternal(racing, { display: { textSize: { mode: 16 } } },
-        '{"hidden":true,"display":{"textSize":{"mode":16},"hyprlandIcons":true}}')
+        '{"hidden":true,"display":{"textSize":{"mode":20},"hyprlandIcons":true}}')
     check("an owed leaf keeps the window's own value", raced.state.display.textSize.mode, 16)
     check("while a leaf beside it still applies", raced.state.display.hyprlandIcons, true)
     check("and a whole key beside that does too", raced.state.hidden, true)
     var maps = { folderSorts: { "/a": { key: "size", reverse: true } } }
     var mapped = UiState.applyExternal(maps, { folderSorts: { "/a": { key: "size", reverse: true } } },
-        '{"folderSorts":{"/a":{"key":"size","reverse":true},"/b":{"key":"name","reverse":false}}}')
+        '{"folderSorts":{"/a":{"key":"name","reverse":false},"/b":{"key":"name","reverse":false}}}')
     check("an owed map entry keeps the window's own", mapped.state.folderSorts["/a"].key, "size")
     check("while another window's entry applies", mapped.state.folderSorts["/b"].key, "name")
     check("a key a newer Flea wrote is kept verbatim",
@@ -309,10 +312,7 @@ function run(check) {
     check("garbage is not either", UiState.parsesAsObject("{"), false)
     check("but a settled document is", UiState.parsesAsObject('{"hidden":true}'), true)
 
-    // Only a validation refusal prunes; a transient failure keeps today's retry and loses nothing.
-    check("a schema refusal prunes", UiState.isValidationRefusal("flea: columns does not take [x]"), true)
-    check("while a wrapper's simulated refusal retries", UiState.isValidationRefusal("flea: refused by the uiwriter wrapper"), false)
-    check("and a writer that never started retries too", UiState.isValidationRefusal(""), false)
+    // Only a schema-invalid patch prunes; a transient failure keeps today's retry and loses nothing.
     check("a bogus column set prunes off the patch", UiState.isPatchInvalid('{"columns":["name","size","bogus"]}'), true)
     check("while a valid one retries", UiState.isPatchInvalid('{"columns":["name","size","date"]}'), false)
     check("and a null places group prunes too", UiState.isPatchInvalid('{"places":null}'), true)
@@ -326,4 +326,38 @@ function run(check) {
     var reverted = UiState.revertedState({ columns: ["name", "size", "bogus"] },
         '{"columns":["name","size","bogus"]}', settledDefaults)
     check("and the state heals to the settled value", JSON.stringify(reverted.columns), '["name","size","date"]')
+    // A refused patch drops only its schema-refused keys: a valid key beside it and a newer owed value both survive.
+    var twoKey = UiState.pruneRefused({ columns: ["name", "size", "bogus"], density: "normal" },
+        '{"columns":["name","size","bogus"],"density":"normal"}', settledDefaults)
+    check("a valid key beside a refusal survives the prune", twoKey.unsaved.density, "normal")
+    check("while the refused key still drops", twoKey.unsaved.columns, undefined)
+    check("and only the refused key is named", JSON.stringify(twoKey.dropped), '["columns"]')
+    var newer = UiState.pruneRefused({ columns: ["name"], density: "normal" },
+        '{"columns":["name","size","bogus"],"density":"normal"}', settledDefaults)
+    check("a newer owed value the refused writer never carried survives too", JSON.stringify(newer.unsaved.columns), '["name"]')
+    var revertTwo = UiState.revertedState({ columns: ["name", "size", "bogus"], density: "normal" },
+        '{"columns":["name","size","bogus"],"density":"normal"}', settledDefaults)
+    check("the revert heals only the refused key", JSON.stringify(revertTwo.columns), '["name","size","date"]')
+    check("and leaves a valid key alone", revertTwo.density, "normal")
+    var revertNewer = UiState.revertedState({ columns: ["name"], density: "normal" },
+        '{"columns":["name","size","bogus"],"density":"normal"}', settledDefaults)
+    check("and a newer value for the refused key survives the revert", JSON.stringify(revertNewer.columns), '["name"]')
+    // A prune settle that never answers still drops what the schema refused, so no save strands behind a phantom writer.
+    var failed = UiState.dropInvalid({ columns: ["name", "size", "bogus"], density: "normal" },
+        '{"columns":["name","size","bogus"],"density":"normal"}')
+    check("a failed settle still drops the refused key", failed.columns, undefined)
+    check("and keeps the valid one queued behind it", failed.density, "normal")
+    // A settler's exit and its collected text land in either order, so only a whole answer is ever read.
+    check("half an answer is not whole", UiState.whole({ code: 0 }), false)
+    check("both halves are", UiState.whole(UiState.landed({ code: 0 }, { text: "{}" })), true)
+    check("in either order", UiState.whole(UiState.landed({ text: "{}" }, { code: 0 })), true)
+    check("a program that never started is told from a real exit", UiState.neverRan({}, false), true)
+    check("and a real exit never is", UiState.neverRan({ code: 0 }, false), false)
+    // A refused write queues its prune behind a running settle; the settle's end spends the prune before a dirty re-read.
+    check("a prune behind a running settle queues", UiState.pruneAsk(true, '{"columns":[]}').queue, '{"columns":[]}')
+    check("and starts nothing", UiState.pruneAsk(true, '{"columns":[]}').start, "")
+    check("while an idle settler starts it at once", UiState.pruneAsk(false, '{"columns":[]}').start, '{"columns":[]}')
+    check("a queued prune spends before a dirty re-read", UiState.settleNext(true, '{"columns":[]}'), "prune")
+    check("a dirty flag alone re-reads", UiState.settleNext(true, ""), "apply")
+    check("and a quiet settle ends idle", UiState.settleNext(false, ""), "idle")
 }

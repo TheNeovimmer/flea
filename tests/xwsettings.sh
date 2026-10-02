@@ -1,8 +1,5 @@
 #!/bin/bash
-# Two ViewState singletons over one temp ui.json: a change saved by one applies live in the
-# other through its FileView watch, per-window state stays put, an own write is never re-applied,
-# and a half-written file is ignored until the next valid write. tests/js/uistate.js pins the
-# classifier and the merge; this pins the QML wiring it runs through, which no pure suite reaches.
+# Two ViewState singletons over one temp ui.json: live apply of one window's change in the other, per-window state, own-write and half-written guards; tests/js/uistate.js pins the merge, this pins the QML wiring.
 set -u
 # Hard rule 9's guard, which owns FIXTURE_ROOT and every create and delete below.
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
@@ -219,14 +216,21 @@ import Quickshell
 
 ShellRoot {
     id: root
+    property string lastDensity: ""
     Component.onCompleted: {
         console.log("PROBE watching hidden=" + ViewState.state.hidden)
+        root.lastDensity = String(ViewState.state.density || "compact")
     }
     property var watcher: Timer {
         interval: 50
         repeat: true
         running: true
         onTriggered: {
+            var density = String(ViewState.state.density || "compact")
+            if (density !== root.lastDensity) {
+                root.lastDensity = density
+                console.log("PROBE live density=" + density)
+            }
             if (ViewState.state.hidden === true) {
                 console.log("PROBE applied hidden=" + ViewState.state.hidden)
                 console.log("PROBE patch=" + ViewState.patch())
@@ -265,9 +269,22 @@ QML
       # Truncated mid-object, the way an editor's own write looks between its truncate and its close.
       printf '%s' '{"hidden":true,"view":"grid","density":"compact"' \
         > "$SANDBOX/garbage/state/flea/ui.json" || exit 1
-      sleep 2
-      check "a half-written file applies nothing live" "1" "$(grep -c 'PROBE watching hidden=false' "$SANDBOX/stayer.log")"
-      check "and no apply sneaks in behind it" "0" "$(grep -c 'PROBE applied' "$SANDBOX/stayer.log")"
+      # A marker valid write behind the garbage: the watcher answering it proves it handled every event after the garbage too.
+      env XDG_STATE_HOME="$SANDBOX/garbage/state" "$BIN" --ui-state \
+        '{"hidden":false,"view":"grid","density":"normal"}' >/dev/null 2>&1 \
+        || { echo "FAIL xwsettings: the marker write failed"; fail=1; }
+      waited=0
+      until grep -q 'PROBE live density=normal' "$SANDBOX/stayer.log" 2>/dev/null; do
+        waited=$((waited + 1))
+        if [ "$waited" -gt 200 ]; then
+          echo "FAIL xwsettings: the watcher never answered the marker behind the garbage"
+          fail=1
+          break
+        fi
+        sleep 0.05
+      done
+      check "the watcher answered a later event behind the garbage" "1" "$(grep -c 'PROBE live density=normal' "$SANDBOX/stayer.log")"
+      check "and the half-written file applied nothing live" "0" "$(grep -c 'PROBE applied' "$SANDBOX/stayer.log")"
       # The live second replace in the same process: the recovery write lands in the stayer's own log.
       env XDG_STATE_HOME="$SANDBOX/garbage/state" "$BIN" --ui-state \
         '{"hidden":true,"view":"grid","density":"compact"}' >/dev/null 2>&1 \
@@ -338,10 +355,17 @@ doc = json.load(open(p))
 doc["columns"] = ["name", "size", "bogus"]
 json.dump(doc, open(p, "w"))
 PY
-    sleep 3
+    # A bounded poll for the healed default, not a fixed sleep: the absence check below is only read once the watcher proves it handled the edit.
+    waited=0
+    until [ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -1 | grep -c '"name","size","date"')" -ge 1 ]; do
+      waited=$((waited + 1))
+      if [ "$waited" -gt 200 ]; then break; fi
+      sleep 0.05
+    done
     check "a bogus column is never taken" "0" "$(grep -c 'bogus' "$SANDBOX/settled.log" | head -1)"
     # The healed default appears live; on raw_bytes the bogus string stays in the log.
     check "and the settled default lands instead" "1" "$([ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -1 | grep -c '"name","size","date"')" -ge 1 ] && echo 1 || echo 0)"
+    live_before=$(grep -c 'PROBE live' "$SANDBOX/settled.log")
     python3 - "$SANDBOX/settled/state/flea/ui.json" <<'PY'
 import json, sys
 p = sys.argv[1]
@@ -349,12 +373,23 @@ doc = json.load(open(p))
 doc["places"] = None
 json.dump(doc, open(p, "w"))
 PY
-    sleep 3
-    check "a null places group never empties favourites" "0" "$(grep -c 'placesType=null' "$SANDBOX/settled.log")"
+    waited=0
+    until [ "$(grep -c 'PROBE live' "$SANDBOX/settled.log")" -gt "$live_before" ]; do
+      waited=$((waited + 1))
+      if [ "$waited" -gt 200 ]; then break; fi
+      sleep 0.05
+    done
+    check "a null places group never empties favourites" "0" "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -n +"$((live_before + 1))" | grep -c 'placesType=null')"
     check "and the kept entries survive it" "1" "$([ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -1 | grep -c '/old')" -ge 1 ] && echo 1 || echo 0)"
+    live_before=$(grep -c 'PROBE live' "$SANDBOX/settled.log")
     printf '%s' '{"density":"normal"}' > "$SANDBOX/settled/state/flea/ui.json" || exit 1
-    sleep 3
-    check "a removed key reads as its default" "1" "$([ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -3 | grep -c 'hidden=false')" -ge 1 ] && echo 1 || echo 0)"
+    waited=0
+    until [ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -n +"$((live_before + 1))" | grep -c 'hidden=false')" -ge 1 ]; do
+      waited=$((waited + 1))
+      if [ "$waited" -gt 200 ]; then break; fi
+      sleep 0.05
+    done
+    check "a removed key reads as its default" "1" "$([ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -n +"$((live_before + 1))" | grep -c 'hidden=false')" -ge 1 ] && echo 1 || echo 0)"
     echo "settled tail:"
     grep 'PROBE live' "$SANDBOX/settled.log" | tail -3 || true
   fi

@@ -62,6 +62,10 @@ function watched(held, rows, cursorIndex, total) {
     p.selectOnly = function (index) { p.selectedAt = index; p.cursorSetTo = index }
     // The same wrapper ui/Pane.qml carries, so the re-read takes the one route that can refuse.
     p.openWithoutHistory = function (target, options) { Nav.openWithoutHistory(p, target, options) }
+    // A preference anchor re-marks by name, so the stub carries the mark set the pane owns.
+    p.marked = []
+    p.selection = { clear: function () { p.marked = [] }, toggle: function (i) { p.marked.push(i) } }
+    p.selectionVersion = 0
     return p
 }
 
@@ -287,21 +291,44 @@ function run(check) {
     check("a cursor past the held window anchors on no name but keeps its index",
           beyondAnchor.name + "|" + beyondAnchor.index, "|5")
 
-    // xw4-r2 finding 2: a preference re-list keeps selection and cursor by name, Finder's rule.
-    var pref = watched(0, [{ n: "sub" }, { n: "a.txt" }, { n: "b.txt" }, { n: ".dot" }], 2)
+    // A preference re-list keeps selection and cursor by name across a hidden toggle that inserts .dot ahead of the files.
+    var pref = watched(0, [{ n: "sub" }, { n: "a.txt" }, { n: "b.txt" }], 2)
     pref.path = "/dir"
-    pref.selection = { clear: function () {}, toggle: function (i) { pref.marked.push(i) } }
-    pref.marked = []
     pref.selectedIndices = function () { return [1, 2] }
-    pref.setCursor = function (i) { pref.cursorSetTo = i }
     var prefAnchor = Anchor.preference(pref)
     check("a preference anchor names the cursor file", prefAnchor.name, "b.txt")
     check("and the selected files", prefAnchor.selected.join(","), "a.txt,b.txt")
     pref.held = 0
-    pref.rows = [{ n: "sub" }, { n: "a.txt" }, { n: "b.txt" }, { n: ".dot" }]
+    pref.rows = [{ n: ".dot" }, { n: "sub" }, { n: "a.txt" }, { n: "b.txt" }]
     pref.total = 4
-    pref.selectionVersion = 0
     Anchor.applyPreference(pref, prefAnchor)
-    check("the cursor lands back on its file", pref.cursorSetTo, 2)
-    check("and the selection lands back on its files", pref.marked.join(","), "1,2")
+    check("the cursor follows its file past the insertion", pref.cursorSetTo, 3)
+    check("and the selection follows its files too", pref.marked.join(","), "2,3")
+    // A selection reaching past the held window never keeps its in-window subset; the whole of it clears instead.
+    var wide = []
+    for (var w = 0; w < 350; w++) wide.push({ n: "f" + w })
+    var partial = watched(0, wide, 10)
+    partial.selectedIndices = function () { var all = []; for (var s = 0; s < 500; s++) all.push(s); return all }
+    check("a selection past the held window clears whole", Anchor.preference(partial).selected.length, 0)
+    // A pane without rowFor drops the selection instead of throwing on it.
+    var noRowFor = { cursorIndex: 1, held: 0, path: "/dir", selectedIndices: function () { return [0, 1] } }
+    check("a pane without rowFor drops the selection instead of throwing", Anchor.preference(noRowFor).selected.length, 0)
+    // A preference anchor waits only for its asked window: a scrolled reply or a moved cursor drops it without moving anything.
+    var asked = { name: "m", index: 4000, start: 4000, path: "/home/gm", selected: [] }
+    var firstWin = watched(4000, [{ n: "a" }, { n: "b" }], 0, 100000)
+    firstWin.held = 0
+    check("the first window keeps the anchor waiting", Anchor.applyPreference(firstWin, asked) === asked, true)
+    var scrolled = watched(4000, [{ n: "x" }, { n: "y" }], 0, 100000)
+    scrolled.held = 350
+    check("a scrolled window drops it without moving", Anchor.applyPreference(scrolled, asked) === null && scrolled.cursorSetTo === -1, true)
+    var moved = watched(4000, [{ n: "a" }, { n: "b" }], 7, 100000)
+    moved.held = 0
+    check("a moved cursor drops it too", Anchor.applyPreference(moved, asked) === null && moved.cursorSetTo === -1, true)
+    var landedWin = watched(4000, [{ n: "m" }, { n: "n" }], 0, 100000)
+    landedWin.held = 4000
+    check("its asked window lands the cursor", Anchor.applyPreference(landedWin, asked) === null && landedWin.cursorSetTo === 4000, true)
+    var clampedPref = watched(4000, [{ n: "a" }], 0, 2)
+    clampedPref.held = 0
+    var clampedAnchor = { name: "gone", index: 4001, start: 4000, path: "/home/gm", selected: [] }
+    check("a listing clamped past the asked window still resolves", Anchor.applyPreference(clampedPref, clampedAnchor) === null && clampedPref.cursorSetTo === 1, true)
 }

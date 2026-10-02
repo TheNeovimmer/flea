@@ -116,29 +116,39 @@ function landOn(pane, index, anchor) {
         pane.setCursor(index, 0)
 }
 
-// A preference re-list (hidden files) keeps selection and cursor by name, the way the watcher keeps
-// the cursor. Names are captured before forget() clears them; rows outside the held window have no
-// name to keep and are left out, the small fixture holds all of them.
+// A preference re-list keeps selection and cursor by name; a mark outside the held window has no name to keep, so a partial selection clears whole rather than keeping its subset.
 function preference(pane) {
-    var cursorRow = pane.rowFor ? pane.rowFor(pane.cursorIndex) : null
+    var rowFor = pane.rowFor ? function (i) { return pane.rowFor(i) } : null
+    var cursorRow = rowFor ? rowFor(pane.cursorIndex) : null
     var names = []
     var indices = pane.selectedIndices ? pane.selectedIndices() : []
-    for (var i = 0; i < indices.length; i++) {
-        var row = pane.rowFor(indices[i])
-        if (row)
+    if (rowFor) {
+        for (var i = 0; i < indices.length; i++) {
+            var row = rowFor(indices[i])
+            if (!row) { names = []; break }
             names.push(String(row.n))
+        }
+    } else if (indices.length > 0) {
+        names = []
     }
     return { name: cursorRow ? String(cursorRow.n) : "", index: pane.cursorIndex,
              start: pane.held, path: pane.path, selected: names }
 }
 
-// Runs on each rows reply while a preference anchor stands. The cursor lands by name with the
-// watcher's fallback, then every selected name still present is marked again.
+// Resolves only on the rows reply for the asked window; a scrolled reply or a moved cursor drops the anchor instead of yanking it.
 function applyPreference(pane, anchor) {
     if (!anchor)
         return null
     if (pane.path !== anchor.path)
         return null
+    if (pane.cursorIndex !== 0 && pane.cursorIndex !== anchor.index)
+        return null
+    if (pane.held !== anchor.start) {
+        if (anchor.start > 0 && pane.held === 0 && pane.total > anchor.start)
+            return anchor
+        if (!(anchor.start > 0 && pane.total <= anchor.start))
+            return null
+    }
     var cursorAt = -1
     for (var i = 0; i < pane.rows.length; i++) {
         if (String(pane.rows[i].n) === anchor.name) {
@@ -146,8 +156,6 @@ function applyPreference(pane, anchor) {
             break
         }
     }
-    if (cursorAt < 0 && anchor.start > 0 && pane.held === 0 && pane.total > anchor.start)
-        return anchor
     if (cursorAt < 0 && pane.total > 0)
         cursorAt = Math.min(anchor.index, pane.total - 1)
     var marks = []

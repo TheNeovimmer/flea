@@ -1,13 +1,8 @@
 .pragma library
 
-// ui/ViewState.qml's one-writer bookkeeping, and nothing else: `saved` is the newest patch a writer
-// landed, `inflight` is what the running `flea --ui-state` carries, and `pending` is the newest patch
-// waiting behind it. All three are patch bytes and not the state file's, because a patch names only
-// the settings that window changed. Imports no QML, so tests/js/uistate.js can redden on a mutation.
+// ui/ViewState.qml's one-writer bookkeeping: saved/inflight/pending are patch bytes, pinned by tests/js/uistate.js.
 
-// The window's own read of ui.json. main() leaves a document it cannot read as a JSON object
-// exactly as the operator wrote it, so `unreadable` is what makes the pane say the file was not used;
-// no file at all is a first launch and says nothing.
+// The window's own read of ui.json: an unreadable document stays as written and says so, while no file at all is a first launch.
 function fromFile(text) {
     try {
         var found = JSON.parse(text)
@@ -43,10 +38,7 @@ function favouritesAfter(records, operation) {
     return next
 }
 
-// Keys one window never takes from the state file, because they name where that window is
-// rather than how Flea behaves: the view it shows, the widths it drew, the dual pair and focus,
-// where it was, its own sort, and stamps the sweep and the migrations own. Everything else is a
-// preference the Settings panel or a global toggle writes, and applies live in every open window.
+// Per-window keys name where a window is rather than how Flea behaves, so no window ever takes them from the file.
 var WINDOW_KEYS = ["view", "pickerView", "columnWidths", "dual", "lastPath", "lastTabs",
                    "trashSweptOn", "stateVersion", "sort"]
 
@@ -54,57 +46,45 @@ function isWindowKey(key) {
     return WINDOW_KEYS.indexOf(key) >= 0
 }
 
-// Leaves one window never takes, Finder-style: the rail, the preview column and the grid zoom
-// stay per window like the sidebar, preview pane and icon size. A change made in Settings still
-// writes the file and a new window reads it; open windows keep their own.
+// Per-window leaves stay per window like the sidebar: a change still writes the file, but open windows keep their own.
 var WINDOW_LEAF_KEYS = ["places.rail", "preview.column", "preview.thumbSize"]
 
 function isWindowLeaf(key, leaf) {
     return WINDOW_LEAF_KEYS.indexOf(key + "." + leaf) >= 0
 }
 
-// True for a patch the schema refused, which settled heals and a retry can never land: the
-// binary names the key it refused. Anything else (an unwritable directory, a wrapper's simulated
-// refusal, a writer that never started) keeps today's retry, so transient failures lose nothing.
-// The writer reads this off its own inflight patch rather than the child's stderr, because onExited
-// races the collector's text and an empty read would retry a refusal forever.
-function isValidationRefusal(stderrText) {
-    var text = String(stderrText || "")
-    return text.indexOf("must be a JSON object") >= 0
-        || text.indexOf("is not a ui.json key") >= 0
-        || text.indexOf("takes an object, not") >= 0
-        || text.indexOf("is kept by Flea") >= 0
-        || text.indexOf("does not take") >= 0
+// Sample patch: {"columns":["name","bogus"]} is refused whole while {"columns":["name","size"]} retries; only schema-invalid shapes prune.
+function isPatchInvalid(patchText) {
+    return invalidKeys(patchText).length > 0
 }
 
-// The same decision off the patch itself, which is what the writer gates on: a columns set without
-// name, with an unknown key or with a duplicate, and a places group that is not an object, are the
-// shapes a hand edit plants and a retry can never land. Anything else retries, so the wrapper's
-// simulated refusal of a valid patch keeps the old behaviour.
-function isPatchInvalid(patchText) {
+// Sample patch: {"columns":["name","bogus"],"density":"normal"} refuses ["columns"] alone, so a valid key beside it is never pruned.
+function invalidKeys(patchText) {
+    var refused = []
     var patch = null
     try {
         patch = JSON.parse(patchText)
     } catch (e) {
-        return false
+        return refused
     }
     if (!patch || typeof patch !== "object" || Array.isArray(patch))
-        return false
+        return refused
     if (patch.columns !== undefined) {
         var cols = patch.columns
-        if (!Array.isArray(cols) || cols.indexOf("name") < 0)
-            return true
-        var seen = {}
-        var keys = ["name", "mode", "size", "date", "kind"]
-        for (var i = 0; i < cols.length; i++) {
-            if (keys.indexOf(cols[i]) < 0 || seen[cols[i]])
-                return true
-            seen[cols[i]] = true
+        var bad = !Array.isArray(cols) || cols.indexOf("name") < 0
+        if (!bad) {
+            var seen = {}
+            var keys = ["name", "mode", "size", "date", "kind"]
+            for (var i = 0; i < cols.length; i++) {
+                if (keys.indexOf(cols[i]) < 0 || seen[cols[i]]) { bad = true; break }
+            }
         }
+        if (bad)
+            refused.push("columns")
     }
     if (patch.places !== undefined && (patch.places === null || typeof patch.places !== "object" || Array.isArray(patch.places)))
-        return true
-    return false
+        refused.push("places")
+    return refused
 }
 
 // True when text parses as a JSON object; empty or garbage is ignored until the next valid write.
@@ -117,23 +97,49 @@ function parsesAsObject(text) {
     }
 }
 
-// Drop a refused patch's keys from what is owed and revert them to the settled document, so one
-// refusal never blocks every later save. Groups drop leaf by leaf, maps entry by entry; whole
-// keys drop whole. Returns the pruned owed patch plus the dropped top-level keys.
-function pruneRefused(unsaved, inflightText, settled) {
-    var inflight = null
-    try {
-        inflight = JSON.parse(inflightText)
-    } catch (e) {
-        return { unsaved: unsaved, dropped: [] }
-    }
-    if (!inflight || typeof inflight !== "object" || Array.isArray(inflight))
-        return { unsaved: unsaved, dropped: [] }
+// A settler's exit and its collected text land in either order, so only a whole answer is ever read.
+function landed(answer, half) {
+    return Object.assign({}, answer, half)
+}
+
+// An empty text is an answer too: a run that says nothing has still finished saying it.
+function whole(answer) {
+    return answer.code !== undefined && answer.text !== undefined
+}
+
+// The whole answer a settler that never started is given: no real exit status is negative.
+var NEVER_RAN = { code: -1, text: "" }
+
+// A settler that cannot start raises no exited, only running going false, and a real exit lands its status before that false.
+function neverRan(answer, running) {
+    return !running && answer.code === undefined
+}
+
+// A refused write queues its prune behind a running settle instead of hijacking that settle's mode.
+function pruneAsk(running, failedPatch) {
+    return running ? { queue: failedPatch, start: "" } : { queue: "", start: failedPatch }
+}
+
+// A settle's end spends a queued prune before a dirty re-read, keeping the dirty flag across the prune so the re-read still runs after it.
+function settleNext(dirty, pruneQueued) {
+    if (pruneQueued.length > 0)
+        return "prune"
+    if (dirty)
+        return "apply"
+    return "idle"
+}
+
+// Drops only refused keys a retry can never land, keeping a valid key and a newer owed value the refused writer never carried.
+function dropInvalid(unsaved, inflightText) {
+    var refused = invalidKeys(inflightText)
+    if (refused.length === 0)
+        return unsaved
+    var inflight = JSON.parse(inflightText)
     var out = {}
     for (var k in unsaved)
         out[k] = unsaved[k]
-    var dropped = []
-    for (var key in inflight) {
+    for (var r = 0; r < refused.length; r++) {
+        var key = refused[r]
         if (out[key] === undefined)
             continue
         if (isGroup(out[key]) && isGroup(inflight[key])) {
@@ -141,30 +147,39 @@ function pruneRefused(unsaved, inflightText, settled) {
             var any = false
             for (var leaf in out[key]) {
                 if (inflight[key][leaf] !== undefined
-                        && JSON.stringify(out[key][leaf]) === JSON.stringify(inflight[key][leaf])) {
-                    if (settled && settled[key] && JSON.stringify(inflight[key][leaf])
-                            !== JSON.stringify(settled[key][leaf]))
-                        continue
-                } else {
-                    kept[leaf] = out[key][leaf]
-                    any = true
-                }
+                        && JSON.stringify(out[key][leaf]) === JSON.stringify(inflight[key][leaf]))
+                    continue
+                kept[leaf] = out[key][leaf]
+                any = true
             }
             if (any)
                 out[key] = kept
             else
                 delete out[key]
-            dropped.push(key)
-        } else {
+        } else if (JSON.stringify(out[key]) === JSON.stringify(inflight[key])) {
             delete out[key]
-            dropped.push(key)
         }
+    }
+    return out
+}
+
+// Drop a refused patch's keys from what is owed, so one refusal never blocks later saves; settled stays the revert source in revertedState.
+function pruneRefused(unsaved, inflightText, settled) {
+    var out = dropInvalid(unsaved, inflightText)
+    var refused = invalidKeys(inflightText)
+    var dropped = []
+    for (var r = 0; r < refused.length; r++) {
+        if (out[refused[r]] === undefined && unsaved[refused[r]] !== undefined)
+            dropped.push(refused[r])
     }
     return { unsaved: out, dropped: dropped }
 }
 
-// The settled values a dropped key reverts to: whole keys copy, group leaves copy leaf by leaf.
+// Reverts only refused keys still showing the refused value, so a newer change made behind the refused writer survives.
 function revertedState(state, inflightText, settled) {
+    var refused = invalidKeys(inflightText)
+    if (refused.length === 0)
+        return state
     var inflight = null
     try {
         inflight = JSON.parse(inflightText)
@@ -176,36 +191,31 @@ function revertedState(state, inflightText, settled) {
     var out = {}
     for (var s in state)
         out[s] = state[s]
-    for (var key in inflight) {
-        if (settled[key] === undefined)
+    for (var r = 0; r < refused.length; r++) {
+        var key = refused[r]
+        if (settled[key] === undefined || inflight[key] === undefined)
             continue
         if (isGroup(inflight[key]) && isGroup(settled[key]) && isGroup(out[key])) {
             var group = {}
             for (var h in out[key])
                 group[h] = out[key][h]
             for (var leaf in inflight[key]) {
+                if (JSON.stringify(group[leaf]) !== JSON.stringify(inflight[key][leaf]))
+                    continue
                 if (settled[key][leaf] !== undefined)
                     group[leaf] = settled[key][leaf]
                 else
                     delete group[leaf]
             }
             out[key] = group
-        } else {
+        } else if (JSON.stringify(out[key]) === JSON.stringify(inflight[key])) {
             out[key] = settled[key]
         }
     }
     return out
 }
 
-// A change another window saved, read off the file's own bytes. Preference keys the file names and
-// this window does not owe take the file's value, through the same state assignment the Settings
-// panel's own owe() makes, so bindings, listings and menus update the way a local change does.
-// Per-window keys are left alone, and so is anything this window changed and no writer has landed
-// for yet (leaf by leaf inside a group, entry by entry inside a map), so applying never clobbers
-// an in-flight write and never writes in response: the answer is a document, not a patch.
-// A file that does not parse as an object is ignored until the next valid write, the way fromFile
-// already treats a half-written one. Favourites keep their own validated syncFavourites path, so
-// they are never taken here. Returns the state to draw, and whether it moved at all.
+// A change another window saved: preference keys the file names and this window does not owe take the file's value, never clobbering owed leaves or in-flight writes.
 function applyExternal(state, unsaved, text) {
     var read = fromFile(text)
     if (read.unreadable)

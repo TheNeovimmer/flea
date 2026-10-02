@@ -346,14 +346,12 @@ QtObject {
         return read.error.length === 0
     }
 
-    // A change another window saved: the settled document `flea --ui-state` prints with no
-    // argument, merged and validated, writes nothing. Raw bytes are only a guard, so a hand edit
-    // with a bogus column, a null places group or a removed key never takes: bogus heals to its
-    // default, null keeps favourites, a removed key reads as its default. Empty or garbage text is
-    // ignored until the next valid write, the way fromFile treats a half-written file.
+    // A change another window saved: the settled document with no argument, merged and validated, writes nothing.
     property string settleMode: ""
     property bool settleDirty: false
     property string pruneInflight: ""
+    property string pruneQueued: ""
+    property var settleAnswer: ({})
     function applyShared(text) {
         if (!UiState.parsesAsObject(text))
             return
@@ -361,52 +359,82 @@ QtObject {
             root.settleDirty = true
             return
         }
-        root.settleMode = "apply"
+        root.settleStart("apply")
+    }
+    // One starter for both settle kinds, so a prune never inherits a stale exit or text.
+    function settleStart(mode) {
+        root.settleMode = mode
+        root.settleAnswer = {}
         settler.command = [Quickshell.env("FLEA_BIN") || "flea", "--ui-state"]
         settler.running = true
+    }
+    // A settler's exit and its collected text land in either order, so only a whole answer reaches settleDone.
+    function settleLanded(half) {
+        if (UiState.whole(root.settleAnswer))
+            return
+        root.settleAnswer = UiState.landed(root.settleAnswer, half)
+        if (!UiState.whole(root.settleAnswer))
+            return
+        root.settleDone(root.settleAnswer.code, root.settleAnswer.text)
+    }
+    // A settle's end spends a queued prune before a dirty re-read; the dirty flag survives the prune so the re-read still runs after it.
+    function settleNext() {
+        var next = UiState.settleNext(root.settleDirty, root.pruneQueued)
+        if (next === "prune") {
+            var queued = root.pruneQueued
+            root.pruneQueued = ""
+            root.pruneInflight = queued
+            root.settleStart("prune")
+        } else if (next === "apply") {
+            root.settleDirty = false
+            root.applyShared(stateFile.text())
+        }
     }
     function settleDone(exitCode, out) {
         var mode = root.settleMode
         root.settleMode = ""
-        var again = root.settleDirty
-        root.settleDirty = false
-        if (again && mode === "apply") {
-            root.applyShared(stateFile.text())
-            return
-        }
-        if (exitCode !== 0) {
-            if (mode === "prune") {
-                root.pruneInflight = ""
-                root.writeBook = { saved: root.writeBook.saved, inflight: "", pending: "", start: "" }
-            }
-            return
-        }
-        var settled = null
-        try {
-            settled = JSON.parse(out)
-        } catch (e) {
-            return
-        }
         if (mode === "prune") {
-            if (!UiState.parsesAsObject(stateFile.text()))
+            if (exitCode !== 0) { root.pruneFailed(); return }
+            var settled = null
+            try {
+                settled = JSON.parse(out)
+            } catch (e) {
+                root.pruneFailed()
                 return
+            }
+            if (!UiState.parsesAsObject(stateFile.text())) { root.pruneFailed(); return }
             var pruned = UiState.pruneRefused(root.unsaved, root.pruneInflight, settled)
             root.unsaved = pruned.unsaved
             root.state = UiState.revertedState(root.state, root.pruneInflight, settled)
             root.pruneInflight = ""
             root.writeBook = { saved: root.writeBook.saved, inflight: "", pending: "", start: "" }
+            root.settleNext()
             if (JSON.stringify(root.unsaved) !== "{}") {
                 root.saveStatus = "Saving…"
                 root.save()
             }
             return
         }
-        if (!UiState.parsesAsObject(stateFile.text()))
-            return
-        var applied = UiState.applyExternal(root.state, root.unsaved, out)
-        if (applied.changed)
-            root.state = applied.state
+        if (exitCode !== 0) { root.settleNext(); return }
+        if (!UiState.parsesAsObject(out)) { root.settleNext(); return }
+        if (!UiState.parsesAsObject(stateFile.text())) { root.settleNext(); return }
+        var merged = UiState.applyExternal(root.state, root.unsaved, out)
+        if (merged.changed)
+            root.state = merged.state
         root.syncFavourites(stateFile.text())
+        root.settleNext()
+    }
+    // A prune settle that never answered still drops what the schema refused, so no save strands behind a phantom writer.
+    function pruneFailed() {
+        root.unsaved = UiState.dropInvalid(root.unsaved, root.pruneInflight)
+        root.pruneInflight = ""
+        root.writeBook = { saved: root.writeBook.saved, inflight: "", pending: "", start: "" }
+        root.saveFailed()
+        root.settleNext()
+        if (JSON.stringify(root.unsaved) !== "{}") {
+            root.saveStatus = "Saving…"
+            root.save()
+        }
     }
     function refreshFavourites() {
         stateFile.reload()
@@ -431,6 +459,7 @@ QtObject {
             if (root.initialReadComplete) {
                 root.applyShared(text())
             }
+            root.syncFavourites(text())
         }
         printErrors: false
         // A file that is not there is a first launch and says nothing; anything else is a file this
@@ -461,10 +490,14 @@ QtObject {
         if (next.failed)
             root.saveFailed()
         if (exitCode !== 0 && UiState.isPatchInvalid(failedPatch)) {
-            root.pruneInflight = failedPatch
-            root.settleMode = "prune"
-            settler.command = [Quickshell.env("FLEA_BIN") || "flea", "--ui-state"]
-            settler.running = true
+            // A refused patch prunes behind a running settle instead of hijacking that settle's mode.
+            var ask = UiState.pruneAsk(settler.running, failedPatch)
+            if (ask.queue.length > 0) {
+                root.pruneQueued = ask.queue
+                return
+            }
+            root.pruneInflight = ask.start
+            root.settleStart("prune")
             return
         }
         if (next.start.length > 0)
@@ -485,11 +518,12 @@ QtObject {
 
     property var settler: Process {
         id: settler
-        stdout: StdioCollector { waitForEnd: true }
-        onExited: function (exitCode, exitStatus) { root.settleDone(exitCode, settler.stdout.text) }
+        stdout: StdioCollector { id: settleOut; waitForEnd: true; onStreamFinished: root.settleLanded({ text: settleOut.text }) }
+        onExited: function (exitCode, exitStatus) { root.settleLanded({ code: exitCode }) }
+        // A settler that never started raises no exited, only running going false; the joined halves tell it from a real exit the way the writer's own rule does.
         onRunningChanged: {
-            if (!settler.running && root.settleMode.length > 0 && settler.stdout.text.length === 0)
-                root.settleDone(2, "")
+            if (root.settleMode.length > 0 && UiState.neverRan(root.settleAnswer, settler.running))
+                root.settleLanded(UiState.NEVER_RAN)
         }
     }
 }
