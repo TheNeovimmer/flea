@@ -135,6 +135,40 @@ function run(check) {
           Math.abs(steppedSum - Scroll.tailTotal(2)) < 1, true)
     check("a tail past the end still lands on the last page",
           Scroll.bounded(600 + Scroll.tailTravel(2, 500), 0, 1000, 400), 600)
+    // Elastic edges: resisted overscroll, the return landing on its bound, wheel never leaving it.
+    check("no raw travel past the bound shows no overscroll", Scroll.overResist(0, 400), 0)
+    check("a small push past shows a smaller resisted one",
+          Scroll.overResist(100, 400) > 0 && Scroll.overResist(100, 400) < 100, true)
+    check("more raw travel shows more, never past the viewport",
+          Scroll.overResist(200, 400) > Scroll.overResist(100, 400)
+          && Scroll.overResist(100000, 400) < 400, true)
+    check("no viewport shows none", Scroll.overResist(100, 0), 0)
+    check("the return starts where the lift left it", Scroll.returnAt(80, 0, 0, 200), 80)
+    check("the return reaches its bound", Scroll.returnAt(80, 0, 200, 200), 0)
+    check("a wheel notch past the top stays on the bound, never past it",
+          Scroll.bounded(0 - 288, 0, 1000, 400), 0)
+    check("a wheel notch past the end stays on the last page",
+          Scroll.bounded(600 + 288, 0, 1000, 400), 600)
+    // tp2-r2: margins move the rest, dead axes take no delta, the tail brakes past the bound.
+    check("a gap margin rests below the origin", Scroll.limits(0, 1000, 400, 8, 0).min, -8)
+    check("a gap margin keeps the last page", Scroll.limits(0, 1000, 400, 8, 0).max, 600)
+    check("margins default to the old bounds", Scroll.limits(0, 1000, 400).min === 0
+          && Scroll.limits(0, 1000, 400).max === 600, true)
+    check("a bounded write honours the margins", Scroll.bounded(-8, 0, 1000, 400, 8, 0), -8)
+    check("a vertical list has no X range",
+          typeof Scroll.rangesX === "function" && Scroll.rangesX({ contentWidth: -1, width: 400 }) === false, true)
+    check("a fitting content has no Y range",
+          typeof Scroll.rangesY === "function" && Scroll.rangesY({ contentHeight: 100, height: 400 }) === false, true)
+    check("an overflowing content ranges",
+          typeof Scroll.rangesY === "function" && Scroll.rangesY({ contentHeight: 1000, height: 400 }), true)
+    check("the past-bound brake is strong but nonzero",
+          typeof Scroll.overDecel === "function"
+          && Scroll.overDecel(6, 16.7) > 0 && Scroll.overDecel(6, 16.7) < 6 * Math.pow(0.998, 16.7), true)
+    check("the handler resists touchpad edges and returns with Omarchy motion",
+          Source.source("ui/FastScrollHandler.qml").indexOf("overResist") >= 0
+          && Source.source("ui/FastScrollHandler.qml").indexOf("startReturn") >= 0
+          && Source.source("ui/FastScrollHandler.qml").indexOf("Motion.durMs.open") >= 0
+          && Source.source("ui/FastScrollHandler.qml").indexOf("Theme.reducedMotion") >= 0, true)
     check("the handler routes a touchpad by phase",
           Source.source("ui/FastScrollHandler.qml").indexOf("Scroll.isTouchpad") >= 0, true)
 }

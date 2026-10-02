@@ -73,7 +73,7 @@ function tailState(view, create) {
             return _tails[i].state
     if (!create)
         return null
-    var made = { samples: [], vx: 0, vy: 0, active: false, lastY: null, lastX: null }
+    var made = { samples: [], vx: 0, vy: 0, active: false, lastY: null, lastX: null, overY: 0, overX: 0, retActive: false, retElapsed: 0, retDur: 0, retFromY: 0, retToY: 0, retFromX: 0, retToX: 0 }
     _tails.push({ view: view, state: made })
     return made
 }
@@ -169,12 +169,45 @@ function tailLive(vx, vy) {
     return tailSpeed(vx, vy) > STOP_V_PX_PER_MS
 }
 
-// A content position kept inside the Flickable: never above its origin, never past its last page.
-// A content shorter than the view pins to the origin.
-function bounded(value, originY, contentHeight, viewHeight) {
-    var minimum = Number(originY) || 0
-    var maximum = Math.max(minimum, minimum + Math.max(0, Number(contentHeight) || 0) - Math.max(0, Number(viewHeight) || 0))
-    return Math.max(minimum, Math.min(maximum, value))
+// A content position kept inside the Flickable: never above its origin less the leading
+// margin, never past its last page plus the trailing one. A grid with a gap margin rests at -gap.
+function bounded(value, originY, contentHeight, viewHeight, startMargin, endMargin) {
+    var lim = limits(originY, contentHeight, viewHeight, startMargin, endMargin)
+    return Math.max(lim.min, Math.min(lim.max, value))
+}
+
+// Apple's rubber-band: UIKit/AppKit use 0.55, so shown travel stays under the viewport length.
+var RESIST_K = 0.55
+// Shown overscroll for raw travel x past the bound over viewport d: 0 at 0, monotone, under d.
+function overResist(x, d) {
+    var raw = Math.max(0, Number(x) || 0)
+    var len = Math.max(0, Number(d) || 0)
+    if (raw === 0 || len === 0)
+        return 0
+    return (1 - 1 / (raw * RESIST_K / len + 1)) * len
+}
+// The bounds a content sits in: min origin less the leading margin, max last page plus the
+// trailing one, short content pins to min. Margins default to 0, so margin-less callers read as before.
+function limits(origin, contentLength, viewportLength, startMargin, endMargin) {
+    var lead = Number(startMargin) || 0
+    var min = (Number(origin) || 0) - lead
+    var max = Math.max(min, min + lead + Math.max(0, Number(contentLength) || 0) - Math.max(0, Number(viewportLength) || 0) + (Number(endMargin) || 0))
+    return { min: min, max: max }
+}
+// Margin-aware bounds off a Flickable itself, so grid and list call sites cannot drift apart.
+function limitsY(f) { return limits(f.originY, f.contentHeight, f.height, f.topMargin, f.bottomMargin) }
+function limitsX(f) { return limits(f.originX, f.contentWidth, f.width, f.leftMargin, f.rightMargin) }
+// No range, no delta: a vertical list reports contentWidth -1, so any x would steal the lift's tail.
+function rangesX(f) { return (Number(f.contentWidth) || 0) + (Number(f.leftMargin) || 0) + (Number(f.rightMargin) || 0) - Math.max(0, Number(f.width) || 0) > 0 }
+function rangesY(f) { return (Number(f.contentHeight) || 0) + (Number(f.topMargin) || 0) + (Number(f.bottomMargin) || 0) - Math.max(0, Number(f.height) || 0) > 0 }
+// Past the bound the tail brakes hard, so the overshoot peaks in a few frames like Finder.
+var OVER_DECAY = 0.98
+function overDecel(v, dtMs) { return (Number(v) || 0) * Math.pow(OVER_DECAY, Math.max(0, Number(dtMs) || 0)) }
+// OutCubic return step: at elapsed past dur lands on to, so the overscroll reaches its bound.
+function returnAt(from, to, elapsed, dur) {
+    var t = Math.max(0, Math.min(1, Number(elapsed) / Math.max(1, Number(dur) || 1)))
+    var k = 1 - Math.pow(1 - t, 3)
+    return Number(from) + (Number(to) - Number(from)) * k
 }
 
 // The lane every listing reserves at its right edge so rows never reflow under the bar.

@@ -165,8 +165,8 @@ ShellRoot {
 
     function freeze() {
         var h = handlers()
-        if (h.body) h.body.tailRunning = false
-        if (h.lane) h.lane.tailRunning = false
+        if (h.body) { h.body.tailRunning = false; h.body.returnRunning = false }
+        if (h.lane) { h.lane.tailRunning = false; h.lane.returnRunning = false }
     }
 
     // One flick through a handler; returns the mirrored gained samples and the End time.
@@ -382,9 +382,181 @@ ShellRoot {
             root.report()
             return
         }
+        root.edgeTop(liftObjs, liftDelegates, liftY, got)
+    }
+
+    function returnActive() {
+        var found = Scroll.tailState(list, false)
+        return found !== null && found.retActive
+    }
+
+    // Elastic edges on the real List: resisted peaks within 1 px, tails overshoot and return,
+    // no extra objects while past the bound, and a press stops the return where its row was picked.
+    function edgeTop(liftObjs, liftDelegates, liftY, liftGot) {
+        var h = handlers()
+        list.contentY = 0
+        root.fakeT += 1000
+        Scroll.testNowMs = root.fakeT
+        feedStroke(h.body, flickRaw(12, 3), 8)
+        root.freeze()
+        var want = Scroll.overResist(12 * 3 * Scroll.TOUCH_GAIN, list.height)
+        var peak = list.contentY
+        if (Math.abs(peak + want) > 1) {
+            fail("top edge peaked " + peak.toFixed(2) + ", want " + (-want).toFixed(2))
+            root.report()
+            return
+        }
+        if (!root.returnActive()) {
+            fail("top edge started no return")
+            root.report()
+            return
+        }
+        if (countUnder(list) !== liftObjs || list.contentItem.children.length !== liftDelegates) {
+            fail("overscroll built objects past a plain stroke")
+            root.report()
+            return
+        }
+        var guard = 0
+        while (root.returnActive() && guard < 10000) { h.body.advanceReturn(16.7); guard += 1 }
+        if (Math.abs(list.contentY) > 1) {
+            fail("top edge rested " + list.contentY.toFixed(2) + ", want 0")
+            root.report()
+            return
+        }
+        root.edgeBottom(liftObjs, liftDelegates, liftY, liftGot, peak)
+    }
+
+    function edgeBottom(liftObjs, liftDelegates, liftY, liftGot, topPeak) {
+        var h = handlers()
+        var lim = Scroll.limitsY(list)
+        list.contentY = lim.max
+        root.fakeT += 1000
+        Scroll.testNowMs = root.fakeT
+        feedStroke(h.body, flickRaw(12, -3), 8)
+        root.freeze()
+        var want = Scroll.overResist(12 * 3 * Scroll.TOUCH_GAIN, list.height)
+        var peak = list.contentY
+        if (Math.abs(peak - (lim.max + want)) > 1) {
+            fail("bottom edge peaked " + peak.toFixed(2) + ", want " + (lim.max + want).toFixed(2))
+            root.report()
+            return
+        }
+        if (!root.returnActive()) {
+            fail("bottom edge started no return")
+            root.report()
+            return
+        }
+        var guard = 0
+        while (root.returnActive() && guard < 10000) { h.body.advanceReturn(16.7); guard += 1 }
+        if (Math.abs(list.contentY - lim.max) > 1) {
+            fail("bottom edge rested " + list.contentY.toFixed(2) + ", want " + lim.max.toFixed(2))
+            root.report()
+            return
+        }
+        root.tailEdge(liftObjs, liftDelegates, liftY, liftGot, topPeak, peak, lim.max)
+    }
+
+    function tailEdge(liftObjs, liftDelegates, liftY, liftGot, topPeak, bottomPeak, maxY) {
+        var h = handlers()
+        list.contentY = Math.max(0, maxY - 1500)
+        root.fakeT += 1000
+        Scroll.testNowMs = root.fakeT
+        feedStroke(h.body, flickRaw(12, -40), 8)
+        root.freeze()
+        if (!root.tailActive() && !root.returnActive()) {
+            fail("tail edge started neither tail nor return")
+            root.report()
+            return
+        }
+        var peak = list.contentY
+        var guard = 0
+        while (root.tailActive() && guard < 10000) {
+            h.body.advanceTail(16.7)
+            guard += 1
+            if (list.contentY > peak)
+                peak = list.contentY
+        }
+        guard = 0
+        while (root.returnActive() && guard < 10000) { h.body.advanceReturn(16.7); guard += 1 }
+        if (!(peak > maxY && peak < maxY + list.height)) {
+            fail("tail edge peaked " + peak.toFixed(2) + ", want past " + maxY.toFixed(2) + " under one viewport")
+            root.report()
+            return
+        }
+        if (Math.abs(list.contentY - maxY) > 1) {
+            fail("tail edge rested " + list.contentY.toFixed(2) + ", want " + maxY.toFixed(2))
+            root.report()
+            return
+        }
+        root.pressReturn(topPeak, bottomPeak, peak, liftY, liftGot, liftObjs, liftDelegates)
+    }
+
+    function pressReturn(topPeak, bottomPeak, tailPeak, liftY, liftGot, liftObjs, liftDelegates) {
+        var h = handlers()
+        list.contentY = 0
+        root.fakeT += 1000
+        Scroll.testNowMs = root.fakeT
+        feedStroke(h.body, flickRaw(12, 3), 8)
+        root.freeze()
+        if (!root.returnActive()) {
+            fail("press case started no return")
+            root.report()
+            return
+        }
+        h.body.advanceReturn(50)
+        h.body.advanceReturn(50)
+        var held = list.contentY
+        if (Math.abs(held) < 1) {
+            fail("return already home before the press")
+            root.report()
+            return
+        }
+        var press = { accepted: true }
+        h.body.handlePress(press)
+        if (press.accepted !== false) {
+            fail("press was consumed instead of reaching the row")
+            root.report()
+            return
+        }
+        if (root.returnActive() || root.tailActive()) {
+            fail("a press left the return running")
+            root.report()
+            return
+        }
+        // The press stops the return where it is instead of snapping to the bound: the row
+        // under the pointer is picked from this layout, so the tap still lands on it.
+        if (Math.abs(list.contentY - held) > 0.01) {
+            fail("a press snapped " + held.toFixed(2) + " to " + list.contentY.toFixed(2))
+            root.report()
+            return
+        }
+        var at = list.contentY
+        if (h.body.advanceReturn(16.7) !== 0 || list.contentY !== at) {
+            fail("a stopped return moved after the press")
+            root.report()
+            return
+        }
+        // The release settles back to the bound without moving a held press.
+        h.body.handleRelease({ accepted: true })
+        if (!root.returnActive()) {
+            fail("a release after a held overscroll settled nothing")
+            root.report()
+            return
+        }
+        var guard = 0
+        while (root.returnActive() && guard < 10000) { h.body.advanceReturn(16.7); guard += 1 }
+        if (Math.abs(list.contentY) > 1) {
+            fail("a released return rested " + list.contentY.toFixed(2) + ", want the bound 0")
+            root.report()
+            return
+        }
         console.log("TOUCHPAD PASS stroke=1200 lift=" + Math.round(root.liveLiftY)
-            + " rest=" + Math.round(liftY + got) + " tail=" + got.toFixed(1)
-            + " objs=" + midObjs + " delegates=" + midDelegates)
+            + " rest=" + Math.round(liftY + liftGot) + " tail=" + liftGot.toFixed(1)
+            + " objs=" + liftObjs + " delegates=" + liftDelegates
+            + " edgeTop=" + topPeak.toFixed(1) + " edgeBottom=" + bottomPeak.toFixed(1)
+            + " tailPeak=" + tailPeak.toFixed(1))
+        console.log("TOUCHPAD EDGE PASS top=" + topPeak.toFixed(1) + " bottom=" + bottomPeak.toFixed(1)
+            + " tailPeak=" + tailPeak.toFixed(1) + " rest=bound")
         root.report()
     }
 

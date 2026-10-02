@@ -117,7 +117,8 @@ MouseArea {
         running: root.bandActive && root.scrollDirection !== 0
         onTriggered: root.flickable.contentY = Scroll.bounded(
             root.flickable.contentY + root.scrollDirection * root.scrollRate * frameTime,
-            root.flickable.originY, root.flickable.contentHeight, root.flickable.height)
+            root.flickable.originY, root.flickable.contentHeight, root.flickable.height,
+            root.flickable.topMargin, root.flickable.bottomMargin)
     }
 
     Rectangle {

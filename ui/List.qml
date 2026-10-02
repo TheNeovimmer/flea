@@ -182,15 +182,22 @@ ListView {
         // Hidden geometry and a restore in flight move no shared state.
         if (!root.visible || root.hiddenHeld)
             return
+        // The cursor follows the view clamped to its bounds, and only when that view moved:
+        // overscroll shows no new rows, and the return lands back on the view it left, so a
+        // bounce that re-emits the same clamped range never pulls the cursor along with it.
+        var at = Scroll.bounded(root.contentY, root.originY, root.contentHeight, root.height)
         // Qt shifts originY when expanded delegates collapse; row offsets start at that origin.
-        var first = Math.floor((root.contentY - root.originY) / Theme.fileRowHeight)
+        var first = Math.floor((at - root.originY) / Theme.fileRowHeight)
         var last = Math.min(root.pane.shownTotal - 1, first + root.pane.visibleRows - 1)
         if (root.pane.renamingIndex >= 0) {
             var range = root.visibleRange()
             first = range.first
             last = range.last
         }
-        if (last >= first && root.pane.selectionBand === null) {
+        if (last >= first && root.pane.selectionBand === null
+                && (first !== root._clampFirst || last !== root._clampLast)) {
+            root._clampFirst = first
+            root._clampLast = last
             root.cursorClamped(first, last)
         }
         root.menu.close()
@@ -217,6 +224,9 @@ ListView {
 
     // Returning parks the view on the shared cursor once the reset rows land.
     property bool hiddenHeld: false
+    // The clamped view the cursor was last pulled into; a bounce re-emits the same range.
+    property int _clampFirst: -1
+    property int _clampLast: -1
     // Last parked contentY and loop turns spent; only a value stable across turns ends the hold.
     property real restoreY: -1
     property int restoreTicks: 0
