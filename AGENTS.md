@@ -5320,7 +5320,9 @@ there. Four triggers send only `rename` and its undo down one compatibility path
 rclone 1.75 returns `EINVAL` for `RENAME_NOREPLACE` on a directory under a mount identified exactly
 as `fuse.rclone` in `/proc/self/mountinfo`, and GVFS returns `EIO` for a rename under a
 `/run/user/*/gvfs/dav:` WebDAV mount; `fuse.megafs` answers `EINVAL` the same way, and a rename or
-its undo that crosses filesystems answers `EXDEV`. Ordinary rclone directory rename is never used because it was
+its undo that crosses filesystems answers `EXDEV`.
+corner: the lstat-then-rename window can replace a destination created in between; copy-fallback mounts never reach it because rename_noreplace keeps their EINVAL.
+Ordinary rclone directory rename is never used because it was
 proven to replace even a non-empty target. `renamecompat::rename_path` instead builds the target
 through the existing exclusive copy primitives, removes the source only after the copy completes,
 and uses the same path for undo. On a durable destination (a dav share classifies network) the copy's
@@ -5362,6 +5364,7 @@ the same kind, so the sentence names no direction, warns that the name the copy 
 incomplete, and leaves the refreshed listing to show which names are on disk. The journal spends its
 entry either way, because a failed reversal that stayed would block every older undo behind a step
 that keeps failing.
+A twin stranded by a failed move-back answers `rename-stranded` rather than `rename-kept`: the temp sibling holds the file under a hidden dot name, so `path` is the source, which closes the rename request, and `msg` names the temp leaf with the move-back cause ("the file was left as .flea-case-N-M in this folder: input/output failed"). `ui/js/Errors.js` capitalises it as it does a transfer, `ui/PaneWire.qml` treats it as `rename-kept` for the refresh, and the move path carries the same `msg` on its item error.
 corner: the copy is not snapshot-isolated, so a source replaced after the copy completes is destroyed
 by the removal that follows, and a concurrent write into the operation-created partial target is lost
 with it; both are accepted rather than defended against.

@@ -66,7 +66,7 @@ function sentence(where, message, named) {
         return "The listing changed before that arrived, so nothing was done."
     }
     if (where === "transfer" || where === "archive" || where === "convert"
-            || where === "link" || where === "linktarget") {
+            || where === "link" || where === "linktarget" || where === "rename-stranded") {
         return capitalised(message)
     }
     return "That action could not be completed; try again."

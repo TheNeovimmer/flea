@@ -87,6 +87,10 @@ function run(check) {
     check("and it never tells an operator who pressed undo that something was renamed",
           Errors.sentence("rename-kept", "Permission denied (os error 13)").indexOf("Renamed") < 0,
           true)
+    // A stranded twin keeps the source path, so the sentence must name the temp leaf it sits under.
+    check("a stranded twin names its temp leaf",
+          Errors.sentence("rename-stranded", "the file was left as .flea-case-1-0 in this folder: input/output failed"),
+          "The file was left as .flea-case-1-0 in this folder: input/output failed.")
     check("a duplicate failure names the operation",
           Errors.sentence("duplicate", "every copy name is taken"),
           "That file could not be duplicated.")

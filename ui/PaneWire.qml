@@ -447,13 +447,13 @@ Item {
             var renamePath = request && (input === request.source || input === request.destination
                 || (where === "rename" && (input.length === 0 || input.indexOf(request.source + "/") === 0
                     || input.indexOf(request.destination + "/") === 0)))
-            if (request && (terminal || (renamePath && ["rename", "journal", "rename-kept"].indexOf(where) >= 0))) {
+            if (request && (terminal || (renamePath && ["rename", "journal", "rename-kept", "rename-stranded"].indexOf(where) >= 0))) {
                 var pointer = pane.renameKeepsPointerRow
                 pane.renameRequest = null
                 pane.renameKeepsPointerRow = false
                 if (terminal) {
                     text = "Backend stopped; rename outcome unknown."
-                } else if (where === "rename-kept" || (where === "journal" && input === request.destination)) {
+                } else if (where === "rename-kept" || where === "rename-stranded" || (where === "journal" && input === request.destination)) {
                     // A destination-side journal failure happens after the filesystem rename succeeded.
                     pane.renamingIndex = -1
                     if (where === "journal") text = Errors.capitalised("renamed, but Undo was not recorded: " + message)
@@ -517,7 +517,7 @@ Item {
             }
             pane.message(text, true)  // GM's ruling: the centre lane carries the refusal, both StatusBar lanes
             // The copy is whole and only the name it came from is unknown, so re-read the listing and select nothing.
-            if (where === "rename-kept")
+            if (where === "rename-kept" || where === "rename-stranded")
                 pane.refresh("")
         }
     }

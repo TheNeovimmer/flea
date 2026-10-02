@@ -21,8 +21,9 @@ const ENOSYS: i32 = 38;
 const EMLINK: i32 = 31;
 const EOPNOTSUPP: i32 = 95;
 const EEXIST: i32 = 17;
-// The kind a half-succeeded rename answers; ui/js/Errors.js words it and ui/PaneWire.qml refreshes on it.
+// The kinds a half-succeeded rename answers; ui/js/Errors.js words each and ui/PaneWire.qml refreshes on both.
 pub(crate) const KEPT: &str = "rename-kept";
+pub(crate) const STRANDED: &str = "rename-stranded";
 
 extern "C" {
     fn renameat2(
@@ -69,7 +70,6 @@ pub fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 // The flagless fallback keeps no-clobber semantics: a taken destination stays EEXIST, and a file on a filesystem without hard links moves by plain rename.
-// corner: the lstat-then-rename window can replace a destination created in between; copy-fallback mounts never reach it because rename_noreplace keeps their EINVAL.
 fn noreplace_fallback(from: &Path, to: &Path) -> io::Result<()> {
     if to.symlink_metadata().is_ok() {
         return Err(io::Error::from_raw_os_error(EEXIST));
@@ -181,13 +181,13 @@ pub(crate) fn case_twin_move(from: &Path, to: &Path) -> Result<(), FleaError> {
         if to.symlink_metadata().is_ok() {
             // A hardlink twin is a real second name, so the temp goes back and the rename is refused.
             if let Err(back) = move_back(&temp, from) {
-                return Err(kept_temp(&temp, back));
+                return Err(kept_temp(&temp, from, back));
             }
             return Err(FleaError { where_: "rename".to_string(), path: from.to_string_lossy().to_string(), msg: "a file with that name is already here".to_string() });
         }
         if let Err(error) = rename_inner(&temp, to) {
             if let Err(back) = move_back(&temp, from) {
-                return Err(kept_temp(&temp, back));
+                return Err(kept_temp(&temp, from, back));
             }
             return Err(error);
         }
@@ -221,9 +221,9 @@ fn take_fail_twin_back() -> bool {
     FAIL_TWIN_BACK.with(|flag| flag.replace(false))
 }
 
-// A move-back that fails strands the file under temp, so the error names temp in the kept shape.
-fn kept_temp(temp: &Path, back: FleaError) -> FleaError {
-    FleaError { where_: KEPT.to_string(), path: temp.to_string_lossy().to_string(), msg: back.msg }
+// A stranded twin answers its own kind with the source path, so the rename request closes and msg names the temp leaf.
+fn kept_temp(temp: &Path, from: &Path, back: FleaError) -> FleaError {
+    FleaError { where_: STRANDED.to_string(), path: from.to_string_lossy().to_string(), msg: format!("the file was left as {} in this folder: {}", temp.file_name().unwrap_or_default().to_string_lossy(), back.msg) }
 }
 
 // WebDAV is decided from the path and errno alone, so a FUSE check never reads mountinfo for it.
@@ -697,10 +697,12 @@ mod tests {
         std::fs::hard_link(&from, &twin).unwrap();
         test_fail_twin_back();
         let error = rename_path(&from, &twin).expect_err("a failed move-back strands the file");
-        assert_eq!(error.where_, KEPT, "the stranded file answers the kept shape");
-        assert!(error.path.contains(".flea-case-"), "the error names the temp: {}", error.path);
-        let temp = d.path().join(error.path.rsplit('/').next().unwrap_or(&error.path));
-        assert!(temp.is_file() || d.path().join(&error.path).is_file() || Path::new(&error.path).is_file(), "the temp holds the file");
+        assert_eq!(error.where_, "rename-stranded", "a stranded twin answers its own kind");
+        assert_eq!(error.path, from.to_string_lossy(), "the stranded error names the source");
+        assert!(error.msg.starts_with("the file was left as .flea-case-"), "msg names temp leaf: {}", error.msg);
+        assert!(error.msg.ends_with("input/output failed"), "msg carries move-back cause: {}", error.msg);
+        let leaf = error.msg.split(" as ").nth(1).unwrap().split(" in ").next().unwrap();
+        assert!(d.path().join(leaf).is_file(), "the temp holds the file");
     }
     // The FUSE arm reads the real mountinfo, so a unit test drives only the WebDAV arm; live mount batteries drive the other.
     #[test]
