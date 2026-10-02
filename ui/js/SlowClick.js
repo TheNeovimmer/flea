@@ -59,7 +59,8 @@ function fire(pane, now, interval, dragging) {
     if (pane.searchMode !== "" || pane.selectionBand !== null) return false
     var picked = pane.selectedIndices()
     if (picked.length !== 1 || picked[0] !== index || pane.cursorIndex !== index) return false
-    pane.act("rename")
+    // The pointer chose this row, so the reveal carries context 0 and the list never moves under it.
+    pane.act("rename", 0, null, 0)
     return true
 }
 
