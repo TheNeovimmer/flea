@@ -318,6 +318,7 @@ fn remove_link(path: &Path, identity: &ItemIdentity, source: &Path, kind: &super
             msg: "the link changed since this operation, so undo left it in place".into() });
     }
     if *kind == super::link::LinkKind::Hard {
+        // A hard link is removed only while its source still holds the same dev and inode.
         match source.symlink_metadata() {
             Ok(smeta) => {
                 let s = ItemIdentity::record(&smeta);
