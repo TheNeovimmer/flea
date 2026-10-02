@@ -15,6 +15,13 @@ ShellRoot {
     property var failures: []
     property int rowCount: 3000
     property double fakeT: 1000
+    // Real-frame wait for the view fixup to carry a held overscroll home, in milliseconds.
+    property int fixupWaitMs: 500
+    property int pressCase: 0
+    property real pressShown: 0
+    property int pressWant: 0
+    // Both held-overscroll pins: a deep stroke and a shallow one, each with its tap height.
+    property var pressCases: [{ updates: 8, py: 24, y: 300 }, { updates: 2, py: 12, y: 100 }]
 
     function buildRows() {
         var rows = []
@@ -125,6 +132,8 @@ ShellRoot {
     }
 
     Timer { interval: 800; running: true; repeat: false; onTriggered: root.checkReturn() }
+    // The view's own release fixup runs on real frames, so the held-overscroll pin waits for it.
+    Timer { id: fixupWait; interval: root.fixupWaitMs; repeat: false; onTriggered: root.checkPressRested() }
 
     function fail(text) { root.failures.push(text) }
 
@@ -282,65 +291,94 @@ ShellRoot {
 
     // Finding 5: a press during a return stops it where the pointer picked its row, never snapping.
     function checkPress() {
+        root.pressCase = 0
+        root.pressOne()
+    }
+
+    function pressAdvance() {
+        root.pressCase += 1
+        if (root.pressCase >= root.pressCases.length)
+            root.checkTailPeak()
+        else
+            root.pressOne()
+    }
+
+    function pressOne() {
         var h = handlers()
-        var cases = [{ updates: 8, py: 24, y: 300 }, { updates: 2, py: 12, y: 100 }]
-        for (var c = 0; c < cases.length; c++) {
-            root.reset()
-            root.strokeTop(h.body, cases[c].updates, cases[c].py)
-            var shown = -list.contentY
-            root.freeze()
-            if (!root.returnActive()) {
-                fail("press case " + c + " started no return")
-                continue
-            }
-            var rowH = Flea.Theme.fileRowHeight
-            var want = Math.floor((list.contentY + cases[c].y - list.originY) / rowH)
-            var press = { accepted: true }
-            h.body.handlePress(press)
-            if (press.accepted !== false) {
-                fail("press case " + c + " was consumed instead of reaching the row")
-                continue
-            }
-            if (root.returnActive() || root.tailActive()) {
-                fail("press case " + c + " left the return running")
-                continue
-            }
-            // No snap: the layout the pointer picked from is still the layout on screen.
-            if (Math.abs(list.contentY + shown) > 0.01) {
-                fail("press case " + c + " snapped " + shown.toFixed(1) + " to " + (-list.contentY).toFixed(1))
-                continue
-            }
-            var tapped = list.indexAt(100, list.contentY + cases[c].y)
-            if (tapped !== want) {
-                fail("press case " + c + " picked row " + tapped + ", want the row under the pointer " + want)
-                continue
-            }
-            // The dead release settle stays gone: an unaccepted press takes no grab, so prod never reaches it.
-            if (typeof h.body.handleRelease !== "undefined") {
-                fail("press case " + c + " still carries the dead release settle")
-                continue
-            }
-            // Production settles the held overscroll through the view's own release fixup onto the bound.
-            if (!h.body.overscrolled()) {
-                fail("press case " + c + " held nothing past the bound")
-                continue
-            }
-            var bound = Scroll.bounded(list.contentY, list.originY, list.contentHeight, list.height)
-            if (Math.abs(bound) > 0.01) {
-                fail("press case " + c + " fixup target " + bound.toFixed(2) + ", want the bound 0")
-                continue
-            }
-            h.body.startReturn()
-            if (!root.returnActive()) {
-                fail("press case " + c + " release settled nothing")
-                continue
-            }
-            root.settleReturn(h.body)
-            if (Math.abs(list.contentY) > 1)
-                fail("press case " + c + " rested " + list.contentY.toFixed(2) + ", want the bound 0")
-            console.log("EDGE press overscroll=" + shown.toFixed(1) + " row=" + want)
+        var cases = root.pressCases
+        var c = root.pressCase
+        root.reset()
+        root.strokeTop(h.body, cases[c].updates, cases[c].py)
+        var shown = -list.contentY
+        root.pressShown = shown
+        root.freeze()
+        if (!root.returnActive()) {
+            fail("press case " + c + " started no return")
+            root.pressAdvance()
+            return
         }
-        root.checkTailPeak()
+        var rowH = Flea.Theme.fileRowHeight
+        var want = Math.floor((list.contentY + cases[c].y - list.originY) / rowH)
+        root.pressWant = want
+        var press = { accepted: true }
+        h.body.handlePress(press)
+        if (press.accepted !== false) {
+            fail("press case " + c + " was consumed instead of reaching the row")
+            root.pressAdvance()
+            return
+        }
+        if (root.returnActive() || root.tailActive()) {
+            fail("press case " + c + " left the return running")
+            root.pressAdvance()
+            return
+        }
+        // No snap: the layout the pointer picked from is still the layout on screen.
+        if (Math.abs(list.contentY + shown) > 0.01) {
+            fail("press case " + c + " snapped " + shown.toFixed(1) + " to " + (-list.contentY).toFixed(1))
+            root.pressAdvance()
+            return
+        }
+        var tapped = list.indexAt(100, list.contentY + cases[c].y)
+        if (tapped !== want) {
+            fail("press case " + c + " picked row " + tapped + ", want the row under the pointer " + want)
+            root.pressAdvance()
+            return
+        }
+        // The dead release settle stays gone: an unaccepted press takes no grab, so prod never reaches it.
+        if (typeof h.body.handleRelease !== "undefined") {
+            fail("press case " + c + " still carries the dead release settle")
+            root.pressAdvance()
+            return
+        }
+        // The held overscroll settles through the view's own release fixup onto the bound.
+        if (!h.body.overscrolled()) {
+            fail("press case " + c + " held nothing past the bound")
+            root.pressAdvance()
+            return
+        }
+        list.returnToBounds()
+        if (root.returnActive()) {
+            fail("press case " + c + " left the handler return running past the view fixup")
+            root.pressAdvance()
+            return
+        }
+        fixupWait.start()
+    }
+
+    function checkPressRested() {
+        var c = root.pressCase
+        if (root.returnActive()) {
+            fail("press case " + c + " restarted the handler return during the view fixup")
+            root.pressAdvance()
+            return
+        }
+        if (Math.abs(list.contentY) > 1) {
+            fail("press case " + c + " rested " + list.contentY.toFixed(2) + ", want the bound 0")
+            root.pressAdvance()
+            return
+        }
+        console.log("EDGE press overscroll=" + root.pressShown.toFixed(1) + " row=" + root.pressWant)
+        root.pressAdvance()
     }
 
     // Finding 6: a momentum tail past the bound integrates frame by frame with the stroke's

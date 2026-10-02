@@ -330,6 +330,9 @@ MouseArea {
         var found = Scroll.tailState(root.flickable, true)
         if (found.overY !== 0 || found.overX !== 0)
             return
+        // A repeated End carries no new samples, so it never stops a live tail.
+        if (found.samples.length === 0 && found.active)
+            return
         var v = Scroll.liftVelocity(found.samples, Scroll.now())
         found.samples = []
         if (v.vx === 0 && v.vy === 0) {
@@ -355,10 +358,11 @@ MouseArea {
         var phase = wheel.phase !== undefined ? wheel.phase : Qt.NoScrollPhase
         if (Scroll.isTouchpad(phase)) {
             // A new stroke ends the old tail and snaps the return to its bound.
+            // An End never stops a live tail: it reaches two handlers on one view.
             if (phase === Qt.ScrollBegin) {
                 root.stopTail()
                 root.stopReturn(true)
-            } else if (root.tailActive()) {
+            } else if (phase !== Qt.ScrollEnd && root.tailActive()) {
                 root.stopTail()
             } else if (root.returnActive()) {
                 root.stopReturn(true)
@@ -372,14 +376,18 @@ MouseArea {
                 across = 0
             if ((down === 0 && across === 0) || !root.flickable.interactive) {
                 if (phase === Qt.ScrollEnd && root.flickable.interactive) {
-                    // The overscrolled lift End is accepted to start the return: left unaccepted,
-                    // the view snaps to the bound in the same delivery and kills it.
+                    // An accepted End stops at the first handler, so a second one never kills its tail.
+                    // Left unaccepted, the view snaps to the bound in the same delivery and kills the return.
                     if (root.overscrolled()) {
                         root.startReturn()
                         wheel.accepted = true
                         return true
                     }
                     root.startTail()
+                    if (root.tailActive()) {
+                        wheel.accepted = true
+                        return true
+                    }
                 }
                 wheel.accepted = false
                 return false
@@ -399,6 +407,9 @@ MouseArea {
                     root.startReturn()
                 else
                     root.startTail()
+                // A tail started here is accepted above by movement, or here when nothing moved.
+                if (root.tailActive())
+                    wheel.accepted = true
             }
             return wheel.accepted
         }

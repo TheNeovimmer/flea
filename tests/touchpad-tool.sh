@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Headless gate for tools/flea-touchpad: create() and swipe() run with fcntl.ioctl and
-# os.open/os.write replaced by recorders, so no /dev/uinput is needed. Fails on the old
-# create(), which passed packed buffers to UI_SET_*BIT, wrote the legacy uinput_user_dev
-# layout to UI_DEV_SETUP, and left ABS_MT_SLOT and ABS_MT_TRACKING_ID without absinfo.
+# Headless gate: create() and swipe() run with stubbed ioctl/open/write, no device.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 export PYTHONDONTWRITEBYTECODE=1  # importing the tool must not litter tools/__pycache__

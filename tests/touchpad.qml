@@ -19,6 +19,9 @@ ShellRoot {
     property double liveLiftY: 0
     property var liveSamples: []
     property double liveEndT: 0
+    // Real-frame wait for the view fixup to carry a held overscroll home, in milliseconds.
+    property int fixupWaitMs: 500
+    property var fixupArgs: null
 
     function buildRows() {
         var rows = []
@@ -129,6 +132,8 @@ ShellRoot {
 
     Timer { interval: 800; running: true; repeat: false; onTriggered: root.beginStroke() }
     Timer { id: liveTimer; interval: 50; repeat: true; onTriggered: root.pollLive() }
+    // The view's own release fixup runs on real frames, so the held-overscroll pin waits for it.
+    Timer { id: fixupWait; interval: root.fixupWaitMs; repeat: false; onTriggered: root.checkFixupRested() }
 
     function fail(text) { root.failures.push(text) }
 
@@ -326,6 +331,58 @@ ShellRoot {
         root.laneShares()
     }
 
+    // Qt delivers an unaccepted wheel to the next handler, so the lane runs first.
+    function propagateToBody(ev) {
+        var h = handlers()
+        h.lane.handleWheel(ev)
+        if (!ev.accepted)
+            h.body.handleWheel(ev)
+        return ev
+    }
+    // One flick delivered the way Qt propagates it: lane first, body only if unaccepted.
+    function feedPropagated(rawDeltas, dtMs) {
+        var mirror = []
+        propagateToBody(touchWheel(0, 1))
+        for (var i = 0; i < rawDeltas.length; i++) {
+            root.fakeT += dtMs
+            Scroll.testNowMs = root.fakeT
+            mirror.push({ t: root.fakeT, x: 0, y: rawDeltas[i] * Scroll.TOUCH_GAIN })
+            propagateToBody(touchWheel(rawDeltas[i], 2))
+        }
+        root.fakeT += dtMs
+        Scroll.testNowMs = root.fakeT
+        propagateToBody(touchWheel(0, 3))
+        return { samples: mirror, endT: root.fakeT }
+    }
+    // The lift End reaches two handlers on one view; the flick must still coast.
+    function propagatedFlick(liftObjs, liftDelegates, liftY, liftGot) {
+        var h = handlers()
+        list.contentY = 0
+        root.fakeT += 1000
+        Scroll.testNowMs = root.fakeT
+        var fed = root.feedPropagated(flickRaw(12, -40), 8)
+        if (!root.tailActive()) {
+            fail("a propagated End started no tail")
+            root.report()
+            return
+        }
+        var v = Scroll.liftVelocity(fed.samples, fed.endT)
+        var wantTail = Scroll.tailTotal(v.vy)
+        var at = list.contentY
+        var guard = 0
+        while (root.tailActive() && guard < 10000) {
+            h.body.advanceTail(16.7)
+            guard += 1
+        }
+        var got = list.contentY - at
+        if (Math.abs(got - wantTail) > 1) {
+            fail("a propagated tail travelled " + got.toFixed(2) + ", want " + wantTail.toFixed(2))
+            root.report()
+            return
+        }
+        root.edgeTop(liftObjs, liftDelegates, liftY, liftGot)
+    }
+
     // The scrollbar lane feeds the same tail the body drains.
     function laneShares() {
         var h = handlers()
@@ -382,7 +439,7 @@ ShellRoot {
             root.report()
             return
         }
-        root.edgeTop(liftObjs, liftDelegates, liftY, got)
+        root.propagatedFlick(liftObjs, liftDelegates, liftY, got)
     }
 
     function returnActive() {
@@ -542,38 +599,42 @@ ShellRoot {
             root.report()
             return
         }
-        // Production settles the held overscroll through the view's own release fixup onto the bound.
+        // The held overscroll settles through the view's own release fixup onto the bound.
         if (!h.body.overscrolled()) {
             fail("a press held nothing past the bound")
             root.report()
             return
         }
-        var bound = Scroll.bounded(list.contentY, list.originY, list.contentHeight, list.height)
-        if (Math.abs(bound) > 0.01) {
-            fail("a held fixup target " + bound.toFixed(2) + ", want the bound 0")
+        list.returnToBounds()
+        if (root.returnActive()) {
+            fail("the view fixup left the handler return running")
             root.report()
             return
         }
-        h.body.startReturn()
-        if (!root.returnActive()) {
-            fail("a release after a held overscroll settled nothing")
+        root.fixupArgs = { top: topPeak, bottom: bottomPeak, tail: tailPeak,
+            liftY: liftY, liftGot: liftGot, objs: liftObjs, delegates: liftDelegates }
+        fixupWait.start()
+    }
+
+    function checkFixupRested() {
+        var a = root.fixupArgs
+        if (root.returnActive()) {
+            fail("the handler return restarted during the view fixup")
             root.report()
             return
         }
-        var guard = 0
-        while (root.returnActive() && guard < 10000) { h.body.advanceReturn(16.7); guard += 1 }
         if (Math.abs(list.contentY) > 1) {
-            fail("a released return rested " + list.contentY.toFixed(2) + ", want the bound 0")
+            fail("the view fixup rested " + list.contentY.toFixed(2) + ", want the bound 0")
             root.report()
             return
         }
         console.log("TOUCHPAD PASS stroke=1200 lift=" + Math.round(root.liveLiftY)
-            + " rest=" + Math.round(liftY + liftGot) + " tail=" + liftGot.toFixed(1)
-            + " objs=" + liftObjs + " delegates=" + liftDelegates
-            + " edgeTop=" + topPeak.toFixed(1) + " edgeBottom=" + bottomPeak.toFixed(1)
-            + " tailPeak=" + tailPeak.toFixed(1))
-        console.log("TOUCHPAD EDGE PASS top=" + topPeak.toFixed(1) + " bottom=" + bottomPeak.toFixed(1)
-            + " tailPeak=" + tailPeak.toFixed(1) + " rest=bound")
+            + " rest=" + Math.round(a.liftY + a.liftGot) + " tail=" + a.liftGot.toFixed(1)
+            + " objs=" + a.objs + " delegates=" + a.delegates
+            + " edgeTop=" + a.top.toFixed(1) + " edgeBottom=" + a.bottom.toFixed(1)
+            + " tailPeak=" + a.tail.toFixed(1))
+        console.log("TOUCHPAD EDGE PASS top=" + a.top.toFixed(1) + " bottom=" + a.bottom.toFixed(1)
+            + " tailPeak=" + a.tail.toFixed(1) + " rest=bound")
         root.report()
     }
 

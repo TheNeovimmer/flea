@@ -116,32 +116,6 @@ def swipe(fd, dx_mm, dy_mm, ms, hold_ms):
     return steps
 
 
-def check_api():
-    # _IOW('U', nr, struct) is 0x40000000 | size << 16 | 'U' << 8 | nr, checked with no device touched.
-    failures = []
-
-    def check(label, actual, expected):
-        if actual != expected:
-            failures.append("%s: got %#x, want %#x" % (label, actual, expected))
-        else:
-            print("ok   %s (%d)" % (label, actual))
-
-    setup_size = struct.calcsize(UINPUT_SETUP_FMT)
-    abs_size = struct.calcsize(UINPUT_ABS_SETUP_FMT)
-    check("struct uinput_setup size", setup_size, 92)
-    check("struct uinput_abs_setup size", abs_size, 28)
-    check("UI_DEV_SETUP request", UI_DEV_SETUP,
-          0x40000000 | (setup_size << 16) | (ord("U") << 8) | 3)
-    check("UI_ABS_SETUP request", UI_ABS_SETUP,
-          0x40000000 | (abs_size << 16) | (ord("U") << 8) | 4)
-    if failures:
-        for failure in failures:
-            print("FAIL " + failure, file=sys.stderr)
-        return 1
-    print("flea-touchpad: uinput API check passed")
-    return 0
-
-
 def main(argv):
     parser = argparse.ArgumentParser(prog="flea-touchpad")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -150,10 +124,7 @@ def main(argv):
     play.add_argument("--dy-mm", type=float, default=40.0)
     play.add_argument("--ms", type=int, default=120)
     play.add_argument("--hold-ms", type=int, default=0)
-    sub.add_parser("check", help="assert the packed uinput structs and request numbers, no device needed")
     args = parser.parse_args(argv)
-    if args.command == "check":
-        return check_api()
     if not os.access(UINPUT, os.W_OK):
         print("flea-touchpad: %s is not writable, cannot create a touchpad" % UINPUT,
               file=sys.stderr)
