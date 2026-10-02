@@ -257,6 +257,17 @@ function blocks(source, dir, chrome, ink) {
             inParagraph = true
             continue
         }
+        // An ATX heading is its own block, so the pane sizes it from the board; a line inside a list item stays item text.
+        var head = list === null || Leaf.indentOf(line) === 0 ? Leaf.atxHeading(line) : null
+        if (head !== null) {
+            flushRun()
+            flushQuote()
+            flushList()
+            if (head.text.length > 0)
+                out.push({ type: "heading", level: head.level, text: inlineOf(Leaf.headingSafe(head.text)) })
+            inParagraph = false
+            continue
+        }
         var mark = listMarker(line)
         if (mark !== null) {
             if (list === null || mark.indent < list.indent

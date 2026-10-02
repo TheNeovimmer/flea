@@ -36,8 +36,11 @@ Item {
     function hexOf(c) {
         return "#" + hexByte(c.r) + hexByte(c.g) + hexByte(c.b)
     }
+    // The surface fences and inline code sit on: the column's frame is the window colour, so it is the chrome
+    // surface there; Quick Look's page is the chrome surface, so its host passes the window colour (md_rendered code_bg).
+    property color codeSurface: Theme.color.surface
     readonly property string borderHex: hexOf(Theme.color.muted)
-    readonly property string chromeHex: hexOf(Theme.color.surface)
+    readonly property string chromeHex: hexOf(root.codeSurface)
     // The render suite reads the ink it asserts beside the border, same assembly, no coercion.
     readonly property string inkHex: hexOf(Theme.color.foreground)
     readonly property string accentHex: hexOf(Theme.color.accent)
@@ -46,6 +49,19 @@ Item {
     // Figures render only for the file under the cursor in the rendered
     // view: the Source view shows raw text and sends no request, and a path
     // change clears the block list, destroying delegates with their tickets.
+    // RenderedPreviews md_rendered, each board pixel (at body 14) on the nearest existing token, resolved at 14 in the notes.
+    // Document padding 16 20 is gap + rowPaddingY and rowPaddingX + rowPaddingY - hairline.
+    readonly property int insetX: Theme.spacing.rowPaddingX + Theme.spacing.rowPaddingY - Theme.spacing.hairline
+    readonly property int insetY: Theme.spacing.gap + Theme.spacing.rowPaddingY
+    // The 6 px gap above every block after the first is rowPaddingY (7), and the fence's 8 12 padding is gap (9) and rowPaddingX (14).
+    readonly property int blockGap: Theme.spacing.rowPaddingY
+    readonly property int fencePadX: Theme.spacing.rowPaddingX
+    readonly property int fencePadY: Theme.spacing.gap
+    // Headings are 20 and 15 px over the 14 px body, kept as ratios so every text size scales them; deeper levels are body bold.
+    readonly property var headingRatio: [20 / 14, 15 / 14]
+    function headingPx(level) {
+        return Math.round(Theme.font.body * (level >= 1 && level <= root.headingRatio.length ? root.headingRatio[level - 1] : 1))
+    }
     readonly property bool figuresArmed: root.active && root.view !== Markdown.SOURCE
     // The parse runs off the UI thread: the worker posts the block tree and the
     // UI shows the previous content or the loading state until it arrives. A
@@ -260,21 +276,27 @@ Item {
     ListView {
         id: body
         anchors.fill: parent
+        anchors.leftMargin: root.insetX
+        anchors.rightMargin: root.insetX
         clip: true
         visible: (!root.tooLarge && !root.readFailed && root.parseError === "")
             && root.view !== Markdown.SOURCE
         model: root.blockList
-        spacing: Theme.spacing.gap
+        spacing: root.blockGap
+        topMargin: root.insetY
+        bottomMargin: root.insetY
         cacheBuffer: 600
         focus: false
 
+        // The wheel and the bar belong to the frame, not to the inset list, so both sit on the root.
         FastScrollHandler {
-            parent: body
+            parent: root
             flickable: body
+            visible: body.visible
         }
 
         Flea.ViewportScrollBar {
-            parent: body
+            parent: root
             anchors { top: parent.top; right: parent.right }
             flickable: body
         }
@@ -293,7 +315,7 @@ Item {
                 return (y + height >= v.contentY) && (y <= v.contentY + v.height)
             }
             // Only the drawn child lends its height; the rest hold no geometry that matters.
-            height: block.type === "run" ? runText.height
+            height: block.type === "run" || block.type === "heading" ? runText.height
                 : block.type === "fence" ? fenceBox.height
                 : block.type === "figure" ? figureBox.height
                 : block.type === "quote" ? quoteRow.height
@@ -301,18 +323,15 @@ Item {
                 : block.type === "list" ? listGrid.height
                 : block.type === "table" ? tableGrid.height : localImage.height
 
-                    Text {
+                    // Qt's own Markdown renderer; with no link handler anywhere a link stays ink.
+                    // A heading is a run at the board's size, bold, so it takes the same line box.
+                    Flea.MarkdownText {
                         id: runText
-                        visible: block.type === "run"
+                        visible: block.type === "run" || block.type === "heading"
                         width: parent.width
-                        text: block.type === "run" ? block.text : ""
-                        // Qt's own Markdown renderer; with no link handler anywhere a link stays ink.
-                        textFormat: Text.MarkdownText
-                        wrapMode: Text.Wrap
-                        color: Theme.color.foreground
-                        linkColor: Theme.color.foreground
-                        font.family: Theme.font.family
-                        font.pixelSize: Theme.font.body
+                        text: block.type === "run" || block.type === "heading" ? block.text : ""
+                        font.pixelSize: block.type === "heading" ? root.headingPx(block.level) : Theme.font.body
+                        font.bold: block.type === "heading"
                     }
 
                     // A table arrives structured from ui/js/Markdown.js and draws here in Qt
@@ -333,18 +352,11 @@ Item {
 
                             Repeater {
                                 model: block.type === "table" ? block.head.length : 0
-                                delegate: Text {
+                                delegate: Flea.MarkdownText {
                                     width: tableGrid.colWidth(index)
-                                    topPadding: 2
-                                    bottomPadding: 2
+                                    cellPad: 2
                                     text: block.head[index]
-                                    textFormat: Text.MarkdownText
-                                    wrapMode: Text.Wrap
                                     horizontalAlignment: tableGrid.alignAt(index)
-                                    color: Theme.color.foreground
-                                    linkColor: Theme.color.foreground
-                                    font.family: Theme.font.family
-                                    font.pixelSize: Theme.font.body
                                     font.bold: true
                                 }
                             }
@@ -368,18 +380,11 @@ Item {
 
                                     Repeater {
                                         model: tableGrid.columns
-                                        delegate: Text {
+                                        delegate: Flea.MarkdownText {
                                             width: tableGrid.colWidth(index)
-                                            topPadding: 2
-                                            bottomPadding: 2
+                                            cellPad: 2
                                             text: tableGrid.cellAt(row, index)
-                                            textFormat: Text.MarkdownText
-                                            wrapMode: Text.Wrap
                                             horizontalAlignment: tableGrid.alignAt(index)
-                                            color: Theme.color.foreground
-                                            linkColor: Theme.color.foreground
-                                            font.family: Theme.font.family
-                                            font.pixelSize: Theme.font.body
                                         }
                                     }
                                 }
@@ -459,18 +464,22 @@ Item {
                         }
                     }
 
-                    // A fenced block is a filled block on the chrome surface with no border.
+                    // A fenced block is a filled block on the code surface with no border.
                     Rectangle {
                         id: fenceBox
+                        objectName: "fenceBox"
                         visible: block.type === "fence"
                         width: parent.width
-                        height: fenceText.implicitHeight + 2 * Theme.spacing.gap
-                        color: Theme.color.surface
+                        height: fenceText.implicitHeight + 2 * root.fencePadY
+                        color: root.codeSurface
 
                         Text {
                             id: fenceText
                             anchors.fill: parent
-                            anchors.margins: Theme.spacing.gap
+                            anchors.leftMargin: root.fencePadX
+                            anchors.rightMargin: root.fencePadX
+                            anchors.topMargin: root.fencePadY
+                            anchors.bottomMargin: root.fencePadY
                             text: block.type === "fence" ? block.text : ""
                             textFormat: Text.PlainText
                             wrapMode: Text.Wrap
@@ -502,6 +511,7 @@ Item {
                             accentHex: root.accentHex
                             mutedHex: root.mutedHex
                             surfaceHex: root.surfaceHex
+                            fallbackColor: root.codeSurface
                             fontFamily: Theme.font.family
                             bodyPx: Theme.font.body
                         }
@@ -519,16 +529,10 @@ Item {
                             color: Theme.color.muted
                         }
 
-                        Text {
+                        Flea.MarkdownText {
                             id: quoteText
                             width: parent.width - 2 - parent.spacing
                             text: block.type === "quote" ? block.text : ""
-                            textFormat: Text.MarkdownText
-                            wrapMode: Text.Wrap
-                            color: Theme.color.foreground
-                            linkColor: Theme.color.foreground
-                            font.family: Theme.font.family
-                            font.pixelSize: Theme.font.body
                         }
                     }
 
@@ -547,24 +551,16 @@ Item {
                                 width: listGrid.width
                                 spacing: Theme.spacing.gap
 
-                                Text {
+                                Flea.MarkdownText {
                                     id: marker
                                     text: block.ordered ? (block.start + index) + "." : "•"
-                                    color: Theme.color.foreground
-                                    font.family: Theme.font.family
-                                    font.pixelSize: Theme.font.body
                                     textFormat: Text.PlainText
+                                    wrapMode: Text.NoWrap
                                 }
 
-                                Text {
+                                Flea.MarkdownText {
                                     width: parent.width - marker.width - parent.spacing
                                     text: block.items[index]
-                                    textFormat: Text.MarkdownText
-                                    wrapMode: Text.Wrap
-                                    color: Theme.color.foreground
-                                    linkColor: Theme.color.foreground
-                                    font.family: Theme.font.family
-                                    font.pixelSize: Theme.font.body
                                 }
                             }
                         }

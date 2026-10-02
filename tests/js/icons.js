@@ -70,6 +70,10 @@ function run(check) {
     // The picker rail's Recent mark, which reaches ui/PickerPlaces.qml by name and falls into the
     // same silent trap if PATHS never learns it.
     drawsItsOwnMark("history")
+
+    // Quick Look's Markdown bar draws LanguageMarks' Markdown mark by name, and a missing name falls back to the file mark in silence.
+    drawsItsOwnMark("markdown")
+    check("the Markdown mark is the board's cut", Icons.pathFor("markdown"), "M2 5h20v14H2z M5.5 15V9l3 3.5 3-3.5v6 M17 9v6 M14.5 12.5 17 15l2.5-2.5")
     check("Preview keeps the board's right-hand column", Icons.pathFor("preview"), "M3 3h18v18H3z M15 3v18")
     check("Folders first keeps the board's stacked rules", Icons.pathFor("folders-first"), "M2 12V4h6l2 2h12v6H2z M2 17h20 M2 21h20")
 

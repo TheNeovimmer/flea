@@ -90,9 +90,11 @@ ShellRoot {
         return md.blockList.map(function (b) { return b.type }).join(",")
     }
 
+    // Window coordinates, which are the grab's pixels: the list's top margin moves its content below the frame's top.
     function rectOf(i) {
         var item = md.blockItem(i)
-        return { x: Math.round(item.x), y: Math.round(item.y),
+        var at = item.mapToItem(grabRoot, 0, 0)
+        return { x: Math.round(at.x), y: Math.round(at.y),
                  w: Math.round(item.width), h: Math.round(item.height) }
     }
 
@@ -164,8 +166,8 @@ ShellRoot {
                 return shell.fail("the seam pane lists " + seamPane.blockList.length + " blocks, want " + md.blockList.length)
             shell.log("blocks=" + shell.types())
             var head = md.blockList.slice(0, 6).map(function (b) { return b.type }).join(",")
-            if (head !== "run,figure,figure,figure,figure,run")
-                return shell.fail("the head blocks are " + head + ", want run,figure,figure,figure,figure,run")
+            if (head !== "heading,figure,figure,figure,figure,run")
+                return shell.fail("the head blocks are " + head + ", want heading,figure,figure,figure,figure,run")
             if (md.blockList[1].kind !== "mermaid" || md.blockList[2].kind !== "math"
                     || md.blockList[3].kind !== "math" || md.blockList[4].kind !== "mermaid")
                 return shell.fail("the figure kinds misread")

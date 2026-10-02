@@ -22,6 +22,7 @@ chmod 700 "$test_root/runtime" || exit 1
 ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
+cp tests/markdown-render.js "$test_root/config/" || exit 1
 cp tests/markdown-render.qml "$test_root/config/shell.qml" || exit 1
 
 cat > "$test_root/notes.md" <<'EOF'
@@ -83,4 +84,4 @@ if [ -n "${FLEA_CI_SUITE_LOGS:-}" ] && [ -n "$shot" ]; then
 elif [ -n "$shot" ]; then
     printf 'shot %s\n' "$shot"
 fi
-printf '%s\n' "$output" | grep -o 'MARKDOWN_RENDER PASS.*'
+printf '%s\n' "$output" | grep -oE 'MARKDOWN_RENDER (CHECK|body=|PASS).*'

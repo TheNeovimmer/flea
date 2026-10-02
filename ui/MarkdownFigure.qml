@@ -19,6 +19,8 @@ Item {
     property string accentHex: "#7aa2f7"
     property string mutedHex: ""
     property string surfaceHex: ""
+    // The failed figure's fence sits on the code surface of the pane that holds it.
+    property color fallbackColor: Theme.color.surface
     property string fontFamily: Theme.font.family
     property int bodyPx: Theme.font.body
 
@@ -142,7 +144,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         height: fallbackItem.implicitHeight + 2 * Theme.spacing.gap
-        color: Theme.color.surface
+        color: root.fallbackColor
         Text {
             id: fallbackItem
             anchors.fill: parent

@@ -23,6 +23,30 @@ function run(check) {
     check("a thematic break stays prose", kinds("Text\n\n***\n\nMore\n"), "run")
     check("dashes break too", kinds("Text\n\n---\n\nMore\n"), "run")
     check("underscores break too", kinds("Text\n\n___\n\nMore\n"), "run")
+    // RenderedPreviews draws a heading at its own size, so an ATX heading is a block of its own.
+    var h2 = Markdown.blocks("## Second level ##\n", dir, chrome, ink)[0]
+    check("an ATX heading is a heading block", h2.type, "heading")
+    check("it carries its level", h2.level, 2)
+    check("it drops the marker and the closing hashes", h2.text, "Second level")
+    check("six hashes is the deepest heading", Markdown.blocks("###### Six\n", dir, chrome, ink)[0].level, 6)
+    check("seven hashes is prose", kinds("####### Seven\n"), "run")
+    check("a hash tag is prose", kinds("#hashtag\n"), "run")
+    check("four spaces make code, not a heading", kinds("Text\n\n    # code\n"), "run,fence")
+    check("an empty heading draws nothing", kinds("#\n\nText\n"), "run")
+    check("a closing run glued to the text stays text",
+        Markdown.blocks("# foo#\n", dir, chrome, ink)[0].text, "foo#")
+    check("a heading ends a list it follows", kinds("- a\n- b\n# Next\n"), "list,heading")
+    check("an indented hash inside an item stays item text", kinds("- a\n  # sub\n"), "list")
+    check("a quoted hash stays in its quote", kinds("> # quoted\n"), "quote")
+    check("a fenced hash stays code", kinds("```\n# not a heading\n```\n"), "fence")
+    check("a heading keeps its inline code chip",
+        Markdown.blocks("# The `foo` command\n", dir, chrome, ink)[0].text.indexOf('<code style="background-color:#181825">') >= 0, true)
+    check("a numbered title stays literal text",
+        Markdown.blocks("# 1. Intro\n", dir, chrome, ink)[0].text, "1&#46; Intro")
+    check("a bullet-looking title stays literal text",
+        Markdown.blocks("# - dash\n", dir, chrome, ink)[0].text, "&#45; dash")
+    check("an emphasis title keeps its emphasis",
+        Markdown.blocks("# _Hi_\n", dir, chrome, ink)[0].text, "_Hi_")
     check("indented code draws verbatim", kinds("Text\n\n    var a = 1;\n\nMore\n"), "run,fence,run")
     var indented = Markdown.blocks("Text\n\n    var a = 1;\n", dir, chrome, ink)[1]
     check("indented code strips its indent", indented.text, "var a = 1;")

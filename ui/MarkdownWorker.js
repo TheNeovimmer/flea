@@ -20,7 +20,7 @@ var MdInline = { codeHtml: codeHtml, escapeHtmlText: escapeHtmlText, isPunct: is
 var MdRefs = { collectDefs: collectDefs, collectFootnotes: collectFootnotes, killDefinition: killDefinition, readFootnoteRef: readFootnoteRef, skipDropContent: skipDropContent };
 var MdResolve = { isLinkTarget: isLinkTarget, parseAngle: parseAngle, resolvePair: resolvePair, styledSpan: styledSpan };
 var MdRun = { parseInline: parseInline };
-var MdLeaf = { alertTitle: alertTitle, delimAligns: delimAligns, fenceOpen: fenceOpen, indentOf: indentOf, isThematic: isThematic, prepare: prepare, splitRow: splitRow, standaloneImage: standaloneImage, tableBlock: tableBlock, taskText: taskText };
+var MdLeaf = { alertTitle: alertTitle, atxHeading: atxHeading, delimAligns: delimAligns, fenceOpen: fenceOpen, headingSafe: headingSafe, indentOf: indentOf, isThematic: isThematic, prepare: prepare, splitRow: splitRow, standaloneImage: standaloneImage, tableBlock: tableBlock, taskText: taskText };
 var MdBlocks = { blocks: blocks, figureKind: figureKind };
 // Short aliases the libraries use for each other, matching their `.import` names.
 var Md = MdInline;

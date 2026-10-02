@@ -480,7 +480,6 @@ Item {
                 source: "MarkdownPane.qml"
                 onLoaded: {
                     item.path = Qt.binding(function () { return root.path })
-                    item.iconName = Qt.binding(function () { return root.iconName })
                     item.size = Qt.binding(function () { return root.size })
                     item.active = Qt.binding(function () { return root.isMarkdown })
                     item.view = Qt.binding(function () {

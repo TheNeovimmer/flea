@@ -67,7 +67,8 @@ function run(check) {
     function kinds(doc) {
         return Markdown.blocks(doc, dir).map(function (b) { return b.type }).join(",")
     }
-    check("plain prose is one run", kinds("# Hi\n\nSome words.\n"), "run")
+    check("plain prose is one run", kinds("Some words.\n\nMore words.\n"), "run")
+    check("a heading splits out ahead of its prose", kinds("# Hi\n\nSome words.\n"), "heading,run")
     check("a fence splits out verbatim", kinds("Before\n\n```js\nvar a = 1;\n```\n\nAfter\n"), "run,fence,run")
     var fence = Markdown.blocks("```js\nvar a = 1;\n```\n", dir)[0]
     check("a fence carries no ticks", fence.text, "var a = 1;")
@@ -88,7 +89,7 @@ function run(check) {
     check("a mid-text image stays a run", kinds("See ![demo](https://cdn.example.com/a.png) here.\n"), "run")
     var mixed = Markdown.blocks("# T\n\n> q\n\n```\nc\n```\n\n![a](https://h.example.com/a.png)\n\n![b](b.png)\n\nEnd\n", dir)
     check("a mixed document splits in order",
-        mixed.map(function (b) { return b.type }).join(","), "run,quote,fence,remote,image,run")
+        mixed.map(function (b) { return b.type }).join(","), "heading,quote,fence,remote,image,run")
     check("no remote image syntax survives any run",
         mixed.every(function (b) { return b.type !== "run" || !/!\[[^\]]*\]\(https?:/i.test(b.text) }), true)
 

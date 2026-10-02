@@ -28,6 +28,45 @@ function isThematic(line) {
     return /^ {0,3}([*_-])(?: *\1){2,} *$/.test(String(line))
 }
 
+// An ATX heading: up to 3 spaces, 1 to 6 hashes, a space or the end, the text and an optional closing run of hashes. Linear, no backtracking.
+// Sample input: "## Second level ##" answers { level: 2, text: "Second level" }; "#hashtag" answers null.
+function atxHeading(line) {
+    var s = String(line)
+    var i = 0
+    while (i < 3 && s.charAt(i) === " ")
+        i++
+    var from = i
+    while (i < s.length && s.charAt(i) === "#")
+        i++
+    var level = i - from
+    if (level < 1 || level > 6 || (i < s.length && s.charAt(i) !== " " && s.charAt(i) !== "\t"))
+        return null
+    var end = s.length
+    while (end > i && (s.charAt(end - 1) === " " || s.charAt(end - 1) === "\t"))
+        end--
+    var close = end
+    while (close > i && s.charAt(close - 1) === "#")
+        close--
+    if (close < end && (close === i || s.charAt(close - 1) === " " || s.charAt(close - 1) === "\t"))
+        end = close
+    while (end > i && (s.charAt(end - 1) === " " || s.charAt(end - 1) === "\t"))
+        end--
+    while (i < end && (s.charAt(i) === " " || s.charAt(i) === "\t"))
+        i++
+    return { level: level, text: s.slice(i, end) }
+}
+
+// The heading's text is drawn as its own document, so a leading block marker must stay literal.
+// Sample input: 1. Intro answers 1\. Intro; - item answers \- item; _Plain_ is unchanged.
+function headingSafe(text) {
+    var t = String(text)
+    var ordered = /^(\d{1,9})([.)])(?=[ \t]|$)/.exec(t)
+    if (ordered !== null)
+        return ordered[1] + "\\" + t.slice(ordered[1].length)
+    var block = /^(?:[-+*](?:[ \t]|$)|>|#{1,6}(?:[ \t]|$)|~~~)/.test(t)
+    return block || isThematic(t) ? "\\" + t : t
+}
+
 function fenceOpen(line) {
     var m = /^ {0,3}(```+|~~~+) *(.*)$/.exec(String(line))
     if (m === null)
