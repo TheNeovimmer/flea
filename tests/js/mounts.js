@@ -244,6 +244,7 @@ function run(check) {
     check("no medium names the empty drive", Devices.mountError("mount", 1, "No medium found", "CARD"), "CARD has no medium in it.")
     check("an unknown error falls back to the plain sentence", Devices.mountError("mount", 1, "weird new failure", "128GB"), "128GB could not be mounted.")
     check("a refused unmount names the refusal too", Devices.mountError("unmount", 1, "Not authorized", "Vault"), "Vault was not unmounted: not authorized.")
+    check("a refused eject names the eject", Devices.mountError("eject", 1, "Not authorized", "Disk"), "Disk was not ejected: not authorized.")
     check("exit 0 never reads stderr", Devices.mountError("mount", 0, "target is busy", "128GB"), "")
 
     // Defect 9: a USB disk that is not media-removable powers off instead of ejecting its media.

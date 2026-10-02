@@ -13,16 +13,16 @@ Item {
 
     property string path: ""
     property bool active: false
-    // The backend a slow document is fetched through, null where no fetch runs (the headless
-    // suites among them): without one the document loads in place exactly as it always did.
+    // The backend a slow document is fetched through, null where no fetch runs.
     property var backend: null
-    // True on a storage class that can hang: the document loads from the fetched local copy
-    // rather than in place, so a dead mount costs a sentence and never the window.
+    // True on a storage class that can hang: the document loads from the fetched copy.
     property bool fetchFirst: false
     // The fetch in flight, the local copy it handed back, and what its failure says.
     property int fetchId: 0
     property string localCopy: ""
     property string copyError: ""
+    // Decided once per opened document, so a later class change neither blanks nor reloads it.
+    property bool fetchedCopy: false
     // What an unreadable document says: a fetch that never answered is not responding.
     readonly property string failSentence: root.copyError.length > 0 ? "This file is not responding."
         : "This file could not be read."
@@ -59,12 +59,12 @@ Item {
     onPathChanged: { root.page = 0; pdfSettle.restart() }
     onOpenedChanged: root.fetchForOpened()
 
-    // A slow document is read on the backend's worker into a private copy; a local one loads
-    // in place, the way every document did before the fetch existed.
+    // A hangable document is fetched once per opening; anything else loads in place.
     function fetchForOpened() {
         root.localCopy = ""
         root.copyError = ""
-        if (root.opened.length === 0 || root.fetchFirst !== true || root.backend === null)
+        root.fetchedCopy = root.opened.length > 0 && root.fetchFirst === true && root.backend !== null
+        if (!root.fetchedCopy)
             return
         root.fetchId += 1
         root.backend.pdfCopy(root.fetchId, root.opened)
@@ -73,7 +73,7 @@ Item {
     Connections {
         target: root.backend
         function onPdfCopied(id, path, err) {
-            if (id !== root.fetchId || root.fetchFirst !== true)
+            if (id !== root.fetchId || root.fetchedCopy !== true)
                 return
             if (err.length > 0)
                 root.copyError = err
@@ -86,7 +86,7 @@ Item {
     function docSource() {
         if (root.opened.length === 0)
             return ""
-        if (root.fetchFirst !== true || root.backend === null)
+        if (root.fetchedCopy !== true)
             return Format.fileUri(root.opened)
         return root.localCopy.length > 0 ? Format.fileUri(root.localCopy) : ""
     }

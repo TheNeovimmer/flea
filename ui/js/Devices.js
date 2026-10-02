@@ -114,8 +114,7 @@ function mountTimerStart(exitCode) {
     return exitCode === 0
 }
 
-// The disk a partition powers off through: a USB HDD bridge is not media-removable, so
-// ejecting its media re-announces the disk and udiskie remounts it at once (#232).
+// The disk a partition powers off through, so a USB bridge stops instead of re-announcing.
 // Sample input: "/dev/sda1" answers "/dev/sda", "/dev/nvme0n1p2" answers "/dev/nvme0n1.
 function powerOffDisk(device) {
     var text = String(device || "")
@@ -160,7 +159,7 @@ function mountError(op, exitCode, stderr, label) {
     if (/busy|in use|in use by/.test(text))
         return name + " is busy; close what is using it and try again."
     if (/not authorized|not allowed|refused|dismissed|no authentication|auth/i.test(String(stderr || "")))
-        return name + " was not " + (op === "unmount" ? "unmounted" : "mounted") + ": not authorized."
+        return name + " was not " + (op === "unmount" ? "unmounted" : op === "eject" ? "ejected" : "mounted") + ": not authorized."
     if (/no volume|no medium|no media|empty|no device/.test(text))
         return /medium|media|empty/.test(text) ? name + " has no medium in it." : name + " is not a volume this system can mount."
     if (op === "unmount")

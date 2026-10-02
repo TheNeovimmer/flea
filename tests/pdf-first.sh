@@ -62,8 +62,9 @@ log="$first_root/column.log"
     PDF_FIRST_UI="$PWD/ui" PDF_FIRST_PDF="$pdf" \
     timeout 30 qs -p "$first_work/config" > "$log" 2>&1; exit $? ) 2>/dev/null
 status=$?
-if grep -q 'PDFFIRST FAIL' "$log" || ! grep -q 'PDFFIRST DONE' "$log"; then
-    bad "the harness did not finish (qs exit $status): $(grep -a 'PDFFIRST FAIL' "$log" | head -1) (log $log)"
+fatal=$(grep -a -e 'PDFFIRST FAIL the surface did not load' -e 'PDFFIRST FAIL the viewer did not load' -e 'PDFFIRST FAIL the document never opened' "$log" | head -1 || true)
+if [ -n "$fatal" ]; then
+    bad "the harness did not finish (qs exit $status): $fatal (log $log)"
 else
     # Sample input: 'PDFFIRST TURN page=1 shown=-1 fellBack=0', the state at the moment of the turn.
     turn_line=$(grep -a -m1 'PDFFIRST TURN' "$log")
@@ -82,6 +83,23 @@ else
         ok "the turned-to page landed"
     else
         bad "the turned-to page never showed (log $log)"
+    fi
+    # Sample input: 'PDFFIRST VIEWER backend=1 fetchFirst=1 asked=1', the forwarded fetch.
+    viewer_line=$(grep -a -m1 'PDFFIRST VIEWER backend=' "$log")
+    case "$viewer_line" in
+    *backend=1*fetchFirst=1*asked=1*) ok "Quick Look forwards its backend and fetches" ;;
+    *) bad "Quick Look never fetched through its viewer: $viewer_line (log $log)" ;;
+    esac
+    # Sample input: 'PDFFIRST FETCHLATE source=1', the document kept after a late class.
+    late_line=$(grep -a -m1 'PDFFIRST FETCHLATE' "$log")
+    case "$late_line" in
+    *source=1*) ok "a late storage class keeps the in-place document" ;;
+    *) bad "a late storage class blanked the document: $late_line (log $log)" ;;
+    esac
+    if grep -q 'PDFFIRST DONE' "$log"; then
+        ok "the harness finished"
+    else
+        bad "DONE never logged (log $log)"
     fi
 fi
 

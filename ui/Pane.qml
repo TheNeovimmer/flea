@@ -275,7 +275,7 @@ FocusScope {
         interval: root.listingWaitMs
         onTriggered: {
             if (root.listInFlight && root.listingState === "loading") {
-                root.listingState = Startup.listingStateFor(false, root.listingWaitMs)
+                root.listingState = "waiting"
                 root.stateMessage = "That folder is not responding."
             }
         }

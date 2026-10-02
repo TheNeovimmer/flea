@@ -1,21 +1,21 @@
-// A PDF on a hung mount must not freeze the window: the fetch runs beside the loop under a
-// deadline into a session-private cache file, and the viewer draws the local copy.
+// A PDF on a hung mount must not freeze the window: the fetch runs beside the loop under a stall deadline into a session-private copy the viewer draws.
 use crate::backend::opsreq::OpMsg;
 use crate::json::escape;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 
-// How long one fetch waits for the filesystem before the viewer says the file is not responding.
+// How long one fetch waits for the filesystem without progress before the viewer says the file is not responding.
 pub const PDF_COPY_WAIT: Duration = Duration::from_secs(8);
-// The session-private cache beside the shared thumbnails; swept on first use, so no earlier
-// process's file is ever handed to this one's viewer.
+// One directory per backend process under the shared leaf, so no process ever sweeps another's live copy.
 const PDF_CACHE_LEAF: &str = "flea/pdf";
-static SWEPT: AtomicBool = AtomicBool::new(false);
+static SWEEP: Once = Once::new();
+// The copy on screen, removed once a newer fetch supersedes it, so the cache holds one file.
+static LAST_COPY: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-fn cache_dir() -> PathBuf {
+fn cache_root() -> PathBuf {
     let base = std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .filter(|p| !p.as_os_str().is_empty())
@@ -38,8 +38,31 @@ fn dest_for(dir: &Path, id: usize, src: &Path) -> PathBuf {
     dir.join(format!("{id}-{stem}"))
 }
 
-// The copy itself, chunk by chunk so a cancel or a deadline stops paying for bytes nobody reads.
-fn copy_into(src: &Path, dst: &Path, done: &Arc<AtomicBool>) -> Result<(), String> {
+// A pid with no /proc entry is gone, so its directory is litter and not a live copy.
+fn sweep_dead(root: &Path, live: u32) {
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for item in entries.flatten() {
+        let name = item.file_name().to_string_lossy().into_owned();
+        if name == live.to_string() || !name.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        if std::fs::metadata(format!("/proc/{name}")).is_err() {
+            let _ = std::fs::remove_dir_all(item.path());
+        }
+    }
+}
+
+// A chunk copied is progress, so the wait restarts on every one and bounds a stall, not the file.
+enum CopyMsg {
+    Chunk,
+    Done(Result<(), String>),
+}
+
+// The copy itself, chunk by chunk so a cancel or a stall deadline stops paying for bytes nobody reads.
+fn copy_into(src: &Path, dst: &Path, done: &Arc<AtomicBool>, progress: &std::sync::mpsc::Sender<CopyMsg>) -> Result<(), String> {
     let mut reader = std::fs::File::open(src).map_err(|e| crate::error::io_message(&e))?;
     if let Some(parent) = dst.parent() {
         std::fs::create_dir_all(parent).map_err(|e| crate::error::io_message(&e))?;
@@ -58,57 +81,120 @@ fn copy_into(src: &Path, dst: &Path, done: &Arc<AtomicBool>) -> Result<(), Strin
         }
         use std::io::Write;
         writer.write_all(&buf[..n]).map_err(|e| crate::error::io_message(&e))?;
+        let _ = progress.send(CopyMsg::Chunk);
     }
     Ok(())
 }
 
-fn fetch(id: usize, src: PathBuf, tx: std::sync::mpsc::Sender<OpMsg>) {
-    let dir = cache_dir();
-    if !SWEPT.swap(true, Ordering::Relaxed) {
-        let _ = std::fs::remove_dir_all(&dir);
+fn fetch(id: usize, src: PathBuf, tx: std::sync::mpsc::Sender<OpMsg>, wait: Duration, root: &Path) {
+    let me = std::process::id();
+    SWEEP.call_once(|| sweep_dead(root, me));
+    let dst = dest_for(&root.join(me.to_string()), id, &src);
+    if let Ok(mut last) = LAST_COPY.lock() {
+        if let Some(prev) = last.replace(dst.clone()) {
+            if prev != dst {
+                let _ = std::fs::remove_file(&prev);
+            }
+        }
     }
-    let dst = dest_for(&dir, id, &src);
     let done = Arc::new(AtomicBool::new(false));
-    let (one_tx, one_rx) = channel::<Result<(), String>>();
+    let (one_tx, one_rx) = channel::<CopyMsg>();
     let worker_done = Arc::clone(&done);
     let worker_dst = dst.clone();
+    let worker_tx = one_tx.clone();
     std::thread::spawn(move || {
-        let result = copy_into(&src, &worker_dst, &worker_done);
+        let result = copy_into(&src, &worker_dst, &worker_done, &one_tx);
         if !worker_done.load(Ordering::Relaxed) {
-            let _ = one_tx.send(result);
+            let _ = worker_tx.send(CopyMsg::Done(result));
         }
     });
-    match one_rx.recv_timeout(PDF_COPY_WAIT) {
-        Ok(Ok(())) => {
-            let _ = tx.send(OpMsg::Meta { line: pdfcopied_line(id, &dst.to_string_lossy(), "") });
-        }
-        Ok(Err(msg)) => {
-            let _ = std::fs::remove_file(&dst);
-            let _ = tx.send(OpMsg::Meta { line: pdfcopied_line(id, "", &msg) });
-        }
-        Err(_) => {
-            done.store(true, Ordering::Relaxed);
-            let _ = tx.send(OpMsg::Meta { line: pdfcopied_line(id, "", "that file is not responding") });
+    loop {
+        match one_rx.recv_timeout(wait) {
+            Ok(CopyMsg::Chunk) => {}
+            Ok(CopyMsg::Done(Ok(()))) => {
+                let _ = tx.send(OpMsg::Meta { line: pdfcopied_line(id, &dst.to_string_lossy(), "") });
+                break;
+            }
+            Ok(CopyMsg::Done(Err(msg))) => {
+                let _ = std::fs::remove_file(&dst);
+                let _ = tx.send(OpMsg::Meta { line: pdfcopied_line(id, "", &msg) });
+                break;
+            }
+            Err(_) => {
+                done.store(true, Ordering::Relaxed);
+                let _ = tx.send(OpMsg::Meta { line: pdfcopied_line(id, "", "that file is not responding") });
+                break;
+            }
         }
     }
 }
 
 pub fn spawn(id: usize, path: PathBuf, tx: std::sync::mpsc::Sender<OpMsg>) {
-    std::thread::spawn(move || fetch(id, path, tx));
+    std::thread::spawn(move || fetch(id, path, tx, PDF_COPY_WAIT, &cache_root()));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    static SERIAL: Mutex<()> = Mutex::new(());
+
     #[test]
     fn a_local_file_is_handed_back_as_a_private_copy() {
+        let _held = SERIAL.lock().unwrap();
         let d = crate::backend::testdir::TestDir::new("pdfcopy-local");
         let src = d.file("doc.pdf", "%PDF-1.4 local\n");
-        let dst = d.join("copy.pdf");
-        fetch_to(&src, &dst);
+        let root = d.dir("pdf");
+        let (tx, rx) = channel::<OpMsg>();
+        fetch(1, src, tx, Duration::from_secs(10), &root);
+        let line = match rx.recv_timeout(Duration::from_secs(10)).expect("fetch always answers") {
+            OpMsg::Meta { line } => line,
+            _ => panic!("a copy answers on the meta line"),
+        };
+        let me = std::process::id().to_string();
+        assert!(line.contains(&format!("{me}/1-doc.pdf")), "the copy lives under this process's own directory: {line}");
+        let dst = root.join(format!("{me}/1-doc.pdf"));
         assert_eq!(std::fs::read(&dst).unwrap(), b"%PDF-1.4 local\n");
-        assert!(dst.starts_with(d.path()), "the copy stays inside the sandbox");
+    }
+
+    #[test]
+    fn a_newer_fetch_supersedes_the_copy_on_screen() {
+        let _held = SERIAL.lock().unwrap();
+        let d = crate::backend::testdir::TestDir::new("pdfcopy-supersede");
+        let first = d.file("a.pdf", "first");
+        let second = d.file("b.pdf", "second");
+        let root = d.dir("pdf");
+        let me = std::process::id().to_string();
+        let (tx, rx) = channel::<OpMsg>();
+        fetch(1, first, tx, Duration::from_secs(10), &root);
+        assert!(matches!(rx.recv_timeout(Duration::from_secs(10)), Ok(OpMsg::Meta { .. })));
+        let (tx, rx) = channel::<OpMsg>();
+        fetch(2, second, tx, Duration::from_secs(10), &root);
+        assert!(matches!(rx.recv_timeout(Duration::from_secs(10)), Ok(OpMsg::Meta { .. })));
+        assert!(root.join(format!("{me}/2-b.pdf")).is_file(), "the newer copy stays");
+        assert!(!root.join(format!("{me}/1-a.pdf")).is_file(), "the superseded copy is gone");
+    }
+
+    #[test]
+    fn the_sweep_keeps_live_processes_and_drops_dead_ones() {
+        let d = crate::backend::testdir::TestDir::new("pdfcopy-sweep");
+        let root = d.dir("pdf");
+        // A reaped child lends a pid nothing else holds, so the swept directory is truly dead.
+        let mut child = std::process::Command::new("sleep").arg("30").spawn().expect("a reaped child leaves a dead pid");
+        let dead = child.id();
+        child.kill().ok();
+        let _ = child.wait();
+        assert!(std::fs::metadata(format!("/proc/{dead}")).is_err(), "the reaped child is really gone");
+        let me = std::process::id().to_string();
+        std::fs::create_dir_all(root.join(&me)).unwrap();
+        std::fs::write(root.join(&me).join("copy.pdf"), "live").unwrap();
+        std::fs::create_dir_all(root.join("notes")).unwrap();
+        std::fs::create_dir_all(root.join(dead.to_string())).unwrap();
+        std::fs::write(root.join(dead.to_string()).join("copy.pdf"), "dead").unwrap();
+        sweep_dead(&root, me.parse().unwrap());
+        assert!(root.join(&me).join("copy.pdf").is_file(), "this process's directory stays");
+        assert!(root.join("notes").is_dir(), "a non-pid directory stays");
+        assert!(!root.join(dead.to_string()).exists(), "a dead process's directory is swept");
     }
 
     #[test]
@@ -118,25 +204,38 @@ mod tests {
     }
 
     #[test]
-    fn a_hung_source_answers_not_responding_inside_the_wait() {
+    fn a_hung_source_answers_not_responding_through_fetch() {
+        let _held = SERIAL.lock().unwrap();
         let d = crate::backend::testdir::TestDir::new("pdfcopy-hang");
         let fifo = d.join("hung.pdf");
         make_fifo(&fifo);
         // Read-write opens a fifo without blocking, so the copy's own open succeeds and its read blocks.
         let _writer = std::fs::OpenOptions::new().read(true).write(true).open(&fifo).unwrap();
+        let (tx, rx) = channel::<OpMsg>();
+        fetch(7, fifo, tx, Duration::from_millis(500), &d.dir("pdf"));
+        let line = match rx.recv_timeout(Duration::from_secs(10)).expect("fetch always answers") {
+            OpMsg::Meta { line } => line,
+            _ => panic!("a hung source answers on the meta line"),
+        };
+        assert!(line.contains(r#""id":7"#), "the answer names the fetch it hung: {line}");
+        assert!(line.contains("that file is not responding"), "fetch itself answers the wait: {line}");
+    }
+
+    #[test]
+    fn every_chunk_reports_progress_so_a_slow_read_is_not_a_stall() {
+        let d = crate::backend::testdir::TestDir::new("pdfcopy-progress");
+        let src = d.file("big.pdf", &"x".repeat(600 * 1024));
         let dst = d.join("copy.pdf");
         let done = Arc::new(AtomicBool::new(false));
-        let (one_tx, one_rx) = channel::<Result<(), String>>();
-        let worker_done = Arc::clone(&done);
-        std::thread::spawn(move || {
-            let result = copy_into(&fifo, &dst, &worker_done);
-            if !worker_done.load(Ordering::Relaxed) {
-                let _ = one_tx.send(result);
+        let (tx, rx) = channel::<CopyMsg>();
+        copy_into(&src, &dst, &done, &tx).expect("a local file copies");
+        let mut chunks = 0;
+        while let Ok(msg) = rx.try_recv() {
+            if matches!(msg, CopyMsg::Chunk) {
+                chunks += 1;
             }
-        });
-        let result = one_rx.recv_timeout(Duration::from_millis(500));
-        done.store(true, Ordering::Relaxed);
-        assert!(result.is_err(), "a hung read never answers inside the wait");
+        }
+        assert_eq!(chunks, 3, "each 256 KiB chunk restarts the wait: {chunks}");
     }
 
     #[test]
@@ -157,11 +256,5 @@ mod tests {
         nulled.push(0);
         let code = unsafe { mkfifo(nulled.as_ptr() as *const i8, 0o600) };
         assert_eq!(code, 0, "the hung-source fixture could not be made");
-    }
-
-    // The copy without the wait, so the local test above proves bytes and not timing.
-    fn fetch_to(src: &Path, dst: &Path) {
-        let done = Arc::new(AtomicBool::new(false));
-        copy_into(src, dst, &done).expect("a local file copies");
     }
 }

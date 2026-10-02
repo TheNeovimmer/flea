@@ -16,8 +16,7 @@ Item {
 
     signal opened(string path)
     signal message(string text, bool isError)
-    // An eject is about to release this mountpoint: readers on it stop first, so no
-    // Flea thumbnail, size walk or preview holds the unmount busy (#232).
+    // An eject is about to release this mountpoint: readers on it stop first (#232).
     signal quiesce(string path)
     // The verdict this surface last posted, so a newer one replaces it and nothing else.
     signal forgetMessage(string text)
@@ -34,6 +33,8 @@ Item {
     // How long an eject waits for a listing it can judge after gio exits, before the user is told
     // that nothing was confirmed: three polls, the same bound the mount above gets.
     readonly property int ejectVerdictMs: 15000
+    // How long a power-off chain may hold the eject guard: a hung unmount leg ends here instead.
+    readonly property int powerOffWaitMs: 15000
 
     property string _listing: ""
     // A Process's own onExited can race its StdioCollector's text property, the same guard every
@@ -44,8 +45,7 @@ Item {
     property string _pendingOpenLabel: ""
     // The volume an unmount was asked for, so its refusal can name it.
     property string _unmountLabel: ""
-    // A power-off in flight: the disk to stop once its volumes are unmounted, and the
-    // device nodes still to unmount ahead of it. Empty while no power-off runs.
+    // A power-off in flight: the disk to stop and the nodes still to unmount.
     property string _powerOffDisk: ""
     property var _powerOffQueue: []
     // gio's own stderr per action, so a refusal names its cause instead of a guess.
@@ -67,6 +67,8 @@ Item {
     // Cleared only when the next listing starts, which onExited's own release of _streamPending
     // guarantees cannot happen until the ended listing is fully done with.
     property bool _listTimedOut: false
+    // Set when the chain deadline ends a leg, so that leg's own onExited is swallowed once.
+    property bool _chainEndedLate: false
     // The rail's DEVICES gate: true once the first listing answered, timed out or not, without replacing anything.
     property bool firstAnswered: false
 
@@ -216,6 +218,7 @@ Item {
             return
         }
         root.armEject(e)
+        root.quiesce(e.path)
         root._ejectErr = ""
         ejectProcess.command = ["gio", "mount", "-e", e.path]
         ejectProcess.running = true
@@ -223,14 +226,19 @@ Item {
         root.message("Ejecting " + e.label + ", do not unplug it yet.", false)
     }
 
-    // Unmount every volume on the disk, then stop the drive itself, so nothing is left
-    // for udiskie to remount. Flea's own readers leave first, through quiesce.
+    // Unmount every volume, then stop the drive, so nothing is left for udiskie to remount.
     function powerOff(e, disk) {
+        // A user unmount already in flight owns unmountProcess; adopting it would skip the queue.
+        if (unmountProcess.running) {
+            root.message(e.label + " is still unmounting; wait for its result.", false)
+            return
+        }
         root.quiesce(e.path)
         root.armEject(e)
         root._powerOffDisk = disk
         root._powerOffQueue = Devices.powerOffQueue(root.entries, disk)
         root.message("Ejecting " + e.label + ", do not unplug it yet.", false)
+        powerOffTimeout.restart()
         root.powerOffNext()
     }
 
@@ -263,6 +271,7 @@ Item {
     function reportEject(verdict, others) {
         if (root._ejectDevice.length === 0)
             return
+        powerOffTimeout.stop()
         ejectVerdictTimeout.stop()
         var s = Eject.sentence(verdict, root._ejectLabel, others)
         root._ejectDevice = ""
@@ -291,6 +300,26 @@ Item {
         interval: root.ejectVerdictMs
         repeat: false
         onTriggered: root.reportEject("unknown", [])
+    }
+
+    // A hung chain leg ends here with the guard released and a sentence.
+    Timer {
+        id: powerOffTimeout
+        interval: root.powerOffWaitMs
+        repeat: false
+        onTriggered: {
+            if (root._powerOffDisk.length === 0 || (!unmountProcess.running && !ejectProcess.running))
+                return
+            root._chainEndedLate = true
+            unmountProcess.running = false
+            ejectProcess.running = false
+            ejectVerdictTimeout.stop()
+            var label = root._ejectLabel
+            root._powerOffDisk = ""
+            root._powerOffQueue = []
+            root._ejectDevice = ""
+            root.message(label + " did not finish ejecting and is still mounted.", true)
+        }
     }
 
     Process {
@@ -363,8 +392,14 @@ Item {
         onExited: function (exitCode) {
             // A power-off unmounts each volume first; a refusal stops the chain instead of
             // powering off under a volume that is still mounted.
+            if (root._chainEndedLate) {
+                root._chainEndedLate = false
+                root.poll()
+                return
+            }
             if (root._powerOffDisk.length > 0) {
                 if (exitCode !== 0) {
+                    powerOffTimeout.stop()
                     root._powerOffDisk = ""
                     root._powerOffQueue = []
                     root._ejectDevice = ""
@@ -387,8 +422,14 @@ Item {
         onExited: function (exitCode) {
             // A refused stop says so at once; a stop that ran is judged on the listing that
             // follows, because gio has exited 0 over a volume that was still mounted.
+            if (root._chainEndedLate) {
+                root._chainEndedLate = false
+                root.poll()
+                return
+            }
             if (exitCode !== 0 && root._powerOffDisk.length > 0) {
                 var sentence = Devices.mountError("eject", exitCode, root._ejectErr, root._ejectLabel)
+                powerOffTimeout.stop()
                 root._powerOffDisk = ""
                 root._powerOffQueue = []
                 root._ejectDevice = ""

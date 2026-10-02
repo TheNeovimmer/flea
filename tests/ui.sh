@@ -8449,6 +8449,128 @@ EOS
     sandbox_remove "$fixture_home"; sandbox_remove "$good_dir"
 }
 
+# A restored folder's listing deadline (ui/Pane.qml): a proxy holds the first list past the wait, then the rows land; opt-in like hangshare.
+case_hanglisting() {
+    local dir="$fixture_root/hanglisting"
+    sandbox_scratch "$dir"
+    : > "$dir/one.txt"
+    : > "$dir/two.txt"
+    cat > "$dir/flea-proxy" <<'EOS'
+#!/usr/bin/env python3
+# Forwards a backend session to the real binary, holding the first list past the deadline.
+import os, subprocess, sys, threading, time
+real = os.environ["FLEA_HANGLISTING_REAL"]
+if sys.argv[1:] != ["--backend"]:
+    os.execv(real, [real] + sys.argv[1:])
+delay = float(os.environ.get("FLEA_HANGLISTING_DELAY", "15"))
+marker = os.environ.get("FLEA_HANGLISTING_MARKER", "")
+child = subprocess.Popen([real, "--backend"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=sys.stderr, text=True, bufsize=1)
+def pump():
+    for line in child.stdout:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+threading.Thread(target=pump, daemon=True).start()
+held = False
+for line in sys.stdin:
+    if '"c":"list"' in line and not held:
+        held = True
+        if marker:
+            open(marker, "w").write("delayed\n")
+        time.sleep(delay)
+    try:
+        child.stdin.write(line)
+        child.stdin.flush()
+    except BrokenPipeError:
+        break
+EOS
+    chmod +x "$dir/flea-proxy"
+    local real_bin="$flea_bin"
+    export FLEA_HANGLISTING_REAL="$real_bin" FLEA_HANGLISTING_DELAY=15 FLEA_HANGLISTING_MARKER="$dir/delayed"
+    flea_bin="$dir/flea-proxy"
+    launch "$dir"
+    flea_bin="$real_bin"
+    wait_marker "$dir/delayed" "hanglisting: the proxy never saw the listing"
+    local seen="" deadline=$(( $(date +%s%3N) + 25000 ))
+    while (( $(date +%s%3N) < deadline )); do
+        seen=$(ipc stateMessage 2>/dev/null || true)
+        [[ "$seen" == "That folder is not responding." ]] && break
+        sleep 0.2
+    done
+    [[ "$seen" == "That folder is not responding." ]] \
+        || fail "hanglisting: the deadline never spoke, stateMessage is $seen"
+    [[ "$(ipc state)" == "waiting" ]] \
+        || fail "hanglisting: the pane is not waiting, state is $(ipc state)"
+    wait_listing 2
+    [[ "$(ipc path)" == "$dir" ]] || fail "hanglisting: the landed listing navigated to $(ipc path)"
+    [[ -z "$(ipc stateMessage)" ]] || fail "hanglisting: the landed listing kept $(ipc stateMessage)"
+
+    printf 'HANGLISTING deadline=ok rows-land-after=ok\n'
+    kill_flea
+}
+
+# The favourite inspector's deadline (ui/Favourites.qml): the first inspect hangs, 40 favourites let a rail scroll refire it, and a second inspect proves the guard cleared; opt-in like hangshare.
+case_hanginspect() {
+    local dir="$fixture_root/hanginspect"
+    sandbox_scratch "$dir"
+    : > "$dir/one.txt"
+    local favs="" answers="" n
+    for ((n = 0; n < 40; n++)); do
+        favs="$favs$(printf '{"label":"F%02d","path":"%s/f%02d"},' "$n" "$dir" "$n")"
+        answers="$answers$(printf '{"index":%d,"record":{"label":"F%02d","path":"%s/f%02d"},"error":""},' "$n" "$n" "$dir" "$n")"
+    done
+    cat > "$dir/bin-flea" <<EOS
+#!/bin/sh
+# The first inspect hangs past the guard; every later one answers every seeded favourite at once.
+if [ "\$1" = --favourites ] && [ "\${2#*inspect}" != "\$2" ]; then
+    printf 'inspect\n' >> "$dir/calls"
+    if [ ! -e "$dir/hung" ]; then : > "$dir/hung"; exec sleep 25; fi
+    printf '{"statuses":[${answers%,}]}'
+    exit 0
+fi
+exec "$flea_bin" "\$@"
+EOS
+    chmod +x "$dir/bin-flea"
+    local real_bin="$flea_bin" real_state="${XDG_STATE_HOME-}"
+    seed_ui_state "$dir/state" "{\"places\":{\"favourites\":[${favs%,}]}}"
+    flea_bin="$dir/bin-flea"
+    launch "$dir"
+    wait_listing 1
+    wait_rail 40
+    # Warp onto a rail row, then one uinput pixel so Qt sees the pointer rest there, as case_scroll does.
+    # One second past the inspector's 10 s guard, FavGuard.INSPECT_WAIT_MS.
+    local past_guard_s=11 idx=0 count centre="" cx cy wx wy ww wh
+    count=$(ipc railCount)
+    while (( idx < count )); do
+        centre=$(ipc railRowCentre "$idx" 2>/dev/null || true)
+        [[ -n "$centre" ]] && break
+        idx=$((idx + 1))
+    done
+    [[ -n "$centre" ]] || fail "hanginspect: no rail row has a centre"
+    read -r cx cy <<< "$centre"
+    read -r wx wy ww wh < <(window_box) || fail "hanginspect: native window coordinates unavailable"
+    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + cx)), y = $((wy + cy))})" >/dev/null
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
+    settle
+    omarchy-drive scroll down 2 >/dev/null
+    wait_marker "$dir/hung" "hanginspect: the first inspect never started"
+    sleep "$past_guard_s"
+    omarchy-drive scroll up 2 >/dev/null
+    settle
+    local calls=0 deadline=$(( $(date +%s%3N) + 25000 ))
+    while (( $(date +%s%3N) < deadline )); do
+        calls=$(grep -c inspect "$dir/calls" 2>/dev/null || true)
+        [[ "$calls" -ge 2 ]] && break
+        sleep 0.5
+    done
+    [[ "$calls" -ge 2 ]] \
+        || fail "hanginspect: no second inspect after the deadline, calls is $calls"
+    flea_bin="$real_bin"
+    if [[ -n "$real_state" ]]; then export XDG_STATE_HOME="$real_state"; else unset XDG_STATE_HOME; fi
+
+    printf 'HANGINSPECT guard-clears=ok later-inspect-runs=ok\n'
+    kill_flea
+}
+
 # The rail's own context menu, which is the whole affordance: a release nobody can see is a release
 # nobody has. gio is stubbed so no real unmount ever runs, and the stub logs each call it receives.
 case_unmount() {

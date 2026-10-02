@@ -41,8 +41,7 @@ function afterDelete(pane, landed) {
     return anchoredRefresh(pane, true)
 }
 
-// A listing past its wait stops loading the pane: the next navigation starts clean, and the
-// late rows, if they ever land, are dropped by the swap as a listing already replaced.
+// A listing past its wait stops loading the pane: late rows are dropped as replaced.
 function clearWaiting(pane) {
     if (pane.listingState === "waiting") {
         pane.listInFlight = false
@@ -53,18 +52,23 @@ function clearWaiting(pane) {
     return false
 }
 
-// Which row a full target path names: the backend lists the name it stored, so an NFC name on
-// hfsplus matches the NFD row it actually listed rather than missing it by bytes.
+// Which row a full target path names, NFC-matched the way the backend lists it.
 function selectMatch(rows, target, folder) {
-    var leaf = target.substring(folder.length === 1 ? 1 : folder.length + 1)
+    var base = String(folder || "")
+    var text = String(target || "")
+    var leaf = base.length <= 1 ? text.substring(1) : text.substring(base.length + 1)
+    if (base.length > 1 && text.substring(0, base.length + 1) !== base + "/")
+        return -1
     var want = typeof leaf.normalize === "function" ? leaf.normalize("NFC") : leaf
     for (var i = 0; i < rows.length; i++) {
-        var name = String(rows[i].n || "")
-        if (name === leaf)
+        if (String(rows[i].n || "") === leaf)
             return i
+    }
+    for (var j = 0; j < rows.length; j++) {
+        var name = String(rows[j].n || "")
         var norm = typeof name.normalize === "function" ? name.normalize("NFC") : name
         if (norm === want)
-            return i
+            return j
     }
     return -1
 }

@@ -332,6 +332,10 @@ function run(check) {
     check("an NFD target finds its NFC row", Anchor.selectMatch([{ n: nfc }], "/d/" + nfd, "/d"), 0)
     check("a name that is nowhere matches nothing", Anchor.selectMatch([{ n: "a.txt" }], "/d/nope.txt", "/d"), -1)
     check("a target outside the folder matches nothing", Anchor.selectMatch([{ n: "a.txt" }], "/elsewhere/a.txt", "/d"), -1)
+    check("an equal-length sibling folder matches nothing", Anchor.selectMatch([{ n: "a.txt" }], "/e/a.txt", "/d"), -1)
+    check("a USB1 row never matches a USB2 target", Anchor.selectMatch([{ n: "untitled folder" }], "/run/media/gm/USB2/untitled folder", "/run/media/gm/USB1"), -1)
+    check("the root folder still matches its row", Anchor.selectMatch([{ n: "a.txt" }], "/a.txt", "/"), 0)
+    check("an exact later row wins over an earlier NFC-only row", Anchor.selectMatch([{ n: nfd }, { n: nfc }], "/d/" + nfc, "/d"), 1)
 
     // Defect 26: past the wait a navigation starts clean instead of refusing forever.
     function waitingPane() {
