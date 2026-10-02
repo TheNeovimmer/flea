@@ -18,12 +18,15 @@ ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/picker-grid.qml "$test_root/config/shell.qml" || exit 1
+# The real window launches in grid, so its first settle holds until fsinfo names the class.
+mkdir -p "$test_root/state/flea" || exit 1
+printf '{"pickerView":"grid"}' > "$test_root/state/flea/ui.json" || exit 1
 : > "$test_root/requests" || exit 1
 : > "$test_root/reply.json" || exit 1
 # Stub answers a folder with rows, Recent with a rowless listing, fsinfo as network.
 cat > "$test_root/stub-backend" <<'PYEND'
 #!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, time
 if "--ui-state" in sys.argv:
     sys.stdout.write("{}")
     sys.stdout.flush()
@@ -65,6 +68,8 @@ for line in sys.stdin:
             continue
         emit({"t": "rows", "start": start, "rows": served[start:start + count], "ms": 1.0, "kinds": []})
     elif kind == "fsinfo":
+        # Hold past the first settle, so only its restart may ask.
+        time.sleep(0.5)
         emit({"t": "fsinfo", "fs": "tmpfs", "free": 123, "path": served_path, "class": "network"})
     elif kind == "quit":
         break

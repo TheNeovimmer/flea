@@ -3,6 +3,7 @@
 import QtQuick
 import Quickshell
 import "flea" as Flea
+import "flea/js/Picker.js" as Picker
 
 // Visible tiles only: unknown storage holds every ask, one screen asks after movement stops.
 // Real window chain below proves onListed asks fsinfo and the grid asks thumb after it.
@@ -17,6 +18,8 @@ ShellRoot {
     property int scrolledLast: -1
     property int hiddenShown: -1
     property string folderClass: "?"
+    property int stage1Batches: 0
+    property int stage1Asks: 0
     property var winShell: null
     property var win: null
     readonly property int askWaitMs: 5000
@@ -119,6 +122,17 @@ ShellRoot {
         if (!root.win || !root.win.thumbState || !root.win.thumbState.file) return false
         return Object.keys(root.win.thumbState.file).length > 0
     }
+    // Delegates inside the viewport, independent of the grid's own tile arithmetic.
+    function visibleTiles() {
+        var lo = grid.contentY, hi = grid.contentY + grid.height
+        var out = []
+        for (var i = 0; i < root.rowCount; i++) {
+            var item = grid.itemAtIndex(i)
+            if (!item) continue
+            if (item.y + item.height > lo && item.y < hi) out.push(i)
+        }
+        return out
+    }
 
     Timer {
         interval: 10
@@ -149,34 +163,82 @@ ShellRoot {
                 if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("the first settle never asked"); }
                 return
             }
-            var cols = Math.max(1, grid.columns)
-            var tileRows = Math.max(1, grid.visibleTileRows)
-            root.screenLast = Math.min(root.rowCount - 1, tileRows * cols - 1)
+            var exp = root.visibleTiles()
+            if (exp.length === 0) { root.fail("no delegate met the viewport on the first screen"); return }
+            root.screenLast = exp[exp.length - 1]
+            root.stage1Batches = stubBackend.thumbAsks.length
+            root.stage1Asks = root.flatAsks().length
             var first = root.flatAsks()
-            if (first.length !== root.screenLast + 1) {
-                root.fail("the first screen asked " + first.length + " tiles, want " + (root.screenLast + 1))
+            if (first.length !== exp.length) {
+                root.fail("the first screen asked " + first.length + " tiles, want " + exp.length)
                 return
             }
-            if (!root.inBounds(first, 0, root.screenLast)) { root.fail("the first screen asked outside itself"); return }
+            if (!root.inBounds(first, exp[0], exp[exp.length - 1])) { root.fail("the first screen asked outside itself"); return }
             grid.contentY = 2 * grid.cellHeightPx
             root.stageSince = Date.now()
             root.stage = 2
             return
         }
         case 2: {
-            var before = root.screenLast + 1
             var now = root.flatAsks()
-            var fresh = now.filter(function (r) { return r >= before })
-            if (fresh.length === 0) {
+            if (now.length <= root.stage1Asks) {
                 if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("a scroll asked no newly visible tile"); }
                 return
             }
-            var cols2 = Math.max(1, grid.columns)
-            var tileRows2 = Math.max(1, grid.visibleTileRows)
-            var first2 = Math.floor(grid.contentY / grid.cellHeightPx) * cols2
-            root.scrolledLast = Math.min(root.rowCount - 1, first2 + tileRows2 * cols2 - 1)
-            if (!root.inBounds(now, 0, root.scrolledLast)) { root.fail("an ask named a tile never scrolled into view"); return }
+            var exp2 = root.visibleTiles()
+            if (exp2.length === 0) { root.fail("no delegate met the viewport after the scroll"); return }
+            root.scrolledLast = exp2[exp2.length - 1]
+            var fresh = []
+            for (var b = root.stage1Batches; b < stubBackend.thumbAsks.length; b++)
+                for (var j = 0; j < stubBackend.thumbAsks[b].length; j++)
+                    fresh.push(stubBackend.thumbAsks[b][j])
+            if (fresh.length === 0) { root.fail("a scroll asked no newly visible tile"); return }
+            if (!root.inBounds(fresh, exp2[0], exp2[exp2.length - 1])) { root.fail("an ask named a tile never scrolled into view"); return }
             if (root.stubBackend.windowCalls !== 0) { root.fail("the held window covered the scroll, yet " + root.stubBackend.windowCalls + " refetch ran"); return }
+            grid.contentY = 0
+            grid.width = 1600
+            grid.height = 700
+            root.rowCount = 500
+            root.stubPicker.rows = root.buildRows()
+            root.stubPicker.total = 500
+            root.stubPicker.shownTotal = 500
+            root.stageSince = Date.now()
+            root.stage = 4
+            return
+        }
+        case 4: {
+            if (Date.now() - root.stageSince < 200) return
+            var vis = root.visibleTiles()
+            if (vis.length === 0) { root.fail("no delegate met the wide viewport"); return }
+            var listRows = Math.max(1, listProbe.visibleRows)
+            var wide = Picker.windowSize(listRows, grid.visibleTileRows, grid.columns)
+            var old = listRows + 60
+            if (!(old < vis.length)) { root.fail("the wide stage is not sensitive, old covers " + vis.length); return }
+            if (!(wide * (1 - root.stubPicker.windowLead) >= vis.length)) { root.fail("the shared window leaves blank tiles at wide width"); return }
+            for (var w = 0; w < vis.length; w++)
+                if (vis[w] >= wide) { root.fail("tile " + vis[w] + " has no row in a " + wide + " window"); return }
+            root.stubPicker.held = 100
+            root.stubPicker.rows = root.stubPicker.rows.slice(0, 60)
+            root.stubPicker.total = 500
+            root.stubPicker.shownTotal = 500
+            var calls = root.stubBackend.windowCalls
+            listProbe.requestIfDrifted()
+            if (root.stubBackend.windowCalls !== calls) { root.fail("a hidden list refetched its window"); return }
+            listProbe.visible = true
+            root.stubPicker.cursorIndex = 300
+            listProbe.positionViewAtIndex(300, ListView.Contain)
+            listProbe.requestIfDrifted()
+            if (root.stubBackend.windowCalls === calls) { root.fail("a reshown list never refetched its window"); return }
+            listProbe.visible = false
+            root.stubPicker.held = 0
+            root.rowCount = 60
+            root.stubPicker.rows = root.buildRows()
+            root.stubPicker.total = 60
+            root.stubPicker.shownTotal = 60
+            root.stubPicker.cursorIndex = 0
+            grid.width = 700
+            grid.height = 300
+            grid.contentY = 0
             root.stage = 20
             return
         }

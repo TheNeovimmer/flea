@@ -264,8 +264,7 @@ check "the exec entry's chunks were read" "1" "$(echo "$exec_facts" | grep -c '^
 check "the two publish the same image and keys" "$exec_facts" "$(png_facts "$worker_png")"
 chmod 600 "$D/worker/w3-unreadable.mp4"
 
-# Quick Look's bounded prefetch through the production overlay: one cache-only ask for
-# the next row per settled rest, none while a held key is still bursting.
+# Quick Look prefetch: one cache-only ask for the next row per settled rest, none mid-burst.
 prefetch_root="$D/qlprefetch"
 prefetch_log="$D/qlprefetch.log"
 mkdir -p "$prefetch_root/config" "$prefetch_root/runtime" || { sandbox_remove "$D"; exit 1; }

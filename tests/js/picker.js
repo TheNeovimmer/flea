@@ -212,4 +212,7 @@ function run(check) {
     check("a scrolled grid starts one tile row down", scrolled.first, 5)
     var tail = Picker.tileRange(0, 198, 4, 5, 12)
     check("a short listing clamps to its last row", tail.last, 11)
+    check("the shared window covers the wider grid screen", Picker.windowSize(10, 4, 5), 100)
+    check("a wide list still sizes the window", Picker.windowSize(30, 2, 5), 120)
+    check("a 160-tile screen fits inside its window lead", Picker.windowSize(37, 10, 16) * 0.75 > 160, true)
 }

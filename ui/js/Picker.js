@@ -288,6 +288,14 @@ function gridTarget(index, delta, columns, total) {
 function pageTarget(index, delta, total) {
     return Math.max(0, Math.min(total - 1, index + delta))
 }
+// Twice the wider view's screen plus slack, so the screen still fits after the quarter lead.
+var WINDOW_COVER = 2
+var WINDOW_SLACK = 60
+// Sample input: windowSize(10, 4, 5) is 100, windowSize(30, 2, 5) is 120.
+function windowSize(listRows, tileRows, columns) {
+    var tiles = Math.max(1, tileRows) * Math.max(1, columns)
+    return WINDOW_COVER * Math.max(listRows, tiles) + WINDOW_SLACK
+}
 
 function parentOf(path) {
     var cut = String(path).lastIndexOf("/")

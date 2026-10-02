@@ -67,6 +67,15 @@ ShellRoot {
             // The user's own switch, and only that, is what the next launch reopens: a launch
             // reads, and cursor moves never owe the file anything.
             ViewState.changeKey("pickerView", next)
+            // A reshow owns its window: the shown view moves to the cursor and refetches there.
+            if (next === "grid") {
+                grid.positionViewAtIndex(Math.max(0, Math.min(win.cursorIndex, win.total - 1)), GridView.Contain)
+                grid.requestIfDrifted()
+                grid.restartSettle()
+            } else {
+                list.positionViewAtIndex(Math.max(0, Math.min(win.cursorIndex, win.total - 1)), ListView.Contain)
+                list.requestIfDrifted()
+            }
             win.focusView()
         }
         function viewItem() { return win.viewMode === "grid" ? grid : list }
@@ -120,7 +129,8 @@ ShellRoot {
 
         readonly property bool saving: win.req.mode === "save"
         readonly property bool folderMode: win.req.directory || win.req.mode === "savefiles"
-        readonly property int windowSize: list.visibleRows + 60
+        // Twice the wider view's screen plus slack, so the screen still fits after the quarter lead.
+        readonly property int windowSize: Picker.windowSize(list.visibleRows, grid.visibleTileRows, grid.columns)
         // Both views refetch through one interval and lead, the main views' own 16 ms and quarter window.
         readonly property int coalesceMs: 16
         readonly property real windowLead: 0.25

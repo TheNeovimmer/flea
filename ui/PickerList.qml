@@ -204,7 +204,7 @@ ListView {
     }
 
     function requestIfDrifted() {
-        if (root.picker.backendUnavailable || root.picker.total === 0 || root.picker.pendingListings > 0)
+        if (!root.visible || root.picker.backendUnavailable || root.picker.total === 0 || root.picker.pendingListings > 0)
             return
         var firstVisible = Math.floor(root.contentY / Theme.rowHeight)
         var heldEnd = root.picker.held + root.picker.rows.length
