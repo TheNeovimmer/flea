@@ -3676,16 +3676,64 @@ xw_settled() {
     fail "xwwatch: the listing never settled"
 }
 
+# Shared failure snapshot for the dialog and inline editor, with the case's window identities in scope.
+xw_editor_diagnostics() {
+    local pid="$1" step="$2" stateA="${3-}" dialogA="${4-}" stateB menuA menuB cursorA rowA totalA totalB active
+    if (( $# < 3 )); then stateA=$(xw_ipc "$pid" renameState 2>/dev/null || true); fi
+    # The case's local window identities and directory remain in scope for this failure snapshot.
+    stateB=$(xw_ipc "$pidB" renameState 2>/dev/null || true)
+    menuA=$(xw_ipc "$pid" contextMenuVisible 2>/dev/null || true)
+    menuB=$(xw_ipc "$pidB" contextMenuVisible 2>/dev/null || true)
+    if (( $# < 4 )); then dialogA=$(xw_ipc "$pid" menuDialogState 2>/dev/null || true); fi
+    cursorA=$(xw_ipc "$pid" cursor 2>/dev/null || true)
+    rowA=$(xw_ipc "$pid" rowAt "$cursorA" 2>/dev/null || true)
+    totalA=$(xw_ipc "$pid" total 2>/dev/null || true)
+    totalB=$(xw_ipc "$pidB" total 2>/dev/null || true)
+    active=$(hyprctl activewindow -j 2>/dev/null | jq -c --arg addrA "$addrA" --arg addrB "$addrB" \
+        --arg pidA "$pid" --arg pidB "$pidB" \
+        '{address, pid, isA: (.address == $addrA and (.pid | tostring) == $pidA),
+          isB: (.address == $addrB and (.pid | tostring) == $pidB)}' 2>/dev/null || true)
+    printf 'XWWATCH editor failure step=%s A=%s/%s B=%s/%s\n' "$step" "$addrA" "$pid" "$addrB" "$pidB" >&2
+    printf 'A renameState=%s contextMenuVisible=%s menuDialogState=%s\n' "${stateA:-unreadable}" "${menuA:-unreadable}" "${dialogA:-unreadable}" >&2
+    printf 'B renameState=%s contextMenuVisible=%s\n' "${stateB:-unreadable}" "${menuB:-unreadable}" >&2
+    printf 'A cursor=%s rowAt=%s total=%s; B total=%s; activewindow=%s\n' "${cursorA:-unreadable}" "${rowA:-unreadable}" "${totalA:-unreadable}" "${totalB:-unreadable}" "${active:-unreadable}" >&2
+    ls -la "$dir" >&2 || true
+}
+
 # The rename editor opens a round trip after its key, so typing starts on its focus, not on sleep.
 xw_wait_editor() {
-    local pid="$1" n
+    local pid="$1" step="$2" n stateA
     for ((n = 0; n < 100; n++)); do
-        if xw_ipc "$pid" renameState 2>/dev/null | jq -e '.index >= 0 and .focused' >/dev/null; then
+        stateA=$(xw_ipc "$pid" renameState 2>/dev/null || true)
+        if printf '%s\n' "$stateA" | jq -e '.index >= 0 and .focused' >/dev/null; then
             return 0
         fi
         sleep 0.05
     done
-    fail "xwwatch: the rename editor never opened"
+    xw_editor_diagnostics "$pid" "$step" "$stateA"
+    fail "xwwatch: $step: the rename editor never opened or took focus"
+}
+
+# New File owns the dialog's Field control; completion requires a closed dialog and the created file.
+xw_wait_dialog() {
+    local pid="$1" want="$2" step="$3" file="${4-}" n state stateA
+    for ((n = 0; n < 100; n++)); do
+        state=$(xw_ipc "$pid" menuDialogState 2>/dev/null || true)
+        if [[ "$want" == open ]]; then
+            if printf '%s\n' "$state" | jq -e '.opened == true and .action == "newFile" and any(.controls[]?; .name == "Field" and .focused == true)' >/dev/null; then
+                return 0
+            fi
+        elif printf '%s\n' "$state" | jq -e '.opened == false' >/dev/null && [[ -f "$file" ]]; then
+            return 0
+        fi
+        sleep 0.05
+    done
+    stateA=$(xw_ipc "$pid" renameState 2>/dev/null || true)
+    xw_editor_diagnostics "$pid" "$step" "$stateA" "$state"
+    if [[ "$want" == open ]]; then
+        fail "xwwatch: $step: the New File name field never opened or took focus"
+    fi
+    fail "xwwatch: $step: the New File dialog never closed or $file never appeared on disk"
 }
 
 case_xwwatch() {
@@ -3746,19 +3794,33 @@ case_xwwatch() {
     [[ "$entries" == 'New Folder|New File'* ]] || fail "xwwatch: A did not open its background menu: $entries"
     xw_menu_seek "$addrA" "$pidA" "New File"
     xw_key "$addrA" -k Return
-    xw_wait_editor "$pidA"
+    xw_wait_dialog "$pidA" open "New File after menu Return"
     xw_key "$addrA" -M ctrl -k a -m ctrl -k BackSpace
     xw_key "$addrA" created-by-a.txt
     xw_key "$addrA" -k Return
+    xw_wait_dialog "$pidA" closed "New File after submit" "$dir/created-by-a.txt"
+    xw_wait_total "$pidA" 6 "create in A"
     xw_wait_total "$pidB" 6 "create"
+    xw_settled "$pidA"
     xw_settled "$pidB"
+    xw_wait_row "$pidA" created-by-a.txt "create row in A"
+    xw_wait_row "$pidB" created-by-a.txt "create row in B"
+    [[ "$(xw_ipc "$pidB" selectionCount)" == "3" ]] || fail "xwwatch: B lost a mark after create"
+    marksB=$(xw_ipc "$pidB" selectedIndices) || fail "xwwatch: B marks unreadable after create"
+    local marked_names="" marked_row
+    for row in ${marksB//,/ }; do
+        marked_row=$(xw_ipc "$pidB" rowAt "$row") || fail "xwwatch: B marked row $row unreadable after create"
+        marked_names+="${marked_row%%|*}"$'\n'
+    done
+    [[ "$(printf '%s' "$marked_names" | LC_ALL=C sort)" == $'sel-one.txt\nsel-three.txt\nsel-two.txt' ]] \
+        || fail "xwwatch: B marks after create name $marked_names instead of the same three files"
 
     # A renames a file B never marked; B follows the name with its marks untouched.
     xw_goto "$addrA" "$pidA" 1
     [[ "$(xw_ipc "$pidA" rowAt "$(xw_ipc "$pidA" cursor)")" == renamed-later.txt\|* ]] \
         || fail "xwwatch: A cursor is on $(xw_ipc "$pidA" rowAt "$(xw_ipc "$pidA" cursor)"), not renamed-later.txt"
     xw_key "$addrA" -k F2
-    xw_wait_editor "$pidA"
+    xw_wait_editor "$pidA" "rename after F2"
     xw_key "$addrA" -M ctrl -k a -m ctrl -k BackSpace
     xw_key "$addrA" renamed-by-a.txt
     xw_key "$addrA" -k Return

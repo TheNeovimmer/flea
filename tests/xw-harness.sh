@@ -6,7 +6,7 @@ repo=$PWD
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 source_file=${XW_HARNESS_SOURCE:-$repo/tests/ui.sh}
-for helper in case_xwwatch xw_ipc xw_click_background xw_cleanup owned_trash_monitors; do
+for helper in case_xwwatch xw_ipc xw_click_background xw_cleanup owned_trash_monitors xw_editor_diagnostics xw_wait_dialog; do
     eval "$(sed -n "/^$helper()/,/^}/p" "$source_file")" || exit 1
 done
 fail() {
@@ -66,7 +66,7 @@ case "$query" in
     listingBackgroundCentre) printf '300 %s\n' "$background_y" ;;
     fileRowHeight) printf '37\n' ;;
     rowCentre) printf '300 74\n' ;;
-    total) printf '5\n' ;;
+    total) if [[ -f "$tmp/created" && ! -f "$tmp/deleted" ]]; then printf '6\n'; else printf '5\n'; fi ;;
     contextMenuEntries) cat "$tmp/menu" ;;
     cursor)
         if [[ "$pid" == 222 ]]; then printf '3\n'; else printf '%s\n' "$a_cursor"; fi
@@ -76,10 +76,19 @@ case "$query" in
         elif [[ -f "$tmp/deleted" ]]; then printf '2\n'
         else printf '3\n'; fi
         ;;
-    selectedIndices) printf '3,4\n' ;;
+    selectedIndices)
+        if [[ -f "$tmp/deleted" ]]; then printf '3,4\n'
+        elif [[ "${mode-}" == wrong-mark && -f "$tmp/created" ]]; then printf '2,3,5\n'
+        else printf '2,3,4\n'; fi
+        ;;
+    menuDialogState)
+        if [[ -f "$tmp/dialog.open" ]]; then printf '{"opened":true,"action":"newFile","controls":[{"name":"Field","focused":true}]}\n'
+        else printf '{"opened":false}\n'; fi
+        ;;
     rowAt)
         case "$1" in
-            1) printf 'renamed-later.txt|file\n' ;;
+            0) printf 'created-by-a.txt|file\n' ;;
+            1) if [[ -f "$tmp/renamed" ]]; then printf 'renamed-by-a.txt|file\n'; else printf 'renamed-later.txt|file\n'; fi ;;
             2) printf 'sel-one.txt|file\n' ;;
             3) printf 'sel-two.txt|file\n' ;;
             4) printf 'sel-three.txt|file\n' ;;
@@ -126,10 +135,18 @@ xw_settled() {
     :
 }
 xw_wait_total() {
-    :
+    [[ "$(xw_ipc "$1" total)" == "$2" ]] || fail "wrong total for $3"
+    printf '%s %s %s\n' "$1" "$2" "$3" >> "$tmp/total-waits"
 }
 xw_wait_row() {
-    :
+    local row
+    for row in 0 1 2 3 4 5; do
+        if [[ "$(xw_ipc "$1" rowAt "$row")" == "$2|"* ]]; then
+            printf '%s %s %s\n' "$1" "$2" "$3" >> "$tmp/row-waits"
+            return
+        fi
+    done
+    fail "missing row for $3"
 }
 xw_goto() {
     a_cursor=$3
@@ -139,6 +156,22 @@ xw_key() {
         printf 'Open|Open with|Cut|Copy\n' > "$tmp/menu"
     elif [[ "$*" == "$addr_a -k Delete" ]]; then
         touch "$tmp/deleted"
+    elif [[ "$*" == "$addr_a -k F2" ]]; then
+        touch "$tmp/rename.open"
+    elif [[ "$*" == "$addr_a -k Return" ]]; then
+        if [[ -f "$tmp/rename.open" ]]; then
+            touch "$tmp/renamed"
+            rm -f "$tmp/rename.open"
+        elif [[ -f "$tmp/dialog.open" ]]; then
+            [[ "$(cat "$tmp/filename")" == created-by-a.txt ]] || fail 'dialog submitted the wrong filename'
+            touch "$fixture_root/xwwatch/created-by-a.txt" "$tmp/created"
+            rm -f "$tmp/dialog.open"
+        else
+            touch "$tmp/dialog.open"
+        fi
+    elif [[ "$*" == "$addr_a created-by-a.txt" ]]; then
+        [[ -f "$tmp/dialog.open" ]] || fail 'New File typed without a dialog'
+        printf 'created-by-a.txt\n' > "$tmp/filename"
     fi
 }
 xw_menu_seek() {
@@ -164,12 +197,13 @@ kill_flea() {
 }
 
 failures=0
-for mode in success failure; do
-    rm -f "$tmp/menu" "$tmp/deleted" "$tmp/clicks" "$tmp/ipc-argv"
+for mode in success failure wrong-mark; do
+    export mode
+    rm -f "$tmp/menu" "$tmp/deleted" "$tmp/clicks" "$tmp/ipc-argv" "$tmp/dialog.open" "$tmp/rename.open" "$tmp/created" "$tmp/renamed" "$tmp/filename" "$tmp/total-waits" "$tmp/row-waits" "$fixture_root/xwwatch/created-by-a.txt"
     result=0
     ( case_xwwatch ) > "$tmp/$mode.log" 2>&1 || result=$?
     expected=0
-    [[ "$mode" != failure ]] || expected=1
+    [[ "$mode" == success ]] || expected=1
     if [[ "$result" != "$expected" ]]; then
         printf 'FAIL xwwatch %s returned %s, expected %s\n' "$mode" "$result" "$expected"
         cat "$tmp/$mode.log"
@@ -184,6 +218,17 @@ for mode in success failure; do
             printf 'FAIL pid argv or A background target was not exercised\n'
             failures=$((failures + 1))
         fi
+    fi
+    if [[ "$mode" == success ]] && { ! grep -q '^111 6 create in A$' "$tmp/total-waits" \
+        || ! grep -q '^222 6 create$' "$tmp/total-waits" \
+        || ! grep -q '^111 created-by-a.txt create row in A$' "$tmp/row-waits" \
+        || ! grep -q '^222 created-by-a.txt create row in B$' "$tmp/row-waits"; }; then
+        printf 'FAIL create did not verify totals and names in both windows\n'
+        failures=$((failures + 1))
+    fi
+    if [[ "$mode" == wrong-mark ]] && ! grep -q 'B marks after create' "$tmp/$mode.log"; then
+        printf 'FAIL same-count changed-mark control was not refused\n'
+        failures=$((failures + 1))
     fi
     if [[ "$mode" == failure ]] && ! grep -q 'injected editor failure' "$tmp/$mode.log"; then
         printf 'FAIL failure control did not reach the editor\n'
@@ -270,5 +315,85 @@ if [[ "$result" != 0 || -s "$tmp/monitors.out" || -s "$tmp/monitors.err" ]]; the
     cat "$tmp/monitors.err"
     failures=$((failures + 1))
 fi
-printf 'xw-harness: 9 checks (success cleanup, failure cleanup, A background target, pid argv, row refusal, wrong pid, boot path, owned child stop, vanished monitor); %s failed\n' "$failures"
+# Drive the real failure observer for both call sites without a compositor or polling delay.
+for step in 'New File after menu Return' 'rename after F2' 'New File after submit'; do
+    result=0
+    (
+        eval "$(sed -n '/^xw_wait_editor()/,/^}/p' "$source_file")"
+        pidA=111 pidB=222 addrA=$addr_a addrB=$addr_b dir=$fixture_root/xwwatch
+        sleep() { :; }
+        xw_ipc() {
+            case "$2" in
+                renameState) printf '{"index":-1,"focused":false,"pid":%s}\n' "$1" ;;
+                contextMenuVisible) printf 'false\n' ;;
+                menuDialogState) printf '{"opened":true,"action":"newFile"}\n' ;;
+                cursor) printf '1\n' ;;
+                rowAt) [[ "$3" == 1 ]] || return 1; printf 'renamed-later.txt|file\n' ;;
+                total) printf '5\n' ;;
+                *) return 1 ;;
+            esac
+        }
+        hyprctl() {
+            [[ "$*" == 'activewindow -j' ]] || return 1
+            printf '{"address":"0xbbb","pid":222}\n'
+        }
+        if [[ "$step" == 'New File after menu Return' ]]; then
+            xw_wait_dialog "$pidA" open "$step"
+        elif [[ "$step" == 'rename after F2' ]]; then
+            xw_wait_editor "$pidA" "$step"
+        else
+            xw_wait_dialog "$pidA" closed "$step" "$dir/missing.txt"
+        fi
+    ) > "$tmp/editor.log" 2>&1 || result=$?
+    diagnostic="FAIL: xwwatch: $step: the rename editor never opened or took focus"
+    [[ "$step" != 'New File after menu Return' ]] || diagnostic="FAIL: xwwatch: $step: the New File name field never opened or took focus"
+    [[ "$step" != 'New File after submit' ]] || diagnostic="FAIL: xwwatch: $step: the New File dialog never closed or $fixture_root/xwwatch/missing.txt never appeared on disk"
+    if [[ "$result" != 1 ]] \
+        || ! grep -Fq "step=$step A=0xaaa/111 B=0xbbb/222" "$tmp/editor.log" \
+        || ! grep -Fq 'A renameState={"index":-1,"focused":false,"pid":111} contextMenuVisible=false' "$tmp/editor.log" \
+        || ! grep -Fq 'B renameState={"index":-1,"focused":false,"pid":222} contextMenuVisible=false' "$tmp/editor.log" \
+        || ! grep -Fq 'menuDialogState={"opened":true,"action":"newFile"}' "$tmp/editor.log" \
+        || ! grep -Fq 'A cursor=1 rowAt=renamed-later.txt|file total=5; B total=5;' "$tmp/editor.log" \
+        || ! grep -Fq 'activewindow={"address":"0xbbb","pid":222,"isA":false,"isB":true}' "$tmp/editor.log" \
+        || ! grep -Fq 'sel-one.txt' "$tmp/editor.log" \
+        || ! grep -Fq "$diagnostic" "$tmp/editor.log"; then
+        printf 'FAIL editor failure snapshot for %s\n' "$step"
+        cat "$tmp/editor.log"
+        failures=$((failures + 1))
+    fi
+done
+# Pin the dialog predicate against wrong actions, missing focus, missing files, and unreadable IPC.
+for sample in focused wrong-action unfocused completed missing-file still-open unreadable; do
+    result=0
+    (
+        sleep() { :; }
+        xw_editor_diagnostics() { :; }
+        xw_ipc() {
+            [[ "$1" == 111 && "$2" == menuDialogState ]] || return 1
+            case "$sample" in
+                focused | still-open) printf '{"opened":true,"action":"newFile","controls":[{"name":"Field","focused":true}]}\n' ;;
+                wrong-action) printf '{"opened":true,"action":"copyTo","controls":[{"name":"Field","focused":true}]}\n' ;;
+                unfocused) printf '{"opened":true,"action":"newFile","controls":[{"name":"Field","focused":false}]}\n' ;;
+                completed | missing-file) printf '{"opened":false}\n' ;;
+                unreadable) return 1 ;;
+            esac
+        }
+        file="$tmp/dialog-created.txt"
+        rm -f "$file"
+        want=open
+        case "$sample" in
+            completed | still-open) touch "$file"; want=closed ;;
+            missing-file) want=closed ;;
+        esac
+        xw_wait_dialog 111 "$want" "$sample" "$file"
+    ) > "$tmp/dialog-$sample.log" 2>&1 || result=$?
+    expected=1
+    case "$sample" in focused | completed) expected=0 ;; esac
+    if [[ "$result" != "$expected" ]]; then
+        printf 'FAIL dialog condition %s returned %s, expected %s\n' "$sample" "$result" "$expected"
+        cat "$tmp/dialog-$sample.log"
+        failures=$((failures + 1))
+    fi
+done
+printf 'xw-harness: 21 checks (success cleanup, failure cleanup, A background target, pid argv, row refusal, wrong pid, boot path, owned child stop, vanished monitor, New File snapshot, F2 snapshot, both create listings, mark identity, dialog completion snapshot, seven dialog conditions); %s failed\n' "$failures"
 [[ "$failures" == 0 ]]
