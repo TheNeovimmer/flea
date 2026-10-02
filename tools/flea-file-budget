@@ -49,13 +49,14 @@ src/vulkan.rs 728
 tests/js/columns.js 618
 tests/js/drag.js 301
 tests/js/previewswap.js 367
-tests/js/focus.js 522
+tests/js/focus.js 595
 tests/js/mounts.js 383
-tests/js/menu.js 335
+tests/js/menu.js 348
 tests/js/nav.js 323
 tests/js/network.js 306
 tests/js/ops.js 430
 tests/js/settings.js 337
+tests/js/tap.js 317
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 396
@@ -68,7 +69,7 @@ tests/rename-lifecycle-check.js 356
 ui/Backend.qml 440
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 475
-ui/ContextMenu.qml 625
+ui/ContextMenu.qml 675
 ui/ConvertDialog.qml 440
 ui/GridArea.qml 410
 ui/Ipc.qml 832
@@ -78,10 +79,10 @@ ui/NetworkDialog.qml 449
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 838
 ui/OpenWithDialog.qml 596
-ui/Pane.qml 992
+ui/Pane.qml 998
 ui/PaneMenuActions.qml 458
 ui/PaneWire.qml 537
-ui/PermissionsDialog.qml 600
+ui/PermissionsDialog.qml 635
 ui/PickerWindow.qml 770
 ui/Preview.qml 717
 ui/PreviewColumn.qml 571
@@ -96,15 +97,15 @@ ui/TrashView.qml 475
 ui/ViewState.qml 410
 ui/WindowBody.qml 580
 ui/js/Filter.js 253
-ui/js/Focus.js 408
+ui/js/Focus.js 439
 ui/js/Keymap.js 338
 ui/js/Markdown.js 527
-ui/js/Menu.js 425
+ui/js/Menu.js 436
 ui/js/Drag.js 302
 ui/js/Ops.js 438
 ui/js/Picker.js 325
 ui/js/Settings.js 455
-ui/js/Tabs.js 390"
+ui/js/Tabs.js 399"
 
 status=0
 

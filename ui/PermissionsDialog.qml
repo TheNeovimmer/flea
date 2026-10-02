@@ -23,17 +23,22 @@ FocusScope {
     property Item focusHolder: null
     // The selection's paths with modes in the same order, the first inspect refusal, and the explicit bits.
     property var multiPaths: []
+    // B7: the live inspect accumulation ui/js/Permissions.js noteMode owns,
+    // written in place with no notify per reply; multiModes below is the one
+    // snapshot the summary binding reads, assigned once at the last reply.
+    property var multiStore: ({ modes: [], reasons: [], skipped: [] })
     property var multiModes: []
     property int multiPending: 0
-    property string multiFailed: ""
-    // The first inspect reason; a refused item locks the grid and its reason shows.
-    property string multiReason: ""
     property int explicitSet: 0
     property int explicitClear: 0
     property bool applyingMany: false
+    // B8: the skips the Apply sent (inspect-time skips plus special-bit and
+    // read-only items), carried to the applyMany reply for the final message.
+    property var multiApplySkipped: []
+    property int multiApplySent: 0
     readonly property bool isMulti: multiPaths.length > 1
     readonly property var multiSummary: isMulti ? Permissions.summarize(multiModes) : null
-    readonly property bool editable: isMulti ? multiFailed.length === 0 && multiReason.length === 0 && !busy && !transportFailed
+    readonly property bool editable: isMulti ? !busy && !transportFailed
                                               : facts.ok === true && !facts.reason && !busy && !transportFailed
     readonly property int modeValue: Permissions.parse(modeText)
     readonly property bool applying: busy && facts.ok === true
@@ -63,16 +68,17 @@ FocusScope {
         ? "Scope this directory only · enclosed items unchanged · ownership unchanged"
         : "Scope this item only · ownership unchanged"
     signal requested(var message)
-    signal changed()
+    signal changed(string note)
     signal closed()
 
     function open(itemPath, holder) {
         requestId += 1
         multiPaths = []
+        multiStore = ({ modes: [], reasons: [], skipped: [] })
         multiModes = []
         multiPending = 0
-        multiFailed = ""
-        multiReason = ""
+        multiApplySkipped = []
+        multiApplySent = 0
         explicitSet = 0
         explicitClear = 0
         applyingMany = false
@@ -93,10 +99,11 @@ FocusScope {
         requestId += 1
         multiBase = requestId
         multiPaths = paths.slice()
+        multiStore = ({ modes: [], reasons: [], skipped: [], pending: paths.length })
         multiModes = []
         multiPending = paths.length
-        multiFailed = ""
-        multiReason = ""
+        multiApplySkipped = []
+        multiApplySent = 0
         explicitSet = 0
         explicitClear = 0
         applyingMany = false
@@ -121,7 +128,7 @@ FocusScope {
         busy = false
         cancelFocus.forceActiveFocus()
         if (!message.ok) { errorText = message.error || "Could not change permissions."; return }
-        if (message.op === "apply") { changed(); close(); return }
+        if (message.op === "apply") { changed(""); close(); return }
         facts = message
         modeText = message.mode
     }
@@ -165,9 +172,16 @@ FocusScope {
         if (!opened || transportFailed) return
         if (message.op === "applyMany") {
             applyingMany = false
-            if (message.ok === true) { changed(); close(); return }
+            if (message.ok === true) {
+                changed(Permissions.multiResult(multiApplySent, multiPaths.length, multiApplySkipped))
+                close()
+                return
+            }
             errorText = message.error || "Could not change permissions."
+            if (multiApplySkipped.length > 0)
+                errorText += "\n" + Permissions.skipNote(multiApplySkipped)
             // A failed batch re-reads every mode so the grid and a retry start from disk.
+            multiStore = ({ modes: [], reasons: [], skipped: [], pending: multiPaths.length })
             multiModes = []
             multiPending = multiPaths.length
             busy = true
@@ -179,19 +193,17 @@ FocusScope {
         if (message.op !== "inspect") return
         var at = (message.id || 0) - multiBase * inspectStride
         if (at < 0 || at >= multiPaths.length) return
-        // Assigned whole, because an index write to a var array notifies nothing.
-        var modes = multiModes.slice()
-        if (message.ok === true) modes[at] = message.mode
-        multiModes = modes
-        if (message.ok === true && multiReason.length === 0 && message.reason) multiReason = message.reason
-        if (message.ok !== true && multiFailed.length === 0)
-            multiFailed = message.error || "Could not change permissions."
-        multiPending -= 1
-        if (multiPending <= 0) {
+        // Accumulated in place through ui/js/Permissions.js noteMode, which
+        // tests/js/permissions.js pins to one summary for the whole selection.
+        if (Permissions.noteMode(multiStore, at, multiPaths[at], message)) {
             multiPending = 0
             busy = false
-            if (multiFailed.length > 0) errorText = multiFailed
+            // One assignment notifies once, so multiSummary summarizes once.
+            multiModes = multiStore.modes.slice()
+            if (multiStore.skipped.length > 0 && errorText.length === 0) errorText = Permissions.skipNote(multiStore.skipped)
             cancelFocus.forceActiveFocus()
+        } else {
+            multiPending = multiStore.pending
         }
     }
     function backendFailed(message) {
@@ -228,22 +240,45 @@ FocusScope {
         errorText = ""
         requested({ c: "permissions", op: "apply", id: requestId, mode: modeText })
     }
-    // Apply is one undo step for all the files; each keeps its own bits except the explicit ones.
+    // Permissions040: Apply is one undo step for all the files. Each file
+    // keeps its own bits except the ones the grid explicitly set or cleared.
+    // B8: an item with special bits, a read-only reason or a refused inspect
+    // is counted and named rather than silently dropped, and a selection with
+    // nothing applicable never reaches the backend's empty-batch refusal.
     function applyMany() {
         if (!editable) return
         root.forceActiveFocus()
         busy = true
         applyingMany = true
         errorText = ""
+        // Built fresh from the per-row reasons, which already carry refused
+        // inspects from noteMode above: every skip is counted exactly once.
+        var skipped = []
         var paths = []
         var modes = []
         for (var i = 0; i < multiPaths.length; i++) {
-            var base = Permissions.parse(multiModes[i])
-            if (base < 0) continue
+            var why = multiStore.reasons[i] || ""
+            var base = Permissions.parse(multiStore.modes[i])
+            if (why.length === 0 && base < 0)
+                why = Permissions.specialReason(multiStore.modes[i])
+            if (why.length > 0 || base < 0) {
+                skipped.push({ path: multiPaths[i],
+                    why: why.length > 0 ? why : "Could not change permissions." })
+                continue
+            }
             var target = (base & ~explicitClear) | explicitSet
             paths.push(multiPaths[i])
             modes.push(Permissions.octal(target))
         }
+        if (paths.length === 0) {
+            applyingMany = false
+            busy = false
+            errorText = Permissions.multiResult(0, multiPaths.length, skipped)
+            cancelFocus.forceActiveFocus()
+            return
+        }
+        multiApplySkipped = skipped
+        multiApplySent = paths.length
         requested({ c: "permissionsBatch", paths: paths, modes: modes, id: requestId })
     }
     function focusItems(item, result) {
@@ -508,7 +543,7 @@ FocusScope {
                     width: parent.width
                     visible: text.length > 0
                     topPadding: Theme.spacing.gap
-                    text: root.errorText || root.multiReason || root.facts.reason || (root.busy
+                    text: root.errorText || root.facts.reason || (root.busy
                         ? (root.isMulti ? (root.multiPending > 0 ? "Reading permissions…" : "Applying permissions…")
                                         : (root.facts.ok ? "Applying permissions…" : "Reading permissions…"))
                         : root.facts.ok && root.modeValue < 0 ? "Enter three octal digits or a leading-zero four-digit mode." : "")

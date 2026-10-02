@@ -193,6 +193,23 @@ function run(check) {
     check("a third tap does not open a second time",
           triple.did.filter(function (v) { return v === "open" }).length, 1)
 
+    // Single-click mode opens on the first tap, so the second tap of the same
+    // press sequence never opens again: the first tap's open already moved the
+    // listing on, and a folder's second tap must not act on the new listing.
+    var single = pane()
+    single.singleClick = true
+    Tap.tapped(4, 1, Qt.NoModifier, single)
+    check("single-click opens on the first tap", single.did.join(","), "selectOnly,open")
+    Tap.tapped(4, 2, Qt.NoModifier, single)
+    check("and its second tap selects without opening again",
+          single.did.join(","), "selectOnly,open,selectOnly")
+    var singleTriple = pane()
+    singleTriple.singleClick = true
+    for (var s = 1; s <= 3; s++)
+        Tap.tapped(4, s, Qt.NoModifier, singleTriple)
+    check("and three taps still open exactly once",
+          singleTriple.did.filter(function (v) { return v === "open" }).length, 1)
+
     // A tap on a search result takes you to the file rather than launching it, which is
     // ui/js/Search.js activateAction's whole job, and the operator's 2026-09-11 ruling is that the
     // first tap is what does it. Nothing else in the listing acts on one tap.
