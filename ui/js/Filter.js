@@ -174,6 +174,7 @@ function apply(pane, query) {
     // A cursor the filter just hid takes the first row still standing, so it is never off screen.
     if (next !== null && next.length > 0 && viewOf(next, pane.cursorIndex) < 0) {
         pane.cursorIndex = next[0]
+        pane.cursorSeq = (pane.cursorSeq || 0) + 1
         pane.showRow(0)
     }
 }
@@ -214,6 +215,8 @@ function setCursorView(pane, view, context) {
     }
     var to = Math.max(0, Math.min(pane.shownTotal - 1, view))
     pane.cursorIndex = at(pane.shown, to)
+    // Every cursor setter bumps cursorSeq, so a plain move ends a Shift gesture.
+    pane.cursorSeq = (pane.cursorSeq || 0) + 1
     pane.showRow(to, context)
 }
 
@@ -228,6 +231,7 @@ function clampCursor(pane, first, last) {
     var to = Math.max(first, Math.min(last, was))
     if (to !== was) {
         pane.cursorIndex = at(pane.shown, to)
+        pane.cursorSeq = (pane.cursorSeq || 0) + 1
     }
 }
 

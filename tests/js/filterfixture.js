@@ -60,6 +60,7 @@ function pane(query, held) {
     var lone = false
     var shiftBase = null
     var shiftLast = -1
+    var shiftSeq = 0
     p.selection = {
         has: function (i) { return p.picked[i] === true },
         promote: function (i) { if (lone && p.selectedIndices().length === 1 && p.picked[i]) { lone = false; return true } return false },
@@ -74,9 +75,9 @@ function pane(query, held) {
             lone = false
             shiftBase = null
         },
-        shiftBegin: function (base, last) { shiftBase = base.slice(); shiftLast = last },
-        shiftMoved: function (last) { shiftLast = last },
-        shiftState: function () { return shiftBase === null ? null : { base: shiftBase, last: shiftLast } },
+        shiftBegin: function (base, last, seq) { shiftBase = base.slice(); shiftLast = last; shiftSeq = seq || 0 },
+        shiftMoved: function (last, seq) { shiftLast = last; shiftSeq = seq || 0 },
+        shiftState: function () { return shiftBase === null ? null : { base: shiftBase, last: shiftLast, seq: shiftSeq } },
         shiftApply: function (range) {
             p.picked = {}
             for (var i = 0; i < shiftBase.length; i++) p.picked[shiftBase[i]] = true

@@ -2,6 +2,7 @@
 
 .import "Archive.js" as Archive
 .import "ExtThumbs.js" as ExtThumbs
+.import "Format.js" as Format
 .import "Sort.js" as Sort
 
 // Submenus carry an entry array, including an empty array while a provider is unavailable.
@@ -28,8 +29,7 @@ var OPEN_WITH_OTHER = "__another__"
 // One order for every menu: F file, B background, T Trash, P Places, R rail rows (never hideable, never in Settings > Menus).
 var INVENTORY = [
     ["open", "Open", "folder-open", "FTPR", "open"],
-    // MenuAdditions040: Show original reveals a symlink's target in its own
-    // folder, the same path Show in folder uses; visible, symlinks only.
+    // Show original reveals a symlink's target in its own folder.
     ["showOriginal", "Show original", "symlink", "F", "open", "showOriginal"],
     // MenuAdditions rule 3: a Places or Favorites row opens this menu for its own path, so the rows
     // it carries are the ones that take a path and not the clipboard, archive, send or destroy ones.
@@ -110,10 +110,7 @@ function buildEntries(kind, p) {
         var spec = INVENTORY[i]
         // Rail rows are never user-hideable: no switch governs them, so the stored set is not read here.
         if (spec[3].indexOf(kind) < 0) continue
-        // MenuAdditions040 callout 9: Open in terminal shows in the background menu at defaults,
-        // while file and place menus keep it behind its 0.3.4 switch. One id, one switch; the
-        // background simply does not read the set for this row, so Settings, Menus still lists one
-        // switch meaning file and place.
+        // The background menu shows Open in terminal without reading the hidden set.
         if (kind !== "R" && isHidden(p.hiddenActions, spec[0])) {
             if (!(kind === "B" && spec[0] === "openTerminal")) continue
         }
@@ -284,20 +281,15 @@ function permissionsEntry(mode, count, modes) {
     return { label: "Permissions", action: "permissions", glyph: "lock", disabled: !allowed, errored: !allowed }
 }
 
-// MenuAdditions040 callout 10 and Permissions040 callout 3: only a regular file with a
-// shebang (#! as its first two bytes) and no owner execute bit, and only when the single target
-// is the cursor row itself. hasShebang is the two-byte read of that one file at menu open, never
-// per row; absent without all three, never greyed.
+// Only a single cursor-row regular file with a shebang and no owner execute bit.
 function canMakeExecutable(mode, count, hasShebang, cursorIsTarget) {
     if (count !== 1 || hasShebang !== true || cursorIsTarget !== true) return false
     var bits = Number(mode) || 0
     if ((bits & 0o170000) !== 0o100000) return false
-    return (bits & 0o100) === 0
+    return (bits & Format.S_IXUSR) === 0
 }
 
-// MenuAdditions040: the Copy as flyout, six leaves in board order, each
-// row's letter copies at once; the letters are drawn only when key hints are
-// on, like every menu hint, so the leaves carry keyHint rather than hint.
+// The Copy as flyout: six leaves in board order, letters on keyHint.
 function copyAsEntries() {
     return [
         { id: "copyPath", label: "Path", glyph: "file-text", keyHint: "p" },

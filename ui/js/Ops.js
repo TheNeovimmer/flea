@@ -187,21 +187,12 @@ function newFolder(pane) {
     pane.backend.mkdir(pane.path)
 }
 
-// Issue #170: the menu's Rename opens the editor at once instead of queueing an
-// activate behind the cold Open-with catalogue the right-click already queued on
-// the menu service's single worker. With a ready snapshot over the current
-// selection the editor can open now by the route F2 takes; commit-time
-// validation is unchanged, do_menu_rename still checks the snapshot id and the
-// dev/ino. Anything else takes the F2 route, which snapshots the cursor row and
-// shows on its reply, cancelling a cold catalogue on the way.
+// A ready snapshot opens the editor at once; anything else takes the F2 route.
 function menuRenameNow(ready, identity, currentIdentity) {
     return ready === true && (identity || "") !== "" && identity === currentIdentity
 }
 
-// Grid closing review G1: a refused rename with no live editor to show it is
-// shown nowhere when renameError is set and the edit then closes, losing the
-// typed name in silence. With no live editor the same sentence goes to the
-// status bar as an error and the edit closes; otherwise the editor shows it.
+// No live editor sends the refusal to the status bar and closes the edit.
 function refuseRename(pane, reason) {
     if (pane.renamingIndex >= 0 && pane.renameEditor() !== null) {
         pane.renameError = reason
@@ -259,6 +250,11 @@ function trash(pane, menuId) {
     pane.backend.trash(idx, menuId)
 }
 
+// One line while a paths round trip is out; every asker refuses through it, so none steals another's reply.
+function pathsBusy(pane) {
+    pane.message("Still resolving the last selection; try again.", false)
+}
+
 // The clipboard has to hold absolute paths, because a paste happens in a different directory and the
 // listing those indices belonged to is gone by then. The backend resolves them while it still can.
 function clip(pane, moving, paths) {
@@ -267,7 +263,7 @@ function clip(pane, moving, paths) {
         pane.message(copied(paths.length, moving), false)
         return
     }
-    if (pane.pathsPending) return
+    if (pane.pathsPending) { pathsBusy(pane); return }
     var idx = targetIndices(pane)
     if (idx.length === 0) return sayNoTarget(pane)
     pane.clipPending = moving
@@ -294,6 +290,7 @@ function copyAs(pane, kind, paths) {
         pane.opener.copyText(CopyAs.lines(paths, kind))
         return
     }
+    if (pane.pathsPending || pane.clipPending !== null) { pathsBusy(pane); return }
     var idx = targetIndices(pane)
     if (idx.length === 0) return sayNoTarget(pane)
     pane.pathsPending = { kind: "copyAs", format: kind }
@@ -352,7 +349,7 @@ function sendTaildrop(pane, taildrop, peerId, path) {
 function compress(pane, format) {
     var idx = targetIndices(pane)
     if (idx.length === 0) return sayNoTarget(pane)
-    if (pane.pathsPending || pane.clipPending !== null) return
+    if (pane.pathsPending || pane.clipPending !== null) { pathsBusy(pane); return }
     // The archive request names paths and has no rows form, so the indices are resolved first and the
     // request is built in compressResolved. Naming them here would drop every row outside the window.
     pane.pathsPending = { kind: "compress", format: format }

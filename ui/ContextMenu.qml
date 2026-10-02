@@ -592,10 +592,7 @@ Item {
             }
             if (action === "parent") { root.openSubmenuRow = -1; return }
             if (action === "menuRight") { root.openSubmenu(root.cursor); return }
-            // MenuAdditions040: each Copy as row's letter copies at once and
-            // each Paste as row's letter links at once, with the flyout open.
-            // Only the flyout they were opened for answers, so a letter never
-            // fires a row of whatever flyout happens to stand open.
+            // A flyout letter answers only the flyout it was opened for.
             if (root.submenuOpen) {
                 var opener = root.entries[root.openSubmenuRow]
                 if (opener && (opener.action === "copyAs" || opener.action === "pasteAs")) {

@@ -70,6 +70,8 @@ function permissions(mode) {
 
 // The file type lives in the top four bits of st_mode, as S_IFMT masks it.
 var S_IFMT = 0o170000
+// The owner execute bit, the one Make executable adds.
+var S_IXUSR = 0o100
 var S_IFLNK = 0o120000
 var ANY_EXECUTE_BIT = 0o111
 

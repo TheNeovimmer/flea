@@ -535,7 +535,7 @@ FocusScope {
         }
         var taken = [root.join(root.path, row.n)]
         var oldBits = (Number(row.p) || 0) & 0o7777
-        var octal = Permissions.octal((oldBits | 0o100) & 0o7777)
+        var octal = Permissions.octal((oldBits | Format.S_IXUSR) & 0o7777)
         root.makeExecPendingId += 1
         root.backend.send({ c: "permissionsBatch", paths: taken, modes: [octal], id: 1000000 + root.makeExecPendingId })
     }
@@ -553,6 +553,7 @@ FocusScope {
     function openPermissions() {
         var idx = Ops.targetIndices(root)
         if (idx.length === 0) { Ops.sayNoTarget(root); return }
+        if (root.pathsPending || root.clipPending !== null) { Ops.pathsBusy(root); return }
         // The selection can reach past the held window, so the backend
         // resolves the indices while it still can, the same rule clip follows.
         root.pathsPending = { kind: "permissions" }
