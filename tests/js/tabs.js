@@ -1,4 +1,5 @@
 .import "tabsfixture.js" as Fixture
+.import "tabbarfixture.js" as BarFixture
 .import "../../ui/js/Tabs.js" as Tabs
 
 function run(check) {
@@ -244,9 +245,7 @@ function run(check) {
     check("no cursor row opens no tab either", Tabs.count(emptyPane), 1)
     check("and says the same sentence", emptyPane.said[emptyPane.said.length - 1], "Only a folder opens in a new tab.")
 
-    // xw6: a tab dragged past its window's edge leaves as a platform drag carrying
-    // only the private tab type, with the source pid and the lift token naming the
-    // ack back. No uri-list, no plain text: a foreign app refuses the private type.
+    // Private tab MIME names the source process and lift without offering a folder to foreign apps.
     Tabs.setOwnPid("111")
     var tabbed = Fixture.pane("/tmp/a")
     tabbed.tabs = { items: [{ path: "/tmp/a" }, { path: "/tmp/b", history: [], cursorIndex: 2,
@@ -278,8 +277,8 @@ function run(check) {
     check("a relative path refuses",
           Tabs.parseTabMime(JSON.stringify(["111", "tok-1", "tmp/a", "list", ""])), null)
     var bel = String.fromCharCode(7)
-    check("a control character refuses",
-          Tabs.parseTabMime(JSON.stringify(["111", "tok-1", "/tmp/a" + bel + "b", "list", ""])), null)
+    check("a NUL path refuses",
+          Tabs.parseTabMime(JSON.stringify(["111", "tok-1", "/tmp/a\u0000b", "list", ""])), null)
     check("a non-numeric pid refuses",
           Tabs.parseTabMime(JSON.stringify(["other-instance", "tok-1", "/tmp/a", "list", ""])), null)
     check("an empty token refuses",
@@ -347,26 +346,136 @@ function run(check) {
                   index: 0, pendingCursor: -1, pendingSortBy: "", pendingSortDesc: false }
     check("while a pair lifts", Tabs.canLift(pair), true)
     Tabs.setOwnPid("")
-    var kept = Fixture.pane("/tmp/one")
+    var kept = BarFixture.pair("/tmp/one")
     kept.listInFlight = true
     check("a loading source keeps its tab", Tabs.closeTabAfterMove(kept, 0), "kept")
+    check("loading move keeps both tabs", Tabs.count(kept), 2)
+    Tabs.closeAt(kept, 0)
+    check("loading direct close keeps both tabs", Tabs.count(kept), 2)
     check("no such tab keeps everything", Tabs.closeTabAfterMove(moved, 5), "kept")
 
-    // The close resolves by folder when a key pressed mid-drag shifted every index.
-    var shifted = Fixture.pane("/tmp/one")
-    shifted.tabs = { items: [{ path: "/tmp/one" }, { path: "/tmp/two", history: [], cursorIndex: 0,
-                             viewMode: "list", showHidden: false, selected: [],
-                             sortBy: "name", sortDesc: false },
-                             { path: "/tmp/three", history: [], cursorIndex: 0,
-                             viewMode: "list", showHidden: false, selected: [],
-                             sortBy: "name", sortDesc: false }],
-                     index: 0, pendingCursor: -1, pendingSortBy: "", pendingSortDesc: false }
-    check("the lift's index closes while it still names the folder",
-          Tabs.resolveMovedTab(shifted, 1, "/tmp/two"), 1)
-    check("a shifted index follows the folder, not the number",
-          Tabs.resolveMovedTab(shifted, 0, "/tmp/two"), 1)
-    check("a folder no tab names keeps every tab", Tabs.resolveMovedTab(shifted, 1, "/tmp/gone"), -1)
-    check("and nothing resolves off no pane", Tabs.resolveMovedTab(null, 0, "/tmp/two"), -1)
+    var geo = BarFixture.geometry()
+    geo.begin("first", {})
+    geo.begin("latest", {})
+    geo.finish()
+    check("overlapping geometry query restarts latest lift", geo.queryToken, "latest")
+
+    var crPane = Fixture.pane("/tmp/a\rb")
+    var crText = Tabs.tabPayload(crPane, 0, "222", "cr")
+    check("CR path round trip is verbatim", JSON.parse(crText)[2], crPane.path)
+    var crInfo = Tabs.parseTabMime(crText)
+    check("CR absolute path accepted", crInfo ? crInfo.path : null, crPane.path)
+    var crReceiver = Fixture.pane("/tmp/receiver")
+    check("CR folder opens through receiver", Tabs.receiveTab(crReceiver, crText, 1), true)
+    check("receiver keeps exact CR folder path", crReceiver.path, crPane.path)
+    var lfPath = "/tmp/a\nb"
+    var lfInfo = Tabs.parseTabMime(JSON.stringify(["222", "lf", lfPath, "list", ""]))
+    check("LF absolute path accepted", lfInfo ? lfInfo.path : null, lfPath)
+    check("JSON string is not a tab array", Tabs.parseTabMime('"12/34"'), null)
+
+    var shifted = BarFixture.pair()
+    Tabs.openNew(shifted)
+    shifted.tabs.items[0].marker = "earlier"
+    shifted.tabs.items[1].marker = "lifted"
+    shifted.tabs.items[2].marker = "duplicate"
+    var shiftBar = BarFixture.bar(shifted)
+    shiftBar.tabLiftBegan(1)
+    var shiftToken = shiftBar.outToken
+    shiftBar.outFinished(Qt.IgnoreAction)
+    Tabs.closeAt(shifted, 0)
+    shiftBar.take(shiftToken)
+    check("index shift ack closes lifted identity", shifted.tabs.items[0].marker, "duplicate")
+
+    var nav = BarFixture.pair()
+    nav.tabs.items[0].marker = "duplicate"
+    var navBar = BarFixture.bar(nav)
+    navBar.tabLiftBegan(1)
+    var navToken = navBar.outToken
+    navBar.outFinished(Qt.IgnoreAction)
+    nav.path = "/tmp/navigated"
+    navBar.take(navToken)
+    check("navigation ack closes lifted identity", nav.tabs.items[0].marker, "duplicate")
+
+    var gone = BarFixture.pair()
+    Tabs.openNew(gone)
+    var goneBar = BarFixture.bar(gone)
+    goneBar.tabLiftBegan(1)
+    var goneToken = goneBar.outToken
+    goneBar.outFinished(Qt.IgnoreAction)
+    Tabs.closeAt(gone, 1)
+    goneBar.take(goneToken)
+    check("closed lifted tab never substitutes duplicate", Tabs.count(gone), 2)
+
+    var multi = BarFixture.pair()
+    Tabs.openNew(multi)
+    var multiBar = BarFixture.bar(multi)
+    multiBar.tabLiftBegan(0)
+    var firstToken = multiBar.outToken
+    multiBar.outFinished(Qt.IgnoreAction)
+    multiBar.tabLiftBegan(1)
+    var secondToken = multiBar.outToken
+    multiBar.outFinished(Qt.IgnoreAction)
+    check("first ack survives second lift", multiBar.take(firstToken), true)
+    check("second ack survives first closure", multiBar.take(secondToken), true)
+    check("both outstanding lifts close once", Tabs.count(multi), 1)
+
+    var primary = BarFixture.pair()
+    var secondary = BarFixture.pair()
+    var paneBar = BarFixture.bar(primary)
+    paneBar.tabLiftBegan(1)
+    var paneToken = paneBar.outToken
+    paneBar.outFinished(Qt.IgnoreAction)
+    paneBar.focus(secondary)
+    paneBar.take(paneToken)
+    check("focus switch closes captured primary", Tabs.count(primary), 1)
+    check("focus switch keeps secondary", Tabs.count(secondary), 2)
+
+    var waiting = BarFixture.pair()
+    var waitingBar = BarFixture.bar(waiting)
+    waitingBar.tabLiftBegan(1)
+    var waitingToken = waitingBar.outToken
+    waitingBar.outFinished(Qt.IgnoreAction)
+    waiting.path = "/tmp/loading-next"
+    waiting.listInFlight = true
+    check("navigation in flight accepts captured ack", waitingBar.take(waitingToken), true)
+    check("navigation in flight holds source until settled", Tabs.count(waiting), 2)
+    waiting.listInFlight = false
+    waitingBar.drainLifts()
+    check("navigation completion closes acknowledged identity", Tabs.count(waiting), 1)
+
+    var localPane = BarFixture.pair()
+    Tabs.openNew(localPane)
+    var localBar = BarFixture.bar(localPane)
+    localBar.tabLiftBegan(0)
+    var localToken = localBar.outToken
+    localBar.outFinished(Qt.IgnoreAction)
+    localBar.tabLiftBegan(2)
+    localBar.dropAt = 0
+    localBar.tabLiftEnded()
+    check("later local reorder preserves earlier ack", localBar.take(localToken), true)
+    check("reordered lifted identity closes exactly once", Tabs.count(localPane), 2)
+    check("repeat ack cannot close another tab", localBar.take(localToken), false)
+
+    var pendingPane = Fixture.pane("/tmp/receiver")
+    var peeks = []
+    pendingPane.backend.peek = function (path) { peeks.push(path) }
+    var pendingBar = BarFixture.bar(pendingPane)
+    var dropA = JSON.stringify(["222", "A", "/tmp/A", "list", ""])
+    var dropB = JSON.stringify(["333", "B", "/tmp/B", "list", ""])
+    pendingBar.acceptTabDrop(dropA, Tabs.parseTabMime(dropA), 1)
+    pendingBar.acceptTabDrop(dropB, Tabs.parseTabMime(dropB), 1)
+    check("second pending drop cannot overwrite first", pendingBar.pendingTab.token, "A")
+    pendingBar.onPeeked("/tmp/A", false, 0, [], false, 0, false, 2)
+    check("first validated drop opens its folder", pendingPane.path, "/tmp/A")
+    check("only opened drop is acknowledged", pendingBar.acks.join(","), "A")
+    check("overlapping drop refused before validation", peeks.join(","), "/tmp/A")
+
+    var stubPane = BarFixture.pair()
+    var stubBar = BarFixture.bar(stubPane)
+    stubBar.tabLiftBegan(1)
+    stubBar.tearOffAt()
+    check("spawn without ack keeps source pair", Tabs.count(stubPane), 2)
+    check("tearoff passes source pid and token", stubBar.spawns[0].join(" ").indexOf("FLEA_TAB_SOURCE_PID=111") >= 0, true)
 
     // A lift may not leave while a rename is open, or the close would take the editor's tab.
     check("a clean pane tears out", Tabs.tearRefusal(Fixture.pane()), "")
@@ -404,33 +513,37 @@ function run(check) {
         Tabs.enterAccepts([Tabs.TAB_MIME], "not json", "111", true, false), false)
     Tabs.setOwnPid("")
 
-    // xw6 r5: the source honours an ack that arrives after its drag ended with IgnoreAction.
-    var liftAt = 1000000
-    check("an ack after an IgnoreAction finish still matches its lift",
-        Tabs.ackCloses("tok-1", "tok-1", liftAt, liftAt + 500), true)
-    check("an ack with the wrong token closes nothing",
-        Tabs.ackCloses("tok-1", "tok-9", liftAt, liftAt + 500), false)
-    check("an ack with no outstanding lift closes nothing",
-        Tabs.ackCloses("", "tok-1", liftAt, liftAt + 500), false)
-    check("an ack at the wait's end still closes",
-        Tabs.ackCloses("tok-1", "tok-1", liftAt, liftAt + Tabs.ACK_WAIT_MS), true)
-    check("an ack past the wait closes nothing",
-        Tabs.ackCloses("tok-1", "tok-1", liftAt, liftAt + Tabs.ACK_WAIT_MS + 1), false)
-    var acked = Fixture.pane("/tmp/one")
-    acked.tabs = { items: [{ path: "/tmp/one" }, { path: "/tmp/two", history: [], cursorIndex: 0,
-                           viewMode: "list", showHidden: false, selected: [],
-                           sortBy: "name", sortDesc: false }],
-                   index: 0, pendingCursor: -1, pendingSortBy: "", pendingSortDesc: false }
-    if (Tabs.ackCloses("tok-1", "tok-1", liftAt, liftAt + 500))
-        Tabs.closeTabAfterMove(acked, Tabs.resolveMovedTab(acked, 1, "/tmp/two"))
-    check("and the moved tab is gone", Tabs.count(acked), 1)
-    // Escape sends no ack, so the tab stands; a late ack after it still refuses.
-    var esc = Fixture.pane("/tmp/one")
-    esc.tabs = { items: [{ path: "/tmp/one" }, { path: "/tmp/two" }],
-                 index: 0, pendingCursor: -1, pendingSortBy: "", pendingSortDesc: false }
-    check("Escape with no ack keeps both tabs", Tabs.count(esc), 2)
-    check("and a late ack after it closes nothing",
-        Tabs.ackCloses("tok-1", "tok-1", liftAt, liftAt + Tabs.ACK_WAIT_MS + 1), false)
+    var longDragBar = BarFixture.bar(BarFixture.pair())
+    longDragBar.tabLiftBegan(1)
+    var activeLift = longDragBar.outstandingLifts[0]
+    check("active drag does not spend post-finish ack window", Tabs.ackCloses(activeLift.token, activeLift.token, activeLift.liftedAt, Date.now() + Tabs.ACK_WAIT_MS + 1), true)
+    longDragBar.tabLiftEnded()
+    check("local release consumes only its own lift", longDragBar.outstandingLifts.length, 0)
+
+    var finishedPane = BarFixture.pair()
+    var finishedBar = BarFixture.bar(finishedPane)
+    finishedBar.tabLiftBegan(1)
+    var finishToken = finishedBar.outToken
+    finishedBar.outFinished(Qt.IgnoreAction)
+    finishedBar.tabLiftEnded()
+    check("Ignore finish preserves stored ack token", Tabs.ackCloses(finishedBar.outToken, finishToken, finishedBar.ackLiftedAt, Date.now()), true)
+    finishedBar.take(finishToken)
+    check("Ignore finish ack closes moved tab", Tabs.count(finishedPane), 1)
+    var esc = BarFixture.pair()
+    var escBar = BarFixture.bar(esc)
+    escBar.tabLiftBegan(1)
+    escBar.outActive = true
+    var escToken = escBar.outToken
+    escBar.cancelOut()
+    check("Escape completion stops active drag", escBar.outActive, false)
+    check("Escape completion keeps both tabs", Tabs.count(esc), 2)
+    check("Escape holds stored token for delayed receiver", escBar.outToken, escToken)
+    var consumedBar = BarFixture.bar(BarFixture.pair())
+    consumedBar.tabLiftBegan(1)
+    consumedBar.ownAccepted = true
+    consumedBar.outFinished(Qt.MoveAction)
+    check("consumed own drop clears stored token", consumedBar.outToken, "")
+    check("expired stored token cannot close", Tabs.ackCloses(escBar.outToken, escToken, escBar.ackLiftedAt, escBar.ackLiftedAt + Tabs.ACK_WAIT_MS + 1), false)
     // B answers Move once it decided to take the tab.
     Tabs.setOwnPid("111")
     var foreignTake = Tabs.parseTabMime(JSON.stringify(["222", "tok-9", "/tmp/folder", "grid", ""]))

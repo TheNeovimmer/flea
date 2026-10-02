@@ -1,12 +1,43 @@
 #!/usr/bin/env python3
-# Free desktop point for the xwtab tear-off, shared by tests/ui.sh and tests/xwtab-scan.sh.
-# Counts only what can take the drop: mapped non-hidden clients on the focused
-# monitor active workspace (or its open special workspace), plus layers on
-# levels 1 to 3 of the focused monitor, minus the fullscreen qs catcher.
-# Level 0 is the wallpaper under the Bottom catcher and never takes the drop.
-# Clients on other workspaces never cover the desktop either.
+# Scan active clients and interactive layers for a verified free desktop point.
+# Sample argv: xwtab_free_point.py 0 0 2560 1440 DP-2 clients.json layers.json monitors.json
 import json
 import sys
+import math
+
+GRID_INSET = 8 # Keep the pointer away from monitor edges.
+GRID_STRIDE = 24 # Bound the bottom-up search without changing its coverage grid.
+CATCHER_NAMESPACE = "flea-tab-tearoff"
+
+def number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def rectangle(node, fields, label):
+    if not isinstance(node, dict) or any(not number(node.get(key)) for key in fields):
+        raise ValueError(label + " rectangle field missing or not a number")
+
+
+# Sample snapshots: clients=[{"at":[0,0],"size":[900,500]}], layers={"DP-2":{"levels":{"1":[]}}}, monitors=[{"x":0,"y":0,"width":2560,"height":1440}].
+def validate_snapshots(clients, layers, monitors):
+    if not isinstance(clients, list): raise ValueError("clients must be a list")
+    for client in clients:
+        if not isinstance(client, dict): raise ValueError("client must be an object")
+        for field in ("at", "size"):
+            values = client.get(field)
+            if not isinstance(values, list) or len(values) != 2 or not all(number(v) for v in values):
+                raise ValueError("client " + field + " rectangle field missing or not a number")
+    if not isinstance(layers, dict): raise ValueError("layers must be an object")
+    for entry in layers.values():
+        if not isinstance(entry, dict) or not isinstance(entry.get("levels"), dict):
+            raise ValueError("layers must contain an object of level lists")
+        for level in entry["levels"].values():
+            if not isinstance(level, list): raise ValueError("layer level must be a list")
+            for node in level: rectangle(node, ("x", "y", "w", "h"), "layer")
+    if not isinstance(monitors, list) or not monitors: raise ValueError("monitors must be a non-empty list")
+    for monitor in monitors: rectangle(monitor, ("x", "y", "width", "height"), "monitor")
+
+
 def monitor_entry(monitors, mon_name):
     # Pick the focused monitor by name, else the focused flag, else the first.
     if isinstance(monitors, list) and monitors:
@@ -70,10 +101,10 @@ def client_rects(clients, valid):
         try:
             at = c.get("at", None)
             sz = c.get("size", None)
-            x = int(at[0])
-            y = int(at[1])
-            w = int(sz[0])
-            h = int(sz[1])
+            x = at[0]
+            y = at[1]
+            w = sz[0]
+            h = sz[1]
         except (TypeError, ValueError, IndexError):
             continue
         rects.append([x, y, w, h])
@@ -106,14 +137,14 @@ def layer_rects(layers, mon_name, mx, my, mw, mh):
                 continue
             ns = str(node.get("namespace", ""))
             try:
-                x = int(node["x"])
-                y = int(node["y"])
-                w = int(node["w"])
-                h = int(node["h"])
+                x = node["x"]
+                y = node["y"]
+                w = node["w"]
+                h = node["h"]
             except (TypeError, ValueError):
                 continue
             full = x == mx and y == my and w == mw and h == mh
-            if ns.startswith("qs") and full:
+            if key == "1" and ns == CATCHER_NAMESPACE and full:
                 continue
             rects.append([x, y, w, h])
     return rects
@@ -124,8 +155,8 @@ def find_free_point(mx, my, mw, mh, rects):
             if rx <= px < rx + rw and ry <= py < ry + rh:
                 return True
         return False
-    for py in range(my + mh - 8, my - 1, -24):
-        for px in range(mx + 8, mx + mw - 8, 24):
+    for py in range(my + mh - GRID_INSET, my - 1, -GRID_STRIDE):
+        for px in range(mx + GRID_INSET, mx + mw - GRID_INSET, GRID_STRIDE):
             if not covered(px, py):
                 return (px, py)
     return None
@@ -152,6 +183,11 @@ def main(argv):
             monitors = json.load(f)
     except (OSError, ValueError) as e:
         sys.stderr.write("xwtab_free_point: could not read input: %s\n" % e)
+        return 2
+    try:
+        validate_snapshots(clients, layers, monitors)
+    except ValueError as error:
+        sys.stderr.write("xwtab_free_point: invalid snapshot: %s\n" % error)
         return 2
     entry = monitor_entry(monitors, mon_name)
     valid = workspace_ids(entry)

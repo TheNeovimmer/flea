@@ -209,6 +209,7 @@ Rectangle {
             item.tabBar = tabBar
             item.view = view
             item.tabs = Tabs
+            item.panes = Qt.binding(function () { return [primaryPane, secondPane.item ? secondPane.item.pane : null] })
         }
     }
 

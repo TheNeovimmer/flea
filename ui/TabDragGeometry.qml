@@ -8,6 +8,7 @@ Item {
     id: root
     property string token: ""
     property string queryToken: ""
+    property bool queryDrained: true
     property var rect: null
     property var strip: null
 
@@ -15,22 +16,32 @@ Item {
         root.token = lift
         root.rect = null
         root.strip = band
-        // An old query cannot answer a new lift; until it drains this lift is unknown.
-        if (query.running)
+        // An old query drains before the latest token starts its own query.
+        if (query.running || !root.queryDrained)
             return
+        root.queryDrained = false
         root.queryToken = lift
         query.running = true
+    }
+
+    // Exit must clear running and drain old stdout before the next token starts.
+    function restartLatest() {
+        if (!query.running && root.queryDrained && root.queryToken !== root.token) root.begin(root.token, root.strip)
     }
 
     Process {
         id: query
         command: ["hyprctl", "clients", "-j"]
+        onExited: Qt.callLater(root.restartLatest)
         stdout: StdioCollector {
             waitForEnd: true
             onStreamFinished: {
+                root.queryDrained = true
+                Qt.callLater(root.restartLatest)
                 if (root.queryToken !== root.token)
                     return
                 try {
+                    // Sample input: [{"pid":111,"at":[0,0],"size":[900,500],"mapped":true,"hidden":false}].
                     var clients = JSON.parse(text)
                     var matches = clients.filter(function (client) {
                         return String(client.pid) === String(Quickshell.processId)

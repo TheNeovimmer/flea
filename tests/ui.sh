@@ -11085,6 +11085,18 @@ xwtab_wait_enter() {
     return 0
 }
 
+xwtab_cancel_attempts=30 # Bound the held-button cancellation wait.
+xwtab_cancel_poll=0.1 # Observe cancellation without releasing the pointer.
+# The cancellation receipt must arrive before the held button is released.
+xwtab_wait_cancel() {
+    local attempt
+    for attempt in $(seq 1 "$xwtab_cancel_attempts"); do
+        xwtab_trace_lines | grep -a "TABDRAG drag-finished pid=$xwtab_source action=0" >/dev/null && return 0
+        sleep "$xwtab_cancel_poll"
+    done
+    fail "xwtab: Escape did not cancel while the button was held"
+}
+
 # The case cleanup and failure path release every gesture that got as far as press.
 xwtab_button_down=false
 xwtab_release() {
@@ -11093,7 +11105,15 @@ xwtab_release() {
         xwtab_button_down=false
     fi
 }
-xwtab_cleanup() { xwtab_release || true; xwtab_restore_place; }
+xwtab_cleanup() {
+    xwtab_release || true
+    if [[ -n "${recv_pid:-}" ]]; then
+        kill "$recv_pid" 2>/dev/null || true
+        wait "$recv_pid" 2>/dev/null || true
+        recv_pid=""
+    fi
+    xwtab_restore_place
+}
 
 # Hyprland never re-enters the source, so own returns and desktop drops land on the catcher.
 xwtab_wait_catcher() {
@@ -11152,6 +11172,7 @@ xwtab_drag_to_window() {
 # The addr and rect of one owned pid, so room-making and restore never name a window by guess.
 xwtab_rect_of() {
     local rect
+    # Sample input: [{"pid":101,"address":"0xa","at":[20,20],"size":[900,500],"floating":true}].
     rect=$(hyprctl clients -j 2>/dev/null | python3 -c 'import json,sys; cs=json.load(sys.stdin); h=[c for c in cs if str(c.get("pid"))==sys.argv[1]]; print("%s %s %s %s %s %s" % (h[0]["address"],h[0]["at"][0],h[0]["at"][1],h[0]["size"][0],h[0]["size"][1],str(bool(h[0].get("floating")))) if h else "")' "$1" || true)
     [[ -n "$rect" ]] || return 1
     printf '%s\n' "$rect"
@@ -11161,28 +11182,39 @@ xwtab_rect_of() {
 xwtab_saved=""
 xwtab_restore_place() {
     [[ -n "$xwtab_saved" ]] || return 0
-    local pid addr x y w h floating cur caddr cx cy cw ch cfloating
+    local pid addr x y w h floating cur caddr cx cy cw ch cfloating action
     while read -r pid addr x y w h floating; do
         [[ -n "${pid:-}" ]] || continue
-        flea_process_owned "$pid" || continue
+        if ! flea_process_owned "$pid"; then printf 'XWTAB restore skipped unowned pid=%s\n' "$pid" >&2; continue; fi
         cur=$(xwtab_rect_of "$pid" || true)
-        [[ -n "$cur" ]] || continue
         read -r caddr cx cy cw ch cfloating <<< "$cur"
-        [[ "$caddr" == "$addr" ]] || continue
-        hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null 2>&1 || true
-        if [[ "$cfloating" != "$floating" ]]; then
-            hyprctl dispatch "hl.dsp.window.float()" >/dev/null 2>&1 || true
+        if [[ -z "$cur" || "$caddr" != "$addr" ]]; then printf 'XWTAB restore skipped unproven address=%s\n' "$addr" >&2; continue; fi
+        action=off; [[ "$floating" != True ]] || action=on
+        if ! hyprctl dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$addr\" })" >/dev/null 2>&1 \
+            || ! hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"address:$addr\" })" >/dev/null 2>&1 \
+            || ! hyprctl dispatch "hl.dsp.window.resize({ x = $w, y = $h, relative = false, window = \"address:$addr\" })" >/dev/null 2>&1 \
+            || ! hyprctl dispatch "hl.dsp.window.float({ action = \"$action\", window = \"address:$addr\" })" >/dev/null 2>&1 \
+            || ! xwtab_wait_place "$pid" "$addr" "$x" "$y" "$w" "$h" "$floating"; then
+            printf 'XWTAB restore failed pid=%s address=%s\n' "$pid" "$addr" >&2
         fi
-        hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y })" >/dev/null 2>&1 || true
-        hyprctl dispatch "hl.dsp.window.resize({ x = $w, y = $h })" >/dev/null 2>&1 || true
     done <<< "$xwtab_saved"
     xwtab_saved=""
-    return 0
 }
 
-# Floats both owned windows, parks them across the monitor top, and records the one
-# free desktop point no client and no layer covers. Runs in the caller, never in a
-# substitution, so the trap and the saved rects below outlive the call itself.
+xwtab_place_attempts=30
+xwtab_place_poll=0.1
+# Read back the owned address and exact geometry instead of trusting dispatcher success.
+xwtab_wait_place() {
+    local pid="$1" expected="$2 $3 $4 $5 $6 $7" attempt actual
+    for attempt in $(seq 1 "$xwtab_place_attempts"); do
+        actual=$(xwtab_rect_of "$pid" || true)
+        [[ "$actual" != "$expected" ]] || return 0
+        sleep "$xwtab_place_poll"
+    done
+    return 1
+}
+
+# Park owned windows and retain restore state in the caller until cleanup.
 xwtab_point=""
 xwtab_make_room() {
     local apid="$1" bpid="$2" aaddr ax ay aw ah afloating baddr bx by bw bh bfloating
@@ -11205,22 +11237,14 @@ $bpid $baddr $bx $by $bw $bh $bfloating"
     read -r mx my mw mh <<< "$mon"
     pw=$(((mw - 60) / 2)); ph=$(((mh - 60) / 2))
     (( pw >= 200 && ph >= 150 )) || fail "xwtab: monitor ${mw}x${mh} leaves no room to park two windows"
-    hyprctl dispatch "hl.dsp.focus({ window = \"address:$aaddr\" })" >/dev/null || fail "xwtab: could not focus $apid"
-    sleep 0.3
-    [[ "$afloating" == True ]] || hyprctl dispatch "hl.dsp.window.float()" >/dev/null || fail "xwtab: could not float $apid"
-    sleep 0.3
-    hyprctl dispatch "hl.dsp.window.move({ x = $((mx + 20)), y = $((my + 20)) })" >/dev/null || fail "xwtab: could not park $apid"
-    sleep 0.3
-    hyprctl dispatch "hl.dsp.window.resize({ x = $pw, y = $ph })" >/dev/null || fail "xwtab: could not size $apid"
-    sleep 0.3
-    hyprctl dispatch "hl.dsp.focus({ window = \"address:$baddr\" })" >/dev/null || fail "xwtab: could not focus $bpid"
-    sleep 0.3
-    [[ "$bfloating" == True ]] || hyprctl dispatch "hl.dsp.window.float()" >/dev/null || fail "xwtab: could not float $bpid"
-    sleep 0.3
-    hyprctl dispatch "hl.dsp.window.move({ x = $((mx + 40 + pw)), y = $((my + 20)) })" >/dev/null || fail "xwtab: could not park $bpid"
-    sleep 0.3
-    hyprctl dispatch "hl.dsp.window.resize({ x = $pw, y = $ph })" >/dev/null || fail "xwtab: could not size $bpid"
-    sleep 0.4
+    local pid addr px
+    for pid in "$apid" "$bpid"; do
+        if [[ "$pid" == "$apid" ]]; then addr=$aaddr; px=$((mx + 20)); else addr=$baddr; px=$((mx + 40 + pw)); fi
+        hyprctl dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$addr\" })" >/dev/null || fail "xwtab: could not float $pid"
+        hyprctl dispatch "hl.dsp.window.move({ x = $px, y = $((my + 20)), relative = false, window = \"address:$addr\" })" >/dev/null || fail "xwtab: could not park $pid"
+        hyprctl dispatch "hl.dsp.window.resize({ x = $pw, y = $ph, relative = false, window = \"address:$addr\" })" >/dev/null || fail "xwtab: could not size $pid"
+        xwtab_wait_place "$pid" "$addr" "$px" "$((my + 20))" "$pw" "$ph" True || fail "xwtab: owned window $pid never reached its parked rectangle"
+    done
     local point
     # Free point counts only what can take the drop, see tests/xwtab_free_point.py.
     point=$(python3 "$repo/tests/xwtab_free_point.py" "$mx" "$my" "$mw" "$mh" "$mon_name" <(hyprctl clients -j 2>/dev/null) <(hyprctl layers -j 2>/dev/null) <(printf '%s' "$mon_json") || true)
@@ -11248,6 +11272,7 @@ xwtab_window_pids() {
     clients=$(hyprctl clients -j 2>/dev/null) || return 1
     python3 -c '
 import json, sys
+# Sample input: [{"pid":101,"address":"0xa"}].
 clients = json.loads(sys.argv[2])
 qs = set(sys.argv[1].split())
 print(" ".join(sorted({str(c.get("pid")) for c in clients if str(c.get("pid")) in qs}, key=int)))
@@ -11418,10 +11443,8 @@ case_xwtab() {
     xwdrag_glide "$sx" "$sy"
     # The catcher never takes keyboard focus, so Escape reaches the source drag filter.
     key -k Escape >/dev/null
-    sleep 0.5
+    xwtab_wait_cancel
     xwtab_release || fail "xwtab: pointer release failed"
-    sleep 0.5
-    xwtab_trace_lines | grep -a "TABDRAG drag-finished pid=$apid " >/dev/null || fail "xwtab: Escape did not finish the drag"
     hyprctl layers -j | python3 -c '
 import json,sys
 def contains(node):
@@ -11455,7 +11478,7 @@ sys.exit(1 if contains(json.load(sys.stdin)) else 0)
     xwdrag_focus "$apid"
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
     read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwtab: B has no floor"
-    xwtab_drag_to_window "$sx" "$sy" "$dx" "$dy" "$apid" "$bpid" observe
+    xwtab_drag_to_window "$sx" "$sy" "$dx" "$dy" "$apid" "$bpid" require
     sleep 0.5
     [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: B took a listing drop"
     [[ "$(xwdrag_qs "$bid" path 2>/dev/null)" == "$bdir" ]] || fail "xwtab: B left $bdir"
@@ -11469,6 +11492,8 @@ sys.exit(1 if contains(json.load(sys.stdin)) else 0)
     : > "$recv_log"
     setsid python3 "$repo/tests/drag-receiver.py" "$recv_log" >"$dir/receiver-err.log" 2>&1 &
     recv_pid=$!
+    xwtab_logs+=("$recv_log")
+    xwtab_marks+=(0)
     for i in $(seq 1 40); do
         recv_addr=$(hyprctl clients -j | python3 -c '
 import json, sys
@@ -11493,12 +11518,14 @@ print(c["at"][0] + c["size"][0] // 2, c["at"][1] + c["size"][1] // 2)
 ') || fail "xwtab: no geometry for the foreign receiver"
     xwdrag_focus "$apid"
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
-    xwtab_drag_to_window "$sx" "$sy" "$rcx" "$rcy" "$apid" "$recv_pid" observe
+    xwtab_drag_to_window "$sx" "$sy" "$rcx" "$rcy" "$apid" "$recv_pid" require
     sleep 1
     [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: A lost its tab to a foreign receiver"
     grep -q '^actions=' "$recv_log" && fail "xwtab: the foreign receiver took the tab drop"
     [[ "$(flea_pids | tr '\n' ' ')" == "$esc_before" ]] || fail "xwtab: a foreign drop opened a window"
     kill "$recv_pid" 2>/dev/null || true
+    wait "$recv_pid" 2>/dev/null || true
+    recv_pid=""
     printf 'XWTAB foreign-refused ok\n'
     xwdrag_kill_second "$bpid"
     kill_flea

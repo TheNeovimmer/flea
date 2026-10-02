@@ -27,6 +27,7 @@ Item {
                 left: true
                 right: true
             }
+            WlrLayershell.namespace: "flea-tab-tearoff"
             WlrLayershell.layer: WlrLayer.Bottom
             // Ignore reserved bars so catcher-local origin is exactly the screen origin.
             exclusionMode: ExclusionMode.Ignore

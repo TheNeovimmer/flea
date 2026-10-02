@@ -2028,6 +2028,16 @@ its own decisive axis (the toolchain) made the rest of that measurement moot. `u
 
 ## File budget
 
+xw6 adversarial fixes retain the tab handoff detail and exact payload paths. Each lift
+captures a stable tab identity and its source pane until acknowledgment or the existing
+15-second deadline; pending receiver drops are refused without acknowledgment. A desktop
+tear-off uses the same acknowledgment after its initial folder lists. The geometry query
+restarts for the latest overlapping lift. File ceilings are re-derived with `wc -l` for the
+added identity lifecycle and regression coverage: `ui/TabBar.qml` 602, `ui/js/Tabs.js` 683,
+`ui/WindowBody.qml` 636 for both destination pane signals, and `tests/js/tabs.js` 562.
+The test fixture loads shipped QML function bodies so cancel,
+completion and acknowledgment assertions exercise the actual transitions.
+
 xw6 round 13 records `ui/TabBar.qml` 569 to 588 for the sibling drag source, source
 geometry snapshot and shared own-return path. `ui/js/Tabs.js` 672 to 686 adds the pure
 catcher outcome decision using the existing insertion math. Geometry query plumbing

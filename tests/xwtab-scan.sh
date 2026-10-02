@@ -19,7 +19,7 @@ EOF
 # Levels carry a fullscreen level 0 background, a fullscreen qs catcher on 1
 # and the real bar strip on 2, the exact minipc shape the tear-off hit.
 cat > "$scratch/layers.json" <<'EOF'
-{"DP-2":{"levels":{"0":[{"address":"0x1","x":0,"y":0,"w":2560,"h":1440,"namespace":"omarchy-background","pid":100}],"1":[{"address":"0x2","x":0,"y":0,"w":2560,"h":1440,"namespace":"qs-tearoff","pid":200}],"2":[{"address":"0x3","x":0,"y":0,"w":2560,"h":30,"namespace":"omarchy-bar","pid":300}],"3":[]}}}
+{"DP-2":{"levels":{"0":[{"address":"0x1","x":0,"y":0,"w":2560,"h":1440,"namespace":"omarchy-background","pid":100}],"1":[{"address":"0x2","x":0,"y":0,"w":2560,"h":1440,"namespace":"flea-tab-tearoff","pid":200}],"2":[{"address":"0x3","x":0,"y":0,"w":2560,"h":30,"namespace":"omarchy-bar","pid":300}],"3":[]}}}
 EOF
 # Active bottom cover plus a fullscreen client on workspace 2, plus one hidden
 # and one unmapped row that never cover anything on any workspace.
@@ -127,8 +127,7 @@ ok "foreign monitor layer is skipped: $got3"
 else
 bad "foreign monitor layer is skipped, want '8 1432', got '$got3'"
 fi
-# Levels 1 to 3 on the focused monitor still block, so a bottom cover that
-# leaves only the bar strip reports empty instead of a point inside the bar.
+# Interactive levels block; a bottom cover leaving only the bar must report empty.
 cat > "$scratch/clients-fullbelow.json" <<'EOF'
 [{"address":"0xe","mapped":true,"hidden":false,"at":[0,30],"size":[2560,1410],"workspace":{"id":1,"name":"1"},"floating":false,"monitor":1,"class":"x","title":"t","pid":1004}]
 EOF
@@ -341,5 +340,45 @@ ok "layer probe geometry belongs to its address and pid after the move"
 else
 bad "layer probe geometry selected another client"
 fi
+# Malformed snapshots must never produce automation coordinates.
+for kind in clients-object layers-list levels-object level-object monitors-empty client-missing client-text layer-missing layer-text monitor-missing monitor-text; do
+    python3 - "$scratch" "$kind" <<'PYFIX'
+import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+kind = sys.argv[2]
+clients = json.loads((root / "clients.json").read_text())
+layers = json.loads((root / "layers.json").read_text())
+monitors = json.loads((root / "monitors.json").read_text())
+if kind == "clients-object": clients = {}
+if kind == "layers-list": layers = []
+if kind == "levels-object": layers = {"DP-2": {"levels": []}}
+if kind == "level-object": layers["DP-2"]["levels"]["2"] = {}
+if kind == "monitors-empty": monitors = []
+if kind == "client-missing": del clients[0]["size"]
+if kind == "client-text": clients[0]["at"][0] = "zero"
+if kind == "layer-missing": del layers["DP-2"]["levels"]["2"][0]["w"]
+if kind == "layer-text": layers["DP-2"]["levels"]["2"][0]["w"] = "wide"
+if kind == "monitor-missing": del monitors[0]["width"]
+if kind == "monitor-text": monitors[0]["width"] = "wide"
+for name, value in (("bad-clients", clients), ("bad-layers", layers), ("bad-monitors", monitors)):
+    (root / (name + ".json")).write_text(json.dumps(value))
+PYFIX
+    python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/bad-clients.json" "$scratch/bad-layers.json" "$scratch/bad-monitors.json" > "$scratch/bad.out" 2> "$scratch/bad.err"
+    status=$?
+    if [[ "$status" == 2 && ! -s "$scratch/bad.out" && -s "$scratch/bad.err" ]]; then
+        ok "$kind snapshot refused without a coordinate"
+    else
+        bad "$kind snapshot must exit 2 without coordinate (status=$status output=$(cat "$scratch/bad.out"))"
+    fi
+done
+# Every interactive layer level blocks except the exact Bottom catcher.
+for layer in '1 desktop-widget' '3 overlay-widget' '3 qs-launcher' '1 qs-launcher'; do
+    read -r level namespace <<< "$layer"
+    printf '{"DP-2":{"levels":{"%s":[{"x":0,"y":0,"w":2560,"h":1440,"namespace":"%s"}]}}}\n' "$level" "$namespace" > "$scratch/blocker.json"
+    blocked=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-empty.json" "$scratch/blocker.json" "$scratch/monitors.json")
+    if [[ -z "$blocked" ]]; then ok "level $level $namespace blocks desktop"; else bad "level $level $namespace must block desktop, got $blocked"; fi
+done
+# Keep the live shell helpers under the same deterministic regression gate.
+if python3 "$repo/tests/xwtab-safety.py"; then ok "live shell safety regressions"; else bad "live shell safety regressions"; fi
 printf '%s checks, %s failed\n' "$((pass+fail))" "$fail"
 exit "$((fail>0))"

@@ -22,12 +22,15 @@ function restingPath(pane) {
     return RecentMode.restingPath(pane) || pane.path
 }
 
-function snapshot(pane, path) {
+var nextTabIdentity = 0
+
+function snapshot(pane, path, identity) {
     var where = path === undefined ? restingPath(pane) : path
     // A cursor and a selection read off a search's own listing name nothing in the directory the
     // tab records, so a tab stepping back out of a search starts at its first row with none.
     var elsewhere = where !== pane.path
     return {
+        tabIdentity: identity || ++nextTabIdentity,
         path: where,
         history: pane.history.slice(),
         forwardHistory: (pane.forwardHistory || []).slice(),
@@ -226,7 +229,7 @@ function openNew(pane, where) {
     var target = where || Startup.newTabPath(pane.uiState, here, pane.home)
     var items = currentItems(pane, here)
     var index = currentIndex(pane)
-    items[index] = snapshot(pane, here)
+    items[index] = snapshot(pane, here, items[index].tabIdentity)
     items.push(snapshot(pane, target))
     pane.tabs = pack(items, items.length - 1)
     // dropOverlay clears the search but leaves the pane on the scope it walked and its rows on that
@@ -261,7 +264,7 @@ function selectAt(pane, i) {
         return
     closePreview(pane)
     var dropped = dropOverlay(pane)
-    items[index] = snapshot(pane, here)
+    items[index] = snapshot(pane, here, items[index].tabIdentity)
     pane.tabs = pack(items, i)
     apply(pane, items[i], dropped)
 }
@@ -300,7 +303,7 @@ function move(pane, from, to) {
     if (items.length < 2)
         return
     var index = currentIndex(pane)
-    items[index] = snapshot(pane, restingPath(pane))
+    items[index] = snapshot(pane, restingPath(pane), items[index].tabIdentity)
     pane.tabs = pack(items, TabMove.reorder(items, from, to, index))
 }
 
@@ -389,14 +392,7 @@ function restoreItems(pane, paths) {
     return out
 }
 
-// xw6: a tab dragged past its window's edge becomes a platform drag carrying only
-// Flea's private tab type. The payload is a JSON array, [pid, token, path, view,
-// cursor]: pid names the source process the taken ack returns to, token names the
-// lift the ack closes, path is the folder the tab stands on, view its mode, cursor
-// the cursor row's file name. A folder path may itself hold a newline, so a line
-// format could not carry it. No text/uri-list, no text/plain: a foreign app refuses
-// the private type, so a tab can never move or copy the folder on disk (F4: Files
-// moves a folder whenever Move is offered). supportedActions is Move only.
+// A lift offers only private tab MIME; JSON preserves folder paths and cursor names verbatim.
 var TAB_MIME = "application/x-flea-tab"
 
 var TAB_VIEWS = ["list", "grid", "columns"]
@@ -412,8 +408,9 @@ function setOwnPid(pid) {
 }
 
 // One lift's token: the pid names the window, the token names the lift inside it.
+var TOKEN_RANDOM_RANGE = 1000000000 // Spread simultaneous lifts across a billion random suffixes.
 function newToken() {
-    return String(Date.now()) + "-" + String(Math.floor(Math.random() * 1000000000))
+    return String(Date.now()) + "-" + String(Math.floor(Math.random() * TOKEN_RANDOM_RANGE))
 }
 
 // The tab a lift names: the live snapshot for the current tab, the stored one for a hidden
@@ -449,17 +446,14 @@ function tabInfo(pane, index) {
     return { path: path, view: view, cursor: cursor }
 }
 
-// The platform payload for a lift: JSON because the path may hold a newline. Each field is
-// stripped of carriage returns first, so the decode never meets a split it did not write.
-// pid and token default to this window and none; a payload with no token never validates.
+// JSON carries every path byte, including CR and LF.
 function tabPayload(pane, index, pid, token) {
     var info = tabInfo(pane, index)
     if (!info)
         return ""
-    var clean = function (text) { return String(text).replace(/\r/g, "") }
     var who = pid === undefined ? ownPid : pid
     var lift = token === undefined ? "" : token
-    return JSON.stringify([clean(who), clean(lift), clean(info.path), clean(info.view), clean(info.cursor)])
+    return JSON.stringify([String(who), String(lift), String(info.path), String(info.view), String(info.cursor)])
 }
 
 // What the lift offers: the private tab MIME and nothing else, so a foreign app refuses
@@ -473,10 +467,7 @@ function tabDragMime(pane, index, pid, token) {
     return mime
 }
 
-// The receiver takes only a well-formed lift: a numeric pid, a non-empty token without
-// control characters, and an absolute folder path with none. Anything else, a foreign
-// payload or a corrupt one, refuses. Existence and kind are the backend's own peek
-// once the tab lands, the way a typed path meets it.
+// Sample input: ["111","lift-1","/tmp/folder","list","note.txt"].
 function parseTabMime(payload) {
     var fields = null
     try {
@@ -484,7 +475,7 @@ function parseTabMime(payload) {
     } catch (error) {
         return null
     }
-    if (!fields || fields.length !== 5)
+    if (!Array.isArray(fields) || fields.length !== 5)
         return null
     var pid = String(fields[0] || "")
     var token = String(fields[1] || "")
@@ -493,7 +484,7 @@ function parseTabMime(payload) {
         return null
     if (token.length === 0 || /[\x00-\x1f\x7f]/.test(token))
         return null
-    if (path.length === 0 || path.charAt(0) !== "/" || /[\x00-\x1f\x7f]/.test(path))
+    if (path.length === 0 || path.charAt(0) !== "/" || path.indexOf("\u0000") >= 0)
         return null
     return { pid: pid, token: token, path: path,
              view: String(fields[3] || ""), cursor: String(fields[4] || "") }
@@ -573,7 +564,7 @@ function receiveTab(pane, payload, at) {
     var here = restingPath(pane)
     var items = currentItems(pane, here)
     var index = currentIndex(pane)
-    items[index] = snapshot(pane, here)
+    items[index] = snapshot(pane, here, items[index].tabIdentity)
     var snap = snapshot(pane, info.path)
     if (TAB_VIEWS.indexOf(info.view) >= 0)
         snap.viewMode = info.view
@@ -667,20 +658,26 @@ function indexOfPath(pane, path) {
     return -1
 }
 
-// Which tab an accepted drop closes: the lift's index while it still names the dragged
-// folder, else the first tab that does. A key pressed mid-drag can shift every index, so
-// the number alone may close the wrong tab; -1 when nothing names it, which keeps all.
-function resolveMovedTab(pane, index, path) {
-    if (!pane || !path)
-        return -1
-    var total = count(pane)
-    if (index >= 0 && index < total) {
-        var here = restingPath(pane)
-        var items = currentItems(pane, here)
-        var current = currentIndex(pane)
-        var named = index === current ? here : String((items[index] || {}).path || "")
-        if (named === path)
-            return index
-    }
-    return indexOfPath(pane, path)
+// A lift captures pane and identity; indices and paths may change while its ack travels.
+function captureLift(pane, index, token, now) {
+    var items = currentItems(pane)
+    if (index < 0 || index >= items.length) return null
+    for (var i = 0; i < items.length; i++)
+        if (!items[i].tabIdentity) items[i].tabIdentity = ++nextTabIdentity
+    if (!pane.tabs) pane.tabs = pack(items, 0)
+    return { token: token, pane: pane, identity: items[index].tabIdentity, liftedAt: now, taken: false }
+}
+
+function resolveMovedTab(pane, identity) {
+    if (!pane || !pane.tabs || !identity) return -1
+    var items = pane.tabs.items
+    for (var i = 0; i < items.length; i++)
+        if (items[i].tabIdentity === identity) return i
+    return -1
+}
+
+function liftFor(lifts, token) {
+    for (var i = 0; i < lifts.length; i++)
+        if (takeToken(lifts[i].token, token)) return lifts[i]
+    return null
 }

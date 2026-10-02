@@ -33,11 +33,12 @@ else
     bad "the tab drag must advertise Qt.MoveAction alone, got: $move_line"
 fi
 
-# Qt hands effectAllowed straight from this line. A plain file lift names copy alone.
-if code_of ui/FileDrag.qml | grep -q 'Qt\.CopyAction'; then
-    ok "a leaving file drag offers copy"
+# Qt hands effectAllowed from this expression; combined Copy and Move violates the plain offer.
+file_offer=$(code_of ui/FileDrag.qml | sed -n '/Drag\.supportedActions:/,/Qt.CopyAction/p')
+if printf '%s' "$file_offer" | grep -q 'Qt\.CopyAction' && ! printf '%s' "$file_offer" | grep -q '|'; then
+    ok "a plain file lift offers copy alone"
 else
-    bad "a leaving file drag must offer Qt.CopyAction"
+    bad "a plain file lift must offer Qt.CopyAction alone"
 fi
 if code_of ui/FileDrag.qml | grep -q 'dragCopy' && code_of ui/FileDrag.qml | grep -q 'dragShift' && code_of ui/FileDrag.qml | grep -q 'dragLink'; then
     ok "ctrl offers copy alone, shift move alone, ctrl with shift link alone"

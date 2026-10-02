@@ -12,6 +12,7 @@ QtObject {
 
     property var tabBar: null
     property var view: null
+    property var panes: []
     property var tabs: null
     // Stage trace, on only with FLEA_TRACE_TABDRAG=1; read once, silent otherwise.
     readonly property bool tabTrace: Quickshell.env("FLEA_TRACE_TABDRAG") === "1"
@@ -24,23 +25,30 @@ QtObject {
 
     function take(token) {
         root.traceTab("taken-call", "token=" + String(token) + " outToken=" + String(root.tabBar ? root.tabBar.outToken : "") + " outActive=" + String(root.tabBar ? root.tabBar.outActive : ""))
-        if (!root.tabBar || !root.view || !root.view.currentPane || !root.tabs) {
-            root.traceTab("taken-refused", "reason=missing-ref")
-            return false
-        }
-        if (!root.tabs.ackCloses(root.tabBar.outToken, token, root.tabBar.ackLiftedAt, Date.now())) {
-            root.traceTab("taken-refused", "reason=" + (!root.tabs.takeToken(root.tabBar.outToken, token) ? "token-mismatch" : "expired"))
-            return false
-        }
-        var pane = root.view.currentPane
-        var index = root.tabs.resolveMovedTab(pane, root.tabBar.outIndex, root.tabBar.outPath)
-        var result = root.tabs.closeTabAfterMove(pane, index)
-        root.traceTab("taken-recv", "token=" + String(token) + " result=" + result)
-        root.tabBar.clearAck()
-        root.tabBar.outActive = false
-        root.tabBar.dragFrom = -1
-        root.tabBar.dropAt = -1
-        root.tabBar.ownAccepted = false
-        return result === "closed"
+        if (!root.tabBar || !root.tabs) return false
+        var lift = root.tabs.liftFor(root.tabBar.outstandingLifts, token)
+        if (!lift || !root.tabs.ackCloses(lift.token, token, lift.liftedAt, Date.now())) return false
+        if (root.tabs.resolveMovedTab(lift.pane, lift.identity) < 0) return false
+        lift.taken = true
+        root.tabBar.drainLifts()
+        root.traceTab("taken-recv", "token=" + String(token) + " result=accepted")
+        return true
+    }
+
+    property string launchPid: Quickshell.env("FLEA_TAB_SOURCE_PID") || ""
+    property string launchToken: Quickshell.env("FLEA_TAB_TOKEN") || ""
+    property string launchPath: Quickshell.env("FLEA_PATH") || ""
+    function openedLaunch(path) {
+        if (path !== root.launchPath || !/^[0-9]+$/.test(root.launchPid) || !root.launchToken || !root.tabBar) return
+        root.tabBar.sendTaken(root.launchPid, root.launchToken)
+        root.launchToken = ""
+    }
+    property Connections primaryAck: Connections {
+        target: root.panes.length > 0 ? root.panes[0] : null
+        function onOpened(path) { root.openedLaunch(path) }
+    }
+    property Connections secondaryAck: Connections {
+        target: root.panes.length > 1 ? root.panes[1] : null
+        function onOpened(path) { root.openedLaunch(path) }
     }
 }

@@ -99,6 +99,7 @@ addr=""
 for _ in $(seq 1 60); do
     addr=$(hyprctl clients -j | python3 -c '
 import json, sys
+# Sample input: [{"address":"0xa","pid":101,"at":[40,40],"size":[900,500],"floating":true}].
 hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$flea_pid") || true
@@ -110,6 +111,7 @@ done
 layerdrop_rect() {
     hyprctl clients -j 2>/dev/null | python3 -c '
 import json, sys
+# Sample input: [{"address":"0xa","pid":101,"at":[40,40],"size":[900,500],"floating":true}].
 hits = [c for c in json.load(sys.stdin) if c.get("address") == sys.argv[1] and str(c.get("pid")) == sys.argv[2]]
 if len(hits) != 1:
     raise SystemExit(1)
@@ -295,7 +297,7 @@ for pid in $torn; do
 "
     if layerdrop_path_matches "$seen" "$lifted_path"; then
         printf 'torn-off window %s took the drop on %s\n' "$pid" "$seen" >&2
-        out "PASS"
+        out "CATCHER-TEAROFF"
         exit 0
     fi
 done

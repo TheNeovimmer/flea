@@ -15,7 +15,7 @@ ShellRoot {
 
     function fail(text) { root.failures.push(text) }
 
-    // Space-split without naming String.split, so an empty derivation fails closed below.
+    // Sample input: "ui/Pane.qml ui/Tabs.qml".
     function names(raw) {
         var out = []
         var cur = ""
@@ -36,8 +36,7 @@ ShellRoot {
     // Offscreen has no PanelWindow backend, so a non-class failure is a note, never a verdict.
     function isClass(text) { return /is not a type|Required property|Cannot assign to non-existent|Failed to load|unavailable/.test(String(text)) }
 
-    // The pinned offscreen artifact: a file naming PanelWindow fails to compile with no
-    // backend, so that one error is a note and the required-prop half stays a static check.
+    // Only the missing offscreen PanelWindow backend is an allowed compile artifact.
     function isArtifact(text) { return String(text).indexOf("No PanelWindow backend loaded") >= 0 }
 
     function checkOne(name, entries) {

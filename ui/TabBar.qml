@@ -37,12 +37,7 @@ Item {
     property int dragFrom: -1
     property int dropAt: -1
 
-    // xw6: a tab dragged past the window's edge leaves as a platform drag. outMime
-    // carries only the private tab type, outPid names this process for the taken ack,
-    // outToken names the lift the ack closes, outOutside tracks the pointer against
-    // the window, and outActive owns the gesture from the first step outside until
-    // the drop answers. ownAccepted marks an own-strip drop that already reordered.
-    // pendingTab holds a foreign drop while the backend validates its folder.
+    // Gesture state is separate from outstanding lifts awaiting their own ack.
     property var outMime: ({})
     property bool outActive: false
     property bool outOutside: false
@@ -57,14 +52,18 @@ Item {
     property int ackWaitMs: Tabs.ACK_WAIT_MS
     property double ackLiftedAt: 0
     property var takenQueue: []
+    property var outstandingLifts: []
+    readonly property int ackPollMs: 100 // Settle acknowledged lifts when their captured pane finishes loading.
     // Stage trace, on only with FLEA_TRACE_TABDRAG=1; read once, silent otherwise.
     readonly property bool tabTrace: Quickshell.env("FLEA_TRACE_TABDRAG") === "1"
     function traceTab(stage, detail) { if (root.tabTrace) console.log("TABDRAG " + stage + " pid=" + Quickshell.processId + " " + detail) }
 
     Timer {
         id: ackTimer
-        interval: root.ackWaitMs
-        onTriggered: root.clearAck()
+        interval: root.ackPollMs
+        repeat: true
+        running: root.outstandingLifts.length > 0
+        onTriggered: root.drainLifts()
     }
 
     Process {
@@ -124,9 +123,9 @@ Item {
         var band = strip.mapToItem(null, 0, 0)
         sourceGeometry.begin(root.outToken, { x: band.x, y: band.y,
             width: root.width - strip.x, height: root.height })
-        // A new lift supersedes any ack still waited on.
-        ackTimer.stop()
         root.ackLiftedAt = 0
+        var lift = Tabs.captureLift(root.pane, index, root.outToken, root.ackLiftedAt)
+        if (lift) root.outstandingLifts = root.outstandingLifts.concat([lift])
         root.outMime = Tabs.tabDragMime(root.pane, index, root.outPid, root.outToken)
         root.outOutside = false
         root.outRefused = false
@@ -162,20 +161,41 @@ Item {
             return
         }
         root.dragFinished()
+        if (root.ackLiftedAt === 0) root.clearAck()
     }
 
     // The lift survives the drag's end: the ack lands after the drop action whatever it
     // reports, so clearing here would orphan it. An own-strip reorder consumed its lift.
     function holdAck() {
+        var lift = Tabs.liftFor(root.outstandingLifts, root.outToken)
         root.ackLiftedAt = Date.now()
-        ackTimer.restart()
+        if (lift) lift.liftedAt = root.ackLiftedAt
     }
     function clearAck() {
-        ackTimer.stop()
+        root.outstandingLifts = root.outstandingLifts.filter(function (lift) { return lift.token !== root.outToken })
         root.outToken = ""
         root.outIndex = -1
         root.outPath = ""
         root.ackLiftedAt = 0
+    }
+
+    function drainLifts() {
+        var now = Date.now()
+        var kept = []
+        for (var i = 0; i < root.outstandingLifts.length; i++) {
+            var lift = root.outstandingLifts[i]
+            if (!Tabs.ackCloses(lift.token, lift.token, lift.liftedAt, now)) {
+                if (root.outToken === lift.token) root.outToken = ""
+                continue
+            }
+            var index = Tabs.resolveMovedTab(lift.pane, lift.identity)
+            if (index < 0) continue
+            if (lift.taken && !lift.pane.listInFlight) {
+                Tabs.closeTabAfterMove(lift.pane, index)
+                if (root.outToken === lift.token) root.outToken = ""
+            } else kept.push(lift)
+        }
+        root.outstandingLifts = kept
     }
 
     // The drop action of a cross-process drag decides nothing: on Hyprland it is always
@@ -206,9 +226,10 @@ Item {
     }
 
     function returnAt(at) {
-        var from = Tabs.resolveMovedTab(root.pane, root.outIndex, root.outPath)
-        if (root.pane && from >= 0)
-            Tabs.move(root.pane, from, at > from ? at - 1 : at)
+        var lift = Tabs.liftFor(root.outstandingLifts, root.outToken)
+        var from = lift ? Tabs.resolveMovedTab(lift.pane, lift.identity) : -1
+        if (from >= 0)
+            Tabs.move(lift.pane, from, at > from ? at - 1 : at)
         root.ownAccepted = true
     }
 
@@ -225,20 +246,13 @@ Item {
             root.returnAt(result.at)
     }
 
-    // The tear-off catcher answers in this process, so it reports exactly: open the new
-    // window on the folder and close the lifted tab. The window lands where the
-    // compositor puts it; Flea names no position.
+    // The new window acknowledges only after listing; a failed spawn keeps the source tab.
     function tearOffAt() {
         if (root.outPath.length === 0)
             return
-        Quickshell.execDetached([Quickshell.env("FLEA_BIN") || "flea", root.outPath])
-        if (root.pane)
-            Tabs.closeTabAfterMove(root.pane, Tabs.resolveMovedTab(root.pane, root.outIndex, root.outPath))
-        root.dragFrom = -1
-        root.dropAt = -1
-        root.outActive = false
-        root.ownAccepted = false
-        root.clearAck()
+        Quickshell.execDetached(["env", "FLEA_TAB_SOURCE_PID=" + root.outPid,
+            "FLEA_TAB_TOKEN=" + root.outToken, Quickshell.env("FLEA_BIN") || "flea", root.outPath])
+        root.outFinished(Qt.IgnoreAction)
     }
 
     // A tab from another Flea window lands at the drop position. Own drags reach here
@@ -254,7 +268,7 @@ Item {
     // before this window opens a tab and acks. The peek asks first 2 with no hidden
     // flags, a quad no other client uses, so the reply answers this drop alone.
     function acceptTabDrop(payload, info, at) {
-        if (!root.pane || !Tabs.canReceive(root.pane)) {
+        if (root.pendingTab || !root.pane || !Tabs.canReceive(root.pane)) {
             root.traceTab("drop-skip", "reason=strip-accept-refused")
             return
         }
