@@ -55,6 +55,22 @@ function pane(path) {
     return p
 }
 
+// Sample input: firstCodeLine("f() {\n// note\n  if (x) return\n}", "f() {") answers "if (x) return".
+function firstCodeLine(branch, marker) {
+    var tail = branch.substring(branch.indexOf(marker) + marker.length)
+    var lines = tail.split("\n")
+    for (var i = 0; i < lines.length; i++) {
+        var trimmed = lines[i].replace(/^\s+/, "")
+        trimmed = trimmed.replace(/\s+$/, "")
+        if (trimmed.length === 0)
+            continue
+        if (trimmed.indexOf("//") === 0)
+            continue
+        return trimmed
+    }
+    return ""
+}
+
 function run(check) {
     // Opening the rail row moves to the history's base and asks for its paths, after the
     // jump's own bounded read; the folder it was opened over is kept for the way back.
@@ -136,8 +152,10 @@ function run(check) {
 
     // The menu reaches past key dispatch, so one helper refuses a paste in Recent for both routes.
     var pasteBranch = Source.slice(paneSource, "function pasteLink(kind, paths)", "function setCursor(index, context)")
-    check("Pane.pasteLink shares the refusal", pasteBranch.indexOf("RecentMode.refusePaste") >= 0, true)
-    check("Focus.act shares the refusal", Source.source("ui/js/Focus.js").indexOf("RecentMode.refusePaste") >= 0, true)
+    var focusSource = Source.source("ui/js/Focus.js")
+    var actBranch = Source.slice(focusSource, 'case "pasteLink":', 'case "cut":')
+    check("Pane.pasteLink guards first", firstCodeLine(pasteBranch, "function pasteLink(kind, paths) {"), "if (RecentMode.refusePaste(root)) return")
+    check("Focus.act guards first", firstCodeLine(actBranch, 'case "pasteHardLink":'), "if (RecentMode.refusePaste(root)) return")
     check("the helper stands for both routes", typeof RecentMode.refusePaste, "function")
     if (typeof RecentMode.refusePaste === "function") {
         var history = { recentMode: "results", said: "" }
