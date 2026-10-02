@@ -505,9 +505,12 @@ mod tests {
         let before = item.symlink_metadata().unwrap();
         let (dev, ino) = (before.dev(), before.ino());
         let born = born_of(&before);
+        // The old file stays open across the swap, so the swap cannot reuse its inode.
+        let held = File::open(&item).unwrap();
         test_swap_hook(Some(swap_to_same_mode_file));
         let refused = chmod_pinned(&item, dev, ino, born, 0o644, 0o600);
         test_swap_hook(None);
+        drop(held);
         assert!(refused.is_err(), "a file swapped after the checks is refused, got {:?}", refused);
         assert_eq!(item.metadata().unwrap().mode() & 0o777, 0o644, "the replacement keeps its mode");
     }
@@ -521,9 +524,12 @@ mod tests {
         let before = item.symlink_metadata().unwrap();
         let (dev, ino) = (before.dev(), before.ino());
         let born = born_of(&before);
+        // The old file stays open across the swap, so the swap cannot reuse its inode.
+        let held = File::open(&item).unwrap();
         test_swap_hook(Some(swap_to_link_of_hardlink));
         let refused = chmod_pinned(&item, dev, ino, born, 0o644, 0o600);
         test_swap_hook(None);
+        drop(held);
         assert!(refused.is_err(), "a link swapped after the checks is refused, got {:?}", refused);
         assert!(item.symlink_metadata().unwrap().file_type().is_symlink(), "the swap is still a link");
         assert_eq!(victim.metadata().unwrap().mode() & 0o777, 0o644, "the swap target keeps its mode");

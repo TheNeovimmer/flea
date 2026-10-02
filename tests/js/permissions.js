@@ -40,6 +40,19 @@ function run(check) {
         Permissions.multiResult(0, 1, [{ path: "/d/secret.txt", why: "Read-only: setgid bit is present." }]),
         "Permissions changed for 0 of 1; 1 left alone: secret.txt: Read-only: setgid bit is present.")
 
+    // One skip reads singular, and four show three with an and-1-more tail.
+    check("one skip reads singular",
+        Permissions.skipNote([{ path: "/d/a.txt", why: "Gone." }]),
+        "1 item cannot be changed: a.txt: Gone.")
+    check("four skips show three with an and-1-more tail",
+        Permissions.skipNote([{ path: "/d/a.txt", why: "r1" }, { path: "/d/b.txt", why: "r2" },
+                              { path: "/d/c.txt", why: "r3" }, { path: "/d/d.txt", why: "r4" }]),
+        "4 items cannot be changed: a.txt: r1; b.txt: r2; c.txt: r3; and 1 more")
+    check("four skips ride multiResult with the same tail",
+        Permissions.multiResult(1, 5, [{ path: "/d/a.txt", why: "r1" }, { path: "/d/b.txt", why: "r2" },
+                                       { path: "/d/c.txt", why: "r3" }, { path: "/d/d.txt", why: "r4" }]),
+        "Permissions changed for 1 of 5; 4 left alone: a.txt: r1; b.txt: r2; c.txt: r3; and 1 more")
+
     // noteMode answers done once in 5000 replies, on the last one.
     var store = { modes: [], reasons: [], skipped: [], pending: 5000 }
     var done = false
@@ -48,7 +61,7 @@ function run(check) {
         done = Permissions.noteMode(store, i, "/f" + i, { ok: true, mode: "0644", reason: "" })
         if (done && i + 1 < 5000) early = true
     }
-    check("5000 replies land every mode", done + "|" + store.modes.length, "true|5000")
+    check("noteMode answers done once across 5000 replies", done + "|" + store.modes.length, "true|5000")
     check("and done answers only on the last reply", early + "|" + done, "false|true")
     var refused = { modes: [], reasons: [], skipped: [], pending: 3 }
     Permissions.noteMode(refused, 0, "/d/a.txt", { ok: true, mode: "2755", reason: "Read-only: setgid bit is present." })

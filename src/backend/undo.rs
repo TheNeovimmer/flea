@@ -60,10 +60,7 @@ pub enum Step {
     MadeFile { path: PathBuf, identity: ItemIdentity },
     // This operation trashed what was at `original`, and the trash holds it under `uri`.
     Trashed(trash::Entry),
-    // Permissions for several items: one entry holds every path the Apply changed,
-    // so one undo restores them all; each step pins the file it changed by dev,
-    // inode, birth time and the mode it applied, so a path replaced or rechmodded
-    // since is skipped with a note rather than chmodded blind.
+    // Permissions batch: each step pins dev, inode, birth time and mode, so a replaced path is skipped.
     Mode { path: PathBuf, before: u32, after: u32, dev: u64, ino: u64, born: Option<(u64, u32)> },
 }
 
@@ -133,10 +130,7 @@ impl Journal {
         self.entries.is_empty()
     }
 
-    // A step that fails stops the rest, because continuing past it would leave
-    // the operation half-reversed with nothing recording which half; mode
-    // steps are the exception, skipping a replaced or rechmodded path with a
-    // note and restoring the rest, so one replaced file never blocks the others.
+    // A failing step stops the rest; mode steps skip a replaced path with a note.
     pub fn undo(&mut self) -> Result<String, FleaError> {
         let entry = match self.entries.pop() {
             Some(e) => e,
@@ -311,14 +305,7 @@ fn remove(path: &PathBuf) -> Result<(), FleaError> {
     r.map_err(|e| from_io("undo", &path.to_string_lossy(), &e))
 }
 
-// A link undo removes only the link this operation made, with remove_file and
-// never remove_dir_all: a folder or file put at that name since is someone
-// else's, so undo refuses and leaves it, the way a changed copy is left.
-// A hard link shares its inode with its source, so removing the made name is
-// safe only while the source still holds the same dev and inode; otherwise
-// the made name is the last one and removing it loses data. Kinds compare
-// through symlink_metadata against the kind recorded at creation, so a hard
-// link to a symlink (which makes a symlink) still undoes.
+// A link undo removes only the link made, never a folder put at its name since.
 fn remove_link(path: &Path, identity: &ItemIdentity, source: &Path, kind: &super::link::LinkKind) -> Result<(), FleaError> {
     let meta = path.symlink_metadata().map_err(|e| from_io("undo", &path.to_string_lossy(), &e))?;
     let current = ItemIdentity::record(&meta);
@@ -368,12 +355,7 @@ fn err(msg: &str) -> FleaError {
     FleaError { where_: "undo".to_string(), path: String::new(), msg: msg.to_string() }
 }
 
-// A mode undo restores bits through the held no-follow descriptor rather
-// than by pathname: O_PATH with O_NOFOLLOW pins the object, identity and
-// current mode are checked against the journal, and fchmodat2 changes the
-// held object without reopening a pathname. The batch apply rolls back
-// through here too, so a failure there can say what it restored and what
-// stayed applied.
+// A mode undo restores bits through the held no-follow descriptor.
 pub(crate) fn restore_mode(path: &Path, dev: u64, ino: u64, born: Option<(u64, u32)>, expected: u32, target: u32) -> Result<(), FleaError> {
     super::permissions::chmod_pinned(path, dev, ino, born, expected, target).map_err(|msg| {
         FleaError { where_: "undo".to_string(), path: path.to_string_lossy().to_string(), msg }
