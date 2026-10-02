@@ -24,6 +24,8 @@ struct Active {
 
 // A wedged mount stays skipped this long, then one walk tries it again.
 const STUCK_TTL_SECS: u64 = 60;
+// One blocking readdir on a slow share may answer past the deadline, so stuck waits this longer.
+const STUCK_GRACE_MS: u64 = 1000;
 
 pub struct Worker {
     jobs: Sender<Job>,
@@ -88,9 +90,9 @@ impl Worker {
         Self { jobs, generation, active: None, events, started: None, current, stuck: HashMap::new(), abandoned: HashMap::new() }
     }
 
-    // Past the walk deadline with no answer, so the next batch replaces the thread.
+    // Past the walk deadline plus one slow readdir, so the next batch replaces the thread.
     pub fn stuck(&self) -> bool {
-        self.started.is_some_and(|t| t.elapsed() >= Duration::from_millis(dirsize::DEADLINE_MS))
+        self.started.is_some_and(|t| t.elapsed() >= Duration::from_millis(dirsize::DEADLINE_MS + STUCK_GRACE_MS))
     }
     pub fn busy(&self) -> bool { self.active.is_some() && !self.stuck() }
     pub fn contains(&self, row: usize) -> bool {
@@ -215,9 +217,9 @@ impl Drop for Worker {
 
 #[cfg(test)]
 impl Worker {
-    // Puts the active batch past its deadline without waiting for it.
+    // Puts the active batch past its deadline and its grace without waiting for either.
     fn force_past_deadline(&mut self) {
-        self.started = Some(Instant::now() - Duration::from_millis(dirsize::DEADLINE_MS) - Duration::from_secs(1));
+        self.started = Some(Instant::now() - Duration::from_millis(dirsize::DEADLINE_MS + STUCK_GRACE_MS) - Duration::from_secs(1));
     }
 }
 
@@ -489,6 +491,61 @@ mod tests {
         worker.prune_stuck();
         assert!(!worker.stuck.contains_key(&mount), "a returned thread lets the TTL prune the mark");
         assert!(!worker.stuck_skips(&probe), "so one walk tries the mount again");
+    }
+
+    #[test]
+    fn a_batch_just_past_its_deadline_is_not_stuck_until_its_grace_passes() {
+        // Sample input: started DEADLINE_MS plus 100 ms answers false, plus the grace answers true.
+        let (events, _rx) = channel();
+        let mut worker = Worker::with_walk(events, |_, _| dirsize::DirSize { bytes: 1, partial: false });
+        worker.start(vec![(0, PathBuf::from("slow"))]);
+        worker.started = Some(Instant::now() - Duration::from_millis(dirsize::DEADLINE_MS + 100));
+        assert!(!worker.stuck(), "one slow readdir past the deadline is grace, not a wedge");
+        worker.started = Some(Instant::now() - Duration::from_millis(dirsize::DEADLINE_MS + STUCK_GRACE_MS + 100));
+        assert!(worker.stuck(), "past the grace the batch counts as stuck");
+    }
+
+    #[test]
+    fn an_abandoned_batch_sets_its_mount_flag_once_its_walk_returns() {
+        // Sample input: two-row batch wedged on row 0, abandoned, then both stale Dones accepted.
+        let (events, rx) = channel();
+        let (entered, entry) = channel();
+        let (release, released) = channel();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = Arc::clone(&calls);
+        let mut worker = Worker::with_walk(events, move |_, _| {
+            if seen.fetch_add(1, Ordering::Relaxed) == 0 {
+                entered.send(()).unwrap();
+                released.recv().unwrap();
+            }
+            dirsize::DirSize { bytes: 7, partial: false }
+        });
+        let first = PathBuf::from("wedged-first");
+        let second = PathBuf::from("wedged-second");
+        worker.start(vec![(0, first.clone()), (1, second)]);
+        entry.recv_timeout(Duration::from_secs(2)).unwrap();
+        worker.force_past_deadline();
+        assert!(worker.stuck(), "the wedged batch counts as stuck");
+        worker.start(vec![(2, PathBuf::from("fresh"))]);
+        release.send(()).unwrap();
+        let mut stale = 0;
+        for _ in 0..3 {
+            let Event::DirSize(done) = rx.recv_timeout(Duration::from_secs(2)).unwrap() else { panic!() };
+            if done.row == 2 {
+                assert!(worker.accept(&done), "the fresh row still publishes");
+            } else {
+                assert!(!worker.accept(&done), "a stale row never publishes");
+                stale += 1;
+            }
+        }
+        assert_eq!(stale, 2, "both wedged rows answer once the walk returns");
+        let mount = mount_key(&first);
+        let done = worker.stuck.get(&mount).map(|(_, flag)| flag.load(Ordering::Relaxed)).unwrap_or(false);
+        assert!(done, "two stale Dones store the mount flag the mark owns");
+        worker.stuck.get_mut(&mount).unwrap().0 = Instant::now() - Duration::from_secs(STUCK_TTL_SECS + 1);
+        worker.prune_stuck();
+        assert!(!worker.stuck.contains_key(&mount), "a returned thread lets the TTL prune the mark");
+        assert!(!worker.stuck_skips(&first), "so one walk tries the mount again");
     }
 
     #[test]

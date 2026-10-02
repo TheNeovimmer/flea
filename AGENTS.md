@@ -2425,7 +2425,7 @@ a boundary against the filesystem rather than against a mock.
 `src/backend/child.rs` is 231 lines by `wc -l`, inside both budgets and so not one of the files the
 tool warns about, with its `#[cfg(test)]` at line 96, so 95 lines of implementation and 136 of
 tests. It runs one argv
-under a deadline and reports `Ran::Succeeded`, `Ran::Failed` or `Ran::NotStarted`. It came out of
+under a deadline and reports `Ran::Succeeded`, `Ran::Failed`, `Ran::TimedOut` or `Ran::NotStarted`. It came out of
 `thumbs.rs` at 397 of the 400 hard cap, and it completes a three-part story each of whose parts is one file:
 `thumbargv` builds the inner argv, `sandbox` wraps it, `child` runs the result. Nothing in it
 knows about thumbnails, which is why the pool's `JOB_TIMEOUT` stays in `thumbs.rs` and is passed
@@ -4431,8 +4431,8 @@ sends the job down the exec path, which judges the file exactly as it always has
 thumbnailer program ever writes a `fail/` marker: the worker's child is more confined than the
 program, with no writable `/tmp`, and a file only the worker failed must not be recorded broken on
 its word. `N` retires the worker, as below. corner: a video that hangs the decoder costs two
-deadlines, one in the worker and one on the exec path, and costs them once, because the exec path's
-failure records the marker. `workerlink::tests::
+deadlines, one in the worker and one on the exec path, paid once locally and on every request
+off-local, where a timeout records no marker. `workerlink::tests::
 only_a_thumbnail_is_final_and_a_machine_failure_retires_the_worker` answers one request each way
 from a stand-in worker and pins that only `S` publishes, that `F` keeps the worker and that `N`
 retires it, and `gone_because` is what names an `N` apart from a worker that stopped answering.

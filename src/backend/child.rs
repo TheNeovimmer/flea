@@ -37,7 +37,7 @@ fn kill_and_reap(jailed: &mut crate::backend::jail::Jailed) {
     crate::backend::jail::kill_tree(jailed);
 }
 
-// thumbargv builds the inner argv and sandbox wraps it; this runs the result and reports which of the three things happened.
+// thumbargv builds the inner argv and sandbox wraps it; this runs the result and reports which of the four Ran outcomes happened.
 pub fn run_with_timeout(full: &[String], limit: Duration) -> Ran {
     let mut jailed = match crate::backend::jail::spawn_jailed(full, |cmd| {
         cmd.stdin(std::process::Stdio::null());

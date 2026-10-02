@@ -32,10 +32,11 @@ src/backend/opsreq.rs 514
 src/backend/opsreq/tests.rs 461
 src/backend/permissions.rs 477
 src/backend/proto.rs 287
-src/backend/dirsizeworker.rs 517
+src/backend/dirsizeworker.rs 574
 src/backend/run.rs 486
 src/backend/watch.rs 441
 src/backend/thumbs.rs 460
+src/backend/thumbreq.rs 402
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 698
 src/backend/trashdelete.rs 901

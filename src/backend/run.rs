@@ -50,8 +50,6 @@ enum Control {
     Quit,
 }
 
-// No is_dir correction here: scan resolved every type before the order, so a flip would contradict it.
-
 // Errors are responses, so the loop never exits on a bad request.
 pub fn run() -> i32 {
     // Before the first listing, because a threshold glibc has already ratcheted strands the next arena on the heap.
@@ -472,11 +470,10 @@ pub(crate) fn drain(
 pub fn write_window(out: &mut impl Write, st: &mut State, start: usize, count: usize, tb: &Tables) {
     let (metas, ms) = stat_range(&st.base, &st.listing, start, count);
     let start = start.min(st.listing.len());
-    // Sample window: start 0 with 3 metas keeps keys 0..3, so a scrolled-past window never grows the map.
     for (i, m) in metas.iter().enumerate() {
         st.window_meta.insert(start + i, (m.mode, m.mtime, m.target_is_dir));
     }
-    // Viewport-sized only: scan resolved every type before the order, so no flip may contradict it.
+    // Sample window: start 0 with 3 metas keeps keys 0..3, so a scrolled-past window never grows the map.
     let end = start.saturating_add(metas.len());
     st.window_meta.retain(|&row, _| row >= start && row < end);
     let mut kinds = tb.kinds.borrow_mut();

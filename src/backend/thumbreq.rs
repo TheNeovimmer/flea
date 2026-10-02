@@ -37,8 +37,7 @@ pub(crate) fn thumb_rows(
         let t = Instant::now();
         let name = st.listing.name(row);
         let path = st.base.join(name);
-        // The window already statted this row, so a thumb request reuses its mode and mtime with no stat.
-        // Sample input: mode S_IFLNK skips this block, so a symlink to a fifo meets metadata().is_file().
+        // The window's lstat mode and mtime stand in for a stat, except a symlink whose target the path below gates.
         if let Some((mode, mtime, target_dir)) = st.window_meta.get(&row).copied() {
             if mode & S_IFMT != S_IFLNK {
                 if target_dir {
@@ -72,7 +71,7 @@ pub(crate) fn thumb_rows(
             // A symlink row falls through to the target-stat path, so the target is gated and its mtime keys the cache.
         }
         // No window covered this row, so a cache-only ask answers none rather than statting on the loop.
-        if cache_only {
+        if cache_only && !st.window_meta.contains_key(&row) {
             writeln!(out, "{}", thumbed_line(row, "", since(t))).ok();
             continue;
         }
@@ -353,6 +352,36 @@ mod tests {
         for job in queued {
             forget_one(&mut st, &job.path);
         }
+    }
+
+    #[test]
+    fn a_cached_symlink_is_served_under_cache_only() {
+        // Sample input: link.jpg -> photo.jpg with a Ready entry keyed on the link path and target mtime.
+        let d = TestDir::new("thumbcachesymlink");
+        let target = d.file("photo.jpg", "bytes the link target holds");
+        let link = d.join("link.jpg");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let target_mtime = std::fs::metadata(&target).unwrap().mtime();
+        let tb = tables();
+        let (mut st, pool, cache) = harness(&d, &tb);
+        let uri = thumbcache::uri_for(&link);
+        let large = cache.large_path(&uri);
+        std::fs::create_dir_all(large.parent().unwrap()).unwrap();
+        thumbwrite::write_marker(&large, &uri, target_mtime).unwrap();
+        st.base = d.path().to_path_buf();
+        let mut l = Listing::new();
+        l.push("link.jpg", false);
+        st.listing = l;
+        if let Ok(m) = std::fs::symlink_metadata(&link) {
+            st.window_meta.insert(0, (m.mode(), m.mtime(), false));
+        }
+        let mut out = Vec::new();
+        thumb_rows(&mut out, &[0], &mut st, &tb, &pool, &cache, true);
+        let line = String::from_utf8(out).unwrap();
+        assert!(line.contains(&large.to_string_lossy().into_owned()),
+            "a cached symlink answers its entry under cacheOnly: {}", line);
+        assert_eq!(st.outstanding, 0, "a served row queues nothing");
+        pool.cancel_all();
     }
 
     #[test]
