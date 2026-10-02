@@ -220,6 +220,6 @@ function run(check) {
     var winSrc = Source.source("ui/PickerWindow.qml")
     check("the window sizes through the shared function",
         winSrc.indexOf("Picker.windowSize(list.visibleRows, grid.visibleTileRows, grid.columns)") >= 0, true)
-    check("a view switch reshows the grid", winSrc.indexOf("grid.reshow(") >= 0, true)
-    check("and the list", winSrc.indexOf("list.reshow(") >= 0, true)
+    check("a view switch reshows the grid", winSrc.indexOf('if (next === "grid") grid.reshow(') >= 0, true)
+    check("and the list", winSrc.indexOf("else list.reshow(") >= 0, true)
 }

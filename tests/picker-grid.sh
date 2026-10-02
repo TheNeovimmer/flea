@@ -31,9 +31,9 @@ if "--ui-state" in sys.argv:
     sys.stdout.write("{}")
     sys.stdout.flush()
     sys.exit(0)
-# Poll step and hold cap for the settled marker, so a loaded lane still orders fsinfo late.
+# Poll step and hold cap under the probe wait, so a missing marker fails here first.
 SETTLED_POLL_S = 0.05
-SETTLED_CAP_S = 10.0
+SETTLED_CAP_S = 4.0
 log_path = os.environ.get("FLEA_PICKER_REQUESTS", "")
 settled_path = os.environ.get("FLEA_PICKER_SETTLED", "")
 def log(req):
@@ -72,11 +72,11 @@ for line in sys.stdin:
             continue
         emit({"t": "rows", "start": start, "rows": served[start:start + count], "ms": 1.0, "kinds": []})
     elif kind == "fsinfo":
-        # Hold until the first settle ran unknown with no ask, capped at 10 s.
+        # Hold until the first settle ran unknown with no ask, capped below the probe wait.
         waited = 0.0
         while settled_path and not os.path.exists(settled_path):
             if waited >= SETTLED_CAP_S:
-                sys.stderr.write("FAIL fsinfo settled marker never appeared within 10 s cap\n")
+                sys.stderr.write("FAIL fsinfo settled marker never appeared within 4 s cap\n")
                 sys.stderr.flush()
                 break
             time.sleep(SETTLED_POLL_S)

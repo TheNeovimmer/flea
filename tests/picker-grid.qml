@@ -209,10 +209,18 @@ ShellRoot {
             return
         }
         case 4: {
-            // The wide layout itself, not elapsed time: columns at the 1600 px width with tiles.
-            if (grid.width !== 1600 || grid.columns < 1) return
+            if (grid.width !== 1600 || grid.columns < 1) {
+                if (Date.now() - root.stageSince > root.askWaitMs) {
+                    if (grid.width !== 1600) root.fail("wide width never reached 1600")
+                    else root.fail("wide columns never reached 1")
+                }
+                return
+            }
             var vis = root.visibleTiles()
-            if (vis.length === 0) return
+            if (vis.length === 0) {
+                if (Date.now() - root.stageSince > root.askWaitMs) root.fail("no delegate met the wide viewport")
+                return
+            }
             var listRows = Math.max(1, listProbe.visibleRows)
             var wide = Picker.windowSize(listRows, grid.visibleTileRows, grid.columns)
             var old = listRows + 60
@@ -234,16 +242,20 @@ ShellRoot {
                 root.stubPicker.cursorIndex = 300
                 listProbe.reshow(300)
                 if (root.stubBackend.windowCalls === calls) { root.fail("a reshown list never refetched its window"); return }
+                var rowTop = 300 * Flea.Theme.rowHeight
+                if (!(listProbe.contentY <= rowTop && rowTop + Flea.Theme.rowHeight <= listProbe.contentY + listProbe.height)) { root.fail("a reshown list never showed row 300"); return }
                 listProbe.visible = false
                 return
             }
             // Quiesce the settle, so only the reshow below may restart it.
             if (grid.settleRunning) return
             var gCalls = root.stubBackend.windowCalls
-            root.stubPicker.cursorIndex = vis[0]
-            grid.reshow(vis[0])
+            var target = vis[vis.length - 1] + 1
+            root.stubPicker.cursorIndex = target
+            grid.reshow(target)
             if (root.stubBackend.windowCalls === gCalls) { root.fail("a reshown grid never refetched its window"); return }
             if (!grid.settleRunning) { root.fail("a reshown grid never restarted its settle"); return }
+            if (root.visibleTiles().indexOf(target) < 0) { root.fail("a reshown grid never showed tile " + target); return }
             root.wideSetup = false
             root.stubPicker.held = 0
             root.rowCount = 60
@@ -346,6 +358,39 @@ ShellRoot {
                 return
             }
             root.folderClass = root.win.storageClass
+            root.win.held = 0
+            root.win.rows = root.win.rows.slice(0, 5)
+            root.win.cursorIndex = root.win.total - 1
+            root.win.setView("list")
+            root.stage = 45
+            root.stageSince = Date.now()
+            return
+        }
+        case 45: {
+            if (root.win.viewMode !== "list") { root.fail("setView list never switched view"); return }
+            var lview = root.win.viewItem()
+            var ltop = root.win.cursorIndex * Flea.Theme.rowHeight
+            if (!(lview.contentY <= ltop && ltop + Flea.Theme.rowHeight <= lview.contentY + lview.height)) { root.fail("setView list never showed the cursor row"); return }
+            if (!(root.win.held <= root.win.cursorIndex && root.win.cursorIndex < root.win.held + root.win.rows.length)) {
+                if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("setView list never refetched its window"); }
+                return
+            }
+            root.win.held = 0
+            root.win.rows = root.win.rows.slice(0, 5)
+            root.win.setView("grid")
+            root.stage = 46
+            root.stageSince = Date.now()
+            return
+        }
+        case 46: {
+            if (root.win.viewMode !== "grid") { root.fail("setView grid never switched view"); return }
+            var gview = root.win.viewItem()
+            var gitem = gview.itemAtIndex(root.win.cursorIndex)
+            if (!gitem || !(gitem.y + gitem.height > gview.contentY && gitem.y < gview.contentY + gview.height)) { root.fail("setView grid never showed the cursor tile"); return }
+            if (!(root.win.held <= root.win.cursorIndex && root.win.cursorIndex < root.win.held + root.win.rows.length)) {
+                if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("setView grid never refetched its window"); }
+                return
+            }
             root.win.open("flea:recent")
             root.stage = 43
             root.stageSince = Date.now()
