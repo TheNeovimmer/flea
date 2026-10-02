@@ -73,9 +73,10 @@ sweep_seek() {
     n=$(ipc total)
     key g >/dev/null
     for i in $(seq 0 "$n"); do
-        cur=$(ipc cursor)
-        trail+="$cur:$(ipc rowAt "$cur" | cut -d'|' -f1) "
-        [[ "$(ipc rowAt "$cur")" == "$want|"* ]] && return 0
+        # rowAt reads list delegates only, so the grid's cursor name comes from renameState.
+        cur=$(ipc renameState | jq -r '"\(.cursor):\(.cursorName)"')
+        trail+="$cur "
+        [[ "${cur#*:}" == "$want" ]] && return 0
         key l >/dev/null
         settle
     done
