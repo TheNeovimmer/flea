@@ -1178,7 +1178,8 @@ case_touchpad() {
 
 # One stroke through the virtual touchpad: sample contentY across the play, take the lift as the
 # first sample after the tool exits, and the rest once the value holds still for a second.
-touchpad_run() {    local name=$1 hold=$2 stroke lift rest cur stable_start now_ms start_ms
+touchpad_run() {
+    local name=$1 hold=$2 stroke lift rest cur stable_start now_ms start_ms
     stroke=$(ipc listContentY)
     start_ms=$(date +%s%3N)
     "$repo/tools/flea-touchpad" swipe --dy-mm 40 --ms 120 --hold-ms "$hold" >/dev/null \

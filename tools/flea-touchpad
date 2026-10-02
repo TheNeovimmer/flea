@@ -18,7 +18,7 @@ UI_SET_KEYBIT = 0x40045565
 UI_SET_ABSBIT = 0x40045566
 UI_SET_PROPBIT = 0x40045567
 UI_ABS_SETUP = 0x401C5504
-UI_DEV_SETUP = 0x445C5503
+UI_DEV_SETUP = 0x405C5503
 UI_DEV_CREATE = 0x5501
 UI_DEV_DESTROY = 0x5502
 
@@ -32,6 +32,8 @@ ABS_MT_SLOT = 47
 ABS_MT_POSITION_X, ABS_MT_POSITION_Y = 53, 54
 ABS_MT_TRACKING_ID = 57
 INPUT_PROP_POINTER = 0
+
+MT_SLOT_MAX = 9
 
 SPAN, RES = 1000, 10
 
@@ -61,25 +63,22 @@ def setup_abs(fd, code, maximum, resolution):
 
 def create():
     fd = os.open(UINPUT, os.O_WRONLY | os.O_NONBLOCK)
-    for bit in (EV_SYN, EV_KEY, EV_ABS):
-        fcntl.ioctl(fd, UI_SET_EVBIT, struct.pack("i", bit))
+    for bit in (EV_SYN, EV_KEY, EV_ABS):  # SET ioctls take the bit number by value
+        fcntl.ioctl(fd, UI_SET_EVBIT, bit)
     for bit in (BTN_TOUCH, BTN_TOOL_FINGER, BTN_TOOL_DOUBLETAP):
-        fcntl.ioctl(fd, UI_SET_KEYBIT, struct.pack("i", bit))
+        fcntl.ioctl(fd, UI_SET_KEYBIT, bit)
     for bit in (ABS_X, ABS_Y, ABS_MT_SLOT, ABS_MT_TRACKING_ID,
                 ABS_MT_POSITION_X, ABS_MT_POSITION_Y):
-        fcntl.ioctl(fd, UI_SET_ABSBIT, struct.pack("i", bit))
-    fcntl.ioctl(fd, UI_SET_PROPBIT, struct.pack("i", INPUT_PROP_POINTER))
-    limits = [0] * 64
-    limits[ABS_X] = limits[ABS_Y] = SPAN
-    limits[ABS_MT_SLOT] = 9
-    limits[ABS_MT_TRACKING_ID] = 65535
-    limits[ABS_MT_POSITION_X] = limits[ABS_MT_POSITION_Y] = SPAN
-    setup = struct.pack("80sHHHHi", b"flea-touchpad", 0x03, 0x4711, 0x4712, 1, 0)
-    setup += struct.pack("64i", *limits) + struct.pack("64i", *([0] * 64))
-    setup += struct.pack("64i", *([0] * 64)) + struct.pack("64i", *([0] * 64))
+        fcntl.ioctl(fd, UI_SET_ABSBIT, bit)
+    fcntl.ioctl(fd, UI_SET_PROPBIT, INPUT_PROP_POINTER)
+    setup = struct.pack("HHHH80sI", 0x03, 0x4711, 0x4712, 1, b"flea-touchpad", 0)  # uinput_setup
     fcntl.ioctl(fd, UI_DEV_SETUP, setup)
-    for code in (ABS_X, ABS_Y, ABS_MT_POSITION_X, ABS_MT_POSITION_Y):
-        setup_abs(fd, code, SPAN, RES)
+    setup_abs(fd, ABS_X, SPAN, RES)  # every declared axis needs its own absinfo
+    setup_abs(fd, ABS_Y, SPAN, RES)
+    setup_abs(fd, ABS_MT_SLOT, MT_SLOT_MAX, 0)
+    setup_abs(fd, ABS_MT_TRACKING_ID, 65535, 0)
+    setup_abs(fd, ABS_MT_POSITION_X, SPAN, RES)
+    setup_abs(fd, ABS_MT_POSITION_Y, SPAN, RES)
     fcntl.ioctl(fd, UI_DEV_CREATE)
     return fd
 

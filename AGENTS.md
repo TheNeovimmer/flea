@@ -3608,6 +3608,9 @@ waits for its consumer.
   is what `pacman -Qo` says about its launcher.
 - `./tests/keymap-gen.sh` asserts the committed `ui/js/Keymap.js` is byte-for-byte what
   `tools/flea-keymap-gen` produces from `keys.toml`; see "The key table is generated" above.
+- `./tests/touchpad-tool.sh` runs `tools/flea-touchpad`'s `create()` and `swipe()` with recorder
+  stubs for `fcntl.ioctl` and `os.open`/`os.write`, so the uinput ioctl shapes are gated headless
+  with no `/dev/uinput`.
 - `./tests/thumbs.sh` drives the release binary against the media fixture and asserts the
   thumbnail contract end to end: a video row and an image row each generate their own
   thumbnail, a text row answers with no file, every requested row is answered, a second
