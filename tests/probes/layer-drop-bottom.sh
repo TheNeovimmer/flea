@@ -18,8 +18,8 @@ flea_ui="${FLEA_UI:-$(cd "$(dirname "$0")/../../ui" && pwd)}"
 [ -f "$flea_ui/boot/shell.qml" ] || refuse "no Flea ui at $flea_ui (set FLEA_UI)"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/layer-drop.XXXXXXXX") || refuse "mktemp failed"
-trap 'kill "$qs_pid" "$flea_pid" 2>/dev/null; rm -rf "$work"' EXIT
-qs_pid=""; flea_pid=""
+trap 'kill "$qs_pid" "$flea_pid" $torn 2>/dev/null; rm -rf "$work"' EXIT
+qs_pid=""; flea_pid=""; torn=""
 log="$work/panel.log"
 : > "$log"
 
@@ -39,6 +39,8 @@ ShellRoot {
             anchors { top: true; bottom: true; left: true; right: true }
             WlrLayershell.layer: WlrLayer.Bottom
             WlrLayershell.exclusiveZone: 0
+            // The startup wait below matches this namespace exactly, never a qs prefix.
+            WlrLayershell.namespace: "flea-layer-drop"
             DropArea {
                 anchors.fill: parent
                 keys: ["application/x-flea-tab"]
@@ -55,10 +57,10 @@ setsid qs -p "$work/panel.qml" >"$work/qs.log" 2>&1 &
 qs_pid=$!
 qs_up=""
 for _ in $(seq 1 40); do
-    if hyprctl layers -j 2>/dev/null | grep -q '"namespace": *"qs[^"]*"'; then qs_up=1; break; fi
+    if hyprctl layers -j 2>/dev/null | grep -Fq '"namespace": "flea-layer-drop"'; then qs_up=1; break; fi
     sleep 0.25
 done
-[ -n "$qs_up" ] || refuse "no Quickshell layer surface appeared"
+if [ -z "$qs_up" ]; then tail -5 "$work/qs.log" 2>/dev/null >&2 || true; refuse "no Quickshell layer surface appeared"; fi
 
 # A Flea window with two tabs is the drag source: the strip is hidden for one.
 srcdir="$work/src"
@@ -102,6 +104,8 @@ move_to() {
     done
     refuse "pointer did not reach $tx,$ty"
 }
+# Flea windows before the drop: its own Bottom catcher may take the drop and tear off instead.
+before_flea=$(pgrep -x qs | while read -r pid; do tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq "$flea_ui" && printf '%s ' "$pid"; done)
 move_to "$sx" "$sy"
 sleep 0.4
 ydotool click 0x40 >/dev/null 2>&1 || refuse "pointer press failed"
@@ -114,5 +118,18 @@ if grep -q PANEL-DROP "$log"; then
     out "PASS"
     exit 0
 fi
+# The drop reached Flea's own Bottom catcher instead: a new Flea window on the source tree proves it.
+after_flea=$(pgrep -x qs | while read -r pid; do tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq "$flea_ui" && printf '%s ' "$pid"; done)
+for pid in $after_flea; do
+    case " $before_flea " in *" $pid "*) ;; *) torn="$torn $pid";; esac
+done
+for pid in $torn; do
+    if tr '\0' '\n' 2>/dev/null < "/proc/$pid/environ" | grep -Fx "FLEA_PATH=$srcdir" >/dev/null; then
+        printf 'torn-off window %s took the drop\n' "$pid" >&2
+        out "PASS"
+        exit 0
+    fi
+done
+printf 'flea windows before: %s after: %s\n' "$before_flea" "$after_flea" >&2
 tail -5 "$work/qs.log" 2>/dev/null >&2 || true
-refuse "no PANEL-DROP in $log"
+refuse "no PANEL-DROP in $log and no torn-off window"

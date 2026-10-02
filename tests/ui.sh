@@ -11122,6 +11122,33 @@ xwtab_tab_point() {
     printf '%s %s\n' "$((wx + cx))" "$((wy + cy))"
 }
 
+# Hyprland client pids among the given qs pids, so a qs helper with no window never counts as one.
+xwtab_window_pids() {
+    local qs_pids="$1" clients
+    clients=$(hyprctl clients -j 2>/dev/null) || return 1
+    python3 -c '
+import json, sys
+clients = json.loads(sys.argv[2])
+qs = set(sys.argv[1].split())
+print(" ".join(sorted({str(c.get("pid")) for c in clients if str(c.get("pid")) in qs}, key=int)))
+' "$qs_pids" "$clients" || return 1
+}
+
+# One pid's cmdline, parent, age and window state, so the next native run names the extra process.
+xwtab_describe_pid() {
+    local pid="$1" process cmd ppid age win
+    process=$(flea_process_dir "$pid")
+    cmd=$(tr '\0' ' ' 2>/dev/null < "$process/cmdline" || true)
+    [[ -n "$cmd" ]] || cmd="(unreadable cmdline)"
+    ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ' || true)
+    [[ -n "$ppid" ]] || ppid="?"
+    age=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ' || true)
+    [[ -n "$age" ]] || age="?"
+    win=$(hyprctl clients -j 2>/dev/null | python3 -c 'import json, sys; print("yes" if any(str(c.get("pid")) == sys.argv[1] for c in json.load(sys.stdin)) else "no")' "$pid" 2>/dev/null || true)
+    [[ -n "$win" ]] || win="unknown"
+    printf 'XWTAB extra pid=%s ppid=%s age=%s window=%s cmd=%s\n' "$pid" "$ppid" "$age" "$win" "$cmd" >&2
+}
+
 xwtab_wait_third() {
     local before="$1" after pid
     for _attempt in $(seq 1 60); do
@@ -11198,8 +11225,16 @@ case_xwtab() {
         || fail "xwtab: the move opened a window of its own"
     printf 'XWTAB move ok\n'
     # B's new tab torn off onto empty desktop space opens a third owned window on it.
-    local ex ey before cpid cid
+    local ex ey before before_wins cpid cid
     before=$(flea_pids | tr '\n' ' ')
+    # The parked windows' Hyprland pids, retried while the compositor catches up with the move.
+    before_wins=""
+    for i in $(seq 1 10); do
+        before_wins=$(xwtab_window_pids "$before" || true)
+        [[ -n "$before_wins" ]] && break
+        sleep 0.5
+    done
+    [[ -n "$before_wins" ]] || fail "xwtab: no Hyprland windows for the parked Flea pids $before"
     xwtab_make_room "$apid" "$bpid" || fail "xwtab: no empty desktop to tear off onto"
     read -r ex ey <<< "$xwtab_point"
     xwdrag_focus "$bpid"
@@ -11217,12 +11252,29 @@ case_xwtab() {
     for i in $(seq 1 40); do [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "1" ]] && break; sleep 0.25; done
     [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "1" ]] || fail "xwtab: B kept its torn-off tab"
     printf 'XWTAB tearoff ok\n'
-    # The tear-off opened exactly one window: the pids after it are the pids before plus the third.
-    sleep 2
-    local want_after
+    # The tear-off opened exactly one window: qs pids and Hyprland windows settle to before plus the third.
+    local want_after want_wins after after_wins
     want_after=$(printf '%s %s ' $before "$cpid" | tr ' ' '\n' | sort | tr '\n' ' ')
-    [[ "$(flea_pids | sort | tr '\n' ' ')" == "$want_after" ]] \
-        || fail "xwtab: the tear-off opened more than one window"
+    want_wins=$(printf '%s %s ' $before_wins "$cpid" | tr ' ' '\n' | sort | tr '\n' ' ')
+    after=""; after_wins=""
+    for i in $(seq 1 20); do
+        after=$(flea_pids | sort | tr '\n' ' ')
+        after_wins=$(xwtab_window_pids "$after" | tr ' ' '\n' | sort | tr '\n' ' ' || true)
+        [[ "$after" == "$want_after" && "$after_wins" == "$want_wins" ]] && break
+        sleep 0.5
+    done
+    if [[ "$after" != "$want_after" || "$after_wins" != "$want_wins" ]]; then
+        printf 'XWTAB pids before: %s\n' "$before" >&2
+        printf 'XWTAB pids after: %s\n' "$after" >&2
+        printf 'XWTAB windows before: %s want: %s after: %s\n' "$before_wins" "$want_wins" "$after_wins" >&2
+        for pid in $after; do
+            [[ " $want_after " == *" $pid "* ]] || xwtab_describe_pid "$pid"
+        done
+        for pid in $want_after; do
+            [[ " $after " == *" $pid "* ]] || printf 'XWTAB missing pid=%s\n' "$pid" >&2
+        done
+        fail "xwtab: the tear-off opened more than one window"
+    fi
     printf 'XWTAB tearoff-count ok\n'
     xwdrag_kill_second "$cpid"
     xwtab_restore_place
