@@ -9,8 +9,19 @@ cd "$(dirname "$0")/.." || exit 1
 
 fleabin="$PWD/target/debug/flea"
 [ -x "$fleabin" ] || { echo "markdown-figures.sh: no debug binary at $fleabin, run cargo build first"; exit 1; }
-qjs="$PWD/.superpowers/tools/qjs"
-[ -f "$qjs" ] || { echo "markdown-figures.sh: no qjs at $qjs"; exit 1; }
+# FLEA_QJS names the engine: an absolute executable path wins, then the Arch system binary, then the dev tree copy.
+resolve_qjs() {
+    if [ -n "${FLEA_QJS:-}" ] && [ "${FLEA_QJS#/}" != "${FLEA_QJS}" ] && [ -x "${FLEA_QJS}" ]; then
+        printf '%s\n' "${FLEA_QJS}"
+    elif [ -x /usr/bin/qjs ]; then
+        printf '%s\n' /usr/bin/qjs
+    elif [ -x "$PWD/.superpowers/tools/qjs" ]; then
+        printf '%s\n' "$PWD/.superpowers/tools/qjs"
+    else
+        return 1
+    fi
+}
+qjs=$(resolve_qjs) || { echo "markdown-figures.sh: no qjs (FLEA_QJS=${FLEA_QJS:-unset}, /usr/bin/qjs, $PWD/.superpowers/tools/qjs)"; exit 1; }
 
 test_root="$FIXTURE_ROOT/flea-markdown-figures-$$"
 sandbox_make "$test_root"
@@ -212,6 +223,26 @@ fi
 if [ "$verdict" -ne 0 ]; then
     printf '%s\n' "$output" | grep -a 'MARKDOWN_FIGURES FAIL' | head -30
     printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|RangeError|ERROR' | head -6
+    exit 1
+fi
+# The GUI memory claim: one FIGPSS line per phase and one FIGHELPER peak, with neither render phase over budget.
+FIG_PSS_BUDGET_KB=10240
+fig_pss=$(printf '%s\n' "$output" | grep -a 'MARKDOWN_FIGURES FIGPSS')
+fig_peak=$(printf '%s\n' "$output" | grep -a 'MARKDOWN_FIGURES FIGHELPER')
+printf '%s\n' "$fig_pss" "$fig_peak"
+fig_val() { printf '%s\n' "$fig_pss" | sed -n "s/.*phase=$1 pss_kb=\([0-9][0-9]*\).*/\1/p"; }
+for phase in before formulas diagrams idle; do
+    [ -n "$(fig_val "$phase")" ] || { echo "markdown-figures.sh: FAIL no FIGPSS $phase line"; verdict=1; }
+done
+printf '%s\n' "$fig_peak" | grep -q 'rss_peak_kb=[0-9]' || { echo "markdown-figures.sh: FAIL no FIGHELPER peak line"; verdict=1; }
+if [ -n "$(fig_val before)" ] && [ -n "$(fig_val formulas)" ]; then
+    [ "$(fig_val formulas)" -le "$(( $(fig_val before) + FIG_PSS_BUDGET_KB ))" ] || { echo "markdown-figures.sh: FAIL formulas PSS exceeds before by more than $FIG_PSS_BUDGET_KB kB"; verdict=1; }
+fi
+if [ -n "$(fig_val before)" ] && [ -n "$(fig_val diagrams)" ]; then
+    [ "$(fig_val diagrams)" -le "$(( $(fig_val before) + FIG_PSS_BUDGET_KB ))" ] || { echo "markdown-figures.sh: FAIL diagrams PSS exceeds before by more than $FIG_PSS_BUDGET_KB kB"; verdict=1; }
+fi
+if [ "$verdict" -ne 0 ]; then
+    printf '%s\n' "$output" | grep -a 'MARKDOWN_FIGURES FAIL' | head -30
     exit 1
 fi
 printf '%s\n' "$output" | grep -o 'MARKDOWN_FIGURES DONE.*'

@@ -35,6 +35,11 @@ Item {
     property bool starting: false
     // The suite reads this to prove the idle exit stopped the helper.
     readonly property bool helperRunning: helper.running
+    // The helper's pid, so the suite reads its peak RSS while it runs.
+    readonly property var helperPid: helper.processId
+    // The deadline timer runs only while waiting holds a ticket, so an idle
+    // session wakes for nothing; the suite reads this the same way.
+    readonly property bool deadlineRunning: deadlineTimer.running
 
     // Mirrors ui/js/FigureWorker.mjs themeKey and cacheKey, the key the two
     // sides agree on; the module itself is an ES import this QML never loads.
@@ -98,9 +103,10 @@ Item {
     }
 
     Timer {
+        id: deadlineTimer
         interval: 250
         repeat: true
-        running: true
+        running: false
         onTriggered: {
             var now = Date.now();
             for (var id in root.waiting) {
@@ -110,8 +116,11 @@ Item {
                     root.killHelper();
                 }
             }
-            if (Object.keys(root.waiting).length === 0)
+            // The tick that finds waiting empty arms the idle exit, then stops.
+            if (Object.keys(root.waiting).length === 0) {
                 root.armIdle();
+                deadlineTimer.stop();
+            }
         }
     }
 
@@ -211,6 +220,7 @@ Item {
         root.waiting[id] = { kind: kind, source: source, display: display,
             theme: theme, deadline: Date.now() + root.renderMs };
         idleTimer.stop();
+        deadlineTimer.start();
         if (root.ensureHelper()) {
             if (helper.running)
                 root.writeLine(id);

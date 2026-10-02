@@ -38,6 +38,20 @@ ShellRoot {
     property string awaitSource: ""
     // The step an awaited ask lands on; 4, 60, 80 and 100 only wait.
     property int afterAwait: 0
+    // Bounded wait for the deadline timer to stop after the last answer.
+    property bool awaitTimerStop: false
+    property double stopWaitStart: 0
+    property int stopWaitMs: 5000
+    // The memory phases: sixteen figures no functional step asks for.
+    property int measFormulas: 0
+    property int measDiagrams: 0
+    // How many figures each memory phase renders; the shell checks the phases.
+    property int measFormulaN: 10
+    property int measDiagramN: 6
+    property int measIdleExitMs: 150
+    property double idleStoppedAt: 0
+    property int idleWaitMs: 5000
+    property int prodIdleExitMs: 30000
 
     // Step order: answers, cache hit, idle exit, timeout restart, 127 latch.
     // The latch is last because it ends rendering for the session.
@@ -48,7 +62,52 @@ ShellRoot {
             shell.finish(1);
             return;
         }
-        shell.writePhase("answer", function () { shell.step = 1; shell.askFormula(); });
+        shell.check(Flea.FigureService.deadlineRunning === false, "the deadline timer is stopped before the first ask");
+        shell.logPss("before");
+        shell.step = 20;
+        shell.askMeasFormula(0);
+    }
+
+    function askMeasFormula(n) {
+        shell.ticket = Flea.FigureService.ask("math", "\\psi+" + n, true, shell.theme());
+    }
+
+    function askMeasDiagram(n) {
+        shell.ticket = Flea.FigureService.ask("mermaid", "flowchart TD\n    P" + n + " --> Q" + n, true, shell.theme());
+    }
+
+    // Sample inputs: "Pss: 45120 kB" in /proc/self/smaps_rollup, "VmHWM: 41380 kB" in /proc/<pid>/status.
+    function memField(path, key) {
+        memView.path = path;
+        memView.waitForJob();
+        var lines = memView.text().split("\n");
+        for (var i = 0; i < lines.length; i++) {
+            var cut = lines[i].split(":");
+            if (cut.length >= 2 && cut[0] === key)
+                return parseInt(cut[1], 10);
+        }
+        return -1;
+    }
+
+    function logPss(phase) {
+        shell.log("FIGPSS phase=" + phase + " pss_kb=" + shell.memField("/proc/self/smaps_rollup", "Pss"));
+    }
+
+    // The pid is bwrap's; qjs runs below it in the jail's pid namespace, so the peak is the tree's.
+    function treePeak(pid) {
+        var best = shell.memField("/proc/" + pid + "/status", "VmHWM");
+        memView.path = "/proc/" + pid + "/task/" + pid + "/children";
+        memView.waitForJob();
+        var kids = memView.text().trim().split(/\s+/);
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i].length > 0)
+                best = Math.max(best, shell.treePeak(kids[i]));
+        }
+        return best;
+    }
+
+    function logHelperPeak() {
+        shell.log("FIGHELPER rss_peak_kb=" + shell.treePeak(Flea.FigureService.helperPid));
     }
 
     function theme() {
@@ -79,7 +138,28 @@ ShellRoot {
             return;
         shell.ticket = 0;
         // Each step arms the next ask, so a late duplicate lands on no ticket.
-        if (shell.step === 1) {
+        if (shell.step === 20) {
+            shell.check(svg !== "" && error === "", "measure formula " + shell.measFormulas + " answers");
+            shell.measFormulas++;
+            if (shell.measFormulas < shell.measFormulaN) {
+                shell.askMeasFormula(shell.measFormulas);
+            } else {
+                shell.logPss("formulas");
+                shell.step = 21;
+                shell.askMeasDiagram(0);
+            }
+        } else if (shell.step === 21) {
+            shell.check(svg !== "" && error === "", "measure diagram " + shell.measDiagrams + " answers");
+            shell.measDiagrams++;
+            if (shell.measDiagrams < shell.measDiagramN) {
+                shell.askMeasDiagram(shell.measDiagrams);
+            } else {
+                shell.logPss("diagrams");
+                shell.logHelperPeak();
+                Flea.FigureService.idleExitMs = shell.measIdleExitMs;
+                shell.step = 22;
+            }
+        } else if (shell.step === 1) {
             shell.check(svg !== "" && error === "", "a formula answers through the helper");
             shell.firstSvg = svg;
             shell.step = 2;
@@ -155,7 +235,8 @@ ShellRoot {
         onFailedChanged: {
             if (fenceFig.failed && shell.step === 13) {
                 shell.check(true, "the figure shows its fence once the service latches");
-                shell.finish(0);
+                shell.awaitTimerStop = true;
+                shell.stopWaitStart = Date.now();
             }
         }
     }
@@ -203,10 +284,39 @@ ShellRoot {
                 shell.check(Date.now() - shell.t0 < 5000, "the idle exit stops the process");
             shell.askFresh(src);
         }
+        // The idle-phase reading waits past the helper's stop, then the
+        // functional flow starts on a production idle exit again.
+        if (shell.step === 22 && !Flea.FigureService.helperRunning) {
+            shell.step = 23;
+            shell.idleStoppedAt = Date.now();
+        }
+        if (shell.step === 23 && Date.now() - shell.idleStoppedAt > shell.idleWaitMs) {
+            shell.step = 0;
+            shell.logPss("idle");
+            Flea.FigureService.idleExitMs = shell.prodIdleExitMs;
+            shell.writePhase("answer", function () { shell.step = 1; shell.askFormula(); });
+        }
+        // The deadline timer stops on its own tick once waiting is empty.
+        if (shell.awaitTimerStop) {
+            if (Flea.FigureService.deadlineRunning === false) {
+                shell.awaitTimerStop = false;
+                shell.check(true, "the deadline timer stops once every answer has landed");
+                shell.finish(0);
+            } else if (Date.now() - shell.stopWaitStart > shell.stopWaitMs) {
+                shell.awaitTimerStop = false;
+                shell.check(false, "the deadline timer stops once every answer has landed");
+                shell.finish(1);
+            }
+        }
     }
 
     FileView {
         id: phaseView
+        printErrors: false
+    }
+
+    FileView {
+        id: memView
         printErrors: false
     }
 
