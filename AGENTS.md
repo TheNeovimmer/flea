@@ -2269,7 +2269,7 @@ and its tests moved to the module that already owned classifying which rename fa
 Both sides re-derived with `wc -l` on the files after that split and its review rounds:
 `src/backend/ops.rs` was 305 and `src/backend/renamecompat.rs` was 382, so both were under the 400
 hard cap and both over the 250 soft budget, which `tools/flea-file-budget` warns about and does not
-fail on.
+fail on. `src/backend/ops.rs` later crossed the hard cap and is recorded in `tools/flea-file-budget` at 444.
 
 `src/backend/renamecompat.rs` split to `src/backend/mountinfo.rs` at 396: a review round needed one
 more test and the file had four lines left under the hard cap, so `mount_type_in`, the two helpers
@@ -5295,9 +5295,7 @@ inline on the loop's thread. That is an unbounded network transfer in the one pl
 run. A 40 GB rclone folder is downloaded and re-uploaded through FUSE with no progress, because the
 copy's byte sink is discarded, and with no way to cancel, because its flag is a fresh `AtomicBool`
 nothing can set; the loop is the only writer of stdout, so the application is frozen rather than
-slow for the whole transfer. The copied tree also lands with new modification times, since the crate
-has no dependencies and the copy sets none, so a Date Modified column or sort shows when the copy
-ran rather than the file's own history. **The alternative to this freeze is not data loss, and any
+slow for the whole transfer. The copied tree carries the source mtime best effort, so a Date Modified column or sort still shows the file's own history. **The alternative to this freeze is not data loss, and any
 sentence saying it is has been wrong.** `duplicate` and `transfer` already spawn and report through
 `Event::Op`, and `rename` could do the same while still building its target through the exclusive
 copy primitives: spawning the copy and refusing to replace a raced destination are independent

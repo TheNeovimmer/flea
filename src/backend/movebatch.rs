@@ -282,6 +282,7 @@ pub(crate) fn stage_copy(
         tree: None,
         manifest: crate::backend::copymanifest::writer_for_move(src, dst),
         durability: Some(durability),
+        for_move: true,
     };
     let outcome = copy_any(src, dst, &mut p);
     let partial = p.partial.take();

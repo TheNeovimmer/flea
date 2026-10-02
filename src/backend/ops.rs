@@ -67,31 +67,10 @@ pub fn rename(path: &Path, to_name: &str) -> Result<(PathBuf, Vec<Step>), FleaEr
     Ok((to.clone(), vec![undo::moved(path, &to, before)?]))
 }
 
-// How many temp sibling names a case-only rename tries before giving up rather than looping forever.
-const CASE_TRIES: usize = 100;
-
-// A rename whose destination is the source itself under another spelling: two no-clobber steps
-// through a temp sibling, journalled as the one move the operator asked for.
+// A rename whose destination is the source itself under another spelling runs the shared twin path.
 fn case_only_rename(path: &Path, to: &Path, before: ItemIdentity) -> Result<(PathBuf, Vec<Step>), FleaError> {
-    let parent = path.parent().unwrap_or(Path::new("/"));
-    for n in 0..CASE_TRIES {
-        let temp = parent.join(format!(".flea-case-{}-{}", std::process::id(), n));
-        if temp.symlink_metadata().is_ok() {
-            continue;
-        }
-        renamecompat::rename_path(path, &temp)?;
-        // A hardlink twin is a real second name on a case-sensitive filesystem, so it is still here; the temp goes back and the rename is refused without deleting any name.
-        if to.symlink_metadata().is_ok() {
-            let _ = renamecompat::rename_path(&temp, path);
-            return Err(named("rename", path, "a file with that name is already here"));
-        }
-        if let Err(error) = renamecompat::rename_path(&temp, to) {
-            let _ = renamecompat::rename_path(&temp, path);
-            return Err(error);
-        }
-        return Ok((to.to_path_buf(), vec![undo::moved(path, to, before)?]));
-    }
-    Err(named("rename", path, "a file with that name is already here"))
+    renamecompat::case_twin_move(path, to)?;
+    Ok((to.to_path_buf(), vec![undo::moved(path, to, before)?]))
 }
 
 // "backup.tar.zst" becomes "backup.tar copy.zst": Path's own stem and extension split the last dot only, and a dotfile keeps its whole name as the stem.
@@ -133,7 +112,7 @@ pub fn duplicate(path: &Path) -> (Result<PathBuf, FleaError>, Vec<Step>) {
     let mut sink = |_: u64, _: u64| {};
     let mut durability = crate::backend::durable::Durability::begin(dst.parent().unwrap_or(path));
     let mut p = Progress { cancel: &flag, on_bytes: &mut sink, partial: None, tree: None,
-        manifest: crate::backend::copymanifest::writer_for(path, &dst), durability: Some(&mut durability) };
+        manifest: crate::backend::copymanifest::writer_for(path, &dst), durability: Some(&mut durability), for_move: false };
     match copy_any(path, &dst, &mut p) {
         Ok(()) => {
             drop(p);

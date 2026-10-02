@@ -64,6 +64,8 @@ pub struct Info {
     pub name: String,
     // Bytes available to an unprivileged process, which is f_bavail and never f_bfree.
     pub free: u64,
+    // Total blocks from statfs, so a zero-block report reads as unknown room rather than no room.
+    pub blocks: u64,
 }
 
 pub fn read(path: &Path) -> Option<Info> {
@@ -83,7 +85,7 @@ pub fn read_with_magic(path: &Path) -> (Option<Info>, Option<i64>) {
     if unsafe { statfs(c.as_ptr(), &mut buf) } != 0 {
         return (None, None);
     }
-    let info = Info { name: name_for(buf.f_type), free: buf.f_bavail.saturating_mul(buf.f_bsize.max(0) as u64) };
+    let info = Info { name: name_for(buf.f_type), free: buf.f_bavail.saturating_mul(buf.f_bsize.max(0) as u64), blocks: buf.f_blocks };
     (Some(info), Some(buf.f_type))
 }
 
@@ -166,13 +168,13 @@ mod tests {
 
     #[test]
     fn the_line_carries_the_name_the_free_bytes_and_the_directory_they_are_of() {
-        let line = fsinfo_line(&Some(Info { name: "btrfs".to_string(), free: 442_000_000_000 }), "/home/gm", "");
+        let line = fsinfo_line(&Some(Info { name: "btrfs".to_string(), free: 442_000_000_000, blocks: 100 }), "/home/gm", "");
         assert_eq!(line, r#"{"t":"fsinfo","fs":"btrfs","free":442000000000,"path":"/home/gm","class":""}"#);
     }
 
     #[test]
     fn the_line_names_the_directory_class_beside_its_figures() {
-        let line = fsinfo_line(&Some(Info { name: "cifs".to_string(), free: 7 }), "/media/nas", "network");
+        let line = fsinfo_line(&Some(Info { name: "cifs".to_string(), free: 7, blocks: 100 }), "/media/nas", "network");
         assert_eq!(line, r#"{"t":"fsinfo","fs":"cifs","free":7,"path":"/media/nas","class":"network"}"#);
         let line = fsinfo_line(&None, "/gone", "usb");
         assert_eq!(line, r#"{"t":"fsinfo","fs":"","free":0,"path":"/gone","class":"usb"}"#);

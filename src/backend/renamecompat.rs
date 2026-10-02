@@ -34,8 +34,7 @@ extern "C" {
     ) -> i32;
 }
 
-// Some FUSE mounts reject directory RENAME_NOREPLACE; callers that can safely copy and remove handle that case themselves.
-// A kernel that answers EINVAL or EOPNOTSUPP to the flag falls back here, so every caller of this one function gains it.
+// Some FUSE mounts reject directory RENAME_NOREPLACE, so EINVAL or EOPNOTSUPP falls back here for every caller.
 pub fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     let c_from = path_c(from)?;
     let c_to = path_c(to)?;
@@ -58,12 +57,19 @@ pub fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     }
     let error = if forced { io::Error::from_raw_os_error(EINVAL) } else { io::Error::last_os_error() };
     match error.raw_os_error() {
-        Some(EINVAL) | Some(EOPNOTSUPP) => noreplace_fallback(from, to),
+        Some(EINVAL) | Some(EOPNOTSUPP) => {
+            // A copy-fallback mount keeps its EINVAL, so rclone and megafs stay on copy_then_remove.
+            if needs_copy_fallback(from, &error) {
+                return Err(error);
+            }
+            noreplace_fallback(from, to)
+        }
         _ => Err(error),
     }
 }
 
 // The flagless fallback keeps no-clobber semantics: a taken destination stays EEXIST, and a file on a filesystem without hard links moves by plain rename.
+// corner: the lstat-then-rename window can replace a destination created in between; copy-fallback mounts never reach it because rename_noreplace keeps their EINVAL.
 fn noreplace_fallback(from: &Path, to: &Path) -> io::Result<()> {
     if to.symlink_metadata().is_ok() {
         return Err(io::Error::from_raw_os_error(EEXIST));
@@ -89,6 +95,13 @@ fn noreplace_fallback(from: &Path, to: &Path) -> io::Result<()> {
 thread_local! {
     static FORCE_FALLBACK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static FAIL_HARD_LINK: std::cell::Cell<Option<i32>> = const { std::cell::Cell::new(None) };
+    static FORCE_COPY_FALLBACK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+// A test makes needs_copy_fallback answer true, so a copy-fallback mount needs no FUSE mount.
+#[cfg(test)]
+pub fn test_force_copy_fallback(force: bool) {
+    FORCE_COPY_FALLBACK.with(|flag| flag.set(force));
 }
 
 // The injected EINVAL hook: the next rename_noreplace answers as a kernel without the flag.
@@ -124,6 +137,14 @@ fn take_forced_fallback() -> bool {
 
 // Rename uses the atomic syscall everywhere except a measured fallback, which copies exclusively before removing the source.
 pub(crate) fn rename_path(from: &Path, to: &Path) -> Result<(), FleaError> {
+    if is_same_item(from, to) {
+        return case_twin_move(from, to);
+    }
+    rename_inner(from, to)
+}
+
+// One rename without the case-twin check, so the twin's own temp steps never recurse.
+fn rename_inner(from: &Path, to: &Path) -> Result<(), FleaError> {
     match rename_noreplace(from, to) {
         Ok(()) => Ok(()),
         Err(error) if error.raw_os_error() == Some(EXDEV) || needs_copy_fallback(from, &error) => copy_then_remove(from, to),
@@ -131,8 +152,86 @@ pub(crate) fn rename_path(from: &Path, to: &Path) -> Result<(), FleaError> {
     }
 }
 
+// Two paths naming one inode are one case twin, so a no-clobber rename takes the temp path.
+pub(crate) fn is_same_item_for_move(from: &Path, to: &Path) -> bool {
+    is_same_item(from, to)
+}
+
+// Two paths naming one inode are one case twin, so a no-clobber rename takes the temp path.
+fn is_same_item(from: &Path, to: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (from.symlink_metadata(), to.symlink_metadata()) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
+}
+
+// How many temp sibling names a case twin tries before giving up rather than looping forever.
+const CASE_TRIES: usize = 100;
+
+// A case twin moves via a temp sibling, so undo and redo share the path the rename took.
+pub(crate) fn case_twin_move(from: &Path, to: &Path) -> Result<(), FleaError> {
+    let parent = from.parent().unwrap_or(Path::new("/"));
+    for n in 0..CASE_TRIES {
+        let temp = parent.join(format!(".flea-case-{}-{}", std::process::id(), n));
+        if temp.symlink_metadata().is_ok() {
+            continue;
+        }
+        rename_inner(from, &temp)?;
+        if to.symlink_metadata().is_ok() {
+            // A hardlink twin is a real second name, so the temp goes back and the rename is refused.
+            if let Err(back) = move_back(&temp, from) {
+                return Err(kept_temp(&temp, back));
+            }
+            return Err(FleaError { where_: "rename".to_string(), path: from.to_string_lossy().to_string(), msg: "a file with that name is already here".to_string() });
+        }
+        if let Err(error) = rename_inner(&temp, to) {
+            if let Err(back) = move_back(&temp, from) {
+                return Err(kept_temp(&temp, back));
+            }
+            return Err(error);
+        }
+        return Ok(());
+    }
+    Err(FleaError { where_: "rename".to_string(), path: from.to_string_lossy().to_string(), msg: "a file with that name is already here".to_string() })
+}
+
+// The move-back a twin strands on, injectable in tests so a failed restore needs no sick filesystem.
+fn move_back(temp: &Path, from: &Path) -> Result<(), FleaError> {
+    #[cfg(test)]
+    if take_fail_twin_back() {
+        return Err(from_io("rename", &from.to_string_lossy(), &std::io::Error::from_raw_os_error(5)));
+    }
+    rename_inner(temp, from)
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAIL_TWIN_BACK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+// A test fails the next twin move-back, so the kept-temp error needs no unwritable parent.
+#[cfg(test)]
+pub fn test_fail_twin_back() {
+    FAIL_TWIN_BACK.with(|flag| flag.set(true));
+}
+
+#[cfg(test)]
+fn take_fail_twin_back() -> bool {
+    FAIL_TWIN_BACK.with(|flag| flag.replace(false))
+}
+
+// A move-back that fails strands the file under temp, so the error names temp in the kept shape.
+fn kept_temp(temp: &Path, back: FleaError) -> FleaError {
+    FleaError { where_: KEPT.to_string(), path: temp.to_string_lossy().to_string(), msg: back.msg }
+}
+
 // WebDAV is decided from the path and errno alone, so a FUSE check never reads mountinfo for it.
 fn needs_copy_fallback(from: &Path, error: &io::Error) -> bool {
+    #[cfg(test)]
+    if FORCE_COPY_FALLBACK.with(|flag| flag.get()) {
+        return error.raw_os_error() == Some(EINVAL);
+    }
     if needs_gvfs_webdav_fallback(from, error) {
         return true;
     }
@@ -172,7 +271,7 @@ pub(crate) fn copy_then_remove(from: &Path, to: &Path) -> Result<(), FleaError> 
     let mut sink = |_: u64, _: u64| {};
     // EXDEV and a GVFS WebDAV rename land here too, and a dav share is a durable destination.
     let mut durability = crate::backend::durable::Durability::begin(to.parent().unwrap_or(from));
-    let mut progress = Progress { cancel: &cancel, on_bytes: &mut sink, partial: None, tree: None, manifest: None, durability: Some(&mut durability) };
+    let mut progress = Progress { cancel: &cancel, on_bytes: &mut sink, partial: None, tree: None, manifest: None, durability: Some(&mut durability), for_move: true };
     if let Err(error) = copy_any(from, to, &mut progress) {
         if progress.partial.as_deref() == Some(to) {
             if let Err(cleanup) = remove_any(to) {
@@ -560,6 +659,48 @@ mod tests {
         assert_eq!(error.raw_os_error(), Some(EEXIST), "a collision stays EEXIST");
         assert_eq!(std::fs::read_to_string(&to).unwrap(), "target body");
         assert_eq!(std::fs::read_to_string(&from).unwrap(), "source body");
+    }
+    // Sample input: forced EINVAL on a copy-fallback mount answers EINVAL, so rename_path copies.
+    #[test]
+    fn a_copy_fallback_mount_keeps_its_einval_for_the_copy_path() {
+        let d = TestDir::new("noreplacecopyfallback");
+        let from = d.dir("source");
+        std::fs::write(from.join("inside.txt"), "body").unwrap();
+        let to = d.join("target");
+        test_force_fallback(true);
+        test_force_copy_fallback(true);
+        let error = rename_noreplace(&from, &to).expect_err("a copy-fallback mount keeps EINVAL");
+        test_force_copy_fallback(false);
+        test_force_fallback(false);
+        assert_eq!(error.raw_os_error(), Some(EINVAL), "rclone and megafs stay on copy_then_remove");
+        assert!(from.join("inside.txt").is_file(), "the source stays until the copy path runs");
+        assert!(to.symlink_metadata().is_err(), "the fallback creates nothing on this path");
+    }
+    // Sample input: a.txt hardlinked to A.txt, so rename_path meets one inode under two names.
+    #[test]
+    fn a_same_item_rename_refuses_without_losing_a_name() {
+        let d = TestDir::new("casetwinrefuse");
+        let from = d.file("a.txt", "body");
+        let twin = d.join("A.txt");
+        std::fs::hard_link(&from, &twin).unwrap();
+        let error = rename_path(&from, &twin).expect_err("a second name is a collision, not a move");
+        assert_eq!(error.msg, "a file with that name is already here");
+        assert_eq!(std::fs::read_to_string(&from).unwrap(), "body", "the source is moved back, not lost");
+        assert_eq!(std::fs::read_to_string(&twin).unwrap(), "body", "the twin name is never deleted");
+    }
+    // Sample input: the same hardlink pair with the move-back forced to fail strands temp.
+    #[test]
+    fn a_failed_twin_move_back_names_its_temp() {
+        let d = TestDir::new("casetwinstranded");
+        let from = d.file("a.txt", "body");
+        let twin = d.join("A.txt");
+        std::fs::hard_link(&from, &twin).unwrap();
+        test_fail_twin_back();
+        let error = rename_path(&from, &twin).expect_err("a failed move-back strands the file");
+        assert_eq!(error.where_, KEPT, "the stranded file answers the kept shape");
+        assert!(error.path.contains(".flea-case-"), "the error names the temp: {}", error.path);
+        let temp = d.path().join(error.path.rsplit('/').next().unwrap_or(&error.path));
+        assert!(temp.is_file() || d.path().join(&error.path).is_file() || Path::new(&error.path).is_file(), "the temp holds the file");
     }
     // The FUSE arm reads the real mountinfo, so a unit test drives only the WebDAV arm; live mount batteries drive the other.
     #[test]

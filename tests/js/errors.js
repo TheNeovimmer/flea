@@ -20,7 +20,7 @@ function run(check) {
           Errors.sentence("scan", "file is no longer available", "gone"),
           "That share changed, so this folder is no longer available.")
     check("a disconnected share asks for a remount",
-          Errors.sentence("scan", "Transport endpoint is not connected", "gone"),
+          Errors.sentence("scan", "not connected", "gone"),
           "That share is disconnected; remount it.")
     check("an unresponsive share says so",
           Errors.sentence("scan", "operation timed out", "gone"),
