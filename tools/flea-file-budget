@@ -28,11 +28,11 @@ src/backend/metareq.rs 416
 src/backend/movebatch.rs 469
 src/backend/movebatch_tests.rs 751
 src/backend/opsdispatch.rs 810
-src/backend/opsreq.rs 513
-src/backend/opsreq/tests.rs 461
+src/backend/opsreq.rs 520
+src/backend/opsreq/tests.rs 474
 src/backend/permissions.rs 477
 src/backend/proto.rs 287
-src/backend/run.rs 454
+src/backend/run.rs 458
 src/backend/thumbs.rs 442
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 698
@@ -63,7 +63,7 @@ tests/js/status.js 354
 tests/rename-grid-bottom.qml 419
 tests/rename-grid-bottom.js 303
 tests/rename-lifecycle-check.js 356
-ui/Backend.qml 435
+ui/Backend.qml 437
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 474
 ui/ContextMenu.qml 625

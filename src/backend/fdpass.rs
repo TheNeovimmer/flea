@@ -15,9 +15,12 @@ const MSG_NOSIGNAL: c_int = 0x4000;
 const MSG_CTRUNC: c_int = 0x8;
 // A job carries exactly three: the input, the output and the reply socket.
 pub const MAX_FDS: usize = 3;
-// cmsghdr is 16 bytes on x86_64 and its payload is padded to 8, so three ints take CMSG_SPACE(12) = 32.
+// A Wayland sendmsg carries up to 28, libwayland's per-message maximum, so the clipboard
+// path sizes its control buffer for those; the worker's three still fit unchanged.
+pub const STREAM_MAX_FDS: usize = 28;
+// cmsghdr is 16 bytes on x86_64 and its payload is padded to 8, so 28 ints take CMSG_SPACE(112) = 128.
 const CMSG_HEADER: usize = 16;
-const CMSG_SPACE: usize = 32;
+const CMSG_SPACE: usize = 128;
 // The largest request payload either side ever sends.
 pub const MAX_PAYLOAD: usize = 16;
 
@@ -85,7 +88,9 @@ pub fn send(sock: RawFd, payload: &[u8], fds: &[RawFd]) -> std::io::Result<()> {
             buf[at..at + 4].copy_from_slice(&fd.to_ne_bytes());
         }
         msg.control = control.0.as_mut_ptr() as *mut c_void;
-        msg.controllen = CMSG_SPACE;
+        // The exact used length, never the whole buffer: the kernel walks past the first
+        // header while room for another remains, and a zeroed header reads as cmsg_len 0.
+        msg.controllen = (CMSG_HEADER + data_len + 7) & !7;
     }
     let sent = unsafe { sendmsg(sock, &msg, MSG_NOSIGNAL) };
     if sent < 0 {
@@ -132,6 +137,81 @@ pub fn recv(sock: RawFd) -> std::io::Result<Option<Received>> {
     Ok(Some(Received { payload: bytes[..got as usize].to_vec(), fds }))
 }
 
+// A stream socket carries framing the packet socket never sees, so these two move an
+// arbitrary payload with up to STREAM_MAX_FDS descriptors; the cmsg layout matches send/recv above.
+pub fn send_stream(sock: RawFd, mut payload: &[u8], fds: &[RawFd]) -> std::io::Result<()> {
+    assert!(fds.len() <= STREAM_MAX_FDS && !payload.is_empty());
+    let mut first = true;
+    while !payload.is_empty() {
+        let mut iov = IoVec { base: payload.as_ptr() as *mut c_void, len: payload.len() };
+        let mut control = Control([0; CMSG_SPACE]);
+        let mut msg = MsgHdr {
+            name: std::ptr::null_mut(),
+            namelen: 0,
+            iov: &mut iov,
+            iovlen: 1,
+            control: std::ptr::null_mut(),
+            controllen: 0,
+            flags: 0,
+        };
+        // Only the first chunk carries the descriptors; the rest carry data alone.
+        if first && !fds.is_empty() {
+            let data_len = std::mem::size_of_val(fds);
+            let buf = &mut control.0;
+            buf[0..8].copy_from_slice(&((CMSG_HEADER + data_len) as u64).to_ne_bytes());
+            buf[8..12].copy_from_slice(&SOL_SOCKET.to_ne_bytes());
+            buf[12..16].copy_from_slice(&SCM_RIGHTS.to_ne_bytes());
+            for (i, fd) in fds.iter().enumerate() {
+                let at = CMSG_HEADER + i * 4;
+                buf[at..at + 4].copy_from_slice(&fd.to_ne_bytes());
+            }
+            msg.control = control.0.as_mut_ptr() as *mut c_void;
+            // The exact used length, never the whole buffer: the kernel walks past the first
+            // header while room for another remains, and a zeroed header reads as cmsg_len 0.
+            msg.controllen = (CMSG_HEADER + data_len + 7) & !7;
+        }
+        let sent = unsafe { sendmsg(sock, &msg, MSG_NOSIGNAL) };
+        if sent < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if sent == 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "a short send on a stream socket"));
+        }
+        payload = &payload[sent as usize..];
+        first = false;
+    }
+    Ok(())
+}
+
+// One recvmsg off a stream socket: its bytes and its descriptors, each already owned.
+// Ok(None) is an orderly end; an empty dataless message never arrives on a stream.
+pub fn recv_stream(sock: RawFd) -> std::io::Result<Option<(Vec<u8>, Vec<OwnedFd>)>> {
+    let mut bytes = [0u8; 8192];
+    let mut iov = IoVec { base: bytes.as_mut_ptr() as *mut c_void, len: bytes.len() };
+    let mut control = Control([0; CMSG_SPACE]);
+    let mut msg = MsgHdr {
+        name: std::ptr::null_mut(),
+        namelen: 0,
+        iov: &mut iov,
+        iovlen: 1,
+        control: control.0.as_mut_ptr() as *mut c_void,
+        controllen: CMSG_SPACE,
+        flags: 0,
+    };
+    let got = unsafe { recvmsg(sock, &mut msg, MSG_CMSG_CLOEXEC) };
+    if got < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if got == 0 {
+        return Ok(None);
+    }
+    if msg.flags & MSG_CTRUNC != 0 {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "the descriptors did not fit"));
+    }
+    let fds = descriptors(&control.0, msg.controllen);
+    Ok(Some((bytes[..got as usize].to_vec(), fds)))
+}
+
 // Sample input, three descriptors: cmsg_len 28, SOL_SOCKET, SCM_RIGHTS, then the ints 7, 8 and 9.
 fn descriptors(buf: &[u8; CMSG_SPACE], filled: usize) -> Vec<OwnedFd> {
     let mut out = Vec::new();
@@ -144,7 +224,9 @@ fn descriptors(buf: &[u8; CMSG_SPACE], filled: usize) -> Vec<OwnedFd> {
     if level != SOL_SOCKET || kind != SCM_RIGHTS || len < CMSG_HEADER || len > filled {
         return out;
     }
-    let count = ((len - CMSG_HEADER) / 4).min(MAX_FDS);
+    // Every descriptor the kernel duplicated is taken: leaving any behind would leak it,
+    // since the kernel closes only the ones that did not fit, and those already failed above.
+    let count = (len - CMSG_HEADER) / 4;
     for i in 0..count {
         let at = CMSG_HEADER + i * 4;
         let fd = c_int::from_ne_bytes(buf[at..at + 4].try_into().unwrap());

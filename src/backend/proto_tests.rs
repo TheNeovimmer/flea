@@ -273,3 +273,16 @@ fn a_jump_request_carries_both_client_sources_and_a_bare_one_carries_none() {
     assert!(matches!(parse_request(r#"{"c":"jump"}"#),
         Request::Jump { id: 0, favourites, recent } if favourites.is_empty() && recent.is_empty()));
 }
+
+#[test]
+fn clip_requests_carry_their_operation_paths_and_token() {
+    assert!(matches!(parse_request(r#"{"c":"clipSet","op":"copy","paths":["/home/gm/a.txt"]}"#),
+        Request::ClipSet { op, paths } if op == "copy" && paths == ["/home/gm/a.txt"]));
+    assert!(matches!(parse_request(r#"{"c":"clipGet"}"#), Request::ClipGet));
+    assert!(matches!(parse_request(r#"{"c":"clipClear","token":"ab12"}"#),
+        Request::ClipClear { token, cut } if token == "ab12" && cut.is_empty()));
+    assert!(matches!(parse_request(r#"{"c":"clipClear"}"#), Request::ClipClear { token, cut } if token.is_empty() && cut.is_empty()));
+    assert!(matches!(parse_request(r#"{"c":"clipClear","cut":["/a"]}"#),
+        Request::ClipClear { cut, .. } if cut == ["/a"]));
+    assert!(matches!(parse_request(r#"{"c":"clipWatch"}"#), Request::ClipWatch));
+}

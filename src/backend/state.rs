@@ -44,6 +44,8 @@ pub struct State {
     pub search_reported: Instant,
     // Which numbering the rows are in; forget_rows moves it, see src/backend/rowguard.rs.
     pub generation: u64,
+    // The clipboard watcher runs once per backend; a second clipWatch is a no-op.
+    pub clip_watching: bool,
 }
 
 impl Tables {
@@ -62,6 +64,7 @@ impl State {
             listing: Listing::new(), base: PathBuf::new(), asked: Vec::new(), outstanding: 0,
             dirsizes: HashMap::new(), dirsize_queue: Vec::new(), dirsize_worker,
             search: None, search_reported: Instant::now(), generation: FIRST_LISTING - 1,
+            clip_watching: false,
         }
     }
 }

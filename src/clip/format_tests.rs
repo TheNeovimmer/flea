@@ -1,0 +1,124 @@
+use super::*;
+
+// Every format round trips a name holding a newline, %, #, ?, spaces and non-ASCII UTF-8.
+fn awkward() -> Vec<String> {
+    vec![
+        "/tmp/line\nbreak.txt".to_string(),
+        "/tmp/100%.txt".to_string(),
+        "/tmp/#hash.txt".to_string(),
+        "/tmp/what?.txt".to_string(),
+        "/tmp/with spaces.txt".to_string(),
+        "/tmp/caf\u{e9} \u{2615}.txt".to_string(),
+    ]
+}
+
+#[test]
+fn gnome_round_trips_without_a_trailing_newline() {
+    for op in ["copy", "cut"] {
+        let paths = awkward();
+        let bytes = build_gnome(op, &paths);
+        assert!(!bytes.ends_with(b"\n"));
+        let (got_op, got_paths, skipped) = parse_gnome(&bytes).expect("a file selection");
+        assert_eq!(got_op, op);
+        assert_eq!(got_paths, paths);
+        assert_eq!(skipped, 0);
+    }
+}
+
+#[test]
+fn urilist_round_trips_with_crlf_and_a_final_crlf() {
+    let paths = awkward();
+    let bytes = build_urilist(&paths);
+    assert!(bytes.ends_with(b"\r\n"));
+    let (got, skipped) = parse_urilist(&bytes);
+    assert_eq!(got, paths);
+    assert_eq!(skipped, 0);
+    // LF alone reads too, the shape Drag.js never writes but others do.
+    let lf = bytes.windows(2).fold(Vec::new(), |mut acc, w| {
+        if w == b"\r\n" {
+            acc.push(b'\n');
+        } else if acc.last() != Some(&b'\r') {
+            acc.push(w[0]);
+        }
+        acc
+    });
+    let (got, _) = parse_urilist(&lf);
+    assert_eq!(got, paths);
+}
+
+#[test]
+fn comments_localhost_and_plain_text_behave() {
+    let bytes = b"# a comment\nfile://localhost/tmp/a.txt\n/text/plain\n";
+    let (got, skipped) = parse_urilist(bytes);
+    assert_eq!(got, vec!["/tmp/a.txt".to_string()]);
+    assert_eq!(skipped, 1, "the bare path is refused, the comment is not counted");
+    assert!(parse_gnome(b"hello\nfile:///tmp/a.txt").is_none());
+    assert_eq!(build_plain(&["/a".to_string()]), b"/a");
+}
+
+#[test]
+fn every_refusal_is_a_skip_and_never_a_failed_read() {
+    // Bad escapes, NUL, a relative path, dot components, non-UTF-8, duplicates, other schemes.
+    let lines: Vec<Vec<u8>> = vec![
+        b"copy".to_vec(),
+        b"file:///tmp/ok.txt".to_vec(),
+        b"file:///tmp/%zz.txt".to_vec(),
+        b"file:///tmp/%00.txt".to_vec(),
+        b"file://other/tmp/a.txt".to_vec(),
+        b"file:///tmp/../etc.txt".to_vec(),
+        b"file:///tmp/./a.txt".to_vec(),
+        b"file:///tmp/%ff.txt".to_vec(),
+        b"file:///tmp/ok.txt".to_vec(),
+        b"https://example.com/x".to_vec(),
+        b"file:///tmp/second.txt".to_vec(),
+    ];
+    let bytes = lines.join(&b'\n');
+    let (op, paths, skipped) = parse_gnome(&bytes).expect("a file selection");
+    assert_eq!(op, "copy");
+    assert_eq!(paths, vec!["/tmp/ok.txt".to_string(), "/tmp/second.txt".to_string()]);
+    assert_eq!(skipped, 8);
+}
+
+#[test]
+fn kde_and_flea_tokens_decide_cut_and_identity() {
+    assert!(parse_kde_cut(b"1"));
+    assert!(parse_kde_cut(b"1\r\n"));
+    assert!(!parse_kde_cut(b"0"));
+    assert_eq!(parse_flea(b"cut ab12cd34ab12cd34ab12cd34ab12cd34"), Some(("cut".into(), "ab12cd34ab12cd34ab12cd34ab12cd34".into())));
+    assert!(parse_flea(b"copy short").is_none());
+    assert!(parse_flea(b"copy ab12cd34ab12cd34ab12cd34ab12cd3!").is_none());
+    assert!(parse_flea(b"move ab12cd34ab12cd34ab12cd34ab12cd34").is_none());
+}
+
+#[test]
+fn clip_paths_are_absolute_without_nul_or_parent_climbs() {
+    assert!(validate_clip_paths(&["/a/b".to_string()]).is_ok());
+    assert!(validate_clip_paths(&["relative".to_string()]).is_err());
+    assert!(validate_clip_paths(&["/a\0b".to_string()]).is_err());
+    assert!(validate_clip_paths(&["/a/../b".to_string()]).is_err());
+}
+
+#[test]
+fn a_hundred_thousand_paths_is_the_most_any_payload_names() {
+    let ok: Vec<String> = (0..100000).map(|i| format!("/tmp/f{}.txt", i)).collect();
+    assert!(validate_clip_paths(&ok).is_ok());
+    let mut over = ok;
+    over.push("/tmp/one-more.txt".to_string());
+    assert!(validate_clip_paths(&over).is_err());
+}
+
+#[test]
+fn a_made_token_is_32_hex_chars() {
+    // /dev/urandom never reaches EOF, so a read to the end grows without bound (it took
+    // 21 GB before it was found). Off a thread with a deadline this fails instead of hanging.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(make_token());
+    });
+    let token = rx
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("a token within 2 s")
+        .expect("a token made");
+    assert_eq!(token.len(), 32);
+    assert!(token.bytes().all(|b| b.is_ascii_hexdigit()));
+}

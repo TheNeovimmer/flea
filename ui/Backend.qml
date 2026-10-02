@@ -55,6 +55,8 @@ Item {
     signal redone(string op, bool ok)
     signal redoStarted(int id, int n, string op)
     signal metaResult(var message)
+    // The system clipboard for files, one line for set, get and clear alike.
+    signal clipResult(var message)
     property int metaToken: 0
     signal meta(int row, int w, int h, int orient, real durationMs, int sampleRate, int entries, real unpacked, bool archiveFailed, var names, real lines, bool partial, bool linesFailed, string target, bool targetDir, string owner)
     signal fsInfo(string fs, real free, string path, string storageClass)
