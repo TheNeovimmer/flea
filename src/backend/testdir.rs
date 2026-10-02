@@ -12,9 +12,6 @@ const PREFIX: &str = "flea-test-";
 // A sandbox lives under the temp root, which is at least two components deep, so a shallower path is a bug and not a root.
 const MIN_COMPONENTS: usize = 3;
 
-// A tick of the kernel clock is a few milliseconds, so a recreated file keeps the old stamp for far fewer tries than this.
-const MAX_RECREATES: usize = 1_000_000;
-
 // Two tests in one process must not collide, and this crate takes no dependency that would generate a suffix.
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
@@ -100,20 +97,16 @@ impl TestDir {
         p
     }
 
-    // Recreate until inode or birth time differs, since coarse ticks and freed-inode reuse can conceal a replacement.
+    // Hold the old inode across unlink and creation so ext4 cannot reuse it, even without birth time.
     pub fn replace_file(&self, path: &Path, body: &str) {
         self.assert_contains(path);
-        let old = path.symlink_metadata().expect("the file being replaced");
-        let old_born = crate::backend::permissions::born_of(&old);
-        for _ in 0..MAX_RECREATES {
-            std::fs::remove_file(path).expect("test sandbox remove");
-            std::fs::write(path, body).expect("test sandbox file");
-            let now = path.symlink_metadata().expect("the replacement");
-            if old_born.is_none() || now.ino() != old.ino() || crate::backend::permissions::born_of(&now) != old_born {
-                return;
-            }
-        }
-        panic!("the replacement kept the old inode and birth stamp: {}", path.display());
+        let held = std::fs::File::open(path).expect("hold the file being replaced");
+        let old = held.metadata().expect("the file being replaced");
+        std::fs::remove_file(path).expect("test sandbox remove");
+        std::fs::write(path, body).expect("test sandbox file");
+        let now = path.symlink_metadata().expect("the replacement");
+        assert_ne!(old.ino(), now.ino(), "the replacement must have a new inode: {}", path.display());
+        drop(held);
     }
 }
 
@@ -280,21 +273,18 @@ mod tests {
     }
 
     #[test]
-    fn replacing_an_unheld_file_changes_its_inode_or_known_birth_time() {
+    fn replacing_an_unheld_file_changes_its_inode_without_birth_time() {
+        // Repeated replacements exercise freed-inode reuse without waiting for a birth-time tick.
+        const REPLACEMENTS: usize = 64;
         let d = TestDir::new("replaceidentity");
         let path = d.file("a.txt", "old");
-        let old = path.symlink_metadata().unwrap();
-        let old_born = crate::backend::permissions::born_of(&old);
-        d.replace_file(&path, "new");
-        let new = path.symlink_metadata().unwrap();
-        let new_born = crate::backend::permissions::born_of(&new);
-        if old.ino() == new.ino() && old_born.is_none() && new_born.is_none() {
-            eprintln!("identity check skipped: filesystem has no birth time and reused the inode");
-            return;
+        for _ in 0..REPLACEMENTS {
+            let old = path.symlink_metadata().unwrap();
+            d.replace_file(&path, "new");
+            let new = path.symlink_metadata().unwrap();
+            assert_ne!(old.ino(), new.ino(), "replacement must change the inode without relying on birth time");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
         }
-        assert!(old.ino() != new.ino() || matches!((old_born, new_born),
-            (Some(old), Some(new)) if old != new),
-            "replacement retained inode {} and birth time {:?}", old.ino(), old_born);
     }
 
     #[test]
