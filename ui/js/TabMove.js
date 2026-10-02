@@ -1,11 +1,9 @@
 .pragma library
 
-// Tabs040 callout 1: tabs reorder by drag and by keys. The pure reorder alone,
-// with no pane in it; ui/js/Tabs.js snapshots the current tab around it and
-// writes the packed strip back. Sample input: items ["a","b","c"], from 0.
+// Reorder is pure with no pane; Tabs.js snapshots around it.
+// Sample input: items ["a","b","c"], from 0.
 
-// A drag answers an insertion point, 0 before the first tab and count past the
-// last, so the pointer names where the tab lands rather than which tab it takes.
+// A drag names the insertion point, not the tab it takes.
 function insertionAt(x, tabWidth, count) {
     if (!(tabWidth > 0) || !(count > 0))
         return 0
@@ -17,8 +15,7 @@ function step(from, delta, count) {
     return Math.max(0, Math.min(count - 1, from + delta))
 }
 
-// Move the entry at from so it ends at index to, keeping the current tab
-// current: the entry dragged along follows, and one crossed over shifts back.
+// A move keeps the current tab current across the shift.
 function reorder(items, from, to, index) {
     if (from < 0 || from >= items.length || to < 0 || to >= items.length || from === to)
         return index

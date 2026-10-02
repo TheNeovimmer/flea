@@ -42,7 +42,7 @@ src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 698
 src/backend/trashdelete.rs 917
 src/gui.rs 501
-src/tui/actions.rs 1053
+src/tui/actions.rs 1067
 src/tui/input.rs 449
 src/tui/model.rs 1247
 src/tui/render.rs 889

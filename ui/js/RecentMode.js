@@ -35,7 +35,7 @@ function run(pane, paths) {
         pane.message("A directory is already loading.", false)
         return
     }
-    // The newest-first order is kept for the way back, so leaving restores it.
+    // The standing order is kept for the way back, not the mtime it replaces.
     if (pane.recentMode.length === 0 && pane.backend) {
         pane.recentSortBy = pane.backend.sortBy
         pane.recentSortDesc = pane.backend.sortDesc === true
