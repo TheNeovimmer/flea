@@ -79,7 +79,7 @@ mod tests {
         let (mut st, tb) = (State::new(Worker::new(events)), Tables::load());
         let pool = Pool::new(1, results, cache, Arc::clone(&tb.aliases), Arc::clone(&tb.thumbs));
         let fd = -1;
-        let done = crate::backend::iomount::list_dir(path.to_string(), false, 2, r#"{"c":"list"}"#.to_string(), Arc::clone(&tb.mime), fd).expect("list");
+        let done = crate::backend::iomount::list_dir(path.to_string(), false, 2, r#"{"c":"list"}"#.to_string(), Arc::clone(&tb.mime), fd, channel::<crate::backend::events::Event>().0).expect("list");
         let mut out = Vec::new();
         crate::backend::run::adopt_listed(&mut out, &mut st, &pool, &tb, path, done);
         field_usize(String::from_utf8(out).unwrap().lines().nth(1)?, "listing")

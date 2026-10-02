@@ -5319,33 +5319,24 @@ the transfer's are, or a menu's captured selection.
 **One of `transfer`, `trash` or `duplicate` runs at a time.** `opsdispatch.rs` holds `Ops::running`, and a second `transfer`,
 `trash` or `duplicate` while one is live answers an `error` line rather than queueing. The reason is the
 surface, not the backend: the operations design gives transfers the status bar's single transient slot,
-so a second concurrent operation would have nowhere to report itself. `rename` and `mkdir` are exempt because
-neither spawns at all. An `archive` extract takes the transfer slot, so a copy, move or second extract
+so a second concurrent operation would have nowhere to report itself. `rename` and `mkdir` are exempt on a local mount, where
+neither spawns at all; a remote one holds the slot past its deadline instead, see below. An `archive` extract takes the transfer slot, so a copy, move or second extract
 is refused busy while one runs; a compress and a convert never claim it: `Ops::claim_id` numbers them
 and they run alongside by design, tracked in the detached registry a quit cancels, so the cap was never one write of any kind.
 
-**`rename` and `mkdir` run on the loop's thread, the other three spawn.** Both normally take one
+**A local `rename` or `mkdir` answers on the loop's thread; a remote one runs on a worker.** Both normally take one
 syscall, but neither compatibility path below is one: an rclone directory rename copies the whole
 tree and a GVFS WebDAV rename copies whatever the path is, file or tree, before removing the source,
-inline on the loop's thread. That is an unbounded network transfer in the one place nothing else can
-run. A 40 GB rclone folder is downloaded and re-uploaded through FUSE with no progress, because the
-copy's byte sink is discarded, and with no way to cancel, because its flag is a fresh `AtomicBool`
-nothing can set; the loop is the only writer of stdout, so the application is frozen rather than
-slow for the whole transfer. The copied tree also lands with new modification times, since the crate
+and the copied tree lands with new modification times, since the crate
 has no dependencies and the copy sets none, so a Date Modified column or sort shows when the copy
-ran rather than the file's own history. **The alternative to this freeze is not data loss, and any
-sentence saying it is has been wrong.** `duplicate` and `transfer` already spawn and report through
-`Event::Op`, and `rename` could do the same while still building its target through the exclusive
-copy primitives: spawning the copy and refusing to replace a raced destination are independent
-choices, so taking the first has never required giving up the second. Spawning was not taken here
-because a spawn that answers this complaint needs the progress and the cancel the inline copy throws
-away, which turns `rename` from answer-once into started, progress and done and puts it in the
-one-at-a-time `running` slot `do_rename` has never claimed. That is a wire-contract change on the eve
-of a release, on the one unit that has already taken five review rounds, one of which produced a
-data-loss defect, and hard rule 6 would then want every state of that new asynchronous path
-exercised live. Say the cost plainly rather than burying it: for a large rclone
-directory this build is worse than the one before it, which failed the rename with a sentence
-instead of hanging the window. Spawning the copy is the first item of the next release.
+ran rather than the file's own history. On a local mount that copy runs inline on the loop's thread, as it always has.
+On a remote mount, rclone and WebDAV included, which "Mount workers" classifies without a syscall, the write runs on
+`slow_write_with`'s worker instead: past `CALL_DEADLINE` the loop answers a `slow` line and moves on, and the worker
+reports late through `Event::Op`, journalled exactly as the in-time answer would have been. The window no longer freezes,
+though the copy still has no progress and no cancel, because the worker runs the copy to its end and the late result
+carries no byte counts and answers no cancel id. The slow op holds the one-at-a-time slot from its `slow` line until its
+late entry is journalled, so `undo`, `redo` and a second write answer busy between them, and one undo still reverses
+the late write like any other entry.
 `trash` shells to `gio` twice for the list diff plus once to trash; `duplicate` may copy a
 whole tree; a `transfer` is unbounded. Those three send their results back through `Event::Op`,
 joined onto the loop's receiver exactly the way the thumbnail pool's `Event::Thumb` already is, so
@@ -6016,7 +6007,7 @@ asked for, so a 100,000 row listing with 350 rows held makes at most 350 of thes
 and only for the symlinks among those 350. There is no way to put a timeout on a synchronous
 `stat` without giving each row its own thread, which is an absurd price for an icon, so the
 bound above is per window rather than per row: one hung symlink in the window still costs the
-window its deadline, answered as "<mount> is not responding." on a remote mount.
+window its deadline, answered as "<mount> is not responding." on a remote mount. `window_metas` picks the path by the listing's base (`run.rs:506`), so a local listing's symlink into a hung mount still follow-stats on the loop through `stat_range` (`meta.rs:111`) and stalls the backend, and that corner stays undefended on purpose.
 
 190 of the 613 distinct `application/*` types in `globs2` have no `generic-icons` entry on
 this box and fall through to the class arm. Both counts move with the installed applications,

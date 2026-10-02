@@ -27,7 +27,7 @@ use crate::error::FleaError;
 use crate::heap;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, TryRecvError};
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -71,6 +71,7 @@ pub fn run() -> i32 {
     spawn_op_forwarder(op_rx, tx.clone());
     spawn_reader(tx.clone(), Arc::clone(&ops.live));
     let mut fsinfo = FsInfo::new(tx.clone());
+    let loop_tx = tx.clone();
     // Armed before the first request, so no listing is ever answered with nothing watching it.
     let mut watch = Watch::start(tx);
     loop {
@@ -94,7 +95,7 @@ pub fn run() -> i32 {
         };
         match event {
             Event::Request(line) => {
-                if handle_line(&line, &mut out, &mut st, &tb, &pool, &cache, &mut ops, &mut watch, &mut fsinfo) == Control::Quit {
+                if handle_line(&line, &mut out, &mut st, &tb, &pool, &cache, &mut ops, &mut watch, &mut fsinfo, &loop_tx) == Control::Quit {
                     break;
                 }
             }
@@ -112,6 +113,8 @@ pub fn run() -> i32 {
                     say(&mut out, &changed_line(&st.base));
                 }
             }
+            // A late list worker's descriptor goes unless a re-list aliased it onto the live watch.
+            Event::AbandonWatch(wd) => watch.abandon_wd(wd),
             Event::Op(m) => report_op(&mut out, &mut ops, m),
             Event::ReadError(e) => {
                 // The framing cannot be trusted past a decode failure, so this reports and stops, as before.
@@ -143,6 +146,7 @@ fn handle_line(
     ops: &mut Ops,
     watch: &mut Watch,
     fsinfo: &mut FsInfo,
+    loop_tx: &Sender<Event>,
 ) -> Control {
     // Rows read from a numbering this listing has already replaced name other files, so they are refused.
     if let Some(refused) = super::rowguard::refusal(line, st.generation) {
@@ -175,7 +179,7 @@ fn handle_line(
             let fd = watch.raw_fd();
             let mime = std::sync::Arc::clone(&tb.mime);
             let line_owned = line.to_string();
-            match super::iomount::list_dir(path.clone(), hidden, first, line_owned, mime, fd) {
+            match super::iomount::list_dir(path.clone(), hidden, first, line_owned, mime, fd, loop_tx.clone()) {
                 Ok(done) => {
                     watch.set_incoming(done.watch_wd);
                     watch.commit();
@@ -499,14 +503,14 @@ pub(crate) fn search_root_info(base: &Path) -> Result<(u64, bool), FleaError> {
     super::iomount::call(&key, &body, "search", move || (super::fsinfo::dev_of(&owned), super::ops::dir_writable(&owned)))
 }
 
-// One window's metas: remoteness is decided before anything is moved, so a local window
-// stats inline with no clone and a remote one moves only its rows to the worker.
+// One window's metas: remoteness is decided before anything is moved, so a local window stats inline with no clone and a remote one moves only its rows to the worker.
 pub(crate) fn window_metas(st: &State, start: usize, count: usize) -> Result<(Vec<Meta>, f64), FleaError> {
     let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
     if super::iomount::is_remote(&st.base, &body) {
         let rows = super::meta::window_rows(&st.listing, start, count);
+        let threaded = st.listing.threaded_cached_with(&body);
         let base = st.base.clone();
-        super::iomount::call(&base.clone(), &body, "window", move || super::meta::stat_window_rows(&base, &rows))
+        super::iomount::call(&base.clone(), &body, "window", move || super::meta::stat_window_rows(&base, &rows, threaded))
     } else {
         Ok(super::meta::stat_range(&st.base, &st.listing, start, count))
     }

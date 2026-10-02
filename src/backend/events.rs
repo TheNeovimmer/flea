@@ -22,6 +22,8 @@ pub enum Event {
     // The watch descriptor that saw it, so a burst belonging to the directory the client has already
     // left is dropped rather than answered for the new one; see src/backend/watch.rs.
     Changed(i32),
+    // A list worker that outlived its call hands back the watch it armed; the loop drops it unless live.
+    AbandonWatch(i32),
     ReadError(FleaError),
     Closed,
 }

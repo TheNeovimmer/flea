@@ -157,18 +157,54 @@ pub fn window_rows(l: &Listing, start: usize, count: usize) -> Vec<WindowRow> {
         }),
     }).collect()
 }
-// Stats only the rows handed over, answering a cached row from its snapshot and any other by stat.
-pub fn stat_window_rows(base: &Path, rows: &[WindowRow]) -> (Vec<Meta>, f64) {
+// Stats only the rows handed over, serial then threaded past SLOW_PASS_MS like stat_range, so one slow link cannot hold a window past CALL_DEADLINE.
+pub fn stat_window_rows(base: &Path, rows: &[WindowRow], threaded: bool) -> (Vec<Meta>, f64) {
+    stat_window_rows_with(base, rows, SLOW_PASS_MS, threaded, window_meta_one)
+}
+// slow_ms and the serial gate ride along, so vfat and exfat stay serial; tests pass 0 or infinity.
+fn stat_window_rows_with(base: &Path, rows: &[WindowRow], slow_ms: f64, threaded: bool, stat: impl Fn(&Path, &WindowRow) -> Meta + Sync) -> (Vec<Meta>, f64) {
     let t = Instant::now();
-    let out = rows.iter().map(|row| match &row.cached {
+    let mut out = Vec::with_capacity(rows.len());
+    for (i, row) in rows.iter().enumerate() {
+        out.push(stat(base, row));
+        let elapsed_ms = t.elapsed().as_secs_f64() * 1000.0;
+        if elapsed_ms >= slow_ms && rows.len() - (i + 1) > 1 && threaded {
+            out.extend(stat_window_parallel(base, rows, i + 1, &stat));
+            break;
+        }
+    }
+    (out, t.elapsed().as_secs_f64() * 1000.0)
+}
+// One row's answer: a cached row from its snapshot, any other by stat, a cached symlink paying one follow-stat.
+fn window_meta_one(base: &Path, row: &WindowRow) -> Meta {
+    match &row.cached {
         Some(g) => {
             // corner: a cached symlink pays meta_one's one follow-stat so a linked folder draws as one.
             let target_is_dir = g.is_symlink && base.join(&row.name).metadata().map(|t| t.is_dir()).unwrap_or(false);
             Meta { size: g.size, mtime: g.mtime, mode: g.mode, target_is_dir, target: g.target.clone(), dev: g.base_dev }
         }
         None => meta_one(base, &row.name),
-    }).collect();
-    (out, t.elapsed().as_secs_f64() * 1000.0)
+    }
+}
+// Contiguous chunks joined in order, so the rows come back exactly as the serial walk returns them.
+fn stat_window_parallel(base: &Path, rows: &[WindowRow], start: usize, stat: &(impl Fn(&Path, &WindowRow) -> Meta + Sync)) -> Vec<Meta> {
+    let threads = STAT_THREADS.min(rows.len() - start);
+    let chunk = (rows.len() - start).div_ceil(threads);
+    std::thread::scope(|s| {
+        let handles: Vec<_> = (0..threads)
+            .map(|k| {
+                let from = (start + k * chunk).min(rows.len());
+                let to = (from + chunk).min(rows.len());
+                (from, to, s.spawn(move || (from..to).map(|i| stat(base, &rows[i])).collect::<Vec<Meta>>()))
+            })
+            .collect();
+        let mut out = Vec::with_capacity(rows.len() - start);
+        for (from, to, h) in handles {
+            // corner: a thread that panicked still owes its rows, so they report zeroes like a vanished row.
+            out.extend(h.join().unwrap_or_else(|_| (from..to).map(|_| zeroes()).collect()));
+        }
+        out
+    })
 }
 
 // What a sort by size or date reads for every row: the same lstat stat_range makes, without the
@@ -492,13 +528,38 @@ mod tests {
         assert_eq!(rows[0].name, "b.txt");
         assert!(rows[0].cached.is_none(), "a readdir row carries no cache");
         let (range, _) = stat_range(d.path(), &l, 0, 3);
-        let (moved, _) = stat_window_rows(d.path(), &window_rows(&l, 0, 3));
+        let (moved, _) = stat_window_rows(d.path(), &window_rows(&l, 0, 3), true);
         assert_eq!(moved.len(), range.len());
         for (m, r) in moved.iter().zip(range.iter()) {
             assert_eq!((m.size, m.mtime, m.mode), (r.size, r.mtime, r.mode), "the moved rows stat the same");
         }
         assert_eq!((moved[0].size, moved[1].size), (1, 2));
         assert_eq!((moved[2].size, moved[2].mode), (0, 0), "a vanished row still reports zeroes");
+    }
+
+    // A slow window goes to threads past SLOW_PASS_MS, a fast one stays serial, and a gated-off one never threads.
+    #[test]
+    fn a_slow_window_threads_while_a_fast_one_and_a_gated_one_stay_serial() {
+        use std::collections::HashSet;
+        use std::sync::{Arc, Mutex};
+        let d = TestDir::new("windowelapsed");
+        let rows: Vec<WindowRow> = (0..16).map(|n| WindowRow { name: format!("f{:02}", n), cached: None }).collect();
+        let run = |threaded: bool, sleep_ms: u64| {
+            let holds: Arc<Mutex<HashSet<std::thread::ThreadId>>> = Arc::new(Mutex::new(HashSet::new()));
+            let seen = Arc::clone(&holds);
+            let stub = move |_: &Path, row: &WindowRow| {
+                seen.lock().unwrap().insert(std::thread::current().id());
+                std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+                Meta { size: row.name[1..].parse().unwrap_or(0), mtime: 1, mode: 0o100644, target_is_dir: false, target: String::new(), dev: 0 }
+            };
+            let (metas, _) = stat_window_rows_with(d.path(), &rows, SLOW_PASS_MS, threaded, stub);
+            assert_eq!((metas.len(), metas[0].size, metas[15].size), (16, 0, 15));
+            let threads = holds.lock().unwrap().len();
+            threads
+        };
+        assert_eq!(run(true, 0), 1, "a fast window must not pay for threads");
+        assert!(run(true, 25) > 1, "a slow window must share the remainder across threads");
+        assert_eq!(run(false, 25), 1, "a gated-off window stays serial however slow");
     }
 
     #[test]
@@ -508,7 +569,7 @@ mod tests {
         let l = crate::backend::gvfslist::build_listing(text, false, d.path().to_str().unwrap()).unwrap();
         let rows = window_rows(&l, 0, 1);
         assert!(rows[0].cached.is_some(), "a gio row rides to the worker in the snapshot");
-        let (metas, _) = stat_window_rows(d.path(), &rows);
+        let (metas, _) = stat_window_rows(d.path(), &rows, true);
         assert_eq!((metas[0].size, metas[0].mtime, metas[0].mode), (10, 300, 33188));
     }
 }

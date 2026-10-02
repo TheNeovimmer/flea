@@ -84,8 +84,7 @@ impl Watch {
         self.incoming = -1;
     }
 
-    // A failed scan armed its watch on the worker, so the loop removes that descriptor too; a
-    // re-list aliases onto the live one, which stays, and a timed-out worker removes its own.
+    // A failed scan armed its watch on the worker, so the loop removes that descriptor too; an aliased re-list stays.
     pub fn abandon_wd(&mut self, wd: c_int) {
         if wd >= 0 && wd != self.wd {
             self.drop_one(wd);
@@ -131,13 +130,6 @@ impl Watch {
             Err(_) => -1,
         }
     }
-    // One inotify_rm_watch from a worker that outlived its call, never on the loop.
-    pub(crate) fn remove_raw(fd: c_int, wd: c_int) {
-        if fd >= 0 && wd >= 0 {
-            unsafe { inotify_rm_watch(fd, wd) };
-        }
-    }
-
     fn drop_one(&self, wd: c_int) {
         if self.fd >= 0 && wd >= 0 {
             unsafe { inotify_rm_watch(self.fd, wd) };
@@ -310,8 +302,7 @@ mod tests {
         assert!(saw_a_create(fd, live), "the abandoned re-list took the open folder's watch with it");
     }
 
-    // A removal queues IN_IGNORED for its descriptor, synchronously, so one nonblocking read
-    // observes it with no wait; nothing else in this tree queues that mask on a test fd.
+    // A removal queues IN_IGNORED synchronously, so one nonblocking read observes it with no wait.
     const IN_IGNORED: u32 = 0x0000_8000;
     // Sample input: wd 1, mask 0x00000100, cookie 0, len 16, then "NEWFILE.txt\0\0\0\0\0".
     fn ignored_wds(fd: c_int) -> Vec<c_int> {
@@ -334,6 +325,24 @@ mod tests {
             }
         }
         out
+    }
+
+    // A late worker hands its descriptor back instead of removing it, so a re-list of the open folder keeps its watch.
+    #[test]
+    fn a_late_re_list_of_the_open_folder_keeps_its_watch() {
+        let sandbox = crate::backend::testdir::TestDir::new("watch-late");
+        let fd = unsafe { inotify_init1(IN_CLOEXEC | IN_NONBLOCK) };
+        assert!(fd >= 0, "this box has no inotify to test with");
+        let mut w = Watch { fd, wd: -1, incoming: -1 };
+        w.begin(sandbox.path());
+        w.commit();
+        let live = w.wd;
+        assert!(live >= 0, "the sandbox could not be watched");
+        let late = Watch::add_raw(fd, sandbox.path());
+        assert_eq!(late, live, "a re-list of one inode aliases onto the descriptor it has");
+        w.abandon_wd(late);
+        sandbox.file("after-a-late-relist.txt", "x");
+        assert!(saw_a_create(fd, live), "the late re-list took the open folder's watch with it");
     }
 
     // A failed scan's descriptor goes, but a failed re-list aliases onto the live one, which stays.

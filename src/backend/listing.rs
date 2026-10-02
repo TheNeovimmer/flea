@@ -130,7 +130,7 @@ impl Listing {
         })
     }
 
-    #[cfg(test)]
+    // The gate the window worker carries beside its rows, read off the already-parsed mount table with no stat.
     pub fn threaded_cached_with(&self, body: &str) -> bool {
         *self.thread_hint.get_or_init(|| decide(self.base_dev, body))
     }

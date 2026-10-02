@@ -77,16 +77,37 @@ pub fn call_with<T: Send + 'static>(
     ttl: Duration,
     f: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, FleaError> {
-    call_with_flag(path, body, where_, deadline, ttl, &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), f)
+    call_with_flag(path, body, where_, deadline, ttl, |_: T| {}, f)
 }
-// The flag is set only on a timeout, so the list worker knows its watch outlived its call.
+// One delivery decided once: the worker claims DELIVERED before its send, the loop claims ABANDONED on its timeout.
+const PENDING: u8 = 0;
+const DELIVERED: u8 = 1;
+const ABANDONED: u8 = 2;
+// The shared state both sides race on, so a value delivered beside a timeout is taken and never dropped.
+struct Delivery {
+    state: std::sync::atomic::AtomicU8,
+}
+impl Delivery {
+    fn new() -> Delivery {
+        Delivery { state: std::sync::atomic::AtomicU8::new(PENDING) }
+    }
+    // Worker side, run before the send: true means send, false means the loop gave up and the value goes back.
+    fn worker_claim(&self) -> bool {
+        self.state.compare_exchange(PENDING, DELIVERED, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst).is_ok()
+    }
+    // Loop side, run on a timeout: true means abandoned, false means the worker delivered and the value is taken.
+    fn loop_abandon(&self) -> bool {
+        self.state.compare_exchange(PENDING, ABANDONED, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst).is_ok()
+    }
+}
+// A late value goes back here instead of the floor; the list worker hands its watch to the loop through it.
 pub fn call_with_flag<T: Send + 'static>(
     path: &Path,
     body: &str,
     where_: &str,
     deadline: Duration,
     ttl: Duration,
-    timed_out: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    late: impl FnOnce(T) + Send + 'static,
     f: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, FleaError> {
     #[cfg(test)]
@@ -98,20 +119,33 @@ pub fn call_with_flag<T: Send + 'static>(
     if !is_remote(path, body) {
         return Ok(f());
     }
+    let decided = std::sync::Arc::new(Delivery::new());
+    let worker = std::sync::Arc::clone(&decided);
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _ = tx.send(f());
+        let value = f();
+        if worker.worker_claim() {
+            let _ = tx.send(value);
+        } else {
+            late(value);
+        }
     });
     match rx.recv_timeout(deadline) {
         Ok(value) => {
             clear_stuck(&mount);
             Ok(value)
         }
-        // A panic drops tx, so only a deadline still running marks the mount stuck.
+        // A panic drops tx, so only a deadline still running marks the mount stuck; a delivery racing it is taken.
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            timed_out.store(true, std::sync::atomic::Ordering::SeqCst);
-            mark_stuck(&mount);
-            Err(not_responding(where_, path, &mount))
+            if decided.loop_abandon() {
+                mark_stuck(&mount);
+                Err(not_responding(where_, path, &mount))
+            } else if let Ok(value) = rx.recv() {
+                clear_stuck(&mount);
+                Ok(value)
+            } else {
+                Err(internal_failure(where_, path))
+            }
         }
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(internal_failure(where_, path)),
     }
@@ -133,8 +167,7 @@ pub enum SlowWrite<T> {
 pub fn slow_sentence(mount: &Path, verb: &str) -> String {
     format!("{} is slow. The {} continues and will finish on its own.", mount.display(), verb)
 }
-// A remote write runs on its own worker with the deadline; a local write runs inline with no hop.
-// The deadline is a parameter so tests hold a worker past a short bound instead of the production five seconds.
+// A remote write runs on its own worker with the deadline, a local write runs inline with no hop; the deadline is a parameter so tests hold a worker past a short bound instead of the production five seconds.
 pub fn slow_write_with<T: Send + 'static>(
     path: &Path,
     body: &str,
@@ -217,8 +250,7 @@ pub struct ListOut {
     pub first_ms: f64,
     pub watch_wd: i32,
 }
-// A failed listing carries its mode for the denial tile, or zero when no stat ran.
-// watch_wd is the descriptor the worker armed, or -1 when none needs removing.
+// A failed listing carries its mode for the denial tile, or zero when no stat ran, with the armed descriptor or -1 when none needs removing.
 #[derive(Debug)]
 pub struct ListErr {
     pub error: FleaError,
@@ -233,16 +265,20 @@ pub fn list_dir(
     line: String,
     mime: std::sync::Arc<super::mime::Db>,
     fd: std::ffi::c_int,
+    loop_tx: std::sync::mpsc::Sender<super::events::Event>,
 ) -> Result<ListOut, ListErr> {
     let path_buf = std::path::PathBuf::from(&path);
     let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
-    // Set on a timeout, so a worker finishing after its call removes the watch it armed.
-    let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let flag = std::sync::Arc::clone(&timed_out);
-    call_with_flag(&path_buf, &body, "scan", CALL_DEADLINE, STUCK_TTL, &timed_out, move || {
+    call_with_flag(&path_buf, &body, "scan", CALL_DEADLINE, STUCK_TTL, move |out: Result<ListOut, ListErr>| {
+        // The loop gave up first, so the late descriptor goes back for its guarded drop on the loop.
+        let wd = match &out { Ok(done) => done.watch_wd, Err(failed) => failed.watch_wd };
+        if wd >= 0 {
+            let _ = loop_tx.send(super::events::Event::AbandonWatch(wd));
+        }
+    }, move || {
         let base = std::path::PathBuf::from(&path);
         let wd = super::watch::Watch::add_raw(fd, &base);
-        let mut out = match super::scan::scan(&path, hidden) {
+        match super::scan::scan(&path, hidden) {
             Ok((mut l, read_ms)) => {
                 super::picker::filter_listing(&mut l, &mime, &line);
                 let (pass_ms, sort_ms, sized) = match super::ordering::request(&mut l, &base, &mime, &line) {
@@ -261,16 +297,7 @@ pub fn list_dir(
                 let mode = super::scan::mode_of(&path);
                 Err(ListErr { error: e, mode, watch_wd: wd })
             }
-        };
-        // The loop already answered the timeout and owns no descriptor, so the late worker removes its own.
-        if flag.load(std::sync::atomic::Ordering::SeqCst) {
-            super::watch::Watch::remove_raw(fd, wd);
-            match &mut out {
-                Ok(done) => done.watch_wd = -1,
-                Err(failed) => failed.watch_wd = -1,
-            }
         }
-        out
     })
     .map_err(|timeout| ListErr { error: timeout, mode: 0, watch_wd: -1 })
     .and_then(|inner| inner)
@@ -434,15 +461,54 @@ mod tests {
         assert_eq!(live.unwrap(), 7, "a dead worker never marks its mount stuck");
         test_reset();
     }
+    // Decided once: exactly one side wins, whatever order the two compare_exchanges land in.
+    #[test]
+    fn delivery_is_decided_once_between_worker_and_loop() {
+        let first = Delivery::new();
+        assert!(first.worker_claim(), "the first claim wins");
+        assert!(!first.loop_abandon(), "the second decision loses and takes the value");
+        let second = Delivery::new();
+        assert!(second.loop_abandon(), "the first decision wins");
+        assert!(!second.worker_claim(), "a late worker hands its value back");
+        for _ in 0..200 {
+            let raced = std::sync::Arc::new(Delivery::new());
+            let worker = std::sync::Arc::clone(&raced);
+            let handle = std::thread::spawn(move || worker.worker_claim());
+            let abandoned = raced.loop_abandon();
+            assert_ne!(handle.join().unwrap(), abandoned, "one side wins each race");
+        }
+    }
+    // A worker finishing after its timeout hands its value back instead of dropping it on a dead channel.
+    #[test]
+    fn a_timed_out_call_hands_its_late_value_back() {
+        test_reset();
+        let (release, wait) = channel::<()>();
+        let (late_tx, late_rx) = channel::<i32>();
+        let (tx_res, rx_res) = channel();
+        std::thread::spawn(move || {
+            let out = call_with_flag(Path::new("/hung/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, move |value: i32| {
+                let _ = late_tx.send(value);
+            }, move || {
+                let _ = wait.recv();
+                42
+            });
+            let _ = tx_res.send(out);
+        });
+        let err = rx_res.recv_timeout(TEST_ASSERT_BOUND).expect("a held call answers within its bound").expect_err("a held call answers with an error");
+        assert!(err.msg.contains("not responding"), "the sentence names the cause: {}", err.msg);
+        drop(release);
+        assert_eq!(late_rx.recv_timeout(TEST_ASSERT_BOUND).expect("the late value reaches its handoff"), 42, "the late value goes back, never to the floor");
+        test_reset();
+    }
     #[test]
     fn a_failed_scan_hands_back_the_watch_it_armed() {
         test_reset();
         let sandbox = crate::backend::testdir::TestDir::new("listwd");
         let file = sandbox.file("a.txt", "a");
         let (tx, _rx) = channel::<crate::backend::events::Event>();
-        let watch = crate::backend::watch::Watch::start(tx);
+        let watch = crate::backend::watch::Watch::start(tx.clone());
         let mime = std::sync::Arc::new(crate::backend::mime::Db::load());
-        let failed = match list_dir(file.to_string_lossy().to_string(), false, 10, String::new(), mime, watch.raw_fd()) {
+        let failed = match list_dir(file.to_string_lossy().to_string(), false, 10, String::new(), mime, watch.raw_fd(), tx) {
             Err(failed) => failed,
             Ok(_) => panic!("a file is not a listing"),
         };
@@ -462,7 +528,7 @@ mod tests {
         let line = format!(r#"{{"c":"list","path":"{}","first":10}}"#, locked.to_string_lossy());
         let done = match list_dir(
             locked.to_string_lossy().to_string(), false, 10, line,
-            std::sync::Arc::clone(&tb.mime), watch.raw_fd(),
+            std::sync::Arc::clone(&tb.mime), watch.raw_fd(), tx.clone(),
         ) {
             Ok(done) => done,
             Err(failed) => panic!("a readable locked directory lists: {}", failed.error.msg),
