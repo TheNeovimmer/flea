@@ -1,10 +1,6 @@
 .pragma library
 
-// MdBlocks: the block layer over MdRun's inline driver. Container blocks hold
-// leaf text the CommonMark way (quotes, list items with content offsets, lazy
-// continuation); leaves are headings, paragraphs, thematic breaks, fenced and
-// indented code, HTML blocks, GFM tables, front matter and footnotes. Every
-// scan advances; no regex backtracks over the remaining input.
+// MdBlocks: the block layer over MdRun, CommonMark containers and leaves; every scan advances, no regex backtracks.
 .import "MdUrl.js" as MdUrl
 .import "MdHtml.js" as MdHtml
 .import "MdInline.js" as Md
@@ -12,9 +8,7 @@
 .import "MdRun.js" as Run
 .import "MdRefs.js" as Refs
 
-// A top-level list marker: up to 3 leading spaces, then digits+[.)] or a
-// bullet, then text. contentCol is the column item text starts on, so a line
-// indented that far continues the item instead of becoming code.
+// Sample input: "  1. item" or "- [x] done"; contentCol is where item text starts, so a line indented that far continues it.
 function listMarker(line) {
     var m = String(line).match(/^(\s*)(\d+[.)]|[-*+])(\s+)(.*)$/)
     if (!m)
@@ -32,9 +26,7 @@ function listMarker(line) {
         text: Leaf.taskText(m[4]), contentCol: indent + m[2].length + gap }
 }
 
-// Top-level block split: runs of ordinary blocks share one Text.MarkdownText,
-// and the special kinds get their own delegates in ui/PreviewMarkdown.qml.
-// Fenced blocks keep their info string (mermaid, math) for the later unit.
+// Top-level split: ordinary runs share one Text.MarkdownText, special kinds get delegates; fences keep their info string.
 function blocks(source, dir, chrome, ink) {
     var body = String(source)
     var rawLines = body.split("\n")
@@ -124,8 +116,7 @@ function blocks(source, dir, chrome, ink) {
         var line = lines[i]
         if (fence !== null) {
             var fo = Leaf.fenceOpen(line)
-            // A closing fence matches tick and length; an opening-length run
-            // inside the block is literal text.
+            // A closing fence matches tick, has no info and is at least as long; anything else inside is literal.
             if (fo !== null && fo.info === "" && fo.tick === fenceTick && fo.len >= fenceLen)
                 flushFence()
             else
@@ -201,15 +192,18 @@ function blocks(source, dir, chrome, ink) {
         }
         var mark = listMarker(line)
         if (mark !== null) {
-            if (list === null || mark.indent < list.indent
-                    || (mark.indent === list.indent && mark.ordered !== list.ordered))
+            // Below the content column a marker is a sibling of the same type, else it starts another list.
+            var outside = list !== null && mark.indent < list.contentCol
+            if (list === null || (outside && mark.ordered !== list.ordered))
                 flushList()
             if (list === null) {
                 flushRun()
                 flushQuote()
                 list = { ordered: mark.ordered, start: mark.start, indent: mark.indent,
                     contentCol: mark.contentCol, items: [[mark.text]] }
-            } else if (mark.indent === list.indent) {
+            } else if (outside) {
+                list.indent = mark.indent
+                list.contentCol = mark.contentCol
                 list.items.push([mark.text])
             } else {
                 list.items[list.items.length - 1].push(line.slice(list.contentCol))
@@ -219,9 +213,7 @@ function blocks(source, dir, chrome, ink) {
         }
         if (list !== null) {
             if (line.trim().length > 0) {
-                // A line indented to the item's content column continues the
-                // item (the `1.  item` + 4-space case is a paragraph there, not
-                // code); a lazy line joins it whole.
+                // Indented to the content column continues the item (a paragraph, not code); a lazy line joins whole.
                 if (Leaf.indentOf(line) >= list.contentCol)
                     list.items[list.items.length - 1].push(line.slice(list.contentCol))
                 else
@@ -237,9 +229,7 @@ function blocks(source, dir, chrome, ink) {
                 list.items[list.items.length - 1].push("")
                 continue
             }
-            // The list-indent trick: a blank line followed by a line indented
-            // to the item's content column continues the item (a paragraph
-            // there, not code), so the blank belongs to the item too.
+            // List-indent trick: a blank then a line at the content column stays in the item, blank included.
             if (n < lines.length && Leaf.indentOf(lines[n]) >= list.contentCol) {
                 list.items[list.items.length - 1].push("")
                 continue
@@ -258,8 +248,7 @@ function blocks(source, dir, chrome, ink) {
             continue
         }
         flushQuote()
-        // Definition-shaped lines never reach md4c: the collected ones were
-        // dropped above, and any leftover loses its bracket here.
+        // Definition-shaped lines never reach md4c: collected ones dropped above, leftovers lose their bracket.
         run.push(Refs.killDefinition(line))
         if (line.trim().length > 0)
             inParagraph = true
@@ -271,16 +260,18 @@ function blocks(source, dir, chrome, ink) {
     flushList()
     flushQuote()
     flushRun()
-    // Footnote definitions render as a numbered list after a rule, but only
-    // for notes the document referenced: the emitted <sup> numbers say which.
+    // Footnote definitions list after a rule, only for notes whose <sup> number a run, quote or list item emitted.
     var usedNums = {}
     for (var b = 0; b < out.length; b++) {
-        var bt = out[b].text || ""
-        var m = null
-        var re = /<sup>(\d+)<\/sup>/g
-        var hit = null
-        while ((hit = re.exec(bt)) !== null)
-            usedNums[hit[1]] = true
+        var block = out[b]
+        var inlineTexts = block.type === "list" ? block.items
+            : (block.type === "run" || block.type === "quote") ? [block.text] : []
+        for (var t = 0; t < inlineTexts.length; t++) {
+            var re = /<sup>(\d+)<\/sup>/g
+            var hit = null
+            while ((hit = re.exec(inlineTexts[t])) !== null)
+                usedNums[hit[1]] = true
+        }
     }
     var footItems = []
     for (var q = 0; q < foot.order.length; q++) {

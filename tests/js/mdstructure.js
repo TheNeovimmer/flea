@@ -1,8 +1,7 @@
 .import "../../ui/js/Markdown.js" as Markdown
+.import "../../ui/js/MdInline.js" as MdInline
 
-// Block-tree structure against CommonMark's rules: front matter, setext,
-// breaks, indented code, alerts, footnotes, task items, math/mermaid hooks,
-// reference variants, autolinks and the list-indent trick.
+// Block-tree structure against CommonMark: fences, breaks, lists, footnotes, math, references and inline spans.
 function run(check) {
     var dir = "/home/gm/notes"
     var chrome = "#181825"
@@ -23,6 +22,8 @@ function run(check) {
     check("a thematic break stays prose", kinds("Text\n\n***\n\nMore\n"), "run")
     check("dashes break too", kinds("Text\n\n---\n\nMore\n"), "run")
     check("underscores break too", kinds("Text\n\n___\n\nMore\n"), "run")
+    check("spaced stars stay a thematic break", kinds("Text\n\n* * *\n\nMore\n"), "run")
+    check("spaced dashes stay a thematic break", kinds("Text\n\n- - -\n\nMore\n"), "run")
     check("indented code draws verbatim", kinds("Text\n\n    var a = 1;\n\nMore\n"), "run,fence,run")
     var indented = Markdown.blocks("Text\n\n    var a = 1;\n", dir, chrome, ink)[1]
     check("indented code strips its indent", indented.text, "var a = 1;")
@@ -34,10 +35,55 @@ function run(check) {
     check("a math fence keeps its info", math.info, "math")
     check("inline math styles as code",
         styled("See $x^2$ here.").indexOf('data-math="inline"') >= 0, true)
-    check("display math styles as code",
+    check("a double-dollar span takes the inline math literal rendering",
         styled("See $$x^2$$ here.").indexOf('data-math="inline"') >= 0, true)
     check("a math span never resolves a URL",
-        styled("See $[a](https://h.example.com/x.png)$ here.").indexOf("Remote image") < 0, true)
+        styled("See $![a](https://h.example.com/x.png)$ here.").indexOf("Remote image") < 0, true)
+    check("currency dollars stay prose", styled("costs $5 and $10 total"), "costs $5 and $10 total")
+    check("math cannot open before whitespace", styled("$ x$"), "$ x$")
+    check("math cannot close after whitespace", styled("$x $"), "$x $")
+    check("math cannot close before a digit", styled("$x$2"), "$x$2")
+    check("valid math still styles", styled("$x+1$"),
+        '<code data-math="inline" style="background-color:#181825">x&#43;1</code>')
+    check("math cannot pair across code", styled("$a `code` b$"),
+        '$a <code style="background-color:#181825">code</code> b$')
+    var codeDollars = MdInline.spanIntervals("x `$a` y `$b`")
+    check("dollars inside code produce no math intervals", codeDollars.join(","), "2,6,1,0,9,13,1,0")
+    check("math after code still styles", styled("`$x` then $y$"),
+        '<code style="background-color:#181825">&#36;x</code> then '
+        + '<code data-math="inline" style="background-color:#181825">y</code>')
+    check("a closing run swallows the spans inside it", MdInline.spanIntervals("`a ``b`` c`").join(","), "0,11,1,0")
+    check("math pairs on both sides of a code span", styled("$x$ `c` $y$"),
+        '<code data-math="inline" style="background-color:#181825">x</code> '
+        + '<code style="background-color:#181825">c</code> '
+        + '<code data-math="inline" style="background-color:#181825">y</code>')
+    check("backticks inside a closed span cannot open the next span", styled("`` ` `` and `x`"),
+        '<code style="background-color:#181825">&#96;</code> and <code style="background-color:#181825">x</code>')
+
+    var longContentLength = 1024
+    var longTail = "&#;"
+    var longContent = "a".repeat(longContentLength - longTail.length) + longTail
+    var longEscaped = "a".repeat(longContentLength - longTail.length) + "&#38;&#35;&#59;"
+    check("a 1024-character code span escapes each input character once", styled("`" + longContent + "`"),
+        '<code style="background-color:#181825">' + longEscaped + '</code>')
+    var shortTail = "a".repeat(longContentLength - 1 - longTail.length) + longTail
+    check("a code span just under the long-text length escapes each input character once",
+        styled("`" + shortTail + "`"), '<code style="background-color:#181825">'
+        + "a".repeat(longContentLength - 1 - longTail.length) + "&#38;&#35;&#59;</code>")
+    var everyAscii = ""
+    for (var ascii = 1; ascii < 128; ascii++)
+        everyAscii += String.fromCharCode(ascii)
+    function entityOracle(text) {
+        return text.replace(/[\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E]/g, function (c) { return "&#" + c.charCodeAt(0) + ";" })
+    }
+    for (var padTo = longContentLength - 1; padTo <= longContentLength + 1; padTo++) {
+        var padded = "a".repeat(padTo - everyAscii.length) + everyAscii
+        check("every ASCII character escapes alike at length " + padTo,
+            MdInline.escapeHtmlText(padded), entityOracle(padded))
+    }
+    var longTable = Markdown.blocks("| " + longContent + " |\n| --- |\n| " + longContent + " |\n", dir, chrome, ink)[0]
+    check("a long table header escapes each input character once", longTable.head[0], longEscaped)
+    check("a long table cell escapes each input character once", longTable.rows[0][0], longEscaped)
 
     var tasks = Markdown.blocks("- [ ] todo\n- [x] done\n", dir, chrome, ink)
     check("task items are one list", tasks.length === 1 && tasks[0].type === "list", true)
@@ -59,6 +105,19 @@ function run(check) {
     var unused = Markdown.blocks("Text.\n\n[^b]: Never cited.\n", dir, chrome, ink)
     check("an uncited note renders nothing",
         unused.map(function (b) { return b.type }).join(","), "run")
+    var listFoot = Markdown.blocks("- see[^a]\n\n[^a]: The note.\n", dir, chrome, ink)
+    check("a note cited only in a list gets its definition",
+        listFoot.map(function (b) { return b.type }).join(","), "list,run,list")
+    check("a list-only note keeps its number and text",
+        listFoot.length === 3 ? listFoot[2].items[0] : "", "<sup>1</sup> The note.")
+    var nestedFoot = Markdown.blocks("1. parent\n   - see[^a]\n\n[^a]: Nested note.\n", dir, chrome, ink)
+    check("a note cited only in a nested item gets its definition",
+        nestedFoot.length === 3 ? nestedFoot[2].items[0] : "", "<sup>1</sup> Nested note.")
+    var quoteFoot = Markdown.blocks("> see[^a]\n\n[^a]: Quote note.\n", dir, chrome, ink)
+    check("a quote still includes its cited definition",
+        quoteFoot.length === 3 ? quoteFoot[2].items[0] : "", "<sup>1</sup> Quote note.")
+    check("a literal superscript in a fence never cites a note",
+        kinds("```\n<sup>1</sup>\n```\n\n[^a]: Never cited.\n"), "fence")
 
     check("an escaped bracket alt resolves",
         styled("![a\\]b](shot.png)").indexOf("![a&#93;b](file:///home/gm/notes/shot.png)") >= 0, true)
@@ -68,7 +127,7 @@ function run(check) {
     check("a multi-line definition resolves", multi.indexOf("![p](file:///home/gm/notes/shot.png)") >= 0, true)
     check("a multi-line definition leaves no line", multi.indexOf("[m]:") < 0, true)
     var spaced = Markdown.prepare("![p][q]\n\n[My  Id]: shot.png\n", dir, undefined, chrome, ink)
-    check("labels fold case and whitespace", spaced.indexOf("![p](file:///home/gm/notes/shot.png)") < 0, true)
+    check("an undefined label leaves its image unresolved", spaced.indexOf("![p](file:///home/gm/notes/shot.png)") < 0, true)
     var spacedHit = Markdown.prepare("![p][my id]\n\n[My  Id]: shot.png\n", dir, undefined, chrome, ink)
     check("a folded label resolves", spacedHit.indexOf("![p](file:///home/gm/notes/shot.png)") >= 0, true)
     var qdef = Markdown.prepare("> [qid]: shot.png\n\n![x][qid]\n", dir, undefined, chrome, ink)
@@ -79,6 +138,36 @@ function run(check) {
         styled("![p](<my shot.png>)").indexOf("![p](file:///home/gm/notes/my%20shot.png)") >= 0, true)
     check("a titled target resolves",
         styled('![p](shot.png "t")').indexOf("![p](file:///home/gm/notes/shot.png)") >= 0, true)
+    var targetScanLimit = 8192
+    check("a title beyond the target scan limit stays literal",
+        MdInline.readInlineTarget('(b "' + "x".repeat(targetScanLimit) + '")', 0), null)
+    var titleUnit = "[a](b ("
+    var titleRepeats = 3000
+    var titleSamples = 16
+    var titleReadsPerCharacter = 3
+    var titleReadOverhead = 32
+    var titleReadBudget = titleSamples * (titleReadsPerCharacter * targetScanLimit + titleReadOverhead)
+    var titleCorpus = titleUnit.repeat(titleRepeats)
+    var titleReads = 0
+    var readLimitHit = {}
+    var countedTitles = {
+        length: titleCorpus.length,
+        charAt: function (at) {
+            titleReads++
+            if (titleReads > titleReadBudget)
+                throw readLimitHit
+            return titleCorpus.charAt(at)
+        },
+        slice: function (from, to) { return titleCorpus.slice(from, to) }
+    }
+    try {
+        for (var titleSample = 0; titleSample < titleSamples; titleSample++)
+            MdInline.readInlineTarget(countedTitles, titleSample * titleUnit.length + "[a]".length)
+    } catch (error) {
+        if (error !== readLimitHit)
+            throw error
+    }
+    check("repeated unclosed titles stay within the target operation budget", titleReads <= titleReadBudget, true)
     check("an entity URL resolves beside the file",
         styled("![p](sh&#111;t.png)").indexOf("file:///home/gm/notes/shot.png") >= 0, true)
     check("a percent URL resolves beside the file",
@@ -135,4 +224,42 @@ function run(check) {
     check("an ordered list keeps its start", Markdown.blocks("3. a\n4. b\n", dir, chrome, ink)[0].start, 3)
     var lazy = Markdown.blocks("1. a\nlazy line\n2. b\n", dir, chrome, ink)[0]
     check("a lazy line joins its item", lazy.items[0].indexOf("lazy") >= 0, true)
+    var shallow = Markdown.blocks("1. a\n  - b", dir, chrome, ink)
+    check("a marker below the content column starts another list",
+        shallow.length === 2 && shallow[0].ordered && !shallow[1].ordered, true)
+    check("a shallow marker keeps its item text", shallow.length === 2 ? shallow[1].items[0] : "", "b")
+    var sibling = Markdown.blocks("- a\n - b\n  - c", dir, chrome, ink)
+    check("a same-type marker below the content column is a sibling", sibling.length === 1 ? sibling[0].items.length : -1, 3)
+    var outdent = Markdown.blocks("  1. a\n2. b", dir, chrome, ink)
+    check("an outdented same-type marker stays in the list", outdent.length === 1 ? outdent[0].items.join("|") : "", "a|b")
+    var child = Markdown.blocks("1. a\n   - b", dir, chrome, ink)
+    check("a marker at the content column stays nested", child.length, 1)
+    check("a nested marker keeps its dash", child[0].items[0], "a\n- b")
+
+    // Reads are counted per character scanned, so the check holds on any machine and needs no clock.
+    function countedScan(source) {
+        var reads = 0
+        var text = {
+            length: source.length,
+            charAt: function (at) { reads++; return source.charAt(at) },
+            indexOf: function (needle, from) {
+                var start = from === undefined ? 0 : from
+                var hit = source.indexOf(needle, start)
+                reads += (hit < 0 ? source.length - start : hit - start) + 1
+                return hit
+            }
+        }
+        MdInline.spanIntervals(text)
+        return reads
+    }
+    var scanSmall = 65536
+    var scanFactor = 8
+    var scanMargin = 64
+    var scanCorpora = { backtickRun: "`a`b", nestedRuns: "`a``b```c` ", mixedMath: "`a`$b$ " }
+    for (var corpusName in scanCorpora) {
+        var corpus = scanCorpora[corpusName]
+        var smallReads = countedScan(corpus.repeat(Math.ceil(scanSmall / corpus.length)))
+        var largeReads = countedScan(corpus.repeat(Math.ceil(scanSmall * scanFactor / corpus.length)))
+        check("the " + corpusName + " span scan is linear in reads", largeReads <= scanFactor * smallReads + scanMargin, true)
+    }
 }
