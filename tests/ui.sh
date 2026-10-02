@@ -109,6 +109,9 @@ transient_clear_s=5
 rail_poll_wait_s=7
 # The window coalescer is 16 ms and a refill is a round trip, so injected input needs a moment.
 settle_s=0.4
+# omarchy-drive bounds one ipc call at 2 s and kills it 1 s later; a call that names a pid keeps the same bounds.
+ipc_call_timeout=2s
+ipc_call_kill_after=1s
 # Two pixels inside each edge of the strip: the rows a font-tall crumb box left dead, measured at y=2 and y=24 of 27.
 chrome_band_inset=2
 # Wide enough to hold the elided head's opaque fill and the hairline either side of it; that gap measured at x 80 to 86.
@@ -3509,7 +3512,7 @@ xw_key() {
 xw_ipc() {
     local pid="$1"
     shift
-    timeout --kill-after=1s 2s qs ipc --pid "$pid" call flea "$@"
+    timeout --kill-after="$ipc_call_kill_after" "$ipc_call_timeout" qs ipc --pid "$pid" call flea "$@"
 }
 
 # Aim at this address's own empty listing centre, then raise that window before the right click.
@@ -3589,6 +3592,8 @@ xw_cleanup() {
 
 # The hang guard in seconds: the 400 ms watch settle plus whatever the compositor and IPC cost that day, asserted as condition only.
 xw_hang_s=30
+# Poll at half the 400 ms watch settle so completed re-reads are seen without busy polling.
+xw_poll_s=0.2
 
 xw_wait_total() {
     local pid="$1" want="$2" step="$3" start=$SECONDS seen
@@ -3597,7 +3602,7 @@ xw_wait_total() {
             printf 'XWWATCH %s ok\n' "$step"
             return 0
         fi
-        sleep 0.2
+        sleep "$xw_poll_s"
     done
     fail "xwwatch: $step left pid $pid at ${seen:-unreadable}, not $want"
 }

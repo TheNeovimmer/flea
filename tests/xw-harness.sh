@@ -6,6 +6,8 @@ repo=$PWD
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 source_file=${XW_HARNESS_SOURCE:-$repo/tests/ui.sh}
+# Sample source assignments: ipc_call_timeout=2s, ipc_call_kill_after=1s, xw_hang_s=30, xw_poll_s=0.2.
+eval "$(sed -nE '/^(ipc_call_timeout|ipc_call_kill_after|xw_hang_s|xw_poll_s)=/p' "$source_file")" || exit 1
 for helper in case_xwwatch xw_ipc xw_click_background xw_cleanup owned_trash_monitors xw_editor_diagnostics xw_wait_dialog; do
     eval "$(sed -n "/^$helper()/,/^}/p" "$source_file")" || exit 1
 done
@@ -21,6 +23,8 @@ settle_s=0
 drain_wait_s=30
 addr_a=0xaaa
 addr_b=0xbbb
+pidA=111
+pidB=222
 mkdir -p "$fixture_root" "$run_root"
 
 # Sample clients: A at [100,200], B at [1000,200], both 880 by 620.
@@ -48,20 +52,15 @@ cat > "$tmp/bin/qs" <<'STUB'
 #!/bin/bash
 set -uo pipefail
 tmp=$XW_HARNESS_TMP
+# Record every requested pid; route assertions belong to the harness, not this stub.
 printf '%q ' "$@" >> "$tmp/ipc-argv"
 printf '\n' >> "$tmp/ipc-argv"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 [[ "$#" -ge 6 && "$1" == ipc && "$2" == --pid && "$4" == call && "$5" == flea ]] \
     || fail "unexpected IPC route: $*"
 pid=$3
-[[ "$pid" == 111 || "$pid" == 222 ]] || fail "unexpected IPC pid: $pid"
 query=$6
 shift 6
-case "$query" in
-    listingBackgroundCentre | fileRowHeight | rowCentre | contextMenuEntries)
-        [[ "$pid" == 111 ]] || fail "A read $query carried B pid $pid"
-        ;;
-esac
 case "$query" in
     listingBackgroundCentre) printf '300 %s\n' "$background_y" ;;
     fileRowHeight) printf '37\n' ;;
@@ -197,6 +196,38 @@ kill_flea() {
 }
 
 failures=0
+# Nondefault budgets must reach timeout through the real IPC helper.
+probe_ipc_call_timeout=4s
+probe_ipc_call_kill_after=3s
+result=0
+bounds=$(
+    ipc_call_timeout=$probe_ipc_call_timeout
+    ipc_call_kill_after=$probe_ipc_call_kill_after
+    timeout() { printf '%s %s\n' "$1" "$2"; }
+    xw_ipc "$pidA" total
+) || result=$?
+if [[ "$result" != 0 || "$bounds" != "--kill-after=$probe_ipc_call_kill_after $probe_ipc_call_timeout" ]]; then
+    printf 'FAIL xw_ipc ignored named IPC bounds: %s\n' "$bounds"
+    failures=$((failures + 1))
+fi
+
+# One failed total read must poll at the named interval before the matching read.
+probe_poll_s=0.07
+result=0
+(
+    eval "$(sed -n '/^xw_wait_total()/,/^}/p' "$source_file")" || exit 1
+    xw_poll_s=$probe_poll_s
+    seen_total=0
+    xw_ipc() { printf '%s\n' "$seen_total"; }
+    sleep() { printf '%s\n' "$1" > "$tmp/total-poll"; seen_total=1; }
+    xw_wait_total "$pidA" 1 'named poll'
+) > "$tmp/total-poll.log" 2>&1 || result=$?
+poll=$(cat "$tmp/total-poll" 2>/dev/null)
+if [[ "$result" != 0 || "$poll" != "$probe_poll_s" ]]; then
+    printf 'FAIL xw_wait_total ignored named poll interval: %s\n' "$poll"
+    failures=$((failures + 1))
+fi
+
 for mode in success failure wrong-mark; do
     export mode
     rm -f "$tmp/menu" "$tmp/deleted" "$tmp/clicks" "$tmp/ipc-argv" "$tmp/dialog.open" "$tmp/rename.open" "$tmp/created" "$tmp/renamed" "$tmp/filename" "$tmp/total-waits" "$tmp/row-waits" "$fixture_root/xwwatch/created-by-a.txt"
@@ -253,19 +284,16 @@ if declare -F xw_click_background >/dev/null; then
     fi
 fi
 
-# Neither a B pid on an A-only observer nor the old config-path route may succeed.
-for route in wrong-pid boot-path; do
+# Both windows' reads must carry their requested pid through the production helper.
+for window in A B; do
+    pid=$pidA
+    [[ "$window" != B ]] || pid=$pidB
+    : > "$tmp/ipc-argv"
     result=0
-    if [[ "$route" == wrong-pid ]]; then
-        xw_ipc 222 listingBackgroundCentre > "$tmp/route.out" 2> "$tmp/route.err" || result=$?
-        diagnostic='A read listingBackgroundCentre carried B pid 222'
-    else
-        xw_ipc "$fixture_root/xwwatch-ui/boot" listingBackgroundCentre \
-            > "$tmp/route.out" 2> "$tmp/route.err" || result=$?
-        diagnostic='unexpected IPC pid:'
-    fi
-    if [[ "$result" == 0 || -s "$tmp/route.out" ]] || ! grep -q "$diagnostic" "$tmp/route.err"; then
-        printf 'FAIL %s IPC route was not refused\n' "$route"
+    xw_ipc "$pid" total > "$tmp/route.out" 2> "$tmp/route.err" || result=$?
+    forwarded=$(cat "$tmp/ipc-argv")
+    if [[ "$result" != 0 || "$forwarded" != "ipc --pid $pid call flea total " ]]; then
+        printf 'FAIL %s IPC read did not forward pid %s: %s\n' "$window" "$pid" "$forwarded"
         failures=$((failures + 1))
     fi
 done
@@ -395,5 +423,5 @@ for sample in focused wrong-action unfocused completed missing-file still-open u
         failures=$((failures + 1))
     fi
 done
-printf 'xw-harness: 21 checks (success cleanup, failure cleanup, A background target, pid argv, row refusal, wrong pid, boot path, owned child stop, vanished monitor, New File snapshot, F2 snapshot, both create listings, mark identity, dialog completion snapshot, seven dialog conditions); %s failed\n' "$failures"
+printf 'xw-harness: 23 checks (success cleanup, failure cleanup, A background target, pid argv, row refusal, A pid forwarding, B pid forwarding, owned child stop, vanished monitor, New File snapshot, F2 snapshot, both create listings, mark identity, dialog completion snapshot, seven dialog conditions, named IPC bounds, named total poll); %s failed\n' "$failures"
 [[ "$failures" == 0 ]]
