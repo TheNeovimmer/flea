@@ -3,6 +3,7 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 import "flea/js/Picker.js" as Picker
+import "flea/js/Ops.js" as Ops
 
 // Count real objects and method calls, including hidden objects; no timing threshold.
 ShellRoot {
@@ -54,8 +55,17 @@ ShellRoot {
             width: 680
             height: 700
             backend: probeBackend
-            function permissionSelection() { shell.calls.selection += 1; return {p: 0o100644} }
-            function permissionModes() { shell.calls.modes += 1; return [0o100644] }
+            // Preserve the real helpers' cursor dependency so a sticky menu gate cannot pass.
+            function permissionSelection() {
+                Ops.targetIndices(pane)
+                shell.calls.selection += 1
+                return {p: 0o100644}
+            }
+            function permissionModes() {
+                Ops.targetIndices(pane)
+                shell.calls.modes += 1
+                return [0o100644]
+            }
         }
     }
     function advance() {

@@ -5,7 +5,7 @@ import Quickshell.Io
 import "flea" as Flea
 import "flea/js/Tabs.js" as Tabs
 
-// Real path and tab signals reach WindowBody; the existing wrapper counts patch spawns.
+// Real path and tab signals reach WindowBody; check patch spawns and saved navigation state.
 ShellRoot {
     id: shell
     property int phase: 0
@@ -27,6 +27,20 @@ ShellRoot {
         blockLoading: true
     }
     function count() { countFile.reload(); countFile.waitForJob(); return Number(countFile.text()) || 0 }
+    FileView {
+        id: savedFile
+        path: Quickshell.env("XDG_STATE_HOME") + "/flea/ui.json"
+        printErrors: false
+        blockLoading: true
+    }
+    function checkSaved(name) {
+        savedFile.reload()
+        savedFile.waitForJob()
+        // Sample saved ui.json: {"lastPath":"/to","lastTabs":{"paths":["/to"],"index":0}}.
+        var saved = JSON.parse(savedFile.text())
+        check(name + " saved lastPath", saved.lastPath, Flea.ViewState.state.lastPath)
+        check(name + " saved lastTabs", JSON.stringify(saved.lastTabs), JSON.stringify(Flea.ViewState.state.lastTabs))
+    }
     FloatingWindow {
         id: window
         implicitWidth: 1000
@@ -48,6 +62,7 @@ ShellRoot {
             check("folder change patch spawns", count() - before, 1)
             check("lastPath preserved", Flea.ViewState.state.lastPath, destination)
             check("lastTabs preserved", JSON.stringify(Flea.ViewState.state.lastTabs), JSON.stringify({paths:[destination], index:0}))
+            checkSaved("folder change")
             before = count()
             body.rememberPaths()
             body.queueTabStrip()
@@ -62,6 +77,7 @@ ShellRoot {
             check("tab-only change patch spawns", count() - before, 1)
             check("tab order preserved", JSON.stringify(Flea.ViewState.state.lastTabs.paths), JSON.stringify([destination, Quickshell.env("FLEA_PATH")]))
             check("tab-only change keeps lastPath", Flea.ViewState.state.lastPath, destination)
+            checkSaved("tab-only change")
             before = count()
             Tabs.selectAt(body.currentPane, 1)
             phase = 4
@@ -69,6 +85,7 @@ ShellRoot {
             check("tab switch patch spawns", count() - before, 1)
             check("tab switch lastPath", Flea.ViewState.state.lastPath, Quickshell.env("FLEA_PATH"))
             check("tab switch index", Flea.ViewState.state.lastTabs.index, 1)
+            checkSaved("tab switch")
             before = count()
             Tabs.openNew(body.currentPane, destination)
             phase = 5
@@ -76,6 +93,7 @@ ShellRoot {
             check("new tab folder patch spawns", count() - before, 1)
             check("new tab lastPath", Flea.ViewState.state.lastPath, destination)
             check("new tab strip", JSON.stringify(Flea.ViewState.state.lastTabs), JSON.stringify({paths:[destination, Quickshell.env("FLEA_PATH"), destination], index:2}))
+            checkSaved("new tab")
             console.log("NAVWRITE DONE " + checks + " checks, " + failures + " failed")
             Qt.quit()
         }
