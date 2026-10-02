@@ -14,6 +14,11 @@ ShellRoot {
     readonly property string watchlog: Quickshell.env("CW_WATCHLOG")
     readonly property int pollMs: 16
     readonly property int deadlineMs: 15000
+    readonly property int fixtureColumns: 3
+    readonly property int previewColumnWidth: 400
+    readonly property real previewFrameRatio: 10 / 16
+    readonly property int largePngWidth: 3000
+    readonly property int largePngHeight: 2000
 
     property var c: ({ meta: 0, replies: 0, thumb: 0, loads: 0, ready: 0, errors: 0, qlShow: 0 })
     property var loadLog: []
@@ -82,7 +87,7 @@ ShellRoot {
     readonly property var rowsList: [
         { n: "00-start.txt", d: false, k: 0, p: 33188, s: 4096, m: 1758835200, t: false, i: "text-x-generic", lines: 80 },
         { n: "10-photo.jpg", d: false, k: 1, p: 33188, s: 900000, m: 1758835201, t: true, i: "image-x-generic", w: 2400, h: 1600 },
-        { n: "20-large.png", d: false, k: 2, p: 33188, s: 5000000, m: 1758835202, t: true, i: "image-x-generic", w: 3000, h: 2000 },
+        { n: "20-large.png", d: false, k: 2, p: 33188, s: 5000000, m: 1758835202, t: true, i: "image-x-generic", w: root.largePngWidth, h: root.largePngHeight },
         { n: "30-clip.mp4", d: false, k: 3, p: 33188, s: 300000, m: 1758835203, t: true, i: "video-x-generic", w: 640, h: 360, ms: 3000 },
         { n: "40-notes.txt", d: false, k: 0, p: 33188, s: 4096, m: 1758835204, t: false, i: "text-x-generic", lines: 80 },
         { n: "50-manual.pdf", d: false, k: 4, p: 33188, s: 200000, m: 1758835205, t: true, i: "x-office-document" },
@@ -138,7 +143,7 @@ ShellRoot {
 
     FloatingWindow {
         id: win
-        implicitWidth: 1200
+        implicitWidth: root.fixtureColumns * root.previewColumnWidth
         implicitHeight: 700
         color: Flea.Theme.color.background
 
@@ -165,6 +170,21 @@ ShellRoot {
     }
 
     property var img: null
+    // The fixture sets a 400 px column with a 16:10 frame; only the theme supplies padding and border.
+    function expectedRequest(cached) {
+        if (cached) return { w: 0, h: 0 }
+        var frameWidth = root.previewColumnWidth - 2 * Flea.Theme.spacing.rowPaddingX
+        var frameHeight = Math.round(frameWidth * root.previewFrameRatio)
+        var w = Math.max(1, Math.round(frameWidth - 2 * Flea.Theme.spacing.hairline))
+        var h = Math.max(1, Math.round(frameHeight - 2 * Flea.Theme.spacing.hairline))
+        return { w: w, h: h }
+    }
+    // Qt rounds the PNG's aspect-fit decode within the independently sized request.
+    function expectedDecode() {
+        var t = root.expectedRequest(false)
+        var scale = Math.min(1, t.w / root.largePngWidth, t.h / root.largePngHeight)
+        return { w: Math.round(root.largePngWidth * scale), h: Math.round(root.largePngHeight * scale) }
+    }
     Connections {
         target: root.img
         function onStatusChanged() {
@@ -172,13 +192,18 @@ ShellRoot {
                 root.bump("loads")
                 var s = String(root.img.source)
                 var cached = s.indexOf(root.cache + "/") >= 0
-                var column = area.previewColumn
+                var target = root.expectedRequest(cached)
                 root.loadLog.push({ file: s.substring(s.lastIndexOf("/") + 1),
                     width: root.img.sourceSize.width, height: root.img.sourceSize.height,
-                    targetWidth: cached ? 0 : Math.max(1, Math.round(column.turned ? root.img.boxHeight : root.img.boxWidth)),
-                    targetHeight: cached ? 0 : Math.max(1, Math.round(column.turned ? root.img.boxWidth : root.img.boxHeight)) })
-            } else if (root.img.status === Image.Ready) root.bump("ready")
-            else if (root.img.status === Image.Error) root.bump("errors")
+                    targetWidth: target.w, targetHeight: target.h, original: !cached })
+            } else if (root.img.status === Image.Ready) {
+                root.bump("ready")
+                var last = root.loadLog[root.loadLog.length - 1]
+                if (last && last.original) {
+                    last.decodedWidth = root.img.implicitWidth
+                    last.decodedHeight = root.img.implicitHeight
+                }
+            } else if (root.img.status === Image.Error) root.bump("errors")
         }
     }
 
@@ -201,7 +226,7 @@ ShellRoot {
     function qlOpen(r) { var w = root.rowsList[r]; quick.open(root.rowPath(r), w.i, w.s, pane.kindNames[w.k]) }
     function qlFollow(r) { root.move(r); var w = root.rowsList[r]; quick.follow(root.rowPath(r), w.i, w.s, pane.kindNames[w.k]) }
 
-    // An idle column move asks once for metadata and loads each pictured frame once at its target size.
+    // Every step judges column work, including work that completes after the column is hidden.
     function judged(d) {
         var sizes = []
         for (var i = root.loadAt; i < root.loadLog.length; i++) {
@@ -209,23 +234,20 @@ ShellRoot {
             var got = l.width + "x" + l.height
             var want = l.targetWidth + "x" + l.targetHeight
             root.check(root.label + " decode-size " + l.file, got, want)
+            if (l.original) {
+                var decoded = root.expectedDecode()
+                root.check(root.label + " decoded-size " + l.file, l.decodedWidth + "x" + l.decodedHeight, decoded.w + "x" + decoded.h)
+            }
             sizes.push(l.file + "@" + got + " target=" + want)
         }
         root.log("STEP " + root.label + " meta=" + (d.meta || 0) + " replies=" + (d.replies || 0)
             + " loads=" + (d.loads || 0) + " ready=" + (d.ready || 0) + " sizes=" + sizes.join(","))
-        // Sample input: col2
-        var m = /^col([1-7])(?:-original)?$/.exec(root.label)
-        if (m) {
-            var r = parseInt(m[1], 10)
-            var want = (r === 4 || r === 7) ? 0 : 1
-            root.check(root.label + " meta", d.meta || 0, 1)
-            root.check(root.label + " replies", d.replies || 0, 1)
-            root.check(root.label + " loads", d.loads || 0, want)
-            root.check(root.label + " ready", d.ready || 0, want)
-            return
-        }
-        if (root.label.indexOf("qlopen") === 0 || root.label === "qlfollow2")
-            root.check(root.label + " show", d.qlShow || 0, 1)
+        var p = root.activeStep
+        root.check(root.label + " meta", d.meta || 0, p.meta || 0)
+        root.check(root.label + " replies", d.replies || 0, p.meta || 0)
+        root.check(root.label + " loads", d.loads || 0, p.loads || 0)
+        root.check(root.label + " ready", d.ready || 0, p.loads || 0)
+        root.check(root.label + " show", d.qlShow || 0, p.show ? 1 : 0)
     }
 
     function swapIdle(s) { return !s || (!s.capturing && !s.holding && !s.dropping) }
@@ -279,6 +301,9 @@ ShellRoot {
         if (root.planAt >= root.plan.length) { root.finish(); return }
         root.activeStep = root.plan[root.planAt++]
         root.label = root.activeStep.label
+        // Count from the prior judgment so marker acknowledgement cannot discard late column work.
+        root.before = root.snap()
+        root.loadAt = root.loadLog.length
         root.since = Date.now()
         root.marker = root.activeStep.mark || ""
         if (root.marker) {
@@ -288,8 +313,6 @@ ShellRoot {
     }
     function startStep() {
         var p = root.activeStep
-        root.before = root.snap()
-        root.loadAt = root.loadLog.length
         root.stage = "work"
         if (p.prepare) p.prepare()
         if (p.row !== undefined) root.move(p.row)
