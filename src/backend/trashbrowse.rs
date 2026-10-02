@@ -48,33 +48,38 @@ struct Session {
     next_token: usize,
     cancellation: Cancellation,
     scratch: PathBuf,
+    // Mounts the loop holds slow writes on, with the mount table they were read from, so restore and delete wait for them.
+    pending: Vec<PathBuf>,
+    body: String,
 }
 impl Default for Session {
     fn default() -> Self {
         Self { items: Vec::new(), confirmation: None, selection: None, next_token: 0,
-            cancellation: Cancellation::default(), scratch: std::env::temp_dir() }
+            cancellation: Cancellation::default(), scratch: std::env::temp_dir(), pending: Vec::new(), body: String::new() }
     }
 }
 
 pub struct TrashBrowser {
-    tx: Sender<(String, Cancellation)>,
+    tx: Sender<(String, Cancellation, Vec<PathBuf>, String)>,
     cancellation: Cancellation,
 }
 impl TrashBrowser {
     pub fn new(replies: Sender<OpMsg>) -> Self {
-        let (tx, rx) = channel::<(String, Cancellation)>();
+        let (tx, rx) = channel::<(String, Cancellation, Vec<PathBuf>, String)>();
         thread::spawn(move || {
             let mut session = Session::default();
-            for (request, cancellation) in rx {
+            for (request, cancellation, pending, body) in rx {
                 session.cancellation = cancellation;
+                session.pending = pending;
+                session.body = body;
                 let line = session.handle(&request);
                 if replies.send(OpMsg::Meta { line }).is_err() { break; }
             }
         });
         Self { tx, cancellation: Cancellation::default() }
     }
-    pub fn request(&self, line: String) {
-        let _ = self.tx.send((line, self.cancellation.next()));
+    pub fn request(&self, line: String, pending: Vec<PathBuf>, body: String) {
+        let _ = self.tx.send((line, self.cancellation.next(), pending, body));
     }
 }
 impl Drop for TrashBrowser {
@@ -297,6 +302,12 @@ impl Session {
             }
             "restore" => self.restore(line),
             "delete" => {
+                // A target whose original sits on a pending mount waits, checked before any listing so the refusal needs no trash round trip.
+                if let Some(confirmation) = self.confirmation.as_ref().filter(|c| c.token == field_usize(line, "token").unwrap_or(0)) {
+                    if self.targets_blocked(&confirmation.targets)? {
+                        return Err("an operation is already running".into());
+                    }
+                }
                 if !self.valid(field_usize(line, "token").unwrap_or(0))? {
                     return Err(STALE_CONFIRMATION.into());
                 }
@@ -453,6 +464,18 @@ impl Session {
         if targets.len() == 0 { return Err(if all { "Trash is empty." } else { "Select at least one Trash item." }.into()); }
         Ok(targets)
     }
+    // Originals behind trash uris, checked against the mounts the loop holds slow writes on.
+    fn targets_blocked(&self, targets: &Manifest) -> Result<bool, String> {
+        let mut offset = 0;
+        while let Some(bytes) = targets.records().next(&mut offset)? {
+            let item = record_item(&record_text(bytes)?)?;
+            let mount = crate::backend::iomount::mount_key(&PathBuf::from(&item.original), &self.body);
+            if self.pending.iter().any(|held| held == &mount) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
     fn refreshed_targets(&self, previous: &Confirmation) -> Result<Manifest, String> {
         if previous.all { return self.targets(r#"{"all":true}"#); }
         let mut targets = Manifest::new(&self.scratch)?;
@@ -526,6 +549,10 @@ impl Session {
     fn restore(&mut self, line: &str) -> Result<String, String> {
         if field_bool(line, "all") { self.items = list()?; }
         let targets = self.targets(line)?;
+        // A target whose original sits on a pending mount waits, so the late write lands first.
+        if self.targets_blocked(&targets)? {
+            return Err("an operation is already running".into());
+        }
         let mut done = 0;
         let mut failures = Vec::new();
         let mut cursor = 0;
@@ -694,5 +721,59 @@ mod tests {
         item.backing = Some(backing());
         assert!(require_selected_identity(&item, &observed).is_err());
         assert_eq!(std::fs::read_to_string(path).unwrap(), "replaced");
+    }
+
+    // Sample body: root ext4 beside one hung nfs mount, the same shape the slow tests map a sandbox onto.
+    fn stub_body(dir: &std::path::Path) -> String {
+        format!("1 0 8:1 / / rw - ext4 /dev/a rw\n30 1 0:45 / {} rw - nfs n:/s rw\n", dir.to_string_lossy())
+    }
+
+    // One sweep over restore and delete: each waits on a mount held slow and runs elsewhere.
+    #[test]
+    fn restore_and_delete_wait_on_a_pending_mount_and_run_elsewhere() {
+        crate::backend::iomount::test_reset();
+        let remote = crate::backend::testdir::TestDir::new("trashgate");
+        let body = stub_body(remote.path());
+        let listing = format!("trash:///a.txt\t{}/a.txt\n", remote.path().to_string_lossy());
+        let line = r#"{"c":"trashbrowse","op":"restore","id":9,"uris":["trash:///a.txt"],"identities":["held"]}"#;
+        // A restore whose original sits on the held mount waits before gio runs.
+        let mut held = Session {
+            items: parse_list(&listing).unwrap(),
+            scratch: remote.path().to_path_buf(),
+            pending: vec![remote.path().to_path_buf()],
+            body: body.clone(),
+            ..Session::default()
+        };
+        let busy = held.handle(line);
+        assert!(busy.contains(r#""ok":false"#) && busy.contains("already running"), "a restore onto a pending mount waits: {}", busy);
+        // The same restore elsewhere runs past the gate to gio's own answer.
+        let mut free = Session {
+            items: parse_list(&listing).unwrap(),
+            scratch: remote.path().to_path_buf(),
+            ..Session::default()
+        };
+        let past = free.handle(line);
+        assert!(!past.contains("already running"), "a restore elsewhere runs past the gate: {}", past);
+        // A delete whose original sits on the held mount waits, and keeps its confirmation for the retry.
+        let mut targets = Manifest::new(remote.path()).unwrap();
+        targets.append(format!(r#"{{"uri":"trash:///a.txt","original":"{}/a.txt","identity":""}}"#,
+            remote.path().to_string_lossy()).as_bytes()).unwrap();
+        let confirmation = Confirmation { token: 7, items: Manifest::new(remote.path()).unwrap(),
+            trees: Manifest::new(remote.path()).unwrap(), listing: Vec::new(), targets, all: false };
+        let delete = r#"{"c":"trashbrowse","op":"delete","id":9,"token":7}"#;
+        let mut held = Session { confirmation: Some(confirmation), scratch: remote.path().to_path_buf(),
+            pending: vec![remote.path().to_path_buf()], body, ..Session::default() };
+        let busy = held.handle(delete);
+        assert!(busy.contains(r#""ok":false"#) && busy.contains("already running"), "a delete onto a pending mount waits: {}", busy);
+        assert!(held.confirmation.is_some(), "the refused delete keeps its confirmation for the retry");
+        // The same delete elsewhere runs past the gate to the listing's own answer.
+        let mut targets = Manifest::new(remote.path()).unwrap();
+        targets.append(format!(r#"{{"uri":"trash:///a.txt","original":"{}/a.txt","identity":""}}"#,
+            remote.path().to_string_lossy()).as_bytes()).unwrap();
+        let confirmation = Confirmation { token: 7, items: Manifest::new(remote.path()).unwrap(),
+            trees: Manifest::new(remote.path()).unwrap(), listing: Vec::new(), targets, all: false };
+        let mut free = Session { confirmation: Some(confirmation), scratch: remote.path().to_path_buf(), ..Session::default() };
+        let past = free.handle(delete);
+        assert!(!past.contains("already running"), "a delete elsewhere runs past the gate: {}", past);
     }
 }

@@ -169,7 +169,10 @@ fn handle_line(
         Request::LocalSend { op, peer, paths, id } => super::localsend::request(op, peer, paths, id, ops.tx.clone()),
         Request::TrashBrowse { line } => {
             let replies = ops.tx.clone();
-            ops.trashbrowser.get_or_insert_with(|| super::trashbrowse::TrashBrowser::new(replies)).request(line);
+            // The browser resolves its originals inside, so the mounts held slow travel with the request.
+            let pending = ops.pending.iter().map(|held| held.mount.clone()).collect();
+            let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+            ops.trashbrowser.get_or_insert_with(|| super::trashbrowse::TrashBrowser::new(replies)).request(line, pending, body);
         }
         Request::List { path, first, hidden } => {
             // A new listing replaces whatever the walk was filling, so the walk ends before the scan starts.
