@@ -124,6 +124,12 @@ function run(check) {
                  + ']}'
     check("a swap partition on another drive is not a row", Devices.parseDevices(swapDisk).length, 1)
 
+    // glib's exact system list carries /run (GLIB_RUNSTATEDIR) and neither /efi nor /boot/efi.
+    check("a volume mounted only at /run hides with the system mounts", Devices.isSystemPath("/run"), true)
+    check("a volume mounted only at /boot hides with the system mounts", Devices.isSystemPath("/boot"), true)
+    check("/efi is no system path, so a non-ESP volume there stays a row", Devices.isSystemPath("/efi"), false)
+    check("/boot/efi is no system path either", Devices.isSystemPath("/boot/efi"), false)
+
     // Only a leaf is a volume. An encrypted stick lists the partition and the unlocked crypt under
     // it, and emitting both would put one drive in the rail twice.
     var lockedOpen = '{"blockdevices":[{"name":"sda","path":"/dev/sda","label":null,"mountpoints":[null],"rm":true,"size":8589934592,"type":"disk","model":"Stick",'

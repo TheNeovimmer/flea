@@ -190,7 +190,7 @@ function isSystemMountOnly(n) {
     return true
 }
 
-// Sample input: "/boot" trues, "/home/gm/Data" falses; exact glib list, prefix only under /dev /proc /sys.
+// Sample input: "/boot" trues, "/run" trues, "/home/gm/Data" falses; exact glib list, prefix only under /dev /proc /sys.
 function isSystemPath(p) {
     if (p === "/" || p.indexOf("/.") >= 0)
         return true
@@ -200,7 +200,7 @@ function isSystemPath(p) {
         return true
     var exact = ["/bin", "/boot", "/compat/linux/proc", "/compat/linux/sys", "/etc", "/home",
         "/lib", "/lib64", "/libexec", "/live/cow", "/live/image", "/media", "/mnt", "/net",
-        "/opt", "/rescue", "/root", "/sbin", "/srv", "/tmp", "/usr", "/usr/X11R6", "/usr/local",
+        "/opt", "/rescue", "/root", "/run", "/sbin", "/srv", "/tmp", "/usr", "/usr/X11R6", "/usr/local",
         "/usr/obj", "/usr/ports", "/usr/src", "/usr/xobj", "/var", "/var/crash", "/var/local",
         "/var/log", "/var/log/audit", "/var/mail", "/var/run", "/var/tmp"]
     for (var i = 0; i < exact.length; i++)
