@@ -374,16 +374,8 @@ PYEOF
 # Sample input, previewSelectionState: {"view":"columns","index":2,"path":"/fixture/b-large.jpg"}.
 matrix_wait_column() {
     local want="$1" file="$2" state path
-    local end=$((SECONDS + 25))
-    while (( SECONDS < end )); do
-        state=$(ipc previewColumnState)
-        [[ "$state" == "$want" && "$(ipc columnThumbShown)" == "true" ]] && break
-        sleep 0.1
-    done
-    [[ "$state" == "$want" && "$(ipc columnThumbShown)" == "true" ]] \
-        || fail "previewmatrix: the column shows $state, thumb shown $(ipc columnThumbShown), not $want"
+    local end=$((SECONDS + 10))
     # Same-kind seeks land on the previous file's Ready frame first, so wait for this file's path.
-    end=$((SECONDS + 10))
     while (( SECONDS < end )); do
         path=$(ipc previewSelectionState | jq -r .path)
         [[ "$path" == *"$file" ]] && break
@@ -391,6 +383,14 @@ matrix_wait_column() {
     done
     [[ "$path" == *"$file" ]] \
         || fail "previewmatrix: the column still shows $path, not $file"
+    end=$((SECONDS + 25))
+    while (( SECONDS < end )); do
+        state=$(ipc previewColumnState)
+        [[ "$state" == "$want" && "$(ipc columnThumbShown)" == "true" ]] && break
+        sleep 0.1
+    done
+    [[ "$state" == "$want" && "$(ipc columnThumbShown)" == "true" ]] \
+        || fail "previewmatrix: the column shows $state, thumb shown $(ipc columnThumbShown), not $want"
     end=$((SECONDS + 10))
     while (( SECONDS < end )); do
         [[ "$(ipc columnFrameReady)" == "true" ]] && return 0
@@ -400,6 +400,7 @@ matrix_wait_column() {
 }
 
 # Quick Look ownsize needs a surface larger than the source, or the rule misjudges on a small tile.
+# Sample input, previewSurfaceRect: 240 151 2080 1137.
 matrix_require_surface() {
     local min_width="$1" min_height="$2" rect sw sh
     rect=$(ipc previewSurfaceRect) || fail "previewmatrix: the overlay surface never reported"
