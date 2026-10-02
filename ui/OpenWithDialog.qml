@@ -3,6 +3,7 @@ import qs.Commons
 import "." as Flea
 import "js/Buttons.js" as Buttons
 import "js/OpenWith.js" as OpenWith
+import "js/Input.js" as Input
 
 // OpenWith.html rule 4: the Convert popup family, and the one place a default handler is written.
 // The flyout beside it overrides once and writes nothing; only this card touches mimeapps.list.
@@ -598,7 +599,7 @@ Item {
                 else root.commit()
                 return
             }
-            if (event.text.length > 0 && event.text.charCodeAt(0) >= 0x20 && !(event.modifiers & Qt.ControlModifier)) {
+            if (Input.isPrintable(event.text.charAt(0)) && !(event.modifiers & Qt.ControlModifier)) {
                 if (!field.activeFocus) { root.typeIntoSearch(event.text); return }
             }
             event.accepted = false

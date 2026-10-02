@@ -10,12 +10,12 @@ var PROTOCOLS = ["SMB", "SFTP", "FTPS", "WebDAV", "NFS"]
 // Which fields each protocol asks for. "path" is the label the canvas gives that row, which differs
 // per protocol because the thing it names differs: a share, a remote path, an export.
 var FIELDS = {
-    "SMB":    { pathLabel: "Share",  credentials: true,  domain: true,  tls: false },
+    "SMB": { pathLabel: "Share",  credentials: true,  domain: true,  tls: false },
     "SFTP":   { pathLabel: "Path",   credentials: true,  domain: false, tls: false },
     "FTPS":   { pathLabel: "Path",   credentials: true,  domain: false, tls: true },
     "WebDAV": { pathLabel: "Path",   credentials: true,  domain: false, tls: true },
     // NFS has no credentials at all: the export is authorised by the server, not by a password.
-    "NFS":    { pathLabel: "Export", credentials: false, domain: false, tls: false }
+    "NFS": { pathLabel: "Export", credentials: false, domain: false, tls: false }
 }
 
 // The TLS box flips two schemes and defaults on, which is what the canvas draws ticked.

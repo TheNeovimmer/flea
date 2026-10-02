@@ -295,7 +295,8 @@ fn a_trash_entry_with_no_uri_is_a_record_not_a_defect() {
 }
 
 #[test]
-fn foreign_records_are_never_trusted() {    for (tag, body) in [
+fn foreign_records_are_never_trusted() {
+    for (tag, body) in [
         ("version", r#"{"v":3,"undo":[],"redo":[]}"#),
         ("relative", r#"{"v":1,"undo":[{"op":"rename","steps":[{"k":"c","path":"rel/x"}]}],"redo":[]}"#),
         ("kind", r#"{"v":1,"undo":[{"op":"rename","steps":[{"k":"mf","path":"/x","id":{"d":1,"i":2,"k":511,"l":0,"m":[0,0],"c":[0,0]}}]}],"redo":[]}"#),

@@ -3175,6 +3175,16 @@ The mgb merge-resolution pass records `src/backend/undo_tests.rs` at 423, re-der
 pins legacy records without birth time through rebase, move, copy and new-file undo, which belong beside the undo
 journal's own tests rather than in a second file.
 
+sg1 records nine narrowly changed ceilings, each re-derived with `wc -l`: `src/backend/undoshare_tests.rs` 513 to 514
+and `src/uischema.rs` 500 to 501 split fused function bodies back into separate lines; `tests/js/focus.js` 728 to 735
+adds DEL and normal-letter event regressions; `ui/Pane.qml` 1009 to 1011 exposes its existing wire to the reload
+dispatcher and the live drag state; `ui/OpenWithDialog.qml` 607 to 608 and `ui/js/Focus.js` 434 to 435 import the
+shared printable helper. `ui/List.qml` 436 to 437, `ui/GridArea.qml` 411 to 412 and `ui/ColumnsArea.qml` 477 to 480
+expose the live drag state used by the existing slow-click tests. Global limits and all checks remain intact.
+
+The sg1 merge into int re-derives three ceilings with `wc -l`: `src/backend/undoshare_tests.rs` 533 and
+`ui/Pane.qml` 1015 add sg1's line splits and wire alias to the stage4 sizes, and `ui/OpenWithDialog.qml` 608 keeps sg1's helper import.
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.

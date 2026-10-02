@@ -413,7 +413,8 @@ mod tests {
 
     // The rules nothing else reached: an exact stop, a non-empty path, and the four shipped presets.
     #[test]
-    fn the_stop_the_preset_and_the_favourites_rules_each_bite_at_their_own_edge() {        let current = crate::uistate::from_file("{}");
+    fn the_stop_the_preset_and_the_favourites_rules_each_bite_at_their_own_edge() {
+        let current = crate::uistate::from_file("{}");
         let takes = |patch: &str| crate::uistate::patched(&current, &jsondoc::parse(patch).expect("patch parses"));
         for good in [r#"{"display":{"textSize":{"mode":"system"}}}"#, r#"{"display":{"textSize":{"mode":9}}}"#,
                      r#"{"keys":"default"}"#, r#"{"keys":"vim"}"#,

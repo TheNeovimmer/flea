@@ -3557,6 +3557,58 @@ case_xwsettings() {
     kill_flea
 }
 
+# The keyboard dispatcher reaches Reload.begin with the pane's wire for F5 and Ctrl+R.
+case_reload() {
+    local dir="$fixture_root/reload" chord before after errors message
+    sandbox_scratch "$dir"
+    : > "$dir/a.txt"
+    launch "$dir"
+    wait_listing 1
+
+    for chord in F5 Ctrl+R; do
+        before=$(ipc listRequests)
+        if [[ "$chord" == F5 ]]; then
+            key -k F5 >/dev/null
+        else
+            hotkey --global ctrl r flea >/dev/null
+        fi
+        settle
+        errors=$(grep -E 'TypeError|ReferenceError' "$flea_log" | grep -E 'Reload\.js|Focus\.js|Pane\.qml' || true)
+        [[ -z "$errors" ]] || fail "reload: $chord raised $errors"
+        after=$(ipc listRequests)
+        [[ "$after" =~ ^[0-9]+$ && "$before" =~ ^[0-9]+$ ]] || fail "reload: $chord returned invalid listRequests ($before to $after)"
+        (( after == before + 1 )) || fail "reload: no single re-list after $chord, listRequests $before to $after"
+        wait_listing 1
+        [[ "$(ipc path)" == "$dir" ]] || fail "reload: $chord left the listing path"
+        message=$(ipc lastMessage)
+        [[ "$message" != *Reloaded* ]] || fail "reload: $chord announced unchanged rows: $message"
+        printf 'RELOAD key=%s lists=%s-to-%s unchanged=quiet log=clean\n' "$chord" "$before" "$after"
+    done
+
+    # A selection holds watcher debt, so only the manual reload can first see this added row.
+    key v >/dev/null
+    settle
+    [[ "$(ipc selectionCount)" == 1 ]] || fail "reload: v did not hold the watcher with a selection"
+    before=$(ipc listRequests)
+    : > "$dir/b.txt"
+    sleep 1
+    [[ "$(ipc total)" == 1 && "$(ipc listRequests)" == "$before" ]] || fail "reload: the watcher re-listed while a selection stood"
+    key -k F5 >/dev/null
+    settle
+    errors=$(grep -E 'TypeError|ReferenceError' "$flea_log" | grep -E 'Reload\.js|Focus\.js|Pane\.qml' || true)
+    [[ -z "$errors" ]] || fail "reload: changed-row F5 raised $errors"
+    after=$(ipc listRequests)
+    [[ "$after" =~ ^[0-9]+$ ]] || fail "reload: changed-row F5 returned invalid listRequests: $after"
+    (( after > before )) || fail "reload: no re-list after changed-row F5, listRequests stayed $before"
+    wait_listing 2
+    message=$(ipc lastMessage)
+    [[ "$message" == "Reloaded · 1 row changed" ]] || fail "reload: changed-row F5 said '$message', expected 'Reloaded · 1 row changed'"
+    [[ "$(ipc path)" == "$dir" ]] || fail "reload: changed-row F5 left the listing path"
+    [[ "$(ipc rowAt 1)" == b.txt\|* ]] || fail "reload: changed-row F5 did not draw b.txt"
+    printf 'RELOAD changed-row F5=ok notice=%s log=clean\n' "$message"
+    kill_flea
+}
+
 # Toggle, extend, select-all, clear, and the invariant that matters most: an index into a
 # directory that no longer exists means nothing, so a re-list must never carry a stale selection.
 case_selection() {
@@ -12892,7 +12944,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 . "$repo/tests/ui-captures-markdown.sh"
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden xwsettings selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject poweroff rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare hanglisting hanginspect openwithdesign noblank previewswap transferlive recent middleclick opentab xwundo)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden xwsettings selection watch reload optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject poweroff rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare hanglisting hanginspect openwithdesign noblank previewswap transferlive recent middleclick opentab xwundo)
 
 : > "$run_log"
 : > "$flea_log"
