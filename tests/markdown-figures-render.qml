@@ -55,6 +55,18 @@ ShellRoot {
             }
         }
 
+        // The seam's own component: Quick Look wraps the document in MarkdownPane, so the suite reads through it too.
+        Flea.MarkdownPane {
+            id: seamPane
+            width: 560
+            height: 200
+            visible: false
+            active: true
+            path: shell.fixture
+            size: 1
+            view: "rendered"
+        }
+
         Image { id: shot; width: 1; height: 1; opacity: 0 }
 
         Canvas {
@@ -118,6 +130,14 @@ ShellRoot {
                 return shell.fail("no fixture arrived in FLEA_MARKDOWN_FIGURE_FIXTURE")
             if (!md.contentReady)
                 return
+            if (!seamPane.contentReady)
+                return
+            if (seamPane.blockList === undefined)
+                return shell.fail("the Quick Look pane exposes no block list for the seam")
+            if (typeof seamPane.figureInfo !== "function")
+                return shell.fail("the Quick Look pane exposes no figureInfo for the seam")
+            if (seamPane.blockList.length !== md.blockList.length)
+                return shell.fail("the seam pane lists " + seamPane.blockList.length + " blocks, want " + md.blockList.length)
             shell.log("blocks=" + shell.types())
             var head = md.blockList.slice(0, 6).map(function (b) { return b.type }).join(",")
             if (head !== "run,figure,figure,figure,figure,run")

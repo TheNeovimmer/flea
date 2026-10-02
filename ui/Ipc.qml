@@ -407,12 +407,10 @@ QtObject {
         function previewOpen(): bool { return root.pane.preview.active }
         function previewKind(): string { return root.pane.preview.kind }
         function previewState(): string { return root.pane.preview.status }
-        // One entry per figure block: ready, failed, working, idle or deferred.
-        // Empty while the document is still loading; a case waits for no entry
-        // reading working, idle or deferred before it shoots.
+        // One entry per figure block; "" while no Markdown body is mounted, so a case keeps polling.
         function previewFigures(): string {
             var m = root.pane.preview.markdownItem
-            if (!m || !m.contentReady)
+            if (!m || !m.contentReady || m.blockList === undefined)
                 return ""
             var out = []
             for (var i = 0; i < m.blockList.length; i++) {

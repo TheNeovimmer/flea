@@ -23,6 +23,9 @@ Item {
     readonly property string rawText: doc.rawText
     readonly property string status: doc.status
     readonly property string lineLabel: doc.lineLabel
+    // Quick Look's seam reads figures through this pane, so it forwards the document's blocks.
+    readonly property var blockList: doc.blockList
+    function figureInfo(i) { return doc.figureInfo(i) }
     readonly property bool contentReady: doc.contentReady
     readonly property bool loading: doc.loading
     readonly property bool blank: doc.blank

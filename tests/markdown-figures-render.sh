@@ -53,6 +53,18 @@ if qjs=$(resolve_qjs) && [ -n "$fleabin" ]; then
 fi
 printf 'MODE=%s\n' "$mode"
 
+# The real helper resolves its UI tree from FLEA_UI, so the suite names this
+# checkout's ui rather than inheriting whatever the caller exported.
+export FLEA_UI="${FLEA_UI:-$PWD/ui}"
+if [ "$mode" = real ]; then
+# Sample input: {"id":1,"kind":"math","source":"x^2","display":false,"theme":{...}}.
+helper_probe_out=$(printf '%s\n' '{"id":1,"kind":"math","source":"x^2","display":false,"theme":{"bg":"#101315","fg":"#c0caf5","accent":"#7aa2f7","font":"monospace","bodyPx":14}}' | FLEA_QJS="$qjs" "$fleabin" --figure-helper 2>&1)
+if ! printf '%s\n' "$helper_probe_out" | grep -q '"svg"'; then
+    printf 'FAIL the figure helper did not answer: %s\n' "$helper_probe_out"
+    exit 1
+fi
+fi
+
 if [ "$mode" = stub ]; then
 # Sample input: {"id":3,"kind":"math","source":"\\frac{a}{b}","display":true,"theme":{...}}.
 cat > "$test_root/stubbin/answer.py" <<'EOF'
@@ -129,7 +141,7 @@ if [ "$mode" = real ]; then
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIGURE_FIXTURE="$test_root/notes.md" \
-    FLEA_FIG_MODE=real FLEA_BIN="$fleabin" FLEA_QJS="$qjs" \
+    FLEA_FIG_MODE=real FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 120 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 else
@@ -144,7 +156,7 @@ fi
 # Sample input, the verdict line: "  INFO qml: MARKDOWN_FIGRENDER PASS three figures, one mono fallback, widths fit, far figure unasked"
 if [ "$(printf '%s\n' "$output" | grep -c 'MARKDOWN_FIGRENDER PASS')" -ne 1 ] || printf '%s\n' "$output" | grep -q 'MARKDOWN_FIGRENDER FAIL'; then
     printf 'FAIL the figure preview missed a check\n'
-    printf '%s\n' "$output" | grep -aE 'MARKDOWN_FIGRENDER|ERROR|error' | head -20
+    printf '%s\n' "$output" | grep -aE 'MARKDOWN_FIGRENDER|FigureService|ERROR|error|flea:' | head -20
     exit 1
 fi
 # The offscreen platform itself says it cannot mask a FloatingWindow; that one line is the platform's, never the probe's.
