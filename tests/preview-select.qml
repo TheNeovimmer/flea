@@ -4,9 +4,7 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 
-// A selection change that does not move the cursor reloads the preview column:
-// select-all shows multi, back to one shows the single row again, and a lone
-// version bump from Marks.follow loads nothing while a plain move loads once.
+// A selection change without a cursor move reloads the column; a lone version bump loads nothing.
 ShellRoot {
     id: root
 

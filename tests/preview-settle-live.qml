@@ -11,7 +11,8 @@ ShellRoot {
     property var failures: []
     property int stage: 0
     property int metaMark: 0
-    property double tArm: 0
+    // A backdated duplicate tells same apart from a re-arm without reading the clock.
+    property int duplicateBackdateMs: 60
     property int pollWant: -2
     property int pollNext: -1
     property int qlLoads: 0
@@ -227,19 +228,10 @@ ShellRoot {
         function () {
             root.step(2)
             root.check("idle second move loads at once", preview.loadedIndex === 2 && backend.metaCalls === 2)
-            root.later(30)
-        },
-        function () {
             root.step(3)
             root.check("burst holds first repeat", backend.metaCalls === 2)
-            root.later(30)
-        },
-        function () {
             root.step(4)
             root.check("burst holds second repeat", backend.metaCalls === 2)
-            root.later(30)
-        },
-        function () {
             root.step(5)
             root.check("burst holds third repeat", backend.metaCalls === 2)
             root.later(300)
@@ -253,24 +245,39 @@ ShellRoot {
         function () {
             root.step(6)
             root.check("post-burst idle move loads at once", preview.loadedIndex === 6 && backend.metaCalls === 4)
-            root.later(30)
-        },
-        function () {
             root.metaMark = backend.metaCalls
-            root.tArm = Date.now()
             root.step(7)
             root.check("rapid move trails", backend.metaCalls === root.metaMark)
-            root.later(100)
-        },
-        function () {
+            var heldAt = preview.lastMoveAt - root.duplicateBackdateMs
+            preview.lastMoveAt = heldAt
+            // The settle Timer is the one Timer under preview; its root type declares none.
+            var settleTimer = null
+            var timers = 0
+            for (var i = 0; i < preview.resources.length; i++) {
+                if (preview.resources[i] instanceof Timer) {
+                    timers += 1
+                    settleTimer = preview.resources[i]
+                }
+            }
+            // restart() on a running Timer is stop then start, so it emits runningChanged twice and a second arm reads settleRestarts 2.
+            var settleRestarts = 0
+            var counted = function () {
+                settleRestarts += 1
+            }
+            if (timers === 1) {
+                settleTimer.runningChanged.connect(counted)
+            }
             root.step(7)
+            if (timers === 1) {
+                settleTimer.runningChanged.disconnect(counted)
+            }
             root.check("duplicate moves no second arm", backend.metaCalls === root.metaMark
-                && preview.lastMoveKey === pane.path + "\n7")
+                && preview.lastMoveKey === pane.path + "\n7" && preview.lastMoveAt === heldAt && settleRestarts === 0
+                && timers === 1, "timers=" + timers)
             root.pollFor(7, 400, root.stage + 1)
         },
         function () {
-            root.check("duplicate lands one trailing load on time", backend.metaCalls === root.metaMark + 1
-                && Date.now() - root.tArm < 200, "elapsed_ms=" + (Date.now() - root.tArm))
+            root.check("duplicate lands one trailing load", backend.metaCalls === root.metaMark + 1)
             pane.storageClass = "network"
             root.later(150)
         },

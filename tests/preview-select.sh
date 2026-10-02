@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# A selection change that does not move the cursor reloads the preview column;
-# offscreen, no display or lock.
+# A selection change that keeps the cursor reloads the preview column, offscreen with no display or lock.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
+# qs exits 128 + SIGTERM when the probe kills itself after its receipt.
+self_kill_exit=143
+# PASS lines tests/preview-select.qml prints on a clean run.
+expected=6
 
 if ! command -v qs >/dev/null; then
     echo "preview-select.sh: qs is not installed, cannot drive the preview"
@@ -31,28 +34,25 @@ output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     timeout 30 qs -p "$test_root/config" 2>&1)
 qs_status=$?
 
-# Sample input, one probe line: "  INFO qml: PREVIEWSELECT PASS settled single loads".
-# Sample input, the receipt: "  INFO qml: PREVIEWSELECT DONE failures=0".
+# Sample input: "  INFO qml: PREVIEWSELECT PASS settled single loads" and "  INFO qml: PREVIEWSELECT DONE failures=0".
 pass_count=$(printf '%s\n' "$output" | grep -c 'PREVIEWSELECT PASS')
 fail_count=$(printf '%s\n' "$output" | grep -c 'PREVIEWSELECT FAIL')
 done_count=$(printf '%s\n' "$output" | grep -c 'PREVIEWSELECT DONE')
 verdict=0
-if [ "$qs_status" -ne 143 ]; then
-    printf 'FAIL qs exited %s, want the owned self-kill 143 after DONE\n' "$qs_status"
+if [ "$qs_status" -ne "$self_kill_exit" ]; then
+    printf 'FAIL qs exited %s, want the owned self-kill %s after DONE\n' "$qs_status" "$self_kill_exit"
     verdict=1
 fi
 if [ "$done_count" -ne 1 ]; then
     printf 'FAIL completion receipts %s, want exactly 1 DONE beside the PASS\n' "$done_count"
     verdict=1
 fi
-if [ "$pass_count" -ne 6 ] || [ "$fail_count" -ne 0 ]; then
+if [ "$pass_count" -ne "$expected" ] || [ "$fail_count" -ne 0 ]; then
     printf 'FAIL a selection change kept the old preview, or a lone bump reloaded\n'
     printf '%s\n' "$output" | grep -aE 'PREVIEWSELECT|ERROR|error'
     verdict=1
 fi
-# The offscreen platform itself says it cannot mask a FloatingWindow; that one line is the platform's, never the preview's.
-platform_warning='This plugin does not support setting window masks'
-warnings=$(printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|WARN|ERROR' | grep -vF "$platform_warning")
+warnings=$(printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|WARN|ERROR')
 if [ -n "$warnings" ]; then
     printf 'FAIL the preview harness logged a warning\n'
     printf '%s\n' "$warnings"
