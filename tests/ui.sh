@@ -11113,6 +11113,8 @@ $bpid $baddr $bx $by $bw $bh $bfloating"
 # xw6: a tab dragged onto another Flea window moves there; torn off onto empty space it
 # opens a window of its own. Reuses the xwdrag two-window rig: launch() kills first, so the
 # second window is launched the same way, and every drop point is an absolute screen point.
+# Normalised pid sets compare without empty members, see tests/xwtab-norm.sh.
+. "$repo/tests/xwtab-norm.sh"
 xwtab_tab_point() {
     local id="$1" pid="$2" index="$3" centre cx cy wx wy ww wh
     centre=$(xwdrag_qs "$id" tabCentre "$index" 2>/dev/null || true)
@@ -11254,12 +11256,12 @@ case_xwtab() {
     printf 'XWTAB tearoff ok\n'
     # The tear-off opened exactly one window: qs pids and Hyprland windows settle to before plus the third.
     local want_after want_wins after after_wins
-    want_after=$(printf '%s %s ' $before "$cpid" | tr ' ' '\n' | sort | tr '\n' ' ')
-    want_wins=$(printf '%s %s ' $before_wins "$cpid" | tr ' ' '\n' | sort | tr '\n' ' ')
+    want_after=$(xwtab_norm_set "$before $cpid")
+    want_wins=$(xwtab_norm_set "$before_wins $cpid")
     after=""; after_wins=""
     for i in $(seq 1 20); do
-        after=$(flea_pids | sort | tr '\n' ' ')
-        after_wins=$(xwtab_window_pids "$after" | tr ' ' '\n' | sort | tr '\n' ' ' || true)
+        after=$(xwtab_norm_set "$(flea_pids | tr '\n' ' ')")
+        after_wins=$(xwtab_norm_set "$(xwtab_window_pids "$after" || true)")
         [[ "$after" == "$want_after" && "$after_wins" == "$want_wins" ]] && break
         sleep 0.5
     done

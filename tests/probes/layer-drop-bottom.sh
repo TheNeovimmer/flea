@@ -16,6 +16,8 @@ flea_bin="${FLEA_BIN:-$(command -v flea || true)}"
 [ -n "$flea_bin" ] || refuse "no flea binary (set FLEA_BIN)"
 flea_ui="${FLEA_UI:-$(cd "$(dirname "$0")/../../ui" && pwd)}"
 [ -f "$flea_ui/boot/shell.qml" ] || refuse "no Flea ui at $flea_ui (set FLEA_UI)"
+probe_py="$(cd "$(dirname "$0")/.." && pwd)/xwtab_free_point.py"
+[ -f "$probe_py" ] || refuse "no free-point helper at $probe_py"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/layer-drop.XXXXXXXX") || refuse "mktemp failed"
 trap 'kill "$qs_pid" "$flea_pid" $torn 2>/dev/null; rm -rf "$work"' EXIT
@@ -86,13 +88,69 @@ hyprctl dispatch "hl.dsp.window.move({ x = 40, y = 40 })" >/dev/null
 sleep 0.3
 hyprctl dispatch "hl.dsp.window.resize({ x = 900, y = 500 })" >/dev/null
 sleep 0.5
+# The qs instance id for this pid, same lookup tests/ui.sh uses for its tabs.
+qid=""
+for _ in $(seq 1 60); do
+    qid=$(qs list --all --json 2>/dev/null | python3 -c '
+import json, sys
+hits = [x for x in json.load(sys.stdin) if x.get("config_path") == sys.argv[1] and x.get("pid") == int(sys.argv[2])]
+print(hits[0]["id"] if len(hits) == 1 else "")
+' "$flea_ui/boot/shell.qml" "$flea_pid") || true
+    [ -n "$qid" ] && break
+    sleep 0.5
+done
+[ -n "$qid" ] || refuse "no qs instance for $flea_pid"
 omarchy-drive key --window flea t >/dev/null 2>&1 || true
-sleep 1
-
-# The tab strip sits under the chrome: drag the second tab below the window, onto empty
-# desktop, and release. The drop point is read off the focused monitor, not assumed 1080p.
-read -r mon_x mon_y mon_w mon_h < <(hyprctl monitors -j | python3 -c 'import json,sys; ms=json.load(sys.stdin); m=[x for x in ms if x.get("focused")] or ms; print(m[0]["x"],m[0]["y"],m[0]["width"],m[0]["height"])') || refuse "no focused monitor"
-sx=$((mon_x + 300)); sy=$((mon_y + 105)); dx=$((mon_x + 300)); dy=$((mon_y + mon_h - 120))
+# The strip only lifts with two tabs, so wait for the second one like the case does.
+two=""
+for _ in $(seq 1 40); do
+    if [ "$(qs ipc -i "$qid" call flea tabCount 2>/dev/null || true)" = "2" ]; then two=1; break; fi
+    sleep 0.25
+done
+[ -n "$two" ] || refuse "t did not open a second tab"
+sleep 0.5
+# The drag starts on the second tab centre, never on a guessed chrome offset.
+centre=$(qs ipc -i "$qid" call flea tabCentre 1 2>/dev/null || true)
+[ -n "$centre" ] || refuse "second tab has no centre"
+read -r cx cy <<< "$centre"
+read -r wx wy _ww _wh < <(hyprctl clients -j 2>/dev/null | python3 -c '
+import json, sys
+hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
+print("%s %s %s %s" % (hits[0]["at"][0], hits[0]["at"][1], hits[0]["size"][0], hits[0]["size"][1]) if hits else "")
+' "$flea_pid" || true)
+[ -n "${wx:-}" ] || refuse "no geometry for $flea_pid"
+sx=$((wx + cx)); sy=$((wy + cy))
+# The release uses the same free-point scan the case uses, after the park above.
+mon_json=$(hyprctl monitors -j 2>/dev/null || true)
+[ -n "$mon_json" ] || refuse "no monitors to scan"
+read -r mx my mw mh mon_name < <(printf '%s' "$mon_json" | python3 -c '
+import json, sys
+ms = json.load(sys.stdin)
+m = [x for x in ms if x.get("focused")] or ms
+print(m[0]["x"], m[0]["y"], m[0]["width"], m[0]["height"], m[0].get("name", ""))
+' || true)
+[ -n "${mon_name:-}" ] || refuse "no focused monitor to scan"
+hyprctl clients -j 2>/dev/null > "$work/clients.json" || refuse "no clients to scan"
+# The own panel receives the drop, so it is filtered out of the cover like the case filters nothing yet mapped.
+hyprctl layers -j 2>/dev/null | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+for entry in (d.values() if isinstance(d, dict) else []):
+    lv = entry.get("levels") if isinstance(entry, dict) else None
+    if not isinstance(lv, dict):
+        continue
+    for k in list(lv.keys()):
+        v = lv[k]
+        if isinstance(v, list):
+            lv[k] = [n for n in v if not (isinstance(n, dict) and n.get("namespace") == "flea-layer-drop")]
+print(json.dumps(d))
+' > "$work/layers.json" || refuse "no layers to scan"
+printf '%s' "$mon_json" > "$work/monitors.json"
+point=$(python3 "$probe_py" "$mx" "$my" "$mw" "$mh" "$mon_name" "$work/clients.json" "$work/layers.json" "$work/monitors.json" || true)
+[ -n "$point" ] || refuse "no empty desktop point on the focused monitor"
+read -r dx dy <<< "$point"
+# The Bottom panel must still be mapped at release, or the drop has no receiver.
+hyprctl layers -j 2>/dev/null | grep -Fq '"namespace": "flea-layer-drop"' || refuse "Bottom panel went away before the drop"
 move_to() {
     local tx="$1" ty="$2" i cx cy
     for i in $(seq 1 16); do

@@ -164,5 +164,20 @@ ok "closed special workspace is skipped: $got7"
 else
 bad "closed special workspace is skipped, want '8 1432', got '$got7'"
 fi
+# The tear-off count compares normalised sets, so a leading space, a doubled
+# space and a duplicate collapse to the same sorted unique set.
+. "$repo/tests/xwtab-norm.sh" || { bad "cannot source xwtab-norm.sh"; }
+norm=$(xwtab_norm_set " 160643 159605 160229 159605 " || true)
+if [ "$norm" = "159605 160229 160643" ]; then
+ok "leading space plus duplicate normalises: $norm"
+else
+bad "leading space plus duplicate normalises, want '159605 160229 160643', got '$norm'"
+fi
+norm_empty=$(xwtab_norm_set "" || true)
+if [ -z "$norm_empty" ]; then
+ok "empty set stays empty"
+else
+bad "empty set stays empty, got '$norm_empty'"
+fi
 printf '%s checks, %s failed\n' "$((pass+fail))" "$fail"
 exit "$((fail>0))"
