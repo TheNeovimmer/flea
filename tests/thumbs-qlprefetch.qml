@@ -14,9 +14,8 @@ ShellRoot {
     property var failures: []
     property int burstMark: -1
     property int metaMark: -1
-    property real burstAt: 0
-    // Half the follow settle, so a skipped settle fails the age check.
-    property real midBurstMs: quick.item ? quick.item.followSettleMs / 2 : 0
+    // Null unless Preview exposes exactly one follow settle timer.
+    property var settle: null
 
     function log(line) { console.log("THUMBPREFETCH " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
@@ -34,19 +33,19 @@ ShellRoot {
         property var calls: []
         property var metaCalls: []
         property var metaShown: []
-        property var metaAt: []
+        property var metaSettling: []
         property int dirDev: 0
         signal meta(int row, int w, int h, int orient, real durationMs, int sampleRate, int entries, real unpacked, bool archiveFailed, var names, real lines, bool partial, bool linesFailed, string target, bool targetDir, string owner)
         signal thumbed(int row, string file)
-        // Each ask records the overlay path it was made for.
+        // Each ask records the overlay path and the follow settle state.
         function askMeta(index, wantText, wantMedia, wantArchive) {
             metaCalls.push(index)
             metaShown.push(quick.item.path)
-            metaAt.push(Date.now())
+            metaSettling.push(shell.settle ? shell.settle.running : true)
             return 0
         }
         function thumb(ask, cacheOnly) {
-            calls.push({ ask: ask, cacheOnly: cacheOnly === true, shown: quick.item.path, at: Date.now() })
+            calls.push({ ask: ask, cacheOnly: cacheOnly === true, shown: quick.item.path, settling: shell.settle ? shell.settle.running : true })
         }
         function thumbcancel(rows) {}
     }
@@ -97,7 +96,11 @@ ShellRoot {
             anchors.fill: parent
             active: true
             source: "file://" + shell.uiDir + "/Preview.qml"
-            onLoaded: { item.pane = pane; kick.restart() }
+            onLoaded: {
+                item.pane = pane
+                shell.findSettle()
+                kick.restart()
+            }
             onStatusChanged: if (status === Loader.Error) { shell.check("the overlay loads", false); shell.done() }
         }
 
@@ -120,6 +123,21 @@ ShellRoot {
 
     property var settleCalls: []
     property int raceCacheOnly1: 0
+
+    // Exactly one non-repeating timer at the follow settle interval names it.
+    function findSettle() {
+        var found = null
+        var count = 0
+        var list = quick.item ? quick.item.resources : []
+        for (var i = 0; i < list.length; i++) {
+            var t = list[i]
+            if (t && t.repeat === false && t.interval === quick.item.followSettleMs) {
+                found = t
+                count += 1
+            }
+        }
+        shell.settle = count === 1 ? found : null
+    }
 
     // The settled re-plan runs production Thumbs.plan over the full viewport.
     function replan() {
@@ -162,11 +180,10 @@ ShellRoot {
             quick.item.follow("/t/c.jpg", "image-x-generic", 102, "", "/cache/c.png")
             // The trailing follow trails synchronously, so it asks nothing at once either.
             // The first follow loaded at once above, so its row's meta is already asked.
-            shell.check("the trailing follow asks nothing at once", backend.calls.length === 2)
+            shell.check("the trailing follow asks nothing at once", backend.calls.length === 2 && shell.settle !== null && shell.settle.running)
             shell.check("and no meta beyond the loaded row", backend.metaCalls.join(",") === "0,1")
             shell.burstMark = backend.calls.length
             shell.metaMark = backend.metaCalls.length
-            shell.burstAt = Date.now()
             trailPoll.waited = 0
             trailPoll.restart()
         }
@@ -182,8 +199,8 @@ ShellRoot {
             waited += interval
             if (backend.calls.length > shell.burstMark) {
                 stop()
-                shell.check("nothing asks mid-burst", backend.calls[shell.burstMark].shown === "/t/c.jpg" && backend.calls[shell.burstMark].at - shell.burstAt >= shell.midBurstMs)
-                shell.check("no meta asks mid-burst", backend.metaShown[shell.metaMark] === "/t/c.jpg" && backend.metaAt[shell.metaMark] - shell.burstAt >= shell.midBurstMs)
+                shell.check("nothing asks mid-burst", backend.calls[shell.burstMark].shown === "/t/c.jpg" && backend.calls[shell.burstMark].settling === false)
+                shell.check("no meta asks mid-burst", backend.metaShown[shell.metaMark] === "/t/c.jpg" && backend.metaSettling[shell.metaMark] === false)
                 shell.check("the trailing rest asks once more", backend.calls.length === shell.burstMark + 1)
                 shell.check("for the row after it",
                     backend.calls[backend.calls.length - 1].ask.join(",") === "3")
