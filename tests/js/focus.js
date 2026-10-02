@@ -294,6 +294,12 @@ function run(check) {
     check("Escape with an armed trash is consumed", Focus.handleKey(armedKey, armedTrash, null), true)
     check("and cancels the arm instead of climbing",
           armedTrash.trashArmedAt + "|" + armedTrash.climbed + "|" + armedTrash.retreated, "0|0|0")
+    var armedOff = escaper("", 0)
+    armHandle(armedOff)
+    armedOff.trashArmedAt = Date.now()
+    check("Escape with an armed trash and the setting off is consumed", Focus.handleKey(armedKey, armedOff, null), true)
+    check("and retreats instead of standing in for a climb",
+          armedOff.trashArmedAt + "|" + armedOff.climbed + "|" + armedOff.retreated, "0|0|1")
     var armedPair = escaper("", 0)
     armedPair.escapeUp = true
     armHandle(armedPair)
@@ -660,7 +666,7 @@ function run(check) {
     copyPathPane.copied = ""
     copyPathPane.opener = { copyText: function (text) { copyPathPane.copied = text } }
     Focus.act("copyPath", copyPathPane, 0, ["/d/a.txt"])
-    check("copy path copies at once", copyPathPane.copied.length > 0, true)
+    check("copy path copies at once", copyPathPane.copied, "/d/a.txt")
     var pasteLinkPane = listPane(true)
     pasteLinkPane.linked = []
     pasteLinkPane.pasteLink = function (kind, paths) { pasteLinkPane.linked.push(kind + ":" + paths.join(",")) }

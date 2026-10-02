@@ -1,7 +1,8 @@
 .import "../../ui/js/Reload.js" as Reload
+.import "../../ui/js/Messages.js" as Messages
+.import "sourcefixture.js" as Source
 
-// F5 and Ctrl+R re-read the folder through the listing swap, and the notice names
-// how many rows changed, said only when rows changed.
+// F5 and Ctrl+R re-read the folder through the listing swap, saying the changed count only when rows changed.
 
 function pane() {
     return {
@@ -115,4 +116,20 @@ function run(check) {
     var idle = pane()
     Reload.landed(idle)
     check("an ordinary navigation owes no notice", idle.said.length + "|" + idle.reloadFrom, "0|-1")
+
+    // The listed line's changed count reaches the listed signal PaneSwap reads; a missing one reads unknown.
+    var routed = []
+    var fake = { dirDev: 0, dirWritable: true,
+        listed: function (total, readMs, sortMs, path, changed) { routed.push(total + "|" + path + "|" + changed) } }
+    // Sample input: {"t":"listed","n":12,"read":1,"sort":2,"path":"/d","changed":2} routes 2.
+    Messages.route(fake, { t: "listed", n: 12, read: 1, sort: 2, path: "/d", changed: 2 })
+    check("a listed line with a count hands it to the listed signal", routed.join(";"), "12|/d|2")
+    // Sample input: the same line with no changed field routes undefined, which PaneSwap reads as unknown.
+    Messages.route(fake, { t: "listed", n: 12, read: 1, sort: 2, path: "/d" })
+    check("and one without hands over no count", routed.join(";"), "12|/d|2;12|/d|undefined")
+    // Each check reads the shipped QML source, so a live window is not needed.
+    var swap = Source.source("ui/PaneSwap.qml")
+    check("PaneSwap keeps the listed line's count for the reload", swap.indexOf("pane.reloadChanged = (changed === undefined || changed === null) ? -1 : changed") >= 0, true)
+    var backend = Source.source("ui/Backend.qml")
+    check("the list request sends wantChanged only when asked", backend.indexOf("wantChanged: wantChanged === true") >= 0, true)
 }

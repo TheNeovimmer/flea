@@ -351,7 +351,7 @@ function handleKey(event, root, sidebar) {
     }
     var action = lookup(event, root)
     // Escape cancels an armed trash or a live vim pair first and stops.
-    var escapeCancelsArm = action === "escape"
+    var escapeCancelsArm = action === "escape" && root.escapeUp === true
         && (root.trashArmedAt > 0 || (ARMED_PAIRS[root.keySequence] === true && root.keySequenceIdentity === stampOf(root)))
     action = sequenceAction(action, root)
     // Anything that is not the second d of the pair disarms it, so an arm never outlives the key

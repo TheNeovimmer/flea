@@ -1,7 +1,6 @@
 .import "../../ui/js/ScrollOff.js" as ScrollOff
 
-// The cursor keeps three rows of context above and below while scrolling, and still
-// reaches the first and last rows. Pure index maths; the views turn the answer into pixels.
+// The cursor keeps three context rows above and below; pure index maths, views make pixels.
 
 function run(check) {
     check("the context lives in its own module", typeof ScrollOff.firstFor, "function")
@@ -26,8 +25,7 @@ function run(check) {
     check("a short listing pins to the origin", ScrollOff.firstFor(0, 36, 12, 20), 0)
     check("an empty listing pins too", ScrollOff.firstFor(0, 36, 0, 0), 0)
 
-    // A partly drawn bottom row is not visible: height 1310 at row 31 holds 42
-    // whole rows, not the ceil's 43, so End parks past the last row's bottom.
+    // A partly drawn bottom row is not visible: 1310 at row 31 holds 42 whole rows.
     check("the fully visible count exists", typeof ScrollOff.fullyVisible, "function")
     if (typeof ScrollOff.fullyVisible !== "function")
         return
@@ -42,8 +40,7 @@ function run(check) {
     var nearTop = ScrollOff.firstFor(40, ScrollOff.fullyVisible(1310, 31), 1, 150)
     check("a near-top move keeps its upward context", nearTop, 0)
 
-    // A viewport shorter than the margin parks the cursor outside it: list 110 px
-    // tall at 31 px rows holds 3, so first 7 cursor 10 Down to 11 must not want 12.
+    // A viewport shorter than the margin parks the cursor outside it: 110 px at 31 holds 3.
     check("a short window keeps its margin inside itself", ScrollOff.firstFor(7, 3, 11, 20), 10)
     var shortVisibles = [1, 2, 3, 4, ScrollOff.fullyVisible(110, 31)]
     for (var vi = 0; vi < shortVisibles.length; vi++) {
@@ -66,9 +63,7 @@ function run(check) {
         check("a short viewport of " + vis + " keeps the cursor inside down then up", holds, true)
     }
 
-    // A pixel wheel scroll can cut the first row at the top edge while the index
-    // window does not move: contentY 20 leaves row 0 20 px under the edge, so
-    // Home finds want 0 === first 0 and must still scroll to align it.
+    // A pixel scroll can cut the first row while the index window does not move.
     check("the pixel align rule exists", typeof ScrollOff.needsAlign, "function")
     if (typeof ScrollOff.needsAlign === "function") {
         check("a cut first row needs aligning", ScrollOff.needsAlign(0, 0, 10, 20, 310, 31), true)
@@ -77,29 +72,23 @@ function run(check) {
         check("the index alone misses the cut", ScrollOff.firstFor(0, 10, 0, 20), 0)
     }
 
-    // A click never scrolls the list under the pointer: pointer moves carry
-    // context 0 through the one showCursor path, while keyboard moves keep 3.
-    // Viewport 36 rows, first 10: row 43 stands two above the bottom edge.
+    // A click never scrolls under the pointer: context 0 for pointer moves, 3 for keys.
     check("a pointer two above the bottom edge moves nothing",
           ScrollOff.firstFor(10, 36, 43, 100, 0), 10)
     check("a keyboard move to the same row keeps its three rows",
           ScrollOff.firstFor(10, 36, 43, 100), 11)
     check("and the default is the keyboard's three",
           ScrollOff.firstFor(10, 36, 43, 100, undefined), 11)
-    // The first row past a 42-row window is cut by the bottom edge: a click
-    // shows it whole with one row, a keyboard move keeps three below it.
+    // Past a 42-row window the first cut row shows whole on click, three on keys.
     check("a pointer to a cut bottom row shows it whole",
           ScrollOff.firstFor(0, 42, 42, 150, 0), 1)
     check("a keyboard move to the same cut row keeps three",
           ScrollOff.firstFor(0, 42, 42, 150), 4)
 
-    // The pointer case answers in pixels, never on the row grid: a click never
-    // scrolls the list under the pointer, except that a row cut by the viewport
-    // edge moves just enough to show it whole.
+    // The pointer case answers in pixels: a cut row moves just enough to show whole.
     check("the pixel contain rule exists", typeof ScrollOff.containY, "function")
     if (typeof ScrollOff.containY === "function") {
-        // Row 10 at rowH 30 starts at 300; height 310, contentY 0 leaves it cut
-        // 300..310, so just enough is 20, not the row-grid snap to 30.
+        // Row 10 at rowH 30 starts at 300: cut 300..310 moves just enough, 20.
         check("a cut bottom row moves just enough to show it whole",
               ScrollOff.containY(300, 30, 0, 310), 20)
         // The same row under a 25 px wheel scroll sits fully inside 25..335.
