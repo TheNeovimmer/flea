@@ -206,8 +206,8 @@ fn apply(saved: &ReplayStep, id: usize, index: usize, cancel: &AtomicBool, tx: &
                 kind: kind.clone(), identity: ItemIdentity::inspect(path)? });
             Ok(())
         }
-        Step::Mode { path, before, after, dev, ino } => {
-            super::permissions::chmod_pinned(path, *dev, *ino, *before, *after)
+        Step::Mode { path, before, after, dev, ino, born } => {
+            super::permissions::chmod_pinned(path, *dev, *ino, *born, *before, *after)
                 .map_err(|msg| error(path, &msg))?;
             steps.push(saved.step.clone());
             Ok(())

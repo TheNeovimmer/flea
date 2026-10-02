@@ -40,19 +40,16 @@ function run(check) {
         Permissions.multiResult(0, 1, [{ path: "/d/secret.txt", why: "Read-only: setgid bit is present." }]),
         "Permissions changed for 0 of 1; 1 left alone: secret.txt: Read-only: setgid bit is present.")
 
-    // N replies cost N writes plus one summary, never N summaries.
+    // noteMode answers done once in 5000 replies, on the last one.
     var store = { modes: [], reasons: [], skipped: [], pending: 5000 }
-    var summaries = 0
     var done = false
+    var early = false
     for (var i = 0; i < 5000; i++) {
         done = Permissions.noteMode(store, i, "/f" + i, { ok: true, mode: "0644", reason: "" })
-        if (done) {
-            summaries += 1
-            Permissions.summarize(store.modes)
-        }
+        if (done && i + 1 < 5000) early = true
     }
     check("5000 replies land every mode", done + "|" + store.modes.length, "true|5000")
-    check("and summarize exactly once", summaries, 1)
+    check("and done answers only on the last reply", early + "|" + done, "false|true")
     var refused = { modes: [], reasons: [], skipped: [], pending: 3 }
     Permissions.noteMode(refused, 0, "/d/a.txt", { ok: true, mode: "2755", reason: "Read-only: setgid bit is present." })
     Permissions.noteMode(refused, 1, "/d/b.txt", { ok: false, error: "Gone." })
@@ -61,4 +58,11 @@ function run(check) {
           "true|1|Gone.")
     check("and rides the reasons once, beside its row",
           refused.reasons.join("|"), "Read-only: setgid bit is present.|Gone.|")
+    // One note names reasoned and refused rows together, and nothing when all apply.
+    var noted = { modes: ["0644", "0644", ""], reasons: ["", "Read-only: you are not the owner.", "Gone."], skipped: [], pending: 0 }
+    check("reasoned and refused rows share one note",
+        Permissions.inspectNote(noted, ["/d/a.txt", "/d/b.txt", "/d/c.txt"]),
+        "2 items cannot be changed: b.txt: Read-only: you are not the owner.; c.txt: Gone.")
+    check("and an applicable selection names nothing",
+        Permissions.inspectNote({ modes: ["0644"], reasons: [""], skipped: [], pending: 0 }, ["/d/a.txt"]), "")
 }

@@ -3,7 +3,7 @@ use crate::backend::renamecompat::rename_path;
 use crate::backend::trash;
 use crate::error::{from_io, FleaError};
 use std::os::unix::fs::MetadataExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ItemIdentity {
@@ -61,10 +61,10 @@ pub enum Step {
     // This operation trashed what was at `original`, and the trash holds it under `uri`.
     Trashed(trash::Entry),
     // Permissions for several items: one entry holds every path the Apply changed,
-    // so one undo restores them all; each step pins the file it changed by dev
-    // and inode and the mode it applied, so a path replaced or rechmodded
+    // so one undo restores them all; each step pins the file it changed by dev,
+    // inode, birth time and the mode it applied, so a path replaced or rechmodded
     // since is skipped with a note rather than chmodded blind.
-    Mode { path: PathBuf, before: u32, after: u32, dev: u64, ino: u64 },
+    Mode { path: PathBuf, before: u32, after: u32, dev: u64, ino: u64, born: Option<(u64, u32)> },
 }
 
 // One user-visible operation, however many steps it took, named the way the status bar already named it.
@@ -243,7 +243,7 @@ fn reverse(step: &Step) -> Result<Option<(ItemIdentity, ItemIdentity)>, FleaErro
         }
         Step::MadeFile { path, identity } => remove_new_file(path, identity)?,
         Step::Trashed(entry) => trash::restore(entry)?,
-        Step::Mode { path, before, after, dev, ino } => restore_mode(path, *dev, *ino, *after, *before)?,
+        Step::Mode { path, before, after, dev, ino, born } => restore_mode(path, *dev, *ino, *born, *after, *before)?,
     }
     Ok(None)
 }
@@ -319,7 +319,7 @@ fn remove(path: &PathBuf) -> Result<(), FleaError> {
 // the made name is the last one and removing it loses data. Kinds compare
 // through symlink_metadata against the kind recorded at creation, so a hard
 // link to a symlink (which makes a symlink) still undoes.
-fn remove_link(path: &PathBuf, identity: &ItemIdentity, source: &PathBuf, kind: &super::link::LinkKind) -> Result<(), FleaError> {
+fn remove_link(path: &Path, identity: &ItemIdentity, source: &Path, kind: &super::link::LinkKind) -> Result<(), FleaError> {
     let meta = path.symlink_metadata().map_err(|e| from_io("undo", &path.to_string_lossy(), &e))?;
     let current = ItemIdentity::record(&meta);
     let still_link = match kind {
@@ -374,8 +374,8 @@ fn err(msg: &str) -> FleaError {
 // held object without reopening a pathname. The batch apply rolls back
 // through here too, so a failure there can say what it restored and what
 // stayed applied.
-pub(crate) fn restore_mode(path: &PathBuf, dev: u64, ino: u64, expected: u32, target: u32) -> Result<(), FleaError> {
-    super::permissions::chmod_pinned(path, dev, ino, expected, target).map_err(|msg| {
+pub(crate) fn restore_mode(path: &Path, dev: u64, ino: u64, born: Option<(u64, u32)>, expected: u32, target: u32) -> Result<(), FleaError> {
+    super::permissions::chmod_pinned(path, dev, ino, born, expected, target).map_err(|msg| {
         FleaError { where_: "undo".to_string(), path: path.to_string_lossy().to_string(), msg }
     })
 }

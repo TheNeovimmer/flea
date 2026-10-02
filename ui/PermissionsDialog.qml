@@ -66,6 +66,7 @@ FocusScope {
         : "Scope this item only · ownership unchanged"
     signal requested(var message)
     signal changed(string note)
+    signal refreshNeeded()
     signal closed()
 
     function open(itemPath, holder) {
@@ -150,11 +151,11 @@ FocusScope {
         if (found.mixed) return "some"
         return found.on ? "on" : "off"
     }
-    // Only a mixed box cycles set, clear, release; a uniform box flips to its opposite, then lets go.
+    // A set box lets go unless mixed, so a uniform-off box reads off, on, off, on.
     function multiToggle(bit) {
         if ((explicitSet & bit) !== 0) {
             explicitSet &= ~bit
-            explicitClear |= bit
+            if (multiBit(bit).mixed) explicitClear |= bit
         } else if ((explicitClear & bit) !== 0) {
             explicitClear &= ~bit
         } else if (multiBit(bit).mixed || !multiBit(bit).on) {
@@ -185,18 +186,20 @@ FocusScope {
             cancelFocus.forceActiveFocus()
             for (var i = 0; i < multiPaths.length; i++)
                 requested({ c: "permissions", op: "inspect", id: multiBase * inspectStride + i, path: multiPaths[i] })
+            refreshNeeded()
             return
         }
         if (message.op !== "inspect") return
         var at = (message.id || 0) - multiBase * inspectStride
         if (at < 0 || at >= multiPaths.length) return
-        // Accumulated in place through noteMode, pinned to one summary per selection.
+        // Accumulated in place through noteMode, which answers true once per selection.
         if (Permissions.noteMode(multiStore, at, multiPaths[at], message)) {
             multiPending = 0
             busy = false
-            // One assignment notifies once, so multiSummary summarizes once.
+            // The single assignment lands with the last reply.
             multiModes = multiStore.modes.slice()
-            if (multiStore.skipped.length > 0 && errorText.length === 0) errorText = Permissions.skipNote(multiStore.skipped)
+            var note = Permissions.inspectNote(multiStore, multiPaths)
+            if (note.length > 0 && errorText.length === 0) errorText = note
             cancelFocus.forceActiveFocus()
         } else {
             multiPending = multiStore.pending

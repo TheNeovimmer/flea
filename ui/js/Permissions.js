@@ -51,7 +51,7 @@ function leafOf(path) {
     return cut < 0 ? text : text.substring(cut + 1)
 }
 
-// Modes land in arrival order in place; the dialog summarizes once when this answers true.
+// Modes land in arrival order in place; this answers true once per selection, on the last reply.
 function noteMode(store, at, path, message) {
     if (message.ok === true) {
         store.modes[at] = message.mode
@@ -65,6 +65,17 @@ function noteMode(store, at, path, message) {
     }
     store.pending -= 1
     return store.pending <= 0
+}
+
+// One note names every row the grid cannot change, reasoned and refused together.
+function inspectNote(store, paths) {
+    var list = []
+    var reasons = (store && store.reasons) || []
+    for (var i = 0; i < paths.length; i++) {
+        var why = reasons[i] || ""
+        if (why.length > 0) list.push({ path: paths[i], why: why })
+    }
+    return list.length === 0 ? "" : skipNote(list)
 }
 
 // Every skip is named with its reason, capped so a whole drive stays one line.

@@ -30,7 +30,7 @@ src/backend/movebatch_tests.rs 751
 src/backend/opsdispatch.rs 941
 src/backend/opsreq.rs 514
 src/backend/opsreq/tests.rs 461
-src/backend/permissions.rs 543
+src/backend/permissions.rs 648
 src/backend/proto.rs 287
 src/backend/run.rs 454
 src/backend/thumbs.rs 442
@@ -95,7 +95,7 @@ ui/StatusBar.qml 460
 ui/Theme.qml 415
 ui/TrashView.qml 475
 ui/ViewState.qml 410
-ui/WindowBody.qml 580
+ui/WindowBody.qml 581
 ui/js/Filter.js 253
 ui/js/Focus.js 439
 ui/js/Keymap.js 338

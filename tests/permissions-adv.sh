@@ -35,8 +35,7 @@ output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     timeout 30 qs -p "$test_root/config" 2>&1)
 qs_status=$?
 
-# Sample input, one probe line: "  INFO qml: PERMADV PASS uniform-on-first-click-clears".
-# Sample input, the receipt: "  INFO qml: PERMADV DONE failures=0".
+# Sample input: probe "PERMADV PASS uniform-on-first-click-clears" beside receipt "PERMADV DONE failures=0".
 # The owned termination is the probe's own self-kill (SIGTERM, 143) after its one DONE receipt; a PASS beside any other status is a double's, never a proof.
 pass_count=$(printf '%s\n' "$output" | grep -c 'PERMADV PASS')
 fail_count=$(printf '%s\n' "$output" | grep -c 'PERMADV FAIL')
@@ -50,8 +49,8 @@ if [ "$done_count" -ne 1 ]; then
     printf 'FAIL completion receipts %s, want exactly 1 DONE beside the PASS\n' "$done_count"
     verdict=1
 fi
-if [ "$pass_count" -ne 20 ] || [ "$fail_count" -ne 0 ]; then
-    printf 'FAIL the permissions dialog missed a finding: pass=%s fail=%s want 20/0\n' "$pass_count" "$fail_count"
+if [ "$pass_count" -ne 25 ] || [ "$fail_count" -ne 0 ]; then
+    printf 'FAIL the permissions dialog missed a finding: pass=%s fail=%s want 25/0\n' "$pass_count" "$fail_count"
     printf '%s\n' "$output" | grep -aE 'PERMADV|ERROR|error'
     verdict=1
 fi
