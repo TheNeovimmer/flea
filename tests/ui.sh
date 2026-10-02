@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Drives the real Quickshell window with omarchy-drive and asserts through the read-only IPC seam.
-# Usage: ./tests/ui.sh [case ...]; with no args it runs the default wanted list below; networklive and touchpad are opt-in.
+# Usage: ./tests/ui.sh [case ...]; with no args it runs the default wanted list below; every case_* here or in a sourced tests/ui-*.sh outside it runs only by name (touchpad, networklive and xwdrag among them).
 set -u
 set -o pipefail
 # Hard rule 9's guard, which owns FIXTURE_ROOT and every create and delete this suite makes.
@@ -109,6 +109,18 @@ transient_clear_s=5
 rail_poll_wait_s=7
 # The window coalescer is 16 ms and a refill is a round trip, so injected input needs a moment.
 settle_s=0.4
+# Async backend answers land within 15 s, so every makeexec and touchpad poll shares this bound.
+async_wait_ms=15000
+# One virtual-touchpad stroke spans 40 mm in 120 ms, holds still 1 s, and must rest within 2 px.
+touchpad_dy_mm=40
+touchpad_ms=120
+touchpad_still_ms=1000
+touchpad_rest_px=2
+# A slow click waits past the double-click interval (Qt 400 ms) so the second tap renames.
+slow_click_gap_s=0.7
+# Column-resize checks: app-seen travel within 2 px, drawn width within 1 px of it.
+col_travel_tol_px=2
+col_grown_tol_px=1
 # Two pixels inside each edge of the strip: the rows a font-tall crumb box left dead, measured at y=2 and y=24 of 27.
 chrome_band_inset=2
 # Wide enough to hold the elided head's opaque fill and the hairline either side of it; that gap measured at x 80 to 86.
@@ -473,8 +485,7 @@ wait_listing() {
             continue
         fi
         row=$(ipc rowAt 0 2>/dev/null || printf loading)
-        # rowAt reads the list view's own delegate, which grid and columns leave unbuilt; there the
-        # row the shown view draws stands in for it.
+        # rowAt reads the list delegate, unbuilt in grid and columns, so the shown view stands in.
         if [[ "$row" == loading ]]; then
             shown=$(ipc visibleRowName 0 2>/dev/null || true)
             [[ -n "$shown" ]] && row="$shown|"
@@ -738,9 +749,7 @@ fact_labels() {
     printf '%s' "$1" | tr '|' '\n' | cut -d= -f1 | paste -sd'|' -
 }
 
-# Walks the cursor to a row by name, from the top, so no case depends on an index the sort could move.
-# rowAt reads the list view's own delegate, which grid and columns leave unbuilt; there the
-# row the shown view draws stands in for it, the same fallback wait_listing uses.
+# Walks the cursor to a row by name from the top, sort-proof; the shown view stands in for the unbuilt list delegate.
 seek_row_named() {
     local want="$1" i n cur got
     n=$(ipc total)
@@ -1168,13 +1177,12 @@ case_touchpad() {
     touchpad_run paused 200
 }
 
-# One stroke through the virtual touchpad: sample contentY across the play, take the lift as the
-# first sample after the tool exits, and the rest once the value holds still for a second.
+# One virtual-touchpad stroke: lift is the first sample after exit, rest is the 1 s still value.
 touchpad_run() {
     local name=$1 hold=$2 stroke lift rest cur stable_start now_ms start_ms
     stroke=$(ipc listContentY)
     start_ms=$(date +%s%3N)
-    "$repo/tools/flea-touchpad" swipe --dy-mm 40 --ms 120 --hold-ms "$hold" >/dev/null \
+    "$repo/tools/flea-touchpad" swipe --dy-mm "$touchpad_dy_mm" --ms "$touchpad_ms" --hold-ms "$hold" >/dev/null \
         || fail "touchpad: flea-touchpad refused the $name stroke"
     lift=$(ipc listContentY)
     [[ "$lift" -gt "$stroke" ]] || fail "touchpad: the $name stroke never moved the list, lift $lift"
@@ -1187,16 +1195,16 @@ touchpad_run() {
         if [[ "$cur" != "$rest" ]]; then
             rest=$cur
             stable_start=$now_ms
-        elif (( now_ms - stable_start > 1000 )); then
+        elif (( now_ms - stable_start > touchpad_still_ms )); then
             break
         fi
-        (( now_ms - start_ms < 15000 )) || fail "touchpad: the $name stroke never settled"
+        (( now_ms - start_ms < async_wait_ms )) || fail "touchpad: the $name stroke never settled"
     done
     now_ms=$(date +%s%3N)
     if [[ "$name" == flick ]]; then
         [[ "$rest" -gt "$lift" ]] || fail "touchpad: the flick stopped at its lift $lift, rest $rest"
     else
-        (( rest - lift <= 2 && lift - rest <= 2 )) \
+        (( rest - lift <= touchpad_rest_px && lift - rest <= touchpad_rest_px )) \
             || fail "touchpad: the paused stroke coasted past its lift $lift, rest $rest"
     fi
     printf 'TOUCHPAD stroke=%s lift=%s rest=%s ms=%s\n' "$stroke" "$lift" "$rest" "$((now_ms - start_ms))"
@@ -2349,7 +2357,7 @@ case_clickedge() {
         before_slow=$(ipc viewContentY)
         click_row "$slow" left
         settle
-        sleep 0.7
+        sleep "$slow_click_gap_s"
         click_row "$slow" left
         for _attempt in $(seq 1 100); do
             [[ "$(ipc renameEditorLive)" == "true" ]] && break
@@ -2638,7 +2646,7 @@ case_placemenu() {
     # The switch on, and one favourite to open the menu over. Everything else is the shipped set.
     # The switch on, and Open in terminal and Copy as on too, because a row switched off in Settings
     # is off on this menu as well: with the shipped set those two are absent and the menu is shorter.
-    seed_ui_state "$state" "$(printf '{"menu":{"hidden":["delete","moveto","copyto","properties","permissions"]},"places":{"favourites":[{"label":"Work","path":"%s/Work"}]}}' "$dir")"
+    seed_ui_state "$state" "$(printf '{"menu":{"hidden":["delete","moveto","copyto","properties","permissions","runScript","pasteAs","invertSelection","extThumbs"]},"places":{"favourites":[{"label":"Work","path":"%s/Work"}]}}' "$dir")"
 
     launch "$dir"
     wait_listing 2
@@ -2725,7 +2733,7 @@ case_runscript() {
     printf '#!/bin/sh\nexit 0\n' > "$config/flea/scripts/not-executable.sh"
     chmod +x "$config/flea/scripts/stamp.sh" "$config/flea/scripts/ocr.sh"
     # The switch on: everything else in the shipped set stays as it is.
-    seed_ui_state "$fixture_root/runscript-state" '{"menu":{"hidden":["delete","openTerminal","placeMenu","moveto","copyto","properties","permissions","copyAs","pasteAs","invertSelection"]}}'
+    seed_ui_state "$fixture_root/runscript-state" '{"menu":{"hidden":["delete","openTerminal","placeMenu","moveto","copyto","properties","permissions","copyAs","pasteAs","invertSelection","extThumbs"]}}'
 
     launch "$dir"
     wait_listing 2
@@ -3115,7 +3123,7 @@ case_makeexec() {
     # build.sh: the row is present after Move to Trash's group, in the board's specimen g order.
     seek_row_named "build.sh"
     click_row "$(ipc cursor)" right
-    local entries="" deadline=$(( $(date +%s%3N) + 15000 ))
+    local entries="" deadline=$(( $(date +%s%3N) + async_wait_ms ))
     while (( $(date +%s%3N) < deadline )); do
         entries=$(ipc contextMenuEntries)
         [[ "$entries" == *"Make executable"* ]] && break
@@ -3130,7 +3138,7 @@ case_makeexec() {
         || fail "makeexec: Make executable is not before Add to Favorites in $entries"
     menu_seek "Make executable"
     key -k Return >/dev/null
-    local mode="" deadline2=$(( $(date +%s%3N) + 15000 ))
+    local mode="" deadline2=$(( $(date +%s%3N) + async_wait_ms ))
     while (( $(date +%s%3N) < deadline2 )); do
         mode=$(stat -c '%a' "$dir/build.sh")
         [[ "$mode" == "744" ]] && break
@@ -3140,7 +3148,7 @@ case_makeexec() {
         || fail "makeexec: build.sh stayed $(stat -c '%a' "$dir/build.sh"), not 744"
     wait_message "Made it executable. · z undoes"
     key z >/dev/null
-    local back="" deadline3=$(( $(date +%s%3N) + 15000 ))
+    local back="" deadline3=$(( $(date +%s%3N) + async_wait_ms ))
     while (( $(date +%s%3N) < deadline3 )); do
         back=$(stat -c '%a' "$dir/build.sh")
         [[ "$back" == "644" ]] && break
@@ -3158,7 +3166,7 @@ case_makeexec() {
     settle
     [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "makeexec: notes.txt opened no menu"
     # The Make executable row arrives async off a head read, so the control waits for that read to land first.
-    local shebang="pending" deadline4=$(( $(date +%s%3N) + 15000 ))
+    local shebang="pending" deadline4=$(( $(date +%s%3N) + async_wait_ms ))
     while (( $(date +%s%3N) < deadline4 )); do
         shebang=$(ipc menuState 2>/dev/null | jq -r '.shebangAsked' 2>/dev/null || printf ipc-broken)
         [[ -z "$shebang" ]] && break
@@ -4079,8 +4087,7 @@ case_colroot() {
     kill_flea
 }
 
-# The listing at / has no fixed total, so this waits for a settled path rather than a count.
-# The hidden list has model 0 in columns, so rowAt reads loading there; visibleRowName reads the shown view.
+# Waits for a settled path at / with no fixed total; the hidden list reads loading, so visibleRowName stands in.
 wait_colroot_settled() {
     local row shown
     for _attempt in $(seq 1 300); do
@@ -5018,20 +5025,20 @@ case_columnresize() {
     printf 'COLUMNRESIZE trace=%s injected=-%s\n' "$trace" "$injected"
     IFS='|' read -r trace_start trace_last trace_width trace_preview <<< "$trace"
     # headerDragTrace carries QML reals (Header.qml dragStartX, dragLastX), which bash arithmetic cannot compare.
-    python3 - "$trace_start" "$trace_last" "$before_w" "$grown_w" "$trace_preview" "$injected" <<'PYEOF' \
+    python3 - "$trace_start" "$trace_last" "$before_w" "$grown_w" "$trace_preview" "$injected" "$col_travel_tol_px" "$col_grown_tol_px" <<'PYEOF' \
         || fail "columnresize: the header did not follow the pointer as the app saw it, trace=$trace before=$before_w grown=$grown_w"
 import sys
-start, last, before, grown, preview, injected = [float(v) for v in sys.argv[1:7]]
+start, last, before, grown, preview, injected, travel_tol, grown_tol = [float(v) for v in sys.argv[1:9]]
 if not last < start:
     sys.stderr.write("no leftward drag reached the app: startX=%s lastX=%s\n" % (start, last))
     sys.exit(1)
-if abs((start - last) - injected) > 2:
+if abs((start - last) - injected) > travel_tol:
     sys.stderr.write("app-seen travel %s against the injected %s\n" % (start - last, injected))
     sys.exit(1)
-if abs((grown - before) - (start - last)) > 1:
+if abs((grown - before) - (start - last)) > grown_tol:
     sys.stderr.write("drawn delta %s against app-seen travel %s\n" % (grown - before, start - last))
     sys.exit(1)
-if abs(grown - preview) > 1:
+if abs(grown - preview) > grown_tol:
     sys.stderr.write("drawn %s against the drag preview %s\n" % (grown, preview))
     sys.exit(1)
 PYEOF
@@ -5802,8 +5809,7 @@ case_tabs() {
     [[ "$(ipc tabBarVisible)" == "false" ]] || fail "tabs: the bar stayed up after the last extra tab closed"
     key w >/dev/null
     wait_message "Can't close the last tab."
-    # A remembered strip is a whole value: the close above must have stored the single tabs
-    # dir with its index, never a half patch the backend refuses (which drops lastPath too).
+    # A remembered strip is whole: the single tabs dir with its index, never a refused half patch.
     local tabs_doc=""
     for _attempt in $(seq 1 40); do
         tabs_doc=$(env XDG_STATE_HOME="$suite_state" "$flea_bin" --ui-state 2>/dev/null || true)
@@ -9740,8 +9746,7 @@ case_dualsort() {
             touch -d "@$((date_epoch + index))" "$dir/$side/$name" || fail 'dualsort: private file date failed'
         done
     done
-    # Per-folder sort defaults on and this folder has no saved sort: rememberSort false keeps
-    # the live default, so this stays about dual-pane independence rather than a stored name:desc.
+    # rememberSort false keeps the live default here, so this stays about dual-pane independence.
     seed_ui_state "$state" "$(jq -cn --arg left "$dir/left" --arg right "$dir/right" \
         '{view:"dual",keys:"default",rememberSort:false,sort:{key:"name",reverse:false},dual:{paths:[$left,$right],focus:0}}')"
     launch "$dir/left"
