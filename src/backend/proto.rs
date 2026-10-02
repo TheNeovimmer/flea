@@ -58,7 +58,7 @@ pub enum Request {
            collide: super::collide::Ask },
     // Show original: where a symlink's target lives, the same path Show in
     // folder uses; see docs/protocol.md "linktarget".
-    LinkTarget { path: String },
+    LinkTarget { path: String, id: usize },
     // Permissions for the whole selection: one Entry holds every path the
     // Apply changed, so one undo restores them all; see docs/protocol.md
     // "permissionsBatch".
@@ -93,7 +93,7 @@ pub fn parse_request(line: &str) -> Request {
             dest: field_str(line, "dest").unwrap_or_default(),
             collide: super::collide::Ask::parse(line),
         },
-        Some("linktarget") => Request::LinkTarget { path: field_str(line, "path").unwrap_or_default() },
+        Some("linktarget") => Request::LinkTarget { path: field_str(line, "path").unwrap_or_default(), id: field_usize(line, "id").unwrap_or(0) },
         Some("picker") => Request::Picker { line: line.to_string() },
         Some("menuaction") => Request::MenuAction { line: line.to_string(), rows: field_usize_array(line, "rows") },
         Some("localsend") => Request::LocalSend {
@@ -301,10 +301,10 @@ pub fn linked_line(ok: usize, failed: usize, skipped: usize, note: &str) -> Stri
     format!(r#"{{"t":"linked","ok":{},"failed":{},"skipped":{},"note":"{}"}}"#, ok, failed, skipped, escape(note))
 }
 
-// Sample output: {"t":"linktarget","path":"/a/link","directory":"/b","name":"f.txt"}
-pub fn linktarget_line(path: &str, directory: &str, name: &str) -> String {
-    format!(r#"{{"t":"linktarget","path":"{}","directory":"{}","name":"{}"}}"#,
-        escape(path), escape(directory), escape(name))
+// Sample output: {"t":"linktarget","path":"/a/link","directory":"/b","name":"f.txt","id":3}
+pub fn linktarget_line(path: &str, directory: &str, name: &str, id: usize) -> String {
+    format!(r#"{{"t":"linktarget","path":"{}","directory":"{}","name":"{}","id":{}}}"#,
+        escape(path), escape(directory), escape(name), id)
 }
 
 // Sample output: {"t":"permissions","id":7,"op":"applyMany","ok":true,"mode":"0600"}

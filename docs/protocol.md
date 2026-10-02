@@ -633,7 +633,7 @@ entry, so one undo removes every link this request created. `note` rides on that
 made could be neither verified nor removed, plain or replacing, naming each leftover link and its cleanup error with
 `the replaced item stays in the trash` where a replaced item was kept, and ahead of that a mixed batch's first
 failure, so a batch that lands some links still names what the rest failed with. An all-failed batch answers an `error` line with `where` of `link` carrying the first
-failure with that note appended. A source that no longer exists is refused
+failure with that note appended, naming the failing source as `<source>: <message>`. A source that no longer exists is refused
 for that item and counts in `failed`, so one missing source never stops the rest. A name that
 already exists is refused for that item unless the request carries the
 `collide` and `collideId` choice a `transfer` carries, applied by the same
@@ -647,14 +647,16 @@ or cannot be written answers a single `error` line with `where` of `link` and no
 
 ### linktarget
 
-`{"c":"linktarget","path":"<string>"}`
+`{"c":"linktarget","path":"<string>","id":<uint>}`
 
-Example: `{"c":"linktarget","path":"/home/gm/latest"}`
+Example: `{"c":"linktarget","path":"/home/gm/latest","id":3}`
 
 Answers one `linktarget` line,
-`{"t":"linktarget","path":"<string>","directory":"<string>","name":"<string>"}`,
+`{"t":"linktarget","path":"<string>","directory":"<string>","name":"<string>","id":<uint>}`,
 naming the folder the symlink's target lives in and the target's own leaf, the
-same path Show in folder uses. `directory` is the target's folder with every
+same path Show in folder uses. `id` echoes the request's, so a reply landing
+after the pane navigated elsewhere is answered only when it still names the
+pending one. `directory` is the target's folder with every
 symlinked folder and `..` resolved the way the kernel follows them, falling back
 to the link text's own split when it cannot be resolved, and the line is answered
 from a thread, as `meta` is. A path that is not a symlink answers an `error`

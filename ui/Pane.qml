@@ -469,6 +469,8 @@ FocusScope {
     property string shebangAsked: ""
     property string shebangPending: ""
     property int makeExecPendingId: 0
+    // Show original's own pending id, dropped by any navigation before its reply lands.
+    property int linkTargetPendingId: 0
     Process {
         id: shebangProc
         stdout: StdioCollector { waitForEnd: true }
@@ -599,7 +601,12 @@ FocusScope {
             root.message("Show original needs the cursor on a symlink.", false)
             return
         }
-        root.backend.send({ c: "linktarget", path: root.join(root.path, row.n) })
+        root.requestLinkTarget(root.join(root.path, row.n))
+    }
+    // Both entrances send through here, so one pending id covers the cursor and the menu.
+    function requestLinkTarget(path) {
+        root.linkTargetPendingId += 1
+        root.backend.send({ c: "linktarget", path: path, id: root.linkTargetPendingId })
     }
     // MenuAdditions040: Paste as links, undoable, through the collision card;
     // with paths the links go out of those, else out of the file clipboard.

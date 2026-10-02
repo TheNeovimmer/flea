@@ -44,7 +44,7 @@ Item {
     // MenuAdditions040: Paste as links answers one line per request.
     signal linked(int ok, int failed, int skipped, string note)
     // MenuAdditions040: Show original reveals the link's target in its own folder.
-    signal linkTarget(string path, string directory, string name)
+    signal linkTarget(string path, string directory, string name, int id)
     signal trashed(int ok, int failed)
     signal renamed(bool ok, string path)
     signal made(bool ok, string path)

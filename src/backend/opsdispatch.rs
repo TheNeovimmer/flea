@@ -416,19 +416,19 @@ pub(crate) fn test_reported_link(o: &mut Ops, buf: &mut Vec<u8>, op: &str, paths
 }
 
 // Show original answers beside the loop, because read_link and canonicalize can stall on a dead mount.
-pub(crate) fn start_link_target(ops: &Ops, path: &str) {
+pub(crate) fn start_link_target(ops: &Ops, path: &str, id: usize) {
     let owned = path.to_string();
     let tx = ops.tx.clone();
     thread::spawn(move || {
         let mut buf = Vec::new();
-        do_link_target(&mut buf, &owned);
+        do_link_target(&mut buf, &owned, id);
         let line = String::from_utf8_lossy(&buf).trim_end_matches('\n').to_string();
         let _ = tx.send(OpMsg::Meta { line });
     });
 }
 
 // Show original: reveal the symlink target in its own folder, never resolve a non-link.
-pub(crate) fn do_link_target(out: &mut impl Write, path: &str) {
+pub(crate) fn do_link_target(out: &mut impl Write, path: &str, id: usize) {
     let target = Path::new(path);
     let text = match std::fs::read_link(target) {
         Ok(t) => t,
@@ -444,7 +444,7 @@ pub(crate) fn do_link_target(out: &mut impl Write, path: &str) {
         target.parent().unwrap_or(Path::new("/")).join(&text)
     };
     let (directory, name) = link_target_parts(&absolute);
-    writeln!(out, "{}", super::proto::linktarget_line(path, &directory, &name)).ok();
+    writeln!(out, "{}", super::proto::linktarget_line(path, &directory, &name, id)).ok();
     out.flush().ok();
 }
 
@@ -899,7 +899,7 @@ mod tests {
         start_link(&mut buf, &mut o, "relative",
             vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
         link_reported(&mut buf, &mut o, &rx);
-        assert!(text(&buf).contains(r#""t":"error","where":"link""#));
+        assert!(text(&buf).contains(r#""t":"error","where":"link""#) && text(&buf).contains(&a.to_string_lossy().into_owned()));
         assert!(o.journal.is_empty(), "a link that was not made must not be undoable");
         assert_eq!(std::fs::read_to_string(dest.join("a.txt")).unwrap(), "someone else");
     }
@@ -992,20 +992,20 @@ mod tests {
         let up = b.join("up");
         std::os::unix::fs::symlink("..", &up).unwrap();
         let mut buf = out();
-        do_link_target(&mut buf, &up.to_string_lossy());
+        do_link_target(&mut buf, &up.to_string_lossy(), 3);
         let line = text(&buf);
         // The link names its grandparent, so Show original reveals that folder with its leaf.
         assert!(line.contains(&format!("\"directory\":\"{}\"", d.path().display())), "{}", line);
-        assert!(line.contains("\"name\":\"a\""), "{}", line);
+        assert!(line.contains("\"name\":\"a\"") && line.contains("\"id\":3"), "{}", line);
         let c = d.dir("a/b/c");
         let sib = b.join("sib");
         std::os::unix::fs::symlink("../b/c", &sib).unwrap();
         let _ = c;
         let mut buf = out();
-        do_link_target(&mut buf, &sib.to_string_lossy());
+        do_link_target(&mut buf, &sib.to_string_lossy(), 5);
         let line = text(&buf);
         assert!(line.contains(&format!("\"directory\":\"{}\"", b.display())), "{}", line);
-        assert!(line.contains("\"name\":\"c\""), "{}", line);
+        assert!(line.contains("\"name\":\"c\"") && line.contains("\"id\":5"), "{}", line);
         assert!(!line.contains(".."), "a joined .. leaked onto the wire: {}", line);
     }
 
@@ -1017,9 +1017,9 @@ mod tests {
         std::os::unix::fs::symlink(&target, &link).unwrap();
         let (tx, rx) = channel();
         let o = Ops::new(tx);
-        start_link_target(&o, &link.to_string_lossy());
+        start_link_target(&o, &link.to_string_lossy(), 3);
         let OpMsg::Meta { line } = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap() else { panic!("no meta line"); };
-        assert!(line.contains(r#""t":"linktarget""#), "{}", line);
+        assert!(line.contains(r#""t":"linktarget""#) && line.contains(r#""id":3"#), "{}", line);
         assert!(line.contains(&format!("\"directory\":\"{}\"", d.path().display())), "{}", line);
         assert!(line.contains("\"name\":\"real.txt\""), "{}", line);
     }

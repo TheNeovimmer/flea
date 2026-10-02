@@ -353,7 +353,10 @@ Item {
 
         // MenuAdditions040: Show original reveals the link's target in its own
         // folder, the same path Show in folder uses.
-        function onLinkTarget(path, directory, name) {
+        function onLinkTarget(path, directory, name, id) {
+            // A stale or foreign id is ignored, so a late reply never yanks a navigation.
+            if (!pane.linkTargetPendingId || id !== pane.linkTargetPendingId) return
+            pane.linkTargetPendingId = 0
             if (directory.length === 0 || name.length === 0) {
                 pane.message("That link points nowhere to reveal.", true)
                 return

@@ -227,6 +227,15 @@ function run(check) {
     Nav.mouseBack(cardUp)
     check("mouse back behind an open collision card goes nowhere at all",
           cardUp.path + "|" + cardUp.sent.length + "|" + cardUp.history.join(","), "/home/gm/Work|0|/home/gm")
+    // Show original's pending id belongs to the listing being left, so leaving it drops the reveal.
+    var waiting = pane()
+    waiting.linkTargetPendingId = 7
+    Nav.openWithoutHistory(waiting, "/home/gm/Elsewhere")
+    check("a navigation elsewhere drops a waiting Show original", waiting.linkTargetPendingId, 0)
+    var staying = pane()
+    staying.linkTargetPendingId = 7
+    Nav.openWithoutHistory(staying, "/home/gm")
+    check("a same-path re-read keeps it", staying.linkTargetPendingId, 7)
     var noHistory = browsing([])
     noHistory.collide = { opened: true }
     Nav.mouseBack(noHistory)

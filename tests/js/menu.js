@@ -4,6 +4,7 @@
 .import "../../ui/js/Nav.js" as Nav
 .import "../../ui/js/Icons.js" as Icons
 .import "../../ui/js/Mounts.js" as Mounts
+.import "sourcefixture.js" as Source
 
 function state(changes) {
     var value = { hasRow: true, selectionCount: 1, rowMode: 0o100644, clipboardAvailable: false,
@@ -332,4 +333,50 @@ function providerRefresh(check) {
     function lockedAs(path, asked, state) { return Nav.lockedTarget({ path: path, listingPath: asked, listingState: state }) }
     check("refused hop names the ask, re-read names itself, ready and error name nothing", lockedAs("/d", "/d/locked", "locked") + "|" + lockedAs("/d", "/d", "locked") + "|" + lockedAs("/d", "/d", "ready") + "|" + lockedAs("/d", "/d", "error"), "/d/locked|/d||")
     check("a refused bookmark with a trailing slash names the folder without it", lockedAs("/d", "/root/", "locked"), "/root")
+    // Show original answers only its own pending id, so a late reply never yanks a navigation.
+    // Sample input: "function onLinkTarget(" opens the brace scan at depth 1.
+    var linkMark = "function onLinkTarget("
+    var linkText = Source.source("ui/PaneWire.qml")
+    var linkAt = linkText.indexOf(linkMark)
+    if (linkAt < 0)
+        throw new Error("sourcefixture: missing onLinkTarget")
+    var linkBrace = linkText.indexOf("{", linkAt)
+    var linkScan = linkBrace + 1, linkDepth = 1, linkQuote = "", linkComment = false
+    while (linkDepth > 0 && linkScan < linkText.length) {
+        var linkCh = linkText.charAt(linkScan)
+        if (linkComment) {
+            if (linkCh === "\n") linkComment = false
+        } else if (linkQuote.length > 0) {
+            if (linkCh === linkQuote) linkQuote = ""
+        } else if (linkCh === "/" && linkText.charAt(linkScan + 1) === "/") linkComment = true
+        else if (linkCh === '"' || linkCh === "'") linkQuote = linkCh
+        else if (linkCh === "{") linkDepth += 1
+        else if (linkCh === "}") linkDepth -= 1
+        linkScan += 1
+    }
+    if (linkDepth > 0)
+        throw new Error("sourcefixture: unterminated onLinkTarget")
+    var onLinkTarget = eval("(function (pane, path, directory, name, id) {"
+        + linkText.substring(linkBrace + 1, linkScan - 1) + "})")
+    function linkPane(pending) {
+        var p = {linkTargetPendingId: pending, pendingSelect: "", said: [], opened: []}
+        p.message = function (text) { p.said.push(text) }
+        p.open = function (target) { p.opened.push(target) }
+        return p
+    }
+    var live = linkPane(7)
+    onLinkTarget(live, "/a/l", "/b", "f.txt", 7)
+    check("its own id reveals the target folder", live.opened.join("|"), "/b")
+    check("and selects the target row there", live.pendingSelect, "/b/f.txt")
+    check("and spends the pending id", live.linkTargetPendingId, 0)
+    var foreign = linkPane(7)
+    onLinkTarget(foreign, "/a/l", "/b", "f.txt", 8)
+    check("a foreign id opens nothing", foreign.opened.length, 0)
+    check("and keeps the pending id for the real reply", foreign.linkTargetPendingId, 7)
+    var idle = linkPane(0)
+    onLinkTarget(idle, "/a/l", "/b", "f.txt", 0)
+    check("with nothing pending even id 0 opens nothing", idle.opened.length, 0)
+    var paneText = Source.source("ui/Pane.qml")
+    check("Show original records the pending id it sends", paneText.indexOf("linkTargetPendingId += 1") >= 0, true)
+    check("and the request carries that id", paneText.indexOf('id: root.linkTargetPendingId') >= 0, true)
 }

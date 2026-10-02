@@ -306,7 +306,7 @@ fn handle_line(
             let named = resolve_rows(paths, &rows, &st.base, &st.listing);
             start_link(out, ops, &op, named, &dest, collide)
         }
-        Request::LinkTarget { path } => start_link_target(ops, &path),
+        Request::LinkTarget { path, id } => start_link_target(ops, &path, id),
         Request::PermissionsBatch { paths, modes, id } => do_permissions_batch(out, ops, paths, modes, id),
         Request::TransferCancel { id } => cancel_transfer(ops, id),
         Request::Trash { paths, rows, menu_id } => {
