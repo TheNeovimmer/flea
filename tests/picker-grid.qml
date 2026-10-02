@@ -386,7 +386,10 @@ ShellRoot {
             if (root.win.viewMode !== "grid") { root.fail("setView grid never switched view"); return }
             var gview = root.win.viewItem()
             var gitem = gview.itemAtIndex(root.win.cursorIndex)
-            if (!gitem || !(gitem.y + gitem.height > gview.contentY && gitem.y < gview.contentY + gview.height)) { root.fail("setView grid never showed the cursor tile"); return }
+            if (!gitem || !(gitem.y + gitem.height > gview.contentY && gitem.y < gview.contentY + gview.height)) {
+                if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("setView grid never showed the cursor tile"); }
+                return
+            }
             if (!(root.win.held <= root.win.cursorIndex && root.win.cursorIndex < root.win.held + root.win.rows.length)) {
                 if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("setView grid never refetched its window"); }
                 return
