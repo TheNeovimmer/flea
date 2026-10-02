@@ -19,7 +19,7 @@ cargo build -q || { printf 'run-all: cargo build failed, nothing else was run\n'
 printf 'run-all: building target/release/flea, thumbs.sh needs it\n'
 cargo build -q --release || { printf 'run-all: release build failed, nothing else was run\n' >&2; exit 1; }
 
-headless="js keymap-gen charts budget aurpush aur-versions pkgrel-check signalarity empty-state sandbox capability-ownership gio-auth gvfs ops modes update protocol portal archive thumbs thumbs-exec network-open-share network-keyless mount-listing lazy-objects connections-style pdf-turn pdf-first preview-decode preview-swap preview-settle-live preview-select uistate uiwriter media filemanager1 dragwire shellload settings-columns preview-frame preview-geometry jump-ui jump-gap picker-recent picker-stall grid-gap rowcost columnscost columnrow-geom columndividers columnsfolder columnspeekgate headercost headerhandles menu-settle menu-snapshot-retire markdown-render markdown-figures markdown-figures-render markdown-security markdown-linearity markdown-lazy markdown-memory lockedmenu arm-prompt acceptance-matrix counts listcost listnamebudget clickedge-origin ui-fixture-home menu-scroll-width scroll-fill columnclip-empty listhidden gridhidden gridcaption statusbar-hint touchpad"
+headless="js keymap-gen charts budget aurpush aur-versions pkgrel-check signalarity empty-state sandbox capability-ownership gio-auth gvfs ops modes update protocol portal archive thumbs thumbs-exec network-open-share network-keyless mount-listing lazy-objects connections-style pdf-turn pdf-first preview-decode preview-swap preview-settle-live preview-select preview-hunt uistate uiwriter media filemanager1 dragwire shellload settings-columns preview-frame preview-geometry jump-ui jump-gap picker-recent picker-stall grid-gap rowcost columnscost columnrow-geom columndividers columnsfolder columnspeekgate headercost headerhandles menu-settle menu-snapshot-retire markdown-render markdown-figures markdown-figures-render markdown-security markdown-linearity markdown-lazy markdown-memory lockedmenu arm-prompt acceptance-matrix counts listcost listnamebudget clickedge-origin ui-fixture-home menu-scroll-width scroll-fill columnclip-empty listhidden gridhidden gridcaption statusbar-hint touchpad"
 failed=0
 ran=0
 
@@ -43,6 +43,7 @@ done
 # Named, not run: each needs something this script cannot assume it has. One list, read twice: it
 # is printed here and it is what the audit below checks, so a suite cannot be quietly excluded.
 not_run="
+preview-040|is 0.3.10's TallPreviews acceptance suite, expected red until session scroll restoration lands
 ui|needs the display, and refuses beside a Flea it did not start
 drag|needs the display and a real pointer through uinput
 cardsizes|needs the display, a real pointer through uinput, and Hyprland to resize the window

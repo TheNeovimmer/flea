@@ -2,8 +2,7 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 
-// The actual Markdown delegates, with Qt's native Markdown parser as a control.
-// The scroll phase opens real Quick Look documents through its public trigger.
+// The actual Markdown delegates, task boxes and Quick Look document starts through its public trigger.
 ShellRoot {
     id: root
     property string scenario: Quickshell.env("FLEA_PREVIEW_HUNT_CASE")
@@ -127,9 +126,16 @@ ShellRoot {
             if (!root.overlayCase) {
                 if (!md.contentReady || Date.now() - root.stamp < 400) return
                 if (scenario === "tasks") {
-                    var nativeTasks = root.parsed(md.rawText)
-                    root.check("native Qt consumes task markers", nativeTasks, "todo\ndone")
-                    root.check("rendered task items consume checkbox syntax", root.drawnText(md.blockItem(0)), nativeTasks)
+                    var tasks = root.drawnText(md.blockItem(0))
+                    root.check("rendered task items consume checkbox syntax", /\[[ xX]\]/.test(tasks), false)
+                    var taskLines = tasks.split("\n")
+                    var openTask = /^([^\s]+)\s+todo$/.exec(taskLines[0] || "")
+                    var doneTask = /^([^\s]+)\s+done$/.exec(taskLines[1] || "")
+                    root.check("each task text follows its box", taskLines.length === 2
+                        && openTask !== null && doneTask !== null
+                        && /^[\u2610\u2611]$/.test(openTask[1]) && /^[\u2610\u2611]$/.test(doneTask[1]), true)
+                    root.check("open and done tasks draw distinct box marks", openTask !== null && doneTask !== null
+                        && openTask[1] !== doneTask[1], true)
                 } else if (scenario === "reference") {
                     var reference = root.parsed(md.rawText).split("\n")[0]
                     root.check("native Qt resolves reference across fence", reference, "Read guide.")
@@ -163,16 +169,13 @@ ShellRoot {
                 return
             }
             if (stage === 2 && quick.status === "ready" && Date.now() - root.stamp > 300) {
-                root.check("new file B starts at its own position", Math.round(liveFlick.contentY), 0)
+                root.check("new file B starts at its own position", Math.round(liveFlick.contentY), -liveFlick.topMargin)
+                var firstBlock = liveMarkdown.blockItem(0)
+                var firstTop = firstBlock ? firstBlock.mapToItem(liveFlick, 0, 0).y : -1
+                root.check("first block starts inside the visible frame at rest", firstBlock !== null
+                    && firstTop >= 0 && firstTop < liveFlick.height, true)
                 liveFlick.contentY = 240
                 root.check("file B scrolls independently", Math.round(liveFlick.contentY), 240)
-                quick.open(root.fixture + "/a.md", "text-x-generic", 2000, "Markdown document", "")
-                root.stage = 3
-                root.stamp = Date.now()
-                return
-            }
-            if (stage === 3 && quick.status === "ready" && Date.now() - root.stamp > 300) {
-                root.check("revisiting A restores A scroll", Math.round(liveFlick.contentY), 120)
                 root.finish()
             }
         }

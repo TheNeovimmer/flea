@@ -8,11 +8,12 @@
 .import "MdResolve.js" as Res
 
 // The driver: held spans first, then one forward scan. defs maps normalised labels to targets; numbers maps footnote ids to numbers.
-function parseInline(text, dir, defs, numbers, chrome, ink, tokens) {
+function parseInline(text, dir, defs, numbers, chrome, ink, tokens, literalPlain) {
     var body = String(text)
-    // Plain prose without syntax triggers returns directly after one native scan.
-    if (!/[`$[\]<>\\!]|https?:\/\/|www\./.test(body))
-        return body
+    // Plain prose returns directly; plain table cells use the bulk escaper before any markup is emitted.
+    if (!/[`$[\]<>\\!]|https?:\/\/|www\./.test(body)
+            && (!literalPlain || !/[*_~]|&(?:#(?:[0-9]+|[xX][0-9a-fA-F]+)|[A-Za-z][A-Za-z0-9]*);/.test(body)))
+        return literalPlain ? Md.escapeHtmlText(body) : body
     var spans = Md.spanIntervals(body)
     var out = []
     var frames = []

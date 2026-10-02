@@ -60,8 +60,8 @@ function blocks(source, dir, chrome, ink) {
     var numbers = foot.numbers
     var tokens = []
 
-    function inlineOf(joined) {
-        return Run.parseInline(joined, dir, defs, numbers, chrome, ink, tokens)
+    function inlineOf(joined, literalPlain) {
+        return Run.parseInline(joined, dir, defs, numbers, chrome, ink, tokens, literalPlain)
     }
 
     var out = []
@@ -238,7 +238,7 @@ function blocks(source, dir, chrome, ink) {
             flushRun()
             flushQuote()
             flushList()
-            out.push(Leaf.tableBlock(head, aligns, bodyRows))
+            out.push(Leaf.tableBlock(head, aligns, bodyRows, function (text) { return inlineOf(text, true) }))
             i = j - 1
             continue
         }

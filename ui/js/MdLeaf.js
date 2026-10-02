@@ -92,7 +92,7 @@ function delimAligns(line) {
     return aligns
 }
 
-// Sample input: "| a | b \| c |"; split on unescaped pipes, edge pipes shed, a backslash before punctuation escapes it.
+// Sample input: "| a | b \| c |"; split on unescaped pipes, preserving backslashes for the inline scanner.
 function splitRow(line) {
     var text = String(line).trim().replace(/^\||\|$/g, "")
     var cells = []
@@ -100,7 +100,7 @@ function splitRow(line) {
     for (var i = 0; i < text.length; i++) {
         var ch = text.charAt(i)
         if (ch === "\\" && i + 1 < text.length && /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/.test(text.charAt(i + 1))) {
-            cell += text.charAt(i + 1)
+            cell += ch + text.charAt(i + 1)
             i++
         } else if (ch === "|") {
             cells.push(cell)
@@ -116,15 +116,16 @@ function splitRow(line) {
 }
 
 // The board's table as data for ui/PreviewMarkdown.qml: Qt's Markdown importer drops style attributes.
-function tableBlock(head, aligns, rows) {
+function tableBlock(head, aligns, rows, inlineOf) {
+    inlineOf = inlineOf || function (text) { return Run.parseInline(text, "", {}, {}, "", "", [], true) }
     var cols = head.length
     for (var i = 0; i < rows.length; i++)
         cols = Math.max(cols, rows[i].length)
     return {
         type: "table",
-        head: head.map(Md.escapeHtmlText),
+        head: head.map(inlineOf),
         aligns: aligns,
-        rows: rows.map(function (cells) { return cells.map(Md.escapeHtmlText) }),
+        rows: rows.map(function (cells) { return cells.map(inlineOf) }),
         cols: cols
     }
 }

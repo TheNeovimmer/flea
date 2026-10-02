@@ -130,6 +130,18 @@ function run(check) {
         && tabled[0].head[0].indexOf("|") < 0, true)
     check("pipes without a delimiter stay a run", kinds("a | b\nc | d\n"), "run")
 
+    var cellSources = ["**bold**", "*emphasis*", "`a & <b>`", "[guide](https://example.com/?a=1&b=2)",
+        "\\*literal\\*", "a \\| b", "\\`literal\\`", "\\[literal\\]", "<script>secret</script>safe",
+        "a &amp; b", "&#42;literal&#42;"]
+    var inlineTable = Markdown.blocks("| " + cellSources.join(" | ") + " |\n| "
+        + cellSources.map(function () { return "---" }).join(" | ") + " |\n| "
+        + cellSources.join(" | ") + " |\n", dir, chrome, "#c0caf5")[0]
+    for (var cellIndex = 0; cellIndex < cellSources.length; cellIndex++) {
+        var cellProse = Markdown.prepare(cellSources[cellIndex], dir, undefined, chrome, "#c0caf5")
+        check("table header uses paragraph inline semantics: " + cellSources[cellIndex], inlineTable.head[cellIndex], cellProse)
+        check("table body uses paragraph inline semantics: " + cellSources[cellIndex], inlineTable.rows[0][cellIndex], cellProse)
+    }
+
     var ink = "#c0caf5"
     function linked(doc) {
         return Markdown.prepare(doc, dir, undefined, chrome, ink)

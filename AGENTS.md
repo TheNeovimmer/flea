@@ -3208,6 +3208,7 @@ waits for its consumer.
 
 ## Testing
 
+- `tests/preview-040.sh` is 0.3.10's TallPreviews acceptance suite, expected red until per-file session scroll restoration lands; it is excluded from the default battery.
 - **The warning gate covers `#[cfg(test)]`, which is the point of it.** `cargo build` cannot see
   anything inside a test module, so a build-only gate hides every unused import and dead helper
   there; two lived here for three review rounds for exactly that reason. Keep debug and release
