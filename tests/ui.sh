@@ -9169,11 +9169,17 @@ case_fsdevice() {
             gio mount -u "$mnt" >/dev/null 2>&1 || fail "fsdevice: could not unmount $label at $mnt before the switch legs"
         fi
     done
+    # Two device poll periods (5 s each): the row clears on the next lsblk poll, not the unmount.
+    local unmount_wait_s=10 end
     for label in $expected; do
+        end=$((SECONDS + unmount_wait_s))
+        while (( SECONDS < end )); do [[ "$(fs_row_mounted "$label")" != "true" ]] && break; sleep 0.5; done
         [[ "$(fs_row_mounted "$label")" != "true" ]] || fail "fsdevice: $label is still mounted after the unmount"
     done
     # Switch off: an unmounted data row stays off the rail, the 0.2.1 rail this switch promises.
     for label in $expected; do
+        end=$((SECONDS + unmount_wait_s))
+        while (( SECONDS < end )); do fs_rail_labels | grep -Fxq "$label" || break; sleep 0.5; done
         fs_rail_labels | grep -Fxq "$label" \
             && fail "fsdevice: $label is a row with showUnmounted off while unmounted"
     done
@@ -9182,7 +9188,7 @@ case_fsdevice() {
 
     # Switch on: every expected row appears, and the stick carries nothing else. Same-disk scoping
     # is what keeps minipc's own ESP and swap out of this verdict.
-    seed_ui_state "$fixture_root/fsdevice-state-on" '{"places":{"showUnmounted":true}}'
+    seed_ui_state "$fixture_root/fsdevice-state-on" '{"hidden":true,"places":{"showUnmounted":true}}'
     export HOME="$fixture_home"
     launch "$dir"
     export HOME="$real_home"
@@ -9235,6 +9241,20 @@ case_fsdevice() {
         || fail "fsdevice: the listing is not ls -A row for row"
     printf 'FSDEVICE %s list=%s rows match ls\n' "$layout" "$(ipc total)"
 
+    if [[ "$layout" == "isohybrid" ]]; then
+        # iso9660 is read-only: the paste is refused and no row offers Trash.
+        key p >/dev/null
+        end=$((SECONDS + 10))
+        while (( SECONDS < end )); do [[ "$(ipc lastMessage)" == *"cannot be written"* ]] && break; sleep 0.5; done
+        [[ "$(ipc lastMessage)" == *"cannot be written"* ]] || fail "fsdevice: the read-only paste said $(ipc lastMessage)"
+        [[ ! -e "$mnt/copy-me.bin" ]] || fail "fsdevice: the read-only paste landed on $mnt"
+        click_row 0 right
+        settle
+        [[ "$(ipc contextMenuEntries)" != *"Move to Trash"* ]] || fail "fsdevice: a read-only volume offers Move to Trash"
+        key -k Escape >/dev/null
+        settle
+        printf 'FSDEVICE %s read-only paste-refused trash-absent=ok\n' "$layout"
+    else
     # One copy in through the clipboard, verified by bytes, then undone.
     key p >/dev/null
     end=$((SECONDS + 30))
@@ -9252,7 +9272,7 @@ case_fsdevice() {
     end=$((SECONDS + 30))
     while (( SECONDS < end )); do fs_has_row trash-me.txt && break; sleep 0.5; done
     seek_row_named trash-me.txt
-    local trash_before trash_uid
+    local trash_before trash_uid trash_idx
     trash_before=$(ipc trashState | jq -r '.count')
     key d >/dev/null
     key d >/dev/null
@@ -9267,25 +9287,17 @@ case_fsdevice() {
     end=$((SECONDS + 20))
     while (( SECONDS < end )); do [[ "$(ipc trashState | jq -r '.opened')" == "true" ]] && break; sleep 0.2; done
     [[ "$(ipc trashState | jq -r '.opened')" == "true" ]] || fail "fsdevice: the Trash view never opened"
-    local total attempt
-    total=$(ipc trashState | jq -r '.total')
-    attempt=0
-    while (( attempt < 4 && attempt < total )); do
-        trash_click trashRowCentre "$attempt" right
-        settle
-        if [[ "$(ipc contextMenuEntries)" == *"Restore"* ]]; then
-            menu_seek Restore
-            key -k Return >/dev/null
-            settle
-            [[ -f "$mnt/trash-me.txt" ]] && break
-        else
-            key -k Escape >/dev/null
-            settle
-        fi
-        attempt=$((attempt + 1))
-    done
+    trash_idx=$(ipc trashState | jq -r --arg o "$mnt/trash-me.txt" '.rows | to_entries[] | select(.value.original == $o) | .key' | head -1)
+    [[ -n "$trash_idx" && "$trash_idx" != "null" ]] || fail "fsdevice: trash-me.txt is no row in the Trash view"
+    trash_click trashRowCentre "$trash_idx" right
+    settle
+    [[ "$(ipc contextMenuEntries)" == *"Restore"* ]] || fail "fsdevice: trash-me.txt offers no Restore"
+    menu_seek Restore
+    key -k Return >/dev/null
+    settle
     [[ "$(cat "$mnt/trash-me.txt" 2>/dev/null)" == "trash me" ]] || fail "fsdevice: Restore did not bring trash-me.txt back"
     printf 'FSDEVICE %s trash restore=ok\n' "$layout"
+    fi
 
     # Back on the volume: thumbnails, the filesystem name, and an outside change.
     click_rail_row "$(rail_row_of "$want1")" left
@@ -9297,11 +9309,13 @@ case_fsdevice() {
     local fsname
     fsname=$(ipc statusFooterState | jq -r '.filesystem')
     [[ -n "$fsname" && "$fsname" != 0x* ]] || fail "fsdevice: the status bar names no filesystem, got '$fsname'"
+    if [[ "$layout" != "isohybrid" ]]; then
     printf 'touch' > "$mnt/from-shell.txt"
     end=$((SECONDS + 30))
     while (( SECONDS < end )); do fs_has_row from-shell.txt && break; sleep 0.5; done
     fs_has_row from-shell.txt || fail "fsdevice: the open listing never followed the outside change"
     rm -f "$mnt/from-shell.txt"
+    fi
     printf 'FSDEVICE %s thumbs fs=%s watch=ok\n' "$layout" "$fsname"
 
     # Eject from inside the volume, then the row stays gone for 15 s: the #232 remount check.

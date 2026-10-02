@@ -53,6 +53,8 @@ network-live|needs live share credentials and the approved runtime bundle, contr
 hook-gate|standalone pinned-hk hook proof, verified separately in a marked Git fixture
 ui-tui|is a standalone native TUI proof that needs the display and owns the display lock
 themes|needs the display: it launches the candidate once per stock theme, and tests/js/themes.js is the half that runs here
+fs-matrix|needs root, loop devices and the mkfs tools (vfat, exfat, ntfs, btrfs, xfs, f2fs, xorriso, nfs-utils)
+fs-stick-images|needs root, loop devices, sfdisk and the mkfs tools to write the stick layouts
 "
 
 printf '\nNot run here, and why:\n'

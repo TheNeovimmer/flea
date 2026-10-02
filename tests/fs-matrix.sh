@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# Headless backend matrix over ten filesystems plus a kernel NFSv4 round (ROOTCAUSE.md section 5,
-# piece 1). Each filesystem is mkfs'd into an image under a marked scratch root, loop-mounted once
-# through as_root, then driven with flea --backend requests and asserted on disk and on the wire.
-# Sample listed line: {"t":"listed","n":9,"read":0.040,"sort":0.010,"v":42,"path":"/mnt/x"}
-# Sample rows line: {"t":"rows","start":0,"rows":[{"n":"a.txt","d":false,"s":3,"m":929553600,"p":33188,"i":"text-x-generic","t":false,"k":0}],"kinds":["Plain text document"],"ms":1.250,"listing":1}
+# Headless backend matrix over ten filesystems plus NFSv4 (ROOTCAUSE section 5 piece 1).
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
@@ -24,6 +20,8 @@ if [ "$DRY" = 0 ] && [ ! -x "$BIN" ]; then
   exit 1
 fi
 command -v jq >/dev/null 2>&1 || { printf 'fs-matrix.sh: jq is required to read the wire\n' >&2; exit 1; }
+# Without a session bus trash would race undo in one backend, so re-exec under one instead.
+if [ "$DRY" = 0 ] && [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$0" "$@"; fi
 
 # Root steps run through this one function, so the controller runs the script with sudo -n on a VPS.
 as_root() {
@@ -44,6 +42,7 @@ FSLIST="vfat exfat ntfs3 ntfs-3g ext4 btrfs xfs f2fs iso9660 udf"
 # Every destructive path lives under this marked root, checked absolute and non-empty before delete.
 ROOT=""
 HARNESS=""
+NFS_WAS_ACTIVE=""
 fail=0
 pass=0
 skip=0
@@ -52,6 +51,7 @@ track_loops() { printf '%s\n' "$1" >> "$ROOT/loops"; }
 note_mnt() { printf '%s\n' "$1" >> "$ROOT/mnts"; }
 
 cleanup() {
+  if [ "$NFS_WAS_ACTIVE" = "active" ]; then as_root systemctl start nfs-server 2>/dev/null || true; fi
   if [ -n "$ROOT" ] && [ -f "$ROOT/mnts" ]; then
     while IFS= read -r m; do
       [ -n "$m" ] || continue
@@ -92,12 +92,10 @@ start_backend() {
   BACKEND_PID=$!
   exec 3> "$HARNESS/in"
 }
-# A wedged backend never answers quit, so the wait is bounded and the tree is killed, never joined.
-# No indefinite wait at the end either: a backend stuck in D state cannot be reaped at all, so the
-# poll gives up and the exit trap leaves the corpse for init instead of hanging the controller.
+# Bounded quit wait: a wedged backend is killed, never joined (D-state corpse left for init).
 stop_backend() {
   printf '%s\n' '{"c":"quit"}' >&3 || true
-  exec 3>&- 2>/dev/null || true
+  exec 3>&-
   local i
   for i in $(seq 1 200); do kill -0 "$BACKEND_PID" 2>/dev/null || break; sleep 0.05; done
   kill -KILL "$BACKEND_PID" 2>/dev/null || true
@@ -106,9 +104,7 @@ stop_backend() {
   BACKEND_PID=""
 }
 send() { printf '%s\n' "$1" >&3; }
-# A bounded poll over the log file, never a background watcher, so a hung backend fails loudly.
-# Every await reads only lines after the fresh marker, so an answer can never match a previous
-# round's line of the same shape; each send below is preceded by fresh for exactly this reason.
+# Bounded log poll after the fresh marker, so a hung backend fails loudly.
 await() {
   local pattern="$1" limit="${2:-200}" i
   for i in $(seq 1 "$limit"); do
@@ -118,15 +114,12 @@ await() {
   return 1
 }
 seen() { grep -c -- "$1" "$HARNESS/out" 2>/dev/null | tr -d ' ' || true; }
-# Truncating the log mid-backend leaves NUL holes at the writer's stale offset, so freshness is a
-# line marker instead: fresh records the count and seenf counts only lines after it.
+# Freshness is a line marker (fresh/seenf); truncating mid-backend leaves NUL holes.
 fresh() { FRESH_FROM=$(wc -l < "$HARNESS/out"); }
 seenf() { tail -n "+$((FRESH_FROM + 1))" "$HARNESS/out" 2>/dev/null | grep -c -- "$1" | tr -d ' ' || true; }
-# Ten seconds of quiet, the same bound the trash browser already uses, so a wedged call is data.
 have_dbus() { [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || command -v dbus-run-session >/dev/null 2>&1; }
 
-# The seeded tree of battery check 3, scaled to a matrix round: hidden files, NFC and NFD names, a
-# long name, a 1999 mtime, and a 60-file directory. Top level holds 6 files, 2 dirs, and the link.
+# Battery check 3 tree scaled to a matrix round (hidden, NFC/NFD, long, 1999, 60-file dir).
 NFC_NAME="caf$(printf '\303\251')-nfc.txt"
 NFD_NAME="caf$(printf 'e\314\201')-nfd.txt"
 LONG_BASENAME="$(python3 -c 'print("n"*246)').txt"
@@ -147,8 +140,7 @@ seed_tree() {
   if [ "$links" = 1 ]; then ln -s alpha.txt "$dir/rel-link"; fi
 }
 
-# Per-filesystem shape: mkfs tool, image MiB, mkfs argv, mount fstype and the class the checks switch
-# on (vfat-like, ntfs-like, native, or readonly). All sizes are MiB, named, not bare.
+# Filesystem shape: mkfs tool, image MiB, mkfs argv, fstype, class (all sizes MiB, named).
 fs_config() {
   case "$1" in
     vfat) printf 'mkfs.vfat|5120|mkfs.vfat -F 32 -n FLEA-VFAT|vfat|vfatlike' ;;
@@ -164,19 +156,20 @@ fs_config() {
   esac
 }
 
-# The ops.sh lesson: the fifo and the log stay on the host filesystem, never inside the payload dir,
-# because vfat, exfat and iso9660 cannot hold a fifo at all. Every check below takes the mount dir.
+# Fifo and log stay on the host filesystem: vfat, exfat and iso9660 cannot hold a fifo.
 c_list() {
-  local mnt="$1" want="$2" out n
+  local mnt="$1" want="$2" out n fsname fsok
   fresh
   send "{\"c\":\"list\",\"path\":\"$mnt\",\"first\":70,\"hidden\":true}"
   await '"t":"listed"' || { check "$mnt list answers" "listed" "timeout"; return; }
+  # Sample listed line: {"t":"listed","n":9,"read":0.04,"sort":0.01,"v":42,"path":"/mnt/x"}
   out=$(grep '"t":"listed"' "$HARNESS/out" | tail -1)
   n=$(printf '%s' "$out" | grep -oE '"n":[0-9]+' | cut -d: -f2)
   check "$mnt list count" "$want" "$n"
   fresh
   send '{"c":"window","start":0,"count":70}'
   await '"t":"rows"' || { check "$mnt rows answer" "rows" "timeout"; return; }
+  # Sample rows line: {"t":"rows","start":0,"rows":[{"n":"a.txt","d":false,"s":3}],"ms":1.25,"listing":1}
   out=$(grep '"t":"rows"' "$HARNESS/out" | tail -1)
   check "$mnt NFC name listed" "1" "$(printf '%s' "$out" | grep -c -F "$NFC_NAME")"
   check "$mnt NFD name listed" "1" "$(printf '%s' "$out" | grep -c -F "$NFD_NAME")"
@@ -188,7 +181,10 @@ c_list() {
   send '{"c":"fsinfo"}'
   await '"t":"fsinfo"' || { check "$mnt fsinfo answers" "fsinfo" "timeout"; return; }
   out=$(grep '"t":"fsinfo"' "$HARNESS/out" | tail -1)
-  check "$mnt fsinfo names the filesystem, not hex" "0" "$(printf '%s' "$out" | grep -c '"fs":"0x')"
+  # Sample fsinfo line: {"t":"fsinfo","fs":"ext4","free":123,"path":"/mnt/x","class":"native"}
+  fsname=$(printf '%s' "$out" | jq -r '.fs // empty' 2>/dev/null || printf '')
+  case "$fsname" in ""|0x*) fsok=0 ;; *) fsok=1 ;; esac
+  check "$mnt fsinfo names the filesystem, not hex" "1" "$fsok"
 }
 c_mkdir() {
   local mnt="$1"
@@ -227,8 +223,7 @@ c_rename() {
   await '"t":"undone"' || { check "$mnt rename undo answers" "undone" "timeout"; return; }
   check "$mnt rename undone" "yes" "$([ -f "$mnt/before.txt" ] && echo yes || echo no)"
 }
-# Defect 11: case-only rename on vfat, exfat and hfsplus is EEXIST today, and plain rename(2) leaves
-# the old spelling, so the fixed path goes through a temp sibling and lands on the new spelling.
+# Defect 11: case-only rename goes through a temp sibling to land the new spelling.
 c_caseonly() {
   local mnt="$1" class="$2"
   [ "$class" = "readonly" ] && { skip_line "$mnt case-only rename is read-only media"; return; }
@@ -237,13 +232,15 @@ c_caseonly() {
   send "{\"c\":\"rename\",\"path\":\"$mnt/case-a.txt\",\"to\":\"CASE-A.TXT\"}"
   if await '"t":"renamed"' 200; then :; elif await '"t":"error"' 20; then :;
   else check "$mnt case-only answers" "renamed or error" "timeout"; return; fi
-  check "$mnt case-only lands on the new spelling" "yes" "$([ -f "$mnt/CASE-A.TXT" ] && echo yes || echo no)"
-  check "$mnt case-only leaves no twin behind" "1" "$(ls "$mnt" | grep -c -i '^case-a\.txt$')"
+  # Exact names: case-insensitive lookup passes either spelling, so count each spelling exactly.
+  check "$mnt case-only lands on the new spelling" "1" "$(ls -1 "$mnt" | grep -Fxc 'CASE-A.TXT' || true)"
+  check "$mnt case-only old spelling is gone" "0" "$(ls -1 "$mnt" | grep -Fxc 'case-a.txt' || true)"
   if tail -n "+$((FRESH_FROM + 1))" "$HARNESS/out" | grep -q '"t":"renamed","ok":true'; then
     fresh
     send '{"c":"undo"}'
     await '"t":"undone"' || { check "$mnt case-only undo answers" "undone" "timeout"; return; }
-    check "$mnt case-only undone" "yes" "$([ -f "$mnt/case-a.txt" ] && echo yes || echo no)"
+    check "$mnt case-only undone to old spelling" "1" "$(ls -1 "$mnt" | grep -Fxc 'case-a.txt' || true)"
+    check "$mnt case-only undo drops the new spelling" "0" "$(ls -1 "$mnt" | grep -Fxc 'CASE-A.TXT' || true)"
   fi
 }
 # Defect 14: vfat refuses : ? and a trailing space with EINVAL and silently strips a trailing dot.
@@ -295,15 +292,14 @@ c_copy_big() {
 }
 # Defect 15: no 4 GiB or free-space check, so EFBIG after 4 GiB leaves a partial behind.
 c_bigrefuse() {
-  local mnt="$1" class="$2" size
-  case "$class" in vfatlike) ;; *) skip_line "$mnt 4 GiB refusal is a FAT32 limit"; return ;; esac
+  local mnt="$1" fs="$2"
+  case "$fs" in vfat) ;; *) skip_line "$mnt 4 GiB refusal is a FAT32 limit"; return ;; esac
   [ -f "$HARNESS/big45" ] || truncate -s 4608M "$HARNESS/big45"
   fresh
   send "{\"c\":\"transfer\",\"op\":\"copy\",\"paths\":[\"$HARNESS/big45\"],\"dest\":\"$mnt\"}"
   await '"t":"transferdone"' 6000 || { check "$mnt oversize copy answers" "transferdone" "timeout"; return; }
   check "$mnt oversize copy fails, never lands" "1" "$(seenf '"t":"transferdone","id":[0-9]*,"ok":0,"failed":1')"
-  size=$(stat -c %s "$mnt/big45" 2>/dev/null || printf '0')
-  check "$mnt no 4 GiB partial left behind" "1" "$([ "$size" -lt 4294967296 ] && echo 1 || echo 0)"
+  check "$mnt no 4 GiB partial left behind" "no" "$([ -e "$mnt/big45" ] && echo yes || echo no)"
   rm -f "$mnt/big45"
 }
 c_moves() {
@@ -319,6 +315,8 @@ c_moves() {
   send '{"c":"undo"}'
   await '"t":"undone"' || { check "$mnt same-device undo answers" "undone" "timeout"; return; }
   check "$mnt same-device undone" "yes" "$([ -f "$mnt/mv-in.txt" ] && echo yes || echo no)"
+  # Same st_dev means the rename path, so the cross-device checks would pass without moving.
+  if [ "$(stat -c %d "$mnt")" = "$(stat -c %d "$other")" ]; then skip_line "$mnt cross-device move needs another st_dev"; return; fi
   printf 'cross-dev' > "$other/x.txt"
   fresh
   send "{\"c\":\"transfer\",\"op\":\"move\",\"paths\":[\"$other/x.txt\"],\"dest\":\"$mnt\"}"
@@ -330,8 +328,7 @@ c_moves() {
   await '"t":"undone"' || { check "$mnt cross-device undo answers" "undone" "timeout"; return; }
   check "$mnt cross-device undone" "yes" "$([ -f "$other/x.txt" ] && echo yes || echo no)"
 }
-# Defect 16: EPERM on vfat/exfat reads as access trouble; the fixed sentence names the capability.
-# The link lands in its own directory, because the source name is already taken in this one.
+# Defect 16: EPERM on vfat/exfat names the capability; the link lands in its own dir.
 c_links() {
   local mnt="$1" class="$2" want_ok
   [ "$class" = "readonly" ] && { skip_line "$mnt links are read-only media"; return; }
@@ -362,13 +359,13 @@ c_links() {
     check "$mnt hardlink undone" "no" "$([ -e "$mnt/linkdest/lt.txt" ] && echo yes || echo no)"
   fi
 }
-# Defect 12: chmod on vfat, exfat and ntfs-3g returns 0 while the mode stays put, yet ok is reported.
-# Either an applied mode that reads back or a refusal that changes nothing, never ok over no change.
+# Defect 12: chmod may no-op, so an applied mode must read back and a refusal changes nothing.
 c_perms() {
-  local mnt="$1" class="$2" mode
+  local mnt="$1" class="$2" mode before
   [ "$class" = "readonly" ] && { skip_line "$mnt permissions are read-only media"; return; }
   printf 'mode' > "$mnt/pm.txt"
   chmod 644 "$mnt/pm.txt"
+  before=$(stat -c %a "$mnt/pm.txt")
   fresh
   send "{\"c\":\"permissionsBatch\",\"paths\":[\"$mnt/pm.txt\"],\"modes\":[\"600\"],\"id\":21}"
   await '"t":"permissions"' || { check "$mnt permissions answer" "permissions" "timeout"; return; }
@@ -376,7 +373,7 @@ c_perms() {
   if tail -n "+$((FRESH_FROM + 1))" "$HARNESS/out" | grep -q '"t":"permissions","id":21,"op":"applyMany","ok":true'; then
     check "$mnt applied mode reads back" "600" "$mode"
   else
-    check "$mnt refused mode stays put" "644" "$mode"
+    check "$mnt refused mode stays put" "$before" "$mode"
   fi
 }
 # Trash goes through gio on a private bus and home, proving the volume's own .Trash-<uid> dir.
@@ -384,42 +381,29 @@ c_trash() {
   local mnt="$1" class="$2" uid trashdir
   [ "$class" = "readonly" ] && { skip_line "$mnt trash is absent on read-only media"; return; }
   have_dbus || { skip_line "$mnt trash needs a session bus (dbus-run-session)"; return; }
-  if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
-    dbus-run-session -- gio trash --list >/dev/null 2>&1 || { skip_line "$mnt trash needs a working gio trash"; return; }
-  fi
+  gio trash --list >/dev/null 2>&1 || { skip_line "$mnt trash needs a working gio trash"; return; }
   uid=$(id -u)
   trashdir="$mnt/.Trash-$uid"
   printf 'trash me' > "$mnt/doomed.txt"
   export XDG_DATA_HOME="$HARNESS/xdg"
   mkdir -p "$XDG_DATA_HOME"
-  if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
-    # No live bus, so trash and its undo run in one private session; the live backend would journal
-    # neither, and its undo would reverse the wrong operation. Sample trash line: {"t":"trashed","ok":1,"failed":0}
-    printf '%s\n' "{\"c\":\"trash\",\"paths\":[\"$mnt/doomed.txt\"]}" '{"c":"undo"}' '{"c":"quit"}' > "$HARNESS/one.req"
-    dbus-run-session -- "$BIN" --backend < "$HARNESS/one.req" > "$HARNESS/one.out" 2>/dev/null
-    cp "$HARNESS/one.out" "$HARNESS/out"
-    check "$mnt trash ok" "1" "$(seen '"t":"trashed","ok":1,"failed":0')"
-    check "$mnt file left the directory" "no" "$([ -e "$mnt/doomed.txt" ] && echo yes || echo no)"
-    check "$mnt volume trash dir exists" "yes" "$([ -d "$trashdir" ] && echo yes || echo no)"
-    check "$mnt trash undone" "trash me" "$(cat "$mnt/doomed.txt" 2>/dev/null)"
-  else
-    fresh
-    send "{\"c\":\"trash\",\"paths\":[\"$mnt/doomed.txt\"]}"
-    await '"t":"trashed"' 400 || { check "$mnt trash answers" "trashed" "timeout"; return; }
-    check "$mnt trash ok" "1" "$(seen '"t":"trashed","ok":1,"failed":0')"
-    check "$mnt file left the directory" "no" "$([ -e "$mnt/doomed.txt" ] && echo yes || echo no)"
-    check "$mnt volume trash dir exists" "yes" "$([ -d "$trashdir" ] && echo yes || echo no)"
-    fresh
-    send '{"c":"undo"}'
-    await '"t":"undone"' || { check "$mnt trash undo answers" "undone" "timeout"; return; }
-    check "$mnt trash undone" "trash me" "$(cat "$mnt/doomed.txt" 2>/dev/null)"
-  fi
+  # Sample trash line: {"t":"trashed","ok":1,"failed":0}
+  fresh
+  send "{\"c\":\"trash\",\"paths\":[\"$mnt/doomed.txt\"]}"
+  await '"t":"trashed"' 400 || { check "$mnt trash answers" "trashed" "timeout"; return; }
+  check "$mnt trash ok" "1" "$(seen '"t":"trashed","ok":1,"failed":0')"
+  check "$mnt file left the directory" "no" "$([ -e "$mnt/doomed.txt" ] && echo yes || echo no)"
+  check "$mnt volume trash dir exists" "yes" "$([ -d "$trashdir" ] && echo yes || echo no)"
+  fresh
+  send '{"c":"undo"}'
+  await '"t":"undone"' || { check "$mnt trash undo answers" "undone" "timeout"; return; }
+  check "$mnt trash undone" "trash me" "$(cat "$mnt/doomed.txt" 2>/dev/null)"
 }
 
 round_fs() {
-  local fs="$1" cfg tool size mkfs fstype class img loop mnt opts rest
-  cfg=$(fs_config "$fs")
-  tool=${cfg%%|*}; rest=${cfg#*|}; size=${rest%%|*}; rest=${rest#*|}
+  local fs="$1" config tool size mkfs fstype class img loop mnt opts rest want
+  config=$(fs_config "$fs")
+  tool=${config%%|*}; rest=${config#*|}; size=${rest%%|*}; rest=${rest#*|}
   mkfs=${rest%%|*}; rest=${rest#*|}; fstype=${rest%%|*}; class=${rest##*|}
   if [ "$DRY" = 1 ]; then
     printf 'would test %s: %s into image, loop-mount, seed, drive backend, unmount\n' "$fs" "$mkfs"
@@ -457,12 +441,17 @@ round_fs() {
     else as_root mount -t "$fstype" -o loop "$loop" "$mnt"; fi
     case "$fs" in ext4|btrfs|xfs|f2fs|udf) as_root chown -R "$(id -u):$(id -g)" "$mnt" ;; esac
     [ "$fs" = "btrfs" ] && btrfs subvolume create "$mnt/sub" >/dev/null 2>&1 || true
-    if [ "$class" != "readonly" ]; then seed_tree "$mnt" 1; fi
+    if [ "$class" != "readonly" ]; then case "$class" in vfatlike) seed_tree "$mnt" 0 ;; *) seed_tree "$mnt" 1 ;; esac; fi
   fi
   mountpoint -q "$mnt" || { skip_line "$fs mounted nothing at $mnt"; return; }
   note_mnt "$mnt"
   start_backend
-  if [ "$fs" = "iso9660" ]; then c_list "$mnt" "$SEED_TOP_NOLINK"; else c_list "$mnt" "$SEED_TOP_LINK"; fi
+  want="$SEED_TOP_LINK"
+  case "$class" in vfatlike) want="$SEED_TOP_NOLINK" ;; esac
+  [ "$fs" = "iso9660" ] && want="$SEED_TOP_NOLINK"
+  # mkfs.ext4 leaves lost+found at the root, so that round lists one more entry.
+  [ "$fs" = "ext4" ] && want=$((want + 1))
+  c_list "$mnt" "$want"
   if [ "$class" != "readonly" ]; then
     c_mkdir "$mnt"
     c_newfile "$mnt"
@@ -471,7 +460,7 @@ round_fs() {
     c_illegal "$mnt" "$class"
     c_copy_small "$mnt"
     c_copy_big "$mnt"
-    c_bigrefuse "$mnt" "$class"
+    c_bigrefuse "$mnt" "$fs"
     c_moves "$mnt" "$HARNESS/xdev"
     c_links "$mnt" "$class"
     c_perms "$mnt" "$class"
@@ -480,15 +469,16 @@ round_fs() {
     printf 'seed' > "$HARNESS/ro-probe"
     fresh
     send "{\"c\":\"transfer\",\"op\":\"copy\",\"paths\":[\"$HARNESS/ro-probe\"],\"dest\":\"$mnt\"}"
-    await '"where":"transfer"' 200 || await '"failed":[1-9]' 200 || true
-    check "$mnt write refused up front" "0" "$([ -e "$mnt/ro-probe" ] && echo 1 || echo 0)"
+    # Sample refusal line: {"t":"error","where":"transfer","path":"/mnt/x","msg":"that folder cannot be written"}
+    await '"where":"transfer"' 200 || { check "$mnt write refused up front" "refusal" "timeout"; stop_backend; return; }
+    check "$mnt write refused up front" "1" "$(seenf '"where":"transfer"')"
+    check "$mnt read-only leaves nothing" "0" "$([ -e "$mnt/ro-probe" ] && echo 1 || echo 0)"
   fi
   stop_backend
   printf 'ROUND %s class=%s done\n' "$fs" "$class"
 }
 
-# The NFS complaint (ROOTCAUSE.md 4.1): rename-class operations fail, and a dead server must never
-# freeze the pane. Exported to 127.0.0.1 only, unexported and unmounted in the trap.
+# NFS complaint (ROOTCAUSE 4.1): rename-class fails, dead server never freezes the pane.
 round_nfs() {
   if [ "$DRY" = 1 ]; then
     printf 'would test nfs: export root to 127.0.0.1, mount hard then soft,timeo=50, rename and move, stop server, deadline checks\n'
@@ -515,8 +505,9 @@ round_nfs() {
   check "nfs hard rename lands" "yes" "$([ -f "$ROOT/mnt-nfshard/after.txt" ] && echo yes || echo no)"
   fresh
   send "{\"c\":\"transfer\",\"op\":\"move\",\"paths\":[\"$ROOT/mnt-nfshard/after.txt\"],\"dest\":\"$ROOT/nfslocal\"}"
-  await '"t":"transferdone"' 400 || true
-  check "nfs hard move out lands" "1" "$(seenf 'transferdone')"
+  await '"t":"transferdone"' 400 || { check "nfs hard move out answers" "transferdone" "timeout"; stop_backend; return; }
+  check "nfs hard move out lands" "1" "$(seenf '"t":"transferdone","id":[0-9]*,"ok":1,"failed":0')"
+  check "nfs hard move out file on disk" "yes" "$([ -f "$ROOT/nfslocal/after.txt" ] && echo yes || echo no)"
   stop_backend
   as_root umount "$ROOT/mnt-nfshard"
   as_root mount -t nfs -o "vers=4,soft,timeo=50" "127.0.0.1:$ROOT/nfsroot" "$ROOT/mnt-nfssoft" || { skip_line "nfs soft mount failed"; return; }
@@ -529,22 +520,26 @@ round_nfs() {
   if await '"t":"renamed"' 400; then :; elif await '"where":"rename"' 400; then :;
   else check "nfs soft rename answers" "an answer" "timeout"; stop_backend; return; fi
   check "nfs soft rename lands" "yes" "$([ -f "$ROOT/mnt-nfssoft/soft-after.txt" ] && echo yes || echo no)"
-  # Dead server: unexport and stop the server, then a local request on the same backend must still
-  # answer inside its deadline while the NFS one errors instead of hanging the loop.
+  # Dead server: local request answers inside its deadline while the NFS one errors.
   as_root exportfs -u "127.0.0.1:$ROOT/nfsroot" 2>/dev/null || true
+  # Record the host server state before stopping it, so cleanup restores what was running.
+  NFS_WAS_ACTIVE=$(systemctl is-active nfs-server 2>/dev/null || printf 'inactive')
   if command -v systemctl >/dev/null 2>&1; then as_root systemctl stop nfs-server 2>/dev/null || true; fi
   seed_tree "$ROOT/nfslocal" 0
+  # About 2 s (40 polls of 50 ms): a frozen loop must not pass as a live listing.
+  LOCAL_LIVE_LIMIT=40
+  NFS_ERROR_LIMIT=40
   fresh
   send "{\"c\":\"list\",\"path\":\"$ROOT/mnt-nfssoft\",\"first\":5,\"hidden\":true}"
-  fresh
   send "{\"c\":\"list\",\"path\":\"$ROOT/nfslocal\",\"first\":70,\"hidden\":true}"
-  if await "\"path\":\"$ROOT/nfslocal\"" 500; then
+  if await "\"path\":\"$ROOT/nfslocal\"" "$LOCAL_LIVE_LIMIT"; then
     check "nfs dead server keeps the local listing live" "1" "1"
   else
     check "nfs dead server keeps the local listing live" "an answer" "timeout"
   fi
-  if await '"t":"error"' 500; then
-    check "nfs dead server answers, never hangs" "1" "1"
+  # Sample error line: {"t":"error","where":"list","path":"/mnt/nfssoft","msg":"stale file handle"}
+  if await '"t":"error"' "$NFS_ERROR_LIMIT"; then
+    check "nfs dead server answers, never hangs" "yes" "$([ "$(tail -n "+$((FRESH_FROM + 1))" "$HARNESS/out" | grep '"t":"error"' | grep -c -F "$ROOT/mnt-nfssoft")" -ge 1 ] && echo yes || echo no)"
   else
     check "nfs dead server answers, never hangs" "an error, not a hang" "timeout"
   fi
@@ -559,16 +554,28 @@ if [ "$DRY" = 1 ]; then
   exit 0
 fi
 
-if [ "$SMOKE" = 1 ]; then
-  ROOT=$(mktemp -d "${TMPDIR:-/tmp}/flea-fs-smoke.XXXXXX") || exit 1
+# Scratch lives on disk: tmpfs cannot be exported over NFS and pages images into RAM.
+make_scratch() {
+  local template="$1" base="${TMPDIR:-/var/tmp}" fstype
+  ROOT=$(mktemp -d "$base/$template") || exit 1
   case "$ROOT" in /*/*) ;; *) printf 'fs-matrix.sh: refusing unsafe scratch %s\n' "$ROOT" >&2; exit 1 ;; esac
   [ -n "$ROOT" ] || exit 1
+  if command -v findmnt >/dev/null 2>&1; then fstype=$(findmnt -n -o FSTYPE -T "$ROOT" 2>/dev/null || printf ''); fi
+  case "${fstype:-}" in tmpfs) printf 'fs-matrix.sh: refusing tmpfs scratch at %s, set TMPDIR to disk\n' "$ROOT" >&2; exit 1 ;; esac
+}
+
+if [ "$SMOKE" = 1 ]; then
+  make_scratch "flea-fs-smoke.XXXXXX"
   : > "$ROOT/.flea-test-sandbox"
   HARNESS="$ROOT/harness"
   mkdir -p "$HARNESS" "$HARNESS/xdev"
   mnt="$ROOT/native"
   mkdir -p "$mnt"
   seed_tree "$mnt" 1
+  # A cross-device side on another st_dev (/dev/shm is tmpfs), or the move guard skips honestly.
+  SMOKE_XDEV=""
+  if SHM_TMP=$(mktemp -d /dev/shm/flea-fs-smoke-xdev.XXXXXX 2>/dev/null); then SMOKE_XDEV="$SHM_TMP"; fi
+  if [ -n "$SMOKE_XDEV" ] && [ "$(stat -c %d "$mnt")" != "$(stat -c %d "$SMOKE_XDEV")" ]; then SMOKE_OTHER="$SMOKE_XDEV"; else SMOKE_OTHER="$HARNESS/xdev"; fi
   start_backend
   c_list "$mnt" "$SEED_TOP_LINK"
   c_mkdir "$mnt"
@@ -576,18 +583,17 @@ if [ "$SMOKE" = 1 ]; then
   c_rename "$mnt"
   c_caseonly "$mnt" native
   c_copy_small "$mnt"
-  c_moves "$mnt" "$HARNESS/xdev"
+  c_moves "$mnt" "$SMOKE_OTHER"
   c_links "$mnt" native
   c_perms "$mnt" native
   stop_backend
+  [ -n "$SMOKE_XDEV" ] && rm -rf "$SMOKE_XDEV"
   printf 'fs-matrix --smoke: %s passed, %s failed, %s skipped\n' "$pass" "$fail" "$skip"
   [ "$fail" = 0 ]
   exit $?
 fi
 
-ROOT=$(mktemp -d "${TMPDIR:-/tmp}/flea-fs-matrix.XXXXXX") || exit 1
-case "$ROOT" in /*/*) ;; *) printf 'fs-matrix.sh: refusing unsafe scratch %s\n' "$ROOT" >&2; exit 1 ;; esac
-[ -n "$ROOT" ] || exit 1
+make_scratch "flea-fs-matrix.XXXXXX"
 : > "$ROOT/.flea-test-sandbox"
 HARNESS="$ROOT/harness"
 mkdir -p "$HARNESS" "$HARNESS/xdev" "$HARNESS/xdg"
