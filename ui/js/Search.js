@@ -1,4 +1,5 @@
 .pragma library
+.import "Input.js" as Input
 
 .import "DirSizes.js" as DirSizes
 .import "Format.js" as Format
@@ -148,7 +149,7 @@ function typeKey(event, root) {
         root.searchHere = !root.searchHere
         return true
     }
-    if (event.text.length === 1 && event.text >= " ") {
+    if (Input.isPrintable(event.text)) {
         typed(root, event.text)
         return true
     }

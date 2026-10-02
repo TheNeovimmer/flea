@@ -72,6 +72,11 @@ function run(check) {
         }
     }
     function press(code, text) { return { key: code, text: text, modifiers: Qt.NoModifier } }
+    var delLine = typing("")
+    Search.typeKey(press(Qt.Key_Delete, "\u007f"), delLine)
+    check("DEL types nothing into search", delLine.searchQuery, "")
+    Search.typeKey(press(Qt.Key_E, "e"), delLine)
+    check("a letter still types into search", delLine.searchQuery, "e")
     var line = typing("scr")
     Search.typeKey(press(Qt.Key_E, "e"), line)
     check("a printable key extends the query", line.searchQuery, "scre")

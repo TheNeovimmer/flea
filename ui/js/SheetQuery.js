@@ -1,4 +1,5 @@
 .pragma library
+.import "Input.js" as Input
 
 .import "Recent.js" as Recent
 .import "Swap.js" as Swap
@@ -215,10 +216,8 @@ function runMenu(holder, menuAction, close) {
 
 // Sample input: isPrintable("c") is true, isPrintable("\u007f") is false.
 // The Delete keysym carries DEL as its text through libxkbcommon, so the bare range test would type it.
-var DEL_CHAR = "\u007f"
 function isPrintable(text) {
-    var s = String(text || "")
-    return s.length === 1 && s >= " " && s !== DEL_CHAR
+    return Input.isPrintable(text)
 }
 
 // Sample input: isBareModifier(Qt.Key_Shift) is true, isBareModifier(Qt.Key_A) is false.

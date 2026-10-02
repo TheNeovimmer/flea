@@ -16,6 +16,7 @@ GridView {
     id: root
 
     property var pane: null
+    readonly property bool dragging: dragSession.Drag.active
     property var menu: null
 
     property real zoomTravel: 0

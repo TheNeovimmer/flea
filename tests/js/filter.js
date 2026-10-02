@@ -99,6 +99,12 @@ function run(check) {
     check("a filter matching nothing spans nothing, so no row is ever asked for",
           JSON.stringify(Filter.span([], 0, 5)), JSON.stringify({ first: 0, last: -1 }))
 
+    var keyLine = Fixture.pane()
+    Filter.typeKey({ key: Qt.Key_Delete, text: "\u007f" }, keyLine)
+    check("DEL types nothing into the filter", keyLine.filterQuery, "")
+    Filter.typeKey({ key: Qt.Key_E, text: "e" }, keyLine)
+    check("a letter still types into the filter", keyLine.filterQuery, "e")
+
     var p = Fixture.pane()
     Filter.start(p)
     check("slash gives the query line the keyboard", p.filterTyping, true)

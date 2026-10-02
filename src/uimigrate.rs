@@ -239,7 +239,8 @@ mod tests {
 
     // Two windows and the TUI write under one lock: whoever migrates first, the stamp rides every later write.
     #[test]
-    fn concurrent_writers_onto_an_old_file_migrate_it_once() {        let d = TestDir::new("uimigrate-race");
+    fn concurrent_writers_onto_an_old_file_migrate_it_once() {
+        let d = TestDir::new("uimigrate-race");
         let s = store_with(&d, OLD);
         let patches = [r#"{"hidden":true}"#, r#"{"places":{"showUnmounted":false}}"#, r#"{"sort":{"key":"size"}}"#,
                        r#"{"keys":"mac"}"#, r#"{"places":{"sidebarWidth":224}}"#, r#"{"view":"columns"}"#];

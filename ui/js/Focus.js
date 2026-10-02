@@ -1,4 +1,5 @@
 .pragma library
+.import "Input.js" as Input
 .import "Eject.js" as Eject
 .import "Filter.js" as Filter
 .import "Grid.js" as Grid
@@ -296,7 +297,7 @@ function shareBrowserAct(action, root) {
 var LEAVES_LINE = ["cursorDown", "cursorUp", "cursorFirst", "cursorLast", "pageDown", "pageUp"]
 
 function leavesLine(event) {
-    if (event.text.length === 1 && event.text >= " ")
+    if (Input.isPrintable(event.text))
         return false
     return LEAVES_LINE.indexOf(Keymap.lookup(event.key, event.text, event.modifiers)) >= 0
 }
@@ -426,7 +427,7 @@ function handleKey(event, root, sidebar) {
     }
     // An unbound printable key used to jump to a name, which only half worked because most letters
     // are bound, and taught a habit that reached d and trashed the row. It names the filter instead.
-    if (root.shown === null && event.text.length === 1 && event.text >= " ") {
+    if (root.shown === null && Input.isPrintable(event.text)) {
         root.message("Press / to filter this listing by name.", false)
         return true
     }
