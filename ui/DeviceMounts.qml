@@ -197,14 +197,14 @@ Item {
     // its filesystem goes away. gio is handed the mount point, the way eject below is, and the poll
     // that follows is what redraws the row as unmounted.
     function unmount(index) {
-        var e = root.entries[index]
-        if (!e || e.kind !== "volume" || !e.mounted || unmountProcess.running)
-            return
         // A chain owns unmountProcess for its legs, so a user unmount waits for the eject.
         if (root._powerOffDisk.length > 0) {
             root.message("Still ejecting " + root._ejectLabel + "; wait for its result.", false)
             return
         }
+        var e = root.entries[index]
+        if (!e || e.kind !== "volume" || !e.mounted || unmountProcess.running)
+            return
         root._unmountLabel = e.label
         root._unmountErr = ""
         unmountProcess.command = ["gio", "mount", "-u", e.path]

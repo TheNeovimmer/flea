@@ -9254,6 +9254,8 @@ poweroff_row() {
 case_poweroff() {
     local dir="$fixture_root/poweroff"
     sandbox_scratch "$dir"
+    # The fixture disk name must not exist on the host, or the eject chain watches a real disk.
+    [[ ! -e /sys/block/sdflea ]] || fail "poweroff: fixture disk sdflea exists on this host"
     mkdir -p "$dir/bin" "$dir/mnt/DATA1" "$dir/mnt/DATA2"
     : > "$dir/0-one.txt"
 
@@ -9263,22 +9265,21 @@ case_poweroff() {
 #!/bin/sh
 mp1="$dir/mnt/DATA1"
 mp2="$dir/mnt/DATA2"
-[ -f "$dir/un-sdb1" ] && mp1=""
-[ -f "$dir/un-sdb2" ] && mp2=""
+[ -f "$dir/un-sdflea1" ] && mp1=""
+[ -f "$dir/un-sdflea2" ] && mp2=""
 if [ -n "\$mp1" ]; then j1="\"\$mp1\""; else j1=null; fi
 if [ -n "\$mp2" ]; then j2="\"\$mp2\""; else j2=null; fi
 cat <<JSON
 {"blockdevices":[
 {"name":"nvme0n1","path":"/dev/nvme0n1","label":null,"mountpoints":[null],"rm":false,"size":"238.5G","type":"disk","model":"KBG40ZNS256G",
 "children":[{"name":"nvme0n1p1","path":"/dev/nvme0n1p1","label":null,"mountpoints":["/"],"rm":false,"size":"238.5G","type":"part","model":null}]},
-{"name":"sdb","path":"/dev/sdb","label":null,"mountpoints":[null],"rm":false,"tran":"usb","size":"1000.2G","type":"disk","model":"USB HDD",
-"children":[{"name":"sdb1","path":"/dev/sdb1","label":"DATA1","mountpoints":[\$j1],"rm":false,"size":"500.1G","type":"part","model":null,"fstype":"ext4"},
-{"name":"sdb2","path":"/dev/sdb2","label":"DATA2","mountpoints":[\$j2],"rm":false,"size":"500.1G","type":"part","model":null,"fstype":"ext4"}]}]}
+{"name":"sdflea","path":"/dev/sdflea","label":null,"mountpoints":[null],"rm":false,"tran":"usb","size":"1000.2G","type":"disk","model":"USB HDD",
+"children":[{"name":"sdflea1","path":"/dev/sdflea1","label":"DATA1","mountpoints":[\$j1],"rm":false,"size":"500.1G","type":"part","model":null,"fstype":"ext4"},
+{"name":"sdflea2","path":"/dev/sdflea2","label":"DATA2","mountpoints":[\$j2],"rm":false,"size":"500.1G","type":"part","model":null,"fstype":"ext4"}]}]}
 JSON
 EOS
     chmod +x "$dir/bin/lsblk"
-    # A hung first leg sleeps past the chain deadline; slow legs sleep 8 s each, so the two legs
-    # together pass the old whole-chain bound while each leg stays inside the per-leg one.
+    # A hung leg outlasts the deadline; slow legs pass the old whole-chain bound per leg.
     cat > "$dir/bin/gio" <<EOS
 #!/bin/sh
 printf '%s\n' "\$*" >> "$gio_log"
@@ -9287,14 +9288,14 @@ case "\$1 \$2" in
   if [ -f "$dir/hang-unmount" ] && [ "\$3" = "$dir/mnt/DATA1" ]; then sleep 30; fi
   if [ -f "$dir/slowlegs" ]; then sleep 8; fi
   case "\$3" in
-  "$dir/mnt/DATA1") : > "$dir/un-sdb1" ;;
-  "$dir/mnt/DATA2") : > "$dir/un-sdb2" ;;
+  "$dir/mnt/DATA1") : > "$dir/un-sdflea1" ;;
+  "$dir/mnt/DATA2") : > "$dir/un-sdflea2" ;;
   esac
   exit 0 ;;
 "mount -d")
   case "\$3" in
-  /dev/sdb1) rm -f "$dir/un-sdb1" ;;
-  /dev/sdb2) rm -f "$dir/un-sdb2" ;;
+  /dev/sdflea1) rm -f "$dir/un-sdflea1" ;;
+  /dev/sdflea2) rm -f "$dir/un-sdflea2" ;;
   esac
   exit 0 ;;
 *) exit 0 ;;
@@ -9332,13 +9333,13 @@ EOS
     sleep 3
     # A user unmount of the other volume mid-chain is refused and never reaches gio.
     local unmounts_before unmounts_after
-    unmounts_before=$(grep -c "^mount -u $dir/mnt/DATA2\$" "$gio_log")
+    unmounts_before=$(grep -c "^mount -u $dir/mnt/DATA2\$" "$gio_log" || true)
     click_rail_row "$(poweroff_row DATA2)" right
     settle
     menu_seek Unmount
     key -k Return >/dev/null
     wait_message "Still ejecting DATA1; wait for its result."
-    unmounts_after=$(grep -c "^mount -u $dir/mnt/DATA2\$" "$gio_log")
+    unmounts_after=$(grep -c "^mount -u $dir/mnt/DATA2\$" "$gio_log" || true)
     [[ "$unmounts_after" == "$unmounts_before" ]] \
         || fail "poweroff: the refused unmount still ran gio mount -u on DATA2"
     # The deadline ends the hung leg with its own sentence, and the volume stays mounted.
