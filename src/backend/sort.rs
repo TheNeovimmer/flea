@@ -106,7 +106,7 @@ pub fn is_hidden(name: &str) -> bool {
     name.as_bytes().first() == Some(&b'.')
 }
 
-// The Kind tie-break: text after the last dot, None when there is none; pure name bytes, no stat.
+// Kind tie-break from name bytes alone: text after the last dot, None for no dot, a lone leading dot or a trailing dot.
 pub fn extension(name: &str) -> Option<&str> {
     let base = name.rsplit('/').next().unwrap_or(name);
     let dot = base.rfind('.')?;

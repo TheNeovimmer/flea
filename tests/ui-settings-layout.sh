@@ -32,8 +32,7 @@ case_settingscompact() {
             || fail "settingscompact: stable height is not measured View content"
         if [[ "$viewport" == 1100x800 ]]; then
             scroll=$(ipc settingsScrollState)
-            # A View taller than the clamp scrolls inside a clamped card.
-            # Two clamp margins from ui/SettingsPanel.qml clampMargin.
+            # A View taller than the clamp (ui/SettingsPanel.qml clampMargin each side) scrolls inside a clamped card.
             clamp_margin=8
             max_h=$(( wh - 2 * clamp_margin ))
             if (( ch < max_h )); then
