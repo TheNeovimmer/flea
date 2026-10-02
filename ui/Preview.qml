@@ -77,9 +77,7 @@ Item {
     readonly property bool lookReady: !root.active || PreviewSwap.lookReady(root.status, root.isPdf,
         root.pdfItem !== null && root.pdfItem.shownPage >= 0, root.pdfItem !== null && root.pdfItem.failed,
         root.interimShown)
-    // The cached thumbnail held at open, shown at once under the full decode; the stamp keeps a
-    // stale interim from outliving the path it was read for. It draws inside PreviewImage.qml,
-    // between its ground and its picture, at the rect below, which is the final's own.
+    // The cached thumbnail held at open, drawn under the full decode at the final rect; the stamp retires a stale one.
     property string interimThumb: ""
     property string interimStamp: ""
     // The interim's rect off the upright original, null while its pixels are unknown: no
@@ -465,15 +463,20 @@ Item {
                 truncate: root.pane ? (root.pane.storageClass === "network" || root.pane.storageClass === "phone") : false
             }
 
-            // RenderedPreviews: the Markdown bar and pane, inside panes so a held picture
-            // covers them whole. The bar is the board's own: mark, name, line count, the
-            // settings strip's segmented control at 20 px, and close.
+            // RenderedPreviews: the Markdown bar and pane inside panes, so a held picture covers them whole.
             Item {
                 id: markdownBar
+                readonly property int barHeight: 27
+                readonly property int edgeInset: 14
+                readonly property int gap: 9
+                readonly property int markSize: 16
+                readonly property int segmentHeight: 20
+                readonly property int closeInset: 2
+                readonly property real ruleOpacity: 0.4
                 anchors.top: parent.top
                 anchors.left: parent.left
                 anchors.right: parent.right
-                height: 27
+                height: barHeight
                 visible: root.isMarkdown
 
                 Rectangle {
@@ -482,17 +485,17 @@ Item {
                     anchors.right: parent.right
                     height: Theme.spacing.hairline
                     color: Theme.color.muted
-                    opacity: 0.4
+                    opacity: markdownBar.ruleOpacity
                 }
 
                 Flea.Glyph {
                     id: barMark
                     anchors.left: parent.left
-                    anchors.leftMargin: 14
+                    anchors.leftMargin: markdownBar.edgeInset
                     anchors.verticalCenter: parent.verticalCenter
-                    width: 16
-                    height: 16
-                    maxSize: 16
+                    width: markdownBar.markSize
+                    height: markdownBar.markSize
+                    maxSize: markdownBar.markSize
                     name: Icons.glyphFor(root.iconName)
                     color: Theme.color.foreground
                 }
@@ -501,9 +504,9 @@ Item {
                 Text {
                     id: barName
                     anchors.left: barMark.right
-                    anchors.leftMargin: 9
+                    anchors.leftMargin: markdownBar.gap
                     anchors.right: barLines.left
-                    anchors.rightMargin: 9
+                    anchors.rightMargin: markdownBar.gap
                     anchors.verticalCenter: parent.verticalCenter
                     text: root.path.substring(root.path.lastIndexOf("/") + 1)
                     color: Theme.color.foreground
@@ -516,7 +519,7 @@ Item {
                 Text {
                     id: barLines
                     anchors.right: barSegment.left
-                    anchors.rightMargin: 9
+                    anchors.rightMargin: markdownBar.gap
                     anchors.verticalCenter: parent.verticalCenter
                     text: markdownPane.lineLabel
                     visible: markdownPane.contentReady
@@ -529,11 +532,11 @@ Item {
                 Flea.SettingsSegment {
                     id: barSegment
                     anchors.right: barClose.left
-                    anchors.rightMargin: 9
+                    anchors.rightMargin: markdownBar.gap
                     anchors.verticalCenter: parent.verticalCenter
                     options: ["Rendered", "Source"]
                     value: ViewState.markdownView === "source" ? "Source" : "Rendered"
-                    controlHeight: 20
+                    controlHeight: markdownBar.segmentHeight
                     onPicked: function (index) {
                         ViewState.changeLeaf("preview", { markdownView: index === 0 ? "rendered" : "source" })
                     }
@@ -543,7 +546,7 @@ Item {
                     id: barClose
                     gesturePolicy: TapHandler.ReleaseWithinBounds
                     anchors.right: parent.right
-                    anchors.rightMargin: 2
+                    anchors.rightMargin: markdownBar.closeInset
                     anchors.verticalCenter: parent.verticalCenter
                     width: Theme.hitMin
                     height: parent.height

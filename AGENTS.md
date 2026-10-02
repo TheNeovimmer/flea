@@ -339,7 +339,7 @@ slow network folder alike, in two layers. `ui/PaneStates.qml` lays a `MouseArea`
 filter strip and the listing slot while a listing is out, which takes every press and wheel notch and
 says "A directory is already loading." on a press, and `ui/js/Focus.js handleKey` swallows every
 listing key but `Swap.ANSWERED_WHILE_LISTING` and says the same sentence: the navigations, which refuse
-themselves with it, escape, which touches no row, and the view, rail, new-window and preview-column
+themselves with it, escape, which touches no row, reload, which refuses itself with the same sentence (`ui/js/Reload.js:19-21`), and the view, rail, new-window and preview-column
 keys, which change the window rather than a file. The rail, the crumbs and the tab strip already
 refused a listing while one was out, a row drag already could not start, and the list and the grid
 now ask for no `window` while one is out, the rule
@@ -465,8 +465,8 @@ layer must call `scheduleUpdate()`. Clicks, hover and the wheel are blocked whil
 over the picture.
 
 The column holds with `burstEnds: true` on the key `path + "\n" + cursorIndex`. The hold starts on the
-move, the settle runs from the key through `armSettle` and is not pushed back one frame, and `clear`
-runs after the capture so `pending` makes `Facts.state(null, loading)` return LOADING. A folder shows
+move, an idle move loads at once through `PreviewSettle.plan` and only a move inside the 120 ms settle trails on the timer, and `clear`
+runs after the capture so `pending` makes `Facts.state(null, loading)` return LOADING. `armSettle` remains only the folder-to-file arm in `ColumnsArea.moveThird`, overridden by `settleFor` when idle; a held key's first repeat after the repeat delay counts as idle too. A folder shows
 through the deferred `shownIsDir` and `shownChildPath` and never holds a picture: a move onto a folder
 whose peek is outstanding keeps the old column by data, and the landed peek shows it with its rows in
 the same pass; a folder whose peek already answered lands at once with no hold. Only a move onto a folder
@@ -2287,7 +2287,7 @@ visit on a 33 Mpx PNG and 2 to 4 MB of PSS over v0.3.4. As in v0.3.4 the frame d
 cache file, and decodes the original only when no cache file exists, now at the exact fit of the frame and
 EXIF-upright; a cache file is never enlarged past the original's own size. The sharp frame returns in
 0.3.6 from a disk-cached sharp file, GM's ruling. `tests/preview-decode.sh` pins it from outside the
-column: a key-repeat sweep opens no file at all, cache file or original, and a rest opens the cache file
+column: a key-repeat sweep loads its first row at once and then only its last, and a rest opens the cache file
 and no original. It also pins Quick Look's `ui/PreviewImage.qml`: a 3000x100 banner decodes at the exact
 fit (754x25, not the covering 14130x471), and an EXIF-turned photo decodes upright and draws at the exact
 fit, decoded whole when its stored size fits the box before the turn, because Qt weighs `sourceSize`

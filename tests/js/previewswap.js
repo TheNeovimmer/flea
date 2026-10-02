@@ -77,6 +77,7 @@ function run(check) {
     check("or once the document is refused", PreviewSwap.lookReady("This file could not be read.", true, false, true), true)
     check("anything else not loading is whole", PreviewSwap.lookReady("image", false, false, false), true)
     runInterimRect(check)
+    runInterimShown(check)
     runFolderDataHold(check)
     runPictureHoldLeak(check)
     runPreviewSettle(check)
@@ -140,6 +141,18 @@ function runInterimRect(check) {
     check("unknown pixels are no interim",
         rect(754, 471, 0, 0, 1) + "|" + rect(754, 471, 640, 0, 1) + "|" + rect(754, 471, 0, 480, 6),
         "none|none|none")
+}
+
+// Quick Look releases early only on the shown interim: Preview.qml interimShown reads PreviewImage interimReady, and lookReady answers on it.
+function runInterimShown(check) {
+    var quick = Source.source("ui/Preview.qml")
+    var image = Source.source("ui/PreviewImage.qml")
+    check("interimShown releases only on the interim image Ready",
+        quick.indexOf("imageLoader.item.interimReady === true") >= 0, true)
+    check("that term is PreviewImage interimReady, never a local flag",
+        image.indexOf("readonly property bool interimReady: interimPicture.status === Image.Ready") >= 0, true)
+    check("lookReady answers on the shown interim",
+        quick.indexOf("root.interimShown") >= 0, true)
 }
 
 // A folder peek in Columns holds by data: an unanswered folder keeps the old column, and the landed peek shows it with its rows in one pass.
