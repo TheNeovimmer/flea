@@ -673,11 +673,13 @@ ShellRoot {
         root.endStop()
     }
 
-    // A flick into the last page ends the tail on the first frame that cannot move.
+    // A flick into the last page ends the tail there: the stroke stays inside the page
+    // under elastic edges, the tail carries past the bound, and the return it hands to
+    // settles back onto it, so the tail is inactive and the page is the last one.
     function endStop() {
         var h = handlers()
         var maxY = list.contentHeight - list.height
-        list.contentY = maxY - root.parkAbovePx
+        list.contentY = maxY - 12 * 40 * Scroll.TOUCH_GAIN - root.parkAbovePx
         feedStroke(h.body, flickRaw(12, -40), 8)
         root.freeze()
         if (!root.tailActive()) {
@@ -693,13 +695,15 @@ ShellRoot {
             if (list.contentY === before)
                 break
         }
+        guard = 0
+        while (root.returnActive() && guard < 10000) { h.body.advanceReturn(16.7); guard += 1 }
         if (Math.abs(list.contentY - maxY) > 1) {
             fail("tail ended at " + list.contentY.toFixed(2) + ", want the last page " + maxY.toFixed(2))
             root.report()
             return
         }
         if (root.tailActive()) {
-            fail("tail still active on the first frame that could not move")
+            fail("tail still active past the last page")
             root.report()
             return
         }
