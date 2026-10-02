@@ -259,6 +259,7 @@ ShellRoot {
                     settleTimer = preview.resources[i]
                 }
             }
+            // restart() on a running Timer is stop then start, so it emits runningChanged twice and a second arm reads settleRestarts 2.
             var settleRestarts = 0
             var counted = function () {
                 settleRestarts += 1
