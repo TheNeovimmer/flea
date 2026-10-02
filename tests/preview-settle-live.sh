@@ -3,6 +3,8 @@
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
+# qs exits 128 + SIGTERM when the probe kills itself after its receipt.
+self_kill_exit=143
 
 if ! command -v qs >/dev/null; then
     echo "preview-settle-live.sh: qs is not installed, cannot drive the preview"
@@ -62,7 +64,7 @@ run_phase() {
     expected=38
     [ "$label" = manual ] && expected=3
     warnings=$(printf '%s\n' "$output" | grep -aiE 'WARN|ERROR|TypeError|ReferenceError|not ready|not a type|is not defined|file not found' || true)
-    if [ "$code" -ne 143 ] || [ "$done_count" -ne 1 ] || [ "$clean_count" -ne 1 ] \
+    if [ "$code" -ne "$self_kill_exit" ] || [ "$done_count" -ne 1 ] || [ "$clean_count" -ne 1 ] \
         || [ "$pass_count" -ne "$expected" ] || [ "$fail_count" -ne 0 ] || [ -n "$warnings" ]; then
         printf 'FAIL preview settle %s: qs_exit=%s done=%s clean=%s pass=%s/%s fail=%s\n' \
             "$label" "$code" "$done_count" "$clean_count" "$pass_count" "$expected" "$fail_count"
