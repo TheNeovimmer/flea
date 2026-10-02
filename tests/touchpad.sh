@@ -35,6 +35,7 @@ output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
 pass_count=$(printf '%s\n' "$output" | grep -c 'TOUCHPAD PASS')
 # Sample input: "\e[34m DEBUG\e[97m qml\e[0m: TOUCHPAD EDGE PASS top=-42.5 bottom=77765.5 tailPeak=77823.0 rest=bound"
 edge_count=$(printf '%s\n' "$output" | grep -c 'TOUCHPAD EDGE PASS')
+# Sample input: "\e[34m DEBUG\e[97m qml\e[0m: TOUCHPAD FAIL stroke travelled 36.00, want 90"
 fail_count=$(printf '%s\n' "$output" | grep -c 'TOUCHPAD FAIL')
 if [ "$pass_count" -ne 1 ] || [ "$edge_count" -ne 1 ] || [ "$fail_count" -ne 0 ]; then
     printf 'FAIL a touchpad stroke, tail, stop, share, cost or edge check went red\n'
