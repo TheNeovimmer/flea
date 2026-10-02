@@ -148,6 +148,7 @@ QtObject {
             var menu = root.pane.contextMenu()
             return JSON.stringify({opened: menu.visible, entries: menu.entries, cursor: menu.cursor,
                 snapshotReady: root.pane.menuActions.ready, snapshotId: root.pane.menuActions.requestId,
+                shebangAsked: root.pane.shebangAsked, shebangHas: root.pane.rowHasShebang,
                 submenu: menu.submenuOpen, submenuCursor: menu.submenuCursor, submenuEntries: menu.submenuEntries,
                 frame: root.fleaWindow.rectOf(menu.frameItem), flyout: root.fleaWindow.rectOf(menu.submenuFrameItem),
                 workArea: menu.workArea, forHeader: menu.forHeader, forRail: menu.forRail, hasRow: menu.hasRow})

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Drives the real Quickshell window with omarchy-drive and asserts through the read-only IPC seam.
-# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|rename|renamelife|taildrop|touchpad|grid|columns|columnsbackground|reclick|colroot|operations|tabs|tabdrag|openterminal|makeexec|renderer|settings|makedefault|scrolllane|noblank|previewswap ...|previewswap|recent ...|middleclick|opentab]; networklive is opt-in.
+# Usage: ./tests/ui.sh [case ...]; with no args it runs the default wanted list below; networklive and touchpad are opt-in.
 set -u
 set -o pipefail
 # Hard rule 9's guard, which owns FIXTURE_ROOT and every create and delete this suite makes.
@@ -443,11 +443,11 @@ seed_ui_state() {
     export XDG_STATE_HOME="$state"
 }
 
-# The shipped menu.hidden set less Open in terminal, so a case can drive that row without changing
-# any other row of the menu; src/uischema.rs DEFAULTS is where the twelve come from.
+# DEFAULTS' twelve less placeMenu, runScript, extThumbs and openTerminal, so a case can drive
+# that row without changing any other row of the menu.
 terminal_shown='["delete","moveto","copyto","properties","permissions","copyAs","pasteAs","invertSelection"]'
-# The shipped set whole, from the same DEFAULTS. A case asserting a menu's exact row list seeds this
-# rather than reading whatever the operator has switched off in the Menus section.
+# DEFAULTS' twelve less placeMenu, runScript and extThumbs, the shipped set whole otherwise. A case
+# asserting a menu's exact row list seeds this rather than reading whatever the operator switched off.
 menu_shipped='["delete","openTerminal","moveto","copyto","properties","permissions","copyAs","pasteAs","invertSelection"]'
 
 launch() {
@@ -1153,7 +1153,7 @@ case_scroll() {
 # tail while the same stroke with a pause before the lift stops dead. Controller-only: needs
 # /dev/uinput writable beside the display, so anywhere else it refuses rather than failing.
 case_touchpad() {
-    [[ -w /dev/uinput ]] || { printf 'REFUSED /dev/uinput is not writable, so no touchpad stroke can be played.\n'; exit 1; }
+    [[ -w /dev/uinput ]] || { printf 'REFUSED: /dev/uinput is not writable, so no touchpad stroke can be played.\n'; exit 1; }
     [[ -d "$bench_dir" ]] || fail "touchpad: the 100,000-file fixture is missing at $bench_dir"
     launch "$bench_dir"
     wait_listing 100000
@@ -2207,8 +2207,7 @@ case_clickedge() {
     sandbox_scratch "$bindir"
     local i
     for i in $(seq -w 1 150); do printf 'body\n' > "$dir/f$i.txt"; done
-    # Outside the directory under test: the stub appends on every open, and a write
-    # inside the listed folder is an outside change that re-reads it under the clicks.
+    # Outside the listed folder: the stub appends on every open, and a write inside it re-reads under the clicks.
     local opened="$fixture_root/clickedge-opened.log"
     : > "$opened"
     {
@@ -2235,8 +2234,7 @@ case_clickedge() {
         local visible target last before after_first after_double target_name want
         visible=$(ipc visibleRows)
         [[ "$visible" =~ ^[1-9][0-9]*$ ]] || fail "clickedge: $mode has no visible row count, got [$visible]"
-        # visibleRows counts the partly drawn bottom row on purpose, whose centre
-        # can lie over the status bar, so last is the last whole row, never the cut one.
+        # visibleRows counts the cut bottom row too, so last is the last whole row, never the cut one.
         local ex ey ew eh erx ery erw erh ei
         read -r ex ey ew eh <<< "$(ipc listAreaRect)"
         [[ "$ex $ey $ew $eh" =~ ^[0-9]+\ [0-9]+\ [0-9]+\ [0-9]+$ ]] || fail "clickedge: $mode has no listing area, got [$ex $ey $ew $eh]"
@@ -2295,10 +2293,7 @@ case_clickedge() {
         key -k Escape >/dev/null || fail "clickedge: key Escape was rejected"
         settle
         [[ "$(ipc contextMenuVisible)" == "false" ]] || fail "clickedge: $mode Escape left the menu open"
-        # A click on the row the viewport edge cuts scrolls by exactly the cut
-        # amount, in pixels and never by rows, so the second tap of a double
-        # click still lands on that row. Geometry first: the cut row is the one
-        # whose bottom runs past the listing area while its top stays inside it.
+        # A click on the cut row scrolls by exactly the cut pixels, so the double click's second tap still lands on it.
         key -k Home >/dev/null || fail "clickedge: key Home was rejected"
         settle
         [[ "$(ipc viewContentY)" == "0" ]] || fail "clickedge: $mode Home did not return to the top, contentY $(ipc viewContentY)"
@@ -2334,8 +2329,7 @@ case_clickedge() {
             printf 'CLICKEDGE %s cut double opened=%q contentY=%s\n' "$mode" "$(cat "$opened")" "$(ipc viewContentY)"
             grep -q "^OPENED $dir/$cut_name$" "$opened" || fail "clickedge: $mode a double click on the cut row did not open $cut_name, log $(cat "$opened")"
         fi
-        # A slow click on the second-to-last whole row begins a rename and moves
-        # nothing: the reveal carries context 0, so the editor stays under the pointer.
+        # A slow click begins a rename and moves nothing: the reveal carries context 0.
         key -k Home >/dev/null || fail "clickedge: key Home was rejected"
         settle
         read -r ax ay aw ah <<< "$(ipc listAreaRect)"
@@ -2367,10 +2361,7 @@ case_clickedge() {
         settle
         [[ "$(ipc renameEditorLive)" == "false" ]] || fail "clickedge: $mode Escape left the rename open"
         printf 'CLICKEDGE %s rename cancelled row=%s contentY=%s\n' "$mode" "$slow" "$(ipc viewContentY)"
-        # A band drag from an upper row down to the last whole row releases
-        # without scrolling: the release carries context 0 too. The press starts
-        # two pixels past the row's right edge, in the scroll lane no row covers,
-        # which is the empty ground the band starts on.
+        # A band drag releases without scrolling: the press starts in the scroll lane past the row's right edge.
         key -k Home >/dev/null || fail "clickedge: key Home was rejected"
         settle
         [[ "$(ipc viewContentY)" == "0" ]] || fail "clickedge: $mode Home did not return to the top before the band, contentY $(ipc viewContentY)"
@@ -3169,6 +3160,15 @@ case_makeexec() {
     seek_row_named "notes.txt"
     click_row "$(ipc cursor)" right
     settle
+    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "makeexec: notes.txt opened no menu"
+    # The Make executable row arrives async off a head read, so the control waits for that read to land first.
+    local shebang="pending" deadline4=$(( $(date +%s%3N) + 15000 ))
+    while (( $(date +%s%3N) < deadline4 )); do
+        shebang=$(ipc menuState 2>/dev/null | jq -r '.shebangAsked' 2>/dev/null || printf ipc-broken)
+        [[ -z "$shebang" ]] && break
+        sleep 0.1
+    done
+    [[ -z "$shebang" ]] || fail "makeexec: the shebang read never landed, asked=$shebang"
     local plain=""
     plain=$(ipc contextMenuEntries)
     printf 'MAKEEXEC notes entries=%s\n' "$plain"
@@ -4947,10 +4947,6 @@ case_header() {
     kill_flea
 }
 
-# ListColumns040: dragging a column edge resizes it, remembers the width, and never sorts. Sample input: headerCellRect size prints "400|70".
-# The drag is deterministic absolute motion while the button is held: cursorpos does not follow
-# ydotool relative motion and that motion is accelerated, so neither a step count nor cursorpos
-# names the distance.
 # headerCellRect is polled until two reads agree, so a mid-drag sample never stands in for a settled width.
 column_stable_rect() {
     local key="$1" first second
@@ -4961,15 +4957,16 @@ column_stable_rect() {
         [[ "$first" == "$second" ]] && { printf '%s' "$first"; return 0; }
     done
     printf '%s' "$second"
+    return 1
 }
+# Absolute header-drag motion while held; neither a step count nor cursorpos names the distance here.
 column_drag_absolute() {
     local start_x="$1" y="$2" delta_x="$3" steps="$4" i x
     for (( i = 1; i <= steps; i++ )); do
         x=$(( start_x + delta_x * i / steps ))
         omarchy-drive move "$x" "$y" >/dev/null \
             || fail "columnresize: the absolute drag step failed"
-        # The move above sends wl_pointer.motion with no wl_pointer.frame, so Qt only sees it
-        # when a later frame flushes it; this zero-net uinput nudge produces that frame per step.
+        # wl_pointer.motion without a frame needs this zero-net uinput nudge to flush one frame per step.
         YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1 \
             || fail "columnresize: the frame-flush nudge failed"
         YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x -1 -y 0 >/dev/null 2>&1 \
@@ -4978,6 +4975,7 @@ column_drag_absolute() {
     done
 }
 
+# ListColumns040: dragging a column edge resizes it, remembers the width, and never sorts. Sample input: headerCellRect size prints "400|70".
 case_columnresize() {
     local dir="$fixture_root/columnresize"
     sandbox_scratch "$dir"
@@ -4987,16 +4985,18 @@ case_columnresize() {
     seed_ui_state "$fixture_root/columnresize-state" '{"view":"list"}'
     launch "$dir"
     wait_listing 3
-    local before_mark before_w
+    local before_mark before_w rect
     before_mark=$(ipc sortMark)
-    IFS='|' read -r _x before_w <<< "$(column_stable_rect size)"
+    rect=$(column_stable_rect size) || fail "columnresize: the size header never settled"
+    IFS='|' read -r _x before_w <<< "$rect"
     [[ "$before_w" =~ ^[0-9]+$ ]] || fail "columnresize: the size header has no width, got $before_w"
 
     # The handle sits on the cell's left edge (Header.qml anchors each ResizeHandle there), not on the painted text centre, which misses the 9 px handle on a right-aligned cell.
-    local cx cy cell_x cell_w edge_x header_left wx wy ww wh start_x start_y
+    local cx cy cell_x cell_w edge_x header_left wx wy ww wh start_x start_y injected=40
     read -r cx cy <<< "$(ipc headerCellCentre size)"
     [[ -n "$cx" && -n "$cy" ]] || fail "columnresize: the size header has no centre"
-    IFS='|' read -r cell_x cell_w <<< "$(column_stable_rect size)"
+    rect=$(column_stable_rect size) || fail "columnresize: the size header never settled on the edge pass"
+    IFS='|' read -r cell_x cell_w <<< "$rect"
     [[ "$cell_x" =~ ^-?[0-9]+$ ]] || fail "columnresize: the size header has no left edge, got $cell_x"
     header_left=$(ipc headerLeft)
     [[ "$header_left" =~ ^-?[0-9]+$ ]] || fail "columnresize: the header has no left edge, got $header_left"
@@ -5008,24 +5008,29 @@ case_columnresize() {
         || fail "columnresize: the edge move failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 \
         || fail "columnresize: the edge press failed"
-    # Deterministic: absolute moves from the handle's x to handle x - 40 while held.
-    column_drag_absolute "$start_x" "$start_y" -40 4
+    # Deterministic: absolute moves from the handle's x to handle x minus the injected drag while held.
+    column_drag_absolute "$start_x" "$start_y" -$injected 4
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 \
         || fail "columnresize: the edge release failed"
     settle
     local grown_w trace trace_start trace_last trace_width trace_preview
-    IFS='|' read -r _x grown_w <<< "$(column_stable_rect size)"
+    rect=$(column_stable_rect size) || fail "columnresize: the size header never settled after the drag"
+    IFS='|' read -r _x grown_w <<< "$rect"
     printf 'COLUMNRESIZE before=%s grown=%s mark=%s\n' "$before_w" "$grown_w" "$(ipc sortMark)"
     shot columnresize-drag
     trace=$(ipc headerDragTrace)
-    printf 'COLUMNRESIZE trace=%s injected=-40\n' "$trace"
+    printf 'COLUMNRESIZE trace=%s injected=-%s\n' "$trace" "$injected"
     IFS='|' read -r trace_start trace_last trace_width trace_preview <<< "$trace"
-    python3 - "$trace_start" "$trace_last" "$before_w" "$grown_w" "$trace_preview" <<'PYEOF' \
+    # headerDragTrace carries QML reals (Header.qml dragStartX, dragLastX), which bash arithmetic cannot compare.
+    python3 - "$trace_start" "$trace_last" "$before_w" "$grown_w" "$trace_preview" "$injected" <<'PYEOF' \
         || fail "columnresize: the header did not follow the pointer as the app saw it, trace=$trace before=$before_w grown=$grown_w"
 import sys
-start, last, before, grown, preview = [float(v) for v in sys.argv[1:6]]
+start, last, before, grown, preview, injected = [float(v) for v in sys.argv[1:7]]
 if not last < start:
     sys.stderr.write("no leftward drag reached the app: startX=%s lastX=%s\n" % (start, last))
+    sys.exit(1)
+if abs((start - last) - injected) > 2:
+    sys.stderr.write("app-seen travel %s against the injected %s\n" % (start - last, injected))
     sys.exit(1)
 if abs((grown - before) - (start - last)) > 1:
     sys.stderr.write("drawn delta %s against app-seen travel %s\n" % (grown - before, start - last))
@@ -5051,7 +5056,8 @@ PYEOF
 
     # To the floor: a rightward absolute drag shrinks to the 48 rail, with overshoot still reading 48.
     read -r cx cy <<< "$(ipc headerCellCentre size)"
-    IFS='|' read -r cell_x cell_w <<< "$(column_stable_rect size)"
+    rect=$(column_stable_rect size) || fail "columnresize: the size header never settled on the floor pass"
+    IFS='|' read -r cell_x cell_w <<< "$rect"
     [[ "$cell_x" =~ ^-?[0-9]+$ ]] || fail "columnresize: the size header has no left edge on the floor pass, got $cell_x"
     header_left=$(ipc headerLeft)
     [[ "$header_left" =~ ^-?[0-9]+$ ]] || fail "columnresize: the header has no left edge on the floor pass, got $header_left"
@@ -5067,7 +5073,8 @@ PYEOF
         || fail "columnresize: the floor release failed"
     settle
     local floored_w
-    IFS='|' read -r _x floored_w <<< "$(column_stable_rect size)"
+    rect=$(column_stable_rect size) || fail "columnresize: the size header never settled on the floor read"
+    IFS='|' read -r _x floored_w <<< "$rect"
     printf 'COLUMNRESIZE floored=%s\n' "$floored_w"
     shot columnresize-floor
     [[ "$floored_w" == "48" ]] || fail "columnresize: a drag past the floor landed at $floored_w, not 48"
@@ -5856,6 +5863,14 @@ tabdrag_to() {
         }
         sleep 0.05
     done
+    # The loop breaks on arrival, so ending it off target means the steering never landed.
+    local end_x end_y
+    end_x=$(hyprctl cursorpos | tr -d ',' | cut -d' ' -f1)
+    end_y=$(hyprctl cursorpos | tr -d ',' | cut -d' ' -f2)
+    if [[ ! "$end_x" =~ ^[0-9]+$ || ! "$end_y" =~ ^[0-9]+$ ]] || (( end_x < wx + to_x - 2 || end_x > wx + to_x + 2 || end_y < wy + to_y - 2 || end_y > wy + to_y + 2 )); then
+        YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 || true
+        fail "tabdrag: the drag ended at [$end_x,$end_y], over 2 px off [$((wx + to_x)),$((wy + to_y))]"
+    fi
     shot "$held"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 \
         || fail "tabdrag: pointer release failed"
@@ -5933,7 +5948,7 @@ wait_tabs() {
         [[ "$(ipc tabCount)" == "$want" ]] && return
         sleep 0.25
     done
-    fail "${FUNCNAME[1]}: $2 left $(ipc tabCount) tabs, not $want"
+    fail "${FUNCNAME[1]#case_}: $2 left $(ipc tabCount) tabs, not $want"
 }
 
 case_middleclick() {
@@ -5995,7 +6010,8 @@ case_middleclick() {
 
 # Ctrl+Return opens the cursor folder in a new tab, the keyboard twin of the
 # middle click above, in each of the three views; tests/js/tabs.js holds the
-# decision in ui/js/Tabs.js and this presses it at the real window. A file row
+# decision in ui/js/Tabs.js and this presses it at the real window. Grid sends
+# Ctrl+KP_Enter, the keypad Enter Keymap.js binds beside Return. A file row
 # is the negative control: the same chord on a row with no folder must leave
 # the count alone and say only a folder does, which is what says the count
 # below moved because of the directory and not because of the chord.
@@ -6027,7 +6043,7 @@ case_opentab() {
         if [[ "$view" == grid ]]; then chord="KP_Enter"; else chord="Return"; fi
         key -M ctrl -k "$chord" -m ctrl >/dev/null || fail "opentab: key Ctrl+$chord was rejected"
         count=$((count + 1))
-        wait_tabs "$count" "Ctrl+Return on alpha in $view"
+        wait_tabs "$count" "Ctrl+$chord on alpha in $view"
         wait_path "$dir/alpha"
         printf 'OPENTAB %s tabs=%s labels=%s\n' "$view" "$(ipc tabCount)" "$(ipc tabLabels)"
         click_tab 0
@@ -9153,10 +9169,13 @@ case_recent() {
     cat > "$fixture_home/.local/share/recently-used.xbel" <<EOS
 <?xml version="1.0" encoding="UTF-8"?>
 <xbel version="1.0">
-  <bookmark href="file://$dir/beta.txt" added="2026-09-26T10:00:00Z" modified="2026-09-26T10:00:00Z" visited="2026-09-27T10:00:00Z"/>
-  <bookmark href="file://$dir/alpha.txt" added="2026-09-26T09:00:00Z" modified="2026-09-26T09:00:00Z" visited="2026-09-26T09:00:00Z"/>
+  <bookmark href="file://$dir/beta.txt" added="2026-09-26T10:00:00Z" modified="2026-09-26T10:00:00Z" visited="2026-09-26T10:00:00Z"/>
+  <bookmark href="file://$dir/alpha.txt" added="2026-09-26T09:00:00Z" modified="2026-09-26T09:00:00Z" visited="2026-09-27T10:00:00Z"/>
 </xbel>
 EOS
+    # Only visited favors alpha: beta leads in file order, added, modified and mtime alike.
+    touch -d '2026-09-26 10:00:00' "$dir/beta.txt"
+    touch -d '2026-09-26 09:00:00' "$dir/alpha.txt"
 
     local state="$fixture_root/recent-state"
     seed_ui_state "$state" '{"places":{"showRecent":true}}'
@@ -9181,7 +9200,7 @@ EOS
     settle
     [[ "$(ipc railCursor)" == "1" ]] || fail "recent: Recent is not the second rail row"
     key -k Return >/dev/null
-    local mode=total=
+    local mode= total=
     for _attempt in $(seq 1 200); do
         mode=$(ipc recentMode 2>/dev/null || printf unavailable)
         total=$(ipc total 2>/dev/null || printf unavailable)
@@ -9192,10 +9211,10 @@ EOS
     [[ "$total" == "2" ]] || fail "recent: the history listed $total rows, not 2"
     [[ "$(ipc headerTitles)" == "Name|Size|Used" ]] \
         || fail "recent: the header does not read Name|Size|Used: $(ipc headerTitles)"
-    [[ "$(ipc rowAt 0)" == *"/beta.txt|file|"* ]] \
-        || fail "recent: the newest bookmark is not first: $(ipc rowAt 0)"
-    [[ "$(ipc rowAt 1)" == *"/alpha.txt|file|"* ]] \
-        || fail "recent: the older bookmark is not second: $(ipc rowAt 1)"
+    [[ "$(ipc rowAt 0)" == *"/alpha.txt|file|"* ]] \
+        || fail "recent: the newest visited bookmark is not first: $(ipc rowAt 0)"
+    [[ "$(ipc rowAt 1)" == *"/beta.txt|file|"* ]] \
+        || fail "recent: the older visited bookmark is not second: $(ipc rowAt 1)"
 
     key -k Escape >/dev/null
     wait_path "$dir"
@@ -9206,13 +9225,12 @@ EOS
     sandbox_remove "$fixture_home"
 }
 
-# Task 19: F2 renames a Network rail entry in place; "NAS" is bookmark-only, "isos" is mount-only.
+# Issue #170: the menu's Rename opens the editor at once instead of queueing
+# an activate behind the cold Open-with catalogue. The stub's info and mime
+# legs block until "$dir/release" exists, so the catalogue never answers
+# while the editor must already be live; the rename then commits first try
+# with an outside create landing mid-edit.
 case_renamefirst() {
-    # Issue #170: the menu's Rename opens the editor at once instead of queueing
-    # an activate behind the cold Open-with catalogue. The stub's info and mime
-    # legs block until "$dir/release" exists, so the catalogue never answers
-    # while the editor must already be live; the rename then commits first try
-    # with an outside create landing mid-edit.
     local dir="$fixture_root/renamefirst"
     sandbox_scratch "$dir"
     : > "$dir/a-first.txt"
@@ -9244,8 +9262,7 @@ EOS
     click_row 0 right
     settle
     [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "renamefirst: right click opened no menu"
-    # The snapshot answers at once and takes no gio on its path; only the
-    # catalogue behind it blocks.
+    # The snapshot answers at once; only the catalogue behind it blocks.
     local attempt
     for attempt in $(seq 1 100); do
         [[ "$(ipc menuState | jq -r '.snapshotReady')" == "true" ]] && break
@@ -9259,8 +9276,7 @@ EOS
     [[ -n "$ry" ]] || fail "renamefirst: the Rename row has no on-screen centre"
     read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
     omarchy-drive click "$((wx + rx))" "$((wy + ry))" left >/dev/null
-    # The editor opens at once, ahead of the blocked catalogue: red today, where
-    # the activate waited behind it.
+    # The editor opens at once, ahead of the blocked catalogue.
     local opened=""
     for attempt in $(seq 1 100); do
         if [[ "$(ipc renamingIndex)" == "0" && "$(ipc renameEditorLive)" == "true" ]]; then opened="yes"; break; fi
@@ -9281,6 +9297,7 @@ EOS
     shot renamefirst-renamed
 }
 
+# Task 19: F2 renames a Network rail entry in place; "NAS" is bookmark-only, "isos" is mount-only.
 case_rename() {
     local dir="$fixture_root/rename"
     sandbox_scratch "$dir"
@@ -11590,7 +11607,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 . "$repo/tests/ui-captures-markdown.sh"
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar touchpad terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick opentab)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick opentab)
 
 : > "$run_log"
 : > "$flea_log"
