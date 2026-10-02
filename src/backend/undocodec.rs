@@ -86,6 +86,10 @@ fn step(step: &Step) -> Json {
         Step::Mode { path, before, after } => obj(vec![
             ("k", s("pm")), ("path", s(&path.to_string_lossy())), ("before", n(before)), ("after", n(after)),
         ]),
+        // Sample input: {"k":"local","nonce":7,"pid":123,"summary":"/a, /b"}.
+        Step::LocalOnly { nonce, maker, summary } => obj(vec![
+            ("k", s("local")), ("nonce", n(nonce)), ("pid", n(maker)), ("summary", s(summary)),
+        ]),
     }
 }
 
@@ -267,6 +271,11 @@ fn decode_step(value: &Json) -> Option<Step> {
             path: checked_path(get(pairs, "path")?)?,
             before: get(pairs, "before").and_then(parse_u32)?,
             after: get(pairs, "after").and_then(parse_u32)?,
+        }),
+        "local" => Some(Step::LocalOnly {
+            nonce: get(pairs, "nonce").and_then(parse_u64)?,
+            maker: get(pairs, "pid").and_then(parse_u32)?,
+            summary: checked_text(get(pairs, "summary")?)?,
         }),
         _ => None,
     }

@@ -312,7 +312,7 @@ fn an_oversized_doc_trims_oldest_and_keeps_newest() {
     assert_eq!(doc.undo.last().unwrap().op, format!("{}-{}", big, 39));
 }
 
-// One entry over the cap alone never reaches the file; the recorder still undoes it from memory.
+// One entry over the cap leaves a small marker in the file; the recorder undoes its payload.
 #[test]
 fn a_single_entry_over_the_cap_stays_local_and_keeps_history() {
     let sandbox = TestDir::new("xundo-toobig");
@@ -331,11 +331,76 @@ fn a_single_entry_over_the_cap_stays_local_and_keeps_history() {
     let bytes = std::fs::read(dir.join(JOURNAL_FILE)).unwrap();
     assert!(bytes.len() as u64 <= super::MAX_FILE_BYTES, "history preserved under cap");
     let back = crate::backend::undocodec::decode(&String::from_utf8(bytes).unwrap()).unwrap();
-    assert_eq!(back.undo.len(), 2, "the huge entry never reached the file");
-    assert_eq!(a.undo().unwrap().len(), huge_op.len(), "recorder undoes its huge entry from memory");
+    assert_eq!(back.undo.len(), 3, "the marker keeps the huge entry's place in line");
+    assert_eq!(a.undo().unwrap().len(), huge_op.len(), "recorder undoes its huge entry through the marker");
     assert!(!fh.exists());
     let mut b = shared_journal(&sandbox);
     assert_eq!(b.undo().unwrap(), "small2", "older entries still undo from the file");
+}
+
+// A huge entry keeps global order: C, B, A undo in that order, never the huge one first.
+#[test]
+fn a_huge_entry_keeps_global_order_across_undos() {
+    let sandbox = TestDir::new("xundo-order");
+    let dir = runtime_0700(&sandbox);
+    let fa = sandbox.path().join("fa");
+    let fb = sandbox.path().join("fb");
+    let fc = sandbox.path().join("fc");
+    std::fs::write(&fa, "1").unwrap();
+    std::fs::write(&fb, "h").unwrap();
+    std::fs::write(&fc, "3").unwrap();
+    let mut a = shared_journal(&sandbox);
+    a.push(Entry { op: "small-a".to_string(), steps: vec![Step::Created { path: fa.clone() }] });
+    let huge_op = "h".repeat(33 * 1024 * 1024);
+    a.push(Entry { op: huge_op.clone(), steps: vec![Step::Created { path: fb.clone() }] });
+    a.push(Entry { op: "small-c".to_string(), steps: vec![Step::Created { path: fc.clone() }] });
+    // Global order holds across the too-big push, so the newest goes first.
+    assert_eq!(a.undo().unwrap(), "small-c");
+    assert!(!fc.exists());
+    assert_eq!(a.undo().unwrap(), huge_op);
+    assert!(!fb.exists());
+    assert_eq!(a.undo().unwrap(), "small-a");
+    assert!(!fa.exists());
+    drop(dir);
+}
+
+// A foreign window names the maker and keeps the placeholder for the recorder.
+#[test]
+fn a_foreign_claim_of_a_huge_entry_names_the_maker_and_keeps_it() {
+    let sandbox = TestDir::new("xundo-foreign");
+    let fh = sandbox.path().join("fh");
+    std::fs::write(&fh, "h").unwrap();
+    let mut a = shared_journal(&sandbox);
+    let huge_op = "h".repeat(33 * 1024 * 1024);
+    a.push(Entry { op: huge_op.clone(), steps: vec![Step::Created { path: fh.clone() }] });
+    let mut b = shared_journal(&sandbox);
+    let err = b.undo().expect_err("a foreign window cannot undo a local-only entry");
+    assert_eq!(err.where_, "undo");
+    assert!(err.msg.contains(&std::process::id().to_string()), "names the maker: {}", err.msg);
+    assert!(fh.exists(), "the payload stays until its own window undoes it");
+    assert_eq!(a.undo().unwrap(), huge_op);
+    assert!(!fh.exists());
+}
+
+// A too-big push clears the shared redo stack through the normal store path.
+#[test]
+fn a_too_big_push_clears_the_shared_redo_stack() {
+    let sandbox = TestDir::new("xundo-redoclear");
+    let (from, to, steps) = rename_steps(&sandbox, "a.txt", "b.txt");
+    let mut a = shared_journal(&sandbox);
+    a.push(Entry { op: "rename".to_string(), steps });
+    assert_eq!(a.undo().unwrap(), "rename");
+    assert!(from.exists());
+    let (tx, _rx) = channel();
+    assert_eq!(a.redo(1, &AtomicBool::new(false), &tx).unwrap(), "rename");
+    assert!(to.exists());
+    assert_eq!(a.undo().unwrap(), "rename");
+    let fh = sandbox.path().join("fh");
+    std::fs::write(&fh, "h").unwrap();
+    let huge_op = "h".repeat(33 * 1024 * 1024);
+    a.push(Entry { op: huge_op, steps: vec![Step::Created { path: fh }] });
+    let info = a.redo_info().unwrap_err();
+    assert_eq!(info.msg, "there is nothing to redo");
 }
 
 // A push between claim and finish drops the stale replay; the pushed entry still undoes.

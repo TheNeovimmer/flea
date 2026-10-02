@@ -2,7 +2,7 @@
 use super::undocodec::{decode, encode};
 use crate::backend::manifestdir::current_uid;
 use crate::backend::redo::Replay;
-use crate::backend::undo::{reverse, Entry, ItemIdentity, Step, DEPTH};
+use crate::backend::undo::{Entry, ItemIdentity, Step, DEPTH};
 use crate::error::FleaError;
 use crate::jsondoc::render;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
@@ -259,6 +259,58 @@ pub(crate) fn push_entry(shared: &Shared, entry: &Entry) -> Result<PushResult, (
     Ok(PushResult::Stored)
 }
 
+// Every nonce the doc still names, so a journal drops handles for entries it no longer holds.
+pub(crate) fn live_nonces(shared: &Shared) -> Option<std::collections::HashSet<u64>> {
+    let _guard = lock(shared).map_err(|msg| eprintln!("flea: {}", msg)).ok()?;
+    let doc = load(shared);
+    let mut live = std::collections::HashSet::new();
+    for entry in &doc.undo {
+        for step in &entry.steps {
+            match step {
+                Step::Copied { manifest_nonce: Some(nonce), .. } => {
+                    live.insert(*nonce);
+                }
+                Step::LocalOnly { nonce, .. } => {
+                    live.insert(*nonce);
+                }
+                _ => {}
+            }
+        }
+    }
+    for stored in &doc.redo {
+        if let StoredRedo::Ok(replay) = stored {
+            for (step, _, _) in replay.steps_data().1 {
+                match &step {
+                    Step::Copied { manifest_nonce: Some(nonce), .. } => {
+                        live.insert(*nonce);
+                    }
+                    Step::LocalOnly { nonce, .. } => {
+                        live.insert(*nonce);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    Some(live)
+}
+
+// A foreign marker goes back on top untouched, so the recorder still owns it.
+pub(crate) fn restore_undo(shared: &Shared, entry: Entry) -> Result<(), ()> {
+    let _guard = lock(shared).map_err(|msg| eprintln!("flea: {}", msg))?;
+    let mut doc = load(shared);
+    doc.undo.push(entry);
+    while doc.undo.len() > DEPTH {
+        doc.undo.remove(0);
+    }
+    trim_to_fit(&mut doc);
+    if !fits(&doc) {
+        return Ok(());
+    }
+    store(shared, &doc).map_err(|msg| eprintln!("flea: {}", msg))?;
+    Ok(())
+}
+
 // One locked read-modify-write pops the newest entry; the generation lets finish drop a stale replay.
 pub(crate) fn claim_undo(shared: &Shared) -> Result<Option<(Entry, u64)>, ()> {
     let _guard = lock(shared).map_err(|msg| eprintln!("flea: {}", msg))?;
@@ -348,38 +400,6 @@ pub(crate) fn finish_redone(shared: &Shared, entry: Entry, changes: &[(ItemIdent
     }
     store(shared, &doc).map_err(|msg| eprintln!("flea: {}", msg))?;
     Ok(())
-}
-
-fn nothing_to_undo() -> FleaError {
-    FleaError { where_: "undo".into(), path: String::new(), msg: "there is nothing to undo".into() }
-}
-
-// The whole entry is reversed or the failure is reported; a finish only loses its replay and rebase.
-pub(crate) fn undo_newest(slot: &mut Option<Shared>) -> Result<String, FleaError> {
-    let Some(shared) = slot.clone() else { return Err(nothing_to_undo()) };
-    let (entry, gen) = match claim_undo(&shared) {
-        Ok(Some(pair)) => pair,
-        Ok(None) => return Err(nothing_to_undo()),
-        Err(()) => {
-            *slot = None;
-            return Err(FleaError { where_: "undo".into(), path: String::new(),
-                msg: "the shared undo journal is unavailable".into() });
-        }
-    };
-    let op = entry.op.clone();
-    let mut changes = Vec::new();
-    for step in entry.steps.iter().rev() {
-        match reverse(step) {
-            Ok(Some((old, new))) => changes.push((old, new)),
-            Ok(None) => {}
-            Err(error) => {
-                let _ = finish_undone(&shared, None, &changes, gen);
-                return Err(error);
-            }
-        }
-    }
-    let _ = finish_undone(&shared, Some(entry), &changes, gen);
-    Ok(op)
 }
 
 pub(crate) fn redo_newest(slot: &mut Option<Shared>, id: usize, cancel: &std::sync::atomic::AtomicBool,

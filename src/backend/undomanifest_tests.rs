@@ -318,7 +318,7 @@ fn a_shared_failed_tree_copy_walks_for_its_recorder_and_falls_back_elsewhere() {
     let mut hook = |reports: u32, src: &Path, _dst: &Path| {
         if !planted && reports >= 3 && partial.join("nested").is_dir() {
             planted = true;
-            std::thread::sleep(std::time::Duration::from_millis(20));
+            // The new file itself is the detectable change, so no wait is needed.
             std::fs::write(partial.join("nested/stray.txt"), "stray").unwrap();
             std::fs::set_permissions(src, std::fs::Permissions::from_mode(0o000)).unwrap();
             let _ = std::fs::set_permissions(src.join("nested"), std::fs::Permissions::from_mode(0o000));
@@ -332,6 +332,10 @@ fn a_shared_failed_tree_copy_walks_for_its_recorder_and_falls_back_elsewhere() {
     a.attach_test_shared(runtime.clone());
     let step = copied_partial(&src, &partial, ItemIdentity::inspect(&src).unwrap(), Some(handle)).unwrap();
     a.push(Entry { op: "copy".to_string(), steps: vec![step] });
+    // The push reached the shared file, so the walk below reattaches by nonce.
+    let text = std::fs::read_to_string(runtime.join("undo-journal")).unwrap();
+    let doc = crate::backend::undocodec::decode(&text).expect("the entry reached the file");
+    assert!(doc.undo.iter().any(|entry| entry.steps.iter().any(|step| matches!(step, Step::Copied { manifest_nonce: Some(_), .. }))), "the nonce is in the file");
     let err = a.undo().expect_err("the stray keeps its directories");
     assert!(err.msg.contains("kept") && err.msg.contains("is not empty"), "manifest walk: {}", err.msg);
     assert_eq!(std::fs::read_to_string(partial.join("nested/stray.txt")).unwrap(), "stray");
@@ -345,7 +349,7 @@ fn a_shared_failed_tree_copy_walks_for_its_recorder_and_falls_back_elsewhere() {
     let partial2 = e.join("clone");
     let handle2 = partial_with_manifest(&src2, &partial2, &mut fail_after_three);
     check_root(&e, &partial2);
-    std::thread::sleep(std::time::Duration::from_millis(20));
+    // The shorter rewrite changes the size, which the walk detects without waiting.
     let touched = std::fs::read_dir(&partial2).unwrap().flatten().find_map(|entry| {
         let p = entry.path();
         (p.extension().and_then(|x| x.to_str()) == Some("bin")).then_some(p)
@@ -357,6 +361,10 @@ fn a_shared_failed_tree_copy_walks_for_its_recorder_and_falls_back_elsewhere() {
     rec.attach_test_shared(runtime2.clone());
     let step2 = copied_partial(&src2, &partial2, ItemIdentity::inspect(&src2).unwrap(), Some(handle2)).unwrap();
     rec.push(Entry { op: "copy".to_string(), steps: vec![step2] });
+    // The push reached the shared file, so the fallback below walks the file, not memory.
+    let text = std::fs::read_to_string(runtime2.join("undo-journal")).unwrap();
+    let doc = crate::backend::undocodec::decode(&text).expect("the entry reached the file");
+    assert!(doc.undo.iter().any(|entry| entry.steps.iter().any(|step| matches!(step, Step::Copied { manifest_nonce: Some(_), .. }))), "the nonce is in the file");
     let mut other = Journal::new();
     other.attach_test_shared(runtime2);
     let err2 = other.undo().expect_err("no manifest means today's check decides");

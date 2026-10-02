@@ -50,7 +50,7 @@ impl Replay {
     pub fn capture(entry: Entry) -> Result<Self, FleaError> {
         let mut steps = Vec::new();
         for step in entry.steps {
-            if matches!(step, Step::Created { .. }) {
+            if matches!(step, Step::Created { .. } | Step::LocalOnly { .. }) {
                 return Err(error(Path::new(""), "this interrupted operation has no recorded source to redo"));
             }
             let input = match &step {
@@ -194,6 +194,8 @@ fn apply(saved: &ReplayStep, id: usize, index: usize, cancel: &AtomicBool, tx: &
             Ok(())
         }
         Step::Created { path } => Err(error(path, "this operation has no recorded replay source")),
+        // A marker never reaches a replay; refusing here keeps it from running as a file.
+        Step::LocalOnly { .. } => Err(error(Path::new(""), "this operation was recorded in another window")),
         // A link replays through the same exclusive create, so a name taken
         // since refuses honestly and a fresh identity is recorded.
         Step::Linked { path, source, kind, .. } => {

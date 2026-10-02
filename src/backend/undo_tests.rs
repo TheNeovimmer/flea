@@ -1,5 +1,6 @@
 use super::*;
 use crate::backend::testdir::TestDir;
+use std::os::unix::fs::PermissionsExt;
 
 fn entry(op: &str, steps: Vec<Step>) -> Entry {
     Entry { op: op.to_string(), steps }
@@ -227,6 +228,40 @@ fn a_step_that_fails_stops_the_rest_rather_than_half_reversing() {
     let e = j.undo().expect_err("the missing path must fail");
     assert_eq!(e.where_, "undo");
     assert!(d.join("keeper.txt").exists(), "the step behind the failure was not reversed");
+}
+
+#[test]
+fn two_journals_in_one_process_mint_different_nonce_high_halves() {
+    let mut a = Journal::new();
+    let mut b = Journal::new();
+    // Distinct makers keep one backend from reattaching the other's manifest.
+    assert_ne!(a.test_nonce() >> 32, b.test_nonce() >> 32);
+}
+
+#[test]
+fn pushing_past_depth_drops_manifests_whose_entries_are_gone() {
+    let d = TestDir::new("undoprune");
+    // Manifest handles live off the destination, so each push records one live nonce.
+    let runtime = d.path().join("runtime");
+    std::fs::create_dir(&runtime).unwrap();
+    std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut j = Journal::new();
+    j.attach_test_shared(runtime);
+    for i in 0..DEPTH + 5 {
+        let src = d.dir(&format!("s{i}"));
+        std::fs::write(src.join("f"), "x").unwrap();
+        let dst = d.path().join(format!("d{i}"));
+        std::fs::create_dir(&dst).unwrap();
+        std::fs::write(dst.join("f"), "x").unwrap();
+        let mut w = crate::backend::copymanifest::writer_for(&src, &dst).expect("writer");
+        let meta = dst.join("f").symlink_metadata().unwrap();
+        w.record(&dst.join("f"), &meta);
+        let handle = w.finish().expect("finish").expect("a record");
+        let step = copied_partial(&src, &dst, ItemIdentity::inspect(&src).unwrap(), Some(handle)).unwrap();
+        j.push(entry(&format!("op{i}"), vec![step]));
+    }
+    // Only the entries the doc still holds keep their manifests.
+    assert!(j.manifests.len() <= DEPTH, "pruned to the live entries, got {}", j.manifests.len());
 }
 
 #[test]
