@@ -105,6 +105,14 @@ function run(check) {
     var unused = Markdown.blocks("Text.\n\n[^b]: Never cited.\n", dir, chrome, ink)
     check("an uncited note renders nothing",
         unused.map(function (b) { return b.type }).join(","), "run")
+    check("R2 raw list superscript never cites note",
+        kinds("- x<sup>1</sup>\n\n[^a]: Unused note."), "list")
+    check("R2 raw run superscript never cites note",
+        kinds("x<sup>1</sup>\n\n[^a]: Unused note."), "run")
+    check("R2 discarded image alt citation never adds note",
+        kinds("- ![x[^a]](pic.png)\n\n[^a]: Unused note."), "list")
+    var noteChain = Markdown.blocks("see[^a]\n\n[^a]: inner[^b]\n[^b]: child", dir, chrome, ink)
+    check("R2 notes retain body-only citation selection", noteChain[2].items.length, 1)
     var listFoot = Markdown.blocks("- see[^a]\n\n[^a]: The note.\n", dir, chrome, ink)
     check("a note cited only in a list gets its definition",
         listFoot.map(function (b) { return b.type }).join(","), "list,run,list")

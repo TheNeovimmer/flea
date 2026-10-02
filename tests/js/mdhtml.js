@@ -20,9 +20,9 @@ function run(check) {
         'file://' + dir + '/%2e%2e/x.png', dir + '/notes/%2e%2e/%2e%2e/x.png']
     for (var p = 0; p < paths.length; p++)
         check("F4 traversal " + p, Markdown.classifyImage(paths[p], dir).kind, "dropped")
-    check("F4 unknown directory absolute", Markdown.classifyImage('/etc/x.png', '').kind, "dropped")
-    check("F4 unknown directory file", Markdown.classifyImage('file:///etc/x.png', '').kind, "dropped")
-    check("F4 unknown directory relative", Markdown.classifyImage("x.png", "").kind, "dropped")
+    check("F4 unknown directory absolute", Markdown.classifyImage('/etc/x.png', 'relative').kind, "dropped")
+    check("F4 unknown directory file", Markdown.classifyImage('file:///etc/x.png', 'relative').kind, "dropped")
+    check("F4 unknown directory relative", Markdown.classifyImage("x.png", "relative").kind, "dropped")
     check("F4 normalized local", Markdown.classifyImage(dir + '/notes/../x.png', dir).url, 'file://' + dir + '/x.png')
     check("F8 nested link alt local", inline('![a [b](http://x) c](pic.png)', ink).indexOf('](file://' + dir + '/pic.png)') >= 0, true)
     check("F8 link-only alt local", inline('![[l](a)](pic.png)', ink).indexOf('](file://' + dir + '/pic.png)') >= 0, true)
@@ -35,7 +35,24 @@ function run(check) {
     check("F12 rejected src alt has no image opener", tag('<img src="x:y" alt="![x](http://x/alt2.png)">').indexOf("!["), -1)
     check("F15 unquoted image classifies remote", tag('<img src=http://h/x.png>').indexOf('Remote image not loaded') >= 0, true)
     check("F15 unquoted href retained", tag('<a href=https://x.com/p>'), '<a href="https://x.com/p">')
-    check("F15 self-closing href retained", tag('<a href=https://x.com/p/>'), '<a href="https://x.com/p" />')
+    check("R2 unquoted trailing slash retained", tag('<a href=https://x.com/p/>'), '<a href="https://x.com/p/">')
+    check("R2 bare host slash retained", tag('<a href=https://x.com/>'), '<a href="https://x.com/">')
+    check("R2 separated slash closes", tag('<a href=https://x.com/p/ />'), '<a href="https://x.com/p/" />')
+    check("R2 quoted slash closes", tag('<a href="https://x.com/p/"/>'), '<a href="https://x.com/p/" />')
+    var continued = ["- parent\n    [img]: pic.png", "10. parent\n\n    [img]: pic.png",
+        "1.  item\n\n    [img]: pic.png"]
+    for (var l = 0; l < continued.length; l++) {
+        check("R2 list definition " + l, Refs.collectDefs(continued[l].split("\n")).defs.img, "pic.png")
+        check("R2 list image " + l, Markdown.prepare(continued[l] + "\n\n![x][img]", dir,
+            undefined, "#181825", ink).indexOf("file://" + dir + "/pic.png") >= 0, true)
+    }
+    var endedFences = ["> ```\n> code\n\n[img]: pic.png", "- ```\n  code\n\n[img]: pic.png"]
+    for (var f = 0; f < endedFences.length; f++)
+        check("R2 container fence ends " + f, Refs.collectDefs(endedFences[f].split("\n")).defs.img, "pic.png")
+    check("R2 lookahead fence never a destination", JSON.stringify(Refs.collectDefs(
+        ["[foo]:", "```", "[a]: b", "```"]).defs), "{}")
+    check("R2 lookahead code never a destination", JSON.stringify(Refs.collectDefs(
+        ["[foo]:", "    pic.png"]).defs), "{}")
     check("F16 prose not consumed", Refs.collectDefs(['[foo]:', 'Hello world']).dropped.length, 0)
     check("F16 title accepted", Refs.collectDefs(['[foo]:', 'bar "title"']).defs.foo, 'bar')
     check("F17 four spaces", Refs.collectFootnotes(['[^1]: a', '    more']).notes['1'].text, 'a\nmore')

@@ -2,6 +2,7 @@
 
 // MdHtml: one forward scan allowlists raw tags; only sanitized markup reaches md4c.
 .import "MdUrl.js" as MdUrl
+.import "MdEscape.js" as MdEscape
 
 var TOKEN_OPEN = 57346
 var TOKEN_CLOSE = 57347
@@ -57,10 +58,11 @@ function readTag(text, i, dead) {
     }
     if (gt - i > MAX_TAG_LENGTH)
         return null
-    var dq = text.indexOf('"', i + 1)
-    var sq = text.indexOf("'", i + 1)
-    if ((dq < 0 || dq > gt) && (sq < 0 || sq > gt))
-        return { tag: text.slice(i, gt + 1), end: gt + 1 }
+    var candidate = text.slice(i, gt + 1)
+    var dq = candidate.indexOf('"')
+    var sq = candidate.indexOf("'")
+    if (dq < 0 && sq < 0)
+        return { tag: candidate, end: gt + 1 }
     var quote = ""
     var j = i + 1
     while (j < gt) {
@@ -75,7 +77,7 @@ function readTag(text, i, dead) {
     }
     if (quote !== "")
         return null
-    return { tag: text.slice(i, gt + 1), end: gt + 1 }
+    return { tag: candidate, end: gt + 1 }
 }
 
 // Split a raw tag into its name, closing flag and raw attribute body.
@@ -203,7 +205,7 @@ function sanitizeTag(tag, dir, tokens) {
                 i++
             } else {
                 var begin = i
-                while (i < rest.length && !/[\s>]/.test(rest.charAt(i)) && !(rest.charAt(i) === "/" && i === rest.length - 1))
+                while (i < rest.length && !/[\s>]/.test(rest.charAt(i)))
                     i++
                 value = rest.slice(begin, i)
             }
@@ -236,15 +238,9 @@ function sanitizeTag(tag, dir, tokens) {
         if (picked !== null && picked.kind === "local")
             return { emit: hold('<img src="' + picked.url + '" alt="' + escapeAttr(altSeen) + '">'), drop: null }
         if (picked !== null && picked.kind === "remote")
-            return { emit: "\n\n" + MdUrl.placeholder(escapeHtmlText(picked.host)) + "\n\n", drop: null }
-        return { emit: MdUrl.canonicalUrl(altSeen).length > 0 ? escapeHtmlText(altSeen) : "", drop: null }
+            return { emit: "\n\n" + MdUrl.placeholder(MdEscape.escapeText(picked.host)) + "\n\n", drop: null }
+        return { emit: MdUrl.canonicalUrl(altSeen).length > 0 ? MdEscape.escapeText(altSeen) : "", drop: null }
     }
     var close = (selfClose || VOID.hasOwnProperty(name)) ? " /" : ""
     return { emit: "<" + name + kept + close + ">", drop: null }
-}
-
-// Escape every ASCII punctuation mark before text reaches md4c, matching MdInline.escapeHtmlText without an import cycle.
-function escapeHtmlText(value) {
-    return String(value).replace(/[&<>\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E]/g,
-        function (c) { return "&#" + c.charCodeAt(0) + ";" })
 }

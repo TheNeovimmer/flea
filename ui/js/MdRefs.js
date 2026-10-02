@@ -3,19 +3,20 @@
 // MdRefs: collect references and footnotes in linear passes, returning consumed ranges for the block layer.
 .import "MdInline.js" as Md
 .import "MdHtml.js" as MdHtml
+.import "MdContainer.js" as Container
 
 // Sample: [pic]: image.png "Title". Collect normalized labels and multiline destinations outside code, returning {defs, dropped}.
 function collectDefs(lines) {
     var defs = {}
     var dropped = []
     var i = 0
-    var fence = { marker: "", length: 0 }
+    var context = codeLines(lines)
     while (i < lines.length) {
-        if (skipCode(lines[i], fence)) {
+        if (context[i].code) {
             i++
             continue
         }
-        var stripped = stripContainerPrefix(lines[i]).text
+        var stripped = context[i].text
         var m = /^ {0,3}\[([^\]\n]+)\]:/.exec(stripped)
         if (m === null) {
             i++
@@ -34,7 +35,9 @@ function collectDefs(lines) {
         }
         var k = i + 1
         while (target === "" && k < lines.length) {
-            var cont = stripContainerPrefix(lines[k]).text.replace(/^\s+|\s+$/g, "")
+            if (context[k].code)
+                break
+            var cont = context[k].text.replace(/^\s+|\s+$/g, "")
             if (cont.length === 0 || cont.charAt(0) === "[")
                 break
             var next = /^(<[^>]+>|\S+)(?:\s+("[^"\n]*"|'[^'\n]*'|\([^\n)]*\)))?$/.exec(cont)
@@ -61,13 +64,13 @@ function collectFootnotes(lines) {
     var order = []
     var dropped = []
     var i = 0
-    var fence = { marker: "", length: 0 }
+    var context = codeLines(lines)
     while (i < lines.length) {
-        if (skipCode(lines[i], fence)) {
+        if (context[i].code) {
             i++
             continue
         }
-        var stripped = stripContainerPrefix(lines[i]).text
+        var stripped = context[i].text
         var m = /^ {0,3}\[\^([^\]\n]+)\]:\s*(.*)$/.exec(stripped)
         if (m === null) {
             i++
@@ -160,22 +163,66 @@ function skipDropContent(body, i, name, dead) {
     return i
 }
 
-// Sample: ``` followed by [a]: b stays code until a matching closing fence.
-function skipCode(line, fence) {
+// Sample: - parent followed by four-space [a]: b is an item continuation, not indented code.
+function codeLines(lines) {
+    var next = []
+    var nonblank = null
+    for (var n = lines.length - 1; n >= 0; n--) {
+        next[n] = nonblank
+        if (lines[n].trim().length > 0)
+            nonblank = lines[n]
+    }
+    var state = { marker: "", length: 0, listCol: 0, quote: false, scope: "" }
+    var context = []
+    for (var i = 0; i < lines.length; i++) {
+        var code = skipCode(lines[i], state, next[i])
+        context.push({ code: code, text: state.text })
+    }
+    return context
+}
+
+// Sample: > ``` ends at the first unquoted line; - ``` ends when the item indentation ends.
+function skipCode(line, state, next) {
     var text = String(line)
-    if (/^(?: {4}|\t)/.test(text))
-        return true
-    text = stripContainerPrefix(text).text
+    var quoted = /^ {0,3}>/.test(text)
+    if (state.scope === "quote" && !quoted)
+        state.marker = ""
+    if (state.quote !== quoted)
+        state.listCol = 0
+    state.quote = quoted
+    if (quoted)
+        text = text.replace(/^ {0,3}> ?/, "")
+    var blank = text.trim().length === 0
+    var mark = Container.readListMarker(text)
+    if (state.listCol > 0) {
+        var ended = blank ? !Container.blankKeepsList(next, state.listCol)
+            : state.scope === "list" && !Container.continuesItem(text, state.listCol)
+        if (ended) {
+            if (state.scope === "list")
+                state.marker = ""
+            state.listCol = 0
+        }
+    }
+    if (state.marker === "" && mark !== null) {
+        state.listCol = mark.contentCol
+        text = mark.text
+    } else if (state.listCol > 0 && Container.continuesItem(text, state.listCol)) {
+        text = text.slice(state.listCol)
+    }
+    state.text = text
     var marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(text)
-    if (fence.marker !== "") {
-        if (marker !== null && marker[1].charAt(0) === fence.marker
-                && marker[1].length >= fence.length && /^\s*$/.test(marker[2]))
-            fence.marker = ""
+    if (state.marker !== "") {
+        if (marker !== null && marker[1].charAt(0) === state.marker
+                && marker[1].length >= state.length && /^\s*$/.test(marker[2]))
+            state.marker = ""
         return true
     }
+    if (/^(?: {4}|\t)/.test(text))
+        return true
     if (marker === null || (marker[1].charAt(0) === "`" && marker[2].indexOf("`") >= 0))
         return false
-    fence.marker = marker[1].charAt(0)
-    fence.length = marker[1].length
+    state.marker = marker[1].charAt(0)
+    state.length = marker[1].length
+    state.scope = quoted ? "quote" : state.listCol > 0 ? "list" : "document"
     return true
 }

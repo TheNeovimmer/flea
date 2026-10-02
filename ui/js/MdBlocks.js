@@ -7,23 +7,14 @@
 .import "MdLeaf.js" as Leaf
 .import "MdRun.js" as Run
 .import "MdRefs.js" as Refs
+.import "MdContainer.js" as Container
 
-// Sample input: "  1. item" or "- [x] done"; contentCol is where item text starts, so a line indented that far continues it.
+// Sample: "- [x] done" shares its content column with references and renders the task marker.
 function listMarker(line) {
-    var m = String(line).match(/^(\s*)(\d+[.)]|[-*+])(\s+)(.*)$/)
-    if (!m)
-        return null
-    var indent = 0
-    for (var i = 0; i < m[1].length; i++)
-        indent += m[1].charAt(i) === "\t" ? 4 - (indent % 4) : 1
-    if (indent > 3 || m[4].length === 0)
-        return null
-    var gap = 0
-    for (var g = 0; g < m[3].length; g++)
-        gap += m[3].charAt(g) === "\t" ? 4 - ((indent + m[2].length + gap) % 4) : 1
-    var ordered = /^\d/.test(m[2])
-    return { indent: indent, ordered: ordered, start: ordered ? parseInt(m[2], 10) : 0,
-        text: Leaf.taskText(m[4]), contentCol: indent + m[2].length + gap }
+    var mark = Container.readListMarker(line)
+    if (mark !== null)
+        mark.text = Leaf.taskText(mark.text)
+    return mark
 }
 
 // Top-level split: ordinary runs share one Text.MarkdownText, special kinds get delegates; fences keep their info string.
@@ -48,9 +39,11 @@ function blocks(source, dir, chrome, ink) {
     var defs = found.defs
     var numbers = foot.numbers
     var tokens = []
+    var cited = {}
 
-    function inlineOf(joined) {
-        return Run.parseInline(joined, dir, defs, numbers, chrome, ink, tokens)
+    function inlineOf(joined, collectCitations) {
+        return Run.parseInline(joined, dir, defs, numbers, chrome, ink, tokens,
+            collectCitations === false ? undefined : cited)
     }
 
     var out = []
@@ -214,7 +207,7 @@ function blocks(source, dir, chrome, ink) {
         if (list !== null) {
             if (line.trim().length > 0) {
                 // Indented to the content column continues the item (a paragraph, not code); a lazy line joins whole.
-                if (Leaf.indentOf(line) >= list.contentCol)
+                if (Container.continuesItem(line, list.contentCol))
                     list.items[list.items.length - 1].push(line.slice(list.contentCol))
                 else
                     list.items[list.items.length - 1].push(line)
@@ -224,13 +217,8 @@ function blocks(source, dir, chrome, ink) {
             var n = i + 1
             while (n < lines.length && lines[n].trim().length === 0)
                 n++
-            var nm = n < lines.length ? listMarker(lines[n]) : null
-            if (nm !== null && nm.indent <= 3) {
-                list.items[list.items.length - 1].push("")
-                continue
-            }
-            // List-indent trick: a blank then a line at the content column stays in the item, blank included.
-            if (n < lines.length && Leaf.indentOf(lines[n]) >= list.contentCol) {
+            // Blank lines stay in the item only when the next content continues this list.
+            if (Container.blankKeepsList(n < lines.length ? lines[n] : null, list.contentCol)) {
                 list.items[list.items.length - 1].push("")
                 continue
             }
@@ -260,24 +248,12 @@ function blocks(source, dir, chrome, ink) {
     flushList()
     flushQuote()
     flushRun()
-    // Footnote definitions list after a rule, only for notes whose <sup> number a run, quote or list item emitted.
-    var usedNums = {}
-    for (var b = 0; b < out.length; b++) {
-        var block = out[b]
-        var inlineTexts = block.type === "list" ? block.items
-            : (block.type === "run" || block.type === "quote") ? [block.text] : []
-        for (var t = 0; t < inlineTexts.length; t++) {
-            var re = /<sup>(\d+)<\/sup>/g
-            var hit = null
-            while ((hit = re.exec(inlineTexts[t])) !== null)
-                usedNums[hit[1]] = true
-        }
-    }
+    // Only citations resolved by the inline parser make a definition visible.
     var footItems = []
     for (var q = 0; q < foot.order.length; q++) {
         var id = foot.order[q]
-        if (usedNums.hasOwnProperty(String(foot.notes[id].n)))
-            footItems.push("<sup>" + foot.notes[id].n + "</sup> " + inlineOf(foot.notes[id].text))
+        if (cited.hasOwnProperty(id))
+            footItems.push("<sup>" + foot.notes[id].n + "</sup> " + inlineOf(foot.notes[id].text, false))
     }
     if (footItems.length > 0) {
         out.push({ type: "run", text: "---" })

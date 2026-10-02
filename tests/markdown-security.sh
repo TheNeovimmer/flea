@@ -34,6 +34,8 @@ cat > "$test_root/serve.py" <<EOF
 import http.server, zlib, struct, threading
 CONTROL = threading.Event()
 CONTROL_TIMEOUT_SECONDS = 25
+DELAY_SECONDS = 2
+DELAY_COMPLETE = threading.Event()
 HITS = "$hits"
 def chunk(kind, body):
     c = struct.pack(">I", len(body)) + kind + body
@@ -42,6 +44,11 @@ PIXEL = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 
     + chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00\x00\x00")) + chunk(b"IEND", b""))
 class Count(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/reset":
+            CONTROL.clear()
+            self.send_response(200)
+            self.end_headers()
+            return
         if self.path == "/drain":
             if not CONTROL.wait(CONTROL_TIMEOUT_SECONDS):
                 self.send_error(504, "control image never fetched")
@@ -52,7 +59,13 @@ class Count(http.server.BaseHTTPRequestHandler):
             return
         with open(HITS, "a") as f:
             f.write(self.path + "\n")
+        if self.path == "/delayed-corpus.png":
+            threading.Timer(DELAY_SECONDS, DELAY_COMPLETE.set).start()
+            DELAY_COMPLETE.wait(CONTROL_TIMEOUT_SECONDS)
         if self.path == "/control.png":
+            if not DELAY_COMPLETE.is_set():
+                with open(HITS, "a") as f:
+                    f.write("/control-before-delayed-ready\n")
             CONTROL.set()
         body = PIXEL
         self.send_response(200)
@@ -171,6 +184,34 @@ with open(dest, "w") as f:
     f.write("\n".join(lines) + "\n")
 print(f"corpus forms={len(forms)} contexts={len(contexts)}")
 EOF
+
+# The delayed negative control must finish before the control and still fail the zero-hit check.
+delayed_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIXTURE="$test_root/notes.md" \
+    FLEA_MARKDOWN_COUNTER="http://127.0.0.1:$port" FLEA_MARKDOWN_DELAYED_CORPUS=1 \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+
+if ! grep -qx '/delayed-corpus.png' "$hits" || grep -qx '/control-before-delayed-ready' "$hits" \
+    || ! printf '%s\n' "$delayed_output" | grep -q 'MARKDOWN_SECURITY drained' \
+    || printf '%s\n' "$delayed_output" | grep -q 'MARKDOWN_SECURITY FAIL'; then
+    echo 'FAIL delayed corpus Image did not drain before control'
+    printf '%s\n' "$delayed_output"
+    cat "$hits"
+    exit 1
+fi
+delayed_count=$(grep -cvx '/control.png' "$hits" 2>/dev/null || true)
+if [ "$delayed_count" -eq 0 ]; then
+    echo 'FAIL delayed corpus escaped the zero-hit check'
+    exit 1
+fi
+echo "ok delayed corpus counted ($delayed_count remote request(s)), completed before control"
+: > "$hits"
+python3 - "$port" <<'RESET'
+import sys, urllib.request
+urllib.request.urlopen(f"http://127.0.0.1:{sys.argv[1]}/reset").read()
+RESET
 
 # The harness ends itself with a kill, so the subshell keeps bash's "Terminated" notice out of the report.
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \

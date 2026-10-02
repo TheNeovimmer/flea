@@ -90,8 +90,8 @@ function canonicalUrl(raw) {
     return out
 }
 
-// Collapse . and a/.. segments without touching the filesystem. Answers null when the path escapes its root, so .. can reach beside the file but never above it.
-function normalizeSubpath(name) {
+// Sample: /../docs clamps to /docs for absolute paths; ../pic.png is refused for relative image targets.
+function normalizeSubpath(name, absolute) {
     var parts = String(name).split("/")
     var kept = []
     for (var i = 0; i < parts.length; i++) {
@@ -99,14 +99,17 @@ function normalizeSubpath(name) {
         if (seg === "" || seg === ".")
             continue
         if (seg === "..") {
-            if (kept.length === 0)
-                return null
-            kept.pop()
+            if (kept.length === 0) {
+                if (!absolute)
+                    return null
+            } else {
+                kept.pop()
+            }
             continue
         }
         kept.push(seg)
     }
-    if (kept.length === 0)
+    if (kept.length === 0 && !absolute)
         return null
     return kept.join("/")
 }
@@ -154,13 +157,13 @@ function classifyImage(raw, dir) {
 
 // Sample: /docs/notes/../pic.png resolves inside /docs; /docs/../pic.png is refused.
 function localAbsolute(path, dir) {
-    var root = String(dir || "")
+    var root = dir === "" ? "/" : String(dir)
     if (root.charAt(0) !== "/" || String(path).charAt(0) !== "/"
             || root.indexOf("\\") >= 0 || String(path).indexOf("\\") >= 0)
         return { kind: "dropped" }
-    var base = normalizeSubpath(root)
-    var collapsed = normalizeSubpath(path)
-    if (collapsed === null || (base !== null && collapsed !== base
+    var base = normalizeSubpath(root, true)
+    var collapsed = normalizeSubpath(path, true)
+    if (base === null || collapsed === null || (base !== "" && collapsed !== base
             && collapsed.indexOf(base + "/") !== 0))
         return { kind: "dropped" }
     return { kind: "local", url: Format.fileUri("/" + collapsed) }

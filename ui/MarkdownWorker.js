@@ -4,6 +4,7 @@ Qt.include("js/MdUrl.js");
 Qt.include("js/MdHtml.js");
 Qt.include("js/MdEscape.js");
 Qt.include("js/MdInline.js");
+Qt.include("js/MdContainer.js");
 Qt.include("js/MdRefs.js");
 Qt.include("js/MdResolve.js");
 Qt.include("js/MdRun.js");
@@ -19,6 +20,7 @@ var MdRefs = { collectDefs: collectDefs, collectFootnotes: collectFootnotes, kil
 var MdResolve = { isLinkTarget: isLinkTarget, parseAngle: parseAngle, resolvePair: resolvePair, styledSpan: styledSpan };
 var MdRun = { parseInline: parseInline };
 var MdLeaf = { alertTitle: alertTitle, delimAligns: delimAligns, fenceOpen: fenceOpen, indentOf: indentOf, isThematic: isThematic, prepare: prepare, splitRow: splitRow, standaloneImage: standaloneImage, tableBlock: tableBlock, taskText: taskText };
+var MdContainer = { readListMarker: readListMarker, continuesItem: continuesItem, blankKeepsList: blankKeepsList };
 var MdBlocks = { blocks: blocks };
 // Short aliases the libraries use for each other, matching their `.import` names.
 var Md = MdInline;
@@ -27,6 +29,7 @@ var Run = MdRun;
 var Refs = MdRefs;
 var Leaf = MdLeaf;
 var Res = MdResolve;
+var Container = MdContainer;
 
 WorkerScript.onMessage = function (msg) {
     var blocks = [];
