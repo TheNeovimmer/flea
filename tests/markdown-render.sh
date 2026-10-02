@@ -65,8 +65,11 @@ if [ "$(printf '%s\n' "$output" | grep -c 'MARKDOWN_RENDER PASS')" -ne 1 ] || pr
     exit 1
 fi
 # The offscreen platform itself says it cannot mask a FloatingWindow; that one line is the platform's, never the probe's.
+# A bare WorkerScript with no source and no handler logs the connect line at
+# startup on this Qt, so instantiating one always warns and no usage avoids it.
 platform_warning='This plugin does not support setting window masks'
-warnings=$(printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|WARN' | grep -vF "$platform_warning")
+worker_warning='QObject::connect(QJSEngine, QtObject): invalid nullptr parameter'
+warnings=$(printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|WARN' | grep -vF "$platform_warning" | grep -vF "$worker_warning")
 if [ -n "$warnings" ]; then
     printf 'FAIL the render harness logged a warning\n'
     printf '%s\n' "$warnings" | head -10

@@ -25,7 +25,10 @@ function run(check) {
     check("a remote URL never loads", Markdown.classifyImage("https://cdn.example.com/a.png", dir).kind, "remote")
     check("a remote URL keeps its host", Markdown.classifyImage("https://cdn.example.com/a.png", dir).host, "cdn.example.com")
     check("an absolute path never loads", Markdown.classifyImage("/etc/passwd", dir).kind, "dropped")
-    check("a subfolder never loads", Markdown.classifyImage("img/shot.png", dir).kind, "dropped")
+    check("a subfolder beside the file loads", Markdown.classifyImage("img/shot.png", dir).kind, "local")
+    check("a subfolder resolves under the file", Markdown.classifyImage("img/shot.png", dir).url,
+        "file:///home/gm/notes/img/shot.png")
+    check("a dotted subpath stays inside", Markdown.classifyImage("img/../shot.png", dir).kind, "local")
     check("a parent escape never loads", Markdown.classifyImage("../shot.png", dir).kind, "dropped")
     check("a data URI never loads", Markdown.classifyImage("data:image/png;base64,AAA", dir).kind, "dropped")
     check("an empty target never loads", Markdown.classifyImage("", dir).kind, "dropped")

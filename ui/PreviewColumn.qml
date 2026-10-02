@@ -90,6 +90,9 @@ Item {
     // tall from the column top down to the name, with no toggle; the remembered choice decides.
     readonly property bool isMarkdownRow: root.previewState === Facts.TEXT && root.row !== null
         && Kinds.isMarkdown(root.row.n)
+    // The lazy Markdown pane, null until a Markdown row builds it; every reader
+    // below guards it, the way the PDF loader's readers guard pdfLoader.item.
+    readonly property var markdown: markdownLoader.item
     // Stretch renders a vector to the whole box, so the frame's pictures keep Fit for an SVG alone.
     readonly property bool vectorPath: /\.svgz?$/i.test(root.path)
     // EXIF orientations 5 to 8 swap the sides, and Qt fits its decode before it turns, so the box it is asked for turns too.
@@ -240,17 +243,27 @@ Item {
             }
             // RenderedPreviews: the Markdown document rendered, or verbatim as source, flowing
             // tall instead of the first-lines frame above. No toggle: the remembered choice rules.
-            Flea.PreviewMarkdown {
-                id: markdown
+            // A file path, not an inline Component, so a column that never shows one never compiles it.
+            Loader {
+                id: markdownLoader
                 anchors.fill: parent
                 anchors.margins: Theme.spacing.hairline
-                visible: root.isMarkdownRow
                 active: root.visible && !root.manualHold && root.rowState === Facts.TEXT && root.isMarkdownRow
-                view: ViewState.markdownView === "source" ? "source" : "rendered"
-                path: root.path
-                size: root.row ? root.row.s : 0
-                maxBytes: root.textLimit
-                truncate: root.truncateText
+                visible: root.isMarkdownRow
+                source: "PreviewMarkdown.qml"
+                onLoaded: {
+                    item.path = Qt.binding(function () { return root.path })
+                    item.size = Qt.binding(function () { return root.row ? root.row.s : 0 })
+                    item.active = Qt.binding(function () {
+                        return root.visible && !root.manualHold
+                            && root.rowState === Facts.TEXT && root.isMarkdownRow
+                    })
+                    item.view = Qt.binding(function () {
+                        return ViewState.markdownView === "source" ? "source" : "rendered"
+                    })
+                    item.maxBytes = Qt.binding(function () { return root.textLimit })
+                    item.truncate = Qt.binding(function () { return root.truncateText })
+                }
             }
             // The PDF's own page, which is the frame's whole content for that state. QtPdf is
             // reached only through this Loader, so a folder with no PDF in it never opens one.
@@ -460,7 +473,7 @@ Item {
     // markers are gone the way the rendered frame draws them, so a test reads
     // "Notes" and not "# Notes". Source view keeps the raw bytes.
     function markdownText() {
-        if (!root.isMarkdownRow) return ""
+        if (!root.isMarkdownRow || !markdown) return ""
         var body = markdown.rawText || ""
         if (markdown.view === "source") return body
         var out = body.split("\n")
@@ -472,7 +485,8 @@ Item {
         return out.join("\n")
     }
     // The swap waits on the text that is actually drawn: the rendered document for Markdown.
-    readonly property bool textLoading: root.isMarkdownRow ? markdown.loading : lines.loading
+    readonly property bool textLoading: root.isMarkdownRow
+        ? (markdown ? markdown.loading : true) : lines.loading
     function archiveNames() { return root.meta && root.meta.names ? root.meta.names.map(function (e) { return e.n }).join("|") : "" }
     function failureText() { return root.failure }
 
@@ -495,7 +509,7 @@ Item {
         case Facts.PDF:
             return !root.pdfDrawn
         case Facts.TEXT:
-            return root.isMarkdownRow ? markdown.blank : lines.blank
+            return root.isMarkdownRow ? (markdown ? markdown.blank : false) : lines.blank
         case Facts.CODE:
             return lines.blank
         case Facts.ARCHIVE:

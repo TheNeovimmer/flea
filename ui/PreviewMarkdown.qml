@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Layouts
 import Quickshell.Io
 import "." as Flea
 import "js/Icons.js" as Icons
@@ -41,25 +40,48 @@ Item {
     readonly property string chromeHex: hexOf(Theme.color.surface)
     // The render suite reads the ink it asserts beside the border, same assembly, no coercion.
     readonly property string inkHex: hexOf(Theme.color.foreground)
-    readonly property var blockList: Markdown.blocks(root.rawText, Markdown.dirOf(root.path),
-        root.chromeHex, root.inkHex)
-    readonly property bool loading: root.active && !root.readFailed && !file.loaded && !root.tooLarge
+    // The parse runs off the UI thread: the worker posts the block tree and the
+    // UI shows the previous content or the loading state until it arrives. A
+    // newer file cancels an older parse by sequence number.
+    property var blockList: []
+    property int parseSeq: 0
+    property int appliedSeq: 0
+    property bool parsing: false
+    // True once a worker reply landed for this file; the lazy suite asserts it,
+    // proving the WorkerScript path was taken and the parse never blocked input.
+    property bool parsedOffThread: false
+    property string parseError: ""
+    readonly property bool blocksReady: root.appliedSeq === root.parseSeq && !root.parsing
+    readonly property bool loading: root.active && !root.readFailed && !root.tooLarge
+        && (!file.loaded || !root.blocksReady)
     readonly property string status: {
         if (root.tooLarge) return "This file is too large to preview."
-        if (root.readFailed) return "This file could not be read."
-        return file.loaded ? "ready" : "loading"
+        if (root.readFailed || root.parseError !== "") return "This file could not be read."
+        return root.blocksReady && file.loaded ? "ready" : "loading"
     }
     readonly property string lineLabel: Markdown.countLine(Markdown.lineCount(root.rawText))
     // The bar's line count reads only once there is a file behind it, never "0 lines" first.
-    readonly property bool contentReady: file.loaded && !root.tooLarge && !root.readFailed
+    readonly property bool contentReady: file.loaded && root.blocksReady
+        && !root.tooLarge && !root.readFailed && root.parseError === ""
     // True when the reader has settled with nothing to put in the frame, the way PreviewLines.blank reads.
     readonly property bool blank: root.tooLarge
         || (root.active && !root.readFailed && file.loaded && root.rawText.length === 0)
 
     readonly property Item bodyItem: body
     // The render suite reads delegate geometry off the live tree, the way ColumnsArea does.
-    function blockItem(i) { return blocks.itemAt(i) }
-    readonly property real flickContentHeight: flick.contentHeight
+    // Only visible blocks plus the cache exist, so this answers null off screen.
+    function blockItem(i) {
+        var kids = body.contentItem.children
+        for (var k = 0; k < kids.length; k++) {
+            if (kids[k].blockIndex === i)
+                return kids[k]
+        }
+        return null
+    }
+    // Instantiated delegates only: the lazy suite asserts this stays bounded.
+    function delegateCount() { return body.contentItem.children.length }
+    readonly property real flickContentHeight: sourceFlick.visible
+        ? sourceFlick.contentHeight : body.contentHeight
 
     visible: root.active
 
@@ -71,37 +93,92 @@ Item {
         onPathChanged: root.readFailed = false
     }
 
-    // Both panes keep their heights warm across the Rendered/Source flip, so the
-    // Flickable below never forces a hidden pane's first layout from inside its
-    // contentHeight binding, which Qt reports as a binding loop. A handler runs
+    WorkerScript {
+        id: parser
+        source: "MarkdownWorker.js"
+        onMessage: function (messageObject) {
+            if (messageObject.seq !== root.parseSeq)
+                return
+            root.parsing = false
+            if (messageObject.error !== "") {
+                root.parseError = messageObject.error
+                return
+            }
+            root.parseError = ""
+            root.blockList = messageObject.blocks
+            root.appliedSeq = messageObject.seq
+            root.parsedOffThread = true
+        }
+    }
+
+    // The worker owns the parse; this timer is the dead-worker fallback, never
+    // the path: it parses synchronously once rather than leaving no preview.
+    Timer {
+        id: parseFallback
+        interval: 10000
+        repeat: false
+        onTriggered: {
+            if (!root.parsing)
+                return
+            root.parsing = false
+            root.blockList = Markdown.blocks(root.rawText, Markdown.dirOf(root.path),
+                root.chromeHex, root.inkHex)
+            root.appliedSeq = root.parseSeq
+        }
+    }
+
+    function askParse() {
+        if (!root.active || root.tooLarge || !file.loaded) {
+            root.parsing = false
+            return
+        }
+        root.parseSeq++
+        root.parsing = true
+        root.parseError = ""
+        parseFallback.restart()
+        parser.sendMessage({ seq: root.parseSeq, source: root.rawText,
+            dir: Markdown.dirOf(root.path), chrome: root.chromeHex, ink: root.inkHex })
+    }
+
+    onRawTextChanged: root.askParse()
+    onActiveChanged: root.askParse()
+    onPathChanged: {
+        root.blockList = []
+        root.parsedOffThread = false
+        root.askParse()
+    }
+
+    // Both panes keep their heights warm across the Rendered/Source flip, so no
+    // contentHeight binding forces a hidden pane's first layout from inside its
+    // own evaluation, which Qt reports as a binding loop. A handler runs
     // outside any binding evaluation, so warming here settles nothing mid-read.
     onViewChanged: {
-        body.implicitHeight
+        body.contentHeight
         sourceText.implicitHeight
     }
 
     Flickable {
-        id: flick
+        id: sourceFlick
         anchors.fill: parent
         clip: true
         contentWidth: width
-        contentHeight: Math.max(height, root.view === Markdown.SOURCE ? sourceText.implicitHeight : body.implicitHeight)
-        visible: !root.tooLarge && !root.readFailed
+        contentHeight: Math.max(height, sourceText.implicitHeight)
+        visible: (!root.tooLarge && !root.readFailed && root.parseError === "")
+            && root.view === Markdown.SOURCE
 
         FastScrollHandler {
-            parent: flick
-            flickable: flick
+            parent: sourceFlick
+            flickable: sourceFlick
         }
 
         Flea.ViewportScrollBar {
-            parent: flick
+            parent: sourceFlick
             anchors { top: parent.top; right: parent.right }
-            flickable: flick
+            flickable: sourceFlick
         }
 
         Text {
             id: sourceText
-            visible: root.view === Markdown.SOURCE
             width: parent.width
             text: root.rawText
             textFormat: Text.PlainText
@@ -110,27 +187,44 @@ Item {
             font.family: Theme.font.family
             font.pixelSize: Theme.font.body
         }
+    }
 
-        Column {
-            id: body
-            visible: root.view !== Markdown.SOURCE
-            width: parent.width
-            spacing: Theme.spacing.gap
+    // The rendered document instantiates only visible blocks plus a bounded
+    // cache, the way the listing instantiates only its viewport: a 1 MiB
+    // README opens without building thousands of delegates.
+    ListView {
+        id: body
+        anchors.fill: parent
+        clip: true
+        visible: (!root.tooLarge && !root.readFailed && root.parseError === "")
+            && root.view !== Markdown.SOURCE
+        model: root.blockList
+        spacing: Theme.spacing.gap
+        cacheBuffer: 600
+        focus: false
 
-            Repeater {
-                id: blocks
-                model: root.blockList
+        FastScrollHandler {
+            parent: body
+            flickable: body
+        }
 
-                delegate: Item {
-                    property var block: modelData
-                    width: parent.width
-                    // Only the drawn child lends its height; the rest hold no geometry that matters.
-                    height: block.type === "run" ? runText.height
-                        : block.type === "fence" ? fenceBox.height
-                        : block.type === "quote" ? quoteRow.height
-                        : block.type === "remote" ? remoteBox.height
-                        : block.type === "list" ? listGrid.height
-                        : block.type === "table" ? tableGrid.height : localImage.height
+        Flea.ViewportScrollBar {
+            parent: body
+            anchors { top: parent.top; right: parent.right }
+            flickable: body
+        }
+
+        delegate: Item {
+            property var block: modelData
+            property int blockIndex: index
+            width: ListView.view.width
+            // Only the drawn child lends its height; the rest hold no geometry that matters.
+            height: block.type === "run" ? runText.height
+                : block.type === "fence" ? fenceBox.height
+                : block.type === "quote" ? quoteRow.height
+                : block.type === "remote" ? remoteBox.height
+                : block.type === "list" ? listGrid.height
+                : block.type === "table" ? tableGrid.height : localImage.height
 
                     Text {
                         id: runText
@@ -149,76 +243,82 @@ Item {
                     // A table arrives structured from ui/js/Markdown.js and draws here in Qt
                     // Quick, since Markdown tables carry no styling: a bold header, a muted rule
                     // under the header and each row, no verticals, each column as wide as its
-                    // widest cell plus 14 px. The grid takes no width, so it hugs its content
-                    // at the left edge instead of filling the frame.
-                    GridLayout {
+                    // widest cell plus 14 px. The column hugs its content at the left edge
+                    // instead of filling the frame. Plain Grid/Column/Row, never QtQuick.Layouts,
+                    // so the preview never loads the Layouts module.
+                    Column {
                         id: tableGrid
                         visible: block.type === "table"
-                        columns: block.type === "table" ? Math.max(1, block.cols) : 1
-                        columnSpacing: 0
-                        rowSpacing: 0
+                        width: tableGrid.tableWidth()
+                        spacing: 0
 
-                        Repeater {
-                            model: block.type === "table" ? block.head : []
-                            delegate: Text {
-                                Layout.row: 0
-                                Layout.column: index
-                                Layout.topMargin: 2
-                                Layout.bottomMargin: 2
-                                Layout.preferredWidth: tableGrid.colWidth(index)
-                                text: modelData
-                                textFormat: Text.MarkdownText
-                                wrapMode: Text.Wrap
-                                horizontalAlignment: tableGrid.alignAt(index)
-                                color: Theme.color.foreground
-                                linkColor: Theme.color.foreground
-                                font.family: Theme.font.family
-                                font.pixelSize: Theme.font.body
-                                font.bold: true
+                        Row {
+                            id: headerRow
+                            spacing: 0
+
+                            Repeater {
+                                model: block.type === "table" ? block.head.length : 0
+                                delegate: Text {
+                                    width: tableGrid.colWidth(index)
+                                    topPadding: 2
+                                    bottomPadding: 2
+                                    text: block.head[index]
+                                    textFormat: Text.MarkdownText
+                                    wrapMode: Text.Wrap
+                                    horizontalAlignment: tableGrid.alignAt(index)
+                                    color: Theme.color.foreground
+                                    linkColor: Theme.color.foreground
+                                    font.family: Theme.font.family
+                                    font.pixelSize: Theme.font.body
+                                    font.bold: true
+                                }
                             }
                         }
 
                         Rectangle {
-                            Layout.row: 1
-                            Layout.columnSpan: tableGrid.columns
-                            Layout.preferredWidth: tableGrid.tableWidth()
-                            Layout.preferredHeight: Theme.spacing.hairline
+                            width: tableGrid.tableWidth()
+                            height: Theme.spacing.hairline
                             color: Theme.color.muted
                         }
 
                         Repeater {
-                            model: block.type === "table" ? tableGrid.cellCount : 0
-                            delegate: Text {
-                                readonly property int row: Math.floor(index / tableGrid.columns)
-                                readonly property int col: index % tableGrid.columns
-                                Layout.row: 2 + row * 2
-                                Layout.column: col
-                                Layout.topMargin: 2
-                                Layout.bottomMargin: 2
-                                Layout.preferredWidth: tableGrid.colWidth(col)
-                                text: tableGrid.cellAt(row, col)
-                                textFormat: Text.MarkdownText
-                                wrapMode: Text.Wrap
-                                horizontalAlignment: tableGrid.alignAt(col)
-                                color: Theme.color.foreground
-                                linkColor: Theme.color.foreground
-                                font.family: Theme.font.family
-                                font.pixelSize: Theme.font.body
-                            }
-                        }
-
-                        Repeater {
                             model: block.type === "table" ? block.rows.length : 0
-                            delegate: Rectangle {
-                                Layout.row: 3 + index * 2
-                                Layout.columnSpan: tableGrid.columns
-                                Layout.preferredWidth: tableGrid.tableWidth()
-                                Layout.preferredHeight: Theme.spacing.hairline
-                                color: Theme.color.muted
+                            delegate: Column {
+                                readonly property int row: index
+                                width: tableGrid.tableWidth()
+                                spacing: 0
+
+                                Row {
+                                    spacing: 0
+
+                                    Repeater {
+                                        model: tableGrid.columns
+                                        delegate: Text {
+                                            width: tableGrid.colWidth(index)
+                                            topPadding: 2
+                                            bottomPadding: 2
+                                            text: tableGrid.cellAt(row, index)
+                                            textFormat: Text.MarkdownText
+                                            wrapMode: Text.Wrap
+                                            horizontalAlignment: tableGrid.alignAt(index)
+                                            color: Theme.color.foreground
+                                            linkColor: Theme.color.foreground
+                                            font.family: Theme.font.family
+                                            font.pixelSize: Theme.font.body
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: tableGrid.tableWidth()
+                                    height: Theme.spacing.hairline
+                                    color: Theme.color.muted
+                                }
                             }
                         }
 
                         // Helpers over the block, so delegates read cells and alignment by place.
+                        readonly property int columns: block.type === "table" ? Math.max(1, block.cols) : 1
                         function alignName(i) {
                             var names = block.type === "table" ? block.aligns : []
                             return i < names.length ? names[i] : "left"
@@ -227,7 +327,7 @@ Item {
                             var name = alignName(i)
                             return name === "center" ? Text.AlignHCenter : name === "right" ? Text.AlignRight : Text.AlignLeft
                         }
-                        readonly property int cellCount: block.type === "table" ? block.rows.length * columns : 0
+                        readonly property int cellCount: block.type === "table" ? block.rows.length * tableGrid.columns : 0
                         function cellAt(r, c) {
                             var rows = block.type === "table" ? block.rows : []
                             return r < rows.length && c < rows[r].length ? rows[r][c] : ""
@@ -331,43 +431,39 @@ Item {
                     }
 
                     // A top-level list draws its markers at the text's left edge, bullets and
-                    // ordered alike, with the item text after each marker.
-                    GridLayout {
+                    // ordered alike, with the item text after each marker. Plain Column/Row,
+                    // never QtQuick.Layouts, so the preview never loads the Layouts module.
+                    Column {
                         id: listGrid
                         visible: block.type === "list"
                         width: parent.width
-                        columns: 2
-                        columnSpacing: Theme.spacing.gap
-                        rowSpacing: 0
+                        spacing: 0
 
                         Repeater {
                             model: block.type === "list" ? block.items.length : 0
-                            delegate: Text {
-                                Layout.row: index
-                                Layout.column: 0
-                                Layout.alignment: Qt.AlignTop
-                                text: block.ordered ? (block.start + index) + "." : "•"
-                                color: Theme.color.foreground
-                                font.family: Theme.font.family
-                                font.pixelSize: Theme.font.body
-                                textFormat: Text.PlainText
-                            }
-                        }
+                            delegate: Row {
+                                width: listGrid.width
+                                spacing: Theme.spacing.gap
 
-                        Repeater {
-                            model: block.type === "list" ? block.items.length : 0
-                            delegate: Text {
-                                Layout.row: index
-                                Layout.column: 1
-                                Layout.alignment: Qt.AlignTop
-                                Layout.fillWidth: true
-                                text: block.items[index]
-                                textFormat: Text.MarkdownText
-                                wrapMode: Text.Wrap
-                                color: Theme.color.foreground
-                                linkColor: Theme.color.foreground
-                                font.family: Theme.font.family
-                                font.pixelSize: Theme.font.body
+                                Text {
+                                    id: marker
+                                    text: block.ordered ? (block.start + index) + "." : "•"
+                                    color: Theme.color.foreground
+                                    font.family: Theme.font.family
+                                    font.pixelSize: Theme.font.body
+                                    textFormat: Text.PlainText
+                                }
+
+                                Text {
+                                    width: parent.width - marker.width - parent.spacing
+                                    text: block.items[index]
+                                    textFormat: Text.MarkdownText
+                                    wrapMode: Text.Wrap
+                                    color: Theme.color.foreground
+                                    linkColor: Theme.color.foreground
+                                    font.family: Theme.font.family
+                                    font.pixelSize: Theme.font.body
+                                }
                             }
                         }
                     }
@@ -466,13 +562,11 @@ Item {
                         source: block.type === "image" ? block.url : ""
                     }
                 }
-            }
-        }
     }
 
     Text {
         anchors.centerIn: parent
-        visible: root.tooLarge || root.readFailed
+        visible: root.tooLarge || root.readFailed || root.parseError !== ""
         text: root.status
         color: Theme.color.muted
         font.family: Theme.font.family
