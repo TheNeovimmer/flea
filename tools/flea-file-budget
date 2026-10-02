@@ -47,7 +47,7 @@ src/uistate.rs 659
 src/uistore.rs 540
 src/vulkan.rs 728
 tests/js/columns.js 618
-tests/js/drag.js 301
+tests/js/drag.js 398
 tests/js/previewswap.js 367
 tests/js/focus.js 595
 tests/js/mounts.js 383
@@ -71,10 +71,10 @@ ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 475
 ui/ContextMenu.qml 675
 ui/ConvertDialog.qml 440
-ui/GridArea.qml 410
+ui/GridArea.qml 411
 ui/Ipc.qml 832
 ui/KeymapSheet.qml 585
-ui/List.qml 435
+ui/List.qml 436
 ui/NetworkDialog.qml 449
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 838
@@ -87,7 +87,7 @@ ui/PickerWindow.qml 770
 ui/Preview.qml 717
 ui/PreviewColumn.qml 571
 ui/PreviewMarkdown.qml 473
-ui/Row.qml 478
+ui/Row.qml 479
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
 ui/Sidebar.qml 675
@@ -100,8 +100,8 @@ ui/js/Filter.js 253
 ui/js/Focus.js 439
 ui/js/Keymap.js 338
 ui/js/Markdown.js 527
-ui/js/Menu.js 436
-ui/js/Drag.js 302
+ui/js/Menu.js 434
+ui/js/Drag.js 346
 ui/js/Ops.js 438
 ui/js/Picker.js 325
 ui/js/Settings.js 455

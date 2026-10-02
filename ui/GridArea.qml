@@ -154,6 +154,7 @@ GridView {
         selected: root.pane.isSelected(listingIndex)
         dropTarget: dragSession.dropIndex >= 0 && listingIndex === dragSession.dropIndex
         dropCopying: dragSession.dragCopy
+        dropLinking: dragSession.dragLink
         thumb: Thumbs.allowed(row, ViewState.thumbnailMode) ? Thumbs.fileFor(root.pane.thumbState, listingIndex) : ""
         renaming: listingIndex >= 0 && listingIndex === root.pane.renamingIndex
         renamePane: root.pane

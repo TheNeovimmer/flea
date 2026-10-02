@@ -33,6 +33,7 @@ Item {
     property bool hovered: false
     property bool dropTarget: false
     property bool dropCopying: false
+    property bool dropLinking: false
     // The area derives it per visible row, so an empty clipboard costs nothing.
     property string clipMark: ""
     // A cut row dims to the ClipMarks board's own opacity, content only.
@@ -170,7 +171,7 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: Theme.spacing.rowPaddingX
                 anchors.verticalCenter: parent.verticalCenter
-                text: DragOps.label(root.dropCopying)
+                text: DragOps.label(root.dropCopying, root.dropLinking)
                 color: Theme.color.accent
                 font.family: Theme.font.family
                 font.pixelSize: Theme.font.caption

@@ -31,6 +31,7 @@ Item {
     property bool dropTarget: false
     // Whether that drop would copy, so the label can say which; the status bar says the rest.
     property bool dropCopying: false
+    property bool dropLinking: false
     // A directory's recursive size, resolved by index in List.qml the same way thumb already is; null until it arrives.
     property var dirSize: null
     // The picker's rows start one slot further in for its check; the window's own leave this at zero.
@@ -146,7 +147,7 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: Theme.spacing.rowPaddingX
                 anchors.verticalCenter: parent.verticalCenter
-                text: DragOps.label(root.dropCopying)
+                text: DragOps.label(root.dropCopying, root.dropLinking)
                 color: Theme.color.accent
                 font.family: Theme.font.family
                 font.pixelSize: Theme.font.caption
