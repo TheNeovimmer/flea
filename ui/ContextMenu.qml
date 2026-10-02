@@ -136,6 +136,10 @@ Item {
     // The row list this menu currently offers; a test reads this back through shell.qml's IPC.
     property var entries: []
     property bool canTrash: true
+    // False in a read-only folder, off the listing's own w flag; true until the pane knows better.
+    property bool dirWritable: true
+    // A filesystem that holds no links offers no Paste as rows; true until the pane knows better.
+    property bool canLink: true
     // Issue 179: the background menu's Sort by flyout offers its forget row only for this folder.
     property bool hasFolderSort: false
 
@@ -171,6 +175,8 @@ Item {
             canExtract: root.canExtract,
             clipboardAvailable: root.clipboardAvailable,
             canTrash: root.canTrash,
+            canLink: root.canLink,
+            dirWritable: root.dirWritable,
             openWithApps: root.openWithApps,
             openWithLoaded: root.openWithLoaded,
             rowMode: root.rowMode, selectionCount: root.selectionCount,

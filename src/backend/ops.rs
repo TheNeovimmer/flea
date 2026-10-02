@@ -35,12 +35,22 @@ pub fn rename(path: &Path, to_name: &str) -> Result<(PathBuf, Vec<Step>), FleaEr
         return Err(named("rename", path, "a name cannot be empty, . or .. , or contain a separator"));
     }
     let parent = path.parent().unwrap_or(Path::new("/"));
+    // The destination's own rules refuse before the syscall, so vfat answers the character, not EINVAL.
+    if let Some(refusal) = crate::backend::fsname::refuse_in(parent, to_name) {
+        return Err(named("rename", path, &refusal));
+    }
     let to = parent.join(to_name);
     if to == path {
         // Renaming a file to its own name is not a failure and is not work, so it records nothing.
         return Ok((to, Vec::new()));
     }
     let before = ItemIdentity::inspect(path)?;
+    // A case-only rename on a case-insensitive filesystem stats as the source itself, so the no-clobber rename moves via a temp sibling.
+    if let Ok(dest) = ItemIdentity::inspect(&to) {
+        if dest.same_item(&before) {
+            return case_only_rename(path, &to, before);
+        }
+    }
     renamecompat::rename_path(path, &to)?;
     {
         // A same-filesystem rename is atomic, so its folder confirmation stays best effort.
@@ -55,6 +65,12 @@ pub fn rename(path: &Path, to_name: &str) -> Result<(PathBuf, Vec<Step>), FleaEr
         }
     }
     Ok((to.clone(), vec![undo::moved(path, &to, before)?]))
+}
+
+// A rename whose destination is the source itself under another spelling runs the shared twin path.
+fn case_only_rename(path: &Path, to: &Path, before: ItemIdentity) -> Result<(PathBuf, Vec<Step>), FleaError> {
+    renamecompat::case_twin_move(path, to)?;
+    Ok((to.to_path_buf(), vec![undo::moved(path, to, before)?]))
 }
 
 // "backup.tar.zst" becomes "backup.tar copy.zst": Path's own stem and extension split the last dot only, and a dotfile keeps its whole name as the stem.
@@ -96,7 +112,7 @@ pub fn duplicate(path: &Path) -> (Result<PathBuf, FleaError>, Vec<Step>) {
     let mut sink = |_: u64, _: u64| {};
     let mut durability = crate::backend::durable::Durability::begin(dst.parent().unwrap_or(path));
     let mut p = Progress { cancel: &flag, on_bytes: &mut sink, partial: None, tree: None,
-        manifest: crate::backend::copymanifest::writer_for(path, &dst), durability: Some(&mut durability) };
+        manifest: crate::backend::copymanifest::writer_for(path, &dst), durability: Some(&mut durability), for_move: false };
     match copy_any(path, &dst, &mut p) {
         Ok(()) => {
             drop(p);
@@ -149,6 +165,9 @@ pub fn mkdir(parent: &Path, name: &str) -> Result<(PathBuf, Vec<Step>), FleaErro
             None => return Err(named("mkdir", parent, "every default folder name here is already taken")),
         }
     } else if valid_name(name) {
+        if let Some(refusal) = crate::backend::fsname::refuse_in(parent, name) {
+            return Err(named("mkdir", parent, &refusal));
+        }
         parent.join(name)
     } else {
         return Err(named("mkdir", parent, "a name cannot be . or .., or contain a separator"));
@@ -183,6 +202,22 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
+    fn illegal_names_are_refused_before_any_syscall() {
+        // Sample pair: "a:b" on vfat is EINVAL, while ntfs3 without windows_names accepts it.
+        use crate::backend::fsname::refuse_name;
+        assert_eq!(refuse_name("a:b", "vfat", false).unwrap(), "':' is not allowed in a name on this vfat drive");
+        assert_eq!(refuse_name("q?", "exfat", false).unwrap(), "'?' is not allowed in a name on this exfat drive");
+        assert_eq!(refuse_name("trail.", "vfat", false).unwrap(), "a name cannot end in a dot on this vfat drive");
+        assert_eq!(refuse_name("trail ", "vfat", false).unwrap(), "a name cannot end in a space on this vfat drive");
+        assert_eq!(refuse_name("CON", "vfat", false).unwrap(), "'CON' is reserved on this vfat drive");
+        assert_eq!(refuse_name("con.txt", "vfat", false).unwrap(), "'CON' is reserved on this vfat drive");
+        assert!(refuse_name("ordinary.txt", "vfat", false).is_none());
+        assert!(refuse_name("a:b", "ext4", false).is_none());
+        assert!(refuse_name("a:b", "ntfs3", false).is_none(), "ntfs3 without windows_names takes a colon");
+        assert!(refuse_name("a:b", "ntfs3", true).is_some(), "ntfs3 with windows_names refuses it");
+    }
+
+    #[test]
     fn a_name_with_a_separator_is_refused_before_any_syscall() {
         assert!(valid_name("ordinary.txt"));
         assert!(valid_name(".bashrc"));
@@ -205,6 +240,20 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&to).unwrap(), "body");
         assert!(matches!(&steps[..], [Step::Moved { from: original, to: destination, after, .. }]
             if original == &from && destination == &to && after == &ItemIdentity::inspect(&to).unwrap()));
+    }
+
+    #[test]
+    fn a_hardlink_twin_is_a_second_name_and_not_a_case_twin() {
+        // On a case-sensitive filesystem a `to` that is a hard link to the source is a real second name.
+        let d = TestDir::new("casetwin");
+        let from = d.file("a.txt", "body");
+        let twin = d.join("A.txt");
+        std::fs::hard_link(&from, &twin).unwrap();
+        let err = rename(&from, "A.txt").expect_err("a second name is a collision, not a case twin");
+        assert_eq!(err.where_, "rename");
+        assert_eq!(err.msg, "a file with that name is already here");
+        assert_eq!(std::fs::read_to_string(&from).unwrap(), "body", "the source is moved back, not lost");
+        assert_eq!(std::fs::read_to_string(&twin).unwrap(), "body", "the twin name is never deleted");
     }
 
     #[test]

@@ -1149,25 +1149,36 @@ case_scroll() {
     shot scroll-three-notches
 }
 
+# The stroke lands where a finger would: over a row, with a pointer frame for Qt to route it.
+touchpad_focus_row() {
+    local wx wy ww wh cx cy
+    read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
+    read -r cx cy <<< "$(ipc rowCentre 5)"
+    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + cx - 1)), y = $((wy + cy))})" >/dev/null
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
+    settle
+}
+
 # A real two-finger stroke through tools/flea-touchpad: a flick coasts past its lift on Finder's
-# tail while the same stroke with a pause before the lift stops dead. Controller-only: needs
-# /dev/uinput writable beside the display, so anywhere else it refuses rather than failing.
+# tail while the same stroke with a pause before the lift stops dead. A flick past the top
+# rubber-bands past the bound and returns to it. Controller-only: needs /dev/uinput writable
+# beside the display, so anywhere else it refuses rather than failing.
 case_touchpad() {
     [[ -w /dev/uinput ]] || { printf 'REFUSED /dev/uinput is not writable, so no touchpad stroke can be played.\n'; exit 1; }
     [[ -d "$bench_dir" ]] || fail "touchpad: the 100,000-file fixture is missing at $bench_dir"
     launch "$bench_dir"
     wait_listing 100000
     settle
-    local wx wy ww wh cx cy
-    read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
-    read -r cx cy <<< "$(ipc rowCentre 5)"
-    # The stroke lands where a finger would: over a row, with a pointer frame for Qt to route it.
-    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + cx - 1)), y = $((wy + cy))})" >/dev/null
-    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
-    settle
+    touchpad_focus_row
     [[ "$(ipc listContentY)" == "0" ]] || fail "touchpad: the list did not start at the top"
     touchpad_run flick 0
     touchpad_run paused 200
+    launch "$bench_dir"
+    wait_listing 100000
+    settle
+    touchpad_focus_row
+    [[ "$(ipc listContentY)" == "0" ]] || fail "touchpad: the edge flick did not start at the top"
+    touchpad_edge
 }
 
 # One stroke through the virtual touchpad: sample contentY across the play, take the lift as the
@@ -1202,6 +1213,44 @@ touchpad_run() {
             || fail "touchpad: the paused stroke coasted past its lift $lift, rest $rest"
     fi
     printf 'TOUCHPAD stroke=%s lift=%s rest=%s ms=%s\n' "$stroke" "$lift" "$rest" "$((now_ms - start_ms))"
+}
+
+# A flick past the top rubber-bands past the bound and returns to it: the peak is sampled
+# while the tool plays (the return would otherwise finish before the lift is read), and the
+# rest must equal the bound it started from.
+touchpad_edge() {
+    local stroke peak rest cur tool_pid stable_start now_ms start_ms
+    stroke=$(ipc listContentY)
+    peak=$stroke
+    start_ms=$(date +%s%3N)
+    "$repo/tools/flea-touchpad" swipe --dy-mm -40 --ms 120 --hold-ms 0 >/dev/null &
+    tool_pid=$!
+    while kill -0 "$tool_pid" 2>/dev/null; do
+        cur=$(ipc listContentY)
+        [[ "$cur" -lt "$peak" ]] && peak=$cur
+        sleep 0.05
+    done
+    wait "$tool_pid" || fail "touchpad: flea-touchpad refused the edge flick"
+    rest=$(ipc listContentY)
+    [[ "$rest" -lt "$peak" ]] && peak=$rest
+    stable_start=$(date +%s%3N)
+    while true; do
+        sleep 0.1
+        cur=$(ipc listContentY)
+        now_ms=$(date +%s%3N)
+        if [[ "$cur" != "$rest" ]]; then
+            rest=$cur
+            [[ "$rest" -lt "$peak" ]] && peak=$rest
+            stable_start=$now_ms
+        elif (( now_ms - stable_start > 1000 )); then
+            break
+        fi
+        (( now_ms - start_ms < 15000 )) || fail "touchpad: the edge flick never settled"
+    done
+    now_ms=$(date +%s%3N)
+    [[ "$peak" -lt "$stroke" ]] || fail "touchpad: the edge flick never left the bound, peak $peak"
+    [[ "$rest" == "$stroke" ]] || fail "touchpad: the edge flick rested at $rest, want the bound $stroke"
+    printf 'TOUCHPAD edge peak=%s rest=%s ms=%s\n' "$peak" "$rest" "$((now_ms - start_ms))"
 }
 
 # The scrollbar is a viewport control over the integer model, not a second model: a short listing

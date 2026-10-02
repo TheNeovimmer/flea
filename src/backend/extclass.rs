@@ -12,14 +12,7 @@ pub fn magic_is_network(magic: i64) -> bool {
 
 // Sample input: "fuse.sshfs" trues, "ext4" falses, "NFS4" trues.
 pub fn fstype_is_network(fstype: &str) -> bool {
-    let lower = fstype.to_ascii_lowercase();
-    lower == "cifs"
-        || lower == "smb3"
-        || lower.starts_with("nfs")
-        || lower.contains("sshfs")
-        || lower.contains("rclone")
-        || lower == "9p"
-        || lower.contains("ceph")
+    super::netfs::is_network_fstype(fstype)
 }
 
 // Sample input: "/run/user/1000/gvfs/mtp:host=X/" answers Some("phone").
@@ -185,10 +178,10 @@ mod tests {
 
     #[test]
     fn fuse_subtypes_name_their_network() {
-        for fstype in ["cifs", "nfs", "nfs4", "NFS", "fuse.sshfs", "sshfs", "fuse.rclone", "9p", "ceph"] {
+        for fstype in ["cifs", "nfs", "nfs4", "NFS", "fuse.sshfs", "fuse.rclone", "9p", "ceph", "davfs", "fuse.s3fs", "fuse.gvfsd-fuse"] {
             assert!(fstype_is_network(fstype), "{} reaches the network class", fstype);
         }
-        for fstype in ["ext4", "btrfs", "xfs", "vfat", "exfat", "ntfs", "tmpfs", "overlay", "fuse.gvfsd-fuse", ""] {
+        for fstype in ["ext4", "btrfs", "xfs", "vfat", "exfat", "ntfs", "tmpfs", "overlay", "fuse", "fuseblk", "fuse.portal", "fuse.mergerfs", "nfsd", "sshfs", "s3fs", "davfs2", ""] {
             assert!(!fstype_is_network(fstype), "{} stays out of the network class", fstype);
         }
     }

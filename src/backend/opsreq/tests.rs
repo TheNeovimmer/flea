@@ -128,6 +128,15 @@ fn every_operation_line_matches_the_shape_the_operations_design_names() {
 }
 
 #[test]
+fn a_skipped_link_rides_the_note_and_never_the_item_tally() {
+    assert_eq!(super::join_link_note(0, ""), "");
+    assert_eq!(super::join_link_note(1, ""), "1 link skipped");
+    assert_eq!(super::join_link_note(10, ""), "10 links skipped");
+    assert_eq!(super::join_link_note(2, "copied, but the drive did not confirm the folder"),
+        "2 links skipped · copied, but the drive did not confirm the folder");
+}
+
+#[test]
 fn a_destination_that_is_not_an_existing_directory_is_refused_before_any_item_is_touched() {
     let d = TestDir::new("dest");
     assert!(usable_dest(&d.path().to_string_lossy()).is_ok());

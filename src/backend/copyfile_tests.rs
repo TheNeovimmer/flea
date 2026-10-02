@@ -1,10 +1,10 @@
 use super::*;
 use crate::backend::testdir::TestDir;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::sync::atomic::AtomicBool;
 
 fn quiet<'a>(flag: &'a AtomicBool, sink: &'a mut dyn FnMut(u64, u64)) -> Progress<'a> {
-    Progress { cancel: flag, on_bytes: sink, partial: None, tree: None, manifest: None, durability: None }
+    Progress { cancel: flag, on_bytes: sink, partial: None, tree: None, manifest: None, durability: None, for_move: false }
 }
 
 // copy_any sends a symlink to copy_symlink, so a symlink reaching copy_file was swapped in after
@@ -79,6 +79,135 @@ fn a_symlink_is_copied_as_a_symlink_and_never_followed() {
         std::fs::read_link(d.join("copied.txt")).unwrap(),
         std::path::PathBuf::from("target.txt")
     );
+}
+
+// A symlink onto a linkless filesystem skips with a count instead of failing the folder around it.
+#[test]
+fn a_linkless_destination_skips_symlinks_with_a_count() {
+    assert!(is_linkless_fs(Some(0x4D44)), "vfat holds no links");
+    assert!(is_linkless_fs(Some(0x2011BAB0)), "exfat holds no links");
+    assert!(!is_linkless_fs(Some(0xEF53)), "ext4 holds links");
+    assert!(!is_linkless_fs(None), "an unknown filesystem is not assumed linkless");
+    assert_eq!(take_skipped_links(), 0, "the count starts empty");
+    note_skipped_link();
+    note_skipped_link();
+    assert_eq!(take_skipped_links(), 2, "both skips are reported");
+    assert_eq!(take_skipped_links(), 0, "taking the count resets it");
+}
+
+// A copy keeps the source mtime, best effort, so a copied tree still sorts by the files' own history.
+#[test]
+fn a_copy_keeps_the_source_mtime() {
+    let d = TestDir::new("copymtime");
+    let src = d.file("src.bin", "0123456789");
+    let status = std::process::Command::new("touch").arg("-d").arg("2001-02-03 04:05:06").arg(&src).status().expect("touch sets the source mtime");
+    assert!(status.success(), "touch must run for this pin");
+    let flag = AtomicBool::new(false);
+    let mut sink = |_: u64, _: u64| {};
+    copy_any(&src, &d.join("dst.bin"), &mut quiet(&flag, &mut sink)).expect("copy");
+    let src_mtime = src.metadata().unwrap().mtime();
+    let dst_mtime = d.join("dst.bin").metadata().unwrap().mtime();
+    assert_eq!(dst_mtime, src_mtime, "the copy carries the source mtime, not the copy time");
+}
+
+// A source filesystem with no real modes lends no exec bits: exfat and ntfs take the umask default.
+#[test]
+fn a_modeless_source_takes_umask_modes() {
+    assert_eq!(mode_for_source(Some(0x2011BAB0), 0o755, false) & 0o111, 0, "an exfat file lends no exec bit");
+    assert_eq!(mode_for_source(Some(0x5346544E), 0o777, false) & 0o111, 0, "an ntfs file lends no exec bit");
+    let umask = super::umask();
+    let want = 0o777 & !umask & 0o111;
+    assert_eq!(mode_for_source(Some(0x7366746e), 0o777, true) & 0o111, want, "an ntfs3 dir keeps the umask's exec bits");
+    assert_ne!(mode_for_source(Some(0xEF53), 0o755, false) & 0o111, 0, "an ext4 file keeps its exec bit");
+    assert_ne!(mode_for_source(None, 0o755, false) & 0o111, 0, "an unknown filesystem keeps its exec bit");
+}
+
+// Sample input: a tree with a.txt and link->a.txt copied under test_force_linkless(true).
+#[test]
+fn a_linkless_folder_copy_skips_the_link_and_keeps_the_folder_mtime() {
+    let d = TestDir::new("linklessfolder");
+    let src = d.dir("tree");
+    std::fs::write(src.join("a.txt"), "a").unwrap();
+    std::os::unix::fs::symlink("a.txt", src.join("link")).unwrap();
+    let status = std::process::Command::new("touch").arg("-d").arg("2001-02-03 04:05:06").arg(&src).status().expect("touch sets the source dir mtime");
+    assert!(status.success(), "touch must run for this pin");
+    let flag = AtomicBool::new(false);
+    let mut sink = |_: u64, _: u64| {};
+    test_force_linkless(true);
+    let mut p = Progress { cancel: &flag, on_bytes: &mut sink, partial: None, tree: None, manifest: None, durability: None, for_move: false };
+    let outcome = copy_any(&src, &d.join("clone"), &mut p);
+    let skipped = take_skipped_links();
+    test_force_linkless(false);
+    outcome.expect("a plain copy skips the link and keeps the folder");
+    assert_eq!(skipped, 1, "one skipped link is counted");
+    assert_eq!(std::fs::read_to_string(d.join("clone/a.txt")).unwrap(), "a");
+    assert!(d.join("clone/link").symlink_metadata().is_err(), "the link is nowhere, counted and not copied");
+    let src_mtime = src.metadata().unwrap().mtime();
+    let dst_mtime = d.join("clone").metadata().unwrap().mtime();
+    assert_eq!(dst_mtime, src_mtime, "the folder carries the source mtime too");
+}
+
+// Sample input: the same tree moved under test_force_linkless(true) answers linkskip.
+#[test]
+fn a_linkless_folder_move_fails_and_keeps_its_source() {
+    let d = TestDir::new("linklessmove");
+    let src = d.dir("tree");
+    std::fs::write(src.join("a.txt"), "a").unwrap();
+    std::os::unix::fs::symlink("a.txt", src.join("link")).unwrap();
+    let flag = AtomicBool::new(false);
+    let mut sink = |_: u64, _: u64| {};
+    test_force_linkless(true);
+    let mut p = Progress { cancel: &flag, on_bytes: &mut sink, partial: None, tree: None, manifest: None, durability: None, for_move: true };
+    let outcome = move_cross_device(&src, &d.join("moved"), &mut p);
+    let skipped = take_skipped_links();
+    test_force_linkless(false);
+    let error = outcome.expect_err("a move never drops a link to succeed");
+    assert_eq!(error.where_, LINKSKIP, "the skipped link fails the item");
+    assert_eq!(skipped, 0, "a failed move counts no skipped link");
+    assert!(src.join("a.txt").is_file(), "the source stays whole");
+    assert!(src.join("link").symlink_metadata().unwrap().file_type().is_symlink(), "the skipped link stays too");
+}
+
+// Sample input: test_set_precheck(Some(0), Some(0), None) lets a 3-byte copy_any through.
+#[test]
+fn a_precheck_with_unknown_room_lets_copy_any_through() {
+    let d = TestDir::new("precheckunknown");
+    let src = d.file("src.txt", "abc");
+    let flag = AtomicBool::new(false);
+    let mut sink = |_: u64, _: u64| {};
+    test_set_precheck(Some(0), Some(0), None);
+    let mut p = Progress { cancel: &flag, on_bytes: &mut sink, partial: None, tree: None, manifest: None, durability: None, for_move: false };
+    let outcome = copy_any(&src, &d.join("dst.txt"), &mut p);
+    test_set_precheck(None, None, None);
+    outcome.expect("unknown room never refuses");
+    assert_eq!(std::fs::read_to_string(d.join("dst.txt")).unwrap(), "abc");
+    test_set_precheck(Some(2), Some(100), None);
+    let mut q = Progress { cancel: &flag, on_bytes: &mut sink, partial: None, tree: None, manifest: None, durability: None, for_move: false };
+    let error = copy_any(&src, &d.join("dst2.txt"), &mut q).expect_err("no room still refuses");
+    test_set_precheck(None, None, None);
+    assert!(error.msg.contains('2') && error.msg.contains('3'), "the room refusal names both numbers: {}", error.msg);
+}
+
+// A 4 GiB file never starts onto vfat, and a file bigger than the free room never starts anywhere, so both refuse up front.
+#[test]
+fn a_copy_refuses_a_file_the_destination_cannot_hold() {
+    assert_eq!(refuse_for_size(Some(VFAT_MAGIC), u64::MAX, 100, FOUR_GIB).unwrap(),
+        "files of 4 GiB or more do not fit on a vfat drive");
+    assert!(refuse_for_size(Some(VFAT_MAGIC), u64::MAX, 100, FOUR_GIB - 1).is_none());
+    assert!(refuse_for_size(Some(0xEF53), u64::MAX, 100, FOUR_GIB).is_none(), "ext4 has no 4 GiB file limit");
+    let short = refuse_for_size(None, 100, 100, 101).unwrap();
+    assert!(short.contains("100") && short.contains("101"), "the room refusal names both numbers: {short}");
+    assert!(refuse_for_size(None, 101, 100, 101).is_none(), "a file that exactly fits is let through");
+}
+
+// A statfs with zero total blocks reports unknown room, so a gvfs mount that omits free never refuses.
+#[test]
+fn a_statfs_with_zero_blocks_is_unknown_room() {
+    assert!(refuse_for_size(None, 0, 0, 1).is_none(), "zero blocks skips the free test");
+    assert!(refuse_for_size(Some(0xEF53), 0, 0, 4096).is_none(), "unknown room holds any size");
+    assert_eq!(refuse_for_size(Some(VFAT_MAGIC), 0, 0, FOUR_GIB).unwrap(),
+        "files of 4 GiB or more do not fit on a vfat drive");
+    assert!(refuse_for_size(None, 0, 100, 1).is_some(), "zero free on a real filesystem still refuses");
 }
 
 // The Copying card sat still for a whole tree because a directory item reported nothing at all:
@@ -311,7 +440,7 @@ fn a_cross_device_move_confirms_the_destination_before_removing_the_source() {
     let mut sink = |_: u64, _: u64| {};
     let mut durability = crate::backend::durable::Durability::begin(&dst);
     assert!(durability.durable, "the marked sandbox is a durable destination");
-    let mut p = Progress { cancel: &flag, on_bytes: &mut sink, partial: None, tree: None, manifest: None, durability: Some(&mut durability) };
+    let mut p = Progress { cancel: &flag, on_bytes: &mut sink, partial: None, tree: None, manifest: None, durability: Some(&mut durability), for_move: false };
     crate::backend::durable::test_set_fail_dirs(true);
     let error = move_cross_device(&src, &dst, &mut p).expect_err("a failed folder confirm must not remove the source");
     assert_eq!(error.msg, crate::backend::durable::DIR_UNCONFIRMED);
@@ -423,7 +552,7 @@ fn a_batch_cross_device_move_settles_before_removing_its_source() {
     let mut sink = |_: u64, _: u64| {};
     let mut durability = crate::backend::durable::Durability::begin(&dst);
     durability.batch_syncfs = true;
-    let mut p = Progress { cancel: &flag, on_bytes: &mut sink, partial: None, tree: None, manifest: None, durability: Some(&mut durability) };
+    let mut p = Progress { cancel: &flag, on_bytes: &mut sink, partial: None, tree: None, manifest: None, durability: Some(&mut durability), for_move: false };
     move_cross_device(&src, &dst, &mut p).expect("a batch move confirms");
     let order = crate::backend::durable::test_order();
     let syncfs_at = order.iter().position(|s| s == "syncfs").expect("one syncfs in the order");
@@ -447,7 +576,7 @@ fn a_batch_cross_device_move_keeps_its_source_when_syncfs_fails() {
     let mut sink = |_: u64, _: u64| {};
     let mut durability = crate::backend::durable::Durability::begin(&dst);
     durability.batch_syncfs = true;
-    let mut p = Progress { cancel: &flag, on_bytes: &mut sink, partial: None, tree: None, manifest: None, durability: Some(&mut durability) };
+    let mut p = Progress { cancel: &flag, on_bytes: &mut sink, partial: None, tree: None, manifest: None, durability: Some(&mut durability), for_move: false };
     crate::backend::durable::test_set_fail_syncfs(true);
     let error = move_cross_device(&src, &dst, &mut p).expect_err("an unconfirmed batch move keeps its source");
     crate::backend::durable::test_set_fail_syncfs(false);
@@ -457,4 +586,22 @@ fn a_batch_cross_device_move_keeps_its_source_when_syncfs_fails() {
     assert_eq!(p.partial.as_deref(), Some(dst.as_path()), "the unconfirmed copy is handed to the caller to journal");
     assert_eq!(crate::backend::durable::test_syncfs_count(), 0, "a failed syncfs never counts: {:?}", crate::backend::durable::test_order());
     crate::backend::durable::test_reset();
+}
+
+// A twin move through move_any keeps the stranded message, so a redo and a transfer item name the temp leaf.
+#[test]
+fn a_twin_move_through_move_any_names_its_temp() {
+    let d = TestDir::new("movetwinstranded");
+    let from = d.file("a.txt", "body");
+    let twin = d.join("A.txt");
+    std::fs::hard_link(&from, &twin).unwrap();
+    crate::backend::renamecompat::test_fail_twin_back();
+    let flag = AtomicBool::new(false);
+    let mut sink = |_: u64, _: u64| {};
+    let mut p = quiet(&flag, &mut sink);
+    let error = move_any(&from, &twin, &mut p).expect_err("a failed move-back strands the file");
+    assert_eq!(error.where_, "rename-stranded", "a stranded twin answers its own kind");
+    assert!(error.msg.starts_with("the file was left as .flea-case-"), "msg names temp leaf: {}", error.msg);
+    let leaf = error.msg.split(" as ").nth(1).unwrap().split(" in ").next().unwrap();
+    assert!(d.path().join(leaf).is_file(), "the temp holds the file");
 }

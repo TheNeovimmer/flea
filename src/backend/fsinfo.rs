@@ -29,6 +29,11 @@ const MAGIC: &[(i64, &str)] = &[
     (0x65735546, "fuse"),
     (0x4D44, "vfat"),
     (0x5346544E, "ntfs"),
+    (0x7366746E, "ntfs3"),
+    (0x482B, "hfsplus"),
+    (0xF2F52010, "f2fs"),
+    (0x9660, "iso9660"),
+    (0x15013346, "udf"),
     (0x9FA0, "proc"),
     (0x62656572, "sysfs"),
     (0x27E0EB, "cgroup"),
@@ -64,6 +69,8 @@ pub struct Info {
     pub name: String,
     // Bytes available to an unprivileged process, which is f_bavail and never f_bfree.
     pub free: u64,
+    // Total blocks from statfs, so a zero-block report reads as unknown room rather than no room.
+    pub blocks: u64,
 }
 
 pub fn read(path: &Path) -> Option<Info> {
@@ -83,7 +90,7 @@ pub fn read_with_magic(path: &Path) -> (Option<Info>, Option<i64>) {
     if unsafe { statfs(c.as_ptr(), &mut buf) } != 0 {
         return (None, None);
     }
-    let info = Info { name: name_for(buf.f_type), free: buf.f_bavail.saturating_mul(buf.f_bsize.max(0) as u64) };
+    let info = Info { name: name_for(buf.f_type), free: buf.f_bavail.saturating_mul(buf.f_bsize.max(0) as u64), blocks: buf.f_blocks };
     (Some(info), Some(buf.f_type))
 }
 
@@ -150,6 +157,15 @@ mod tests {
     }
 
     #[test]
+    fn usb_and_optical_magics_read_back_as_names() {
+        assert_eq!(name_for(0x7366746E), "ntfs3");
+        assert_eq!(name_for(0x482B), "hfsplus");
+        assert_eq!(name_for(0xF2F52010), "f2fs");
+        assert_eq!(name_for(0x9660), "iso9660");
+        assert_eq!(name_for(0x15013346), "udf");
+    }
+
+    #[test]
     fn a_real_directory_answers_a_name_and_a_nonzero_free() {
         let d = TestDir::new("fsinfo");
         let info = read(d.path()).expect("a temp directory is on a mounted filesystem");
@@ -166,13 +182,13 @@ mod tests {
 
     #[test]
     fn the_line_carries_the_name_the_free_bytes_and_the_directory_they_are_of() {
-        let line = fsinfo_line(&Some(Info { name: "btrfs".to_string(), free: 442_000_000_000 }), "/home/gm", "");
+        let line = fsinfo_line(&Some(Info { name: "btrfs".to_string(), free: 442_000_000_000, blocks: 100 }), "/home/gm", "");
         assert_eq!(line, r#"{"t":"fsinfo","fs":"btrfs","free":442000000000,"path":"/home/gm","class":""}"#);
     }
 
     #[test]
     fn the_line_names_the_directory_class_beside_its_figures() {
-        let line = fsinfo_line(&Some(Info { name: "cifs".to_string(), free: 7 }), "/media/nas", "network");
+        let line = fsinfo_line(&Some(Info { name: "cifs".to_string(), free: 7, blocks: 100 }), "/media/nas", "network");
         assert_eq!(line, r#"{"t":"fsinfo","fs":"cifs","free":7,"path":"/media/nas","class":"network"}"#);
         let line = fsinfo_line(&None, "/gone", "usb");
         assert_eq!(line, r#"{"t":"fsinfo","fs":"","free":0,"path":"/gone","class":"usb"}"#);

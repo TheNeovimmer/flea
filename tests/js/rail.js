@@ -2,6 +2,7 @@
 .import "../../ui/js/Mounts.js" as Mounts
 .import "../../ui/js/Eject.js" as Eject
 .import "../../ui/js/Cloud.js" as Cloud
+.import "../../ui/js/NetFs.js" as NetFs
 
 // RailAdditions rules 1 and 2: the volumes nothing has mounted, behind their own switch, and the
 // menu those rows carry. Split out of tests/js/devices.js, which keeps the 0.2.1 rail's own parse.
@@ -73,14 +74,56 @@ function run(check) {
         var fstype = fs === null ? "null" : '"' + fs + '"'
         return '{"name":"sr0","path":"/dev/sr0","label":null,"mountpoints":[null],"rm":true,"size":0,"type":"rom","model":"MATSHITA DVD+/-RW UJ8FB","fstype":' + fstype + '}'
     }
-    var espLeaf = '{"name":"sda1","path":"/dev/sda1","label":"BOOT","mountpoints":[null],"rm":true,"tran":null,"size":536870912,"type":"part","model":null,"fstype":"vfat","parttypename":"EFI System"}'
-    check("an EFI system partition on a stick is still a row", labels(Devices.parseDevices(bootBox(stickPart(espLeaf)), true)), "nvme0n1,BOOT")
+    var espLeaf = '{"name":"sda1","path":"/dev/sda1","label":"BOOT","mountpoints":[null],"rm":true,"tran":null,"size":536870912,"type":"part","model":null,"fstype":"vfat","parttypename":"EFI System","parttype":"c12a7328-f81f-11d2-ba4b-00a0c93ec93b","pttype":"gpt","partn":1,"uuid":"A1B2-C3D4"}'
+    check("an EFI system partition on a stick is hidden on every setting", labels(Devices.parseDevices(bootBox(stickPart(espLeaf)), true)), "nvme0n1")
+    check("and it stays hidden with the switch off", labels(Devices.parseDevices(bootBox(stickPart(espLeaf)), false)), "nvme0n1")
     var cryptLeaf = '{"name":"sda1","path":"/dev/sda1","label":null,"mountpoints":[null],"rm":true,"tran":null,"size":8589934592,"type":"part","model":null,"fstype":"crypto_LUKS","parttypename":"Linux filesystem"}'
     check("an unmounted crypto_LUKS stick partition is still a row", labels(Devices.parseDevices(bootBox(stickPart(cryptLeaf)), true)), "nvme0n1,USB bootloader")
     check("a no-filesystem leaf that is somehow mounted is still a row",
         labels(Devices.parseDevices(bootBox(bootLun.replace('[null]', '["/run/media/gm/BOOT"]')), true)), "nvme0n1,USB bootloader")
     check("an empty rom stays hidden through the same guard", labels(Devices.parseDevices(bootBox(romLeaf(null)), true)), "nvme0n1")
     check("an iso9660 rom is still a row", labels(Devices.parseDevices(bootBox(romLeaf("iso9660")), true)), "nvme0n1,MATSHITA DVD+/-RW UJ8FB")
+
+    // Every hidden class below hides on every setting.
+    function hideLeaf(leaf) { return labels(Devices.parseDevices(bootBox(stickPart(leaf)), true)) }
+    function hideLeafOff(leaf) { return labels(Devices.parseDevices(bootBox(stickPart(leaf)), false)) }
+    var sysLeaf = '{"name":"sda1","path":"/dev/sda1","label":"System Reserved","mountpoints":[null],"rm":false,"tran":null,"size":52428800,"type":"part","model":null,"fstype":"ntfs","parttypename":null,"parttype":"0x7","pttype":"dos","partn":1,"uuid":"2222222222222222"}'
+    check("System Reserved hides on every setting", hideLeaf(sysLeaf), "nvme0n1")
+    check("and it stays hidden with the switch off", hideLeafOff(sysLeaf), "nvme0n1")
+    var winLeaf = '{"name":"sda2","path":"/dev/sda2","label":null,"mountpoints":[null],"rm":false,"tran":null,"size":524288000,"type":"part","model":null,"fstype":"ntfs","parttypename":null,"parttype":"0x27","pttype":"dos","partn":2,"uuid":"3333333333333333"}'
+    check("a 0x27 WinRE partition hides", hideLeaf(winLeaf), "nvme0n1")
+    var msrLeaf = '{"name":"sda1","path":"/dev/sda1","label":null,"mountpoints":[null],"rm":false,"tran":null,"size":16777216,"type":"part","model":null,"fstype":"ntfs","parttypename":null,"parttype":"e3c9e316-0b5c-4db8-817d-f92df00215ae","pttype":"gpt","partn":1,"uuid":null}'
+    check("an MSR partition hides", hideLeaf(msrLeaf), "nvme0n1")
+    var pvLeaf = '{"name":"sda1","path":"/dev/sda1","label":null,"mountpoints":[null],"rm":false,"tran":null,"size":1073741824,"type":"part","model":null,"fstype":"LVM2_member","parttypename":null,"parttype":"0x8e","pttype":"dos","partn":1,"uuid":"44444444-4444-4444-4444-444444444444"}'
+    check("an LVM PV hides", hideLeaf(pvLeaf), "nvme0n1")
+    check("and it stays hidden with the switch off", hideLeafOff(pvLeaf), "nvme0n1")
+    var raidLeaf = '{"name":"sda1","path":"/dev/sda1","label":null,"mountpoints":[null],"rm":false,"tran":null,"size":1073741824,"type":"part","model":null,"fstype":"linux_raid_member","parttypename":null,"parttype":"0xfd","pttype":"dos","partn":1,"uuid":"55555555-5555-5555-5555-555555555555"}'
+    check("a RAID member hides", hideLeaf(raidLeaf), "nvme0n1")
+    var swapLeaf = '{"name":"sda1","path":"/dev/sda1","label":null,"mountpoints":["[SWAP]"],"rm":true,"tran":null,"size":268435456,"type":"part","model":null,"fstype":"swap","parttypename":"Linux swap","parttype":"0x82","pttype":"dos","partn":1,"uuid":"66666666-6666-6666-6666-666666666666"}'
+    check("swap on a stick hides on every setting", hideLeaf(swapLeaf), "nvme0n1")
+    check("and it stays hidden with the switch off", hideLeafOff(swapLeaf), "nvme0n1")
+    var nofsLeaf = '{"name":"sda1","path":"/dev/sda1","label":null,"mountpoints":[null],"rm":true,"tran":null,"size":268435456,"type":"part","model":null,"fstype":null,"parttypename":null,"parttype":null,"pttype":"dos","partn":1,"uuid":null}'
+    check("a partition with no filesystem hides", hideLeaf(nofsLeaf), "nvme0n1")
+    var isoLeaf = '{"name":"sda1","path":"/dev/sda1","label":"FLEA-ISO","mountpoints":[null],"rm":true,"tran":null,"size":1073741824,"type":"part","model":null,"fstype":"iso9660","parttypename":null,"parttype":"0x0","pttype":"dos","partn":1,"uuid":"88888888-8888-8888-8888-888888888888"}'
+    check("an isohybrid ISO partition stays a row", hideLeaf(isoLeaf), "nvme0n1,FLEA-ISO")
+    var dataLeaf = '{"name":"sda1","path":"/dev/sda1","label":"DATA","mountpoints":["/home/gm/Data"],"rm":true,"tran":null,"size":124656812032,"type":"part","model":null,"fstype":"vfat","parttypename":"W95 FAT32","parttype":"0xb","pttype":"dos","partn":1,"uuid":"A1B2-C3D4"}'
+    check("a user drive mounted under home stays a row", hideLeaf(dataLeaf), "nvme0n1,DATA")
+    var dupBody = '{"blockdevices":[{"name":"nvme0n1","path":"/dev/nvme0n1","label":null,"mountpoints":[null],"rm":false,"size":256060514304,"type":"disk","model":"KBG40ZNS256G","fstype":null,"parttypename":null,"children":[{"name":"nvme0n1p1","path":"/dev/nvme0n1p1","label":null,"mountpoints":["/"],"rm":false,"size":256060514304,"type":"part","model":null}]},'
+        + '{"name":"sda","path":"/dev/sda","label":null,"mountpoints":[null],"rm":true,"tran":"usb","size":124656812032,"type":"disk","model":"Stick","fstype":null,"parttypename":null,"children":[{"name":"sda1","path":"/dev/sda1","label":"A","mountpoints":["/run/media/gm/A"],"rm":true,"size":1000,"type":"part","model":null,"fstype":"vfat","uuid":"9998"},{"name":"sda1","path":"/dev/sda1","label":"A","mountpoints":["/run/media/gm/A"],"rm":true,"size":1000,"type":"part","model":null,"fstype":"vfat","uuid":"9997"}]}]}'
+    check("a repeated PATH names one row, not two", Devices.parseDevices(dupBody, true).length, 2)
+    var isoBody = '{"blockdevices":[{"name":"nvme0n1","path":"/dev/nvme0n1","label":null,"mountpoints":[null],"rm":false,"size":256060514304,"type":"disk","model":"KBG40ZNS256G","fstype":null,"parttypename":null,"children":[{"name":"nvme0n1p1","path":"/dev/nvme0n1p1","label":null,"mountpoints":["/"],"rm":false,"size":256060514304,"type":"part","model":null}]},'
+        + '{"name":"sda","path":"/dev/sda","label":null,"mountpoints":[null],"rm":true,"tran":"usb","size":1000,"type":"disk","model":"StickA","fstype":null,"parttypename":null,"children":[{"name":"sda1","path":"/dev/sda1","label":"ISO-A","mountpoints":[null],"rm":true,"size":1000,"type":"part","model":null,"fstype":"iso9660","parttype":"0x0","pttype":"dos","partn":1,"uuid":"2026-09-01-10-00-00-00"}]},'
+        + '{"name":"sdb","path":"/dev/sdb","label":null,"mountpoints":[null],"rm":true,"tran":"usb","size":1000,"type":"disk","model":"StickB","fstype":null,"parttypename":null,"children":[{"name":"sdb1","path":"/dev/sdb1","label":"ISO-B","mountpoints":[null],"rm":true,"size":1000,"type":"part","model":null,"fstype":"iso9660","parttype":"0x0","pttype":"dos","partn":1,"uuid":"2026-09-01-10-00-00-00"}]}]}'
+    check("two sticks sharing one ISO image keep both rows", labels(Devices.parseDevices(isoBody, true)), "nvme0n1,ISO-A,ISO-B")
+    var btrfsBody = '{"blockdevices":[{"name":"nvme0n1","path":"/dev/nvme0n1","label":null,"mountpoints":[null],"rm":false,"size":256060514304,"type":"disk","model":"KBG40ZNS256G","fstype":null,"parttypename":null,"children":[{"name":"nvme0n1p1","path":"/dev/nvme0n1p1","label":null,"mountpoints":["/"],"rm":false,"size":256060514304,"type":"part","model":null}]},'
+        + '{"name":"sdb","path":"/dev/sdb","label":null,"mountpoints":[null],"rm":false,"size":1000,"type":"disk","model":null,"fstype":null,"parttypename":null,"children":[{"name":"sdb1","path":"/dev/sdb1","label":null,"mountpoints":["/mnt/a"],"rm":false,"size":1000,"type":"part","model":null,"fstype":"btrfs","uuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}]},'
+        + '{"name":"sdc","path":"/dev/sdc","label":null,"mountpoints":[null],"rm":false,"size":1000,"type":"disk","model":null,"fstype":null,"parttypename":null,"children":[{"name":"sdc1","path":"/dev/sdc1","label":null,"mountpoints":["/mnt/b"],"rm":false,"size":1000,"type":"part","model":null,"fstype":"btrfs","uuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}]}]}'
+    check("two btrfs paths sharing one UUID name one row", Devices.parseDevices(btrfsBody, true).length, 2)
+    var remountBody = '{"blockdevices":[{"name":"sda","path":"/dev/sda","label":null,"mountpoints":[null],"rm":true,"tran":"usb","size":1000,"type":"disk","model":"Stick","fstype":null,"parttypename":null,"children":['
+        + '{"name":"sda1","path":"/dev/sda1","label":"A","mountpoints":[null],"rm":true,"size":1000,"type":"part","model":null,"fstype":"vfat","uuid":"9998"},'
+        + '{"name":"sda1","path":"/dev/sda1","label":"A","mountpoints":["/run/media/gm/A"],"rm":true,"size":1000,"type":"part","model":null,"fstype":"vfat","uuid":"9997"}]}]}'
+    var remounted = Devices.parseDevices(remountBody, true)
+    check("a mounted copy replaces its unmounted first row", remounted.length === 1 && remounted[0].mounted === true && remounted[0].path === "/run/media/gm/A", true)
 
     // Rule 2's rows, which only a row from rule 1 carries.
     function solid(rows) { return rows.filter(function (r) { return r.separator !== true }) }
@@ -134,5 +177,45 @@ function run(check) {
     check("a cloud row offers no menu row", Mounts.railMenu(grow).length, 0)
     check("and no right-click row either", Mounts.rowMenu(grow).length, 0)
     check("and no eject mark either", Eject.releasable(grow), false)
+
+    // One shared network list: NetFs answers what Rust netfs answers, so the rail and the loop agree.
+    check("nfs names network", NetFs.isNetworkFstype("nfs"), true)
+    check("nfs4 names network", NetFs.isNetworkFstype("nfs4"), true)
+    check("cifs names network", NetFs.isNetworkFstype("cifs"), true)
+    check("smb3 names network", NetFs.isNetworkFstype("smb3"), true)
+    check("davfs names network", NetFs.isNetworkFstype("davfs"), true)
+    check("fuse.sshfs names network", NetFs.isNetworkFstype("fuse.sshfs"), true)
+    check("fuse.rclone names network", NetFs.isNetworkFstype("fuse.rclone"), true)
+    check("fuse.s3fs names network", NetFs.isNetworkFstype("fuse.s3fs"), true)
+    check("fuse.gvfsd-fuse names network for the storage class", NetFs.isNetworkFstype("fuse.gvfsd-fuse"), true)
+    check("ext4 stays local", NetFs.isNetworkFstype("ext4"), false)
+    check("bare fuse stays local", NetFs.isNetworkFstype("fuse"), false)
+    check("fuseblk stays local", NetFs.isNetworkFstype("fuseblk"), false)
+    check("the document portal stays local", NetFs.isNetworkFstype("fuse.portal"), false)
+    check("a local mergerfs stays local", NetFs.isNetworkFstype("fuse.mergerfs"), false)
+    check("gocryptfs stays local", NetFs.isNetworkFstype("fuse.gocryptfs"), false)
+    check("nfsd stays local", NetFs.isNetworkFstype("nfsd"), false)
+    check("a bare sshfs stays local", NetFs.isNetworkFstype("sshfs"), false)
+    // Kernel and outside-home FUSE mounts become NETWORK rows without a per-row stat.
+    var netBody = "30 1 0:45 / /mnt/nas rw - nfs nas:/share rw\n"
+        + "31 1 0:46 / /media/smb rw - cifs //nas/media rw\n"
+        + "32 1 0:47 / /mnt/ssh rw - fuse.sshfs user@h:/ rw\n"
+        + "33 1 0:48 / /home/u/gdrive rw - fuse.rclone remote: rw\n"
+        + "40 1 0:40 / /run/user/1000/gvfs rw - fuse.gvfsd-fuse gvfsd-fuse rw\n"
+    var nets = Cloud.parseNetworkMounts(netBody, "/home/u")
+    check("kernel nfs, cifs and outside-home sshfs become rows", nets.length, 3)
+    check("the inside-home rclone stays a cloud row, not a second one",
+        nets.some(function (n) { return n.path === "/home/u/gdrive" }), false)
+    check("the gvfs root never becomes a row",
+        nets.some(function (n) { return n.path.indexOf("/run/") === 0 }), false)
+    // The portal, the bridge, the server proc and a local FUSE mount never become rows.
+    var narrowBody = "10 1 0:50 / /run/user/1000/doc rw - fuse.portal portal rw\n"
+        + "11 1 0:40 / /run/user/1000/gvfs rw - fuse.gvfsd-fuse gvfsd-fuse rw\n"
+        + "12 1 0:51 / /proc/fs/nfsd rw - nfsd nfsd rw\n"
+        + "13 1 8:1 / /mnt/merge rw - fuse.mergerfs merge rw\n"
+        + "14 1 0:45 / /mnt/nas rw - nfs nas:/share rw\n"
+    var narrow = Cloud.parseNetworkMounts(narrowBody, "/home/u")
+    check("portal, bridge, nfsd and mergerfs beside one NFS yield exactly it",
+        narrow.length === 1 && narrow[0].path === "/mnt/nas", true)
 }
 

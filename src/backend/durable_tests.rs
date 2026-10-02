@@ -3,7 +3,7 @@ use crate::backend::copyfile::Progress;
 use crate::backend::testdir::TestDir;
 
 fn quiet<'a>(flag: &'a std::sync::atomic::AtomicBool, sink: &'a mut dyn FnMut(u64, u64), durability: &'a mut Durability) -> Progress<'a> {
-    Progress { cancel: flag, on_bytes: sink, partial: None, tree: None, manifest: None, durability: Some(durability) }
+    Progress { cancel: flag, on_bytes: sink, partial: None, tree: None, manifest: None, durability: Some(durability), for_move: false }
 }
 
 // Sample mountinfo text with dir as a /dev vfat stick, so begin batches it without two mounts.

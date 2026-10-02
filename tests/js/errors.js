@@ -16,6 +16,15 @@ function run(check) {
     check("any other refused hop names its directory too",
           Errors.sentence("scan", "No such file or directory", "gone"),
           "That directory could not be read: gone")
+    check("a stale share names itself rather than the directory",
+          Errors.sentence("scan", "file is no longer available", "gone"),
+          "That share changed, so this folder is no longer available.")
+    check("a disconnected share asks for a remount",
+          Errors.sentence("scan", "not connected", "gone"),
+          "That share is disconnected; remount it.")
+    check("an unresponsive share says so",
+          Errors.sentence("scan", "operation timed out", "gone"),
+          "That share is not responding.")
     check("and the bare sentence is what is left without one",
           Errors.sentence("scan", "No such file or directory"),
           "That directory could not be read.")
@@ -61,6 +70,12 @@ function run(check) {
     check("and any other rename failure stays generic rather than leaking errno",
           Errors.sentence("rename", "Permission denied (os error 13)"),
           "That file could not be renamed.")
+    check("a per-filesystem name refusal keeps its character",
+          Errors.sentence("rename", "':' is not allowed in a name on this vfat drive"),
+          "':' is not allowed in a name on this vfat drive.")
+    check("and mkdir keeps its reserved-name refusal too",
+          Errors.sentence("mkdir", "'CON' is reserved on this vfat drive"),
+          "'CON' is reserved on this vfat drive.")
 
     // The sentence promises the copy, warns the other name may be incomplete, and names no direction.
     check("a rename that kept its copy says so, with no path and no errno",
@@ -72,6 +87,10 @@ function run(check) {
     check("and it never tells an operator who pressed undo that something was renamed",
           Errors.sentence("rename-kept", "Permission denied (os error 13)").indexOf("Renamed") < 0,
           true)
+    // A stranded twin keeps the source path, so the sentence must name the temp leaf it sits under.
+    check("a stranded twin names its temp leaf",
+          Errors.sentence("rename-stranded", "the file was left as .flea-case-1-0 in this folder: input/output failed"),
+          "The file was left as .flea-case-1-0 in this folder: input/output failed.")
     check("a duplicate failure names the operation",
           Errors.sentence("duplicate", "every copy name is taken"),
           "That file could not be duplicated.")
@@ -85,6 +104,15 @@ function run(check) {
     check("a transfer failure reads back as the backend's own sentence",
           Errors.sentence("transfer", "the destination is not a directory"),
           "The destination is not a directory.")
+    check("a link failure on a linkless drive names the capability",
+          Errors.sentence("link", "this drive cannot hold links"),
+          "This drive cannot hold links.")
+    check("a read-only refusal passes through instead of the generic sentence",
+          Errors.sentence("rename", "filesystem is read-only"),
+          "Filesystem is read-only.")
+    check("and mkdir keeps it too",
+          Errors.sentence("mkdir", "filesystem is read-only"),
+          "Filesystem is read-only.")
 
     // src/backend/ops.rs words the collision "a folder or file with that name already exists", while
     // rename's own predicate looks for the errno's "file exists". A branch reusing that spelling

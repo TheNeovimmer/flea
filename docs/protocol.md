@@ -745,7 +745,10 @@ removal that took effect from one that did not. The request then answers an `err
 the source, and whose `msg` is the removal's own message; the target is on neither field. Neither
 direction journals the kept copy, so no `undo` removes it: the removal can stop partway, and one error
 with no account of how far it got cannot tell a whole source from a remnant or from one already gone. An `undo` reverses a
-rename through the same call, so a reversal that half succeeds answers this same `where`.
+rename through the same call, so a reversal that half succeeds answers this same `where`. A case twin
+whose move-back from its temp sibling fails answers `rename-stranded` instead: its `path` is the
+source, its `msg` names the temp leaf and the move-back's cause, and the file stays under that
+hidden name.
 
 Unlike the three above, this answers on the loop's own thread: the ordinary case is one `renameat2`,
 which costs less than spawning a thread. The compatibility paths above are not one syscall and
@@ -831,7 +834,7 @@ or that cannot be read, answers `hasShebang` false rather than an error, so the 
 Reverses the most recent completed operation and answers one `undone` line naming which kind it was.
 An empty journal answers an `error` line with `where` of `undo`, and so does a reversal that fails
 removing what an operation created or restoring from the trash. A reversal that renames back goes
-through the same call a `rename` does, so its failure answers `rename` or `rename-kept` instead.
+through the same call a `rename` does, so its failure answers `rename`, `rename-kept` or `rename-stranded` instead.
 
 **The journal is an in-memory ring of the last 50 completed operations and is not persisted**, so it
 does not survive a restart. Each kind reverses as follows: a rename or a move renames back (still
@@ -1403,7 +1406,7 @@ stdin stream itself could not be decoded; the loop stops right after emitting th
 line, because the framing cannot be trusted past that point; thumbnail work already
 running is still drained after it, so a `thumbed` line can follow). The write
 operations answer over the same stdout and name themselves the same way, and
-`rename-kept` (see `rename`) is the only value on this wire that is not one lowercase
+`rename-kept` and `rename-stranded` (see `rename`) are the only values on this wire that are not one lowercase
 word, so a client matching this field must allow the hyphen. `error_line`
 is also how `flea --prewarm` reports a failure, to stderr rather than over this wire
 protocol. `where` names whichever operation actually failed: a missing or unreadable

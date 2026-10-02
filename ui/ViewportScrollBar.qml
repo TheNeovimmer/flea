@@ -70,9 +70,11 @@ Item {
         root.flickable.cancelFlick()
         Scroll.stopTail(root.flickable)
         if (root.vertical)
-            root.flickable.contentY = Scroll.bounded(value, root.origin, root.contentLength, root.viewportLength)
+            root.flickable.contentY = Scroll.bounded(value, root.flickable.originY, root.flickable.contentHeight,
+                root.flickable.height, root.flickable.topMargin, root.flickable.bottomMargin)
         else
-            root.flickable.contentX = Scroll.bounded(value, root.origin, root.contentLength, root.viewportLength)
+            root.flickable.contentX = Scroll.bounded(value, root.flickable.originX, root.flickable.contentWidth,
+                root.flickable.width, root.flickable.leftMargin, root.flickable.rightMargin)
     }
 
     function page(direction) {

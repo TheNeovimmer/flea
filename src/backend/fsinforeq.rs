@@ -150,7 +150,7 @@ mod tests {
     }
 
     fn figures(free: u64) -> Option<Info> {
-        Some(Info { name: "fuse".to_string(), free })
+        Some(Info { name: "fuse".to_string(), free, blocks: 100 })
     }
 
     // The GUI, which asks for figures on every listing, so its listings start the share's statfs.

@@ -131,8 +131,23 @@ mod tests {
             (30, "filesystem is read-only"),
             (36, "file name is too long"),
             (40, "too many symbolic links"),
+            (116, "file is no longer available"),
         ] {
             assert_eq!(io_message(&std::io::Error::from_raw_os_error(code)), expected);
         }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn stale_disconnected_and_silent_shares_each_read_differently() {
+        use std::io::{Error, ErrorKind};
+        let stale = io_message(&Error::from_raw_os_error(116));
+        let gone = io_message(&Error::from_raw_os_error(107));
+        let silent = io_message(&Error::from_raw_os_error(110));
+        assert_ne!(stale, gone, "ESTALE and ENOTCONN share no sentence");
+        assert_ne!(stale, silent, "ESTALE and ETIMEDOUT share no sentence");
+        assert_ne!(gone, silent, "ENOTCONN and ETIMEDOUT share no sentence");
+        assert_eq!(gone, io_message(&Error::from(ErrorKind::NotConnected)));
+        assert_eq!(silent, io_message(&Error::from(ErrorKind::TimedOut)));
     }
 }
