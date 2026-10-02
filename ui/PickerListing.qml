@@ -41,9 +41,7 @@ Item {
         if (current && current.running && !current.obsolete && !quitting)
             current.write(JSON.stringify({c: "window", start: start, count: count}) + "\n")
     }
-    // The storage class beside the worker's own listing, asked the way the main
-    // pane asks its backend after a listing lands; the grid's thumbnail planner
-    // holds on unknown until this answers, see ui/PickerGrid.qml.
+    // Storage class for the grid planner, asked after the listing lands.
     function fsinfo() {
         if (current && current.running && !current.obsolete && !quitting)
             current.write(JSON.stringify({c: "fsinfo"}) + "\n")

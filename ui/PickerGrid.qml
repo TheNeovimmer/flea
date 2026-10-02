@@ -219,10 +219,8 @@ GridView {
         }
     }
 
-    // The listing is a window around the viewport, not the directory, so scrolling refetches.
-    // A scroll restarts the thumbnail settle too, the way ui/GridArea.qml does: tiles
-    // scrolled into view inside the held window are never refetched, so without this
-    // no settle ever asks for them.
+    // A scroll refetches the window and restarts the thumb settle for newly visible tiles.
+    // Held rows are never refetched, so without the restart no settle asks for them.
     onContentYChanged: {
         coalesce.restart()
         settle.restart()

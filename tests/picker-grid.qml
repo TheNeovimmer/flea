@@ -4,23 +4,25 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 
-// The picker grid asks thumbnails for visible tiles only: unknown storage holds
-// every ask, the first settle asks the first screen alone, and a scroll restarts
-// the settle so newly visible tiles are asked and nothing else ever is. The
-// listing worker answers the fsinfo ask the window sends when its listed line
-// lands; without that ask storageKnown never flips and the grid stays iconic.
+// Visible tiles only: unknown storage holds every ask, one screen asks after movement stops.
+// Real window chain below proves onListed asks fsinfo and the grid asks thumb after it.
 ShellRoot {
     id: root
 
     property var failures: []
     property int rowCount: 60
-    property var asked: []
     property int stage: 0
     property double stageSince: 0
     property int screenLast: -1
     property int scrolledLast: -1
-    property bool fsinfoSeen: false
-    property string fsinfoClass: "?"
+    property int hiddenShown: -1
+    property string folderClass: "?"
+    property var winShell: null
+    property var win: null
+    property double recentSince: 0
+    readonly property int askWaitMs: 5000
+    readonly property int recentHoldMs: 1200
+    readonly property int probeTimeoutMs: 30000
 
     function fail(text) { root.failures.push(text) }
     function buildRows() {
@@ -46,6 +48,7 @@ ShellRoot {
         id: pickerStub
         QtObject {
             property int total: 60
+            property int shownTotal: 60
             property int held: 0
             property var rows: []
             property int cursorIndex: 0
@@ -59,6 +62,9 @@ ShellRoot {
             property var marks: []
             property bool folderMode: false
             property int windowSize: 60
+            property int coalesceMs: 16
+            property real windowLead: 0.25
+            property var kindNames: []
             function rowFor(index) {
                 var at = index - held
                 return at >= 0 && at < rows.length ? rows[at] : null
@@ -89,30 +95,15 @@ ShellRoot {
             picker: root.stubPicker
             backend: root.stubBackend
         }
-    }
-
-    // The listing half: a real worker against a stub backend that answers listed
-    // and, only when asked, one fsinfo line. The window asks on listed; here the
-    // probe asks there too, so a worker with no fsinfo ask reddens this instead.
-    Flea.PickerListing {
-        id: listing
-        onMessage: function (message) {
-            if (message.t === "listed" && root.stage === 10 && !root.fsinfoAsked) {
-                root.fsinfoAsked = true
-                try {
-                    listing.fsinfo()
-                } catch (error) {
-                    root.fail("the listing worker has no fsinfo ask: " + error)
-                    root.report()
-                }
-            } else if (message.t === "fsinfo" && root.stage === 10) {
-                root.fsinfoSeen = true
-                root.fsinfoClass = message.class
-                root.report()
-            }
+        Flea.PickerList {
+            id: listProbe
+            visible: false
+            width: 400
+            height: 300
+            picker: root.stubPicker
+            backend: root.stubBackend
         }
     }
-    property bool fsinfoAsked: false
 
     function flatAsks() {
         var out = []
@@ -126,6 +117,10 @@ ShellRoot {
             if (rows[i] < lo || rows[i] > hi) return false
         return true
     }
+    function winThumbPending() {
+        if (!root.win || !root.win.thumbState || !root.win.thumbState.file) return false
+        return Object.keys(root.win.thumbState.file).length > 0
+    }
 
     Timer {
         interval: 10
@@ -133,20 +128,12 @@ ShellRoot {
         running: true
         onTriggered: root.step()
     }
-    Timer { interval: 30000; running: true; onTriggered: { root.fail("probe timed out"); root.report() } }
+    Timer { interval: root.probeTimeoutMs; running: true; onTriggered: { root.fail("probe timed out"); root.report() } }
 
     function step() {
         if (root.failures.length > 0) { root.report(); return }
         switch (root.stage) {
         case 0: {
-            // The window itself is never instantiated here, so compile it: a
-            // broken onListed never reaches a running probe otherwise.
-            var comp = Qt.createComponent("flea/PickerWindow.qml")
-            if (comp.status !== Component.Ready) {
-                root.fail("PickerWindow does not compile: " + comp.errorString())
-                return
-            }
-            // Unknown storage holds: an ask now must plan nothing.
             grid.requestThumbs()
             if (stubBackend.thumbAsks.length !== 0) {
                 root.fail("unknown storage asked " + stubBackend.thumbAsks.length + " thumb rows")
@@ -161,7 +148,7 @@ ShellRoot {
         }
         case 1: {
             if (stubBackend.thumbAsks.length === 0) {
-                if (Date.now() - root.stageSince > 5000) { root.fail("the first settle never asked"); }
+                if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("the first settle never asked"); }
                 return
             }
             var cols = Math.max(1, grid.columns)
@@ -183,36 +170,108 @@ ShellRoot {
             var now = root.flatAsks()
             var fresh = now.filter(function (r) { return r >= before })
             if (fresh.length === 0) {
-                if (Date.now() - root.stageSince > 5000) { root.fail("a scroll asked no newly visible tile"); }
+                if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("a scroll asked no newly visible tile"); }
                 return
             }
             var cols2 = Math.max(1, grid.columns)
             var tileRows2 = Math.max(1, grid.visibleTileRows)
             var first2 = Math.floor(grid.contentY / grid.cellHeightPx) * cols2
-            root.scrolledLast = Math.min(root.rowCount - 1, first2 + tileRows2 * cols2 - 1 + cols2)
+            root.scrolledLast = Math.min(root.rowCount - 1, first2 + tileRows2 * cols2 - 1)
             if (!root.inBounds(now, 0, root.scrolledLast)) { root.fail("an ask named a tile never scrolled into view"); return }
             if (root.stubBackend.windowCalls !== 0) { root.fail("the held window covered the scroll, yet " + root.stubBackend.windowCalls + " refetch ran"); return }
-            root.stage = 10
+            root.stage = 3
             root.stageSince = Date.now()
-            listing.request({ c: "list", path: "/probe", first: root.rowCount })
             return
         }
-        case 10:
-            if (!root.fsinfoSeen && Date.now() - root.stageSince > 5000) { root.fail("no fsinfo line arrived after the ask"); }
+        case 3: {
+            if (listProbe.count !== 0 || listProbe.model !== 0) {
+                root.fail("hidden list built count=" + listProbe.count + " model=" + listProbe.model + ", want 0")
+                return
+            }
+            listProbe.visible = true
+            root.stage = 30
+            root.stageSince = Date.now()
             return
+        }
+        case 30: {
+            if (listProbe.count !== root.stubPicker.shownTotal) {
+                if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("shown list holds count=" + listProbe.count + " model=" + listProbe.model + ", want " + root.stubPicker.shownTotal); }
+                return
+            }
+            root.hiddenShown = listProbe.count
+            listProbe.visible = false
+            var winComp = Qt.createComponent("flea/PickerWindow.qml")
+            if (winComp.status !== Component.Ready) {
+                root.fail("PickerWindow does not compile: " + winComp.errorString())
+                return
+            }
+            root.winShell = winComp.createObject(root)
+            if (!root.winShell) {
+                root.fail("PickerWindow did not instantiate: " + winComp.errorString())
+                return
+            }
+            root.win = root.winShell.pickerWin
+            if (!root.win) {
+                root.fail("real window has no storage holder")
+                return
+            }
+            root.stage = 41
+            root.stageSince = Date.now()
+            return
+        }
+        case 41: {
+            if (!root.win || !root.win.storageKnown) {
+                if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("window onListed never asked fsinfo"); }
+                return
+            }
+            if (root.win.storageClass !== "network") {
+                root.fail("window storage holds " + JSON.stringify(root.win.storageClass) + ", want network")
+                return
+            }
+            root.win.setView("grid")
+            root.stage = 42
+            root.stageSince = Date.now()
+            return
+        }
+        case 42: {
+            if (!root.winThumbPending()) {
+                if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("no thumb ask followed the fsinfo answer"); }
+                return
+            }
+            root.folderClass = root.win.storageClass
+            root.win.open("flea:recent")
+            root.recentSince = Date.now()
+            root.stage = 43
+            root.stageSince = Date.now()
+            return
+        }
+        case 43: {
+            if (!root.win) {
+                root.fail("real window vanished before Recent")
+                return
+            }
+            if (root.win.path !== "flea:recent") {
+                if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("Recent never opened, at " + root.win.path); }
+                return
+            }
+            if (root.win.storageKnown) {
+                if (Date.now() - root.recentSince > root.recentHoldMs) { root.fail("Recent asked fsinfo, storage is known"); }
+                return
+            }
+            if (Date.now() - root.stageSince < root.recentHoldMs) return
+            root.report()
+            return
+        }
         }
     }
 
     function report() {
-        if (root.stage === 10 && root.fsinfoSeen && root.fsinfoClass !== "") {
-            root.fail("the fsinfo line carried class " + JSON.stringify(root.fsinfoClass) + ", want local \"\"")
-        }
-        if (root.failures.length === 0)
-            console.log("PICKERGRID PASS screen=0.." + root.screenLast + " scrolled<=" + root.scrolledLast + " fsinfo=\"" + root.fsinfoClass + "\"")
-        else
+        if (root.failures.length === 0) {
+            console.log("PICKERGRID PASS screen=0.." + root.screenLast + " scrolled<=" + root.scrolledLast + " hidden=" + root.hiddenShown + " fsinfo=\"" + root.folderClass + "\"")
+        } else {
             for (var i = 0; i < root.failures.length; i++)
                 console.log("PICKERGRID FAIL " + root.failures[i])
-        listing.quit()
+        }
         Quickshell.execDetached(["kill", String(Quickshell.processId)])
     }
 }

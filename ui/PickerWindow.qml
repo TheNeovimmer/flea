@@ -15,6 +15,7 @@ import "js/Thumbs.js" as Thumbs
 // The same Backend, Row, Theme and places the browser window draws with, and none of its operations:
 // a chooser that can rename or delete is a file manager wearing a dialog's clothes.
 ShellRoot {
+    property alias pickerWin: win
     FloatingWindow {
         id: win
 
@@ -400,10 +401,7 @@ ShellRoot {
                 win.receivingLatestListing = true
                 win.total = n
                 win.listingState = n === 0 ? "empty" : "ready"
-                // The grid plans thumbnails against the storage class, which only
-                // an fsinfo ask names; the main pane asks the same way when its
-                // own listing lands, see ui/js/Nav.js. Recent spans mounts, so it
-                // asks for nothing, see ui/js/RecentMode.js.
+                // Grid needs the storage class, so ask fsinfo except on Recent.
                 if (!win.recent)
                     listing.fsinfo()
             }
