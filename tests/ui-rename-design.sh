@@ -252,6 +252,7 @@ case_renamedesign() (
         mapfile -t pids < <(backend_pids)
         [[ "${#pids[@]}" == 1 ]] || fail 'rename: pending click requires one owned backend'
         click_pid="${pids[0]}"
+        rename_stopped="$click_pid"
         convert_pause_backend "$click_pid"
         rename_design_open r a-original.md
         rename_design_draft a-pending-click.md
@@ -260,6 +261,7 @@ case_renamedesign() (
         click_row "$(row_index_of b-existing.md)" left
         click_row "$(row_index_of f0000.txt)" left
         permissions_resume_stopped "$click_pid" || fail 'rename: owned backend did not resume'
+        rename_stopped=""
         menus_expect renameState '.index == -1 and (.pending | not) and (.loading | not) and .cursorName == "f0000.txt"' "$mode second click while pending wins"
         menus_equal "$mode pending-click cursor" "$(row_index_of f0000.txt)" "$(ipc cursor)"
         rename_design_open r a-pending-click.md

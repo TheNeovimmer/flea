@@ -81,7 +81,7 @@ printf '%s\n' "$output" | grep -a 'GEOMETRY [a-z-]* [a-z]* [0-9x]* frame='
 # The contact sheet: every cell grab in index order, titled by its own file name, for a human to look at.
 mapfile -t grabs < <(ls "$test_root"/out/geometry-*.png | sort -V)
 [ "${#grabs[@]}" -eq 36 ] || { echo "preview-geometry.sh: want 36 cell grabs, got ${#grabs[@]}"; exit 1; }
-montage "${grabs[@]}" -tile 4x -geometry 320x240+4+4 -label '%f' "$test_root/sheet.png" \
+montage -label '%f' "${grabs[@]}" -tile 4x -geometry 320x240+4+4 "$test_root/sheet.png" \
     || { echo "preview-geometry.sh: the contact sheet failed"; exit 1; }
 printf 'GEOMETRY cells=%s ok=%s fail=%s\n' "$cells" "$ok_count" "$fail_count"
 printf 'GEOMETRY_SHEET %s\n' "$test_root/sheet.png"

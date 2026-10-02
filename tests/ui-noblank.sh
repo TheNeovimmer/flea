@@ -173,7 +173,7 @@ case_previewswap() {
     settle
     [[ "$(ipc viewMode)" == columns ]] || fail "previewswap: fixture did not open its columns view"
 
-    local before after before_mid after_mid
+    local before after before_mid after_mid frame_rect picture_rect
     before=$(ipc previewSwapState)
     # Walk the whole preview row: each j holds the old picture until the new one is whole.
     goto_row 0
@@ -237,8 +237,16 @@ case_previewswap() {
         [[ "$(ipc columnFrameReady)" == "true" ]] && break
         sleep 0.1
     done
-    read -r fx fy fw fh <<< "$(ipc columnFrameRect)"
-    read -r px py pw ph <<< "$(ipc columnPictureRect)"
+    [[ "$(ipc columnFrameReady)" == "true" ]] \
+        || fail "previewswap: b-video.mp4 frame never read Ready"
+    frame_rect=$(ipc columnFrameRect)
+    picture_rect=$(ipc columnPictureRect)
+    [[ "$frame_rect" =~ ^-?[0-9]+\ -?[0-9]+\ [0-9]+\ [0-9]+$ ]] \
+        || fail "previewswap: b-video.mp4 frame has no valid rectangle: $frame_rect"
+    [[ "$picture_rect" =~ ^-?[0-9]+\ -?[0-9]+\ [0-9]+\ [0-9]+$ ]] \
+        || fail "previewswap: b-video.mp4 picture has no valid rectangle: $picture_rect"
+    read -r fx fy fw fh <<< "$frame_rect"
+    read -r px py pw ph <<< "$picture_rect"
     printf 'PREVIEWSWAP poster frame=%s,%s,%s,%s picture=%s,%s,%s,%s\n' "$fx" "$fy" "$fw" "$fh" "$px" "$py" "$pw" "$ph"
     (( ph >= fh - 4 && ph <= fh )) \
         || fail "previewswap: the 64x64 clip poster is $pw x $ph in a $fw x $fh frame, not filled on its limiting side"
@@ -258,7 +266,12 @@ case_previewswap() {
         [[ "$(ipc columnFrameReady)" == "true" ]] && break
         sleep 0.1
     done
-    read -r px py pw ph <<< "$(ipc columnPictureRect)"
+    [[ "$(ipc columnFrameReady)" == "true" ]] \
+        || fail "previewswap: a-image.jpg frame never read Ready"
+    picture_rect=$(ipc columnPictureRect)
+    [[ "$picture_rect" =~ ^-?[0-9]+\ -?[0-9]+\ [0-9]+\ [0-9]+$ ]] \
+        || fail "previewswap: a-image.jpg picture has no valid rectangle: $picture_rect"
+    read -r px py pw ph <<< "$picture_rect"
     printf 'PREVIEWSWAP still frame=%s,%s,%s,%s picture=%s,%s,%s,%s\n' "$fx" "$fy" "$fw" "$fh" "$px" "$py" "$pw" "$ph"
     (( pw >= 62 && pw <= 66 && ph >= 62 && ph <= 66 )) \
         || fail "previewswap: the 64x64 image draws at $pw x $ph, not its own size"
