@@ -36,7 +36,7 @@ src/backend/dirsizeworker.rs 574
 src/backend/run.rs 486
 src/backend/watch.rs 441
 src/backend/thumbs.rs 460
-src/backend/thumbreq.rs 402
+src/backend/thumbreq.rs 408
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 698
 src/backend/trashdelete.rs 901

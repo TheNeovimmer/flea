@@ -359,9 +359,15 @@ mod tests {
         // Sample input: link.jpg -> photo.jpg with a Ready entry keyed on the link path and target mtime.
         let d = TestDir::new("thumbcachesymlink");
         let target = d.file("photo.jpg", "bytes the link target holds");
+        // Backdate the target below the link's fresh mtime so the two lookup keys cannot agree.
+        const BACKDATED_SECS: u64 = 946684800;
+        let past = std::time::UNIX_EPOCH + std::time::Duration::from_secs(BACKDATED_SECS);
+        std::fs::File::options().write(true).open(&target).unwrap().set_modified(past).unwrap();
         let link = d.join("link.jpg");
         std::os::unix::fs::symlink(&target, &link).unwrap();
         let target_mtime = std::fs::metadata(&target).unwrap().mtime();
+        let link_mtime = std::fs::symlink_metadata(&link).unwrap().mtime();
+        assert_ne!(target_mtime, link_mtime, "the mtimes must differ to tell the two keys apart");
         let tb = tables();
         let (mut st, pool, cache) = harness(&d, &tb);
         let uri = thumbcache::uri_for(&link);
