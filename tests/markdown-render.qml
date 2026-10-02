@@ -17,6 +17,10 @@ ShellRoot {
     property bool done: false
     // The Canvas paints on its own when it loads, so analysis runs only once armed behind a grab.
     property bool armed: false
+    // The native cap_markdown case flips Rendered/Source twice (r, r); the driver
+    // below replays both flips before the grab, or the contentHeight loop never
+    // fires offscreen. A resize alone does not trigger it.
+    property int driveStep: 0
 
     FloatingWindow {
         id: window
@@ -112,6 +116,25 @@ ShellRoot {
                     + " border=" + md.borderHex + " ink=" + md.inkHex + " chrome=" + md.chromeHex
                     + " run0=" + JSON.stringify(String(md.blockList[0].text).slice(0, 120))
                     + " content=" + Math.round(md.flickContentHeight))
+                driver.start()
+            }
+        }
+    }
+
+    // The r, r flip pair: each step settles before the next, and the grab waits
+    // one extra step past the flip back to rendered.
+    Timer {
+        id: driver
+        interval: 350
+        repeat: true
+        running: false
+        onTriggered: {
+            shell.driveStep++
+            shell.log("step=" + shell.driveStep + " content=" + Math.round(md.flickContentHeight))
+            if (shell.driveStep === 1) md.view = "source"
+            else if (shell.driveStep === 2) md.view = "rendered"
+            else {
+                driver.stop()
                 shell.log("grabbing")
                 grabRoot.grabToImage(shell.grabbed)
             }

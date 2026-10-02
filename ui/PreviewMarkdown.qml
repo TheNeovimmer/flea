@@ -71,6 +71,15 @@ Item {
         onPathChanged: root.readFailed = false
     }
 
+    // Both panes keep their heights warm across the Rendered/Source flip, so the
+    // Flickable below never forces a hidden pane's first layout from inside its
+    // contentHeight binding, which Qt reports as a binding loop. A handler runs
+    // outside any binding evaluation, so warming here settles nothing mid-read.
+    onViewChanged: {
+        body.implicitHeight
+        sourceText.implicitHeight
+    }
+
     Flickable {
         id: flick
         anchors.fill: parent

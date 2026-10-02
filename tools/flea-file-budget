@@ -58,6 +58,7 @@ tests/js/settings.js 337
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 396
+tests/markdown-render.qml 422
 tests/preview-settle-live.qml 450
 tests/js/status.js 354
 tests/rename-grid-bottom.qml 419
@@ -82,7 +83,7 @@ ui/PermissionsDialog.qml 589
 ui/PickerWindow.qml 770
 ui/Preview.qml 693
 ui/PreviewColumn.qml 571
-ui/PreviewMarkdown.qml 473
+ui/PreviewMarkdown.qml 482
 ui/Row.qml 478
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
