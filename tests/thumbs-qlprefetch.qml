@@ -14,6 +14,9 @@ ShellRoot {
     property var failures: []
     property int burstMark: -1
     property int metaMark: -1
+    property real burstAt: 0
+    // Half the follow settle, so a skipped settle fails the age check.
+    property real midBurstMs: quick.item ? quick.item.followSettleMs / 2 : 0
 
     function log(line) { console.log("THUMBPREFETCH " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
@@ -31,6 +34,7 @@ ShellRoot {
         property var calls: []
         property var metaCalls: []
         property var metaShown: []
+        property var metaAt: []
         property int dirDev: 0
         signal meta(int row, int w, int h, int orient, real durationMs, int sampleRate, int entries, real unpacked, bool archiveFailed, var names, real lines, bool partial, bool linesFailed, string target, bool targetDir, string owner)
         signal thumbed(int row, string file)
@@ -38,10 +42,11 @@ ShellRoot {
         function askMeta(index, wantText, wantMedia, wantArchive) {
             metaCalls.push(index)
             metaShown.push(quick.item.path)
+            metaAt.push(Date.now())
             return 0
         }
         function thumb(ask, cacheOnly) {
-            calls.push({ ask: ask, cacheOnly: cacheOnly === true, shown: quick.item.path })
+            calls.push({ ask: ask, cacheOnly: cacheOnly === true, shown: quick.item.path, at: Date.now() })
         }
         function thumbcancel(rows) {}
     }
@@ -161,6 +166,7 @@ ShellRoot {
             shell.check("and no meta beyond the loaded row", backend.metaCalls.join(",") === "0,1")
             shell.burstMark = backend.calls.length
             shell.metaMark = backend.metaCalls.length
+            shell.burstAt = Date.now()
             trailPoll.waited = 0
             trailPoll.restart()
         }
@@ -176,8 +182,8 @@ ShellRoot {
             waited += interval
             if (backend.calls.length > shell.burstMark) {
                 stop()
-                shell.check("nothing asks mid-burst", backend.calls[shell.burstMark].shown === "/t/c.jpg")
-                shell.check("no meta asks mid-burst", backend.metaShown[shell.metaMark] === "/t/c.jpg")
+                shell.check("nothing asks mid-burst", backend.calls[shell.burstMark].shown === "/t/c.jpg" && backend.calls[shell.burstMark].at - shell.burstAt >= shell.midBurstMs)
+                shell.check("no meta asks mid-burst", backend.metaShown[shell.metaMark] === "/t/c.jpg" && backend.metaAt[shell.metaMark] - shell.burstAt >= shell.midBurstMs)
                 shell.check("the trailing rest asks once more", backend.calls.length === shell.burstMark + 1)
                 shell.check("for the row after it",
                     backend.calls[backend.calls.length - 1].ask.join(",") === "3")
@@ -305,7 +311,7 @@ ShellRoot {
         f11bWait.restart()
     }
 
-    // Past the follow settle, so a deferred re-ask through it is counted before done.
+    // Two follow settles, so a deferred re-ask through it is counted before done.
     Timer {
         id: f11bWait
         interval: shell.f11bWaitMs
@@ -318,5 +324,5 @@ ShellRoot {
 
     property int f11aMetaMark: -1
     property int f11bMark: -1
-    property int f11bWaitMs: 200
+    property int f11bWaitMs: quick.item ? 2 * quick.item.followSettleMs : 0
 }
