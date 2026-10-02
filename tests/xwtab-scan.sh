@@ -1,0 +1,168 @@
+#!/bin/bash
+# Headless check for the xwtab free-desktop scan, same code the case runs.
+# Fabricated monitors, clients and layers prove level 0 is skipped, other
+# workspaces are skipped, levels 1 to 3 on the focused monitor still block.
+set -u
+cd "$(dirname "$0")/.." || exit 1
+repo=$PWD
+pass=0
+fail=0
+ok() { printf 'ok %s\n' "$*"; pass=$((pass+1)); }
+bad() { printf 'FAIL %s\n' "$*" >&2; fail=$((fail+1)); }
+scratch=$(mktemp -d) || exit 1
+case $scratch in /*/*) ;; *) echo "FAIL mktemp gave $scratch" >&2; exit 1 ;; esac
+trap 'rm -rf "$scratch"' EXIT
+# One focused monitor, DP-2 at 0 0 2560 1440, active workspace 1, no special.
+cat > "$scratch/monitors.json" <<'EOF'
+[{"name":"DP-2","x":0,"y":0,"width":2560,"height":1440,"focused":true,"activeWorkspace":{"id":1,"name":"1"},"specialWorkspace":{"id":0,"name":""}}]
+EOF
+# Levels carry a fullscreen level 0 background, a fullscreen qs catcher on 1
+# and the real bar strip on 2, the exact minipc shape the tear-off hit.
+cat > "$scratch/layers.json" <<'EOF'
+{"DP-2":{"levels":{"0":[{"address":"0x1","x":0,"y":0,"w":2560,"h":1440,"namespace":"omarchy-background","pid":100}],"1":[{"address":"0x2","x":0,"y":0,"w":2560,"h":1440,"namespace":"qs-tearoff","pid":200}],"2":[{"address":"0x3","x":0,"y":0,"w":2560,"h":30,"namespace":"omarchy-bar","pid":300}],"3":[]}}}
+EOF
+# Active bottom cover plus a fullscreen client on workspace 2, plus one hidden
+# and one unmapped row that never cover anything on any workspace.
+cat > "$scratch/clients.json" <<'EOF'
+[{"address":"0xa","mapped":true,"hidden":false,"at":[0,1000],"size":[2560,440],"workspace":{"id":1,"name":"1"},"floating":true,"monitor":1,"class":"x","title":"t","pid":1000},{"address":"0xb","mapped":true,"hidden":false,"at":[0,0],"size":[2560,1440],"workspace":{"id":2,"name":"2"},"floating":false,"monitor":1,"class":"x","title":"t","pid":1001},{"address":"0xc","mapped":true,"hidden":true,"at":[0,0],"size":[2560,1440],"workspace":{"id":1,"name":"1"},"floating":false,"monitor":1,"class":"x","title":"t","pid":1002},{"address":"0xd","mapped":false,"hidden":false,"at":[0,0],"size":[2560,1440],"workspace":{"id":1,"name":"1"},"floating":false,"monitor":1,"class":"x","title":"t","pid":1003}]
+EOF
+got=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients.json" "$scratch/layers.json" "$scratch/monitors.json" || true)
+# Bottom cover ends at y 1000, so the bottom-up 24 px grid first frees at 976.
+if [ "$got" = "8 976" ]; then
+ok "level 0 plus other workspace skipped, active bottom kept: $got"
+else
+bad "level 0 plus other workspace skipped, want '8 976', got '$got'"
+fi
+# Old scan at fb5d999e counted every layer and every client, so the same three
+# files leave it no point at all and the caller fails on the empty answer.
+old=$(python3 -c '
+import json,sys
+mx,my,mw,mh=[int(v) for v in sys.argv[1:5]]
+clients=json.load(open(sys.argv[5]))
+layers=json.load(open(sys.argv[6]))
+rects=[[c["at"][0],c["at"][1],c["size"][0],c["size"][1]] for c in clients]
+def harvest(node):
+    global rects
+    if isinstance(node,dict):
+        if all(k in node for k in ("x","y","w","h")) and "namespace" in node:
+            ns=str(node["namespace"])
+            full=node["x"]==mx and node["y"]==my and node["w"]==mw and node["h"]==mh
+            if not (ns.startswith("qs") and full):
+                rects.append([node["x"],node["y"],node["w"],node["h"]])
+        for v in node.values():
+            harvest(v)
+    elif isinstance(node,list):
+        for v in node:
+            harvest(v)
+harvest(layers)
+def covered(px,py):
+    return any(rx<=px<rx+rw and ry<=py<ry+rh for rx,ry,rw,rh in rects)
+for py in range(my+mh-8,my-1,-24):
+    for px in range(mx+8,mx+mw-8,24):
+        if not covered(px,py):
+            print(px,py)
+            raise SystemExit(0)
+print("")
+' 0 0 2560 1440 "$scratch/clients.json" "$scratch/layers.json" || true)
+if [ -z "$old" ]; then
+ok "old scan at fb5d999e finds no point on the same files"
+else
+bad "old scan at fb5d999e should find no point, got '$old'"
+fi
+# Without the level 0 background the other-workspace fullscreen alone still
+# blocks the old scan, while the new one keeps the same 8 976 answer.
+cat > "$scratch/layers-nobg.json" <<'EOF'
+{"DP-2":{"levels":{"0":[],"1":[],"2":[{"address":"0x3","x":0,"y":0,"w":2560,"h":30,"namespace":"omarchy-bar","pid":300}],"3":[]}}}
+EOF
+got2=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients.json" "$scratch/layers-nobg.json" "$scratch/monitors.json" || true)
+if [ "$got2" = "8 976" ]; then
+ok "other workspace alone is skipped: $got2"
+else
+bad "other workspace alone is skipped, want '8 976', got '$got2'"
+fi
+old2=$(python3 -c '
+import json,sys
+mx,my,mw,mh=[int(v) for v in sys.argv[1:5]]
+clients=json.load(open(sys.argv[5]))
+layers=json.load(open(sys.argv[6]))
+rects=[[c["at"][0],c["at"][1],c["size"][0],c["size"][1]] for c in clients]
+def harvest(node):
+    global rects
+    if isinstance(node,dict):
+        if all(k in node for k in ("x","y","w","h")) and "namespace" in node:
+            ns=str(node["namespace"])
+            full=node["x"]==mx and node["y"]==my and node["w"]==mw and node["h"]==mh
+            if not (ns.startswith("qs") and full):
+                rects.append([node["x"],node["y"],node["w"],node["h"]])
+        for v in node.values():
+            harvest(v)
+    elif isinstance(node,list):
+        for v in node:
+            harvest(v)
+harvest(layers)
+def covered(px,py):
+    return any(rx<=px<rx+rw and ry<=py<ry+rh for rx,ry,rw,rh in rects)
+for py in range(my+mh-8,my-1,-24):
+    for px in range(mx+8,mx+mw-8,24):
+        if not covered(px,py):
+            print(px,py)
+            raise SystemExit(0)
+print("")
+' 0 0 2560 1440 "$scratch/clients.json" "$scratch/layers-nobg.json" || true)
+if [ -z "$old2" ]; then
+ok "old scan blocked by the other workspace alone"
+else
+bad "old scan should be blocked by the other workspace alone, got '$old2'"
+fi
+# A layer on another monitor never covers this one, even fullscreen on level 2.
+cat > "$scratch/layers-foreign.json" <<'EOF'
+{"DP-2":{"levels":{"0":[],"1":[],"2":[{"address":"0x3","x":0,"y":0,"w":2560,"h":30,"namespace":"omarchy-bar","pid":300}],"3":[]}},"DP-1":{"levels":{"0":[],"1":[],"2":[{"address":"0x9","x":0,"y":0,"w":2560,"h":1440,"namespace":"other-bar","pid":900}],"3":[]}}}
+EOF
+cat > "$scratch/clients-empty.json" <<'EOF'
+[]
+EOF
+got3=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-empty.json" "$scratch/layers-foreign.json" "$scratch/monitors.json" || true)
+if [ "$got3" = "8 1432" ]; then
+ok "foreign monitor layer is skipped: $got3"
+else
+bad "foreign monitor layer is skipped, want '8 1432', got '$got3'"
+fi
+# Levels 1 to 3 on the focused monitor still block, so a bottom cover that
+# leaves only the bar strip reports empty instead of a point inside the bar.
+cat > "$scratch/clients-fullbelow.json" <<'EOF'
+[{"address":"0xe","mapped":true,"hidden":false,"at":[0,30],"size":[2560,1410],"workspace":{"id":1,"name":"1"},"floating":false,"monitor":1,"class":"x","title":"t","pid":1004}]
+EOF
+got4=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-empty.json" "$scratch/layers.json" "$scratch/monitors.json" || true)
+# No client, only bar plus ignored background and qs, so bottom stays free.
+if [ "$got4" = "8 1432" ]; then
+ok "bar alone leaves the bottom free: $got4"
+else
+bad "bar alone leaves the bottom free, want '8 1432', got '$got4'"
+fi
+got5=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-fullbelow.json" "$scratch/layers-nobg.json" "$scratch/monitors.json" || true)
+if [ -z "$got5" ]; then
+ok "bar plus a full-below cover reports empty"
+else
+bad "bar plus a full-below cover should report empty, got '$got5'"
+fi
+# An open special workspace covers like the active one, a closed one is ignored.
+cat > "$scratch/monitors-special.json" <<'EOF'
+[{"name":"DP-2","x":0,"y":0,"width":2560,"height":1440,"focused":true,"activeWorkspace":{"id":1,"name":"1"},"specialWorkspace":{"id":99,"name":"special"}}]
+EOF
+cat > "$scratch/clients-special.json" <<'EOF'
+[{"address":"0xf","mapped":true,"hidden":false,"at":[0,1000],"size":[2560,440],"workspace":{"id":99,"name":"special"},"floating":false,"monitor":1,"class":"x","title":"t","pid":1005}]
+EOF
+got6=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-special.json" "$scratch/layers-nobg.json" "$scratch/monitors-special.json" || true)
+if [ "$got6" = "8 976" ]; then
+ok "open special workspace covers: $got6"
+else
+bad "open special workspace covers, want '8 976', got '$got6'"
+fi
+got7=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-special.json" "$scratch/layers-nobg.json" "$scratch/monitors.json" || true)
+if [ "$got7" = "8 1432" ]; then
+ok "closed special workspace is skipped: $got7"
+else
+bad "closed special workspace is skipped, want '8 1432', got '$got7'"
+fi
+printf '%s checks, %s failed\n' "$((pass+fail))" "$fail"
+exit "$((fail>0))"

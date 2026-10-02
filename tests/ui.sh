@@ -11076,9 +11076,13 @@ xwtab_make_room() {
     xwtab_saved="$apid $aaddr $ax $ay $aw $ah $afloating
 $bpid $baddr $bx $by $bw $bh $bfloating"
     trap 'xwtab_restore_place' EXIT
-    local mon
-    mon=$(hyprctl monitors -j 2>/dev/null | python3 -c 'import json,sys; ms=json.load(sys.stdin); m=[x for x in ms if x.get("focused")] or ms; print(m[0]["x"],m[0]["y"],m[0]["width"],m[0]["height"])' || true)
+    local mon_json mon mon_name
+    mon_json=$(hyprctl monitors -j 2>/dev/null || true)
+    [[ -n "$mon_json" ]] || fail "xwtab: no focused monitor to make room on"
+    mon=$(printf '%s' "$mon_json" | python3 -c 'import json,sys; ms=json.load(sys.stdin); m=[x for x in ms if x.get("focused")] or ms; print(m[0]["x"],m[0]["y"],m[0]["width"],m[0]["height"])' || true)
     [[ -n "$mon" ]] || fail "xwtab: no focused monitor to make room on"
+    mon_name=$(printf '%s' "$mon_json" | python3 -c 'import json,sys; ms=json.load(sys.stdin); m=[x for x in ms if x.get("focused")] or ms; print(m[0].get("name",""))' || true)
+    [[ -n "$mon_name" ]] || fail "xwtab: no focused monitor to make room on"
     local mx my mw mh pw ph
     read -r mx my mw mh <<< "$mon"
     pw=$(((mw - 60) / 2)); ph=$(((mh - 60) / 2))
@@ -11100,34 +11104,8 @@ $bpid $baddr $bx $by $bw $bh $bfloating"
     hyprctl dispatch "hl.dsp.window.resize({ x = $pw, y = $ph })" >/dev/null || fail "xwtab: could not size $bpid"
     sleep 0.4
     local point
-    point=$(hyprctl clients -j 2>/dev/null | python3 -c '
-import json, sys
-mx, my, mw, mh = [int(v) for v in sys.argv[1:5]]
-clients = json.load(sys.stdin)
-layers = json.load(open(sys.argv[5]))
-rects = [[c["at"][0], c["at"][1], c["size"][0], c["size"][1]] for c in clients]
-def harvest(node):
-    if isinstance(node, dict):
-        if all(k in node for k in ("x", "y", "w", "h")) and "namespace" in node:
-            ns = str(node["namespace"])
-            full = node["x"] == mx and node["y"] == my and node["w"] == mw and node["h"] == mh
-            if not (ns.startswith("qs") and full):
-                rects.append([node["x"], node["y"], node["w"], node["h"]])
-        for v in node.values():
-            harvest(v)
-    elif isinstance(node, list):
-        for v in node:
-            harvest(v)
-harvest(layers)
-def covered(px, py):
-    return any(rx <= px < rx + rw and ry <= py < ry + rh for rx, ry, rw, rh in rects)
-for py in range(my + mh - 8, my - 1, -24):
-    for px in range(mx + 8, mx + mw - 8, 24):
-        if not covered(px, py):
-            print(px, py)
-            raise SystemExit(0)
-print("")
-' "$mx" "$my" "$mw" "$mh" <(hyprctl layers -j 2>/dev/null) || true)
+    # Free point counts only what can take the drop, see tests/xwtab_free_point.py.
+    point=$(python3 "$repo/tests/xwtab_free_point.py" "$mx" "$my" "$mw" "$mh" "$mon_name" <(hyprctl clients -j 2>/dev/null) <(hyprctl layers -j 2>/dev/null) <(printf '%s' "$mon_json") || true)
     [[ -n "$point" ]] || fail "xwtab: no empty desktop point on the focused monitor"
     xwtab_point="$point"
 }
