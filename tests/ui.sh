@@ -3594,6 +3594,10 @@ xw_cleanup() {
 xw_hang_s=30
 # Poll at half the 400 ms watch settle so completed re-reads are seen without busy polling.
 xw_poll_s=0.2
+# Poll dialog and editor focus every 50 ms so typing can start as soon as the UI is ready.
+xw_ui_poll_s=0.05
+# Keep dialog and editor waits bounded to five seconds of sleep plus their IPC round trips.
+xw_ui_poll_tries=100
 
 xw_wait_total() {
     local pid="$1" want="$2" step="$3" start=$SECONDS seen
@@ -3708,12 +3712,12 @@ xw_editor_diagnostics() {
 # The rename editor opens a round trip after its key, so typing starts on its focus, not on sleep.
 xw_wait_editor() {
     local pid="$1" step="$2" n stateA
-    for ((n = 0; n < 100; n++)); do
+    for ((n = 0; n < xw_ui_poll_tries; n++)); do
         stateA=$(xw_ipc "$pid" renameState 2>/dev/null || true)
         if printf '%s\n' "$stateA" | jq -e '.index >= 0 and .focused' >/dev/null; then
             return 0
         fi
-        sleep 0.05
+        sleep "$xw_ui_poll_s"
     done
     xw_editor_diagnostics "$pid" "$step" "$stateA"
     fail "xwwatch: $step: the rename editor never opened or took focus"
@@ -3722,7 +3726,7 @@ xw_wait_editor() {
 # New File owns the dialog's Field control; completion requires a closed dialog and the created file.
 xw_wait_dialog() {
     local pid="$1" want="$2" step="$3" file="${4-}" n state stateA
-    for ((n = 0; n < 100; n++)); do
+    for ((n = 0; n < xw_ui_poll_tries; n++)); do
         state=$(xw_ipc "$pid" menuDialogState 2>/dev/null || true)
         if [[ "$want" == open ]]; then
             if printf '%s\n' "$state" | jq -e '.opened == true and .action == "newFile" and any(.controls[]?; .name == "Field" and .focused == true)' >/dev/null; then
@@ -3731,7 +3735,7 @@ xw_wait_dialog() {
         elif printf '%s\n' "$state" | jq -e '.opened == false' >/dev/null && [[ -f "$file" ]]; then
             return 0
         fi
-        sleep 0.05
+        sleep "$xw_ui_poll_s"
     done
     stateA=$(xw_ipc "$pid" renameState 2>/dev/null || true)
     xw_editor_diagnostics "$pid" "$step" "$stateA" "$state"

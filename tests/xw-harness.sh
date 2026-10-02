@@ -6,8 +6,8 @@ repo=$PWD
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 source_file=${XW_HARNESS_SOURCE:-$repo/tests/ui.sh}
-# Sample source assignments: ipc_call_timeout=2s, ipc_call_kill_after=1s, xw_hang_s=30, xw_poll_s=0.2.
-eval "$(sed -nE '/^(ipc_call_timeout|ipc_call_kill_after|xw_hang_s|xw_poll_s)=/p' "$source_file")" || exit 1
+# Sample source assignments: ipc_call_timeout=2s, ipc_call_kill_after=1s, xw_hang_s=30, xw_poll_s=0.2, xw_ui_poll_s=0.05, xw_ui_poll_tries=100.
+eval "$(sed -nE '/^(ipc_call_timeout|ipc_call_kill_after|xw_hang_s|xw_poll_s|xw_ui_poll_s|xw_ui_poll_tries)=/p' "$source_file")" || exit 1
 for helper in case_xwwatch xw_ipc xw_click_background xw_cleanup owned_trash_monitors xw_editor_diagnostics xw_wait_dialog; do
     eval "$(sed -n "/^$helper()/,/^}/p" "$source_file")" || exit 1
 done
@@ -228,6 +228,45 @@ if [[ "$result" != 0 || "$poll" != "$probe_poll_s" ]]; then
     failures=$((failures + 1))
 fi
 
+# A nondefault interval must reach each UI helper's sleep without waiting in real time.
+probe_ui_poll_s=0.03
+# Three failed attempts distinguish the named cap from the original hundred polls.
+probe_ui_poll_tries=3
+for helper in xw_wait_editor xw_wait_dialog; do
+    : > "$tmp/$helper-polls"
+    result=0
+    (
+        eval "$(sed -n "/^$helper()/,/^}/p" "$source_file")" || exit 1
+        xw_ui_poll_s=$probe_ui_poll_s
+        xw_ui_poll_tries=$probe_ui_poll_tries
+        sleep() {
+            printf '%s\n' "$1" >> "$tmp/$helper-polls"
+        }
+        xw_editor_diagnostics() {
+            :
+        }
+        # Sample unready reply: {"index":-1,"focused":false,"opened":false}.
+        xw_ipc() {
+            printf '{"index":-1,"focused":false,"opened":false}\n'
+        }
+        if [[ "$helper" == xw_wait_editor ]]; then
+            xw_wait_editor "$pidA" 'named UI poll'
+        else
+            xw_wait_dialog "$pidA" open 'named UI poll'
+        fi
+    ) > "$tmp/$helper-poll.log" 2>&1 || result=$?
+    poll=$(sort -u "$tmp/$helper-polls")
+    poll_count=$(wc -l < "$tmp/$helper-polls")
+    if [[ "$result" != 1 || "$poll" != "$probe_ui_poll_s" ]]; then
+        printf 'FAIL %s ignored named UI poll interval: %s\n' "$helper" "$poll"
+        failures=$((failures + 1))
+    fi
+    if [[ "$result" != 1 ]] || (( poll_count != probe_ui_poll_tries )); then
+        printf 'FAIL %s ignored named UI poll attempts: %s\n' "$helper" "$poll_count"
+        failures=$((failures + 1))
+    fi
+done
+
 for mode in success failure wrong-mark; do
     export mode
     rm -f "$tmp/menu" "$tmp/deleted" "$tmp/clicks" "$tmp/ipc-argv" "$tmp/dialog.open" "$tmp/rename.open" "$tmp/created" "$tmp/renamed" "$tmp/filename" "$tmp/total-waits" "$tmp/row-waits" "$fixture_root/xwwatch/created-by-a.txt"
@@ -423,5 +462,5 @@ for sample in focused wrong-action unfocused completed missing-file still-open u
         failures=$((failures + 1))
     fi
 done
-printf 'xw-harness: 23 checks (success cleanup, failure cleanup, A background target, pid argv, row refusal, A pid forwarding, B pid forwarding, owned child stop, vanished monitor, New File snapshot, F2 snapshot, both create listings, mark identity, dialog completion snapshot, seven dialog conditions, named IPC bounds, named total poll); %s failed\n' "$failures"
+printf 'xw-harness: 27 checks (success cleanup, failure cleanup, A background target, pid argv, row refusal, A pid forwarding, B pid forwarding, owned child stop, vanished monitor, New File snapshot, F2 snapshot, both create listings, mark identity, dialog completion snapshot, seven dialog conditions, named IPC bounds, named total poll, editor poll interval and attempts, dialog poll interval and attempts); %s failed\n' "$failures"
 [[ "$failures" == 0 ]]
