@@ -262,14 +262,16 @@ impl Journal {
                 for nonce in &nonces {
                     self.manifests.remove(nonce);
                 }
-                // The payload is kept nowhere: a small barrier keeps the entry's place in line.
+                // A small barrier keeps the entry's place in line; a refused one keeps the entry here.
                 let barrier = Entry { op: placeholder_op(&entry.op), steps: vec![Step::Barrier] };
                 match super::undoshare::push_entry(&shared, &barrier) {
-                    Ok(super::undoshare::PushResult::Stored) => self.prune(),
-                    Ok(super::undoshare::PushResult::TooBig) => {}
+                    Ok(super::undoshare::PushResult::Stored) => {
+                        self.prune();
+                        return;
+                    }
+                    Ok(super::undoshare::PushResult::TooBig) => return,
                     Err(()) => self.shared = None,
                 }
-                return;
             }
             Err(()) => {
                 for nonce in &nonces {

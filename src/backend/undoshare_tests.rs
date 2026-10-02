@@ -480,7 +480,21 @@ fn attaching_after_memory_pushes_moves_them_into_the_shared_doc() {
     assert!(!fa.exists());
 }
 
-// A push between claim and finish drops the stale replay; the pushed entry still undoes.
+// A directory at the journal path loads as empty but never publishes, so the barrier fails.
+#[test]
+fn a_too_big_push_whose_barrier_is_refused_keeps_the_entry_in_memory() {
+    let sandbox = TestDir::new("xundo-barrier-refused");
+    let dir = runtime_0700(&sandbox);
+    std::fs::create_dir(dir.join(JOURNAL_FILE)).unwrap();
+    let target = sandbox.path().join("f");
+    std::fs::write(&target, "1").unwrap();
+    let mut journal = shared_journal(&sandbox);
+    let huge_op = "h".repeat(33 * 1024 * 1024);
+    journal.push(Entry { op: huge_op.clone(), steps: vec![Step::Created { path: target.clone() }] });
+    let op = journal.undo().unwrap();
+    assert_eq!(op.len(), huge_op.len(), "the refused barrier kept the full entry in memory");
+    assert!(!target.exists(), "the in-memory entry reverses the file it created");
+}
 #[test]
 fn a_push_between_claim_and_finish_drops_the_stale_replay() {
     let sandbox = TestDir::new("xundo-gen");
