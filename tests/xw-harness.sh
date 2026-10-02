@@ -27,7 +27,7 @@ mkdir -p "$fixture_root" "$run_root"
 hyprctl() {
     if [[ "$*" == 'clients -j' ]]; then
         printf '[{"address":"%s","class":"com.thisisgm.flea","pid":111,"at":[100,200],"size":[880,620]},{"address":"%s","class":"com.thisisgm.flea","pid":222,"at":[1000,200],"size":[880,620]}]\n' "$addr_a" "$addr_b"
-    elif [[ "$*" != "dispatch focuswindow address:$addr_a" ]]; then
+    elif [[ "$*" != "dispatch hl.dsp.focus({ window = \"address:$addr_a\" })" ]]; then
         fail "unexpected compositor arguments: $*"
     fi
 }

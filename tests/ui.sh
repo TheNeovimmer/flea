@@ -3543,7 +3543,7 @@ xw_click_background() {
         (( cy > row_y + row_h / 2 || cy < row_y - row_h / 2 )) \
             || fail "xwwatch: A's background point lands on row $row"
     done
-    hyprctl dispatch focuswindow "address:$addr" >/dev/null || fail "xwwatch: could not raise A's window"
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null || fail "xwwatch: could not raise A's window"
     omarchy-drive click "$((cx + wx))" "$((cy + wy))" right >/dev/null
 }
 
