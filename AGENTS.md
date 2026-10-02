@@ -3143,6 +3143,10 @@ The stage2 merge of fs1 and fs5 records `ui/js/Devices.js` at 366, fs1's udisks 
 `mediaRemovable` for the USB power-off chain, and `tests/js/devices.js` at 303 for both units' pins, each over the
 300 hard cap and recorded rather than split, re-derived with `wc -l`.
 
+The mgb merge-resolution pass records `src/backend/undo_tests.rs` at 423, re-derived with `wc -l`: its round 4
+pins legacy records without birth time through rebase, move, copy and new-file undo, which belong beside the undo
+journal's own tests rather than in a second file.
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.
