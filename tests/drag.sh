@@ -1090,7 +1090,7 @@ if [ -z "$RECV_ADDR" ]; then
   note "receiver stderr: $(cat "$SB/receiver-err.log" 2>/dev/null)"
 else
   ok "the receiver window is up"
-  hyprctl dispatch "hl.dsp.focus({ window = \"$RECV_ADDR\" })" >/dev/null
+  hyprctl dispatch "hl.dsp.focus({ window = \"address:$RECV_ADDR\" })" >/dev/null
   sleep 0.3
   hyprctl dispatch "hl.dsp.window.float()" >/dev/null
   sleep 0.3
@@ -1104,7 +1104,7 @@ pid = int(sys.argv[1])
 hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$MYPID")
-  hyprctl dispatch "hl.dsp.focus({ window = \"$FLEA_ADDR\" })" >/dev/null
+  hyprctl dispatch "hl.dsp.focus({ window = \"address:$FLEA_ADDR\" })" >/dev/null
   sleep 0.4
   hyprctl dispatch "hl.dsp.window.move({ x = 40, y = 80 })" >/dev/null
   sleep 0.4

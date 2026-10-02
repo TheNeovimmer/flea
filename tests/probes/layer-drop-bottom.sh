@@ -84,7 +84,7 @@ print(hits[0]["address"] if len(hits) == 1 else "")
     sleep 0.5
 done
 [ -n "$addr" ] || refuse "no Flea window came up"
-hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null
+hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null
 sleep 0.4
 hyprctl dispatch "hl.dsp.window.float()" >/dev/null
 sleep 0.3

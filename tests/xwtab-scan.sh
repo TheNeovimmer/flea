@@ -228,5 +228,13 @@ ok "the probe verdict shares the torn computation above"
 else
 bad "the probe verdict should share the torn computation above"
 fi
+# Hyprland selectors built from an address need the address: prefix.
+# A bare address resolves nothing while the dispatcher still returns ok.
+bare=$(grep -rnE 'window[[:space:]]*=[[:space:]]*\\?"(\$|0x|\{)' "$repo/tests" --exclude=xwtab-scan.sh || true)
+if [ -n "$bare" ]; then
+bad "bare window selector without address: prefix: $bare"
+else
+ok "every window selector carries the address: prefix"
+fi
 printf '%s checks, %s failed\n' "$((pass+fail))" "$fail"
 exit "$((fail>0))"

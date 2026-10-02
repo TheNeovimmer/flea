@@ -10826,7 +10826,7 @@ hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$pid") || fail "xwdrag: no window for pid $pid"
     [[ -n "$addr" ]] || fail "xwdrag: no address for pid $pid"
-    hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
     sleep 0.3
     hyprctl dispatch "hl.dsp.window.float()" >/dev/null || fail "xwdrag: could not float $pid"
     sleep 0.3
@@ -10844,7 +10844,7 @@ hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$pid") || fail "xwdrag: no window for pid $pid"
     [[ -n "$addr" ]] || fail "xwdrag: no address for pid $pid"
-    hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
     xwdrag_wait_focus "$pid" "$addr"
 }
 
@@ -10882,7 +10882,7 @@ hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$pid") || fail "xwtab: no window for pid $pid"
     [[ -n "$addr" ]] || fail "xwtab: no address for pid $pid"
-    hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwtab: could not focus $pid"
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null || fail "xwtab: could not focus $pid"
     xwdrag_wait_focus "$pid" "$addr"
     omarchy-drive key --window "$addr" "$@" >/dev/null || fail "xwtab: key did not reach $pid"
 }
@@ -11090,7 +11090,7 @@ xwtab_restore_place() {
         [[ -n "$cur" ]] || continue
         read -r caddr cx cy cw ch cfloating <<< "$cur"
         [[ "$caddr" == "$addr" ]] || continue
-        hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null 2>&1 || true
+        hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null 2>&1 || true
         if [[ "$cfloating" != "$floating" ]]; then
             hyprctl dispatch "hl.dsp.window.float()" >/dev/null 2>&1 || true
         fi
@@ -11126,7 +11126,7 @@ $bpid $baddr $bx $by $bw $bh $bfloating"
     read -r mx my mw mh <<< "$mon"
     pw=$(((mw - 60) / 2)); ph=$(((mh - 60) / 2))
     (( pw >= 200 && ph >= 150 )) || fail "xwtab: monitor ${mw}x${mh} leaves no room to park two windows"
-    hyprctl dispatch "hl.dsp.focus({ window = \"$aaddr\" })" >/dev/null || fail "xwtab: could not focus $apid"
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$aaddr\" })" >/dev/null || fail "xwtab: could not focus $apid"
     sleep 0.3
     [[ "$afloating" == True ]] || hyprctl dispatch "hl.dsp.window.float()" >/dev/null || fail "xwtab: could not float $apid"
     sleep 0.3
@@ -11134,7 +11134,7 @@ $bpid $baddr $bx $by $bw $bh $bfloating"
     sleep 0.3
     hyprctl dispatch "hl.dsp.window.resize({ x = $pw, y = $ph })" >/dev/null || fail "xwtab: could not size $apid"
     sleep 0.3
-    hyprctl dispatch "hl.dsp.focus({ window = \"$baddr\" })" >/dev/null || fail "xwtab: could not focus $bpid"
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$baddr\" })" >/dev/null || fail "xwtab: could not focus $bpid"
     sleep 0.3
     [[ "$bfloating" == True ]] || hyprctl dispatch "hl.dsp.window.float()" >/dev/null || fail "xwtab: could not float $bpid"
     sleep 0.3
@@ -11384,7 +11384,7 @@ print(hits[0]["address"] if len(hits) == 1 else "")
         sleep 0.25
     done
     [[ -n "$recv_addr" ]] || fail "xwtab: the foreign receiver never came up: $(cat "$dir/receiver-err.log" 2>/dev/null)"
-    hyprctl dispatch "hl.dsp.focus({ window = \"$recv_addr\" })" >/dev/null
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$recv_addr\" })" >/dev/null
     sleep 0.3
     hyprctl dispatch "hl.dsp.window.float()" >/dev/null
     sleep 0.3
