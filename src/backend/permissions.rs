@@ -158,18 +158,24 @@ pub fn apply_many(items: &[(PathBuf, String)]) -> Result<Vec<crate::backend::und
             }
             let before = path.symlink_metadata()
                 .map_err(|e| format!("Could not inspect permissions: {}.", crate::error::io_message(&e)))?;
-            let before_bits = before.mode() & 0o777;
-            apply_mode_path(path, *requested)
+            if !(before.is_file() || before.is_dir()) {
+                return Err("Permissions takes one file or folder, not a link.".into());
+            }
+            if before.mode() & SPECIAL_BITS != 0 {
+                return Err("Special permissions cannot be edited.".into());
+            }
+            let (dev, ino, before_bits) = (before.dev(), before.ino(), before.mode() & 0o777);
+            chmod_pinned(path, dev, ino, before_bits, *requested)
                 .map_err(|e| format!("Could not change mode: {}.", e))?;
-            Ok(crate::backend::undo::Step::Mode { path: path.clone(), before: before_bits, after: *requested })
+            Ok(crate::backend::undo::Step::Mode { path: path.clone(), before: before_bits, after: *requested, dev, ino })
         })();
         match outcome {
             Ok(step) => steps.push(step),
             Err(failure) => {
                 let mut stuck = Vec::new();
                 for step in steps.iter().rev() {
-                    if let crate::backend::undo::Step::Mode { path, before, .. } = step {
-                        if fail_restore() || crate::backend::undo::restore_mode(path, *before).is_err() {
+                    if let crate::backend::undo::Step::Mode { path, before, after, dev, ino } = step {
+                        if fail_restore() || crate::backend::undo::restore_mode(path, *dev, *ino, *after, *before).is_err() {
                             stuck.push(step.clone());
                         }
                     }
@@ -188,15 +194,33 @@ pub fn apply_many(items: &[(PathBuf, String)]) -> Result<Vec<crate::backend::und
     Ok(steps)
 }
 
-// One fchmod by name, after the caller proved the path is a file or folder;
-// symlinks are refused rather than followed.
-fn apply_mode_path(path: &Path, requested: u32) -> Result<(), String> {
-    let before = path.symlink_metadata().map_err(|e| crate::error::io_message(&e))?;
-    if before.file_type().is_symlink() {
+// Every chmod goes through the held descriptor: O_PATH with O_NOFOLLOW pins
+// the object, identity and current mode are checked against what the caller
+// recorded, and fchmodat2 changes the held object without reopening a
+// pathname, closing the symlink-swap race a chmod by name leaves open.
+pub(crate) fn chmod_pinned(path: &Path, dev: u64, ino: u64, expected: u32, target: u32) -> Result<(), String> {
+    let current = path.symlink_metadata().map_err(|e| crate::error::io_message(&e))?;
+    if current.file_type().is_symlink() {
         return Err("Permissions takes one file or folder, not a link.".into());
     }
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(requested))
-        .map_err(|e| crate::error::io_message(&e))?;
+    if current.dev() != dev || current.ino() != ino {
+        return Err("the item was replaced, so its mode was left in place.".into());
+    }
+    if current.mode() & 0o777 != expected {
+        return Err("the mode changed since, so it was left in place.".into());
+    }
+    let file = OpenOptions::new().read(true).custom_flags(O_NOFOLLOW | O_PATH)
+        .open(path).map_err(|e| crate::error::io_message(&e))?;
+    let meta = file.metadata().map_err(|e| crate::error::io_message(&e))?;
+    if meta.dev() != dev || meta.ino() != ino {
+        return Err("the item was replaced, so its mode was left in place.".into());
+    }
+    if meta.mode() & 0o777 != expected {
+        return Err("the mode changed since, so it was left in place.".into());
+    }
+    if unsafe { syscall(SYS_FCHMODAT2, file.as_raw_fd(), c"".as_ptr(), target, AT_EMPTY_PATH) } != 0 {
+        return Err(crate::error::io_message(&std::io::Error::last_os_error()));
+    }
     Ok(())
 }
 
@@ -473,5 +497,44 @@ mod tests {
         journal.push(crate::backend::undo::Entry { op: "permissions".to_string(), steps: err.applied });
         assert_eq!(journal.undo().expect("one undo restores what stayed applied"), "permissions");
         assert_eq!(a.metadata().unwrap().mode() & 0o777, 0o644);
+    }
+    #[test]
+    fn undo_leaves_a_file_put_at_the_name_since_in_place() {
+        let d = TestDir::new("permissions-replaced");
+        let a = d.file("a.txt", "old");
+        std::fs::set_permissions(&a, Mode::from_mode(0o644)).unwrap();
+        let steps = apply_many(&[(a.clone(), "600".to_string())]).expect("one ordinary file");
+        assert_eq!(a.metadata().unwrap().mode() & 0o777, 0o600);
+        std::fs::remove_file(&a).unwrap();
+        std::fs::write(&a, "new secret").unwrap();
+        std::fs::set_permissions(&a, Mode::from_mode(0o600)).unwrap();
+        let mut journal = crate::backend::undo::Journal::new();
+        journal.push(crate::backend::undo::Entry { op: "permissions".to_string(), steps });
+        let err = journal.undo().expect_err("a replaced file keeps nothing to restore to");
+        assert!(err.msg.contains("left in place"), "{}", err.msg);
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(std::fs::metadata(&a).unwrap().mode() & 0o777, 0o600,
+            "undo widened a file it never changed");
+    }
+    #[test]
+    fn undo_restores_the_rest_when_one_of_several_was_replaced() {
+        let d = TestDir::new("permissions-skips-one");
+        let a = d.file("a.txt", "a");
+        let b = d.file("b.txt", "b");
+        for p in [&a, &b] {
+            std::fs::set_permissions(p, Mode::from_mode(0o644)).unwrap();
+        }
+        let steps = apply_many(&[(a.clone(), "600".to_string()), (b.clone(), "600".to_string())])
+            .expect("two ordinary files");
+        std::fs::remove_file(&a).unwrap();
+        std::fs::write(&a, "replacement").unwrap();
+        std::fs::set_permissions(&a, Mode::from_mode(0o600)).unwrap();
+        let mut journal = crate::backend::undo::Journal::new();
+        journal.push(crate::backend::undo::Entry { op: "permissions".to_string(), steps });
+        let err = journal.undo().expect_err("one replaced path is skipped with a note");
+        assert!(err.msg.contains("left in place"), "{}", err.msg);
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(std::fs::metadata(&a).unwrap().mode() & 0o777, 0o600, "the replacement keeps its mode");
+        assert_eq!(b.metadata().unwrap().mode() & 0o777, 0o644, "the untouched file still restores");
     }
 }
