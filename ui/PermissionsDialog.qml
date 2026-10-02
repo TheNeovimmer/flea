@@ -11,6 +11,9 @@ FocusScope {
     visible: opened
     property bool opened: false
     property int requestId: 0
+    // Inspect ids are request blocks of this width; a wider selection reserves whole blocks.
+    readonly property int inspectStride: 1000
+    property int multiBase: 0
     property var facts: ({})
     property string path: ""
     property string modeText: ""
@@ -18,20 +21,20 @@ FocusScope {
     property bool busy: false
     property bool transportFailed: false
     property Item focusHolder: null
-    // Permissions040: the whole selection's paths, modes in the same order,
-    // and the bits the operator explicitly set or cleared across all of them.
-    // A mixed box the operator never touched keeps each file's own bit.
+    // The selection's paths with modes in the same order, the first inspect refusal, and the explicit bits.
     property var multiPaths: []
     property var multiModes: []
     property int multiPending: 0
     property string multiFailed: ""
+    // The first inspect reason; a refused item locks the grid and its reason shows.
+    property string multiReason: ""
     property int explicitSet: 0
     property int explicitClear: 0
     property bool applyingMany: false
     readonly property bool isMulti: multiPaths.length > 1
     readonly property var multiSummary: isMulti ? Permissions.summarize(multiModes) : null
-    readonly property bool editable: isMulti ? multiFailed.length === 0 && !busy && !transportFailed
-                                             : facts.ok === true && !facts.reason && !busy && !transportFailed
+    readonly property bool editable: isMulti ? multiFailed.length === 0 && multiReason.length === 0 && !busy && !transportFailed
+                                              : facts.ok === true && !facts.reason && !busy && !transportFailed
     readonly property int modeValue: Permissions.parse(modeText)
     readonly property bool applying: busy && facts.ok === true
     // Permissions040: a multi Apply cannot be cancelled either.
@@ -69,6 +72,7 @@ FocusScope {
         multiModes = []
         multiPending = 0
         multiFailed = ""
+        multiReason = ""
         explicitSet = 0
         explicitClear = 0
         applyingMany = false
@@ -84,15 +88,15 @@ FocusScope {
         cancelFocus.forceActiveFocus()
         requested({ c: "permissions", op: "inspect", id: requestId, path: path })
     }
-    // Permissions040: one Entry holds every path the Apply changed, so one
-    // undo restores them all. Each file keeps its own bits except the ones
-    // the operator explicitly set or cleared across the whole selection.
+    // One Entry holds every path the Apply changed, so one undo restores them all.
     function openMany(paths, holder) {
         requestId += 1
+        multiBase = requestId
         multiPaths = paths.slice()
         multiModes = []
         multiPending = paths.length
         multiFailed = ""
+        multiReason = ""
         explicitSet = 0
         explicitClear = 0
         applyingMany = false
@@ -107,7 +111,9 @@ FocusScope {
         body.contentY = 0
         cancelFocus.forceActiveFocus()
         for (var i = 0; i < paths.length; i++)
-            requested({ c: "permissions", op: "inspect", id: requestId * 1000 + i, path: paths[i] })
+            requested({ c: "permissions", op: "inspect", id: multiBase * inspectStride + i, path: paths[i] })
+        // A wider selection reserves whole strides so the next open's block cannot overlap this one.
+        requestId += Math.max(0, Math.floor((paths.length - 1) / inspectStride))
     }
     function receive(message) {
         if (isMulti) { receiveMany(message); return }
@@ -119,9 +125,7 @@ FocusScope {
         facts = message
         modeText = message.mode
     }
-    // Permissions040: the grid over several files. An untouched mixed box
-    // keeps each file's own bit; the first click sets the bit everywhere,
-    // the next clears it, and the next after that lets go of it again.
+    // The grid over several files; an untouched box takes the explicit opposite of what it shows.
     function multiBit(bit) {
         if (!multiSummary) return { on: false, mixed: false }
         for (var i = 0; i < multiSummary.bits.length; i++) {
@@ -142,33 +146,44 @@ FocusScope {
         if (found.mixed) return "some"
         return found.on ? "on" : "off"
     }
+    // Only a mixed box cycles set, clear, release; a uniform box flips to its opposite, then lets go.
     function multiToggle(bit) {
         if ((explicitSet & bit) !== 0) {
             explicitSet &= ~bit
             explicitClear |= bit
         } else if ((explicitClear & bit) !== 0) {
             explicitClear &= ~bit
-        } else {
+        } else if (multiBit(bit).mixed || !multiBit(bit).on) {
             explicitSet |= bit
             explicitClear &= ~bit
+        } else {
+            explicitClear |= bit
+            explicitSet &= ~bit
         }
     }
-    function receiveMany(message) {        if (!opened || transportFailed) return
+    function receiveMany(message) {
+        if (!opened || transportFailed) return
         if (message.op === "applyMany") {
             applyingMany = false
             if (message.ok === true) { changed(); close(); return }
             errorText = message.error || "Could not change permissions."
-            busy = false
+            // A failed batch re-reads every mode so the grid and a retry start from disk.
+            multiModes = []
+            multiPending = multiPaths.length
+            busy = true
             cancelFocus.forceActiveFocus()
+            for (var i = 0; i < multiPaths.length; i++)
+                requested({ c: "permissions", op: "inspect", id: multiBase * inspectStride + i, path: multiPaths[i] })
             return
         }
         if (message.op !== "inspect") return
-        var at = (message.id || 0) - requestId * 1000
+        var at = (message.id || 0) - multiBase * inspectStride
         if (at < 0 || at >= multiPaths.length) return
         // Assigned whole, because an index write to a var array notifies nothing.
         var modes = multiModes.slice()
         if (message.ok === true) modes[at] = message.mode
         multiModes = modes
+        if (message.ok === true && multiReason.length === 0 && message.reason) multiReason = message.reason
         if (message.ok !== true && multiFailed.length === 0)
             multiFailed = message.error || "Could not change permissions."
         multiPending -= 1
@@ -181,7 +196,9 @@ FocusScope {
     }
     function backendFailed(message) {
         if (!opened || transportFailed) return
-        var applying = busy && facts.ok === true
+        // A multi Apply counts as applying with an unknown outcome, and ends so Cancel and close work.
+        var applying = (busy && facts.ok === true) || applyingMany
+        applyingMany = false
         transportFailed = true
         busy = false
         cancelFocus.forceActiveFocus()
@@ -195,7 +212,7 @@ FocusScope {
         if (!opened || applying || applyingMany) return
         if (isMulti) {
             for (var i = 0; i < multiPaths.length; i++)
-                requested({ c: "permissions", op: "close", id: requestId * 1000 + i })
+                requested({ c: "permissions", op: "close", id: multiBase * inspectStride + i })
         } else {
             requested({ c: "permissions", op: "close", id: requestId })
         }
@@ -211,8 +228,7 @@ FocusScope {
         errorText = ""
         requested({ c: "permissions", op: "apply", id: requestId, mode: modeText })
     }
-    // Permissions040: Apply is one undo step for all the files. Each file
-    // keeps its own bits except the ones the grid explicitly set or cleared.
+    // Apply is one undo step for all the files; each keeps its own bits except the explicit ones.
     function applyMany() {
         if (!editable) return
         root.forceActiveFocus()
@@ -337,8 +353,7 @@ FocusScope {
                     width: parent.width
                     height: root.controlHeight
                     spacing: Theme.spacing.gap
-                    // Permissions040: for several items the grid and Apply are
-                    // the whole card, so the name row drops out with the rest.
+                    // For several items the grid and Apply are the whole card, so the name row drops out.
                     visible: !root.isMulti
                     Flea.Glyph { width: Theme.markSize; height: nameLabel.height; anchors.verticalCenter: parent.verticalCenter; name: root.facts.directory ? "folder" : "file"; color: Theme.color.muted }
                     Text { id: nameLabel; width: parent.width - Theme.markSize - kindLabel.width - 2 * parent.spacing; anchors.verticalCenter: parent.verticalCenter; text: root.path.split("/").pop(); elide: Text.ElideMiddle; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
@@ -394,8 +409,7 @@ FocusScope {
                                 Keys.onBacktabPressed: root.stepFocus(true)
                                 Flea.CheckBox {
                                     anchors.centerIn: parent
-                                    // Permissions040: a bit differing across the
-                                    // files shows a bar until it is clicked.
+                                    // A bit differing across the files shows a bar until it is clicked.
                                     value: root.isMulti ? root.multiValue(bit) : checkbox.checked ? "on" : "off"
                                     focused: checkbox.activeFocus
                                     // A disabled row stays checked, so the box dims and keeps its value.
@@ -494,7 +508,7 @@ FocusScope {
                     width: parent.width
                     visible: text.length > 0
                     topPadding: Theme.spacing.gap
-                    text: root.errorText || root.facts.reason || (root.busy
+                    text: root.errorText || root.multiReason || root.facts.reason || (root.busy
                         ? (root.isMulti ? (root.multiPending > 0 ? "Reading permissions…" : "Applying permissions…")
                                         : (root.facts.ok ? "Applying permissions…" : "Reading permissions…"))
                         : root.facts.ok && root.modeValue < 0 ? "Enter three octal digits or a leading-zero four-digit mode." : "")
@@ -518,8 +532,7 @@ FocusScope {
                 Text {
                     id: changeSummary
                     width: parent.width
-                    // Permissions040: for several items the grid and Apply are
-                    // the whole card, so the preview drops out with the rest.
+                    // For several items the grid and Apply are the whole card, so the preview drops out.
                     visible: !root.isMulti
                     text: (root.facts.ok && !root.facts.reason && root.modeValue >= 0
                         ? "Requested mode " + Permissions.octal(root.modeValue) : "No changes available")
@@ -533,8 +546,7 @@ FocusScope {
                 Text {
                     id: scopeLabel
                     width: parent.width
-                    // Permissions040: a box whose bit differs across the files
-                    // shows a bar and changes nothing until it is clicked.
+                    // A box whose bit differs across the files shows a bar until it is clicked.
                     text: root.isMulti ? Permissions.mixedNote() : root.scopeText
                     textFormat: Text.PlainText
                     wrapMode: Text.Wrap
@@ -566,8 +578,7 @@ FocusScope {
                         id: applyFocus
                         width: applyButton.implicitWidth; height: applyButton.implicitHeight
                         activeFocusOnTab: true
-                        // Permissions040: the multi card has no octal to
-                        // validate, so Apply enables on the grid alone.
+                        // The multi card has no octal to validate, so Apply enables on the grid alone.
                         enabled: root.isMulti ? root.editable : root.editable && root.modeValue >= 0
                         Keys.onTabPressed: function(event) { root.stepFocus((event.modifiers & Qt.ShiftModifier) !== 0) }
                         Keys.onBacktabPressed: root.stepFocus(true)

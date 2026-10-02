@@ -30,7 +30,7 @@ src/backend/movebatch_tests.rs 751
 src/backend/opsdispatch.rs 941
 src/backend/opsreq.rs 514
 src/backend/opsreq/tests.rs 461
-src/backend/permissions.rs 540
+src/backend/permissions.rs 543
 src/backend/proto.rs 287
 src/backend/run.rs 454
 src/backend/thumbs.rs 442
@@ -81,7 +81,7 @@ ui/OpenWithDialog.qml 596
 ui/Pane.qml 992
 ui/PaneMenuActions.qml 458
 ui/PaneWire.qml 537
-ui/PermissionsDialog.qml 589
+ui/PermissionsDialog.qml 600
 ui/PickerWindow.qml 770
 ui/Preview.qml 717
 ui/PreviewColumn.qml 571

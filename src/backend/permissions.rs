@@ -4,7 +4,6 @@ use crate::oflags::O_NOFOLLOW;
 #[cfg(test)]
 use std::fs::Permissions as Mode;
 use std::fs::{File, Metadata, OpenOptions};
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -65,8 +64,7 @@ fn group_name(gid: u32) -> String {
     String::new()
 }
 
-// A batch failure carries what is still applied, so the caller journals it:
-// a batch that rolled back whole carries nothing and says so honestly.
+// A batch failure carries what stayed applied, or nothing when the batch rolled back whole.
 #[derive(Debug)]
 pub struct BatchError {
     pub msg: String,
@@ -79,15 +77,13 @@ thread_local! {
     static FAIL_RESTORE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-// The k-th apply of the next batch fails, so a test drives a path that
-// vanishes between the check and the apply without removing anything itself.
+// The k-th apply of the next batch fails without removing anything itself.
 #[cfg(test)]
 pub fn test_fail_at(index: Option<usize>) {
     FAIL_AT.with(|v| v.set(index));
 }
 
-// Every rollback of the next batch fails, so a test drives steps that stay
-// applied without racing the filesystem from another thread.
+// Every rollback of the next batch fails without racing the filesystem.
 #[cfg(test)]
 pub fn test_fail_restore(fail: bool) {
     FAIL_RESTORE.with(|v| v.set(fail));
@@ -116,15 +112,8 @@ fn fail_restore() -> bool {
     }
 }
 
-// Sample input: items [("/a.txt", "600"), ("/b dir/c.txt", "644")]. Every
-// path is an absolute file or folder, never a link; one Entry holds every
-// change so one undo restores them all. Octal, Owner, Group and the change
-// preview drop out for several items: the grid and Apply are the whole card.
-// A mixed box the operator never touched keeps each file's own bit, because
-// the client sends that file's own target mode rather than one mode for all.
-// A change that fails short rolls back what this call already changed,
-// newest first, so "no change was applied" is true when it is said; what will
-// not go back stays journalled instead, with a count of what changed.
+// Sample input: items [("/a.txt", "600"), ("/b dir/c.txt", "644")]. One Entry holds every change for one undo.
+// Every path is an absolute file or folder, never a link; a short failure rolls back what changed, newest first.
 pub fn apply_many(items: &[(PathBuf, String)]) -> Result<Vec<crate::backend::undo::Step>, BatchError> {
     if items.is_empty() {
         return Err(BatchError { msg: "Permissions needs at least one selected item.".into(), applied: Vec::new() });
@@ -194,10 +183,7 @@ pub fn apply_many(items: &[(PathBuf, String)]) -> Result<Vec<crate::backend::und
     Ok(steps)
 }
 
-// Every chmod goes through the held descriptor: O_PATH with O_NOFOLLOW pins
-// the object, identity and current mode are checked against what the caller
-// recorded, and fchmodat2 changes the held object without reopening a
-// pathname, closing the symlink-swap race a chmod by name leaves open.
+// The held O_PATH descriptor is identity-checked and changed by fchmodat2, never by pathname.
 pub(crate) fn chmod_pinned(path: &Path, dev: u64, ino: u64, expected: u32, target: u32) -> Result<(), String> {
     let current = path.symlink_metadata().map_err(|e| crate::error::io_message(&e))?;
     if current.file_type().is_symlink() {
@@ -350,6 +336,7 @@ impl Permissions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
     use crate::backend::testdir::TestDir;
     #[test]
     fn inspect_failures_report_plain_causes() {
@@ -437,6 +424,22 @@ mod tests {
         std::fs::set_permissions(&path, Mode::from_mode(0o644)).unwrap();
         let meta = path.metadata().unwrap();
         assert!(reason(&meta, meta.uid().wrapping_add(1)).contains("not the owner"));
+    }
+    #[test]
+    fn a_swapped_symlink_is_refused_and_leaves_the_victim() {
+        let d = TestDir::new("permissions-swap");
+        let item = d.file("item", "a");
+        std::fs::set_permissions(&item, Mode::from_mode(0o644)).unwrap();
+        let victim = d.file("id_rsa", "secret");
+        std::fs::set_permissions(&victim, Mode::from_mode(0o640)).unwrap();
+        let before = item.symlink_metadata().unwrap();
+        let (dev, ino) = (before.dev(), before.ino());
+        std::fs::remove_file(&item).unwrap();
+        std::os::unix::fs::symlink(&victim, &item).unwrap();
+        let refused = chmod_pinned(&item, dev, ino, 0o644, 0o600);
+        assert!(refused.is_err(), "a path swapped for a link is refused, got {:?}", refused);
+        assert!(item.symlink_metadata().unwrap().file_type().is_symlink(), "the swap is still a link");
+        assert_eq!(victim.metadata().unwrap().mode() & 0o777, 0o640, "the swap target keeps its mode");
     }
     #[test]
     fn apply_many_changes_every_file_and_undoes_once() {
