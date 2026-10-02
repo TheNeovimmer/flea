@@ -30,16 +30,21 @@ Item {
             WlrLayershell.layer: WlrLayer.Bottom
             WlrLayershell.exclusiveZone: 0
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
-            DropArea {
+            // Escape needs a focused Item; PanelWindow is not one, so Keys there warns.
+            Item {
                 anchors.fill: parent
-                keys: [root.tabMime]
-                onDropped: function (drop) {
-                    // A drop landing before onLoaded assigned tabBar is dropped.
-                    if (root.tabBar !== null && drop.getDataAsString(root.tabMime) !== "")
-                        root.tabBar.tearOffAt()
+                focus: true
+                Keys.onEscapePressed: { if (root.tabBar !== null) root.tabBar.cancelOut() }
+                DropArea {
+                    anchors.fill: parent
+                    keys: [root.tabMime]
+                    onDropped: function (drop) {
+                        // A drop landing before onLoaded assigned tabBar is dropped.
+                        if (root.tabBar !== null && drop.getDataAsString(root.tabMime) !== "")
+                            root.tabBar.tearOffAt()
+                    }
                 }
             }
-            Keys.onEscapePressed: { if (root.tabBar !== null) root.tabBar.cancelOut() }
         }
     }
 }

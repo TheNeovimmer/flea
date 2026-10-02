@@ -384,4 +384,23 @@ function run(check) {
     check("a strip with room receives", Tabs.canReceive(Fixture.pane()), true)
     check("a loading strip does not", Tabs.canReceive(loadingPane), false)
     check("a full strip does not", Tabs.canReceive(fullReceiver), false)
+
+    // A foreign drag offers formats at enter with no payload until drop.
+    Tabs.setOwnPid("111")
+    var foreignPayload = JSON.stringify(["222", "tok-9", "/tmp/folder", "grid", ""])
+    check("a foreign enter with formats and no payload accepts when receivable",
+        Tabs.enterAccepts([Tabs.TAB_MIME], "", "222", true, false), true)
+    check("it refuses without the tab format",
+        Tabs.enterAccepts(["text/uri-list"], "", "222", true, false), false)
+    check("it refuses when the strip cannot receive",
+        Tabs.enterAccepts([Tabs.TAB_MIME], "", "222", false, false), false)
+    check("a payload enter accepts a foreign tab",
+        Tabs.enterAccepts([Tabs.TAB_MIME], foreignPayload, "111", true, false), true)
+    check("it refuses its own tab without an active lift",
+        Tabs.enterAccepts([Tabs.TAB_MIME], Tabs.tabPayload(tabbed, 0, "111", "tok-1"), "111", true, false), false)
+    check("it keeps an own lift out and back",
+        Tabs.enterAccepts([Tabs.TAB_MIME], Tabs.tabPayload(tabbed, 0, "111", "tok-1"), "111", true, true), true)
+    check("garbage payload refuses even with the format",
+        Tabs.enterAccepts([Tabs.TAB_MIME], "not json", "111", true, false), false)
+    Tabs.setOwnPid("")
 }

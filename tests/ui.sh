@@ -11008,6 +11008,16 @@ xwtab_wait_third() {
 
 case_xwtab() {
     local dir adir bdir
+    # The tab handoff trace, on for both windows; every fail below dumps it first.
+    export FLEA_TRACE_TABDRAG=1
+    xwtab_dump_trace() {
+        printf 'TABDRAG trace from flea.log:\n'
+        grep -a 'TABDRAG' "$flea_log" 2>/dev/null || printf '(no TABDRAG lines in flea.log)\n'
+        printf 'TABDRAG trace from flea-second.log:\n'
+        grep -a 'TABDRAG' "$run_root/flea-second.log" 2>/dev/null || printf '(no TABDRAG lines in flea-second.log)\n'
+    }
+    eval "$(declare -f fail | sed '1s/fail/xwtab_saved_fail/')"
+    fail() { xwtab_dump_trace; xwtab_saved_fail "$@"; }
     dir="$fixture_root/xwtab"
     sandbox_scratch "$dir"
     adir="$dir/a"
@@ -11170,6 +11180,10 @@ print(c["at"][0] + c["size"][0] // 2, c["at"][1] + c["size"][1] // 2)
     printf 'XWTAB foreign-refused ok\n'
     xwdrag_kill_second "$bpid"
     kill_flea
+    # Restore the suite fail and stop the trace past this case.
+    eval "$(declare -f xwtab_saved_fail | sed '1s/xwtab_saved_fail/fail/')"
+    unset -f xwtab_saved_fail xwtab_dump_trace
+    unset FLEA_TRACE_TABDRAG
 }
 
 # The cursor parks on row 0 above the card, so a press that runs on from an overlay control to any row beneath moves it.

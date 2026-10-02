@@ -13,6 +13,9 @@ QtObject {
     property var tabBar: null
     property var view: null
     property var tabs: null
+    // Stage trace, on only with FLEA_TRACE_TABDRAG=1; read once, silent otherwise.
+    readonly property bool tabTrace: Quickshell.env("FLEA_TRACE_TABDRAG") === "1"
+    function traceTab(stage, detail) { if (root.tabTrace) console.log("TABDRAG " + stage + " pid=" + Quickshell.processId + " " + detail) }
 
     property IpcHandler ack: IpcHandler {
         target: "fleatab"
@@ -27,6 +30,7 @@ QtObject {
         var pane = root.view.currentPane
         var index = root.tabs.resolveMovedTab(pane, root.tabBar.outIndex, root.tabBar.outPath)
         var result = root.tabs.closeTabAfterMove(pane, index)
+        root.traceTab("taken-recv", "token=" + String(token) + " result=" + result)
         root.tabBar.outToken = ""
         root.tabBar.outActive = false
         root.tabBar.dragFrom = -1

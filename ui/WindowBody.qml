@@ -54,6 +54,9 @@ Rectangle {
     // switch read at the tabs signal writes the old tab's path at the new index. Both signals queue
     // one deferred write, which lands after the pane has moved.
     property bool tabStripQueued: false
+    // Stage trace, on only with FLEA_TRACE_TABDRAG=1; read once, silent otherwise.
+    readonly property bool tabTrace: Quickshell.env("FLEA_TRACE_TABDRAG") === "1"
+    function traceTab(stage, detail) { if (view.tabTrace) console.log("TABDRAG " + stage + " pid=" + Quickshell.processId + " " + detail) }
     function queueTabStrip() {
         if (view.tabStripQueued)
             return
@@ -219,12 +222,14 @@ Rectangle {
         enabled: !view.dualMode && !(view.currentPane.tabs && view.currentPane.tabs.items
             && view.currentPane.tabs.items.length > 1)
         onEntered: function (drag) {
-            var info = Tabs.parseTabMime(drag.getDataAsString(Tabs.TAB_MIME))
-            if (!info || Tabs.isOwnTab(info) || !Tabs.canReceive(view.currentPane))
+            var ok = Tabs.enterAccepts(drag.formats, drag.getDataAsString(Tabs.TAB_MIME), undefined, Tabs.canReceive(view.currentPane), false)
+            view.traceTab("enter-window", "formats=" + String(drag.formats) + " ok=" + ok)
+            if (!ok)
                 drag.accepted = false
         }
         onDropped: function (drop) {
             var payload = drop.getDataAsString(Tabs.TAB_MIME)
+            view.traceTab("drop-window", "empty=" + (payload.length === 0) + " len=" + payload.length)
             var info = Tabs.parseTabMime(payload)
             if (!info || Tabs.isOwnTab(info))
                 return

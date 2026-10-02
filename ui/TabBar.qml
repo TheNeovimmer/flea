@@ -52,6 +52,9 @@ Item {
     property string outToken: ""
     property bool ownAccepted: false
     property var pendingTab: null
+    // Stage trace, on only with FLEA_TRACE_TABDRAG=1; read once, silent otherwise.
+    readonly property bool tabTrace: Quickshell.env("FLEA_TRACE_TABDRAG") === "1"
+    function traceTab(stage, detail) { if (root.tabTrace) console.log("TABDRAG " + stage + " pid=" + Quickshell.processId + " " + detail) }
 
     Drag.dragType: Drag.Automatic
     // Move only, and only the private tab type: a foreign app refuses it, so a tab
@@ -116,6 +119,7 @@ Item {
             }
             root.outActive = true
             root.Drag.active = true
+            root.traceTab("drag-start", "index=" + root.outIndex + " path=" + root.outPath + " mime=" + Object.keys(root.outMime).join(",") + " dragType=" + root.Drag.dragType)
         }
     }
 
@@ -136,6 +140,7 @@ Item {
     // drop already reordered, so this only clears, and the late handler release behind
     // it cannot reorder twice. Every end path runs here, so the panels go with it.
     function outFinished(dropAction) {
+        root.traceTab("drag-finished", "action=" + dropAction)
         root.dragFrom = -1
         root.dropAt = -1
         root.outActive = false
@@ -175,10 +180,9 @@ Item {
     // only out and back onto this strip, where the reorder owns them; the per-tab file
     // areas refuse the tab MIME outright.
     function tabEnterOk(drag) {
-        var info = Tabs.parseTabMime(drag.getDataAsString(Tabs.TAB_MIME))
-        if (!info || Tabs.isOwnTab(info))
-            return info && root.outActive
-        return root.pane ? Tabs.canReceive(root.pane) : false
+        var ok = Tabs.enterAccepts(drag.formats, drag.getDataAsString(Tabs.TAB_MIME), undefined, root.pane ? Tabs.canReceive(root.pane) : false, root.outActive)
+        root.traceTab("enter-strip", "formats=" + String(drag.formats) + " ok=" + ok)
+        return ok
     }
 
     // A foreign drop waits on the backend: the folder must exist and be a directory
@@ -188,12 +192,14 @@ Item {
         if (!root.pane || !Tabs.canReceive(root.pane))
             return
         root.pendingTab = { payload: payload, pid: info.pid, token: info.token, path: info.path, at: at }
+        root.traceTab("peek-sent", "path=" + info.path + " first=2 hidden=false")
         root.pane.backend.peek(info.path, 2, false, false)
     }
 
     // The taken ack, after this window validated the folder and opened the tab. A drop
     // never heard about sends nothing, so the source keeps its tab.
     function sendTaken(pid, token) {
+        root.traceTab("taken-sent", "target=" + pid + " token=" + token)
         Quickshell.execDetached(["qs", "ipc", "--pid", String(pid), "call", "fleatab", "taken", String(token)])
     }
 
@@ -203,13 +209,17 @@ Item {
             var pending = root.pendingTab
             if (!pending || path !== pending.path || hidden !== false || hiddenLast !== false || first !== 2)
                 return
+            root.traceTab("peek-answer", "path=" + path + " failed=" + readFailed + " total=" + total)
             root.pendingTab = null
             if (readFailed) {
                 if (root.pane)
                     root.pane.message("That folder is no longer there.", false)
+                root.traceTab("receive", "ok=false refused-missing path=" + path)
                 return
             }
-            if (root.pane && Tabs.receiveTab(root.pane, pending.payload, pending.at))
+            var received = root.pane && Tabs.receiveTab(root.pane, pending.payload, pending.at)
+            root.traceTab("receive", "ok=" + !!received + " path=" + pending.path + " at=" + pending.at)
+            if (received)
                 root.sendTaken(pending.pid, pending.token)
         }
     }
@@ -444,6 +454,7 @@ Item {
         }
         onDropped: function (drop) {
             var payload = drop.getDataAsString(Tabs.TAB_MIME)
+            root.traceTab("drop-strip", "empty=" + (payload.length === 0) + " len=" + payload.length)
             var info = Tabs.parseTabMime(payload)
             if (!info)
                 return

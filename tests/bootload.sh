@@ -41,6 +41,21 @@ if [ -n "$required" ]; then
     exit 1
 fi
 
+# Keys on a PanelWindow warns at runtime, PanelWindow is not an Item, so the
+# handler never fires. Offscreen has no PanelWindow backend, so the load
+# cannot see it; this static check fails the class instead.
+keys_bad=""
+for f in $files; do
+    if grep -q 'PanelWindow' "ui/boot/$f" && grep -q 'Keys\.on' "ui/boot/$f"; then
+        grep -q 'focus: true' "ui/boot/$f" || keys_bad="$keys_bad ui/boot/$f"
+    fi
+done
+if [ -n "$keys_bad" ]; then
+    printf 'FAIL a boot file attaches Keys to a PanelWindow, move it onto a focused Item:\n'
+    printf '%s\n' "$keys_bad" | sed 's/^/     /'
+    exit 1
+fi
+
 output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
     QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \

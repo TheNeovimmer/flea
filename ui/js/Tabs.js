@@ -507,6 +507,25 @@ function isOwnTab(info, pid) {
     return !!info && self.length > 0 && info.pid === self
 }
 
+// Whether a drag offers the tab MIME; formats alone decide at enter time.
+function hasTabFormat(formats) {
+    return !!formats && formats.indexOf(TAB_MIME) >= 0
+}
+
+// Enter-time accept for a foreign tab drag; payload arrives only at drop.
+function enterAccepts(formats, payload, selfPid, canRecv, outActive) {
+    var text = String(payload || "")
+    if (text.length === 0)
+        return hasTabFormat(formats) && canRecv === true
+    var info = parseTabMime(text)
+    if (!info)
+        return false
+    var self = selfPid === undefined ? ownPid : String(selfPid)
+    if (self.length > 0 && info.pid === self)
+        return outActive === true
+    return canRecv === true
+}
+
 // The strip answers an insertion point, 0 before the first tab and count past the last;
 // off the strip the tab lands at the end, which the caller passes as -1.
 function dropIndexAt(x, tabWidth, tabCount) {
