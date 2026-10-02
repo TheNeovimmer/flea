@@ -215,7 +215,8 @@ answered one. The new watch is armed BESIDE the current one rather than in place
 that fails costs the directory still on screen nothing: `commit` drops the old watch only once the
 new listing replaced it. The scan runs on the list worker, so the arming does too:
 `Watch::add_raw` before the scan, `set_incoming` plus `commit` on success, and `abandon_wd`
-removing the armed descriptor on failure; a worker that finishes after its timeout removes its own.
+dropping the armed descriptor on failure; a worker that outlives its call hands its descriptor
+back as `Event::AbandonWatch`, and the loop drops it unless a re-list aliased it onto the live watch.
 Replacing it up front
 was the first fix and it was wrong, because a failed list then handed the open directory a new
 descriptor and `is_current` dropped anything still carrying the old one.
@@ -313,8 +314,9 @@ same way; the search root's dev and writability go through the bound before any 
 `listpaths`' first window is the exception that still stats on the loop: its `answer` ends in
 `write_window`, which runs `stat_range` on the loop's thread directly. The watch is armed on the
 list worker beside the current one: `Watch::add_raw` before the scan, `set_incoming` plus
-`commit` on success, `abandon_wd` removing the armed descriptor on failure, and a worker that
-finishes after its timeout removing its own.
+`commit` on success, and on failure the loop drops the armed descriptor through `abandon_wd`;
+a worker that outlives its call hands its descriptor back as `Event::AbandonWatch` for the same
+guarded drop, kept when a re-list aliased it onto the live watch.
 
 ## The listing swap
 

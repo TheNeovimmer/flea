@@ -341,7 +341,7 @@ fn handle_line(
         }
         Request::LinkTarget { path } => do_link_target(out, &path),
         Request::PermissionsBatch { paths, modes, id } => do_permissions_batch(out, ops, paths, modes, id),
-        Request::TransferCancel { id } => cancel_transfer(ops, id),
+        Request::TransferCancel { id } => cancel_transfer(out, ops, id),
         Request::Trash { paths, rows, menu_id } => {
             let named = resolve_rows(paths, &rows, &st.base, &st.listing);
             start_trash(out, ops, named, menu_id)

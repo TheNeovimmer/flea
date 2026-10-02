@@ -25,6 +25,15 @@ impl Live {
         }
     }
 
+    // A late Done releases only its own claim, so it never frees a newer operation's slot.
+    pub fn finished_if(&self, id: usize) {
+        if let Ok(mut held) = self.0.lock() {
+            if held.as_ref().is_some_and(|(running, _)| *running == id) {
+                *held = None;
+            }
+        }
+    }
+
     pub fn running(&self) -> Option<usize> {
         self.0.lock().ok().and_then(|held| held.as_ref().map(|(id, _)| *id))
     }
@@ -130,5 +139,16 @@ mod tests {
         assert!(!jobs.is_empty());
         jobs.remove(12);
         assert!(jobs.is_empty());
+    }
+
+    #[test]
+    fn a_late_done_releases_only_its_own_claim() {
+        let live = Live::new();
+        let first = Arc::new(AtomicBool::new(false));
+        live.claim(7, &first);
+        live.finished_if(8);
+        assert_eq!(live.running(), Some(7));
+        live.finished_if(7);
+        assert_eq!(live.running(), None);
     }
 }

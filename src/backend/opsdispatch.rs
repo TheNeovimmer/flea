@@ -18,6 +18,13 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+// A slow remote write holds the slot past its slow line, so a cancel can free it by id.
+pub(crate) struct SlowClaim {
+    pub id: usize,
+    pub op: String,
+    pub path: String,
+}
+
 // Everything the write operations own, kept apart from the listing state they never touch.
 pub(crate) struct Ops {
     pub journal: Journal,
@@ -31,6 +38,8 @@ pub(crate) struct Ops {
     pub next_id: usize,
     // The operation on the thread and its cancel flag, shared with the reader thread; one at a time.
     pub live: Arc<super::opscancel::Live>,
+    // A slow write still running past its slow line, freed at once by a cancel of its id.
+    pub slow: Option<SlowClaim>,
     // Detached jobs, so a quit cancels each one; they run alongside by design.
     pub detached: Arc<super::opscancel::DetachedJobs>,
     pub tx: Sender<OpMsg>,
@@ -39,7 +48,7 @@ pub(crate) struct Ops {
 impl Ops {
     pub fn new(tx: Sender<OpMsg>) -> Ops {
         Ops { journal: Journal::new(), permissions: super::permissions::Permissions::default(), picker: None, menuactions: None, trashbrowser: None,
-              transfer_retry: (0, Vec::new()), question: None, asked: 0, next_id: 1, live: Arc::new(super::opscancel::Live::new()), detached: Arc::new(super::opscancel::DetachedJobs::new()), tx }
+              transfer_retry: (0, Vec::new()), question: None, asked: 0, next_id: 1, live: Arc::new(super::opscancel::Live::new()), slow: None, detached: Arc::new(super::opscancel::DetachedJobs::new()), tx }
     }
 
     // An id with no slot claimed: archive and convert are id-keyed and run concurrently by design,
@@ -135,9 +144,26 @@ fn start_transfer_checked(out: &mut impl Write, ops: &mut Ops, op: &str, paths: 
     thread::spawn(move || run_transfer_checked(id, moving, paths, dest, cancel, tx, selection, destination, policy));
 }
 
-// No response line of its own: the running operation answers with its own terminal transferdone.
-pub(crate) fn cancel_transfer(ops: &Ops, id: usize) {
+// A slow write has no flag its worker polls, so its cancel frees the slot at once.
+pub(crate) fn cancel_transfer(out: &mut impl Write, ops: &mut Ops, id: usize) {
+    let slow = ops.slow.as_ref().is_some_and(|held| held.id == id);
+    if slow && ops.live.running() == Some(id) {
+        if let Some(claim) = ops.slow.take() {
+            ops.live.finished();
+            let denied = op_err(&claim.op, &claim.path, "cancelled; the write may still land.");
+            writeln!(out, "{}", error_line(&denied)).ok();
+            out.flush().ok();
+        }
+        return;
+    }
     ops.live.cancel(id);
+}
+
+// A landed Done forgets its slow claim, so a later cancel of that id finds nothing to free.
+fn forget_slow(ops: &mut Ops, id: usize) {
+    if ops.slow.as_ref().is_some_and(|held| held.id == id) {
+        ops.slow = None;
+    }
 }
 
 pub(crate) fn menu_sources(ops: &Ops, id: usize) -> Result<Option<Vec<super::menu_actions::Selected>>, String> {
@@ -207,12 +233,14 @@ where
         SlowWrite::Slow { mount, rx } => {
             writeln!(out, "{}", slow_line("rename", path, &slow_sentence(&mount, "rename"))).ok();
             out.flush().ok();
-            ops.claim_transfer();
+            // The claim stays so undo cannot race the late journal, and the id rides the Done.
+            let (id, _cancel) = ops.claim_transfer();
+            ops.slow = Some(SlowClaim { id, op: "rename".to_string(), path: path.to_string() });
             let tx = ops.tx.clone();
             let failed = internal_failure("rename", Path::new(path));
             thread::spawn(move || {
                 let result = rx.recv().unwrap_or(Err(failed));
-                let _ = tx.send(OpMsg::RenameDone { result });
+                let _ = tx.send(OpMsg::RenameDone { id, result });
             });
         }
     }
@@ -250,12 +278,14 @@ where
         SlowWrite::Slow { mount, rx } => {
             writeln!(out, "{}", slow_line("mkdir", parent, &slow_sentence(&mount, "mkdir"))).ok();
             out.flush().ok();
-            ops.claim_transfer();
+            // The claim stays so undo cannot race the late journal, and the id rides the Done.
+            let (id, _cancel) = ops.claim_transfer();
+            ops.slow = Some(SlowClaim { id, op: "mkdir".to_string(), path: parent.to_string() });
             let tx = ops.tx.clone();
             let failed = internal_failure("mkdir", Path::new(parent));
             thread::spawn(move || {
                 let result = rx.recv().unwrap_or(Err(failed));
-                let _ = tx.send(OpMsg::MkdirDone { result });
+                let _ = tx.send(OpMsg::MkdirDone { id, result });
             });
         }
     }
@@ -317,12 +347,14 @@ where
         SlowWrite::Slow { mount, rx } => {
             writeln!(out, "{}", slow_line("link", dest, &slow_sentence(&mount, "link"))).ok();
             out.flush().ok();
-            ops.claim_transfer();
+            // The claim stays so undo cannot race the late journal, and the id rides the Done.
+            let (id, _cancel) = ops.claim_transfer();
+            ops.slow = Some(SlowClaim { id, op: "link".to_string(), path: dest.to_string() });
             let tx = ops.tx.clone();
             let at = dest.to_string();
             thread::spawn(move || {
                 let result = rx.recv().unwrap_or_else(|_| Err(internal_failure("link", Path::new(&at))));
-                let _ = tx.send(OpMsg::LinkDone { result });
+                let _ = tx.send(OpMsg::LinkDone { id, result });
             });
         }
     }
@@ -533,22 +565,25 @@ pub(crate) fn report_op(out: &mut impl Write, ops: &mut Ops, msg: OpMsg) {
         }
         OpMsg::Asked { turn, question, line } => if super::collide::landed(ops, turn, question) { writeln!(out, "{}", line).ok(); },
         // A slow remote write reporting late journals exactly as its in-time path would.
-        OpMsg::RenameDone { result } => {
+        OpMsg::RenameDone { id, result } => {
             land_rename(out, ops, result);
-            ops.live.finished();
+            forget_slow(ops, id);
+            ops.live.finished_if(id);
         }
-        OpMsg::MkdirDone { result } => {
+        OpMsg::MkdirDone { id, result } => {
             land_mkdir(out, ops, result);
-            ops.live.finished();
+            forget_slow(ops, id);
+            ops.live.finished_if(id);
         }
-        OpMsg::LinkDone { result } => {
+        OpMsg::LinkDone { id, result } => {
             match result {
                 Ok(outcome) => land_link(out, ops, outcome),
                 Err(e) => {
                     writeln!(out, "{}", error_line(&e)).ok();
                 }
             }
-            ops.live.finished();
+            forget_slow(ops, id);
+            ops.live.finished_if(id);
         }
         // Meta never claims the operation slot, so it does not clear it either.
         OpMsg::Meta { line } => {
@@ -616,9 +651,10 @@ mod tests {
     fn a_cancel_for_an_operation_that_is_not_running_does_nothing() {
         let mut o = ops();
         let (id, flag) = o.claim_transfer();
-        cancel_transfer(&o, id + 99);
+        let mut buf = out();
+        cancel_transfer(&mut buf, &mut o, id + 99);
         assert!(!flag.load(Ordering::Relaxed), "a stale id must not cancel the live operation");
-        cancel_transfer(&o, id);
+        cancel_transfer(&mut buf, &mut o, id);
         assert!(flag.load(Ordering::Relaxed));
     }
 
@@ -1095,5 +1131,75 @@ mod tests {
         assert!(text(&undone).contains(r#"{"t":"undone","op":"rename""#), "undo reverses the late write first: {}", text(&undone));
         assert!(victim.exists(), "undo put the rename's old name back");
         assert!(d.join("older").is_dir(), "the older mkdir is still journalled underneath");
+    }
+
+    // A cancel of a held slow id frees the slot at once and answers now; the write still lands late.
+    #[test]
+    fn a_cancel_of_a_held_slow_claim_frees_the_slot_at_once() {
+        crate::backend::iomount::test_reset();
+        let d = TestDir::new("slowcancel");
+        let victim = d.file("victim.txt", "v");
+        let path = victim.to_string_lossy().to_string();
+        let _body = crate::backend::iomount::test_hold_body(remote_body(d.path()));
+        let (release, wait) = channel::<()>();
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        let mut buf = out();
+        let from_work = victim.clone();
+        let work = move || {
+            let _ = wait.recv();
+            super::ops::rename(&from_work, "after.txt")
+        };
+        do_rename_with(&mut buf, &mut o, &path, SHORT_DEADLINE, work);
+        assert!(text(&buf).contains(r#""t":"slow""#), "the held rename answers slow: {}", text(&buf));
+        let id = o.live.running().expect("a slow write holds the slot");
+        let mut cancelled = out();
+        cancel_transfer(&mut cancelled, &mut o, id);
+        assert!(o.live.running().is_none(), "a cancel of the held slow id frees the slot at once");
+        let line = text(&cancelled);
+        assert!(line.contains(r#""t":"error""#), "a slow cancel answers the request's own error line: {}", line);
+        assert!(line.contains(r#""where":"rename""#), "the error names the slow op: {}", line);
+        assert!(line.contains("cancelled"), "the error says cancelled: {}", line);
+        drop(release);
+        let landed = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("the released write reports through the op channel");
+        let mut late = out();
+        report_op(&mut late, &mut o, landed);
+        assert!(text(&late).contains(r#""t":"renamed""#), "the late write still lands: {}", text(&late));
+        assert_eq!(o.journal.len(), 1, "the late entry journals once the cancel freed");
+    }
+
+    // A late Done carries its own id, so it never frees a newer operation's slot.
+    #[test]
+    fn a_late_done_after_a_newer_claim_leaves_the_newer_claim_running() {
+        crate::backend::iomount::test_reset();
+        let d = TestDir::new("slowlatedone");
+        let victim = d.file("victim.txt", "v");
+        let path = victim.to_string_lossy().to_string();
+        let _body = crate::backend::iomount::test_hold_body(remote_body(d.path()));
+        let (release, wait) = channel::<()>();
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        let mut buf = out();
+        let from_work = victim.clone();
+        let work = move || {
+            let _ = wait.recv();
+            super::ops::rename(&from_work, "after.txt")
+        };
+        do_rename_with(&mut buf, &mut o, &path, SHORT_DEADLINE, work);
+        assert!(text(&buf).contains(r#""t":"slow""#), "the held rename answers slow: {}", text(&buf));
+        let old = o.live.running().expect("a slow write holds the slot");
+        let mut cancelled = out();
+        cancel_transfer(&mut cancelled, &mut o, old);
+        assert!(o.live.running().is_none(), "the cancel frees the held slot");
+        let (next, _flag) = o.claim_transfer();
+        assert_eq!(o.live.running(), Some(next), "a newer operation claims the freed slot");
+        drop(release);
+        let landed = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("the released write reports through the op channel");
+        let mut late = out();
+        report_op(&mut late, &mut o, landed);
+        assert!(text(&late).contains(r#""t":"renamed""#), "the late write still lands: {}", text(&late));
+        assert_eq!(o.live.running(), Some(next), "a late Done never frees a newer operation's slot");
+        assert_eq!(o.journal.len(), 1, "the late entry still journals exactly once");
+        o.live.finished();
     }
 }

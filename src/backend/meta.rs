@@ -157,7 +157,7 @@ pub fn window_rows(l: &Listing, start: usize, count: usize) -> Vec<WindowRow> {
         }),
     }).collect()
 }
-// Stats only the rows handed over, serial then threaded past SLOW_PASS_MS like stat_range, so one slow link cannot hold a window past CALL_DEADLINE.
+// Stats only the rows handed over, serial then threaded past SLOW_PASS_MS, so many slow stats overlap while one hung stat still holds the window to the call's deadline.
 pub fn stat_window_rows(base: &Path, rows: &[WindowRow], threaded: bool) -> (Vec<Meta>, f64) {
     stat_window_rows_with(base, rows, SLOW_PASS_MS, threaded, window_meta_one)
 }

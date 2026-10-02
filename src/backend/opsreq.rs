@@ -63,9 +63,9 @@ pub enum OpMsg {
     // A collisions answer, kept as the latest question before its line goes out; it claims no slot.
     Asked { turn: usize, question: crate::backend::collide::Question, line: String },
     // A slow remote write reporting late: the loop journals it exactly as the in-time path would.
-    RenameDone { result: Result<(PathBuf, Vec<Step>), FleaError> },
-    MkdirDone { result: Result<(PathBuf, Vec<Step>), FleaError> },
-    LinkDone { result: Result<LinkOutcome, FleaError> },    // Not an operation: meta rides this channel because a media probe is a subprocess and the loop
+    RenameDone { id: usize, result: Result<(PathBuf, Vec<Step>), FleaError> },
+    MkdirDone { id: usize, result: Result<(PathBuf, Vec<Step>), FleaError> },
+    LinkDone { id: usize, result: Result<LinkOutcome, FleaError> },    // Not an operation: meta rides this channel because a media probe is a subprocess and the loop
     // must not wait on one. Nothing about it claims the one-at-a-time slot.
     Meta { line: String },
 }
