@@ -55,7 +55,7 @@ magick "$photos/seed0.jpg" -resize 256x "$photos/thumb.png" \
     || { echo "preview-decode.sh: thumbnail generation failed"; exit 1; }
 magick -size 6016x3900 xc:gray50 -fill black -draw 'rectangle 0,0 3007,3899' "$photos/big.png" \
     || { echo "preview-decode.sh: rest-row generation failed"; exit 1; }
-# The heldbad phase needs its own slow original: reopening big.png would not decode again, so its final never loads.
+# The heldbad phase needs its own slow original: reopening big.png leaves the image source unchanged, so no decode starts and Quick Look never reads loading.
 cp "$photos/big.png" "$photos/big2.png" \
     || { echo "preview-decode.sh: heldbad fixture generation failed"; exit 1; }
 for i in $(seq 0 49); do
