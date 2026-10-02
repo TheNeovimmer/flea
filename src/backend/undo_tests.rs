@@ -230,6 +230,32 @@ fn a_step_that_fails_stops_the_rest_rather_than_half_reversing() {
 }
 
 #[test]
+fn a_partial_mode_undo_keeps_the_restored_half_redoable() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = TestDir::new("undopartialredo");
+    let a = d.file("a.txt", "a");
+    let b = d.file("b.txt", "b");
+    for p in [&a, &b] {
+        std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    let steps = crate::backend::permissions::apply_many(
+        &[(a.clone(), "600".to_string()), (b.clone(), "600".to_string())]).expect("two ordinary files");
+    std::fs::remove_file(&a).unwrap();
+    std::fs::write(&a, "replacement").unwrap();
+    std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let mut j = Journal::new();
+    j.push(entry("permissions", steps));
+    let e = j.undo().expect_err("one replaced path is skipped with a note");
+    assert!(e.msg.contains("1 path(s) left in place"), "{}", e.msg);
+    assert!(e.msg.contains("1 path(s) restored for redo"), "restored half unnamed: {}", e.msg);
+    assert_eq!(b.metadata().unwrap().mode() & 0o777, 0o644, "the untouched file still restores");
+    let (tx, _rx) = std::sync::mpsc::channel();
+    assert_eq!(j.redo(1, &std::sync::atomic::AtomicBool::new(false), &tx).unwrap(), "permissions");
+    assert_eq!(b.metadata().unwrap().mode() & 0o777, 0o600, "redo replays the undone half");
+    assert_eq!(std::fs::metadata(&a).unwrap().mode() & 0o777, 0o600, "the replacement keeps its mode");
+}
+
+#[test]
 fn undoing_a_new_folder_removes_it_while_it_is_still_empty() {
     let d = TestDir::new("undomkdir");
     let made = d.dir("fresh");

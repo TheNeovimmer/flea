@@ -493,7 +493,9 @@ so it still owns a snapshot that outlives whatever the listing does next. `paths
 present, and an index past the end of the listing is dropped in silence.
 
 **One of `transfer`, `trash`, `duplicate` or an archive `extract` runs at a time.** One of those
-arriving while another is still running answers an `error` line saying so and touches nothing. The cap
+arriving while another is still running answers an `error` line saying so and touches nothing. `link`
+and `permissionsBatch` are refused the same way while one runs, without taking the slot: `link`
+answers an `error` line and `permissionsBatch` answers its `permissions` line with `ok` false. The cap
 is one because the status bar carries one transient slot for the running operation, and an extract
 drives that same card, so a second concurrent operation would have nowhere to report. `rename` and
 `mkdir` never take that slot, and an archive `compress` and a `convert` are keyed by their own `id` and
@@ -621,9 +623,11 @@ same rule `transfer` follows.
 
 Unlike `transfer`, this answers on the loop's own thread and never takes the
 one-operation slot: every link is one syscall, so there is nothing to show
-progress for and nothing to cancel. The answer is one `linked` line,
+progress for and nothing to cancel. A `link` arriving while an operation runs
+is refused with `an operation is already running` and journals nothing. The answer is one `linked` line,
 `{"t":"linked","ok":<uint>,"failed":<uint>,"skipped":<uint>}`, and one journal
-entry, so one undo removes every link this request created. A name that
+entry, so one undo removes every link this request created. A source that no longer exists is refused
+for that item and counts in `failed`, so one missing source never stops the rest. A name that
 already exists is refused for that item unless the request carries the
 `collide` and `collideId` choice a `transfer` carries, applied by the same
 rule: only what the question listed, only while the name still holds the same
@@ -657,7 +661,8 @@ the same three-or-leading-zero-four octal rule the dialog's own `apply`
 enforces, and answers one `permissions` line with `op` of `applyMany`,
 `{"t":"permissions","id":7,"op":"applyMany","ok":true,"mode":"0600","error":""}`.
 One journal entry holds every path the Apply changed, so one undo restores
-them all. Octal, Owner, Group and the change preview drop out for several
+them all. A `permissionsBatch` arriving while an operation runs answers `ok` false with
+`an operation is already running` and changes nothing. Octal, Owner, Group and the change preview drop out for several
 items: the grid and Apply are the whole card. A mixed box the operator never
 touched keeps each file's own bit, because the client sends that file's own
 target mode rather than one mode for all.
@@ -822,13 +827,18 @@ through the same call a `rename` does, so its failure answers `rename` or `renam
 **The journal is an in-memory ring of the last 50 completed operations and is not persisted**, so it
 does not survive a restart. Each kind reverses as follows: a rename or a move renames back (still
 refusing to clobber, because something may occupy the old name by now), a copy or a duplicate removes
-what that operation created, and a trash restores through `gio trash --restore` using the URI captured
-when it was trashed. A transfer that replaced an item reverses both halves in that one step, newest
+what that operation created, a link removes only the link it made, and a trash restores through
+`gio trash --restore` using the URI captured
+when it was trashed. A hard link whose source is gone or was replaced stays as the last name holding
+those bytes. A transfer that replaced an item reverses both halves in that one step, newest
 first: the incoming item is removed or moved back, and then the item it replaced is restored from the
-trash to its name. A reversal that fails stops the rest and is spent, so when the incoming half cannot
+trash to its name. A reversal that fails stops the rest and is spent, except a `Mode` step whose file
+was replaced or whose mode changed since: that step is skipped with a note while the rest restore, and
+redo skips the same way. So when the incoming half cannot
 go (a partial folder copy with a file inside newer than its root) or the trash cannot be read back (a
 `gio` with no `trash://` to list), the replaced item stays in the trash, restorable from the trash
-browser rather than by `undo`. A `mkdir` removes the folder it made only while it is still empty: a folder the
+browser rather than by `undo`. A partial `permissions` undo answers `N path(s) left in place` and names
+how many it restored for redo, which replays the undone half before anything older. A `mkdir` removes the folder it made only while it is still empty: a folder the
 user has filled since is theirs, so that reversal answers an `error` line, leaves it and its contents in
 place, and is spent like any failed reversal, so the next `undo` reaches the operation before it.
 
@@ -840,7 +850,7 @@ leaves it on disk, because removing it on a transient error would destroy data, 
 lets `undo` remove it. A destination that already existed is never recorded, because nothing was created
 there. The steps of one operation reverse
 newest first, and a step that fails stops the rest rather than leaving the operation half-reversed with
-nothing recording which half.
+nothing recording which half, except a `Mode` step, which is skipped with a note while the rest restore.
 
 ### jump
 

@@ -46,12 +46,19 @@ fn dest_dir_of(file: &Path) -> &Path {
 }
 
 pub fn create_relative(source: &Path, dest_file: &Path) -> Result<(), FleaError> {
-    // Canonicalize the dest folder: the kernel resolves `..` from the real folder.
-    let canonical_src = source.canonicalize()
+    // Only the dest folder is canonicalized, so the source leaf stays the item named.
+    source.symlink_metadata()
         .map_err(|e| from_io("link", &source.to_string_lossy(), &e))?;
+    let base = match source.parent().filter(|p| !p.as_os_str().is_empty()) {
+        Some(parent) => match parent.canonicalize() {
+            Ok(dir) => dir.join(source.file_name().unwrap_or_default()),
+            Err(_) => source.to_path_buf(),
+        },
+        None => source.to_path_buf(),
+    };
     let target = match dest_dir_of(dest_file).canonicalize() {
-        Ok(canonical_dest) => relative_target(&canonical_dest, &canonical_src),
-        Err(_) => canonical_src.clone(),
+        Ok(canonical_dest) => relative_target(&canonical_dest, &base),
+        Err(_) => base.clone(),
     };
     std::os::unix::fs::symlink(&target, dest_file)
         .map_err(|e| from_io("link", &dest_file.to_string_lossy(), &e))
@@ -145,6 +152,34 @@ mod tests {
         create_relative(&src, &at).expect("a fresh name links");
         assert_eq!(std::fs::read_to_string(&at).unwrap(), "a",
             "reported ok but the link dangles: {:?}", std::fs::read_link(&at));
+    }
+
+    #[test]
+    fn a_relative_link_to_a_symlink_names_the_symlink() {
+        let d = TestDir::new("link-rel-symleaf");
+        d.dir("src");
+        let target = d.file("src/v2.txt", "two");
+        let leaf = d.join("src/current.txt");
+        std::os::unix::fs::symlink(&target, &leaf).unwrap();
+        let dest = d.dir("dest");
+        let at = dest_path(&dest, &leaf).unwrap();
+        create_relative(&leaf, &at).expect("a fresh name links");
+        let text = std::fs::read_link(&at).unwrap();
+        assert!(text.to_string_lossy().ends_with("current.txt"), "link text followed the leaf: {:?}", text);
+        assert_eq!(std::fs::read_to_string(&at).unwrap(), "two");
+    }
+
+    #[test]
+    fn a_relative_link_to_a_dangling_symlink_still_links() {
+        let d = TestDir::new("link-rel-dangle");
+        d.dir("src");
+        let leaf = d.join("src/gone-target.txt");
+        std::os::unix::fs::symlink("no-such.txt", &leaf).unwrap();
+        let dest = d.dir("dest");
+        let at = dest_path(&dest, &leaf).unwrap();
+        create_relative(&leaf, &at).expect("a dangling leaf still links");
+        let text = std::fs::read_link(&at).unwrap();
+        assert!(text.to_string_lossy().ends_with("gone-target.txt"), "link text lost the leaf: {:?}", text);
     }
 
     #[test]

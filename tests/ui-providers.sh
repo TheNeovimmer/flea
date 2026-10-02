@@ -302,8 +302,8 @@ SH
 }
 
 providers_cleanup() {
-    # The Dropbox move check makes the account folder read-only for a moment; the next fixture has to remove it.
-    [[ ! -d "$menu_box/Dropbox" ]] || chmod 0755 "$menu_box/Dropbox" || return 1
+    # The Dropbox move check makes the source folder unwritable for a moment; the next fixture has to remove it.
+    [[ ! -d "$menu_box/list" ]] || chmod 0755 "$menu_box/list" || return 1
     providers_release tailscale || return 1
     providers_release dropbox-cli || return 1
     kill_flea || return 1
@@ -419,17 +419,17 @@ providers_sharelink_checks() {
 }
 
 providers_dropbox_move_checks() {
-    # A name that exists now asks first, so the real failure here is an unreadable source file.
+    # A name that exists now asks first, so the move fails on a source folder that cannot be written.
     menus_guard "$menu_box/Dropbox/a-marked.txt"
     menus_guard "$menu_box/retired/dropbox-collision.txt"
     mv -- "$menu_box/Dropbox/a-marked.txt" "$menu_box/retired/dropbox-collision.txt" || fail 'providers: cannot set the existing name aside'
-    chmod 000 "$menu_box/list/a-marked.txt" || fail 'providers: cannot make the source unreadable'
+    chmod 0555 "$menu_box/list" || fail 'providers: cannot make the source folder unwritable'
     providers_selection "$menu_dir"
     providers_choose dropbox
     menus_error 'Move failed: a-marked.txt · permission denied' 'Move to Dropbox reports the real refusal'
     menus_expect statusActivityState '(.activities | length) == 0 and .errors == 1' 'failed Dropbox move finishes without hiding its error'
     menus_expect statusFooterState '.secondary.text == " · esc dismisses"' 'unacknowledged Dropbox error keeps the informational error specimen'
-    chmod 644 "$menu_box/list/a-marked.txt" || fail 'providers: cannot make the source readable again'
+    chmod 0755 "$menu_box/list" || fail 'providers: cannot make the source folder writable again'
     menus_equal 'the refusal keeps the marked source bytes' 'list/a-marked.txt original' "$(cat "$menu_dir/a-marked.txt")"
     [[ ! -e "$menu_box/Dropbox/a-marked.txt" ]] || fail 'providers: a refused move left an item in Dropbox'
     menus_equal 'Dropbox retry selects only the failed marked file' "$(row_index_of a-marked.txt)" "$(ipc selectedIndices)"

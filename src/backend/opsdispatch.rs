@@ -223,6 +223,45 @@ pub(crate) fn do_undo(out: &mut impl Write, ops: &mut Ops) {
     out.flush().ok();
 }
 
+// A link the journal cannot identify is removed at once, so only a named leftover stays.
+fn remove_made_link(to: &Path) -> std::io::Result<()> {
+    if fail_link_verify() {
+        return Err(std::io::Error::from_raw_os_error(116));
+    }
+    std::fs::remove_file(to)
+}
+
+// The identity read beside that cleanup, failing together on a flaky mount.
+fn inspect_made_link(to: &Path) -> Result<ItemIdentity, crate::error::FleaError> {
+    if fail_link_verify() {
+        let stale = std::io::Error::from_raw_os_error(116);
+        return Err(crate::error::from_io("journal", &to.to_string_lossy(), &stale));
+    }
+    ItemIdentity::inspect(to)
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAIL_LINK_VERIFY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+// Both the identity read and its cleanup fail, the way EACCES or ESTALE on a flaky mount breaks both.
+#[cfg(test)]
+pub fn test_fail_link_verify(fail: bool) {
+    FAIL_LINK_VERIFY.with(|v| v.set(fail));
+}
+
+fn fail_link_verify() -> bool {
+    #[cfg(test)]
+    {
+        FAIL_LINK_VERIFY.with(|v| v.get())
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
 // Paste as links: one syscall per source on this thread, journaled as one entry.
 pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<String>, dest: &str, collide: super::collide::Ask) {
     if ops.live.running().is_some() { busy(out, "link"); return; }
@@ -284,7 +323,7 @@ pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<
                 };
                 match made {
                     Ok(()) => {
-                        match ItemIdentity::inspect(&to) {
+                        match inspect_made_link(&to) {
                             Ok(identity) => {
                                 for entry in replaced {
                                     steps.push(Step::Trashed(entry));
@@ -294,7 +333,18 @@ pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<
                                 ok += 1;
                             }
                             Err(e) => {
-                                let _ = std::fs::remove_file(&to);
+                                // A failed cleanup leaves the link behind, so its result is reported, never ignored.
+                                if let Err(remove) = remove_made_link(&to) {
+                                    for entry in replaced {
+                                        steps.push(Step::Trashed(entry));
+                                    }
+                                    failed += 1;
+                                    if first_err.is_empty() {
+                                        first_err = format!("{}; the link left at {} could not be removed ({})",
+                                            e.msg, to.to_string_lossy(), crate::error::io_message(&remove));
+                                    }
+                                    continue;
+                                }
                                 for entry in replaced {
                                     if to.symlink_metadata().is_err()
                                         && super::trash::restore(&entry).is_ok() {
@@ -758,6 +808,26 @@ mod tests {
     }
 
     #[test]
+    fn an_unverifiable_link_whose_cleanup_fails_names_the_leftover() {
+        let d = TestDir::new("dispatchlinkleftover");
+        let mut o = ops();
+        let a = d.file("a.txt", "a");
+        let dest = d.dir("dest");
+        test_fail_link_verify(true);
+        let mut buf = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+        do_link(&mut buf, &mut o, "relative",
+            vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        test_fail_link_verify(false);
+        let line = text(&buf);
+        let at = dest.join("a.txt");
+        assert!(line.contains(&at.to_string_lossy().into_owned()), "leftover unnamed: {}", line);
+        assert!(line.contains("could not be removed"), "cleanup failure silent: {}", line);
+        assert!(at.symlink_metadata().is_ok(), "the leftover stays and is reported, never dropped");
+        assert!(o.journal.is_empty(), "a link never identified journals nothing");
+    }
+
+    #[test]
     fn a_link_into_an_unwritable_folder_answers_link() {
         use std::os::unix::fs::PermissionsExt;
         let d = TestDir::new("dispatchlinknowrite");
@@ -771,6 +841,7 @@ mod tests {
         std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).unwrap();
         let line = text(&buf);
         assert!(line.contains(r#""where":"link""#), "{}", line);
+        assert!(line.contains("that folder cannot be written"), "usable_dest refused, not the link: {}", line);
         assert!(o.journal.is_empty());
     }
 
