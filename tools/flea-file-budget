@@ -79,13 +79,8 @@ ui/NetworkDialog.qml 449
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 838
 ui/OpenWithDialog.qml 596
-<<<<<<< HEAD
-ui/Pane.qml 965
+ui/Pane.qml 967
 ui/PaneMenuActions.qml 468
-=======
-ui/Pane.qml 1000
-ui/PaneMenuActions.qml 458
->>>>>>> 1ba3d05d
 ui/PaneWire.qml 537
 ui/PermissionsDialog.qml 627
 ui/PickerWindow.qml 770

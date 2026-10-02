@@ -3,6 +3,11 @@
 // Keeps the one-shot Make executable id clear of the dialog's own batch ids; both QML readers add their pending id to it.
 var MAKE_EXEC_ID = 1000000
 
+// Only the newest id on the asked path lands, so a late answer never arms a later file.
+function landsShebang(path, id, asked, currentId) {
+    return path === asked && id === currentId
+}
+
 // Sample input: "644" or "0644"; invalid text remains in the input until corrected.
 function parse(text) {
     return /^(0?[0-7]{3})$/.test(String(text)) ? parseInt(text, 8) : -1

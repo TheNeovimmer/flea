@@ -1,4 +1,5 @@
 .import "../../ui/js/RecentMode.js" as RecentMode
+.import "sourcefixture.js" as Source
 
 // The main window's Recent place. ui/Pane.qml holds the mode, this holds what it does.
 
@@ -127,4 +128,9 @@ function run(check) {
     check("dropping the overlay hands the standing order back",
           RecentMode.dropOverlay(switching) + "|" + switching.backend.sortBy + "|" + switching.backend.sortDesc,
           "true|kind|true")
+
+    // The sort run() stashes lives on the real pane, so a stub object cannot hide a missing declaration.
+    var paneSource = Source.source("ui/Pane.qml")
+    check("Pane.qml declares recentSortBy", paneSource.indexOf("property string recentSortBy") >= 0, true)
+    check("Pane.qml declares recentSortDesc", paneSource.indexOf("property bool recentSortDesc") >= 0, true)
 }

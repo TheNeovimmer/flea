@@ -119,9 +119,7 @@ function forget(pane, keptQuery) {
     pane.dirSizeState = DirSizes.empty()
     pane.cursorIndex = 0
     pane.trashArmedAt = 0
-    // The row the editor sat on belongs to the listing being replaced, so the rename goes with it:
-    // leaving the index set opened an empty editor over whatever file arrived at that row instead.
-    // A held sort belongs to the edit being replaced, so a navigation drops it with it.
+    // The editor row and the held sort belong to the replaced listing, so both go with it.
     pane.pendingSort = null
     pane.renamingIndex = -1
     // A re-list puts a different file at that index, so the tap record goes with the rename.

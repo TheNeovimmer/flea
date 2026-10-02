@@ -488,7 +488,7 @@ FocusScope {
     }
     // Only the newest id on the asked path lands, so a late answer for an earlier file never arms a later one.
     function noteShebang(path, hasShebang, id) {
-        if (id !== root.shebangId || path !== root.shebangAsked) return
+        if (!Permissions.landsShebang(path, id, root.shebangAsked, root.shebangId)) return
         root.rowHasShebang = hasShebang
         if (menu.opened && menu.hasRow) menu.refreshProviderRows()
     }

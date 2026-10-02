@@ -92,4 +92,10 @@ function run(check) {
     // The two-byte shebang read left QML for the backend: no Process runs head from the UI.
     check("no shebang Process remains in Pane.qml", Source.source("ui/Pane.qml").indexOf("shebangProc") < 0, true)
     check("the check asks the backend instead", Source.source("ui/Pane.qml").indexOf('c: "shebang"') >= 0, true)
+
+    // Only the newest id on the asked path lands, so a late answer never arms a later file.
+    check("an older id on the asked path is refused", Permissions.landsShebang("/d/a.sh", 1, "/d/a.sh", 2), false)
+    check("and the newest id on it lands", Permissions.landsShebang("/d/a.sh", 2, "/d/a.sh", 2), true)
+    check("and the newest id on another path is refused", Permissions.landsShebang("/d/b.sh", 2, "/d/a.sh", 2), false)
+    check("Pane.qml lands through the helper", Source.source("ui/Pane.qml").indexOf("Permissions.landsShebang") >= 0, true)
 }
