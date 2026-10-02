@@ -1280,7 +1280,12 @@ on: the write stays running on its own worker, so the loop keeps answering every
 and the mount is never marked stuck for a write still running. `op` names the request (`rename`,
 `mkdir` or `link`), `path` the path it is writing (the rename source, the mkdir parent, or the
 link destination), and `msg` the sentence the client shows as information, never as an error. The
-write's own reply follows whenever it lands: the same `renamed`, `made` or `linked` line the
+`slow` line releases the one-at-a-time slot at once, so writes on other mounts and on local paths
+still run; the write stays pending under its mount root instead. A write touching a mount with a
+pending slow write answers `an operation is already running` and journals nothing, and `undo` and
+`redo` answer the same while any slow write is pending, naming its path. The late reply clears
+only its own pending entry. There is still no cancel id and no progress for the running write.
+The write's own reply follows whenever it lands: the same `renamed`, `made` or `linked` line the
 in-time path writes, or the same `error` line if the write failed, journalled exactly once either
 way, so one `undo` reverses it. A multi-item `link` that goes slow finishes its remaining items
 on the worker side and answers one `linked` line with its counts when the batch lands.

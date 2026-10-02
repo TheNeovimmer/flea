@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::thread;
 use super::menu_actions::{validate_sources, Selected};
 use super::opsdispatch::menu_sources;
+use super::opsdispatch::pending_on;
 
 
 pub fn archivestarted_line(id: usize) -> String {
@@ -137,6 +138,15 @@ pub fn start_archive(
         writeln!(out, "{}", error_line(&op_err("archive", "", "an operation is already running"))).ok();
         out.flush().ok();
         return;
+    }
+    // An extract on a pending mount waits; writes elsewhere run beside the held write.
+    if !compressing {
+        let body = crate::backend::iomount::mount_body();
+        if pending_on(ops, &body, &archive.to_string_lossy()) || pending_on(ops, &body, &dest.to_string_lossy()) {
+            writeln!(out, "{}", error_line(&op_err("archive", "", "an operation is already running"))).ok();
+            out.flush().ok();
+            return;
+        }
     }
     // A compress runs alongside by design, so its flag is tracked for a quit to set.
     let (id, cancel) = if compressing { (ops.claim_id(), Arc::new(AtomicBool::new(false))) } else { ops.claim_transfer() };

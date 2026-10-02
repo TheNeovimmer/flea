@@ -5322,7 +5322,7 @@ the transfer's are, or a menu's captured selection.
 `trash` or `duplicate` while one is live answers an `error` line rather than queueing. The reason is the
 surface, not the backend: the operations design gives transfers the status bar's single transient slot,
 so a second concurrent operation would have nowhere to report itself. `rename` and `mkdir` are exempt on a local mount, where
-neither spawns at all; a remote one holds the slot past its deadline instead, see below. An `archive` extract takes the transfer slot, so a copy, move or second extract
+neither spawns at all; a remote one records a pending slow write for its mount instead, see below. An `archive` extract takes the transfer slot, so a copy, move or second extract
 is refused busy while one runs; a compress and a convert never claim it: `Ops::claim_id` numbers them
 and they run alongside by design, tracked in the detached registry a quit cancels, so the cap was never one write of any kind.
 
@@ -5336,9 +5336,13 @@ On a remote mount, rclone and WebDAV included, which "Mount workers" classifies 
 `slow_write_with`'s worker instead: past `CALL_DEADLINE` the loop answers a `slow` line and moves on, and the worker
 reports late through `Event::Op`, journalled exactly as the in-time answer would have been. The window no longer freezes,
 though the copy still has no progress and no cancel, because the worker runs the copy to its end and the late result
-carries no byte counts and answers no cancel id. The slow op holds the one-at-a-time slot from its `slow` line until its
-late entry is journalled, so `undo`, `redo` and a second write answer busy between them, and one undo still reverses
-the late write like any other entry.
+carries no byte counts and answers no cancel id. The `slow` line releases the one-at-a-time slot for its own id
+at once, so writes on other mounts and on local paths run while the held write is still going; the write is recorded
+as pending under the remote mount root its paths sit on instead. A write any of whose sources or target sits on a
+mount with a pending slow write answers busy and journals nothing, and `undo` and `redo` answer busy naming the
+pending path until the late entry lands, so no reversal races it. The late Done journals exactly as the in-time
+answer would have and clears only its own pending entry, and one undo still reverses the late write like any other
+entry. There is still no cancel and no progress for the running write.
 `trash` shells to `gio` twice for the list diff plus once to trash; `duplicate` may copy a
 whole tree; a `transfer` is unbounded. Those three send their results back through `Event::Op`,
 joined onto the loop's receiver exactly the way the thumbnail pool's `Event::Thumb` already is, so
