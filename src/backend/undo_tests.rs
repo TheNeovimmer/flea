@@ -6,6 +6,76 @@ fn entry(op: &str, steps: Vec<Step>) -> Entry {
     Entry { op: op.to_string(), steps }
 }
 
+fn legacy_identity(path: &Path) -> Option<ItemIdentity> {
+    let current = ItemIdentity::inspect(path).unwrap();
+    if current.born().is_none() {
+        eprintln!("legacy undo check skipped: filesystem has no birth time");
+        return None;
+    }
+    let (dev, ino, kind, len, mtime, changed, _) = current.to_parts();
+    Some(ItemIdentity::from_parts(dev, ino, kind, len, mtime, changed, None))
+}
+
+#[test]
+fn legacy_entry_rebase_updates_every_recorded_identity_slot() {
+    let d = TestDir::new("undolegacyrebase");
+    let path = d.file("untouched.txt", "body");
+    let Some(legacy) = legacy_identity(&path) else { return };
+    let current = ItemIdentity::inspect(&path).unwrap();
+    let new_path = d.file("new.txt", "new identity");
+    let new = ItemIdentity::inspect(&new_path).unwrap();
+    let steps = |identity: &ItemIdentity| vec![
+        Step::Moved { from: path.clone(), to: path.clone(), before: identity.clone(), after: identity.clone() },
+        Step::Copied { from: path.clone(), to: path.clone(), source: identity.clone(), created: identity.clone(), manifest: None, manifest_nonce: None },
+        Step::MadeFile { path: path.clone(), identity: identity.clone() },
+        Step::MadeDir { path: path.clone(), identity: identity.clone() },
+        Step::Linked { path: path.clone(), identity: identity.clone(), source: path.clone(), kind: super::super::link::LinkKind::Relative },
+    ];
+    let mut recorded = entry("legacy", steps(&legacy));
+    recorded.rebase(&current, &new);
+    assert_eq!(recorded.steps, steps(&new), "all legacy slots must follow the identity rebase");
+}
+
+#[test]
+fn legacy_moved_undo_returns_the_identity_rebase_pair() {
+    let d = TestDir::new("undolegacymoved");
+    let from = d.join("before.txt");
+    let to = d.file("after.txt", "body");
+    let Some(legacy) = legacy_identity(&to) else { return };
+    let current = ItemIdentity::inspect(&to).unwrap();
+    let step = Step::Moved { from: from.clone(), to: to.clone(), before: legacy.clone(), after: legacy };
+    let pair = reverse(&step).expect("legacy move must undo").expect("untouched legacy move must return its rebase pair");
+    assert_eq!(pair.0, current);
+    assert_eq!(pair.1, ItemIdentity::inspect(&from).unwrap());
+    assert!(!to.exists());
+    assert_eq!(std::fs::read_to_string(&from).unwrap(), "body");
+}
+
+#[test]
+fn legacy_copied_undo_removes_the_untouched_copy() {
+    let d = TestDir::new("undolegacycopy");
+    let source = d.file("source.txt", "body");
+    let copy = d.file("copy.txt", "body");
+    let Some(legacy) = legacy_identity(&copy) else { return };
+    let step = Step::Copied { from: source.clone(), to: copy.clone(), source: ItemIdentity::inspect(&source).unwrap(), created: legacy, manifest: None, manifest_nonce: None };
+    let mut journal = Journal::new();
+    journal.push(entry("copy", vec![step]));
+    assert_eq!(journal.undo().expect("untouched legacy copy must undo"), "copy");
+    assert!(!copy.exists());
+    assert_eq!(std::fs::read_to_string(&source).unwrap(), "body");
+}
+
+#[test]
+fn legacy_new_file_undo_removes_the_untouched_empty_file() {
+    let d = TestDir::new("undolegacyfile");
+    let path = d.file("empty.txt", "");
+    let Some(legacy) = legacy_identity(&path) else { return };
+    let mut journal = Journal::new();
+    journal.push(entry("new file", vec![Step::MadeFile { path: path.clone(), identity: legacy }]));
+    assert_eq!(journal.undo().expect("untouched legacy new file must undo"), "new file");
+    assert!(!path.exists());
+}
+
 #[test]
 fn an_empty_journal_answers_an_error_rather_than_claiming_it_undid_something() {
     let mut j = Journal::new();

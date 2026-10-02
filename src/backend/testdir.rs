@@ -280,6 +280,24 @@ mod tests {
     }
 
     #[test]
+    fn replacing_an_unheld_file_changes_its_inode_or_known_birth_time() {
+        let d = TestDir::new("replaceidentity");
+        let path = d.file("a.txt", "old");
+        let old = path.symlink_metadata().unwrap();
+        let old_born = crate::backend::permissions::born_of(&old);
+        d.replace_file(&path, "new");
+        let new = path.symlink_metadata().unwrap();
+        let new_born = crate::backend::permissions::born_of(&new);
+        if old.ino() == new.ino() && old_born.is_none() && new_born.is_none() {
+            eprintln!("identity check skipped: filesystem has no birth time and reused the inode");
+            return;
+        }
+        assert!(old.ino() != new.ino() || matches!((old_born, new_born),
+            (Some(old), Some(new)) if old != new),
+            "replacement retained inode {} and birth time {:?}", old.ino(), old_born);
+    }
+
+    #[test]
     fn a_dropped_sandbox_takes_its_contents_with_it() {
         let kept;
         {

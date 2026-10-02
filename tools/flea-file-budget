@@ -40,6 +40,7 @@ src/backend/dirsizeworker.rs 574
 src/backend/watch.rs 533
 src/backend/thumbreq.rs 418
 src/backend/undo.rs 612
+src/backend/undo_tests.rs 423
 src/backend/undoshare.rs 431
 src/backend/undoshare_tests.rs 532
 src/backend/collide_replace_tests.rs 487
