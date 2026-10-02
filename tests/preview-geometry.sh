@@ -78,7 +78,7 @@ printf '%s\n' "$output" | grep -a 'GEOMETRY [a-z-]* [a-z]* [0-9x]* frame='
 # The contact sheet: every cell grab in index order, titled by its own file name, for a human to look at.
 mapfile -t grabs < <(ls "$test_root"/out/geometry-*.png | sort -V)
 [ "${#grabs[@]}" -eq "$expected_cells" ] || { echo "preview-geometry.sh: want $expected_cells cell grabs, got ${#grabs[@]}"; exit 1; }
-montage "${grabs[@]}" -tile 4x -geometry 320x240+4+4 -label '%f' "$test_root/sheet.png" \
+montage -label '%f' "${grabs[@]}" -tile 4x -geometry 320x240+4+4 "$test_root/sheet.png" \
     || { echo "preview-geometry.sh: the contact sheet failed"; exit 1; }
 # The contact sheet outlives the sandbox, which cleanup removes on exit 0.
 evidence_root=$(mktemp -d /tmp/flea-preview-geometry.XXXXXXXX) || exit 1

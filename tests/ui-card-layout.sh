@@ -192,8 +192,7 @@ OPENER
         last=$((rows - 1))
         (( last < 17 )) || last=16
         (( last >= 0 )) || fail "cardsizes: no visible listing row for menu placement"
-        # visibleRows rounds up, so the last row can be cut by the list's bottom edge and its
-        # centre then lies below the list clip: pick the deepest row whose whole rectangle is inside.
+        # visibleRows rounds up, so the last row can sit half below the list clip: use the deepest whole one.
         area=$(ipc listAreaRect) || fail "cardsizes: listing area geometry failed"
         [[ "$area" =~ ^-?[0-9]+\ -?[0-9]+\ [0-9]+\ [0-9]+$ ]] || fail "cardsizes: invalid listing area: $area"
         read -r ax ay aw ah <<< "$area"
