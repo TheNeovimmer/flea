@@ -91,7 +91,7 @@ ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
 ui/Sidebar.qml 675
 ui/StatusBar.qml 460
-ui/TabBar.qml 569
+ui/TabBar.qml 588
 ui/Theme.qml 415
 ui/TrashView.qml 475
 ui/ViewState.qml 410
@@ -105,7 +105,7 @@ ui/js/Drag.js 346
 ui/js/Ops.js 438
 ui/js/Picker.js 325
 ui/js/Settings.js 455
-ui/js/Tabs.js 672"
+ui/js/Tabs.js 686"
 
 status=0
 

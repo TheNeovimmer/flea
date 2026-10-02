@@ -11085,26 +11085,58 @@ xwtab_wait_enter() {
     return 0
 }
 
-# Own-strip gestures leave the source window first, which is what starts its platform drag.
+# The case cleanup and failure path release every gesture that got as far as press.
+xwtab_button_down=false
+xwtab_release() {
+    if [[ "$xwtab_button_down" == true ]]; then
+        ydotool click 0x80 >/dev/null 2>&1 || return 1
+        xwtab_button_down=false
+    fi
+}
+xwtab_cleanup() { xwtab_release || true; xwtab_restore_place; }
+
+# Hyprland never re-enters the source, so own returns and desktop drops land on the catcher.
+xwtab_wait_catcher() {
+    local i lines
+    for i in $(seq 1 30); do
+        lines=$(xwtab_trace_lines | grep -a "TABDRAG .* pid=$xwtab_source " || true)
+        grep -aq 'TABDRAG drag-finished' <<< "$lines" && fail "xwtab: source ended before catcher enter"
+        grep -aq 'TABDRAG catcher-enter' <<< "$lines" && return 0
+        sleep 0.1
+    done
+    fail "xwtab: no catcher enter after platform start"
+}
+xwtab_wait_outcome() {
+    local outcome="$1" i
+    for i in $(seq 1 30); do
+        xwtab_trace_lines | grep -a "TABDRAG catcher-drop pid=$xwtab_source outcome=$outcome " >/dev/null && return 0
+        sleep 0.1
+    done
+    fail "xwtab: catcher never reported outcome=$outcome"
+}
+
+# Start beyond the source edge before any target motion; Hyprland retargets only on motion.
 xwtab_drag_to_window() {
     local sx="$1" sy="$2" dx="$3" dy="$4" apid="$5" bpid="$6" mode="$7" wx wy ww wh
     xwtab_source=$apid; xwtab_target=$bpid
     xwtab_gesture="press=$sx,$sy target=$dx,$dy"
+    read -r wx wy ww wh < <(xwdrag_geometry "$apid") || fail "xwtab: no source geometry"
     xwdrag_glide "$sx" "$sy"
     xwtab_mark_logs
+    xwtab_button_down=true
     ydotool click 0x40 >/dev/null 2>&1 || fail "xwtab: pointer press failed"
-    if [[ "$apid" == "$bpid" ]]; then
-        read -r wx wy ww wh < <(xwdrag_geometry "$apid") || fail "xwtab: no source geometry for own-strip drag"
-        xwtab_gesture+=" outside=$((wx + 200)),$((wy + wh + 60))"
-        xwdrag_glide "$((wx + 200))" "$((wy + wh + 60))"
-        xwtab_wait_start
-    fi
+    xwtab_gesture+=" outside=$((wx + 200)),$((wy + wh + 60))"
+    xwdrag_glide "$((wx + 200))" "$((wy + wh + 60))"
+    xwtab_wait_start
     xwdrag_glide "$dx" "$dy"
     xwdrag_glide "$((dx + 6))" "$dy"
     xwdrag_glide "$dx" "$dy"
-    xwtab_wait_start
-    xwtab_wait_enter "$bpid" "$mode"
-    ydotool click 0x80 >/dev/null 2>&1 || fail "xwtab: pointer release failed"
+    if [[ "$mode" == catcher ]]; then
+        xwtab_wait_catcher
+    else
+        xwtab_wait_enter "$bpid" "$mode"
+    fi
+    xwtab_release || fail "xwtab: pointer release failed"
 }
 
 # The addr and rect of one owned pid, so room-making and restore never name a window by guess.
@@ -11118,7 +11150,6 @@ xwtab_rect_of() {
 # Saved addr and rect per owned pid, restored at the case end and on failure through the trap.
 xwtab_saved=""
 xwtab_restore_place() {
-    trap - EXIT
     [[ -n "$xwtab_saved" ]] || return 0
     local pid addr x y w h floating cur caddr cx cy cw ch cfloating
     while read -r pid addr x y w h floating; do
@@ -11152,7 +11183,7 @@ xwtab_make_room() {
     [[ -n "${aaddr:-}" && -n "${baddr:-}" ]] || fail "xwtab: no geometry for a parked window"
     xwtab_saved="$apid $aaddr $ax $ay $aw $ah $afloating
 $bpid $baddr $bx $by $bw $bh $bfloating"
-    trap 'xwtab_restore_place' EXIT
+    trap 'xwtab_cleanup' EXIT
     local mon_json mon mon_name
     mon_json=$(hyprctl monitors -j 2>/dev/null || true)
     [[ -n "$mon_json" ]] || fail "xwtab: no focused monitor to make room on"
@@ -11251,7 +11282,8 @@ case_xwtab() {
     # The tab handoff trace, on for both windows; every fail below dumps it first.
     export FLEA_TRACE_TABDRAG=1
     eval "$(declare -f fail | sed '1s/fail/xwtab_saved_fail/')"
-    fail() { xwtab_dump_trace; xwtab_saved_fail "$@"; }
+    fail() { xwtab_release || true; xwtab_dump_trace; xwtab_saved_fail "$@"; }
+    trap 'xwtab_cleanup' EXIT
     dir="$fixture_root/xwtab"
     sandbox_scratch "$dir"
     adir="$dir/a"
@@ -11312,9 +11344,8 @@ case_xwtab() {
     read -r ex ey <<< "$xwtab_point"
     xwdrag_focus "$bpid"
     read -r sx sy < <(xwtab_tab_point "$bid" "$bpid" 1) || fail "xwtab: B's second tab has no centre"
-    xwtab_source=$bpid; xwtab_target=desktop; xwtab_gesture="press=$sx,$sy target=$ex,$ey"
-    xwtab_mark_logs
-    xwdrag_drag "$sx" "$sy" "$ex" "$ey" none
+    xwtab_drag_to_window "$sx" "$sy" "$ex" "$ey" "$bpid" desktop catcher
+    xwtab_wait_outcome tearoff
     cpid=$(xwtab_wait_third "$before") || fail "xwtab: no third window tore off"
     cid=$(xwdrag_qsid "$cpid") || fail "xwtab: no qs instance for $cpid"
     for i in $(seq 1 100); do
@@ -11367,15 +11398,28 @@ case_xwtab() {
     xwtab_source=$apid; xwtab_target=$apid; xwtab_gesture="Escape press=$sx,$sy"
     xwdrag_glide "$sx" "$sy"
     xwtab_mark_logs
+    xwtab_button_down=true
     ydotool click 0x40 >/dev/null 2>&1 || fail "xwtab: pointer press failed"
     sleep 0.3
     xwdrag_glide "$((awx + 200))" "$((awy + awh + 60))"
+    xwtab_wait_start
     xwdrag_glide "$sx" "$sy"
-    # Aimed at A by address, so the cancel cannot reach the window the restore parked last.
-    xwtab_key "$apid" -k Escape
+    xwdrag_glide "$((sx + 6))" "$sy"
+    xwdrag_glide "$sx" "$sy"
+    # The catcher never takes keyboard focus, so Escape reaches the source drag filter.
+    key -k Escape >/dev/null
     sleep 0.5
-    ydotool click 0x80 >/dev/null 2>&1 || fail "xwtab: pointer release failed"
+    xwtab_release || fail "xwtab: pointer release failed"
     sleep 0.5
+    xwtab_trace_lines | grep -a "TABDRAG drag-finished pid=$apid " >/dev/null || fail "xwtab: Escape did not finish the drag"
+    hyprctl layers -j | python3 -c '
+import json,sys
+def contains(node):
+    if isinstance(node,dict):
+        return str(node.get("pid",""))==sys.argv[1] or any(contains(v) for v in node.values())
+    return isinstance(node,list) and any(contains(v) for v in node)
+sys.exit(1 if contains(json.load(sys.stdin)) else 0)
+' "$apid" || fail "xwtab: Escape left the catcher mapped"
     [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: Escape moved the tab"
     [[ "$(flea_pids | tr '\n' ' ')" == "$esc_before" ]] || fail "xwtab: Escape opened a window"
     printf 'XWTAB escape ok\n'
@@ -11385,7 +11429,8 @@ case_xwtab() {
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre after Escape"
     # The first tab's left quarter inserts before it; its centre is the next insertion slot.
     ox=$((ox - (sx - ox) / 4))
-    xwtab_drag_to_window "$sx" "$sy" "$ox" "$oy" "$apid" "$apid" require
+    xwtab_drag_to_window "$sx" "$sy" "$ox" "$oy" "$apid" "$apid" catcher
+    xwtab_wait_outcome return
     for i in $(seq 1 40); do [[ "$(xwdrag_qs "$aid" tabIndex 2>/dev/null)" == 0 ]] && break; sleep 0.1; done
     [[ "$(xwdrag_qs "$aid" tabIndex 2>/dev/null)" == 0 ]] || fail "xwtab: own-strip drop did not reorder the active tab"
     sleep 0.5
@@ -11438,9 +11483,7 @@ print(c["at"][0] + c["size"][0] // 2, c["at"][1] + c["size"][1] // 2)
 ') || fail "xwtab: no geometry for the foreign receiver"
     xwdrag_focus "$apid"
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
-    xwtab_source=$apid; xwtab_target=$recv_pid; xwtab_gesture="press=$sx,$sy target=$rcx,$rcy"
-    xwtab_mark_logs
-    xwdrag_drag "$sx" "$sy" "$rcx" "$rcy" none
+    xwtab_drag_to_window "$sx" "$sy" "$rcx" "$rcy" "$apid" "$recv_pid" observe
     sleep 1
     [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: A lost its tab to a foreign receiver"
     grep -q '^actions=' "$recv_log" && fail "xwtab: the foreign receiver took the tab drop"
@@ -11453,6 +11496,7 @@ print(c["at"][0] + c["size"][0] // 2, c["at"][1] + c["size"][1] // 2)
     eval "$(declare -f xwtab_saved_fail | sed '1s/xwtab_saved_fail/fail/')"
     unset -f xwtab_saved_fail
     unset FLEA_TRACE_TABDRAG
+    trap - EXIT
 }
 
 # The cursor parks on row 0 above the card, so a press that runs on from an overlay control to any row beneath moves it.

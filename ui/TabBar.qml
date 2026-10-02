@@ -75,6 +75,11 @@ Item {
         }
     }
 
+    // QTBUG-64128: a DropArea rejects a drag sourced from its ancestor.
+    Item { id: dragOrigin; width: 0; height: 0; visible: false }
+    Drag.source: dragOrigin
+    Flea.TabDragGeometry { id: sourceGeometry }
+
     Drag.dragType: Drag.Automatic
     // Move only, and only the private tab type: a foreign app refuses it, so a tab
     // can never move or copy the folder on disk. No proposedAction: a cross-process
@@ -116,6 +121,9 @@ Item {
         root.outPath = info ? info.path : ""
         root.outPid = String(Quickshell.processId)
         root.outToken = Tabs.newToken()
+        var band = strip.mapToItem(null, 0, 0)
+        sourceGeometry.begin(root.outToken, { x: band.x, y: band.y,
+            width: root.width - strip.x, height: root.height })
         // A new lift supersedes any ack still waited on.
         ackTimer.stop()
         root.ackLiftedAt = 0
@@ -188,18 +196,33 @@ Item {
             root.holdAck()
     }
 
-    // The panel's Escape: ends the gesture with no move and no tear-off, the tab stays.
-    // No drop follows, so no ack ever comes; the lift waits out the timer instead.
+    // Qt's platform Escape filter and explicit cancellation share the same ending.
     function cancelOut() {
         if (!root.outActive)
             return
         root.Drag.cancel()
-        root.dragFrom = -1
-        root.dropAt = -1
-        root.outActive = false
-        root.ownAccepted = false
-        if (root.outToken.length > 0)
-            root.holdAck()
+        if (root.outActive)
+            root.outFinished(Qt.IgnoreAction)
+    }
+
+    function returnAt(at) {
+        var from = Tabs.resolveMovedTab(root.pane, root.outIndex, root.outPath)
+        if (root.pane && from >= 0)
+            Tabs.move(root.pane, from, at > from ? at - 1 : at)
+        root.ownAccepted = true
+    }
+
+    function catcherDrop(x, y) {
+        if (!root.outActive)
+            return
+        var result = Tabs.catcherOutcome(sourceGeometry.rect, sourceGeometry.strip,
+                                        x, y, root.tabWidth, root.tabCount)
+        root.traceTab("catcher-drop", "outcome=" + result.outcome + " global=" + x + "," + y
+                      + (sourceGeometry.rect ? "" : " reason=unknown-source-rectangle"))
+        if (result.outcome === "tearoff")
+            root.tearOffAt()
+        else if (result.outcome === "return")
+            root.returnAt(result.at)
     }
 
     // The tear-off catcher answers in this process, so it reports exactly: open the new
@@ -522,11 +545,7 @@ Item {
                     root.traceTab("drop-skip", "reason=strip-own-inactive")
                     return
                 }
-                var from = Tabs.resolveMovedTab(root.pane, root.outIndex, root.outPath)
-                var at = Tabs.dropIndexAt(drop.x, root.tabWidth, root.tabCount)
-                if (root.pane && from >= 0)
-                    Tabs.move(root.pane, from, at > from ? at - 1 : at)
-                root.ownAccepted = true
+                root.returnAt(Tabs.dropIndexAt(drop.x, root.tabWidth, root.tabCount))
                 drop.accept(Qt.MoveAction)
                 return
             }

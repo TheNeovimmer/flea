@@ -278,15 +278,56 @@ fi
     xwdrag_geometry() { printf '165 65 1000 720\n'; }
     xwtab_mark_logs() { printf 'mark\n'; }
     xwtab_wait_start() { printf 'start\n'; }
+    xwtab_wait_catcher() { printf 'catcher\n'; }
     xwtab_wait_enter() { printf 'enter %s %s\n' "$1" "$2"; }
     ydotool() { printf 'pointer %s %s\n' "$1" "$2" >> "$scratch/own-strip.out"; }
-    xwtab_drag_to_window 501 106 281 106 101 101 require
+    xwtab_drag_to_window 501 106 281 106 101 101 catcher
 ) >> "$scratch/own-strip.out"
-expected=$(printf 'glide 501 106\nmark\npointer click 0x40\nglide 365 845\nstart\nglide 281 106\nglide 287 106\nglide 281 106\nstart\nenter 101 require\npointer click 0x80')
+expected=$(printf 'glide 501 106\nmark\npointer click 0x40\nglide 365 845\nstart\nglide 281 106\nglide 287 106\nglide 281 106\ncatcher\npointer click 0x80')
 if [ "$(cat "$scratch/own-strip.out")" = "$expected" ]; then
-ok "own-strip drag crosses the actual window edge before waiting for its own enter"
+ok "own-strip drag starts outside before post-start motion and catcher landing"
 else
-bad "own-strip drag did not leave its source before returning and releasing"
+bad "own-strip drag did not wait for start and catcher before returning and releasing"
+fi
+# A failure after pressing releases through the same case cleanup, at every waiting stage.
+for stage in start target enter; do
+    log="$scratch/release-$stage.out"
+    (
+        fail() { exit 1; }
+        xwtab_restore_place() { :; }
+        trap 'xwtab_cleanup' EXIT
+        xwdrag_geometry() { printf '165 65 1000 720\n'; }
+        xwtab_mark_logs() { :; }
+        xwdrag_glide() { [[ "$stage" != target || "$1" != 1200 ]] || fail "target motion failed"; }
+        xwtab_wait_start() { [[ "$stage" != start ]] || fail "start failed"; }
+        xwtab_wait_enter() { [[ "$stage" != enter ]] || fail "enter failed"; }
+        ydotool() { printf '%s %s\n' "$1" "$2" >> "$log"; }
+        xwtab_drag_to_window 501 106 1200 400 101 202 require
+    )
+    result=$?
+    if [ "$result" != 0 ] && [ "$(cat "$log")" = "$(printf 'click 0x40\nclick 0x80')" ]; then
+        ok "$stage failure releases the held button exactly once"
+    else
+        bad "$stage failure leaked the held button or did not fail"
+    fi
+done
+# The move leg also starts outside the source before the target receives motion.
+: > "$scratch/move-order.out"
+(
+    fail() { exit 1; }
+    xwdrag_geometry() { printf '165 65 1000 720\n'; }
+    xwtab_mark_logs() { printf 'mark\n'; }
+    xwdrag_glide() { printf 'glide %s %s\n' "$1" "$2"; }
+    xwtab_wait_start() { printf 'start\n'; }
+    xwtab_wait_enter() { printf 'enter %s %s\n' "$1" "$2"; }
+    ydotool() { printf 'pointer %s %s\n' "$1" "$2" >> "$scratch/move-order.out"; }
+    xwtab_drag_to_window 501 106 1200 400 101 202 require
+) >> "$scratch/move-order.out"
+expected=$(printf 'glide 501 106\nmark\npointer click 0x40\nglide 365 845\nstart\nglide 1200 400\nglide 1206 400\nglide 1200 400\nenter 202 require\npointer click 0x80')
+if [ "$(cat "$scratch/move-order.out")" = "$expected" ]; then
+    ok "cross-window target receives three motions after the platform start"
+else
+    bad "cross-window target motion raced platform start"
 fi
 # A reused pid is not enough: the layer probe must read back its exact client address.
 (

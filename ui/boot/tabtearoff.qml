@@ -28,20 +28,23 @@ Item {
                 right: true
             }
             WlrLayershell.layer: WlrLayer.Bottom
-            WlrLayershell.exclusiveZone: 0
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
-            // Escape needs a focused Item; PanelWindow is not one, so Keys there warns.
-            Item {
+            // Ignore reserved bars so catcher-local origin is exactly the screen origin.
+            exclusionMode: ExclusionMode.Ignore
+            // Hyprland focuses an interactive layer on map and releases held buttons,
+            // stealing drag focus from the target window. Escape stays with Qt's source.
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            DropArea {
                 anchors.fill: parent
-                focus: true
-                Keys.onEscapePressed: { if (root.tabBar !== null) root.tabBar.cancelOut() }
-                DropArea {
-                    anchors.fill: parent
-                    keys: [root.tabMime]
-                    onDropped: function (drop) {
-                        // A drop landing before onLoaded assigned tabBar is dropped.
-                        if (root.tabBar !== null && drop.getDataAsString(root.tabMime) !== "")
-                            root.tabBar.tearOffAt()
+                keys: [root.tabMime]
+                onEntered: function (drag) {
+                    if (root.tabBar !== null)
+                        root.tabBar.traceTab("catcher-enter", "global=" + (modelData.x + drag.x) + "," + (modelData.y + drag.y))
+                }
+                onDropped: function (drop) {
+                    // The full-screen catcher starts at the screen's compositor position.
+                    if (root.tabBar !== null && drop.getDataAsString(root.tabMime) !== "") {
+                        drop.accept(Qt.MoveAction)
+                        root.tabBar.catcherDrop(modelData.x + drop.x, modelData.y + drop.y)
                     }
                 }
             }

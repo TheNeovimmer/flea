@@ -532,6 +532,20 @@ function dropIndexAt(x, tabWidth, tabCount) {
     return TabMove.insertionAt(x, tabWidth, tabCount)
 }
 
+// A catcher may retain drag focus after returning to the source on Hyprland.
+// Compare compositor-global coordinates with the source snapshot, never tear off blind.
+function catcherOutcome(rect, strip, x, y, tabWidth, tabCount) {
+    if (!rect || !(rect.width > 0) || !(rect.height > 0) || !isFinite(x) || !isFinite(y))
+        return { outcome: "cancel", at: -1 }
+    var localX = x - rect.x, localY = y - rect.y
+    if (localX < 0 || localY < 0 || localX >= rect.width || localY >= rect.height)
+        return { outcome: "tearoff", at: -1 }
+    if (strip && localX >= strip.x && localX < strip.x + strip.width
+            && localY >= strip.y && localY < strip.y + strip.height)
+        return { outcome: "return", at: dropIndexAt(localX - strip.x, tabWidth, tabCount) }
+    return { outcome: "cancel", at: -1 }
+}
+
 // Whether the pane may receive a tab: a listing in flight and a full strip both refuse,
 // the first with navigation's own sentence. Silent, so an enter probe refuses for free.
 function canReceive(pane) {

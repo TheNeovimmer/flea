@@ -139,5 +139,20 @@ else
     printf '%s\n' "${outside:-none}" | sed 's/^/     /'
 fi
 
+# The catcher must never steal focus and release the platform drag's held button.
+if code_of ui/boot/tabtearoff.qml | grep -q 'WlrLayershell.keyboardFocus: WlrKeyboardFocus.None' \
+    && ! code_of ui/boot/tabtearoff.qml | grep -Eq 'focus:|Keys\.|forceActiveFocus|WlrKeyboardFocus\.(OnDemand|Exclusive)'; then
+    ok "tear-off catcher never requests keyboard focus"
+else
+    bad "tear-off catcher must use None without a focused Escape item"
+fi
+# A sibling source bypasses QQuickDropArea's ancestor rejection (QTBUG-64128).
+if code_of ui/TabBar.qml | grep -q 'Drag.source: dragOrigin' \
+    && code_of ui/TabBar.qml | grep -q 'Item { id: dragOrigin; width: 0; height: 0; visible: false }'; then
+    ok "tab drag source is an invisible sibling of the strip DropArea"
+else
+    bad "tab drag source must not be the strip DropArea's ancestor"
+fi
+
 printf 'dragwire: %s check(s), %s failed\n' "$((pass + fail))" "$fail"
 [ "$fail" -eq 0 ]

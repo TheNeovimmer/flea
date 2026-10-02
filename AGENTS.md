@@ -2028,6 +2028,11 @@ its own decisive axis (the toolchain) made the rest of that measurement moot. `u
 
 ## File budget
 
+xw6 round 13 records `ui/TabBar.qml` 569 to 588 for the sibling drag source, source
+geometry snapshot and shared own-return path. `ui/js/Tabs.js` 672 to 686 adds the pure
+catcher outcome decision using the existing insertion math. Geometry query plumbing
+lives in `ui/TabDragGeometry.qml`, below the soft budget; no global limit changes.
+
 `tools/flea-file-budget` scans `src`, `ui` and `tests` for `.rs`, `.qml` and `.js`
 files. Rust and QML get a 250-line soft budget and a 400-line hard cap; JS gets 200
 soft and 300 hard. Going over the hard cap fails the tool; going over the soft budget
