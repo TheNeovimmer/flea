@@ -2,6 +2,7 @@
 
 import Quickshell
 import QtQuick
+import Quickshell.Io
 
 // tests/preview-decode.sh's harness: the real SelectionPreview swept and rested over a stub pane, then the real PreviewImage.
 ShellRoot {
@@ -21,8 +22,7 @@ ShellRoot {
     property string pendingInterim: ""
     // The interim phase's cursor row, naming the shown file the way production always does.
     property int interimRowOverride: -1
-    // e81f-r3: the meta-row guard overrides. guardMap names index->file for drifted
-    // rows, guardAskLog records every askMeta index, guardHold parks auto replies.
+    // e81f-r3 guard overrides: guardMap names drifted rows, guardAskLog every ask, guardHold parks replies.
     property var guardMap: ({})
     property var guardAskLog: []
     property bool guardHold: false
@@ -30,9 +30,27 @@ ShellRoot {
     function log(line) { console.log("PREVIEW " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
     function mark(name) { Quickshell.execDetached(["touch", shell.photoDir + "/sentinel-" + name]) }
+    // Sentinel handshake: touch runs as a Process so CREATE lands before the next open.
+    Process {
+        id: markProc
+        property string touchName: ""
+        command: ["touch", shell.photoDir + "/sentinel-" + touchName]
+        onExited: function(exitCode) {
+            if (exitCode !== 0) { shell.log("FAIL marker " + touchName); shell.quit(); return }
+            shell.onMarkDone(touchName)
+        }
+    }
+    function onMarkDone(name) {
+        if (name === "sweep") { shell.log("SWEEP START"); shell.movesLeft = shell.sweepCount; moveTimer.restart() }
+        else if (name.indexOf("istart-") === 0) { shell.openAfterMark() }
+    }
+    function openAfterMark() {
+        quickPreview.item.open(shell.photoDir + "/" + shell.interimOrig, "image-x-generic", 1000, "", shell.photoDir + "/" + shell.interimCache)
+        interimPoll.waited = 0
+        interimPoll.restart()
+    }
 
-    // The backend's row shape: a text start row, fifty sweep photos, the big PNG rest row.
-    // The interim phase overrides one row to name the shown file, so the cursor names it too.
+    // Backend row shape: text start row, fifty sweep photos, big PNG rest row, interim override names shown file.
     function rowFor(i) {
         if (shell.guardMap.hasOwnProperty(i))
             return { n: shell.guardMap[i], d: false, t: true, s: 1000, m: 1000, p: 33188, i: "image-x-generic" }
@@ -172,13 +190,8 @@ ShellRoot {
     Timer {
         id: settleTimer
         interval: 400
-        // The text row has loaded by now, so the sweep window opens on the sweep alone.
-        onTriggered: {
-            shell.mark("sweep")
-            shell.log("SWEEP START")
-            shell.movesLeft = shell.sweepCount
-            moveTimer.restart()
-        }
+        // Text row loaded, so sweep window opens on sweep alone; touch handshake orders CREATE first.
+        onTriggered: { markProc.touchName = "sweep"; markProc.running = true }
     }
 
     // Fifty cursor moves at key-repeat rate: the first loads at once after idle, the rest trail one settle.
@@ -232,8 +245,7 @@ ShellRoot {
         }
     }
 
-    // The Image inside ui/PreviewImage.qml, found by the property only the final picture
-    // sets: the interim beside it leaves autoTransform at its false default.
+    // Final picture finder: only it sets autoTransform true, interim leaves false.
     function picture() {
         var kids = quickLook.item ? quickLook.item.children : []
         for (var i = 0; i < kids.length; i++)
@@ -276,8 +288,7 @@ ShellRoot {
         }
     }
 
-    // The interim phase opens the production overlay with the cached thumbnail held, the way
-    // Space does: the interim draws the cache file, the full decode the original, each once.
+    // Interim opens the production overlay the way Space does: cache under full decode, each once.
     function beginInterim(label, orig, cache, w, h) {
         shell.interimPhase = label
         shell.interimOrig = orig
@@ -285,7 +296,6 @@ ShellRoot {
         shell.metaWH = [w, h]
         shell.interimRowOverride = 7
         stub.cursorIndex = 7
-        shell.mark("istart-" + label)
         shell.pendingInterim = label
         if (quickPreview.status === Loader.Ready) shell.openInterim()
         else quickPreview.active = true
@@ -293,20 +303,9 @@ ShellRoot {
 
     function openInterim() {
         shell.pendingInterim = ""
-        // The start marker lands before the open, so the open counter's window holds every open.
-        interimKick.restart()
-    }
-
-    Timer {
-        id: interimKick
-        interval: 100
-        repeat: false
-        onTriggered: {
-            quickPreview.item.open(shell.photoDir + "/" + shell.interimOrig, "image-x-generic",
-                1000, "", shell.photoDir + "/" + shell.interimCache)
-            interimPoll.waited = 0
-            interimPoll.restart()
-        }
+        // Touch handshake queues CREATE before the open, so the count window holds every open.
+        markProc.touchName = "istart-" + shell.interimPhase
+        markProc.running = true
     }
 
     function findAll(item, out) {
@@ -318,8 +317,7 @@ ShellRoot {
         return out
     }
 
-    // The interim leaves autoTransform at false while the final picture sets it, and each
-    // carries its own source, so the two never confuse each other.
+    // Interim/final finder: interim keeps autoTransform false, final sets true, sources differ.
     function interimPair() {
         var all = shell.findAll(quickPreview.item, [])
         var inter = null, final = null
@@ -346,7 +344,7 @@ ShellRoot {
             else if (kids[i] === pair[1]) fi = i
             else if (gi < 0 && kids[i].source === undefined && kids[i].color !== undefined) gi = i
         }
-        return gi >= 0 && gi < ii && ii < fi
+        return gi >= 0 && gi < ii && ii < fi && kids[gi].z === pair[0].z && pair[0].z === pair[1].z
     }
 
     // Sample log line: "PREVIEW INTERIM small irect=317,201,120,68 frect=317,201,120,68".
@@ -401,8 +399,7 @@ ShellRoot {
             + " asked7=" + g1asked + " kept=" + g1kept
             + " w=" + quickPreview.item.imageW + " h=" + quickPreview.item.imageH)
         shell.guardEnd()
-        // Guard 2: ask-time drift to the cursor. Row 7 already names s6.jpg while
-        // the cursor row 3 names guard2.jpg; the ask must go to 3, taking its reply.
+        // Guard 2 asks at cursor row 3 while shown row 7 names s6.jpg, taking row 3 reply.
         shell.guardMap = ({ 7: "s6.jpg", 3: "guard2.jpg" })
         stub.cursorIndex = 3
         shell.guardShow("guard2.jpg", 7)
@@ -413,8 +410,7 @@ ShellRoot {
             + " asked3=" + g2asked + " took=" + g2took
             + " w=" + quickPreview.item.imageW + " h=" + quickPreview.item.imageH)
         shell.guardEnd()
-        // Guard 3: ask-time drift with no match. Neither row 7 nor the cursor row 5
-        // names ghost.jpg, so no ask goes out and no interim sizing lands.
+        // Guard 3 asks nothing when neither shown row 7 nor cursor row 5 names ghost.jpg.
         shell.guardMap = ({ 7: "s6.jpg", 5: "s4.jpg" })
         stub.cursorIndex = 5
         shell.guardShow("ghost.jpg", 7)

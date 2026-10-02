@@ -133,7 +133,7 @@ else
             bad "the sweep opened other row(s):$sweep_other_names besides t0.png (log $log)"
         elif [ "$sweep_t0" -eq 0 ]; then
             bad "the sweep opened no file, want the first row t0.png (log $log)"
-        elif [ "$rest_cache" -ge 1 ] && [ "$sweep_t0" -gt "$rest_cache" ]; then
+        elif [ "$sweep_t0" -gt "$rest_cache" ]; then
             bad "the sweep opened t0.png $sweep_t0 time(s), more than one load opens t50.png $rest_cache time(s) (log $log)"
         else
             ok "the sweep opened only the first row t0.png $sweep_t0 time(s), within one load"
