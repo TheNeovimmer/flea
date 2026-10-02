@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# A selection change that does not move the cursor reloads the preview column;
-# offscreen, no display or lock.
+# A selection change that keeps the cursor reloads the preview column, offscreen with no display or lock.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
@@ -50,9 +49,7 @@ if [ "$pass_count" -ne 6 ] || [ "$fail_count" -ne 0 ]; then
     printf '%s\n' "$output" | grep -aE 'PREVIEWSELECT|ERROR|error'
     verdict=1
 fi
-# The offscreen platform itself says it cannot mask a FloatingWindow; that one line is the platform's, never the preview's.
-platform_warning='This plugin does not support setting window masks'
-warnings=$(printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|WARN|ERROR' | grep -vF "$platform_warning")
+warnings=$(printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|WARN|ERROR')
 if [ -n "$warnings" ]; then
     printf 'FAIL the preview harness logged a warning\n'
     printf '%s\n' "$warnings"

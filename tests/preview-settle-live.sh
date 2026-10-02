@@ -15,7 +15,7 @@ if ! command -v ffmpeg >/dev/null; then
 fi
 
 run_phase() {
-    local seed="$1" label="$2" test_root output code pass_count fail_count done_count clean_count expected warnings index
+    local seed="$1" label="$2" output code pass_count fail_count done_count clean_count expected warnings index
     sandbox_root_ok
     test_root=$(mktemp -d "$SANDBOX_ROOT/flea-preview-settle.XXXXXX") || exit 1
     : > "$test_root/$SANDBOX_MARKER" || exit 1
@@ -25,11 +25,10 @@ run_phase() {
     if ! ffmpeg -nostdin -hide_banner -loglevel error -f lavfi -i color=c=white:s=16x16 \
         -frames:v 1 -threads 1 "$test_root/images/img0.jpg" > "$test_root/image.log" 2>&1; then
         cat "$test_root/image.log"
-        sandbox_remove "$test_root"
         exit 1
     fi
     for index in {1..7}; do
-        cp -- "$test_root/images/img0.jpg" "$test_root/images/img$index.jpg" || { sandbox_remove "$test_root"; exit 1; }
+        cp -- "$test_root/images/img0.jpg" "$test_root/images/img$index.jpg" || exit 1
     done
     ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
     ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
@@ -74,5 +73,8 @@ run_phase() {
     printf 'PREVIEWSETTLE STATUS phase=%s qs_exit=%s done=1 pass=%s fail=0\n' "$label" "$code" "$pass_count"
 }
 
+test_root=""
+cleanup() { [ -z "$test_root" ] || sandbox_remove "$test_root"; }
+trap cleanup EXIT
 run_phase "" auto
 run_phase '{"preview":{"loadOn":"manual"}}' manual
