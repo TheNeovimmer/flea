@@ -488,6 +488,9 @@ fn act(m: &mut Model, action: &str, w: &mut Wire) -> io::Result<()> {
             );
         }
         "tabNew" => {
+            if tab_full(m) {
+                return Ok(());
+            }
             m.tabs.push(Tab {
                 path: m.path.clone(),
                 cursor: 0,
@@ -498,6 +501,9 @@ fn act(m: &mut Model, action: &str, w: &mut Wire) -> io::Result<()> {
             tab(m, index, w)?;
         }
         "openTab" => {
+            if tab_full(m) {
+                return Ok(());
+            }
             if let Some(path) = m.current_path() {
                 if m.rows.get(&m.cursor).is_some_and(|r| r.directory) {
                     m.tabs.push(Tab {
@@ -925,6 +931,14 @@ fn history(m: &mut Model, forward: bool, w: &mut Wire) -> io::Result<()> {
         m.open(path, w)?;
     }
     Ok(())
+}
+// Both front ends cap the strip at nine, so a tenth tab is refused with the same sentence.
+fn tab_full(m: &mut Model) -> bool {
+    if m.tabs.len() >= crate::uischema::MAX_LAST_TABS {
+        m.say("Nine tabs is the most.".into());
+        return true;
+    }
+    false
 }
 fn tab(m: &mut Model, index: usize, w: &mut Wire) -> io::Result<()> {
     if m.pending.is_some() || index >= m.tabs.len() || index == m.tab {

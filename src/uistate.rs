@@ -190,8 +190,7 @@ fn fits(rule: &Rule, value: &Json) -> bool {
             None => false,
         },
         Rule::Ids => every_string(value, is_action_id),
-        // Tabs040 callout 2: the whole remembered strip stands or falls together, the way one
-        // bad place costs lastPath rather than healing it.
+        // The whole remembered strip stands or falls together, like lastPath does.
         Rule::LastTabs => is_last_tabs(value),
         Rule::FolderSorts => is_folder_sorts(value),
         Rule::ColumnWidths => is_column_widths(value),
@@ -244,6 +243,7 @@ fn is_a_place(s: &str) -> bool {
 }
 
 // Every open tab's folder in order, with the current tab's index inside the list.
+// Sample input: {"paths": ["/a", "/b"], "index": 1}.
 fn is_last_tabs(value: &Json) -> bool {
     let pairs = match value.as_object() {
         Some(pairs) => pairs,
