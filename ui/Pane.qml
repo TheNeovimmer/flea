@@ -12,6 +12,7 @@ import "js/Menu.js" as Menu
 import "js/Mounts.js" as Mounts
 import "js/Search.js" as Search
 import "js/Archive.js" as Archive
+import "js/Startup.js" as Startup
 import "js/Nav.js" as Nav
 import "js/RecentMode.js" as RecentMode
 import "js/Ops.js" as Ops
@@ -264,7 +265,24 @@ FocusScope {
         preferences.restart()
     }
     onVisibleChanged: if (root.visible) preferences.restart()
-    onListInFlightChanged: if (!root.listInFlight) { preferences.restart(); Sort.applyPending(root) }
+    // A restored folder that never answers leaves "loading" for the waiting state, with Home
+    // reachable through it; the late rows, if they ever land, are dropped by the swap as stale.
+    readonly property int listingWaitMs: Startup.LISTING_WAIT_MS
+    Timer {
+        id: listingWait
+        interval: root.listingWaitMs
+        onTriggered: {
+            if (root.listInFlight && root.listingState === "loading") {
+                root.listingState = "waiting"
+                root.stateMessage = "That folder is not responding."
+            }
+        }
+    }
+    onListInFlightChanged: {
+        if (!root.listInFlight) { preferences.restart(); Sort.applyPending(root) }
+        if (root.listInFlight) listingWait.restart()
+        else listingWait.stop()
+    }
     onSearchModeChanged: if (root.searchMode.length === 0) preferences.restart()
     onRecentModeChanged: if (root.recentMode.length === 0) preferences.restart()
     Timer {
@@ -367,6 +385,19 @@ FocusScope {
         if (trashHost.confirming) return
         trashHost.close()
         Nav.open(root, newPath)
+    }
+
+    // An eject releases the mount under path: queued reads stop first, the preview lets go,
+    // and a pane showing that volume moves Home rather than standing on a vanished folder.
+    function quiesceVolume(path) {
+        if (root.backend)
+            root.backend.quiesce()
+        if (root.preview)
+            root.preview.close()
+        var home = root.home
+        if (home.length > 0 && String(path).length > 0
+                && (root.path === path || root.path.indexOf(path + "/") === 0))
+            Nav.openPlace(root, home)
     }
 
     // options.keepHidden is the tab restore's alone: it just put back this tab's own dotfile answer, which the standing preference would overwrite.
@@ -881,7 +912,8 @@ FocusScope {
         rowInDropbox: root.dropboxService && root.cursorRow
             && Dropbox.contains(root.dropboxService.dropboxPath, root.join(root.path, root.cursorRow.n))
         // Issue 133: no GVFS mount, share or phone, has a trash of its own, so the row is not offered there.
-        canTrash: Mounts.trashable(root.path)
+        // A read-only folder has none either: the listed line's own writability rides along.
+        canTrash: Mounts.trashable(root.path, root.backend ? root.backend.dirWritable !== false : true)
         // The listing's own w flag turns the menu's write rows off in a read-only folder.
         dirWritable: root.backend ? root.backend.dirWritable !== false : true
         // vfat and exfat hold no links, so the Paste as rows are not offered there either.

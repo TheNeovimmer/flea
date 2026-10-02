@@ -253,6 +253,82 @@ function unpluggable(n) {
     return !!n && (n.rm === true || String(n.tran || "").toLowerCase() === "usb")
 }
 
+// The mount wait starts when gio exits 0, never at launch: an admin polkit prompt longer than the
+// wait is a slow prompt and not a mount that never reported a folder to open.
+function mountTimerStart(exitCode) {
+    return exitCode === 0
+}
+
+// The disk a partition powers off through, so a USB bridge stops instead of re-announcing.
+// Sample input: "/dev/sda1" answers "/dev/sda", "/dev/nvme0n1p2" answers "/dev/nvme0n1.
+function powerOffDisk(device) {
+    var text = String(device || "")
+    var m = text.match(/^(\/dev\/(?:sd[a-z]+|hd[a-z]+|vd[a-z]+|nvme\d+n\d+|mmcblk\d+|loop\d+))p?\d+$/)
+    if (m)
+        return m[1]
+    var bare = text.match(/^\/dev\/(?:sd[a-z]+|hd[a-z]+|vd[a-z]+|nvme\d+n\d+|mmcblk\d+|loop\d+)$/)
+    return bare ? text : ""
+}
+
+// The sysfs block name for a disk path, so the eject chain can watch its write counter.
+// Sample input: "/dev/sda" answers "sda", "/dev/nvme0n1" answers "nvme0n1.
+function sysBase(disk) {
+    var text = String(disk || "")
+    var m = text.match(/^\/dev\/(.+)$/)
+    return m ? m[1] : ""
+}
+
+// The written-sector counter out of one /sys/block/<disk>/stat read, "" when unreadable.
+// Sample input: "   1 0 2 3 0 0 42 0 0 0 0 0 0 0 0" answers "42".
+function writtenSectors(body) {
+    var fields = String(body || "").trim().split(/\s+/)
+    return fields.length >= 7 ? fields[6] : ""
+}
+
+// Every mounted volume on one disk, for a power-off that unmounts each before stopping the drive.
+function powerOffQueue(entries, disk) {
+    var queue = []
+    var list = entries || []
+    for (var i = 0; i < list.length; i++) {
+        if (list[i].kind === "volume" && list[i].mounted && powerOffDisk(list[i].device) === disk)
+            queue.push(list[i].device)
+    }
+    return queue
+}
+
+// The mountpoint the last listing reported for a device, "" when it reported none.
+function mountpointOf(entries, device) {
+    var list = entries || []
+    for (var i = 0; i < list.length; i++) {
+        if (list[i].device === device)
+            return list[i].path
+    }
+    return ""
+}
+
+// Sample gio stderr: "Error 1: target is busy", "Not authorized to perform operation",
+// "No volume for device /dev/sda9", "Location is already mounted", "No medium found".
+// "" opens rather than failing: the volume is already mounted, so there is no failure to say.
+function mountError(op, exitCode, stderr, label) {
+    if (exitCode === 0)
+        return ""
+    var text = String(stderr || "").toLowerCase()
+    var name = String(label || "")
+    if (/already mounted/.test(text))
+        return ""
+    if (/busy|in use|in use by/.test(text))
+        return name + " is busy; close what is using it and try again."
+    if (/not authorized|not allowed|refused|dismissed|no authentication|auth/i.test(String(stderr || "")))
+        return name + " was not " + (op === "unmount" ? "unmounted" : op === "eject" ? "ejected" : "mounted") + ": not authorized."
+    if (/no volume|no medium|no media|empty|no device/.test(text))
+        return /medium|media|empty/.test(text) ? name + " has no medium in it." : name + " is not a volume this system can mount."
+    if (op === "unmount")
+        return name + " could not be unmounted."
+    if (op === "eject")
+        return name + " could not be ejected."
+    return name + " could not be mounted."
+}
+
 // Sample: ["/home", "/var/log", "/"] for one btrfs device with several subvolumes mounted, ["[SWAP]"]
 // for swap, which is no directory, and [null] for a volume nothing has mounted. The first real path
 // wins, which is also what drops swap: only a mountpoint is browsable and only one row is drawn.
@@ -280,7 +356,7 @@ function volumeRow(n, model, unplugs, unmounted) {
     var label = n.label ? String(n.label) : (model.length > 0 ? model : String(n.name))
     var fs = String(n.fstype || "").toLowerCase()
     return { kind: "volume", label: label, device: devicePath(n), path: path, mounted: path.length > 0,
-             removable: unplugs === true, size: deviceBytes(n.size), volumeMenu: unmounted === true,
+             removable: unplugs === true, mediaRemovable: n.rm === true, size: deviceBytes(n.size), volumeMenu: unmounted === true,
              uuid: fs === "btrfs" && n.uuid ? String(n.uuid) : "" }
 }
 

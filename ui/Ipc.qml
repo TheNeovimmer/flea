@@ -818,6 +818,8 @@ QtObject {
         }
         function networkStartIndex(): int { return root.pane.sidebar.placesEntries.length }
 
+        // The eject chain's guard state beside the rail, so a failed eject names its guard.
+        function deviceEjectState(): string { return root.pane.sidebar.ejectChainState() }
         // One line per entry, "label|group|kind|mounted", the same shape networkEntries answers.
         function deviceEntries(): string {
             var out = []

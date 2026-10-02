@@ -3,6 +3,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "js/UiState.js" as UiState
+import "js/FavGuard.js" as FavGuard
 
 // All callers share one operation writer; the Rust updater locks and re-reads before editing.
 QtObject {
@@ -50,12 +51,20 @@ QtObject {
     function rename(index, label) {
         return root.apply({ op: "rename", index: index, label: label, expected: root.records })
     }
+    // One favourite on a dead mount must not hold the single-flight guard forever.
+    readonly property int inspectWaitMs: FavGuard.INSPECT_WAIT_MS
+    property var inspectTimeout: Timer {
+        interval: root.inspectWaitMs
+        onTriggered: inspector.running = false
+    }
+
     function inspect(indices) {
         var pending = indices.filter(function (index) { return root.statuses[index] === undefined })
         if (pending.length === 0 || inspector.running) return
         inspector.answer = ""
         inspector.command = [Quickshell.env("FLEA_BIN") || "flea", "--favourites", JSON.stringify({ op: "inspect", indices: pending.slice(0, 128) })]
         inspector.running = true
+        inspectTimeout.restart()
     }
     function finish(expected) {
         var changed = JSON.stringify(root.records) !== JSON.stringify(expected)
@@ -71,6 +80,7 @@ QtObject {
         property string answer: ""
         stdout: StdioCollector { onStreamFinished: inspector.answer = this.text }
         onExited: function (code) {
+            inspectTimeout.stop()
             if (code !== 0) return
             try {
                 var rows = JSON.parse(inspector.answer).statuses

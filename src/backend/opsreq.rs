@@ -53,7 +53,7 @@ pub enum OpMsg {
     Item { id: usize, index: usize, name: String, ok: bool, err: String },
     TransferDone { id: usize, ok: usize, failed: usize, skipped: usize, cancelled: bool, entry: Entry,
                    retry: Vec<(PathBuf, ItemIdentity)>, durable: bool, note: String },
-    Trashed { ok: usize, failed: usize, entry: Entry },
+    Trashed { ok: usize, failed: usize, entry: Entry, reason: String },
     Duplicated { ok: bool, path: String, err: String, entry: Entry },
     RedoDone { journal: super::undo::Journal, result: Result<String, FleaError> },
     MenuDeleteDone { line: String },
@@ -122,8 +122,12 @@ pub fn retain_retry(retry: &[(PathBuf, ItemIdentity)], matches: &mut Vec<(&str, 
         ItemIdentity::inspect(Path::new(path)).is_ok_and(|current| original.same_item(&current))));
 }
 
-pub fn trashed_line(ok: usize, failed: usize) -> String {
-    format!(r#"{{"t":"trashed","ok":{},"failed":{}}}"#, ok, failed)
+// err rides only on a failure, so a successful trash line is byte-identical to before.
+pub fn trashed_line(ok: usize, failed: usize, reason: &str) -> String {
+    if reason.is_empty() {
+        return format!(r#"{{"t":"trashed","ok":{},"failed":{}}}"#, ok, failed);
+    }
+    format!(r#"{{"t":"trashed","ok":{},"failed":{},"err":"{}"}}"#, ok, failed, escape(reason))
 }
 
 pub fn renamed_line(ok: bool, path: &str) -> String {
@@ -491,18 +495,18 @@ fn one_item(
 
 pub(crate) fn run_trash(paths: Vec<String>, tx: Sender<OpMsg>, selection: Option<Vec<super::menu_actions::Selected>>) {
     let owned: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
-    let (entries, failed) = match trash::trash_checked(&owned, selection.as_deref()) {
+    let (entries, failed, reason) = match trash::trash_checked(&owned, selection.as_deref()) {
         Ok(result) => result,
         Err(error) => {
             let line = super::proto::error_line(&op_err("trash", "", &error));
             let _ = tx.send(OpMsg::Meta { line });
-            (Vec::new(), owned.len())
+            (Vec::new(), owned.len(), error)
         }
     };
     let ok = entries.len();
     let steps = entries.into_iter().map(Step::Trashed).collect();
     let entry = Entry { op: "trash".to_string(), steps };
-    let _ = tx.send(OpMsg::Trashed { ok, failed, entry });
+    let _ = tx.send(OpMsg::Trashed { ok, failed, entry, reason });
 }
 
 // The same for a duplicate: ui/Pane.qml's own path is run_duplicate_checked.

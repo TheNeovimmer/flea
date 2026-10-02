@@ -235,4 +235,28 @@ function run(check) {
     check("a changed listing rebuilds", Mounts.pollDecision(true, "a", "x", "b", "b"), "rebuild")
     check("a changed mountinfo rebuilds", Mounts.pollDecision(true, "a", "a", "b", "y"), "rebuild")
     check("both changed still rebuilds once", Mounts.pollDecision(true, "a", "x", "b", "y"), "rebuild")
+
+    // Defect 8: gio's stderr is mapped to one plain sentence per known failure, never dropped.
+    check("a busy target names what holds it", Devices.mountError("mount", 1, "gio: Error 1: target is busy", "128GB"), "128GB is busy; close what is using it and try again.")
+    check("a polkit refusal names the refusal", Devices.mountError("mount", 1, "Not authorized to perform operation", "Vault"), "Vault was not mounted: not authorized.")
+    check("no volume for the id names the missing volume", Devices.mountError("mount", 1, "No volume for device /dev/sda9", "sda9"), "sda9 is not a volume this system can mount.")
+    check("already mounted opens rather than failing", Devices.mountError("mount", 1, "Location is already mounted", "isos"), "")
+    check("no medium names the empty drive", Devices.mountError("mount", 1, "No medium found", "CARD"), "CARD has no medium in it.")
+    check("an unknown error falls back to the plain sentence", Devices.mountError("mount", 1, "weird new failure", "128GB"), "128GB could not be mounted.")
+    check("a refused unmount names the refusal too", Devices.mountError("unmount", 1, "Not authorized", "Vault"), "Vault was not unmounted: not authorized.")
+    check("a refused eject names the eject", Devices.mountError("eject", 1, "Not authorized", "Disk"), "Disk was not ejected: not authorized.")
+    check("exit 0 never reads stderr", Devices.mountError("mount", 0, "target is busy", "128GB"), "")
+
+    // Defect 9: a USB disk that is not media-removable powers off instead of ejecting its media.
+    check("a scsi partition powers off its disk", Devices.powerOffDisk("/dev/sda1"), "/dev/sda")
+    check("an nvme namespace strip powers off its disk", Devices.powerOffDisk("/dev/nvme0n1p2"), "/dev/nvme0n1")
+    check("an mmc partition powers off its card", Devices.powerOffDisk("/dev/mmcblk0p1"), "/dev/mmcblk0")
+    check("a mapper leaf has no disk to power off", Devices.powerOffDisk("/dev/mapper/luks-vault"), "")
+    check("an empty device has no disk to power off", Devices.powerOffDisk(""), "")
+
+    // Defect 17: Move to Trash is absent where the volume cannot trash, read-only included.
+    check("a writable local folder trashes", Mounts.trashable("/home/gm/work", true), true)
+    check("a gvfs share never trashes", Mounts.trashable("/run/user/1000/gvfs/smb-share:server=h,share=d/x", true), false)
+    check("a read-only folder never trashes", Mounts.trashable("/home/gm/work", false), false)
+    check("an old caller passing no writability still trashes a local folder", Mounts.trashable("/home/gm/work"), true)
 }

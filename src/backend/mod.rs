@@ -39,6 +39,7 @@ pub mod metareq;
 pub mod metasort;
 pub mod owner;
 pub mod peek;
+pub mod pdfcopy;
 pub mod proto;
 mod providers;
 // Directive 71: the LocalSend row's peers and its send, driven against localsend-cli on a pty.

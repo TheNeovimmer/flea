@@ -60,4 +60,14 @@ function run(check) {
     check("a non-item noun keeps its own singular",
           Ops.pluralWord(1, "operation", "operations") + " / " + Ops.pluralWord(3, "operation", "operations"),
           "operation / operations")
+
+    // Defect 17: a trash failure shows its reason and offers Delete permanently after its confirm.
+    check("a trash failure without a reason reads as before",
+          Ops.trashed(0, 1), "That item could not be moved to Trash.")
+    check("a trash failure with a reason names it",
+          Ops.trashed(0, 1, "permission denied"), "That item could not be moved to Trash: permission denied.")
+    check("a partly failed trash names the reason too",
+          Ops.trashed(2, 1, "permission denied"), "Moved 2 items to Trash, 1 failed: permission denied · z undoes")
+    check("a success never carries a reason",
+          Ops.trashed(2, 0, "permission denied"), "Moved 2 items to Trash · z undoes")
 }

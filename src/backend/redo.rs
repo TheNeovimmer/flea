@@ -177,7 +177,7 @@ fn apply(saved: &ReplayStep, id: usize, index: usize, cancel: &AtomicBool, tx: &
             Ok(())
         }
         Step::Trashed(entry) => {
-            let (mut trashed, failed) = super::trash::trash(std::slice::from_ref(&entry.original));
+            let (mut trashed, failed, _) = super::trash::trash(std::slice::from_ref(&entry.original));
             if failed != 0 || trashed.len() != 1 { return Err(error(&entry.original, "could not move the original item back to Trash")); }
             steps.push(Step::Trashed(trashed.remove(0)));
             Ok(())

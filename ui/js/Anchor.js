@@ -41,6 +41,44 @@ function afterDelete(pane, landed) {
     return anchoredRefresh(pane, true)
 }
 
+// A listing past its wait stops loading the pane: late rows are dropped as replaced.
+function clearWaiting(pane) {
+    if (pane.listingState === "waiting") {
+        pane.listInFlight = false
+        pane.listingState = "loading"
+        pane.stateMessage = ""
+        return true
+    }
+    return false
+}
+
+// Which row a full target path names, NFC-matched the way the backend lists it.
+function selectMatch(rows, target, folder) {
+    var base = String(folder || "")
+    var text = String(target || "")
+    var leaf = base.length <= 1 ? text.substring(1) : text.substring(base.length + 1)
+    if (base.length > 1 && text.substring(0, base.length + 1) !== base + "/")
+        return -1
+    var want = typeof leaf.normalize === "function" ? leaf.normalize("NFC") : leaf
+    for (var i = 0; i < rows.length; i++) {
+        if (String(rows[i].n || "") === leaf)
+            return i
+    }
+    for (var j = 0; j < rows.length; j++) {
+        var name = String(rows[j].n || "")
+        var norm = typeof name.normalize === "function" ? name.normalize("NFC") : name
+        if (norm === want)
+            return j
+    }
+    return -1
+}
+
+// The cursor index for a full target path, or -1 when the listing holds no such row.
+function matchListed(pane, target) {
+    var at = selectMatch(pane.rows, target, pane.path)
+    return at >= 0 ? pane.held + at : -1
+}
+
 // A rename commit keeps the row the operator was on: the pointer's row for a click-away,
 // the renamed row for Enter (the cursor still sits on the source, so that leaf maps to dest).
 function pointerRow(pane, request) {

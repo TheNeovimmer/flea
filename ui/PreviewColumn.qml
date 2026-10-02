@@ -67,8 +67,9 @@ Item {
     // in flight, and error when the thing it was going to draw could not be read at all. A held
     // frame is neither: its facts are the listing's own and there is nothing in flight.
     readonly property bool busy: root.pending || (root.row !== null && root.row.d !== true && root.meta === null && !root.manualHold)
+    readonly property string pdfSentence: pdfLoader.item ? pdfLoader.item.failSentence : ""
     readonly property string failure: lines.readFailed || root.pdfFailed
-        ? "This file could not be read."
+        ? (root.pdfFailed && root.pdfSentence.length > 0 ? root.pdfSentence : "This file could not be read.")
         : (root.meta && root.meta.archiveFailed ? "This archive could not be read." : "")
 
     // The PDF reader exists only for a PDF row, the same rule the media transport follows: browsing
@@ -270,7 +271,15 @@ Item {
                     height: pdfFlick.contentHeight
                     active: root.visible && !root.manualHold && root.rowState === Facts.PDF
                     source: "PreviewPdf.qml"
-                    onLoaded: { item.path = Qt.binding(function () { return root.path }); item.viewport = pdfFlick; item.active = true }
+                    onLoaded: {
+                        item.path = Qt.binding(function () { return root.path })
+                        item.viewport = pdfFlick
+                        item.active = true
+                        // A document on a hangable class loads from the backend's fetched copy.
+                        item.backend = Qt.binding(function () { return root.pane ? root.pane.backend : null })
+                        item.fetchFirst = Qt.binding(function () { return root.pane ? root.pane.storageClass.length > 0 : false })
+                        item.viewerSlot = "column"
+                    }
                 }
             }
 

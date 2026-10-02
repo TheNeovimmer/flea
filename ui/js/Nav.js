@@ -6,6 +6,7 @@
 .import "Thumbs.js" as Thumbs
 .import "Search.js" as Search
 .import "ColumnMenu.js" as ColumnMenu
+.import "Anchor.js" as Anchor
 
 // Where the pane has been and how it gets back, taking ui/Pane.qml's root the way Search.js and
 // Ops.js do: the pane holds the state, this holds what the state does.
@@ -75,6 +76,7 @@ function mouseBack(pane) {
 // A walk owns the rows until this lands, so leaving it is the shared step with the tabs:
 // tab switches, Back, Up, rail clicks and jumps all funnel through here.
 function openWithoutHistory(pane, newPath, options) {
+    Anchor.clearWaiting(pane)
     if (pane.listInFlight) {
         pane.message("A directory is already loading.", false)
         return
@@ -157,26 +159,25 @@ function refresh(pane, selectPath) {
 }
 
 // Only the first rows response looks for the target, then it is forgotten either way, so a later
-// directory change never re-reveals it. The target is a full path, which is what --select carries.
+// directory change never re-reveals it; the target matches by listed name, so NFC finds NFD.
 function applyPendingSelect(pane) {
     if (pane.pendingSelect.length === 0) {
         return
     }
     var target = pane.pendingSelect
     pane.pendingSelect = ""
-    for (var i = 0; i < pane.rows.length; i++) {
-        if (pane.join(pane.path, pane.rows[i].n) === target) {
-            var index = pane.held + i
-            pane.setCursor(index)
-            pane.selection.only(index)
-            pane.selectionAnchor = index
-            pane.selectionVersion++
-            if (pane.pendingMenu) {
-                pane.pendingMenu = false
-                pane.openCursorMenu()
-            }
-            return
+    var at = Anchor.selectMatch(pane.rows, target, pane.path)
+    if (at >= 0) {
+        var index = pane.held + at
+        pane.setCursor(index)
+        pane.selection.only(index)
+        pane.selectionAnchor = index
+        pane.selectionVersion++
+        if (pane.pendingMenu) {
+            pane.pendingMenu = false
+            pane.openCursorMenu()
         }
+        return
     }
     // The row is not in this listing, so the intent behind it must not fire on some later match.
     pane.pendingMenu = false

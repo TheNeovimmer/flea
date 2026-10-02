@@ -916,6 +916,7 @@ wait_terminal() {
 # 5000 ms poll, so a sentence that lands after a poll has to be caught as it lands, never slept for.
 wait_message() {
     local want="$1" seen="" deadline=$(( $(date +%s%3N) + 25000 ))
+    local diag="${2:-}"
     while (( $(date +%s%3N) < deadline )); do
         # 3 s, not 1: one ipc round trip costs hundreds of ms and grows under load, and a call that
         # times out returns nothing, which spends a sample of a sentence that stands for only 4 s.
@@ -924,7 +925,10 @@ wait_message() {
             return 0
         fi
     done
-    fail "the status bar never said: $want (the last thing it said was: $seen)"
+    # A phase diagnosing its own failure passes its reader, which runs only here, never while waiting.
+    local detail=""
+    [[ -n "$diag" ]] && detail=" ($(eval "$diag"))"
+    fail "the status bar never said: $want (the last thing it said was: $seen)$detail"
 }
 
 # Durable mount state does not disappear with the status bar, so live network checks wait on it.
@@ -8524,6 +8528,132 @@ EOS
     sandbox_remove "$fixture_home"; sandbox_remove "$good_dir"
 }
 
+# A restored folder's listing deadline (ui/Pane.qml): a proxy holds the first list past the wait, then the rows land.
+case_hanglisting() {
+    local dir="$fixture_root/hanglisting"
+    sandbox_scratch "$dir"
+    : > "$dir/one.txt"
+    : > "$dir/two.txt"
+    cat > "$dir/flea-proxy" <<'EOS'
+#!/usr/bin/env python3
+# Forwards a backend session to the real binary, holding the first list past the deadline.
+import os, subprocess, sys, threading, time
+real = os.environ["FLEA_HANGLISTING_REAL"]
+if sys.argv[1:] != ["--backend"]:
+    os.execv(real, [real] + sys.argv[1:])
+delay = float(os.environ.get("FLEA_HANGLISTING_DELAY", "15"))
+marker = os.environ.get("FLEA_HANGLISTING_MARKER", "")
+child = subprocess.Popen([real, "--backend"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=sys.stderr, text=True, bufsize=1)
+def pump():
+    for line in child.stdout:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+threading.Thread(target=pump, daemon=True).start()
+held = False
+for line in sys.stdin:
+    if '"c":"list"' in line and not held:
+        held = True
+        if marker:
+            open(marker, "w").write("delayed\n")
+        time.sleep(delay)
+    try:
+        child.stdin.write(line)
+        child.stdin.flush()
+    except BrokenPipeError:
+        break
+EOS
+    chmod +x "$dir/flea-proxy"
+    local real_bin="$flea_bin"
+    export FLEA_HANGLISTING_REAL="$real_bin" FLEA_HANGLISTING_DELAY=15 FLEA_HANGLISTING_MARKER="$dir/delayed"
+    flea_bin="$dir/flea-proxy"
+    launch "$dir"
+    flea_bin="$real_bin"
+    wait_marker "$dir/delayed" "hanglisting: the proxy never saw the listing"
+    local seen="" deadline=$(( $(date +%s%3N) + 25000 ))
+    while (( $(date +%s%3N) < deadline )); do
+        seen=$(ipc stateMessage 2>/dev/null || true)
+        [[ "$seen" == "That folder is not responding." ]] && break
+        sleep 0.2
+    done
+    [[ "$seen" == "That folder is not responding." ]] \
+        || fail "hanglisting: the deadline never spoke, stateMessage is $seen"
+    [[ "$(ipc state)" == "waiting" ]] \
+        || fail "hanglisting: the pane is not waiting, state is $(ipc state)"
+    shot hanglisting-waiting
+    # flea-proxy and delayed are the stub entries beside the two files under test.
+    wait_listing 4
+    [[ "$(ipc path)" == "$dir" ]] || fail "hanglisting: the landed listing navigated to $(ipc path)"
+    [[ -z "$(ipc stateMessage)" ]] || fail "hanglisting: the landed listing kept $(ipc stateMessage)"
+
+    printf 'HANGLISTING deadline=ok rows-land-after=ok\n'
+    kill_flea
+}
+
+# The favourite inspector's deadline (ui/Favourites.qml): the first inspect hangs, 40 favourites let a rail scroll refire it, and a second inspect proves the guard cleared.
+case_hanginspect() {
+    local dir="$fixture_root/hanginspect"
+    sandbox_scratch "$dir"
+    : > "$dir/one.txt"
+    local favs="" answers="" n
+    for ((n = 0; n < 40; n++)); do
+        favs="$favs$(printf '{"label":"F%02d","path":"%s/f%02d"},' "$n" "$dir" "$n")"
+        answers="$answers$(printf '{"index":%d,"record":{"label":"F%02d","path":"%s/f%02d"},"error":""},' "$n" "$n" "$dir" "$n")"
+    done
+    cat > "$dir/bin-flea" <<EOS
+#!/bin/sh
+# The first inspect hangs past the guard; every later one answers every seeded favourite at once.
+if [ "\$1" = --favourites ] && [ "\${2#*inspect}" != "\$2" ]; then
+    printf 'inspect\n' >> "$dir/calls"
+    if [ ! -e "$dir/hung" ]; then : > "$dir/hung"; exec sleep 25; fi
+    printf '{"statuses":[${answers%,}]}'
+    exit 0
+fi
+exec "$flea_bin" "\$@"
+EOS
+    chmod +x "$dir/bin-flea"
+    local real_bin="$flea_bin" real_state="${XDG_STATE_HOME-}"
+    # The state sits beside the listing so the guard sees a marked parent.
+    seed_ui_state "$fixture_root/hanginspect-state" "{\"places\":{\"favourites\":[${favs%,}]}}"
+    flea_bin="$dir/bin-flea"
+    launch "$dir"
+    # bin-flea is the stub entry beside the one file under test.
+    wait_listing 2
+    wait_rail 40
+    # Warp onto a rail row, then one uinput pixel so Qt sees the pointer rest there, as case_scroll does.
+    # One second past the inspector's 10 s guard, FavGuard.INSPECT_WAIT_MS.
+    local past_guard_s=11 idx=0 count centre="" cx cy wx wy ww wh
+    count=$(ipc railCount)
+    while (( idx < count )); do
+        centre=$(ipc railRowCentre "$idx" 2>/dev/null || true)
+        [[ -n "$centre" ]] && break
+        idx=$((idx + 1))
+    done
+    [[ -n "$centre" ]] || fail "hanginspect: no rail row has a centre"
+    read -r cx cy <<< "$centre"
+    read -r wx wy ww wh < <(window_box) || fail "hanginspect: native window coordinates unavailable"
+    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + cx)), y = $((wy + cy))})" >/dev/null
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
+    settle
+    omarchy-drive scroll down 2 >/dev/null
+    wait_marker "$dir/hung" "hanginspect: the first inspect never started"
+    sleep "$past_guard_s"
+    omarchy-drive scroll up 2 >/dev/null
+    settle
+    local calls=0 deadline=$(( $(date +%s%3N) + 25000 ))
+    while (( $(date +%s%3N) < deadline )); do
+        calls=$(grep -c inspect "$dir/calls" 2>/dev/null || true)
+        [[ "$calls" -ge 2 ]] && break
+        sleep 0.5
+    done
+    [[ "$calls" -ge 2 ]] \
+        || fail "hanginspect: no second inspect after the deadline, calls is $calls"
+    flea_bin="$real_bin"
+    if [[ -n "$real_state" ]]; then export XDG_STATE_HOME="$real_state"; else unset XDG_STATE_HOME; fi
+
+    printf 'HANGINSPECT guard-clears=ok later-inspect-runs=ok\n'
+    kill_flea
+}
+
 # The rail's own context menu, which is the whole affordance: a release nobody can see is a release
 # nobody has. gio is stubbed so no real unmount ever runs, and the stub logs each call it receives.
 case_unmount() {
@@ -9413,6 +9543,160 @@ case_fsdevice() {
     sleep 15
     fs_rail_labels | grep -Fxq "$want1" && fail "fsdevice: $want1 came back inside 15 s, something remounted it"
     printf 'FSDEVICE %s eject stay-gone=ok\n' "$layout"
+    kill_flea
+    if [[ -n "$real_state" ]]; then export XDG_STATE_HOME="$real_state"; else unset XDG_STATE_HOME; fi
+    sandbox_remove "$fixture_home"
+}
+
+# A rail row by its label, so the poweroff case follows volumes across rail rebuilds.
+poweroff_row() {
+    local want="$1" n i
+    n=$(ipc railCount)
+    for ((i = 0; i < n; i++)); do
+        if [[ "$(ipc railLabel "$i")" == "$want" ]]; then printf '%s' "$i"; return 0; fi
+    done
+    fail "poweroff: no rail row labelled $want, labels are $(ipc railLabels)"
+}
+
+# The USB power-off chain (ui/DeviceMounts.qml): a hung unmount leg ends at the deadline with its
+# own sentence, a user unmount mid-chain is refused, slow legs that still finish beat the old
+# whole-chain bound, and later operations are answered with their own verdicts. An rm=false
+# tran=usb disk with two volumes routes Eject to powerOff, the way a USB bridge reports itself.
+case_poweroff() {
+    local dir="$fixture_root/poweroff"
+    sandbox_scratch "$dir"
+    # The fixture disk name must not exist on the host, or the eject chain watches a real disk.
+    [[ ! -e /sys/block/sdflea ]] || fail "poweroff: fixture disk sdflea exists on this host"
+    mkdir -p "$dir/bin" "$dir/mnt/DATA1" "$dir/mnt/DATA2"
+    : > "$dir/0-one.txt"
+
+    local gio_log="$dir/gio.log"
+    : > "$gio_log"
+    cat > "$dir/bin/lsblk" <<EOS
+#!/bin/sh
+mp1="$dir/mnt/DATA1"
+mp2="$dir/mnt/DATA2"
+[ -f "$dir/un-sdflea1" ] && mp1=""
+[ -f "$dir/un-sdflea2" ] && mp2=""
+if [ -n "\$mp1" ]; then j1="\"\$mp1\""; else j1=null; fi
+if [ -n "\$mp2" ]; then j2="\"\$mp2\""; else j2=null; fi
+cat <<JSON
+{"blockdevices":[
+{"name":"nvme0n1","path":"/dev/nvme0n1","label":null,"mountpoints":[null],"rm":false,"size":"238.5G","type":"disk","model":"KBG40ZNS256G",
+"children":[{"name":"nvme0n1p1","path":"/dev/nvme0n1p1","label":null,"mountpoints":["/"],"rm":false,"size":"238.5G","type":"part","model":null}]},
+{"name":"sdflea","path":"/dev/sdflea","label":null,"mountpoints":[null],"rm":false,"tran":"usb","size":"1000.2G","type":"disk","model":"USB HDD",
+"children":[{"name":"sdflea1","path":"/dev/sdflea1","label":"DATA1","mountpoints":[\$j1],"rm":false,"size":"500.1G","type":"part","model":null,"fstype":"ext4"},
+{"name":"sdflea2","path":"/dev/sdflea2","label":"DATA2","mountpoints":[\$j2],"rm":false,"size":"500.1G","type":"part","model":null,"fstype":"ext4"}]}]}
+JSON
+EOS
+    chmod +x "$dir/bin/lsblk"
+    # A hung leg outlasts the deadline; slow legs pass the old whole-chain bound per leg.
+    cat > "$dir/bin/gio" <<EOS
+#!/bin/sh
+printf '%s\n' "\$*" >> "$gio_log"
+case "\$1 \$2" in
+"mount -u")
+  if [ -f "$dir/hang-unmount" ] && [ "\$3" = "$dir/mnt/DATA1" ]; then sleep 30; fi
+  if [ -f "$dir/slowlegs" ]; then sleep 8; fi
+  case "\$3" in
+  "$dir/mnt/DATA1") : > "$dir/un-sdflea1" ;;
+  "$dir/mnt/DATA2") : > "$dir/un-sdflea2" ;;
+  esac
+  exit 0 ;;
+"mount -d")
+  case "\$3" in
+  /dev/sdflea1) rm -f "$dir/un-sdflea1" ;;
+  /dev/sdflea2) rm -f "$dir/un-sdflea2" ;;
+  esac
+  exit 0 ;;
+*) exit 0 ;;
+esac
+EOS
+    chmod +x "$dir/bin/gio"
+
+    local fixture_home="$fixture_root/poweroff-home"
+    fixture_home_make "$fixture_home"
+    local real_home="$HOME" saved_path="$PATH" real_state="${XDG_STATE_HOME-}"
+    seed_ui_state "$fixture_root/poweroff-state" '{"places":{"showUnmounted":true}}'
+    export PATH="$dir/bin:$PATH"
+    export HOME="$fixture_home"
+    launch "$dir"
+    export HOME="$real_home"
+    export PATH="$saved_path"
+    # bin/, mnt/ and gio.log are the stub entries beside the one file under test.
+    wait_listing 4
+    for _attempt in $(seq 1 100); do
+        [[ "$(ipc deviceEntries)" == *"DATA1|device|volume|true"* ]] \
+            && [[ "$(ipc deviceEntries)" == *"DATA2|device|volume|true"* ]] && break
+        sleep 0.05
+    done
+    [[ "$(ipc deviceEntries)" == *"DATA1|device|volume|true"* ]] \
+        || fail "poweroff: DATA1 never appeared live, got $(ipc deviceEntries)"
+    [[ "$(ipc deviceEntries)" == *"DATA2|device|volume|true"* ]] \
+        || fail "poweroff: DATA2 never appeared live, got $(ipc deviceEntries)"
+
+    # The hung leg: the first unmount never answers, so the chain deadline ends it.
+    : > "$dir/hang-unmount"
+    click_rail_row "$(poweroff_row DATA1)" right
+    settle
+    menu_seek Eject
+    key -k Return >/dev/null
+    sleep 3
+    # A user unmount of the other volume mid-chain is refused and never reaches gio.
+    local unmounts_before unmounts_after
+    unmounts_before=$(grep -c "^mount -u $dir/mnt/DATA2\$" "$gio_log" || true)
+    click_rail_row "$(poweroff_row DATA2)" right
+    settle
+    menu_seek Unmount
+    key -k Return >/dev/null
+    wait_message "Still ejecting DATA1; wait for its result."
+    unmounts_after=$(grep -c "^mount -u $dir/mnt/DATA2\$" "$gio_log" || true)
+    [[ "$unmounts_after" == "$unmounts_before" ]] \
+        || fail "poweroff: the refused unmount still ran gio mount -u on DATA2"
+    # The deadline ends the hung leg with its own sentence, and the volume stays mounted.
+    wait_message "DATA1 did not finish ejecting and is still mounted."
+    [[ "$(ipc deviceEntries)" == *"DATA1|device|volume|true"* ]] \
+        || fail "poweroff: the hung volume left the rail: $(ipc deviceEntries)"
+    rm -f "$dir/hang-unmount"
+
+    # Two slow legs finish past the old whole-chain bound and earn the safe sentence.
+    : > "$dir/slowlegs"
+    click_rail_row "$(poweroff_row DATA1)" right
+    settle
+    menu_seek Eject
+    key -k Return >/dev/null
+    # A slow-legs failure names its guard: the rail plus the eject chain's own state.
+    wait_message "Ejected DATA1, it is safe to unplug." 'printf "rail: %s chain: %s" "$(ipc deviceEntries)" "$(ipc deviceEjectState)"'
+    rm -f "$dir/slowlegs"
+
+    # A later mount and unmount are answered with their own verdicts, not the chain's.
+    click_rail_row "$(poweroff_row DATA2)" right
+    settle
+    [[ "$(ipc contextMenuEntries)" == "Mount" ]] \
+        || fail "poweroff: the unmounted volume offers $(ipc contextMenuEntries), not Mount"
+    menu_seek Mount
+    key -k Return >/dev/null
+    for _attempt in $(seq 1 100); do
+        [[ "$(ipc deviceEntries)" == *"DATA2|device|volume|true"* ]] && break
+        sleep 0.1
+    done
+    [[ "$(ipc deviceEntries)" == *"DATA2|device|volume|true"* ]] \
+        || fail "poweroff: DATA2 never remounted: $(ipc deviceEntries)"
+    click_rail_row "$(poweroff_row DATA2)" right
+    settle
+    menu_seek Unmount
+    key -k Return >/dev/null
+    for _attempt in $(seq 1 100); do
+        [[ "$(ipc deviceEntries)" == *"DATA2|device|volume|false"* ]] && break
+        sleep 0.1
+    done
+    [[ "$(ipc deviceEntries)" == *"DATA2|device|volume|false"* ]] \
+        || fail "poweroff: the later unmount never landed: $(ipc deviceEntries)"
+    if grep -qE '(^| )(-f|--force)( |$)' "$gio_log"; then
+        fail "poweroff: a forced unmount reached gio: $(cat "$gio_log")"
+    fi
+
+    printf 'POWEROFF deadline=ok still-ejecting-refused=ok slow-legs-safe=ok later-mount=ok later-unmount=ok no-force=ok\n'
     kill_flea
     if [[ -n "$real_state" ]]; then export XDG_STATE_HOME="$real_state"; else unset XDG_STATE_HOME; fi
     sandbox_remove "$fixture_home"
@@ -12157,7 +12441,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 . "$repo/tests/ui-captures-markdown.sh"
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar touchpad terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick opentab)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar touchpad terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject poweroff rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare hanglisting hanginspect openwithdesign noblank previewswap transferlive recent middleclick opentab)
 
 : > "$run_log"
 : > "$flea_log"

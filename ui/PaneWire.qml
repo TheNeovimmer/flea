@@ -131,15 +131,18 @@ Item {
         pane.backend.send({c: "locate", paths: root.retryPaths, transferId: root.retryId})
     }
 
-    // Only arm an editor after the new folder's actual row arrives in the held window.
+    // Only arm an editor after the new folder's actual row arrives in the held window, matched
+    // by the name the backend lists so an NFC name on hfsplus finds its NFD row and editor.
     function openRenameOnArrival() {
         if (root.renameOnArrival.length === 0)
             return
         var target = root.renameOnArrival
         root.renameOnArrival = ""
-        var row = pane.rowFor(pane.cursorIndex)
-        if (row && pane.join(pane.path, row.n) === target)
+        var at = Anchor.matchListed(pane, target)
+        if (at >= 0) {
+            pane.setCursor(at)
             pane.act("rename")
+        }
     }
 
     function refreshRename(request, selected, pointer) {
@@ -318,10 +321,10 @@ Item {
         // The listing is read again with the cursor left where the deleted rows were, and the row
         // that took their place selected, so the next delete needs no mouse. The whole selection is
         // gone from disk, so there is nothing to carry over but the position.
-        function onTrashed(ok, failed) {
+        function onTrashed(ok, failed, reason) {
             if (ok === 0 && failed === 0) return
             pane.sticky("")
-            pane.message(Ops.trashed(ok, failed), ok === 0)
+            pane.message(Ops.trashed(ok, failed, reason), ok === 0)
             pane.clearSelection()
             root.anchor = Anchor.afterDelete(pane, ok > 0)
         }
@@ -518,7 +521,9 @@ Item {
                 pane.transfer = Ops.emptyTransfer()
                 pane.sticky("")
             }
-            if (terminal || where === "scan" || pane.listingState === "loading") {
+            // A failure landing on the waiting state ends the wait the same way, so no
+            // stale "not responding" outlives the answer that replaced it.
+            if (terminal || where === "scan" || pane.listingState === "loading" || pane.listingState === "waiting") {
                 pane.listingState = Errors.listingState(where, message)
                 pane.lockedMode = mode; pane.stateMessage = text
             }

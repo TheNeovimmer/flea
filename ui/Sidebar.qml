@@ -70,6 +70,8 @@ Item {
     onNetworkEntriesChanged: root.cancelRename()
     // Phones ride the DEVICES group behind the block devices: a plugged phone is a device to the person holding it, whatever transport gvfs reaches it over.
     readonly property var deviceEntries: root.placesState.showDevices === false || !root.railGate.showDevices ? [] : devices.entries.concat(phones.entries)
+    // The eject chain's guard state, read fresh at ipc time, so a failed eject names its guard.
+    function ejectChainState() { return devices.ejectState() }
     readonly property var entries: root.placesEntries.concat(root.networkEntries, root.deviceEntries)
 
     // The rail lands in one step by gating the entries themselves, so cursor, IPC and menus match only drawn rows.
@@ -223,6 +225,8 @@ Item {
         onOpened: function (path) { root.opened(path) }
         onMessage: function (text, isError) { root.message(text, isError) }
         onForgetMessage: function (text) { root.forgetMessage(text) }
+        // An eject releases the volume, so readers on it stop first and panes on it go Home.
+        onQuiesce: function (path) { if (root.navigationPane) root.navigationPane.quiesceVolume(path) }
     }
 
     // Lists and unmounts only: activate() below routes a phone's mount-and-open through the same openShare leg a share rides.
