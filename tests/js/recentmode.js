@@ -86,6 +86,8 @@ function run(check) {
     RecentMode.close(standing)
     check("leaving Recent hands back the folder it was opened over", standing.opened.join(","), "/home/gm/Work")
     check("and the mode is off", standing.recentMode + "|" + standing.recentFrom, "|")
+    check("and the newest-first order does not follow it out",
+          standing.backend.sortBy + "|" + standing.backend.sortDesc, "name|false")
 
     // An operation under the listing re-reads the history through the rail rather than
     // re-listing the base, which would draw the root over the place just left.
@@ -116,4 +118,13 @@ function run(check) {
     check("reveal opens the row's own folder", revealing.opened.join(","), "/home/gm/Docs")
     check("selecting the row it came from", revealing.pendingSelect, "/home/gm/Docs/a.txt")
     check("and the mode is off", revealing.recentMode, "")
+
+    // A tab switch drops the overlay so the snapshot keeps the folder order.
+    var switching = pane("/home/gm/Work")
+    switching.backend.sortBy = "kind"
+    switching.backend.sortDesc = true
+    RecentMode.run(switching, ["/home/gm/a.txt"])
+    check("dropping the overlay hands the standing order back",
+          RecentMode.dropOverlay(switching) + "|" + switching.backend.sortBy + "|" + switching.backend.sortDesc,
+          "true|kind|true")
 }

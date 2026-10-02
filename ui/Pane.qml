@@ -104,6 +104,9 @@ FocusScope {
     property string recentFrom: ""
     // The history paths the listing stands on, so a refresh with the rail hidden re-asks them.
     property var recentPaths: []
+    // The sort Recent replaced, handed back on leaving; ui/js/RecentMode.js run and restoreSort write it.
+    property string recentSortBy: ""
+    property bool recentSortDesc: false
     // The query narrowing the listing in place, and whether its line still has the keyboard;
     // ui/js/Filter.js owns every transition, the way ui/js/Search.js owns the walk's.
     property string filterQuery: ""
@@ -602,6 +605,11 @@ FocusScope {
     // MenuAdditions040: Paste as links, undoable, through the collision card;
     // with paths the links go out of those, else out of the file clipboard.
     function pasteLink(kind, paths) {
+        // The menu reaches past key dispatch, so Recent refusal lives here too.
+        if (root.recentMode.length > 0) {
+            root.message("This listing is a history, and cannot take a paste.", false)
+            return
+        }
         var sources = paths && paths.length > 0 ? paths : root.clipboard.paths
         if (sources.length === 0) {
             root.message("There is nothing to paste; y copies and x cuts.", false)
