@@ -198,3 +198,9 @@ function dispatch(candidate) {
     }
     return { kind: "none" }
 }
+
+// A sheet menu row snapshots first for the current selection, then activates.
+function runMenu(holder, menuAction) {
+    holder.menuActions.snapshot()
+    holder.menuActions.activate(menuAction, true)
+}
