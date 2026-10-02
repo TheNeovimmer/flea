@@ -90,8 +90,7 @@ fn libc_exdev() -> i32 {
     18
 }
 
-// EPERM from a link names the missing capability on filesystems that hold no links, and stays a
-// permission error everywhere else, so vfat reads as a capability gap rather than an access problem.
+// EPERM from a link names the missing capability on linkless filesystems and stays a permission error everywhere else.
 fn link_err(dest_file: &Path, e: &std::io::Error) -> FleaError {
     const EPERM: i32 = 1;
     if e.raw_os_error() == Some(EPERM) {
@@ -114,8 +113,7 @@ fn no_links_sentence(magic: Option<i64>) -> Option<&'static str> {
     }
 }
 
-// The filesystem type of the deepest mount owning path, through the shared mountinfo parser;
-// "unknown" when the table cannot be read, never an error.
+// The filesystem type of the deepest mount owning path, or "unknown" when the table cannot be read.
 fn fs_name(path: &Path) -> String {
     let text = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
     crate::backend::mountinfo::mount_type_in(path, &text).unwrap_or_else(|| "unknown".to_string())
@@ -187,7 +185,8 @@ mod tests {
     }
 
     #[test]
-    fn created_links_undo_by_removal() {        let d = TestDir::new("link-undo");
+    fn created_links_undo_by_removal() {
+        let d = TestDir::new("link-undo");
         d.dir("src");
         let src = d.file("src/a.txt", "a");
         let dest = d.dir("dest");

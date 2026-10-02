@@ -225,8 +225,7 @@ fn rename(from: &File, old: &OsStr, to: &File, new: &OsStr) -> Result<(), String
     Ok(())
 }
 
-// The fd rename above names no path, so the fallback resolves both ends through this process's
-// own descriptor table and reuses the one no-clobber fallback every caller shares.
+// The fd rename above names no path, so the fallback resolves both ends through this process's own descriptor table.
 fn rename_by_path(from: &File, old: &CString, to: &File, new: &CString) -> Result<(), String> {
     let from_path = PathBuf::from(format!("/proc/self/fd/{}", from.as_raw_fd())).join(OsStr::from_bytes(old.as_bytes()));
     let to_path = PathBuf::from(format!("/proc/self/fd/{}", to.as_raw_fd())).join(OsStr::from_bytes(new.as_bytes()));

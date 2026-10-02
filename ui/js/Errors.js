@@ -79,14 +79,12 @@ function exists(message) {
     return text.indexOf("file exists") >= 0 || text.indexOf("already exists") >= 0
 }
 
-// A read-only refusal carries its own sentence from src/error.rs, so the write branches keep
-// it instead of replacing it with their generic one.
+// A read-only refusal carries its own sentence from src/error.rs, so the write branches keep it.
 function readOnly(message) {
     return String(message).toLowerCase().indexOf("read-only") >= 0
 }
 
-// A per-filesystem name refusal carries its own sentence from src/backend/fsname.rs, so the
-// rename and mkdir branches keep it instead of replacing it with their generic one.
+// A per-filesystem name refusal carries its own sentence from src/backend/fsname.rs, so rename and mkdir keep it.
 function nameRefusal(message) {
     var text = String(message)
     return text.indexOf("is not allowed in a name") >= 0 || text.indexOf("is reserved on this") >= 0

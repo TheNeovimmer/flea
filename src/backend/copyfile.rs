@@ -10,9 +10,9 @@ const CHUNK: usize = 256 * 1024;
 pub(crate) const CONFIRM_BYTES: u64 = 8 * 1024 * 1024;
 // 1 MiB starts the ramp, so the first confirmed report lands after 1 MiB rather than 16 MiB.
 pub(crate) const FIRST_CONFIRM_BYTES: u64 = 1024 * 1024;
-// Linux statfs magic for vfat, the filesystem with a 4 GiB file limit; see linux/magic.h.
+// Linux statfs magic for vfat, whose files hold at most 4 GiB minus one byte; see linux/magic.h.
 const VFAT_MAGIC: i64 = 0x4D44;
-// A vfat file holds at most 4 GiB minus one byte, so a file of 4 GiB or more never starts.
+// A file of 4 GiB or more never starts onto vfat.
 const FOUR_GIB: u64 = 4 * 1024 * 1024 * 1024;
 // rename(2) sets EXDEV when the two paths are on different filesystems, which is the one failure that means "copy instead".
 const EXDEV: i32 = 18;
@@ -226,8 +226,7 @@ fn copy_file_at(src: At, dst: At, total: u64, p: &mut Progress) -> Result<(), Fl
     Ok(())
 }
 
-// A file the destination cannot hold is refused before a byte is written: vfat's 4 GiB file
-// limit by magic, and every filesystem's free room, so EFBIG never leaves a partial file.
+// A file the destination cannot hold is refused before a byte is written, so EFBIG never leaves a partial file.
 fn precheck(dst: &Path, size: u64) -> Option<String> {
     let parent = dst.parent().unwrap_or(dst);
     let (info, magic) = crate::backend::fsinfo::read_with_magic(parent);
@@ -250,8 +249,7 @@ fn copy_err(path: &Path, msg: &str) -> FleaError {
     FleaError { where_: "copy".to_string(), path: path.to_string_lossy().to_string(), msg: msg.to_string() }
 }
 
-// A symlink onto a filesystem that holds no links is skipped with a count, never fatal, so one
-// link inside a folder copy cannot fail the folder around it.
+// A symlink onto a filesystem that holds no links is skipped with a count, never fatal to the folder around it.
 const EPERM: i32 = 1;
 const EXFAT_MAGIC: i64 = 0x2011BAB0;
 const LINKSKIP: &str = "linkskip";
@@ -279,8 +277,7 @@ pub fn keep_mode(mode: u32) -> u32 {
     mode & 0o777 & !umask()
 }
 
-// A source filesystem with no real modes lends none: exfat, vfat and ntfs fix their modes, so a copy
-// takes the umask default instead of publishing the source's exec bits onto a filesystem that has them.
+// A source filesystem with no real modes lends none, so a copy takes the umask default instead of publishing exec bits.
 fn mode_for_source(magic: Option<i64>, mode: u32, is_dir: bool) -> u32 {
     const EXFAT: i64 = 0x2011BAB0;
     const NTFS: i64 = 0x5346544E;
@@ -297,8 +294,7 @@ fn mode_for_source(magic: Option<i64>, mode: u32, is_dir: bool) -> u32 {
     }
 }
 
-// One mtime set for the mtime a copy carries: best effort, so a filesystem that refuses time writes
-// keeps the copy with today's time rather than failing it.
+// One mtime set for the mtime a copy carries, best effort, so a refusing filesystem keeps today's time rather than failing.
 fn keep_mtime(w: &std::fs::File, src_meta: &std::fs::Metadata) {
     use std::os::unix::fs::MetadataExt;
     use std::time::{Duration, UNIX_EPOCH};

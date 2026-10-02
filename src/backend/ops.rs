@@ -45,8 +45,7 @@ pub fn rename(path: &Path, to_name: &str) -> Result<(PathBuf, Vec<Step>), FleaEr
         return Ok((to, Vec::new()));
     }
     let before = ItemIdentity::inspect(path)?;
-    // A case-only rename on a case-insensitive filesystem stats as the source itself, so the
-    // no-clobber rename answers EEXIST for a collision that is not one; move via a temp sibling.
+    // A case-only rename on a case-insensitive filesystem stats as the source itself, so the no-clobber rename moves via a temp sibling.
     if let Ok(dest) = ItemIdentity::inspect(&to) {
         if dest.same_item(&before) {
             return case_only_rename(path, &to, before);
@@ -81,16 +80,14 @@ fn case_only_rename(path: &Path, to: &Path, before: ItemIdentity) -> Result<(Pat
             continue;
         }
         renamecompat::rename_path(path, &temp)?;
-        // A hardlink twin keeps the name after the first step, so the second step meets it;
-        // on a case-insensitive filesystem that name is gone already and this arm never runs.
+        // A hardlink twin is a real second name on a case-sensitive filesystem, so it is still here; the temp goes back and the rename is refused without deleting any name.
+        if to.symlink_metadata().is_ok() {
+            let _ = renamecompat::rename_path(&temp, path);
+            return Err(named("rename", path, "a file with that name is already here"));
+        }
         if let Err(error) = renamecompat::rename_path(&temp, to) {
-            if error.msg == "already exists" && ItemIdentity::inspect(to).is_ok_and(|dest| dest.same_item(&before)) {
-                std::fs::remove_file(to).map_err(|e| from_io("rename", &to.to_string_lossy(), &e))?;
-                renamecompat::rename_path(&temp, to)?;
-            } else {
-                let _ = renamecompat::rename_path(&temp, path);
-                return Err(error);
-            }
+            let _ = renamecompat::rename_path(&temp, path);
+            return Err(error);
         }
         return Ok((to.to_path_buf(), vec![undo::moved(path, to, before)?]));
     }
@@ -98,7 +95,6 @@ fn case_only_rename(path: &Path, to: &Path, before: ItemIdentity) -> Result<(Pat
 }
 
 // "backup.tar.zst" becomes "backup.tar copy.zst": Path's own stem and extension split the last dot only, and a dotfile keeps its whole name as the stem.
-// Convert passes "(converted)" as the word for the parenthesised form the canvas draws; duplicate passes "copy".
 // Convert passes "(converted)" as the word for the parenthesised form the canvas draws; duplicate passes "copy".
 pub fn copy_name(original: &Path, word: &str, n: usize) -> Option<String> {
     let name = original.file_name()?.to_str()?;
@@ -268,19 +264,22 @@ mod tests {
     }
 
     #[test]
-    fn case_only_rename_moves_through_a_temp_sibling() {
-        // Sample pair: "a.txt" to "A.txt" on vfat answers EEXIST with both names on one inode.
-        let d = TestDir::new("caseonly");
+    fn a_hardlink_twin_is_a_second_name_and_not_a_case_twin() {
+        // On a case-sensitive filesystem a `to` that is a hard link to the source is a real second name.
+        let d = TestDir::new("casetwin");
         let from = d.file("a.txt", "body");
-        std::fs::hard_link(&from, d.join("A.txt")).unwrap();
-        let (to, steps) = rename(&from, "A.txt").expect("a name on the same file is not a collision");
-        assert_eq!(to, d.join("A.txt"));
-        assert_eq!(std::fs::read_to_string(&to).unwrap(), "body");
-        assert_eq!(steps.len(), 1, "one move is journalled, not two");
+        let twin = d.join("A.txt");
+        std::fs::hard_link(&from, &twin).unwrap();
+        let err = rename(&from, "A.txt").expect_err("a second name is a collision, not a case twin");
+        assert_eq!(err.where_, "rename");
+        assert_eq!(err.msg, "a file with that name is already here");
+        assert_eq!(std::fs::read_to_string(&from).unwrap(), "body", "the source is moved back, not lost");
+        assert_eq!(std::fs::read_to_string(&twin).unwrap(), "body", "the twin name is never deleted");
     }
 
     #[test]
-    fn rename_refuses_to_overwrite_an_existing_file() {        let d = TestDir::new("clobber");
+    fn rename_refuses_to_overwrite_an_existing_file() {
+        let d = TestDir::new("clobber");
         let from = d.file("source.txt", "source body");
         d.file("target.txt", "target body");
         let err = rename(&from, "target.txt").expect_err("must refuse");

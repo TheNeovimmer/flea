@@ -188,8 +188,7 @@ pub fn apply_many(items: &[(PathBuf, String)]) -> Result<Vec<crate::backend::und
     Ok(steps)
 }
 
-// A filesystem with a fixed mask answers a mode change with success while keeping its mode,
-// so the write is re-read and a mismatch refuses with the filesystem named and journals nothing.
+// A filesystem with a fixed mask answers a mode change with success while keeping its mode, so a mismatch refuses with the filesystem named.
 fn verify_applied(path: &Path, requested: u32) -> Result<(), String> {
     let after = path.symlink_metadata().map(|m| m.mode() & 0o777).map_err(|e| crate::error::io_message(&e))?;
     if after == requested & 0o777 {

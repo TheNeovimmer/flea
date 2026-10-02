@@ -16,6 +16,9 @@ const EIO: i32 = 5;
 // The error a copy-fallback rename answers when its folder would not confirm and the copy went back.
 pub const RENAME_UNCONFIRMED: &str = "the drive did not confirm the folder, so the rename was undone";
 const EXDEV: i32 = 18;
+const EPERM: i32 = 1;
+const ENOSYS: i32 = 38;
+const EMLINK: i32 = 31;
 const EOPNOTSUPP: i32 = 95;
 const EEXIST: i32 = 17;
 // The kind a half-succeeded rename answers; ui/js/Errors.js words it and ui/PaneWire.qml refreshes on it.
@@ -32,8 +35,7 @@ extern "C" {
 }
 
 // Some FUSE mounts reject directory RENAME_NOREPLACE; callers that can safely copy and remove handle that case themselves.
-// A kernel that answers EINVAL or EOPNOTSUPP to the flag (kernel NFS, ntfs-3g, sshfs, old FUSE)
-// falls back here, so every caller of this one function gains it.
+// A kernel that answers EINVAL or EOPNOTSUPP to the flag falls back here, so every caller of this one function gains it.
 pub fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     let c_from = path_c(from)?;
     let c_to = path_c(to)?;
@@ -56,51 +58,58 @@ pub fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     }
     let error = if forced { io::Error::from_raw_os_error(EINVAL) } else { io::Error::last_os_error() };
     match error.raw_os_error() {
-        Some(EINVAL) | Some(EOPNOTSUPP) => noreplace_fallback(from, to, error),
+        Some(EINVAL) | Some(EOPNOTSUPP) => noreplace_fallback(from, to),
         _ => Err(error),
     }
 }
 
-// The flagless fallback keeps no-clobber semantics: a taken destination stays EEXIST, a regular file
-// moves by link plus unlink, anything else by plain rename after the absent check.
-fn noreplace_fallback(from: &Path, to: &Path, error: io::Error) -> io::Result<()> {
+// The flagless fallback keeps no-clobber semantics: a taken destination stays EEXIST, and a file on a filesystem without hard links moves by plain rename.
+fn noreplace_fallback(from: &Path, to: &Path) -> io::Result<()> {
     if to.symlink_metadata().is_ok() {
         return Err(io::Error::from_raw_os_error(EEXIST));
     }
     let is_file = from.symlink_metadata().map(|m| m.is_file()).unwrap_or(false);
     if is_file {
-        std::fs::hard_link(from, to).map_err(|link| {
-            match link.raw_os_error() {
-                Some(EEXIST) => io::Error::from_raw_os_error(EEXIST),
-                _ => link,
-            }
-        })?;
-        return std::fs::remove_file(from);
-    }
-    if to.symlink_metadata().is_ok() {
-        return Err(io::Error::from_raw_os_error(EEXIST));
-    }
-    std::fs::rename(from, to).map_err(|rename| {
-        match rename.raw_os_error() {
-            Some(EEXIST) => io::Error::from_raw_os_error(EEXIST),
-            _ => rename,
+        match hard_link(from, to) {
+            Ok(()) => return std::fs::remove_file(from),
+            Err(link) => match link.raw_os_error() {
+                Some(EEXIST) => return Err(io::Error::from_raw_os_error(EEXIST)),
+                Some(EPERM) | Some(EOPNOTSUPP) | Some(ENOSYS) | Some(EMLINK) => {}
+                _ => return Err(link),
+            },
         }
-    })?;
-    if to.symlink_metadata().is_err() {
-        return Err(error);
     }
-    Ok(())
+    std::fs::rename(from, to).map_err(|rename| match rename.raw_os_error() {
+        Some(EEXIST) => io::Error::from_raw_os_error(EEXIST),
+        _ => rename,
+    })
 }
 
 #[cfg(test)]
 thread_local! {
     static FORCE_FALLBACK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static FAIL_HARD_LINK: std::cell::Cell<Option<i32>> = const { std::cell::Cell::new(None) };
 }
 
 // The injected EINVAL hook: the next rename_noreplace answers as a kernel without the flag.
 #[cfg(test)]
 pub fn test_force_fallback(force: bool) {
     FORCE_FALLBACK.with(|flag| flag.set(force));
+}
+
+// The injected link failure: the next fallback link answers this errno instead of linking.
+#[cfg(test)]
+pub fn test_fail_hard_link(errno: Option<i32>) {
+    FAIL_HARD_LINK.with(|fail| fail.set(errno));
+}
+
+// A test hook answers first when armed, so a linkless filesystem is reachable without one.
+fn hard_link(from: &Path, to: &Path) -> io::Result<()> {
+    #[cfg(test)]
+    if let Some(code) = FAIL_HARD_LINK.with(|fail| fail.replace(None)) {
+        return Err(io::Error::from_raw_os_error(code));
+    }
+    std::fs::hard_link(from, to)
 }
 
 #[cfg(test)]
@@ -511,6 +520,36 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&to).unwrap(), "source body");
     }
     #[test]
+    fn fallback_without_hard_links_moves_by_plain_rename() {
+        // EPERM, EOPNOTSUPP, ENOSYS and EMLINK all mean the filesystem holds no hard links.
+        for code in [EPERM, EOPNOTSUPP, ENOSYS, EMLINK] {
+            let d = TestDir::new(&format!("noreplacenolink-{code}"));
+            let from = d.file("source.txt", "source body");
+            let to = d.join("target.txt");
+            test_force_fallback(true);
+            test_fail_hard_link(Some(code));
+            let outcome = rename_noreplace(&from, &to);
+            test_force_fallback(false);
+            outcome.expect("no hard links still renames through the plain fallback");
+            assert!(!from.exists(), "the source goes through the fallback too");
+            assert_eq!(std::fs::read_to_string(&to).unwrap(), "source body");
+        }
+    }
+    #[test]
+    fn fallback_link_collision_stays_eexist() {
+        // A link that meets a raced destination keeps EEXIST rather than falling back to a replacing rename.
+        let d = TestDir::new("noreplacelinkrace");
+        let from = d.file("source.txt", "source body");
+        let to = d.join("target.txt");
+        test_force_fallback(true);
+        test_fail_hard_link(Some(EEXIST));
+        let error = rename_noreplace(&from, &to).expect_err("a raced destination stays EEXIST");
+        test_force_fallback(false);
+        assert_eq!(error.raw_os_error(), Some(EEXIST));
+        assert!(from.exists(), "the source stays when the link meets a taken name");
+        assert!(to.symlink_metadata().is_err(), "nothing is created under the taken name");
+    }
+    #[test]
     fn fallback_keeps_no_replace_semantics() {
         let d = TestDir::new("noreplacefallbackclobber");
         let from = d.file("source.txt", "source body");
@@ -524,7 +563,8 @@ mod tests {
     }
     // The FUSE arm reads the real mountinfo, so a unit test drives only the WebDAV arm; live mount batteries drive the other.
     #[test]
-    fn the_composed_predicate_answers_for_the_webdav_case() {        let d = TestDir::new("composedfallback");
+    fn the_composed_predicate_answers_for_the_webdav_case() {
+        let d = TestDir::new("composedfallback");
         assert!(needs_copy_fallback(
             Path::new("/run/user/1000/gvfs/dav:host=x,ssl=true/f"),
             &io::Error::from_raw_os_error(EIO)

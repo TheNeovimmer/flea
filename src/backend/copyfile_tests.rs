@@ -120,8 +120,7 @@ fn a_modeless_source_takes_umask_modes() {
     assert_ne!(mode_for_source(None, 0o755, false) & 0o111, 0, "an unknown filesystem keeps its exec bit");
 }
 
-// A 4 GiB file never starts onto vfat, and a file bigger than the free room never starts anywhere:
-// EFBIG after gigabytes leaves a partial, so both refuse up front with the cause named.
+// A 4 GiB file never starts onto vfat, and a file bigger than the free room never starts anywhere, so both refuse up front.
 #[test]
 fn a_copy_refuses_a_file_the_destination_cannot_hold() {
     assert_eq!(refuse_for_size(Some(VFAT_MAGIC), u64::MAX, FOUR_GIB).unwrap(),
