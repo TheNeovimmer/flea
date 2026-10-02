@@ -3165,6 +3165,11 @@ The stage2 merge of fs1 and fs5 records `ui/js/Devices.js` at 366, fs1's udisks 
 `mediaRemovable` for the USB power-off chain, and `tests/js/devices.js` at 303 for both units' pins, each over the
 300 hard cap and recorded rather than split, re-derived with `wc -l`.
 
+The stage4 merge keeps both sides of two files, so their ceilings are the merged counts, re-derived with `wc -l` at
+the merge: `tests/js/watch.js` 354 (us1's kill-sweep pins beside xw4r2's two-window settle pins) and `ui/Pane.qml` 1013
+(xw4r2's settler wiring beside stage2's Anchor import and drag state). The duplicate `src/backend/iomount.rs` row
+is gone: two rows made the tool read the ceiling as two numbers, fail its comparison and skip the file.
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.
