@@ -28,7 +28,10 @@ env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
 status=$?
 cat "$root/probe.log"
 [ "$status" -eq 0 ] || { printf 'FAIL sidebarcost: qs exit %s\n' "$status"; exit 1; }
-[ "$(grep -c 'BOOTLOAD DONE .* checks, 0 failed' "$root/probe.log")" -eq 1 ] || exit 1
-grep -qE 'BOOTLOAD FAIL|TypeError|ReferenceError|ERROR' "$root/probe.log" && exit 1
-grep -E 'WARN' "$root/probe.log" | grep -vF 'This plugin does not support setting window masks' | grep -q . && exit 1
+[ "$(grep -c 'BOOTLOAD DONE .* checks, 0 failed' "$root/probe.log")" -eq 1 ] \
+    || { echo 'FAIL sidebarcost: no single "BOOTLOAD DONE ... 0 failed" summary line'; exit 1; }
+grep -qE 'BOOTLOAD FAIL|TypeError|ReferenceError|ERROR' "$root/probe.log" \
+    && { echo 'FAIL sidebarcost: the probe log holds a BOOTLOAD FAIL, TypeError, ReferenceError or ERROR line'; exit 1; }
+grep -E 'WARN' "$root/probe.log" | grep -vF 'This plugin does not support setting window masks' | grep -q . \
+    && { echo 'FAIL sidebarcost: the probe log holds an unexpected WARN line'; exit 1; }
 echo 'sidebarcost: sidebar and menu count gates passed'
