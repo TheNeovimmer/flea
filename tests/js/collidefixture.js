@@ -17,7 +17,7 @@ function built(file, parent, properties) {
 // the second: the error line's path, "collisions" for a refused question.
 var BACKEND = "import QtQuick\nimport \"../../ui/js/Swap.js\" as Swap\nQtObject {\n"
     + "    signal collisions(int id, int total, var names)\n    signal failed(string where, string input, string message, int mode)\n"
-    + "    property real heldListing: 0\n    property var sent: []\n"
+    + "    property real heldListing: 0\n    property bool dragLanded: false\n    property var sent: []\n"
     + "    function send(object) { sent.push(Swap.named(object, heldListing)) }\n}\n"
 
 // The commands written so far, in order.

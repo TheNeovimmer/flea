@@ -288,8 +288,7 @@ Item {
             enabled: !Theme.reducedMotion
             NumberAnimation {
                 duration: root.opened ? Motion.durMs.open : Motion.durMs.close
-                easing.type: Easing.BezierSpline
-                easing.bezierCurve: Motion.bezierCurve
+                easing.type: Easing.OutCubic
             }
         }
 
@@ -320,15 +319,14 @@ Item {
 
         Behavior on anchors.verticalCenterOffset {
             enabled: root.opened && !Theme.reducedMotion
-            NumberAnimation { duration: Motion.durMs.open; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.bezierCurve }
+            NumberAnimation { duration: Motion.durMs.open; easing.type: Easing.OutCubic }
         }
 
         Behavior on opacity {
             enabled: !Theme.reducedMotion
             NumberAnimation {
                 duration: root.opened ? Motion.durMs.open : Motion.durMs.close
-                easing.type: Easing.BezierSpline
-                easing.bezierCurve: Motion.bezierCurve
+                easing.type: Easing.OutCubic
             }
         }
 

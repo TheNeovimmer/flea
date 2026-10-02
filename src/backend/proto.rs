@@ -231,18 +231,27 @@ pub fn located_many_line(directory: &str, id: usize, transfer_id: usize, matches
 }
 
 pub fn listed_line(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str) -> String {
+    say_listed(n, read_ms, sort_ms, dev, path, crate::backend::ops::dir_writable(std::path::Path::new(path)))
+}
+
+// `w` is whether this user can create or delete entries in the directory. A drag from one that
+// cannot copies, because a move would have to delete the originals.
+pub(crate) fn say_listed(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str, writable: bool) -> String {
     format!(
-        r#"{{"t":"listed","n":{},"read":{:.3},"sort":{:.3},"v":{},"path":"{}"}}"#,
-        n, read_ms, sort_ms, dev, escape(path)
+        r#"{{"t":"listed","n":{},"read":{:.3},"sort":{:.3},"v":{},"w":{},"path":"{}"}}"#,
+        n, read_ms, sort_ms, dev, writable, escape(path)
     )
 }
 
 // The anchor's index in the new order, or -1; the fields ride last, so an unanchored reply is the line above exactly.
 pub fn listed_line_anchor(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str, anchor: &str, anchor_index: isize) -> String {
-    format!(
-        r#"{{"t":"listed","n":{},"read":{:.3},"sort":{:.3},"v":{},"path":"{}","anchor":"{}","anchorIndex":{}}}"#,
-        n, read_ms, sort_ms, dev, escape(path), escape(anchor), anchor_index
-    )
+    with_anchor(&listed_line(n, read_ms, sort_ms, dev, path), anchor, anchor_index)
+}
+
+// A listed line with the anchor fields added before its closing brace.
+pub(crate) fn with_anchor(listed: &str, anchor: &str, anchor_index: isize) -> String {
+    let body = listed.strip_suffix('}').unwrap_or(listed);
+    format!(r#"{},"anchor":"{}","anchorIndex":{}}}"#, body, escape(anchor), anchor_index)
 }
 
 // The streaming progress of a search: its own type rather than a listed line, because a mid-walk update is not a fresh listing and carries no read or sort timing.

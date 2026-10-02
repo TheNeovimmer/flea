@@ -12,6 +12,7 @@ import "crumbs.js" as CrumbsSuite
 import "ddtarget.js" as DdtargetSuite
 import "dirsizes.js" as DirSizesSuite
 import "drag.js" as DragSuite
+import "dragout.js" as DragOutSuite
 import "dst.js" as DstSuite
 import "errors.js" as ErrorsSuite
 import "facts.js" as FactsSuite
@@ -36,6 +37,7 @@ import "mdstructure.js" as MdStructureSuite
 import "listbudget.js" as ListBudgetSuite
 import "marks.js" as MarksSuite
 import "match.js" as MatchSuite
+import "motion.js" as MotionSuite
 import "menu.js" as MenuSuite
 import "openwith.js" as OpenWithSuite
 import "devices.js" as DevicesSuite
@@ -117,7 +119,7 @@ Item {
 
         var suites = [
             ["archive", ArchiveSuite], ["background", BackgroundSuite], ["buttons", ButtonsSuite], ["collide", CollideSuite], ["clipmarks", ClipMarksSuite], ["columns", ColumnsSuite], ["contrast", ContrastSuite],
-            ["dirsizes", DirSizesSuite], ["drag", DragSuite], ["dst", DstSuite], ["ddtarget", DdtargetSuite],
+            ["dirsizes", DirSizesSuite], ["drag", DragSuite], ["dragout", DragOutSuite], ["dst", DstSuite], ["ddtarget", DdtargetSuite],
             ["copyas", CopyAsSuite], ["invert", InvertSuite],
             ["edmonton", DstSuite],
             ["errors", ErrorsSuite], ["facts", FactsSuite], ["filter", FilterSuite], ["filter-cursor", FilterCursorSuite],
@@ -127,7 +129,7 @@ Item {
             ["focus-lines", FocusLinesSuite], ["focus-wrap", FocusWrapSuite],
             ["format", FormatSuite], ["icons", IconsSuite],
             ["jump", JumpSuite], ["jump-heldout", JumpHeldoutSuite], ["keymap", KeymapSuite], ["localsend", LocalSendSuite], ["listbudget", ListBudgetSuite], ["match", MatchSuite], ["menu", MenuSuite],
-            ["marks", MarksSuite], ["markdown", MarkdownSuite], ["mdstructure", MdStructureSuite], ["mounts", MountsSuite], ["names", NamesSuite], ["nav", NavSuite], ["crumbs", CrumbsSuite], ["devices", DevicesSuite], ["network", NetworkSuite],
+            ["marks", MotionSuite motion MarksSuite], ["markdown", MarkdownSuite], ["mdstructure", MdStructureSuite], ["mounts", MountsSuite], ["names", NamesSuite], ["nav", NavSuite], ["crumbs", CrumbsSuite], ["devices", DevicesSuite], ["network", NetworkSuite],
             ["openwith", OpenWithSuite], ["ops", OpsSuite], ["opstrash", OpsTrashSuite],
             ["palette", PaletteSuite], ["pathbar", PathBarSuite], ["places", PlacesSuite], ["placemenu", PlaceMenuSuite], ["rail", RailSuite], ["scripts", ScriptsSuite],
             ["phones", PhonesSuite],

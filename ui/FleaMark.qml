@@ -57,8 +57,7 @@ Item {
         }
     }
 
-    // BrandMoments.dc.html's draw keyframe, 0.2s delay then 1.8s on cubic-bezier(0.4, 0, 0.2, 1);
-    // QML's BezierSpline wants the implicit (1,1) end point appended, the way Motion.js notes.
+    // BrandMoments.dc.html's draw keyframe, 0.2s delay then 1.8s on the shell's OutCubic.
     SequentialAnimation {
         id: draw
         // The caption's own fade-out, so a repeat dissolves the finished mark rather than cutting it.
@@ -73,8 +72,7 @@ Item {
             from: root.markDashes
             to: 0
             duration: 1800
-            easing.type: Easing.BezierSpline
-            easing.bezierCurve: [0.4, 0, 0.2, 1, 1, 1]
+            easing.type: Easing.OutCubic
         }
     }
 

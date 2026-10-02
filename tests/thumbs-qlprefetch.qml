@@ -28,7 +28,9 @@ ShellRoot {
         id: backend
         property var calls: []
         property var metaCalls: []
+        property int dirDev: 0
         signal meta(int row, int w, int h, int orient, real durationMs, int sampleRate, int entries, real unpacked, bool archiveFailed, var names, real lines, bool partial, bool linesFailed, string target, bool targetDir, string owner)
+        signal thumbed(int row, string file)
         function askMeta(index, wantText, wantMedia, wantArchive) { metaCalls.push(index); return 0 }
         function thumb(ask, cacheOnly) { calls.push({ ask: ask, cacheOnly: cacheOnly === true }) }
         function thumbcancel(rows) {}
@@ -50,9 +52,26 @@ ShellRoot {
         property bool storageKnown: true
         property bool listInFlight: false
         property var backend: backend
-        property var listArea: ({ forceActiveFocus: function () {} })
+        property string searchMode: ""
+        property string recentMode: ""
+        property string viewMode: "list"
+        property string dropPath: "/t"
+        property int thumbCap: 240
+        property int renamingIndex: -1
+        property bool renamePending: false
+        property bool menuVisible: false
+        property bool filterTyping: false
+        property var selectionBand: null
+        property var collide: null
+        property var menuActions: null
+        property var trash: ({ opened: false })
+        property var listSlot: ({ x: 0, y: 0, width: 100, height: 100 })
+        // The settled view behind Quick Look: a re-plan asks undefined viewport rows
+        // in full, the way List.requestThumbs does on this fixture (no filter, local).
+        property var listArea: ({ forceActiveFocus: function () {}, restartSettle: function () { shell.settleCalls.push(1); shell.replan() } })
         function rowFor(index) { return (index >= 0 && index < rows.length) ? rows[index] : null }
         function join(base, name) { return base + "/" + name }
+        function selectionCount() { return 0 }
     }
 
     FloatingWindow {
@@ -67,12 +86,50 @@ ShellRoot {
             onLoaded: { item.pane = pane; kick.restart() }
             onStatusChanged: if (status === Loader.Error) { shell.check("the overlay loads", false); shell.done() }
         }
+
+        // The production wire, so a thumbed reply runs the real onThumbed.
+        Loader {
+            id: wire
+            anchors.fill: parent
+            active: true
+            source: "file://" + shell.uiDir + "/PaneWire.qml"
+            onLoaded: { item.pane = pane }
+            onStatusChanged: if (status === Loader.Error) { shell.check("the wire loads", false); shell.done() }
+        }
     }
 
     function cachedOnly() {
         for (var i = 0; i < backend.calls.length; i++)
             if (backend.calls[i].cacheOnly !== true) return false
         return true
+    }
+
+    property var settleCalls: []
+    property int raceCacheOnly1: 0
+
+    // The settled view's re-plan behind Quick Look: undefined viewport rows asked
+    // in full, the way List.requestThumbs plans on this fixture (no filter, local).
+    function replan() {
+        var ask = []
+        for (var i = 0; i < pane.rows.length; i++) {
+            if (pane.thumbState.file[i] === undefined && pane.rows[i].t === true && pane.rows[i].d !== true)
+                ask.push(i)
+        }
+        if (ask.length > 0) {
+            pane.backend.thumb(ask, false)
+            for (var j = 0; j < ask.length; j++) {
+                pane.thumbState.file[ask[j]] = null
+                pane.thumbState.order.push(ask[j])
+            }
+        }
+    }
+
+    function cacheOnlyFor(row) {
+        var n = 0
+        for (var i = 0; i < backend.calls.length; i++) {
+            if (backend.calls[i].cacheOnly === true && backend.calls[i].ask.indexOf(row) >= 0) n += 1
+        }
+        return n
     }
 
     Timer {
@@ -138,7 +195,7 @@ ShellRoot {
                 shell.check("a reply for another row is dropped", quick.item.imageW === 0)
                 backend.meta(2, 640, 480, 1, 0, 0, 0, 0, false, [], 0, false, false, "", false, "")
                 shell.check("its own row's reply lands", quick.item.imageW === 640)
-                shell.done()
+                shell.startRace()
             } else if (waited > 2000) {
                 stop()
                 shell.check("the trailing rest asks once more", false)
@@ -146,4 +203,114 @@ ShellRoot {
             }
         }
     }
+
+    // F10: a view plan runs between the prefetch ask and its miss, so the row stays
+    // iconless unless the miss re-plans it. Fails before the re-plan: no settle runs.
+    function startRace() {
+        if (wire.status !== Loader.Ready) {
+            shell.check("the wire loads", false)
+            shell.done()
+            return
+        }
+        pane.rows = [
+            { n: "a.jpg", d: false, i: "image-x-generic", p: 33188, s: 100, m: 1000, t: true, k: 0 },
+            { n: "b.jpg", d: false, i: "image-x-generic", p: 33188, s: 101, m: 1001, t: true, k: 0 },
+            { n: "c.jpg", d: false, i: "image-x-generic", p: 33188, s: 102, m: 1002, t: true, k: 0 },
+            { n: "d.jpg", d: false, i: "image-x-generic", p: 33188, s: 103, m: 1003, t: true, k: 0 }
+        ]
+        pane.cursorIndex = 0
+        pane.thumbState = ({ file: { 0: "/cache/a.png", 2: "/cache/2.png", 3: "/cache/3.png" }, order: [0, 2, 3] })
+        shell.settleCalls = []
+        shell.raceCacheOnly1 = shell.cacheOnlyFor(1)
+        quick.item.close()
+        quick.item.open("/t/a.jpg", "image-x-generic", 100, "", "/cache/a.png")
+        var prefetch = backend.calls[backend.calls.length - 1]
+        shell.check("the race prefetches row 1 cache-only",
+            prefetch.ask.join(",") === "1" && prefetch.cacheOnly === true)
+        // The interleaving plan sees row 1 defined, so it asks nothing new.
+        var before = backend.calls.length
+        shell.replan()
+        shell.check("a plan between ask and reply asks nothing new", backend.calls.length === before)
+        // The miss arrives through the real wire: the row is forgotten and re-planned.
+        var settles = shell.settleCalls.length
+        backend.thumbed(1, "")
+        shell.check("the miss re-plans the row", shell.settleCalls.length === settles + 1)
+        var last = backend.calls[backend.calls.length - 1]
+        shell.check("and the re-plan asks it in full",
+            last.ask.join(",") === "1" && last.cacheOnly !== true)
+        // The answer lands; the same rest never prefetches row 1 again.
+        backend.thumbed(1, "/cache/1.png")
+        shell.check("no second prefetch follows in the same rest",
+            shell.cacheOnlyFor(1) === shell.raceCacheOnly1 + 1)
+        shell.startF11A()
+    }
+
+    // F11A: an insert above the shown file between capture and ask. The follow captures
+    // index 0 while bursting; the anchor keeps the file at index 1; the ask re-resolves.
+    function startF11A() {
+        quick.item.close()
+        pane.rows = [{ n: "s.jpg", d: false, i: "image-x-generic", p: 33188, s: 200, m: 2000, t: true, k: 0 }]
+        pane.cursorIndex = 0
+        pane.thumbState = ({ file: { 0: "/cache/s.png" }, order: [0] })
+        shell.f11aMetaMark = backend.metaCalls.length
+        // Still bursting, so the follow trails instead of loading at once.
+        quick.item.lastMoveAt = Date.now()
+        quick.item.lastMoveKey = ""
+        quick.item.follow("/t/s.jpg", "image-x-generic", 200, "", "/cache/s.png")
+        // The insert lands before the settle does; the cursor follows its file.
+        pane.rows = [
+            { n: "new.jpg", d: false, i: "image-x-generic", p: 33188, s: 201, m: 2001, t: true, k: 0 },
+            { n: "s.jpg", d: false, i: "image-x-generic", p: 33188, s: 200, m: 2000, t: true, k: 0 }
+        ]
+        pane.cursorIndex = 1
+        f11aPoll.waited = 0
+        f11aPoll.restart()
+    }
+
+    Timer {
+        id: f11aPoll
+        interval: 50
+        repeat: true
+        property int waited: 0
+        onTriggered: {
+            waited += interval
+            if (backend.metaCalls.length > shell.f11aMetaMark) {
+                stop()
+                shell.check("the ask re-resolves to the shown file",
+                    backend.metaCalls.slice(shell.f11aMetaMark).join(",") === "1")
+                backend.meta(1, 111, 222, 1, 0, 0, 0, 0, false, [], 0, false, false, "", false, "")
+                shell.check("the interim takes the shown file's size",
+                    quick.item.imageW === 111 && quick.item.interimVisible === true)
+                shell.startF11B()
+            } else if (waited > 2000) {
+                stop()
+                shell.check("the ask re-resolves to the shown file", false)
+                shell.done()
+            }
+        }
+    }
+
+    // F11B: the insert lands between ask and reply. The reply for the drifted index
+    // names the neighbour, so it is dropped and nothing re-asks behind it.
+    function startF11B() {
+        quick.item.close()
+        pane.rows = [{ n: "s.jpg", d: false, i: "image-x-generic", p: 33188, s: 200, m: 2000, t: true, k: 0 }]
+        pane.cursorIndex = 0
+        pane.thumbState = ({ file: { 0: "/cache/s.png" }, order: [0] })
+        var mark = backend.metaCalls.length
+        quick.item.open("/t/s.jpg", "image-x-generic", 200, "", "/cache/s.png")
+        var asked = backend.metaCalls.slice(mark).join(",") === "0"
+        pane.rows = [
+            { n: "new.jpg", d: false, i: "image-x-generic", p: 33188, s: 201, m: 2001, t: true, k: 0 },
+            { n: "s.jpg", d: false, i: "image-x-generic", p: 33188, s: 200, m: 2000, t: true, k: 0 }
+        ]
+        pane.cursorIndex = 1
+        backend.meta(0, 999, 888, 1, 0, 0, 0, 0, false, [], 0, false, false, "", false, "")
+        shell.check("a reply for a drifted index is dropped", asked && quick.item.imageW === 0
+            && quick.item.interimVisible !== true)
+        shell.check("no re-ask follows the drop", backend.metaCalls.length === mark + 1)
+        shell.done()
+    }
+
+    property int f11aMetaMark: -1
 }

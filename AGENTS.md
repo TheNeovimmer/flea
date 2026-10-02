@@ -1678,6 +1678,7 @@ failure fails the check rather than passing it.
   for `tools/flea-portal`, `--ui-state [<patch>]` reads or merges the shared view state,
   `--launch-warm <list> <gvfs-path> <gvfs-dest>` runs both launch jobs under one fork, "-" skipping
   one, which `gui.rs` alone starts, see "The first window",
+  `--figure-helper` runs the sandboxed quickjs-ng figure renderer on stdio, see "Markdown figures",
   `--version` prints the version, `--print-target` resolves `--select`'s pair for the tests, and
   anything else opens the window, on `--select`'s parent directory when one is given, unless
   explicit `--tui` requests the terminal interface, `--gui` being the explicit spelling of the
@@ -1688,6 +1689,8 @@ failure fails the check rather than passing it.
 - `open.rs` hands one file to `gio open` and waits for it, see "Opening a file".
 - `terminal.rs` hands one directory to `xdg-terminal-exec --dir=` and does not wait, see "Opening a file";
   its `detach` is the set of guards every program Flea starts and does not wait for carries.
+- `figurehelper.rs` `flea --figure-helper`: maths and diagrams through quickjs-ng under the
+  thumbnail jail's flags and caps, see "Markdown figures".
 - `update.rs` `flea --update [check]`: the install kind, the source's answer, and Omarchy's updater, see "Updates".
 - `defaults.rs` claims or releases the OS-level default: the desktop-entry install check,
   the `inode/directory` MIME default via `xdg-mime`, and reporting each half, see "Modes".
@@ -3063,6 +3066,8 @@ invert, `ui/js/Permissions.js` 11 to 36 the multi summary, `ui/js/Collide.js`
 
 e80 optional preview candidate records `ui/Preview.qml` at 490 with its existing scoped ceiling, `ui/SelectionPreview.qml` at 302, `ui/js/PreviewSettle.js` at 14 and `tests/js/previewswap.js` at 267, each re-derived with `wc -l`. The exact `tests/preview-settle-live.qml` ceiling is 424 for the real Window parent, production-shaped meta and selection signals, runner-provided readable images, gate diagnostics and fresh close/reopen checks. It preserves 35 automatic and 3 seeded manual checks, the 120ms timer and <200ms duplicate bound, storage and no-swap gates, identity refresh, visibility restoration and the exact picture-capture queue order. Its runner generates a tiny JPEG with the existing ffmpeg dependency and copies it into eight names inside each fresh marked sandbox and requires exit 143, one clean DONE, exact PASS counts, no FAIL and no warnings. Native acceptance remains with the controller.
 
+mx2 renders Markdown maths and Mermaid in a sandboxed quickjs-ng helper, each re-derived with `wc -l`: `src/figurehelper.rs` at 198 for the pure qjs and vendor resolution (`qjs_from` and `resolve_with`, with `qjs_path` and `resolve` the thin env-reading wrappers) with its env-free tests, the jailed argv with its three read-only binds and the 127 refusal; `ui/FigureService.qml` at 232 for the lazy Process with its stdin and SplitParser, the ticket deadlines with the timeout kill, the deadline timer running only while waiting holds a ticket, the 64-entry LRU with its key mirror, the idle exit and the 127 latch; `ui/js/FigureWorker.mjs` 632 to 352 for deleting everything that only existed for the Qt worker engine, keeping the post-processing both node and qjs import; the helper itself is the new `ui/vendor/figure-helper.mjs` at 70, and the `.mjs` pair escapes `tools/flea-file-budget` the way the old worker did, since the scan reads no `.mjs` and the tool already excludes `ui/vendor/` outright. `src/backend/sandbox.rs` 365 to 373 for `wrap_readonly_extra` with its nothing-writable bind list, over the soft budget and under the hard cap; `src/main.rs` 361 to 367 for the dispatch, the same. `tests/markdown-figures.qml` 495 to 329 for the service suite (answers, cache hit with no new helper line, idle exit, timeout restart, 127 latch and fence, the deadline-timer stopped checks, and the FIGPSS phases with the FIGHELPER peak), leaving its recorded ceiling with nothing over it; `tools/vendor-js/build.sh` 27 to 22 for dropping the assembler check with the classic worker it assembled. Deleted with nothing left behind: `ui/vendor/figure-worker.js` and `tools/vendor-js/assemble-figure-workers.py`.
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.
@@ -3247,18 +3252,27 @@ waits for its consumer.
   because `Drag.active = true` runs a nested event loop in which **the window receives no key
   events at all**, so the `Keys.onPressed` handler carrying ctrl never fired and every
   ctrl-copy silently became a move. The file still arrived, so nothing looked wrong.
-- **The copy modifier is read at the lift and nowhere else, and `tests/dragwire.sh` guards why.**
-  `Drag.supportedActions` is the only field an external client sees: Qt hands it straight to
-  Chromium as `effectAllowed`, and offering `Qt.MoveAction` alongside Copy made Chromium report
-  `dropEffect: move`, which Google's uploader refused. It is `Qt.CopyAction` alone now. Qt then
-  clamps a DragEvent's `proposedAction` to what the source advertised, so a copy-only source pins
-  that field to Copy and it can no longer carry Flea's own ctrl signal; the signal rides a marker
-  in the payload instead, computed at the lift. Combined with the nested event loop above, which
-  denies the window key events for the whole drag, that leaves no mechanism by which a ctrl pressed
-  after the drag begins can reach anything, so the status line says `ctrl at lift copies` rather
-  than advertising something the platform cannot do. `drag.sh` proves the behaviour but needs the
-  display and a real pointer, so `dragwire.sh` carries the four static checks into the headless
-  battery: put `Qt.MoveAction` back and every other suite stays green while Chromium breaks again.
+- **Copy versus move is one function, and the modifiers are read at the lift.**
+  Same device moves, another device copies, Ctrl forces a copy, Shift forces a move. A device
+  that could not be read copies, and a source that cannot be deleted copies, unless Shift is
+  held. A drag that started in another process follows that same device rule. A plain lift's
+  `Drag.supportedActions` offers both `Qt.CopyAction` and `Qt.MoveAction`: Qt hands that straight
+  to Chromium as `effectAllowed`, and offering move is what made Chromium report `dropEffect: move`,
+  which Google's uploader refused in 0.1.4. The plain offer stays, because dropping move would also
+  stop Files from moving; a Chromium upload can still refuse the drag. Ctrl at the lift offers copy
+  alone and Shift offers move alone, because Files takes a move whenever a move is offered and does
+  not have to notice the key Flea read. Files accepts a move and then
+  moves the uri-list itself, after `dragFinished`, so Flea does not delete on that acceptance:
+  doing so trashes the files before Files has read them and the destination never gets them. A
+  drop this window's own transfer handles accepts copy instead, and the transfer does the move
+  or the copy. A directory this user cannot write is marked not deletable on the listed line's
+  `w` field, and a drag from it copies unless Shift is held. Qt's platform drag runs a nested
+  loop in which the window receives no keys, so Ctrl
+  or Shift pressed after the drag starts cannot change the verb. The status line says
+  `ctrl copies and shift moves, read at lift` rather than claiming the key still works
+  mid-drag. `drag.sh` proves a same-device move and a Ctrl copy but needs the display and a
+  real pointer, so `dragwire.sh` carries the offer into the headless battery: a leaving drag
+  must offer both actions and `text/uri-list`, and the shelf drag stays copy only.
 - **It drives the pointer through uinput, never `omarchy-drive drag`**, which cannot drive a Qt
   client at all: it interpolates through `hl.dsp.cursor.move`, which emits `wl_pointer.motion`
   with no `wl_pointer.frame`, and Qt dispatches buffered pointer events only on `frame`. A drag
@@ -4458,6 +4472,56 @@ how an operator gets the exec path back.
 **Measured before it was built**, outside Flea, from the research session's `prefork.c`: the first
 43 videos of the media fixture took 828 ms at 4 at a time against 1489 through the sandboxed exec
 path, and 2595 against 4387 one at a time.
+
+## Markdown figures
+
+Maths (MathJax 4.1.3) and diagrams (beautiful-mermaid 1.1.3) render in a sandboxed quickjs-ng
+helper, `flea --figure-helper`, because neither Qt engine runs them. Qt's WorkerScript engine
+cannot run either bundle (no lookbehind, no Unicode property escapes, no `new Worker` for ELK,
+bare-`this` errors), and the GUI process went from 80-108 MB PSS to about 357 MB after one
+formula. QtWebEngine is not an option: on minipc a Quickshell 0.3.1 config with a `WebEngineView`
+crashes at start (`QEventLoop: Cannot be used without QCoreApplication`).
+
+`ui/vendor/figure-helper.mjs` sets `globalThis.global`, `setTimeout` and `clearTimeout` before
+anything imports, then reads newline-delimited JSON off stdin. ELK's GWT code takes its `Error`
+from `global`, and its in-process FakeWorker posts through setTimeout; without them flowchart,
+state, class and ER throw `cannot set property 'stackTraceLimit' of undefined`. It imports
+`math.mjs` on the first maths request and `mermaid.mjs` on the first diagram through dynamic
+`import()`, so a maths-only document never loads the diagram bytes. `window` stays undefined (a
+bundle then reads `navigator.userAgent` and throws) and so does `self` (ELK then takes the
+web-worker branch, and its `Worker` export is undefined). quickjs-ng names its modules `qjs:std`
+and `qjs:os`, not `std` and `os`. `ui/js/FigureWorker.mjs` is a plain ES module both node and qjs
+import: the Qt SVG fix-ups, `checkSafe`, the hostile href, url and click refusals and the size
+limits, with everything that only existed for the Qt worker engine deleted.
+
+The protocol is one JSON line per request and one line back. A request carries `{id, kind,
+source, display, theme}` and an answer carries `{id, svg}` or `{id, error}`; a line that is not
+JSON answers `{id: 0, error}`. One bad request never ends the loop, and EOF ends the process at
+0. `flea --figure-helper` (`src/figurehelper.rs`) resolves `/usr/bin/qjs`, or `FLEA_QJS` when it
+is an absolute path (a test hook, documented as one), resolves the UI tree's `vendor/` directory
+the same way the GUI's own root is resolved, and execs the helper under
+`sandbox::wrap_readonly_extra`: the thumbnail jail's flags and prlimit caps (2 GiB address space,
+30 s CPU), read-only binds for the vendor directory, for `ui/js/FigureWorker.mjs` and for the qjs
+binary when it lives outside `/usr`, nothing writable, no network. With no bwrap or prlimit, or
+no qjs, it prints one line on stderr and exits 127, without running anything unsandboxed.
+
+`ui/FigureService.qml` owns one `Process` with stdin and a `SplitParser` on stdout, started
+lazily on the first request and stopped after `idleExitMs` (30000) with nothing waiting, so the
+memory returns to the system. A request past `renderMs` (2000) fails as "render timed out" and
+kills the helper; the next request starts a fresh one. A 64-entry LRU keyed by
+`FigureWorker.cacheKey` answers a revisit or a theme flip back without re-rendering, and the QML
+copy of that key is pinned against the module by a node check rather than an import the singleton
+cannot load. A 127 exit or a spawn that never starts latches `available: false` for the session:
+one log line, and every figure shows its fenced source exactly as a render failure does, with no
+retry storm. `ui/MarkdownFigure.qml` is unchanged by the move: the ask/done ticket API is the
+same, so md3 wires figures into the Markdown view later without touching this unit.
+
+Measured on this Debian box through direct qjs, whose bwrap cannot run Arch's jail: cold
+spawn-to-answer 51 to 55 ms for a formula and 167 to 176 ms for a diagram, five samples each;
+warm 0 to 2.5 ms per formula and 0.9 ms per diagram; the helper peaks at 41380 to 41524 kB RSS
+with both bundles loaded. The GUI side is taken offscreen on minipc, five samples each, every
+number a range: PSS before any figure, after the ten formulas and after the six diagrams, which
+must stay within 10 MB of the before value, and PSS 5 s after the idle exit with the helper gone.
 
 ## Thumbnail pool
 

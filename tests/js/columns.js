@@ -606,7 +606,7 @@ function runColumnMenu(check) {
     var deadBackend = Source.slice(wire, "A dead backend ends every listing", "var request = pane.renameRequest")
     check("a dead backend still drops both deferred menus",
         deadBackend.indexOf("pane.pendingMenu = false") >= 0 && deadBackend.indexOf("Nav.clearPendingBackground(pane)") >= 0, true)
-    var failedTail = Source.slice(wire, "if (!Swap.failListing(pane, where)) {", "Neither the child")
+    var failedTail = Source.slice(wire, "if (!listingEnded) {", "Neither the child")
     check("the ended listing drops both deferred menus",
         failedTail.indexOf("pane.pendingMenu = false") >= 0 && failedTail.indexOf("Nav.clearPendingBackground(pane)") >= 0, true)
     var nav = Source.source("ui/js/Nav.js")

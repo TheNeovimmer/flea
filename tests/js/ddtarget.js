@@ -145,6 +145,7 @@ function run(check, label) {
     Ops.clip(mixed, true, null)
     check(label + " cut asks for the cursor row", mixed.askLog.map(function (a) { return a.join(",") }).join(";"), "1")
     mixed.pathsPending = null
+    mixed.clipPending = null
     mixed.askLog = []
     Ops.compress(mixed, "zip")
     check(label + " compress asks for the cursor row", mixed.askLog.map(function (a) { return a.join(",") }).join(";"), "1")

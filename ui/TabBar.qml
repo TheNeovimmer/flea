@@ -1,5 +1,6 @@
 import QtQuick
 import "." as Flea
+import "js/DragOut.js" as DragOut
 import "js/Tabs.js" as Tabs
 import "js/TabMove.js" as TabMove
 
@@ -110,7 +111,9 @@ Item {
                 Flea.DropInto {
                     anchors.fill: parent
                     pane: root.pane
+                    enabled: DragOut.searchTabEnabled(root.pane ? root.pane.searchMode : "", tab.current)
                     switchesOnHover: true
+                    refuseLoading: DragOut.refuseLoading(root.pane && root.pane.listInFlight, true, tab.current)
                     // The pane's drop path, not its drawn one: a tab selected by the hover switch is
                     // current before its listing lands, and until then pane.path is the tab left behind.
                     // Sidebar040: a history is not a directory, so a drop onto the tab standing on it

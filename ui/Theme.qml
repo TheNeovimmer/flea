@@ -137,7 +137,7 @@ Singleton {
     // WCAG 2.5.8 floor. Marks stay at their type-scale size; the hit box grows to this.
     readonly property int hitMin: 24
     // The wheel, see ui/FastScrollHandler.qml: a notch is the platform's lines times notchPx times the
-    // multiplier, and a touchpad's pixels move one to one. PR 16's pair, 4x calibrated on Omarchy Spotify.
+    // multiplier (PR 16's pair, 4x on Omarchy Spotify); touchpad pixels move times TOUCH_GAIN (GM 2026-10-01).
     readonly property QtObject scroll: QtObject {
         readonly property int notchPx: 24
         readonly property real multiplier: 4

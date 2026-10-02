@@ -68,6 +68,7 @@ Item {
 
     function setPosition(value) {
         root.flickable.cancelFlick()
+        Scroll.stopTail(root.flickable)
         if (root.vertical)
             root.flickable.contentY = Scroll.bounded(value, root.origin, root.contentLength, root.viewportLength)
         else
@@ -156,6 +157,7 @@ Item {
             pointer.savedInteractive = root.flickable.interactive
             root.flickable.interactive = false
             root.flickable.cancelFlick()
+            Scroll.stopTail(root.flickable)
             var win = root.Window.window
             if (win && win.contentItem)
                 pointer.parent = win.contentItem

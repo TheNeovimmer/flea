@@ -118,7 +118,13 @@ pub fn wrap_worker(inner: &[String], exe: &Path) -> Vec<String> {
 
 // The same boundary with nothing writable, for a probe answering on stdout: ffprobe parses untrusted media too.
 pub fn wrap_readonly(inner: &[String], input: &Path) -> Vec<String> {
-    let head_and_binds = 8;
+    wrap_readonly_extra(inner, &[input])
+}
+
+// The same boundary with caller-chosen read-only binds and no writable path at
+// all: the figure helper's vendor tree and engine live outside /usr.
+pub fn wrap_readonly_extra(inner: &[String], ro_binds: &[&Path]) -> Vec<String> {
+    let head_and_binds = 4 + ro_binds.len() * 3;
     let mut a: Vec<String> = Vec::with_capacity(inner.len() + BWRAP_FLAGS.len() + head_and_binds);
     a.push(PRLIMIT.to_string());
     a.push(format!("--cpu={}", CPU_SECONDS));
@@ -127,9 +133,11 @@ pub fn wrap_readonly(inner: &[String], input: &Path) -> Vec<String> {
     for flag in BWRAP_FLAGS {
         a.push(flag.to_string());
     }
-    a.push("--ro-bind".to_string());
-    a.push(input.to_string_lossy().to_string());
-    a.push(input.to_string_lossy().to_string());
+    for bind in ro_binds {
+        a.push("--ro-bind".to_string());
+        a.push(bind.to_string_lossy().to_string());
+        a.push(bind.to_string_lossy().to_string());
+    }
     a.extend_from_slice(inner);
     a
 }

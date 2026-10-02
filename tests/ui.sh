@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Drives the real Quickshell window with omarchy-drive and asserts through the read-only IPC seam.
-# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|rename|renamelife|taildrop|grid|columns|columnsbackground|reclick|colroot|operations|tabs|tabdrag|openterminal|makeexec|renderer|settings|makedefault|scrolllane|noblank|previewswap ...|previewswap|recent ...|middleclick|opentab]; networklive is opt-in.
+# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|rename|renamelife|taildrop|touchpad|grid|columns|columnsbackground|reclick|colroot|operations|tabs|tabdrag|openterminal|makeexec|renderer|settings|makedefault|scrolllane|noblank|previewswap ...|previewswap|recent ...|middleclick|opentab]; networklive is opt-in.
 set -u
 set -o pipefail
 # Hard rule 9's guard, which owns FIXTURE_ROOT and every create and delete this suite makes.
@@ -1147,6 +1147,61 @@ case_scroll() {
     [[ "$after" == "864" ]] || fail "scroll: two more notches moved contentY to $after, not 864"
     printf 'SCROLL one notch 288, three notches 864, top held at 0\n'
     shot scroll-three-notches
+}
+
+# A real two-finger stroke through tools/flea-touchpad: a flick coasts past its lift on Finder's
+# tail while the same stroke with a pause before the lift stops dead. Controller-only: needs
+# /dev/uinput writable beside the display, so anywhere else it refuses rather than failing.
+case_touchpad() {
+    [[ -w /dev/uinput ]] || { printf 'REFUSED /dev/uinput is not writable, so no touchpad stroke can be played.\n'; exit 1; }
+    [[ -d "$bench_dir" ]] || fail "touchpad: the 100,000-file fixture is missing at $bench_dir"
+    launch "$bench_dir"
+    wait_listing 100000
+    settle
+    local wx wy ww wh cx cy
+    read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
+    read -r cx cy <<< "$(ipc rowCentre 5)"
+    # The stroke lands where a finger would: over a row, with a pointer frame for Qt to route it.
+    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + cx - 1)), y = $((wy + cy))})" >/dev/null
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
+    settle
+    [[ "$(ipc listContentY)" == "0" ]] || fail "touchpad: the list did not start at the top"
+    touchpad_run flick 0
+    touchpad_run paused 200
+}
+
+# One stroke through the virtual touchpad: sample contentY across the play, take the lift as the
+# first sample after the tool exits, and the rest once the value holds still for a second.
+touchpad_run() {
+    local name=$1 hold=$2 stroke lift rest cur stable_start now_ms start_ms
+    stroke=$(ipc listContentY)
+    start_ms=$(date +%s%3N)
+    "$repo/tools/flea-touchpad" swipe --dy-mm 40 --ms 120 --hold-ms "$hold" >/dev/null \
+        || fail "touchpad: flea-touchpad refused the $name stroke"
+    lift=$(ipc listContentY)
+    [[ "$lift" -gt "$stroke" ]] || fail "touchpad: the $name stroke never moved the list, lift $lift"
+    rest=$lift
+    stable_start=$(date +%s%3N)
+    while true; do
+        sleep 0.1
+        cur=$(ipc listContentY)
+        now_ms=$(date +%s%3N)
+        if [[ "$cur" != "$rest" ]]; then
+            rest=$cur
+            stable_start=$now_ms
+        elif (( now_ms - stable_start > 1000 )); then
+            break
+        fi
+        (( now_ms - start_ms < 15000 )) || fail "touchpad: the $name stroke never settled"
+    done
+    now_ms=$(date +%s%3N)
+    if [[ "$name" == flick ]]; then
+        [[ "$rest" -gt "$lift" ]] || fail "touchpad: the flick stopped at its lift $lift, rest $rest"
+    else
+        (( rest - lift <= 2 && lift - rest <= 2 )) \
+            || fail "touchpad: the paused stroke coasted past its lift $lift, rest $rest"
+    fi
+    printf 'TOUCHPAD stroke=%s lift=%s rest=%s ms=%s\n' "$stroke" "$lift" "$rest" "$((now_ms - start_ms))"
 }
 
 # The scrollbar is a viewport control over the integer model, not a second model: a short listing
@@ -11509,7 +11564,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 . "$repo/tests/ui-captures-markdown.sh"
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick opentab)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar touchpad terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick opentab)
 
 : > "$run_log"
 : > "$flea_log"

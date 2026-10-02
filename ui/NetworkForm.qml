@@ -351,11 +351,16 @@ Column {
             clip: true
 
             Flickable {
+                id: sentenceFlick
                 anchors.fill: parent
                 contentWidth: sentence.implicitWidth
                 contentHeight: sentence.implicitHeight
                 flickableDirection: Flickable.HorizontalFlick
                 boundsBehavior: Flickable.StopAtBounds
+                Flea.FastScrollHandler {
+                    parent: sentenceFlick
+                    flickable: sentenceFlick
+                }
 
                 // Dialogs rule 3: one sentence rather than an eyebrow over a value, and it says the
                 // whole answer, because Protocols.uri() has one as soon as the host and port validate:

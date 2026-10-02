@@ -19,13 +19,25 @@ ShellRoot {
     property string interimOrig: ""
     property string interimCache: ""
     property string pendingInterim: ""
+    // The interim phase's cursor row, naming the shown file the way production always does.
+    property int interimRowOverride: -1
+    // e81f-r3: the meta-row guard overrides. guardMap names index->file for drifted
+    // rows, guardAskLog records every askMeta index, guardHold parks auto replies.
+    property var guardMap: ({})
+    property var guardAskLog: []
+    property bool guardHold: false
 
     function log(line) { console.log("PREVIEW " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
     function mark(name) { Quickshell.execDetached(["touch", shell.photoDir + "/sentinel-" + name]) }
 
     // The backend's row shape: a text start row, fifty sweep photos, the big PNG rest row.
+    // The interim phase overrides one row to name the shown file, so the cursor names it too.
     function rowFor(i) {
+        if (shell.guardMap.hasOwnProperty(i))
+            return { n: shell.guardMap[i], d: false, t: true, s: 1000, m: 1000, p: 33188, i: "image-x-generic" }
+        if (i === shell.interimRowOverride && shell.interimOrig !== "")
+            return { n: shell.interimOrig, d: false, t: true, s: 1000, m: 1000, p: 33188, i: "image-x-generic" }
         if (i < 0 || i > shell.restRow) return null
         if (i === 0) return { n: "note.txt", d: false, t: false, s: 64, m: 1000, p: 33188, i: "text-x-generic" }
         if (i === shell.restRow) return { n: "big.png", d: false, t: true, s: 2000000, m: 1051, p: 33188, i: "image-x-generic" }
@@ -41,6 +53,7 @@ ShellRoot {
         property var pending: []
         property var thumbCalls: []
         function askMeta(index, text, media, archive) {
+            shell.guardAskLog.push(index)
             nextToken += 1
             pending.push({ token: nextToken, index: index })
             metaTimer.restart()
@@ -54,6 +67,7 @@ ShellRoot {
         id: metaTimer
         interval: 5
         onTriggered: {
+            if (shell.guardHold) return
             for (var i = 0; i < stubBackend.pending.length; i++) {
                 var req = stubBackend.pending[i]
                 var big = req.index === shell.restRow
@@ -269,7 +283,8 @@ ShellRoot {
         shell.interimOrig = orig
         shell.interimCache = cache
         shell.metaWH = [w, h]
-        stub.cursorIndex = 90
+        shell.interimRowOverride = 7
+        stub.cursorIndex = 7
         shell.mark("istart-" + label)
         shell.pendingInterim = label
         if (quickPreview.status === Loader.Ready) shell.openInterim()
@@ -353,13 +368,72 @@ ShellRoot {
                 shell.log("INTERIMSTACK " + shell.interimPhase + " " + (shell.stackOk() ? "ok" : "bad"))
                 shell.mark("iend-" + shell.interimPhase)
                 if (shell.interimPhase === "small") shell.beginInterim("large", "seed0.jpg", "thumb.png", 640, 480)
-                else quitTimer.restart()
+                else shell.runGuards()
             } else if (waited > 8000) {
                 stop()
                 shell.log("FAIL the interim never settled for " + shell.interimPhase)
                 shell.quit()
             }
         }
+    }
+
+    // e81f-r3: the interim meta-row guards. Guard 1 is onMeta's imageRowShown check:
+    // a reply for a row that drifted onto another file must not size the interim.
+    // Guards 2 and 3 are resolveImageRow: a drifted capture re-asks at the cursor
+    // row when it names the shown file, and asks nothing when no row does.
+    // show() asks synchronously, so every assert below reads the ask it just made.
+    function guardShow(shown, row) {
+        stubBackend.pending = []
+        shell.guardAskLog = []
+        quickPreview.item.show(shell.photoDir + "/" + shown, "image-x-generic",
+            1000, "", shell.photoDir + "/smallcache.png", row)
+    }
+    function guardEnd() {
+        stubBackend.pending = []
+        metaTimer.stop()
+    }
+    function runGuards() {
+        shell.guardHold = true
+        // Guard 1: reply-time drift. Row 7 names guard1.jpg at the ask; an insert
+        // above it moves s6.jpg there before the held reply lands with other sizes.
+        shell.guardMap = ({ 7: "guard1.jpg" })
+        stub.cursorIndex = 7
+        shell.guardShow("guard1.jpg", 7)
+        var g1asked = shell.guardAskLog.length === 1 && shell.guardAskLog[0] === 7
+        shell.guardMap = ({ 7: "s6.jpg" })
+        stubBackend.meta(7, 999, 888, 1)
+        var g1kept = quickPreview.item.imageW === 0 && quickPreview.item.imageH === 0
+        shell.log("GUARD1 " + (g1asked && g1kept ? "PASS" : "FAIL")
+            + " asked7=" + g1asked + " kept=" + g1kept
+            + " w=" + quickPreview.item.imageW + " h=" + quickPreview.item.imageH)
+        shell.guardEnd()
+        // Guard 2: ask-time drift to the cursor. Row 7 already names s6.jpg while
+        // the cursor row 3 names guard2.jpg; the ask must go to 3, taking its reply.
+        shell.guardMap = ({ 7: "s6.jpg", 3: "guard2.jpg" })
+        stub.cursorIndex = 3
+        shell.guardShow("guard2.jpg", 7)
+        var g2asked = shell.guardAskLog.length === 1 && shell.guardAskLog[0] === 3
+        stubBackend.meta(3, 321, 222, 1)
+        var g2took = quickPreview.item.imageW === 321 && quickPreview.item.imageH === 222
+        shell.log("GUARD2 " + (g2asked && g2took ? "PASS" : "FAIL")
+            + " asked3=" + g2asked + " took=" + g2took
+            + " w=" + quickPreview.item.imageW + " h=" + quickPreview.item.imageH)
+        shell.guardEnd()
+        // Guard 3: ask-time drift with no match. Neither row 7 nor the cursor row 5
+        // names ghost.jpg, so no ask goes out and no interim sizing lands.
+        shell.guardMap = ({ 7: "s6.jpg", 5: "s4.jpg" })
+        stub.cursorIndex = 5
+        shell.guardShow("ghost.jpg", 7)
+        var g3quiet = shell.guardAskLog.length === 0
+        var g3dropped = quickPreview.item.imageRow === -1
+        var g3bare = quickPreview.item.imageW === 0 && quickPreview.item.imageH === 0
+        shell.log("GUARD3 " + (g3quiet && g3dropped && g3bare ? "PASS" : "FAIL")
+            + " quiet=" + g3quiet + " dropped=" + g3dropped + " bare=" + g3bare)
+        shell.guardEnd()
+        shell.guardHold = false
+        shell.guardMap = ({})
+        stub.cursorIndex = shell.restRow
+        quitTimer.restart()
     }
 
     Timer {

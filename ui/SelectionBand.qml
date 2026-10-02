@@ -67,6 +67,7 @@ MouseArea {
             return
         }
         root.flickable.cancelFlick()
+        Scroll.stopTail(root.flickable)
         // A press on empty ground holds the button past the slow-click interval, so stop the
         // pane's timer here or it renames the sole selected row under the held button.
         if (root.pane && root.pane.cancelSlowClick) root.pane.cancelSlowClick()

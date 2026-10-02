@@ -1,6 +1,7 @@
 import QtQuick
 import "." as Flea
 import "js/DirSizes.js" as DirSizes
+import "js/DragOut.js" as DragOut
 import "js/Errors.js" as Errors
 import "js/Anchor.js" as Anchor
 import "js/Nav.js" as Nav
@@ -34,6 +35,7 @@ Item {
                  && (root.pane.viewMode === "list" || root.pane.viewMode === "grid")
         pane: root.pane
         dest: root.pane ? root.pane.dropPath : ""
+        refuseLoading: DragOut.refuseLoading(root.pane && root.pane.listInFlight, false, false)
         // Unknown until the listed reply lands, because dirDev is still the directory being left.
         destDev: root.pane && root.pane.backend && !root.pane.listInFlight ? root.pane.backend.dirDev : 0
     }
@@ -226,9 +228,13 @@ Item {
             if (pane.listInFlight)
                 return
             if (file === "" && pane.thumbState.file[row] === Thumbs.CACHE_ASKED
-                    && (!pane.storageKnown || !ExtThumbs.cacheOnly(pane.storageClass, ViewState.preview)))
+                    && (!pane.storageKnown || !ExtThumbs.cacheOnly(pane.storageClass, ViewState.preview))) {
                 pane.thumbState = Thumbs.miss(pane.thumbState, row, true, pane.thumbCap)
-            else
+                // The row a prefetch asked and lost is visible work again: the settled
+                // view re-plans it in full, the way a class switch re-asks its misses.
+                // The re-plan never prefetches, so this cannot ask twice in one rest.
+                if (pane.listArea) pane.listArea.restartSettle()
+            } else
                 pane.thumbState = Thumbs.remember(pane.thumbState, row, file, pane.thumbCap)
         }
 
@@ -304,6 +310,7 @@ Item {
         // that took their place selected, so the next delete needs no mouse. The whole selection is
         // gone from disk, so there is nothing to carry over but the position.
         function onTrashed(ok, failed) {
+            if (ok === 0 && failed === 0) return
             pane.sticky("")
             pane.message(Ops.trashed(ok, failed), ok === 0)
             pane.clearSelection()
@@ -469,8 +476,18 @@ Item {
                 return
             }
             // The rows a request named were another numbering's, so only that request ended, see src/backend/rowguard.rs.
-            if (!Swap.failListing(pane, where)) {
-                if (input === "paths") { pane.clipPending = null; pane.pathsPending = null }
+            // A paths failure clears its claim either way. Leaving it set blocks the next copy.
+            var listingEnded = Swap.failListing(pane, where)
+            if (input === "paths") {
+                var claim = pane.pathsPending
+                if (claim && claim.kind === "drag") {
+                    pane.pathsPending = null
+                    claim.deliver(null, claim)
+                    if (!listingEnded) return
+                } else if (claim) pane.pathsPending = null
+                else pane.clipPending = null
+            }
+            if (!listingEnded) {
                 pane.message(text, true)
                 return
             }
