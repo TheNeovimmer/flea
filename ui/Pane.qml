@@ -883,6 +883,8 @@ FocusScope {
     readonly property alias taildropService: wire.taildrop
     readonly property alias opener: wire.opener
     readonly property var dropboxService: root.networkService
+    readonly property bool menuValuesLive: menu.preparing || menu.opened
+    readonly property var menuPermissionRow: root.menuValuesLive ? root.permissionSelection() : null
 
     Flea.ContextMenu {
         id: menu
@@ -896,33 +898,31 @@ FocusScope {
         taildropReason: root.cursorRow && root.cursorRow.d ? "Taildrop sends files only" : wire.taildrop.reason
         archiveFormats: root.backend.archiveFormats
         canConvert: root.backend.canConvert
-        canExtract: root.cursorRow !== null
+        canExtract: root.menuValuesLive && root.cursorRow !== null
             && Archive.canExtract(root.cursorRow.n, root.backend.extraction)
-        rowMode: root.permissionSelection() ? root.permissionSelection().p : 0
-        selectionCount: Ops.targetIndices(root).length
-        cursorIsTarget: root.isSingleCursorTarget()
+        rowMode: root.menuPermissionRow ? root.menuPermissionRow.p : 0
+        selectionCount: root.menuValuesLive ? Ops.targetIndices(root).length : 0
+        cursorIsTarget: root.menuValuesLive && root.isSingleCursorTarget()
         openWithApps: menuActions.openWithApps
         openWithLoaded: menuActions.openWithLoaded
         selectionIdentity: root.menuSelectionIdentity
         clipboardAvailable: root.clipboard.paths.length > 0
-        // MenuAdditions rule 2: the scripts directory is read when a menu opens and never watched.
-        // Directive 71: and the devices are asked for then too, the way Taildrop asks for its peers.
+        // Scripts, send peers and the shebang are requested only when a row menu opens.
         onSnapshotRequested: { menuActions.snapshot(); Flea.Scripts.refresh(); menuActions.localSend.refresh(menu.localSend.installed); root.checkShebang() }
         onRefused: function(reason) { root.message(reason, true) }
-        rowIsArchive: root.cursorRow !== null && !root.cursorRow.d && Archive.isArchive(root.cursorRow.n)
+        rowIsArchive: root.menuValuesLive && root.cursorRow !== null && !root.cursorRow.d && Archive.isArchive(root.cursorRow.n)
         rowIsImage: root.cursorRow !== null && root.cursorRow.i === "image-x-generic"
         // MenuAdditions040: Show original is visible but only on a symlink.
         rowIsSymlink: root.cursorRow !== null && Format.isSymlink(root.cursorRow.p)
         rowHasShebang: root.rowHasShebang
-        // MenuAdditions040: Permissions takes the whole selection, so the row
-        // carries every target's mode beside the cursor row's own.
-        selectionModes: root.permissionModes()
+        // Permissions carries every target's mode only while the menu needs it.
+        selectionModes: root.menuValuesLive ? root.permissionModes() : []
         dropboxInstalled: !root.backend.providers.dropbox || root.backend.providers.dropbox.installed !== false
         localSend: ({ installed: (root.backend.providers.localsend || {}).installed === true, checking: menuActions.localSend.checking,
                       peers: (root.cursorRow && !root.cursorRow.d) ? menuActions.localSend.peers : [], answeredOnce: menuActions.localSend.answeredOnce })
         dropboxPath: root.dropboxService && root.dropboxService.dropboxReady ? root.dropboxService.dropboxPath : ""
         dropboxReason: root.dropboxService ? root.dropboxService.dropboxReason : "Dropbox service unavailable"
-        rowInDropbox: root.dropboxService && root.cursorRow
+        rowInDropbox: root.menuValuesLive && root.dropboxService && root.cursorRow
             && Dropbox.contains(root.dropboxService.dropboxPath, root.join(root.path, root.cursorRow.n))
         // Issue 133: no GVFS mount, share or phone, has a trash of its own, so the row is not offered there.
         // A read-only folder has none either: the listed line's own writability rides along.
@@ -934,7 +934,7 @@ FocusScope {
         // ExtThumbs: the class the background menu's thumbnail row is present for, "" locally.
         storageClass: root.storageClass
         // Issue 179: the Sort by flyout offers its forget row only where this folder has its own sort.
-        hasFolderSort: root.searchMode.length === 0 && root.backend ? root.backend.folderHasSort(root.path) : false
+        hasFolderSort: root.menuValuesLive && root.searchMode.length === 0 && root.backend ? root.backend.folderHasSort(root.path) : false
         // The Locked tile's folder and mode while one is drawn; ui/ContextMenu.qml routes a
         // background right click to that folder's own menu through them.
         tileTarget: root.lockedTarget

@@ -147,7 +147,8 @@ function run(check) {
     var sidebar = Source.source("ui/Sidebar.qml")
     var reading = Source.slice(sidebar, "function readRecent(", "if (root.recentKept")
     check("readRecent joins its asker while a read is in flight",
-        reading.indexOf("Recent.joinRequesters(root.recentRequesters, requester)") >= 0, true)
+        reading.indexOf("recentReader.item.joinRequesters(root.recentRequesters, requester)") >= 0
+            && Source.source("ui/PickerRecent.qml").indexOf("return Recent.joinRequesters(current, requester)") >= 0, true)
     var refreshed = Source.slice(sidebar, "function onRefreshed()", "readonly property bool dropboxReady")
     check("onRefreshed answers every asker",
         refreshed.indexOf("root.recentRequested(root.recentPaths, askers[i])") >= 0, true)

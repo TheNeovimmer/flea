@@ -6,12 +6,10 @@ import "." as Flea
 import "js/Icons.js" as Icons
 import "js/Eject.js" as Eject
 import "js/Mounts.js" as Mounts
-import "js/Picker.js" as Picker
 import "js/Places.js" as Places
 import "js/PlaceMenu.js" as PlaceMenu
 import "js/RailMenu.js" as RailMenu
 import "js/RailKeys.js" as RailKeys
-import "js/Recent.js" as Recent
 
 // Places, Favorites, Network and Devices share one flat cursor in visual order.
 Item {
@@ -38,7 +36,7 @@ Item {
     readonly property var homeLead: root.homeEntries.slice(0, 1)
     readonly property var homeRest: root.homeEntries.slice(1)
     readonly property var recentEntries: root.placesState.showRecent === true
-        ? [{ label: Picker.RECENT_LABEL, path: Picker.RECENT, group: "recent", kind: "recent", glyph: "history" }] : []
+        ? [{ label: "Recent", path: "flea:recent", group: "recent", kind: "recent", glyph: "history" }] : []
     readonly property var placesEntries: root.homeLead.concat(root.recentEntries, root.homeRest, root.trashEntries, root.userFavouriteEntries)
     readonly property int trashCount: trashMonitor.count
     signal trashChanged()
@@ -59,9 +57,7 @@ Item {
     property string editingPlace: ""
     // And the request that Edit's own attempt went out with, so no other mount answers for it.
     property string editingRequest: ""
-    // The window-long network host this rail renders and routes through, injected by
-    // ui/PaneRail.qml: the service outlives the rail Loader below, so hiding the rail mid-mount
-    // kills no mount, no bridge wait and no dialog answer. Null until the first open builds it.
+    // PaneRail injects the window-long host, so hiding the rail preserves mounts, waits and dialog answers.
     property var service: null
     readonly property var networkEntries: root.placesState.showNetwork === false || !root.railGate.showNetwork || !root.service ? [] : root.service.entries
     // The poll rebinds its delegates in place, so a rename left standing would edit a different share.
@@ -76,8 +72,7 @@ Item {
     readonly property int railSettleMs: 800
     property bool railDeadlineElapsed: false
     property bool bookmarksReady: false
-    // The insertion boundary a favourite drag hovers, fav-relative with the count past the last
-    // row, -1 while no drag is out. A rebuild clears it, because the rows it named are gone.
+    // Favourite-relative insertion boundary, count past the last row, -1 when idle; a rebuild clears it.
     property int reorderLine: -1
     readonly property var railGate: Mounts.railGroupsReady(root.bookmarksReady && root.service !== null && root.service.listingAnswered && root.service.dropboxAnswered, devices.firstAnswered && phones.firstDone, root.railDeadlineElapsed ? root.railSettleMs : 0, root.railSettleMs)
     Timer { interval: root.railSettleMs; running: true; repeat: false; onTriggered: root.railDeadlineElapsed = true }
@@ -95,8 +90,7 @@ Item {
     }
 
     signal opened(string path)
-    // The rail's Recent row answers with the history's own paths, newest first and bounded the way
-    // the path jump reads them; the pane lists them with listpaths rather than listing a directory.
+    // Recent answers bounded newest-first history paths, which the pane opens through listpaths.
     signal recentRequested(var paths, var requester)
     signal addRequested()
     // The rail's Edit row asks the window to open the dialog over the saved place.
@@ -172,19 +166,19 @@ Item {
     function readRecent(requester) {
         // One read at a time: every asker waits on it, so each pane opens once it lands.
         if (root.recentReading) {
-            root.recentRequesters = Recent.joinRequesters(root.recentRequesters, requester)
+            root.recentRequesters = recentReader.item.joinRequesters(root.recentRequesters, requester)
             return
         }
         if (root.recentKept && root.recentReadAt === root.recentChanges) {
             root.recentRequested(root.recentPaths, requester || null)
             return
         }
-        // A fresh read waits on its asker alone; later askers join through the same helper.
-        root.recentRequesters = Recent.joinRequesters([], requester)
+        // Build the helper with the reader, only after an uncached Recent action.
+        recentReader.active = true
+        root.recentRequesters = recentReader.item.joinRequesters([], requester)
         root.recentReading = true
         root.recentReadAt = root.recentChanges
-        recentWatcher.path = Recent.historyPath(Quickshell.env("XDG_DATA_HOME"), Quickshell.env("HOME"))
-        recentReader.active = true
+        recentWatcher.path = recentReader.item.file
         recentReader.item.refresh()
     }
     // Watching only: it never loads the file, and it reports a rename over it, a delete and a re-create alike.
@@ -194,8 +188,7 @@ Item {
         watchChanges: true
         onFileChanged: root.recentChanges += 1
     }
-    // The picker's own reader of recently-used.xbel, built for a read and dropped after it, so a
-    // window whose rail never opens Recent loads no XML module at all.
+    // The history reader and its helpers load on a Recent action, then drop after the read.
     Loader {
         id: recentReader
         active: false
@@ -208,8 +201,7 @@ Item {
             root.recentKept = true
             root.recentReading = false
             root.recentReads += 1
-            // The parsed model goes once its newest paths are kept, which bounds what stays in
-            // memory at Recent.LIMIT paths; later, because the reader is the one emitting this signal.
+            // Drop the bounded parsed model later, after the reader finishes emitting this signal.
             Qt.callLater(function () { if (!root.recentReading) recentReader.active = false })
             var askers = root.recentRequesters
             root.recentRequesters = []
@@ -322,8 +314,7 @@ Item {
         return null
     }
 
-    // The rail's own reorder drag, persisted through the favourites store the way
-    // the Settings handle is; a refused move keeps its row, and the failure names itself.
+    // The favourites store persists reorders; a refused move keeps its row and reports the failure.
     function moveFavourite(from, to) {
         root.reorderLine = -1
         if (to !== from)
@@ -540,7 +531,6 @@ Item {
                     focused: root.focused
                     // The rail's own reorder drag, persisted through the favourites store.
                     dragFrom: modelData.favouriteIndex
-                    line: root.reorderLine
                     lineCount: root.userFavouriteEntries.length
                     onMoved: function (to) { root.moveFavourite(dragFrom, to) }
                     onReorderAt: function (line) { root.reorderLine = line }
@@ -649,6 +639,16 @@ Item {
                     onMenuRequested: function (idx, pos) { root.openRailMenu(idx + root.placesEntries.length + root.networkEntries.length, pos) }
                 }
             }
+        }
+        // One full-width boundary follows favourite rows inside the clipped scroll content.
+        Rectangle {
+            readonly property var row: favRepeater.itemAt(Math.min(root.reorderLine, favRepeater.count - 1))
+            visible: root.reorderLine >= 0 && root.reorderLine <= favRepeater.count && row !== null
+            width: rail.width
+            height: Theme.accentEdge * Theme.spacing.hairline
+            y: row ? row.y + (root.reorderLine === favRepeater.count ? row.height - height : 0) + rail.y : 0
+            color: Theme.color.accent
+            z: 1
         }
     }
 

@@ -33,7 +33,6 @@ Item {
     signal renameCancelled(int index)
     // Favourites reorder by drag; a favourite carries its store index, others leave -1.
     property int dragFrom: -1
-    property int line: -1
     property int lineCount: 0
     signal moved(int to)
     signal reorderAt(int line)
@@ -293,49 +292,31 @@ Item {
         }
     }
 
-    // A favourite's own reorder drag, the rail's half of the handle ui/SettingsFavourite.qml draws:
-    // the row stays where it is and a 3 px accent bar rides the boundary the drop would land on.
-    DragHandler {
-        id: reorderDrag
-        enabled: root.dragFrom >= 0
-        target: null
-        xAxis.enabled: false
-        property real startY: 0
-        onActiveChanged: {
-            if (active) {
-                startY = persistentTranslation.y
-                return
+    // Only favourites build a reorder handler; the row stays fixed and Sidebar draws the boundary.
+    Loader {
+        active: root.dragFrom >= 0
+        anchors.fill: parent
+        sourceComponent: Item {
+            DragHandler {
+                target: null
+                xAxis.enabled: false
+                property real startY: 0
+                onActiveChanged: {
+                    if (active) {
+                        startY = persistentTranslation.y
+                        return
+                    }
+                    var n = Math.max(1, root.lineCount)
+                    var to = TabMove.railReorder(persistentTranslation.y - startY, root.dragFrom, Theme.railRowHeight, n).to
+                    root.reorderAt(-1)
+                    if (to !== root.dragFrom)
+                        root.moved(to)
+                }
+                onCentroidChanged: {
+                    if (active)
+                        root.reorderAt(TabMove.railReorder(persistentTranslation.y - startY, root.dragFrom, Theme.railRowHeight, root.lineCount).line)
+                }
             }
-            var n = Math.max(1, root.lineCount)
-            // The landing lives in TabMove.railReorder, beside the tab drag's own arithmetic.
-            var to = TabMove.railReorder(persistentTranslation.y - startY, root.dragFrom, Theme.railRowHeight, n).to
-            root.reorderAt(-1)
-            if (to !== root.dragFrom)
-                root.moved(to)
         }
-        onCentroidChanged: {
-            if (!active)
-                return
-            // The same helper as the landing above, so the line and the drop cannot disagree.
-            root.reorderAt(TabMove.railReorder(persistentTranslation.y - startY, root.dragFrom, Theme.railRowHeight, root.lineCount).line)
-        }
-    }
-
-    // The insertion line the drag hovers: flush over the boundary, the accent's own edge weight.
-    Rectangle {
-        visible: root.dragFrom >= 0 && root.line === root.index
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        height: Theme.accentEdge * Theme.spacing.hairline
-        color: Theme.color.accent
-    }
-    Rectangle {
-        visible: root.dragFrom >= 0 && root.line === root.lineCount && root.index === root.lineCount - 1
-        anchors.bottom: parent.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        height: Theme.accentEdge * Theme.spacing.hairline
-        color: Theme.color.accent
     }
 }

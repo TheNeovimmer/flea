@@ -17,6 +17,7 @@ QtObject {
     signal refreshed()
 
     readonly property string file: Recent.historyPath(Quickshell.env("XDG_DATA_HOME"), Quickshell.env("HOME"))
+    function joinRequesters(current, requester) { return Recent.joinRequesters(current, requester) }
 
     // Asked for when the Recent location is opened, so the file is re-read rather than remembered:
     // every other application on the box appends to it while this window is up.

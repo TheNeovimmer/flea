@@ -188,31 +188,32 @@ QtObject {
     // Settings > About's "Check automatically", `updates.autoCheck` in src/uischema.rs, on until switched off.
     readonly property bool updateAutoCheck: (root.state.updates || ({})).autoCheck !== false
 
-    // Written by the sweep when it finishes, so the next launch on the same day does not run it
-    // again. A sweep that failed records nothing and is retried on the next launch.
+    // Only a successful sweep records its day, so failures retry on the next launch.
     function recordTrashSweep(day) {
         root.changeKey("trashSweptOn", day)
     }
 
-    // The chosen folder is set from the folder the panel was opened over, which is the same idiom the
-    // Places section's "Add this folder" uses; choosing one is also what selects that mode.
+    // Choosing the panel's current folder also selects the folder start mode.
     function setStartFolder(path) {
         root.changeKey("startIn", "folder")
         root.changeKey("startFolder", String(path || ""))
     }
 
-    // Written as the pane moves, never by a control. "Last folder" would otherwise have nothing to
-    // return to, and the pair ui/shell.qml already remembers for the dual view covers only that view.
-    function rememberLastPath(path) {
-        if (root.state.lastPath === path)
-            return
-        root.changeKey("lastPath", String(path || ""))
-    }
-
-    // Tabs040 callout 2: every open tab's folder in order with the current tab's index, written
-    // where lastPath is written and never per cursor move. owe() skips it when nothing moved.
-    function rememberTabs(tabs) {
-        root.changeKey("lastTabs", tabs)
+    // Navigation owes only changed keys, then writes the last folder and ordered tab strip together.
+    function rememberNavigation(path, tabs) {
+        var next = root.state
+        var owed = root.unsaved
+        var values = { lastPath: String(path || ""), lastTabs: tabs }
+        for (var key in values) {
+            if (JSON.stringify(next[key]) === JSON.stringify(values[key])) continue
+            next = UiState.withKey(next, key, values[key])
+            owed = UiState.withKey(owed, key, values[key])
+        }
+        if (next === root.state) return
+        root.state = next
+        root.unsaved = owed
+        root.saveStatus = "Saving…"
+        root.save()
     }
 
     // Setting ids name either one top-level key or one leaf of an existing group.
@@ -229,8 +230,7 @@ QtObject {
         }
     }
 
-    // The Display section's writers. ui/shell.qml routes keys.toml's textSizeUp, textSizeDown and
-    // textSizeReset into the same three, so a chord and a control cannot hold two different sizes.
+    // The Display controls and text-size chords share these writers.
     function setTextSize(next) {
         root.changeLeaf("display", { textSize: TextSize.parse(next) })
     }
