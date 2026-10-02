@@ -448,7 +448,7 @@ Item {
             parent: scroller
             flickable: scroller
         }
-        Flea.ViewportScrollBar { parent: scroller; anchors.top: parent.top; anchors.right: parent.right; flickable: scroller }
+        // No bar and no lane: rows fill the rail and still scroll by wheel, touchpad and keys.
         Column {
             id: rail
             anchors.top: parent.top

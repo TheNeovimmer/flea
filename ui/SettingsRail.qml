@@ -36,12 +36,7 @@ Flickable {
         parent: root
         flickable: root
     }
-
-    Flea.ViewportScrollBar {
-        parent: root
-        anchors { top: parent.top; right: parent.right }
-        flickable: root
-    }
+    // No bar and no lane: rows fill the rail and still scroll by wheel, touchpad and keys.
 
     signal chosen(string id)
 

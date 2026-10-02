@@ -201,6 +201,13 @@ Item {
     function stepCursor(from, delta) { return Menu.stepRow(root.entries, from, delta) }
     // The same rule inside a flyout: OpenWith.html's tail row sits under its own separator.
     function stepSubmenu(from, delta) { return Menu.stepRow(root.submenuEntries, from, delta) }
+    // A wheel over the main frame closes the flyout first, the same path moving the pointer
+    // onto a plain row takes, and then steps; the highlight never moves where it is not drawn.
+    function stepMain(delta) {
+        if (root.submenuOpen)
+            root.openSubmenuRow = -1
+        root.cursor = root.stepCursor(root.cursor, delta)
+    }
 
     function firstRow() {
         return root.stepCursor(-1, 1)
@@ -304,6 +311,8 @@ Item {
         root.openedIdentity = root.selectionIdentity
         root.loneFlyoutAction = ""
         scroll.contentY = 0
+        scroll.resetSteps()
+        subScroll.resetSteps()
         root.clampFrame()
         root.cursor = root.firstRow()
         root.openSubmenuRow = -1
@@ -488,7 +497,11 @@ Item {
 
         Flea.CardScroll {
             id: scroll
-            gutter: 0 // Menus keep no scroll gutter; the bar overlays.
+            // A menu steps the highlight, never pixel scrolls: one row a notch, one row per
+            // row height of gained touchpad travel, and reveal() follows. No bar, no lane.
+            highlightSteps: true
+            stepRowHeight: Theme.rowHeight
+            stepBy: function (delta) { root.stepMain(delta) }
             anchors.fill: parent
             anchors.topMargin: Theme.spacing.rowPaddingY
             anchors.bottomMargin: Theme.spacing.rowPaddingY
@@ -554,7 +567,10 @@ Item {
 
         Flea.CardScroll {
             id: subScroll
-            gutter: 0 // Menus keep no scroll gutter; the bar overlays.
+            // The flyout steps like the main frame, through its own cursor and reveal.
+            highlightSteps: true
+            stepRowHeight: Theme.rowHeight
+            stepBy: function (delta) { root.submenuCursor = root.stepSubmenu(root.submenuCursor, delta) }
             anchors.fill: parent
             anchors.topMargin: Theme.spacing.rowPaddingY
             anchors.bottomMargin: Theme.spacing.rowPaddingY
