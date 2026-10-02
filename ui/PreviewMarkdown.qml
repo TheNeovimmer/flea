@@ -41,6 +41,8 @@ Item {
     // The render suite reads the ink it asserts beside the border, same assembly, no coercion.
     readonly property string inkHex: hexOf(Theme.color.foreground)
     readonly property string accentHex: hexOf(Theme.color.accent)
+    readonly property string mutedHex: hexOf(Theme.color.muted)
+    readonly property string surfaceHex: hexOf(Theme.color.surface)
     // Figures render only for the file under the cursor in the rendered
     // view: the Source view shows raw text and sends no request, and a path
     // change clears the block list, destroying delegates with their tickets.
@@ -478,31 +480,28 @@ Item {
                         }
                     }
 
-                    // A figure draws through the shared service at the text width,
-                    // scaled down to fit and never up. Same chrome surface and
-                    // inset as a fenced block; a failure draws the source mono,
-                    // exactly what the fence shows, with no new sentence or box.
-                    Rectangle {
+                    // Only a failed figure keeps the fenced source surface and inset.
+                    Item {
                         id: figureBox
                         objectName: "figureBox"
                         visible: block.type === "figure"
                         width: parent.width
-                        height: figureItem.implicitHeight + 2 * Theme.spacing.gap
-                        color: Theme.color.surface
+                        height: figureItem.implicitHeight
 
                         Flea.MarkdownFigure {
                             id: figureItem
                             objectName: "figureItem"
-                            anchors.fill: parent
-                            anchors.margins: Theme.spacing.gap
+                            width: parent.width
                             kind: block.type === "figure" ? block.kind : "math"
                             source: block.type === "figure" ? block.source : ""
                             display: true
                             askArmed: root.figuresArmed
                             inView: blockDelegate.inView
-                            bgHex: root.chromeHex
+                            bgHex: root.hexOf(Theme.color.background)
                             fgHex: root.inkHex
                             accentHex: root.accentHex
+                            mutedHex: root.mutedHex
+                            surfaceHex: root.surfaceHex
                             fontFamily: Theme.font.family
                             bodyPx: Theme.font.body
                         }

@@ -27,6 +27,7 @@ chmod 700 "$test_root/runtime" || exit 1
 ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
+cp tests/markdown-figures-render.js "$test_root/config/" || exit 1
 cp tests/markdown-figures-render.qml "$test_root/config/shell.qml" || exit 1
 
 # The class gate: with an engine and a built binary the real helper answers,
@@ -126,10 +127,6 @@ echo '```'
 echo ''
 echo 'A paragraph with $x^2$ inline maths and `code`.'
 echo ''
-for n in $(seq 1 40); do
-    echo "Filler line number $n with some words to push the far figure past the cache."
-    echo ''
-done
 echo '```mermaid'
 echo 'flowchart TD'
 echo '    FAR --> AWAY'
@@ -197,4 +194,4 @@ if grep -qF "FAR" "$test_root/requests.log" 2>/dev/null; then
     exit 1
 fi
 fi
-printf '%s\n' "$output" | grep -o 'MARKDOWN_FIGRENDER PASS.*'
+printf '%s\n' "$output" | grep -oE 'MARKDOWN_FIGRENDER (CHECK|far top=|x\^2 ink|PASS).*'

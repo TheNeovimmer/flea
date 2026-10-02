@@ -3,6 +3,7 @@
 import QtQuick
 import Quickshell
 import "flea" as Flea
+import "markdown-figures-render.js" as Checks
 
 // tests/markdown-figures-render.sh's harness: the real ui/PreviewMarkdown.qml
 // over a fixture holding a flowchart, a math fence, a $$ display block, a
@@ -25,6 +26,10 @@ ShellRoot {
     property int farIndex: -1
     property int inlineIndex: -1
     property int sendsMark: 0
+    property int failures: 0
+    property int padding: 0
+    property real paragraphHeight: 0
+    Component.onCompleted: Flea.ViewState.setTextSize({ mode: 14 })
     // Real when FLEA_FIG_MODE=real, else the canned stub: the geometry bound
     // below is the only thing that differs, since a real formula is 15 px wide.
     property string figMode: Quickshell.env("FLEA_FIG_MODE") === "real" ? "real" : "stub"
@@ -51,7 +56,7 @@ ShellRoot {
                 active: true
                 path: shell.fixture
                 size: 1
-                view: "rendered"
+                view: "source"
             }
         }
 
@@ -64,7 +69,7 @@ ShellRoot {
             active: true
             path: shell.fixture
             size: 1
-            view: "rendered"
+            view: "source"
         }
 
         Image { id: shot; width: 1; height: 1; opacity: 0 }
@@ -124,6 +129,25 @@ ShellRoot {
         onTriggered: shell.fail("the watchdog outlived the verdict")
     }
 
+    function check(error, name) {
+        shell.log((error === "" ? "CHECK " : "FAIL ") + name + (error === "" ? "" : ": " + error))
+        if (error !== "")
+            shell.failures++
+    }
+
+    function checkFar(tag) {
+        var view = md.bodyItem
+        var end = view.contentY + view.height + view.cacheBuffer
+        var top = Checks.farTop(md, shell.padding, shell.paragraphHeight)
+        var item = md.blockItem(shell.farIndex)
+        if (!(top > end) || (item && item.y <= end)) {
+            shell.fail("fixture far figure at " + top + " is inside cache end " + end + " on " + tag)
+            return false
+        }
+        shell.log("far top=" + top + " cacheEnd=" + end + " padding=" + shell.padding + " (" + tag + ")")
+        return true
+    }
+
     function drive() {
         if (shell.step === 0) {
             if (shell.fixture.length === 0)
@@ -151,6 +175,21 @@ ShellRoot {
             shell.inlineIndex = 5
             if (String(md.blockList[5].text).indexOf('data-math="inline"') < 0)
                 return shell.fail("the inline paragraph kept no maths chip")
+            var paragraph = md.blockItem(5)
+            if (!paragraph || paragraph.height <= 0)
+                return
+            shell.paragraphHeight = paragraph.height
+            var view = md.bodyItem
+            var end = view.contentY + view.height + view.cacheBuffer
+            shell.padding = Checks.paddingCount(end, paragraph.y + paragraph.height,
+                paragraph.height, view.spacing)
+            var blocks = md.blockList.slice(0, 6)
+            for (var p = 0; p < shell.padding; p++)
+                blocks.push(md.blockList[5])
+            blocks.push(md.blockList[shell.farIndex])
+            shell.farIndex = blocks.length - 1
+            md.blockList = blocks
+            md.view = "rendered"
             shell.t0 = Date.now()
             shell.step = 1
         } else if (shell.step === 1) {
@@ -171,6 +210,17 @@ ShellRoot {
                 } else if (!(info.imgW > 100 && info.imgW < 800 && info.imgH > 0)) {
                     return shell.fail("figure " + i + " missed its scaled geometry")
                 }
+            }
+            if (!shell.checkFar("first"))
+                return
+            for (var b = 1; b <= 3; b++)
+                shell.check(Checks.surfaceError(md.blockItem(b)), "ready figure " + b + " page ground")
+            if (shell.figMode === "real") {
+                var svg = Checks.figure(md, 1).svg
+                shell.check(Checks.labelError(svg, Checks.bodyFont(md), md.inkHex),
+                    "Mermaid body typography and foreground")
+                shell.check(Checks.paletteError(svg, [md.hexOf(Flea.Theme.color.background), md.inkHex,
+                    md.accentHex, md.borderHex, md.chromeHex]), "Mermaid theme edges and nodes")
             }
             // A live delegate past the cache still sent nothing while it holds
             // no answer and no ticket; only a working, ready or failed far one did.
@@ -200,6 +250,8 @@ ShellRoot {
             // The error answer is never cached, so the malformed figure re-sends
             // here; the cache pin lives in tests/markdown-figures.qml instead.
             // What matters is the figures come back and the far one stays unasked.
+            if (!shell.checkFar("return"))
+                return
             var farAgain = md.figureInfo(shell.farIndex)
             if (farAgain !== null && (farAgain.working || farAgain.ready || farAgain.failed))
                 return shell.fail("the far figure was asked for on the return trip")
@@ -266,6 +318,19 @@ ShellRoot {
                 return shell.fail("figure " + f + " drew no ink in " + shell.figMode + " mode")
         }
 
+        var flowInk = Checks.inkBounds(pixels, w, shell.rectOf(1), [16, 19, 21], chrome)
+        var font = Checks.bodyFont(md)
+        if (shell.figMode === "real") {
+            var mathInk = Checks.inkBounds(pixels, w, shell.rectOf(3), [16, 19, 21], chrome)
+            shell.log("x^2 ink rows=" + mathInk.height + " bodyPx=" + font.pixelSize)
+            shell.check(Checks.mathError(mathInk.height, font.pixelSize), "display maths body scale")
+        }
+        var first = shell.rectOf(6)
+        var second = shell.rectOf(7)
+        var paragraphGap = second.y - first.y - first.h
+        shell.check(Checks.spacingError(shell.rectOf(0), shell.rectOf(1), shell.rectOf(2),
+            flowInk, paragraphGap), "figure paragraph spacing")
+
         var inline = shell.rectOf(shell.inlineIndex)
         var chip = 0
         for (var y = inline.y; y < inline.y + inline.h; y++)
@@ -311,6 +376,8 @@ ShellRoot {
                 if (c[2] >= 200 && c[0] <= 110 && c[1] <= 170)
                     return shell.fail("a Qt default link blue survived at " + px + "," + py)
             }
+        if (shell.failures > 0)
+            return shell.fail(shell.failures + " visual checks failed")
         shell.done = true
         shell.log("PASS (" + shell.figMode + ") three figures, one mono fallback, widths fit, far figure unasked")
         shell.quit()

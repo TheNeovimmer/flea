@@ -45,18 +45,19 @@ Item {
 
     // Mirrors ui/js/FigureWorker.mjs themeKey and cacheKey, the key the two
     // sides agree on; the module itself is an ES import this QML never loads.
-    function cacheKeyOf(kind, source, t) {
-        var key = [t.bg, t.fg, t.accent || "", t.font || "", t.bodyPx || 0].join("|");
-        return kind + "\n" + key + "\n" + source;
+    function cacheKeyOf(kind, source, t, display) {
+        var key = [t.bg, t.fg, t.accent || "", t.font || "", t.bodyPx || 0,
+            t.muted || "", t.surface || ""].join("|");
+        return kind + (display ? ":display" : ":inline") + "\n" + key + "\n" + source;
     }
 
-    function cached(kind, source, theme) {
-        var key = root.cacheKeyOf(kind, source, theme);
+    function cached(kind, source, theme, display) {
+        var key = root.cacheKeyOf(kind, source, theme, display);
         return root.answerCache[key];
     }
 
-    function store(kind, source, theme, svg) {
-        var key = root.cacheKeyOf(kind, source, theme);
+    function store(kind, source, theme, display, svg) {
+        var key = root.cacheKeyOf(kind, source, theme, display);
         var at = root.answerOrder.indexOf(key);
         if (at >= 0)
             root.answerOrder.splice(at, 1);
@@ -189,7 +190,7 @@ Item {
         var asked = root.waiting[id];
         delete root.waiting[id];
         if (message.svg !== undefined) {
-            root.store(asked.kind, asked.source, asked.theme, message.svg);
+            root.store(asked.kind, asked.source, asked.theme, asked.display, message.svg);
             root.done(id, message.svg, "");
         } else {
             root.done(id, "", message.error || "render failed");
@@ -222,7 +223,7 @@ Item {
         root.seq++;
         var id = root.seq;
         // A revisit or a theme flip back never reaches the helper at all.
-        var hit = root.cached(kind, source, theme);
+        var hit = root.cached(kind, source, theme, display);
         if (hit !== undefined) {
             // Deferred past this return, so the caller's ticket is set before its answer lands.
             Qt.callLater(function () { root.done(id, hit, ""); });

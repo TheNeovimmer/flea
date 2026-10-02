@@ -11,11 +11,12 @@ export var MERMAID_LIMIT = 32768;
 export var CACHE_MAX = 64;
 
 export function themeKey(t) {
-    return [t.bg, t.fg, t.accent || "", t.font || "", t.bodyPx || 0].join("|");
+    return [t.bg, t.fg, t.accent || "", t.font || "", t.bodyPx || 0,
+        t.muted || "", t.surface || ""].join("|");
 }
 
-export function cacheKey(kind, source, t) {
-    return kind + "\n" + themeKey(t) + "\n" + source;
+export function cacheKey(kind, source, t, display) {
+    return kind + (display ? ":display" : ":inline") + "\n" + themeKey(t) + "\n" + source;
 }
 
 function hexRGB(h) {
@@ -50,22 +51,11 @@ export function mix(h1, h2, p) {
     return toHex([a[0] * p + b[0] * (1 - p), a[1] * p + b[1] * (1 - p), a[2] * p + b[2] * (1 - p)]);
 }
 
-// Base table: the theme's own colours. --accent and friends stay undefined
-// unless the theme names them, so each var() falls back to the library's own
-// derivation (itself a color-mix the resolver then computes).
+// Every diagram paint comes from a theme role, including themes with no accent.
 function baseVars(t) {
-    var v = { bg: t.bg, fg: t.fg };
-    if (t.accent)
-        v.accent = t.accent;
-    if (t.muted)
-        v.muted = t.muted;
-    if (t.line)
-        v.line = t.line;
-    if (t.surface)
-        v.surface = t.surface;
-    if (t.border)
-        v.border = t.border;
-    return v;
+    return { bg: t.bg, fg: t.fg, accent: t.accent || t.fg,
+        muted: t.muted || t.fg, line: t.line || t.muted || t.fg,
+        surface: t.surface || t.bg, border: t.border || t.muted || t.fg };
 }
 
 // Find the matching close paren for the open paren at i; -1 if unbalanced.
@@ -267,12 +257,82 @@ function inlineClasses(svg) {
     });
 }
 
-function forceFont(svg, family) {
-    var f = escAttr(family);
-    return svg.replace(/<text(\s[^<>]*?)?>/g, function (tag) {
-        var t = tag.replace(/\sfont-family="[^"]*"/, "");
-        return t.replace(/>$/, " font-family=\"" + f + "\">");
+// Every label, including a tspan, carries the page's own typography and foreground.
+function forceText(svg, family, px, foreground) {
+    var font = escAttr(family);
+    return svg.replace(/<(?:text|tspan)(\s[^<>]*?)?>/g, function (tag) {
+        var oldSize = tag.match(/\sfont-size="([\d.]+)"/);
+        var out = tag.replace(/\s(?:font-family|font-size|fill)="[^"]*"/g, "");
+        if (oldSize && Number(oldSize[1]) > 0) {
+            out = out.replace(/\sdy="(-?[\d.]+)"/, function (m, dy) {
+                return ' dy="' + (Number(dy) * px / Number(oldSize[1])) + '"';
+            });
+        }
+        return out.replace(/>$/, ' font-family="' + font + '" font-size="' + px
+            + '" fill="' + escAttr(foreground) + '">');
     });
+}
+
+// Trim vertical SVG canvas padding where every painted primitive has explicit bounds.
+function tightenVertical(svg) {
+    var root = svg.match(/<svg\s[^<>]*>/);
+    if (!root)
+        return svg;
+    var view = root[0].match(/viewBox="([^"]+)"/);
+    var box = view ? view[1].trim().split(/\s+/).map(Number) : [];
+    var body = svg.replace(/<defs>[\s\S]*?<\/defs>/g, "");
+    // Unknown paths, inherited text positions and transforms retain the library's safe canvas.
+    if (box.length !== 4 || !box.every(Number.isFinite) || /\btransform=|<path\b|<tspan\b/.test(body))
+        return svg;
+    var top = Infinity;
+    var bottom = -Infinity;
+    var valid = true;
+    function number(tag, name, fallback) {
+        var found = tag.match(new RegExp('\\s' + name + '="([^"]*)"'));
+        return found ? Number(found[1]) : fallback;
+    }
+    function include(low, high, pad) {
+        if (!Number.isFinite(low) || !Number.isFinite(high)) {
+            valid = false;
+            return;
+        }
+        top = Math.min(top, low - pad);
+        bottom = Math.max(bottom, high + pad);
+    }
+    body.replace(/<(rect|line|circle|ellipse|polygon|polyline|text)\b[^<>]*>/g, function (tag, kind) {
+        if (kind === "rect") {
+            var y = number(tag, "y", 0);
+            include(y, y + number(tag, "height", NaN), 0);
+        } else if (kind === "line") {
+            var y1 = number(tag, "y1", 0), y2 = number(tag, "y2", 0);
+            include(Math.min(y1, y2), Math.max(y1, y2), /marker-/.test(tag) ? 4 : 0);
+        } else if (kind === "circle" || kind === "ellipse") {
+            var cy = number(tag, "cy", 0);
+            var radius = number(tag, kind === "circle" ? "r" : "ry", NaN);
+            include(cy - radius, cy + radius, 0);
+        } else if (kind === "polygon" || kind === "polyline") {
+            var points = tag.match(/\spoints="([^"]*)"/);
+            var numbers = points ? points[1].trim().split(/[\s,]+/).map(Number) : [];
+            if (numbers.length < 2 || numbers.length % 2 !== 0)
+                valid = false;
+            for (var i = 1; i < numbers.length; i += 2)
+                include(numbers[i], numbers[i], /marker-/.test(tag) ? 4 : 0);
+        } else {
+            var font = number(tag, "font-size", NaN);
+            var baseline = number(tag, "y", NaN);
+            var dy = tag.match(/\sdy="(-?[\d.]+)(em|%)?"/);
+            baseline += dy ? Number(dy[1]) * (dy[2] === "em" ? font : dy[2] === "%" ? font / 100 : 1) : 0;
+            include(baseline - font, baseline + 0.3 * font, 0);
+        }
+        return tag;
+    });
+    if (!valid || !Number.isFinite(top) || !(bottom > top))
+        return svg;
+    var y = Math.floor((top - 1) * 10) / 10;
+    var height = Math.ceil((bottom + 1 - y) * 10) / 10;
+    var head = root[0].replace(/height="[^"]*"/, 'height="' + height + '"');
+    head = head.replace(/viewBox="[^"]*"/, 'viewBox="' + box[0] + ' ' + y + ' ' + box[2] + ' ' + height + '"');
+    return svg.replace(root[0], head);
 }
 
 export function postMermaid(svg, t) {
@@ -297,6 +357,14 @@ export function postMermaid(svg, t) {
         });
         return m;
     });
+    // Every label uses foreground; the remaining paints use theme edge and surface roles.
+    table["_text-sec"] = "var(--fg)";
+    table["_text-muted"] = "var(--fg)";
+    table["_text-faint"] = "var(--fg)";
+    if (table.line !== undefined)
+        table["_inner-stroke"] = "var(--line)";
+    table["_group-hdr"] = "var(--surface)";
+    table["_key-badge"] = "var(--surface)";
     Object.keys(table).forEach(function (k) {
         table[k] = resolveValue(table[k], table, 0);
     });
@@ -312,7 +380,7 @@ export function postMermaid(svg, t) {
     out = out.replace(/<svg([^<>]*?)\sstyle="[^"]*"/, "<svg$1");
     // A click directive unwraps to its content; the link never ships.
     out = out.replace(/<a\s[^<>]*>/g, "").replace(/<\/a>/g, "");
-    out = forceFont(out, t.font || "sans-serif");
+    out = tightenVertical(forceText(out, t.font || "sans-serif", t.bodyPx || 14, t.fg));
     var bad = checkSafe(out);
     if (bad)
         throw new Error("unsafe diagram: " + bad);
@@ -321,12 +389,12 @@ export function postMermaid(svg, t) {
     return out;
 }
 
-export function postMath(svg, t) {
+export function postMath(svg, t, display) {
     if (svg.indexOf("merror") >= 0 || svg.indexOf("data-mjx-error") >= 0)
         throw new Error("formula did not render");
     var out = svg.split("currentColor").join(t.fg);
-    // The bundle sets em 16 ex 8, so one ex is half the body size in px.
-    var exPx = (t.bodyPx || 16) / 2;
+    // MathJax's TeX SVG has 1000 units per em and 442 per ex, independent of the input metrics.
+    var exPx = (t.bodyPx || 16) * (display ? 1.2 : 1) * 0.442;
     out = out.replace(/(-?\d+(?:\.\d+)?)ex/g, function (m, v) {
         var px = Math.round(parseFloat(v) * exPx * 100) / 100;
         return String(px) + "px";
@@ -347,6 +415,6 @@ export function renderFigure(kind, source, display, theme, apis) {
     if (kind === "mermaid" && source.length > MERMAID_LIMIT)
         throw new Error("diagram over 32 KiB");
     if (kind === "math")
-        return postMath(apis.texToSvg(source, !!display), theme);
-    return postMermaid(apis.mermaidToSvg(source, theme.bg, theme.fg), theme);
+        return postMath(apis.texToSvg(source, !!display), theme, !!display);
+    return postMermaid(apis.mermaidToSvg(source, theme.bg, theme.fg, { font: theme.font, padding: 1 }), theme);
 }

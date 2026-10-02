@@ -17,6 +17,8 @@ Item {
     property string bgHex: "#101315"
     property string fgHex: "#c0caf5"
     property string accentHex: "#7aa2f7"
+    property string mutedHex: ""
+    property string surfaceHex: ""
     property string fontFamily: Theme.font.family
     property int bodyPx: Theme.font.body
 
@@ -36,7 +38,8 @@ Item {
 
     function hexTheme() {
         return { bg: root.bgHex, fg: root.fgHex, accent: root.accentHex,
-            font: root.fontFamily, bodyPx: root.bodyPx };
+            font: root.fontFamily, bodyPx: root.bodyPx,
+            muted: root.mutedHex, surface: root.surfaceHex };
     }
     function ask() {
         // Off screen a prop change invalidates rather than sends, so the
@@ -58,6 +61,8 @@ Item {
     onBgHexChanged: askTimer.restart()
     onFgHexChanged: askTimer.restart()
     onAccentHexChanged: askTimer.restart()
+    onMutedHexChanged: askTimer.restart()
+    onSurfaceHexChanged: askTimer.restart()
     onFontFamilyChanged: askTimer.restart()
     onBodyPxChanged: askTimer.restart()
     onAskArmedChanged: askTimer.restart()
