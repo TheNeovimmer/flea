@@ -55,6 +55,9 @@ magick "$photos/seed0.jpg" -resize 256x "$photos/thumb.png" \
     || { echo "preview-decode.sh: thumbnail generation failed"; exit 1; }
 magick -size 6016x3900 xc:gray50 -fill black -draw 'rectangle 0,0 3007,3899' "$photos/big.png" \
     || { echo "preview-decode.sh: rest-row generation failed"; exit 1; }
+# The heldbad phase needs its own slow original: reopening big.png would not decode again, so its final never loads.
+cp "$photos/big.png" "$photos/big2.png" \
+    || { echo "preview-decode.sh: heldbad fixture generation failed"; exit 1; }
 for i in $(seq 0 49); do
     cp "$photos/seed$((i % 2)).jpg" "$photos/s$i.jpg" || exit 1
     cp "$photos/thumb.png" "$photos/t$i.png" || exit 1
@@ -215,6 +218,18 @@ PY
             bad "the $label interim never opened $cache (log $log)"
         fi
     done
+    # Sample input: 'PREVIEW HELD held shown=true ready=true status=loading' is a Ready cache releasing Quick Look while the final still decodes.
+    held=$(grep -a "PREVIEW HELD held " "$log" | head -1)
+    case "$held" in
+        *"shown=true ready=true status=loading"*) ok "a Ready cache shows the interim and releases Quick Look while the final loads" ;;
+        *) bad "the held phase did not release on the interim: '$held' (log $log)" ;;
+    esac
+    # Sample input: 'PREVIEW HELD heldbad shown=false ready=false status=loading' is a missing cache file holding Quick Look on loading.
+    heldbad=$(grep -a "PREVIEW HELD heldbad " "$log" | head -1)
+    case "$heldbad" in
+        *"shown=false ready=false status=loading"*) ok "a missing cache file shows no interim and Quick Look keeps waiting on the final" ;;
+        *) bad "the heldbad phase did not wait on the final: '$heldbad' (log $log)" ;;
+    esac
     # e81f-r3: the interim meta-row guards, one PREVIEW GUARD line each.
     if grep -a -q "PREVIEW GUARD1 PASS" "$log"; then
         ok "the interim refuses a meta reply for a row that drifted onto another file"

@@ -21,6 +21,8 @@ ShellRoot {
     property string pendingInterim: ""
     // The interim phase's cursor row, naming the shown file the way production always does.
     property int interimRowOverride: -1
+    // The held phase expects no interim: its cache file is missing, so shown and ready stay false while the final loads.
+    property bool heldExpectBad: false
     // e81f-r3: the meta-row guard overrides. guardMap names index->file for drifted
     // rows, guardAskLog records every askMeta index, guardHold parks auto replies.
     property var guardMap: ({})
@@ -368,10 +370,66 @@ ShellRoot {
                 shell.log("INTERIMSTACK " + shell.interimPhase + " " + (shell.stackOk() ? "ok" : "bad"))
                 shell.mark("iend-" + shell.interimPhase)
                 if (shell.interimPhase === "small") shell.beginInterim("large", "seed0.jpg", "thumb.png", 640, 480)
+                else if (shell.interimPhase === "large") shell.beginHeld("held", "big.png", "smallcache.png", 6016, 3900, false)
                 else shell.runGuards()
             } else if (waited > 8000) {
                 stop()
                 shell.log("FAIL the interim never settled for " + shell.interimPhase)
+                shell.quit()
+            }
+        }
+    }
+
+    // The held phase opens the production overlay with a slow original, so the interim settles while the final still decodes.
+    function beginHeld(label, orig, cache, w, h, bad) {
+        shell.interimPhase = label
+        shell.interimOrig = orig
+        shell.interimCache = cache
+        shell.metaWH = [w, h]
+        shell.heldExpectBad = bad
+        shell.interimRowOverride = 7
+        stub.cursorIndex = 7
+        shell.mark("istart-" + label)
+        if (quickPreview.status === Loader.Ready) heldKick.restart()
+        else {
+            shell.log("FAIL Quick Look left before the held phase")
+            shell.quit()
+        }
+    }
+
+    // The same kick delay interimKick waits, so the open lands on a settled loader.
+    Timer {
+        id: heldKick
+        interval: interimKick.interval
+        repeat: false
+        onTriggered: {
+            quickPreview.item.open(shell.photoDir + "/" + shell.interimOrig, "image-x-generic",
+                1000, "", shell.photoDir + "/" + shell.interimCache)
+            heldPoll.waited = 0
+            heldPoll.restart()
+        }
+    }
+
+    // Sample log line: "PREVIEW HELD held shown=true ready=true status=loading", sampled while the final still decodes.
+    Timer {
+        id: heldPoll
+        interval: 10
+        repeat: true
+        property int waited: 0
+        onTriggered: {
+            waited += interval
+            var qp = quickPreview.item
+            var pair = shell.interimPair()
+            var settled = pair[0] && (pair[0].status === Image.Ready || pair[0].status === Image.Error)
+            if (qp && pair[0] && pair[1] && qp.imageW > 0 && qp.status === "loading" && settled) {
+                stop()
+                shell.log("HELD " + shell.interimPhase + " shown=" + qp.interimShown + " ready=" + qp.lookReady + " status=" + qp.status)
+                shell.mark("iend-" + shell.interimPhase)
+                if (shell.interimPhase === "held") shell.beginHeld("heldbad", "big2.png", "missing-cache.png", 6016, 3900, true)
+                else shell.runGuards()
+            } else if (waited > 8000) {
+                stop()
+                shell.log("FAIL the held phase never settled for " + shell.interimPhase)
                 shell.quit()
             }
         }

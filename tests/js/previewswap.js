@@ -113,6 +113,11 @@ function squashed(s) {
     return String(s).replace(/\s+/g, " ")
 }
 
+// Sample input: stripped("a // root.interimShown\nb") is "a \nb".
+function stripped(s) {
+    return String(s).replace(/\/\/[^\n]*/g, "")
+}
+
 function runShowCursorRow(check, area) {
     var show = squashed(bodyOf(area, "showCursorRow"))
     check("source: showCursorRow guards a stale show with the strict force-and-data-hold early return",
@@ -143,16 +148,17 @@ function runInterimRect(check) {
         "none|none|none")
 }
 
-// Quick Look releases early only on the shown interim: Preview.qml interimShown reads PreviewImage interimReady, and lookReady answers on it.
+// Quick Look releases early only on the shown interim: each pin reads its binding's Source.slice with comments stripped.
 function runInterimShown(check) {
-    var quick = Source.source("ui/Preview.qml")
-    var image = Source.source("ui/PreviewImage.qml")
-    check("interimShown releases only on the interim image Ready",
-        quick.indexOf("imageLoader.item.interimReady === true") >= 0, true)
-    check("that term is PreviewImage interimReady, never a local flag",
-        image.indexOf("readonly property bool interimReady: interimPicture.status === Image.Ready") >= 0, true)
+    var readyScope = stripped(Source.slice(Source.source("ui/Preview.qml"), "readonly property bool lookReady:", "property string interimThumb"))
+    var shownScope = stripped(Source.slice(Source.source("ui/Preview.qml"), "readonly property bool interimShown:", "// The original's pixels"))
+    var imageScope = stripped(Source.slice(Source.source("ui/PreviewImage.qml"), "readonly property bool interimReady:", "// The same name the media"))
     check("lookReady answers on the shown interim",
-        quick.indexOf("root.interimShown") >= 0, true)
+        readyScope.indexOf("root.interimShown") >= 0, true)
+    check("interimShown releases only on the interim image Ready",
+        shownScope.indexOf("imageLoader.item.interimReady === true") >= 0, true)
+    check("that term is PreviewImage interimReady, never a local flag",
+        imageScope.indexOf("interimPicture.status === Image.Ready") >= 0, true)
 }
 
 // A folder peek in Columns holds by data: an unanswered folder keeps the old column, and the landed peek shows it with its rows in one pass.
