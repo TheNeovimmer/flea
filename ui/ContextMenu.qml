@@ -10,14 +10,13 @@ import "js/MenuRefresh.js" as MenuRefresh
 Item {
     id: root
 
-    // Fires with the row's own action string ("open", "trash"); a chosen Taildrop peer fires
-    // "taildrop:<peerId>" instead, so one signal covers both without a second wire. The header's
-    // rows fire "col:<key>" and "toggleHidden", routed in ui/Pane.qml's onChosen.
+    // Row actions, provider leaves and header choices share this signal, routed by Pane.
     signal chosen(string action)
     signal refused(string reason)
     signal snapshotRequested()
 
     property bool opened: false
+    property bool preparing: false
     // Driven from ui/Pane.qml's own state, so this file owns no hidden-file logic itself.
     property bool showHidden: false
     // [{id, label}], the reachable Taildrop targets; installed providers keep their disabled reason.
@@ -65,7 +64,7 @@ Item {
     // locked folder's own menu rather than the parent's background one.
     property string tileTarget: ""
     property int tileMode: 0
-    // The folder this opening answers for, captured at open and cleared at close, the rail's own pattern.
+    // The folder this opening answers for, captured at open and cleared at close.
     property string lockedPath: ""
     property int lockedMode: 0
     readonly property bool forLocked: root.lockedPath.length > 0
@@ -107,7 +106,7 @@ Item {
     property int cursor: 0
     property int openSubmenuRow: -1
     property int submenuCursor: 0
-    // A hidden row still opens its flyout from the action, not a visible row.
+    // A hidden row still opens its flyout from the action.
     property string loneFlyoutAction: ""
     readonly property bool submenuOpen: root.openSubmenuRow >= 0 || root.loneFlyoutAction.length > 0
     // The glyph every open flyout row draws, read back so a test can name it without OCR.
@@ -225,10 +224,7 @@ Item {
         root.place(scenePoint)
     }
 
-    // The listing's other entrance, from a right click that landed on no row at all: ui/List.qml,
-    // ui/GridArea.qml and ui/ColumnPane.qml each answer for their own empty space, and this one
-    // instance then draws ui/js/Menu.js backgroundEntries instead of the cursor row's. While a
-    // Locked tile is drawn the whole listing is that tile, so the click names the locked folder.
+    // Empty-space clicks draw background entries, or the Locked tile's own folder menu.
     function openBackground(scenePoint) {
         if (root.tileTarget.length > 0) {
             root.openLocked(root.tileTarget, root.tileMode, scenePoint)
@@ -298,6 +294,7 @@ Item {
     }
 
     function place(scenePoint) {
+        root.preparing = true
         if (!root.opened)
             root.focusHolder = root.Window.window ? root.Window.window.activeFocusItem : null
         root.pointerGlobal = Qt.point(-1, -1)
@@ -318,6 +315,7 @@ Item {
         root.openSubmenuRow = -1
         root.submenuCursor = 0
         root.opened = true
+        root.preparing = false
         if (root.hasRow && !root.forRail && !root.forHeader) root.snapshotRequested()
         keyCatcher.forceActiveFocus()
     }
@@ -432,7 +430,9 @@ Item {
     function validateChoice(action, subId) {
         var identityChanged = !root.forRail && !root.forHeader && root.hasRow
                               && root.openedIdentity !== root.selectionIdentity
+        root.preparing = true
         var live = root.buildEntries()
+        root.preparing = false
         for (var i = 0; !identityChanged && i < live.length; i++) {
             var entry = live[i]
             if (entry.action !== action || entry.disabled === true) continue

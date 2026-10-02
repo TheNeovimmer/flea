@@ -35,19 +35,13 @@ Rectangle {
         Qt.callLater(view.rememberDual)
     }
     function rememberPaths() {
-        // "Last folder" has to have a folder to return to, and the pair below is the dual
-        // view's own. The primary pane is the one a single-view window opens, so it is the
-        // one recorded; a write that lands the value already stored owes nothing, see
-        // ui/ViewState.qml "owe".
-        if (initialized && !dualMode && primaryPane.path) {
-            ViewState.rememberLastPath(primaryPane.path)
+        // Path and tab changes in one turn share the deferred navigation patch.
+        if (initialized && !dualMode && primaryPane.path)
             view.queueTabStrip()
-        }
         if (!initialized || !dualMode || !secondPane.item || !primaryPane.path || !secondPane.item.pane.path) return
         Qt.callLater(view.rememberDual)
     }
-    // A strip change queues one deferred write; remembered() reads dropPath so a pre-landing write names the target.
-    // Hooked on pane.tabs, which only a strip reassignment fires, so a cursor move never writes.
+    // Strip changes coalesce; an in-flight navigation waits for its path and rows to land before saving.
     property bool tabStripQueued: false
     function queueTabStrip() {
         if (view.tabStripQueued)
@@ -56,8 +50,8 @@ Rectangle {
         Qt.callLater(function() { view.tabStripQueued = false; view.rememberTabStrip() })
     }
     function rememberTabStrip() {
-        if (initialized && !dualMode && primaryPane.path)
-            ViewState.rememberTabs(Tabs.remembered(primaryPane))
+        if (initialized && !dualMode && primaryPane.path && !primaryPane.listInFlight)
+            ViewState.rememberNavigation(primaryPane.path, Tabs.remembered(primaryPane))
     }
     // The mode binding reads ViewState.state; its handlers must finish before persistence replaces it.
     function rememberDual() {
@@ -204,6 +198,7 @@ Rectangle {
         onFocusRequested: view.focusPane(0)
         onSwitchPane: view.focusPane(1)
         onPathChanged: view.rememberPaths()
+        onListInFlightChanged: { if (!primaryPane.listInFlight) view.queueTabStrip() }
         onTabsChanged: view.queueTabStrip()
         onClipboardChanged: if (secondPane.item && secondPane.item.pane.clipboard !== clipboard) secondPane.item.pane.clipboard = clipboard
         overlayParent: view

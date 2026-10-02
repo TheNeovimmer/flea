@@ -575,6 +575,30 @@ if wrap_start refused.qml "" 1; then
         "$(echo "$wrap_flat" | grep -c '"textSize":{"mode":16}')"
 fi
 
+# The navigation uses the real body and its path/tab signal wiring, with the same spawn wrapper.
+nav_root=$SANDBOX/navigation
+mkdir -p "$nav_root/config" "$nav_root/home" "$nav_root/state/flea" "$nav_root/bin" "$nav_root/cache" "$nav_root/runtime" "$nav_root/from" "$nav_root/to" || exit 1
+chmod 700 "$nav_root/runtime" || exit 1
+ln -s "$PWD/ui" "$nav_root/config/flea" || exit 1
+ln -s "$(readlink -f ui/boot/Commons)" "$nav_root/config/Commons" || exit 1
+ln -s "$(readlink -f ui/boot/Ui)" "$nav_root/config/Ui" || exit 1
+cp tests/uiwriter-navigation.qml "$nav_root/config/shell.qml" || exit 1
+printf '%s\n' '{"updates":{"autoCheck":false},"places":{"rail":"hidden","showTrash":false,"showNetwork":false,"showDevices":false}}' > "$nav_root/state/flea/ui.json" || exit 1
+env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$nav_root/home" XDG_STATE_HOME="$nav_root/state" XDG_CACHE_HOME="$nav_root/cache" XDG_RUNTIME_DIR="$nav_root/runtime" \
+    FLEA_BIN="$SANDBOX/wrapflea" FLEA_PATH="$nav_root/from" PROBE_NAV_TO="$nav_root/to" \
+    PROBE_WRAP_DIR="$nav_root/bin" PROBE_WRAP_REAL="$BIN" \
+    QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    timeout 30 qs -p "$nav_root/config" > "$nav_root/probe.log" 2>&1
+nav_status=$?
+check "navigation probe exits normally" 0 "$nav_status"
+check "navigation completes all spawn and payload checks" 1 "$(grep -c 'NAVWRITE DONE .* checks, 0 failed' "$nav_root/probe.log")"
+check "navigation raises no QML error" 0 "$(grep -cE 'NAVWRITE FAIL|TypeError|ReferenceError|ERROR' "$nav_root/probe.log")"
+grep 'NAVWRITE' "$nav_root/probe.log"
+if [ "$nav_status" -ne 0 ] || grep -qE 'NAVWRITE FAIL|TypeError|ReferenceError|ERROR' "$nav_root/probe.log"; then
+  cat "$nav_root/probe.log"
+fi
+
 sandbox_remove "$SANDBOX" || exit 1
 
 [ "$fail" -eq 0 ] && echo "uiwriter: all checks passed"
