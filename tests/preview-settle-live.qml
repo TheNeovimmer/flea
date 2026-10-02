@@ -252,8 +252,10 @@ ShellRoot {
             preview.lastMoveAt = heldAt
             // The settle Timer is the one Timer under preview; its root type declares none.
             var settleTimer = null
+            var timers = 0
             for (var i = 0; i < preview.resources.length; i++) {
                 if (preview.resources[i] instanceof Timer) {
+                    timers += 1
                     settleTimer = preview.resources[i]
                 }
             }
@@ -261,11 +263,16 @@ ShellRoot {
             var counted = function () {
                 settleRestarts += 1
             }
-            settleTimer.runningChanged.connect(counted)
+            if (timers === 1) {
+                settleTimer.runningChanged.connect(counted)
+            }
             root.step(7)
-            settleTimer.runningChanged.disconnect(counted)
+            if (timers === 1) {
+                settleTimer.runningChanged.disconnect(counted)
+            }
             root.check("duplicate moves no second arm", backend.metaCalls === root.metaMark
-                && preview.lastMoveKey === pane.path + "\n7" && preview.lastMoveAt === heldAt && settleRestarts === 0)
+                && preview.lastMoveKey === pane.path + "\n7" && preview.lastMoveAt === heldAt && settleRestarts === 0
+                && timers === 1, "timers=" + timers)
             root.pollFor(7, 400, root.stage + 1)
         },
         function () {
