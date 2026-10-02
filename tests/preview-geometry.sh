@@ -82,6 +82,6 @@ montage "${grabs[@]}" -tile 4x -geometry 320x240+4+4 -label '%f' "$test_root/she
     || { echo "preview-geometry.sh: the contact sheet failed"; exit 1; }
 # The contact sheet outlives the sandbox, which cleanup removes on exit 0.
 evidence_root=$(mktemp -d /tmp/flea-preview-geometry.XXXXXXXX) || exit 1
-mv "$test_root/sheet.png" "$evidence_root/sheet.png" || { echo "preview-geometry.sh: the contact sheet failed"; exit 1; }
+mv "$test_root/sheet.png" "$evidence_root/sheet.png" || { echo "preview-geometry.sh: moving the contact sheet to $evidence_root failed"; exit 1; }
 printf 'GEOMETRY cells=%s ok=%s fail=%s\n' "$cells" "$ok_count" "$fail_count"
 printf 'GEOMETRY_SHEET %s\n' "$evidence_root/sheet.png"
