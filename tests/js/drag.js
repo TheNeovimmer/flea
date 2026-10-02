@@ -368,7 +368,7 @@ function run(check) {
     check("a foreign move offer still moves with no marker", Drag.dropVerb("", Qt.MoveAction, 0), "move")
     check("a foreign copy offer still copies with no marker", Drag.dropVerb("", Qt.CopyAction, 0), "copy")
 
-    // Each row below travels the real mimeFor path, so a dropped shift field, an ignoring feedback or an unlinked badge is caught.
+    // Each row below travels the real mimeFor path, so a dropped shift field, an ignoring feedback, an unlinked badge or a lift that drops a marker field is caught.
     var lifts = [
         { mods: Qt.NoModifier, same: "move", cross: "copy" },
         { mods: Qt.ControlModifier, same: "copy", cross: "copy" },

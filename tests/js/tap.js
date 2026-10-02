@@ -37,7 +37,9 @@ function pane() {
         },
         toggleSelectAt: function (i) { this.cursor = i; this.did.push("toggleSelect") },
         extendSelectionTo: function (i) { this.cursor = i; this.did.push("extendSelect") },
-        act: function (action) { this.did.push(action) }
+        act: function (action) { this.did.push(action) },
+        cancelled: 0,
+        cancelSlowClick: function () { this.cancelled += 1 }
     }
 }
 
@@ -90,8 +92,12 @@ function driveListing(row) {
     // A result is an ordinary listing row; what makes it one is the mode the pane is in.
     if (row.row === "result")
         sink.searchMode = "results"
-    if (p.button === Qt.MiddleButton) // a new tab needs a whole pane, so the path tappedTab would open is driven
-        return Tap.tabTarget(row.row === "file" ? { n: "a.txt" } : { n: "sub", d: true }, "", { join: function () { return "openTab" } }) || "nothing"
+    if (p.button === Qt.MiddleButton) { // A new tab needs a whole pane, so only the joined path is driven.
+        var entry = row.row === "file" ? { n: "a.txt" } : { n: "sub", d: true }
+        var joined = Tap.tabTarget(entry, "/pane", { join: function (b, n) { return b + "/" + n } })
+        if (joined !== (row.row === "file" ? "" : "/pane/sub")) return "joined " + joined
+        return joined ? "openTab" : "nothing"
+    }
     if (p.button === Qt.RightButton) {
         var raised = menu()
         Tap.tappedMenu(2, eventPoint(), sink, raised)
@@ -210,8 +216,8 @@ function run(check) {
     Tap.tapped(4, 1, Qt.NoModifier, single)
     check("single-click opens on the first tap", single.did.join(","), "selectOnly,open")
     Tap.tapped(4, 2, Qt.NoModifier, single)
-    check("and its second tap selects without opening again",
-          single.did.join(","), "selectOnly,open,selectOnly")
+    check("and its second tap adds nothing, since the first already moved the listing",
+          single.did.join(","), "selectOnly,open")
     var singleTriple = pane()
     singleTriple.singleClick = true
     for (var s = 1; s <= 3; s++)

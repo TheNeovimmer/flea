@@ -61,14 +61,13 @@ FocusScope {
     property int reloadChanged: -1
     // The slow click's own window: the last tap's row and time, read by ui/js/SlowClick.js alone.
     property double slowClickAt: 0
-    property int slowClickIndex: -2
-    // The slow-click rename timer, one per pane: a tap arms it and a second tap in time opens as a double click does.
-    // Its firing renames only while the row still holds the cursor.
+    property int slowClickIndex: SlowClick.CLEARED
+    // One slow-click timer for the whole pane; a tap arms it and a second tap in time opens as a double click does, and its firing renames only while the row still holds the cursor.
     Timer {
         id: slowClickTimer
         interval: Qt.styleHints.mouseDoubleClickInterval
         repeat: false
-        onTriggered: SlowClick.fire(root, Date.now(), Qt.styleHints.mouseDoubleClickInterval)
+        onTriggered: SlowClick.fire(root)
     }
     function armSlowClick(index, modifiers, dragging, wasSole) {
         if (SlowClick.arm(root, index, modifiers, Date.now(), Qt.styleHints.mouseDoubleClickInterval, dragging, wasSole))

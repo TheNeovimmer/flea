@@ -22,7 +22,7 @@ function carried(pane, index) {
     return [index]
 }
 
-// Ctrl copies, Shift moves, both link: read at the lift, since Drag.active gets no keys after it.
+// Ctrl copies, Shift moves, Ctrl with Shift links, all read at the lift because the window gets no keys once Drag.active runs.
 function copying(modifiers) {
     return (modifiers & Qt.ControlModifier) !== 0
 }
@@ -238,7 +238,7 @@ function dropInto(pane, marker, urls, dest, destDev, shelf, plain, proposed) {
     return pane.collide.ask({ c: "transfer", op: verb, paths: paths, dest: dest })
 }
 
-// Marker-less platform action, read here only: move-only shifts, copy-only copies, link-only links, both-or-neither stays plain.
+// Marker-less platform action, read here only: move-only shifts, copy-only copies, link-only links, both bits set, or neither, stays plain.
 function foreignHeld(proposed) {
     var moveBit = (proposed & Qt.MoveAction) !== 0
     var copyBit = (proposed & Qt.CopyAction) !== 0
@@ -249,7 +249,7 @@ function foreignHeld(proposed) {
     return { copy: false, shift: false }
 }
 
-// Verb from marker plus platform action: a Flea marker carries the lift's own bits, a foreign drag follows foreignHeld.
+// Verb from marker plus platform action: a Flea marker carries the lift's own bits and ignores the platform action, a foreign drag follows foreignHeld.
 function dropVerb(marker, proposed, destDev) {
     if (marker) {
         return verbFor(isOwnDrag(marker), markerCopying(marker), markerShift(marker),
@@ -259,7 +259,7 @@ function dropVerb(marker, proposed, destDev) {
     return verbFor(false, held.copy, held.shift, 0, destDev, true)
 }
 
-// Only verb decision: Ctrl with Shift links, Ctrl copies, Shift moves; else same-device moves and unknown-device or undeletable copies.
+// Only verb decision: Ctrl with Shift links and needs no device, Ctrl copies, Shift moves; else same-device moves and unknown-device or undeletable copies.
 function verbFor(own, ctrlHeld, shiftHeld, srcDev, destDev, deletable) {
     void own
     if (ctrlHeld && shiftHeld) return "link"

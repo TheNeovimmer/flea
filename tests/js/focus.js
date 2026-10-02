@@ -94,8 +94,21 @@ function key(code, text, modifiers) {
     return { key: code, text: text, modifiers: modifiers }
 }
 
-// Only the members the escape case reads. Search.cancel and Pane.escapePressed both record rather
-// than act, because what is being checked is the order they are reached in.
+// armHandle builds the handleKey members past the escape dispatch: listing view, recording dispatch.
+function armHandle(p) {
+    p.focusView = "list"
+    p.viewMode = "list"
+    p.shown = null
+    p.renameEditor = function () { return null }
+    p.keySequence = ""
+    p.keySequenceIdentity = ""
+    p.trashArmedAt = 0
+    p.message = function (text) { p.said = text }
+    p.acted = []
+    p.act = function (action) { p.acted.push(action); Focus.act(action, p) }
+    return p
+}
+// Escape-case members only: Search.cancel and Pane.escapePressed record rather than act to pin reach order.
 function escaper(query, retreated) {
     var p = pane(closed())
     p.filterQuery = query
@@ -115,20 +128,6 @@ function escaper(query, retreated) {
     p.selection = { count: function () { return 0 } }
     p.selectionCount = function () { return 0 }
     p.wire = { anchor: null, reloaded: 0 }
-    return p
-}
-function armHandle(p) {
-    // handleKey members past the escape dispatch: listing view, no rename editor, recording dispatch.
-    p.focusView = "list"
-    p.viewMode = "list"
-    p.shown = null
-    p.renameEditor = function () { return null }
-    p.keySequence = ""
-    p.keySequenceIdentity = ""
-    p.trashArmedAt = 0
-    p.message = function (text) { p.said = text }
-    p.acted = []
-    p.act = function (action) { p.acted.push(action); Focus.act(action, p) }
     return p
 }
 

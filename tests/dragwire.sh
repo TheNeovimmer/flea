@@ -1,5 +1,5 @@
 #!/bin/bash
-# Headless guard for what an external drop target sees: plain offers copy alone, Ctrl copy, Shift move, Ctrl with Shift link, shelf copy only.
+# Headless guard for what an external drop target sees, unlike tests/drag.sh which needs a display: plain offers copy alone since a browser uploader refuses a move, Ctrl copy, Shift move, Ctrl with Shift link, shelf copy only.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
@@ -22,11 +22,28 @@ else
 fi
 
 # Qt hands effectAllowed straight from this line: one ternary arm per lift, matched whole and end-anchored.
-offer=$(printf '%s' "$advertised" | sed 's/^[^:]*:[0-9]*://')
-if printf '%s' "$offer" | grep -q '^[[:space:]]*Drag\.supportedActions:[[:space:]]*root\.dragLink[[:space:]]*?[[:space:]]*Qt\.LinkAction[[:space:]]*:[[:space:]]*root\.dragCopy[[:space:]]*?[[:space:]]*Qt\.CopyAction[[:space:]]*:[[:space:]]*root\.dragShift[[:space:]]*?[[:space:]]*Qt\.MoveAction[[:space:]]*:[[:space:]]*Qt\.CopyAction[[:space:]]*$'; then
+# The whole ternary is the offer, so this pins every branch of it rather than grepping one token.
+offer=$(code_of ui/FileDrag.qml | grep 'Drag\.supportedActions:' | sed 's/.*Drag\.supportedActions:[[:space:]]*//')
+[ -n "$offer" ] || bad "no Drag.supportedActions line left in ui/FileDrag.qml to pin"
+final=$(printf '%s\n' "$offer" | sed 's/.*://;s/[[:space:];]//g')
+if [ "$final" = "Qt.CopyAction" ]; then
+    ok "a plain lift offers copy alone"
+else
+    bad "a plain lift must end on Qt.CopyAction alone, got: $final"
+fi
+# Sample input: root.dragLink ? Qt.LinkAction : root.dragCopy ? Qt.CopyAction : root.dragShift ? Qt.MoveAction : Qt.CopyAction
+offer_seq=$(printf '%s\n' "$offer" | tr -d '[:space:];' | sed -e 's/root\.//g' -e 's/?/ /g' -e 's/:/;/g')
+# Link precedes copy because a link lift carries ctrl, so order decides the verb.
+expected_seq='dragLink Qt.LinkAction;dragCopy Qt.CopyAction;dragShift Qt.MoveAction;Qt.CopyAction'
+if [ "$offer_seq" = "$expected_seq" ]; then
     ok "the offer narrows arm by arm: link alone, Ctrl copy alone, Shift move alone, plain copy alone"
 else
-    bad "the offer must read link/copy/shift/plain arm by arm, got: $offer"
+    bad "the offer must read $expected_seq, got: $offer_seq"
+fi
+if printf '%s' "$advertised" | grep -q 'Qt\.LinkAction'; then
+    ok "a link lift offers a link"
+else
+    bad "a link lift must offer Qt.LinkAction, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
 fi
 
 if grep -q 'text/uri-list' ui/js/Drag.js; then
@@ -82,13 +99,13 @@ fi
 # Helper ignores proposed for any Flea marker: no bitwise proposed read outside foreignHeld.
 bites=$(grep -n 'proposed &' ui/js/Drag.js)
 start=$(grep -n '^function foreignHeld' ui/js/Drag.js | cut -d: -f1)
-finish=""
-while IFS= read -r n; do
-    if [ "$n" -gt "$start" ]; then
-        finish=$n
-        break
-    fi
-done <<< "$(grep -n '^function ' ui/js/Drag.js | cut -d: -f1)"
+if [ -z "$start" ]; then
+    bad "ui/js/Drag.js has no ^function foreignHeld line, so the single-helper range is unbounded"
+fi
+finish=$(awk -v s="${start:-0}" 'NR>s && /^function /{print NR; exit}' ui/js/Drag.js)
+if [ -z "$finish" ]; then
+    finish=$(($(wc -l < ui/js/Drag.js) + 1))
+fi
 outside=""
 while IFS= read -r hit; do
     [ -n "$hit" ] || continue
@@ -102,15 +119,16 @@ done <<< "$bites"
 if [ -z "$outside" ] && [ -n "$bites" ]; then
     ok "only foreignHeld reads the proposedAction bits"
 else
-    bad "proposedAction bits are read outside foreignHeld:"
-    printf '%s\n' "${outside:-none}" | sed 's/^/     /'
+    bad "proposedAction bits are read outside foreignHeld lines $start-$finish:"
+    printf '%s\n' "${outside:-no bitwise read left to place}" | sed 's/^/     /'
 fi
 
 # The shortened bound, and the fewest stub calls that show the wait kept polling.
 short_wait_ns=300000000
 min_poll_calls=2
 # Sample input: "xwdrag_wait_row_gone() {", the ui.sh wait run with only its 10 s bound cut to short_wait_ns.
-eval "$(sed -n '/^xwdrag_wait_row_gone()/,/^}/p' tests/ui.sh | sed "s/wait_ns=[0-9][0-9]*/wait_ns=$short_wait_ns/")"
+# The wait reads through xwdrag_count, so the guard comes along; the stub below answers both.
+eval "$(sed -n '/^xwdrag_count()/,/^}/p;/^xwdrag_wait_row_gone()/,/^}/p' tests/ui.sh | sed "s/wait_ns=[0-9][0-9]*/wait_ns=$short_wait_ns/")"
 # A stub qs that fails every call, so the wait must keep polling to the bound.
 xwdrag_qs() {
     printf 'call\n' >&3

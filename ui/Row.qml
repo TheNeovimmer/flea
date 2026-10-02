@@ -77,9 +77,8 @@ Item {
     property var assignedCols: null // Set by List.qml; null keeps the local default below.
     readonly property var cols: root.assignedCols !== null ? root.assignedCols : (root.dualMode ? Theme.dualColumns(root.width, root.hiddenCols) : Theme.columns(root.width, root.hiddenCols, root.dateWidth))
     readonly property bool modeShown: !root.locating && root.cols.mode
-    // The search column set keeps Size and drops the other three, so only this one ignores searching.
+    // A search row keeps Size where it fits and shows Date only when it is a Recent row.
     readonly property bool sizeShown: root.cols.size
-    // Recent keeps the date as Used, newest first; a search keeps no date at all.
     readonly property bool dateShown: (!root.searching || root.recenting) && root.cols.date
     readonly property bool kindShown: !root.locating && root.cols.kind
 

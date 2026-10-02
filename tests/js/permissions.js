@@ -2,6 +2,30 @@
 .import "../../ui/js/Ops.js" as Ops
 .import "../../ui/js/Menu.js" as Menu
 .import "sourcefixture.js" as Source
+// Sample input: blockAfter("function f() { if (x) { y = 1 } }", "function f") answers the outer braces.
+function blockAfter(src, marker) {
+    var at = src.indexOf(marker)
+    if (at < 0) {
+        return ""
+    }
+    var open = src.indexOf("{", at + marker.length)
+    if (open < 0) {
+        return ""
+    }
+    var depth = 0
+    for (var i = open; i < src.length; i++) {
+        if (src[i] === "{") {
+            depth += 1
+        }
+        if (src[i] === "}") {
+            depth -= 1
+        }
+        if (depth === 0) {
+            return src.substring(open, i + 1)
+        }
+    }
+    return ""
+}
 function run(check) {
     check("ordinary mode", Permissions.parse("644"), 420)
     check("leading zero", Permissions.parse("0644"), 420)
@@ -57,15 +81,31 @@ function run(check) {
         "Permissions changed for 1 of 5; 4 left alone: a.txt: r1; b.txt: r2; c.txt: r3; and 1 more")
 
     // noteMode answers done once in 5000 replies, on the last one.
+    // N replies cost N writes plus one summary, never N summaries.
     var store = { modes: [], reasons: [], skipped: [], pending: 5000 }
+    var summaries = 0
     var done = false
     var early = false
     for (var i = 0; i < 5000; i++) {
         done = Permissions.noteMode(store, i, "/f" + i, { ok: true, mode: "0644", reason: "" })
         if (done && i + 1 < 5000) early = true
+        if (done) {
+            summaries += 1
+            Permissions.summarize(store.modes)
+        }
     }
-    check("noteMode answers done once across 5000 replies", done + "|" + store.modes.length, "true|5000")
+    check("5000 replies land every mode", done + "|" + store.modes.length, "true|5000")
     check("and done answers only on the last reply", early + "|" + done, "false|true")
+    check("and noteMode reports done exactly once", summaries, 1)
+    // receiveMany's last-reply write rides the noteMode-true branch, never a bare reply; a failed
+    // batch resets beside it so the grid and a retry start from disk.
+    var dialog = Source.source("ui/PermissionsDialog.qml")
+    var received = blockAfter(dialog, "function receiveMany")
+    var noteBlock = blockAfter(received, "if (Permissions.noteMode(")
+    var failedBlock = blockAfter(received, "if (message.op === \"applyMany\")")
+    check("receiveMany writes multiModes exactly twice", received.split("multiModes =").length - 1, 2)
+    check("one write sits inside the noteMode-true branch", noteBlock.indexOf("multiModes =") >= 0, true)
+    check("and the other resets the failed batch", failedBlock.indexOf("multiModes =") >= 0, true)
     var refused = { modes: [], reasons: [], skipped: [], pending: 3 }
     Permissions.noteMode(refused, 0, "/d/a.txt", { ok: true, mode: "2755", reason: "Read-only: setgid bit is present." })
     Permissions.noteMode(refused, 1, "/d/b.txt", { ok: false, error: "Gone." })
