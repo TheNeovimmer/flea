@@ -1150,6 +1150,8 @@ for w in json.load(sys.stdin):
         print(x + w_ // 2, y + h // 2)
         break
 ' "$RECV_ADDR")
+  # A pair holds the receiver centre x and y.
+  [ $# -eq 2 ] || die "the receiver $RECV_ADDR has no geometry in hyprctl clients"
   rx=$1; ry=$2
   warp "$sx" "$sy"; sleep 0.4
   press; sleep 0.3
@@ -1183,6 +1185,9 @@ print("received" if needle in body and name in body else "missing")
   done
   : > "$RECV_LOG"
   want_actions=2
+  # End the first receiver so the Shift lookup can match only its own.
+  kill "$RECV_PID" 2>/dev/null || true
+  wait "$RECV_PID" 2>/dev/null || true
   FLEA_RECV_W=$recv_w FLEA_RECV_H=$recv_h setsid python3 "$repo/tests/drag-receiver.py" "$RECV_LOG" >"$SB/receiver-shift-err.log" 2>&1 &
   RECV_PID=$!
   RECV_ADDR=""
@@ -1222,6 +1227,8 @@ for w in json.load(sys.stdin):
         print(x + w_ // 2, y + h // 2)
         break
 ' "$RECV_ADDR")
+    # A pair holds the Shift receiver centre x and y.
+    [ $# -eq 2 ] || die "the Shift receiver $RECV_ADDR has no geometry in hyprctl clients"
     rx=$1
     ry=$2
     warp "$sx" "$sy"
