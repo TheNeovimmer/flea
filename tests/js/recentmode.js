@@ -133,4 +133,23 @@ function run(check) {
     var paneSource = Source.source("ui/Pane.qml")
     check("Pane.qml declares recentSortBy", paneSource.indexOf("property string recentSortBy") >= 0, true)
     check("Pane.qml declares recentSortDesc", paneSource.indexOf("property bool recentSortDesc") >= 0, true)
+
+    // The menu reaches past key dispatch, so one helper refuses a paste in Recent for both routes.
+    var pasteBranch = Source.slice(paneSource, "function pasteLink(kind, paths)", "function setCursor(index, context)")
+    check("Pane.pasteLink shares the refusal", pasteBranch.indexOf("RecentMode.refusePaste") >= 0, true)
+    check("Focus.act shares the refusal", Source.source("ui/js/Focus.js").indexOf("RecentMode.refusePaste") >= 0, true)
+    check("the helper stands for both routes", typeof RecentMode.refusePaste, "function")
+    if (typeof RecentMode.refusePaste === "function") {
+        var history = { recentMode: "results", said: "" }
+        history.message = function (text) { history.said = text }
+        check("it refuses in Recent", RecentMode.refusePaste(history), true)
+        check("and says why", history.said, "This listing is a history, and cannot take a paste.")
+        var browsing = { recentMode: "", said: "" }
+        browsing.message = function (text) { browsing.said = text }
+        check("and stays silent off Recent", RecentMode.refusePaste(browsing), false)
+    } else {
+        check("it refuses in Recent", "missing", true)
+        check("and says why", "missing", "This listing is a history, and cannot take a paste.")
+        check("and stays silent off Recent", "missing", false)
+    }
 }

@@ -18,6 +18,15 @@
 var OFF = ""
 var RESULTS = "results"
 
+// One refusal for both paste routes: the menu reaches past key dispatch, so it shares this.
+function refusePaste(pane) {
+    if (pane.recentMode.length > 0) {
+        pane.message("This listing is a history, and cannot take a paste.", false)
+        return true
+    }
+    return false
+}
+
 // Opening the rail row: the pane keeps where it stood, moves to the history's base, and asks
 // for its paths, after the jump's own bounded read. No fsinfo is asked: a history spans mounts,
 // so the bar beside the counts reads unknown the way the board draws it.

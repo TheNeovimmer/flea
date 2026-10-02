@@ -188,7 +188,7 @@ function act(action, root, menuId, paths) {
     case "pasteLink":
     case "pasteAbsoluteLink":
     case "pasteHardLink":
-        if (root.recentMode.length > 0) { root.message("This listing is a history, and cannot take a paste.", false); return }
+        if (RecentMode.refusePaste(root)) return
         root.pasteLink(action === "pasteAbsoluteLink" ? "absolute" : action === "pasteHardLink" ? "hard" : "relative", paths); return
     case "cut": Ops.clip(root, true, paths); return
     // Recent is a history, not a directory: pasting or creating there would land in the root it stands on.
