@@ -28,7 +28,7 @@ src/backend/meta.rs 575
 src/backend/metareq.rs 416
 src/backend/movebatch.rs 470
 src/backend/movebatch_tests.rs 751
-src/backend/opsdispatch.rs 2306
+src/backend/opsdispatch.rs 2286
 src/backend/opsreq.rs 555
 src/backend/opsreq/tests.rs 471
 src/backend/permissions.rs 732
@@ -39,7 +39,7 @@ src/backend/thumbs.rs 460
 src/backend/dirsizeworker.rs 574
 src/backend/watch.rs 533
 src/backend/thumbreq.rs 418
-src/backend/undo.rs 601
+src/backend/undo.rs 599
 src/backend/undoshare.rs 431
 src/backend/undoshare_tests.rs 513
 src/backend/collide_replace_tests.rs 487
@@ -95,7 +95,7 @@ ui/NetworkDialog.qml 445
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 849
 ui/OpenWithDialog.qml 607
-ui/Pane.qml 1028
+ui/Pane.qml 1009
 ui/PaneMenuActions.qml 464
 ui/PaneWire.qml 559
 ui/PermissionsDialog.qml 629

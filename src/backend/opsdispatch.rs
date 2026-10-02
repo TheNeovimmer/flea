@@ -474,30 +474,6 @@ pub(crate) fn start_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: V
 
 // What the link thread sends back lives in opsreq::LinkOutcome, shared with the slow-write land path.
 
-// The inline entry fs3's pending-mount tests drive; production links take the slot in start_link above.
-#[cfg(test)]
-pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<String>, dest: &str, collide: super::collide::Ask) {
-    let dest_path = match usable_dest(dest) {
-        Ok(d) => d,
-        Err(mut e) => {
-            e.where_ = "link".to_string();
-            writeln!(out, "{}", error_line(&e)).ok();
-            out.flush().ok();
-            return;
-        }
-    };
-    // A source or target on a pending mount waits, before the question is taken.
-    let sources: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
-    let target = dest_path.clone();
-    if pending_busy_for(out, ops, "link", &sources, &[target]) {
-        return;
-    }
-    let policy = collide.policy(ops.question.take(), &dest_path).for_batch(&paths);
-    let owned_op = op.to_string();
-    let dest_name = dest.to_string();
-    do_link_with(out, ops, &dest_name, CALL_DEADLINE, move || Ok(link_items(&owned_op, paths, dest_path, policy)))
-}
-
 // One exclusive link per source, replacing through the trash when the card chose it.
 pub(crate) fn run_link(op: &str, paths: Vec<String>, dest: PathBuf, policy: super::collide::Policy) -> LinkOutcome {
     let kind = match op {
@@ -2160,17 +2136,21 @@ mod tests {
         let journaled = o.journal.len();
         let mut busy = out();
         let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        do_link(&mut busy, &mut o, "relative", vec![remote_link.to_string_lossy().to_string()], &remote_linkdest.to_string_lossy(), ask);
+        start_link(&mut busy, &mut o, "relative", vec![remote_link.to_string_lossy().to_string()], &remote_linkdest.to_string_lossy(), ask);
         assert!(text(&busy).contains("already running"), "a link onto a pending mount waits: {}", text(&busy));
         assert_eq!(o.journal.len(), journaled, "the refused link journals nothing");
         assert!(remote_linkdest.read_dir().unwrap().next().is_none(), "the refused link lands nothing");
-        // The same link elsewhere lands at once.
+        // The same link elsewhere runs beside the held write, answering through the op channel.
         let local_linkdest = local.dir("linkdest");
         let local_link = local.file("l.txt", "l");
-        let mut done = out();
+        let mut quiet = out();
         let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        do_link(&mut done, &mut o, "relative", vec![local_link.to_string_lossy().to_string()], &local_linkdest.to_string_lossy(), ask);
-        assert!(text(&done).contains(r#""t":"linked""#), "a link elsewhere lands: {}", text(&done));
+        start_link(&mut quiet, &mut o, "relative", vec![local_link.to_string_lossy().to_string()], &local_linkdest.to_string_lossy(), ask);
+        assert!(text(&quiet).is_empty(), "a link elsewhere answers nothing in sync: {}", text(&quiet));
+        let landed = rx.recv_timeout(LAND_BOUND).expect("the link reports through the op channel");
+        let mut late = out();
+        report_op(&mut late, &mut o, landed);
+        assert!(text(&late).contains(r#""t":"linked""#), "a link elsewhere lands: {}", text(&late));
         // A delete on the held mount waits, and the file stays.
         let remote_del = remote.file("del.txt", "d");
         let journaled = o.journal.len();

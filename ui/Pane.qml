@@ -496,26 +496,7 @@ FocusScope {
     property int makeExecPendingId: 0
     // Show original's own pending id, dropped by any navigation before its reply lands.
     property int linkTargetPendingId: 0
-    Process {
-        id: shebangProc
-        stdout: StdioCollector { waitForEnd: true }
-        onExited: function (code, status) {
-            var answered = root.shebangAsked
-            root.shebangAsked = ""
-            var isShebang = code === 0 && shebangProc.stdout.text.substring(0, 2) === "#!"
-            if (answered.length > 0 && answered === root.shebangTarget()) {
-                root.rowHasShebang = isShebang
-                if (menu.opened && menu.hasRow) menu.refreshProviderRows()
-            }
-            if (root.shebangPending.length > 0) {
-                var next = root.shebangPending
-                root.shebangPending = ""
-                root.startShebangRead(next)
-            }
-        }
-    }
-    // The cursor row's own path while it is a regular file without its owner bit, "" otherwise: the
-    // one path a shebang read may answer for, so a landed answer for anywhere else is dropped.
+    // The one path a shebang answer may land for, "" unless the cursor row is a regular file without its owner bit.
     function shebangTarget() {
         var row = root.cursorRow
         if (!row || row.d) return ""

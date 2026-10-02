@@ -77,8 +77,6 @@ pub enum Step {
 }
 
 // The codec bounds an op name, so a barrier truncates an over-long one to fit it.
-
-// The codec bounds an op name, so a barrier truncates an over-long one to fit it.
 const MAX_OP_LEN: usize = 128;
 
 // The codec refuses an over-long op, so the marker carries the fitting prefix.
