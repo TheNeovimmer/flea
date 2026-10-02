@@ -116,6 +116,8 @@ function failAnchor(pane, anchor, rowH) {
     if (pane.pathsPending && pane.pathsPending.kind === "anchor")
         pane.pathsPending = null
     if (hadPaths) {
+        if (pane.path !== anchor.path)
+            return null
         // Land by name on the held rows before the re-list renumbers them; a miss waits for the shifted listing.
         var at = indexOf(pane, anchor.name)
         if (pane.total > 0 && at >= 0) {
@@ -126,8 +128,6 @@ function failAnchor(pane, anchor, rowH) {
         if (!pane.listInFlight)
             Hold.startList(pane, anchor)
         // Keep the target across the renumber so apply() re-lands it; ending here would strand the pre-list index.
-        if (pane.path !== anchor.path)
-            return null
         return anchor
     }
     var found = indexOf(pane, anchor.name)

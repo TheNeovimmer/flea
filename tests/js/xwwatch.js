@@ -233,7 +233,19 @@ function run(check) {
     var goneEnd = Anchor.fillLocated(gone, goneStanding, [])
     check("the locate answer keeps the shifted cursor", goneEnd + "|" + gone.cursorSetTo, "null|0")
     check("and the surviving mark follows its file", gone.selectedIndices().join(","), "0")
-    check("an index-preserving keep would fail here", gone.selectedIndices().join(",") === "0,1", false)
+
+    // A gone cursor falls back to the clamped old index while locate resolves its remaining marks.
+    var shrunk = staged(["a", "b", "c"], 2, [1, 2])
+    var shrunkAnchor = Anchor.watched(shrunk)
+    shrunk.held = 0
+    shrunk.rows = [{ n: "a" }, { n: "b" }]
+    shrunk.total = 2
+    var shrunkStanding = Anchor.apply(shrunk, shrunkAnchor)
+    check("a gone cursor waits on its marks with the anchor standing", shrunkStanding === shrunkAnchor, true)
+    check("landed on the clamped old index", shrunk.cursorSetTo, 1)
+    var shrunkEnd = Anchor.fillLocated(shrunk, shrunkStanding, [])
+    check("the locate answer keeps the clamped cursor", shrunkEnd + "|" + shrunk.cursorSetTo, "null|1")
+    check("the gone cursor's mark goes and the survivor stays", shrunk.selectedIndices().join(","), "1")
 
     // F3: a failed anchor paths ask keeps the anchor so the shifted listing lands it by name.
     var failed = staged(["a", "b", "c"], 1, [1])

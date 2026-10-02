@@ -48,6 +48,18 @@ function staged(names, cursor, selected) {
 }
 
 function run(check) {
+    // F24: a failed paths reply cannot move the cursor or viewport in another directory.
+    var foreign = staged(["a", "b", "c"], 1, [1])
+    foreign.selection.toggle(9)
+    var foreignAnchor = Anchor.watched(foreign)
+    foreign.path = "/other"
+    foreign.rows = [{ n: "x" }, { n: "y" }, { n: "b" }]
+    foreign.cursorIndex = 0
+    foreign.listArea.contentY = 0
+    check("F24 a stale failed paths anchor ends", Anchor.failAnchor(foreign, foreignAnchor), null)
+    check("F24 a stale failed paths anchor leaves the cursor", foreign.cursorIndex, 0)
+    check("F24 a stale failed paths anchor leaves the viewport", foreign.listArea.contentY, 0)
+
     // F1: a lone selection restores with only(), so j carries it to the next row.
     var lone = staged(["a", "b", "c", "d", "e"], 2, [])
     lone.selection.only(2)

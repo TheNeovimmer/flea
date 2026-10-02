@@ -8,6 +8,10 @@ mkdir -p "$tmp/bin" || exit 1
 # Sample input: hyprctl clients -j answers a top-level array carrying pid and address.
 cat > "$tmp/bin/hyprctl" <<'STUB'
 #!/bin/sh
+if [ "$#" -ne 2 ] || [ "$1" != clients ] || [ "$2" != -j ]; then
+    printf 'xw-addr: unexpected hyprctl arguments: %s\n' "$*" >&2
+    exit 2
+fi
 cat "$HYPRCTL_FIXTURE"
 STUB
 chmod +x "$tmp/bin/hyprctl" || exit 1

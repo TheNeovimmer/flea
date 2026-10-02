@@ -231,14 +231,24 @@ flea_pid() {
 }
 
 owned_trash_monitors() {
-    local pid pids process result=0
+    local pid pids process environment result=0
     pids=$(pgrep -x gio) || result=$?
     (( result <= 1 )) || return "$result"
     for pid in $pids; do
         process=$(flea_process_dir "$pid") || return 3
         if flea_process_owned "$pid"; then
-            if tr '\0' '\n' < "$process/environ" | grep -Fx "FLEA_BIN=$flea_bin" >/dev/null \
-                && tr '\0' '\n' < "$process/environ" | grep -F "FLEA_PATH=$fixture_root/" >/dev/null; then
+            # Read once; a process that exits after the ownership check contributes no monitor.
+            if ! environment=$(tr '\0' '\n' 2>/dev/null < "$process/environ"); then
+                if flea_process_owned "$pid"; then
+                    return 3
+                else
+                    result=$?
+                    (( result != 3 )) || return 3
+                    continue
+                fi
+            fi
+            if grep -Fx "FLEA_BIN=$flea_bin" <<< "$environment" >/dev/null \
+                && grep -F "FLEA_PATH=$fixture_root/" <<< "$environment" >/dev/null; then
                 printf '%s\n' "$pid"
             fi
         else
@@ -3505,17 +3515,78 @@ xw_ipc() {
     omarchy-drive ipc -p "$boot" flea "$@"
 }
 
-# flea_pids matches a window by "$flea_ui" in its cmdline, which the copy's window never
-# carries, so the second window is stopped here rather than in kill_flea; its backend matches
-# "$flea_bin --backend" like any other and drains in kill_flea as usual.
+# Aim at this address's own empty listing centre, then raise that window before the right click.
+xw_click_background() {
+    local addr="$1" boot="$2" clients geometry pid wx wy ww wh cx cy total row centre row_x row_y row_h
+    clients=$(hyprctl clients -j) || fail "xwwatch: cannot read A's window geometry"
+    # Sample clients: [{"address":"0xaaa","class":"com.thisisgm.flea","pid":111,"at":[100,200],"size":[880,620]}].
+    geometry=$(jq -er --arg addr "$addr" --arg class "$flea_window_class" '
+        [.[] | select(.address == $addr and .class == $class)] | select(length == 1) | .[0]
+        | [.pid, .at[0], .at[1], .size[0], .size[1]]
+        | select(all(.[]; type == "number" and . == floor))
+        | select(.[0] > 0 and .[3] > 0 and .[4] > 0) | @tsv' <<< "$clients") \
+        || fail "xwwatch: A has no single valid window geometry at $addr"
+    read -r pid wx wy ww wh <<< "$geometry"
+    flea_process_owned "$pid" || fail "xwwatch: refusing background coordinates from unowned window $pid"
+    read -r cx cy <<< "$(xw_ipc "$boot" listingBackgroundCentre)"
+    [[ "$cx $cy" =~ ^[0-9]+\ [0-9]+$ ]] \
+        && (( cx < ww && cy < wh )) || fail "xwwatch: A's listing centre is outside its window"
+    total=$(xw_ipc "$boot" total)
+    row_h=$(xw_ipc "$boot" fileRowHeight)
+    [[ "$total $row_h" =~ ^[0-9]+\ [0-9]+$ ]] && (( row_h > 0 )) \
+        || fail "xwwatch: A's listing bounds are unreadable"
+    for (( row = 0; row < total; row++ )); do
+        centre=$(xw_ipc "$boot" rowCentre "$row")
+        [[ -n "$centre" ]] || continue
+        read -r row_x row_y <<< "$centre"
+        [[ "$row_y" =~ ^[0-9]+$ ]] || fail "xwwatch: A's row $row has no valid centre"
+        (( cy > row_y + row_h / 2 || cy < row_y - row_h / 2 )) \
+            || fail "xwwatch: A's background point lands on row $row"
+    done
+    hyprctl dispatch focuswindow "address:$addr" >/dev/null || fail "xwwatch: could not raise A's window"
+    omarchy-drive click "$((cx + wx))" "$((cy + wy))" right >/dev/null
+}
+
+# Stop the copied-UI window before kill_flea waits for all owned backends and Trash monitors.
 xw_kill_second() {
-    local copy="$1" pid pids
+    local copy="$1" pid pids process ownership
+    local deadline=$((SECONDS + drain_wait_s)) poll_gap_s=0.05
     pids=$(pgrep -x qs) || return 0
     for pid in $pids; do
-        if tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq -- "$copy"; then
-            kill "$pid" || [[ ! -d "/proc/$pid" ]] || fail "xwwatch: could not stop the second window $pid"
+        process=$(flea_process_dir "$pid") || return 3
+        if tr '\0' ' ' 2>/dev/null < "$process/cmdline" | grep -Fq -- "$copy"; then
+            if flea_process_owned "$pid"; then
+                kill "$pid" || [[ ! -d "$process" ]] || fail "xwwatch: could not stop the second window $pid"
+                while [[ -d "$process" ]]; do
+                    if flea_process_owned "$pid"; then
+                        (( SECONDS < deadline )) || fail "xwwatch: second window survived for $drain_wait_s s"
+                        sleep "$poll_gap_s"
+                    else
+                        ownership=$?
+                        (( ownership != 3 )) || fail "xwwatch: second window ownership became unreadable during teardown"
+                        break
+                    fi
+                done
+            else
+                ownership=$?
+                (( ownership == 2 )) || fail "xwwatch: refusing to stop unowned or unreadable second window $pid"
+            fi
         fi
     done
+}
+
+# Run both cleanup halves even if one fails, without re-entering the case's exit trap.
+xw_cleanup() {
+    local copy="$1" result=0
+    (
+        trap - EXIT
+        xw_kill_second "$copy"
+    ) || result=1
+    (
+        trap - EXIT
+        kill_flea
+    ) || result=1
+    return "$result"
 }
 
 # The hang guard in seconds: the 400 ms watch settle plus whatever the compositor and IPC cost that day, asserted as condition only.
@@ -3615,7 +3686,10 @@ xw_wait_editor() {
 }
 
 case_xwwatch() {
-    local dir="$fixture_root/xwwatch" ui_copy="$fixture_root/xwwatch-ui" addrB addrA bootA row pidB
+    local dir="$fixture_root/xwwatch" ui_copy="$fixture_root/xwwatch-ui" addrB addrA bootA row pidB cleanup_command entries
+    printf -v cleanup_command 'xw_cleanup %q || exit 1' "$ui_copy"
+    trap "$cleanup_command" EXIT
+    trap 'exit 1' HUP INT TERM
     xw_sweep_stale
     sandbox_scratch "$dir"
     sandbox_scratch "$ui_copy"
@@ -3650,8 +3724,10 @@ case_xwwatch() {
     xw_settled "$bootA"
 
     # A creates a file through its own New File row; B shows it with the same three marked.
-    xw_key "$addrA" m
+    xw_click_background "$addrA" "$bootA"
     sleep "$settle_s"
+    entries=$(xw_ipc "$bootA" contextMenuEntries)
+    [[ "$entries" == 'New Folder|New File'* ]] || fail "xwwatch: A did not open its background menu: $entries"
     xw_menu_seek "$addrA" "$bootA" "New File"
     xw_key "$addrA" -k Return
     xw_wait_editor "$bootA"
@@ -3698,8 +3774,8 @@ case_xwwatch() {
         esac
     done
     printf 'XWWATCH survivors ok\n'
-    xw_kill_second "$ui_copy"
-    kill_flea
+    xw_cleanup "$ui_copy" || fail "xwwatch: owned windows or backends did not drain"
+    trap - EXIT HUP INT TERM
 }
 
 # Issue 143, stubbed at lsblk and gio: empty, inserted and mounted optical media are all exercised without a real drive.
