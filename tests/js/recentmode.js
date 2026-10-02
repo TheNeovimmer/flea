@@ -57,7 +57,9 @@ function pane(path) {
 
 // Sample input: firstCodeLine("f() {\n// note\n  if (x) return\n}", "f() {") answers "if (x) return".
 function firstCodeLine(branch, marker) {
-    var tail = branch.substring(branch.indexOf(marker) + marker.length)
+    var at = branch.indexOf(marker)
+    if (at < 0) return "missing marker " + marker
+    var tail = branch.substring(at + marker.length)
     var lines = tail.split("\n")
     for (var i = 0; i < lines.length; i++) {
         var trimmed = lines[i].replace(/^\s+/, "")
@@ -156,6 +158,8 @@ function run(check) {
     var actBranch = Source.slice(focusSource, 'case "pasteLink":', 'case "cut":')
     check("Pane.pasteLink guards first", firstCodeLine(pasteBranch, "function pasteLink(kind, paths) {"), "if (RecentMode.refusePaste(root)) return")
     check("Focus.act guards first", firstCodeLine(actBranch, 'case "pasteHardLink":'), "if (RecentMode.refusePaste(root)) return")
+    // A missing marker names itself instead of scanning from inside the branch.
+    check("a missing marker names itself", firstCodeLine("a {\n  if (x) return\n}", 'case "nope":'), 'missing marker case "nope":')
     check("the helper stands for both routes", typeof RecentMode.refusePaste, "function")
     if (typeof RecentMode.refusePaste === "function") {
         var history = { recentMode: "results", said: "" }
