@@ -54,7 +54,7 @@ tests/js/mounts.js 383
 tests/js/menu.js 348
 tests/js/nav.js 321
 tests/js/network.js 306
-tests/js/ops.js 430
+tests/js/ops.js 448
 tests/js/settings.js 337
 tests/js/tap.js 317
 tests/columnrow-geom.qml 409
@@ -80,7 +80,7 @@ ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 838
 ui/OpenWithDialog.qml 596
 ui/Pane.qml 965
-ui/PaneMenuActions.qml 458
+ui/PaneMenuActions.qml 468
 ui/PaneWire.qml 537
 ui/PermissionsDialog.qml 627
 ui/PickerWindow.qml 770
@@ -102,7 +102,7 @@ ui/js/Keymap.js 338
 ui/js/Markdown.js 527
 ui/js/Menu.js 436
 ui/js/Drag.js 302
-ui/js/Ops.js 438
+ui/js/Ops.js 439
 ui/js/Picker.js 325
 ui/js/Settings.js 455
 ui/js/Tabs.js 399"
