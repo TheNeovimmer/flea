@@ -264,11 +264,17 @@ file went, and the held window is asked for again with no scroll, so the viewpor
 a rename editor is open (the re-read would kill it), the context menu is up or a menu action waits
 on its reply (the re-read flips `menuSelectionIdentity` and the reply is refused), a filter is
 being typed (the re-read closes the query line), a search listing is showing (the walk owns the
-rows outright), a rubber-band drag runs, a list is already in flight or a transfer waits on the
-collision card (`ui/CollideHost.qml decide` writes its transfer before it clears `pending`, so the
-transfer reaches the backend ahead of any re-read the card held back). A bare selection, and the
-path-keyed copy and cut marks which never named a row index, are not a reason to hold: another
-window's change shows at once with the same files marked. The debt is kept, not dropped: `onWatchBusyChanged` starts the 400 ms timer the moment
+rows outright), a rubber-band drag runs, a file drag runs or waits on its paths reply (the rows
+must not shift under a live pointer), any paths asker resolves (clipboard, drag, compress, Copy as,
+permissions or the anchor's own tagged ask, so two replies never cross), a list is already in flight
+or a transfer waits on the collision card (`ui/CollideHost.qml decide` writes its transfer before
+it clears `pending`, so the transfer reaches the backend ahead of any re-read the card held back).
+A bare selection, and the path-keyed copy and cut marks which never named a row index, are not a
+reason to hold: another window's change shows at once with the same files marked. Marks outside the
+held window resolve through one batched `paths` round trip before the swap and one batched `locate`
+after it, each tagged to its asker (`ui/PaneWire.qml onPaths` routes only the anchor's tag to
+`Anchor.fillPaths`, `Anchor.takeLocated` guards the locate reply by directory), and with no backend
+that can answer either the re-read waits instead. The debt is kept, not dropped: `onWatchBusyChanged` starts the 400 ms timer the moment
 the last of those clears. **The debt does not travel**: leaving the
 directory clears it, because the pane's own `onPathChanged` fires before the navigation clears
 whatever was holding it, and without that a change in the folder being left was paid for by a
@@ -3069,6 +3075,8 @@ invert, `ui/js/Permissions.js` 11 to 36 the multi summary, `ui/js/Collide.js`
 93 to 105 the link question and `ui/js/Messages.js` 97 to 104 the two replies.
 
 e80 optional preview candidate records `ui/Preview.qml` at 490 with its existing scoped ceiling, `ui/SelectionPreview.qml` at 302, `ui/js/PreviewSettle.js` at 14 and `tests/js/previewswap.js` at 267, each re-derived with `wc -l`. The exact `tests/preview-settle-live.qml` ceiling is 424 for the real Window parent, production-shaped meta and selection signals, runner-provided readable images, gate diagnostics and fresh close/reopen checks. It preserves 35 automatic and 3 seeded manual checks, the 120ms timer and <200ms duplicate bound, storage and no-swap gates, identity refresh, visibility restoration and the exact picture-capture queue order. Its runner generates a tiny JPEG with the existing ffmpeg dependency and copies it into eight names inside each fresh marked sandbox and requires exit 143, one clean DONE, exact PASS counts, no FAIL and no warnings. Native acceptance remains with the controller.
+
+xw5r2 records four ceilings, each re-derived with `wc -l`: `ui/Pane.qml` at 995 for the drag and awaitingPaths holds the anchor owns (the tool already carried 995, and this records why), `ui/PaneWire.qml` 545 to 551 for the tagged paths routing, the takeLocated guard and the anchor paths failure arm, `tests/js/drag.js` 301 to 309 for the startOffer order pin, and `tests/js/xwwatch.js` at 295 inside the hard cap for the tagged-routing, clamped-landing, failure and navigation-drop pins. `ui/js/Anchor.js` at 279 and `ui/js/AnchorHold.js` at 115 stay inside their budgets for the tag, the clamped locate landing, the failure end, the clamped grid-aware restore and the anchor-path startList; `tests/js/xwrl4.js` at 213 inside its budget for the independent locate expectations and the clamp and grid pins.
 
 ## The key table is generated
 

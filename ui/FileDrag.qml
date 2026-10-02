@@ -81,9 +81,9 @@ Item {
         root.feedback = DragOps.feedbackFor(root.dragMime[DragOps.ROWS_MIME],
             (root.dragMime["text/uri-list"] || "").split("\r\n"))
         root.showTarget("", root.feedback.dev)
-        // This enters the platform event loop; every payload field must already be fixed.
-        root.Drag.active = true
+        // Drag.Automatic runs QDrag::exec synchronously, so a finish inside it must not overwrite the hold: arm the watch first.
         if (root.pane) root.pane.dragActive = true
+        root.Drag.active = true
     }
 
     function deliverPaths(list, pending) {

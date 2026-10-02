@@ -95,7 +95,7 @@ Item {
         if (root.watchBusy)
             return
         root.stale = false
-        root.anchor = Anchor.watched(pane, null, Theme.fileRowHeight)
+        root.anchor = Anchor.watched(pane, Theme.fileRowHeight)
     }
 
     // The owed re-read goes through the timer rather than straight out of this handler: reading
@@ -162,11 +162,10 @@ Item {
         function onRows(start, items, ms, kinds, listing) { swap.takeRows(start, items, kinds, listing) }
 
         function onLocated(message) {
-            if (root.anchor && root.anchor.locateSent && !root.anchor.locateDone) {
-                if (message.directory === pane.path) {
-                    root.anchor = Anchor.fillLocated(pane, root.anchor, message.matches || [])
-                    return
-                }
+            var taken = Anchor.takeLocated(pane, root.anchor, message, Theme.fileRowHeight)
+            if (taken.handled) {
+                root.anchor = taken.anchor
+                return
             }
             if (!root.retryId || message.transferId !== root.retryId) return
             root.retryId = 0
@@ -433,9 +432,9 @@ Item {
             }
         }
 
-        // The answer to Ops.clip's askPaths; nothing reaches the clipboard until this lands.
+        // A paths reply reaches only the asker its tag names; the anchor's own is consumed above.
         function onPaths(list) {
-            if (root.anchor && root.anchor.needPaths) {
+            if (Anchor.takesPaths(pane, root.anchor)) {
                 root.anchor = Anchor.fillPaths(pane, root.anchor, list)
                 return
             }
@@ -491,6 +490,13 @@ Item {
                 if (claim && claim.kind === "drag") {
                     pane.pathsPending = null
                     claim.deliver(null, claim)
+                    if (!listingEnded) return
+                } else if (claim && claim.kind === "anchor") {
+                    // A failed anchor ask ends the anchor on its clamped index instead of stranding it.
+                    if (root.anchor && root.anchor.needPaths)
+                        root.anchor = Anchor.failAnchor(pane, root.anchor, Theme.fileRowHeight)
+                    else
+                        pane.pathsPending = null
                     if (!listingEnded) return
                 } else if (claim) pane.pathsPending = null
                 else pane.clipPending = null

@@ -52,8 +52,11 @@ function pane() {
     p.backend = {
         list: function (path) { p.sent.push("list " + path) },
         askFsInfo: function () { p.sent.push("fsinfo") },
-        window: function (start) { p.sent.push("window " + start) }
+        window: function (start) { p.sent.push("window " + start) },
+        send: function (o) { p.sent.push(o.c + ":" + (o.rows ? o.rows.join(",") : o.paths ? o.paths.length + "p" : "")) },
+        askPaths: function (r) { p.sent.push("paths:" + r.join(",")) }
     }
+    p.join = function (b, n) { return b === "/" ? "/" + n : b + "/" + n }
     // The same wrapper ui/Pane.qml carries, so the re-read takes the one route that can refuse.
     p.openWithoutHistory = function (target, options) { Nav.openWithoutHistory(p, target, options) }
     return p
@@ -71,12 +74,27 @@ function staged(names, cursor, selected) {
 }
 
 // The re-read's own request, then one rows reply carrying names at held with total.
-function landed(p, names, held, total, renames) {
-    var anchor = Anchor.watched(p, renames)
+function landed(p, names, held, total) {
+    var anchor = Anchor.watched(p)
+    if (anchor && anchor.needPaths) {
+        var need = anchor.needPaths
+        var list = need.map(function (idx) { var r = p.rowFor(idx); return r ? "/d/" + r.n : "" })
+        anchor = Anchor.fillPaths(p, anchor, list)
+    }
     p.held = held
     p.rows = names.map(function (n) { return { n: n } })
     p.total = total === undefined ? names.length : total
     var standing = Anchor.apply(p, anchor)
+    if (standing && standing.locateSent && !standing.locateDone) {
+        var matches = []
+        for (var i = 0; i < (standing.locatePaths || []).length; i++) {
+            var leaf = String(standing.locatePaths[i]).substring(3)
+            for (var r = 0; r < p.rows.length; r++) {
+                if (p.rows[r].n === leaf) { matches.push({ path: standing.locatePaths[i], index: p.held + r }); break }
+            }
+        }
+        standing = Anchor.fillLocated(p, standing, matches)
+    }
     return { anchor: anchor, standing: standing }
 }
 
@@ -155,17 +173,6 @@ function run(check) {
     check("a renamed mark goes while the cursor stays on its file", marked.cursorSetTo, 2)
     check("and the selection is empty rather than re-pointed", marked.selectionCount(), 0)
 
-    // Only a rename pair the watcher reported keeps identity across the new name. The live
-    // changed line carries no pair, so the arms above are the live behaviour; these pin the pair.
-    var paired = staged(["a", "b", "c"], 2, [0])
-    landed(paired, ["a2", "b", "c"], 0, undefined, { "a": "a2" })
-    check("a paired rename keeps the mark on the new name", paired.selectedIndices().join(","), "0")
-    check("while the cursor stays on its own file", paired.cursorSetTo, 2)
-    var pairedCursor = staged(["a", "b"], 0, [0])
-    landed(pairedCursor, ["a2", "b"], 0, undefined, { "a": "a2" })
-    check("a paired rename of the cursor file follows it", pairedCursor.cursorSetTo, 0)
-    check("and keeps its mark with it", pairedCursor.selectedIndices().join(","), "0")
-
     // Under a filter the same identity rules run over listing rows: a new matching file appears in
     // the set while the marks and the cursor follow theirs.
     var filtered = staged(["a1", "a2", "b1"], 0, [0, 1])
@@ -177,13 +184,92 @@ function run(check) {
     check("a watched re-read with a filter still only moves marks, never the query",
           kept.standing, null)
 
-    // A mark on a row the pane does not hold has no name to record, so it goes rather than
-    // re-pointing at another file when the rows land.
+    // A mark on a row the pane does not hold resolves through the production paths
+    // round trip, so it goes rather than re-pointing at another file when the rows land.
     var beyond = staged(["a", "b"], 0, [0])
     beyond.selection.toggle(9)
     landed(beyond, ["NEW", "a", "b"], 0)
     check("an unheld mark goes instead of landing on another file",
           beyond.selectedIndices().join(","), "1")
+
+    // The no-resolver fallback, named on purpose: a pane whose backend answers neither
+    // send nor askPaths holds the re-read while an unheld mark stands, as before xw5.
+    var bare = pane()
+    delete bare.backend.send
+    delete bare.backend.askPaths
+    bare.rows = [{ n: "a" }, { n: "b" }]
+    bare.total = 2
+    bare.selection.toggle(9)
+    check("with no resolver an unheld mark holds the re-read", Anchor.busy(bare), true)
+    var resolving = pane()
+    resolving.rows = [{ n: "a" }, { n: "b" }]
+    resolving.total = 2
+    resolving.selection.toggle(9)
+    check("with a resolver it holds nothing back", Anchor.busy(resolving), false)
+
+    // F1: every paths asker is tagged, so a reply reaches only the asker that sent it.
+    var taggedAnchor = { needPaths: [1], marks: [{ index: 1, name: null }] }
+    var foreign = pane()
+    foreign.pathsPending = { kind: "drag" }
+    check("a drag paths reply never fills the anchor", Anchor.takesPaths(foreign, taggedAnchor), false)
+    var owned = pane()
+    owned.pathsPending = { kind: "anchor" }
+    check("the anchor takes only its own tagged reply", Anchor.takesPaths(owned, taggedAnchor), true)
+    check("an untagged reply takes nothing", Anchor.takesPaths(pane(), taggedAnchor), false)
+    var otherAsk = pane()
+    otherAsk.pathsPending = { kind: "compress" }
+    check("another asker's paths request holds the re-read", Anchor.busy(otherAsk), true)
+    var clipAsk = pane()
+    clipAsk.clipPending = true
+    check("a clipboard resolve in flight holds the re-read", Anchor.busy(clipAsk), true)
+
+    // F2: the cursor's file is gone while marks still resolve: the cursor lands on the
+    // clamped old index at once, and the locate answer keeps it there.
+    var gone = staged(["a", "b", "c"], 0, [0, 1])
+    var goneAnchor = Anchor.watched(gone)
+    gone.held = 0
+    gone.rows = [{ n: "b" }, { n: "c" }]
+    gone.total = 2
+    var goneStanding = Anchor.apply(gone, goneAnchor)
+    check("a gone cursor file waits on its marks with the anchor standing", goneStanding === goneAnchor, true)
+    check("landed on the clamped old index", gone.cursorSetTo, 0)
+    var goneEnd = Anchor.fillLocated(gone, goneStanding, [])
+    check("the locate answer keeps the clamped cursor", goneEnd + "|" + gone.cursorSetTo, "null|0")
+    check("and the surviving mark follows its file", gone.selectedIndices().join(","), "0")
+
+    // F3: a failed anchor paths ask ends the anchor instead of stranding it.
+    var failed = staged(["a", "b"], 0, [0])
+    failed.selection.toggle(9)
+    var failedAnchor = Anchor.watched(failed)
+    check("an unheld mark waits on its paths reply", !!failedAnchor.needPaths, true)
+    check("a failed paths reply ends the anchor", Anchor.failAnchor(failed, failedAnchor), null)
+    check("on the clamped index", failed.cursorSetTo, 0)
+    check("and releases the paths claim", failed.pathsPending, null)
+    var throwing = pane()
+    throwing.rows = [{ n: "a" }]
+    throwing.total = 1
+    throwing.selection.toggle(5)
+    throwing.backend.send = function () { throw new Error("dead backend") }
+    throwing.backend.askPaths = function () { throw new Error("dead backend") }
+    var thrownAnchor = Anchor.watched(throwing)
+    check("a throwing paths send still lists", throwing.sent.join(","), "list /d,fsinfo")
+    check("and leaves no paths claim behind", thrownAnchor && !thrownAnchor.needPaths && !throwing.pathsPending, true)
+    var locatedPane = staged(["a", "b"], 0, [])
+    var locatedAnchor = Anchor.watched(locatedPane)
+    locatedAnchor.locateSent = true
+    var wrong = Anchor.takeLocated(locatedPane, locatedAnchor, { directory: "/other", matches: [] })
+    check("a locate reply for another directory keeps the anchor standing",
+          wrong.handled === false && wrong.anchor === locatedAnchor, true)
+    var refused = Anchor.takeLocated(locatedPane, locatedAnchor, { directory: "/d", ok: false, matches: [] })
+    check("a refused locate ends the anchor", refused.handled === true && refused.anchor === null, true)
+
+    // F18: a navigation while the anchor waits for its paths reply drops the anchor.
+    var moved = staged(["a", "b"], 0, [0])
+    moved.selection.toggle(9)
+    var movedAnchor = Anchor.watched(moved)
+    moved.path = "/new"
+    check("a navigation during the paths wait drops the anchor", Anchor.fillPaths(moved, movedAnchor, [""]), null)
+    check("and lists nothing for the folder just opened", moved.sent.join(","), "paths:9")
 
     // A cursor deep in a large directory: the first window cannot hold its name, so the anchor
     // stands, sweeping whatever marks that window holds, until the asked window arrives.

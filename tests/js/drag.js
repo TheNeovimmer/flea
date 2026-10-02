@@ -1,4 +1,5 @@
 .import "../../ui/js/Drag.js" as Drag
+.import "sourcefixture.js" as Source
 
 // A stub pane: what its card is asked lands in sent as is, a send straight to the backend lands wrapped, so no drop check passes by skipping the card.
 function pane(sent, picked, rows) {
@@ -298,4 +299,11 @@ function run(check) {
         Drag.shelfToken(moveDrag) + "|" + Drag.shelfCopying(moveDrag) + "|" + Drag.shelfCopying(copyDrag),
         "9f2c|false|true")
   check("and a payload that carries nothing names no token", Drag.shelfToken(""), "")
+    // F16: startOffer arms the watch before entering the platform event loop, so a
+    // finish handler running inside QDrag::exec cannot overwrite the hold afterwards.
+    // Sample input: function startOffer() { ... root.pane.dragActive = true ... root.Drag.active = true ... }.
+    var offer = Source.slice(Source.source("ui/FileDrag.qml"), "function startOffer()", "function deliverPaths")
+    var arm = offer.indexOf("root.pane.dragActive = true")
+    var exec = offer.indexOf("root.Drag.active = true")
+    check("startOffer arms the watch before entering the platform drag", arm >= 0 && exec >= 0 && arm < exec, true)
 }

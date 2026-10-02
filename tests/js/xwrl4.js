@@ -71,7 +71,7 @@ function run(check) {
     big.total = 1000
     big.cursorIndex = 0
     big.selection.all(1000)
-    var bigAnchor = Anchor.watched(big, null, 37)
+    var bigAnchor = Anchor.watched(big, 37)
     var sentPaths = false
     for (var s = 0; s < big.sent.length; s++) {
         if (big.sent[s].indexOf("paths:") === 0)
@@ -89,20 +89,22 @@ function run(check) {
     big.total = 1001
     var standing = Anchor.apply(big, bigAnchor, 37)
     check("F2 held plus locate waits instead of finishing short", standing === bigAnchor, true)
-    if (typeof Anchor.fillLocated === "function" && bigAnchor && bigAnchor.locatePaths) {
+    if (bigAnchor && bigAnchor.locatePaths) {
+        // The backend scans the whole listing, not the held window, so every name resolves
+        // at its listing index; the expectation is computed from the listing, never assigned.
+        var full = ["NEW"].concat(names)
         var matches = []
-        for (var k = 0; k < 1000; k++) {
-            var nm = names[k]
-            var idx = after.indexOf(nm)
-            if (idx >= 0)
-                matches.push({ path: "/d/" + nm, index: big.held + idx })
-            else
-                matches.push({ path: "/d/" + nm, index: names.indexOf(nm) + 1 })
-        }
-        Anchor.fillLocated(big, bigAnchor, matches)
+        for (var k = 0; k < full.length; k++)
+            matches.push({ path: "/d/" + full[k], index: big.held + k })
+        var wrongDir = Anchor.takeLocated(big, bigAnchor, { directory: "/other", matches: matches })
+        check("F2 a locate reply for another directory keeps the anchor standing",
+              wrongDir.handled === false && wrongDir.anchor === bigAnchor, true)
+        var taken = Anchor.takeLocated(big, bigAnchor, { directory: "/d", ok: true, matches: matches })
+        check("F2 the locate reply for this directory resolves the anchor",
+              taken.handled === true && taken.anchor === null, true)
     }
-    check("F2 one create keeps 1001 rows", big.total, 1001)
-    check("F2 all 1000 marks survive on the same files", big.selection.count(), 1000)
+    check("F2 one create keeps every row", big.total, names.length + 1)
+    check("F2 all marks survive on the same files", big.selection.count(), names.length)
 
     // F3: start above zero waits for the asked window when the cursor lands early.
     var mid = staged([], 315, [])
@@ -117,7 +119,7 @@ function run(check) {
     mid.total = 500
     for (var t = 335; t <= 340; t++)
         mid.selection.toggle(t)
-    var midAnchor = Anchor.watched(mid, null, 37)
+    var midAnchor = Anchor.watched(mid, 37)
     mid.held = 0
     mid.rows = []
     for (var u = 0; u < 330; u++)
@@ -149,7 +151,7 @@ function run(check) {
     view.total = 200
     view.cursorIndex = 70
     var saved = view.rows.map(function (row) { return row.n })
-    var viewAnchor = Anchor.watched(view, null, 37)
+    var viewAnchor = Anchor.watched(view, 37)
     check("F4 offset recorded", viewAnchor.offset, 190)
     check("F4 anchor name", viewAnchor.name, "h70")
     view.rows = ["NEW"].concat(saved.slice(0, 199)).map(function (n) { return { n: n } })
@@ -162,6 +164,41 @@ function run(check) {
     var rowH = 37
     var screenY = (71 * rowH) - view.listArea.contentY
     check("F4 cursor row keeps its screen y after one insert above", screenY, 190)
+
+    // F5: a restore past the origin clamps instead of drawing a blank strip above row 0.
+    var neg = pane()
+    neg.listArea = { contentY: 500, originY: 0, contentHeight: 200 * 37, height: 400,
+                     primeSettle: function () {} }
+    neg.rows = [{ n: "h0" }]
+    neg.held = 0
+    neg.total = 1
+    neg.cursorIndex = 0
+    var negAnchor = Anchor.watched(neg, 37)
+    negAnchor.offset = 600
+    neg.rows = [{ n: "h0" }]
+    neg.total = 1
+    Anchor.apply(neg, negAnchor, 37)
+    check("F5 a negative restore clamps to the origin", neg.listArea.contentY, 0)
+
+    // F5: in the grid the cursor view is a tile row, so one step down moves one cell height.
+    var grid = pane()
+    grid.viewMode = "grid"
+    grid.listArea = { contentY: 50, originY: 0, contentHeight: 3000, height: 400, columns: 3, cellHeightPx: 100,
+                      primeSettle: function () {} }
+    grid.rows = []
+    for (var g = 0; g < 30; g++)
+        grid.rows.push({ n: "h" + g })
+    grid.held = 0
+    grid.total = 30
+    grid.cursorIndex = 7
+    var gridAnchor = Anchor.watched(grid, 37)
+    check("F5 grid offset counts tile rows, not list rows", gridAnchor.offset, 150)
+    grid.rows = []
+    for (var h = 0; h < 30; h++)
+        grid.rows.push({ n: "h" + h })
+    grid.total = 30
+    Anchor.apply(grid, gridAnchor, 37)
+    check("F5 grid restore keeps the tile row's screen y", grid.listArea.contentY, 50)
 
     // F5: a drag in progress holds the re-read, and the debt runs after the drop.
     var drag = pane()

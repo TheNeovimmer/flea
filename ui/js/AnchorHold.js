@@ -1,26 +1,21 @@
 .pragma library
 
-// F2 and F4 helpers split from Anchor.js at its hard cap. Anchor owns the
-// anchor lifecycle, this owns the resolve and the viewport restore it calls.
+// The resolve and the viewport restore Anchor.js calls, split out at its hard cap.
+var FALLBACK_ROW_H = 37 // Theme.fileRowHeight when the pane names none.
+
 function hasUnheld(pane) {
-    try {
-        if (!pane.selectedIndices || !pane.rowFor)
-            return false
-        var indices = pane.selectedIndices()
-        for (var i = 0; i < indices.length; i++) {
-            if (!pane.rowFor(indices[i]))
-                return true
-        }
-    } catch (e) {}
+    if (!pane.selectedIndices || !pane.rowFor)
+        return false
+    var indices = pane.selectedIndices()
+    for (var i = 0; i < indices.length; i++) {
+        if (!pane.rowFor(indices[i]))
+            return true
+    }
     return false
 }
 
 function canResolve(pane) {
-    try {
-        if (pane.backend && (pane.backend.send || pane.backend.askPaths))
-            return true
-    } catch (e) {}
-    return false
+    return !!(pane.backend && (pane.backend.send || pane.backend.askPaths))
 }
 
 function holdLeaf(path) {
@@ -29,10 +24,29 @@ function holdLeaf(path) {
     return cut < 0 ? text : text.substring(cut + 1)
 }
 
+// The row height the anchor measures in: a grid tile row in the grid view, a text row elsewhere.
+function rowHeight(pane, rowH) {
+    if (pane.viewMode === "grid" && pane.listArea && typeof pane.listArea.cellHeightPx === "number")
+        return pane.listArea.cellHeightPx
+    return rowH || pane._rowH || FALLBACK_ROW_H
+}
+
+// The cursor's view position as a restorable row: a tile row in the grid view, a list row elsewhere.
+function viewRow(pane) {
+    var view = cursorView(pane)
+    if (pane.viewMode === "grid" && pane.listArea && typeof pane.listArea.columns === "number" && pane.listArea.columns > 0)
+        return Math.floor(view / pane.listArea.columns)
+    return view
+}
+
+// Lists the anchor's own directory; a navigation while the anchor waited drops the anchor and lists nothing, so the debt never travels.
 function startList(pane, anchor) {
-    pane.openWithoutHistory(pane.path, { keptQuery: pane.filterQuery })
+    if (!anchor || pane.path !== anchor.path)
+        return null
+    pane.openWithoutHistory(anchor.path, { keptQuery: pane.filterQuery })
     if (anchor.start > 0)
         pane.backend.window(anchor.start, pane.windowSize)
+    return anchor
 }
 
 function fillPaths(pane, anchor, list) {
@@ -47,21 +61,19 @@ function fillPaths(pane, anchor, list) {
         }
     }
     anchor.needPaths = null
-    startList(pane, anchor)
-    return anchor
+    if (pane.pathsPending && pane.pathsPending.kind === "anchor")
+        pane.pathsPending = null
+    return startList(pane, anchor)
 }
 
 function cursorView(pane) {
-    try {
-        if (pane.shown === null || pane.shown === undefined)
-            return pane.cursorIndex
-        var at = pane.shown.indexOf(pane.cursorIndex)
-        return at < 0 ? 0 : at
-    } catch (e) {}
-    return pane.cursorIndex
+    if (pane.shown === null || pane.shown === undefined)
+        return pane.cursorIndex
+    var at = pane.shown.indexOf(pane.cursorIndex)
+    return at < 0 ? 0 : at
 }
 
-function fillLocated(pane, anchor, matches, joinName) {
+function fillLocated(pane, anchor, matches) {
     if (!anchor)
         return null
     anchor.locateDone = true
@@ -73,8 +85,7 @@ function fillLocated(pane, anchor, matches, joinName) {
     var pending = []
     for (var m = 0; m < (anchor.marks || []).length; m++) {
         var mark = anchor.marks[m]
-        var key = ""
-        try { key = pane.join(pane.path, joinName(mark.name)) } catch (e) {}
+        var key = (mark.name !== null && pane.join) ? pane.join(pane.path, mark.name) : ""
         var at = byPath[key]
         if (at !== undefined && at >= 0)
             anchor.kept.push(at)
@@ -86,14 +97,19 @@ function fillLocated(pane, anchor, matches, joinName) {
 }
 
 function restoreView(pane, anchor, rowH) {
-    try {
-        var area = pane.listArea || null
-        if (!area || anchor.offset === undefined)
-            return
-        var rh = rowH || anchor.rowH || pane._rowH || 37
-        var originY = typeof area.originY === "number" ? area.originY : 0
-        var view = cursorView(pane)
-        if (typeof area.contentY === "number")
-            area.contentY = view * rh + originY - anchor.offset
-    } catch (e) {}
+    var area = pane.listArea || null
+    if (!area || anchor.offset === undefined)
+        return
+    var rh = rowHeight(pane, rowH || anchor.rowH)
+    var originY = typeof area.originY === "number" ? area.originY : 0
+    var view = viewRow(pane)
+    var y = view * rh + originY - anchor.offset
+    // A restore past either end draws a blank strip, so clamp to the area's valid range when it names one.
+    if (typeof area.contentY === "number") {
+        if (typeof area.contentHeight === "number" && typeof area.height === "number") {
+            var hi = Math.max(originY, area.contentHeight - area.height + originY)
+            y = Math.max(originY, Math.min(hi, y))
+        }
+        area.contentY = y
+    }
 }

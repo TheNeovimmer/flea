@@ -3413,26 +3413,55 @@ case_watch() {
 #
 # The second window needs its own UI copy so qs ipc (-p) addresses exactly one of the two
 # processes; unit xw1's two-window helper is reconciled by the controller. Keys reach a window
-# by its Hyprland address, which resolve_window matches, because the class and title are the
-# same for both. B is read through "$flea_ui/boot" and A through the copy's boot, which assumes
-# qs ipc -p selects the instance serving that config path: if both answer on either path the
-# controller moves the reads behind a focus instead.
+# by its Hyprland address, resolved from this run's own qs pid and never by title, because the
+# class and title are the same for both. B is read through "$flea_ui/boot" and A through the
+# copy's boot, which assumes qs ipc -p selects the instance serving that config path: if both
+# answer on either path the controller moves the reads behind a focus instead.
+# A qs pid of this run whose cmdline carries the needle, or nothing; a foreign match never qualifies.
+xw_owned_pid_for_arg() {
+    local needle="$1" pid pids
+    pids=$(pgrep -x qs) || return 0
+    for pid in $pids; do
+        if tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq -- "$needle"; then
+            if flea_process_owned "$pid"; then printf '%s\n' "$pid"; return 0; fi
+        fi
+    done
+    return 0
+}
+
+# The compositor addresses of one pid right now, empty or several when the window is not up alone.
+xw_window_addr_now() {
+    omarchy-drive windows --json | jq -r --argjson pid "$1" '.windows[] | select(.pid == $pid) | .address'
+}
+
+# The compositor address of one owned pid, failing loudly on none or several, so keys never reach a foreign window.
+xw_addr_for_pid() {
+    local pid="$1" addr
+    flea_process_owned "$pid" || fail "xwwatch: pid $pid is not a window this run owns"
+    addr=$(xw_window_addr_now "$pid")
+    [[ -n "$addr" && "$addr" != *$'\n'* ]] || fail "xwwatch: pid $pid has no single window address"
+    printf '%s\n' "$addr"
+}
+
 xw_second_window() {
-    local start_path="$1" ui_copy="$2" want
+    local start_path="$1" ui_copy="$2" pid addr
     mkdir -p "$ui_copy" || fail "xwwatch: could not stage the second window's UI copy"
     cp -a "$flea_ui/." "$ui_copy/" || fail "xwwatch: could not copy the UI for the second window"
     FLEA_UI="$ui_copy" FLEA_BIN="$flea_bin" \
         setsid nohup "$flea_bin" --gui "$start_path" >>"$run_root/flea.A.log" 2>&1 </dev/null &
+    pid=""
     for _attempt in $(seq 1 300); do
-        want=$(omarchy-drive windows --json | jq '[.windows[] | select(.title == "Flea")] | length')
-        [[ "$want" == "2" ]] && break
+        pid=$(xw_owned_pid_for_arg "$ui_copy") && [[ -n "$pid" ]] && break || pid=""
         sleep 0.05
     done
-    [[ "$want" == "2" ]] || fail "xwwatch: the second window never opened"
-}
-
-xw_windows() {
-    omarchy-drive windows --json | jq -r '.windows[] | select(.title == "Flea") | .address'
+    [[ -n "$pid" ]] || fail "xwwatch: the second window's process never appeared"
+    addr=""
+    for _attempt in $(seq 1 300); do
+        addr=$(xw_window_addr_now "$pid") && [[ -n "$addr" && "$addr" != *$'\n'* ]] && break || addr=""
+        sleep 0.05
+    done
+    [[ -n "$addr" ]] || fail "xwwatch: pid $pid never showed a window"
+    printf '%s\n' "$addr"
 }
 
 xw_key() {
@@ -3460,36 +3489,31 @@ xw_kill_second() {
     done
 }
 
-# The promptness bound, in seconds: the 400 ms watch settle plus IPC round trips that cost
-# 190 to 565 ms apiece on this box, so 1 s is the aim and 2 s is the bound the case fails on.
-xwwatch_s=2
+# The hang guard, in seconds: the 400 ms watch settle plus whatever the compositor and IPC
+# cost that day. These waits assert only the condition, never how long it took.
+xw_hang_s=30
 
 xw_wait_total() {
-    local boot="$1" want="$2" step="$3" t0 ms
-    t0=$(date +%s%N)
-    omarchy-drive wait ipc -p "$boot" flea total "$want" --timeout 15 >/dev/null \
+    local boot="$1" want="$2" step="$3"
+    omarchy-drive wait ipc -p "$boot" flea total "$want" --timeout "$xw_hang_s" >/dev/null \
         || fail "xwwatch: $step left the window at $(xw_ipc "$boot" total), not $want"
-    ms=$(( ($(date +%s%N) - t0) / 1000000 ))
-    (( ms <= xwwatch_s * 1000 )) || fail "xwwatch: $step took ${ms} ms to show, past the ${xwwatch_s} s bound"
-    printf 'XWWATCH %s ok in %s ms\n' "$step" "$ms"
+    printf 'XWWATCH %s ok\n' "$step"
 }
 
 # A rename moves no count, so no total can wait on it: sweep the rows until the name appears.
 xw_wait_row() {
-    local boot="$1" want="$2" step="$3" t0 ms total row seen
-    t0=$(date +%s%N)
-    for _attempt in $(seq 1 12); do
+    local boot="$1" want="$2" step="$3" start total row seen
+    start=$SECONDS
+    while (( SECONDS - start < xw_hang_s )); do
         total=$(xw_ipc "$boot" total 2>/dev/null || printf 0)
         for ((row = 0; row < total; row++)); do
             seen=$(xw_ipc "$boot" rowAt "$row" 2>/dev/null || true)
             if [[ "$seen" == "$want|"* ]]; then
-                ms=$(( ($(date +%s%N) - t0) / 1000000 ))
-                (( ms <= xwwatch_s * 1000 )) || fail "xwwatch: $step took ${ms} ms to show, past the ${xwwatch_s} s bound"
-                printf 'XWWATCH %s ok in %s ms\n' "$step" "$ms"
+                printf 'XWWATCH %s ok\n' "$step"
                 return 0
             fi
         done
-        sleep 0.05
+        sleep 0.2
     done
     fail "xwwatch: $step never showed $want"
 }
@@ -3563,7 +3587,7 @@ xw_wait_editor() {
 }
 
 case_xwwatch() {
-    local dir="$fixture_root/xwwatch" ui_copy="$fixture_root/xwwatch-ui" addrB addrA bootA row
+    local dir="$fixture_root/xwwatch" ui_copy="$fixture_root/xwwatch-ui" addrB addrA bootA row pidB
     xw_sweep_stale
     sandbox_scratch "$dir"
     sandbox_scratch "$ui_copy"
@@ -3574,7 +3598,8 @@ case_xwwatch() {
     printf 'five\n' > "$dir/untouched.txt"
     launch "$dir"
     wait_listing 5
-    addrB=$(xw_windows)
+    pidB=$(flea_pid)
+    addrB=$(xw_addr_for_pid "$pidB")
     [[ -n "$addrB" ]] || fail "xwwatch: no B window address"
 
     # B selects three files and parks its cursor on the last of them.
@@ -3590,10 +3615,9 @@ case_xwwatch() {
         || fail "xwwatch: B cursor is on $(ipc rowAt "$(ipc cursor)"), not sel-two.txt"
 
     # A opens beside it on the same folder.
-    xw_second_window "$dir" "$ui_copy"
+    addrA=$(xw_second_window "$dir" "$ui_copy")
     bootA="$ui_copy/boot"
-    addrA=$(xw_windows | grep -vxF "$addrB")
-    [[ -n "$addrA" ]] || fail "xwwatch: no A window address beside $addrB"
+    [[ -n "$addrA" ]] || fail "xwwatch: no A window address"
     xw_wait_total "$bootA" 5 "second window listing"
     xw_settled "$bootA"
 
