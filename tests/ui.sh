@@ -111,7 +111,7 @@ rail_poll_wait_s=7
 settle_s=0.4
 # Async backend answers land within 15 s, so every makeexec and touchpad poll shares this bound.
 async_wait_ms=15000
-# One virtual-touchpad stroke spans 40 mm in 120 ms, holds still 1 s, and must rest within 2 px.
+# A virtual-touchpad stroke spans 40 mm in 120 ms; its rest is the value that holds 1 s, within 2 px.
 touchpad_dy_mm=40
 touchpad_ms=120
 touchpad_still_ms=1000
