@@ -184,6 +184,9 @@ function run(check) {
     var refused = { listInFlight: true, listedSeen: true, swap: { drop: function () { refused.dropped = true } } }
     check("a stale refusal ended only its own request, so the listing out stays out and its rows stay held",
           Swap.failListing(refused, "stale") + "|" + (refused.dropped === true) + "|" + refused.listInFlight, "false|false|true")
+    var windowing = { listInFlight: true, listedSeen: true, swap: { drop: function () { windowing.dropped = true } } }
+    check("a window error ended only its own request, so the listing out stays out and its rows stay held",
+          Swap.failListing(windowing, "window") + "|" + (windowing.dropped === true) + "|" + windowing.listInFlight, "false|false|true")
 
     // What a pane answers while a listing is out, held or fallen back: nothing that acts on a row.
     var rowActions = ["cursorDown", "cursorFirst", "pageDown", "toggleSelect", "selectAll", "trashArm", "trash", "copy",

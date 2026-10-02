@@ -47,6 +47,8 @@ Item {
     signal linkTarget(string path, string directory, string name)
     signal trashed(int ok, int failed)
     signal renamed(bool ok, string path)
+    // A remote write past its deadline answers this first and its own reply later; see docs/protocol.md "slow".
+    signal slowOp(string op, string path, string msg)
     signal made(bool ok, string path)
     signal duplicated(bool ok, string path)
     signal undone(string op, bool ok)

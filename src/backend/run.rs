@@ -1,4 +1,5 @@
 use crate::backend::meta::stat_range;
+use crate::backend::meta::Meta;
 use crate::backend::archivereq::{formats_line, start_archive, start_convert};
 use crate::backend::convert;
 use crate::backend::peek::peek_line;
@@ -8,7 +9,6 @@ use crate::backend::opsreq::OpMsg;
 use crate::backend::dirsizereq::{queue_dirsizes, seed_answered, start_next, report_done as report_dirsize};
 use crate::backend::events::{spawn_forwarder, spawn_op_forwarder, spawn_reader, Event};
 use crate::backend::fsinfo::fsinfo_line;
-use crate::backend::fsinfo::dev_of;
 use crate::backend::fsinforeq::FsInfo;
 use crate::backend::listpaths;
 use crate::backend::proto::{error_line, error_line_with_mode, listed_line, listed_line_anchor, parse_request, paths_line, thumbed_line, Request};
@@ -189,8 +189,8 @@ fn handle_line(
                     fsinfo.list_arrived(Path::new(&path));
                 }
                 Err(failed) => {
-                    // The listing did not move, so neither does its watch.
-                    watch.abandon();
+                    // The listing did not move, so the loop removes the watch the failed scan armed.
+                    watch.abandon_wd(failed.watch_wd);
                     // A typed path reaches the denial with no parent row to remember the mode from,
                     // so the stat that survives the refused read is the pane's only source for it.
                     if failed.mode == 0 {
@@ -209,12 +209,7 @@ fn handle_line(
             listpaths::answer(out, st, pool, tb, &paths, first, line)
         }
         Request::Window { start, count } => {
-            let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
-            let base = st.base.clone();
-            let listing = st.listing.clone();
-            match super::iomount::call(&base.clone(), &body, "window", move || {
-                super::meta::stat_range(&base, &listing, start, count)
-            }) {
+            match window_metas(st, start, count) {
                 Ok((metas, ms)) => {
                     let start_w = start.min(st.listing.len());
                     let mut kinds = tb.kinds.borrow_mut();
@@ -237,9 +232,15 @@ fn handle_line(
             watch.stop();
             forget_rows(st, pool);
             // The client is told at once that its old rows are gone, then the count grows as matches arrive.
-            writeln!(out, "{}", listed_line(0, 0.0, 0.0, dev_of(&st.base), &st.base.to_string_lossy(), crate::backend::ops::dir_writable(&st.base))).ok();
-            st.search = Some(Search::new(&path, &query, hidden));
-            st.search_reported = Instant::now();
+            match search_root_info(&st.base) {
+                // A root that answers nothing starts no walk, so no terminal line can strand it.
+                Err(e) => { writeln!(out, "{}", error_line(&e)).ok(); }
+                Ok((dev, writable)) => {
+                    writeln!(out, "{}", listed_line(0, 0.0, 0.0, dev, &st.base.to_string_lossy(), writable)).ok();
+                    st.search = Some(Search::new(&path, &query, hidden));
+                    st.search_reported = Instant::now();
+                }
+            }
             out.flush().ok();
         }
         Request::SearchCancel => {
@@ -488,4 +489,59 @@ pub fn write_window(out: &mut impl Write, st: &State, start: usize, count: usize
     let mut kinds = tb.kinds.borrow_mut();
     let line = rows_line(&st.listing, &metas, start, ms, &tb.mime, &tb.icons, &tb.aliases, &tb.thumbs, &mut kinds);
     writeln!(out, "{}", super::rowguard::stamped(line, st.generation)).ok();
+}
+
+// The walk root's figures, statted through the bound so a dead server answers instead of hanging.
+pub(crate) fn search_root_info(base: &Path) -> Result<(u64, bool), FleaError> {
+    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+    let owned = base.to_path_buf();
+    let key = owned.clone();
+    super::iomount::call(&key, &body, "search", move || (super::fsinfo::dev_of(&owned), super::ops::dir_writable(&owned)))
+}
+
+// One window's metas: remoteness is decided before anything is moved, so a local window
+// stats inline with no clone and a remote one moves only its rows to the worker.
+pub(crate) fn window_metas(st: &State, start: usize, count: usize) -> Result<(Vec<Meta>, f64), FleaError> {
+    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+    if super::iomount::is_remote(&st.base, &body) {
+        let rows = super::meta::window_rows(&st.listing, start, count);
+        let base = st.base.clone();
+        super::iomount::call(&base.clone(), &body, "window", move || super::meta::stat_window_rows(&base, &rows))
+    } else {
+        Ok(super::meta::stat_range(&st.base, &st.listing, start, count))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::testdir::TestDir;
+
+    // A local window stats inline: an O(directory) copy per scroll breaks load-bearing rule 1.
+    #[test]
+    fn a_local_window_stats_inline_with_no_bound_call() {
+        crate::backend::iomount::test_reset();
+        let d = TestDir::new("windowlocal");
+        d.file("a.txt", "a");
+        d.file("b.txt", "b");
+        let (tx, _rx) = channel::<Event>();
+        let mut st = State::new(crate::backend::dirsizeworker::Worker::new(tx));
+        st.base = d.path().to_path_buf();
+        st.listing.push("a.txt", false);
+        st.listing.push("b.txt", false);
+        let (metas, _) = window_metas(&st, 0, 10).expect("a local window answers");
+        assert_eq!(metas.len(), 2, "the window carries its rows");
+        assert_eq!(crate::backend::iomount::test_calls(), 0, "a local window takes no bound call and clones no listing");
+    }
+
+    // The search root's figures go through the bound, so a dead server answers instead of hanging.
+    #[test]
+    fn a_search_root_is_statted_through_the_bound() {
+        crate::backend::iomount::test_reset();
+        let d = TestDir::new("searchroot");
+        let (dev, writable) = search_root_info(d.path()).expect("a live root answers");
+        assert_eq!(dev, crate::backend::fsinfo::dev_of(d.path()), "the bound answers the root's own figures");
+        assert!(writable, "the sandbox is writable");
+        assert_eq!(crate::backend::iomount::test_calls(), 1, "the root's stat takes exactly one bound call");
+    }
 }

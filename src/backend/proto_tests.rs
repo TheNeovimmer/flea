@@ -281,3 +281,11 @@ fn a_jump_request_carries_both_client_sources_and_a_bare_one_carries_none() {
     assert!(matches!(parse_request(r#"{"c":"jump"}"#),
         Request::Jump { id: 0, favourites, recent } if favourites.is_empty() && recent.is_empty()));
 }
+
+#[test]
+fn slow_names_its_op_path_and_sentence() {
+    assert_eq!(
+        slow_line("rename", "/hung/a.txt", "/hung is slow. The rename continues and will finish on its own."),
+        r#"{"t":"slow","op":"rename","path":"/hung/a.txt","msg":"/hung is slow. The rename continues and will finish on its own."}"#
+    );
+}

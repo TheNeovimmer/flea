@@ -1,11 +1,11 @@
-// Path syscalls leave the loop for mount-keyed workers; see AGENTS.md "The open directory is watched".
+// Path syscalls leave the loop for mount-keyed workers; see AGENTS.md "Mount workers".
 use crate::error::FleaError;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 // One deadline for a single path call, well past a cold listing and under every rail bound.
-const CALL_DEADLINE: Duration = Duration::from_secs(5);
+pub(crate) const CALL_DEADLINE: Duration = Duration::from_secs(5);
 // One deadline for a bulk pass, matching gio and mount rather than a single stat.
 const BULK_DEADLINE: Duration = Duration::from_secs(15);
 // A stuck mount answers at once until this passes, then the next request probes it again.
@@ -51,7 +51,7 @@ pub fn not_responding(where_: &str, path: &Path, mount: &Path) -> FleaError {
         msg: format!("{} is not responding.", mount.display()),
     }
 }
-// Stub: runs inline with no bound, so the hung test below blocks and goes red.
+// Single-path bound: CALL_DEADLINE on a worker, then stuck for STUCK_TTL.
 pub fn call<T: Send + 'static>(
     path: &Path,
     body: &str,
@@ -59,6 +59,14 @@ pub fn call<T: Send + 'static>(
     f: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, FleaError> {
     call_with(path, body, where_, CALL_DEADLINE, STUCK_TTL, f)
+}
+// A worker that died before answering is this machine's fault, never the mount's.
+pub(crate) fn internal_failure(where_: &str, path: &Path) -> FleaError {
+    FleaError {
+        where_: where_.to_string(),
+        path: path.to_string_lossy().to_string(),
+        msg: "the worker stopped without answering.".to_string(),
+    }
 }
 // A remote call runs on a worker with a deadline; a local call runs inline with no hop.
 pub fn call_with<T: Send + 'static>(
@@ -69,6 +77,20 @@ pub fn call_with<T: Send + 'static>(
     ttl: Duration,
     f: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, FleaError> {
+    call_with_flag(path, body, where_, deadline, ttl, &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), f)
+}
+// The flag is set only on a timeout, so the list worker knows its watch outlived its call.
+pub fn call_with_flag<T: Send + 'static>(
+    path: &Path,
+    body: &str,
+    where_: &str,
+    deadline: Duration,
+    ttl: Duration,
+    timed_out: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    f: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, FleaError> {
+    #[cfg(test)]
+    CALLS.with(|calls| calls.set(calls.get() + 1));
     let mount = mount_key(path, body);
     if is_stuck(&mount, ttl) {
         return Err(not_responding(where_, path, &mount));
@@ -85,11 +107,88 @@ pub fn call_with<T: Send + 'static>(
             clear_stuck(&mount);
             Ok(value)
         }
-        Err(_) => {
+        // A panic drops tx, so only a deadline still running marks the mount stuck.
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            timed_out.store(true, std::sync::atomic::Ordering::SeqCst);
             mark_stuck(&mount);
             Err(not_responding(where_, path, &mount))
         }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(internal_failure(where_, path)),
     }
+}
+// The mount table every write decision reads; tests map a sandbox onto a fake mount through it.
+pub fn mount_body() -> String {
+    #[cfg(test)]
+    if let Some(body) = TEST_BODY.with(|slot| slot.borrow().clone()) {
+        return body;
+    }
+    std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default()
+}
+// A remote write either answers in time or stays running past the deadline; the loop moves on and the worker reports late.
+pub enum SlowWrite<T> {
+    Ready(Result<T, FleaError>),
+    Slow { mount: PathBuf, rx: std::sync::mpsc::Receiver<Result<T, FleaError>> },
+}
+// One sentence naming the mount, sharing defect 23's mount-first shape but never its verdict.
+pub fn slow_sentence(mount: &Path, verb: &str) -> String {
+    format!("{} is slow. The {} continues and will finish on its own.", mount.display(), verb)
+}
+// A remote write runs on its own worker with the deadline; a local write runs inline with no hop.
+// The deadline is a parameter so tests hold a worker past a short bound instead of the production five seconds.
+pub fn slow_write_with<T: Send + 'static>(
+    path: &Path,
+    body: &str,
+    where_: &str,
+    deadline: Duration,
+    f: impl FnOnce() -> Result<T, FleaError> + Send + 'static,
+) -> SlowWrite<T> {
+    #[cfg(test)]
+    CALLS.with(|calls| calls.set(calls.get() + 1));
+    let mount = mount_key(path, body);
+    if !is_remote(path, body) {
+        return SlowWrite::Ready(f());
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    match rx.recv_timeout(deadline) {
+        Ok(done) => SlowWrite::Ready(done),
+        // A write still running is never a failure and never marks its mount: its worker reports late.
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => SlowWrite::Slow { mount, rx },
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => SlowWrite::Ready(Err(internal_failure(where_, path))),
+    }
+}
+// Thread-local, so parallel suites never see each other's calls; tests reset it with test_reset.
+#[cfg(test)]
+thread_local! {
+    static CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+// Thread-local, so one suite mapping its sandbox onto a fake mount never leaks into the next.
+#[cfg(test)]
+thread_local! {
+    static TEST_BODY: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+// Holds mount_body on the fake table until the guard drops, so a sandbox reads as remote.
+#[cfg(test)]
+pub struct BodyGuard;
+// Maps mount_body onto the fake table; the worker never reads it, so holding it is race free.
+#[cfg(test)]
+pub fn test_hold_body(body: String) -> BodyGuard {
+    TEST_BODY.with(|slot| *slot.borrow_mut() = Some(body));
+    BodyGuard
+}
+// Dropping the guard hands mount_body back to the live table, so no later test reads the fake one.
+#[cfg(test)]
+impl Drop for BodyGuard {
+    fn drop(&mut self) {
+        TEST_BODY.with(|slot| *slot.borrow_mut() = None);
+    }
+}
+// How many bounded calls this thread made since the last reset, local or remote alike.
+#[cfg(test)]
+pub fn test_calls() -> usize {
+    CALLS.with(|calls| calls.get())
 }
 // Bulk passes share the single-call sentence and bound, with their own longer deadline.
 pub fn call_bulk<T: Send + 'static>(
@@ -104,6 +203,7 @@ pub fn call_bulk<T: Send + 'static>(
 #[cfg(test)]
 pub fn test_reset() {
     stuck_table().lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clear();
+    CALLS.with(|calls| calls.set(0));
 }
 // One listing's syscalls, computed on a worker with the listing, never on the loop.
 pub struct ListOut {
@@ -118,10 +218,12 @@ pub struct ListOut {
     pub watch_wd: i32,
 }
 // A failed listing carries its mode for the denial tile, or zero when no stat ran.
+// watch_wd is the descriptor the worker armed, or -1 when none needs removing.
 #[derive(Debug)]
 pub struct ListErr {
     pub error: FleaError,
     pub mode: u32,
+    pub watch_wd: i32,
 }
 // Sample request: {"c":"list","path":"/hung/dir","first":350,"hidden":false} on an nfs mount.
 pub fn list_dir(
@@ -134,17 +236,20 @@ pub fn list_dir(
 ) -> Result<ListOut, ListErr> {
     let path_buf = std::path::PathBuf::from(&path);
     let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
-    call(&path_buf, &body, "scan", move || {
+    // Set on a timeout, so a worker finishing after its call removes the watch it armed.
+    let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = std::sync::Arc::clone(&timed_out);
+    call_with_flag(&path_buf, &body, "scan", CALL_DEADLINE, STUCK_TTL, &timed_out, move || {
         let base = std::path::PathBuf::from(&path);
         let wd = super::watch::Watch::add_raw(fd, &base);
-        match super::scan::scan(&path, hidden) {
+        let mut out = match super::scan::scan(&path, hidden) {
             Ok((mut l, read_ms)) => {
                 super::picker::filter_listing(&mut l, &mime, &line);
                 let (pass_ms, sort_ms, sized) = match super::ordering::request(&mut l, &base, &mime, &line) {
                     Ok(timing) => timing,
                     Err(msg) => {
                         let error = FleaError { where_: "sort".to_string(), path: path.clone(), msg: msg.to_string() };
-                        return Err(ListErr { error, mode: 0 });
+                        return Err(ListErr { error, mode: 0, watch_wd: wd });
                     }
                 };
                 let dev = super::fsinfo::dev_of(&base);
@@ -154,11 +259,20 @@ pub fn list_dir(
             }
             Err(e) => {
                 let mode = super::scan::mode_of(&path);
-                Err(ListErr { error: e, mode })
+                Err(ListErr { error: e, mode, watch_wd: wd })
+            }
+        };
+        // The loop already answered the timeout and owns no descriptor, so the late worker removes its own.
+        if flag.load(std::sync::atomic::Ordering::SeqCst) {
+            super::watch::Watch::remove_raw(fd, wd);
+            match &mut out {
+                Ok(done) => done.watch_wd = -1,
+                Err(failed) => failed.watch_wd = -1,
             }
         }
+        out
     })
-    .map_err(|timeout| ListErr { error: timeout, mode: 0 })
+    .map_err(|timeout| ListErr { error: timeout, mode: 0, watch_wd: -1 })
     .and_then(|inner| inner)
 }
 #[cfg(test)]
@@ -171,11 +285,16 @@ mod tests {
     const TEST_TTL: Duration = Duration::from_secs(60);
     // Outer bound for the thread running call, past one deadline with room for spawn.
     const TEST_ASSERT_BOUND: Duration = Duration::from_secs(2);
-    // Sample body: root ext4, a hung nfs mount and a healthy ext4 mount side by side.
-    const BODY: &str = "1 0 8:1 / / rw - ext4 /dev/a rw\n30 1 0:45 / /hung rw - nfs n:/s rw\n31 1 8:17 / /healthy rw - ext4 /dev/b rw\n";
+    // Margin past a slow deadline, so scheduling noise never flakes the slow proof.
+    const TEST_SLOW_MARGIN: Duration = Duration::from_secs(2);
+    // A stuck mark answers at once, far inside any deadline, so this pins the fast path.
+    const TEST_FAST_BOUND: Duration = Duration::from_millis(100);
+    // Sample body: root ext4, a hung nfs mount and a second healthy nfs mount side by side.
+    const BODY: &str = "1 0 8:1 / / rw - ext4 /dev/a rw\n30 1 0:45 / /hung rw - nfs n:/s rw\n31 1 0:46 / /hung2 rw - nfs n:/t rw\n";
     #[test]
     fn a_hung_mount_answers_not_responding_while_a_healthy_mount_still_answers() {
         test_reset();
+        assert!(is_remote(Path::new("/hung2/dir"), BODY), "the neighbour is a second remote mount with its own worker");
         let (tx_hung, rx_hung) = channel::<()>();
         let hung_done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let hung_flag = std::sync::Arc::clone(&hung_done);
@@ -201,9 +320,164 @@ mod tests {
         let err = hung.expect_err("a hung mount answers with an error, never a value");
         assert!(err.msg.contains("not responding"), "the sentence names the cause: {}", err.msg);
         assert_eq!(err.where_, "scan");
-        let healthy = call_with(Path::new("/healthy/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, || 7);
+        let neighbour_ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let neighbour_flag = std::sync::Arc::clone(&neighbour_ran);
+        let healthy = call_with(Path::new("/hung2/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, move || {
+            neighbour_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+            7
+        });
         assert_eq!(healthy.unwrap(), 7, "a stuck mount never blocks its neighbour");
+        assert!(neighbour_ran.load(std::sync::atomic::Ordering::SeqCst), "the neighbour ran on its own worker");
+        // A second call on the stuck mount answers at once without running its closure.
+        let stuck_ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stuck_flag = std::sync::Arc::clone(&stuck_ran);
+        let t = std::time::Instant::now();
+        let again = call_with(Path::new("/hung/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, move || {
+            stuck_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+            42
+        });
+        let fast = t.elapsed();
+        let err = again.expect_err("a stuck mount answers with an error, never a value");
+        assert!(err.msg.contains("not responding"), "the sentence names the cause: {}", err.msg);
+        assert!(!stuck_ran.load(std::sync::atomic::Ordering::SeqCst), "the stuck fast path runs no worker");
+        assert!(fast < TEST_FAST_BOUND, "the stuck fast path answers at once: {:?}", fast);
         drop(tx_hung);
         test_reset();
+    }
+    #[test]
+    fn a_worker_that_dies_marks_nothing_stuck_and_says_so() {
+        test_reset();
+        // The closure panics, so tx drops and recv_timeout answers Disconnected.
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let dead = call_with(Path::new("/hung/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, || -> i32 {
+            panic!("a decoder died");
+        });
+        std::panic::set_hook(hook);
+        let err = dead.expect_err("a dead worker answers with an error, never a value");
+        assert!(!err.msg.contains("not responding"), "a dead worker is not a stuck mount: {}", err.msg);
+        assert!(err.msg.contains("without answering"), "the sentence names the dead worker: {}", err.msg);
+        let live = call_with(Path::new("/hung/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, || 7);
+        assert_eq!(live.unwrap(), 7, "a dead worker never marks its mount stuck");
+        test_reset();
+    }
+    #[test]
+    fn a_slow_write_answers_slow_within_its_deadline_while_a_second_mount_answers() {
+        test_reset();
+        let (release, wait) = channel::<()>();
+        let (tx_slow, rx_slow) = channel();
+        std::thread::spawn(move || {
+            let out = slow_write_with(Path::new("/hung/dir"), BODY, "rename", TEST_DEADLINE, move || {
+                let _ = wait.recv();
+                Ok::<i32, FleaError>(42)
+            });
+            let _ = tx_slow.send(out);
+        });
+        // Past one deadline the held write answers Slow, never a failure for work still running.
+        let out = rx_slow.recv_timeout(TEST_DEADLINE + TEST_SLOW_MARGIN).expect("a held write answers Slow within its deadline");
+        let (mount, pending) = match out {
+            SlowWrite::Slow { mount, rx } => (mount, rx),
+            SlowWrite::Ready(_) => panic!("a write still running answers Slow, never Ready"),
+        };
+        assert_eq!(mount, PathBuf::from("/hung"), "the slow answer names the mount, not the file");
+        // While the first mount is held, a second mount answers on its own worker.
+        let neighbour = slow_write_with(Path::new("/hung2/dir"), BODY, "scan", TEST_DEADLINE, || Ok::<i32, FleaError>(7));
+        match neighbour {
+            SlowWrite::Ready(Ok(7)) => {}
+            _ => panic!("a held mount never blocks its neighbour"),
+        }
+        drop(release);
+        let landed = pending.recv_timeout(TEST_ASSERT_BOUND).expect("a released write lands");
+        assert_eq!(landed.unwrap(), 42, "the held write runs to its end and reports");
+        // A slow write never marks its mount stuck: a read right after still runs its closure.
+        let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = std::sync::Arc::clone(&ran);
+        let live = call_with(Path::new("/hung/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, move || {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+            7
+        });
+        assert_eq!(live.unwrap(), 7, "a slow write never marks its mount stuck");
+        assert!(ran.load(std::sync::atomic::Ordering::SeqCst), "the read after a slow line runs its closure");
+        test_reset();
+    }
+    #[test]
+    fn a_write_that_answers_in_time_reports_ready_with_no_slow() {
+        test_reset();
+        let fast = slow_write_with(Path::new("/hung/dir"), BODY, "rename", TEST_DEADLINE, || Ok::<i32, FleaError>(7));
+        match fast {
+            SlowWrite::Ready(Ok(7)) => {}
+            _ => panic!("a fast write answers Ready, never Slow"),
+        }
+        // A local mount runs inline with no hop, so its write never waits on a worker.
+        let local = slow_write_with(Path::new("/elsewhere/dir"), BODY, "rename", TEST_DEADLINE, || Ok::<i32, FleaError>(7));
+        match local {
+            SlowWrite::Ready(Ok(7)) => {}
+            _ => panic!("a local write answers inline"),
+        }
+        test_reset();
+    }
+    #[test]
+    fn a_slow_worker_that_dies_marks_nothing_stuck_and_says_so() {
+        test_reset();
+        // The closure panics, so tx drops and the slow wait answers Disconnected.
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let dead = slow_write_with(Path::new("/hung/dir"), BODY, "rename", TEST_DEADLINE, || -> Result<i32, FleaError> {
+            panic!("a decoder died");
+        });
+        std::panic::set_hook(hook);
+        match dead {
+            SlowWrite::Ready(Err(err)) => assert!(err.msg.contains("without answering"), "a dead worker is not a stuck mount: {}", err.msg),
+            _ => panic!("a dead worker answers Ready with its failure, never Slow"),
+        }
+        let live = call_with(Path::new("/hung/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, || 7);
+        assert_eq!(live.unwrap(), 7, "a dead worker never marks its mount stuck");
+        test_reset();
+    }
+    #[test]
+    fn a_failed_scan_hands_back_the_watch_it_armed() {
+        test_reset();
+        let sandbox = crate::backend::testdir::TestDir::new("listwd");
+        let file = sandbox.file("a.txt", "a");
+        let (tx, _rx) = channel::<crate::backend::events::Event>();
+        let watch = crate::backend::watch::Watch::start(tx);
+        let mime = std::sync::Arc::new(crate::backend::mime::Db::load());
+        let failed = match list_dir(file.to_string_lossy().to_string(), false, 10, String::new(), mime, watch.raw_fd()) {
+            Err(failed) => failed,
+            Ok(_) => panic!("a file is not a listing"),
+        };
+        assert!(failed.watch_wd >= 0, "the loop must remove what the worker armed");
+    }
+    #[test]
+    fn a_list_dir_says_when_the_directory_cannot_be_written() {
+        use std::os::unix::fs::PermissionsExt;
+        test_reset();
+        let sandbox = crate::backend::testdir::TestDir::new("listw");
+        let locked = sandbox.dir("locked");
+        sandbox.file("locked/a.txt", "a");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let (tx, _rx) = channel::<crate::backend::events::Event>();
+        let watch = crate::backend::watch::Watch::start(tx.clone());
+        let tb = crate::backend::state::Tables::load();
+        let line = format!(r#"{{"c":"list","path":"{}","first":10}}"#, locked.to_string_lossy());
+        let done = match list_dir(
+            locked.to_string_lossy().to_string(), false, 10, line,
+            std::sync::Arc::clone(&tb.mime), watch.raw_fd(),
+        ) {
+            Ok(done) => done,
+            Err(failed) => panic!("a readable locked directory lists: {}", failed.error.msg),
+        };
+        assert!(!done.writable, "a 0o555 directory answers not writable");
+        let (results, _drained) = channel::<crate::backend::thumbs::Done>();
+        let pool = crate::backend::thumbs::Pool::new(
+            1, results, crate::backend::thumbcache::default_root(),
+            std::sync::Arc::clone(&tb.aliases), std::sync::Arc::clone(&tb.thumbs),
+        );
+        let mut st = crate::backend::state::State::new(crate::backend::dirsizeworker::Worker::new(tx));
+        let mut out = Vec::<u8>::new();
+        crate::backend::run::adopt_listed(&mut out, &mut st, &pool, &tb, &locked.to_string_lossy(), done);
+        let text = String::from_utf8(out).expect("the wire is utf-8");
+        assert!(text.contains(r#""w":false"#), "the listed line carries the worker's writability: {}", text);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 }

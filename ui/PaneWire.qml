@@ -8,6 +8,7 @@ import "js/Nav.js" as Nav
 import "js/Ops.js" as Ops
 import "js/Status.js" as Status
 import "js/Search.js" as Search
+import "js/SlowOp.js" as SlowOp
 import "js/Swap.js" as Swap
 import "js/Thumbs.js" as Thumbs
 import "js/ExtThumbs.js" as ExtThumbs
@@ -321,12 +322,16 @@ Item {
         // under the cursor; a rename the pointer committed keeps the pointer's own row instead.
         function onRenamed(ok, path) {
             var request = pane.renameRequest
-            if (!request || path !== request.destination) return
+            if (!SlowOp.closesRename(request, path)) return
             pane.renameRequest = null
             pane.renamingIndex = -1
             var target = Nav.renameRefreshTarget(pane, path)
             root.refreshRename(request, target, target === "")
         }
+
+        // A remote write past its deadline: information only, so the request stays open
+        // for the late reply, which closes it exactly as an in-time reply would.
+        function onSlowOp(op, path, msg) { SlowOp.show(pane, msg) }
 
         // Sample input: {"t":"made","ok":true,"path":"/home/gm/Pictures/New Folder"}
         // The same refresh onRenamed does, which is also what puts the order back to name ascending

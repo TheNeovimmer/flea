@@ -47,28 +47,19 @@ impl Search {
     fn read_one(&mut self, rel: &str, listing: &mut Listing) {
         let dir = if rel.is_empty() { self.root.clone() } else { self.root.join(rel) };
         let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
-        // corner: an unreadable directory is skipped in silence, exactly as scan.rs's phase one skips an unreadable entry.
+        // One bound for opendir, getdents and d_type together, so a dead server costs one deadline, never one per entry.
         let owned = dir.clone();
-        let rd = match super::iomount::call(&dir, &body, "search", move || std::fs::read_dir(&owned)) {
-            Ok(Ok(rd)) => rd,
+        let entries = match super::iomount::call(&dir, &body, "search", move || read_entries(&owned)) {
+            Ok(entries) => entries,
             _ => return,
         };
-        for entry in rd.flatten() {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
+        for (name, is_dir) in entries {
             // corner: a dot-prefixed name is dropped before it is counted, matching scan.rs's own hidden rule.
             if !self.hidden && name.starts_with('.') {
                 continue;
             }
             self.scanned += 1;
-            // d_type is free and answers is_dir with no stat, matching scan.rs's phase 1.
-            let entry_path = dir.join(&*name);
-            let owned_entry = entry;
-            let is_dir = super::iomount::call(&entry_path, &body, "search", move || owned_entry.file_type())
-                .ok()
-                .and_then(|found| found.ok())
-                .is_some_and(|kind| kind.is_dir());
-            let child = if rel.is_empty() { name.to_string() } else { format!("{}/{}", rel, name) };
+            let child = if rel.is_empty() { name.clone() } else { format!("{}/{}", rel, name) };
             // The candidate is the whole relative path, not the base name, so one query can span a
             // separator: "dwnhelp" reaches "downloads/helper.txt", see docs/protocol.md "search".
             if let Some(score) = self.fuzzy.score(&child) {
@@ -106,6 +97,19 @@ impl Search {
         listing.names = names;
         true
     }
+}
+
+// One directory as (name, is_dir) pairs; d_type is free and answers is_dir with no stat.
+// Sample input: a directory holding "a.txt" and a "sub" directory.
+fn read_entries(dir: &std::path::Path) -> Vec<(String, bool)> {
+    // corner: an unreadable directory answers empty in silence, as scan.rs's phase one skips an unreadable entry.
+    let mut out = Vec::new();
+    let Ok(rd) = std::fs::read_dir(dir) else { return out; };
+    for entry in rd.flatten() {
+        let is_dir = entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
+        out.push((entry.file_name().to_string_lossy().into_owned(), is_dir));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -211,6 +215,20 @@ mod tests {
         assert!(s.step(&mut l));
         assert_eq!(l.len(), 0);
         assert_eq!(s.scanned, 0);
+    }
+
+    #[test]
+    fn a_step_bounds_each_directory_once_never_once_per_entry() {
+        crate::backend::iomount::test_reset();
+        let d = TestDir::new("stepcalls");
+        for i in 0..DIRS_PER_TICK + 1 {
+            d.dir(&format!("d{}", i));
+        }
+        let mut s = Search::new(root(&d), "zzz", false);
+        let mut l = Listing::new();
+        // The root read queues every child, so the first step cannot also drain them.
+        assert!(!s.step(&mut l));
+        assert_eq!(crate::backend::iomount::test_calls(), DIRS_PER_TICK, "one bound per directory read, never one per entry");
     }
 
     #[test]

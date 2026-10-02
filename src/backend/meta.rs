@@ -127,6 +127,50 @@ fn zeroes() -> Meta {
     Meta { size: 0, mtime: 0, mode: 0, target_is_dir: false, target: String::new(), dev: 0 }
 }
 
+// One window row's cached gio facts, owned so a remote worker answers from the store with no arena clone.
+pub struct WindowRow {
+    pub name: String,
+    pub cached: Option<CachedRow>,
+}
+// The store's answer for one row, owned with it: size, mtime and mode ride along, the link target too.
+pub struct CachedRow {
+    pub size: u64,
+    pub mtime: i64,
+    pub mode: u32,
+    pub target: String,
+    pub is_symlink: bool,
+    pub base_dev: u64,
+}
+// The window's own rows and nothing else: a remote worker stats these with no listing clone.
+pub fn window_rows(l: &Listing, start: usize, count: usize) -> Vec<WindowRow> {
+    let end = start.saturating_add(count).min(l.len());
+    let start = start.min(end);
+    (start..end).map(|i| WindowRow {
+        name: l.name(i).to_string(),
+        cached: l.gio_for(i).map(|g| CachedRow {
+            size: g.size,
+            mtime: g.mtime,
+            mode: g.mode,
+            target: l.gio_target(g.name_off).to_string(),
+            is_symlink: l.spans.get(i).is_some_and(|s| s.is_symlink),
+            base_dev: l.base_dev,
+        }),
+    }).collect()
+}
+// Stats only the rows handed over, answering a cached row from its snapshot and any other by stat.
+pub fn stat_window_rows(base: &Path, rows: &[WindowRow]) -> (Vec<Meta>, f64) {
+    let t = Instant::now();
+    let out = rows.iter().map(|row| match &row.cached {
+        Some(g) => {
+            // corner: a cached symlink pays meta_one's one follow-stat so a linked folder draws as one.
+            let target_is_dir = g.is_symlink && base.join(&row.name).metadata().map(|t| t.is_dir()).unwrap_or(false);
+            Meta { size: g.size, mtime: g.mtime, mode: g.mode, target_is_dir, target: g.target.clone(), dev: g.base_dev }
+        }
+        None => meta_one(base, &row.name),
+    }).collect();
+    (out, t.elapsed().as_secs_f64() * 1000.0)
+}
+
 // What a sort by size or date reads for every row: the same lstat stat_range makes, without the
 // symlink's second stat, because an order needs no icon.
 #[derive(Clone, Copy)]
@@ -432,5 +476,39 @@ mod tests {
         });
         assert_eq!(all_calls.load(Ordering::SeqCst), 0, "the size/date pass must read the cache too");
         assert_eq!((stats.len(), stats[0].size, stats[1].size), (3, 10, 4096));
+    }
+
+    #[test]
+    fn window_rows_move_only_the_window_and_stat_the_same() {
+        let d = TestDir::new("windowrows");
+        d.file("a.txt", "a");
+        std::fs::write(d.join("b.txt"), "bb").unwrap();
+        let mut l = Listing::new();
+        l.push("a.txt", false);
+        l.push("b.txt", false);
+        l.push("c.txt", false);
+        let rows = window_rows(&l, 1, 1);
+        assert_eq!(rows.len(), 1, "a remote worker moves one window, never the arena");
+        assert_eq!(rows[0].name, "b.txt");
+        assert!(rows[0].cached.is_none(), "a readdir row carries no cache");
+        let (range, _) = stat_range(d.path(), &l, 0, 3);
+        let (moved, _) = stat_window_rows(d.path(), &window_rows(&l, 0, 3));
+        assert_eq!(moved.len(), range.len());
+        for (m, r) in moved.iter().zip(range.iter()) {
+            assert_eq!((m.size, m.mtime, m.mode), (r.size, r.mtime, r.mode), "the moved rows stat the same");
+        }
+        assert_eq!((moved[0].size, moved[1].size), (1, 2));
+        assert_eq!((moved[2].size, moved[2].mode), (0, 0), "a vanished row still reports zeroes");
+    }
+
+    #[test]
+    fn window_rows_answer_a_cached_row_from_its_snapshot() {
+        let d = TestDir::new("windowcached");
+        let text = "smb://h/share/a.txt\t10\t(regular)\ttime::modified=300 unix::mode=33188\n";
+        let l = crate::backend::gvfslist::build_listing(text, false, d.path().to_str().unwrap()).unwrap();
+        let rows = window_rows(&l, 0, 1);
+        assert!(rows[0].cached.is_some(), "a gio row rides to the worker in the snapshot");
+        let (metas, _) = stat_window_rows(d.path(), &rows);
+        assert_eq!((metas[0].size, metas[0].mtime, metas[0].mode), (10, 300, 33188));
     }
 }

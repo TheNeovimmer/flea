@@ -619,9 +619,10 @@ when both are present. A `link` whose `listing` is not the numbering in force
 is refused with `where` of `stale` before a single index is resolved, the
 same rule `transfer` follows.
 
-Unlike `transfer`, this answers on the loop's own thread and never takes the
-one-operation slot: every link is one syscall, so there is nothing to show
-progress for and nothing to cancel. The answer is one `linked` line,
+Unlike `transfer`, this never takes the one-operation slot: every link is one syscall, so there
+is nothing to show progress for and nothing to cancel. On a local mount it answers on the loop's
+own thread; on a remote mount it runs on its own worker with the single-call deadline and answers
+`slow` first, then its `linked` line when the batch lands; see `slow`. The answer is one `linked` line,
 `{"t":"linked","ok":<uint>,"failed":<uint>,"skipped":<uint>}`, and one journal
 entry, so one undo removes every link this request created. A name that
 already exists is refused for that item unless the request carries the
@@ -746,10 +747,13 @@ direction journals the kept copy, so no `undo` removes it: the removal can stop 
 with no account of how far it got cannot tell a whole source from a remnant or from one already gone. An `undo` reverses a
 rename through the same call, so a reversal that half succeeds answers this same `where`.
 
-Unlike the three above, this answers on the loop's own thread: the ordinary case is one `renameat2`,
-which costs less than spawning a thread. The compatibility paths above are not one syscall and
-run on that same thread, so a directory rename on rclone or MEGA copies the whole tree inline before it
-answers. See `AGENTS.md`, "Write operations and the undo journal".
+Unlike the three above, this answers on the loop's own thread on a local mount: the ordinary
+case is one `renameat2`, which costs less than spawning a thread. On a remote mount it runs on its
+own worker with the single-call deadline and answers `slow` first, then its `renamed` line when the
+write lands, journalled exactly as the in-time path would journal it; see `slow`. The compatibility
+paths above are not one syscall, and on a remote mount they run on that worker too, so a directory
+rename on rclone or MEGA no longer holds the loop while it copies. See `AGENTS.md`, "Write operations
+and the undo journal".
 
 ### duplicate
 
@@ -791,7 +795,9 @@ answers `No such file or directory (os error 2)`, a parent the user cannot write
 (os error 13)`, a read-only mount `Read-only file system (os error 30)`, a name past `NAME_MAX` `File
 name too long (os error 36)`.
 
-Like `rename`, this answers on the loop's own thread and never takes the one-operation slot.
+Like `rename`, this answers on the loop's own thread on a local mount and never takes the
+one-operation slot; on a remote mount it runs on its own worker with the single-call deadline and
+answers `slow` first, then its `made` line when the write lands; see `slow`.
 
 ### meta
 
@@ -1262,6 +1268,22 @@ Example: `{"t":"trashed","ok":1,"failed":0}`
 Counts only. Unlike `transferitem` there is no per-path error text, because trash is one `gio` call for
 the batch and its exit status cannot attribute a failure to a single path; a path that is still on disk
 afterwards is counted in `failed`.
+
+### slow
+
+`{"t":"slow","op":"<string>","path":"<string>","msg":"<string>"}`
+
+Example: `{"t":"slow","op":"rename","path":"/hung/a.txt","msg":"/hung is slow. The rename continues and will finish on its own."}`
+
+A remote `rename`, `mkdir` or `link` past the single-call deadline answers this line and moves
+on: the write stays running on its own worker, so the loop keeps answering every other request,
+and the mount is never marked stuck for a write still running. `op` names the request (`rename`,
+`mkdir` or `link`), `path` the path it is writing (the rename source, the mkdir parent, or the
+link destination), and `msg` the sentence the client shows as information, never as an error. The
+write's own reply follows whenever it lands: the same `renamed`, `made` or `linked` line the
+in-time path writes, or the same `error` line if the write failed, journalled exactly once either
+way, so one `undo` reverses it. A multi-item `link` that goes slow finishes its remaining items
+on the worker side and answers one `linked` line with its counts when the batch lands.
 
 ### renamed
 

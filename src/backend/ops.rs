@@ -40,27 +40,23 @@ pub fn rename(path: &Path, to_name: &str) -> Result<(PathBuf, Vec<Step>), FleaEr
         // Renaming a file to its own name is not a failure and is not work, so it records nothing.
         return Ok((to, Vec::new()));
     }
-    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
     let from = path.to_path_buf();
     let dest = to.clone();
-    super::iomount::call_bulk(parent, &body, "rename", move || {
-        let before = ItemIdentity::inspect(&from)?;
-        renamecompat::rename_path(&from, &dest)?;
-        {
-            // A same-filesystem rename is atomic, so its folder confirmation stays best effort.
-            let mut confirm = crate::backend::durable::Durability::begin(&dest);
-            if confirm.durable {
-                if let Some(parent) = dest.parent() {
-                    confirm.touch(parent);
-                }
-                if let Err(error) = confirm.flush_dirs() {
-                    eprintln!("flea: rename {} landed but the drive did not confirm the folder: {}", dest.display(), error);
-                }
+    let before = ItemIdentity::inspect(&from)?;
+    renamecompat::rename_path(&from, &dest)?;
+    {
+        // A same-filesystem rename is atomic, so its folder confirmation stays best effort.
+        let mut confirm = crate::backend::durable::Durability::begin(&dest);
+        if confirm.durable {
+            if let Some(parent) = dest.parent() {
+                confirm.touch(parent);
+            }
+            if let Err(error) = confirm.flush_dirs() {
+                eprintln!("flea: rename {} landed but the drive did not confirm the folder: {}", dest.display(), error);
             }
         }
-        Ok((dest.clone(), vec![undo::moved(&from, &dest, before)?]))
-    })
-    .unwrap_or_else(Err)
+    }
+    Ok((dest.clone(), vec![undo::moved(&from, &dest, before)?]))
 }
 
 // "backup.tar.zst" becomes "backup.tar copy.zst": Path's own stem and extension split the last dot only, and a dotfile keeps its whole name as the stem.
@@ -152,28 +148,24 @@ pub fn mkdir(parent: &Path, name: &str) -> Result<(PathBuf, Vec<Step>), FleaErro
     if !name.is_empty() && !valid_name(name) {
         return Err(named("mkdir", parent, "a name cannot be . or .., or contain a separator"));
     }
-    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
     let base = parent.to_path_buf();
     let given = name.to_string();
-    super::iomount::call(&base.clone(), &body, "mkdir", move || {
-        let dir = if given.is_empty() {
-            match free_new_folder(&base) {
-                Some(d) => d,
-                None => return Err(named("mkdir", &base, "every default folder name here is already taken")),
-            }
-        } else {
-            base.join(&given)
-        };
-        match std::fs::create_dir(&dir) {
-            Ok(()) => Ok((dir.clone(), vec![Step::MadeDir { path: dir.clone(), identity: ItemIdentity::inspect(&dir)? }])),
-            // create_dir, never create_dir_all: a name already taken is a collision and must never merge.
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                Err(named("mkdir", &dir, "a folder or file with that name already exists"))
-            }
-            Err(e) => Err(from_io("mkdir", &dir.to_string_lossy(), &e)),
+    let dir = if given.is_empty() {
+        match free_new_folder(&base) {
+            Some(d) => d,
+            None => return Err(named("mkdir", &base, "every default folder name here is already taken")),
         }
-    })
-    .unwrap_or_else(Err)
+    } else {
+        base.join(&given)
+    };
+    match std::fs::create_dir(&dir) {
+        Ok(()) => Ok((dir.clone(), vec![Step::MadeDir { path: dir.clone(), identity: ItemIdentity::inspect(&dir)? }])),
+        // create_dir, never create_dir_all: a name already taken is a collision and must never merge.
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err(named("mkdir", &dir, "a folder or file with that name already exists"))
+        }
+        Err(e) => Err(from_io("mkdir", &dir.to_string_lossy(), &e)),
+    }
 }
 
 // "New Folder", then "New Folder 2" and up: the first sibling not already taken by anything. The

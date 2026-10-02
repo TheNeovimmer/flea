@@ -291,6 +291,11 @@ pub fn paths_line(paths: &[String]) -> String {    let mut out = String::from(r#
     out
 }
 
+// Sample output: {"t":"slow","op":"rename","path":"/hung/a.txt","msg":"/hung is slow. The rename continues and will finish on its own."}
+pub fn slow_line(op: &str, path: &str, msg: &str) -> String {
+    format!(r#"{{"t":"slow","op":"{}","path":"{}","msg":"{}"}}"#, escape(op), escape(path), escape(msg))
+}
+
 // Sample output: {"t":"linked","ok":2,"failed":0,"skipped":1}
 pub fn linked_line(ok: usize, failed: usize, skipped: usize) -> String {
     format!(r#"{{"t":"linked","ok":{},"failed":{},"skipped":{}}}"#, ok, failed, skipped)

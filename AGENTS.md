@@ -213,7 +213,10 @@ itself raced, a hole the width of one readdir: reproduced on the 100,000 file fi
 create during the scan answered no `changed` line at all and the same create a second later
 answered one. The new watch is armed BESIDE the current one rather than in place of it, so a scan
 that fails costs the directory still on screen nothing: `commit` drops the old watch only once the
-new listing replaced it, and `abandon` drops the new one when the scan failed. Replacing it up front
+new listing replaced it. The scan runs on the list worker, so the arming does too:
+`Watch::add_raw` before the scan, `set_incoming` plus `commit` on success, and `abandon_wd`
+removing the armed descriptor on failure; a worker that finishes after its timeout removes its own.
+Replacing it up front
 was the first fix and it was wrong, because a failed list then handed the open directory a new
 descriptor and `is_current` dropped anything still carrying the old one.
 Its reader thread sends the loop an `Event::Changed(wd)`, and the loop answers
@@ -280,6 +283,38 @@ listing does not draw a partial size, so a row's size follows `IN_CLOSE_WRITE` i
 read twice. The second read is anchored the same way and moves nothing the user can see. Suppressing
 it would mean deciding that a `changed` arriving during a listing belongs to that listing, which is
 exactly the guess that would drop a real outside change, so it is paid rather than guessed at.
+
+## Mount workers
+
+Path syscalls leave the loop for mount-keyed workers, which is what keeps one hung server from
+wedging the window. `src/backend/iomount.rs` owns the mechanism. `mount_key` names the mount a
+path sits under lexically, never by stat, so a dead server costs no syscall there, and `is_remote`
+says whether its syscalls can wedge: gvfs, network fstypes and any FUSE daemon. A local mount runs
+inline with no hop. A remote one runs on a worker with a deadline, `CALL_DEADLINE` of 5 s for a
+single call and `BULK_DEADLINE` of 15 s for a bulk pass, and past it the loop answers
+"<mount> is not responding." A mount past its deadline is marked stuck for `STUCK_TTL` of 30 s, and
+a call on one answers at once without a worker until that passes, when the next request probes it
+again. A worker that dies before answering is this machine's fault and marks nothing: only a
+deadline still running marks the mount stuck. A remote write runs on its own worker with
+CALL_DEADLINE, as reads do, and the loop never waits on it longer than that: a local write stays
+inline with no hop, an in-time remote write answers exactly as before, and past the deadline the loop
+answers a `slow` line and moves on, never marking the mount stuck for a write still running. The worker
+stays tracked and reports through the op channel when it lands, journalled exactly as the in-time path
+would, so one journal entry per request and one undo reverses it. A multi-item link that goes slow
+finishes its remaining items on the worker side, then answers one `linked` line and one journal entry
+when the batch lands. A worker that dies before answering is this machine's fault and marks nothing,
+like a dead read worker.
+
+What runs where: `list_dir` scans, sorts and stats the first window on the worker; `search` reads
+each directory as one bound call returning (name, is_dir) pairs; `window` stats inline with no
+listing clone on a local mount and moves only the window's rows to the worker on a remote one;
+`sort` re-sorts on the bulk worker; `peek`, `thumb` and `listpaths` bound their per-row stats the
+same way; the search root's dev and writability go through the bound before any walk starts.
+`listpaths`' first window is the exception that still stats on the loop: its `answer` ends in
+`write_window`, which runs `stat_range` on the loop's thread directly. The watch is armed on the
+list worker beside the current one: `Watch::add_raw` before the scan, `set_incoming` plus
+`commit` on success, `abandon_wd` removing the armed descriptor on failure, and a worker that
+finishes after its timeout removing its own.
 
 ## The listing swap
 
@@ -2087,7 +2122,8 @@ refusal ahead of the dispatch, the numbering's first value and its move in `forg
 and its tests are `src/backend/rowguard.rs`. It moved the listing's `listed` and `rows` handling out of
 `ui/PaneWire.qml` whole into `ui/PaneSwap.qml`, inside the soft budget, which took `ui/PaneWire.qml` from 485
 to 453, under its recorded ceiling.
-Its review then moved the list arm's success tail into `run::adopt`, which prewarm's test drives, and the
+Its review then moved the list arm's success tail into `run::adopt_listed`, which the `list_dir`
+writability test drives, and the
 backend's start into `State::new` and `Tables::load`, which took `src/backend/run.rs` back down to 427, now
 its recorded ceiling.
 `src/uistate.rs` goes from 440 to 442 for `Rule::Version`, one arm in `fits` and the refusal in `check`
@@ -5964,21 +6000,23 @@ this cannot become a directory sweep. `t` stays true for every symlink whatever 
 target, which is a documented gap the renderer guards against rather than a narrowing
 this made.
 
-That second call follows the link, and following a link is a blocking syscall with no
-timeout on the one thread that answers requests. A symlink pointing into a mount that has
-stopped answering therefore stalls the backend itself, not just the row that named it.
+That second call follows the link, and following a link is a blocking syscall. On a remote
+mount that syscall no longer runs on the loop: the window stat goes through `window_metas` in
+`backend/run.rs`, which stats inline with no listing clone on a local mount and moves only the
+window's rows to a mount-keyed worker on a remote one, bounded by `CALL_DEADLINE` like every
+`iomount::call`. The thumbnail path is bounded the same way: `thumb_rows` in `backend/thumbreq.rs`
+stats each client-named row through `iomount::call` under `"thumb"` before it queues anything.
+`listpaths` is the exception that still stats on the loop: its `answer` ends in `write_window`,
+which runs `stat_range` on the loop's thread directly.
 This box has no NFS, no CIFS and no sshfs, but it does mount `fuse.gvfsd-fuse` at
 `/run/user/1000/gvfs` and `fuse.portal` at `/run/user/1000/doc`, so a symlink into a live
 gvfs mount whose server goes away is a reachable case here rather than a hypothetical.
 The exposure is bounded by the window: `stat_range` only ever runs over the rows a client
 asked for, so a 100,000 row listing with 350 rows held makes at most 350 of these calls,
-and only for the symlinks among those 350. It is not defended against in code on purpose.
-There is no way to put a timeout on a synchronous `stat` without giving each row its own
-thread, which is an absurd price for an icon, and the precedent is already shipped:
-`thumb_rows` in `backend/run.rs` calls `std::fs::metadata` on a client-named path, also
-following the link, also on this loop, and Plan 4 shipped that deliberately. A real fix is
-one asynchronous stat path for both call sites and belongs to whichever plan takes on
-non-blocking IO, not to an icon change.
+and only for the symlinks among those 350. There is no way to put a timeout on a synchronous
+`stat` without giving each row its own thread, which is an absurd price for an icon, so the
+bound above is per window rather than per row: one hung symlink in the window still costs the
+window its deadline, answered as "<mount> is not responding." on a remote mount.
 
 190 of the 613 distinct `application/*` types in `globs2` have no `generic-icons` entry on
 this box and fall through to the class arm. Both counts move with the installed applications,
