@@ -1,21 +1,25 @@
 #!/bin/bash
 # Probe: a drop on empty desktop reaches a Bottom-layer panel (xw6 item 3).
-# The controller runs this natively on minipc under Hyprland; it prints one of
-# PASS, FAIL or SKIP and exits 0, 1 or 2. Unattended: the drag is driven with
-# ydotool through omarchy-drive, the same tools tests/ui.sh case_xwtab uses.
-# A bare run needs FLEA_BIN on PATH or in the environment, qs, hyprctl,
-# ydotool and omarchy-drive. With no compositor it prints SKIP.
+# Controller runs this on minipc under Hyprland as `bash tests/probes/layer-drop-bottom.sh`
+# with FLEA_BIN pointing at the built release binary (FLEA_UI defaults to this checkout's
+# ui/); it also runs inside tests/ui.sh's environment, which provides the same two variables,
+# omarchy-drive on PATH and the session's QT_QPA_PLATFORMTHEME. Either way it is unattended:
+# bounded waits only, cleanup through the trap, and exactly one stdout line, either
+# `LAYERDROP PASS` or `LAYERDROP FAIL <why>`; every diagnostic goes to stderr.
 set -u
-need() { command -v "$1" >/dev/null 2>&1 || { printf 'SKIP missing %s\n' "$1"; exit 2; }; }
+out() { printf 'LAYERDROP %s\n' "$*"; }
+refuse() { out "FAIL $*"; exit 1; }
+need() { command -v "$1" >/dev/null 2>&1 || refuse "missing $1"; }
 need qs; need hyprctl; need ydotool; need omarchy-drive
-[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || { printf 'SKIP no Hyprland session\n'; exit 2; }
+[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || refuse "no Hyprland session"
 flea_bin="${FLEA_BIN:-$(command -v flea || true)}"
-[ -n "$flea_bin" ] || { printf 'SKIP no flea binary (set FLEA_BIN)\n'; exit 2; }
-flea_ui="${FLEA_UI:-$(cd "$(dirname "$0")/../ui" && pwd)}"
-[ -f "$flea_ui/boot/shell.qml" ] || { printf 'SKIP no Flea ui at %s (set FLEA_UI)\n' "$flea_ui"; exit 2; }
+[ -n "$flea_bin" ] || refuse "no flea binary (set FLEA_BIN)"
+flea_ui="${FLEA_UI:-$(cd "$(dirname "$0")/../../ui" && pwd)}"
+[ -f "$flea_ui/boot/shell.qml" ] || refuse "no Flea ui at $flea_ui (set FLEA_UI)"
 
-work=$(mktemp -d "${TMPDIR:-/tmp}/layer-drop.XXXXXXXX") || exit 2
+work=$(mktemp -d "${TMPDIR:-/tmp}/layer-drop.XXXXXXXX") || refuse "mktemp failed"
 trap 'kill "$qs_pid" "$flea_pid" 2>/dev/null; rm -rf "$work"' EXIT
+qs_pid=""; flea_pid=""
 log="$work/panel.log"
 : > "$log"
 
@@ -54,7 +58,7 @@ for _ in $(seq 1 40); do
     if hyprctl layers -j 2>/dev/null | grep -q '"namespace": *"qs[^"]*"'; then qs_up=1; break; fi
     sleep 0.25
 done
-[ -n "$qs_up" ] || { printf 'FAIL no Quickshell layer surface appeared\n'; exit 1; }
+[ -n "$qs_up" ] || refuse "no Quickshell layer surface appeared"
 
 # A Flea window with two tabs is the drag source: the strip is hidden for one.
 srcdir="$work/src"
@@ -71,7 +75,7 @@ print(hits[0]["address"] if len(hits) == 1 else "")
     [ -n "$addr" ] && break
     sleep 0.5
 done
-[ -n "$addr" ] || { printf 'FAIL no Flea window came up\n'; exit 1; }
+[ -n "$addr" ] || refuse "no Flea window came up"
 hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null
 sleep 0.4
 hyprctl dispatch "hl.dsp.window.float()" >/dev/null
@@ -83,32 +87,32 @@ sleep 0.5
 omarchy-drive key --window flea t >/dev/null 2>&1 || true
 sleep 1
 
-# The tab strip sits under the chrome: drag the second tab below the window,
-# onto empty desktop, and release. Coordinates assume a 1080p monitor; the
-# controller moves the window first if the box differs.
-sx=300; sy=105; dx=300; dy=700
-cur=$(hyprctl cursorpos | tr -d ',')
-set -- $cur
-cx=$1; cy=$2
-ydotool mousemove -x $(( (sx - cx) / 2 )) -y $(( (sy - cy) / 2 )) >/dev/null 2>&1
-sleep 0.3
-set -- $(hyprctl cursorpos | tr -d ',')
-ydotool mousemove -x $((sx - $1)) -y $((sy - $2)) >/dev/null 2>&1
+# The tab strip sits under the chrome: drag the second tab below the window, onto empty
+# desktop, and release. The drop point is read off the focused monitor, not assumed 1080p.
+read -r mon_x mon_y mon_w mon_h < <(hyprctl monitors -j | python3 -c 'import json,sys; ms=json.load(sys.stdin); m=[x for x in ms if x.get("focused")] or ms; print(m[0]["x"],m[0]["y"],m[0]["width"],m[0]["height"])') || refuse "no focused monitor"
+sx=$((mon_x + 300)); sy=$((mon_y + 105)); dx=$((mon_x + 300)); dy=$((mon_y + mon_h - 120))
+move_to() {
+    local tx="$1" ty="$2" i cx cy
+    for i in $(seq 1 16); do
+        set -- $(hyprctl cursorpos | tr -d ',')
+        cx=$1; cy=$2
+        if [ "$((tx - cx))" -le 4 ] && [ "$((tx - cx))" -ge -4 ] && [ "$((ty - cy))" -le 4 ] && [ "$((ty - cy))" -ge -4 ]; then return 0; fi
+        ydotool mousemove -x "$(((tx - cx) / 2))" -y "$(((ty - cy) / 2))" >/dev/null 2>&1 || refuse "pointer motion failed"
+        sleep 0.05
+    done
+    refuse "pointer did not reach $tx,$ty"
+}
+move_to "$sx" "$sy"
 sleep 0.4
-ydotool click 0x40 >/dev/null 2>&1 || { printf 'FAIL pointer press failed\n'; exit 1; }
+ydotool click 0x40 >/dev/null 2>&1 || refuse "pointer press failed"
 sleep 0.3
-set -- $(hyprctl cursorpos | tr -d ',')
-ydotool mousemove -x $(( (dx - $1) / 2 )) -y $(( (dy - $2) / 2 )) >/dev/null 2>&1
-sleep 0.5
-set -- $(hyprctl cursorpos | tr -d ',')
-ydotool mousemove -x $((dx - $1)) -y $((dy - $2)) >/dev/null 2>&1
+move_to "$dx" "$dy"
 sleep 0.6
-ydotool click 0x80 >/dev/null 2>&1 || { printf 'FAIL pointer release failed\n'; exit 1; }
+ydotool click 0x80 >/dev/null 2>&1 || refuse "pointer release failed"
 sleep 1
 if grep -q PANEL-DROP "$log"; then
-    printf 'PASS a drop on empty desktop reached the Bottom-layer panel\n'
+    out "PASS"
     exit 0
 fi
-printf 'FAIL no PANEL-DROP in %s; qs log tail:\n' "$log"
-tail -5 "$work/qs.log" 2>/dev/null
-exit 1
+tail -5 "$work/qs.log" 2>/dev/null >&2 || true
+refuse "no PANEL-DROP in $log"

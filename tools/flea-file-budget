@@ -91,11 +91,11 @@ ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
 ui/Sidebar.qml 675
 ui/StatusBar.qml 460
-ui/TabBar.qml 560
+ui/TabBar.qml 569
 ui/Theme.qml 415
 ui/TrashView.qml 475
 ui/ViewState.qml 410
-ui/WindowBody.qml 626
+ui/WindowBody.qml 635
 ui/js/Filter.js 253
 ui/js/Focus.js 408
 ui/js/Keymap.js 338

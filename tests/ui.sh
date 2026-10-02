@@ -10976,6 +10976,162 @@ xwdrag_kill_second() {
     fail "xwdrag: second window $pid survived"
 }
 
+# xw6 r6: the first move's drop is lost about half the time, so every window-targeted
+# drag waits for the target's enter before releasing and ends its glide inside it.
+xwtab_mark_a=0
+xwtab_mark_b=0
+xwtab_mark_logs() {
+    xwtab_mark_a=$(wc -l < "$flea_log" 2>/dev/null || printf 0)
+    xwtab_mark_b=$(wc -l < "$run_root/flea-second.log" 2>/dev/null || printf 0)
+}
+
+# Bounded pre-release wait: the target pid must log an enter after the press with no
+# later leave. Require fails the case on timeout; observe only prints the diagnostics.
+xwtab_wait_enter() {
+    local bpid="$1" mode="$2" i lines numbered enter_no leave_no
+    for i in $(seq 1 30); do
+        lines=$( { tail -n +"$((xwtab_mark_a + 1))" "$flea_log" 2>/dev/null; tail -n +"$((xwtab_mark_b + 1))" "$run_root/flea-second.log" 2>/dev/null; } | grep -a "TABDRAG .* pid=$bpid " || true)
+        numbered=$(printf '%s\n' "$lines" | grep -a -n -E 'TABDRAG (enter-window|enter-strip|leave-window|leave-strip)' || true)
+        enter_no=$(printf '%s\n' "$numbered" | grep -a -E 'TABDRAG (enter-window|enter-strip)' | tail -1 | cut -d: -f1 || true)
+        if [[ -n "$enter_no" ]]; then
+            leave_no=$(printf '%s\n' "$numbered" | grep -a -E 'TABDRAG (leave-window|leave-strip)' | tail -1 | cut -d: -f1 || true)
+            if [[ -z "$leave_no" ]] || (( enter_no > leave_no )); then
+                return 0
+            fi
+        fi
+        sleep 0.1
+    done
+    printf 'XWTAB no enter on %s after the press; cursorpos: ' "$bpid" >&2
+    hyprctl cursorpos >&2 || true
+    printf 'XWTAB client rect for %s: ' "$bpid" >&2
+    hyprctl clients -j 2>/dev/null | python3 -c 'import json,sys; cs=json.load(sys.stdin); h=[c for c in cs if str(c.get("pid"))==sys.argv[1]]; print(h[0]["at"],h[0]["size"] if h else "absent")' "$bpid" >&2 || true
+    printf 'XWTAB TABDRAG lines:\n' >&2
+    grep -a -h 'TABDRAG' "$flea_log" "$run_root/flea-second.log" 2>/dev/null >&2 || true
+    if [[ "$mode" == require ]]; then
+        fail "xwtab: no enter on $bpid after the press"
+    fi
+    return 0
+}
+
+# A press, a glide ending on two small moves inside the target, the enter wait, release.
+xwtab_drag_to_window() {
+    local sx="$1" sy="$2" dx="$3" dy="$4" bpid="$5" mode="$6"
+    xwtab_mark_logs
+    xwdrag_glide "$sx" "$sy"
+    sleep 0.4
+    ydotool click 0x40 >/dev/null 2>&1 || fail "xwtab: pointer press failed"
+    sleep 0.3
+    xwdrag_glide "$dx" "$dy"
+    xwdrag_glide "$((dx + 6))" "$dy"
+    xwdrag_glide "$dx" "$dy"
+    xwtab_wait_enter "$bpid" "$mode"
+    sleep 0.6
+    ydotool click 0x80 >/dev/null 2>&1 || fail "xwtab: pointer release failed"
+    sleep 0.5
+}
+
+# The addr and rect of one owned pid, so room-making and restore never name a window by guess.
+xwtab_rect_of() {
+    local rect
+    rect=$(hyprctl clients -j 2>/dev/null | python3 -c 'import json,sys; cs=json.load(sys.stdin); h=[c for c in cs if str(c.get("pid"))==sys.argv[1]]; print("%s %s %s %s %s %s" % (h[0]["address"],h[0]["at"][0],h[0]["at"][1],h[0]["size"][0],h[0]["size"][1],str(bool(h[0].get("floating")))) if h else "")' "$1" || true)
+    [[ -n "$rect" ]] || return 1
+    printf '%s\n' "$rect"
+}
+
+# Saved addr and rect per owned pid, restored at the case end and on failure through the trap.
+xwtab_saved=""
+xwtab_restore_place() {
+    trap - EXIT
+    [[ -n "$xwtab_saved" ]] || return 0
+    local pid addr x y w h floating cur caddr cx cy cw ch cfloating
+    while read -r pid addr x y w h floating; do
+        [[ -n "${pid:-}" ]] || continue
+        flea_process_owned "$pid" || continue
+        cur=$(xwtab_rect_of "$pid" || true)
+        [[ -n "$cur" ]] || continue
+        read -r caddr cx cy cw ch cfloating <<< "$cur"
+        [[ "$caddr" == "$addr" ]] || continue
+        hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null 2>&1 || true
+        if [[ "$cfloating" != "$floating" ]]; then
+            hyprctl dispatch "hl.dsp.window.float()" >/dev/null 2>&1 || true
+        fi
+        hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y })" >/dev/null 2>&1 || true
+        hyprctl dispatch "hl.dsp.window.resize({ x = $w, y = $h })" >/dev/null 2>&1 || true
+    done <<< "$xwtab_saved"
+    xwtab_saved=""
+    return 0
+}
+
+# Floats both owned windows, parks them across the monitor top, and records the one
+# free desktop point no client and no layer covers. Runs in the caller, never in a
+# substitution, so the trap and the saved rects below outlive the call itself.
+xwtab_point=""
+xwtab_make_room() {
+    local apid="$1" bpid="$2" aaddr ax ay aw ah afloating baddr bx by bw bh bfloating
+    flea_process_owned "$apid" || fail "xwtab: refusing to move unowned window $apid"
+    flea_process_owned "$bpid" || fail "xwtab: refusing to move unowned window $bpid"
+    read -r aaddr ax ay aw ah afloating < <(xwtab_rect_of "$apid") || fail "xwtab: no geometry for $apid"
+    read -r baddr bx by bw bh bfloating < <(xwtab_rect_of "$bpid") || fail "xwtab: no geometry for $bpid"
+    [[ -n "${aaddr:-}" && -n "${baddr:-}" ]] || fail "xwtab: no geometry for a parked window"
+    xwtab_saved="$apid $aaddr $ax $ay $aw $ah $afloating
+$bpid $baddr $bx $by $bw $bh $bfloating"
+    trap 'xwtab_restore_place' EXIT
+    local mon
+    mon=$(hyprctl monitors -j 2>/dev/null | python3 -c 'import json,sys; ms=json.load(sys.stdin); m=[x for x in ms if x.get("focused")] or ms; print(m[0]["x"],m[0]["y"],m[0]["width"],m[0]["height"])' || true)
+    [[ -n "$mon" ]] || fail "xwtab: no focused monitor to make room on"
+    local mx my mw mh pw ph
+    read -r mx my mw mh <<< "$mon"
+    pw=$(((mw - 60) / 2)); ph=$(((mh - 60) / 2))
+    (( pw >= 200 && ph >= 150 )) || fail "xwtab: monitor ${mw}x${mh} leaves no room to park two windows"
+    hyprctl dispatch "hl.dsp.focus({ window = \"$aaddr\" })" >/dev/null || fail "xwtab: could not focus $apid"
+    sleep 0.3
+    [[ "$afloating" == True ]] || hyprctl dispatch "hl.dsp.window.float()" >/dev/null || fail "xwtab: could not float $apid"
+    sleep 0.3
+    hyprctl dispatch "hl.dsp.window.move({ x = $((mx + 20)), y = $((my + 20)) })" >/dev/null || fail "xwtab: could not park $apid"
+    sleep 0.3
+    hyprctl dispatch "hl.dsp.window.resize({ x = $pw, y = $ph })" >/dev/null || fail "xwtab: could not size $apid"
+    sleep 0.3
+    hyprctl dispatch "hl.dsp.focus({ window = \"$baddr\" })" >/dev/null || fail "xwtab: could not focus $bpid"
+    sleep 0.3
+    [[ "$bfloating" == True ]] || hyprctl dispatch "hl.dsp.window.float()" >/dev/null || fail "xwtab: could not float $bpid"
+    sleep 0.3
+    hyprctl dispatch "hl.dsp.window.move({ x = $((mx + 40 + pw)), y = $((my + 20)) })" >/dev/null || fail "xwtab: could not park $bpid"
+    sleep 0.3
+    hyprctl dispatch "hl.dsp.window.resize({ x = $pw, y = $ph })" >/dev/null || fail "xwtab: could not size $bpid"
+    sleep 0.4
+    local point
+    point=$(hyprctl clients -j 2>/dev/null | python3 -c '
+import json, sys
+mx, my, mw, mh = [int(v) for v in sys.argv[1:5]]
+clients = json.load(sys.stdin)
+layers = json.load(open(sys.argv[5]))
+rects = [[c["at"][0], c["at"][1], c["size"][0], c["size"][1]] for c in clients]
+def harvest(node):
+    if isinstance(node, dict):
+        if all(k in node for k in ("x", "y", "w", "h")) and "namespace" in node:
+            ns = str(node["namespace"])
+            full = node["x"] == mx and node["y"] == my and node["w"] == mw and node["h"] == mh
+            if not (ns.startswith("qs") and full):
+                rects.append([node["x"], node["y"], node["w"], node["h"]])
+        for v in node.values():
+            harvest(v)
+    elif isinstance(node, list):
+        for v in node:
+            harvest(v)
+harvest(layers)
+def covered(px, py):
+    return any(rx <= px < rx + rw and ry <= py < ry + rh for rx, ry, rw, rh in rects)
+for py in range(my + mh - 8, my - 1, -24):
+    for px in range(mx + 8, mx + mw - 8, 24):
+        if not covered(px, py):
+            print(px, py)
+            raise SystemExit(0)
+print("")
+' "$mx" "$my" "$mw" "$mh" <(hyprctl layers -j 2>/dev/null) || true)
+    [[ -n "$point" ]] || fail "xwtab: no empty desktop point on the focused monitor"
+    xwtab_point="$point"
+}
+
 # xw6: a tab dragged onto another Flea window moves there; torn off onto empty space it
 # opens a window of its own. Reuses the xwdrag two-window rig: launch() kills first, so the
 # second window is launched the same way, and every drop point is an absolute screen point.
@@ -11048,7 +11204,7 @@ case_xwtab() {
     move_before=$(flea_pids | tr '\n' ' ')
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
     read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwtab: B has no floor"
-    xwdrag_drag "$sx" "$sy" "$dx" "$dy" none
+    xwtab_drag_to_window "$sx" "$sy" "$dx" "$dy" "$bpid" require
     for i in $(seq 1 40); do
         [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "2" ]] && break
         sleep 0.25
@@ -11064,12 +11220,10 @@ case_xwtab() {
         || fail "xwtab: the move opened a window of its own"
     printf 'XWTAB move ok\n'
     # B's new tab torn off onto empty desktop space opens a third owned window on it.
-    local mon_h ex ey before cpid cid
-    mon_h=$(hyprctl monitors -j | python3 -c 'import json,sys; ms=json.load(sys.stdin); m=[x for x in ms if x.get("focused")] or ms; print(m[0]["height"])') \
-        || fail "xwtab: no monitor height"
-    (( mon_h >= 950 )) || fail "xwtab: monitor height $mon_h leaves no empty space"
-    ex=600; ey=$((mon_h - 120))
+    local ex ey before cpid cid
     before=$(flea_pids | tr '\n' ' ')
+    xwtab_make_room "$apid" "$bpid" || fail "xwtab: no empty desktop to tear off onto"
+    read -r ex ey <<< "$xwtab_point"
     xwdrag_focus "$bpid"
     read -r sx sy < <(xwtab_tab_point "$bid" "$bpid" 1) || fail "xwtab: B's second tab has no centre"
     xwdrag_drag "$sx" "$sy" "$ex" "$ey" none
@@ -11093,6 +11247,7 @@ case_xwtab() {
         || fail "xwtab: the tear-off opened more than one window"
     printf 'XWTAB tearoff-count ok\n'
     xwdrag_kill_second "$cpid"
+    xwtab_restore_place
     # A opens a second tab again for the legs below: Escape, own-strip and the refusals.
     xwdrag_focus "$apid"
     key t >/dev/null
@@ -11120,7 +11275,7 @@ case_xwtab() {
     # Out and back onto the own strip reorders with no new window.
     local ox oy
     read -r ox oy < <(xwtab_tab_point "$aid" "$apid" 0) || fail "xwtab: A's first tab has no centre"
-    xwdrag_drag "$sx" "$sy" "$ox" "$oy" none
+    xwtab_drag_to_window "$sx" "$sy" "$ox" "$oy" "$apid" require
     sleep 0.5
     [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: own-strip drop changed the tab count"
     [[ "$(flea_pids | tr '\n' ' ')" == "$esc_before" ]] || fail "xwtab: own-strip drop opened a window"
@@ -11133,7 +11288,7 @@ case_xwtab() {
     xwdrag_focus "$apid"
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
     read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwtab: B has no floor"
-    xwdrag_drag "$sx" "$sy" "$dx" "$dy" none
+    xwtab_drag_to_window "$sx" "$sy" "$dx" "$dy" "$bpid" observe
     sleep 0.5
     [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: B took a listing drop"
     [[ "$(xwdrag_qs "$bid" path 2>/dev/null)" == "$bdir" ]] || fail "xwtab: B left $bdir"

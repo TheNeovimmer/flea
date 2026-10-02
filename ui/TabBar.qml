@@ -231,8 +231,10 @@ Item {
     // before this window opens a tab and acks. The peek asks first 2 with no hidden
     // flags, a quad no other client uses, so the reply answers this drop alone.
     function acceptTabDrop(payload, info, at) {
-        if (!root.pane || !Tabs.canReceive(root.pane))
+        if (!root.pane || !Tabs.canReceive(root.pane)) {
+            root.traceTab("drop-skip", "reason=strip-accept-refused")
             return
+        }
         root.pendingTab = { payload: payload, pid: info.pid, token: info.token, path: info.path, at: at }
         root.traceTab("peek-sent", "path=" + info.path + " first=2 hidden=false")
         root.pane.backend.peek(info.path, 2, false, false)
@@ -498,6 +500,7 @@ Item {
             if (!root.tabEnterOk(drag))
                 drag.accepted = false
         }
+        onExited: root.traceTab("leave-strip", "")
         // An own drag out and back tracks its insertion while it is over the strip.
         onPositionChanged: function (drag) {
             var info = Tabs.parseTabMime(drag.getDataAsString(Tabs.TAB_MIME))
@@ -508,13 +511,17 @@ Item {
             var payload = drop.getDataAsString(Tabs.TAB_MIME)
             root.traceTab("drop-strip", "empty=" + (payload.length === 0) + " len=" + payload.length)
             var info = Tabs.parseTabMime(payload)
-            if (!info)
+            if (!info) {
+                root.traceTab("drop-skip", "reason=strip-bad-payload")
                 return
+            }
             if (Tabs.isOwnTab(info)) {
                 // Out and back onto its own strip: reorder in place and accept, and
                 // outFinished clears behind it so the late release reorders nothing.
-                if (!root.outActive)
+                if (!root.outActive) {
+                    root.traceTab("drop-skip", "reason=strip-own-inactive")
                     return
+                }
                 var from = Tabs.resolveMovedTab(root.pane, root.outIndex, root.outPath)
                 var at = Tabs.dropIndexAt(drop.x, root.tabWidth, root.tabCount)
                 if (root.pane && from >= 0)
@@ -524,8 +531,10 @@ Item {
                 return
             }
             // The take decision answers Move at once; the peek behind it may still refuse, and then no ack goes out.
-            if (Tabs.dropDecision(info, undefined, root.outActive, root.pane ? Tabs.canReceive(root.pane) : false) !== Tabs.DROP_TAKE)
+            if (Tabs.dropDecision(info, undefined, root.outActive, root.pane ? Tabs.canReceive(root.pane) : false) !== Tabs.DROP_TAKE) {
+                root.traceTab("drop-skip", "reason=strip-decision-ignore")
                 return
+            }
             drop.accept(Qt.MoveAction)
             root.acceptTabDrop(payload, info, Tabs.dropIndexAt(drop.x, root.tabWidth, root.tabCount))
         }

@@ -227,15 +227,24 @@ Rectangle {
             if (!ok)
                 drag.accepted = false
         }
+        onExited: view.traceTab("leave-window", "")
         onDropped: function (drop) {
             var payload = drop.getDataAsString(Tabs.TAB_MIME)
             view.traceTab("drop-window", "empty=" + (payload.length === 0) + " len=" + payload.length)
             var info = Tabs.parseTabMime(payload)
-            if (!info || Tabs.isOwnTab(info))
+            if (!info) {
+                view.traceTab("drop-skip", "reason=window-bad-payload")
                 return
+            }
+            if (Tabs.isOwnTab(info)) {
+                view.traceTab("drop-skip", "reason=window-own-tab")
+                return
+            }
             // The take decision answers Move at once; the peek behind it may still refuse, and then no ack goes out.
-            if (Tabs.dropDecision(info, undefined, false, Tabs.canReceive(view.currentPane)) !== Tabs.DROP_TAKE)
+            if (Tabs.dropDecision(info, undefined, false, Tabs.canReceive(view.currentPane)) !== Tabs.DROP_TAKE) {
+                view.traceTab("drop-skip", "reason=window-decision-ignore canReceive=" + Tabs.canReceive(view.currentPane))
                 return
+            }
             drop.accept(Qt.MoveAction)
             tabBar.acceptTabDrop(payload, info, -1)
         }
