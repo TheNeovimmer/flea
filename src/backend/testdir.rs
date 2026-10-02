@@ -1,6 +1,6 @@
 // Hard rule 9's sandbox, in code: every destructive test writes inside one of these and nowhere else.
 use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -11,6 +11,9 @@ const MARKER: &str = ".flea-test-sandbox";
 const PREFIX: &str = "flea-test-";
 // A sandbox lives under the temp root, which is at least two components deep, so a shallower path is a bug and not a root.
 const MIN_COMPONENTS: usize = 3;
+
+// A tick of the kernel clock is a few milliseconds, so a recreated file keeps the old stamp for far fewer tries than this.
+const MAX_RECREATES: usize = 1_000_000;
 
 // Two tests in one process must not collide, and this crate takes no dependency that would generate a suffix.
 static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -95,6 +98,23 @@ impl TestDir {
         let p = self.join(name);
         std::fs::create_dir_all(&p).expect("test sandbox dir");
         p
+    }
+
+    // Stands in for a later replacement: a filesystem stamps birth time from a coarse tick and hands a freed
+    // inode to the next create, so the file is recreated until its inode or stamp differs from the old file's.
+    pub fn replace_file(&self, path: &Path, body: &str) {
+        self.assert_contains(path);
+        let old = path.symlink_metadata().expect("the file being replaced");
+        let old_born = crate::backend::permissions::born_of(&old);
+        for _ in 0..MAX_RECREATES {
+            std::fs::remove_file(path).expect("test sandbox remove");
+            std::fs::write(path, body).expect("test sandbox file");
+            let now = path.symlink_metadata().expect("the replacement");
+            if old_born.is_none() || now.ino() != old.ino() || crate::backend::permissions::born_of(&now) != old_born {
+                return;
+            }
+        }
+        panic!("the replacement kept the old inode and birth stamp: {}", path.display());
     }
 }
 
@@ -246,6 +266,18 @@ mod tests {
         // Right shape, right place, no marker.
         let bare = outside.dir(&format!("{}bare", PREFIX));
         assert!(!removable(&bare));
+    }
+
+    #[test]
+    fn a_replaced_file_differs_from_the_one_it_replaced_in_inode_or_birth_time() {
+        let d = TestDir::new("replacefile");
+        let path = d.file("a.txt", "old");
+        let old = path.symlink_metadata().unwrap();
+        d.replace_file(&path, "new");
+        let now = path.symlink_metadata().unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+        let born = crate::backend::permissions::born_of;
+        assert!(born(&old).is_none() || now.ino() != old.ino() || born(&now) != born(&old), "the two files tell apart");
     }
 
     #[test]

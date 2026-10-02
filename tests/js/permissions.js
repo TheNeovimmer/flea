@@ -89,7 +89,7 @@ function run(check) {
                                        { path: "/d/c.txt", why: "r3" }, { path: "/d/d.txt", why: "r4" }]),
         "Permissions changed for 1 of 5; 4 left alone: a.txt: r1; b.txt: r2; c.txt: r3; and 1 more")
 
-    // noteMode answers done once on the last reply, and the batch summarizes once.
+    // noteMode answers done once, on the last reply, and calls summarize never.
     var REPLY_COUNT = 5000
     var counter = { calls: 0 }
     var batch = countedPermissions(counter)
@@ -97,23 +97,17 @@ function run(check) {
     var completions = 0
     var done = false
     var early = false
-    var summarizedEarly = false
     for (var i = 0; i < REPLY_COUNT; i++) {
         done = batch.noteMode(store, i, "/f" + i, { ok: true, mode: "0644", reason: "" })
         if (done && i + 1 < REPLY_COUNT) early = true
-        if (done) {
-            completions += 1
-            batch.summarize(store.modes)
-        }
-        // Stop unexpected early work before a per-reply regression grows quadratic.
-        summarizedEarly = counter.calls > 0 && !done
-        if (early || summarizedEarly) break
+        if (done) completions += 1
+        // Stop at the first early done or stray summarize before a per-reply regression grows quadratic.
+        if (early || counter.calls > 0) break
     }
     check("5000 replies land every mode", done + "|" + store.modes.length, "true|" + REPLY_COUNT)
     check("and done answers only on the last reply", early + "|" + done, "false|true")
     check("and noteMode reports done exactly once", completions, 1)
-    check("and summarize waits for the last reply", summarizedEarly, false)
-    check("and the batch calls summarize exactly once", counter.calls, 1)
+    check("and noteMode makes no summarize call", counter.calls, 0)
     // receiveMany's last-reply write stays inside noteMode-true; a failed batch resets modes so the grid and retry start from disk.
     var dialog = Source.source("ui/PermissionsDialog.qml")
     var received = blockAfter(dialog, "function receiveMany")
@@ -122,6 +116,12 @@ function run(check) {
     check("receiveMany writes multiModes exactly twice", received.split("multiModes =").length - 1, 2)
     check("one write sits inside the noteMode-true branch", noteBlock.indexOf("multiModes =") >= 0, true)
     check("and the other resets the failed batch", failedBlock.indexOf("multiModes =") >= 0, true)
+    // The multiSummary binding reruns on a multiModes write, so a summarize call anywhere else is a per-reply cost.
+    var summaryBinding = "readonly property var multiSummary: isMulti ? Permissions.summarize(multiModes) : null"
+    var summarizeCalls = dialog.split("Permissions.summarize(").length - 1
+    var allowedCalls = noteBlock.split("Permissions.summarize(").length - 1 + (dialog.indexOf(summaryBinding) >= 0 ? 1 : 0)
+    check("the only summarize caller is the multiSummary binding or the noteMode-true branch",
+          summarizeCalls + "|" + allowedCalls, "1|1")
     var refused = { modes: [], reasons: [], skipped: [], pending: 3 }
     Permissions.noteMode(refused, 0, "/d/a.txt", { ok: true, mode: "2755", reason: "Read-only: setgid bit is present." })
     Permissions.noteMode(refused, 1, "/d/b.txt", { ok: false, error: "Gone." })

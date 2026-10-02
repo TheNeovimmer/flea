@@ -208,8 +208,7 @@ fn identity_check_still_refuses_a_replaced_file() {
     let mut a = shared_journal(&sandbox);
     a.push(Entry { op: "rename".to_string(), steps });
     // Someone else's file now lives at the new name, so the undo must refuse, not remove it.
-    std::fs::remove_file(&to).unwrap();
-    std::fs::write(&to, "someone else").unwrap();
+    sandbox.replace_file(&to, "someone else");
     let mut b = shared_journal(&sandbox);
     let error = b.undo().unwrap_err();
     assert!(error.msg.contains("replaced"), "unexpected refusal: {}", error.msg);
@@ -240,7 +239,8 @@ fn every_step_kind_round_trips_with_exact_integers() {
     let sandbox = TestDir::new("xundo-codec");
     let dir = sandbox.path();
     // Past f64's exact range, so a float-parsed number would come back a different file.
-    let id = ItemIdentity::from_parts(u64::MAX, 1 << 60, 0o100000, 7, (1 << 62, -3), (0, 1 << 62));
+    let id = ItemIdentity::from_parts(u64::MAX, 1 << 60, 0o100000, 7, (1 << 62, -3), (0, 1 << 62), Some((1 << 62, u32::MAX)));
+    let unborn = ItemIdentity::from_parts(u64::MAX, 1 << 60, 0o100000, 7, (1 << 62, -3), (0, 1 << 62), None);
     let entry = Entry {
         op: "mixed".to_string(),
         steps: vec![
@@ -250,7 +250,7 @@ fn every_step_kind_round_trips_with_exact_integers() {
                 kind: crate::backend::link::LinkKind::Hard },
             Step::Copied { from: dir.join("f"), to: dir.join("g"), source: id.clone(), created: id.clone(), manifest: None, manifest_nonce: None },
             Step::MadeDir { path: dir.join("h"), identity: id.clone() },
-            Step::MadeFile { path: dir.join("i"), identity: id.clone() },
+            Step::MadeFile { path: dir.join("i"), identity: unborn.clone() },
             Step::Trashed(crate::backend::trash::Entry { original: dir.join("j"), uri: "trash:///j".to_string() }),
             Step::Mode { path: dir.join("k"), before: 0o644, after: 0o600, dev: u64::MAX, ino: 1 << 60, born: Some((1 << 62, u32::MAX)) },
             Step::Mode { path: dir.join("l"), before: 0o644, after: 0o600, dev: u64::MAX, ino: 1 << 60, born: None },
@@ -260,7 +260,12 @@ fn every_step_kind_round_trips_with_exact_integers() {
     let doc = super::Doc { undo: vec![entry], redo: Vec::new(), push_gen: 0 };
     let text = crate::jsondoc::render(&crate::backend::undocodec::encode(&doc));
     assert!(text.contains("\"born\": null"), "an unknown birth time is encoded as null");
+    assert!(text.contains("\"b\": null"), "and so is an identity's");
     let back = crate::backend::undocodec::decode(&text).expect("the codec reads what it wrote");
+    assert!(matches!(&back.undo[0].steps[0], Step::Moved { before, .. } if before.born() == Some((1 << 62, u32::MAX))),
+        "an identity's birth time comes back exact");
+    assert!(matches!(&back.undo[0].steps[5], Step::MadeFile { identity, .. } if identity.born().is_none()),
+        "and an unknown one stays unknown");
     assert_eq!(crate::jsondoc::render(&crate::backend::undocodec::encode(&back)), text,
         "a second render is byte-identical, so every integer survived exactly");
     assert!(text.contains(&u64::MAX.to_string()), "the huge device number is really in the file");
@@ -295,9 +300,21 @@ fn foreign_records_are_never_trusted() {    for (tag, body) in [
         ("relative", r#"{"v":1,"undo":[{"op":"rename","steps":[{"k":"c","path":"rel/x"}]}],"redo":[]}"#),
         ("kind", r#"{"v":1,"undo":[{"op":"rename","steps":[{"k":"mf","path":"/x","id":{"d":1,"i":2,"k":511,"l":0,"m":[0,0],"c":[0,0]}}]}],"redo":[]}"#),
         ("shape", r#"{"v":1,"undo":[{"op":"rename","steps":[{"k":"m","from":"/a"}]}],"redo":[]}"#),
+        ("born", r#"{"v":2,"undo":[{"op":"rename","steps":[{"k":"mf","path":"/x","id":{"d":1,"i":2,"k":32768,"l":0,"m":[0,0],"c":[0,0],"b":[1]}}]}],"redo":[]}"#),
     ] {
         assert!(crate::backend::undocodec::decode(body).is_none(), "{} record trusted", tag);
     }
+}
+
+// A record written before birth time was kept has no "b"; it decodes as unknown and judges by dev, inode and kind.
+#[test]
+fn a_record_from_before_birth_time_was_kept_decodes_as_unknown() {
+    let old = r#"{"v":2,"undo":[{"op":"rename","steps":[{"k":"mf","path":"/x","id":{"d":1,"i":2,"k":32768,"l":0,"m":[0,0],"c":[0,0]}}]}],"redo":[]}"#;
+    let doc = crate::backend::undocodec::decode(old).expect("an old record still reads");
+    let Step::MadeFile { identity, .. } = &doc.undo[0].steps[0] else { panic!("the step kind survives") };
+    assert_eq!(identity.born(), None);
+    let born_later = ItemIdentity::from_parts(1, 2, 0o100000, 0, (0, 0), (0, 0), Some((5, 6)));
+    assert!(identity.same_item(&born_later), "with no birth time on one side the old check decides");
 }
 
 // A doc past 32 MiB trims oldest first and keeps the newest; the render decides, never a count.

@@ -2,13 +2,12 @@
 // thing that happened, a move out of the pile and a clear, so this owns both and reverses whichever
 // is newer. The move half is a one-step journal on disk, because `flea shelf move` is a process that
 // has already exited by the time the card asks for its reversal.
-use crate::backend::undo::{move_back, Step};
+use crate::backend::undo::{born_differs, move_back, ItemIdentity, Step};
 use crate::jsondoc::{self, Json};
 use crate::shelf::Shelf;
 use crate::summon::Summon;
 use crate::uistore;
 use std::fs;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 const DIR: &str = "omarchy/flea-shelf";
@@ -24,6 +23,8 @@ pub struct Move {
     pub dev: u64,
     pub ino: u64,
     pub kind: u32,
+    // None where the filesystem keeps no birth time, or the row predates it.
+    pub born: Option<(u64, u32)>,
 }
 
 pub struct Moves {
@@ -79,20 +80,24 @@ impl Moves {
 }
 
 // Sample input, the whole of undo.json:
-// {"at":1789426925000,"moves":[{"from":"/home/gm/a.txt","to":"/home/gm/Work/a.txt","dev":"66306","ino":"41","kind":"32768"}]}
-// dev, ino and kind are strings because they are identity tokens and not quantities: a JSON number
-// here would go through an f64 on the way back in and an inode is not safe in one.
+// {"at":1789426925000,"moves":[{"from":"/home/gm/a.txt","to":"/home/gm/Work/a.txt","dev":"66306","ino":"41","kind":"32768","born":["1789426900","5000"]}]}
+// dev, ino, kind and born are strings because they are identity tokens and not quantities: a JSON number
+// here would go through an f64 on the way back in and an inode is not safe in one. born is left out when unknown.
 fn doc_of(moves: &[Move], at_ms: u64) -> Json {
     let rows = moves
         .iter()
         .map(|m| {
-            Json::Obj(vec![
+            let mut fields = vec![
                 ("from".to_string(), Json::Str(m.from.clone())),
                 ("to".to_string(), Json::Str(m.to.clone())),
                 ("dev".to_string(), Json::Str(m.dev.to_string())),
                 ("ino".to_string(), Json::Str(m.ino.to_string())),
                 ("kind".to_string(), Json::Str(m.kind.to_string())),
-            ])
+            ];
+            if let Some((sec, nsec)) = m.born {
+                fields.push(("born".to_string(), Json::Arr(vec![Json::Str(sec.to_string()), Json::Str(nsec.to_string())])));
+            }
+            Json::Obj(fields)
         })
         .collect();
     Json::Obj(vec![
@@ -101,8 +106,9 @@ fn doc_of(moves: &[Move], at_ms: u64) -> Json {
     ])
 }
 
-// A row missing any of its five fields is a row this cannot reverse safely, so it is dropped rather
-// than guessed at: a hand-edited file must not be able to rename a path nobody recorded.
+// A row missing any of its five fields, or with a birth time that is not two numbers, is a row this
+// cannot reverse safely, so it is dropped rather than guessed at: a hand-edited file must not be able
+// to rename a path nobody recorded. A row with no birth time at all predates it and still loads.
 pub fn moves_of(doc: &Json) -> Vec<Move> {
     let rows = doc.get("moves").and_then(Json::as_array).map(<[Json]>::to_vec).unwrap_or_default();
     rows.iter()
@@ -112,16 +118,33 @@ pub fn moves_of(doc: &Json) -> Vec<Move> {
             let dev = number(row, "dev")?;
             let ino = number(row, "ino")?;
             let kind = number(row, "kind")? as u32;
+            let born = match row.get("born") {
+                None => None,
+                Some(pair) => Some(born_of_row(pair)?),
+            };
             if from.is_empty() || to.is_empty() {
                 return None;
             }
-            Some(Move { from: from.to_string(), to: to.to_string(), dev, ino, kind })
+            Some(Move { from: from.to_string(), to: to.to_string(), dev, ino, kind, born })
         })
         .collect()
 }
 
 fn number(row: &Json, name: &str) -> Option<u64> {
-    row.get(name).and_then(Json::as_str).and_then(|text| text.parse::<u64>().ok())
+    row.get(name).and_then(token)
+}
+
+// Sample input: "41", an identity token written as a string.
+fn token(value: &Json) -> Option<u64> {
+    value.as_str().and_then(|text| text.parse::<u64>().ok())
+}
+
+// Sample input: ["1789426900","5000"], seconds then nanoseconds.
+fn born_of_row(pair: &Json) -> Option<(u64, u32)> {
+    match pair.as_array()? {
+        [sec, nsec] => Some((token(sec)?, u32::try_from(token(nsec)?).ok()?)),
+        _ => None,
+    }
 }
 
 // What a shelf move leaves behind for a later `z`: the engine's own Moved steps, which carry the
@@ -138,6 +161,7 @@ pub fn moves_from(steps: &[Step]) -> Vec<Move> {
                     dev,
                     ino,
                     kind,
+                    born: after.born(),
                 })
             }
             _ => None,
@@ -216,7 +240,9 @@ fn put_back(step: &Move) -> Result<(), String> {
     let to = Path::new(&step.to);
     let meta = fs::symlink_metadata(to)
         .map_err(|e| format!("{} is not where the move left it ({:?})", step.to, e.kind()))?;
-    if meta.dev() != step.dev || meta.ino() != step.ino || meta.mode() & 0o170000 != step.kind {
+    let landed = ItemIdentity::record(&meta);
+    let (dev, ino, kind) = landed.parts();
+    if dev != step.dev || ino != step.ino || kind != step.kind || born_differs(step.born, landed.born()) {
         return Err(format!("{} was replaced since the move, so undo left it in place", step.to));
     }
     move_back(to, Path::new(&step.from)).map_err(|e| format!("{} could not go back ({})", step.from, e.msg))

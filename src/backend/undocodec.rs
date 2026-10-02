@@ -33,7 +33,7 @@ fn arr(items: Vec<Json>) -> Json {
 }
 
 fn identity(id: &ItemIdentity) -> Json {
-    let (dev, ino, kind, len, mtime, changed) = id.to_parts();
+    let (dev, ino, kind, len, mtime, changed, born) = id.to_parts();
     obj(vec![
         ("d", n(dev)),
         ("i", n(ino)),
@@ -41,7 +41,16 @@ fn identity(id: &ItemIdentity) -> Json {
         ("l", n(len)),
         ("m", arr(vec![n(mtime.0), n(mtime.1)])),
         ("c", arr(vec![n(changed.0), n(changed.1)])),
+        ("b", born_json(born)),
     ])
+}
+
+// Null stands for a birth time the filesystem does not keep.
+fn born_json(born: Option<(u64, u32)>) -> Json {
+    match born {
+        Some((sec, nsec)) => arr(vec![n(sec), n(nsec)]),
+        None => Json::Null,
+    }
 }
 
 fn link_kind(kind: &super::link::LinkKind) -> &'static str {
@@ -85,10 +94,7 @@ fn step(step: &Step) -> Json {
         ]),
         Step::Mode { path, before, after, dev, ino, born } => obj(vec![
             ("k", s("pm")), ("path", s(&path.to_string_lossy())), ("before", n(before)), ("after", n(after)),
-            ("dev", n(dev)), ("ino", n(ino)), ("born", match born {
-                Some((sec, nsec)) => arr(vec![n(sec), n(nsec)]),
-                None => Json::Null,
-            }),
+            ("dev", n(dev)), ("ino", n(ino)), ("born", born_json(*born)),
         ]),
         // Sample input: {"k":"barrier"}.
         Step::Barrier => obj(vec![("k", s("barrier"))]),
@@ -219,7 +225,26 @@ fn decode_identity(value: &Json) -> Option<ItemIdentity> {
         get(pairs, "l").and_then(parse_u64)?,
         pair("m")?,
         pair("c")?,
+        // A record from before birth time was kept has no "b", and decodes as unknown.
+        match get(pairs, "b") {
+            None => None,
+            Some(value) => decode_born(value)?,
+        },
     ))
+}
+
+// Sample input: null or [1790975225,498364116]; null is a birth time the writer never knew.
+fn decode_born(value: &Json) -> Option<Option<(u64, u32)>> {
+    match value {
+        Json::Null => Some(None),
+        v => {
+            let items = v.as_array()?;
+            if items.len() != 2 {
+                return None;
+            }
+            Some(Some((parse_u64(&items[0])?, parse_u32(&items[1])?)))
+        }
+    }
 }
 
 fn decode_step(value: &Json) -> Option<Step> {
@@ -275,17 +300,7 @@ fn decode_step(value: &Json) -> Option<Step> {
             after: get(pairs, "after").and_then(parse_u32)?,
             dev: get(pairs, "dev").and_then(parse_u64)?,
             ino: get(pairs, "ino").and_then(parse_u64)?,
-            // A birth time the writer never knew is null; anything else is a two-number pair.
-            born: match get(pairs, "born")? {
-                Json::Null => None,
-                v => {
-                    let items = v.as_array()?;
-                    if items.len() != 2 {
-                        return None;
-                    }
-                    Some((parse_u64(&items[0])?, parse_u32(&items[1])?))
-                }
-            },
+            born: decode_born(get(pairs, "born")?)?,
         }),
         "local" => None,
         "barrier" => Some(Step::Barrier),

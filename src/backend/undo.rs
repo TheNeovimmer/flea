@@ -5,6 +5,9 @@ use crate::error::{from_io, FleaError};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
+// An identity field for field: dev, inode, kind, length, mtime, ctime and birth time.
+pub(crate) type IdentityParts = (u64, u64, u32, u64, (i64, i64), (i64, i64), Option<(u64, u32)>);
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ItemIdentity {
     dev: u64,
@@ -13,19 +16,21 @@ pub struct ItemIdentity {
     len: u64,
     mtime: (i64, i64),
     changed: (i64, i64),
+    born: Option<(u64, u32)>,
 }
 
 impl ItemIdentity {
     pub fn record(meta: &std::fs::Metadata) -> Self {
         Self { dev: meta.dev(), ino: meta.ino(), kind: meta.mode() & 0o170000, len: meta.len(),
-            mtime: (meta.mtime(), meta.mtime_nsec()), changed: (meta.ctime(), meta.ctime_nsec()) }
+            mtime: (meta.mtime(), meta.mtime_nsec()), changed: (meta.ctime(), meta.ctime_nsec()),
+            born: super::permissions::born_of(meta) }
     }
     // The shared journal's wire form, field for field; the kind set it accepts is checked on read.
-    pub(crate) fn to_parts(&self) -> (u64, u64, u32, u64, (i64, i64), (i64, i64)) {
-        (self.dev, self.ino, self.kind, self.len, self.mtime, self.changed)
+    pub(crate) fn to_parts(&self) -> IdentityParts {
+        (self.dev, self.ino, self.kind, self.len, self.mtime, self.changed, self.born)
     }
-    pub(crate) fn from_parts(dev: u64, ino: u64, kind: u32, len: u64, mtime: (i64, i64), changed: (i64, i64)) -> Self {
-        Self { dev, ino, kind, len, mtime, changed }
+    pub(crate) fn from_parts(dev: u64, ino: u64, kind: u32, len: u64, mtime: (i64, i64), changed: (i64, i64), born: Option<(u64, u32)>) -> Self {
+        Self { dev, ino, kind, len, mtime, changed, born }
     }
     pub fn inspect(path: &std::path::Path) -> Result<Self, FleaError> {
         let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
@@ -37,18 +42,27 @@ impl ItemIdentity {
         })
         .unwrap_or_else(Err)
     }
-    // The shelf keeps its one-step journal in a file of its own, so it needs these three out of here.
+    // The shelf keeps its one-step journal in a file of its own, so it needs these four out of here.
     pub fn parts(&self) -> (u64, u64, u32) {
         (self.dev, self.ino, self.kind)
     }
+    pub fn born(&self) -> Option<(u64, u32)> {
+        self.born
+    }
+    // With no birth time on either side this stays the dev, inode and kind check it always was.
     pub fn same_item(&self, other: &Self) -> bool {
-        self.dev == other.dev && self.ino == other.ino && self.kind == other.kind
+        self.dev == other.dev && self.ino == other.ino && self.kind == other.kind && !born_differs(self.born, other.born)
     }
     // A batched move removes its source only while it still holds the bytes its copy took.
     pub fn unchanged_for_move(&self, current: &Self) -> bool {
         self.same_item(current) && self.len == current.len
             && self.mtime == current.mtime && self.changed == current.changed
     }
+}
+
+// A recreated file can reuse a freed inode, so unequal birth times split two items; a side with none cannot.
+pub(crate) fn born_differs(was: Option<(u64, u32)>, now: Option<(u64, u32)>) -> bool {
+    matches!((was, now), (Some(was), Some(now)) if was != now)
 }
 
 // One reversible step. An operation is a list of these, reversed newest first.

@@ -43,6 +43,39 @@ fn undoing_a_rename_puts_the_old_name_back() {
     assert_eq!(std::fs::read_to_string(&from).unwrap(), "body");
 }
 
+fn born_identity(born: Option<(u64, u32)>) -> ItemIdentity {
+    ItemIdentity::from_parts(1, 2, 0o100000, 3, (4, 5), (6, 7), born)
+}
+
+#[test]
+fn unequal_birth_times_split_two_items_that_share_a_device_inode_and_kind() {
+    let was = born_identity(Some((100, 1)));
+    assert!(was.same_item(&born_identity(Some((100, 1)))));
+    assert!(!was.same_item(&born_identity(Some((100, 2)))), "a later nanosecond is a recreated file");
+    assert!(!was.same_item(&born_identity(Some((101, 1)))), "and so is a later second");
+    // A side with no birth time (an old record, or a filesystem that keeps none) leaves dev, inode and kind to decide.
+    assert!(was.same_item(&born_identity(None)));
+    assert!(born_identity(None).same_item(&was));
+    assert!(born_identity(None).same_item(&born_identity(None)));
+}
+
+#[test]
+fn undoing_a_rename_refuses_a_file_born_after_the_one_it_recorded() {
+    let d = TestDir::new("undoborn");
+    let from = d.join("before.txt");
+    let to = d.file("after.txt", "body");
+    let landed = ItemIdentity::inspect(&to).unwrap();
+    let Some((sec, nsec)) = landed.born() else { return };
+    // Same device, inode and kind, a different birth: what a recreated file looks like beside the recorded one.
+    let (dev, ino, kind, len, mtime, changed, _) = landed.to_parts();
+    let recorded = ItemIdentity::from_parts(dev, ino, kind, len, mtime, changed, Some((sec.wrapping_add(1), nsec)));
+    let mut j = Journal::new();
+    j.push(entry("rename", vec![Step::Moved { from: from.clone(), to: to.clone(), before: recorded.clone(), after: recorded }]));
+    let e = j.undo().expect_err("a file born at another time is not the one that was renamed");
+    assert!(e.msg.contains("replaced"), "{}", e.msg);
+    assert!(to.exists() && !from.exists(), "and it is left exactly where it is");
+}
+
 #[test]
 fn undoing_a_rename_refuses_to_clobber_a_file_that_took_the_old_name_since() {
     let d = TestDir::new("undoclobber");
@@ -276,8 +309,7 @@ fn a_partial_mode_undo_keeps_the_restored_half_redoable() {
     }
     let steps = crate::backend::permissions::apply_many(
         &[(a.clone(), "600".to_string()), (b.clone(), "600".to_string()), (c.clone(), "600".to_string())]).expect("three ordinary files");
-    std::fs::remove_file(&a).unwrap();
-    std::fs::write(&a, "replacement").unwrap();
+    d.replace_file(&a, "replacement");
     std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o600)).unwrap();
     let mut j = Journal::new();
     j.push(entry("permissions", steps));
