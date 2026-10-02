@@ -19,9 +19,7 @@ ShellRoot {
     property string folderClass: "?"
     property var winShell: null
     property var win: null
-    property double recentSince: 0
     readonly property int askWaitMs: 5000
-    readonly property int recentHoldMs: 1200
     readonly property int probeTimeoutMs: 30000
 
     function fail(text) { root.failures.push(text) }
@@ -240,7 +238,6 @@ ShellRoot {
             }
             root.folderClass = root.win.storageClass
             root.win.open("flea:recent")
-            root.recentSince = Date.now()
             root.stage = 43
             root.stageSince = Date.now()
             return
@@ -254,12 +251,26 @@ ShellRoot {
                 if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("Recent never opened, at " + root.win.path); }
                 return
             }
-            if (root.win.storageKnown) {
-                if (Date.now() - root.recentSince > root.recentHoldMs) { root.fail("Recent asked fsinfo, storage is known"); }
+            // A stray Recent fsinfo flips storageKnown at once, so no hold may hide it.
+            if (root.win.storageKnown) { root.fail("Recent asked fsinfo, storage is known"); return }
+            if (root.win.pendingListings !== 0 || root.win.total === 0) {
+                if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("Recent listing never landed"); }
                 return
             }
-            if (Date.now() - root.stageSince < root.recentHoldMs) return
-            root.report()
+            // The barrier rides the same worker: a scroll past the held window asks for rows.
+            var view = root.win.viewItem()
+            if (view) view.contentY = view.contentHeight
+            root.stage = 44
+            root.stageSince = Date.now()
+            return
+        }
+        case 44: {
+            if (root.win.storageKnown) { root.fail("Recent asked fsinfo, storage is known"); return }
+            if (root.win.path !== "flea:recent") { root.fail("left Recent before its window answered"); return }
+            if (root.win.rows.length > 0) { root.report(); return }
+            var again = root.win.viewItem()
+            if (again) again.contentY = again.contentHeight
+            if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("Recent window ask never answered"); }
             return
         }
         }
