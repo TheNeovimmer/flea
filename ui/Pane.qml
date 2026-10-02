@@ -605,7 +605,7 @@ FocusScope {
     }
     // Both entrances send through here, so one pending id covers the cursor and the menu.
     function requestLinkTarget(path) {
-        root.linkTargetPendingId += 1
+        root.linkTargetPendingId = root.backend.nextLinkTargetId()
         root.backend.send({ c: "linktarget", path: path, id: root.linkTargetPendingId })
     }
     // MenuAdditions040: Paste as links, undoable, through the collision card;

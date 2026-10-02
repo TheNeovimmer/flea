@@ -52,7 +52,7 @@ tests/js/drag.js 301
 tests/js/previewswap.js 367
 tests/js/focus.js 522
 tests/js/mounts.js 383
-tests/js/menu.js 382
+tests/js/menu.js 462
 tests/js/nav.js 332
 tests/js/network.js 306
 tests/js/ops.js 437
@@ -66,7 +66,7 @@ tests/js/status.js 354
 tests/rename-grid-bottom.qml 419
 tests/rename-grid-bottom.js 303
 tests/rename-lifecycle-check.js 356
-ui/Backend.qml 441
+ui/Backend.qml 444
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 475
 ui/ContextMenu.qml 625
@@ -102,7 +102,6 @@ ui/js/Keymap.js 338
 ui/js/Markdown.js 527
 ui/js/Menu.js 425
 ui/js/Drag.js 302
-ui/js/Nav.js 301
 ui/js/Ops.js 440
 ui/js/Picker.js 325
 ui/js/Settings.js 455

@@ -45,6 +45,9 @@ Item {
     signal linked(int ok, int failed, int skipped, string note)
     // MenuAdditions040: Show original reveals the link's target in its own folder.
     signal linkTarget(string path, string directory, string name, int id)
+    // Linktarget ids rise forever, so a late reply never matches a new request.
+    property int linkTargetSeq: 0
+    function nextLinkTargetId() { return root.linkTargetSeq += 1 }
     signal trashed(int ok, int failed)
     signal renamed(bool ok, string path)
     signal made(bool ok, string path)
