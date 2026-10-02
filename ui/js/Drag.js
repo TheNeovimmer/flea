@@ -55,7 +55,7 @@ function label(copy, link) {
 function line(n, name, copy, link) {
     var verb = link === true ? "Link " : copy ? "Copy " : "Move "
     var where = name.length > 0 ? " to " + name : " to a folder"
-    return verb + Ops.items(n) + where + ((copy || link === true) ? "" : " · ctrl copies and shift moves, read at lift")
+    return verb + Ops.items(n) + where + ((copy || link === true) ? "" : " · ctrl at lift copies")
 }
 
 // Rows as Ops.moveToDropbox sends them, named in the listing of the lift; answers whether the card's question went out.

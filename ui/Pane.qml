@@ -26,6 +26,8 @@ import "js/Thumbs.js" as Thumbs
 FocusScope {
     id: root
     focus: true
+    // Unhandled child keys reach the pane, including keys from an actually focused rail.
+    Keys.onPressed: function (event) { event.accepted = Focus.handleKey(event, root.sidebar && root.sidebar.activeFocus ? root.railPane : root, root.sidebar) }
     enabled: !root.settingsPanel || !root.settingsPanel.opened
     property var backend: null
     property string path: ""
@@ -169,6 +171,7 @@ FocusScope {
     readonly property var emptyState: paneStates.emptyItem
     readonly property var stateMessageItem: paneStates.messageItem
     readonly property alias retrySelectionText: wire.retrySelectionText
+    readonly property alias wire: wire
     // The listing swap, ui/PaneSwap.qml: ui/js/Nav.js starts a hold through it and the views read holding.
     readonly property alias swap: wire.swap
     readonly property string menuSelectionIdentity: JSON.stringify([root.path, root.held, root.rows,
@@ -411,8 +414,8 @@ FocusScope {
             root.message("A directory is already loading.", false)
             return
         }
-        // Every real navigation leaves Recent: entering it pushed no history entry, so nothing
-        // carries the mode across, and the folder it was opened over is already gone with it.
+        // Every real navigation leaves Recent and Trash, restoring the folder beneath each overlay.
+        trashHost.close()
         RecentMode.leave(root)
         if (!root.listInFlight) {
             var applied = root.appliedListingPreferences ? JSON.parse(root.appliedListingPreferences) : []
@@ -859,9 +862,6 @@ FocusScope {
         onThumbsApplied: function (work) { root.thumbState = Thumbs.applied(root.thumbState, work) }
         onDirSizesApplied: function (ask) { root.dirSizeState = DirSizes.applied(root.dirSizeState, ask) }
         onDirSizesCancelled: root.dirSizeState = DirSizes.cancelled(root.dirSizeState)
-
-        // The whole route lives in Focus.handleKey now, see its own comment; this is only the seam.
-        Keys.onPressed: function (event) { event.accepted = Focus.handleKey(event, root, root.sidebar) }
     }
 
     Rectangle {

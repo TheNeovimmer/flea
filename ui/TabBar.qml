@@ -218,18 +218,26 @@ Item {
                 DragHandler {
                     acceptedButtons: Qt.LeftButton
                     target: null
-                    onActiveChanged: {
-                        if (active)
-                            root.dragStarted(tab.index)
-                        else
-                            root.dragFinished()
+                    function updateDrop() {
+                        var pos = tab.mapToItem(strip, centroid.position.x, centroid.position.y)
+                        root.dragMoved(pos.x)
                     }
-                    onCentroidChanged: {
+                    onActiveChanged: {
+                        // The threshold move precedes activation, so its centroid must be sampled here.
                         if (active) {
-                            var pos = tab.mapToItem(strip, centroid.position.x, centroid.position.y)
-                            root.dragMoved(pos.x)
+                            root.dragStarted(tab.index)
+                            updateDrop()
                         }
                     }
+                    onCentroidChanged: if (active) updateDrop()
+                    onGrabChanged: function (transition, point) {
+                        if (transition !== PointerDevice.UngrabExclusive) return
+                        // Qt deactivates before updating the centroid on release; the event point holds the release position.
+                        var pos = strip.mapFromItem(null, point.scenePosition.x, point.scenePosition.y)
+                        root.dragMoved(pos.x)
+                        root.dragFinished()
+                    }
+                    onCanceled: { root.dragFrom = -1; root.dropAt = -1 }
                 }
             }
         }

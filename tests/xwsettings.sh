@@ -574,6 +574,59 @@ if [ "$fail" -eq 0 ]; then
   fi
 fi
 
+# Tab and window keys must execute through the loaded WindowBody, not just stub pane methods.
+# Record detached window launches in this fixture; all other invocations use the real candidate.
+sandbox_scratch "$SANDBOX/tabs" || exit 1
+mkdir -p "$SANDBOX/tabs/config" "$SANDBOX/tabs/a/sub" "$SANDBOX/tabs/b/sub" || exit 1
+printf 'a\n' > "$SANDBOX/tabs/a/a.txt" || exit 1
+printf 'b\n' > "$SANDBOX/tabs/b/b.txt" || exit 1
+ln -s "$PWD/ui" "$SANDBOX/tabs/config/flea" || exit 1
+ln -s "$(readlink -f ui/boot/Commons)" "$SANDBOX/tabs/config/Commons" || exit 1
+ln -s "$(readlink -f ui/boot/Ui)" "$SANDBOX/tabs/config/Ui" || exit 1
+cp tests/xwsettings-tabs.qml "$SANDBOX/tabs/config/shell.qml" || exit 1
+cat > "$SANDBOX/tabs/launcher" <<'SH'
+#!/bin/bash
+if [ "$#" -eq 1 ] && [[ "$1" = /* ]]; then
+    printf '%s\n' "$1" >> "$PROBE_LAUNCHES"
+    exit 0
+fi
+exec "$PROBE_REAL_BIN" "$@"
+SH
+chmod +x "$SANDBOX/tabs/launcher" || exit 1
+for mode in tabs window trash tabview restore openers watch quickdrag; do
+  mkdir -p "$SANDBOX/tabs/$mode" || exit 1
+  : > "$SANDBOX/tabs/$mode/launches" || exit 1
+  env XDG_STATE_HOME="$SANDBOX/tabs/$mode/state" "$BIN" --ui-state \
+    '{"keys":"default","view":"list","sort":{"key":"name","reverse":false},"updates":{"autoCheck":false}}' >/dev/null 2>&1 || exit 1
+  start_path="$SANDBOX/tabs/a"
+  if [ "$mode" = restore ]; then
+    restored=$(python3 - "$SANDBOX/tabs/a" "$SANDBOX/tabs/b" <<'PY'
+import json, sys
+a, b = sys.argv[1:]
+print(json.dumps({"startIn": "last", "lastTabs": {"paths": [a, b, a + "/sub"], "index": 1}}))
+PY
+    ) || exit 1
+    env XDG_STATE_HOME="$SANDBOX/tabs/$mode/state" "$BIN" --ui-state "$restored" >/dev/null 2>&1 || exit 1
+    start_path=""
+  fi
+  out=$(env DISPLAY=flea-offscreen QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 QSG_RHI_BACKEND=opengl \
+      XDG_STATE_HOME="$SANDBOX/tabs/$mode/state" FLEA_BIN="$SANDBOX/tabs/launcher" \
+      FLEA_PATH="$start_path" PROBE_BASE="$SANDBOX/tabs/a" PROBE_OTHER_PATH="$SANDBOX/tabs/b" \
+      PROBE_MODE="$mode" PROBE_REAL_BIN="$BIN" PROBE_LAUNCHES="$SANDBOX/tabs/$mode/launches" \
+      PROBE_BODY="$PWD/ui/WindowBody.qml" timeout 30 qs -p "$SANDBOX/tabs/config" 2>&1)
+  result=$?
+  printf '%s\n' "$out" | grep -E 'TAB_HUNT (FAIL|DONE)|TypeError|ReferenceError|ERROR' || true
+  printf '%s\n' "$out" | grep -E 'WARN' | sort -u | head -5 || true
+  check "the $mode key/pointer probe drains" "$qs_drained_exit" "$result"
+  check "the $mode key/pointer probe finishes without a failure" 1 \
+    "$(printf '%s\n' "$out" | grep -cE "TAB_HUNT DONE $mode [0-9]+ checks, 0 failed")"
+  check "the $mode key/pointer probe has no script errors" 0 \
+    "$(printf '%s\n' "$out" | grep -cE 'TypeError|ReferenceError|ERROR')"
+  if ! printf '%s\n' "$out" | grep -q "TAB_HUNT DONE $mode "; then printf '%s\n' "$out" | tail -15; fi
+done
+
+python3 tests/xwsettings-backends.py "$BIN" "$SANDBOX/two-backends" || fail=1
+
 sandbox_remove "$SANDBOX" || exit 1
 
 [ "$fail" -eq 0 ] && echo "xwsettings: all checks passed"
