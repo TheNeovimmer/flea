@@ -1,8 +1,6 @@
 .pragma library
 
-// MdLeaf: leaf-block readers over MdRun's inline driver. Task text, fences,
-// thematic breaks, GFM tables, standalone images and alerts; each reader is a
-// pure function of its lines, so the block splitter stays a loop.
+// MdLeaf: leaf-block readers over MdRun (tasks, fences, breaks, tables, images, alerts), each a pure function of its lines.
 .import "MdUrl.js" as MdUrl
 .import "MdHtml.js" as MdHtml
 .import "MdInline.js" as Md
@@ -79,8 +77,7 @@ function fenceClose(line, tick, len) {
     return m !== null && m[1].charAt(0) === tick && m[1].length >= len
 }
 
-// A GFM delimiter row: every cell is dashes with optional edge colons, which
-// also carry the alignment. Anything else is not a table.
+// Sample input: "| :--- | ---: |"; dashes with optional edge colons carry the alignment, anything else is not a table.
 function delimAligns(line) {
     var cells = String(line).trim().replace(/^\||\|$/g, "").split("|")
     if (cells.length === 0)
@@ -95,8 +92,7 @@ function delimAligns(line) {
     return aligns
 }
 
-// A table row split on unescaped pipes, with leading/trailing pipes shed.
-// A backslash before punctuation escapes it, the way GFM reads \_ as _.
+// Sample input: "| a | b \| c |"; split on unescaped pipes, edge pipes shed, a backslash before punctuation escapes it.
 function splitRow(line) {
     var text = String(line).trim().replace(/^\||\|$/g, "")
     var cells = []
@@ -119,8 +115,7 @@ function splitRow(line) {
     return cells
 }
 
-// The board's table as data, drawn by ui/PreviewMarkdown.qml: Qt's Markdown
-// importer drops style attributes, so no inline CSS can carry the rules.
+// The board's table as data for ui/PreviewMarkdown.qml: Qt's Markdown importer drops style attributes.
 function tableBlock(head, aligns, rows) {
     var cols = head.length
     for (var i = 0; i < rows.length; i++)
@@ -134,8 +129,7 @@ function tableBlock(head, aligns, rows) {
     }
 }
 
-// A standalone image paragraph: inline, reference (full, collapsed, shortcut)
-// or a single raw <img> tag. Balanced brackets nest; backslash escapes skip.
+// Sample input: "![alt](a.png)", "![alt][ref]" or one raw <img> tag; balanced brackets nest, backslashes skip.
 function standaloneImage(line, dir, defs) {
     var text = String(line).trim()
     var end = scanBalanced(text, 2)
@@ -223,9 +217,7 @@ function alertTitle(line) {
     return "**" + title + "**" + (m[2].length > 0 ? " " + m[2] : "")
 }
 
-// Prepare one document's prose for md4c: fenced blocks pass through untouched,
-// everything else resolves through the inline driver. Reference definitions
-// are dropped after collection, never rendered.
+// Prepare one document's prose for md4c: fences pass through, the rest resolves inline, definitions are dropped.
 function prepare(source, dir, defs, chrome, ink) {
     var body = String(source)
     var rawLines = body.split("\n")

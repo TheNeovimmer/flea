@@ -1,146 +1,126 @@
 .pragma library
 
-// MdInline: single-pass inline scanners. Every scan advances and never
-// restarts, so hostile inputs stay linear; the output holds no "![", "[" or
-// raw "<" except spans this parser resolved itself.
+// MdInline: single-pass scanners that never restart, so hostile input stays linear and no unresolved "![", "[" or "<" escapes.
 .import "MdUrl.js" as MdUrl
 .import "MdHtml.js" as MdHtml
+.import "MdEscape.js" as Esc
+
+var TARGET_SCAN_LIMIT = 8192
+var LABEL_SCAN_LIMIT = 1000
+var MIN_BARELINK_LENGTH = 9
+var MAX_MATH_RUN_LENGTH = 2
 
 function isSpace(c) {
     return c === " " || c === "\t" || c === "\n" || c === "\r"
 }
 
 function isPunct(c) {
-    var code = c.charCodeAt(0)
-    return (code >= 33 && code <= 47) || (code >= 58 && code <= 64)
-        || (code >= 91 && code <= 96) || (code >= 123 && code <= 126)
+    return Esc.isAsciiPunct(c.charCodeAt(0))
 }
 
+// Sample input: `` ` `` and `x`, or $x+1$ and $$x^2$$, each as [from, to, run length, kind] tuples.
+// Code spans pair first (kind 0), then math (kind 1) pairs around them, never across one.
 function spanIntervals(text) {
+    var hasCode = text.indexOf("`") >= 0
+    if (!hasCode && text.indexOf("$") < 0)
+        return []
+    var code = hasCode ? codeIntervals(text) : []
+    return text.indexOf("$") >= 0 ? mergeIntervals(code, mathIntervals(text, code)) : code
+}
+
+// Sample input: ``a ` b`` and `c`; a closing run drops the openers and spans inside it, which are literal.
+function codeIntervals(text) {
     var out = []
-    // Native presence checks: inputs without spans skip both scans entirely.
-    if (text.indexOf("`") < 0 && text.indexOf("$") < 0)
-        return out
-    // Runs are paired as they close, straight into from order: one pass, no
-    // run table, no pair table, no sort. Closer order is from order except for
-    // nested spans, which the bounded walk slots in behind the append.
-    if (text.indexOf("`") >= 0) {
-        var openByLen = {}
-        var i = 0
-        while (i < text.length) {
-            if (text.charAt(i) !== "`") {
-                i++
-                continue
-            }
-            var j = i
-            while (j < text.length && text.charAt(j) === "`")
-                j++
-            var len = j - i
-            var open = openByLen[len]
-            if (open !== undefined && open !== null) {
-                appendSpan(out, open, j, len, 0)
-                openByLen[len] = null
-            } else {
-                openByLen[len] = i
-            }
-            i = j
-        }
-    }
-    // Math per GitHub's rules, kept as code-styled literal text with a kind tag
-    // a later unit swaps for a figure. Same run pairing over $ runs of length 1-2.
-    // An opener holds only when the next character is not a space, a closer
-    // only when the previous character is not a space and the next is not a
-    // digit, so prices such as $5 and $10 never pair. An escaped dollar is
-    // literal and neither opens nor closes.
-    if (text.indexOf("$") >= 0) {
-    var i = 0
-    var mopen = -1
-    var mlen = 0
-    while (i < text.length) {
-        if (text.charAt(i) !== "$") {
-            i++
-            continue
-        }
-        var j = i
-        while (j < text.length && text.charAt(j) === "$")
+    var openByLen = {}
+    var openers = []
+    var i = text.indexOf("`")
+    while (i >= 0) {
+        var j = i + 1
+        while (text.charAt(j) === "`")
             j++
         var len = j - i
-        if (len > 2) {
-            i = j
-            continue
+        var open = openByLen[len]
+        if (open !== undefined && open !== null) {
+            while (out.length > 0 && out[out.length - 4] > open)
+                out.length -= 4
+            out.push(open, j, len, 0)
+            var covered = 0
+            do {
+                covered = openers.pop()
+                openByLen[covered] = null
+            } while (covered !== len)
+        } else {
+            openByLen[len] = i
+            openers.push(len)
         }
-        var back = 0
-        var b = i - 1
-        while (b >= 0 && text.charAt(b) === "\\") {
-            back++
-            b--
-        }
-        if (back % 2 === 1) {
-            i = j
-            continue
-        }
-        if (mopen < 0) {
-            var after = j < text.length ? text.charAt(j) : ""
-            if (after === " " || after === "\t" || after === "\n" || after === "\r") {
-                i = j
-                continue
-            }
-            mopen = i
-            mlen = len
-        } else if (len === mlen) {
-            var before = text.charAt(i - 1)
-            var afterClose = j < text.length ? text.charAt(j) : ""
-            if (before === " " || before === "\t" || before === "\n" || before === "\r") {
-                i = j
-                continue
-            }
-            if (afterClose >= "0" && afterClose <= "9") {
-                i = j
-                continue
-            }
-            appendSpan(out, mopen, j, mlen, 1)
-            mopen = -1
-        }
-        i = j
-    }
+        i = text.indexOf("`", j)
     }
     return out
 }
 
-// Append one tuple in from order; nested spans walk back their shallow depth.
-function appendSpan(out, from, to, len, kind) {
-    if (out.length === 0 || out[out.length - 4] <= from) {
-        out.push(from, to, len, kind)
-        return
+// Sample input: costs $5 and $10 stays prose; $x+1$ pairs. GitHub flanking: no space after the opener,
+// none before the closer, no digit after it; an odd backslash run escapes the dollar.
+function mathIntervals(text, code) {
+    var out = []
+    var codeAt = 0
+    var i = text.indexOf("$")
+    var open = -1
+    var openLen = 0
+    while (i >= 0) {
+        while (codeAt < code.length && code[codeAt + 1] <= i) {
+            open = code[codeAt] > open ? -1 : open
+            codeAt += 4
+        }
+        if (codeAt < code.length && code[codeAt] < i) {
+            open = -1
+            i = text.indexOf("$", code[codeAt + 1])
+            continue
+        }
+        var j = i + 1
+        while (text.charAt(j) === "$")
+            j++
+        var len = j - i
+        var back = 0
+        for (var b = i - 1; b >= 0 && text.charAt(b) === "\\"; b--)
+            back++
+        if (len <= MAX_MATH_RUN_LENGTH && back % 2 === 0) {
+            var after = text.charAt(j)
+            var canClose = i > 0 && !isSpace(text.charAt(i - 1)) && !(after >= "0" && after <= "9")
+            if (open >= 0 && len === openLen && canClose) {
+                out.push(open, j, openLen, 1)
+                open = -1
+            } else if (open < 0 && j < text.length && !isSpace(text.charAt(j))) {
+                open = i
+                openLen = len
+            }
+        }
+        i = text.indexOf("$", j)
     }
-    insertOrdered4(out, from, to, len, kind)
+    return out
 }
 
-// Insert one [from, to, len, kind] tuple keeping from order. Appends in the
-// common case; nested spans walk back over their (shallow) depth only.
-function insertOrdered4(out, from, to, len, kind) {
-    var k = out.length
-    while (k > 0 && out[k - 4] > from)
-        k -= 4
-    out.push(from, to, len, kind)
-    if (k === out.length - 4)
-        return
-    for (var m = out.length - 1; m > k + 3; m--)
-        out[m] = out[m - 4]
-    out[k] = from
-    out[k + 1] = to
-    out[k + 2] = len
-    out[k + 3] = kind
+// Merge two from-ordered tuple lists in one pass; code and math never share a start.
+function mergeIntervals(a, b) {
+    var out = []
+    var ai = 0
+    var bi = 0
+    while (ai < a.length || bi < b.length) {
+        var fromA = bi >= b.length || (ai < a.length && a[ai] < b[bi])
+        var src = fromA ? a : b
+        var at = fromA ? ai : bi
+        out.push(src[at], src[at + 1], src[at + 2], src[at + 3])
+        ai += fromA ? 4 : 0
+        bi += fromA ? 0 : 4
+    }
+    return out
 }
 
-// Escape one text character for md4c: brackets and angle brackets can never
-// reach it raw, so no image, link, definition or tag forms there.
+// Escape one text character for md4c so no image, link, definition or tag forms from it.
 function escapeChar(c) {
     return c === "<" ? "&#60;" : c === ">" ? "&#62;" : c === "[" ? "&#91;" : c === "]" ? "&#93;" : c
 }
 
-// An inline code span as styled HTML. The content stays literal through the
-// escaper below; math keeps its kind tag for the later figure unit.
+// An inline code span as styled HTML, content escaped; math keeps its kind tag for the later figure unit.
 function codeHtml(content, chrome, kind) {    if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(chrome || "")))
         return null
     var tag = kind === "math" ? '<code data-math="inline" style="background-color:' + chrome + '">'
@@ -149,35 +129,10 @@ function codeHtml(content, chrome, kind) {    if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$
 }
 
 function escapeHtmlText(content) {
-    // The exact set the old pipeline escaped: & < > and every ASCII
-    // punctuation character. Letters, digits, spaces and non-ASCII pass, so
-    // emphasis, links and autolinks cannot form inside converted spans and cells.
-    var text = String(content)
-    if (text.length < 1024) {
-        return text.replace(/[&<>\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E]/g, function (c) {
-            return "&#" + c.charCodeAt(0) + ";"
-        })
-    }
-    // Long inputs pay the callback once per match in this engine, seconds per
-    // megabyte, so they take one native pass per PRESENT character instead.
-    // Same bytes out: only characters found by the scan are rewritten.
-    if (!/[&<>\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E]/.test(text))
-        return text
-    for (var k = 0; k < ESCAPED_CHARS.length; k++) {
-        var c = ESCAPED_CHARS[k]
-        if (text.indexOf(c) >= 0)
-            text = text.split(c).join("&#" + c.charCodeAt(0) + ";")
-    }
-    return text
+    return Esc.escapeText(content)
 }
 
-// Every character the escaper above rewrites, as literal one-character strings.
-var ESCAPED_CHARS = ["&", "<", ">", "!", '"', "#", "$", "%", "'", "(", ")", "*",
-    "+", ",", "-", ".", "/", ":", ";", "=", "?", "@", "[", "\\", "]", "^", "_",
-    "`", "{", "|", "}", "~"]
-
-// A link as a font-wrapped anchor: the importer hardcodes its own link blue
-// over QML linkColor, but a presentational font tag survives the import.
+// A link as a font-wrapped anchor: the importer hardcodes its link blue, but a font tag survives it.
 function linkHtml(label, url, ink) {
     if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(ink || "")))
         return null
@@ -185,18 +140,14 @@ function linkHtml(label, url, ink) {
     return '<a href="' + safe + '"><font color="' + ink + '">' + escapeHtmlText(label) + "</font></a>"
 }
 
-// Read an inline (...)-target after labelEnd (the index past "]"). Same-line
-// only; answers {url, end} with end past ")", or null. Balanced parens nest.
+// Sample input: (b "t") after a label's "]"; answers {url, end} past ")", or null. Same line, balanced parens.
 function readInlineTarget(text, i) {
     if (text.charAt(i) !== "(")
         return null
-    // Targets past 8 KiB read as literal text: no legitimate image or link
-    // target runs that long, and an unbounded paren-depth walk rescans the
-    // tail once per "]". Whatever md4c makes of it stays inert, because the
-    // "[![" that would form it never reaches md4c unresolved.
-    var cap = i + 8192
+    // Targets past the scan limit read as literal text: no real target runs that long, and an unbounded walk is quadratic.
+    var cap = i + TARGET_SCAN_LIMIT
     var j = i + 1
-    while (j < text.length && (text.charAt(j) === " " || text.charAt(j) === "\t"))
+    while (j < text.length && j < cap && (text.charAt(j) === " " || text.charAt(j) === "\t"))
         j++
     if (j < text.length && text.charAt(j) === "\n")
         return null
@@ -234,24 +185,24 @@ function readInlineTarget(text, i) {
             return null
         url = text.slice(begin, j)
     }
-    while (j < text.length && (text.charAt(j) === " " || text.charAt(j) === "\t"))
+    while (j < text.length && j < cap && (text.charAt(j) === " " || text.charAt(j) === "\t"))
         j++
     if (text.charAt(j) === '"' || text.charAt(j) === "'" || text.charAt(j) === "(") {
         var q = text.charAt(j)
         var qclose = q === "(" ? ")" : q
         j++
-        while (j < text.length && text.charAt(j) !== qclose && text.charAt(j) !== "\n") {
+        while (j < text.length && j < cap && text.charAt(j) !== qclose && text.charAt(j) !== "\n") {
             if (text.charAt(j) === "\\")
                 j++
             j++
         }
-        if (j >= text.length || text.charAt(j) !== qclose)
+        if (j >= text.length || j >= cap || text.charAt(j) !== qclose)
             return null
         j++
-        while (j < text.length && (text.charAt(j) === " " || text.charAt(j) === "\t"))
+        while (j < text.length && j < cap && (text.charAt(j) === " " || text.charAt(j) === "\t"))
             j++
     }
-    if (text.charAt(j) !== ")")
+    if (j >= cap || text.charAt(j) !== ")")
         return null
     return { url: url, end: j + 1 }
 }
@@ -262,7 +213,7 @@ function readLabelRef(text, i) {
         return null
     var j = i + 1
     var depth = 0
-    while (j < text.length && j - i < 1000) {
+    while (j < text.length && j - i < LABEL_SCAN_LIMIT) {
         var c = text.charAt(j)
         if (c === "\n")
             return null
@@ -279,7 +230,7 @@ function readLabelRef(text, i) {
         }
         j++
     }
-    if (j >= text.length || j - i >= 1000)
+    if (j >= text.length || j - i >= LABEL_SCAN_LIMIT)
         return null
     return { label: text.slice(i + 1, j), end: j + 1 }
 }
@@ -291,9 +242,9 @@ function normalizeLabel(label) {
 // A <scheme:...> or <mail> autolink at text[i] === "<"; answers {url, end} or null.
 function readAutolink(text, i) {
     var j = i + 1
-    while (j < text.length && j - i < 8192 && text.charAt(j) !== ">" && !isSpace(text.charAt(j)))
+    while (j < text.length && j - i < TARGET_SCAN_LIMIT && text.charAt(j) !== ">" && !isSpace(text.charAt(j)))
         j++
-    if (j >= text.length || j - i >= 8192 || text.charAt(j) !== ">")
+    if (j >= text.length || j - i >= TARGET_SCAN_LIMIT || text.charAt(j) !== ">")
         return null
     var inner = text.slice(i + 1, j)
     if (/^[a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^<>]*$/.test(inner)
@@ -302,8 +253,7 @@ function readAutolink(text, i) {
     return null
 }
 
-// Bare http(s)/www autolink starting at i; answers {url, end} or null. GFM's
-// trailing-punctuation strip, bounded and linear.
+// Sample input: see https://a.example/x. here; answers {url, end} or null, GFM's trailing-punctuation strip.
 function readBarelink(text, i) {
     var http = text.slice(i, i + 7) === "http://" || text.slice(i, i + 8) === "https://"
     if (!http) {
@@ -325,5 +275,5 @@ function readBarelink(text, i) {
         url = url.slice(0, -1)
         j--
     }
-    return url.length < 9 ? null : { url: url, end: j }
+    return url.length < MIN_BARELINK_LENGTH ? null : { url: url, end: j }
 }

@@ -1,19 +1,19 @@
 .pragma library
 
-// MdHtml: the raw-HTML allowlist for rendered Markdown. Every tag the file
-// carries is re-emitted by this parser or dropped by it; no raw < survives
-// outside code except the tags built here. One forward scan, no backtracking.
+// MdHtml: one forward scan allowlists raw tags; only sanitized markup reaches md4c.
 .import "MdUrl.js" as MdUrl
 
-// Held-span tokens: private-use characters md4c passes through untouched, so
-// spans the parser resolved are restored after every escaping pass. One table
-// holds code, tags, images and math alike; a single restore ends the pipeline.
+var TOKEN_OPEN = 57346
+var TOKEN_CLOSE = 57347
+var MAX_TAG_LENGTH = 4096
+
+// Held spans use private-use delimiters and one shared token table, restored after escaping.
 function openToken() {
-    return String.fromCharCode(57346)
+    return String.fromCharCode(TOKEN_OPEN)
 }
 
 function closeToken() {
-    return String.fromCharCode(57347)
+    return String.fromCharCode(TOKEN_CLOSE)
 }
 
 function holdToken(tokens, html) {
@@ -22,13 +22,11 @@ function holdToken(tokens, html) {
     return token
 }
 
-// Tags whose content is dropped with them: active content and whole-document
-// namespaces a preview must never instantiate.
+// Tags whose content is dropped with them: active content and whole-document namespaces a preview must never instantiate.
 var DROP_CONTENT = { script: 1, style: 1, iframe: 1, object: 1, embed: 1,
     template: 1, noscript: 1, svg: 1, math: 1 }
 
-// Tags re-emitted with the attributes below; any other tag is dropped and its
-// content kept. font carries only the color the parser's own links wrap in.
+// Tags re-emitted with the attributes below; any other tag is dropped and its content kept. font carries only the color the parser's own links wrap in.
 var ALLOWED = { a: 1, b: 1, strong: 1, i: 1, em: 1, u: 1, s: 1, del: 1,
     strike: 1, sub: 1, sup: 1, kbd: 1, code: 1, br: 1, small: 1, mark: 1,
     span: 1, p: 1, div: 1, h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1, hr: 1,
@@ -36,8 +34,7 @@ var ALLOWED = { a: 1, b: 1, strong: 1, i: 1, em: 1, u: 1, s: 1, del: 1,
     thead: 1, tbody: 1, tr: 1, th: 1, td: 1, ul: 1, ol: 1, li: 1,
     blockquote: 1, pre: 1, font: 1 }
 
-// Attributes that survive on any allowed tag. Every style, class, id,
-// background, srcset, poster, data-* and on* attribute is dropped.
+// Attributes that survive on any allowed tag. Every style, class, id, background, srcset, poster, data-* and on* attribute is dropped.
 var GLOBAL_ATTRS = { align: 1, alt: 1, width: 1, height: 1, title: 1,
     colspan: 1, rowspan: 1 }
 
@@ -48,13 +45,7 @@ function isNameChar(c) {
     return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9")
 }
 
-// Read one raw tag starting at text[i] === "<". Answers {tag, end} with end
-// past the closing ">", or null when no tag opens there. The closing bracket
-// is found with a native search and quote-checked only over the candidate, so
-// a "<" with no ">" anywhere ahead costs one native scan: the first such miss
-// marks every later "<" dead exactly, and dense "<" inputs stay linear. Tags
-// longer than 4 KiB read as literal "<", which is display-only: escaping can
-// never load, whatever md4c would have made of the tag.
+// Sample: <img src="pic.png" alt="picture">. Quote-check only the candidate; a failed native search marks later openers dead, and oversized tags stay literal.
 function readTag(text, i, dead) {
     if (dead !== undefined && dead !== null && i < dead.tagDead)
         return null
@@ -64,7 +55,7 @@ function readTag(text, i, dead) {
             dead.tagDead = text.length
         return null
     }
-    if (gt - i > 4096)
+    if (gt - i > MAX_TAG_LENGTH)
         return null
     var dq = text.indexOf('"', i + 1)
     var sq = text.indexOf("'", i + 1)
@@ -148,9 +139,7 @@ function srcsetPick(value, dir) {
     return null
 }
 
-// Sanitize one raw tag. Answers {emit, drop} where drop names a DROP_CONTENT
-// element the caller must skip to the matching close. emit carries tokens for
-// images the parser resolved, never raw URLs.
+// Sanitize one tag into {emit, drop}; held image tokens carry resolved URLs, and drop names content to skip.
 function sanitizeTag(tag, dir, tokens) {
     function hold(html) {
         return holdToken(tokens, html)
@@ -214,13 +203,12 @@ function sanitizeTag(tag, dir, tokens) {
                 i++
             } else {
                 var begin = i
-                while (i < rest.length && !/[\s>]/.test(rest.charAt(i)) && rest.charAt(i) !== "/")
+                while (i < rest.length && !/[\s>]/.test(rest.charAt(i)) && !(rest.charAt(i) === "/" && i === rest.length - 1))
                     i++
                 value = rest.slice(begin, i)
             }
         }
-        // Every style, class, id, background, srcset, poster, data-* and on*
-        // attribute is dropped, whatever its value.
+        // Every style, class, id, background, srcset, poster, data-* and on* attribute is dropped, whatever its value.
         if (aname === "style" || aname === "class" || aname === "id"
                 || aname === "background" || aname === "poster"
                 || aname.indexOf("data-") === 0 || aname.indexOf("on") === 0)
@@ -248,9 +236,15 @@ function sanitizeTag(tag, dir, tokens) {
         if (picked !== null && picked.kind === "local")
             return { emit: hold('<img src="' + picked.url + '" alt="' + escapeAttr(altSeen) + '">'), drop: null }
         if (picked !== null && picked.kind === "remote")
-            return { emit: "\n\n" + MdUrl.placeholder(picked.host) + "\n\n", drop: null }
-        return { emit: MdUrl.canonicalUrl(altSeen).length > 0 ? escapeAttr(altSeen) : "", drop: null }
+            return { emit: "\n\n" + MdUrl.placeholder(escapeHtmlText(picked.host)) + "\n\n", drop: null }
+        return { emit: MdUrl.canonicalUrl(altSeen).length > 0 ? escapeHtmlText(altSeen) : "", drop: null }
     }
     var close = (selfClose || VOID.hasOwnProperty(name)) ? " /" : ""
     return { emit: "<" + name + kept + close + ">", drop: null }
+}
+
+// Escape every ASCII punctuation mark before text reaches md4c, matching MdInline.escapeHtmlText without an import cycle.
+function escapeHtmlText(value) {
+    return String(value).replace(/[&<>\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E]/g,
+        function (c) { return "&#" + c.charCodeAt(0) + ";" })
 }

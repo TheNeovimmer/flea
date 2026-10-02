@@ -1,22 +1,20 @@
 .pragma library
 
-// MdRefs: reference collection for rendered Markdown. Definitions (including
-// multi-line ones and ones inside containers) and footnote definitions are
-// gathered in one linear pass each, with the consumed line ranges so the block
-// layer drops them before md4c ever reads the document.
+// MdRefs: collect references and footnotes in linear passes, returning consumed ranges for the block layer.
 .import "MdInline.js" as Md
 .import "MdHtml.js" as MdHtml
 
-// Link reference definitions over lines: multi-line targets, container
-// prefixes stripped for detection, labels normalised by case fold and
-// whitespace collapse. Answers {defs, dropped}: the table plus the line
-// ranges consumed, so the block layer can drop them before md4c ever reads
-// the document. One pass, each line visited once.
+// Sample: [pic]: image.png "Title". Collect normalized labels and multiline destinations outside code, returning {defs, dropped}.
 function collectDefs(lines) {
     var defs = {}
     var dropped = []
     var i = 0
+    var fence = { marker: "", length: 0 }
     while (i < lines.length) {
+        if (skipCode(lines[i], fence)) {
+            i++
+            continue
+        }
         var stripped = stripContainerPrefix(lines[i]).text
         var m = /^ {0,3}\[([^\]\n]+)\]:/.exec(stripped)
         if (m === null) {
@@ -39,7 +37,12 @@ function collectDefs(lines) {
             var cont = stripContainerPrefix(lines[k]).text.replace(/^\s+|\s+$/g, "")
             if (cont.length === 0 || cont.charAt(0) === "[")
                 break
-            target = cont.split(/\s/)[0]
+            var next = /^(<[^>]+>|\S+)(?:\s+("[^"\n]*"|'[^'\n]*'|\([^\n)]*\)))?$/.exec(cont)
+            if (next === null)
+                break
+            target = next[1]
+            if (target.charAt(0) === "<")
+                target = target.slice(1, -1)
             last = k
             k++
         }
@@ -52,14 +55,18 @@ function collectDefs(lines) {
     return { defs: defs, dropped: dropped }
 }
 
-// Footnote definitions `[^id]: text` over lines. Answers {notes, order,
-// dropped}: the id-to-number table in first-use... first-definition order.
+// Footnote definitions `[^id]: text` over lines. Answers {notes, order, dropped}: the id-to-number table in first-use... first-definition order.
 function collectFootnotes(lines) {
     var notes = {}
     var order = []
     var dropped = []
     var i = 0
+    var fence = { marker: "", length: 0 }
     while (i < lines.length) {
+        if (skipCode(lines[i], fence)) {
+            i++
+            continue
+        }
         var stripped = stripContainerPrefix(lines[i]).text
         var m = /^ {0,3}\[\^([^\]\n]+)\]:\s*(.*)$/.exec(stripped)
         if (m === null) {
@@ -72,7 +79,7 @@ function collectFootnotes(lines) {
         var k = i + 1
         while (k < lines.length) {
             var cont = stripContainerPrefix(lines[k]).text
-            if (/^\s{4,}\S/.test(lines[k].slice(0, 8)) && cont.length > 0) {
+            if (/^\s{4,}\S/.test(lines[k]) && cont.length > 0) {
                 text += "\n" + cont.replace(/^\s+/, "")
                 last = k
                 k++
@@ -93,8 +100,7 @@ function collectFootnotes(lines) {
     return { notes: notes, order: order, numbers: numbers, dropped: dropped }
 }
 
-// Strip one layer of container prefix for definition DETECTION only: leading
-// spaces, one block-quote mark, or one list marker. Structure still reads raw.
+// Strip one layer of container prefix for definition DETECTION only: leading spaces, one block-quote mark, or one list marker. Structure still reads raw.
 function stripContainerPrefix(line) {
     var text = String(line)
     var cut = 0
@@ -111,10 +117,7 @@ function stripContainerPrefix(line) {
     return { text: body }
 }
 
-// Escape the "[" of a leftover definition-shaped line, so md4c never sees a
-// reference this parser did not resolve. Only a line that can BE a definition
-// (a label plus its colon) loses its bracket; ordinary [text] lines keep
-// theirs, and "\[foo]" renders as "[foo]".
+// Escape the opener of leftover definition-shaped lines so md4c cannot resolve definitions this parser refused.
 function killDefinition(line) {
     var prefix = stripContainerPrefix(line).text
     if (!/^ {0,3}\[(?:\\.|[^\]\\\n])+\]:/.test(prefix))
@@ -133,9 +136,7 @@ function readFootnoteRef(text, i) {
 }
 
 
-// Skip a DROP_CONTENT element's body to its matching close, same-name nesting
-// counted. Linear: every character is skipped once, sharing the caller's dead
-// tag flag so a close-less run of "<" pays one native scan total.
+// Skip DROP_CONTENT bodies with same-name nesting; share the dead-tag flag to keep unmatched runs linear.
 function skipDropContent(body, i, name, dead) {
     var depth = 1
     while (i < body.length && depth > 0) {
@@ -157,4 +158,24 @@ function skipDropContent(body, i, name, dead) {
         i = inner.end
     }
     return i
+}
+
+// Sample: ``` followed by [a]: b stays code until a matching closing fence.
+function skipCode(line, fence) {
+    var text = String(line)
+    if (/^(?: {4}|\t)/.test(text))
+        return true
+    text = stripContainerPrefix(text).text
+    var marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(text)
+    if (fence.marker !== "") {
+        if (marker !== null && marker[1].charAt(0) === fence.marker
+                && marker[1].length >= fence.length && /^\s*$/.test(marker[2]))
+            fence.marker = ""
+        return true
+    }
+    if (marker === null || (marker[1].charAt(0) === "`" && marker[2].indexOf("`") >= 0))
+        return false
+    fence.marker = marker[1].charAt(0)
+    fence.length = marker[1].length
+    return true
 }

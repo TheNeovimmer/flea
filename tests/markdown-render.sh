@@ -1,10 +1,44 @@
 #!/usr/bin/env bash
-# The real ui/PreviewMarkdown.qml over a fixture document, grabbed offscreen and judged
-# on pixel facts: the chrome chip behind inline code, the table's rules without verticals,
-# no Qt default link blue, and the quote bar's muted ink.
+# The real ui/PreviewMarkdown.qml over a fixture document, grabbed offscreen and judged on pixel facts: the chrome chip behind inline code, the table's rules without verticals, no Qt default link blue, and the quote bar's muted ink.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
+
+check_warnings() {
+    local output=$1 platform_warning worker_warning expected_worker_warnings worker_warnings warnings
+    # Offscreen window-mask warning is expected; the caller names the exact number of WorkerScripts it builds.
+    platform_warning='This plugin does not support setting window masks'
+    worker_warning='QObject::connect(QJSEngine, QtObject): invalid nullptr parameter'
+    expected_worker_warnings=${2:-1}
+    worker_warnings=$(printf '%s\n' "$output" | grep -cF "$worker_warning")
+    if [ "$worker_warnings" -ne "$expected_worker_warnings" ]; then
+        printf 'FAIL expected %s WorkerScript warning, got %s\n' "$expected_worker_warnings" "$worker_warnings"
+        return 1
+    fi
+    warnings=$(printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|WARN' | grep -vF "$platform_warning" | grep -vF "$worker_warning")
+    if [ -n "$warnings" ]; then
+        printf 'FAIL the render harness logged a warning\n'
+        printf '%s\n' "$warnings" | head -10
+        return 1
+    fi
+}
+
+if [ "${1:-}" = "--check-warnings" ]; then
+    check_warnings "$(cat)" "${2:-1}"
+    exit $?
+fi
+
+worker_warning='WARN: QObject::connect(QJSEngine, QtObject): invalid nullptr parameter'
+if check_warnings "$(printf '%s\n%s\n' "$worker_warning" "$worker_warning")" >/dev/null; then
+    echo "FAIL extra WorkerScript warning was accepted"; exit 1
+fi
+check_warnings "$worker_warning" || exit 1
+printf 'ok one WorkerScript warning allowed, extra rejected\n'
+if check_warnings "$worker_warning" 0 >/dev/null; then
+    echo "FAIL inline parse accepted a WorkerScript warning"; exit 1
+fi
+check_warnings "" 0 || exit 1
+printf 'ok inline parse allows zero WorkerScript warnings\n'
 
 if ! command -v qs >/dev/null; then
     echo "markdown-render.sh: qs is not installed, cannot render the preview"
@@ -65,17 +99,7 @@ if [ "$(printf '%s\n' "$output" | grep -c 'MARKDOWN_RENDER PASS')" -ne 1 ] || pr
     printf '%s\n' "$output" | grep -aE 'MARKDOWN_RENDER|ERROR|error'
     exit 1
 fi
-# The offscreen platform itself says it cannot mask a FloatingWindow; that one line is the platform's, never the probe's.
-# A bare WorkerScript with no source and no handler logs the connect line at
-# startup on this Qt, so instantiating one always warns and no usage avoids it.
-platform_warning='This plugin does not support setting window masks'
-worker_warning='QObject::connect(QJSEngine, QtObject): invalid nullptr parameter'
-warnings=$(printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|WARN' | grep -vF "$platform_warning" | grep -vF "$worker_warning")
-if [ -n "$warnings" ]; then
-    printf 'FAIL the render harness logged a warning\n'
-    printf '%s\n' "$warnings" | head -10
-    exit 1
-fi
+check_warnings "$output" 0 || exit 1
 shot=$(ls "$test_root/runtime"/markdown-render-*-base.png 2>/dev/null | head -1)
 if [ -n "${FLEA_CI_SUITE_LOGS:-}" ] && [ -n "$shot" ]; then
     mkdir -p "$FLEA_CI_SUITE_LOGS" || exit 1

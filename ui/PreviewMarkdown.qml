@@ -180,6 +180,7 @@ Item {
         onTriggered: {
             if (!root.parsing)
                 return
+            root.parseSeq++
             root.parsing = false
             root.blockList = Markdown.blocks(root.rawText, Markdown.dirOf(root.path),
                 root.chromeHex, root.inkHex)
@@ -188,11 +189,11 @@ Item {
     }
 
     function askParse() {
+        root.parseSeq++
         if (!root.active || root.tooLarge || !file.loaded) {
             root.parsing = false
             return
         }
-        root.parseSeq++
         root.parsing = true
         root.parseError = ""
         // Read off the live length: a binding on rawText still holds the
@@ -270,9 +271,7 @@ Item {
         }
     }
 
-    // The rendered document instantiates only visible blocks plus a bounded
-    // cache, the way the listing instantiates only its viewport: a 1 MiB
-    // README opens without building thousands of delegates.
+    // Render only visible blocks and a bounded cache, even for a 1 MiB document.
     ListView {
         id: body
         anchors.fill: parent
@@ -334,12 +333,7 @@ Item {
                         font.bold: block.type === "heading"
                     }
 
-                    // A table arrives structured from ui/js/Markdown.js and draws here in Qt
-                    // Quick, since Markdown tables carry no styling: a bold header, a muted rule
-                    // under the header and each row, no verticals, each column as wide as its
-                    // widest cell plus 14 px. The column hugs its content at the left edge
-                    // instead of filling the frame. Plain Grid/Column/Row, never QtQuick.Layouts,
-                    // so the preview never loads the Layouts module.
+                    // Tables hug their cells with Grid, Column and Row, never QtQuick.Layouts, so the preview never loads it.
                     Column {
                         id: tableGrid
                         visible: block.type === "table"

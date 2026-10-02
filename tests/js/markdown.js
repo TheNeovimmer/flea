@@ -35,24 +35,28 @@ function run(check) {
 
     var spare = "# Notes\n\n![demo](https://cdn.example.com/demo.png)\n\n![local](shot.png)\n"
     var prepared = Markdown.prepare(spare, dir)
-    check("a remote image becomes the placeholder", prepared.indexOf("Remote image not loaded \u00b7 cdn.example.com") >= 0, true)
+    check("a remote image becomes the placeholder", prepared,
+        "# Notes\n\n\n\nRemote image not loaded \u00b7 cdn&#46;example&#46;com\n\n\n\n![local](file:///home/gm/notes/shot.png)\n")
     check("no remote image syntax survives", /!\[[^\]]*\]\(https?:/i.test(prepared), false)
     check("a local image resolves to its file URL", prepared.indexOf("![local](file:///home/gm/notes/shot.png)") >= 0, true)
     check("prose around images is untouched", prepared.indexOf("# Notes") === 0, true)
 
     var refs = "![demo][logo]\n\n[logo]: https://cdn.example.com/logo.png\n"
     var preparedRefs = Markdown.prepare(refs, dir)
-    check("a remote reference image becomes the placeholder", preparedRefs.indexOf("Remote image not loaded \u00b7 cdn.example.com") >= 0, true)
+    check("a remote reference image becomes the placeholder", preparedRefs,
+        "\n\nRemote image not loaded \u00b7 cdn&#46;example&#46;com\n\n\n\n")
     var kept = "![demo][logo]\n\n[logo]: shot.png\n"
     check("a local reference image resolves", Markdown.prepare(kept, dir).indexOf("![demo](file:///home/gm/notes/shot.png)") >= 0, true)
     var links = "[docs](https://example.com/guide) and <https://example.com/raw>\n"
-    check("links never load and never leave", Markdown.prepare(links, dir), links)
+    check("links without ink escape brackets", Markdown.prepare(links, dir),
+        "&#91;docs&#93;(https://example.com/guide) and <https://example.com/raw>\n")
     var code = "```\n![demo](https://cdn.example.com/demo.png)\n```\n"
     check("a fenced image is shown, never resolved", Markdown.prepare(code, dir), code)
     var span = "Use `![demo](https://cdn.example.com/demo.png)` for art.\n"
     check("an inline-code image is shown, never resolved", Markdown.prepare(span, dir), span)
     var html = 'Before <img src="https://cdn.example.com/a.png" alt="art"> after\n'
-    check("a remote img tag becomes the placeholder", Markdown.prepare(html, dir).indexOf("Remote image not loaded \u00b7 cdn.example.com") >= 0, true)
+    check("a remote img tag becomes the placeholder", Markdown.prepare(html, dir),
+        "Before \n\nRemote image not loaded \u00b7 cdn&#46;example&#46;com\n\n after\n")
     check("no remote img tag survives", /<img[^>]*https?:/i.test(Markdown.prepare(html, dir)), false)
     var htmlLocal = 'See <img src="shot.png" alt="art"> here\n'
     check("a local img tag resolves", Markdown.prepare(htmlLocal, dir).indexOf('src="file:///home/gm/notes/shot.png"') >= 0, true)
@@ -140,9 +144,9 @@ function run(check) {
     check("a query ampersand escapes",
         linked("See [a](https://example.com/?x=1&y=2) here.").indexOf("x=1&#38;y=2") >= 0, true)
     check("an autolink wraps", linked("See <https://example.com/x> here.").indexOf("<font") >= 0, true)
-    check("a bad ink leaves links alone",
-        Markdown.prepare("See [a](https://example.com/x) here.", dir, undefined, chrome, "red")
-            .indexOf("[a](https://example.com/x)") >= 0, true)
+    check("a bad ink escapes link brackets",
+        Markdown.prepare("See [a](https://example.com/x) here.", dir, undefined, chrome, "red"),
+        "See &#91;a&#93;(https://example.com/x) here.")
     check("emphasis cannot form inside a link label",
         linked("See [*hi*](https://example.com/x) here.").indexOf("&#42;hi&#42;") >= 0, true)
 

@@ -1,16 +1,14 @@
 .pragma library
 
-// MdResolve: bracket-pair resolution and held-span emission for the inline
-// driver. One pair resolves to a local image, the placeholder, alt text, a
-// link, or literal; links allow only http, https, mailto, relative and anchor
-// targets, so javascript:, data: and file: URLs never become hrefs.
+// MdResolve: resolve bracket pairs into held local images, escaped placeholders, safe links or literal text.
 .import "MdUrl.js" as MdUrl
 .import "MdHtml.js" as MdHtml
 .import "MdInline.js" as Md
 .import "MdRefs.js" as Refs
 
-// Links never fetch, but javascript: and data: hrefs must never be emitted:
-// only http, https, mailto, relative and #anchor targets become anchors.
+var MAX_STYLED_SPANS = 1024
+
+// Links never fetch, but javascript: and data: hrefs must never be emitted: only http, https, mailto, relative and #anchor targets become anchors.
 function isLinkTarget(url) {
     var seen = MdUrl.canonicalUrl(url)
     var m = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.exec(seen)
@@ -20,17 +18,14 @@ function isLinkTarget(url) {
     return scheme === "http:" || scheme === "https:" || scheme === "mailto:"
 }
 
-// Resolve one bracket pair. raw is the source slice between the brackets;
-// target the inline or reference destination. Answers a plain string, a -1-i
-// token reference, or null for literal.
+// Resolve one bracket pair into text, a -1-i token reference or null; raw is its label and target its destination.
 function resolvePair(raw, target, bang, dir, ink, tokens) {
-    // A backslash before punctuation is consumed by the backslash: the alt and
-    // the label display the punctuation, never the escape.
+    // A backslash before punctuation is consumed by the backslash: the alt and the label display the punctuation, never the escape.
     var clean = String(raw).replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g, "$1")
     if (bang) {
         var cls = MdUrl.classifyImage(target, dir)
         if (cls.kind === "remote")
-            return "\n\n" + MdUrl.placeholder(cls.host) + "\n\n"
+            return "\n\n" + MdUrl.placeholder(Md.escapeHtmlText(cls.host)) + "\n\n"
         if (cls.kind === "local") {
             var alt = Md.escapeHtmlText(clean)
             var url = cls.url.replace(/\(/g, "%28").replace(/\)/g, "%29")
@@ -40,16 +35,15 @@ function resolvePair(raw, target, bang, dir, ink, tokens) {
         return Md.escapeHtmlText(clean)
     }
     if (!isLinkTarget(target))
-        return "[" + Md.escapeHtmlText(clean) + "](" + Md.escapeHtmlText(target) + ")"
+        return Md.escapeHtmlText("[" + clean + "](" + target + ")")
     var html = Md.linkHtml(clean, target, ink)
     if (html === null)
-        return "[" + Md.escapeHtmlText(clean) + "](" + Md.escapeHtmlText(target) + ")"
+        return Md.escapeHtmlText("[" + clean + "](" + target + ")")
     tokens.push(html)
     return -1 - (tokens.length - 1)
 }
 
-// Push sanitizer output, splitting any held-span markers it carries into token
-// references. Tags are short, so this walk is bounded by the tag length.
+// Push sanitizer output, splitting any held-span markers it carries into token references. Tags are short, so this walk is bounded by the tag length.
 function pushEmitted(out, tokens, emit) {
     var open = MdHtml.openToken()
     if (emit.indexOf(open) < 0) {
@@ -88,8 +82,7 @@ function pushEmitted(out, tokens, emit) {
         out.push(plain)
 }
 
-// In-place text equality without slicing either side: allocation-free repeat
-// detection for dense span runs.
+// In-place text equality without slicing either side: allocation-free repeat detection for dense span runs.
 function sameText(body, a, b, len) {
     for (var k = 0; k < len; k++) {
         if (body.charAt(a + k) !== body.charAt(b + k))
@@ -98,8 +91,7 @@ function sameText(body, a, b, len) {
     return true
 }
 
-// One styled span, cached by content: dense documents repeat the same spans
-// thousands of times, and each rebuild costs a regex the cache pays once.
+// One styled span, cached by content: dense documents repeat the same spans thousands of times, and each rebuild costs a regex the cache pays once.
 function styledSpan(kind, content, chrome, cache) {
     var key = kind + "\n" + content
     if (cache.hasOwnProperty(key))
@@ -108,13 +100,12 @@ function styledSpan(kind, content, chrome, cache) {
     var count = 0
     for (var existing in cache)
         count++
-    if (count < 1024)
+    if (count < MAX_STYLED_SPANS)
         cache[key] = held
     return held
 }
 
-// One "<" position: autolink, comment, declaration, or a sanitized tag with
-// its drop-content skip. Answers the index past whatever it consumed.
+// One "<" position: autolink, comment, declaration, or a sanitized tag with its drop-content skip. Answers the index past whatever it consumed.
 function parseAngle(body, i, dir, ink, styleLinks, dead, tokens, out) {
     var auto = Md.readAutolink(body, i)
     if (auto !== null && !isLinkTarget(auto.url))

@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# The lazy-draw gate for rendered Markdown: a generated 1 MiB README (headings,
-# paragraphs, lists, tables, fences) must parse off the UI thread and open with
-# no more than the visible blocks plus the cache instantiated.
+# Gate off-thread parsing and viewport delegates for a generated README of about 560 KiB.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
@@ -23,8 +21,7 @@ ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/markdown-lazy.qml "$test_root/config/shell.qml" || exit 1
 
-# 2500 sections of six blocks each: about 600 KiB, about 15000 top-level
-# blocks, so a whole-document build would dwarf the visible window.
+# 2500 sections contain five source blocks each; the suite prints the parser's actual emitted count.
 python3 - "$test_root/notes.md" <<'EOF'
 import sys
 dest = sys.argv[1]
@@ -49,7 +46,8 @@ with open(dest, "w") as f:
     f.write("\n".join(lines) + "\n")
 print("readme bytes:", sum(len(l) + 1 for l in lines))
 EOF
-[ "$(stat -c %s "$test_root/notes.md")" -gt 524288 ] || { echo "FAIL the README fixture is too small"; exit 1; }
+minimum_fixture_bytes=524288
+[ "$(stat -c %s "$test_root/notes.md")" -gt "$minimum_fixture_bytes" ] || { echo "FAIL the README fixture is too small"; exit 1; }
 
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \

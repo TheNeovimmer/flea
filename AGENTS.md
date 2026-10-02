@@ -7170,3 +7170,7 @@ table header and body alignment, remote-placeholder centres and failed-figure pa
 compares first-line ink against a single-line reference that draws marker and item on one shared
 baseline, accounting for raised bullets and descenders without trusting fallback-font glyph bounds.
 Only this harness ceiling changes; the global caps and every existing assertion remain in force.
+
+The mdstack merge keeps md2's escaping, bulk escaper and linear span parser alongside md3's headings, figures
+and baseline checks. The union of their structure tests, plus escaped-dollar and heading-footnote integration
+checks, records `tests/js/mdstructure.js` at 340 lines; all existing budget rows keep their merged `wc -l` counts.

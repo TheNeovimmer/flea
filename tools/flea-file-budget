@@ -49,6 +49,7 @@ src/vulkan.rs 728
 tests/js/columns.js 618
 tests/js/drag.js 301
 tests/js/previewswap.js 367
+tests/js/mdstructure.js 340
 tests/js/focus.js 522
 tests/js/mounts.js 383
 tests/js/menu.js 335
@@ -84,9 +85,9 @@ ui/PaneMenuActions.qml 458
 ui/PaneWire.qml 537
 ui/PermissionsDialog.qml 589
 ui/PickerWindow.qml 770
-ui/Preview.qml 647
+ui/Preview.qml 644
 ui/PreviewColumn.qml 585
-ui/PreviewMarkdown.qml 679
+ui/PreviewMarkdown.qml 670
 ui/Row.qml 478
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
@@ -99,9 +100,9 @@ ui/WindowBody.qml 580
 ui/js/Filter.js 253
 ui/js/Focus.js 408
 ui/js/Keymap.js 338
-ui/js/Markdown.js 527
-ui/js/MdBlocks.js 367
-ui/js/MdInline.js 329
+ui/js/Markdown.js 152
+ui/js/MdBlocks.js 359
+ui/js/MdInline.js 279
 ui/js/Menu.js 425
 ui/js/Drag.js 302
 ui/js/Ops.js 438

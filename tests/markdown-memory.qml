@@ -4,10 +4,7 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 
-// tests/markdown-memory.sh's harness: the Markdown preview costs nothing at
-// settle when no Markdown file is shown. Quick Look's bar+pane and the column's
-// pane live behind file-path Loaders that stay unbuilt, so no Markdown object
-// and no Layouts module loads. Quits itself.
+// Prove both Markdown Loaders activate, then unload for the shell-provided plain-text fixture.
 ShellRoot {
     id: shell
 
@@ -15,6 +12,17 @@ ShellRoot {
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
 
     property bool done: false
+    property bool plain: false
+    property string fixtureRoot: Quickshell.env("FLEA_MARKDOWN_MEMORY_ROOT")
+    readonly property string fixture: fixtureRoot + (plain ? "/note.txt" : "/note.md")
+    readonly property bool ready: plain
+        ? look.status === "ready" && look.surfaceItem() !== null
+            && look.surfaceItem().text.trim() === "plain text"
+            && !column.textLoading && column.linesItem.shownText.trim() === "plain text"
+        : look.markdownItem !== null && column.markdown !== null
+            && look.markdownItem.contentReady && column.markdown.contentReady
+    onReadyChanged: if (ready) Qt.callLater(shell.advance)
+    readonly property int watchdogMs: 30000
 
     FloatingWindow {
         id: window
@@ -22,7 +30,6 @@ ShellRoot {
         implicitHeight: 800
         color: "#101315"
 
-        // A text file that is not Markdown: the closest settle gets to one.
         Flea.Preview {
             id: look
             anchors.top: parent.top
@@ -31,7 +38,7 @@ ShellRoot {
             height: 400
             active: true
             kind: "text"
-            path: "/tmp/flea-markdown-memory-note.txt"
+            path: shell.fixture
             size: 10
         }
 
@@ -41,31 +48,40 @@ ShellRoot {
             anchors.left: parent.left
             anchors.right: parent.right
             height: 380
-            row: ({ n: "note.txt", d: false, t: true, s: 10 })
+            row: ({ n: shell.plain ? "note.txt" : "note.md", d: false, t: true, s: 10, i: "text-x-generic" })
+            path: shell.fixture
+            meta: ({})
             kindName: "text"
         }
     }
 
-    Timer {
-        id: settle
-        interval: 2500
-        repeat: false
-        running: true
-        onTriggered: {
-            shell.log("lookMarkdown=" + (look.markdownItem === null ? "null" : "built")
-                + " columnMarkdown=" + (column.markdown === null ? "null" : "built")
-                + " rowState=" + column.rowState + " isMdRow=" + column.isMarkdownRow
-                + " state=" + column.previewState)
-            shell.done = true
-            shell.quit()
+    function advance() {
+        if (shell.done || !shell.ready) return
+        if (!shell.plain) {
+            shell.log("positive lookMarkdown=built columnMarkdown=built contentReady=true")
+            shell.plain = true
+            Qt.callLater(shell.advance)
+            return
         }
+        if (look.markdownItem !== null || column.markdown !== null) {
+            shell.fail("plain-text step retained a Markdown Loader")
+            return
+        }
+        shell.log("lookMarkdown=null columnMarkdown=null fixture=" + shell.fixture)
+        shell.done = true
+        shell.quit()
+    }
+
+    Component.onCompleted: {
+        if (shell.fixtureRoot.length === 0) shell.fail("no fixture root arrived")
+        else if (shell.ready) Qt.callLater(shell.advance)
     }
 
     Timer {
-        interval: 30000
+        interval: shell.watchdogMs
         repeat: false
         running: !shell.done
-        onTriggered: shell.fail("the watchdog outlived the verdict")
+        onTriggered: shell.fail("watchdog waiting for " + (shell.plain ? "plain-text readers and Loader teardown: look=" + look.status + " text=" + JSON.stringify(look.textShown()) + " columnState=" + column.rowState + " columnLoading=" + column.textLoading + " text=" + JSON.stringify(column.linesItem.shownText) : "both Markdown Loaders and contentReady"))
     }
 
     function fail(why) {
