@@ -8500,6 +8500,7 @@ EOS
         || fail "hanglisting: the deadline never spoke, stateMessage is $seen"
     [[ "$(ipc state)" == "waiting" ]] \
         || fail "hanglisting: the pane is not waiting, state is $(ipc state)"
+    shot hanglisting-waiting
     # flea-proxy and delayed are the stub entries beside the two files under test.
     wait_listing 4
     [[ "$(ipc path)" == "$dir" ]] || fail "hanglisting: the landed listing navigated to $(ipc path)"
