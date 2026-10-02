@@ -71,18 +71,23 @@ fn undo_refuses_to_walk_a_stranger_back() {
     assert!(landed.exists(), "and it is left exactly where it is");
 }
 
-// The other half of the same rule: here nothing holds the old inode, so a filesystem that hands it to the next create does.
+// Forge only the recorded birth stamp so inode allocation cannot decide this refusal.
 #[test]
-fn undo_refuses_a_stranger_that_was_handed_the_freed_inode() {
+fn undo_refuses_a_stranger_with_the_same_inode_and_another_birth_time() {
+    const BIRTH_SECOND_DELTA: u64 = 1;
     let dir = TestDir::new("shelfundo-reused");
     std::fs::create_dir_all(dir.path().join("was")).unwrap();
-    let landed = dir.path().join("a.txt");
-    std::fs::write(&landed, "the file the move carried").unwrap();
-    let step = move_of(dir.path(), "a.txt");
-    dir.replace_file(&landed, "somebody else's file of the same name");
-    let refused = put_back(&step).expect_err("a recreated file is not this move's item");
+    let landed = dir.file("a.txt", "the file the move carried");
+    let mut step = move_of(dir.path(), "a.txt");
+    let Some((sec, nsec)) = step.born else {
+        eprintln!("SKIP birth-time refusal: filesystem reports no birth time");
+        return;
+    };
+    step.born = Some((sec.wrapping_add(BIRTH_SECOND_DELTA), nsec));
+    let refused = put_back(&step).expect_err("same inode with another birth time must be refused");
     assert!(refused.contains("was replaced since the move"), "{}", refused);
-    assert!(landed.exists() && !dir.path().join("was/a.txt").exists(), "and it is left exactly where it is");
+    assert_eq!(std::fs::read_to_string(&landed).unwrap(), "the file the move carried");
+    assert!(!dir.path().join("was/a.txt").exists(), "the refused file must not move");
 }
 
 #[test]

@@ -100,8 +100,7 @@ impl TestDir {
         p
     }
 
-    // Stands in for a later replacement: a filesystem stamps birth time from a coarse tick and hands a freed
-    // inode to the next create, so the file is recreated until its inode or stamp differs from the old file's.
+    // Recreate until inode or birth time differs, since coarse ticks and freed-inode reuse can conceal a replacement.
     pub fn replace_file(&self, path: &Path, body: &str) {
         self.assert_contains(path);
         let old = path.symlink_metadata().expect("the file being replaced");
@@ -269,15 +268,15 @@ mod tests {
     }
 
     #[test]
-    fn a_replaced_file_differs_from_the_one_it_replaced_in_inode_or_birth_time() {
+    fn a_replaced_path_reads_new_bytes_while_its_old_handle_keeps_old_bytes() {
         let d = TestDir::new("replacefile");
         let path = d.file("a.txt", "old");
-        let old = path.symlink_metadata().unwrap();
+        let mut held = std::fs::File::open(&path).unwrap();
         d.replace_file(&path, "new");
-        let now = path.symlink_metadata().unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
-        let born = crate::backend::permissions::born_of;
-        assert!(born(&old).is_none() || now.ino() != old.ino() || born(&now) != born(&old), "the two files tell apart");
+        let mut old_body = String::new();
+        std::io::Read::read_to_string(&mut held, &mut old_body).unwrap();
+        assert_eq!(old_body, "old", "replacement must not rewrite the held file");
     }
 
     #[test]

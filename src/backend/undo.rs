@@ -120,15 +120,15 @@ impl Entry {
         for step in &mut self.steps {
             match step {
                 Step::Moved { before, after, .. } => {
-                    if before == old { *before = new.clone(); }
-                    if after == old { *after = new.clone(); }
+                    if before.unchanged_for_move(old) { *before = new.clone(); }
+                    if after.unchanged_for_move(old) { *after = new.clone(); }
                 }
                 Step::Copied { source, created, .. } => {
-                    if source == old { *source = new.clone(); }
-                    if created == old { *created = new.clone(); }
+                    if source.unchanged_for_move(old) { *source = new.clone(); }
+                    if created.unchanged_for_move(old) { *created = new.clone(); }
                 }
-                Step::MadeFile { identity, .. } | Step::MadeDir { identity, .. } if identity == old => *identity = new.clone(),
-                Step::Linked { identity, .. } if identity == old => *identity = new.clone(),
+                Step::MadeFile { identity, .. } | Step::MadeDir { identity, .. } if identity.unchanged_for_move(old) => *identity = new.clone(),
+                Step::Linked { identity, .. } if identity.unchanged_for_move(old) => *identity = new.clone(),
                 _ => {}
             }
         }
@@ -455,7 +455,7 @@ pub(crate) fn reverse(step: &Step) -> Result<Option<(ItemIdentity, ItemIdentity)
                 return Err(FleaError { where_: "undo".into(), path: to.to_string_lossy().into(), msg: "the moved item was replaced, so undo left it in place".into() });
             }
             rename_path(to, from)?;
-            return Ok(if current == *after { Some((current, ItemIdentity::inspect(from)?)) } else { None });
+            return Ok(if after.unchanged_for_move(&current) { Some((current, ItemIdentity::inspect(from)?)) } else { None });
         }
         Step::Created { path } => remove(path)?,
         Step::Linked { path, identity, source, kind, .. } => remove_link(path, identity, source, kind)?,
@@ -492,7 +492,7 @@ pub(crate) fn reverse(step: &Step) -> Result<Option<(ItemIdentity, ItemIdentity)
 
 // Today's whole-tree check, kept for successes and for a manifest that never verified a record.
 fn remove_copied(to: &PathBuf, created: &ItemIdentity) -> Result<Option<(ItemIdentity, ItemIdentity)>, FleaError> {
-    if ItemIdentity::inspect(to)? != *created {
+    if !created.unchanged_for_move(&ItemIdentity::inspect(to)?) {
         return Err(FleaError { where_: "undo".into(), path: to.to_string_lossy().into(),
             msg: "the copied item changed since this operation, so undo left it in place".into() });
     }
@@ -506,7 +506,7 @@ fn remove_copied(to: &PathBuf, created: &ItemIdentity) -> Result<Option<(ItemIde
 
 fn remove_new_file(path: &PathBuf, identity: &ItemIdentity) -> Result<(), FleaError> {
     let meta = path.symlink_metadata().map_err(|e| from_io("undo", &path.to_string_lossy(), &e))?;
-    if !meta.is_file() || meta.len() != 0 || ItemIdentity::record(&meta) != *identity {
+    if !meta.is_file() || meta.len() != 0 || !identity.unchanged_for_move(&ItemIdentity::record(&meta)) {
         return Err(FleaError { where_: "undo".into(), path: path.to_string_lossy().into(),
             msg: "the new file changed since creation, so undo left it in place".into() });
     }

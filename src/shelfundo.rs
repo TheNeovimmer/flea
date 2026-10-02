@@ -79,10 +79,8 @@ impl Moves {
     }
 }
 
-// Sample input, the whole of undo.json:
-// {"at":1789426925000,"moves":[{"from":"/home/gm/a.txt","to":"/home/gm/Work/a.txt","dev":"66306","ino":"41","kind":"32768","born":["1789426900","5000"]}]}
-// dev, ino, kind and born are strings because they are identity tokens and not quantities: a JSON number
-// here would go through an f64 on the way back in and an inode is not safe in one. born is left out when unknown.
+// Sample input: {"at":1789426925000,"moves":[{"from":"/home/gm/a.txt","to":"/home/gm/Work/a.txt","dev":"66306","ino":"41","kind":"32768","born":["1789426900","5000"]}]}
+// Identity tokens use strings to avoid f64 precision loss; unknown birth time is omitted.
 fn doc_of(moves: &[Move], at_ms: u64) -> Json {
     let rows = moves
         .iter()
@@ -106,9 +104,7 @@ fn doc_of(moves: &[Move], at_ms: u64) -> Json {
     ])
 }
 
-// A row missing any of its five fields, or with a birth time that is not two numbers, is a row this
-// cannot reverse safely, so it is dropped rather than guessed at: a hand-edited file must not be able
-// to rename a path nobody recorded. A row with no birth time at all predates it and still loads.
+// Sample input: doc_of above; reject incomplete rows and malformed birth pairs, but accept legacy rows without birth time.
 pub fn moves_of(doc: &Json) -> Vec<Move> {
     let rows = doc.get("moves").and_then(Json::as_array).map(<[Json]>::to_vec).unwrap_or_default();
     rows.iter()
