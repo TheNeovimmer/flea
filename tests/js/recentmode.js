@@ -119,8 +119,7 @@ function run(check) {
     check("selecting the row it came from", revealing.pendingSelect, "/home/gm/Docs/a.txt")
     check("and the mode is off", revealing.recentMode, "")
 
-    // A tab switch drops the overlay the way close does, so the snapshot it
-    // takes keeps the folder's own order instead of the history's.
+    // A tab switch drops the overlay so the snapshot keeps the folder order.
     var switching = pane("/home/gm/Work")
     switching.backend.sortBy = "kind"
     switching.backend.sortDesc = true

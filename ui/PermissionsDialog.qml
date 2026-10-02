@@ -22,17 +22,14 @@ FocusScope {
     // and the bits the operator explicitly set or cleared across all of them.
     // A mixed box the operator never touched keeps each file's own bit.
     property var multiPaths: []
-    // B7: the live inspect accumulation ui/js/Permissions.js noteMode owns,
-    // written in place with no notify per reply; multiModes below is the one
-    // snapshot the summary binding reads, assigned once at the last reply.
+    // The live inspect store noteMode owns; multiModes is its one last-reply snapshot.
     property var multiStore: ({ modes: [], reasons: [], skipped: [] })
     property var multiModes: []
     property int multiPending: 0
     property int explicitSet: 0
     property int explicitClear: 0
     property bool applyingMany: false
-    // B8: the skips the Apply sent (inspect-time skips plus special-bit and
-    // read-only items), carried to the applyMany reply for the final message.
+    // The Apply skips, carried to the applyMany reply for the final message.
     property var multiApplySkipped: []
     property int multiApplySent: 0
     readonly property bool isMulti: multiPaths.length > 1
@@ -182,8 +179,7 @@ FocusScope {
         if (message.op !== "inspect") return
         var at = (message.id || 0) - requestId * 1000
         if (at < 0 || at >= multiPaths.length) return
-        // Accumulated in place through ui/js/Permissions.js noteMode, which
-        // tests/js/permissions.js pins to one summary for the whole selection.
+        // Accumulated in place through noteMode, pinned to one summary per selection.
         if (Permissions.noteMode(multiStore, at, multiPaths[at], message)) {
             multiPending = 0
             busy = false
@@ -227,19 +223,14 @@ FocusScope {
         errorText = ""
         requested({ c: "permissions", op: "apply", id: requestId, mode: modeText })
     }
-    // Permissions040: Apply is one undo step for all the files. Each file
-    // keeps its own bits except the ones the grid explicitly set or cleared.
-    // B8: an item with special bits, a read-only reason or a refused inspect
-    // is counted and named rather than silently dropped, and a selection with
-    // nothing applicable never reaches the backend's empty-batch refusal.
+    // Apply is one undo step; unchangeable items are counted and an empty batch answers at once.
     function applyMany() {
         if (!editable) return
         root.forceActiveFocus()
         busy = true
         applyingMany = true
         errorText = ""
-        // Built fresh from the per-row reasons, which already carry refused
-        // inspects from noteMode above: every skip is counted exactly once.
+        // Built fresh from the per-row reasons, so every skip is counted exactly once.
         var skipped = []
         var paths = []
         var modes = []

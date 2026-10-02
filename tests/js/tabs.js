@@ -244,9 +244,7 @@ function run(check) {
     check("no cursor row opens no tab either", Tabs.count(emptyPane), 1)
     check("and says the same sentence", emptyPane.said[emptyPane.said.length - 1], "Only a folder opens in a new tab.")
 
-    // B3: { } or a tab drag during a switch's listing must not lose the
-    // restored tab's sort and cursor. A reorder lists nothing, so the press is
-    // kept and the pending restore rides through it instead of a silent loss.
+    // A reorder lists nothing, so the pending restore rides through it mid-listing.
     var switching = Fixture.pane("/tmp/b")
     switching.tabs = {
         items: [{ path: "/tmp/a" }, { path: "/tmp/b" }],
