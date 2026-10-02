@@ -2,20 +2,13 @@
 
 .import "Anchor.js" as Anchor
 .import "Format.js" as Format
-.import "RecentMode.js" as RecentMode
-
-// F5 and Ctrl+R re-read the folder through the listing swap, so the new rows land
-// without a blank frame the way every other re-read does. The notice names how many
-// rows changed, and only when rows changed.
 
 // Sample input: 2 is "Reloaded · 2 rows changed", 1 is "Reloaded · 1 row changed".
 function line(changed) {
     return "Reloaded · " + Format.count(changed) + (changed === 1 ? " row changed" : " rows changed")
 }
 
-// The manual re-read behind the reload key, taking the pane and its wire the way
-// ui/PaneWire.qml's own reread does. A listing out refuses itself, and a search
-// owns its header, so both go quiet rather than re-listing under it.
+// A listing out refuses itself and a search owns its header, so both go quiet.
 function begin(pane, wire) {
     if (pane.listInFlight) {
         pane.message("A directory is already loading.", false)
@@ -23,24 +16,28 @@ function begin(pane, wire) {
     }
     if (pane.searchMode.length > 0)
         return false
-    // Recent stands on the root, so the history is re-read instead of listing root.
-    if (pane.recentMode && pane.recentMode.length > 0) {
+    // Recent re-reads its history rather than re-listing its base, which is the root.
+    if (pane.recentMode.length > 0) {
+        pane.refresh("")
         pane.reloadFrom = pane.total
-        RecentMode.refresh(pane, "")
+        pane.reloadChanged = -1
         return true
     }
-    wire.anchor = Anchor.watched(pane)
+    wire.anchor = Anchor.watched(pane, true)
     // Set after the anchored re-read above, because opening the listing clears it first.
     pane.reloadFrom = pane.total
+    pane.reloadChanged = -1
     return true
 }
 
-// Runs on every rows reply; only a manual reload owes a notice, and only a changed count.
+// Runs on every rows reply; only a manual reload owes a notice, said whenever rows changed.
 function landed(pane) {
     if (pane.reloadFrom < 0)
         return ""
-    var changed = Math.abs(pane.total - pane.reloadFrom)
+    // The backend counts added plus removed on a same-path re-list; a missing one falls back to net delta.
+    var changed = pane.reloadChanged >= 0 ? pane.reloadChanged : Math.abs(pane.total - pane.reloadFrom)
     pane.reloadFrom = -1
+    pane.reloadChanged = -1
     if (changed === 0)
         return ""
     var text = line(changed)

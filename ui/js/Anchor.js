@@ -5,9 +5,7 @@
 // Split out of ui/js/Nav.js, which sits at the 300-line JS cap, the same way tests/js/watch.js was
 // split out of tests/js/nav.js; ui/js/Nav.js keeps navigation and this keeps the return.
 
-// ui/PaneWire.qml watchBusy: a re-read renumbers every row, so it waits while anything names a row by index or holds one open, the collision card's transfer too.
-// A menu action waiting on its reply waits as well: a re-read landing then flips
-// menuSelectionIdentity and the reply is refused, losing the rename it was for.
+// ui/PaneWire.qml watchBusy: a re-read renumbers rows, so it waits while anything names one, including a menu reply in flight.
 function busy(pane) {
     if (!pane)
         return true
@@ -22,8 +20,8 @@ function busy(pane) {
 // Flea's own write. The rows are read again and the cursor is put back on the file it was on by name,
 // because a create above it renumbers every row below and a listing that jumped back to the top
 // would move the user while they were reading it. Returns the anchor apply() resolves, or null.
-function watched(pane) {
-    return anchoredRefresh(pane, false)
+function watched(pane, wantChanged) {
+    return anchoredRefresh(pane, false, wantChanged)
 }
 
 // Flea's own delete. The rows that were marked are gone, so there is usually no name to return to:
@@ -97,7 +95,7 @@ function leaf(path) {
     return cut < 0 ? text : text.substring(cut + 1)
 }
 
-function anchoredRefresh(pane, select) {
+function anchoredRefresh(pane, select, wantChanged) {
     if (pane.listInFlight) {
         return null
     }
@@ -108,7 +106,7 @@ function anchoredRefresh(pane, select) {
                    path: pane.path, select: select === true }
     // A filter narrows the rows the pane holds rather than choosing which directory it holds, so it
     // survives a re-read of the same directory; every other caller of openWithoutHistory drops it.
-    pane.openWithoutHistory(pane.path, { keptQuery: pane.filterQuery })
+    pane.openWithoutHistory(pane.path, { keptQuery: pane.filterQuery, wantChanged: wantChanged === true })
     // The re-read answers from row 0, so a cursor deep in a large directory needs its own window back
     // before the anchor's name can be looked for anywhere near where it was.
     if (anchor.start > 0) {

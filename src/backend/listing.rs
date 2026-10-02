@@ -136,6 +136,22 @@ impl Listing {
     }
 }
 
+// Added plus removed names between two listings of one path, so a reload names rows changed rather than net delta.
+pub fn changed_count(old: &Listing, new: &Listing) -> usize {
+    use std::collections::HashSet;
+    let mut missing: HashSet<&str> = HashSet::with_capacity(old.len());
+    for i in 0..old.len() {
+        missing.insert(old.name(i));
+    }
+    let mut added = 0;
+    for i in 0..new.len() {
+        if !missing.remove(new.name(i)) {
+            added += 1;
+        }
+    }
+    added + missing.len()
+}
+
 // vfat and exfat stay serial; a device mountinfo does not name threads as today.
 fn decide(dev: u64, body: &str) -> bool {
     threaded_for_fstype(super::mountinfo::fstype_for_dev(dev, body).as_deref())
@@ -246,5 +262,28 @@ mod tests {
         assert!(threaded_for_fstype(Some("nfs")), "nfs keeps today's threads");
         assert!(threaded_for_fstype(Some("ext4")), "ext4 keeps today's threads");
         assert!(threaded_for_fstype(None), "unknown keeps today's threads");
+    }
+
+    #[test]
+    fn a_same_path_relist_counts_added_plus_removed_names() {
+        let mut old = Listing::new();
+        for name in ["a", "b", "c"] {
+            old.push(name, false);
+        }
+        let mut same = Listing::new();
+        for name in ["a", "b", "c"] {
+            same.push(name, false);
+        }
+        assert_eq!(changed_count(&old, &same), 0);
+        let mut renamed = Listing::new();
+        for name in ["a", "b", "d"] {
+            renamed.push(name, false);
+        }
+        assert_eq!(changed_count(&old, &renamed), 2, "one added plus one removed");
+        let mut grown = Listing::new();
+        for name in ["a", "b", "c", "d", "e"] {
+            grown.push(name, false);
+        }
+        assert_eq!(changed_count(&old, &grown), 2);
     }
 }

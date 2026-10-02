@@ -172,8 +172,7 @@ function act(action, root, menuId, paths) {
     case "trashRefused": root.message(noTrashLine(), true); return
     case "copy": Ops.clip(root, false, paths); return
     case "copydirpath": root.copyDirPath(); return
-    // MenuAdditions040: c opens Copy as at the cursor, P opens Paste as, V
-    // flips the selection, and Ctrl+Shift+C copies the paths at once.
+    // MenuAdditions040: c copies as, P pastes as, V flips the selection.
     case "copyAs": root.openCopyAs(); return
     case "pasteAs":
         if (root.recentMode.length > 0) { root.message("This listing is a history, and cannot take a paste.", false); return }
@@ -201,8 +200,7 @@ function act(action, root, menuId, paths) {
         return
     case "undo": Ops.undo(root); return
     case "redo": root.backend.send({c: "redo"}); return
-    // m. Mounts.raiseMenu says why a favourite has no menu; here the pane says whether a row was
-    // under the cursor at all, and an empty or fully filtered listing gets the sentence, not silence.
+    // m opens the row menu, or says why no row was under the cursor.
     case "menu":
         if (!root.openCursorMenu())
             root.message("No row under the cursor to open a menu on.", false)
@@ -244,26 +242,25 @@ function act(action, root, menuId, paths) {
         Sort.column(root, action.substring("sort:".length))
         return
     }
-    // Both keys the Tui board drew ahead of their features are built now, so neither answers with
-    // a sentence any more: tabs run here, and handleKey opens the path bar before the views see it.
+    // Tabs run here and handleKey opens the path bar, so neither answers unbuilt any more.
     if (action.indexOf("tab") === 0) { Tabs.act(action, root); return }
     root.message(action + " is not built yet.", false)
 }
 
-// Issue 29: Escape climbs to the parent while the setting is on, and only then: a filter,
-// a search, an open menu, the collision card, a deliberate selection or a listing out
-// all keep the key, because each of them is something Escape already unwinds or refuses behind.
+// Issue 29: Escape climbs only when nothing else owns it, so each unwound state keeps the key.
 function escapeUp(root) {
     return root.escapeUp === true && root.searchMode.length === 0
         && root.filterQuery.length === 0 && !root.filterTyping && !root.menuVisible
         && !(root.collide && root.collide.opened) && !hasDeliberateMarks(root) && !root.listInFlight
 }
 
-// A lone following mark never counts as a selection, so Escape keeps climbing.
+// Only the row a navigation landed on never counts as a selection, so Escape keeps climbing.
 function hasDeliberateMarks(root) {
     if (root.selectionCount() === 0)
         return false
-    return !(root.selection && root.selection.follows && root.selection.follows())
+    if (root.selection && root.selection.isLanded && root.selection.isLanded())
+        return false
+    return true
 }
 
 // Only a step from an end wraps; page overshoots and selection extensions retain their clamps.
@@ -304,12 +301,16 @@ function leavesLine(event) {
     return LEAVES_LINE.indexOf(Keymap.lookup(event.key, event.text, event.modifiers)) >= 0
 }
 
+// One stamp for a vim pair's seat, so Escape and the pair read the same identity.
+function stampOf(root) {
+    return JSON.stringify([root.path, root.cursorIndex, root.selectionVersion, root.viewMode])
+}
 // Only the second press of the same pair on the same selection fires.
 var ARMED_PAIRS = { copyArm: true, cutArm: true, pasteArm: true, cursorFirstArm: true }
 // Vim pairs are consecutive inputs on the same selection; pointer or navigation changes disarm them.
 function sequenceAction(action, root) {
     var pairs = { copyArm: "copy", cutArm: "cut", pasteArm: "paste", cursorFirstArm: "cursorFirst" }
-    var stamp = JSON.stringify([root.path, root.cursorIndex, root.selectionVersion, root.viewMode])
+    var stamp = stampOf(root)
     var paired = pairs[action] && root.keySequence === action && root.keySequenceIdentity === stamp
     root.keySequence = paired || !pairs[action] ? "" : action
     root.keySequenceIdentity = paired || !pairs[action] ? "" : stamp
@@ -350,9 +351,9 @@ function handleKey(event, root, sidebar) {
         return Filter.typeKey(event, root)
     }
     var action = lookup(event, root)
-    // Escape cancels an armed trash or vim pair first and stops.
-    var escapeCancelsArm = action === "escape"
-        && (root.trashArmedAt > 0 || ARMED_PAIRS[root.keySequence] === true)
+    // With escape-up on Escape cancels an armed trash or a live vim pair and stops, with it off Escape disarms through the sequence and runs its own action.
+    var escapeCancelsArm = action === "escape" && root.escapeUp === true
+        && (root.trashArmedAt > 0 || (ARMED_PAIRS[root.keySequence] === true && root.keySequenceIdentity === stampOf(root)))
     action = sequenceAction(action, root)
     // Anything that is not the second d of the pair disarms it, so an arm never outlives the key
     // after it; ui/js/Trash.js re-stamps on its own, which is why it reads the stamp before writing.

@@ -31,8 +31,8 @@ src/backend/opsdispatch.rs 941
 src/backend/opsreq.rs 533
 src/backend/opsreq/tests.rs 471
 src/backend/permissions.rs 722
-src/backend/proto.rs 346
-src/backend/run.rs 489
+src/backend/proto.rs 355
+src/backend/run.rs 498
 src/backend/ops.rs 422
 src/backend/thumbs.rs 460
 src/backend/dirsizeworker.rs 574
@@ -53,14 +53,15 @@ src/vulkan.rs 728
 tests/js/columns.js 666
 tests/js/drag.js 402
 tests/js/previewswap.js 386
-tests/js/focus.js 634
+tests/js/focus.js 729
 tests/js/mounts.js 262
 tests/js/menu.js 400
+tests/js/watch.js 309
 tests/js/nav.js 352
 tests/js/network.js 306
 tests/js/ops.js 502
 tests/js/settings.js 337
-tests/js/tap.js 317
+tests/js/tap.js 327
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 396
@@ -86,7 +87,7 @@ ui/NetworkDialog.qml 445
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 849
 ui/OpenWithDialog.qml 607
-ui/Pane.qml 1005
+ui/Pane.qml 1007
 ui/PaneMenuActions.qml 464
 ui/PaneWire.qml 549
 ui/PermissionsDialog.qml 629

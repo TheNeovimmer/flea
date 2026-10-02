@@ -99,7 +99,8 @@ function toggleRow(pane, index) {
 function follow(pane) {
     if (!pane.selection.follows() || pane.cursorIndex === pane.selectedIndices()[0])
         return
-    pane.selection.only(pane.cursorIndex)
+    var keep = pane.selection.isLanded ? pane.selection.isLanded() : false
+    pane.selection.only(pane.cursorIndex, keep)
     pane.selectionAnchor = pane.cursorIndex
     pane.selectionVersion += 1
 }

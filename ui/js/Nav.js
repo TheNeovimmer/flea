@@ -106,7 +106,7 @@ function openWithoutHistory(pane, newPath, options) {
     else if (pane.filterTyping)
         Filter.commit(pane)
     pane.appliedListingPreferences = pane.listingPreferences
-    pane.backend.list(newPath, pane.windowSize, pane.showHidden)
+    pane.backend.list(newPath, pane.windowSize, pane.showHidden, ask.wantChanged === true)
     // One statfs per directory, not per row: the bar's right half only changes when the pane moves.
     pane.backend.askFsInfo()
 }
@@ -170,7 +170,7 @@ function applyPendingSelect(pane) {
     if (at >= 0) {
         var index = pane.held + at
         pane.setCursor(index)
-        pane.selection.only(index)
+        pane.selection.only(index, true)
         pane.selectionAnchor = index
         pane.selectionVersion++
         if (pane.pendingMenu) {

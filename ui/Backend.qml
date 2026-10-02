@@ -8,7 +8,7 @@ import "js/Swap.js" as Swap
 Item {
     id: root
 
-    signal listed(int total, real readMs, real sortMs, string path)
+    signal listed(int total, real readMs, real sortMs, string path, var changed)
     // The listing directory's filesystem, straight off the listed line: a drag compares it against
     // the dropped-on folder's own to tell a move within one volume from a copy across two.
     property var dirDev: 0
@@ -173,16 +173,16 @@ Item {
     // One composition, two senders: the chooser adds the caller's filter to it and counts its own
     // replies, and issue 134 was the chooser building this by hand without the saved order in it.
     // A fresh scan is always name ascending, so a refresh after a write puts the header's mark back.
-    function listRequest(path, first, hidden) {
+    function listRequest(path, first, hidden, wantChanged) {
         root.listRequests += 1
         root.lastListedPath = path
         if (!root.preserveSort || !root.hasListed) root.resetSort(path)
         root.hasListed = true
-        return { c: "list", path: path, first: first, hidden: hidden, by: root.sortBy, desc: root.sortDesc,
+        return { c: "list", path: path, first: first, hidden: hidden, wantChanged: wantChanged === true, by: root.sortBy, desc: root.sortDesc,
                  foldersFirst: ViewState.state.foldersFirst !== false, groupByKind: ViewState.state.groupByKind === true,
                  hiddenLast: ViewState.state.hiddenLast === true }
     }
-    function list(path, first, hidden) { root.send(root.listRequest(path, first, hidden)) }
+    function list(path, first, hidden, wantChanged) { root.send(root.listRequest(path, first, hidden, wantChanged)) }
 
     // A listing built from the paths named here, in that order and never sorted; see
     // docs/protocol.md "listpaths". The header's sort mark is left where the caller set it, because

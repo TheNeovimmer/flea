@@ -24,10 +24,11 @@ fn convert_preserves_probe_and_caller_identity_without_changing_legacy_activatio
 #[test]
 fn parses_each_request_shape() {
     match parse_request(r#"{"c":"list","path":"/home/gm","first":350}"#) {
-        Request::List { path, first, hidden } => {
+        Request::List { path, first, hidden, want_changed } => {
             assert_eq!(path, "/home/gm");
             assert_eq!(first, 350);
             assert!(!hidden);
+            assert!(!want_changed);
         }
         _ => panic!("expected List"),
     }
@@ -124,6 +125,19 @@ fn a_list_request_carries_its_hidden_flag() {
 }
 
 #[test]
+fn a_list_request_names_the_reload_count_only_when_asked() {
+    match parse_request(r#"{"c":"list","path":"/tmp","first":0,"wantChanged":true}"#) {
+        Request::List { want_changed, .. } => assert!(want_changed),
+        _ => panic!("expected List"),
+    }
+    // Absent is the silent re-read every navigation and watch already takes.
+    match parse_request(r#"{"c":"list","path":"/tmp","first":0}"#) {
+        Request::List { want_changed, .. } => assert!(!want_changed),
+        _ => panic!("expected List"),
+    }
+}
+
+#[test]
 fn emits_a_listed_line_naming_the_directory_it_listed() {
     let s = say_listed(100000, 26.4, 2.5, 56, "/home/gm", true);
     assert_eq!(s, r#"{"t":"listed","n":100000,"read":26.400,"sort":2.500,"v":56,"w":true,"path":"/home/gm"}"#);
@@ -163,6 +177,14 @@ fn an_anchored_listed_line_answers_the_anchor_and_a_bare_one_is_unchanged() {
     assert!(s.contains(r#""anchor":"/home/gm/say \"hi\".txt""#));
     // Without an anchor the reply is byte-for-byte today's line; see the listed test above.
     assert!(!say_listed(3, 0.0, 2.5, 56, "/home/gm", true).contains("anchor"));
+}
+
+#[test]
+fn a_relist_names_added_plus_removed_rather_than_net_delta() {
+    let base = say_listed(3, 0.0, 0.0, 1, "/d", true);
+    assert_eq!(with_changed(&base, 2),
+        r#"{"t":"listed","n":3,"read":0.000,"sort":0.000,"v":1,"w":true,"path":"/d","changed":2}"#);
+    assert_eq!(with_changed(&base, 0).matches("changed").count(), 1);
 }
 
 #[test]

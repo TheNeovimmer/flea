@@ -80,6 +80,10 @@ re-scanning: `sort` reorders whichever listing `list` last produced and cannot a
 remove rows, so changing `hidden` always means a fresh `list`, which is also what
 clears the cursor and selection back to row 0.
 
+Optional `wantChanged`, `false` unless `true`: with it on, a `list` that re-reads the
+directory already listed names added plus removed rows in `changed`. Absent is off, so
+every navigation and watched re-read stays silent and pays no count.
+
 ### locate
 
 `{"c":"locate","path":"/directory/selected.txt"}`
@@ -164,6 +168,9 @@ so a symlink to a directory is listed as a file and a symlink to nothing is stil
 
 There is no cancel and no streaming: the build is one `lstat` per path inside the read loop, and the
 one caller sends a few hundred at most.
+
+A re-read over the listing already held names added plus removed rows in `changed`, so a reload
+over Recent says how many history entries came or went; a first `listpaths` carries no `changed`.
 
 ### window
 
@@ -942,6 +949,11 @@ omits `w` is an older backend, and a client reads that the same as true.
 `path` is the directory exactly as the `list` that made this listing spelled it, byte for byte, with a
 trailing slash, a symlink or a `..` left unresolved, because a client drops any `listed` line whose
 `path` differs from the one it asked for (`ui/js/Swap.js` `onListed`).
+
+`changed` rides only on a `list` with `wantChanged` that re-read the directory
+already listed, and on a `listpaths` that re-read the listing it already held, and names
+added plus removed rows between the two scans, so a rename counts 2 against a net delta of 0.
+A first listing and a navigation carry no `changed`, and a client reads a missing one as unknown rather than 0.
 
 ### rows
 

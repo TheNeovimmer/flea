@@ -5,7 +5,7 @@ use crate::json::{escape, field_bool, field_str, field_str_array, field_usize, f
 pub const TRANSFER_CANCEL: &str = "transfercancel";
 
 pub enum Request {
-    List { path: String, first: usize, hidden: bool },
+    List { path: String, first: usize, hidden: bool, want_changed: bool },
     // A listing built from paths the client names, in the order it named them; the picker's Recent.
     ListPaths { paths: Vec<String>, first: usize },
     Window { start: usize, count: usize },
@@ -106,6 +106,8 @@ pub fn parse_request(line: &str) -> Request {
             first: field_usize(line, "first").unwrap_or(0),
             // A missing hidden is false, so an older client's request still lists dotfile-free.
             hidden: field_bool(line, "hidden"),
+            // Absent is today's silent re-read, so an older client never pays the count.
+            want_changed: field_bool(line, "wantChanged"),
         },
         Some("listpaths") => Request::ListPaths { paths: field_str_array(line, "paths"), first: field_usize(line, "first").unwrap_or(0) },
         Some("window") => Request::Window {
@@ -260,6 +262,13 @@ pub fn listed_line_anchor(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: 
 pub(crate) fn with_anchor(listed: &str, anchor: &str, anchor_index: isize) -> String {
     let body = listed.strip_suffix('}').unwrap_or(listed);
     format!(r#"{},"anchor":"{}","anchorIndex":{}}}"#, body, escape(anchor), anchor_index)
+}
+
+// Sample output: {"t":"listed","n":3,"read":0.000,"sort":0.000,"v":1,"w":true,"path":"/d","changed":2}
+// A same-path re-list names added plus removed rows, so a rename counts 2 against a net delta of 0.
+pub(crate) fn with_changed(listed: &str, changed: usize) -> String {
+    let body = listed.strip_suffix('}').unwrap_or(listed);
+    format!(r#"{},"changed":{}}}"#, body, changed)
 }
 
 // The streaming progress of a search: its own type rather than a listed line, because a mid-walk update is not a fresh listing and carries no read or sort timing.
