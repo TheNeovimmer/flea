@@ -68,10 +68,20 @@ def masked(source, suffix):
                     i += 2
                 else:
                     i += 1
+        elif suffix == '.sh' and source[i] == '\\':
+            # Sample input: echo \' ; x    y keeps the quote literal and the following code visible.
+            i += 2
         elif source[i] in '"\'`' and not (suffix == '.rs' and source[i] == "'" and not re.match(r"'(?:\\.|[^'\\\n])'", source[i:])):
             quote = source[i]
-            # Sample input: $'it\'s'; x    y escapes its quote; 'a\' ; x    y does not.
-            literal_backslash = suffix == '.sh' and quote == "'" and not (i > 0 and source[i - 1] == '$')
+            # Sample input: $'it\'s' is ANSI-C; \$'a\' keeps its backslash literal.
+            literal_backslash = suffix == '.sh' and quote == "'"
+            if literal_backslash and i > 0 and source[i - 1] == '$':
+                backslashes = 0
+                at = i - 2
+                while at >= 0 and source[at] == '\\':
+                    backslashes += 1
+                    at -= 1
+                literal_backslash = backslashes % 2 != 0
             i += 1
             while i < len(source):
                 if source[i] == '\\' and not literal_backslash:

@@ -191,6 +191,16 @@ class StaticGateTests(unittest.TestCase):
                 self.assertEqual(gates.fused_line(self.root, ['sample.sh']),
                                  (1, ['sample.sh:1: fused code gap (4 spaces)']))
 
+    def test_F14_shell_unquoted_escapes_do_not_hide_code(self):
+        for source in (r"printf \$'a\' ; x    y", r"echo \' ; x    y",
+                       r"printf \\$'it\'s'; x    y", r"printf \\\$'a\' ; x    y"):
+            with self.subTest(source=source):
+                file = self.write('sample.sh', source + '\n')
+                syntax = subprocess.run(['/bin/bash', '-n', str(file)], capture_output=True, text=True)
+                self.assertEqual(syntax.returncode, 0, syntax.stderr)
+                self.assertEqual(gates.fused_line(self.root, ['sample.sh']),
+                                 (1, ['sample.sh:1: fused code gap (4 spaces)']))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
