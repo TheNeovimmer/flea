@@ -488,7 +488,8 @@ as it builds.
 `frameThumb` decodes itself, drawn or refused (Ready or Error), a video for its poster or none coming,
 a PDF for `shownPage >= 0` or failure, text and code for `PreviewLines.loading` false, an archive for
 its meta, and symlink, audio, unsupported and multi for the facts alone; a folder waits for
-`answered(shownChildPath)`. `lookReady` waits for `status` not loading, and a PDF also for
+`answered(shownChildPath)`. `lookReady` waits for `status` not loading, or for the interim cache
+thumbnail shown whole at the final rect (`interimShown`, from PreviewImage's `interimReady`), and a PDF also for
 `shownPage >= 0` or failure. `tests/js/previewswap.js` drives the moves, the cap, the frame kinds and
 every ready rule; mutating `columnReady` reddens it. `tests/preview-swap.sh` grabs the swap item
 headless over the file kinds and asserts 0 mid frames on those holds; its one folder step is a
@@ -4986,7 +4987,9 @@ is the range rule itself**, the viewport in row indices clamped to the last row 
 it lives there rather than inline in `requestThumbs` so a mutation reddens `tests/js.sh`: dropping
 its clamp fails "a listing shorter than the screen clamps to its last row". **The request
 names visible rows and nothing else**, which is the client half of the rule the backend enforces:
-nothing prefetches, warms, or asks for the screen ahead.
+nothing prefetches, warms, or asks for the screen ahead, with one exception: Quick Look at rest asks
+for the next row's cache entry only (cacheOnly, never a decoder, never a meta, none for an off class
+or unknown storage), pinned by tests/thumbs-qlprefetch.qml, while nosweep still covers the listing.
 
 **`viewport` measures the window in pixels, because a `contentY` that is not row aligned straddles
 one more row than the window holds.** `first` is `floor(contentY / rowHeight)` and `last` is
@@ -5509,8 +5512,8 @@ test's own sandbox.
   decoding runs argv-direct under `bwrap` instead. The difference is consent and blast radius: a
   thumbnail sweep decodes files the user never chose, a preview decodes the one file the user
   pressed Space on, the same trust the user already extends by opening it in any other viewer.
-  The no-sweep rule is untouched: a preview reads exactly one path per open and issues no
-  thumbnail requests, which `tests/ui.sh nosweep` still covers unchanged.
+  The no-sweep rule is untouched: a preview reads exactly one path per open and, Quick Look's one
+  cache-only next-row ask aside, issues no thumbnail requests, which `tests/ui.sh nosweep` still covers unchanged.
 - `ui/Preview.qml`'s markdown kind is a name-suffix check (`.md`/`.markdown`/`.mkd`), not an icon
   check: `text/markdown`'s own `/usr/share/mime/generic-icons` entry is `x-office-document`, not
   `text-x-generic`, so the row's icon name alone cannot carry it. It is a display-mode choice

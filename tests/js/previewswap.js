@@ -127,8 +127,7 @@ function runShowCursorRow(check, area) {
         retAt >= 0 && show.indexOf("shownHasRow") > retAt && show.indexOf("shownIsDir") > retAt && show.indexOf("shownChildPath") > retAt, true)
 }
 
-// e81f: the interim rect is the upright original aspect-fit of the surface, never
-// enlarged, sized from the original's pixels and never the cache file's rounded ones.
+// e81f: the interim rect is the original's upright aspect-fit, never enlarged, never the cache file's size.
 function rect(surfaceW, surfaceH, imageW, imageH, orient) {
     var r = PreviewSwap.interimRect(surfaceW, surfaceH, imageW, imageH, orient)
     return r === null ? "none" : r.x + "," + r.y + "," + r.w + "x" + r.h
@@ -233,12 +232,13 @@ function runPreviewSettle(check) {
     var settleAt = replaceArm.indexOf("root.settleFor(key)")
     check("a true duplicate returns before any clear or picture", dupAt >= 0 && holdAt > dupAt, true)
     check("a move takes the swap picture before scheduling", holdAt >= 0 && settleAt > holdAt, true)
-    check("the no-swap branch keeps its reset before scheduling",
-        replaceArm.indexOf("if (!root.canRead) { root.clear(); return }") >= 0
-        && replaceArm.indexOf("root.clear()", settleAt) > settleAt, true)
+    var canReadAt = replaceArm.indexOf('if (!root.canRead) { root.clear(); return }')
+    check("the no-swap branch keeps its reset before scheduling", canReadAt >= 0
+        && replaceArm.indexOf("root.clear() root.settleFor(key)", canReadAt) > settleAt, true)
     var schedArm = squashed(bodyOf(preview, "function settleFor"))
     check("a pending timer covers its own refresh", schedArm.indexOf("settle.running && root.settleKey === key") >= 0, true)
-    check("settleFor stamps only scheduled moves", schedArm.indexOf("root.lastMoveKey = key") > schedArm.indexOf("return"), true)
+    var sameAt = schedArm.indexOf('if (decision === "same") return')
+    check("settleFor stamps only scheduled moves", sameAt >= 0 && schedArm.indexOf("root.lastMoveKey = key") > sameAt && schedArm.indexOf("root.lastMoveAt = now") > sameAt, true)
     var fireArm = squashed(bodyOf(preview, "function fireSettle"))
     check("the timer and the fast path share one decision",
         fireArm.indexOf("ExtThumbs.manualHold(") >= 0 && preview.indexOf("onTriggered: root.fireSettle()") >= 0, true)

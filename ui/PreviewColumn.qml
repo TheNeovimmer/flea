@@ -107,9 +107,8 @@ Item {
     readonly property bool thumbShown: root.wantsThumb && root.thumbDrawn
     // For ui/Ipc.qml's columnFrameRect: the box a playing video's pixels must change inside.
     readonly property Item frameItem: frame
-    // For ui/Ipc.qml's columnPictureRect: the drawn picture itself, so a test can prove it fills the frame.
-    // The player's content rect while it plays, the poster otherwise: frameThumb is hidden under the
-    // player but keeps its geometry, so reading it then would measure a stale poster as the picture.
+    // For ui/Ipc.qml's columnPictureRect: the player's content rect while it plays, else the poster;
+    // frameThumb keeps its geometry hidden under the player, so reading it then measures a stale poster.
     readonly property Item pictureItem: playerLoader.visible && playerLoader.item ? playerLoader.item.contentItem : frameThumb
     readonly property Item linesItem: lines
     readonly property Item archiveItem: archivePane
