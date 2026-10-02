@@ -2,6 +2,7 @@ import QtQuick
 import qs.Commons
 import "js/Eject.js" as Eject
 import "js/Format.js" as Format
+import "js/TabMove.js" as TabMove
 
 // One rail row, shared by the Favorites, Network and Devices groups so the three read alike; see
 // ui/Sidebar.qml "The rail" for the entry shape each group feeds this delegate.
@@ -30,9 +31,7 @@ Item {
     signal tabRequested(int index)
     signal renameCommitted(int index, string text)
     signal renameCancelled(int index)
-    // Sidebar040: favourites reorder by drag, so a favourite carries its store index here and every
-    // other kind leaves -1 and drags nothing. line is the insertion boundary the drag hovers,
-    // fav-relative with lineCount past the last row, and moved(to) is the store index it lands on.
+    // Favourites reorder by drag; a favourite carries its store index, others leave -1.
     property int dragFrom: -1
     property int line: -1
     property int lineCount: 0
@@ -308,8 +307,8 @@ Item {
                 return
             }
             var n = Math.max(1, root.lineCount)
-            var to = Math.max(0, Math.min(n - 1,
-                root.dragFrom + Math.round((persistentTranslation.y - startY) / Theme.railRowHeight)))
+            // The landing lives in TabMove.railReorder, beside the tab drag's own arithmetic.
+            var to = TabMove.railReorder(persistentTranslation.y - startY, root.dragFrom, Theme.railRowHeight, n).to
             root.reorderAt(-1)
             if (to !== root.dragFrom)
                 root.moved(to)
@@ -317,20 +316,18 @@ Item {
         onCentroidChanged: {
             if (!active)
                 return
-            var count = Math.max(1, root.lineCount)
-            var dy = persistentTranslation.y - startY
-            root.reorderAt(Math.max(0, Math.min(count,
-                root.dragFrom + Math.round(dy / Theme.railRowHeight) + (dy >= 0 ? 1 : 0))))
+            // The same helper as the landing above, so the line and the drop cannot disagree.
+            root.reorderAt(TabMove.railReorder(persistentTranslation.y - startY, root.dragFrom, Theme.railRowHeight, root.lineCount).line)
         }
     }
 
-    // The insertion line the drag hovers: flush over the boundary, the accent's own 3 px weight.
+    // The insertion line the drag hovers: flush over the boundary, the accent's own edge weight.
     Rectangle {
         visible: root.dragFrom >= 0 && root.line === root.index
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 3 * Theme.spacing.hairline
+        height: Theme.accentEdge * Theme.spacing.hairline
         color: Theme.color.accent
     }
     Rectangle {
@@ -338,7 +335,7 @@ Item {
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 3 * Theme.spacing.hairline
+        height: Theme.accentEdge * Theme.spacing.hairline
         color: Theme.color.accent
     }
 }

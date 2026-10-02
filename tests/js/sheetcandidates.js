@@ -1,9 +1,8 @@
 .import "../../ui/js/SheetQuery.js" as SheetQuery
+.import "sourcefixture.js" as Source
 
 function run(check) {
-    // Candidate building from a stub menu model, a stub rail and a stub recent list, plus
-    // the Enter dispatch decision. The menu entries arrive as Menu.listingEntries builds
-    // them; the sheet passes no hidden filter, so a row Settings Menus hides is still found.
+    // Candidates from stub menu, rail and recent models, plus the Enter dispatch.
     function hint(action) {
         if (action === "deletePermanently") {
             return "shift-delete"
@@ -23,8 +22,16 @@ function run(check) {
                     { id: ".7z", label: "Compress to .7z", disabled: true }] }
     ]
     var menus = SheetQuery.menuCandidates(entries, hint)
-    check("a hidden row is still found",
-          menus.some(function (row) { return row.label === "Permissions" }), true)
+    // Five top-level entries plus two flyout leaves, the flyout separator skipped.
+    check("every non-separator entry becomes a candidate", menus.length, 7)
+    // The sheet keeps hidden rows findable by asking the menu with no hidden set.
+    var sheet = Source.source("ui/KeymapSheet.qml")
+    var menuSlice = Source.slice(sheet, "function menuModel()", "function railModel()")
+    var codeLines = menuSlice.split("\n").filter(function (line) { return line.trim().indexOf("//") !== 0 })
+    var codeSlice = codeLines.join("\n")
+    var hiddenCount = codeSlice.split("hiddenActions:").length - 1
+    check("the sheet asks with no hidden set once", hiddenCount, 1)
+    check("and it is the empty set", codeSlice.indexOf("hiddenActions: []") >= 0, true)
     check("a row with a key keeps its cap",
           menus.filter(function (row) { return row.label === "Delete permanently"; })[0].keys, "shift-delete")
     check("a keyless row draws no cap",
@@ -33,8 +40,10 @@ function run(check) {
           menus.filter(function (row) { return row.label === "Compress to .zip"; })[0].where, "Compress")
     check("a leaf carries no cap",
           menus.filter(function (row) { return row.label === "Compress to .zip"; })[0].keys, "")
-    check("a separator inside a flyout is no row",
-          menus.some(function (row) { return row.menuAction === "compress:"; }), false)
+    check("a flyout with a separator yields its two leaves",
+          menus.filter(function (row) { return row.where === "Compress"; }).length, 2)
+    check("and no row has an empty label",
+          menus.some(function (row) { return row.label.length === 0; }), false)
     check("a disabled row is flagged",
           menus.filter(function (row) { return row.label === "Paste"; })[0].disabled, true)
     check("a disabled leaf is flagged too",
@@ -57,15 +66,12 @@ function run(check) {
           places.some(function (row) { return row.name === "Recent"; }), false)
     check("a place reads Open plus its name",
           places.filter(function (row) { return row.name === "Trash"; })[0].label, "Open Trash")
-    // Recent files read "Open <file>" with the parent folder, home abbreviated, from the same
-    // xbel source the Recent place uses, bounded with no per-entry stat.
+    // Recent files read "Open <file>" with the home-abbreviated parent.
     var recents = SheetQuery.recentCandidates(["/home/gm/Documents/claude/mix.flac", "/etc/hosts"], "/home/gm")
     check("a recent file reads Open plus its leaf", recents[0].label, "Open mix.flac")
     check("its parent is home abbreviated", recents[0].where, "~/Documents/claude")
     check("a root outside home is left whole", recents[1].where, "/etc")
-    // Enter runs the highlighted row: an action as its key, a menu row as the menu, a place
-    // like a rail click, a recent file like Enter on that row, a destructive row through its
-    // confirm, and a disabled row never runs.
+    // Enter runs the highlighted row as its own surface would.
     var actionRow = SheetQuery.actionCandidates([{ label: "trash", keys: "dd", action: "trash", context: "listing" }])[0]
     check("an action dispatches as its key", SheetQuery.dispatch(actionRow).kind, "action")
     var menuRow = menus.filter(function (row) { return row.label === "Move to Trash"; })[0]

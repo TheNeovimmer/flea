@@ -16,6 +16,16 @@ function step(from, delta, count) {
 }
 
 // A move keeps the current tab current across the shift.
+// A favourite drag answers where the row lands and the line draws: (40, 1, 30, 5) drops at 2, line at 3.
+function railReorder(dy, from, rowHeight, count) {
+    var n = Math.max(1, count)
+    var step = Math.round(dy / rowHeight)
+    return { to: Math.max(0, Math.min(n - 1, from + step)),
+        line: Math.max(0, Math.min(n, from + step + (dy >= 0 ? 1 : 0))) }
+}
+
+// Move the entry at from so it ends at index to, keeping the current tab
+// current: the entry dragged along follows, and one crossed over shifts back.
 function reorder(items, from, to, index) {
     if (from < 0 || from >= items.length || to < 0 || to >= items.length || from === to)
         return index

@@ -4,19 +4,12 @@
 .import "Swap.js" as Swap
 .import "Places.js" as Places
 
-// The keymap sheet's query filter: the field appears on the first typed key, so the sheet
-// at rest stays the generated sheet. Candidates arrive in section order, actions (0), the
-// cursor row's menu rows and leaves hidden rows included (1), places (2) and recent files
-// (3), each place and file reading "Open <name>" with muted "in <where>". A destructive row
-// keeps its confirm, because the query only finds rows. Imports no QML, so tests drive it.
+// The sheet's four-section query filter; imports no QML, so tests drive it.
 
-// Sample candidates: [{ label: "trash", keys: "dd", section: 0 },
-//                      { label: "Open Downloads", keys: "", section: 2, where: "Places" }]
 // Sample query: "down" matches "Open Downloads" but not "trash".
 var RESULT_LIMIT = 50
 
-// A key that works in one place only says where, as the tag digits do in Tags, from the key
-// table's own context. Listing is the sheet's own place and multi-context works in several.
+// A key that works in one place only says where, from the key table's own context.
 function whereForContext(context) {
     var text = String(context || "")
     if (text.length === 0 || text === "listing" || text.indexOf(",") >= 0) {
@@ -25,7 +18,7 @@ function whereForContext(context) {
     return text
 }
 
-// Section 0 from the generated sheet. Imports no Keymap: the caller hands in sheetFor rows.
+// Section 0 from the generated sheet; the caller hands in sheetFor rows.
 function actionCandidates(sheetRows) {
     var out = []
     var rows = sheetRows || []
@@ -37,8 +30,7 @@ function actionCandidates(sheetRows) {
     return out
 }
 
-// Section 1 from the menu's own model, hidden rows included. Tops keep a cap when the
-// hint names one, leaves read "<leaf> in <flyout>" with no cap, disabled rows never run.
+// Section 1 from the menu's own model, hidden rows included; disabled rows never run.
 function menuCandidates(entries, hintFor) {
     var out = []
     var rows = entries || []
@@ -87,8 +79,7 @@ function placeWhere(entry) {
     return "Places"
 }
 
-// Section 2 from the rail's entries. NAME rides beside "Open <name>", because an exact
-// place match compares the name and not the label, so "? trash Enter" opens Trash first.
+// Section 2 from the rail's entries; an exact NAME match ranks first.
 function placeCandidates(railEntries) {
     var out = []
     var rows = railEntries || []
@@ -115,8 +106,7 @@ function abbrevParent(parent, home) {
     return text
 }
 
-// Section 3 from the xbel source the Recent place uses, read once per query line, bounded
-// by Recent.LIMIT with no per-entry stat.
+// Section 3 from the xbel source, read once per query line and bounded by Recent.LIMIT.
 function recentCandidates(recentPaths, home) {
     var out = []
     var rows = recentPaths || []
@@ -176,8 +166,7 @@ function rank(candidates, query) {
     return exactPlace.concat(exact, matched, keyed).slice(0, RESULT_LIMIT)
 }
 
-// Enter runs the highlighted row: an action as its key, a menu row as the menu, a place
-// like a rail click, a recent file like Enter on its row, a destructive row via its confirm.
+// Enter runs the highlighted row as its own surface would.
 function dispatch(candidate) {
     var row = candidate || {}
     if (row.disabled === true) {
@@ -202,12 +191,24 @@ function dispatch(candidate) {
 }
 
 // Every menu row resolves its rows through the snapshot, so it refuses while a listing is out, unlike navigations.
+// Enter skips the key gate, so a listing started under the sheet is refused here too.
+function runAction(holder, action, close) {
+    if (Swap.swallows(holder.listInFlight, action)) {
+        holder.message(Swap.LOADING, false)
+        return
+    }
+    close()
+    holder.act(action)
+}
+
+// A sheet menu row snapshots first, so the activate meets the current selection.
 function runMenu(holder, menuAction, close) {
     if (holder.listInFlight === true) {
         holder.message(Swap.LOADING, false)
         return
     }
-    close()
+    if (typeof close === "function")
+        close()
     holder.menuActions.snapshot()
     holder.menuActions.activate(menuAction, true)
 }

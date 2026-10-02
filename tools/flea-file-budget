@@ -78,15 +78,15 @@ ui/ContextMenu.qml 682
 ui/ConvertDialog.qml 433
 ui/GridArea.qml 411
 ui/Ipc.qml 834
-ui/KeymapSheet.qml 536
+ui/KeymapSheet.qml 533
 ui/List.qml 436
 tests/touchpad-edge.qml 438
-ui/FastScrollHandler.qml 527
+ui/FastScrollHandler.qml 529
 ui/NetworkDialog.qml 445
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 849
 ui/OpenWithDialog.qml 607
-ui/Pane.qml 1000
+ui/Pane.qml 1005
 ui/PaneMenuActions.qml 464
 ui/PaneWire.qml 549
 ui/PermissionsDialog.qml 629
@@ -98,7 +98,7 @@ ui/PreviewMarkdown.qml 473
 ui/Row.qml 479
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
-ui/Sidebar.qml 679
+ui/Sidebar.qml 681
 ui/StatusBar.qml 460
 ui/Theme.qml 415
 ui/TrashView.qml 475

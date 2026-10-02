@@ -2985,18 +2985,19 @@ for the `recentMode` listing (the mode, the return, the guards and the header wi
 `ui/Row.qml` 456 to 461 for the `recenting` name split with Used beside it. `ui/SidebarRow.qml`
 stays inside its budget at 257 for the reorder drag and its two insertion bars.
 `ui/SettingsFavourite.qml` stays inside its budget at 118 for the 19 px mark slot and the 24 px
-handle and remove boxes. `ui/KeymapSheet.qml` recorded at 539, over the hard cap, for the query field
-that appears on the first typed key, the ranked results across actions, menu rows, places and recents, and their activation. `ui/Header.qml` stays inside its budget at 186 for the Used
-title and the hidden Mode and Kind. `ui/js/Settings.js` 427 to 430 for the Built in Recent row.
-`ui/js/Focus.js` 339 to 343 for the Recent reveal, escape and write guards. `ui/js/Tabs.js` stands
-at 326, over its 300 hard cap and recorded rather than split, by calling into the new `ui/js/RecentMode.js`, 132 lines inside both budgets,
-rather than carrying the tab logic itself; the sheet query's rank went to the new
-`ui/js/SheetQuery.js`, 36 lines inside both budgets, rather than into the generated
+handle and remove boxes. `ui/KeymapSheet.qml` stands recorded at 585 for the four-section query
+(actions, menu rows, places, recent files) with its query field that appears on the first typed key.
+`ui/Header.qml` stays inside its budget at 186 for the Used title and the hidden Mode and Kind.
+`ui/js/Settings.js` 427 to 430 for the Built in Recent row.
+`ui/js/Focus.js` 339 to 343 for the Recent reveal, escape and write guards. `ui/js/Tabs.js` holds
+its 300 hard cap by calling into the new `ui/js/RecentMode.js`, 125 lines inside both budgets,
+rather than carrying the tab logic itself; the sheet query went to the new
+`ui/js/SheetQuery.js`, 195 lines inside both budgets, rather than into the generated
 `ui/js/Keymap.js`, which is never hand edited. `ui/Ipc.qml` 802 to 807 for the `recentMode`,
 `recentFrom` and `keymapQuery` readers. `src/uischema.rs` 408 to 412 for the `showRecent` key,
 off by default, with its rule and default test. `tests/js/focus.js` 404 to 405 for the new field
-on its stub panes; `tests/js/recentmode.js` and `tests/js/sheetquery.js` hold the mode and the
-rank at 129 and 39 lines.
+on its stub panes; `tests/js/recentmode.js` at 159, `tests/js/sheetquery.js` at 78 and
+`tests/js/sheetcandidates.js` at 79 hold the mode, the rank and the candidates.
 
 Ported onto the 0.3.6 release head, the same change re-derives to `ui/Sidebar.qml` 669,
 `ui/Pane.qml` 799, `ui/js/Focus.js` 387, `ui/js/Settings.js` 443, `ui/js/Tabs.js` 321,
@@ -3013,23 +3014,42 @@ with its watcher cache, and the favourites drag reorder with its insertion line)
 header wire). `ui/Row.qml` 474 to 478 for the `recenting` name split with Used beside it.
 `ui/SidebarRow.qml` keeps inside the hard cap at 338 for the reorder drag and its two insertion
 bars. `ui/SettingsFavourite.qml` keeps inside its budget at 118 for the 19 px mark slot and the
-24 px handle and remove boxes. `ui/KeymapSheet.qml` recorded at 539, over the hard cap, for the query
-field that appears on the first typed key with the same ranked results and activation. `ui/Header.qml` keeps inside the hard cap at 391 for the
+24 px handle and remove boxes. `ui/KeymapSheet.qml` stands recorded at 585, over the 400 hard cap, for the
+four-section query (actions, menu rows, places, recent files) with its query field that appears on
+the first typed key. `ui/Header.qml` keeps inside the hard cap at 391 for the
 Used title and the hidden Mode and Kind. `ui/js/Settings.js` 432 to 435 for the Built in Recent row.
 `ui/js/Focus.js` 373 to 377 for the Recent reveal, escape and write guards. `ui/js/Tabs.js` 299 to
-302 for the resting-path and dropOverlay calls into the new `ui/js/RecentMode.js`, 121 lines inside
-both budgets, rather than carrying the tab logic itself; the sheet query's rank went to the new
-`ui/js/SheetQuery.js`, 36 lines inside both budgets, rather than into the generated
+302 for the resting-path and dropOverlay calls into the new `ui/js/RecentMode.js`, 125 lines inside
+both budgets, rather than carrying the tab logic itself; the sheet query went to the new
+`ui/js/SheetQuery.js`, 195 lines inside both budgets, rather than into the generated
 `ui/js/Keymap.js`, which is never hand edited. `ui/Ipc.qml` 818 to 823 for the `recentMode`,
 `recentFrom` and `keymapQuery` readers. `ui/WindowBody.qml` 547 to 549 for the chrome's Recent name.
 `ui/PaneWire.qml` 468 to 471 for the floor and fsinfo guards. `ui/List.qml` 400 to 402 for the
 `recenting` wire, recorded rather than split. `src/uischema.rs` 421 to 425 for the `showRecent` key,
 off by default, with its rule and default test. `tests/js/focus.js` 456 to 457 and
 `tests/js/settings.js` 298 to 301, the second recorded rather than split, for the new fields and the
-Recent row pins; `tests/js/recentmode.js` at 119 and `tests/js/sheetquery.js` at 39 hold the mode and
-the rank. The Photos roll is gone on this head, so the port drops the prepared roll-clearing lines
-and `ui/js/Photos.js` stays deleted; the rail menus, eject marks and auto-hide rail are main's and
-are carried untouched. Menu rows, rail places and recent files join the sheet's candidates through the cursor row's menu model, the rail's entries and the xbel recent list, so the sheet ranks the keymap's actions, the cursor row's menu rows and leaves, rail places and recent files, pinned in tests/js/sheetcandidates.js, and `SheetQuery.rank` holds their section order.
+Recent row pins; `tests/js/recentmode.js` at 159, `tests/js/sheetquery.js` at 78 and
+`tests/js/sheetcandidates.js` at 79 hold the mode, the rank and the candidates. The Photos roll is
+gone on this head, so the port drops the prepared roll-clearing lines and `ui/js/Photos.js` stays
+deleted; the rail menus, eject marks and auto-hide rail are main's and are carried untouched. The
+sheet ranks all four sections in order and `SheetQuery.rank` holds their exact-place, exact, matched
+and keyed buckets.
+
+kb1b (17f14f7d) moves ten recorded ceilings, each re-derived with `wc -l` at the commit that
+recorded it. `tests/js/focus.js` 522 to 595 for the Escape climb landing-mark, armed-pair and
+sheet-snapshot pins. `tests/js/menu.js` 335 to 348 for the hidden Copy as and Paste as lone-flyout
+pins. `tests/js/tap.js` enters the tool's list at 317 for the single-click tap-count suite, over the
+300 hard cap and recorded rather than split. `ui/ContextMenu.qml` 625 to 675 for the lone-flyout
+state the c and P keys open while their rows hide. `ui/Pane.qml` 992 to 998 for the Recent paste
+refusal in pasteLink. `ui/PermissionsDialog.qml` 589 to 627 for the multi-row card with its
+accumulated inspect and skip notes. `ui/Row.qml` 478 to 479 for the Recent location branch, railed
+in ea0f9a7d on the same merged head. `ui/js/Focus.js` 408 to 439 for the deliberate-marks Escape
+and sheet-snapshot dispatch. `ui/js/Menu.js` 425 to 436 for flyoutEntries over the Copy as and Paste
+as leaves. `ui/js/Tabs.js` 390 to 399 for the pending restore carried across a reorder. kb1c's
+comment cuts then left every one of those files under its ceiling, and kb1d took `ui/Pane.qml` 998
+to 1000 for the two sort declarations Recent hands back. This round takes `ui/Pane.qml` 1000 to
+1003 for the hop restore in openWithoutHistory and its pane route, and `ui/Sidebar.qml` 675 to 677
+for the asker list a history read answers one by one.
 
 MenuAdditions040 moves sixteen recorded ceilings, each re-derived with `wc -l`
 against the 0.3.8 integration head. `ui/js/Menu.js` 337 to 399 for the Copy as

@@ -1,4 +1,5 @@
 .import "../../ui/js/Focus.js" as Focus
+.import "../../ui/js/RecentMode.js" as RecentMode
 .import "filterfixture.js" as Fixture
 
 // Issue 12's own suite, split out of tests/js/focus.js at its 300-line cap the way focus-forward.js
@@ -43,6 +44,8 @@ function queryPane() {
     p.walked = []
     p.message = function (text, isError) { p.said = text }
     p.clearSelection = function () { p.picked = {} }
+    // Mirrors ui/Pane.qml restoreRecentSort, so a walk from Recent restores through it.
+    p.restoreRecentSort = function () { RecentMode.restoreSort(p) }
     p.renameEditor = function () { return null }
     p.act = function (action) { Focus.act(action, p) }
     p.backend = { search: function (path, query, hidden) { p.walked.push(path + "?" + query) },

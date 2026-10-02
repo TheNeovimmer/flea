@@ -410,6 +410,9 @@ FocusScope {
         // Every real navigation leaves Recent: entering it pushed no history entry, so nothing
         // carries the mode across, and the folder it was opened over is already gone with it.
         RecentMode.leave(root)
+        // Already a no-op after leave, which restored and blanked; the call itself is the contract
+        // every navigation restores the standing order, pinned against the source.
+        RecentMode.restoreSort(root)
         if (!root.listInFlight) {
             var applied = root.appliedListingPreferences ? JSON.parse(root.appliedListingPreferences) : []
             // Search exit can enter here before the preferences timer consumes a deferred Settings change.
@@ -662,6 +665,8 @@ FocusScope {
 
     function openParent() { if (trashHost.opened) trashHost.close(); else if (root.recentMode.length > 0) { if (root.listInFlight) root.message("A directory is already loading.", false); else RecentMode.close(root) } else Nav.parent(root) }
 
+    // The sort Recent replaced, handed back on leaving; ui/js/Search.js reaches it through here.
+    function restoreRecentSort() { RecentMode.restoreSort(root) }
     // The rail's Recent row answers with the history's paths, read bounded the way the
     // path jump reads them; a second open while one lands replaces it, the way a navigation does.
     function openRecent(paths) { RecentMode.run(root, paths) }

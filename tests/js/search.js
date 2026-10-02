@@ -1,4 +1,5 @@
 .import "../../ui/js/Search.js" as Search
+.import "../../ui/js/RecentMode.js" as RecentMode
 
 function run(check) {
     // Rule 6: a count that is still growing says so, beside the count.
@@ -64,6 +65,8 @@ function run(check) {
             clearSelection: function () {},
             open: function (path) { this.opened += 1 },
             openWithoutHistory: function (path) { this.relisted = path },
+            // Mirrors ui/Pane.qml restoreRecentSort, so a walk from Recent restores through it.
+            restoreRecentSort: function () { RecentMode.restoreSort(this) },
             backend: { search: function (path, query, hidden) { sent.push(path + "?" + query) },
                        askFsInfo: function () { sent.push("fsinfo") } }
         }

@@ -1,9 +1,9 @@
 .import "../../ui/js/SheetQuery.js" as SheetQuery
+.import "../../ui/js/Swap.js" as Swap
+.import "sourcefixture.js" as Source
 
 function run(check) {
-    // Candidates arrive in section order: the keymap's actions (0), the cursor row's menu
-    // rows and leaves (1), the rail's places (2) and the recent files (3), each place and
-    // file reading "Open <name>" with its "in <where>".
+    // Candidates arrive in section order, each place and file reading "Open <name>".
     function candidate(label, keys, section, where) {
         return { label: label, keys: keys, section: section, where: where || "" }
     }
@@ -27,6 +27,10 @@ function run(check) {
     // A place whose name the query matches exactly ranks first, whatever section it is in.
     var exact = SheetQuery.rank(rows, "menu")
     check("an exact label match ranks first", exact[0].label, "menu")
+    // An exact label outranks a substring match even when the substring stands first in section order.
+    var exactRows = [candidate("menu bar", "", 0), candidate("menu", "m", 0)]
+    check("an exact label outranks a substring match ahead of it",
+          SheetQuery.rank(exactRows, "menu").map(function (row) { return row.label }).join("|"), "menu|menu bar")
     var place = SheetQuery.rank(rows, "Open Documents")
     check("an exact place name ranks first", place[0].label, "Open Documents")
     // Keys match when no label does: the cap is what half the sheet is read by.
@@ -36,8 +40,7 @@ function run(check) {
     // A query matching nothing lists nothing rather than the whole sheet.
     check("no match is an empty sheet", SheetQuery.rank(rows, "zzz").length, 0)
     check("a keys-only miss is empty too", SheetQuery.rank(rows, "Open ^z").length, 0)
-    // A place whose NAME the query matches exactly ranks first, above an action whose
-    // label matches exactly: the NAME is compared, not the "Open <name>" label.
+    // An exact NAME match ranks first, above an exact action label.
     var trashRows = [
         { label: "trash", keys: "dd", section: 0, where: "", action: "trash" },
         { label: "Open Trash", name: "Trash", keys: "", section: 2, where: "Places",
@@ -139,4 +142,37 @@ function run(check) {
     check("trash refuses while a listing is out", SheetQuery.listingRefusal(true, "trash"), "A directory is already loading.")
     check("open still answers while a listing is out", SheetQuery.listingRefusal(true, "open"), "")
     check("at rest nothing refuses", SheetQuery.listingRefusal(false, "trash"), "")
+    // A sheet menu row snapshots first, so the activate meets the selection.
+    var calls2 = []
+    var holder2 = { menuActions: {
+        snapshot: function () { calls2.push("snapshot") },
+        activate: function (action, selected) { calls2.push("activate:" + action + ":" + selected) }
+    } }
+    SheetQuery.runMenu(holder2, "trash")
+    check("the sheet snapshots before it activates", calls2.join(","), "snapshot,activate:trash:true")
+    // The sheet action arm lives in SheetQuery.runAction, so a swapped gate stays red.
+    function stubHolder(inFlight) {
+        var calls = []
+        var holder = { listInFlight: inFlight, message: function (text, shown) { calls.push("message:" + text + ":" + shown) }, act: function (action) { calls.push("act:" + action) } }
+        function close() { calls.push("close") }
+        return { holder: holder, calls: calls, close: close }
+    }
+    check("SheetQuery.runAction exists", typeof SheetQuery.runAction, "function")
+    var swallowed = stubHolder(true)
+    if (typeof SheetQuery.runAction === "function") {
+        SheetQuery.runAction(swallowed.holder, "trash", swallowed.close)
+    }
+    check("a swallowed action says loading with no close and no act", swallowed.calls.join(",") || "missing", "message:" + Swap.LOADING + ":false")
+    var idle = stubHolder(false)
+    if (typeof SheetQuery.runAction === "function") {
+        SheetQuery.runAction(idle.holder, "trash", idle.close)
+    }
+    check("an idle action closes then acts", idle.calls.join(",") || "missing", "close,act:trash")
+    var letThrough = stubHolder(true)
+    if (typeof SheetQuery.runAction === "function") {
+        SheetQuery.runAction(letThrough.holder, "open", letThrough.close)
+    }
+    check("an action the gate lets through acts while in flight", letThrough.calls.join(",") || "missing", "close,act:open")
+    var sheetAction = Source.source("ui/KeymapSheet.qml")
+    check("activateResult runs through SheetQuery.runAction", Source.slice(sheetAction, "function activateResult()", "// Directive 18").indexOf("SheetQuery.runAction") >= 0, true)
 }

@@ -97,10 +97,7 @@ Item {
         if (!holder || decided.kind === "disabled" || decided.kind === "none")
             return
         if (decided.kind === "action") {
-            var refusal = SheetQuery.listingRefusal(holder.listInFlight, decided.action)
-            if (refusal.length > 0) { holder.message(refusal, false); return }
-            root.close()
-            holder.act(decided.action)
+            SheetQuery.runAction(holder, decided.action, function () { root.close() })
             return
         }
         if (decided.kind === "menu" || decided.kind === "confirm") {
