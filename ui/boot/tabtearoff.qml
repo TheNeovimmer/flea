@@ -11,7 +11,8 @@ import Quickshell.Wayland
 Item {
     id: root
 
-    required property var tabBar
+    // Loader assigns this after creation, so required can never hold here.
+    property var tabBar: null
     property string tabMime: ""
 
     Variants {
@@ -33,11 +34,12 @@ Item {
                 anchors.fill: parent
                 keys: [root.tabMime]
                 onDropped: function (drop) {
-                    if (drop.getDataAsString(root.tabMime) !== "")
+                    // A drop landing before onLoaded assigned tabBar is dropped.
+                    if (root.tabBar !== null && drop.getDataAsString(root.tabMime) !== "")
                         root.tabBar.tearOffAt()
                 }
             }
-            Keys.onEscapePressed: root.tabBar.cancelOut()
+            Keys.onEscapePressed: { if (root.tabBar !== null) root.tabBar.cancelOut() }
         }
     }
 }
