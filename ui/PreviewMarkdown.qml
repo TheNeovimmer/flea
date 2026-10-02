@@ -40,9 +40,7 @@ Item {
     readonly property string chromeHex: hexOf(Theme.color.surface)
     // The render suite reads the ink it asserts beside the border, same assembly, no coercion.
     readonly property string inkHex: hexOf(Theme.color.foreground)
-    // The parse runs off the UI thread: the worker posts the block tree and the
-    // UI shows the previous content or the loading state until it arrives. A
-    // newer file cancels an older parse by sequence number.
+    // Sequence numbers reject superseded worker parses while the UI holds content or shows loading.
     property var blockList: []
     property int parseSeq: 0
     property int appliedSeq: 0
@@ -120,6 +118,7 @@ Item {
         onTriggered: {
             if (!root.parsing)
                 return
+            root.parseSeq++
             root.parsing = false
             root.blockList = Markdown.blocks(root.rawText, Markdown.dirOf(root.path),
                 root.chromeHex, root.inkHex)
@@ -128,11 +127,11 @@ Item {
     }
 
     function askParse() {
+        root.parseSeq++
         if (!root.active || root.tooLarge || !file.loaded) {
             root.parsing = false
             return
         }
-        root.parseSeq++
         root.parsing = true
         root.parseError = ""
         parseFallback.restart()
@@ -189,9 +188,7 @@ Item {
         }
     }
 
-    // The rendered document instantiates only visible blocks plus a bounded
-    // cache, the way the listing instantiates only its viewport: a 1 MiB
-    // README opens without building thousands of delegates.
+    // Render only visible blocks and a bounded cache, even for a 1 MiB document.
     ListView {
         id: body
         anchors.fill: parent
@@ -240,12 +237,7 @@ Item {
                         font.pixelSize: Theme.font.body
                     }
 
-                    // A table arrives structured from ui/js/Markdown.js and draws here in Qt
-                    // Quick, since Markdown tables carry no styling: a bold header, a muted rule
-                    // under the header and each row, no verticals, each column as wide as its
-                    // widest cell plus 14 px. The column hugs its content at the left edge
-                    // instead of filling the frame. Plain Grid/Column/Row, never QtQuick.Layouts,
-                    // so the preview never loads the Layouts module.
+                    // Structured tables hug cell widths with bold headers and horizontal rules, using Grid, Column and Row.
                     Column {
                         id: tableGrid
                         visible: block.type === "table"

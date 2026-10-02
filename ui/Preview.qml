@@ -447,9 +447,7 @@ Item {
                 truncate: root.pane ? (root.pane.storageClass === "network" || root.pane.storageClass === "phone") : false
             }
 
-            // RenderedPreviews: the Markdown bar and pane, loaded only for a Markdown
-            // file, so a window that never shows one never compiles them. A file path,
-            // not an inline Component, so nothing is compiled at startup.
+            // Load the Markdown bar and pane by file path only when a Markdown document is shown.
             Loader {
                 id: markdownLoader
                 anchors.fill: parent
