@@ -166,20 +166,13 @@ else
         "120x68 120x68") ok "and a 120x68 PNG at its own size, never enlarged" ;;
         *) bad "Quick Look drew the small PNG as '$small', not 120x68 (log $log)" ;;
     esac
-    # The interim draws the cache file under the full decode: the same rect within a pixel,
-    # and the original opened once, the interim adding no open of its own.
+    # The interim draws the cache file under the full decode within a pixel, adding no open.
     im_line() { grep -a -n "CREATE|sentinel-$1" "$watchlog" | head -1 | cut -d: -f1; }
-    rect_ok() {
-        python3 - "$1" "$2" <<'PY'
-import sys
-a = [int(x) for x in sys.argv[1].split(",")]
-b = [int(x) for x in sys.argv[2].split(",")]
-sys.exit(0 if len(a) == 4 and len(b) == 4 and all(abs(x - y) <= 1 for x, y in zip(a, b)) else 1)
-PY
-    }
+    rect_ok() { IFS=, read -r -a a <<<"$1"; IFS=, read -r -a b <<<"$2"; [ "${#a[@]}" -eq 4 ] && [ "${#b[@]}" -eq 4 ] || return 1; for i in 0 1 2 3; do d=$((a[i]-b[i])); [ "${d#-}" -le 1 ] || return 1; done; }
     for spec in "small small.png smallcache.png" "large seed0.jpg thumb.png"; do
         set -- $spec
         label=$1; orig=$2; cache=$3
+        # Sample input: 'PREVIEW INTERIM small irect=317,201,120,68 frect=317,201,120,68'
         line=$(grep -a "PREVIEW INTERIM $label " "$log" | head -1)
         irect=$(printf '%s' "$line" | sed -n 's/.* irect=\([0-9,]*\).*/\1/p')
         frect=$(printf '%s' "$line" | sed -n 's/.* frect=\([0-9,]*\).*/\1/p')
@@ -209,10 +202,10 @@ PY
         else
             bad "the $label original opened $oopens time(s), want exactly 1 (log $log)"
         fi
-        if [ "$copens" -ge 1 ]; then
+        if [ "$copens" -eq 1 ]; then
             ok "and drew its cache file"
         else
-            bad "the $label interim never opened $cache (log $log)"
+            bad "the $label interim opened $cache $copens time(s), want exactly 1 (log $log)"
         fi
     done
     # e81f-r3: the interim meta-row guards, one PREVIEW GUARD line each.
@@ -230,6 +223,11 @@ PY
         ok "no row naming the file means no ask and no interim sizing"
     else
         bad "guard 3 did not pass: nothing may be asked when no row names the file (log $log)"
+    fi
+    if grep -a -q "PREVIEW GUARD4 PASS" "$log"; then
+        ok "the captured row keeps the ask when the cursor sits elsewhere"
+    else
+        bad "guard 4 did not pass: the ask must stay at the captured row (log $log)"
     fi
 fi
 

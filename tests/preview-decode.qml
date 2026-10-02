@@ -335,9 +335,7 @@ ShellRoot {
         return Math.round(item.x) + "," + Math.round(item.y) + "," + Math.round(item.width) + "," + Math.round(item.height)
     }
 
-    // The interim draws above the pane's ground and below the final picture: siblings in
-    // that order under one parent. On the old tree it lived beside the loader, so the
-    // parents differ and this answers false.
+    // The interim sits above the ground and below the final picture as siblings.
     function stackOk() {
         var pair = shell.interimPair()
         if (!pair[0] || !pair[1] || pair[0].parent !== pair[1].parent) return false
@@ -377,11 +375,7 @@ ShellRoot {
         }
     }
 
-    // e81f-r3: the interim meta-row guards. Guard 1 is onMeta's imageRowShown check:
-    // a reply for a row that drifted onto another file must not size the interim.
-    // Guards 2 and 3 are resolveImageRow: a drifted capture re-asks at the cursor
-    // row when it names the shown file, and asks nothing when no row does.
-    // show() asks synchronously, so every assert below reads the ask it just made.
+    // e81f-r3: guards 1 to 4 pin the drifted reply, the cursor re-ask, the quiet no-match and capture-first.
     function guardShow(shown, row) {
         stubBackend.pending = []
         shell.guardAskLog = []
@@ -429,6 +423,17 @@ ShellRoot {
         var g3bare = quickPreview.item.imageW === 0 && quickPreview.item.imageH === 0
         shell.log("GUARD3 " + (g3quiet && g3dropped && g3bare ? "PASS" : "FAIL")
             + " quiet=" + g3quiet + " dropped=" + g3dropped + " bare=" + g3bare)
+        shell.guardEnd()
+        // Guard 4: capture-first. Row 7 names the shown file while cursor 3 names another.
+        shell.guardMap = ({ 7: "guard4.jpg", 3: "other4.jpg" })
+        stub.cursorIndex = 3
+        shell.guardShow("guard4.jpg", 7)
+        var g4asked = shell.guardAskLog.length === 1 && shell.guardAskLog[0] === 7
+        stubBackend.meta(7, 444, 333, 1)
+        var g4took = quickPreview.item.imageW === 444 && quickPreview.item.imageH === 333
+        shell.log("GUARD4 " + (g4asked && g4took ? "PASS" : "FAIL")
+            + " asked7=" + g4asked + " took=" + g4took
+            + " w=" + quickPreview.item.imageW + " h=" + quickPreview.item.imageH)
         shell.guardEnd()
         shell.guardHold = false
         shell.guardMap = ({})

@@ -270,6 +270,8 @@ prefetch_log="$D/qlprefetch.log"
 mkdir -p "$prefetch_root/config" "$prefetch_root/runtime" || exit 1
 chmod 700 "$prefetch_root/runtime" || exit 1
 ln -s "$PWD/tests/thumbs-qlprefetch.qml" "$prefetch_root/config/shell.qml" || exit 1
+# The probe plans with production Thumbs and ExtThumbs, so it reads ui/ as flea.
+ln -s "$PWD/ui" "$prefetch_root/config/flea" || exit 1
 ln -s /usr/share/omarchy/shell/Commons "$prefetch_root/config/Commons" || exit 1
 ln -s /usr/share/omarchy/shell/Ui "$prefetch_root/config/Ui" || exit 1
 ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \

@@ -2,6 +2,8 @@
 
 import Quickshell
 import QtQuick
+import "flea/js/Thumbs.js" as Thumbs
+import "flea/js/ExtThumbs.js" as ExtThumbs
 
 // Quick Look's bounded prefetch through the stub backend: one cache-only ask for the next
 // row per settled rest, none while a held key is still bursting.
@@ -66,8 +68,7 @@ ShellRoot {
         property var menuActions: null
         property var trash: ({ opened: false })
         property var listSlot: ({ x: 0, y: 0, width: 100, height: 100 })
-        // The settled view behind Quick Look: a re-plan asks undefined viewport rows
-        // in full, the way List.requestThumbs does on this fixture (no filter, local).
+        // The settled view behind Quick Look runs the production planner on this fixture.
         property var listArea: ({ forceActiveFocus: function () {}, restartSettle: function () { shell.settleCalls.push(1); shell.replan() } })
         function rowFor(index) { return (index >= 0 && index < rows.length) ? rows[index] : null }
         function join(base, name) { return base + "/" + name }
@@ -107,20 +108,14 @@ ShellRoot {
     property var settleCalls: []
     property int raceCacheOnly1: 0
 
-    // The settled view's re-plan behind Quick Look: undefined viewport rows asked
-    // in full, the way List.requestThumbs plans on this fixture (no filter, local).
+    // The settled re-plan runs production Thumbs.plan over the full viewport.
     function replan() {
-        var ask = []
-        for (var i = 0; i < pane.rows.length; i++) {
-            if (pane.thumbState.file[i] === undefined && pane.rows[i].t === true && pane.rows[i].d !== true)
-                ask.push(i)
-        }
-        if (ask.length > 0) {
-            pane.backend.thumb(ask, false)
-            for (var j = 0; j < ask.length; j++) {
-                pane.thumbState.file[ask[j]] = null
-                pane.thumbState.order.push(ask[j])
-            }
+        var work = Thumbs.plan(pane.thumbState, pane.rows, 0, 0, pane.rows.length - 1, "media")
+        work.cacheOnly = ExtThumbs.cacheOnly(pane.storageClass, null)
+        if (work.drop.length > 0) pane.backend.thumbcancel(work.drop)
+        if (work.ask.length > 0) {
+            pane.backend.thumb(work.ask, work.cacheOnly)
+            pane.thumbState = Thumbs.applied(pane.thumbState, work)
         }
     }
 
@@ -158,18 +153,7 @@ ShellRoot {
             shell.check("and no meta beyond the loaded row", backend.metaCalls.join(",") === "0,1")
             shell.burstMark = backend.calls.length
             shell.metaMark = backend.metaCalls.length
-            midBurst.restart()
-        }
-    }
-
-    Timer {
-        id: midBurst
-        interval: 60
-        repeat: false
-        // Inside the settle window the trailing follow asked for nothing at all.
-        onTriggered: {
-            shell.check("nothing asks mid-burst", backend.calls.length === shell.burstMark)
-            shell.check("no meta asks mid-burst", backend.metaCalls.length === shell.metaMark)
+            trailPoll.waited = 0
             trailPoll.restart()
         }
     }
@@ -184,6 +168,8 @@ ShellRoot {
             waited += interval
             if (backend.calls.length > shell.burstMark) {
                 stop()
+                shell.check("nothing asks mid-burst", backend.calls.length === shell.burstMark + 1)
+                shell.check("no meta asks mid-burst", backend.metaCalls.length === shell.metaMark + 1)
                 shell.check("the trailing rest asks once more", backend.calls.length === shell.burstMark + 1)
                 shell.check("for the row after it",
                     backend.calls[backend.calls.length - 1].ask.join(",") === "3")
@@ -290,8 +276,7 @@ ShellRoot {
         }
     }
 
-    // F11B: the insert lands between ask and reply. The reply for the drifted index
-    // names the neighbour, so it is dropped and nothing re-asks behind it.
+    // F11B: the insert lands between ask and reply. The reply for the drifted index names the neighbour.
     function startF11B() {
         quick.item.close()
         pane.rows = [{ n: "s.jpg", d: false, i: "image-x-generic", p: 33188, s: 200, m: 2000, t: true, k: 0 }]
@@ -308,9 +293,22 @@ ShellRoot {
         backend.meta(0, 999, 888, 1, 0, 0, 0, 0, false, [], 0, false, false, "", false, "")
         shell.check("a reply for a drifted index is dropped", asked && quick.item.imageW === 0
             && quick.item.interimVisible !== true)
-        shell.check("no re-ask follows the drop", backend.metaCalls.length === mark + 1)
-        shell.done()
+        shell.f11bMark = mark + 1
+        f11bWait.restart()
+    }
+
+    // Past the follow settle, so a deferred re-ask through it is counted before done.
+    Timer {
+        id: f11bWait
+        interval: shell.f11bWaitMs
+        repeat: false
+        onTriggered: {
+            shell.check("no re-ask follows the drop", backend.metaCalls.length === shell.f11bMark)
+            shell.done()
+        }
     }
 
     property int f11aMetaMark: -1
+    property int f11bMark: -1
+    property int f11bWaitMs: 200
 }
