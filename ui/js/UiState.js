@@ -120,6 +120,11 @@ function pruneAsk(running, failedPatch) {
     return running ? { queue: failedPatch, start: "" } : { queue: "", start: failedPatch }
 }
 
+// A settle stays pending until both halves land, so one half landed still counts as running.
+function settleBusy(running, mode, answer) {
+    return running || (mode.length > 0 && !whole(answer))
+}
+
 // A settle's end spends a queued prune before a dirty re-read, keeping the dirty flag across the prune so the re-read still runs after it.
 function settleNext(dirty, pruneQueued) {
     if (pruneQueued.length > 0)

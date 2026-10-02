@@ -357,6 +357,13 @@ function run(check) {
     check("a prune behind a running settle queues", UiState.pruneAsk(true, '{"columns":[]}').queue, '{"columns":[]}')
     check("and starts nothing", UiState.pruneAsk(true, '{"columns":[]}').start, "")
     check("while an idle settler starts it at once", UiState.pruneAsk(false, '{"columns":[]}').start, '{"columns":[]}')
+    // A half-landed settle still counts as running, so a refused write behind it queues.
+    check("an exit without its text still counts as running", UiState.settleBusy(false, "apply", { code: 0 }), true)
+    check("and text without its exit does too", UiState.settleBusy(false, "apply", { text: "{}" }), true)
+    check("while a whole answer does not", UiState.settleBusy(false, "apply", { code: 0, text: "{}" }), false)
+    check("and an idle settler neither", UiState.settleBusy(false, "", {}), false)
+    check("a half-landed prune queues behind it", UiState.pruneAsk(UiState.settleBusy(false, "apply", { code: 0 }), '{"columns":[]}').queue, '{"columns":[]}')
+    check("and never starts over it", UiState.pruneAsk(UiState.settleBusy(false, "apply", { text: "{}" }), '{"columns":[]}').start, "")
     check("a queued prune spends before a dirty re-read", UiState.settleNext(true, '{"columns":[]}'), "prune")
     check("a dirty flag alone re-reads", UiState.settleNext(true, ""), "apply")
     check("and a quiet settle ends idle", UiState.settleNext(false, ""), "idle")

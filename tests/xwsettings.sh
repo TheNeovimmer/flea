@@ -322,7 +322,8 @@ ShellRoot {
             console.log("PROBE live columns=" + JSON.stringify(ViewState.state.columns)
                         + " placesType=" + (ViewState.state.places === null ? "null" : typeof ViewState.state.places)
                         + " hidden=" + ViewState.state.hidden
-                        + " favourites=" + JSON.stringify((ViewState.state.places || {}).favourites))
+                        + " favourites=" + JSON.stringify((ViewState.state.places || {}).favourites)
+                        + " density=" + ViewState.density)
         }
     }
     property var backstop: Timer {
@@ -348,39 +349,49 @@ QML
     sleep 0.05
   done
   if [ "$fail" -eq 0 ]; then
+    live_before_bogus=$(grep -c 'PROBE live' "$SANDBOX/settled.log")
     python3 - "$SANDBOX/settled/state/flea/ui.json" <<'PY'
 import json, sys
 p = sys.argv[1]
 doc = json.load(open(p))
 doc["columns"] = ["name", "size", "bogus"]
+doc["density"] = "normal"
 json.dump(doc, open(p, "w"))
 PY
-    # A bounded poll for the healed default, not a fixed sleep: the absence check below is only read once the watcher proves it handled the edit.
+    # The density marker rides the same write as the bogus edit, so only a line carrying it proves the watcher handled that write.
     waited=0
-    until [ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -1 | grep -c '"name","size","date"')" -ge 1 ]; do
+    until [ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -n +"$((live_before_bogus + 1))" | grep -c 'density=normal')" -ge 1 ]; do
       waited=$((waited + 1))
       if [ "$waited" -gt 200 ]; then break; fi
       sleep 0.05
     done
-    check "a bogus column is never taken" "0" "$(grep -c 'bogus' "$SANDBOX/settled.log" | head -1)"
+    handled=$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -n +"$((live_before_bogus + 1))" | grep 'density=normal')
+    check "a bogus column is never taken" "0" "$(printf '%s' "$handled" | grep -c 'bogus')"
     # The healed default appears live; on raw_bytes the bogus string stays in the log.
-    check "and the settled default lands instead" "1" "$([ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -1 | grep -c '"name","size","date"')" -ge 1 ] && echo 1 || echo 0)"
+    check "and the settled default lands instead" "1" "$([ "$(printf '%s' "$handled" | grep -c '"name","size","date"')" -ge 1 ] && echo 1 || echo 0)"
     live_before=$(grep -c 'PROBE live' "$SANDBOX/settled.log")
     python3 - "$SANDBOX/settled/state/flea/ui.json" <<'PY'
 import json, sys
 p = sys.argv[1]
 doc = json.load(open(p))
 doc["places"] = None
+doc["density"] = "compact"
 json.dump(doc, open(p, "w"))
 PY
+    # The compact marker rides the null write, so a periodic tick without it proves nothing about the edit.
     waited=0
-    until [ "$(grep -c 'PROBE live' "$SANDBOX/settled.log")" -gt "$live_before" ]; do
+    until [ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -n +"$((live_before + 1))" | grep -c 'density=compact')" -ge 1 ]; do
       waited=$((waited + 1))
       if [ "$waited" -gt 200 ]; then break; fi
       sleep 0.05
     done
-    check "a null places group never empties favourites" "0" "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -n +"$((live_before + 1))" | grep -c 'placesType=null')"
-    check "and the kept entries survive it" "1" "$([ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -1 | grep -c '/old')" -ge 1 ] && echo 1 || echo 0)"
+    if [ "$waited" -gt 200 ]; then
+      echo "FAIL xwsettings: the watcher never answered the null places edit"
+      fail=1
+    fi
+    handled_null=$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -n +"$((live_before + 1))" | grep 'density=compact')
+    check "a null places group never empties favourites" "0" "$(printf '%s' "$handled_null" | grep -c 'placesType=null')"
+    check "and the kept entries survive it" "1" "$([ "$(printf '%s' "$handled_null" | grep -c '/old')" -ge 1 ] && echo 1 || echo 0)"
     live_before=$(grep -c 'PROBE live' "$SANDBOX/settled.log")
     printf '%s' '{"density":"normal"}' > "$SANDBOX/settled/state/flea/ui.json" || exit 1
     waited=0

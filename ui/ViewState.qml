@@ -355,7 +355,7 @@ QtObject {
     function applyShared(text) {
         if (!UiState.parsesAsObject(text))
             return
-        if (settler.running) {
+        if (UiState.settleBusy(settler.running, root.settleMode, root.settleAnswer)) {
             root.settleDirty = true
             return
         }
@@ -363,6 +363,9 @@ QtObject {
     }
     // One starter for both settle kinds, so a prune never inherits a stale exit or text.
     function settleStart(mode) {
+        // A half-landed settle is still pending, so starting over it would lose the half already here.
+        if (UiState.settleBusy(settler.running, root.settleMode, root.settleAnswer))
+            return
         root.settleMode = mode
         root.settleAnswer = {}
         settler.command = [Quickshell.env("FLEA_BIN") || "flea", "--ui-state"]
@@ -490,8 +493,8 @@ QtObject {
         if (next.failed)
             root.saveFailed()
         if (exitCode !== 0 && UiState.isPatchInvalid(failedPatch)) {
-            // A refused patch prunes behind a running settle instead of hijacking that settle's mode.
-            var ask = UiState.pruneAsk(settler.running, failedPatch)
+            // A refused patch prunes behind a pending settle instead of hijacking that settle's mode.
+            var ask = UiState.pruneAsk(UiState.settleBusy(settler.running, root.settleMode, root.settleAnswer), failedPatch)
             if (ask.queue.length > 0) {
                 root.pruneQueued = ask.queue
                 return
