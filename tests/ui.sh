@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Drives the real Quickshell window with omarchy-drive and asserts through the read-only IPC seam.
-# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|rename|renamelife|taildrop|touchpad|grid|columns|columnsbackground|reclick|colroot|operations|tabs|tabdrag|openterminal|makeexec|renderer|settings|makedefault|scrolllane|noblank|previewswap ...|previewswap|recent ...|middleclick|opentab]; networklive is opt-in.
+# Usage: ./tests/ui.sh [cursor|terminal|open|rows|click|ctrlclick|viewrestart|dd|sortrestart|dirsortstale|editplace|mute|placemenu|runscript|unmounted|sidebar|menu|hidden|selection|watch|optical|select|colour|lifted|icons|thumbs|hashcache|stale|nosweep|oem|header|overflow|focus|preview|network|netmark|networktimeout|networklive|gvfs|sharebrowser|unmount|phones|eject|fsdevice|rename|renamelife|taildrop|touchpad|grid|columns|columnsbackground|reclick|colroot|operations|tabs|tabdrag|openterminal|makeexec|renderer|settings|makedefault|scrolllane|noblank|previewswap ...|previewswap|recent ...|middleclick|opentab]; networklive is opt-in.
 set -u
 set -o pipefail
 # Hard rule 9's guard, which owns FIXTURE_ROOT and every create and delete this suite makes.
@@ -9182,6 +9182,237 @@ EOS
         || fail "eject: expected exactly two ejects, log is: $(cat "$gio_log")"
 
     printf 'EJECT menu=ok internal-disk-offers-nothing=ok exit-code-is-not-the-verdict=ok listing-is=ok no-force=ok\n'
+    kill_flea
+    if [[ -n "$real_state" ]]; then export XDG_STATE_HOME="$real_state"; else unset XDG_STATE_HOME; fi
+    sandbox_remove "$fixture_home"
+}
+
+# The native filesystem round (ROOTCAUSE.md section 5, piece 3), driven on minipc against the real
+# stick the controller prepared from tests/fs-stick-images.sh. Given FLEA_FS_LAYOUT (one of vfat,
+# exfat, ntfs3, espdata, espmsrswap, isohybrid) and FLEA_FS_EXPECTED (that layout's expected-rows
+# JSON array), it checks rail rows with the switch off and on, mount on activation, open and list
+# against ls, one copy in, trash and restore, thumbnails, an outside change, eject and the 15 s
+# stay-gone check. It never formats anything: writing the image to the stick is the controller's
+# step, and every destructive path below is the mounted volume (a disposable device) or this
+# case's own fixture dir. Reads go through the existing Ipc readers and real ls and gio; every
+# action is a key or a click.
+case_fsdevice() {
+    local layout="${FLEA_FS_LAYOUT:-}" expected_json="${FLEA_FS_EXPECTED:-}"
+    case "$layout" in vfat|exfat|ntfs3|espdata|espmsrswap|isohybrid) ;;
+        *) fail "fsdevice: set FLEA_FS_LAYOUT to a stick layout, got '$layout'" ;;
+    esac
+    [[ -n "$expected_json" ]] || fail "fsdevice: set FLEA_FS_EXPECTED to the layout's expected-rows JSON array"
+    local expected
+    expected=$(jq -r '.[]' <<< "$expected_json" 2>/dev/null) || fail "fsdevice: FLEA_FS_EXPECTED is not a JSON array"
+    [[ -n "$expected" ]] || fail "fsdevice: FLEA_FS_EXPECTED names no rows"
+    local want1
+    want1=$(head -1 <<< "$expected")
+
+    local dir="$fixture_root/fsdevice"
+    sandbox_scratch "$dir"
+    head -c 1MiB /dev/zero > "$dir/copy-me.bin"
+    local fixture_home="$fixture_root/fsdevice-home"
+    fixture_home_make "$fixture_home"
+    local real_home="$HOME" real_state="${XDG_STATE_HOME-}"
+
+    # Sample deviceEntries line: FLEA-VFAT|device|volume|false
+    fs_rail_labels() { ipc deviceEntries | awk -F'|' '$2 == "device" { print $1 }'; }
+    # Sample railEntries device object: {"group":"device","label":"FLEA-VFAT","device":"/dev/sda1","path":"/run/media/gm/x","mounted":true}
+    fs_row_device() { ipc railEntries | jq -r --arg l "$1" '.[] | select(.group == "device" and .label == $l) | .device'; }
+    fs_row_path() { ipc railEntries | jq -r --arg l "$1" '.[] | select(.group == "device" and .label == $l) | .path'; }
+    fs_row_mounted() { ipc railEntries | jq -r --arg l "$1" '.[] | select(.group == "device" and .label == $l) | .mounted'; }
+
+    # Unmount any expected row first, so the switch-off leg below sees unmounted rows, not udiskie's.
+    seed_ui_state "$fixture_root/fsdevice-state-off" '{"places":{"showUnmounted":false}}'
+    export HOME="$fixture_home"
+    launch "$dir"
+    export HOME="$real_home"
+    wait_listing 1
+    local label dev mnt
+    for label in $expected; do
+        mnt=$(fs_row_path "$label")
+        if [[ -n "$mnt" && "$mnt" != "null" && "$mnt" != "" ]]; then
+            gio mount -u "$mnt" >/dev/null 2>&1 || fail "fsdevice: could not unmount $label at $mnt before the switch legs"
+        fi
+    done
+    # Two device poll periods (5 s each): the row clears on the next lsblk poll, not the unmount.
+    local unmount_wait_s=10 end
+    for label in $expected; do
+        end=$((SECONDS + unmount_wait_s))
+        while (( SECONDS < end )); do [[ "$(fs_row_mounted "$label")" != "true" ]] && break; sleep 0.5; done
+        [[ "$(fs_row_mounted "$label")" != "true" ]] || fail "fsdevice: $label is still mounted after the unmount"
+    done
+    # Switch off: an unmounted data row stays off the rail, the 0.2.1 rail this switch promises.
+    for label in $expected; do
+        end=$((SECONDS + unmount_wait_s))
+        while (( SECONDS < end )); do fs_rail_labels | grep -Fxq "$label" || break; sleep 0.5; done
+        fs_rail_labels | grep -Fxq "$label" \
+            && fail "fsdevice: $label is a row with showUnmounted off while unmounted"
+    done
+    printf 'FSDEVICE %s switch-off=ok\n' "$layout"
+    kill_flea
+
+    # Switch on: expected rows only, same-disk scope keeps the host ESP and swap out.
+    seed_ui_state "$fixture_root/fsdevice-state-on" '{"hidden":true,"places":{"showUnmounted":true}}'
+    export HOME="$fixture_home"
+    launch "$dir"
+    export HOME="$real_home"
+    wait_listing 1
+    local disk pk
+    disk=""
+    for label in $expected; do
+        fs_rail_labels | grep -Fxq "$label" || fail "fsdevice: $label is no row with showUnmounted on, rows are: $(fs_rail_labels | tr '\n' ',')"
+        dev=$(fs_row_device "$label")
+        [[ -n "$dev" && "$dev" != "null" ]] || fail "fsdevice: $label carries no device node"
+        pk=$(lsblk -no PKNAME "$dev" 2>/dev/null) || fail "fsdevice: lsblk cannot name the parent of $dev"
+        if [[ -z "$disk" ]]; then disk="$pk"; elif [[ "$disk" != "$pk" ]]; then fail "fsdevice: expected rows span two disks, $disk and $pk"; fi
+    done
+    local others
+    others=$(ipc railEntries | jq -r --arg d "/dev/$disk" '[.[] | select(.group == "device" and (.device | startswith($d))) | .label] | join(",")')
+    [[ "$others" == "$(tr '\n' ',' <<< "$expected" | sed 's/,$//')" ]] \
+        || fail "fsdevice: disk $disk carries [$others], not just the expected rows"
+    printf 'FSDEVICE %s switch-on rows=%s\n' "$layout" "$others"
+
+    # Mount on activation: the row opens at its mountpoint with no false timer message.
+    seek_row_named copy-me.bin
+    key y >/dev/null
+    settle
+    click_rail_row "$(rail_row_of "$want1")" left
+    local end=$((SECONDS + 30))
+    mnt=""
+    while (( SECONDS < end )); do
+        [[ "$(fs_row_mounted "$want1")" == "true" ]] && mnt=$(fs_row_path "$want1") && [[ -n "$mnt" && "$mnt" != "null" ]] && break
+        sleep 0.2
+    done
+    [[ -n "$mnt" && "$mnt" != "null" ]] || fail "fsdevice: activating $want1 mounted nothing"
+    wait_path "$mnt"
+    wait_listing 1
+    [[ "$(ipc lastMessage)" != *"mounted but never reported"* ]] \
+        || fail "fsdevice: the 15 s timer fired over a mount that landed: $(ipc lastMessage)"
+    [[ -f "$mnt/thumb.png" ]] || fail "fsdevice: $mnt holds no seeded tree, refusing to run against the wrong disk"
+    printf 'FSDEVICE %s mount=%s\n' "$layout" "$mnt"
+
+    # Open and list against ls: total matches ls -A, built first-screen rows are members.
+    local want_sorted="$dir/ls-want" want_n have_n vis cap i row built built_names
+    ls -A "$mnt" | sort > "$want_sorted"
+    want_n=$(wc -l < "$want_sorted" | tr -d ' ')
+    wait_listing "$want_n"
+    have_n=$(ipc total)
+    [[ "$have_n" == "$want_n" ]] || fail "fsdevice: the listing holds $have_n rows, ls -A holds $want_n"
+    vis=$(ipc visibleRows)
+    [[ "$vis" =~ ^[1-9][0-9]*$ ]] || fail "fsdevice: no visible row count, got [$vis]"
+    cap=$vis; (( have_n < cap )) && cap=$have_n
+    built=0
+    built_names="$dir/built-names"
+    : > "$built_names"
+    for (( i = 0; i < cap; i++ )); do
+        row=$(ipc rowAt "$i")
+        [[ "$row" == "loading" ]] && continue
+        built=$((built + 1))
+        printf '%s\n' "${row%%|*}" >> "$built_names"
+        grep -Fxq "${row%%|*}" "$want_sorted" || fail "fsdevice: row ${row%%|*} is no ls -A member"
+    done
+    # A repeated built name means one ls row is drawn twice and another never answers.
+    [[ -z "$(sort "$built_names" | uniq -d)" ]] || fail "fsdevice: a built row name repeats: $(sort "$built_names" | uniq -d | tr '\n' ',')"
+    (( built >= (have_n < vis ? have_n : vis) )) || fail "fsdevice: only $built built rows answer of $vis on screen"
+    printf 'FSDEVICE %s list=%s total and first screen match ls\n' "$layout" "$have_n"
+
+    if [[ "$layout" == "isohybrid" ]]; then
+        # iso9660 is read-only: the paste is refused and no row offers Trash.
+        key p >/dev/null
+        end=$((SECONDS + 10))
+        while (( SECONDS < end )); do [[ "$(ipc lastMessage)" == *"cannot be written"* ]] && break; sleep 0.5; done
+        [[ "$(ipc lastMessage)" == *"cannot be written"* ]] || fail "fsdevice: the read-only paste said $(ipc lastMessage)"
+        [[ ! -e "$mnt/copy-me.bin" ]] || fail "fsdevice: the read-only paste landed on $mnt"
+        click_row 0 right
+        settle
+        [[ "$(ipc contextMenuEntries)" != *"Move to Trash"* ]] || fail "fsdevice: a read-only volume offers Move to Trash"
+        key -k Escape >/dev/null
+        settle
+        printf 'FSDEVICE %s read-only paste-refused trash-absent=ok\n' "$layout"
+    else
+    # One copy in through the clipboard, verified by bytes, then undone.
+    key p >/dev/null
+    end=$((SECONDS + 30))
+    while (( SECONDS < end )); do [[ -f "$mnt/copy-me.bin" ]] && break; sleep 0.2; done
+    [[ -f "$mnt/copy-me.bin" ]] || fail "fsdevice: the paste never landed on $mnt"
+    cmp -s "$dir/copy-me.bin" "$mnt/copy-me.bin" || fail "fsdevice: the pasted bytes differ"
+    key z >/dev/null
+    end=$((SECONDS + 20))
+    while (( SECONDS < end )); do [[ ! -e "$mnt/copy-me.bin" ]] && break; sleep 0.2; done
+    [[ ! -e "$mnt/copy-me.bin" ]] || fail "fsdevice: undo left the pasted copy behind"
+    printf 'FSDEVICE %s copy-in undo=ok\n' "$layout"
+
+    # Trash through dd, proving the volume's own trash dir, then restore from the Trash view.
+    local before
+    before=$(ipc total)
+    printf 'trash me' > "$mnt/trash-me.txt"
+    # The watch re-read moves total by one; seeking then names the row with bounded IPC.
+    end=$((SECONDS + 30))
+    while (( SECONDS < end )); do [[ "$(ipc total)" != "$before" ]] && break; sleep 0.5; done
+    [[ "$(ipc total)" != "$before" ]] || fail "fsdevice: the open listing never followed the outside change"
+    seek_row_named trash-me.txt
+    local trash_before trash_uid trash_idx
+    trash_before=$(ipc trashState | jq -r '.count')
+    key d >/dev/null
+    key d >/dev/null
+    end=$((SECONDS + 20))
+    while (( SECONDS < end )); do [[ ! -e "$mnt/trash-me.txt" ]] && break; sleep 0.2; done
+    [[ ! -e "$mnt/trash-me.txt" ]] || fail "fsdevice: dd left trash-me.txt on the volume"
+    trash_uid=$(id -u)
+    [[ -d "$mnt/.Trash-$trash_uid" ]] || fail "fsdevice: no .Trash-$trash_uid at the volume root"
+    [[ "$(ipc trashState | jq -r '.count')" == "$((trash_before + 1))" ]] \
+        || fail "fsdevice: the trash count did not move by one"
+    click_rail_row "$(rail_row_of Trash)" left
+    end=$((SECONDS + 20))
+    while (( SECONDS < end )); do [[ "$(ipc trashState | jq -r '.opened')" == "true" ]] && break; sleep 0.2; done
+    [[ "$(ipc trashState | jq -r '.opened')" == "true" ]] || fail "fsdevice: the Trash view never opened"
+    trash_idx=$(ipc trashState | jq -r --arg o "$mnt/trash-me.txt" '.rows | to_entries[] | select(.value.original == $o) | .key' | head -1)
+    [[ -n "$trash_idx" && "$trash_idx" != "null" ]] || fail "fsdevice: trash-me.txt is no row in the Trash view"
+    trash_click trashRowCentre "$trash_idx" right
+    settle
+    [[ "$(ipc contextMenuEntries)" == *"Restore"* ]] || fail "fsdevice: trash-me.txt offers no Restore"
+    menu_seek Restore
+    key -k Return >/dev/null
+    # Restore runs async, so wait for the count to land back before reading the file.
+    trash_wait '.busy == false and .count == '"$trash_before"
+    end=$((SECONDS + 20))
+    while (( SECONDS < end )); do [[ "$(cat "$mnt/trash-me.txt" 2>/dev/null)" == "trash me" ]] && break; sleep 0.2; done
+    [[ "$(cat "$mnt/trash-me.txt" 2>/dev/null)" == "trash me" ]] || fail "fsdevice: Restore did not bring trash-me.txt back"
+    printf 'FSDEVICE %s trash restore=ok\n' "$layout"
+    fi
+
+    # Back on the volume: thumbnails, the filesystem name, and an outside change.
+    click_rail_row "$(rail_row_of "$want1")" left
+    wait_path "$mnt"
+    seek_row_named thumb.png
+    end=$((SECONDS + 20))
+    while (( SECONDS < end )); do [[ "$(ipc rowThumbReady "$(ipc cursor)")" == "true" ]] && break; sleep 0.5; done
+    [[ "$(ipc rowThumbReady "$(ipc cursor)")" == "true" ]] || fail "fsdevice: thumb.png never decoded a thumbnail"
+    local fsname
+    fsname=$(ipc statusFooterState | jq -r '.filesystem')
+    [[ -n "$fsname" && "$fsname" != 0x* ]] || fail "fsdevice: the status bar names no filesystem, got '$fsname'"
+    if [[ "$layout" != "isohybrid" ]]; then
+    before=$(ipc total)
+    printf 'touch' > "$mnt/from-shell.txt"
+    end=$((SECONDS + 30))
+    while (( SECONDS < end )); do [[ "$(ipc total)" != "$before" ]] && break; sleep 0.5; done
+    [[ "$(ipc total)" != "$before" ]] || fail "fsdevice: the open listing never followed the outside change"
+    seek_row_named from-shell.txt
+    rm -f "$mnt/from-shell.txt"
+    fi
+    printf 'FSDEVICE %s thumbs fs=%s watch=ok\n' "$layout" "$fsname"
+
+    # Eject from inside the volume, then the row stays gone for 15 s: the #232 remount check.
+    key -M ctrl -k e -m ctrl >/dev/null
+    wait_message "Ejected $want1, it is safe to unplug."
+    end=$((SECONDS + 10))
+    while (( SECONDS < end )); do fs_rail_labels | grep -Fxq "$want1" || break; sleep 0.5; done
+    fs_rail_labels | grep -Fxq "$want1" && fail "fsdevice: $want1 stayed on the rail after eject"
+    [[ "$(ipc path)" != "$mnt"* ]] || fail "fsdevice: the pane is still inside the ejected volume"
+    sleep 15
+    fs_rail_labels | grep -Fxq "$want1" && fail "fsdevice: $want1 came back inside 15 s, something remounted it"
+    printf 'FSDEVICE %s eject stay-gone=ok\n' "$layout"
     kill_flea
     if [[ -n "$real_state" ]]; then export XDG_STATE_HOME="$real_state"; else unset XDG_STATE_HOME; fi
     sandbox_remove "$fixture_home"

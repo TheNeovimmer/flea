@@ -19,7 +19,7 @@ cargo build -q || { printf 'run-all: cargo build failed, nothing else was run\n'
 printf 'run-all: building target/release/flea, thumbs.sh needs it\n'
 cargo build -q --release || { printf 'run-all: release build failed, nothing else was run\n' >&2; exit 1; }
 
-headless="js keymap-gen charts budget aurpush aur-versions pkgrel-check signalarity empty-state sandbox capability-ownership gio-auth gvfs ops modes update protocol portal archive thumbs thumbs-exec network-open-share network-keyless mount-listing lazy-objects connections-style pdf-turn pdf-first preview-decode preview-swap preview-settle-live preview-select uistate uiwriter media filemanager1 dragwire shellload settings-columns preview-frame preview-geometry jump-ui jump-gap picker-recent picker-stall grid-gap rowcost columnscost columnrow-geom columndividers columnsfolder columnspeekgate headercost headerhandles menu-settle menu-snapshot-retire markdown-render lockedmenu arm-prompt acceptance-matrix counts listcost listnamebudget clickedge-origin ui-fixture-home menu-scroll-width scroll-fill columnclip-empty listhidden gridhidden gridcaption statusbar-hint touchpad scroll-lanes touchpad-tool touchpad-edge scroll-bounds"
+headless="js keymap-gen charts budget aurpush aur-versions pkgrel-check signalarity empty-state sandbox capability-ownership gio-auth gvfs ops modes update protocol portal archive thumbs thumbs-exec network-open-share network-keyless mount-listing lazy-objects connections-style pdf-turn pdf-first preview-decode preview-swap preview-settle-live preview-select uistate uiwriter media filemanager1 dragwire shellload settings-columns preview-frame preview-geometry jump-ui jump-gap picker-recent picker-stall grid-gap rowcost columnscost columnrow-geom columndividers columnsfolder columnspeekgate headercost headerhandles menu-settle menu-snapshot-retire markdown-render lockedmenu arm-prompt acceptance-matrix counts listcost listnamebudget clickedge-origin ui-fixture-home menu-scroll-width scroll-fill columnclip-empty listhidden gridhidden gridcaption statusbar-hint touchpad fs-matrix-smoke scroll-lanes touchpad-tool touchpad-edge scroll-bounds"
 failed=0
 ran=0
 
@@ -53,6 +53,8 @@ network-live|needs live share credentials and the approved runtime bundle, contr
 hook-gate|standalone pinned-hk hook proof, verified separately in a marked Git fixture
 ui-tui|is a standalone native TUI proof that needs the display and owns the display lock
 themes|needs the display: it launches the candidate once per stock theme, and tests/js/themes.js is the half that runs here
+fs-matrix|needs root, loop devices and the mkfs tools for the loop-mount half; fs-matrix-smoke runs the rest
+fs-stick-images|needs root, loop devices, sfdisk and the mkfs tools to write the stick layouts
 "
 
 printf '\nNot run here, and why:\n'
