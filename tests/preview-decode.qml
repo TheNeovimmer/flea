@@ -21,8 +21,6 @@ ShellRoot {
     property string pendingInterim: ""
     // The interim phase's cursor row, naming the shown file the way production always does.
     property int interimRowOverride: -1
-    // The held phase expects no interim: its cache file is missing, so shown and ready stay false while the final loads.
-    property bool heldExpectBad: false
     // e81f-r3: the meta-row guard overrides. guardMap names index->file for drifted
     // rows, guardAskLog records every askMeta index, guardHold parks auto replies.
     property var guardMap: ({})
@@ -370,7 +368,7 @@ ShellRoot {
                 shell.log("INTERIMSTACK " + shell.interimPhase + " " + (shell.stackOk() ? "ok" : "bad"))
                 shell.mark("iend-" + shell.interimPhase)
                 if (shell.interimPhase === "small") shell.beginInterim("large", "seed0.jpg", "thumb.png", 640, 480)
-                else if (shell.interimPhase === "large") shell.beginHeld("held", "big.png", "smallcache.png", 6016, 3900, false)
+                else if (shell.interimPhase === "large") shell.beginHeld("held", "big.png", "smallcache.png", 6016, 3900)
                 else shell.runGuards()
             } else if (waited > 8000) {
                 stop()
@@ -381,12 +379,11 @@ ShellRoot {
     }
 
     // The held phase opens the production overlay with a slow original, so the interim settles while the final still decodes.
-    function beginHeld(label, orig, cache, w, h, bad) {
+    function beginHeld(label, orig, cache, w, h) {
         shell.interimPhase = label
         shell.interimOrig = orig
         shell.interimCache = cache
         shell.metaWH = [w, h]
-        shell.heldExpectBad = bad
         shell.interimRowOverride = 7
         stub.cursorIndex = 7
         shell.mark("istart-" + label)
@@ -425,7 +422,7 @@ ShellRoot {
                 stop()
                 shell.log("HELD " + shell.interimPhase + " shown=" + qp.interimShown + " ready=" + qp.lookReady + " status=" + qp.status)
                 shell.mark("iend-" + shell.interimPhase)
-                if (shell.interimPhase === "held") shell.beginHeld("heldbad", "big2.png", "missing-cache.png", 6016, 3900, true)
+                if (shell.interimPhase === "held") shell.beginHeld("heldbad", "big2.png", "missing-cache.png", 6016, 3900)
                 else shell.runGuards()
             } else if (waited > 8000) {
                 stop()

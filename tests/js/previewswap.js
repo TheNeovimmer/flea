@@ -158,7 +158,7 @@ function runInterimShown(check) {
     check("interimShown releases only on the interim image Ready",
         shownScope.indexOf("imageLoader.item.interimReady === true") >= 0, true)
     check("that term is PreviewImage interimReady, never a local flag",
-        imageScope.indexOf("interimPicture.status === Image.Ready") >= 0, true)
+        squashed(imageScope).trim() === "readonly property bool interimReady: interimPicture.status === Image.Ready", true)
 }
 
 // A folder peek in Columns holds by data: an unanswered folder keeps the old column, and the landed peek shows it with its rows in one pass.
