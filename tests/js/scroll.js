@@ -117,6 +117,8 @@ function run(check) {
           Scroll.liftVelocity([{ t: 0, x: -50, y: 0 }], 500).vx, 0)
     check("a steady stroke reads its own rate",
           Scroll.liftVelocity([{ t: 0, x: 0, y: 0 }, { t: 50, x: -100, y: 0 }], 50).vx, -2)
+    check("three 25 px frames at 8 ms read 3.125 off the stale Begin anchor",
+          Scroll.liftVelocity([{ t: 0, x: 0, y: 0 }, { t: 8, x: 25, y: 0 }, { t: 16, x: 25, y: 0 }, { t: 24, x: 25, y: 0 }], 104).vx, 3.125)
     check("two events in one millisecond take the 16 ms floor",
           Scroll.liftVelocity([{ t: 100, x: 25, y: 0 }, { t: 100, x: 25, y: 0 }], 100).vx, 3.125)
     check("the lift caps at the named maximum",

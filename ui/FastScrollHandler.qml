@@ -409,6 +409,8 @@ MouseArea {
             if (phase === Qt.ScrollBegin) {
                 root.stopTail()
                 root.stopReturn(true)
+                // The Begin carries no pixels and anchors the lift's span.
+                Scroll.pushSample(root.flickable, Scroll.now(), 0, 0)
             } else if (phase !== Qt.ScrollEnd && root.tailActive()) {
                 root.stopTail()
             } else if (root.returnActive()) {

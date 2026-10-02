@@ -13,8 +13,7 @@ var GRAB_Z = 1000000
 // Less than half a pixel of range is rounding in the layout, not content worth a bar.
 var OVERFLOW_PX = 0.5
 
-// How far a wheel event moves the content: a mouse notch is the platform's lines times
-// notchPx times the multiplier. A touchpad never reaches here, see touchDistance below.
+// Notch pixels are the platform's lines times notchPx times the multiplier; a touchpad never reaches here.
 // Sample input: pixelDeltaY 0, angleDeltaY -120, lines 3, notchPx 24, multiplier 4 gives -288.
 function distance(pixelDeltaY, angleDeltaY, lines, notchPx, multiplier) {
     var pixels = Number(pixelDeltaY) || 0
@@ -24,9 +23,7 @@ function distance(pixelDeltaY, angleDeltaY, lines, notchPx, multiplier) {
     return (Number(angleDeltaY) || 0) / NOTCH_UNITS * perNotch * notchPx * multiplier
 }
 
-// GM 2026-10-01: touchpad input answers Finder's feel, so the Motion.js animation-free rule and the old
-// touchpad 1:1 no longer hold for it; a mouse wheel notch is unchanged. Touchpad gain is GTK4's own
-// factor, what gtkscrolledwindow.c multiplies touchpad deltas and fling velocity by.
+// Touchpad answers Finder's feel at GTK4's 2.5 gain; a wheel notch is unchanged.
 var TOUCH_GAIN = 2.5
 // Apple's curve: velocity decays by 0.998 per millisecond, so the tail is about 0.5 s of lift velocity.
 var MOMENTUM_DECAY = 0.998
@@ -34,6 +31,8 @@ var MOMENTUM_DECAY = 0.998
 var VELOCITY_WINDOW_MS = 100
 // Two events in one millisecond take the floor, so they cannot fling.
 var MIN_SPAN_MS = 16
+// Kept past the window so the lift still spans from the event before the first in-window sample.
+var SPAN_ANCHOR_MS = 50
 // 6 px/ms coasts about 3000 px, two screens, so a 1 ms double event cannot fling further.
 var MAX_V_PX_PER_MS = 6
 // Below half a pixel a 60 Hz frame, where the crawl is no longer visible.
@@ -49,8 +48,7 @@ function isTouchpad(phase) {
     return Number(phase) !== 0
 }
 
-// A touchpad stroke moves by pixelDelta only, never angleDelta: a sub-pixel frame arrives as
-// pixelDelta 0 with a nonzero angleDelta and must move nothing, never a wheel notch.
+// A touchpad stroke moves by gained pixels only; a sub-pixel frame moves nothing.
 function touchDistance(pixelDelta) {
     var pixels = Number(pixelDelta) || 0
     if (pixels === 0)
@@ -100,17 +98,19 @@ function pushSample(view, t, dx, dy) {
     // dx is across (horizontal), dy is down (vertical), both gained pixels.
     var found = tailState(view, true)
     found.samples.push({ t: Number(t) || 0, x: Number(dx) || 0, y: Number(dy) || 0 })
-    while (found.samples.length > 0 && found.samples[0].t <= Number(t) - VELOCITY_WINDOW_MS - 50)
+    while (found.samples.length > 0 && found.samples[0].t <= Number(t) - VELOCITY_WINDOW_MS - SPAN_ANCHOR_MS)
         found.samples.shift()
 }
 
-// The stroke's velocity over the last 100 ms of deltas; fingers paused before the lift give none.
+// Velocity over the last 100 ms of deltas; the span starts at the event before the first in-window sample.
 function liftVelocity(samples, endTime) {
     var end = Number(endTime) || 0
-    var xs = 0, ys = 0, first = -1, last = -1, n = 0
+    var xs = 0, ys = 0, anchor = -1, first = -1, last = -1, n = 0
     for (var i = 0; i < samples.length; i++) {
         var s = samples[i]
-        if (s.t > end - VELOCITY_WINDOW_MS && s.t <= end) {
+        if (s.t <= end - VELOCITY_WINDOW_MS)
+            anchor = s.t
+        else if (s.t <= end) {
             xs += s.x
             ys += s.y
             if (first < 0)
@@ -121,7 +121,9 @@ function liftVelocity(samples, endTime) {
     }
     if (n === 0)
         return { vx: 0, vy: 0 }
-    var span = Math.max(MIN_SPAN_MS, last - first)
+    if (anchor < 0)
+        anchor = first
+    var span = Math.max(MIN_SPAN_MS, last - anchor)
     var vx = xs / span, vy = ys / span
     var speed = Math.sqrt(vx * vx + vy * vy)
     if (speed > MAX_V_PX_PER_MS) {

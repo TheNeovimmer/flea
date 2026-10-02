@@ -70,6 +70,7 @@ tests/js/status.js 354
 tests/rename-grid-bottom.qml 419
 tests/rename-grid-bottom.js 303
 tests/rename-lifecycle-check.js 356
+tests/touchpad.qml 743
 ui/Backend.qml 460
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 477
@@ -80,7 +81,6 @@ ui/Ipc.qml 834
 ui/KeymapSheet.qml 536
 ui/List.qml 436
 tests/touchpad-edge.qml 438
-tests/touchpad.qml 682
 ui/FastScrollHandler.qml 527
 ui/NetworkDialog.qml 445
 ui/NetworkForm.qml 405
@@ -90,7 +90,7 @@ ui/Pane.qml 1000
 ui/PaneMenuActions.qml 464
 ui/PaneWire.qml 549
 ui/PermissionsDialog.qml 618
-ui/PickerWindow.qml 770
+ui/PickerWindow.qml 776
 ui/Preview.qml 723
 ui/PreviewColumn.qml 574
 ui/DeviceMounts.qml 496
