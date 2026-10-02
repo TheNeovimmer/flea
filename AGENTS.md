@@ -3266,7 +3266,7 @@ waits for its consumer.
   loop in which the window receives no keys, so Ctrl
   or Shift pressed after the drag starts cannot change the verb. The status line says
   `ctrl copies and shift moves, read at lift` rather than claiming the key still works
-  mid-drag. `drag.sh` proves a same-device move and a Ctrl copy but needs the display and a
+  mid-drag, and a Ctrl with Shift lift links, its Link line naming the verb outright. `drag.sh` proves a same-device move and a Ctrl copy but needs the display and a
   real pointer, so `dragwire.sh` carries the offer into the headless battery: a leaving drag
   must offer copy alone and `text/uri-list`, a link lift must offer `Qt.LinkAction`,
   and the shelf drag stays copy only.

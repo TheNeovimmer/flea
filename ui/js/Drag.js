@@ -22,9 +22,7 @@ function carried(pane, index) {
     return [index]
 }
 
-// Ctrl copies, Shift moves, Ctrl with Shift links. All three are read at the lift: once
-// Drag.active runs, the window gets no keys. copying is the ctrl bit raw and shifting is the
-// shift bit raw, so a link lift carries both and the marker below keeps both.
+// Ctrl copies, Shift moves, Ctrl with Shift links, all read at the lift because the window gets no keys once Drag.active runs.
 function copying(modifiers) {
     return (modifiers & Qt.ControlModifier) !== 0
 }
@@ -261,8 +259,7 @@ function dropInto(pane, marker, urls, dest, destDev, shelf, plain, proposed) {
     return pane.collide.ask({ c: "transfer", op: verb, paths: paths, dest: dest })
 }
 
-// The platform action of a drag with no Flea marker, read in this one place: Files states move or
-// copy there, and a link offer states link. Both bits set, or neither, names no verb and stays plain.
+// No Flea marker follows the platform action here alone; both bits set, or neither, stays plain.
 function foreignHeld(proposed) {
     var moveBit = (proposed & Qt.MoveAction) !== 0
     var copyBit = (proposed & Qt.CopyAction) !== 0
@@ -273,9 +270,7 @@ function foreignHeld(proposed) {
     return { copy: false, shift: false }
 }
 
-// The one place the drop verb is chosen from a marker plus a platform action. A Flea marker carries
-// the lift's own ctrl and shift, so the platform action is not read at all for one; a foreign drag
-// has no marker and follows its action through foreignHeld above.
+// A Flea marker ignores the platform action; a foreign drag follows it through foreignHeld above.
 function dropVerb(marker, proposed, destDev) {
     if (marker) {
         return verbFor(isOwnDrag(marker), markerCopying(marker), markerShift(marker),
@@ -285,11 +280,7 @@ function dropVerb(marker, proposed, destDev) {
     return verbFor(false, held.copy, held.shift, 0, destDev, true)
 }
 
-// The only place copy versus move versus link is chosen. own records which process started the drag
-// and does not change the answer: another Flea window follows the device rule. Ctrl with Shift links,
-// Ctrl copies, Shift moves, even across devices, even when a device is unknown, even when the source
-// cannot be deleted. A link creates no copy and removes no source, so no device or deletable gate applies.
-// An unknown device copies. A source that cannot be deleted copies unless Shift.
+// Modifiers win over devices here: ctrl with shift links, ctrl copies, shift moves, and a link needs no device.
 function verbFor(own, ctrlHeld, shiftHeld, srcDev, destDev, deletable) {
     void own
     if (ctrlHeld && shiftHeld) return "link"

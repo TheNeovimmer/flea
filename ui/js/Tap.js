@@ -35,12 +35,9 @@ function tapped(index, tapCount, modifiers, root) {
     var verb = Search.activateAction(root)
     if (verb === "reveal" && tapCount !== 1)
         return
-    // Finder commits an open inline rename when you click away, and the field's own text is what
-    // lands. It goes first so the write happens before the selection moves under it.
+    // Finder commits an open rename on click-away first, so its text lands before the selection moves.
     root.commitOpenRename()
-    // The plain tap replaces the selection with this row, Finder's rule: leaving the old one
-    // standing would extend the next shift+click from an anchor nothing on screen names, and every
-    // write operation targets the selection ahead of the cursor row.
+    // A plain tap replaces the selection, so the next shift+click extends from a row on screen.
     root.selectOnly(index, 0)
     if (tapCount === 2 || verb === "reveal")
         root.act(verb)

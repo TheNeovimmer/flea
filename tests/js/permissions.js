@@ -1,4 +1,5 @@
 .import "../../ui/js/Permissions.js" as Permissions
+.import "sourcefixture.js" as Source
 function run(check) {
     check("ordinary mode", Permissions.parse("644"), 420)
     check("leading zero", Permissions.parse("0644"), 420)
@@ -52,7 +53,13 @@ function run(check) {
         }
     }
     check("5000 replies land every mode", done + "|" + store.modes.length, "true|5000")
-    check("and summarize exactly once", summaries, 1)
+    check("and noteMode reports done exactly once", summaries, 1)
+    // receiveMany's only multiModes write rides the noteMode-true branch, never a bare reply.
+    var dialog = Source.source("ui/PermissionsDialog.qml")
+    var received = dialog.substring(dialog.indexOf("function receiveMany"), dialog.indexOf("function backendFailed"))
+    check("receiveMany writes multiModes exactly once", received.split("multiModes =").length - 1, 1)
+    check("and that write sits inside the noteMode-true branch",
+          received.indexOf("multiModes =") > received.indexOf("Permissions.noteMode("), true)
     var refused = { modes: [], reasons: [], skipped: [], pending: 3 }
     Permissions.noteMode(refused, 0, "/d/a.txt", { ok: true, mode: "2755", reason: "Read-only: setgid bit is present." })
     Permissions.noteMode(refused, 1, "/d/b.txt", { ok: false, error: "Gone." })

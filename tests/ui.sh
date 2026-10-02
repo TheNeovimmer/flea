@@ -10715,6 +10715,15 @@ case_duallaunch() {
     done
 }
 
+# A fail before the tail exits this subshell, so the trap owns the second window and the root.
+case_xwdrag_cleanup() {
+    if [[ -n "${XW_SECOND_PID:-}" ]] && flea_process_owned "$XW_SECOND_PID" >/dev/null 2>&1; then
+        kill "$XW_SECOND_PID" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "${xdev:-}" && "$xdev" == "$XDG_RUNTIME_DIR"/flea-xwdrag-* && -f "$xdev/.flea-test-sandbox" ]]; then
+        rm -rf "$xdev" >/dev/null 2>&1 || true
+    fi
+}
 # Two Flea windows are two qs processes with two backends: a drop from one into the other moves
 # within one device and copies across, with Shift forcing a move, Ctrl a copy and Ctrl with Shift
 # a link. The controller runs this on minipc; it needs the display, a real pointer and two owned
@@ -10735,6 +10744,7 @@ case_xwdrag() {
     xdev=$(mktemp -d "$XDG_RUNTIME_DIR/flea-xwdrag-XXXXXX") || fail "xwdrag: could not create tmpfs root"
     [[ -n "$xdev" && "$xdev" == "$XDG_RUNTIME_DIR"/flea-xwdrag-* ]] || fail "xwdrag: tmpfs root escaped: $xdev"
     : > "$xdev/.flea-test-sandbox" || fail "xwdrag: could not mark tmpfs root"
+    trap case_xwdrag_cleanup EXIT HUP INT TERM
     [ "$(stat -c %d "$xdev")" != "$(stat -c %d "$adir")" ] || fail "xwdrag: $xdev is not another filesystem"
     launch "$adir"
     local apid aid
@@ -10783,7 +10793,8 @@ case_xwdrag() {
     [[ -e "$adir/link.txt" ]] || fail "xwdrag: link drag deleted its source"
     printf 'XWDRAG link ok\n'
     xwdrag_focus "$bpid"
-    key -M ctrl -k z -m ctrl >/dev/null
+    xwdrag_assert_focus "$bpid"
+    key -M ctrl -k z -m ctrl >/dev/null || fail "xwdrag: undo chord never reached the second window"
     for i in $(seq 1 40); do [[ ! -L "$bdir/link.txt" ]] && break; sleep 0.25; done
     [[ ! -L "$bdir/link.txt" ]] || fail "xwdrag: undo left the link in place"
     printf 'XWDRAG undo ok\n'
@@ -10793,6 +10804,7 @@ case_xwdrag() {
     else
         fail "xwdrag: refusing cleanup of unmarked tmpfs root"
     fi
+    trap - EXIT HUP INT TERM
     kill_flea
 }
 
@@ -10812,7 +10824,18 @@ print(("%s %s" % (hits[0]["id"], hits[0]["pid"])) if len(hits) == 1 else "")
 }
 
 xwdrag_qs() {
-    qs ipc -i "$1" call flea "${@:2}" 2>&1
+    qs ipc -i "$1" call flea "${@:2}"
+}
+
+# Dry guard: raw=$(xwdrag_qs "$id" total); case "$raw" in ''|*[!0-9]*) raw="SENTINEL";; esac
+# A qs failure must read as the sentinel, never as text that seq or $(( )) would choke on.
+xwdrag_count() {
+    local id="$1" sentinel="$2" raw
+    raw=$(xwdrag_qs "$id" total 2>/dev/null || true)
+    case "$raw" in
+        ''|*[!0-9]*) printf '%s\n' "$sentinel" ;;
+        *) printf '%s\n' "$raw" ;;
+    esac
 }
 
 # A second owned window on top of the one launch() already opened. launch() kills first, so this
@@ -10888,7 +10911,7 @@ print(c["at"][0], c["at"][1], c["size"][0], c["size"][1])
 xwdrag_row_point() {
     local id="$1" pid="$2" want="$3" total i n centre cx cy wx wy ww wh
     for _attempt in $(seq 1 100); do
-        total=$(xwdrag_qs "$id" total 2>/dev/null || printf 0)
+        total=$(xwdrag_count "$id" 0)
         for i in $(seq 0 $((total - 1))); do
             n=$(xwdrag_qs "$id" rowAt "$i" 2>/dev/null || true)
             case "$n" in "$want|"*) centre=$(xwdrag_qs "$id" rowCentre "$i" 2>/dev/null || true); break 2;; esac
@@ -10907,7 +10930,7 @@ xwdrag_floor_point() {
     read -r x y width height <<< "$area"
     read -r wx wy ww wh < <(xwdrag_geometry "$pid") || return 1
     bottom=$y
-    total=$(xwdrag_qs "$id" total 2>/dev/null || printf 0)
+    total=$(xwdrag_count "$id" 0)
     if (( total > 0 )); then
         last=$(xwdrag_qs "$id" rowRect "$((total - 1))" 2>/dev/null) || return 1
         read -r rx ry rw rh <<< "$last"
@@ -10964,7 +10987,7 @@ xwdrag_wait_row_gone() {
     local id="$1" want="$2" total
     local deadline=$(( $(date +%s%N) + 1000000000 ))
     while (( $(date +%s%N) < deadline )); do
-        total=$(xwdrag_qs "$id" total 2>/dev/null || printf -1)
+        total=$(xwdrag_count "$id" -1)
         if [[ "$total" != "-1" ]]; then
             local found=1 r seen
             for r in $(seq 0 $((total - 1))); do
@@ -10978,13 +11001,21 @@ xwdrag_wait_row_gone() {
     return 1
 }
 
+# Typed keys land in the active window, and two Flea windows share one class, so this pins focus first.
+xwdrag_assert_focus() {
+    local want="$1" got
+    got=$(hyprctl activewindow -j | python3 -c 'import json,sys; print(json.load(sys.stdin).get("pid",""))') || fail "xwdrag: no active window to check against $want"
+    [[ -n "$got" ]] || fail "xwdrag: active window has no pid, wanted $want"
+    [[ "$got" == "$want" ]] || fail "xwdrag: active window is $got, wanted $want"
+}
 xwdrag_navigate_second() {
     local want="$1"
     xwdrag_focus "$bpid"
-    key -M ctrl -k l -m ctrl >/dev/null
+    xwdrag_assert_focus "$bpid"
+    key -M ctrl -k l -m ctrl >/dev/null || fail "xwdrag: path-bar chord never reached the second window"
     for _attempt in $(seq 1 100); do [[ "$(xwdrag_qs "$bid" pathBarOpen 2>/dev/null)" == true ]] && break; sleep 0.05; done
-    omarchy-drive key --window flea "$want" >/dev/null
-    key -k Return >/dev/null
+    omarchy-drive key --window flea "$want" >/dev/null || fail "xwdrag: path text never reached the second window"
+    key -k Return >/dev/null || fail "xwdrag: Return never reached the second window"
     for _attempt in $(seq 1 100); do
         [[ "$(xwdrag_qs "$bid" path 2>/dev/null)" == "$want" && "$(xwdrag_qs "$bid" listInFlight 2>/dev/null)" == false ]] && return 0
         sleep 0.05

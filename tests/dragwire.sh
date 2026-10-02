@@ -1,10 +1,7 @@
 #!/bin/bash
 # Guards what an external application sees when Flea drags a file out. tests/drag.sh proves the
 # gesture but needs the display and a real pointer, so it never runs in the headless battery.
-# A plain lift offers copy alone until the browser-upload work settles the offer: a browser
-# uploader refuses a move offer. Ctrl offers copy alone, Shift move alone, Ctrl with Shift link
-# alone, so a receiver that takes whatever is offered still takes the lift's verb. The shelf drag
-# stays copy only.
+# A plain lift offers copy alone, narrowed by modifiers, because a browser uploader refuses a move offer.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
@@ -25,22 +22,22 @@ else
     printf '%s\n' "$advertised" | sed 's/^/     /'
 fi
 
-# Qt hands effectAllowed straight from this line. A plain lift names copy alone.
-if printf '%s' "$advertised" | grep -q 'Qt\.CopyAction'; then
-    ok "a leaving drag offers copy"
-else
-    bad "a leaving drag must offer Qt.CopyAction, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
-fi
-if printf '%s' "$advertised" | grep -q 'Qt\.CopyAction | Qt\.MoveAction'; then
-    bad "a plain lift must not offer both copy and move, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
-else
+# The whole ternary is the offer, so this pins every branch of it rather than grepping one token.
+offer=$(code_of ui/FileDrag.qml | grep 'Drag\.supportedActions:' | sed 's/.*Drag\.supportedActions:[[:space:]]*//')
+[ -n "$offer" ] || bad "no Drag.supportedActions line left in ui/FileDrag.qml to pin"
+final=$(printf '%s\n' "$offer" | sed 's/.*://;s/[[:space:];]//g')
+if [ "$final" = "Qt.CopyAction" ]; then
     ok "a plain lift offers copy alone"
-fi
-if printf '%s' "$advertised" | grep -q 'dragCopy' && printf '%s' "$advertised" | grep -q 'dragShift' && printf '%s' "$advertised" | grep -q 'dragLink'; then
-    ok "ctrl offers copy alone, shift move alone, ctrl with shift link alone"
 else
-    bad "the offer must narrow on dragCopy, dragShift and dragLink, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
+    bad "a plain lift must end on Qt.CopyAction alone, got: $final"
 fi
+for want in 'dragLink ? Qt.LinkAction' 'dragCopy ? Qt.CopyAction' 'dragShift ? Qt.MoveAction'; do
+    if printf '%s\n' "$offer" | grep -qF "$want"; then
+        ok "the offer narrows on ${want%% *}"
+    else
+        bad "the offer must carry $want, got: $offer"
+    fi
+done
 if printf '%s' "$advertised" | grep -q 'Qt\.LinkAction'; then
     ok "a link lift offers a link"
 else
@@ -104,7 +101,13 @@ fi
 # outside foreignHeld. A verb decided elsewhere from proposedAction fails this before it ships.
 bites=$(grep -n 'proposed &' ui/js/Drag.js)
 start=$(grep -n '^function foreignHeld' ui/js/Drag.js | cut -d: -f1)
-finish=$(awk -v s="$start" 'NR>s && /^function /{print NR; exit}' ui/js/Drag.js)
+if [ -z "$start" ]; then
+    bad "ui/js/Drag.js has no ^function foreignHeld line, so the single-helper range is unbounded"
+fi
+finish=$(awk -v s="${start:-0}" 'NR>s && /^function /{print NR; exit}' ui/js/Drag.js)
+if [ -z "$finish" ]; then
+    finish=$(($(wc -l < ui/js/Drag.js) + 1))
+fi
 outside=""
 while IFS= read -r hit; do
     [ -n "$hit" ] || continue
@@ -118,8 +121,8 @@ done <<< "$bites"
 if [ -z "$outside" ] && [ -n "$bites" ]; then
     ok "only foreignHeld reads the proposedAction bits"
 else
-    bad "proposedAction bits are read outside foreignHeld:"
-    printf '%s\n' "${outside:-none}" | sed 's/^/     /'
+    bad "proposedAction bits are read outside foreignHeld lines $start-$finish:"
+    printf '%s\n' "${outside:-no bitwise read left to place}" | sed 's/^/     /'
 fi
 
 printf 'dragwire: %s check(s), %s failed\n' "$((pass + fail))" "$fail"

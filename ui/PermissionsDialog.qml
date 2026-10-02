@@ -161,7 +161,8 @@ FocusScope {
             explicitClear &= ~bit
         }
     }
-    function receiveMany(message) {        if (!opened || transportFailed) return
+    function receiveMany(message) {
+        if (!opened || transportFailed) return
         if (message.op === "applyMany") {
             applyingMany = false
             if (message.ok === true) {
