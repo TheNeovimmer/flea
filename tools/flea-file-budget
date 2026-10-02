@@ -49,14 +49,15 @@ src/vulkan.rs 728
 tests/js/columns.js 618
 tests/js/drag.js 301
 tests/js/previewswap.js 367
-tests/js/focus.js 645
+tests/js/focus.js 669
 tests/js/mounts.js 383
 tests/js/menu.js 348
+tests/js/watch.js 304
 tests/js/nav.js 323
 tests/js/network.js 306
 tests/js/ops.js 430
 tests/js/settings.js 337
-tests/js/tap.js 317
+tests/js/tap.js 327
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 396

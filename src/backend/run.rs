@@ -170,7 +170,7 @@ fn handle_line(
             let replies = ops.tx.clone();
             ops.trashbrowser.get_or_insert_with(|| super::trashbrowse::TrashBrowser::new(replies)).request(line);
         }
-        Request::List { path, first, hidden } => {
+        Request::List { path, first, hidden, want_changed } => {
             // A new listing replaces whatever the walk was filling, so the walk ends before the scan starts.
             if finish_search(out, st, true) {
                 forget_rows(st, pool);
@@ -193,7 +193,7 @@ fn handle_line(
                     if watch.refused() {
                         eprintln!("flea: {} will not follow outside changes, inotify refused a watch on it", path);
                     }
-                    adopt(out, st, pool, tb, &path, l, (read_ms + pass_ms, sort_ms), &sized, first);
+                    adopt(out, st, pool, tb, &path, l, (read_ms + pass_ms, sort_ms), &sized, first, want_changed);
                     out.flush().ok();
                     // After the rows, because a statfs beside gio's own listing slows it on the share.
                     fsinfo.list_arrived(Path::new(&path));
@@ -390,10 +390,10 @@ pub fn forget_rows(st: &mut State, pool: &Pool) {
 }
 
 // A list's scanned and ordered result becomes the listing and is answered: its listed line, then its first rows.
-pub(crate) fn adopt(out: &mut impl Write, st: &mut State, pool: &Pool, tb: &Tables, path: &str, l: Listing, (read_ms, sort_ms): (f64, f64), sized: &[Option<DirSize>], first: usize) {
+pub(crate) fn adopt(out: &mut impl Write, st: &mut State, pool: &Pool, tb: &Tables, path: &str, l: Listing, (read_ms, sort_ms): (f64, f64), sized: &[Option<DirSize>], first: usize, want_changed: bool) {
     // A same-path re-list names added plus removed rows, so a rename counts 2 against a net delta of 0.
     let same = Path::new(path) == st.base.as_path();
-    let changed = if same { crate::backend::listing::changed_count(&st.listing, &l) } else { 0 };
+    let changed = if same && want_changed { crate::backend::listing::changed_count(&st.listing, &l) } else { 0 };
     // base and listing only move together, so a failed list cannot mix them.
     st.base = PathBuf::from(path);
     st.listing = l;
@@ -401,7 +401,7 @@ pub(crate) fn adopt(out: &mut impl Write, st: &mut State, pool: &Pool, tb: &Tabl
     // After forget_rows, which clears the very map this seeds.
     seed_answered(st, sized);
     let listed = listed_line(st.listing.len(), read_ms, sort_ms, dev_of(&st.base), &st.base.to_string_lossy());
-    let listed = if same { crate::backend::proto::with_changed(&listed, changed) } else { listed };
+    let listed = if same && want_changed { crate::backend::proto::with_changed(&listed, changed) } else { listed };
     writeln!(out, "{}", listed).ok();
     // Rides along unasked: asking costs a 60 ms round trip at first paint.
     write_window(out, st, 0, first, tb);

@@ -24,10 +24,11 @@ fn convert_preserves_probe_and_caller_identity_without_changing_legacy_activatio
 #[test]
 fn parses_each_request_shape() {
     match parse_request(r#"{"c":"list","path":"/home/gm","first":350}"#) {
-        Request::List { path, first, hidden } => {
+        Request::List { path, first, hidden, want_changed } => {
             assert_eq!(path, "/home/gm");
             assert_eq!(first, 350);
             assert!(!hidden);
+            assert!(!want_changed);
         }
         _ => panic!("expected List"),
     }
@@ -111,6 +112,19 @@ fn a_list_request_carries_its_hidden_flag() {
     }
     match parse_request(r#"{"c":"list","path":"/tmp","first":0,"hidden":false}"#) {
         Request::List { hidden, .. } => assert!(!hidden),
+        _ => panic!("expected List"),
+    }
+}
+
+#[test]
+fn a_list_request_names_the_reload_count_only_when_asked() {
+    match parse_request(r#"{"c":"list","path":"/tmp","first":0,"wantChanged":true}"#) {
+        Request::List { want_changed, .. } => assert!(want_changed),
+        _ => panic!("expected List"),
+    }
+    // Absent is the silent re-read every navigation and watch already takes.
+    match parse_request(r#"{"c":"list","path":"/tmp","first":0}"#) {
+        Request::List { want_changed, .. } => assert!(!want_changed),
         _ => panic!("expected List"),
     }
 }

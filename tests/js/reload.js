@@ -19,10 +19,15 @@ function pane() {
         said: [],
         listed: [],
         refreshed: [],
+        asked: [],
         windowed: [],
         rowFor: function () { return { n: "notes.txt" } },
         message: function (text) { this.said.push(text) },
-        openWithoutHistory: function (path, options) { this.listed.push(path); this.reloadFrom = -1 },
+        openWithoutHistory: function (path, options) {
+            this.listed.push(path)
+            this.asked.push(options && options.wantChanged === true)
+            this.reloadFrom = -1
+        },
         refresh: function (select) { this.refreshed.push(select) },
         backend: { window: function (start, count) { } }
     }
@@ -56,7 +61,7 @@ function run(check) {
     recent.recentMode = "results"
     var recentWire = wire()
     check("a reload over Recent re-reads its history", Reload.begin(recent, recentWire), true)
-    check("through refresh rather than re-listing its base", recent.refreshed.join(",") + "|" + recent.listed.length, "|0")
+    check("through refresh rather than re-listing its base", recent.refreshed.length + "|" + recent.listed.length, "1|0")
     check("and remembers the count it is answering against", recent.reloadFrom, 10)
     check("and leaves the watched anchor alone", recentWire.anchor, "kept")
 
@@ -64,6 +69,7 @@ function run(check) {
     var w = wire()
     check("a reload of the open folder re-lists it", Reload.begin(plain, w), true)
     check("through the same anchored re-read a watched change takes", plain.listed.join(","), "/home/gm/Work")
+    check("and asks the backend to count the rows a rename may have moved", plain.asked.join(","), "true")
     check("and remembers the count it is answering against", plain.reloadFrom, 10)
     check("and holds the cursor anchor for the rows reply", (w.anchor ? w.anchor.name : "") + "|" + (w.anchor ? w.anchor.index : "") + "|" + (w.anchor ? w.anchor.path : ""), "notes.txt|3|/home/gm/Work")
 
@@ -74,6 +80,13 @@ function run(check) {
     Reload.landed(renamed)
     check("one added and one removed still say two changed", renamed.said.join("|"), "Reloaded · 2 rows changed")
     check("and spend the reload, so the next listing says nothing", renamed.reloadFrom + "|" + renamed.reloadChanged, "-1|-1")
+    var recentLanded = pane()
+    recentLanded.recentMode = "results"
+    recentLanded.reloadFrom = 2
+    recentLanded.reloadChanged = 2
+    recentLanded.total = 2
+    Reload.landed(recentLanded)
+    check("a Recent re-read with one path replaced says two changed", recentLanded.said.join("|"), "Reloaded · 2 rows changed")
     var grown = pane()
     grown.said = []
     grown.reloadFrom = 10

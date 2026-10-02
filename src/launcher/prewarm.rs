@@ -80,7 +80,7 @@ mod tests {
         let pool = Pool::new(1, results, cache, Arc::clone(&tb.aliases), Arc::clone(&tb.thumbs));
         let (listing, read_ms) = scan(path, false).expect("scan");
         let mut out = Vec::new();
-        crate::backend::run::adopt(&mut out, &mut st, &pool, &tb, path, listing, (read_ms, 0.0), &[], 2);
+        crate::backend::run::adopt(&mut out, &mut st, &pool, &tb, path, listing, (read_ms, 0.0), &[], 2, false);
         field_usize(String::from_utf8(out).unwrap().lines().nth(1)?, "listing")
     }
 

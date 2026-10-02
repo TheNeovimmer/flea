@@ -199,8 +199,7 @@ function act(action, root, menuId, paths) {
         return
     case "undo": Ops.undo(root); return
     case "redo": root.backend.send({c: "redo"}); return
-    // m. Mounts.raiseMenu says why a favourite has no menu; here the pane says whether a row was
-    // under the cursor at all, and an empty or fully filtered listing gets the sentence, not silence.
+    // m opens the row menu, or says why no row was under the cursor.
     case "menu":
         if (!root.openCursorMenu())
             root.message("No row under the cursor to open a menu on.", false)
@@ -242,8 +241,7 @@ function act(action, root, menuId, paths) {
         Sort.column(root, action.substring("sort:".length))
         return
     }
-    // Both keys the Tui board drew ahead of their features are built now, so neither answers with
-    // a sentence any more: tabs run here, and handleKey opens the path bar before the views see it.
+    // Tabs run here and handleKey opens the path bar, so neither answers unbuilt any more.
     if (action.indexOf("tab") === 0) { Tabs.act(action, root); return }
     root.message(action + " is not built yet.", false)
 }
@@ -255,11 +253,13 @@ function escapeUp(root) {
         && !(root.collide && root.collide.opened) && !hasDeliberateMarks(root) && !root.listInFlight
 }
 
-// A lone following mark never counts as a selection, so Escape keeps climbing.
+// Only the row a navigation landed on never counts as a selection, so Escape keeps climbing.
 function hasDeliberateMarks(root) {
     if (root.selectionCount() === 0)
         return false
-    return !(root.selection && root.selection.follows && root.selection.follows())
+    if (root.selection && root.selection.isLanded && root.selection.isLanded())
+        return false
+    return true
 }
 
 // Only a step from an end wraps; page overshoots and selection extensions retain their clamps.
@@ -300,12 +300,16 @@ function leavesLine(event) {
     return LEAVES_LINE.indexOf(Keymap.lookup(event.key, event.text, event.modifiers)) >= 0
 }
 
+// One stamp for a vim pair's seat, so Escape and the pair read the same identity.
+function stampOf(root) {
+    return JSON.stringify([root.path, root.cursorIndex, root.selectionVersion, root.viewMode])
+}
 // Only the second press of the same pair on the same selection fires.
 var ARMED_PAIRS = { copyArm: true, cutArm: true, pasteArm: true, cursorFirstArm: true }
 // Vim pairs are consecutive inputs on the same selection; pointer or navigation changes disarm them.
 function sequenceAction(action, root) {
     var pairs = { copyArm: "copy", cutArm: "cut", pasteArm: "paste", cursorFirstArm: "cursorFirst" }
-    var stamp = JSON.stringify([root.path, root.cursorIndex, root.selectionVersion, root.viewMode])
+    var stamp = stampOf(root)
     var paired = pairs[action] && root.keySequence === action && root.keySequenceIdentity === stamp
     root.keySequence = paired || !pairs[action] ? "" : action
     root.keySequenceIdentity = paired || !pairs[action] ? "" : stamp
@@ -346,9 +350,9 @@ function handleKey(event, root, sidebar) {
         return Filter.typeKey(event, root)
     }
     var action = lookup(event, root)
-    // Escape cancels an armed trash or vim pair first and stops.
+    // Escape cancels an armed trash or a live vim pair first and stops.
     var escapeCancelsArm = action === "escape"
-        && (root.trashArmedAt > 0 || ARMED_PAIRS[root.keySequence] === true)
+        && (root.trashArmedAt > 0 || (ARMED_PAIRS[root.keySequence] === true && root.keySequenceIdentity === stampOf(root)))
     action = sequenceAction(action, root)
     // Anything that is not the second d of the pair disarms it, so an arm never outlives the key
     // after it; ui/js/Trash.js re-stamps on its own, which is why it reads the stamp before writing.

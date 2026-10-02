@@ -6,8 +6,8 @@ use crate::backend::searchreq::finish_search;
 use crate::backend::state::{State, Tables};
 use crate::backend::thumbs::Pool;
 use std::fs;
-use std::io::{self, BufWriter, Write};
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 // A listing built from paths the client names instead of a directory it scans; see docs/protocol.md
@@ -41,7 +41,7 @@ pub fn listing_of(paths: &[String]) -> (Listing, f64) {
 
 // The wire side, the way searchreq answers a search: one listing built, announced and windowed.
 pub fn answer(
-    out: &mut BufWriter<io::Stdout>,
+    out: &mut impl Write,
     st: &mut State,
     pool: &Pool,
     tb: &Tables,
@@ -53,12 +53,17 @@ pub fn answer(
     finish_search(out, st, true);
     let (mut l, read_ms) = listing_of(paths);
     super::picker::filter_listing(&mut l, &tb.mime, line);
+    // A history is small, so a re-read over one always names its added plus removed rows.
+    let recheck = st.base.as_path() == Path::new(BASE);
+    let changed = if recheck { super::listing::changed_count(&st.listing, &l) } else { 0 };
     // base and listing only move together, exactly as a list moves them.
     st.base = PathBuf::from(BASE);
     st.listing = l;
     forget_rows(st, pool);
     // The sort figure is always zero: nothing here is sorted, see docs/protocol.md "listpaths".
-    writeln!(out, "{}", listed_line(st.listing.len(), read_ms, 0.0, dev_of(&st.base), &st.base.to_string_lossy())).ok();
+    let listed = listed_line(st.listing.len(), read_ms, 0.0, dev_of(&st.base), &st.base.to_string_lossy());
+    let listed = if recheck { super::proto::with_changed(&listed, changed) } else { listed };
+    writeln!(out, "{}", listed).ok();
     // Rides along unasked, the same first-paint saving a list makes.
     write_window(out, st, 0, first, tb);
     out.flush().ok();
@@ -122,5 +127,82 @@ mod tests {
         let (l, ms) = listing_of(&[]);
         assert_eq!(l.len(), 0);
         assert!(ms >= 0.0);
+    }
+
+    #[test]
+    fn a_history_reread_names_one_replaced_path_as_two_changed() {
+        use crate::backend::dirsizeworker::Worker;
+        use crate::backend::state::{State, Tables};
+        use crate::backend::thumbs::Pool;
+        use std::sync::{mpsc::channel, Arc};
+        // One replaced path is one added plus one removed, so the count is 2.
+        let d = TestDir::new("listpaths-changed");
+        let a = d.join("a.txt");
+        let b = d.join("b.txt");
+        let c = d.join("c.txt");
+        fs::write(&a, "a").unwrap();
+        fs::write(&b, "b").unwrap();
+        fs::write(&c, "c").unwrap();
+        let astr = a.to_string_lossy().to_string();
+        let bstr = b.to_string_lossy().to_string();
+        let cstr = c.to_string_lossy().to_string();
+        let (tx, _rx) = channel();
+        let (mut st, tb) = (State::new(Worker::new(tx)), Tables::load());
+        let (results, _done) = channel();
+        let pool = Pool::new(1, results, d.join("cache"), Arc::clone(&tb.aliases), Arc::clone(&tb.thumbs));
+        st.base = PathBuf::from("/home/gm");
+        let mut out = Vec::new();
+        answer(&mut out, &mut st, &pool, &tb, &[astr.clone(), bstr.clone()], 10, "");
+        let first = String::from_utf8(out).unwrap();
+        assert!(!first.lines().next().unwrap().contains("changed"), "a first history listing carries no count: {}", first);
+        let mut out = Vec::new();
+        answer(&mut out, &mut st, &pool, &tb, &[astr.clone(), cstr.clone()], 10, "");
+        let second = String::from_utf8(out).unwrap();
+        assert!(second.lines().next().unwrap().contains("\"changed\":2"), "one path replaced reads as two changed: {}", second);
+    }
+
+    #[test]
+    fn a_same_path_relist_counts_only_when_the_reload_asked() {
+        use crate::backend::dirsizeworker::Worker;
+        use crate::backend::state::{State, Tables};
+        use crate::backend::thumbs::Pool;
+        use std::sync::{mpsc::channel, Arc};
+        // One renamed row is one added plus one removed, so the count is 2.
+        let d = TestDir::new("listpaths-asked");
+        let dir = d.join("dir");
+        fs::create_dir(&dir).unwrap();
+        let path = dir.to_string_lossy().to_string();
+        let (tx, _rx) = channel();
+        let (mut st, tb) = (State::new(Worker::new(tx)), Tables::load());
+        let (results, _done) = channel();
+        let pool = Pool::new(1, results, d.join("cache"), Arc::clone(&tb.aliases), Arc::clone(&tb.thumbs));
+        let mut old = Listing::new();
+        for name in ["a", "b", "c"] {
+            old.push(name, false);
+        }
+        st.base = PathBuf::from(&path);
+        st.listing = old;
+        let mut new = Listing::new();
+        for name in ["a", "b", "d"] {
+            new.push(name, false);
+        }
+        let mut out = Vec::new();
+        super::super::run::adopt(&mut out, &mut st, &pool, &tb, &path, new, (0.0, 0.0), &[], 10, true);
+        let asked = String::from_utf8(out).unwrap();
+        assert!(asked.lines().next().unwrap().contains("\"changed\":2"), "an asked re-list names the rename: {}", asked);
+        let mut old = Listing::new();
+        for name in ["a", "b", "c"] {
+            old.push(name, false);
+        }
+        st.base = PathBuf::from(&path);
+        st.listing = old;
+        let mut new = Listing::new();
+        for name in ["a", "b", "d"] {
+            new.push(name, false);
+        }
+        let mut out = Vec::new();
+        super::super::run::adopt(&mut out, &mut st, &pool, &tb, &path, new, (0.0, 0.0), &[], 10, false);
+        let silent = String::from_utf8(out).unwrap();
+        assert!(!silent.lines().next().unwrap().contains("changed"), "an unasked re-read stays silent: {}", silent);
     }
 }

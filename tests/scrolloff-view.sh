@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# F4 scrolloff-view: the real List and ColumnPane prove the scrolloff wiring behaviourally,
-# offscreen with no display or lock. A keyboard move keeps three rows of context (context 3
-# through firstFor) and a pointer move never scrolls under the pointer (context 0 through
-# containY); reading contentY after each tells which path the view took.
+# F4 scrolloff-view: the real List and ColumnPane prove the scrolloff wiring offscreen.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
@@ -32,9 +29,8 @@ output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     timeout 30 qs -p "$test_root/config" 2>&1)
 qs_status=$?
 
-# Sample input, one probe line: "  INFO qml: SCROLLOFFVIEW PASS rows=60 listV=8 colV=5".
-# Sample input, the receipt: "  INFO qml: SCROLLOFFVIEW DONE failures=0".
-# The owned termination is the probe's own self-kill (SIGTERM, 143) after its one DONE receipt; a PASS beside any other status is a double's, never a proof.
+# Sample input: "  INFO qml: SCROLLOFFVIEW PASS rows=60 listV=8 colV=5" then "  INFO qml: SCROLLOFFVIEW DONE failures=0".
+# The owned termination is the probe's own self-kill (SIGTERM, 143) after its one DONE receipt.
 pass_count=$(printf '%s\n' "$output" | grep -c 'SCROLLOFFVIEW PASS')
 fail_count=$(printf '%s\n' "$output" | grep -c 'SCROLLOFFVIEW FAIL')
 done_count=$(printf '%s\n' "$output" | grep -c 'SCROLLOFFVIEW DONE')

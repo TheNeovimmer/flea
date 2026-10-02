@@ -23,7 +23,7 @@ function begin(pane, wire) {
         pane.reloadChanged = -1
         return true
     }
-    wire.anchor = Anchor.watched(pane)
+    wire.anchor = Anchor.watched(pane, true)
     // Set after the anchored re-read above, because opening the listing clears it first.
     pane.reloadFrom = pane.total
     pane.reloadChanged = -1

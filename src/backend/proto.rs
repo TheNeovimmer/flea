@@ -5,7 +5,7 @@ use crate::json::{escape, field_bool, field_str, field_str_array, field_usize, f
 pub const TRANSFER_CANCEL: &str = "transfercancel";
 
 pub enum Request {
-    List { path: String, first: usize, hidden: bool },
+    List { path: String, first: usize, hidden: bool, want_changed: bool },
     // A listing built from paths the client names, in the order it named them; the picker's Recent.
     ListPaths { paths: Vec<String>, first: usize },
     Window { start: usize, count: usize },
@@ -107,6 +107,8 @@ pub fn parse_request(line: &str) -> Request {
             first: field_usize(line, "first").unwrap_or(0),
             // A missing hidden is false, so an older client's request still lists dotfile-free.
             hidden: field_bool(line, "hidden"),
+            // Absent is today's silent re-read, so an older client never pays the count.
+            want_changed: field_bool(line, "wantChanged"),
         },
         Some("listpaths") => Request::ListPaths { paths: field_str_array(line, "paths"), first: field_usize(line, "first").unwrap_or(0) },
         Some("window") => Request::Window {

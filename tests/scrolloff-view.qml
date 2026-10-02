@@ -5,9 +5,7 @@ import Quickshell
 import "flea" as Flea
 import "flea/js/ScrollOff.js" as ScrollOff
 
-// F4 scrolloff-view: the real List and ColumnPane prove the wiring behaviourally.
-// A keyboard move carries context 3 through firstFor, a pointer move carries context 0
-// through containY; reading contentY after each tells which path the view took.
+// F4 scrolloff-view: the real List and ColumnPane prove the scrolloff wiring offscreen.
 ShellRoot {
     id: root
 

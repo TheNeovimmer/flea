@@ -8,6 +8,8 @@ function create() {
     var n = 0
     // True while the set is one row a plain tap or a landing anchor made, which a plain move carries along.
     var lone = false
+    // True only for the row a navigation landed on, which Escape climbs past instead of unwinding.
+    var landed = false
     // Additive Shift ranges: the marks a gesture started from, plus the cursor the last extend left.
     // Every mutator below ends the gesture except the gesture's own apply, so a plain move, a v, a
     // ctrl+click, a select-all or a fresh listing all start a new block; extend detects a move by the
@@ -29,7 +31,10 @@ function create() {
         if (has(i)) { delete rows[i]; n -= 1 }
     }
 
-    function dropLone() { lone = false }
+    function dropLone() {
+        lone = false
+        landed = false
+    }
     // v on its lone row keeps it and drops lone, so the next v toggles it off.
     function promote(i) { if (lone && n === 1 && has(i)) { dropLone(); return true } return false }
 
@@ -39,8 +44,17 @@ function create() {
         count: function () { return n },
         // A lone row follows a plain move; any deliberate mark drops that promise at once.
         follows: function () { return lone && n === 1 },
+        // Only a navigation landing keeps the climb-through promise; a click's own only() drops it.
+        isLanded: function () { return landed === true && lone && n === 1 },
         toggle: function (i) { dropLone(); endShift(); has(i) ? remove(i) : add(i) },
-        only: function (i) { rows = {}; n = 0; add(i); lone = true; endShift() },
+        only: function (i, keep) {
+            rows = {}
+            n = 0
+            add(i)
+            lone = true
+            landed = keep === true
+            endShift()
+        },
         extendTo: function (i, anchor) {
             dropLone()
             endShift()

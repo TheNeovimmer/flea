@@ -18,13 +18,23 @@ function pane() {
         searchMode: "",
         // The selection ui/js/Tap.js reads before it decides what a right click means.
         picked: [],
+        contexts: [],
         // Only tappedMiddle asks what kind of row it landed on; the listing's own taps never do.
         rowFor: function () { return null },
         commitOpenRename: function () { if (this.renamingIndex >= 0) this.did.push("commitRename") },
         selectedIndices: function () { return this.picked },
         clearSelection: function () { this.picked = []; this.did.push("clearSelection") },
-        selectOnly: function (i) { this.picked = [i]; this.cursor = i; this.did.push("selectOnly") },
-        setCursor: function (i) { this.cursor = i; this.did.push("setCursor") },
+        selectOnly: function (i, context) {
+            this.picked = [i]
+            this.cursor = i
+            this.did.push("selectOnly")
+            this.contexts.push(context)
+        },
+        setCursor: function (i, context) {
+            this.cursor = i
+            this.did.push("setCursor")
+            this.contexts.push(context)
+        },
         toggleSelectAt: function (i) { this.cursor = i; this.did.push("toggleSelect") },
         extendSelectionTo: function (i) { this.cursor = i; this.did.push("extendSelect") },
         act: function (action) { this.did.push(action) }
@@ -172,6 +182,7 @@ function run(check) {
     check("one left tap opens nothing", single.did.indexOf("open"), -1)
     check("and it does move the cursor to the row it landed on", single.cursor, 4)
     check("and it marks only that row", single.selectedIndices().join(","), "4")
+    check("and a left click hands context 0", single.contexts.join(","), "0")
     single.picked = [1, 2, 3]
     Tap.tapped(4, 1, Qt.NoModifier, single)
     check("a plain tap replaces every old mark with its one row", single.selectedIndices().join(","), "4")
@@ -285,6 +296,7 @@ function run(check) {
     Tap.tappedMenu(6, eventPoint(), menued, raised)
     check("right click moves the cursor to the row under the pointer", menued.cursor, 6)
     check("and opens the menu at the pointer, not at the row", raised.at, "7,9")
+    check("and a right click hands context 0", menued.contexts.join(","), "0")
     check("and opens nothing", menued.did.indexOf("open"), -1)
 
     // The operator's own defect, stated as the thing that must never come back: rows 1 to 3 selected,

@@ -27,7 +27,8 @@ function pane() {
         filterTyping: true,
         cleared: 0,
         said: [],
-        sent: []
+        sent: [],
+        want: []
     }
     p.clearSelection = function () { p.cleared += 1 }
     p.message = function (text, isError) { p.said.push(text) }
@@ -35,7 +36,10 @@ function pane() {
     // ui/PaneSwap.qml with nothing held, so the reset and the query it hands back both run at the request.
     p.swap = { hold: function () { return false } }
     p.backend = {
-        list: function (path, first, hidden) { p.sent.push("list " + path) },
+        list: function (path, first, hidden, wantChanged) {
+            p.sent.push("list " + path)
+            p.want.push(wantChanged === true)
+        },
         askFsInfo: function () { p.sent.push("fsinfo") },
         window: function (start, count) { p.sent.push("window " + start) }
     }
@@ -52,14 +56,22 @@ function watched(held, rows, cursorIndex, total) {
     p.total = total === undefined ? 40 : total
     p.windowSize = 350
     p.cursorSetTo = -1
+    p.contexts = []
     p.rowFor = function (index) {
         var offset = index - p.held
         return offset < 0 || offset >= p.rows.length ? null : p.rows[offset]
     }
-    p.setCursor = function (index) { p.cursorSetTo = index }
+    p.setCursor = function (index, context) {
+        p.cursorSetTo = index
+        p.contexts.push(context)
+    }
     // Only a delete's own anchor selects; a watched re-read must never touch the operator's marks.
     p.selectedAt = -1
-    p.selectOnly = function (index) { p.selectedAt = index; p.cursorSetTo = index }
+    p.selectOnly = function (index, context) {
+        p.selectedAt = index
+        p.cursorSetTo = index
+        p.contexts.push(context)
+    }
     // The same wrapper ui/Pane.qml carries, so the re-read takes the one route that can refuse.
     p.openWithoutHistory = function (target, options) { Nav.openWithoutHistory(p, target, options) }
     return p
@@ -77,6 +89,7 @@ function run(check) {
           anchor.name + "|" + anchor.index, "b|1")
     check("and keeps the filter, which narrows rows rather than choosing the directory",
           seen.filterQuery, "scr")
+    check("and a watched re-read asks for no count", seen.want.join(","), "false")
 
     // The name moved down a row, which is exactly what a create above the cursor does.
     seen.held = 0
@@ -84,6 +97,7 @@ function run(check) {
     seen.total = 41
     check("the cursor lands on the anchored name at its new index",
           Anchor.apply(seen, anchor) + "|" + seen.cursorSetTo, "null|2")
+    check("and the re-land moves with context 0", seen.contexts.join(","), "0")
 
     // A name that is gone leaves the old index, which keeps the view where the user left it rather
     // than throwing them back to the top of the directory.

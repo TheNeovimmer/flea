@@ -1,6 +1,7 @@
 .import "../../ui/js/Focus.js" as Focus
 .import "../../ui/js/Eject.js" as Eject
 .import "../../ui/js/Keymap.js" as Keymap
+.import "../../ui/js/Selection.js" as Selection
 .import "filterfixture.js" as Fixture
 .import "sourcefixture.js" as Source
 
@@ -264,16 +265,25 @@ function run(check) {
     // A climb landing mark is Flea's, so it never blocks the next climb.
     var landed = escaper("", 0)
     landed.escapeUp = true
-    landed.selectionCount = function () { return 1 }
-    landed.selection = { count: function () { return 1 }, follows: function () { return true } }
+    landed.selection = Selection.create()
+    landed.selection.only(4, true)
+    landed.selectionCount = function () { return landed.selection.count() }
     Focus.act("escape", landed)
     check("a climb's landing mark never blocks the next climb", landed.climbed + "|" + landed.retreated, "1|0")
     var deliberate = escaper("", 0)
     deliberate.escapeUp = true
-    deliberate.selectionCount = function () { return 1 }
-    deliberate.selection = { count: function () { return 1 }, follows: function () { return false } }
+    deliberate.selection = Selection.create()
+    deliberate.selection.toggle(4)
+    deliberate.selectionCount = function () { return deliberate.selection.count() }
     Focus.act("escape", deliberate)
     check("a deliberate lone mark still unwinds first", deliberate.climbed + "|" + deliberate.retreated, "0|1")
+    var clicked = escaper("", 0)
+    clicked.escapeUp = true
+    clicked.selection = Selection.create()
+    clicked.selection.only(4)
+    clicked.selectionCount = function () { return clicked.selection.count() }
+    Focus.act("escape", clicked)
+    check("a plain click's lone mark still unwinds first", clicked.climbed + "|" + clicked.retreated, "0|1")
 
     // Escape cancels an armed trash or vim pair and stops instead of climbing.
     var armedKey = key(Qt.Key_Escape, "", none)
@@ -287,11 +297,25 @@ function run(check) {
     var armedPair = escaper("", 0)
     armedPair.escapeUp = true
     armHandle(armedPair)
+    armedPair.path = "/d"
+    armedPair.cursorIndex = 3
+    armedPair.selectionVersion = 1
     armedPair.keySequence = "copyArm"
-    armedPair.keySequenceIdentity = "held"
+    armedPair.keySequenceIdentity = '["/d",3,1,"list"]'
     check("Escape with an armed vim pair is consumed too", Focus.handleKey(armedKey, armedPair, null), true)
     check("and drops the pair instead of climbing",
           armedPair.keySequence + "|" + armedPair.climbed + "|" + armedPair.retreated, "|0|0")
+    var stalePair = escaper("", 0)
+    stalePair.escapeUp = true
+    armHandle(stalePair)
+    stalePair.path = "/d"
+    stalePair.cursorIndex = 7
+    stalePair.selectionVersion = 1
+    stalePair.keySequence = "copyArm"
+    stalePair.keySequenceIdentity = '["/d",3,1,"list"]'
+    check("Escape with a stale vim pair climbs instead", Focus.handleKey(armedKey, stalePair, null), true)
+    check("and leaves the climb to the parent",
+          stalePair.keySequence + "|" + stalePair.climbed + "|" + stalePair.retreated, "|1|0")
     var unarmed = escaper("", 0)
     unarmed.escapeUp = true
     armHandle(unarmed)
