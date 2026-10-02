@@ -109,8 +109,7 @@ fn a_hundred_thousand_paths_is_the_most_any_payload_names() {
 
 #[test]
 fn a_made_token_is_32_hex_chars() {
-    // /dev/urandom never reaches EOF, so a read to the end grows without bound (it took
-    // 21 GB before it was found). Off a thread with a deadline this fails instead of hanging.
+    // /dev/urandom never reaches EOF, so a read to the end must fail here instead of hanging.
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _ = tx.send(make_token());
@@ -121,4 +120,12 @@ fn a_made_token_is_32_hex_chars() {
         .expect("a token made");
     assert_eq!(token.len(), 32);
     assert!(token.bytes().all(|b| b.is_ascii_hexdigit()));
+}
+
+#[test]
+fn a_foreign_gnome_trailing_newline_is_not_a_refused_file() {
+    let (op, paths, skipped) = parse_gnome(b"copy\nfile:///tmp/a\n").unwrap();
+    assert_eq!(op, "copy");
+    assert_eq!(paths, vec!["/tmp/a"]);
+    assert_eq!(skipped, 0, "a formatting line is not a refused URI");
 }

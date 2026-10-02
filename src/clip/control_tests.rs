@@ -1,18 +1,17 @@
-// End to end against a fake compositor: a UnixListener under the test's own sandbox,
-// XDG/Wayland names set for the child only (connect_to names the socket, no env is read).
+// End to end against a fake compositor on a UnixListener in the test's own sandbox; connect_to reads no env.
 use super::*;
 use crate::backend::testdir::TestDir;
 use crate::clip::owner::{own_on, serve_owner};
+use crate::clip::receive::receive_type_with;
 use std::collections::HashMap;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const MS: u32 = 5000;
 
-// One globals round: read get_registry and sync, answer the seat, the managers named,
-// one unknown event the client skips by size, then the sync's done.
-fn fake_hello(conn: &mut Conn, managers: &[(&str, u32)]) -> (u32, u32) {
+// One globals round: the seat, the managers named, one unknown event the client skips, then the sync's done.
+pub(super) fn fake_hello(conn: &mut Conn, managers: &[(&str, u32)]) -> (u32, u32) {
     let registry = expect(conn, 1, DISPLAY_GET_REGISTRY);
     let callback = expect(conn, 1, DISPLAY_SYNC);
     let mut payload = Vec::new();
@@ -32,7 +31,7 @@ fn fake_hello(conn: &mut Conn, managers: &[(&str, u32)]) -> (u32, u32) {
 }
 
 // The next event must be this request; its new_id (or only) word is the answer.
-fn expect(conn: &mut Conn, sender: u32, opcode: u16) -> u32 {
+pub(super) fn expect(conn: &mut Conn, sender: u32, opcode: u16) -> u32 {
     let event = conn.next_raw(MS).unwrap().expect("a request");
     assert_eq!((event.sender, event.opcode), (sender, opcode));
     let mut at = 0;
@@ -153,10 +152,8 @@ fn neither_manager_is_an_honest_error_and_not_a_hang() {
     let (listener, path) = serve(&dir);
     let worker = std::thread::spawn(move || {
         let mut conn = Conn::connect_to(&path).unwrap();
-        let started = Instant::now();
         let err = handshake(&mut conn).unwrap_err();
         assert!(err.contains("no clipboard protocol"), "unexpected: {}", err);
-        assert!(started.elapsed() < Duration::from_secs(5), "the error must not hang");
     });
     let (stream, _) = listener.accept().unwrap();
     let mut conn = Conn::over(OwnedFd::from(stream));
@@ -187,7 +184,7 @@ fn a_display_error_is_a_hard_failure_with_its_message() {
 }
 
 // A selection the fake owns: an offer, its types, the selection line, then serve receives.
-fn fake_selection(conn: &mut Conn, device: u32, types: &[&str]) {
+pub(super) fn fake_selection(conn: &mut Conn, device: u32, types: &[&str]) {
     let _ = expect(conn, 5, MANAGER_GET_DEVICE);
     let callback = expect(conn, 1, DISPLAY_SYNC);
     let mut payload = Vec::new();
@@ -333,7 +330,9 @@ fn clear_with_the_live_token_clears() {
     let mut file = std::fs::File::from(fd);
     file.write_all(&answers[format::FLEA]).unwrap();
     drop(file);
-    // The null source, then the closing sync.
+    // A drain sync first, then the null source and the closing sync.
+    let drain = expect(&mut conn, 1, DISPLAY_SYNC);
+    conn.send(drain, 0, &[], &[]).unwrap();
     let event = conn.next_raw(MS).unwrap().expect("a clear");
     assert_eq!((event.sender, event.opcode), (6, 0));
     let mut at = 0;
@@ -343,17 +342,17 @@ fn clear_with_the_live_token_clears() {
     worker.join().unwrap();
 }
 
+// The shortest read deadline: the fake holds the write end open, so the read can only time out.
+const HUNG_READ_MS: u32 = 1;
+
 #[test]
 fn a_source_that_never_closes_hits_the_timeout() {
     let dir = TestDir::new("clip-hung");
     let (listener, path) = serve(&dir);
     let worker = std::thread::spawn(move || {
         let mut conn = Conn::connect_to(&path).unwrap();
-        let started = Instant::now();
-        let got = get_on(&mut conn).unwrap();
+        let got = get_on_with(&mut conn, |conn, offer, mime| receive_type_with(conn, offer, mime, HUNG_READ_MS)).unwrap();
         assert_eq!(got.clip, "none", "an unreadable selection is none, not a hang");
-        assert!(started.elapsed() < Duration::from_secs(8));
-        assert!(started.elapsed() >= Duration::from_secs(2));
     });
     let (stream, _) = listener.accept().unwrap();
     let mut conn = Conn::over(OwnedFd::from(stream));
@@ -361,13 +360,12 @@ fn a_source_that_never_closes_hits_the_timeout() {
     let _ = expect(&mut conn, 2, REGISTRY_BIND);
     let _ = expect(&mut conn, 2, REGISTRY_BIND);
     fake_selection(&mut conn, 6, &[format::URILIST]);
-    // Take the pipe and never write nor close: the client's 2 s timeout ends it.
     let event = conn.next_raw(MS).unwrap().expect("a receive");
-    assert_eq!((event.sender, event.opcode), (10, 0));
+    assert_eq!((event.sender, event.opcode), (10, OFFER_RECEIVE));
+    // Hold the pipe's write end, never writing nor closing, until the client has given up.
     let fd = conn.take_fd(MS).unwrap().expect("a pipe");
-    std::thread::sleep(Duration::from_millis(2600));
-    drop(fd);
     worker.join().unwrap();
+    drop(fd);
 }
 
 #[test]

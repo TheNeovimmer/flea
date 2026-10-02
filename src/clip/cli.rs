@@ -1,6 +1,4 @@
-// flea --clip: the terminal and test seam over the same clipboard the backend owns.
-// get prints the clipGet reply line, set reads NUL-separated paths and prints the token,
-// clear prints the clipClear reply line. Shape errors belong to usage() in main.rs.
+// flea --clip: the terminal and test seam over the clipboard; shape errors belong to usage() in main.rs.
 use super::control;
 use super::own;
 use super::reply;

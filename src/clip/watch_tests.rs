@@ -1,5 +1,4 @@
-// The watcher against a fake compositor, plus the spent-cut clear form. The fake here
-// mirrors control_tests.rs's; one file holds its own so neither test file nears its cap.
+// The watcher against a fake compositor, plus the spent-cut clear form; the fake mirrors control_tests.rs's.
 use super::*;
 use crate::backend::testdir::TestDir;
 use crate::clip::control::clear_cut_on;
@@ -11,6 +10,8 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::time::Duration;
 
 const MS: u32 = 5000;
+// A reconnect in a test happens at once; the production one-second pause is not under test.
+const NO_RETRY_WAIT: Duration = Duration::ZERO;
 
 fn serve(tag: &str) -> (TestDir, UnixListener, PathBuf) {
     let dir = TestDir::new(tag);
@@ -61,9 +62,7 @@ fn offer(conn: &mut Conn, id: u32, types: &[&str]) {
     conn.send(6, 1, &payload, &[]).unwrap();
 }
 
-// Exactly n receives, in order; a mime with no canned answer fails the test. Destroy
-// events from offer retirement pass through uncounted, bounded so a silent fake fails
-// instead of hanging the suite.
+// Exactly n receives, in order; destroys from offer retirement pass uncounted, bounded so a silent fake fails.
 fn serve_n(conn: &mut Conn, answers: &HashMap<String, Vec<u8>>, n: usize) -> Vec<(u32, String)> {
     let mut asked = Vec::new();
     let mut seen = 0;
@@ -94,8 +93,7 @@ fn changed(rx: &std::sync::mpsc::Receiver<OpMsg>) -> String {
     line
 }
 
-// The fake's own deadline: destroys arrive back-to-back, so a missing one fails the test
-// instead of hanging the suite the way a bare blocking read would.
+// Events off a thread, so a missing destroy fails the test instead of hanging a blocking read.
 fn events(conn: Conn) -> std::sync::mpsc::Receiver<wire::RawEvent> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -117,7 +115,7 @@ fn next_within(rx: &std::sync::mpsc::Receiver<wire::RawEvent>, what: &str) -> wi
 fn a_watcher_reports_copy_then_none_then_cut_and_dedups_a_repeat() {
     let (_dir, listener, path) = serve("clip-watch-flow");
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || watch_loop(tx, Some(path)));
+    std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
     let (stream, _) = listener.accept().unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
@@ -155,14 +153,20 @@ fn a_watcher_reports_copy_then_none_then_cut_and_dedups_a_repeat() {
     assert_eq!(field_str(&line, "token").as_deref(), Some(token_b));
     offer(&mut conn, 14, &[format::FLEA, format::GNOME]);
     serve_n(&mut conn, &answers, 2);
-    assert!(rx.recv_timeout(Duration::from_millis(500)).is_err(), "a repeated token emits once");
+    // A later distinct selection must be the very next line, so the repeat emitted nothing between.
+    answers.insert(format::GNOME.to_string(), format::build_gnome("cut", &["/tmp/sentinel.txt".to_string()]));
+    offer(&mut conn, 15, &[format::GNOME]);
+    serve_n(&mut conn, &answers, 1);
+    let line = changed(&rx);
+    assert_eq!(field_str(&line, "clip").as_deref(), Some("cut"), "a repeated token emits once: {}", line);
+    assert_eq!(field_str_array(&line, "paths"), vec!["/tmp/sentinel.txt".to_string()]);
 }
 
 #[test]
 fn a_dropped_connection_reconnects_once() {
     let (_dir, listener, path) = serve("clip-watch-drop");
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || watch_loop(tx, Some(path)));
+    std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
     let (stream, _) = listener.accept().unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
@@ -172,7 +176,7 @@ fn a_dropped_connection_reconnects_once() {
     serve_n(&mut conn, &answers, 1);
     let line = changed(&rx);
     assert_eq!(field_str_array(&line, "paths"), vec!["/tmp/a.txt".to_string()]);
-    // The drop: the watcher sleeps a second, then comes back on a new connection.
+    // The drop: the watcher comes back on a new connection.
     drop(conn);
     let (stream, _) = listener.accept().unwrap();
     let mut conn = over(stream);
@@ -185,8 +189,7 @@ fn a_dropped_connection_reconnects_once() {
     assert_eq!(field_str_array(&line, "paths"), vec!["/tmp/b.txt".to_string()]);
 }
 
-// One cut-form clear against the fake: the wanted paths decide, with the null source
-// following only an exact cut match.
+// One cut-form clear against the fake: the null source follows only an exact cut match.
 fn clear_case(gnome: Vec<u8>, wanted: Vec<String>) -> bool {
     let (_dir, listener, path) = serve("clip-cut-case");
     let worker = std::thread::spawn(move || {
@@ -222,9 +225,14 @@ fn clear_case(gnome: Vec<u8>, wanted: Vec<String>) -> bool {
     let mut answers = HashMap::new();
     answers.insert(format::GNOME.to_string(), gnome);
     serve_n(&mut conn, &answers, 1);
-    // A clear is a null source and a closing sync; anything else is the connection ending.
+    // A clear is a drain sync, a null source and a closing sync; anything else is the connection ending.
     match conn.next_raw(MS).unwrap() {
-        Some(event) if event.sender == 6 && event.opcode == 0 => {
+        Some(event) if event.sender == 1 && event.opcode == 0 => {
+            let mut at = 0;
+            let drain = wire::get_u32(&event.body, &mut at).unwrap();
+            conn.send(drain, 0, &[], &[]).unwrap();
+            let event = conn.next_raw(MS).unwrap().expect("a null source");
+            assert_eq!((event.sender, event.opcode), (6, 0));
             let mut at = 0;
             assert_eq!(wire::get_u32(&event.body, &mut at), Some(0));
             let callback = expect(&mut conn, 1, 0);
@@ -257,7 +265,7 @@ fn a_copy_and_a_stale_cut_never_clear() {
 fn a_thousand_superseded_offers_are_destroyed() {
     let (_dir, listener, path) = serve("clip-watch-retire");
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || watch_loop(tx, Some(path)));
+    std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
     let (stream, _) = listener.accept().unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
@@ -290,7 +298,7 @@ fn a_thousand_superseded_offers_are_destroyed() {
 fn an_over_cap_selection_is_refused_not_broadcast() {
     let (_dir, listener, path) = serve("clip-watch-cap");
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || watch_loop(tx, Some(path)));
+    std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
     let (stream, _) = listener.accept().unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
@@ -303,4 +311,35 @@ fn an_over_cap_selection_is_refused_not_broadcast() {
     let line = changed(&rx);
     assert_eq!(field_str(&line, "clip").as_deref(), Some("none"));
     assert!(line.contains("past the 100000 cap"), "an honest error line: {}", line);
+}
+
+#[test]
+fn a_primary_selection_retires_only_its_offer_and_keeps_the_clipboard() {
+    let (_dir, listener, path) = serve("clip-watch-primary");
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
+    let (stream, _) = listener.accept().unwrap();
+    let mut conn = over(stream);
+    hello(&mut conn);
+    let mut answers = HashMap::new();
+    answers.insert(format::GNOME.to_string(), format::build_gnome("copy", &["/tmp/a".into()]));
+    offer(&mut conn, 10, &[format::GNOME]);
+    serve_n(&mut conn, &answers, 1);
+    assert_eq!(field_str(&changed(&rx), "clip").as_deref(), Some("copy"));
+    let mut payload = Vec::new();
+    wire::put_u32(&mut payload, 11);
+    conn.send(6, 0, &payload, &[]).unwrap();
+    conn.send(6, 3, &payload, &[]).unwrap();
+    let retired = conn.next_raw(MS).unwrap().expect("primary offer retired");
+    assert_eq!((retired.sender, retired.opcode), (11, 1), "primary must keep the clipboard offer");
+    payload.clear();
+    wire::put_u32(&mut payload, 10);
+    conn.send(6, 1, &payload, &[]).unwrap();
+    serve_n(&mut conn, &answers, 1);
+    answers.insert(format::GNOME.to_string(), format::build_gnome("cut", &["/tmp/sentinel".into()]));
+    offer(&mut conn, 12, &[format::GNOME]);
+    serve_n(&mut conn, &answers, 1);
+    let sentinel = changed(&rx);
+    assert_eq!(field_str(&sentinel, "clip").as_deref(), Some("cut"));
+    assert_eq!(field_str_array(&sentinel, "paths"), vec!["/tmp/sentinel"]);
 }

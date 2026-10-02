@@ -15,8 +15,7 @@ const MSG_NOSIGNAL: c_int = 0x4000;
 const MSG_CTRUNC: c_int = 0x8;
 // A job carries exactly three: the input, the output and the reply socket.
 pub const MAX_FDS: usize = 3;
-// A Wayland sendmsg carries up to 28, libwayland's per-message maximum, so the clipboard
-// path sizes its control buffer for those; the worker's three still fit unchanged.
+// A Wayland sendmsg carries up to 28 descriptors (libwayland's maximum); the worker's three still fit.
 pub const STREAM_MAX_FDS: usize = 28;
 // cmsghdr is 16 bytes on x86_64 and its payload is padded to 8, so 28 ints take CMSG_SPACE(112) = 128.
 const CMSG_HEADER: usize = 16;
@@ -88,8 +87,7 @@ pub fn send(sock: RawFd, payload: &[u8], fds: &[RawFd]) -> std::io::Result<()> {
             buf[at..at + 4].copy_from_slice(&fd.to_ne_bytes());
         }
         msg.control = control.0.as_mut_ptr() as *mut c_void;
-        // The exact used length, never the whole buffer: the kernel walks past the first
-        // header while room for another remains, and a zeroed header reads as cmsg_len 0.
+        // The exact used length: the kernel reads a zeroed header after the first as cmsg_len 0.
         msg.controllen = (CMSG_HEADER + data_len + 7) & !7;
     }
     let sent = unsafe { sendmsg(sock, &msg, MSG_NOSIGNAL) };
@@ -137,8 +135,7 @@ pub fn recv(sock: RawFd) -> std::io::Result<Option<Received>> {
     Ok(Some(Received { payload: bytes[..got as usize].to_vec(), fds }))
 }
 
-// A stream socket carries framing the packet socket never sees, so these two move an
-// arbitrary payload with up to STREAM_MAX_FDS descriptors; the cmsg layout matches send/recv above.
+// A stream socket moves an arbitrary payload with up to STREAM_MAX_FDS descriptors, on the cmsg layout above.
 pub fn send_stream(sock: RawFd, mut payload: &[u8], fds: &[RawFd]) -> std::io::Result<()> {
     assert!(fds.len() <= STREAM_MAX_FDS && !payload.is_empty());
     let mut first = true;
@@ -166,8 +163,7 @@ pub fn send_stream(sock: RawFd, mut payload: &[u8], fds: &[RawFd]) -> std::io::R
                 buf[at..at + 4].copy_from_slice(&fd.to_ne_bytes());
             }
             msg.control = control.0.as_mut_ptr() as *mut c_void;
-            // The exact used length, never the whole buffer: the kernel walks past the first
-            // header while room for another remains, and a zeroed header reads as cmsg_len 0.
+            // The exact used length: the kernel reads a zeroed header after the first as cmsg_len 0.
             msg.controllen = (CMSG_HEADER + data_len + 7) & !7;
         }
         let sent = unsafe { sendmsg(sock, &msg, MSG_NOSIGNAL) };
@@ -183,8 +179,7 @@ pub fn send_stream(sock: RawFd, mut payload: &[u8], fds: &[RawFd]) -> std::io::R
     Ok(())
 }
 
-// One recvmsg off a stream socket: its bytes and its descriptors, each already owned.
-// Ok(None) is an orderly end; an empty dataless message never arrives on a stream.
+// One recvmsg off a stream socket: its bytes and owned descriptors; Ok(None) is an orderly end.
 pub fn recv_stream(sock: RawFd) -> std::io::Result<Option<(Vec<u8>, Vec<OwnedFd>)>> {
     let mut bytes = [0u8; 8192];
     let mut iov = IoVec { base: bytes.as_mut_ptr() as *mut c_void, len: bytes.len() };
@@ -224,8 +219,7 @@ fn descriptors(buf: &[u8; CMSG_SPACE], filled: usize) -> Vec<OwnedFd> {
     if level != SOL_SOCKET || kind != SCM_RIGHTS || len < CMSG_HEADER || len > filled {
         return out;
     }
-    // Every descriptor the kernel duplicated is taken: leaving any behind would leak it,
-    // since the kernel closes only the ones that did not fit, and those already failed above.
+    // Every descriptor the kernel duplicated is taken, or it would leak.
     let count = (len - CMSG_HEADER) / 4;
     for i in 0..count {
         let at = CMSG_HEADER + i * 4;

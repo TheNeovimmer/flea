@@ -1,5 +1,4 @@
-// Owner-side fakes: offer retirement and deadline writes. Mirrors watch_tests.rs's
-// fake; one file holds its own so neither test file nears its cap.
+// Owner-side fakes for offer retirement and deadline writes, mirroring watch_tests.rs's own fake.
 use super::*;
 use crate::backend::testdir::TestDir;
 use crate::clip::format;
@@ -99,8 +98,7 @@ fn a_reader_that_stops_reading_does_not_wedge_the_owner() {
     let (stream, _) = listener.accept().unwrap();
     let mut conn = over(stream);
     owner_hello(&mut conn);
-    // Asked for, never read, then replaced: the read end stays open but unread, so only
-    // a write deadline lets the owner reach cancelled.
+    // Asked for, never read, then replaced: only a write deadline lets the owner reach cancelled.
     extern "C" {
         fn pipe(fds: *mut std::os::raw::c_int) -> std::os::raw::c_int;
     }

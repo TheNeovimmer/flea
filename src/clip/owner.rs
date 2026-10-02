@@ -1,8 +1,6 @@
-// The clipboard owner: a source offering every type and holding the selection.
-// Ids are fixed per connection: source 6, device 7, callback 8; the reader's ids
-// are control.rs's. serve_owner answers sends until cancelled or the server is lost.
-use super::control::{check_error, Bound, DEVICE_SET_SELECTION, DISPLAY_SYNC, MANAGER_CREATE_SOURCE,
-    MANAGER_GET_DEVICE, ROUNDTRIP_MS, SOURCE_OFFER};
+// The clipboard owner: a source offering every type and holding the selection until cancelled or lost.
+use super::control::{check_error, Bound, ROUNDTRIP_MS};
+use super::protocol::*;
 use super::format;
 use super::wire::{self, Conn};
 use std::collections::{HashMap, HashSet};
@@ -12,8 +10,7 @@ use std::time::{Duration, Instant};
 
 // Block until the event or the descriptor arrives; the owner serves until it is replaced.
 pub const WAIT_FOREVER: u32 = u32::MAX;
-// One send never holds the serve loop past this: a reader that stopped reading must not
-// wedge the owner past the cancelled event that ends it.
+// One send never holds the serve loop past this, so a reader that stopped cannot wedge the owner.
 const SEND_TIMEOUT_MS: u32 = 2000;
 
 #[repr(C)]
@@ -76,30 +73,30 @@ pub fn own_on(mut conn: Conn, bound: &Bound, op: &str, paths: &[String], token: 
         bytes.insert(format::KDE_CUT.to_string(), format::build_kde_cut());
     }
     let mut payload = Vec::new();
-    wire::put_u32(&mut payload, 6);
+    wire::put_u32(&mut payload, OWNER_SOURCE);
     conn.send(bound.manager, MANAGER_CREATE_SOURCE, &payload, &[])?;
     for mime in format::offered(op) {
         payload.clear();
         wire::put_string(&mut payload, mime);
-        conn.send(6, SOURCE_OFFER, &payload, &[])?;
+        conn.send(OWNER_SOURCE, SOURCE_OFFER, &payload, &[])?;
     }
     payload.clear();
-    wire::put_u32(&mut payload, 7);
+    wire::put_u32(&mut payload, OWNER_DEVICE);
     wire::put_u32(&mut payload, bound.seat);
     conn.send(bound.manager, MANAGER_GET_DEVICE, &payload, &[])?;
     payload.clear();
-    wire::put_u32(&mut payload, 6);
-    conn.send(7, DEVICE_SET_SELECTION, &payload, &[])?;
+    wire::put_u32(&mut payload, OWNER_SOURCE);
+    conn.send(OWNER_DEVICE, DEVICE_SET_SELECTION, &payload, &[])?;
     payload.clear();
-    wire::put_u32(&mut payload, 8);
-    conn.send(1, DISPLAY_SYNC, &payload, &[])?;
+    wire::put_u32(&mut payload, OWNER_CALLBACK);
+    conn.send(DISPLAY, DISPLAY_SYNC, &payload, &[])?;
     loop {
         let event = conn.next_raw(ROUNDTRIP_MS)?.ok_or_else(|| "the compositor closed the connection".to_string())?;
         if let Some(failure) = check_error(&event) {
             return Err(failure);
         }
-        if event.sender == 8 && event.opcode == 0 {
-            return Ok(Owner { conn, source: 6, bytes });
+        if event.sender == OWNER_CALLBACK && event.opcode == CALLBACK_DONE {
+            return Ok(Owner { conn, source: OWNER_SOURCE, bytes });
         }
     }
 }
@@ -112,17 +109,16 @@ pub fn serve_owner(owner: &mut Owner) -> Result<(), String> {
         if let Some(failure) = check_error(&event) {
             return Err(failure);
         }
-        // The device collects offers the same way the watcher's does; superseded ones are
-        // destroyed on every selection, primary ones included.
-        if event.sender == 7 {
+        // Superseded offers are destroyed on every selection, primary ones included.
+        if event.sender == OWNER_DEVICE {
             match event.opcode {
-                0 => {
+                DEVICE_DATA_OFFER => {
                     let mut at = 0;
                     if let Some(id) = wire::get_u32(&event.body, &mut at) {
                         offers.insert(id);
                     }
                 }
-                1 | 3 => {
+                DEVICE_SELECTION | DEVICE_PRIMARY_SELECTION => {
                     let mut at = 0;
                     let current = match wire::get_u32(&event.body, &mut at) {
                         Some(id) if id != 0 => Some(id),
@@ -130,7 +126,7 @@ pub fn serve_owner(owner: &mut Owner) -> Result<(), String> {
                     };
                     for id in std::mem::take(&mut offers) {
                         if Some(id) != current {
-                            let _ = owner.conn.send(id, 1, &[], &[]);
+                            let _ = owner.conn.send(id, OFFER_DESTROY, &[], &[]);
                         } else {
                             offers.insert(id);
                         }
@@ -143,10 +139,10 @@ pub fn serve_owner(owner: &mut Owner) -> Result<(), String> {
         if event.sender != owner.source {
             continue;
         }
-        if event.opcode == 1 {
+        if event.opcode == SOURCE_CANCELLED {
             return Ok(());
         }
-        if event.opcode != 0 {
+        if event.opcode != SOURCE_SEND {
             continue;
         }
         let mut at = 0;
@@ -163,8 +159,7 @@ pub fn serve_owner(owner: &mut Owner) -> Result<(), String> {
     }
 }
 
-// One send, without ever blocking past the deadline: the fd closes on every path,
-// so a reader that stopped reading learns EOF instead of wedging the serve loop.
+// One send that never blocks past the deadline; the fd closes on every path so a stalled reader sees EOF.
 fn write_deadline(fd: std::os::fd::OwnedFd, bytes: &[u8], timeout_ms: u32) {
     if unsafe { fcntl(fd.as_raw_fd(), F_SETFL, O_NONBLOCK) } != 0 {
         return;

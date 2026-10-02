@@ -7,6 +7,10 @@ pub const KDE_CUT: &str = "application/x-kde-cutselection";
 pub const PLAIN_UTF8: &str = "text/plain;charset=utf-8";
 pub const PLAIN: &str = "text/plain";
 pub const UTF8_STRING: &str = "UTF8_STRING";
+// Tokens encode 16 random bytes as two hex digits each.
+pub(crate) const TOKEN_BYTES: usize = 16;
+pub(crate) const TOKEN_HEX_LEN: usize = TOKEN_BYTES * 2;
+
 pub const FLEA: &str = "application/x-flea-clip";
 
 // Every type an owner offers, in the order the bytes are served; KDE only on a cut.
@@ -79,7 +83,7 @@ pub fn build_gnome(op: &str, paths: &[String]) -> Vec<u8> {
     out.into_bytes()
 }
 
-// None when the first line is not copy or cut: that is not a file selection at all.
+// Sample input "copy\nfile:///tmp/a\n" gives ("copy", ["/tmp/a"], 0); a first line other than copy or cut is None.
 pub fn parse_gnome(bytes: &[u8]) -> Option<(String, Vec<String>, usize)> {
     let mut lines = bytes.split(|b| *b == b'\n');
     let op = match lines.next()? {
@@ -87,7 +91,7 @@ pub fn parse_gnome(bytes: &[u8]) -> Option<(String, Vec<String>, usize)> {
         b"cut" => "cut",
         _ => return None,
     };
-    let (paths, skipped) = collect(lines);
+    let (paths, skipped) = collect(lines.filter(|line| !line.is_empty()));
     Some((op.to_string(), paths, skipped))
 }
 
@@ -134,7 +138,7 @@ pub fn parse_flea(bytes: &[u8]) -> Option<(String, String)> {
     let s = std::str::from_utf8(bytes).ok()?;
     let s = s.trim_matches(|c: char| c == '\0' || c.is_whitespace());
     let (op, token) = s.split_once(' ')?;
-    if !is_op(op) || token.len() != 32 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
+    if !is_op(op) || token.len() != TOKEN_HEX_LEN || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
     Some((op.to_string(), token.to_string()))
@@ -154,19 +158,17 @@ fn collect<'a>(lines: impl Iterator<Item = &'a [u8]>) -> (Vec<String>, usize) {
     (paths, skipped)
 }
 
-// 32 hex chars from the kernel, no RNG of our own to seed or mock. read_exact, because /dev/urandom never
-// reaches EOF: a read to the end grows without bound (it took 21 GB before it was found).
+// 32 hex chars from the kernel via read_exact, since /dev/urandom never reaches EOF (a read to the end took 21 GB).
 pub fn make_token() -> Result<String, String> {
     use std::io::Read;
-    let mut bytes = [0u8; 16];
+    let mut bytes = [0u8; TOKEN_BYTES];
     std::fs::File::open("/dev/urandom")
         .and_then(|mut f| f.read_exact(&mut bytes))
         .map_err(|e| format!("a clipboard token could not be made ({})", e))?;
     Ok(bytes.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
-// Finder handles selections of tens of thousands of files; past 100000 a payload is
-// hostile, never a selection, so it is refused rather than broadcast to every window.
+// Past 100000 paths a payload is hostile, never a selection, so it is refused rather than broadcast.
 pub const MAX_CLIP_PATHS: usize = 100_000;
 
 pub fn check_path_cap(paths: &[String]) -> Result<(), String> {

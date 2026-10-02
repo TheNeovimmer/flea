@@ -877,8 +877,9 @@ Owns the system clipboard for those files, so another Flea window (or Nautilus, 
 Thunar) pastes what this one copied. `paths` are absolute; anything relative, holding a
 NUL or climbing through `..` is refused with an `ok:false` clip line and nothing is
 owned. The backend makes a token, spawns a detached `flea --clip-own` holding the same
-binary, writes it the payload and waits up to 2 s for its `ready`. Answers one `clip`
-line with `op` of `set`; see `clip` below.
+binary, writes it the payload and waits up to 2 s for its `ready`. Runs off the request
+thread, the way `clipGet` does, so an owner that never answers holds up no other request.
+Answers one `clip` line with `op` of `set`; see `clip` below.
 
 ### clipGet
 
@@ -895,18 +896,23 @@ one `clip` line with `op` of `get`; see `clip` below.
 `{"c":"clipClear","token":<string>}` or `{"c":"clipClear","cut":[<string>,...]}`
 
 Clears the selection only while it still carries that token, the one `clipSet`
-answered with. A newer copy is never wiped. The `cut` form is a spent cut from
-another application, which Nautilus and Thunar clear after pasting: it clears only
-when the current selection is still a cut whose path list equals the given one
-exactly, same order, and never clears a copy. Answers one `clip` line with `op` of
-`clear`, saying whether it cleared; see `clip` below.
+answered with. The `cut` form is a spent cut from another application, which
+Nautilus and Thunar clear after pasting: it clears only when the current selection is
+still a cut whose path list equals the given one exactly, same order, and never
+clears a copy. The `cut` form and `flea --clip clear` check the selection, then drain
+what the compositor queued behind it with one more round trip, and send the null
+selection only while the checked offer is still the current one; a newer copy answers
+`cleared:false`. The protocol has no compare-and-clear request, so a copy made after
+that last round trip and before the null selection lands can still be wiped. Answers
+one `clip` line with `op` of `clear`, saying whether it cleared; see `clip` below.
 
 ### clipWatch
 
 `{"c":"clipWatch"}`
 
 Starts the clipboard watcher: one thread holding one data-control connection, reporting
-every selection as files the same way `clipGet` reads them. Idempotent; the UI sends it
+every clipboard selection (never the primary one, so a text highlight changes nothing)
+as files the same way `clipGet` reads them. Idempotent; the UI sends it
 once at start and later ones answer nothing. No reply of its own: file selections arrive
 as `clip` lines with `op` of `changed`, an empty or text-only selection as `none`, and
 two identical selections in a row emit once. No compositor or manager ends the thread

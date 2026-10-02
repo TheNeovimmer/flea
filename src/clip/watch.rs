@@ -1,15 +1,14 @@
-// The clipboard watcher: one thread holds one connection and one device, blocks in
-// recv, and emits a changed line per file selection. Only selection events (never
-// primary_selection) move it. A dropped connection reconnects at most once a second,
-// at most 5 times; backend exit ends the thread with the process.
-use super::control::{check_error, handshake, read_offer, ReadFail, MANAGER_GET_DEVICE};
+// The clipboard watcher: one thread, one device, a changed line per file selection; primary_selection never moves it.
+use super::control::{check_error, handshake, read_offer, ReadFail};
 use super::wire::{self, Conn};
+use super::protocol::*;
 use crate::backend::opsreq::OpMsg;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
+// A dropped connection reconnects at most RETRIES times, RETRY_EVERY apart.
 const RETRIES: usize = 5;
 const RETRY_EVERY: Duration = Duration::from_secs(1);
 
@@ -18,10 +17,11 @@ type Key = (String, String, Vec<String>);
 
 // One watcher thread per backend; the flag in State keeps clipWatch idempotent.
 pub fn request_watch(replies: Sender<OpMsg>) {
-    std::thread::spawn(move || watch_loop(replies, None));
+    std::thread::spawn(move || watch_loop(replies, None, RETRY_EVERY));
 }
 
-fn watch_loop(replies: Sender<OpMsg>, socket: Option<PathBuf>) {
+// The retry delay is a parameter so a test reconnects at once instead of waiting a second.
+fn watch_loop(replies: Sender<OpMsg>, socket: Option<PathBuf>, retry_every: Duration) {
     let mut last: Option<Key> = None;
     // The first connection never retries: no compositor or no manager is one line and the end.
     match connect_and_watch(&replies, &mut last, &socket) {
@@ -32,7 +32,7 @@ fn watch_loop(replies: Sender<OpMsg>, socket: Option<PathBuf>) {
         }
     }
     for _ in 0..RETRIES {
-        std::thread::sleep(RETRY_EVERY);
+        std::thread::sleep(retry_every);
         match connect_and_watch(&replies, &mut last, &socket) {
             Ok(WatchEnd::Dropped) => {}
             Err(_) => {}
@@ -69,8 +69,7 @@ enum WatchEnd {
     Dropped,
 }
 
-// Connect, take a device, and report selections until the connection drops. Only the
-// initial handshake fails as an Err; everything after the device exists is a drop.
+// Reports selections until the connection drops; only the initial handshake is an Err.
 fn connect_and_watch(replies: &Sender<OpMsg>, last: &mut Option<Key>, socket: &Option<PathBuf>) -> Result<WatchEnd, String> {
     let mut conn = match socket {
         Some(path) => Conn::connect_to(path)?,
@@ -78,7 +77,7 @@ fn connect_and_watch(replies: &Sender<OpMsg>, last: &mut Option<Key>, socket: &O
     };
     let bound = handshake(&mut conn)?;
     let mut payload = Vec::new();
-    wire::put_u32(&mut payload, 6);
+    wire::put_u32(&mut payload, READER_DEVICE);
     wire::put_u32(&mut payload, bound.seat);
     conn.send(bound.manager, MANAGER_GET_DEVICE, &payload, &[])?;
     let mut offers: HashMap<u32, Vec<String>> = HashMap::new();
@@ -90,12 +89,12 @@ fn connect_and_watch(replies: &Sender<OpMsg>, last: &mut Option<Key>, socket: &O
         if check_error(&event).is_some() {
             return Ok(WatchEnd::Dropped);
         }
-        if event.sender == 6 && event.opcode == 0 {
+        if event.sender == READER_DEVICE && event.opcode == DEVICE_DATA_OFFER {
             let mut at = 0;
             if let Some(id) = wire::get_u32(&event.body, &mut at) {
                 offers.insert(id, Vec::new());
             }
-        } else if event.sender == 6 && (event.opcode == 1 || event.opcode == 3) {
+        } else if event.sender == READER_DEVICE && event.opcode == DEVICE_SELECTION {
             let mut at = 0;
             let current = match wire::get_u32(&event.body, &mut at) {
                 Some(id) if id != 0 => Some(id),
@@ -106,18 +105,23 @@ fn connect_and_watch(replies: &Sender<OpMsg>, last: &mut Option<Key>, socket: &O
             match current {
                 None => emit(replies, last, "none", &[], "", 0),
                 Some(id) => match offers.get(&id) {
-                    // The types arrive ahead of the selection naming them; an unknown
-                    // offer is a compositor speaking out of order, read as nothing.
+                    // An offer the selection names before its types is out of order, read as nothing.
                     None => emit(replies, last, "none", &[], "", 0),
                     Some(types) => match read_offer(&mut conn, id, types) {
-                        // A failed receive skips its selection, never the watch; an over-cap
-                        // one is refused out loud instead of broadcast to every window.
+                        // An over-cap selection is refused out loud, never broadcast to every window.
                         Err(ReadFail::Capped(e)) => say(replies, &none_error(&e)),
                         Ok(read) => emit(replies, last, &read.op, &read.paths, &read.token, read.skipped),
                     },
                 },
             }
-        } else if event.opcode == 0 {
+        } else if event.sender == READER_DEVICE && event.opcode == DEVICE_PRIMARY_SELECTION {
+            let mut at = 0;
+            if let Some(id) = wire::get_u32(&event.body, &mut at) {
+                if offers.remove(&id).is_some() {
+                    let _ = conn.send(id, OFFER_DESTROY, &[], &[]);
+                }
+            }
+        } else if event.opcode == OFFER_TYPE {
             if let Some(types) = offers.get_mut(&event.sender) {
                 let mut at = 0;
                 if let Some(mime) = wire::get_string(&event.body, &mut at) {
@@ -137,15 +141,14 @@ fn emit(replies: &Sender<OpMsg>, last: &mut Option<Key>, op: &str, paths: &[Stri
     say(replies, &changed(op, paths, token, skipped));
 }
 
-// Destroy every tracked offer that is no longer current, primary selections included:
-// a compositor object per highlight would otherwise live for the window's lifetime.
+// Destroys every tracked offer that is no longer current, or each highlight's object would live for the window.
 pub(crate) fn retire_offers(conn: &mut Conn, offers: &mut HashMap<u32, Vec<String>>, current: Option<u32>) {
     let mut kept = None;
     for (id, types) in std::mem::take(offers) {
         if Some(id) == current {
             kept = Some((id, types));
         } else {
-            let _ = conn.send(id, 1, &[], &[]);
+            let _ = conn.send(id, OFFER_DESTROY, &[], &[]);
         }
     }
     if let Some((id, types)) = kept {

@@ -85,3 +85,27 @@ fn five_and_twenty_eight_descriptors_arrive_whole_in_one_sendmsg() {
         }
     }
 }
+
+#[test]
+fn a_partial_message_timeout_is_not_eof_and_can_resume() {
+    use std::io::Write;
+    let (a, mut b) = std::os::unix::net::UnixStream::pair().unwrap();
+    let mut conn = Conn::over(a.into());
+    let bytes = request(9, 0, b"abcd");
+    b.write_all(&bytes[..4]).unwrap();
+    let error = conn.next_raw(0).err().expect("a partial message deadline");
+    assert_eq!(error, "the compositor did not finish a message within 0 ms");
+    b.write_all(&bytes[4..]).unwrap();
+    let event = conn.next_raw(0).unwrap().unwrap();
+    assert_eq!((event.sender, event.body), (9, b"abcd".to_vec()));
+}
+
+#[test]
+fn a_partial_message_eof_names_the_closed_connection() {
+    use std::io::Write;
+    let (a, mut b) = std::os::unix::net::UnixStream::pair().unwrap();
+    let mut conn = Conn::over(a.into());
+    b.write_all(&request(9, 0, b"abcd")[..4]).unwrap();
+    drop(b);
+    assert_eq!(conn.next_raw(0).err().unwrap(), "the compositor closed the connection mid-message");
+}

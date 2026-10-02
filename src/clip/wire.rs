@@ -1,5 +1,4 @@
-// The Wayland wire: framing, strings and a connection holding queued descriptors.
-// Header word 1 is the object id; word 2 is (size << 16) | opcode, size with the header.
+// The Wayland wire: header word 1 is the object id, word 2 is (size << 16) | opcode with the header counted.
 use crate::backend::fdpass;
 use std::collections::VecDeque;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
@@ -75,8 +74,7 @@ pub fn get_string(body: &[u8], at: &mut usize) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes[..len - 1]).into_owned())
 }
 
-// The largest message this client accepts; a lying size would otherwise grow the
-// buffer without bound waiting for bytes that never arrive.
+// The largest message accepted; a lying size would otherwise grow the buffer waiting for bytes that never come.
 pub const MAX_MESSAGE: usize = 64 * 1024 * 1024;
 
 // One decoded event: who sent it, which one it is, and the body after the header.
@@ -99,8 +97,10 @@ extern "C" {
     fn poll(fds: *mut PollFd, nfds: usize, timeout: c_int) -> c_int;
 }
 
-// A connection: the socket, unread bytes, and descriptors waiting for their event.
-// A body and its descriptor can arrive in either order, so the two queue apart.
+// What one fill saw: bytes, the poll deadline, or the peer's orderly end.
+enum Fill { Data, Timeout, Eof }
+
+// A connection: the socket, unread bytes and queued descriptors, which arrive in either order beside their body.
 pub struct Conn {
     sock: OwnedFd,
     buf: Vec<u8>,
@@ -141,18 +141,18 @@ impl Conn {
         Ok(n > 0)
     }
 
-    fn fill(&mut self, timeout_ms: u32) -> Result<bool, String> {
+    fn fill(&mut self, timeout_ms: u32) -> Result<Fill, String> {
         if !self.readable(timeout_ms)? {
-            return Ok(false);
+            return Ok(Fill::Timeout);
         }
         match fdpass::recv_stream(self.sock.as_raw_fd())
             .map_err(|e| format!("a clipboard reply could not be read ({})", e))?
         {
-            None => Ok(false),
+            None => Ok(Fill::Eof),
             Some((bytes, fds)) => {
                 self.buf.extend_from_slice(&bytes);
                 self.fds.extend(fds);
-                Ok(true)
+                Ok(Fill::Data)
             }
         }
     }
@@ -174,11 +174,15 @@ impl Conn {
                     return Ok(Some(RawEvent { sender, opcode, body }));
                 }
             }
-            if !self.fill(timeout_ms)? {
-                if self.buf.is_empty() {
-                    return Ok(None);
+            match self.fill(timeout_ms)? {
+                Fill::Data => {}
+                Fill::Timeout if !self.buf.is_empty() => {
+                    return Err(format!("the compositor did not finish a message within {} ms", timeout_ms));
                 }
-                return Err("the compositor closed the connection mid-message".to_string());
+                Fill::Eof if !self.buf.is_empty() => {
+                    return Err("the compositor closed the connection mid-message".to_string());
+                }
+                Fill::Timeout | Fill::Eof => return Ok(None),
             }
         }
     }
@@ -189,7 +193,7 @@ impl Conn {
             if let Some(fd) = self.fds.pop_front() {
                 return Ok(Some(fd));
             }
-            if !self.fill(timeout_ms)? {
+            if !matches!(self.fill(timeout_ms)?, Fill::Data) {
                 return Ok(None);
             }
         }
