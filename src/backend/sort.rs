@@ -106,9 +106,7 @@ pub fn is_hidden(name: &str) -> bool {
     name.as_bytes().first() == Some(&b'.')
 }
 
-// The Kind tie-break: the text after the last dot of the last path component.
-// None when there is no dot, only a leading dot, or a trailing dot, so
-// .bashrc and Makefile sort before any extension. Pure name bytes, no stat.
+// Kind tie-break from name bytes alone: text after the last dot, None for no dot, a lone leading dot or a trailing dot.
 pub fn extension(name: &str) -> Option<&str> {
     let base = name.rsplit('/').next().unwrap_or(name);
     let dot = base.rfind('.')?;
@@ -119,8 +117,7 @@ pub fn extension(name: &str) -> Option<&str> {
     if ext.is_empty() { None } else { Some(ext) }
 }
 
-// None sorts before any extension; two extensions use the Finder comparison
-// without the byte tie-break, so .lrf and .LRF stay one group for the name to split.
+// None sorts before any extension; two extensions use the Finder comparison without the byte tie-break.
 pub fn cmp_extension(a: &str, b: &str) -> Ordering {
     match (extension(a), extension(b)) {
         (None, None) => Ordering::Equal,

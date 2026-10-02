@@ -19,6 +19,7 @@ function pane(sortBy, sortDesc) {
         renamingIndex: -1,
         renamePending: false,
         pendingSort: null,
+        listInFlight: false,
         committed: 0
     }
     p.message = function (text, isError) { p.said.push(text) }
@@ -205,6 +206,21 @@ function run(check) {
     check("a hold taken with no edit open applies once the pending rename settles",
           stranded.sent.join(","), "sort size asc,window 0 200")
     var wired = Source.source("ui/Pane.qml")
+    // Sample input: "    onRenamePendingChanged: if (!root.renamePending) Sort.applyPending(root)".
     check("the pending-false arm applies the held sort",
-          wired.indexOf("onRenamePendingChanged: if (!root.renamePending) Sort.applyPending(root)") >= 0, true)
+          /^\s*onRenamePendingChanged: if \(!root\.renamePending\) Sort\.applyPending\(root\)/m.test(wired), true)
+    var inflight = pane("name", false)
+    inflight.pendingSort = { key: "size", desc: false }
+    inflight.listInFlight = true
+    Sort.applyPending(inflight)
+    check("a hold outlives its listing and sends nothing while it is out", inflight.sent.join(","), "")
+    check("and keeps the hold while the listing is out", JSON.stringify(inflight.pendingSort),
+          JSON.stringify({ key: "size", desc: false }))
+    inflight.listInFlight = false
+    Sort.applyPending(inflight)
+    check("the hold applies to the rows that landed", inflight.sent.join(","), "sort size asc,window 0 200")
+    var flightSrc = Source.source("ui/Pane.qml")
+    // Sample input: "    onListInFlightChanged: if (!root.listInFlight) { preferences.restart(); Sort.applyPending(root) }".
+    check("a hold that outlived its listing applies once the rows land",
+          /^\s*onListInFlightChanged: if \(!root\.listInFlight\) \{[^}]*Sort\.applyPending\(root\)/m.test(flightSrc), true)
 }

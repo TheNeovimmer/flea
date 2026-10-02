@@ -52,16 +52,12 @@ pub enum Request {
     // Which archive formats this box actually offers, and whether a converter is installed at all.
     Formats { id: usize },
     Permissions { line: String },
-    // Paste as links: one symlink or hard link per source inside dest, created
-    // exclusively and journaled so undo removes them; see docs/protocol.md "link".
+    // Paste as links: one symlink or hard link per source inside dest; see docs/protocol.md "link".
     Link { op: String, paths: Vec<String>, rows: Vec<usize>, dest: String,
            collide: super::collide::Ask },
-    // Show original: where a symlink's target lives, the same path Show in
-    // folder uses; see docs/protocol.md "linktarget".
+    // Show original: where a symlink's target lives; see docs/protocol.md "linktarget".
     LinkTarget { path: String },
-    // Permissions for the whole selection: one Entry holds every path the
-    // Apply changed, so one undo restores them all; see docs/protocol.md
-    // "permissionsBatch".
+    // Permissions for the whole selection, one undo for every path; see docs/protocol.md "permissionsBatch".
     PermissionsBatch { paths: Vec<String>, modes: Vec<String>, id: usize },
     Picker { line: String },
     MenuAction { line: String, rows: Vec<usize> },
@@ -85,8 +81,7 @@ pub fn parse_request(line: &str) -> Request {
             id: field_usize(line, "id").unwrap_or(0),
         },
         Some("link") => Request::Link {
-            // Anything that is not "absolute" or "hard" is a relative link,
-            // so a malformed op can never write an absolute path by accident.
+            // Anything that is not "absolute" or "hard" is a relative link, never an absolute path by accident.
             op: field_str(line, "op").unwrap_or_default(),
             paths: field_str_array(line, "paths"),
             rows: field_usize_array(line, "rows"),
@@ -234,8 +229,7 @@ pub fn listed_line(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str) -
     say_listed(n, read_ms, sort_ms, dev, path, crate::backend::ops::dir_writable(std::path::Path::new(path)))
 }
 
-// `w` is whether this user can create or delete entries in the directory. A drag from one that
-// cannot copies, because a move would have to delete the originals.
+// `w` is whether this user can create or delete entries here; a drag from one that cannot copies.
 pub(crate) fn say_listed(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str, writable: bool) -> String {
     format!(
         r#"{{"t":"listed","n":{},"read":{:.3},"sort":{:.3},"v":{},"w":{},"path":"{}"}}"#,
@@ -302,7 +296,7 @@ pub fn linktarget_line(path: &str, directory: &str, name: &str) -> String {
         escape(path), escape(directory), escape(name))
 }
 
-// Sample output: {"t":"permissions","id":7,"op":"applyMany","ok":true,"mode":"0600"}
+// Sample output: {"t":"permissions","id":7,"op":"applyMany","ok":true,"mode":"0600","error":""}
 pub fn permissions_batch_line(id: usize, ok: bool, mode: &str, error: &str) -> String {
     format!(r#"{{"t":"permissions","id":{},"op":"applyMany","ok":{},"mode":"{}","error":"{}"}}"#,
         id, ok, escape(mode), escape(error))

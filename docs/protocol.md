@@ -191,6 +191,7 @@ Re-sorts the current listing by `by` and answers a `listed` line. The four order
   is the sort, so the two costs stay readable apart on the wire.
 - `"kind"` compares MIME type strings obtained from filenames, with
   `application/octet-stream` for an unknown name and `inode/directory` for a folder.
+  Files with equal kind order by extension, none first with the Finder comparison, then by name; folders keep name order.
   It does not read file contents or run a metadata pass; `read` is `0.0`.
 
 `foldersFirst` defaults to `true`: folders remain before files in both directions.
@@ -203,7 +204,7 @@ is an outer partition, a visible block then a hidden block, and `foldersFirst`
 or `groupByKind` orders inside each block. Neither block reverses with `desc`.
 
 Inside each group, or across the whole listing when ungrouped, the key decides and
-the name order breaks ties, so two equal sizes list the same way every run, and
+the name order breaks ties, except files with equal kind order by extension first, none first, then by name, so two equal sizes list the same way every run, and
 `desc` is the exact reverse of ascending inside the group,
 tie-break included. A size order walks each folder's subtree and orders folders by that
 recursive size, the same number the `dirsized` line reports, so the order agrees with the

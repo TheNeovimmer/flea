@@ -28,12 +28,7 @@ fn show_unmounted_drives(state: Json) -> Json {
     with_key(state, "places", with_key(places, "showUnmounted", Json::Bool(true)))
 }
 
-// MenuAdditions040 ships Copy as, Paste as and Invert selection hidden, and Copy as replaces the
-// hidden-by-default Copy path row: a 0.3.7 file that hid "copypath" keeps hiding its replacement
-// "copyAs" at the same position, while one that had switched Copy path on keeps Copy as visible.
-// "pasteAs" and "invertSelection" are appended when absent. Every other entry keeps its place, and
-// a missing or malformed menu.hidden is already the shipped default by the time this runs, because
-// the merge ahead of it falls back per key.
+// A 0.3.7 file that hid "copypath" keeps hiding its replacement "copyAs" where it stood.
 fn hide_new_menu_rows(state: Json) -> Json {
     let menu = state.get("menu").cloned().unwrap_or(Json::Obj(Vec::new()));
     let items = match menu.get("hidden").and_then(Json::as_array) {
