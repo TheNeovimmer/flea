@@ -1,7 +1,6 @@
 .pragma library
 
 .import "Search.js" as Search
-.import "SlowClick.js" as SlowClick
 .import "Tabs.js" as Tabs
 
 // The pointer contract, declared in keys.toml's [[pointer]] table and decided here and nowhere
@@ -13,11 +12,11 @@
 // idempotent on a row, so it runs on both taps of a double click rather than behind a double-click
 // timer, which would delay every selection by the whole mouseDoubleClickInterval.
 
-// The listing: the list view, the grid view, and the columns view's own middle column.
-// A click carries context 0 through selectOnly and setCursor so the list never
-// moves under the pointer; the keyboard keeps the default three-row context.
+// One tap selects, the second opens; a click carries context 0 so the list never moves under the pointer.
 function tapped(index, tapCount, modifiers, root) {
     if (index < 0) return
+    // Single-click mode opens on the first tap alone, so later taps of one gesture add nothing.
+    if (root.singleClick === true && tapCount !== 1) return
     // Finder's two selection modifiers. Neither ever opens, and only the first tap of one counts,
     // so a modified double click selects once instead of toggling itself back off.
     if (modifiers & Qt.ControlModifier) {
@@ -45,8 +44,7 @@ function tapped(index, tapCount, modifiers, root) {
     root.selectOnly(index, 0)
     if (tapCount === 2 || verb === "reveal")
         root.act(verb)
-    // Single-click mode opens folders and files on one tap, the way the columns view's own middle
-    // column already does; a modifier still only selects, and a search result still reveals.
+    // Single-click mode opens files and folders on one tap, like the middle column already does.
     if (tapCount === 1 && verb === "open" && root.singleClick === true)
         root.act("open")
 }
@@ -87,8 +85,7 @@ function tappedMenu(index, eventPoint, root, menu) {
         root.clearSelection()
     root.setCursor(index, 0)
     menu.openAt(eventPoint.scenePosition)
-    if (root.cancelSlowClick) root.cancelSlowClick()
-    else SlowClick.cancel(root)
+    root.cancelSlowClick()
 }
 
 // A right click that landed on no row raises the directory's own menu, in all three views and the
@@ -114,11 +111,7 @@ function tappedColumn(row, button, tapCount) {
     return tapCount === 2 ? "open" : ""
 }
 
-// Middle click on a directory, in every view and on the Places rail: that directory in a new tab, the
-// way a browser opens a link, and the mirror of ui/TabBar.qml closing a tab on the same button. It
-// leaves the cursor and the selection where they were, because the tab being left keeps its own. A
-// file answers nothing: it has no directory to show. tabTarget is the decision and is all tests/js
-// can drive, since Tabs.openNew needs a whole pane.
+// Middle click on a directory opens it in a new tab; a file has no directory to show.
 function tabTarget(row, base, root) {
     return row && row.d && typeof row.n === "string" ? root.join(base, row.n) : ""
 }

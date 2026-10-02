@@ -3,6 +3,7 @@ import "flea"
 import "flea" as Flea
 import "flea/js/Filter.js" as Filter
 import "flea/js/Ops.js" as Ops
+import "flea/js/TextSize.js" as TextSize
 // The real GridArea and GridTile must retain and contain a bottom editor through global cell reflow.
 Window {
     id: probe
@@ -244,16 +245,20 @@ Window {
                 editPane.setCursor(1201)
             }
             if (probe.step === 10) {
-                // Largest OEM text-size stop (20): font via TextSize ratios, geometry derived as Theme.qml derives it.
+                // Largest OEM stop with Theme.qml geometry: caption line 15/11, line box 1.8, cell floor 146.
                 probe.savedFont = Theme.font
                 probe.savedGrid = Theme.grid
                 probe.savedRowHeight = Theme.rowHeight
-                var tallBodySmall = Math.round(20 * 0.917)
-                var tallCaption = Math.round(20 * 0.833)
-                Theme.font = {family: "monospace", body: 20, bodySmall: tallBodySmall, caption: tallCaption}
-                var tallLine = tallCaption * 15 / 11
-                Theme.grid = {captionHeight: 2 * tallLine, captionLineHeight: tallLine, minCellWidth: 146}
-                Theme.rowHeight = Math.round(tallBodySmall * 1.8) + 2 * Theme.spacing.rowPaddingY
+                var tallStop = TextSize.STOPS[TextSize.STOPS.length - 1]
+                var tallBodySmall = TextSize.bodySmall(tallStop)
+                var tallCaption = TextSize.caption(tallStop)
+                Theme.font = {family: "monospace", body: tallStop, bodySmall: tallBodySmall, caption: tallCaption}
+                var captionLineRatio = 15 / 11 // Theme.qml grid captionLineHeight per caption px.
+                var lineBoxRatio = 1.8 // Theme.qml lineBoxRatio per bodySmall px.
+                var cellFloor = 146 // Theme.qml grid reference viewport floor at base size.
+                var tallLine = tallCaption * captionLineRatio
+                Theme.grid = {captionHeight: 2 * tallLine, captionLineHeight: tallLine, minCellWidth: cellFloor}
+                Theme.rowHeight = Math.round(tallBodySmall * lineBoxRatio) + 2 * Theme.spacing.rowPaddingY
                 editPane.renamingIndex = 1201
             }
             if (probe.step === 11) {

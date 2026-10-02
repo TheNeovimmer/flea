@@ -56,14 +56,15 @@ tests/js/nav.js 323
 tests/js/network.js 306
 tests/js/ops.js 430
 tests/js/settings.js 337
+tests/js/tap.js 306
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 396
 tests/preview-settle-live.qml 450
 tests/preview-decode.qml 444
 tests/js/status.js 354
-tests/rename-grid-bottom.qml 419
-tests/rename-grid-bottom.js 303
+tests/rename-grid-bottom.qml 424
+tests/rename-grid-bottom.js 305
 tests/rename-lifecycle-check.js 356
 ui/Backend.qml 440
 ui/ChromeBar.qml 478

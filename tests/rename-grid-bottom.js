@@ -271,6 +271,8 @@ write("flea/SelectionBand.qml", "import QtQuick\nItem { property var pane; prope
 write("flea/FileDrag.qml", "import QtQuick\nItem { property var pane; property int dropIndex: -1; property bool dragCopy: false }\n");
 write("flea/RowDrag.qml", "import QtQuick\nItem { property var session; property int listingIndex; property var row }\n");
 let fixture = fs.readFileSync(path.join(repo, "tests/rename-grid-bottom.qml"), "utf8");
+assert.ok(fixture.includes("TextSize.STOPS"), "tall step reads the top stop from TextSize.js");
+assert.ok(!fixture.includes("20 * 0.917") && !fixture.includes("20 * 0.833"), "tall step reads both ratios from TextSize.js, never bare");
 if (testCase !== "legacy") {
     const timer = fixture.indexOf("    Timer {\n        interval: 80"), finish = fixture.indexOf("    function finish()", timer);
     assert.ok(timer >= 0 && finish > timer);
