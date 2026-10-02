@@ -229,6 +229,7 @@ pub(crate) fn do_undo(out: &mut impl Write, ops: &mut Ops) {
 // Linked step in a single Entry, so one undo removes them all, and a name
 // that exists goes through the collision card's own policy first.
 pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<String>, dest: &str, collide: super::collide::Ask) {
+    if ops.live.running().is_some() { busy(out, "link"); return; }
     let dest_path = match usable_dest(dest) {
         Ok(d) => d,
         Err(e) => {
@@ -245,6 +246,11 @@ pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<
     let mut first_err = String::new();
     for source in &paths {
         let src = Path::new(source);
+        if src.symlink_metadata().is_err() {
+            failed += 1;
+            if first_err.is_empty() { first_err = format!("the link source {source} no longer exists"); }
+            continue;
+        }
         let Some(dst) = super::link::dest_path(&dest_path, src) else {
             failed += 1;
             if first_err.is_empty() { first_err = format!("{source} has no file name"); }
@@ -349,6 +355,11 @@ pub(crate) fn do_link_target(out: &mut impl Write, path: &str) {
 // changed, so one undo restores them all. Octal, Owner, Group and the change
 // preview drop out for several items; the grid and Apply are the whole card.
 pub(crate) fn do_permissions_batch(out: &mut impl Write, ops: &mut Ops, paths: Vec<String>, modes: Vec<String>, id: usize) {
+    if ops.live.running().is_some() {
+        writeln!(out, "{}", super::proto::permissions_batch_line(id, false, "", "an operation is already running")).ok();
+        out.flush().ok();
+        return;
+    }
     if paths.len() != modes.len() {
         writeln!(out, "{}", super::proto::permissions_batch_line(id, false, "", "every selected item needs its own target mode")).ok();
         out.flush().ok();
@@ -804,5 +815,127 @@ mod tests {
         let redone = o.journal.redo(1, &AtomicBool::new(false), &tx);
         assert!(redone.unwrap_err().msg.contains("already exists"));
         assert_eq!(std::fs::read_to_string(dest.join("a.txt")).unwrap(), "someone else");
+    }
+
+    #[test]
+    fn undoing_a_hard_link_keeps_the_last_name_when_its_source_is_gone() {
+        let d = TestDir::new("link-hard-last");
+        let mut o = ops();
+        d.dir("src");
+        let a = d.file("src/a.txt", "precious");
+        let dest = d.dir("dest");
+        let mut buf = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+        do_link(&mut buf, &mut o, "hard",
+            vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        assert!(text(&buf).contains(r#""ok":1"#), "{}", text(&buf));
+        std::fs::remove_file(&a).unwrap();
+        assert_eq!(std::fs::read_to_string(dest.join("a.txt")).unwrap(), "precious");
+        let mut buf = out();
+        do_undo(&mut buf, &mut o);
+        assert!(std::fs::read_to_string(dest.join("a.txt")).is_ok(),
+            "undo removed the only remaining name; undo said {}", text(&buf));
+        assert!(text(&buf).contains("last name"), "{}", text(&buf));
+    }
+
+    #[test]
+    fn a_link_landing_during_a_redo_is_refused_busy_and_keeps_its_undo() {
+        let d = TestDir::new("link-redo-busy");
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        let parent = d.dir("p");
+        let mut buf = out();
+        do_mkdir(&mut buf, &mut o, &parent.to_string_lossy(), "made");
+        let mut buf = out();
+        do_undo(&mut buf, &mut o);
+        assert!(text(&buf).contains("undone"), "{}", text(&buf));
+        let mut buf = out();
+        start_redo(&mut buf, &mut o);
+        assert!(text(&buf).contains("redostarted"), "{}", text(&buf));
+        let a = d.file("a.txt", "a");
+        let dest = d.dir("dest");
+        let mut buf = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+        do_link(&mut buf, &mut o, "relative",
+            vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        assert!(text(&buf).contains("already running"), "{}", text(&buf));
+        assert!(!text(&buf).contains(r#""t":"linked""#), "{}", text(&buf));
+        assert!(o.journal.is_empty(), "a refused link journals nothing");
+        loop {
+            let msg = rx.recv().unwrap();
+            let done = matches!(msg, OpMsg::RedoDone { .. });
+            let mut sink = out();
+            report_op(&mut sink, &mut o, msg);
+            if done { break; }
+        }
+        let mut buf = out();
+        do_undo(&mut buf, &mut o);
+        assert!(text(&buf).contains(r#""op":"mkdir""#), "{}", text(&buf));
+    }
+
+    #[test]
+    fn a_hard_link_of_a_symlink_undoes() {
+        let d = TestDir::new("link-hard-sym");
+        let mut o = ops();
+        d.dir("src");
+        let t = d.file("src/t.txt", "t");
+        let l = d.join("src/l");
+        std::os::unix::fs::symlink(&t, &l).unwrap();
+        let dest = d.dir("dest");
+        let mut buf = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+        do_link(&mut buf, &mut o, "hard",
+            vec![l.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        assert!(text(&buf).contains(r#""t":"linked""#), "{}", text(&buf));
+        let mut buf = out();
+        do_undo(&mut buf, &mut o);
+        assert!(text(&buf).contains("undone"), "untouched link refused by undo: {}", text(&buf));
+        assert!(std::fs::symlink_metadata(dest.join("l")).is_err());
+        assert!(l.symlink_metadata().is_ok(), "undo removes the link, never the source");
+    }
+
+    #[test]
+    fn a_link_to_a_missing_source_is_refused_per_path() {
+        let d = TestDir::new("link-missing");
+        let mut o = ops();
+        let gone = d.join("gone.txt");
+        let dest = d.dir("dest");
+        let mut buf = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+        do_link(&mut buf, &mut o, "relative",
+            vec![gone.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        assert!(!text(&buf).contains(r#""ok":1"#), "a link to nothing reported success: {}", text(&buf));
+        assert!(o.journal.is_empty(), "a refused link journals nothing");
+        assert!(std::fs::symlink_metadata(dest.join("gone.txt")).is_err());
+    }
+
+    #[test]
+    fn a_permissions_batch_during_a_redo_is_refused_busy() {
+        let d = TestDir::new("perm-busy");
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        let parent = d.dir("p");
+        let mut buf = out();
+        do_mkdir(&mut buf, &mut o, &parent.to_string_lossy(), "made");
+        let mut buf = out();
+        do_undo(&mut buf, &mut o);
+        let mut buf = out();
+        start_redo(&mut buf, &mut o);
+        assert!(text(&buf).contains("redostarted"), "{}", text(&buf));
+        let a = d.file("a.txt", "a");
+        let mut buf = out();
+        do_permissions_batch(&mut buf, &mut o,
+            vec![a.to_string_lossy().to_string()], vec!["600".to_string()], 7);
+        let line = text(&buf);
+        assert!(line.contains("already running"), "{}", line);
+        assert!(line.contains(r#""ok":false"#), "{}", line);
+        assert!(o.journal.is_empty(), "a refused chmod journals nothing");
+        loop {
+            let msg = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+            let done = matches!(msg, OpMsg::RedoDone { .. });
+            let mut sink = out();
+            report_op(&mut sink, &mut o, msg);
+            if done { break; }
+        }
     }
 }

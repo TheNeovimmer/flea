@@ -43,19 +43,29 @@ function run(check) {
         Permissions.multiResult(0, 1, [{ path: "/d/secret.txt", why: "Read-only: setgid bit is present." }]),
         "Permissions changed for 0 of 1; 1 left alone: secret.txt: Read-only: setgid bit is present.")
 
-    // N replies cost N writes plus one summary, never N summaries.
+    // One skip reads singular, and four show three with an and-1-more tail.
+    check("one skip reads singular",
+        Permissions.skipNote([{ path: "/d/a.txt", why: "Gone." }]),
+        "1 item cannot be changed: a.txt: Gone.")
+    check("four skips show three with an and-1-more tail",
+        Permissions.skipNote([{ path: "/d/a.txt", why: "r1" }, { path: "/d/b.txt", why: "r2" },
+                              { path: "/d/c.txt", why: "r3" }, { path: "/d/d.txt", why: "r4" }]),
+        "4 items cannot be changed: a.txt: r1; b.txt: r2; c.txt: r3; and 1 more")
+    check("four skips ride multiResult with the same tail",
+        Permissions.multiResult(1, 5, [{ path: "/d/a.txt", why: "r1" }, { path: "/d/b.txt", why: "r2" },
+                                       { path: "/d/c.txt", why: "r3" }, { path: "/d/d.txt", why: "r4" }]),
+        "Permissions changed for 1 of 5; 4 left alone: a.txt: r1; b.txt: r2; c.txt: r3; and 1 more")
+
+    // noteMode answers done once in 5000 replies, on the last one.
     var store = { modes: [], reasons: [], skipped: [], pending: 5000 }
-    var summaries = 0
     var done = false
+    var early = false
     for (var i = 0; i < 5000; i++) {
         done = Permissions.noteMode(store, i, "/f" + i, { ok: true, mode: "0644", reason: "" })
-        if (done) {
-            summaries += 1
-            Permissions.summarize(store.modes)
-        }
+        if (done && i + 1 < 5000) early = true
     }
-    check("5000 replies land every mode", done + "|" + store.modes.length, "true|5000")
-    check("and summarize exactly once", summaries, 1)
+    check("noteMode answers done once across 5000 replies", done + "|" + store.modes.length, "true|5000")
+    check("and done answers only on the last reply", early + "|" + done, "false|true")
     var refused = { modes: [], reasons: [], skipped: [], pending: 3 }
     Permissions.noteMode(refused, 0, "/d/a.txt", { ok: true, mode: "2755", reason: "Read-only: setgid bit is present." })
     Permissions.noteMode(refused, 1, "/d/b.txt", { ok: false, error: "Gone." })
@@ -98,4 +108,11 @@ function run(check) {
     check("and the newest id on it lands", Permissions.landsShebang("/d/a.sh", 2, "/d/a.sh", 2), true)
     check("and the newest id on another path is refused", Permissions.landsShebang("/d/b.sh", 2, "/d/a.sh", 2), false)
     check("Pane.qml lands through the helper", Source.source("ui/Pane.qml").indexOf("Permissions.landsShebang") >= 0, true)
+    // One note names reasoned and refused rows together, and nothing when all apply.
+    var noted = { modes: ["0644", "0644", ""], reasons: ["", "Read-only: you are not the owner.", "Gone."], skipped: [], pending: 0 }
+    check("reasoned and refused rows share one note",
+        Permissions.inspectNote(noted, ["/d/a.txt", "/d/b.txt", "/d/c.txt"]),
+        "2 items cannot be changed: b.txt: Read-only: you are not the owner.; c.txt: Gone.")
+    check("and an applicable selection names nothing",
+        Permissions.inspectNote({ modes: ["0644"], reasons: [""], skipped: [], pending: 0 }, ["/d/a.txt"]), "")
 }

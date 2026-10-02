@@ -3,8 +3,7 @@ use crate::backend::renamecompat::rename_path;
 use crate::backend::trash;
 use crate::error::{from_io, FleaError};
 use std::os::unix::fs::MetadataExt;
-use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ItemIdentity {
@@ -61,9 +60,8 @@ pub enum Step {
     MadeFile { path: PathBuf, identity: ItemIdentity },
     // This operation trashed what was at `original`, and the trash holds it under `uri`.
     Trashed(trash::Entry),
-    // Permissions for several items: one entry holds every path the Apply changed,
-    // so one undo restores them all; a path edited since keeps nothing to restore to.
-    Mode { path: PathBuf, before: u32, after: u32 },
+    // Permissions batch: each step pins dev, inode, birth time and mode, so a replaced path is skipped.
+    Mode { path: PathBuf, before: u32, after: u32, dev: u64, ino: u64, born: Option<(u64, u32)> },
 }
 
 // One user-visible operation, however many steps it took, named the way the status bar already named it.
@@ -132,15 +130,25 @@ impl Journal {
         self.entries.is_empty()
     }
 
-    // The whole entry is reversed or the failure is reported; a step that fails stops the rest, because
-    // continuing past it would leave the operation half-reversed with nothing recording which half.
+    // A failing step stops the rest; mode steps skip a replaced path with a note.
     pub fn undo(&mut self) -> Result<String, FleaError> {
         let entry = match self.entries.pop() {
             Some(e) => e,
             None => return Err(err("there is nothing to undo")),
         };
+        let mut skipped: Vec<String> = Vec::new();
         for step in entry.steps.iter().rev() {
+            if matches!(step, Step::Mode { .. }) {
+                if let Err(e) = reverse(step) {
+                    skipped.push(format!("{}: {}", e.path, e.msg));
+                }
+                continue;
+            }
             if let Some((old, new)) = reverse(step)? { self.rebase(&old, &new); }
+        }
+        if !skipped.is_empty() {
+            return Err(FleaError { where_: "undo".into(), path: String::new(),
+                msg: format!("{} path(s) left in place: {}", skipped.len(), skipped.join("; ")) });
         }
         let op = entry.op.clone();
         self.redo.push(super::redo::Replay::capture(entry));
@@ -204,7 +212,7 @@ fn reverse(step: &Step) -> Result<Option<(ItemIdentity, ItemIdentity)>, FleaErro
             return Ok(if current == *after { Some((current, ItemIdentity::inspect(from)?)) } else { None });
         }
         Step::Created { path } => remove(path)?,
-        Step::Linked { path, identity, kind, .. } => remove_link(path, identity, kind)?,
+        Step::Linked { path, identity, source, kind, .. } => remove_link(path, identity, source, kind)?,
         Step::Copied { to, created, manifest, .. } => {
             if let Some(handle) = manifest {
                 // The manifest names only what the copy made, so the coarse whole-tree checks below are skipped.
@@ -229,7 +237,7 @@ fn reverse(step: &Step) -> Result<Option<(ItemIdentity, ItemIdentity)>, FleaErro
         }
         Step::MadeFile { path, identity } => remove_new_file(path, identity)?,
         Step::Trashed(entry) => trash::restore(entry)?,
-        Step::Mode { path, before, .. } => restore_mode(path, *before)?,
+        Step::Mode { path, before, after, dev, ino, born } => restore_mode(path, *dev, *ino, *born, *after, *before)?,
     }
     Ok(None)
 }
@@ -297,19 +305,33 @@ fn remove(path: &PathBuf) -> Result<(), FleaError> {
     r.map_err(|e| from_io("undo", &path.to_string_lossy(), &e))
 }
 
-// A link undo removes only the link this operation made, with remove_file and
-// never remove_dir_all: a folder or file put at that name since is someone
-// else's, so undo refuses and leaves it, the way a changed copy is left.
-fn remove_link(path: &PathBuf, identity: &ItemIdentity, kind: &super::link::LinkKind) -> Result<(), FleaError> {
+// A link undo removes only the link made, never a folder put at its name since.
+fn remove_link(path: &Path, identity: &ItemIdentity, source: &Path, kind: &super::link::LinkKind) -> Result<(), FleaError> {
     let meta = path.symlink_metadata().map_err(|e| from_io("undo", &path.to_string_lossy(), &e))?;
     let current = ItemIdentity::record(&meta);
     let still_link = match kind {
-        super::link::LinkKind::Hard => !meta.file_type().is_symlink() && meta.is_file(),
+        super::link::LinkKind::Hard => meta.is_file() || meta.file_type().is_symlink(),
         _ => meta.file_type().is_symlink(),
     };
     if !identity.same_item(&current) || !still_link {
         return Err(FleaError { where_: "undo".into(), path: path.to_string_lossy().into(),
             msg: "the link changed since this operation, so undo left it in place".into() });
+    }
+    if *kind == super::link::LinkKind::Hard {
+        // A hard link is removed only while its source still holds the same dev and inode.
+        match source.symlink_metadata() {
+            Ok(smeta) => {
+                let s = ItemIdentity::record(&smeta);
+                if s.dev != identity.dev || s.ino != identity.ino {
+                    return Err(FleaError { where_: "undo".into(), path: path.to_string_lossy().into(),
+                        msg: "the link source was replaced, so undo left the last name in place".into() });
+                }
+            }
+            Err(_) => {
+                return Err(FleaError { where_: "undo".into(), path: path.to_string_lossy().into(),
+                    msg: "the link source is gone, so undo left the last name in place".into() });
+            }
+        }
     }
     std::fs::remove_file(path).map_err(|e| from_io("undo", &path.to_string_lossy(), &e))
 }
@@ -334,18 +356,11 @@ fn err(msg: &str) -> FleaError {
     FleaError { where_: "undo".to_string(), path: String::new(), msg: msg.to_string() }
 }
 
-// A mode undo restores bits rather than removing a path: a symlink is refused,
-// because chmod would follow it, and any other failure names the path. The
-// batch apply rolls back through here too, so a failure there can say what it
-// restored and what stayed applied.
-pub(crate) fn restore_mode(path: &PathBuf, mode: u32) -> Result<(), FleaError> {
-    let meta = path.symlink_metadata().map_err(|e| from_io("undo", &path.to_string_lossy(), &e))?;
-    if meta.file_type().is_symlink() {
-        return Err(FleaError { where_: "undo".to_string(), path: path.to_string_lossy().to_string(),
-            msg: "the item is a link, so undo left its mode in place".to_string() });
-    }
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
-        .map_err(|e| from_io("undo", &path.to_string_lossy(), &e))
+// A mode undo restores bits through the held no-follow descriptor.
+pub(crate) fn restore_mode(path: &Path, dev: u64, ino: u64, born: Option<(u64, u32)>, expected: u32, target: u32) -> Result<(), FleaError> {
+    super::permissions::chmod_pinned(path, dev, ino, born, expected, target).map_err(|msg| {
+        FleaError { where_: "undo".to_string(), path: path.to_string_lossy().to_string(), msg }
+    })
 }
 
 #[cfg(test)]

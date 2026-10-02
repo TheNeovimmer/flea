@@ -27,10 +27,10 @@ src/backend/meta.rs 436
 src/backend/metareq.rs 416
 src/backend/movebatch.rs 470
 src/backend/movebatch_tests.rs 751
-src/backend/opsdispatch.rs 810
+src/backend/opsdispatch.rs 941
 src/backend/opsreq.rs 533
 src/backend/opsreq/tests.rs 471
-src/backend/permissions.rs 532
+src/backend/permissions.rs 722
 src/backend/proto.rs 346
 src/backend/run.rs 489
 src/backend/ops.rs 422
@@ -89,7 +89,7 @@ ui/OpenWithDialog.qml 607
 ui/Pane.qml 1000
 ui/PaneMenuActions.qml 464
 ui/PaneWire.qml 549
-ui/PermissionsDialog.qml 618
+ui/PermissionsDialog.qml 629
 ui/PickerWindow.qml 776
 ui/Preview.qml 723
 ui/PreviewColumn.qml 574
@@ -103,7 +103,7 @@ ui/StatusBar.qml 460
 ui/Theme.qml 415
 ui/TrashView.qml 475
 ui/ViewState.qml 410
-ui/WindowBody.qml 580
+ui/WindowBody.qml 581
 ui/js/Filter.js 253
 ui/js/Focus.js 433
 ui/js/Keymap.js 338

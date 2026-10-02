@@ -48,7 +48,16 @@ fn dest_dir_of(file: &Path) -> &Path {
 }
 
 pub fn create_relative(source: &Path, dest_file: &Path) -> Result<(), FleaError> {
-    let target = relative_target(dest_dir_of(dest_file), source);
+    // The kernel resolves `..` from the real folder, so a relative target
+    // computed from the pane path as written dangles under a symlinked
+    // folder; compute it between the canonical source and the canonical
+    // destination folder, falling back to the absolute canonical source.
+    let canonical_src = source.canonicalize()
+        .map_err(|e| from_io("link", &source.to_string_lossy(), &e))?;
+    let target = match dest_dir_of(dest_file).canonicalize() {
+        Ok(canonical_dest) => relative_target(&canonical_dest, &canonical_src),
+        Err(_) => canonical_src.clone(),
+    };
     std::os::unix::fs::symlink(&target, dest_file)
         .map_err(|e| link_err(dest_file, &e))
 }
@@ -194,5 +203,30 @@ mod tests {
         create_absolute(&src, &at).expect("a fresh name links");
         std::fs::remove_file(&at).expect("undo removes what the operation created");
         assert!(std::fs::symlink_metadata(&at).is_err());
+    }
+
+    #[test]
+    fn a_relative_link_into_a_symlinked_folder_resolves() {
+        let d = TestDir::new("link-symdir");
+        d.dir("docs");
+        let src = d.file("docs/a.txt", "a");
+        d.dir("mnt");
+        let real = d.dir("mnt/pics");
+        let alias = d.join("pics");
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let at = dest_path(&alias, &src).unwrap();
+        create_relative(&src, &at).expect("a fresh name links");
+        assert_eq!(std::fs::read_to_string(&at).unwrap(), "a",
+            "reported ok but the link dangles: {:?}", std::fs::read_link(&at));
+    }
+
+    #[test]
+    fn a_relative_link_to_a_missing_source_is_refused() {
+        let d = TestDir::new("link-rel-missing");
+        let gone = d.join("gone.txt");
+        let dest = d.dir("dest");
+        let at = dest_path(&dest, &gone).unwrap();
+        assert!(create_relative(&gone, &at).is_err());
+        assert!(std::fs::symlink_metadata(&at).is_err(), "a link to nothing was never made");
     }
 }
