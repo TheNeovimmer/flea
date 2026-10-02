@@ -2,10 +2,7 @@ import QtQuick
 import "." as Flea
 import "js/Icons.js" as Icons
 
-// RenderedPreviews: the Markdown bar and pane, loaded only for a Markdown file,
-// so a window that never shows one never compiles them. The bar is the board's
-// own: mark, name, line count, the settings strip's segmented control at 20 px,
-// and close. A held picture covers the whole item.
+// The Markdown bar and pane, loaded only for a Markdown file; a held picture covers the whole item.
 Item {
     id: root
 

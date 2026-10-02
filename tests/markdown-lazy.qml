@@ -4,10 +4,7 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 
-// tests/markdown-lazy.sh's harness: the real ui/PreviewMarkdown.qml over a
-// generated 1 MiB README, offscreen. The parse must arrive off the UI thread
-// and the view must instantiate only visible blocks plus its bounded cache,
-// never the whole document. Quits itself.
+// Render about 560 KiB from 2500 sections of five source blocks through the real lazy preview.
 ShellRoot {
     id: shell
 
@@ -36,31 +33,31 @@ ShellRoot {
         }
     }
 
-    Timer {
-        id: settle
-        interval: 4000
-        repeat: false
-        running: true
-        onTriggered: {
-            if (shell.fixture.length === 0)
-                shell.fail("no fixture arrived in FLEA_MARKDOWN_FIXTURE")
-            else if (!md.contentReady)
-                shell.fail("the document never loaded")
-            else {
-                shell.log("blocks=" + md.blockList.length
-                    + " delegates=" + md.delegateCount()
-                    + " offthread=" + md.parsedOffThread)
-                shell.done = true
-                shell.quit()
-            }
-        }
+    Connections {
+        target: md
+        function onContentReadyChanged() { if (md.contentReady) Qt.callLater(shell.report) }
     }
 
+    function report() {
+        if (shell.done || !md.contentReady) return
+        md.bodyItem.forceLayout()
+        shell.log("blocks=" + md.blockList.length + " delegates=" + md.delegateCount()
+            + " offthread=" + md.parsedOffThread)
+        shell.done = true
+        shell.quit()
+    }
+
+    Component.onCompleted: {
+        if (shell.fixture.length === 0) shell.fail("no fixture arrived in FLEA_MARKDOWN_FIXTURE")
+        else if (md.contentReady) Qt.callLater(shell.report)
+    }
+
+    readonly property int watchdogMs: 30000
     Timer {
-        interval: 30000
+        interval: shell.watchdogMs
         repeat: false
         running: !shell.done
-        onTriggered: shell.fail("the watchdog outlived the verdict")
+        onTriggered: shell.fail("watchdog waiting for Markdown contentReady")
     }
 
     function fail(why) {
