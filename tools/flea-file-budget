@@ -68,7 +68,7 @@ tests/rename-grid-bottom.js 303
 tests/rename-lifecycle-check.js 356
 ui/Backend.qml 441
 ui/ChromeBar.qml 478
-ui/ColumnsArea.qml 475
+ui/ColumnsArea.qml 477
 ui/ContextMenu.qml 675
 ui/ConvertDialog.qml 440
 ui/GridArea.qml 411

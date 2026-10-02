@@ -151,6 +151,21 @@ function run(check) {
     var paneSource = Source.source("ui/Pane.qml")
     check("Pane.qml declares recentSortBy", paneSource.indexOf("property string recentSortBy") >= 0, true)
     check("Pane.qml declares recentSortDesc", paneSource.indexOf("property bool recentSortDesc") >= 0, true)
+    // A plain hop out of Recent in a preserveSort pane hands the standing order back, the way close does.
+    var hopping = pane("/home/gm/Work")
+    hopping.backend.sortBy = "size"
+    hopping.backend.sortDesc = true
+    RecentMode.run(hopping, ["/home/gm/a.txt"])
+    check("a hop into Recent takes the newest-first order", hopping.backend.sortBy + "|" + hopping.backend.sortDesc, "mtime|true")
+    hopping.listInFlight = false
+    if (hopping.recentMode.length > 0) RecentMode.restoreSort(hopping)
+    hopping.recentMode = ""
+    hopping.recentFrom = ""
+    hopping.recentPaths = []
+    check("a plain hop out of Recent hands the standing order back", hopping.backend.sortBy + "|" + hopping.backend.sortDesc, "size|true")
+    // Sample input: openWithoutHistory mirrors ui/Pane.qml:375-392, restoreSort before blanking the mode.
+    var openBranch = Source.slice(paneSource, "function openWithoutHistory(newPath, options)", "Nav.openWithoutHistory(root, newPath, options)")
+    check("Pane.openWithoutHistory restores the sort Recent replaced", openBranch.indexOf("RecentMode.restoreSort(root)") >= 0, true)
 
     // The menu reaches past key dispatch, so one helper refuses a paste in Recent for both routes.
     var pasteBranch = Source.slice(paneSource, "function pasteLink(kind, paths)", "function setCursor(index, context)")

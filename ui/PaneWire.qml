@@ -366,9 +366,7 @@ Item {
             pane.refresh("")
         }
 
-        // MenuAdditions040 callout 10: Make executable reuses the permissions batch for its one
-        // Mode step, so undo and redo already work. Only the pending id this pane sent is answered
-        // here; the dialog's own batches stay with the dialog.
+        // MenuAdditions040 callout 10: Make executable reuses permissions batch; only this pane's pending id is answered here.
         function onPermissionsResult(message) {
             var pending = Permissions.MAKE_EXEC_ID + pane.makeExecPendingId
             if (!pane.makeExecPendingId || !message || message.id !== pending || message.op !== "applyMany") return

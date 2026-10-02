@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# F7 clickedge-origin: the real ui/List.qml over a stub pane proves a click on a
-# truly whole row leaves contentY unchanged under a shifted Qt originY, offscreen.
+# F7 clickedge-origin: real ui/List.qml over stub pane proves whole-row click leaves contentY unchanged under shifted originY, offscreen.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1

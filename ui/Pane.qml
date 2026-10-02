@@ -71,9 +71,8 @@ FocusScope {
         else slowClickTimer.stop()
     }
     function slowClickWasSole(index) { return SlowClick.wasSoleSelection(root, index) }
-    // A press stops the timer without clearing the tap record, so a hold past
-    // the interval cannot fire while the button is still down; the release
-    // still arms through armSlowClick, and a drag clears fully at lift.
+    // A press stops the timer without clearing the tap record, so a hold past the interval cannot fire while down;
+    // the release still arms through armSlowClick, and a drag clears fully at lift.
     function pressSlowClick() { slowClickTimer.stop() }
     function cancelSlowClick() { slowClickTimer.stop(); SlowClick.cancel(root) }
     // ui/js/Tabs.js is a .pragma library and cannot reach a QML singleton, so the state it asks
@@ -94,9 +93,7 @@ FocusScope {
     property bool searchHere: false
     property bool searchRunning: false
     property bool searchCancelled: false
-    // The main window's Recent place, "" off and "results" once the history answered;
-    // ui/js/RecentMode.js owns every transition the way ui/js/Search.js owns the walk's. The pane's
-    // own path is the history's base while it stands, so join keeps working untouched.
+    // Recent place: "" off, "results" once answered; RecentMode.js owns transitions; pane path is history base.
     property string recentMode: ""
     // Where Recent was opened over, and the listing it hands back on leaving.
     property string recentFrom: ""
@@ -379,6 +376,7 @@ FocusScope {
         }
         // Every real navigation leaves Recent: entering it pushed no history entry, so nothing
         // carries the mode across, and the folder it was opened over is already gone with it.
+        if (root.recentMode.length > 0) RecentMode.restoreSort(root)
         root.recentMode = ""
         root.recentFrom = ""
         root.recentPaths = []
