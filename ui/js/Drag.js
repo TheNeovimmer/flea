@@ -63,8 +63,7 @@ function drop(pane, rows, index, copy, listing) {
     return dropByIndex(pane, rows, index, copy ? "copy" : "move", listing)
 }
 
-// The by-index drop in verb form, the only path a selection too wide to carry paths takes, and only
-// onto its own listing. A link names the same card Paste as links asks through, so one undo removes it.
+// The by-index drop is the only path a too-wide selection takes, onto its own listing, with links through the Paste-as-links card.
 function dropByIndex(pane, rows, index, verb, listing) {
     var row = pane.rowFor(index)
     if (!canDrop(rows, index, row)) {

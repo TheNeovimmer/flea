@@ -60,8 +60,7 @@ Item {
         }
     }
 
-    // Testable entrance: a refused folder row stays dark and names its refusal on the status
-    // line instead of a verb, so it never lights "move here" for a drop that cannot land.
+    // Testable entrance: a refused folder row stays dark and names its refusal, never lighting "move here" for a drop that cannot land.
     function enter(marker, urls, shelf, plain, proposed) {
         if (!(root.row && root.row.d === true)) return false
         var dest = root.pane.join(root.pane.path, root.row.n)

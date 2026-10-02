@@ -54,7 +54,7 @@ if ! grep -q 'dropVerb(marker, proposed' ui/js/Drag.js; then
 else
     ok "dropInto chooses its verb through dropVerb"
 fi
-side=$(for f in ui/*.qml ui/js/*.js; do code_of "$f" | grep -H --label="$f" -n 'proposedAction'; done)
+side=$(for f in ui/*.qml ui/js/*.js; do code_of "$f" | grep -H --label="$f" -n 'proposed'; done)
 badside=""
 while IFS= read -r hit; do
     [ -n "$hit" ] || continue
@@ -82,7 +82,13 @@ fi
 # Helper ignores proposed for any Flea marker: no bitwise proposed read outside foreignHeld.
 bites=$(grep -n 'proposed &' ui/js/Drag.js)
 start=$(grep -n '^function foreignHeld' ui/js/Drag.js | cut -d: -f1)
-finish=$(awk -v s="$start" 'NR>s && /^function /{print NR; exit}' ui/js/Drag.js)
+finish=""
+while IFS= read -r n; do
+    if [ "$n" -gt "$start" ]; then
+        finish=$n
+        break
+    fi
+done <<< "$(grep -n '^function ' ui/js/Drag.js | cut -d: -f1)"
 outside=""
 while IFS= read -r hit; do
     [ -n "$hit" ] || continue

@@ -193,8 +193,7 @@ function cannotLeaveEnds(check) {
     at.parent.destroy()
 }
 
-// The real ui/RowDrag.qml over a stub pane: a refused folder row stays dark and names its
-// refusal instead of a verb, and a refused drop darkens exactly like dropped().
+// The real RowDrag over a stub pane: a refused row stays dark and names its refusal, darkening like dropped().
 function refusedRow(check) {
     var said = []
     var at = Fixture.scene(7, said)
@@ -216,6 +215,9 @@ function refusedRow(check) {
     session.dropIndex = 2
     check("an eligible drop refuses nothing and keeps the row lit",
           target.refuseDrop("", ["file:///x/a.txt"], "", "") + "|" + session.dropIndex, "|2")
+    check("a refused drop takes nothing",
+          target.dropped(marker, selfUrls, "", "", Qt.CopyAction), false)
+    check("and leaves the row dark", session.dropIndex, -1)
     at.parent.destroy()
 }
 

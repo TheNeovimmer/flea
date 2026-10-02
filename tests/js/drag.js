@@ -368,10 +368,7 @@ function run(check) {
     check("a foreign move offer still moves with no marker", Drag.dropVerb("", Qt.MoveAction, 0), "move")
     check("a foreign copy offer still copies with no marker", Drag.dropVerb("", Qt.CopyAction, 0), "copy")
 
-    // The lift's own round trip: the marker built the way FileDrag.liftBegan builds it, from the
-    // lift's ctrl and shift bits, read back through dropVerb, feedbackLine and the badge label.
-    // Hand-built markers cannot catch a lift that drops the shift field, a feedback that ignores
-    // it, or a badge that never links, so each row below travels the real mimeFor path.
+    // Each row below travels the real mimeFor path, so a dropped shift field, an ignoring feedback or an unlinked badge is caught.
     var lifts = [
         { mods: Qt.NoModifier, same: "move", cross: "copy" },
         { mods: Qt.ControlModifier, same: "copy", cross: "copy" },

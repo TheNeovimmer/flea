@@ -21,8 +21,7 @@ Item {
     property var feedback: null
 
     Drag.dragType: Drag.Automatic
-    // Plain lift offers copy alone (a browser uploader refuses move); Ctrl copy, Shift move, both link,
-    // so a receiver taking whatever is offered still takes the lift's verb.
+    // Plain lift offers copy alone (a browser uploader refuses move); Ctrl copy, Shift move, both link, so any receiver takes the lift's verb.
     Drag.supportedActions: root.dragLink ? Qt.LinkAction : root.dragCopy ? Qt.CopyAction : root.dragShift ? Qt.MoveAction : Qt.CopyAction
     Drag.proposedAction: root.dragLink ? Qt.LinkAction : root.dragCopy ? Qt.CopyAction : root.dragShift ? Qt.MoveAction : Qt.CopyAction
     Drag.mimeData: root.dragMime
