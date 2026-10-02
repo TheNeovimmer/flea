@@ -69,13 +69,17 @@ sweep_select() {
 sweep_seek() {
     local want="$1" i n
     [[ "$(ipc viewMode)" == grid ]] || { seek_row_named "$want"; return; }
+    local trail='' cur
     n=$(ipc total)
     key g >/dev/null
     for i in $(seq 0 "$n"); do
-        [[ "$(ipc rowAt "$(ipc cursor)")" == "$want|"* ]] && return 0
+        cur=$(ipc cursor)
+        trail+="$cur:$(ipc rowAt "$cur" | cut -d'|' -f1) "
+        [[ "$(ipc rowAt "$cur")" == "$want|"* ]] && return 0
         key l >/dev/null
+        settle
     done
-    fail "capsweep: could not put the grid cursor on $want"
+    fail "capsweep: could not put the grid cursor on $want (total $n, trail $trail)"
 }
 
 # List, both Grid stops and Columns show selections, cut marks and visible dotfiles.
