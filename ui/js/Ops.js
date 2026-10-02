@@ -214,8 +214,9 @@ function refuseRename(pane, reason) {
 }
 
 // Every view draws the same inline editor: the list and the grid inside the row, the columns view
-// over its active column, see ui/ColumnPane.qml's own corner.
-function startRename(pane, menuId, index) {
+// over its active column, see ui/ColumnPane.qml's own corner. A pointer rename carries context 0
+// so the list never moves under it; a keyboard one keeps the default three-row context.
+function startRename(pane, menuId, index, context) {
     if (pane.renamePending) return
     // The row the request named, not wherever the cursor has reached by the time the reply lands.
     var named = index !== undefined && index >= 0
@@ -224,7 +225,7 @@ function startRename(pane, menuId, index) {
     if (!row) return
     // A hidden row has no delegate to draw the editor in, so it would open on the filter clearing.
     if (!named && !Filter.cursorShown(pane)) return sayNoTarget(pane)
-    pane.setCursor(at)
+    pane.setCursor(at, context)
     pane.renameError = ""
     pane.renameSource = pane.join(pane.path, row.n)
     pane.renameMenuId = menuId || 0
