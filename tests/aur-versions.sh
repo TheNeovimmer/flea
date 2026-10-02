@@ -28,14 +28,15 @@ status=$?
 check "the pass fixture exits 0" "0" "$status"
 check "the pass fixture prints one line per package" "3" "$(printf '%s\n' "$out" | grep -c ': ok ')"
 
-for pkg in flea fleabin fleagit; do
+for pkg in flea flea-bin flea-git; do
     # Each case mismatches only on the package it names, so flea-git matches the fresh commit.
-    sed "s/gabc1234/g$pshort/" "$repo/tests/aur-versions-mismatch-$pkg.json" > "$pbox/mismatch-$pkg.json" || exit 1
+    sed "s/gabc1234/g$pshort/" "$repo/tests/aur-versions-mismatch-${pkg//-/}.json" > "$pbox/mismatch-$pkg.json" || exit 1
     out=$(cd "$pbox" && "$tool" --json "$pbox/mismatch-$pkg.json" 0.3.7 "$psha" 2>&1)
     status=$?
     check "the $pkg mismatch exits nonzero" "1" "$status"
+    check "only $pkg mismatches" "$pkg" "$(printf '%s\n' "$out" | grep ': MISMATCH ' | cut -d: -f1)"
 done
-out=$(cd "$pbox" && "$tool" --json "$pbox/mismatch-fleabin.json" 0.3.7 "$psha" 2>&1)
+out=$(cd "$pbox" && "$tool" --json "$pbox/mismatch-flea-bin.json" 0.3.7 "$psha" 2>&1)
 check "the missing package is named" "flea-bin: MISMATCH missing from the AUR reply, want 0.3.7-1" "$(printf '%s\n' "$out" | grep '^flea-bin:')"
 out=$(cd "$pbox" && "$tool" --json "$repo/tests/aur-versions-mismatch-fleagit.json" 0.3.7 "$psha" 2>&1)
 check "the stale flea-git line names both versions" "flea-git: MISMATCH got 0.3.6.r0.g98404bc-1, want 0.3.7.r0.g$pshort-1" "$(printf '%s\n' "$out" | grep '^flea-git:')"
