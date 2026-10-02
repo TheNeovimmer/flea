@@ -1,29 +1,83 @@
 .import "../../ui/js/MenuWheel.js" as Wheel
 
-// The menu wheel rule behind ui/FastScrollHandler.qml's stepMode: a notch steps the highlight
-// one row, a touchpad stroke one row per row height of gained travel, with no momentum tail.
+// The menu wheel rule behind ui/FastScrollHandler.qml's stepMode: notches accumulate to one row
+// per 120 angleDelta units, phaseless pixels fold by row height, a touchpad stroke one row per
+// row height of gained travel, with no momentum tail.
 function run(check) {
-    // One notch is one row, down for a downward notch, whatever the notch is worth in pixels.
+    // One full notch is one row, down for a downward notch, whatever the notch is worth in pixels.
     check("a downward notch steps the highlight down one row", Wheel.notchStep(-288), 1)
     check("an upward notch steps it up one row", Wheel.notchStep(288), -1)
-    check("a fractional wheel steps the same single row", Wheel.notchStep(-0.5), 1)
+    // A fractional wheel only accumulates: a single fragment steps nowhere until it totals a
+    // notch, so one detent of a hi-res wheel never moves a full row on its first event.
+    if (typeof Wheel.notchSteps === "function")
+        check("a fractional wheel accrues but steps nowhere alone", Wheel.notchSteps(0, -0.5).steps, 0)
     check("no travel steps nowhere", Wheel.notchStep(0), 0)
     check("garbage steps nowhere", Wheel.notchStep("x"), 0)
     // The sign is writeY's: negative gained travel moves later rows into view, like Down.
     check("the notch sign follows the content, not the finger", Wheel.notchStep(-120), 1)
 
+    // Hi-res: eight 15-unit events total one notch and step one row, never eight.
+    if (typeof Wheel.notchSteps !== "function") {
+        check("notches accumulate to one row per 120 units", "missing notchSteps", "function")
+    } else {
+        var acc = 0
+        var stepped = 0
+        for (var h = 0; h < 8; h++) {
+            var one = Wheel.notchSteps(acc, 15)
+            acc = one.rest
+            stepped += one.steps
+        }
+        check("eight 15-unit events step one row", stepped, -1)
+        check("and hold no leftover", acc, 0)
+        // Four such events step nowhere, the next four spend what the first kept.
+        acc = 0
+        stepped = 0
+        for (var p = 0; p < 4; p++) {
+            var part = Wheel.notchSteps(acc, 15)
+            acc = part.rest
+            stepped += part.steps
+        }
+        check("four 15-unit events step nowhere", stepped, 0)
+        check("but keep their travel", acc, 60)
+        for (var q = 0; q < 4; q++) {
+            var cont = Wheel.notchSteps(acc, 15)
+            acc = cont.rest
+            stepped += cont.steps
+        }
+        check("the next four spend what the first kept", stepped, -1)
+        check("a full notch still steps exactly one row", Wheel.notchSteps(0, -120).steps, 1)
+        // A direction flip drops the remainder instead of spending it against the new travel.
+        var held = Wheel.notchSteps(0, 60)
+        check("a flip drops the held remainder", Wheel.notchSteps(held.rest, -15).rest, -15)
+        check("and steps nothing on the flip", Wheel.notchSteps(held.rest, -15).steps, 0)
+    }
+
+    // Phaseless pixels fold by row height at gain 1: twenty -2 nudges total -40, one row at 28.
+    if (typeof Wheel.pixelSteps !== "function") {
+        check("phaseless pixels fold by row height", "missing pixelSteps", "function")
+    } else {
+        var px = 0
+        var pxSteps = 0
+        for (var n = 0; n < 20; n++) {
+            var folded = Wheel.pixelSteps(px, -2, 28)
+            px = folded.rest
+            pxSteps += folded.steps
+        }
+        check("twenty -2 pixel nudges step one row, not twenty", pxSteps, 1)
+    }
+
     // Touchpad: one row per row height of gained travel, the leftover riding to the next event.
-    var one = Wheel.touchSteps(0, -37, 37)
-    check("one row height down steps one row", one.steps, 1)
-    check("and holds no leftover", one.rest, 0)
+    var oneRow = Wheel.touchSteps(0, -37, 37)
+    check("one row height down steps one row", oneRow.steps, 1)
+    check("and holds no leftover", oneRow.rest, 0)
     var two = Wheel.touchSteps(0, -74, 37)
     check("two row heights step two rows", two.steps, 2)
-    var part = Wheel.touchSteps(0, -20, 37)
-    check("a partial row steps nowhere", part.steps, 0)
-    check("but keeps its travel", part.rest, -20)
-    var cont = Wheel.touchSteps(part.rest, -20, 37)
-    check("the next event spends what the last one kept", cont.steps, 1)
-    check("leaving three pixels over", cont.rest, -3)
+    var partial = Wheel.touchSteps(0, -20, 37)
+    check("a partial row steps nowhere", partial.steps, 0)
+    check("but keeps its travel", partial.rest, -20)
+    var continued = Wheel.touchSteps(partial.rest, -20, 37)
+    check("the next event spends what the last one kept", continued.steps, 1)
+    check("leaving three pixels over", continued.rest, -3)
     var up = Wheel.touchSteps(0, 40, 37)
     check("upward travel steps the highlight up", up.steps, -1)
     check("no travel is no step", Wheel.touchSteps(5, 0, 37).steps, 0)

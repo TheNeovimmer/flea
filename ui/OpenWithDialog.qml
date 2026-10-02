@@ -80,6 +80,7 @@ Item {
         field.text = ""
         root.opened = true
         list.contentY = 0
+        wheel.resetSteps()
         list.forceActiveFocus()
         // installed: the whole catalogue, which only this card draws. The flyout asks without it,
         // so a right-click does not pay for a walk of every applications directory on the box.
@@ -139,6 +140,17 @@ Item {
         root.cursor = Math.max(0, Math.min(count - 1, root.cursor + delta))
         list.forceActiveFocus()
         // By index, not by item: a ListView has no item for a row it has not realized yet.
+        list.positionViewAtIndex(OpenWith.rowOf(root.rows, root.cursor), ListView.Contain)
+    }
+
+    // The wheel's own step: the cursor and the view move, focus and focusPart never do, and a
+    // busy list answers nothing, the arrow keys' own guard. The pointer moves the cursor and
+    // never the focus, and so does the wheel.
+    function stepCursor(delta) {
+        if (root.busy) return
+        var count = root.applications.length
+        if (!count) return
+        root.cursor = Math.max(0, Math.min(count - 1, root.cursor + delta))
         list.positionViewAtIndex(OpenWith.rowOf(root.rows, root.cursor), ListView.Contain)
     }
 
@@ -335,13 +347,14 @@ Item {
                     activeFocusOnTab: false
                     Keys.forwardTo: [keys]
                     Flea.FastScrollHandler {
+                        id: wheel
                         parent: list
                         flickable: list
                         // The app list steps the highlight like a menu: one row a notch, one
                         // row per row height of gained touchpad travel. No bar, no lane.
                         stepMode: true
                         stepRowHeight: Theme.rowHeight
-                        stepBy: function (delta) { root.moveCursor(delta) }
+                        stepBy: function (delta) { root.stepCursor(delta) }
                     }
 
                     delegate: Item {

@@ -52,12 +52,16 @@ Flickable {
     }
 
     Flea.FastScrollHandler {
+        id: wheel
         parent: root
         flickable: root
         stepMode: root.highlightSteps
         stepRowHeight: root.stepRowHeight
         stepBy: root.stepBy
     }
+
+    // Drops every wheel remainder, so a menu opening never spends the last one's travel.
+    function resetSteps() { wheel.resetSteps() }
 
     Item {
         id: holder

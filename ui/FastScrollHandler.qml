@@ -21,6 +21,16 @@ MouseArea {
     property real stepRowHeight: 0
     property var stepBy: null
     property real stepAccum: 0
+    // The notch remainder in raw angleDelta units and the phaseless-pixel remainder in raw
+    // pixels; both reset when the menu opens, so one menu never spends another's travel.
+    property real notchAccum: 0
+    property real pixelAccum: 0
+
+    function resetSteps() {
+        root.stepAccum = 0
+        root.notchAccum = 0
+        root.pixelAccum = 0
+    }
 
     anchors.fill: parent
     acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
@@ -113,8 +123,9 @@ MouseArea {
         root.tailRunning = true
     }
 
-    // Menus step the highlight: one row a notch, one row per row height of gained touchpad
-    // travel, no tail. Always consumed while the menu stands, so nothing beneath scrolls.
+    // Menus step the highlight: one row a notch of accumulated angleDelta, one row per row
+    // height of gained touchpad travel or raw phaseless pixels, no tail. Always consumed while
+    // the menu stands, so nothing beneath scrolls.
     function stepWheel(wheel) {
         var phase = wheel.phase !== undefined ? wheel.phase : Qt.NoScrollPhase
         if (Scroll.isTouchpad(phase)) {
@@ -127,9 +138,18 @@ MouseArea {
                 root.stepBy(folded.steps > 0 ? 1 : -1)
             return true
         }
-        var at = MenuWheel.notchStep(root.scrollDistance(wheel.pixelDelta.y, wheel.angleDelta.y))
-        if (at !== 0)
-            root.stepBy(at)
+        var pd = Number(wheel.pixelDelta.y) || 0
+        if (pd !== 0) {
+            var held = MenuWheel.pixelSteps(root.pixelAccum, pd, root.stepRowHeight)
+            root.pixelAccum = held.rest
+            for (var j = 0; j < Math.abs(held.steps); j++)
+                root.stepBy(held.steps > 0 ? 1 : -1)
+            return true
+        }
+        var notched = MenuWheel.notchSteps(root.notchAccum, Number(wheel.angleDelta.y) || 0)
+        root.notchAccum = notched.rest
+        for (var k = 0; k < Math.abs(notched.steps); k++)
+            root.stepBy(notched.steps > 0 ? 1 : -1)
         return true
     }
 

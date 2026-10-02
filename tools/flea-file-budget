@@ -67,7 +67,7 @@ tests/rename-lifecycle-check.js 356
 ui/Backend.qml 440
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 475
-ui/ContextMenu.qml 632
+ui/ContextMenu.qml 641
 ui/ConvertDialog.qml 440
 ui/GridArea.qml 410
 ui/Ipc.qml 832
@@ -76,7 +76,7 @@ ui/List.qml 435
 ui/NetworkDialog.qml 449
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 838
-ui/OpenWithDialog.qml 596
+ui/OpenWithDialog.qml 609
 ui/Pane.qml 992
 ui/PaneMenuActions.qml 458
 ui/PaneWire.qml 537
