@@ -306,8 +306,7 @@ function move(pane, from, to) {
     pane.tabs = pack(items, TabMove.reorder(items, from, to, index))
 }
 
-// Tabs040 callout 1: the { and } keys move the current tab one place. A reorder
-// keeps the strip only: the pane stays on its path and lists nothing.
+// Tabs040 callout 1: { and } move the current tab with no re-list.
 function moveCurrent(pane, delta) {
     var total = count(pane)
     if (total < 2)

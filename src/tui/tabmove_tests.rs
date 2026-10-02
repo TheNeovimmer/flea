@@ -90,6 +90,7 @@ fn a_tenth_tab_is_refused_in_both_adding_arms() {
     press(&mut model, &mut wire, &Key::character('t', ""));
     assert_eq!(model.tabs.len(), cap, "t on a full strip adds nothing");
     assert_eq!(model.message, "Nine tabs is the most.", "t on a full strip says the cap");
+    model.message.clear();
     press(&mut model, &mut wire, &open_key());
     assert_eq!(model.tabs.len(), cap, "ctrl-return on a full strip adds nothing");
     assert_eq!(model.message, "Nine tabs is the most.", "ctrl-return on a full strip says the cap");
