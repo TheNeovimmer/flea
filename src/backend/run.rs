@@ -62,7 +62,7 @@ pub fn run() -> i32 {
     let mut st = State::new(super::dirsizeworker::Worker::new(tx.clone()));
     let (results, done) = channel::<Done>();
     let (op_tx, op_rx) = channel::<OpMsg>();
-    let mut ops = Ops::new(op_tx);
+    let mut ops = Ops::new_shared(op_tx);
     let pool = Pool::new(THUMB_WORKERS, results, default_root(), Arc::clone(&tb.aliases), Arc::clone(&tb.thumbs));
     let cache = Cache::new();
     // Every thumbnail job fails closed without these two, so the reason is said once here rather than never; see AGENTS.md "Thumbnail sandbox".

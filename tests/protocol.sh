@@ -28,6 +28,8 @@ LARGEST_BYTES=1000000
 # src/backend/thumbcache.rs honours XDG_CACHE_HOME, so this suite's thumbnails land inside its own
 # sandbox and the operator's real cache is never written to, read from, or cleaned up after.
 export XDG_CACHE_HOME="$SB/cache"
+# The shared undo journal stays hermetic: this suite's backends share one scratch runtime dir.
+export XDG_RUNTIME_DIR="$SB/runtime"
 fail=0
 
 setup() {

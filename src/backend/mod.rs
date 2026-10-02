@@ -89,6 +89,8 @@ mod mountinfo;
 mod renamecompat;
 pub mod trash;
 pub mod undo;
+pub mod undoshare;
+pub mod undocodec;
 pub mod redo;
 pub mod link;
 // The open listing's directory, watched so an outside change reaches the client; see docs/protocol.md "changed".

@@ -27,10 +27,10 @@ src/backend/meta.rs 436
 src/backend/metareq.rs 416
 src/backend/movebatch.rs 470
 src/backend/movebatch_tests.rs 751
-src/backend/opsdispatch.rs 941
+src/backend/opsdispatch.rs 948
 src/backend/opsreq.rs 533
 src/backend/opsreq/tests.rs 471
-src/backend/permissions.rs 722
+src/backend/permissions.rs 715
 src/backend/proto.rs 355
 src/backend/run.rs 498
 src/backend/ops.rs 422
@@ -38,6 +38,9 @@ src/backend/thumbs.rs 460
 src/backend/dirsizeworker.rs 574
 src/backend/watch.rs 441
 src/backend/thumbreq.rs 408
+src/backend/undo.rs 593
+src/backend/undoshare.rs 431
+src/backend/undoshare_tests.rs 513
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 698
 src/backend/trashdelete.rs 917

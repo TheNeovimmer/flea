@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Drives the real Quickshell window with omarchy-drive and asserts through the read-only IPC seam.
 # Usage: ./tests/ui.sh [case ...]; with no args it runs the default wanted list below; every case_* here or in a sourced tests/ui-*.sh outside it runs only by name (touchpad, networklive and xwdrag among them).
 set -u
 set -o pipefail
@@ -98,6 +99,11 @@ printf 'NATIVE_EVIDENCE_ROOT=%s\n' "$run_root"
 suite_state="$run_root/state"
 mkdir -p "$suite_state" || fail "the suite state home could not be created at $suite_state"
 export XDG_STATE_HOME="$suite_state"
+# One scratch journal dir for the run; only the backend reads it, qs keeps the session runtime dir.
+suite_undo="$run_root/undo-journal"
+mkdir -p "$suite_undo" || fail "the suite undo dir could not be created at $suite_undo"
+chmod 0700 "$suite_undo" || fail "the suite undo dir could not be locked down"
+export FLEA_UNDO_DIR="$suite_undo"
 
 # Ten bursts of twelve clicks moved the 100k viewport about eleven rows when measured.
 scroll_bursts=10
@@ -464,6 +470,8 @@ launch() {
     kill_flea
     cat "$flea_log" >> "$run_log" 2>/dev/null || true
     : > "$flea_log"
+    # Each case starts with an empty session journal, so one case never undoes another's operation.
+    rm -f "$FLEA_UNDO_DIR/undo-journal" "$FLEA_UNDO_DIR/undo-journal.lock"
     FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" \
         setsid nohup "$flea_bin" --gui "$start_path" >"$flea_log" 2>&1 </dev/null &
     omarchy-drive wait window flea --timeout 15 >/dev/null
@@ -6072,6 +6080,114 @@ case_middleclick() {
     wait_path "$dir/fav"
     shot middleclick-rail
     kill_flea
+}
+
+# One undo history for every Flea window: two live windows share one session journal, so the
+# newest entry from either is what Ctrl+Z undoes in whichever window it is pressed. The two
+# backends are separate processes sharing the suite scratch journal dir, and each window
+# is driven by its Hyprland address: --window flea refuses an ambiguous match, and qs ipc cannot
+# address one instance out of two, so every assertion past the second launch reads the filesystem
+# rather than the seam. Each directory holds one file, so the cursor can only ever be row 0.
+case_xwundo() {
+    local dir="$fixture_root/xwundo" dirB="$fixture_root/xwundo-b"
+    sandbox_scratch "$dir"
+    sandbox_scratch "$dirB"
+    printf 'note\n' > "$dir/note.txt"
+    printf 'boxed\n' > "$dirB/b.txt"
+    local blog="$run_root/flea-b.log"
+    : > "$blog"
+
+    kill_flea
+    cat "$flea_log" >> "$run_log" 2>/dev/null || true
+    : > "$flea_log"
+    # Both windows run under the session runtime dir; only their backends share the suite journal dir.
+    rm -f "$FLEA_UNDO_DIR/undo-journal" "$FLEA_UNDO_DIR/undo-journal.lock"
+    FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" \
+        setsid nohup "$flea_bin" --gui "$dir" >"$flea_log" 2>&1 </dev/null &
+    omarchy-drive wait window flea --timeout 15 >/dev/null
+    omarchy-drive focus flea >/dev/null
+    assert_window
+    wait_listing 1
+    local addrA
+    addrA=$(omarchy-drive windows --json | jq -r '.windows[] | select(.title == "Flea") | .address')
+    [[ -n "$addrA" ]] || fail "xwundo: window A never appeared"
+
+    FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" \
+        setsid nohup "$flea_bin" --gui "$dirB" >"$blog" 2>&1 </dev/null &
+    local addrB="" attempt
+    for attempt in $(seq 1 150); do
+        if [[ "$(omarchy-drive windows --json | jq '[.windows[] | select(.title == "Flea")] | length')" == "2" ]]; then
+            addrB=$(omarchy-drive windows --json | jq -r --arg a "$addrA" '.windows[] | select(.title == "Flea" and .address != $a) | .address')
+            [[ -n "$addrB" ]] && break
+        fi
+        sleep 0.1
+    done
+    [[ -n "$addrB" ]] || fail "xwundo: window B never appeared beside A"
+    omarchy-drive focus "$addrB" >/dev/null || fail "xwundo: window B never took focus"
+
+    echo "-- rename in A, Ctrl+Z in B restores the name --"
+    omarchy-drive focus "$addrA" >/dev/null || fail "xwundo: window A never took focus back"
+    omarchy-drive key --window "$addrA" r >/dev/null || fail "xwundo: the rename keypress failed"
+    settle
+    printf '%s' "note2" | omarchy-drive key --window "$addrA" - >/dev/null \
+        || fail "xwundo: typing the new name failed"
+    omarchy-drive key --window "$addrA" -k Return >/dev/null || fail "xwundo: the rename commit failed"
+    xwundo_wait_file "$dir/note2.txt" "xwundo: the rename never landed"
+    [[ ! -e "$dir/note.txt" ]] || fail "xwundo: the old name is still on disk"
+    omarchy-drive focus "$addrB" >/dev/null || fail "xwundo: window B never took focus back"
+    settle
+    xwundo_until 100 "$dir/note.txt" "xwundo: B never undid A's rename" \
+        omarchy-drive key --window "$addrB" z
+    [[ ! -e "$dir/note2.txt" ]] || fail "xwundo: the renamed file survived B's undo"
+    printf 'XWUNDO rename ok\n'
+
+    echo "-- move by paste in B, Ctrl+Z in A puts it back --"
+    omarchy-drive focus "$addrB" >/dev/null || fail "xwundo: window B lost focus before the cut"
+    omarchy-drive key --window "$addrB" x >/dev/null || fail "xwundo: the cut keypress failed"
+    settle
+    # The path bar opens with the current path selected, so typing replaces it whole.
+    omarchy-drive key --window "$addrB" : >/dev/null || fail "xwundo: the path bar never opened"
+    settle
+    printf '%s' "$dir" | omarchy-drive key --window "$addrB" - >/dev/null \
+        || fail "xwundo: typing the destination failed"
+    omarchy-drive key --window "$addrB" -k Return >/dev/null || fail "xwundo: the path bar commit failed"
+    sleep 1
+    omarchy-drive key --window "$addrB" p >/dev/null || fail "xwundo: the paste keypress failed"
+    xwundo_wait_file "$dir/b.txt" "xwundo: the paste never landed"
+    [[ ! -e "$dirB/b.txt" ]] || fail "xwundo: the source survived its own move"
+    omarchy-drive focus "$addrA" >/dev/null || fail "xwundo: window A never took focus back"
+    settle
+    xwundo_until 100 "$dirB/b.txt" "xwundo: A never undid B's move" \
+        omarchy-drive key --window "$addrA" z
+    [[ ! -e "$dir/b.txt" ]] || fail "xwundo: the moved file survived A's undo"
+    [[ "$(ls -A "$dir")" == "note.txt" ]] || fail "xwundo: A's directory holds more than the restored note"
+    printf 'XWUNDO move ok\n'
+
+    cat "$flea_log" >> "$run_log" 2>/dev/null || true
+    cat "$blog" >> "$run_log" 2>/dev/null || true
+    kill_flea
+}
+
+# A bounded filesystem poll: qs ipc cannot address one instance out of two.
+xwundo_wait_file() {
+    local file="$1" message="$2" i
+    for i in $(seq 1 100); do
+        [[ -e "$file" ]] && return 0
+        sleep 0.1
+    done
+    fail "$message"
+}
+
+# The polled file starts absent; the key is resent until it appears, which an empty journal tolerates.
+xwundo_until() {
+    local attempts="$1" file="$2" message="$3"; shift 3
+    local i
+    for i in $(seq 1 "$attempts"); do
+        [[ -e "$file" ]] && return 0
+        if (( i % 10 == 1 )); then "$@" >/dev/null || fail "$message (the keypress failed)"; fi
+        sleep 0.1
+    done
+    fail "$message"
 }
 
 # Ctrl+Return opens the cursor folder in a new tab, the keyboard twin of the
@@ -12486,7 +12602,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 . "$repo/tests/ui-captures-markdown.sh"
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar touchpad terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject poweroff rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare hanglisting hanginspect openwithdesign noblank previewswap transferlive recent middleclick opentab)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar touchpad terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject poweroff rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare hanglisting hanginspect openwithdesign noblank previewswap transferlive recent middleclick opentab xwundo)
 
 : > "$run_log"
 : > "$flea_log"

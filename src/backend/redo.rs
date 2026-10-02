@@ -20,6 +20,10 @@ pub(crate) struct Replay {
     steps: Vec<ReplayStep>,
 }
 
+// One alias for the wire form steps_data and from_steps share, so neither signature repeats it.
+pub(crate) type SavedStep = (Step, Option<ItemIdentity>, Option<(PathBuf, ItemIdentity)>);
+pub(crate) type SavedSteps = Vec<SavedStep>;
+
 fn error(path: &Path, message: &str) -> FleaError {
     FleaError { where_: "redo".into(), path: path.to_string_lossy().into(), msg: message.into() }
 }
@@ -46,7 +50,7 @@ impl Replay {
     pub fn capture(entry: Entry) -> Result<Self, FleaError> {
         let mut steps = Vec::new();
         for step in entry.steps {
-            if matches!(step, Step::Created { .. }) {
+            if matches!(step, Step::Created { .. } | Step::Barrier) {
                 return Err(error(Path::new(""), "this interrupted operation has no recorded source to redo"));
             }
             let input = match &step {
@@ -64,6 +68,13 @@ impl Replay {
     }
     pub fn op(&self) -> &str { &self.op }
     pub fn len(&self) -> usize { self.steps.len() }
+    // Every field the file needs to rebuild this replay for a redo in another window.
+    pub(crate) fn steps_data(&self) -> (String, SavedSteps) {
+        (self.op.clone(), self.steps.iter().map(|saved| (saved.step.clone(), saved.input.clone(), saved.parent.clone())).collect())
+    }
+    pub(crate) fn from_steps(op: String, steps: SavedSteps) -> Self {
+        Self { op, steps: steps.into_iter().map(|(step, input, parent)| ReplayStep { step, input, parent }).collect() }
+    }
     pub fn rebase(&mut self, old: &ItemIdentity, new: &ItemIdentity) {
         for saved in &mut self.steps {
             if saved.input.as_ref() == Some(old) { saved.input = Some(new.clone()); }
@@ -194,6 +205,8 @@ fn apply(saved: &ReplayStep, id: usize, index: usize, cancel: &AtomicBool, tx: &
             Ok(())
         }
         Step::Created { path } => Err(error(path, "this operation has no recorded replay source")),
+        // A barrier never reaches a replay; refusing here keeps it from running as a file.
+        Step::Barrier => Err(error(Path::new(""), "That operation was too large to undo.")),
         // A link replays through the same exclusive create, so a name taken
         // since refuses honestly and a fresh identity is recorded.
         Step::Linked { path, source, kind, .. } => {
