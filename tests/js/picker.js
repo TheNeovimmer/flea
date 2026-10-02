@@ -145,8 +145,7 @@ function run(check) {
     check("a double click with no first tap sends nothing", Picker.doubleAction(single, file, "/a/b.txt", "", []), "none")
     check("a double click on no row sends nothing", Picker.doubleAction(single, null, "/a/b.txt", "/a/b.txt", []), "none")
 
-    // Issue #191, GM 2026-10-01: the picker reopens in the view last used, and only a switch
-    // that moves it owes the state file a write.
+    // Issue #191: the picker reopens in the last used view, and only a moving switch owes a write.
     check("a remembered grid reopens as grid", Picker.rememberedView("grid"), "grid")
     check("a remembered list reopens as list", Picker.rememberedView("list"), "list")
     check("a word the picker cannot draw opens the list", Picker.rememberedView("columns"), "list")
@@ -167,9 +166,7 @@ function run(check) {
     check("a strip wider than the free width still scrolls", Picker.chipStripWidth(200, 400, 96), 104)
     check("no free width leaves the path whole", Picker.chipStripWidth(50, 400, 96), 0)
 
-    // Issue #225: under the Mac preset Return and keypad Enter look up as rename (Finder's
-    // key), and the picker, which never renames, still activates on them. Other rename keys
-    // stay unhandled, and the default preset is unchanged.
+    // Issue #225: the Mac preset's Return/Enter looks up as rename yet still activates.
     var none = Qt.NoModifier
     function looked(preset, key, text) {
         return Keymap.lookupFor(preset, key, text, none, "listing", "gui")
@@ -187,14 +184,15 @@ function run(check) {
     check("mac Return activates", Picker.activates(looked("mac", Qt.Key_Return, ""), Qt.Key_Return), true)
     check("mac Enter activates", Picker.activates(looked("mac", Qt.Key_Enter, ""), Qt.Key_Enter), true)
     check("mac r does not activate", Picker.activates(looked("mac", 0, "r"), 0), false)
+    check("mac r looks up as rename", looked("mac", 0, "r"), "rename")
     check("mac F2 does not activate", Picker.activates(looked("mac", Qt.Key_F2, ""), Qt.Key_F2), false)
+    check("mac F2 looks up as rename", looked("mac", Qt.Key_F2, ""), "rename")
     check("open activates", Picker.activates("open", Qt.Key_Return), true)
     check("pageForward activates", Picker.activates("pageForward", Qt.Key_Right), true)
     check("parent never activates", Picker.activates("parent", Qt.Key_Left), false)
     check("escape never activates", Picker.activates("escape", Qt.Key_Escape), false)
 
-    // Issue #191: the grid steps in tile strides with the main grid's own edge rule, so a
-    // sideways step off its row stays where it is and anything past either end clamps.
+    // Issue #191: single grid steps past an end stay; page steps clamp through pageTarget.
     check("a down step moves one tile row", Picker.gridTarget(5, 5, 5, 12), 10)
     check("an up step moves one tile row", Picker.gridTarget(7, -5, 5, 12), 2)
     check("a left step off its row stays", Picker.gridTarget(5, -1, 5, 12), 5)
@@ -202,6 +200,9 @@ function run(check) {
     check("a step inside its row moves", Picker.gridTarget(6, 1, 5, 12), 7)
     check("a step past the end stays", Picker.gridTarget(11, 5, 5, 12), 11)
     check("a step past the top stays", Picker.gridTarget(1, -5, 5, 12), 1)
+    check("a page past the end clamps to the last tile", Picker.pageTarget(85, 20, 100), 99)
+    check("a page past the top clamps to the first tile", Picker.pageTarget(11, -20, 12), 0)
+    check("a page inside the listing lands", Picker.pageTarget(5, 20, 100), 25)
 
     // The grid's visible tiles as listing rows: the tile-row viewport times the column count.
     var range = Picker.tileRange(0, 198, 4, 5, 100)

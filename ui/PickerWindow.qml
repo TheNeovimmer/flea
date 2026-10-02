@@ -57,8 +57,7 @@ ShellRoot {
         readonly property int shownTotal: win.total
         onFilterChanged: if (win.path.length) win.openWithoutHistory(win.path)
 
-        // The view the listing draws in, session-only: the picker persists nothing to ui.json,
-        // so a relaunch opens the list again rather than inheriting the main window's view.
+        // The view the listing draws in; a launch reads pickerView and only setView writes it.
         property string viewMode: "list"
         function setView(mode) {
             var next = Picker.viewSwitch(win.viewMode, mode)
@@ -121,6 +120,9 @@ ShellRoot {
         readonly property bool saving: win.req.mode === "save"
         readonly property bool folderMode: win.req.directory || win.req.mode === "savefiles"
         readonly property int windowSize: list.visibleRows + 60
+        // Both views refetch through one interval and lead, the main views' own 16 ms and quarter window.
+        readonly property int coalesceMs: 16
+        readonly property real windowLead: 0.25
 
         // Exactly one answer leaves this window, whichever way it is asked for.
         property bool answered: false

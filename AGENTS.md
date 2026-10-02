@@ -3031,6 +3031,11 @@ are carried untouched. Menu rows, rail places and recent files join the sheet's 
 provider plumbing, so the sheet ranks the keymap's actions alone and `SheetQuery.rank` already holds
 their section order.
 
+Advfix-picker records `ui/PickerWindow.qml` 706 to 778, each re-derived with `wc -l`: the grid view
+with its thumbnail plan and the persisted `pickerView` (706 to 770), the scroll-ask follow-up that
+re-plans newly visible tiles (770 to 776), and the named coalesce interval and window lead the two
+views share (776 to 778).
+
 MenuAdditions040 moves sixteen recorded ceilings, each re-derived with `wc -l`
 against the 0.3.8 integration head. `ui/js/Menu.js` 337 to 399 for the Copy as
 and Paste as flyouts with their leaves, Show original and Invert selection with

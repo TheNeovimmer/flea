@@ -22,6 +22,22 @@ grep -q "listing.fsinfo()" ui/PickerWindow.qml \
     || { echo "FAIL PickerWindow never asks the listing worker for fsinfo"; exit 1; }
 grep -q "function fsinfo()" ui/PickerListing.qml \
     || { echo "FAIL PickerListing has no fsinfo ask to send"; exit 1; }
+# F12: the list gates its model on visibility the way the grid does, AGENTS.md rule 6.
+grep -q "model: root.visible ? root.picker.shownTotal : 0" ui/PickerList.qml \
+    || { echo "FAIL PickerList keeps its model bound while hidden"; exit 1; }
+# F19: both views refetch through the window's own interval and lead, never a bare number.
+grep -q "readonly property int coalesceMs: 16" ui/PickerWindow.qml \
+    || { echo "FAIL PickerWindow names no coalesce interval for its views"; exit 1; }
+grep -q "readonly property real windowLead: 0.25" ui/PickerWindow.qml \
+    || { echo "FAIL PickerWindow names no window lead for its views"; exit 1; }
+grep -q "interval: root.picker.coalesceMs" ui/PickerList.qml \
+    || { echo "FAIL PickerList carries its own coalesce interval"; exit 1; }
+grep -q "interval: root.picker.coalesceMs" ui/PickerGrid.qml \
+    || { echo "FAIL PickerGrid carries its own coalesce interval"; exit 1; }
+grep -q "windowSize \* root.picker.windowLead" ui/PickerList.qml \
+    || { echo "FAIL PickerList carries its own window lead"; exit 1; }
+grep -q "windowSize \* root.picker.windowLead" ui/PickerGrid.qml \
+    || { echo "FAIL PickerGrid carries its own window lead"; exit 1; }
 
 sandbox_root_ok
 test_root=$(mktemp -d "$SANDBOX_ROOT/flea-picker-grid.XXXXXX") || exit 1

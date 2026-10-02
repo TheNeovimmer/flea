@@ -295,9 +295,7 @@ Item {
         }
     }
 
-    // The board's own view marks at the strip's right: the live one in foreground, the other
-    // muted. Pointer targets and the ctrl-1/ctrl-3 keys; kept out of the Tab walk, which callout
-    // 12 fixes without them.
+    // Pointer and ctrl-1/ctrl-3 targets only; callout 12 keeps them out of the Tab walk.
     Row {
         id: views
         anchors.right: parent.right

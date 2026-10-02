@@ -16,16 +16,14 @@ ListView {
     property var picker: null
     property var backend: null
 
-    // The hidden flag lives on the window, so the list and the grid read one value; the worker
-    // never sends what a request did not ask for, and the window re-reads when this flips.
-
     readonly property int visibleRows: Math.max(1, Math.ceil(root.height / Theme.rowHeight))
     // The board's content-box dimensions exclude the border; QML Rectangle dimensions include it.
     readonly property int checkInnerSize: Theme.font.bodySmall + Theme.spacing.hairline
     readonly property int checkBorderWidth: Theme.spacing.hairline * 2
     readonly property int checkSize: root.checkInnerSize + root.checkBorderWidth * 2
 
-    model: root.picker.shownTotal
+    // Hidden builds nothing: a hidden view is not a free view, AGENTS.md rule 6.
+    model: root.visible ? root.picker.shownTotal : 0
     clip: true
     boundsBehavior: Flickable.StopAtBounds
     highlightMoveDuration: 0
@@ -201,7 +199,7 @@ ListView {
 
     Timer {
         id: coalesce
-        interval: 16
+        interval: root.picker.coalesceMs
         onTriggered: root.requestIfDrifted()
     }
 
@@ -213,7 +211,7 @@ ListView {
         if (root.picker.rows.length === 0
                 || (firstVisible < root.picker.held && root.picker.held > 0)
                 || (firstVisible + root.visibleRows > heldEnd && heldEnd < root.picker.total)) {
-            var start = Math.max(0, firstVisible - root.picker.windowSize / 4)
+            var start = Math.max(0, firstVisible - Math.floor(root.picker.windowSize * root.picker.windowLead))
             root.backend.window(Math.floor(start), root.picker.windowSize)
         }
     }

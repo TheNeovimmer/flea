@@ -9,9 +9,7 @@ import "js/Thumbs.js" as Thumbs
 import "js/ExtThumbs.js" as ExtThumbs
 import "js/Sort.js" as Sort
 
-// The picker's grid mode, issue #191: the main window's tiles over the same rows, asking for
-// thumbnails for visible tiles only like the main grid. No drag, no rename, no directory
-// sizes: a chooser moves through the tree and answers, and a tile draws no size.
+// Issue #191 grid mode: the main window's tiles over the same rows, visible tiles only.
 GridView {
     id: root
 
@@ -189,9 +187,9 @@ GridView {
         } else if (action === "cursorUp") {
             root.moveCursor(-root.columns)
         } else if (action === "pageDown") {
-            root.moveCursor(root.visibleTileRows * root.columns)
+            root.jumpTo(Picker.pageTarget(root.picker.cursorIndex, root.visibleTileRows * root.columns, root.picker.total))
         } else if (action === "pageUp") {
-            root.moveCursor(-root.visibleTileRows * root.columns)
+            root.jumpTo(Picker.pageTarget(root.picker.cursorIndex, -root.visibleTileRows * root.columns, root.picker.total))
         } else if (action === "cursorFirst") {
             root.jumpTo(0)
         } else if (action === "cursorLast") {
@@ -232,7 +230,7 @@ GridView {
 
     Timer {
         id: coalesce
-        interval: 16
+        interval: root.picker.coalesceMs
         onTriggered: root.requestIfDrifted()
     }
 
@@ -253,7 +251,7 @@ GridView {
         if (root.picker.rows.length === 0
                 || (range.first < root.picker.held && root.picker.held > 0)
                 || (range.last >= heldEnd && heldEnd < root.picker.total)) {
-            var start = Math.max(0, range.first - Math.floor(root.picker.windowSize / 4))
+            var start = Math.max(0, range.first - Math.floor(root.picker.windowSize * root.picker.windowLead))
             root.backend.window(Math.floor(start), root.picker.windowSize)
         }
     }

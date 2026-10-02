@@ -227,8 +227,7 @@ function doubleAction(req, row, rowPath, firstPath, marks) {
     return marked(marks, rowPath) ? DOUBLE_ACCEPT : DOUBLE_MARK_ACCEPT
 }
 
-// The picker never renames, so a rename on Return or keypad Enter (the Mac preset's
-// Finder key) still activates the cursor row. Other rename keys (r, F2) stay unhandled.
+// The picker never renames, so Return/Enter still activates and other rename keys stay unhandled.
 function activates(action, key) {
     if (action === "open" || action === "pageForward") {
         return true
@@ -254,23 +253,17 @@ function directory(row) {
     return !!row && (row.d === true || (Format.isSymlink(row.p) && row.i === "folder"))
 }
 
-// The view a launch opens in: only the two the picker draws survive, so anything a hand
-// edit or an older file left behind opens the list. Sample input: rememberedView("grid")
-// answers "grid", rememberedView("columns") answers "list".
+// A launch opens only a view the picker draws; anything else opens the list.
 function rememberedView(stored) {
     return stored === "grid" ? "grid" : "list"
 }
 
-// A view switch owes the state file exactly the switches that move it: a repeat press and
-// a word the picker cannot draw write nothing. Sample input: viewSwitch("list", "grid")
-// answers "grid", viewSwitch("grid", "grid") answers "".
+// Only a switch that moves the view owes the state file a write.
 function viewSwitch(current, next) {
     return (next === "list" || next === "grid") && next !== current ? next : ""
 }
 
-// The grid's visible tiles as listing rows: the tile-row viewport times the column count,
-// the same multiplication ui/GridArea.qml's visibleRange does. Sample input:
-// tileRange(0, 198, 4, 5, 100) answers {first: 0, last: 19}.
+// Visible tiles as listing rows, the same multiplication GridArea.visibleRange does.
 function tileRange(contentY, cellH, tileRows, columns, total) {
     var view = Thumbs.viewport(contentY, cellH, tileRows, Math.max(1, Math.ceil(total / Math.max(1, columns))))
     return {
@@ -279,10 +272,7 @@ function tileRange(contentY, cellH, tileRows, columns, total) {
     }
 }
 
-// One grid step with the main grid's own edge rule: a sideways step off its row stays
-// where it is, and so does a step past either end, the way ui/js/Grid.js refuses instead of
-// clamping. Sample input: gridTarget(5, -1, 5, 12)
-// answers 5, gridTarget(5, 5, 5, 12) answers 10.
+// One grid step keeps the main grid's edge rule: off its row or past an end stays.
 function gridTarget(index, delta, columns, total) {
     var next = index + delta
     if (next < 0 || next >= total) {
@@ -292,6 +282,11 @@ function gridTarget(index, delta, columns, total) {
         return index
     }
     return next
+}
+
+// Page steps clamp to the nearer end; single steps refuse instead, see gridTarget.
+function pageTarget(index, delta, total) {
+    return Math.max(0, Math.min(total - 1, index + delta))
 }
 
 function parentOf(path) {
