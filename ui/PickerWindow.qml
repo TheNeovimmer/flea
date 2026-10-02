@@ -398,6 +398,12 @@ ShellRoot {
                 win.receivingLatestListing = true
                 win.total = n
                 win.listingState = n === 0 ? "empty" : "ready"
+                // The grid plans thumbnails against the storage class, which only
+                // an fsinfo ask names; the main pane asks the same way when its
+                // own listing lands, see ui/js/Nav.js. Recent spans mounts, so it
+                // asks for nothing, see ui/js/RecentMode.js.
+                if (!win.recent)
+                    listing.fsinfo()
             }
             onRows: function (start, items, ms, kinds) {
                 if (!win.receivingLatestListing) return
