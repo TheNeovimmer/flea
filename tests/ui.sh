@@ -148,7 +148,8 @@ flea_pids() {
         process=$(flea_process_dir "$pid") || return 3
         [[ -r "$process/cmdline" ]] || continue
         # Redirections apply left to right, so the silencer has to precede the read it is silencing.
-        if tr '\0' ' ' 2>/dev/null < "$process/cmdline" | grep -Fq "$flea_ui"; then
+        if tr '\0' ' ' 2>/dev/null < "$process/cmdline" \
+            | grep -Fq -e "$flea_ui" -e "$fixture_root/xwsettings/ui-b/boot"; then
             printf '%s\n' "$pid"
         fi
     done
@@ -231,14 +232,21 @@ flea_pid() {
 }
 
 owned_trash_monitors() {
-    local pid pids process result=0
+    local pid pids process environment result=0
     pids=$(pgrep -x gio) || result=$?
     (( result <= 1 )) || return "$result"
     for pid in $pids; do
         process=$(flea_process_dir "$pid") || return 3
         if flea_process_owned "$pid"; then
-            if tr '\0' '\n' < "$process/environ" | grep -Fx "FLEA_BIN=$flea_bin" >/dev/null \
-                && tr '\0' '\n' < "$process/environ" | grep -F "FLEA_PATH=$fixture_root/" >/dev/null; then
+            # A monitor reaped after its ownership read is gone; silence the redirect before opening it.
+            if ! environment=$(tr '\0' '\n' 2>/dev/null < "$process/environ"); then
+                [[ -d "$process" ]] || continue
+                # Sample stat: "347 (gio) Z 1 347 ..."; a zombie has already exited and cannot survive.
+                [[ "$(sed 's/.*) //' "$process/stat" 2>/dev/null | cut -d' ' -f1)" == Z ]] && continue
+                return 3
+            fi
+            if grep -Fx "FLEA_BIN=$flea_bin" <<< "$environment" >/dev/null \
+                && grep -F "FLEA_PATH=$fixture_root/" <<< "$environment" >/dev/null; then
                 printf '%s\n' "$pid"
             fi
         else
@@ -318,11 +326,6 @@ sandbox_make "$hash_fixture"
 sandbox_make "$stale_fixture"
 
 cleanup() {
-    # xwsettings runs a second window whose qs cmdline carries a copied ui tree, so the
-    # one-window teardown below cannot see it: it is tracked by pid and reaped here instead.
-    if [[ -n "${xwsettings_bpid:-}" ]] && kill -0 "$xwsettings_bpid" 2>/dev/null; then
-        if flea_process_owned "$xwsettings_bpid"; then kill "$xwsettings_bpid" 2>/dev/null || true; fi
-    fi
     # fail is an exit that || true cannot catch, so the reap runs in a subshell and its status is re-raised below.
     if ! ( kill_flea ); then
         printf 'FAIL drain at exit; active fixture roots kept: %s\n' "$fixture_root" >&2
@@ -3176,22 +3179,30 @@ case_hidden() {
     kill_flea
 }
 
-# xw4: one window's Settings change applies live in every other open window, the way Finder's
-# Show hidden files reaches every Finder window at once, while per-window state stays put. Two
-# owned windows share one state file but run different ui trees, because qs ipc routes on the
-# config path and one shared tree cannot address them separately: A keeps the shipped tree and B
-# runs a byte copy of it, and the case proves the routing first by moving only A's cursor. The
-# toggle is pressed in A, the density choice is stepped in B's own Settings panel, and A is read
-# throughout through its own path. B's pid is tracked beside kill_flea because its qs cmdline
-# carries the copied tree and the suite's one-window teardown cannot see it; cleanup() reaps it.
+# Both UI paths have read-only IPC targets; a cursor step proves addressed keys reach A alone.
+xwsettings_route_snapshot() {
+    hyprctl activewindow -j 2>/dev/null | jq -c '{class: .class, address: .address}' || true
+    printf 'XWSETTINGS route A address=%s cursor=%s path=%s focus=%s keys=%s\n' \
+        "$addrA" "$("${ipcA[@]}" cursor 2>/dev/null)" "$("${ipcA[@]}" path 2>/dev/null)" \
+        "$("${ipcA[@]}" focusView 2>/dev/null)" "$("${ipcA[@]}" keyDeliveryState 2>/dev/null)"
+    printf 'XWSETTINGS route B address=%s cursor=%s path=%s\n' \
+        "$addrB" "$("${ipcB[@]}" cursor 2>/dev/null)" "$("${ipcB[@]}" path 2>/dev/null)"
+}
+
 case_xwsettings() {
     local root="$fixture_root/xwsettings" dir config state uib
-    dir="$root/files"; config="$root/config"; state="$root/state"; uib="$root/ui-b"
+    dir="$root/files"
+    config="$root/config"
+    state="$root/state"
+    uib="$root/ui-b"
     sandbox_scratch "$root"
     [[ -f "$fixture_root/.flea-test-sandbox" ]] \
         || fail "xwsettings: the sandbox root carries no marker, so nothing here is deletable"
     mkdir -p "$dir/sub" "$config" "$state" || fail "xwsettings: the sandbox could not be made"
-    : > "$dir/a.txt"; : > "$dir/b.txt"; : > "$dir/.dot"; : > "$dir/sub/c.txt"
+    : > "$dir/a.txt"
+    : > "$dir/b.txt"
+    : > "$dir/.dot"
+    : > "$dir/sub/c.txt"
     local real_config="${XDG_CONFIG_HOME-}" real_state="${XDG_STATE_HOME-}"
     export XDG_CONFIG_HOME="$config"
     export XDG_STATE_HOME="$state"
@@ -3208,7 +3219,7 @@ case_xwsettings() {
     FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" \
         setsid nohup "$flea_bin" --gui "$dir" >"$flea_log" 2>&1 </dev/null &
     omarchy-drive wait window flea --timeout 15 >/dev/null
-    local addrA addrB bpid
+    local addrA addrB
     addrA=$(omarchy-drive windows --json | jq -r '[.windows[] | select(.title == "Flea")] | .[0].address // empty')
     [[ -n "$addrA" ]] || fail "xwsettings: no Flea window after launching A"
     omarchy-drive focus "$addrA" >/dev/null
@@ -3221,8 +3232,6 @@ case_xwsettings() {
     # Window B on the copied tree, over the same state file.
     FLEA_UI="$uib" FLEA_BIN="$flea_bin" \
         setsid nohup "$flea_bin" --gui "$dir" >>"$flea_log" 2>&1 </dev/null &
-    bpid=$!
-    xwsettings_bpid=$bpid
     local attempt count
     for (( attempt = 0; attempt < 150; attempt++ )); do
         count=$(omarchy-drive windows --json | jq '[.windows[] | select(.title == "Flea")] | length')
@@ -3240,11 +3249,24 @@ case_xwsettings() {
     done
     [[ "$("${ipcB[@]}" path)" == "$dir" ]] || fail "xwsettings: B never listed $dir"
 
-    # The routing proof: a cursor step addressed to A moves A alone, so every addressed read and
-    # key below is known to reach the window it names rather than whichever answered first.
+    # Focus once, then poll only the active address before injecting the routing proof.
+    local active="" focus_wait_tries=50 focus_poll_s=0.1
+    omarchy-drive focus "$addrA" >/dev/null
+    for (( attempt = 0; attempt < focus_wait_tries; attempt++ )); do
+        active=$(hyprctl activewindow -j 2>/dev/null | jq -r 'select(.address != null) | .address')
+        [[ "$active" == "$addrA" ]] && break
+        sleep "$focus_poll_s"
+    done
+    if [[ "$active" != "$addrA" ]]; then
+        xwsettings_route_snapshot
+        fail "xwsettings: A never became the active window, active is $active"
+    fi
     omarchy-drive key --window "$addrA" j >/dev/null
     settle
-    [[ "$("${ipcA[@]}" cursor)" == "1" ]] || fail "xwsettings: A's cursor did not step, it is $("${ipcA[@]}" cursor)"
+    if [[ "$("${ipcA[@]}" cursor)" != "1" ]]; then
+        xwsettings_route_snapshot
+        fail "xwsettings: A's cursor did not step, it is $("${ipcA[@]}" cursor)"
+    fi
     [[ "$("${ipcB[@]}" cursor)" == "0" ]] || fail "xwsettings: the step addressed to A moved B to $("${ipcB[@]}" cursor)"
     omarchy-drive key --window "$addrA" k >/dev/null
     settle
@@ -3338,8 +3360,6 @@ case_xwsettings() {
     [[ "$("${ipcA[@]}" total)" == "4" ]] || fail "xwsettings: A lost the applied toggle, total is $("${ipcA[@]}" total)"
     printf 'XWSETTINGS pinned=ok\n'
 
-    kill "$bpid" 2>/dev/null || true
-    xwsettings_bpid=""
     if [[ -n "$real_config" ]]; then export XDG_CONFIG_HOME="$real_config"; else unset XDG_CONFIG_HOME; fi
     if [[ -n "$real_state" ]]; then export XDG_STATE_HOME="$real_state"; else unset XDG_STATE_HOME; fi
     kill_flea

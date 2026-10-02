@@ -9,6 +9,12 @@ BIN=$PWD/target/debug/flea
 SANDBOX=$FIXTURE_ROOT/xwsettings-$$
 QMLDIR=$SANDBOX/flea
 fail=0
+probe_poll_s=0.05
+probe_wait_tries=600
+probe_timeout_s=60
+startup_checks=5
+# WindowBody.backendDrained terminates qs with SIGTERM, which timeout reports as 128 + 15.
+qs_drained_exit=143
 
 check() {
   local label="$1" expected="$2" actual="$3"
@@ -31,6 +37,7 @@ if [ ! -x "$BIN" ]; then
   printf 'xwsettings.sh: build it (cargo build); refusing to report on nothing\n' >&2
   exit 1
 fi
+python3 tests/ui-process-ownership.py || fail=1
 
 # The singleton and the libraries it imports, copied the way tests/uiwriter.sh copies them:
 # importing ui/ whole makes Quickshell scan every file in it and warn about the two OEM symlinks
@@ -38,6 +45,7 @@ fi
 sandbox_make "$SANDBOX" || exit 1
 mkdir -p "$QMLDIR/js" || exit 1
 cp ui/ViewState.qml "$QMLDIR/ViewState.qml" || exit 1
+# Sample import: import "js/Settings.js" as Settings; transitive libraries use .import "Places.js" as Places.
 libs=$(sed -n 's|^import "js/\([A-Za-z]*\)\.js".*|\1|p' ui/ViewState.qml)
 copied=" "
 while [ -n "${libs// /}" ]; do
@@ -472,7 +480,101 @@ QML
   echo "$out" | grep -a 'PROBE ' | tail -5 || true
 fi
 
+# Hold a real apply child, queue a refused write behind it, and release the child only after checking the queue.
+if [ "$fail" -eq 0 ]; then
+  sandbox_scratch "$SANDBOX/prune" || exit 1
+  env XDG_STATE_HOME="$SANDBOX/prune/state" "$BIN" --ui-state \
+    '{"columns":["name","size","date"],"density":"compact"}' >/dev/null 2>&1 || exit 1
+  mkfifo "$SANDBOX/prune/gate" || exit 1
+  cat > "$SANDBOX/prune/held-bin" <<'SH'
+#!/bin/bash
+set -u
+if [ "$#" -eq 1 ] && [ "$1" = --ui-state ]; then
+  if [ ! -e "$PROBE_ENTERED" ]; then
+    : > "$PROBE_ENTERED"
+    read -r permit < "$PROBE_GATE"
+  fi
+fi
+exec "$PROBE_REAL_BIN" "$@"
+SH
+  chmod +x "$SANDBOX/prune/held-bin" || exit 1
+  cp tests/xwsettings-prune.qml "$QMLDIR/prune.qml" || exit 1
+  out=$(env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/prune/state" \
+      FLEA_BIN="$SANDBOX/prune/held-bin" PROBE_REAL_BIN="$BIN" PROBE_ENTERED="$SANDBOX/prune/entered" \
+      PROBE_GATE="$SANDBOX/prune/gate" PROBE_POLL_S="$probe_poll_s" \
+      timeout "$probe_timeout_s" qs -p "$QMLDIR/prune.qml" 2>&1)
+  # Sample probe: "PROBE drained runs=1 inflight= queued= patch={}" records a real child start and its completed prune.
+  check "the held-prune probe finished" 0 "$?"
+  check "a refused prune stays queued behind a real busy settle" 1 \
+    "$(echo "$out" | grep -c 'PROBE busy-kept={"columns":\["name","size","bogus"\],"density":"normal"}')"
+  check "the queued prune never moves inflight while busy" 1 "$(echo "$out" | grep -c 'PROBE busy-inflight=$')"
+  check "the settle child really was running" 1 "$(echo "$out" | grep -c 'PROBE busy-running=true')"
+  check "exactly one prune starts and drains after the apply lands" 1 \
+    "$(echo "$out" | grep -c 'PROBE drained runs=1 inflight= queued= patch={}')"
+  flat=$(tr -d ' \n' < "$SANDBOX/prune/state/flea/ui.json")
+  check "the valid key beside the refused key retries" 1 "$(echo "$flat" | grep -c '"density":"normal"')"
+  echo "$out" | grep -a 'PROBE ' || true
+fi
+
+# Both real WindowBody instances share state; B's launch and startup writes must leave A's pane alone.
+if [ "$fail" -eq 0 ]; then
+  sandbox_scratch "$SANDBOX/start" || exit 1
+  mkdir -p "$SANDBOX/start/files-a" "$SANDBOX/start/files-b" || exit 1
+  for role in a b; do
+    for name in a.txt b.txt c.txt; do
+      : > "$SANDBOX/start/files-$role/$name" || exit 1
+    done
+    config="$SANDBOX/start/ui-$role"
+    mkdir -p "$config/boot" || exit 1
+    ln -s "$(readlink -f ui/boot/Commons)" "$config/boot/Commons" || exit 1
+    ln -s "$(readlink -f ui/boot/Ui)" "$config/boot/Ui" || exit 1
+    cp tests/xwsettings-start.qml "$config/boot/shell.qml" || exit 1
+  done
+  env XDG_STATE_HOME="$SANDBOX/start/state" "$BIN" --ui-state \
+    '{"hidden":false,"view":"list","density":"compact","updates":{"autoCheck":false}}' >/dev/null 2>&1 \
+    || exit 1
+  env DISPLAY=flea-offscreen QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 QSG_RHI_BACKEND=opengl \
+      XDG_STATE_HOME="$SANDBOX/start/state" FLEA_UI="$SANDBOX/start/ui-a" FLEA_BIN="$BIN" \
+      PROBE_BODY="$PWD/ui/WindowBody.qml" PROBE_STATE_HELPER="$PWD/tests/xwsettings-start-state.qml" \
+      PROBE_ROLE=A PROBE_READY="$SANDBOX/start/ready" PROBE_DONE="$SANDBOX/start/done" PROBE_OTHER_PATH="$SANDBOX/start/files-b" \
+      PROBE_POLL_S="$probe_poll_s" timeout "$probe_timeout_s" "$BIN" --gui "$SANDBOX/start/files-a" \
+      > "$SANDBOX/staying.log" 2>&1 &
+  staying_pid=$!
+  waited=0
+  until [ -e "$SANDBOX/start/ready" ]; do
+    waited=$((waited + 1))
+    if [ "$waited" -ge "$probe_wait_tries" ]; then
+      echo "FAIL xwsettings: A never captured its focus and cursor"
+      cat "$SANDBOX/staying.log"
+      fail=1
+      break
+    fi
+    sleep "$probe_poll_s"
+  done
+  if [ "$fail" -eq 0 ]; then
+    env DISPLAY=flea-offscreen QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 QSG_RHI_BACKEND=opengl \
+        XDG_STATE_HOME="$SANDBOX/start/state" FLEA_UI="$SANDBOX/start/ui-b" FLEA_BIN="$BIN" \
+        PROBE_BODY="$PWD/ui/WindowBody.qml" PROBE_STATE_HELPER="$PWD/tests/xwsettings-start-state.qml" PROBE_ROLE=B PROBE_READY="$SANDBOX/start/ready" PROBE_DONE="$SANDBOX/start/done" \
+        PROBE_POLL_S="$probe_poll_s" timeout "$probe_timeout_s" "$BIN" --gui "$SANDBOX/start/files-b" \
+        > "$SANDBOX/starting.log" 2>&1
+    check "B's real startup drained" "$qs_drained_exit" "$?"
+    check "B's backend answered its drain" 1 "$(grep -c 'PROBE B backend drained' "$SANDBOX/starting.log")"
+    check "B listed its own folder" 1 "$(grep -c 'PROBE B drained path=' "$SANDBOX/starting.log")"
+    : > "$SANDBOX/start/done" || exit 1
+  fi
+  wait "$staying_pid"
+  # Sample probe: "PROBE PASS second startup keeps A's cursor" follows B's startup and A's completed settle.
+  check "A's real window drained" "$qs_drained_exit" "$?"
+  check "A's backend answered its drain" 1 "$(grep -c 'PROBE A backend drained' "$SANDBOX/staying.log")"
+  check "B's start preserved A's pane, focus, cursor and listing" "$startup_checks" "$(grep -c 'PROBE PASS second startup' "$SANDBOX/staying.log")"
+  check "the startup probe reported no failure" 0 "$(grep -c 'PROBE FAIL' "$SANDBOX/staying.log")"
+  check "A handled the state change before checking" 1 "$(grep -c 'PROBE A done failures=0 settles=' "$SANDBOX/staying.log")"
+  if [ "$fail" -ne 0 ]; then
+    cat "$SANDBOX/staying.log" "$SANDBOX/starting.log" 2>/dev/null
+  fi
+fi
+
 sandbox_remove "$SANDBOX" || exit 1
 
 [ "$fail" -eq 0 ] && echo "xwsettings: all checks passed"
-exit $fail
+exit "$fail"

@@ -382,6 +382,9 @@ QtObject {
     }
     // A settle's end spends a queued prune before a dirty re-read; the dirty flag survives the prune so the re-read still runs after it.
     function settleNext() {
+        // Keep the prune queued until the process is idle and both reply halves have landed.
+        if (UiState.settleBusy(settler.running, root.settleMode, root.settleAnswer))
+            return
         var next = UiState.settleNext(root.settleDirty, root.pruneQueued)
         if (next === "prune") {
             var queued = root.pruneQueued
@@ -527,6 +530,9 @@ QtObject {
         onRunningChanged: {
             if (root.settleMode.length > 0 && UiState.neverRan(root.settleAnswer, settler.running))
                 root.settleLanded(UiState.NEVER_RAN)
+            // onExited may land both halves while running is true; the idle transition resumes its queued work.
+            if (!settler.running && root.settleMode.length === 0)
+                root.settleNext()
         }
     }
 }
