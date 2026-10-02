@@ -198,3 +198,12 @@ function dispatch(candidate) {
     }
     return { kind: "none" }
 }
+
+// A menu row from the sheet runs exactly what the menu row runs, so the
+// snapshot the menu takes when it opens is taken here first, for the current
+// selection, immediately before activating. Without it the activate is refused
+// against a stale snapshot, or silently does nothing on a used one.
+function runMenu(holder, menuAction) {
+    holder.menuActions.snapshot()
+    holder.menuActions.activate(menuAction, true)
+}
