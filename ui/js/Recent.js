@@ -108,8 +108,7 @@ function paths(bookmarks) {
     return entries(bookmarks).map(function (entry) { return entry.path })
 }
 
-// Sample input: joinRequesters([], null) answers [null]; joining the same asker twice keeps one entry.
-// Null names the rail pane itself, so it joins like any other asker.
+// Each asker waits once, and null, the rail pane itself, joins like any other.
 function joinRequesters(current, requester) {
     var asker = requester || null
     var seen = current || []

@@ -1,4 +1,5 @@
 .import "../../ui/js/Recent.js" as Recent
+.import "sourcefixture.js" as Source
 
 function run(check) {
     // Where the history lives, which is XDG_DATA_HOME's own file and never a Flea-owned one.
@@ -142,4 +143,12 @@ function run(check) {
         check("and a null repeat joins once", Recent.joinRequesters(railAsk, null).length, 1)
         check("a pane joins beside the rail pane", Recent.joinRequesters(railAsk, paneA).length, 2)
     }
+    // The rail joins through the helper at both ends, so one requester at either end turns red.
+    var sidebar = Source.source("ui/Sidebar.qml")
+    var reading = Source.slice(sidebar, "function readRecent(", "if (root.recentKept")
+    check("readRecent joins its asker while a read is in flight",
+        reading.indexOf("Recent.joinRequesters(root.recentRequesters, requester)") >= 0, true)
+    var refreshed = Source.slice(sidebar, "function onRefreshed()", "readonly property bool dropboxReady")
+    check("onRefreshed answers every asker",
+        refreshed.indexOf("root.recentRequested(root.recentPaths, askers[i])") >= 0, true)
 }
