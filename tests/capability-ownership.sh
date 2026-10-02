@@ -180,6 +180,8 @@ do
   [ -z "$function_body" ] || eval "$function_body"
 done
 unset function_body function_name
+# The same deadline the production stop path polls; the trap below sleeps a fraction of it.
+OWNED_STOP_DRAIN_S=$(sed -n 's/^OWNED_STOP_DRAIN_S=//p' "$tool")
 
 process_identity() {
   local pid=$1
@@ -595,6 +597,24 @@ unlink "$test_root/rolling-child2/child2"
 unlink "$rolling_capture_file"
 rmdir "$test_root/rolling-guardian" "$test_root/rolling-parent" \
   "$test_root/rolling-child1" "$test_root/rolling-child2"
+
+# A member that stays alive briefly after SIGTERM still cleans up: the stop path polls the drain.
+OWNED_PIDS=()
+BOUNDARY_PIDS=()
+OWNED_STARTS=()
+python3 -c 'import signal, sys, time; signal.signal(signal.SIGTERM, lambda s, f: (time.sleep(0.6), sys.exit(0))); time.sleep(60)' &
+term_hold_pid=$!
+named_pids+=("$term_hold_pid")
+register_named_pid "$term_hold_pid"
+sleep 0.5
+begin_owned_boundary "$term_hold_pid"
+capture_owned_boundary || exit 1
+stop_owned_entrants
+check "TERM-delayed cleanup succeeds" 0 "$?"
+sleep 0.1
+named_running "$term_hold_pid"
+check "TERM-delayed member is stopped" 1 "$?"
+stop_named "$term_hold_pid"
 
 OWNED_PIDS=()
 BOUNDARY_PIDS=()

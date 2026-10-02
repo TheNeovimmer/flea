@@ -40,6 +40,17 @@ bump_repo() {
     && git add . && git commit -qm bump) || return 1
 }
 
+# Same, but the two PKGBUILDs land on different pkgrels.
+bump_repo_split() {
+  local dir="$1" oldver="$2" newver="$3" flearel="$4" binrel="$5"
+  new_repo "$dir" "$oldver" 1 || return 1
+  (cd "$dir" && git tag "v$oldver" \
+    && sed -i "s/^pkgver=.*/pkgver=$newver/" packaging/flea/PKGBUILD packaging/flea-bin/PKGBUILD \
+    && sed -i "s/^pkgrel=.*/pkgrel=$flearel/" packaging/flea/PKGBUILD \
+    && sed -i "s/^pkgrel=.*/pkgrel=$binrel/" packaging/flea-bin/PKGBUILD \
+    && git add . && git commit -qm bump) || return 1
+}
+
 run_tool() {
   (cd "$1" && "$tool" ${2:-HEAD} >"$test_root/out.txt" 2>&1)
 }
@@ -76,7 +87,7 @@ bump_repo "$test_root/bump2" 0.3.7 1 0.3.8 2
 run_tool "$test_root/bump2"; rc=$?
 check_rc "a pkgver bump with pkgrel 2 fails" 1 "$rc"
 check_names "the failure names the file, its pkgrel and both versions" \
-  packaging/flea/PKGBUILD pkgrel 2 0.3.7 0.3.8
+  "packaging/flea/PKGBUILD has pkgrel 2" "0.3.7 to 0.3.8"
 
 # 2. The same bump reset to pkgrel 1 passes.
 bump_repo "$test_root/bump1" 0.3.7 1 0.3.8 1
@@ -90,13 +101,12 @@ run_tool "$test_root/same"; rc=$?
 check_rc "the same pkgver with pkgrel 2 passes" 0 "$rc"
 check_names "the rebuild pass names the unchanged version" "pkgver 0.3.7 unchanged"
 
-# 4. No previous tag passes with a notice. Two commits, so the tool reaches the
-# tag search rather than the no-parent branch.
+# 4. No previous tag is an error: no tag means tags were never fetched, not a free pass.
 new_repo "$test_root/notag" 0.3.8 2
 (cd "$test_root/notag" && git commit -q --allow-empty -m second)
 run_tool "$test_root/notag"; rc=$?
-check_rc "no previous tag passes" 0 "$rc"
-check_names "the notice says there was nothing to compare" "no previous vX.Y.Z tag"
+check_rc "no previous tag errors" 2 "$rc"
+check_names "the error says to fetch tags" "flea-pkgrel-check: ERROR" "fetch tags"
 
 # 5. PKGBUILDs that disagree on pkgver fail.
 new_repo "$test_root/split" 0.3.7 1
@@ -107,6 +117,33 @@ run_tool "$test_root/split"; rc=$?
 check_rc "PKGBUILDs that disagree on pkgver fail" 1 "$rc"
 check_names "the disagreement names both files and both versions" \
   packaging/flea/PKGBUILD packaging/flea-bin/PKGBUILD 0.3.7 0.3.8
+
+# 6. A pkgver bump with flea-bin at pkgrel 2 fails on flea-bin.
+bump_repo_split "$test_root/bumpbin" 0.3.7 0.3.8 1 2
+run_tool "$test_root/bumpbin"; rc=$?
+check_rc "a pkgver bump with flea-bin at pkgrel 2 fails" 1 "$rc"
+check_names "the failure names flea-bin, its pkgrel and both versions" \
+  "packaging/flea-bin/PKGBUILD has pkgrel 2" "0.3.7 to 0.3.8"
+
+# 7. Too many args errors.
+(cd "$test_root/bump1" && "$tool" HEAD extra >"$test_root/out.txt" 2>&1)
+rc=$?
+check_rc "too many args errors" 2 "$rc"
+check_names "the usage error names the tool" "flea-pkgrel-check: ERROR" "usage"
+
+# 8. A commit the checkout does not hold errors.
+run_tool "$test_root/bump1" nosuchref; rc=$?
+check_rc "a bad commit errors" 2 "$rc"
+check_names "the bad commit names itself" "flea-pkgrel-check: ERROR" "nosuchref"
+
+# 9. A PKGBUILD without pkgrel errors.
+new_repo "$test_root/norel" 0.3.8 1
+(cd "$test_root/norel" && git tag v0.3.8 \
+  && sed -i '/^pkgrel=/d' packaging/flea/PKGBUILD \
+  && git add . && git commit -qm drop)
+run_tool "$test_root/norel"; rc=$?
+check_rc "a PKGBUILD without pkgrel errors" 2 "$rc"
+check_names "the unreadable field names the file" "flea-pkgrel-check: ERROR" "packaging/flea/PKGBUILD"
 
 if [ "$fail" -eq 0 ]; then
   echo "pkgrel-check: all $n checks passed"

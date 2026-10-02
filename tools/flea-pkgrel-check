@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
-# Fails when a fresh pkgver does not start at pkgrel 1, a pre-tag check for the release lane.
-#   tools/flea-pkgrel-check [COMMIT]        checks COMMIT (default HEAD) in this checkout
-#
-# It finds the previous vX.Y.Z tag reachable from COMMIT's parent, reads pkgver from that
-# tag's packaging/flea/PKGBUILD, and compares it with COMMIT's own. No previous tag, or the
-# same pkgver (a rebuild of one version), passes. A changed pkgver needs pkgrel 1 in both
-# packaging/flea/PKGBUILD and packaging/flea-bin/PKGBUILD, and the two must agree on pkgver.
-# Prints one line saying what it checked.
-#
-# Exit codes: 0 the check passed; 1 the pkgver/pkgrel guard failed; 2 usage, git or file error.
+# Fails when a fresh pkgver does not start at pkgrel 1; docs/release.md states the usage and exit codes.
 set -u
 
 die() {
@@ -24,16 +15,19 @@ command -v git >/dev/null 2>&1 || die "git is not on PATH"
 sha=$(git rev-parse --verify "$commit^{commit}" 2>/dev/null) || die "commit '$commit' is not a commit in this checkout"
 short=$(git rev-parse --short "$sha" 2>/dev/null) || die "cannot shorten $sha"
 
+# A shallow checkout holds no tags and no real parents, so any answer from it is a guess.
+shallow=$(git rev-parse --is-shallow-repository 2>/dev/null) || die "cannot tell whether this checkout is shallow"
+[ "$shallow" = true ] && die "this checkout is shallow, fetch tags before tagging a release"
+
 # The parent is the base: a tag sitting on the candidate itself is the release being cut, not the previous one.
 if ! git rev-parse --verify --quiet "$sha^" >/dev/null 2>&1; then
   printf 'flea-pkgrel-check: PASS %s has no parent, so no previous release version to compare\n' "$short"
   exit 0
 fi
-prevtag=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$sha^" 2>/dev/null) || {
-  printf 'flea-pkgrel-check: PASS no previous vX.Y.Z tag reachable from %s, nothing to compare\n' "$short"
-  exit 0
-}
+prevtag=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$sha^" 2>/dev/null) \
+  || die "no vX.Y.Z tag reachable from $short, fetch tags before tagging a release"
 
+# Sample input: pkgver=0.3.8 or pkgrel='1'  # note
 # One field out of one stored PKGBUILD, failing closed when git or the file cannot be read.
 field() {
   local body line value

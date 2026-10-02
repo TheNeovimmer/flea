@@ -54,10 +54,7 @@ if command -v makepkg >/dev/null; then
 else
     printf 'SKIP the whole push: makepkg is not installed here, the box runs it\n'
 fi
-# GM 2026-10-01: flea-git is published on every release, so a pkgver-only change
-# pushes; only a byte-identical PKGBUILD pushes nothing. A stub makepkg stands in for
-# the real one, so these run where makepkg is not installed; its .SRCINFO mirrors the
-# PKGBUILD, which is all the identical-files no-op needs.
+# A stub makepkg stands in for the real one where it is not installed; docs/release.md states the flea-git ruling.
 mkdir -p "$box/stubbin"
 printf '#!/bin/sh\nif [ "${1:-}" = "--printsrcinfo" ]; then cat PKGBUILD; exit 0; fi\necho "stub makepkg: unexpected argv $*" >&2; exit 1\n' > "$box/stubbin/makepkg"
 chmod 755 "$box/stubbin/makepkg"

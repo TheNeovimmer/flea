@@ -297,8 +297,11 @@ owned_boundary_empty() {
   [ "${#BOUNDARY_PIDS[@]}" -eq 0 ]
 }
 
+# A stopped unit's members may still read as running under load, so the stop path polls this long.
+OWNED_STOP_DRAIN_S=2
+
 stop_owned_entrants() {
-  local pid poll_s=0.05 boundary_status=0
+  local pid poll_s=0.05 boundary_status=0 drain_end drain_pid drain_state
   [ -n "$OWNED_UNIT" ] || return 0
   if ! capture_owned_boundary; then
     [ "$OWNED_BOUNDARY_VERIFIED" = no ] || return 1
@@ -306,7 +309,21 @@ stop_owned_entrants() {
   fi
   stop_unit_boundary "$OWNED_UNIT" || return 1
   owned_unit_stopped || return 1
-  [ -z "$OWNED_CONTROL_GROUP" ] || owned_boundary_empty || return 1
+  if [ -n "$OWNED_CONTROL_GROUP" ]; then
+    drain_end=$(( SECONDS + ${OWNED_STOP_DRAIN_S:-2} ))
+    while ! owned_boundary_empty; do
+      [ "$SECONDS" -ge "$drain_end" ] && break
+      sleep "$poll_s"
+    done
+    if ! owned_boundary_empty; then
+      read_boundary_pids 2>/dev/null || true
+      drain_pid=${BOUNDARY_PIDS[0]:-unknown}
+      drain_state=unknown
+      process_identity "$drain_pid" 2>/dev/null && drain_state=$PROCESS_STATE
+      printf 'FAIL: capability unit %s still holds pid %s in state %s after a %ss drain\n' "$OWNED_UNIT" "$drain_pid" "$drain_state" "${OWNED_STOP_DRAIN_S:-2}" >&2
+      return 1
+    fi
+  fi
   sleep "$poll_s"
   for pid in "${OWNED_PIDS[@]}"; do
     process_identity "$pid" || continue
