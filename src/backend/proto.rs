@@ -254,6 +254,13 @@ pub(crate) fn with_anchor(listed: &str, anchor: &str, anchor_index: isize) -> St
     format!(r#"{},"anchor":"{}","anchorIndex":{}}}"#, body, escape(anchor), anchor_index)
 }
 
+// Sample output: {"t":"listed","n":3,"read":0.000,"sort":0.000,"v":1,"w":true,"path":"/d","changed":2}
+// A same-path re-list names added plus removed rows, so a rename counts 2 against a net delta of 0.
+pub(crate) fn with_changed(listed: &str, changed: usize) -> String {
+    let body = listed.strip_suffix('}').unwrap_or(listed);
+    format!(r#"{},"changed":{}}}"#, body, changed)
+}
+
 // The streaming progress of a search: its own type rather than a listed line, because a mid-walk update is not a fresh listing and carries no read or sort timing.
 pub fn searching_line(n: usize, scanned: usize, ms: f64) -> String {
     format!(r#"{{"t":"searching","n":{},"scanned":{},"ms":{:.3}}}"#, n, scanned, ms)

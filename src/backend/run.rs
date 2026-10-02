@@ -391,13 +391,18 @@ pub fn forget_rows(st: &mut State, pool: &Pool) {
 
 // A list's scanned and ordered result becomes the listing and is answered: its listed line, then its first rows.
 pub(crate) fn adopt(out: &mut impl Write, st: &mut State, pool: &Pool, tb: &Tables, path: &str, l: Listing, (read_ms, sort_ms): (f64, f64), sized: &[Option<DirSize>], first: usize) {
+    // A same-path re-list names added plus removed rows, so a rename counts 2 against a net delta of 0.
+    let same = Path::new(path) == st.base.as_path();
+    let changed = if same { crate::backend::listing::changed_count(&st.listing, &l) } else { 0 };
     // base and listing only move together, so a failed list cannot mix them.
     st.base = PathBuf::from(path);
     st.listing = l;
     forget_rows(st, pool);
     // After forget_rows, which clears the very map this seeds.
     seed_answered(st, sized);
-    writeln!(out, "{}", listed_line(st.listing.len(), read_ms, sort_ms, dev_of(&st.base), &st.base.to_string_lossy())).ok();
+    let listed = listed_line(st.listing.len(), read_ms, sort_ms, dev_of(&st.base), &st.base.to_string_lossy());
+    let listed = if same { crate::backend::proto::with_changed(&listed, changed) } else { listed };
+    writeln!(out, "{}", listed).ok();
     // Rides along unasked: asking costs a 60 ms round trip at first paint.
     write_window(out, st, 0, first, tb);
 }

@@ -32,7 +32,7 @@ src/backend/opsreq.rs 514
 src/backend/opsreq/tests.rs 461
 src/backend/permissions.rs 477
 src/backend/proto.rs 287
-src/backend/run.rs 454
+src/backend/run.rs 459
 src/backend/thumbs.rs 442
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 698
@@ -49,7 +49,7 @@ src/vulkan.rs 728
 tests/js/columns.js 618
 tests/js/drag.js 301
 tests/js/previewswap.js 367
-tests/js/focus.js 522
+tests/js/focus.js 576
 tests/js/mounts.js 383
 tests/js/menu.js 335
 tests/js/nav.js 323
@@ -78,7 +78,7 @@ ui/NetworkDialog.qml 449
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 838
 ui/OpenWithDialog.qml 596
-ui/Pane.qml 992
+ui/Pane.qml 994
 ui/PaneMenuActions.qml 458
 ui/PaneWire.qml 537
 ui/PermissionsDialog.qml 589

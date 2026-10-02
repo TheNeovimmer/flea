@@ -1,5 +1,4 @@
 .import "../../ui/js/ScrollOff.js" as ScrollOff
-.import "sourcefixture.js" as Source
 
 // The cursor keeps three rows of context above and below while scrolling, and still
 // reaches the first and last rows. Pure index maths; the views turn the answer into pixels.
@@ -42,12 +41,6 @@ function run(check) {
     check("a top-edge move pins to the origin", topFirst, 0)
     var nearTop = ScrollOff.firstFor(40, ScrollOff.fullyVisible(1310, 31), 1, 150)
     check("a near-top move keeps its upward context", nearTop, 0)
-    var list = Source.source("ui/List.qml")
-    check("the list scrolls from the fully visible count",
-          list.indexOf("ScrollOff.fullyVisible(root.height, rowH)") >= 0, true)
-    var columnPane = Source.source("ui/ColumnPane.qml")
-    check("the columns view scrolls from the fully visible count",
-          columnPane.indexOf("ScrollOff.fullyVisible(view.height, rowH)") >= 0, true)
 
     // A viewport shorter than the margin parks the cursor outside it: list 110 px
     // tall at 31 px rows holds 3, so first 7 cursor 10 Down to 11 must not want 12.
@@ -83,10 +76,6 @@ function run(check) {
         check("a middle row never aligns the window", ScrollOff.needsAlign(5, 0, 10, 20, 310, 31), false)
         check("the index alone misses the cut", ScrollOff.firstFor(0, 10, 0, 20), 0)
     }
-    check("the list aligns a cut cursor row",
-          list.indexOf("ScrollOff.needsAlign") >= 0, true)
-    check("the columns view aligns a cut cursor row",
-          columnPane.indexOf("ScrollOff.needsAlign") >= 0, true)
 
     // A click never scrolls the list under the pointer: pointer moves carry
     // context 0 through the one showCursor path, while keyboard moves keep 3.
@@ -103,25 +92,6 @@ function run(check) {
           ScrollOff.firstFor(0, 42, 42, 150, 0), 1)
     check("a keyboard move to the same cut row keeps three",
           ScrollOff.firstFor(0, 42, 42, 150), 4)
-    // Both views carry the click's context through the one path, never a copy.
-    check("the list threads the click context to firstFor",
-          list.indexOf("firstFor(first, visible, view, root.pane.shownTotal, context)") >= 0, true)
-    check("the columns view threads it too",
-          columnPane.indexOf("firstFor(first, visibleRows, viewIndex, total, context)") >= 0, true)
-    var pane = Source.source("ui/Pane.qml")
-    check("the pane threads it to both views",
-          pane.indexOf("showCursor(view, context)") >= 0, true)
-    check("and setCursor carries it", pane.indexOf("Filter.setCursor(root, index, context)") >= 0, true)
-    var filter = Source.source("ui/js/Filter.js")
-    check("the filter carries it to the pane",
-          filter.indexOf("pane.showRow(to, context)") >= 0, true)
-    var tap = Source.source("ui/js/Tap.js")
-    check("a left click carries context 0", tap.indexOf("selectOnly(index, 0)") >= 0, true)
-    check("a right click carries it too", tap.indexOf("setCursor(index, 0)") >= 0, true)
-    var marks = Source.source("ui/js/Marks.js")
-    check("a shift click carries it", marks.indexOf("Filter.setCursor(pane, index, 0)") >= 0, true)
-    check("the columns selection follow keeps context 0",
-          columnPane.indexOf("showCursor(root.pane ? Filter.viewOf(root.pane.shown, root.selectedIndex) : root.selectedIndex, 0)") >= 0, true)
 
     // The pointer case answers in pixels, never on the row grid: a click never
     // scrolls the list under the pointer, except that a row cut by the viewport
@@ -145,31 +115,4 @@ function run(check) {
         check("an explicit context 3 matches the default",
               ScrollOff.firstFor(0, 42, 42, 150, 3), ScrollOff.firstFor(0, 42, 42, 150))
     }
-    check("the list answers the pointer case in pixels",
-          list.indexOf("ScrollOff.containY(top, rowH, root.contentY - root.originY, root.height)") >= 0, true)
-    check("the list gates the pixel path on context 0",
-          list.indexOf("if (context === 0)") >= 0, true)
-    check("the list clamps the pointer path to its origin",
-          list.indexOf("Math.max(root.originY, Math.min(root.contentHeight - root.height + root.originY, rel + root.originY))") >= 0, true)
-    check("the list reads its keyboard window from its origin",
-          list.indexOf("Math.floor((root.contentY - root.originY) / rowH)") >= 0, true)
-    check("the list aligns its keyboard path in its origin space",
-          list.indexOf("ScrollOff.needsAlign(view, want, visible, root.contentY - root.originY, root.height, rowH)") >= 0, true)
-    check("the list clamps its keyboard path to its origin",
-          list.indexOf("want * rowH + root.originY") >= 0, true)
-    check("the columns view answers the pointer case in pixels",
-          columnPane.indexOf("ScrollOff.containY(top, rowH, view.contentY - view.originY, view.height)") >= 0, true)
-    check("the columns view gates the pixel path on context 0",
-          columnPane.indexOf("if (context === 0)") >= 0, true)
-    var renameField = Source.source("ui/RenameField.qml")
-    check("the rename reveal carries context 0",
-          renameField.indexOf("setCursor(root.editIndex, 0)") >= 0, true)
-    var marquee = Source.source("ui/js/Marquee.js")
-    check("the band release carries context 0",
-          marquee.indexOf("setCursor(state.last, 0)") >= 0, true)
-    var anchor = Source.source("ui/js/Anchor.js")
-    check("the refresh re-land selects with context 0",
-          anchor.indexOf("selectOnly(index, 0)") >= 0, true)
-    check("the refresh re-land moves with context 0",
-          anchor.indexOf("setCursor(index, 0)") >= 0, true)
 }

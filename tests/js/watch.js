@@ -226,21 +226,22 @@ function run(check) {
     // A click-away rename keeps the pointer's row: the reply anchors on the clicked name.
     var click = watched(0, [{ n: "a-original.md" }, { n: "b-existing.md" }], 1, 1202)
     click.path = "/dir"
-    var clickReq = { source: "/dir/a-original.md", destination: "/dir/a-clickaway.md", folder: "/dir" }
+    var clickReq = { source: "/dir/a-original.md", destination: "/dir/c-clickaway.md", folder: "/dir" }
     var clickAnchor = Anchor.pointerRow(click, clickReq)
     check("a click-away anchors on the clicked row, not the renamed one",
           clickAnchor.name + "|" + clickAnchor.index + "|" + clickAnchor.start + "|" + clickAnchor.select,
           "b-existing.md|1|0|true")
-    click.rows = [{ n: "a-clickaway.md" }, { n: "b-existing.md" }]
+    click.rows = [{ n: "b-existing.md" }, { n: "c-clickaway.md" }]
     click.total = 1202
     check("and lands on that name after the rows shift",
-          Anchor.apply(click, clickAnchor) + "|" + click.cursorSetTo, "null|1")
-    check("and selects it, so the next write reads the clicked row", click.selectedAt, 1)
+          Anchor.apply(click, clickAnchor) + "|" + click.cursorSetTo, "null|0")
+    check("and selects it, so the next write reads the clicked row", click.selectedAt, 0)
 
     // Enter still sits on the source when the reply lands, so that leaf maps to the dest.
     var enter = watched(0, [{ n: "a-original.md" }, { n: "b-existing.md" }], 0, 1202)
     enter.path = "/dir"
-    var enterAnchor = Anchor.pointerRow(enter, clickReq)
+    var enterReq = { source: "/dir/a-original.md", destination: "/dir/a-clickaway.md", folder: "/dir" }
+    var enterAnchor = Anchor.pointerRow(enter, enterReq)
     check("Enter maps the source leaf to the destination leaf",
           enterAnchor.name + "|" + enterAnchor.index, "a-clickaway.md|0")
     enter.rows = [{ n: "a-clickaway.md" }, { n: "b-existing.md" }]
@@ -260,9 +261,9 @@ function run(check) {
     check("the first window does not resolve a deep click-away",
           Anchor.apply(deepClick, deepAnchor) === deepAnchor, true)
     deepClick.held = 900
-    deepClick.rows = [{ n: "f1198.txt" }, { n: "f1199-new.txt" }]
+    deepClick.rows = [{ n: "f1199-new.txt" }, { n: "f1198.txt" }]
     check("the asked window puts the cursor back on the clicked row",
-          Anchor.apply(deepClick, deepAnchor) + "|" + deepClick.cursorSetTo, "null|900")
+          Anchor.apply(deepClick, deepAnchor) + "|" + deepClick.cursorSetTo, "null|901")
 
     // A deep Enter misses the first window too, so it waits for the same ask.
     var deepEnter = watched(900, [{ n: "f1199.txt" }], 900, 1202)

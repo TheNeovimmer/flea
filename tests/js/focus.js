@@ -519,4 +519,58 @@ function run(check) {
     calm.listArea = { focused: false, forceActiveFocus: function () { this.focused = true } }
     Focus.railHidden(calm)
     check("an already-list pane moves nothing on a hide", calm.focusView + "|" + calm.listArea.focused, "list|false")
+
+    // Recent is a history, not a directory: pasting or creating there would land in the root it stands on.
+    function recentPane() {
+        var p = listPane(true)
+        p.recentMode = "results"
+        p.path = "/"
+        p.clipboard = { paths: ["/a.txt"], moving: false }
+        p.collide = { asked: [], ask: function (req) { this.asked.push(req.op || req.c) } }
+        p.made = []
+        p.backend = { mkdir: function (path) { p.made.push(path) } }
+        return p
+    }
+    var recentPaste = recentPane()
+    Focus.act("paste", recentPaste)
+    check("paste over Recent says the history line", recentPaste.said, "This listing is a history, and cannot take a paste.")
+    check("and reaches neither Ops nor collide", recentPaste.collide.asked.length + "|" + recentPaste.made.length, "0|0")
+    var recentMove = recentPane()
+    Focus.act("movePaste", recentMove)
+    check("move-paste over Recent says the history line", recentMove.said, "This listing is a history, and cannot take a paste.")
+    check("and asks no transfer", recentMove.collide.asked.length, 0)
+    var recentFolder = recentPane()
+    Focus.act("newFolder", recentFolder)
+    check("new folder over Recent says the history line", recentFolder.said, "This listing is a history, and cannot take a new folder.")
+    check("and asks the backend for nothing", recentFolder.made.length, 0)
+    var recentReveal = recentPane()
+    recentReveal.cursorIndex = 0
+    recentReveal.rowFor = function () { return { n: "home/gm/Work/notes.txt" } }
+    recentReveal.join = function (base, name) { return base + name }
+    recentReveal.opened = ""
+    recentReveal.openWithoutHistory = function (path) { recentReveal.opened = path }
+    Focus.act("reveal", recentReveal)
+    check("o over Recent reveals the holding folder", recentReveal.opened + "|" + recentReveal.recentMode, "/home/gm/Work|")
+
+    // MenuAdditions040: one dispatch check each, so a key that loses its route goes red here.
+    var copyAsPane = listPane(true)
+    copyAsPane.openedCopyAs = 0
+    copyAsPane.openCopyAs = function () { copyAsPane.openedCopyAs += 1 }
+    Focus.act("copyAs", copyAsPane)
+    check("c opens Copy as at the cursor", copyAsPane.openedCopyAs, 1)
+    var pasteAsPane = listPane(true)
+    pasteAsPane.openedPasteAs = 0
+    pasteAsPane.openPasteAs = function () { pasteAsPane.openedPasteAs += 1 }
+    Focus.act("pasteAs", pasteAsPane)
+    check("P opens Paste as", pasteAsPane.openedPasteAs, 1)
+    var copyPathPane = listPane(true)
+    copyPathPane.copied = ""
+    copyPathPane.opener = { copyText: function (text) { copyPathPane.copied = text } }
+    Focus.act("copyPath", copyPathPane, 0, ["/d/a.txt"])
+    check("copy path copies at once", copyPathPane.copied.length > 0, true)
+    var pasteLinkPane = listPane(true)
+    pasteLinkPane.linked = []
+    pasteLinkPane.pasteLink = function (kind, paths) { pasteLinkPane.linked.push(kind + ":" + paths.join(",")) }
+    Focus.act("pasteLink", pasteLinkPane, 0, ["/d/a.txt"])
+    check("paste link asks for a relative link", pasteLinkPane.linked.join("|"), "relative:/d/a.txt")
 }

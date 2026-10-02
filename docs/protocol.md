@@ -910,6 +910,10 @@ omits `w` is an older backend, and a client reads that the same as true.
 trailing slash, a symlink or a `..` left unresolved, because a client drops any `listed` line whose
 `path` differs from the one it asked for (`ui/js/Swap.js` `onListed`).
 
+`changed` rides only on a `list` that re-read the directory already listed, and names added plus
+removed rows between the two scans, so a rename counts 2 against a net delta of 0. A first listing
+and a navigation carry no `changed`, and a client reads a missing one as unknown rather than 0.
+
 ### rows
 
 `{"t":"rows","start":<uint>,"rows":[{"n":<string>,"d":<bool>,"s":<uint>,"m":<int>,"p":<uint>,"i":<string>,"t":<bool>,"k":<uint>[,"l":<string>][,"v":<uint>]},...],"kinds":[<string>,...],"ms":<float>,"listing":<uint>}`

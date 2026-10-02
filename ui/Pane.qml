@@ -57,6 +57,8 @@ FocusScope {
     readonly property bool clickRename: ViewState.state.clickRename !== false
     // A manual reload's own count, or -1; ui/js/Reload.js sets it and ui/PaneSwap.qml spends it.
     property int reloadFrom: -1
+    // Added plus removed rows on the reload's listed line, or -1; ui/PaneSwap.qml sets it from changed.
+    property int reloadChanged: -1
     // The slow click's own window: the last tap's row and time, read by ui/js/SlowClick.js alone.
     property double slowClickAt: 0
     property int slowClickIndex: -2

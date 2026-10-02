@@ -5,9 +5,7 @@
 // Split out of ui/js/Nav.js, which sits at the 300-line JS cap, the same way tests/js/watch.js was
 // split out of tests/js/nav.js; ui/js/Nav.js keeps navigation and this keeps the return.
 
-// ui/PaneWire.qml watchBusy: a re-read renumbers every row, so it waits while anything names a row by index or holds one open, the collision card's transfer too.
-// A menu action waiting on its reply waits as well: a re-read landing then flips
-// menuSelectionIdentity and the reply is refused, losing the rename it was for.
+// ui/PaneWire.qml watchBusy: a re-read renumbers rows, so it waits while anything names one, including a menu reply in flight.
 function busy(pane) {
     if (!pane)
         return true
@@ -41,8 +39,7 @@ function afterDelete(pane, landed) {
     return anchoredRefresh(pane, true)
 }
 
-// A rename commit keeps the row the operator was on: the pointer's row for a click-away,
-// the renamed row for Enter (the cursor still sits on the source, so that leaf maps to dest).
+// A rename commit keeps the pointer row for a click-away and maps source to dest for Enter.
 function pointerRow(pane, request) {
     var row = pane.rowFor(pane.cursorIndex)
     var name = row ? String(row.n) : ""

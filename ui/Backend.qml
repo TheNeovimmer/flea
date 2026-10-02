@@ -8,7 +8,7 @@ import "js/Swap.js" as Swap
 Item {
     id: root
 
-    signal listed(int total, real readMs, real sortMs, string path)
+    signal listed(int total, real readMs, real sortMs, string path, var changed)
     // The listing directory's filesystem, straight off the listed line: a drag compares it against
     // the dropped-on folder's own to tell a move within one volume from a copy across two.
     property var dirDev: 0

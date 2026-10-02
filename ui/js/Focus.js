@@ -171,8 +171,7 @@ function act(action, root, menuId, paths) {
     case "trashRefused": root.message(noTrashLine(), true); return
     case "copy": Ops.clip(root, false, paths); return
     case "copydirpath": root.copyDirPath(); return
-    // MenuAdditions040: c opens Copy as at the cursor, P opens Paste as, V
-    // flips the selection, and Ctrl+Shift+C copies the paths at once.
+    // MenuAdditions040: c copies as, P pastes as, V flips the selection.
     case "copyAs": root.openCopyAs(); return
     case "pasteAs": root.openPasteAs(); return
     case "invertSelection": root.invertSelection(); return
@@ -245,9 +244,7 @@ function act(action, root, menuId, paths) {
     root.message(action + " is not built yet.", false)
 }
 
-// Issue 29: Escape climbs to the parent while the setting is on, and only then: a filter,
-// a search, an open menu, the collision card, a selection or a listing out
-// all keep the key, because each of them is something Escape already unwinds or refuses behind.
+// Issue 29: Escape climbs only when nothing else owns it, so each unwound state keeps the key.
 function escapeUp(root) {
     return root.escapeUp === true && root.searchMode.length === 0
         && root.filterQuery.length === 0 && !root.filterTyping && !root.menuVisible

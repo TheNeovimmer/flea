@@ -158,6 +158,14 @@ fn an_anchored_listed_line_answers_the_anchor_and_a_bare_one_is_unchanged() {
 }
 
 #[test]
+fn a_relist_names_added_plus_removed_rather_than_net_delta() {
+    let base = say_listed(3, 0.0, 0.0, 1, "/d", true);
+    assert_eq!(with_changed(&base, 2),
+        r#"{"t":"listed","n":3,"read":0.000,"sort":0.000,"v":1,"w":true,"path":"/d","changed":2}"#);
+    assert_eq!(with_changed(&base, 0).matches("changed").count(), 1);
+}
+
+#[test]
 fn a_listed_line_says_when_the_directory_cannot_be_written() {
     use std::os::unix::fs::PermissionsExt;
     let dir = std::env::temp_dir().join(format!("flea-listed-w-{}", std::process::id()));

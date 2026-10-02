@@ -156,7 +156,7 @@ Item {
     Connections {
         target: pane.backend
 
-        function onListed(total, readMs, sortMs, path) { swap.takeListed(total, readMs, sortMs, path) }
+        function onListed(total, readMs, sortMs, path, changed) { swap.takeListed(total, readMs, sortMs, path, changed) }
         function onRows(start, items, ms, kinds, listing) { swap.takeRows(start, items, kinds, listing) }
 
         function onLocated(message) {
