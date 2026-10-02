@@ -1,5 +1,4 @@
-# One field out of one stored PKGBUILD, shared by the pre-tag guard and the AUR check. Sourced, never run.
-# Fails closed: any unreadable commit, file or value answers non-zero with no output, so callers name it.
+# Sourced, never run; field COMMIT PATH KEY prints one stored PKGBUILD value, or fails with no output.
 
 # Sample input: pkgrel=2 or pkgrel='1' # note
 field() {
