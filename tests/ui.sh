@@ -1149,6 +1149,16 @@ case_scroll() {
     shot scroll-three-notches
 }
 
+# The stroke lands where a finger would: over a row, with a pointer frame for Qt to route it.
+touchpad_focus_row() {
+    local wx wy ww wh cx cy
+    read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
+    read -r cx cy <<< "$(ipc rowCentre 5)"
+    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + cx - 1)), y = $((wy + cy))})" >/dev/null
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
+    settle
+}
+
 # A real two-finger stroke through tools/flea-touchpad: a flick coasts past its lift on Finder's
 # tail while the same stroke with a pause before the lift stops dead. A flick past the top
 # rubber-bands past the bound and returns to it. Controller-only: needs /dev/uinput writable
@@ -1159,19 +1169,14 @@ case_touchpad() {
     launch "$bench_dir"
     wait_listing 100000
     settle
-    local wx wy ww wh cx cy
-    read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
-    read -r cx cy <<< "$(ipc rowCentre 5)"
-    # The stroke lands where a finger would: over a row, with a pointer frame for Qt to route it.
-    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + cx - 1)), y = $((wy + cy))})" >/dev/null
-    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
-    settle
+    touchpad_focus_row
     [[ "$(ipc listContentY)" == "0" ]] || fail "touchpad: the list did not start at the top"
     touchpad_run flick 0
     touchpad_run paused 200
     launch "$bench_dir"
     wait_listing 100000
     settle
+    touchpad_focus_row
     [[ "$(ipc listContentY)" == "0" ]] || fail "touchpad: the edge flick did not start at the top"
     touchpad_edge
 }

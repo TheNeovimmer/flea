@@ -22,6 +22,9 @@ ShellRoot {
     // Real-frame wait for the view fixup to carry a held overscroll home, in milliseconds.
     property int fixupWaitMs: 500
     property var fixupArgs: null
+    // Lane acceptance and body calls for the propagated End, each tail path pins red alone.
+    property bool laneEndAccepted: false
+    property int bodyEndCalls: 0
 
     function buildRows() {
         var rows = []
@@ -335,8 +338,13 @@ ShellRoot {
     function propagateToBody(ev) {
         var h = handlers()
         h.lane.handleWheel(ev)
-        if (!ev.accepted)
+        if (ev.phase === Qt.ScrollEnd)
+            root.laneEndAccepted = ev.accepted
+        if (!ev.accepted) {
+            if (ev.phase === Qt.ScrollEnd)
+                root.bodyEndCalls += 1
             h.body.handleWheel(ev)
+        }
         return ev
     }
     // One flick delivered the way Qt propagates it: lane first, body only if unaccepted.
@@ -360,9 +368,37 @@ ShellRoot {
         list.contentY = 0
         root.fakeT += 1000
         Scroll.testNowMs = root.fakeT
+        root.laneEndAccepted = false
+        root.bodyEndCalls = 0
         var fed = root.feedPropagated(flickRaw(12, -40), 8)
+        if (root.laneEndAccepted !== true) {
+            fail("the propagated End left the lane unaccepted")
+            root.report()
+            return
+        }
+        if (root.bodyEndCalls !== 0) {
+            fail("the accepted End still reached the body")
+            root.report()
+            return
+        }
         if (!root.tailActive()) {
             fail("a propagated End started no tail")
+            root.report()
+            return
+        }
+        // A second End straight to the body is the other handler on one view.
+        var kept = Scroll.tailState(list, false)
+        var keepVx = kept.vx
+        var keepVy = kept.vy
+        h.body.handleWheel(touchWheel(0, Qt.ScrollEnd))
+        if (!root.tailActive()) {
+            fail("an End to the second handler stopped a live tail")
+            root.report()
+            return
+        }
+        var after = Scroll.tailState(list, false)
+        if (after.vx !== keepVx || after.vy !== keepVy) {
+            fail("an End to the second handler changed tail velocity")
             root.report()
             return
         }

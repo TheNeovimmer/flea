@@ -357,8 +357,7 @@ MouseArea {
         }
         var phase = wheel.phase !== undefined ? wheel.phase : Qt.NoScrollPhase
         if (Scroll.isTouchpad(phase)) {
-            // A new stroke ends the old tail and snaps the return to its bound.
-            // An End never stops a live tail: it reaches two handlers on one view.
+            // A new stroke ends the old tail; an End never stops a live tail on one view.
             if (phase === Qt.ScrollBegin) {
                 root.stopTail()
                 root.stopReturn(true)
