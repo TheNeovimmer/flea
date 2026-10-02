@@ -55,7 +55,6 @@ Item {
             var plain = drop.getDataAsString("text/plain")
             if (root.refuseDrop(marker, drop.urls, shelf, plain)) return
             if (root.dropped(marker, drop.urls, shelf, plain, drop.proposedAction)) {
-                if (root.pane.backend) root.pane.backend.dragLanded = true
                 drop.accept(Qt.CopyAction)
             }
         }

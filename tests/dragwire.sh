@@ -1,10 +1,5 @@
 #!/bin/bash
-# Guards what an external application sees when Flea drags a file out. tests/drag.sh proves the
-# gesture but needs the display and a real pointer, so it never runs in the headless battery.
-# A plain lift offers copy alone until the browser-upload work settles the offer: a browser
-# uploader refuses a move offer. Ctrl offers copy alone, Shift move alone, Ctrl with Shift link
-# alone, so a receiver that takes whatever is offered still takes the lift's verb. The shelf drag
-# stays copy only.
+# Headless guard for what an external drop target sees: plain offers copy alone, Ctrl copy, Shift move, Ctrl with Shift link, shelf copy only.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
@@ -13,9 +8,10 @@ fail=0
 ok()  { printf 'ok   %s\n' "$*"; pass=$((pass+1)); }
 bad() { printf 'FAIL %s\n' "$*"; fail=$((fail+1)); }
 
-# Comments may name an action to explain it, so every check below reads code only.
+# Comments may name an action, so every check reads code only. Sample input, code_of('a // note') strips to 'a'.
 code_of() { sed -e 's://.*::' "$1"; }
 
+# Sample input, ui/FileDrag.qml:27: '    Drag.supportedActions: root.dragLink ? Qt.LinkAction : ...'
 advertised=$(for f in ui/*.qml; do code_of "$f" | grep -H --label="$f" -n 'Drag\.supportedActions'; done)
 count=$(printf '%s' "$advertised" | grep -c . )
 if [ "$count" -eq 1 ]; then
@@ -25,26 +21,12 @@ else
     printf '%s\n' "$advertised" | sed 's/^/     /'
 fi
 
-# Qt hands effectAllowed straight from this line. A plain lift names copy alone.
-if printf '%s' "$advertised" | grep -q 'Qt\.CopyAction'; then
-    ok "a leaving drag offers copy"
+# Qt hands effectAllowed straight from this line: one ternary arm per lift, matched whole and end-anchored.
+offer=$(printf '%s' "$advertised" | sed 's/^[^:]*:[0-9]*://')
+if printf '%s' "$offer" | grep -q '^[[:space:]]*Drag\.supportedActions:[[:space:]]*root\.dragLink[[:space:]]*?[[:space:]]*Qt\.LinkAction[[:space:]]*:[[:space:]]*root\.dragCopy[[:space:]]*?[[:space:]]*Qt\.CopyAction[[:space:]]*:[[:space:]]*root\.dragShift[[:space:]]*?[[:space:]]*Qt\.MoveAction[[:space:]]*:[[:space:]]*Qt\.CopyAction[[:space:]]*$'; then
+    ok "the offer narrows arm by arm: link alone, Ctrl copy alone, Shift move alone, plain copy alone"
 else
-    bad "a leaving drag must offer Qt.CopyAction, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
-fi
-if printf '%s' "$advertised" | grep -q 'Qt\.CopyAction | Qt\.MoveAction'; then
-    bad "a plain lift must not offer both copy and move, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
-else
-    ok "a plain lift offers copy alone"
-fi
-if printf '%s' "$advertised" | grep -q 'dragCopy' && printf '%s' "$advertised" | grep -q 'dragShift' && printf '%s' "$advertised" | grep -q 'dragLink'; then
-    ok "ctrl offers copy alone, shift move alone, ctrl with shift link alone"
-else
-    bad "the offer must narrow on dragCopy, dragShift and dragLink, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
-fi
-if printf '%s' "$advertised" | grep -q 'Qt\.LinkAction'; then
-    ok "a link lift offers a link"
-else
-    bad "a link lift must offer Qt.LinkAction, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
+    bad "the offer must read link/copy/shift/plain arm by arm, got: $offer"
 fi
 
 if grep -q 'text/uri-list' ui/js/Drag.js; then
@@ -61,9 +43,7 @@ else
     bad "the shelf drag must stay Qt.CopyAction alone, got: $shelf"
 fi
 
-# Flea's own verb is the marker, not the DragEvent field. proposedAction may reach only the one
-# helper in ui/js/Drag.js that ignores it for any Flea marker; QML call sites only pass it through
-# to dropInto, dropVerb, feedbackFor, enterTarget or dropped. Anything else is the verb riding on it.
+# Own verb rides the marker: proposedAction reaches only the Drag.js helper plus pass-through call sites (dropInto, dropVerb, feedbackFor, enterTarget, dropped).
 if ! grep -q '^function foreignHeld' ui/js/Drag.js || ! grep -q '^function dropVerb' ui/js/Drag.js; then
     bad "ui/js/Drag.js must hold the single proposedAction helper (foreignHeld and dropVerb)"
 else
@@ -83,8 +63,7 @@ while IFS= read -r hit; do
     case "$file" in
         ui/js/Drag.js) continue ;;
         ui/DropInto.qml|ui/RowDrag.qml|ui/FileDrag.qml)
-            # Pass-through only: the offer setting and argument forwarding carry no decision.
-            # A bitwise read or comparison here would decide the verb outside the helper.
+            # Pass-through only (offer setting and argument forwarding); a bitwise read or comparison here would decide the verb outside the helper.
             case "$text" in
                 *"&"*|*"=="*|*"!="*) ;;
                 *) continue ;;
@@ -100,8 +79,7 @@ else
     bad "the internal verb is back on proposedAction outside the helper:"
     printf '%s\n' "${badside:-$side}" | sed 's/^/     /'
 fi
-# The helper must ignore the platform action for any Flea marker: no bitwise read of proposed
-# outside foreignHeld. A verb decided elsewhere from proposedAction fails this before it ships.
+# Helper ignores proposed for any Flea marker: no bitwise proposed read outside foreignHeld.
 bites=$(grep -n 'proposed &' ui/js/Drag.js)
 start=$(grep -n '^function foreignHeld' ui/js/Drag.js | cut -d: -f1)
 finish=$(awk -v s="$start" 'NR>s && /^function /{print NR; exit}' ui/js/Drag.js)
