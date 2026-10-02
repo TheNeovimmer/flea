@@ -65,6 +65,8 @@ Item {
     // The one line no request asked for: the directory the current listing came from changed under
     // it. path is that directory, so a pane that has since moved can ignore it; see docs/protocol.md.
     signal changed(string path)
+    // The open mount went away: parent is the nearest existing folder, so the pane moves there.
+    signal unmounted(string path, string parent)
     // readFailed tells an unreadable directory from an empty one (mode 0 when its stat failed too); hidden, hiddenLast and first echo the request, so each of the three peek clients knows its own reply.
     signal peeked(string path, bool hidden, int total, var rows, bool readFailed, int mode, bool hiddenLast, int first)
     // The path bar's folder jump, the existing folders of each source in its own order; see docs/protocol.md "jump".
@@ -357,6 +359,7 @@ Item {
     // Sample input: {"t":"thumbed","row":2,"file":"/home/gm/.cache/thumbnails/large/b98fa4.png","ms":75.823}
     // Sample input: {"t":"dirsized","row":4,"bytes":1048576,"partial":false,"ms":12.500}
     // Sample input: {"t":"changed","path":"/home/gm/Downloads"}
+    // Sample input: {"t":"unmounted","path":"/media/stick","parent":"/media"}
     // Sample input: {"t":"searching","n":812,"scanned":41200,"ms":300.114}
     // Sample input: {"t":"transferstarted","id":12,"n":2,"moving":true}
     // Sample input: {"t":"transferstarted","id":12,"n":1,"moving":false,"extract":true}

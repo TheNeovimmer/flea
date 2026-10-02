@@ -73,6 +73,7 @@ mod tests {
             base,
             asked: Vec::new(),
             outstanding: 0,
+            window_meta: HashMap::new(),
             dirsizes: HashMap::new(),
             dirsize_queue: Vec::new(),
             dirsize_worker: crate::backend::dirsizeworker::Worker::new(events),

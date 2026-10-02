@@ -28,6 +28,7 @@ extern "C" {
 pub enum Ran {
     Succeeded,
     Failed,
+    TimedOut,
     NotStarted,
 }
 
@@ -36,7 +37,7 @@ fn kill_and_reap(jailed: &mut crate::backend::jail::Jailed) {
     crate::backend::jail::kill_tree(jailed);
 }
 
-// thumbargv builds the inner argv and sandbox wraps it; this runs the result and reports which of the three things happened.
+// thumbargv builds the inner argv and sandbox wraps it; this runs the result and reports which of the four Ran outcomes happened.
 pub fn run_with_timeout(full: &[String], limit: Duration) -> Ran {
     let mut jailed = match crate::backend::jail::spawn_jailed(full, |cmd| {
         cmd.stdin(std::process::Stdio::null());
@@ -66,9 +67,9 @@ pub fn run_with_timeout(full: &[String], limit: Duration) -> Ran {
             break;
         }
         if ready == 0 {
-            // A decoder still running at the deadline is one of the two paths that record a marker, the other being a non-zero exit.
+            // A decoder still running at the deadline reports Timeout, so a slow share never records a permanent marker.
             kill_and_reap(&mut jailed);
-            return Ran::Failed;
+            return Ran::TimedOut;
         }
         // corner: a ready descriptor with no POLLIN cannot happen for a pidfd and a poll error is the machine's, so neither judges the file, see AGENTS.md "Thumbnail pool".
         if ready > 0 || std::io::Error::last_os_error().raw_os_error() != Some(EINTR) {
@@ -103,8 +104,15 @@ mod tests {
         let full = vec!["/usr/bin/sleep".to_string(), "600".to_string()];
         let started = Instant::now();
         // thumbs.rs ships JOB_TIMEOUT at 20 s, so this pins the kill to whatever deadline it was given.
-        assert!(matches!(run_with_timeout(&full, Duration::from_millis(300)), Ran::Failed));
+        assert!(matches!(run_with_timeout(&full, Duration::from_millis(300)), Ran::TimedOut));
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_deadline_kill_is_not_a_decoder_verdict() {
+        let full = vec!["/usr/bin/sleep".to_string(), "600".to_string()];
+        assert!(matches!(run_with_timeout(&full, Duration::from_millis(200)), Ran::TimedOut));
+        assert!(matches!(run_with_timeout(&["/usr/bin/false".to_string()], A_LONG_LIMIT), Ran::Failed));
     }
 
     #[test]
@@ -265,7 +273,7 @@ mod tests {
         let started = Instant::now();
         let ran = run_with_timeout(&full, LIMIT);
         let took = started.elapsed();
-        assert!(matches!(ran, Ran::Failed), "the deadline was lost to the EINTR retries");
+        assert!(matches!(ran, Ran::TimedOut), "the deadline was lost to the EINTR retries");
         assert!(took >= LIMIT, "the deadline fired early at {:?}", took);
         assert!(took < STILL_DEADLINED, "the deadline was lost to the EINTR retries, at {:?}", took);
     }

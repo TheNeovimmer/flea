@@ -82,6 +82,8 @@ function route(root, message) {
         root.fsInfo(message.fs, message.free, message.path || "", message.class || "")
     } else if (message.t === "changed") {
         root.changed(message.path || "")
+    } else if (message.t === "unmounted") {
+        root.unmounted(message.path || "", message.parent || "")
     } else if (message.t === "jumped") {
         root.jumped(message.id || 0, message.favourites || [], message.zoxide || [], message.recent || [], message.frecency || {})
     } else if (message.t === "peeked") {

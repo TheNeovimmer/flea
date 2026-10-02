@@ -1,10 +1,11 @@
 use crate::backend::listing::Listing;
 use crate::error::{from_io, FleaError};
+use std::ffi::{c_char, c_int, CString};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::time::Instant;
 
-// Phase 1 never stats: d_type is free, see AGENTS.md "Two-phase listing".
+// Phase 1 stats only typeless entries: d_type is free, see AGENTS.md "Two-phase listing".
 // hidden:false is the shell's own dotfile convention, matched here rather than left to the client.
 pub fn scan(path: &str, hidden: bool) -> Result<(Listing, f64), FleaError> {
     // The gvfs check first, so a local listing never reads the prefetch environment or the gio name.
@@ -33,26 +34,130 @@ pub fn scan_with(
         }
     }
     let t = Instant::now();
-    let rd = match fs::read_dir(path) {
-        Ok(rd) => rd,
-        Err(e) => return Err(from_io("scan", path, &e)),
-    };
     let mut l = Listing::new();
-    // corner: unreadable entries skip, typeless ones become files, see AGENTS.md.
     // corner: a non-UTF8 name goes lossy here and then cannot be stat'd, see AGENTS.md.
-    for entry in rd.flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        // corner: a dot-prefixed name is dropped before any stat, so a hidden directory costs nothing when hidden is false.
+    scan_raw(path, hidden, &mut l)?;
+    Ok((l, t.elapsed().as_secs_f64() * 1000.0))
+}
+
+// d_type values from dirent.h: unknown 0, dir 4, link 10; only these decide the listing.
+const DT_UNKNOWN: u8 = 0;
+const DT_DIR: u8 = 4;
+const DT_LNK: u8 = 10;
+// fstatat flag asking for the link itself, so a symlink never resolves to its target here.
+const AT_SYMLINK_NOFOLLOW: c_int = 0x100;
+// st_mode file-type mask and the two types a typeless entry can resolve to.
+const S_IFMT: u32 = 0o170000;
+const S_IFDIR: u32 = 0o040000;
+const S_IFLNK: u32 = 0o120000;
+// st_mode offset inside struct stat: 24 on x86_64, 16 on aarch64; buffer oversized so neither arch overflows.
+#[cfg(target_arch = "x86_64")]
+const ST_MODE_OFF: usize = 24;
+#[cfg(not(target_arch = "x86_64"))]
+const ST_MODE_OFF: usize = 16;
+
+// Sample dirent: d_type 4 with name "sub", d_type 0 with name "xfs-file"; unknown stays a dir.
+fn dir_from_dtype(dtype: u8) -> (bool, bool) {
+    match dtype {
+        DT_DIR => (true, false),
+        DT_LNK => (false, true),
+        DT_UNKNOWN => (true, false),
+        _ => (false, false),
+    }
+}
+
+// Sample input: dtype 0 with mode 0o100644 answers (false, false); dtype 0 with None keeps (true, false).
+fn dir_from_dtype_resolved(dtype: u8, mode: Option<u32>) -> (bool, bool) {
+    if dtype != DT_UNKNOWN {
+        return dir_from_dtype(dtype);
+    }
+    match mode {
+        Some(m) if m & S_IFMT == S_IFDIR => (true, false),
+        Some(m) if m & S_IFMT == S_IFLNK => (false, true),
+        Some(_) => (false, false),
+        None => (true, false),
+    }
+}
+
+// Sample input: code 5 answers Err, code 0 answers Ok; scan_raw returns exactly this.
+fn finish_raw(code: c_int, path: &str) -> Result<(), FleaError> {
+    if code != 0 {
+        return Err(from_io("scan", path, &std::io::Error::from_raw_os_error(code)));
+    }
+    Ok(())
+}
+
+// dirent as the kernel lays it: ino, off, reclen, type, then the NUL-terminated name.
+#[repr(C)]
+struct Dirent {
+    ino: u64,
+    off: i64,
+    reclen: u16,
+    dtype: u8,
+    name: [c_char; 256],
+}
+
+extern "C" {
+    fn opendir(path: *const c_char) -> *mut std::ffi::c_void;
+    fn readdir(dir: *mut std::ffi::c_void) -> *mut Dirent;
+    fn closedir(dir: *mut std::ffi::c_void) -> c_int;
+    fn dirfd(dir: *mut std::ffi::c_void) -> c_int;
+    fn fstatat(dirfd: c_int, path: *const c_char, buf: *mut std::ffi::c_void, flags: c_int) -> c_int;
+    fn __errno_location() -> *mut c_int;
+}
+
+// Sample input: raw bytes "f.txt" under an open dir fd answer Some(0o100644); vanished answers None.
+fn stat_mode_at(fd: c_int, raw: &[u8]) -> Option<u32> {
+    if fd < 0 {
+        return None;
+    }
+    let name = CString::new(raw).ok()?;
+    let mut buf = [0u8; 512];
+    if unsafe { fstatat(fd, name.as_ptr(), buf.as_mut_ptr() as *mut std::ffi::c_void, AT_SYMLINK_NOFOLLOW) } != 0 {
+        return None;
+    }
+    Some(u32::from_ne_bytes([buf[ST_MODE_OFF], buf[ST_MODE_OFF + 1], buf[ST_MODE_OFF + 2], buf[ST_MODE_OFF + 3]]))
+}
+
+// Raw getdents with an fstatat fallback for typeless entries only, so xfs ftype=0 resolves before any order.
+fn scan_raw(path: &str, hidden: bool, l: &mut Listing) -> Result<(), FleaError> {
+    let c = match CString::new(path) {
+        Ok(c) => c,
+        Err(_) => return Err(from_io("scan", path, &std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid input"))),
+    };
+    let dir = unsafe { opendir(c.as_ptr()) };
+    if dir.is_null() {
+        return Err(from_io("scan", path, &std::io::Error::last_os_error()));
+    }
+    let fd = unsafe { dirfd(dir) };
+    loop {
+        unsafe { *__errno_location() = 0 };
+        let entry = unsafe { readdir(dir) };
+        if entry.is_null() {
+            let code = unsafe { *__errno_location() };
+            unsafe { closedir(dir) };
+            return finish_raw(code, path);
+        }
+        let dtype = unsafe { (*entry).dtype };
+        let bytes: Vec<u8> = unsafe { (*entry).name.iter().take_while(|&&b| b != 0).map(|&b| b as u8).collect() };
+        let name = String::from_utf8_lossy(&bytes);
+        // readdir returns . and .. like any other entry, while ReadDir filters them.
+        if name == "." || name == ".." {
+            continue;
+        }
         if !hidden && name.starts_with('.') {
             continue;
         }
-        let file_type = entry.file_type().ok();
+        // corner: typeless entries resolve by fstatat on the open dir fd, so the order is built on true types.
+        let (is_dir, is_link) = if dtype == DT_UNKNOWN {
+            dir_from_dtype_resolved(dtype, stat_mode_at(fd, &bytes))
+        } else {
+            dir_from_dtype(dtype)
+        };
         let index = l.len();
-        l.push(&name, file_type.is_some_and(|kind| kind.is_dir()));
-        l.spans[index].is_symlink = file_type.is_some_and(|kind| kind.is_symlink());
+        l.push(&name, is_dir);
+        l.spans[index].is_symlink = is_link;
     }
-    Ok((l, t.elapsed().as_secs_f64() * 1000.0))
 }
 
 // The st_mode of a path whose listing failed. The stat outlives the denial: /root answers mode
@@ -145,6 +250,52 @@ mod tests {
         let (l, _) = scan(d.path().to_str().unwrap(), false).unwrap();
         assert_eq!(l.len(), 1);
         assert_eq!(crate::backend::fsinfo::statfs_calls(), 0, "the fsinfo answer never blocks a listing, so scan makes no statfs call");
+    }
+
+    #[test]
+    fn a_mid_read_error_fails_rather_than_a_short_success() {
+        // Sample input: errno 5 answers Err, errno 0 answers Ok; scan_raw returns exactly this.
+        assert!(finish_raw(5, "d").is_err(), "EIO mid-readdir must fail, never a short listing as success");
+        assert!(finish_raw(0, "d").is_ok(), "a clean end of readdir is success");
+    }
+
+    #[test]
+    fn an_unknown_type_stays_a_dir_so_a_folder_is_never_a_file() {
+        assert_eq!(dir_from_dtype(DT_UNKNOWN), (true, false), "DT_UNKNOWN defaults to dir");
+        assert_eq!(dir_from_dtype(DT_DIR), (true, false));
+        assert_eq!(dir_from_dtype(DT_LNK), (false, true));
+        assert_eq!(dir_from_dtype(8), (false, false), "a regular d_type stays a file");
+    }
+
+    #[test]
+    fn a_typeless_file_resolves_before_any_order_is_built() {
+        // Sample input: dtype 0 with a regular mode answers file, with a dir mode answers dir.
+        assert_eq!(dir_from_dtype_resolved(DT_UNKNOWN, Some(0o100644)), (false, false), "a typeless regular file is not a folder");
+        assert_eq!(dir_from_dtype_resolved(DT_UNKNOWN, Some(0o040755)), (true, false), "a typeless folder stays one");
+        assert_eq!(dir_from_dtype_resolved(DT_UNKNOWN, Some(0o120777)), (false, true), "a typeless link stays one");
+        assert_eq!(dir_from_dtype_resolved(DT_UNKNOWN, None), (true, false), "an unstattable entry keeps the dir default");
+        assert_eq!(dir_from_dtype_resolved(DT_DIR, Some(0o100644)), (true, false), "a typed dir never consults the mode");
+    }
+
+    #[test]
+    fn a_typeless_entry_stats_on_the_open_dir_fd() {
+        // Sample input: real file and dir under one open fd answer their modes, vanished answers None.
+        let d = TestDir::new("scan-typeless-fd");
+        d.file("f.txt", "x");
+        d.dir("sub");
+        let c = CString::new(d.path().to_str().unwrap()).unwrap();
+        let dir = unsafe { opendir(c.as_ptr()) };
+        assert!(!dir.is_null(), "fixture must open");
+        let fd = unsafe { dirfd(dir) };
+        assert!(fd >= 0, "an open dir has a descriptor");
+        let file_mode = stat_mode_at(fd, b"f.txt");
+        let dir_mode = stat_mode_at(fd, b"sub");
+        let gone_mode = stat_mode_at(fd, b"never-here.txt");
+        unsafe { closedir(dir) };
+        assert_eq!(file_mode.map(|m| m & S_IFMT), Some(0o100000), "a file stats as a regular file");
+        assert_eq!(dir_mode.map(|m| m & S_IFMT), Some(S_IFDIR), "a folder stats as a directory");
+        assert_eq!(gone_mode, None, "a vanished name stats as nothing");
+        assert_eq!(stat_mode_at(-1, b"f.txt"), None, "a dead descriptor stats as nothing");
     }
 
     #[test]

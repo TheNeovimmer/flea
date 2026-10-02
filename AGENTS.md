@@ -163,9 +163,10 @@ phase and is not in this tree yet.
 
 ## Two-phase listing
 
-Phase 1 (`scan.rs`) reads only names and `file_type()`, which is backed by `d_type` in
-the `getdents64` buffer libstd already read to produce the directory iterator, so
-knowing whether an entry is a directory costs nothing extra. Phase 2 (`meta.rs`) calls
+Phase 1 (`scan.rs`) reads only names and `d_type` from raw `getdents64` via `opendir`/`readdir`,
+resolving only `DT_UNKNOWN` entries by `fstatat` on the open dir fd with `AT_SYMLINK_NOFOLLOW`,
+so knowing whether an entry is a directory costs nothing extra except on typeless filesystems.
+Phase 2 (`meta.rs`) calls
 `symlink_metadata()`, either for the rows one `window` request names, through
 `stat_range()`, or for every row in the directory when a sort needs it, through
 `stat_all()`. Sorting by name and directory-first works entirely on phase-1 data;
@@ -1710,7 +1711,7 @@ failure fails the check rather than passing it.
   declares more modules than the list below names, which is the load-bearing ones and not a census.
 - `backend/listing.rs` the arena-backed `Listing`.
 - `backend/aliases.rs` resolves a MIME alias to its canonical name, see "MIME aliases".
-- `backend/scan.rs` phase 1: readdir plus `file_type()`.
+- `backend/scan.rs` phase 1: readdir plus `fstatat` for typeless entries only.
 - `backend/sort.rs` parses the sort key, holds the name order, and holds the one sentence a key it does not know answers with.
 - `backend/meta.rs` phase 2: stat a row range for a `window`, or every row for a size or date sort.
 - `backend/metasort.rs` the size and date orders: sorts an index over the metadata pass, then
@@ -2425,7 +2426,7 @@ a boundary against the filesystem rather than against a mock.
 `src/backend/child.rs` is 231 lines by `wc -l`, inside both budgets and so not one of the files the
 tool warns about, with its `#[cfg(test)]` at line 96, so 95 lines of implementation and 136 of
 tests. It runs one argv
-under a deadline and reports `Ran::Succeeded`, `Ran::Failed` or `Ran::NotStarted`. It came out of
+under a deadline and reports `Ran::Succeeded`, `Ran::Failed`, `Ran::TimedOut` or `Ran::NotStarted`. It came out of
 `thumbs.rs` at 397 of the 400 hard cap, and it completes a three-part story each of whose parts is one file:
 `thumbargv` builds the inner argv, `sandbox` wraps it, `child` runs the result. Nothing in it
 knows about thumbnails, which is why the pool's `JOB_TIMEOUT` stays in `thumbs.rs` and is passed
@@ -4436,8 +4437,8 @@ sends the job down the exec path, which judges the file exactly as it always has
 thumbnailer program ever writes a `fail/` marker: the worker's child is more confined than the
 program, with no writable `/tmp`, and a file only the worker failed must not be recorded broken on
 its word. `N` retires the worker, as below. corner: a video that hangs the decoder costs two
-deadlines, one in the worker and one on the exec path, and costs them once, because the exec path's
-failure records the marker. `workerlink::tests::
+deadlines, one in the worker and one on the exec path, paid once locally and on every request
+off-local, where a timeout records no marker. `workerlink::tests::
 only_a_thumbnail_is_final_and_a_machine_failure_retires_the_worker` answers one request each way
 from a stand-in worker and pins that only `S` publishes, that `F` keeps the worker and that `N`
 retires it, and `gone_because` is what names an `N` apart from a worker that stopped answering.
@@ -4520,8 +4521,8 @@ already inside a child runs to its own end or to the timeout.
 `JOB_TIMEOUT` is 20 seconds, and `backend/child.rs` enforces it. The child is waited on
 exactly, not polled: `pidfd_open` gives a descriptor that becomes readable when the child exits,
 and one `poll` on it with the remaining time as its timeout is BOTH the wait and the deadline, so
-a child still alive at the deadline is killed and reaped and only that case records a marker in
-`fail/`. `poll` returning `POLLIN` says only that the child exited, so the status itself still
+a child still alive at the deadline is killed and reaped and answers `Ran::TimedOut`, which records
+a marker only for a local file and never for network or USB. `poll` returning `POLLIN` says only that the child exited, so the status itself still
 comes from `wait`. The two symbols are `extern "C"` declarations in the idiom `src/thp.rs` already
 uses, because `std` links the system libc and this project takes zero crates; glibc has shipped a
 `pidfd_open` wrapper since 2.36, so no `syscall()` is needed. The descriptor is held in an
@@ -4544,11 +4545,11 @@ The distinction this enum draws is whether a thumbnailer's verdict on these byte
 `pidfd_open`, a `poll` or a `wait` this process could not complete produces no verdict at all,
 exactly like a fork that failed under memory pressure.
 
-**Three of the eight ways a job can end record a marker, and the deadline is only one of them.**
+**Two of the eight ways a job can end always record a marker, and the deadline records only for local files.**
 That count is the `yes` column of the table below, counted off it rather than carried in from
-anywhere else. `run_with_timeout` itself returns `Ran::Failed` for only two of the three, a child
-still alive at the deadline and a child that exited non-zero; the third is `run_one`'s. Every way
-a job can end:
+anywhere else. `run_with_timeout` itself returns `Ran::TimedOut` for a child still alive at the
+deadline and `Ran::Failed` for a child that exited non-zero; the empty-output case is `run_one`'s.
+Every way a job can end:
 
 | Path | Variant | Marker |
 |---|---|---|
@@ -4556,12 +4557,12 @@ a job can end:
 | `pidfd_open` failed | `NotStarted` | no |
 | `poll` failed, or was ready with no `POLLIN` | `NotStarted` | no |
 | `wait` failed | `NotStarted` | no |
-| still alive at the deadline | `Failed` | **yes** |
+| still alive at the deadline | `TimedOut` | local only |
 | exited non-zero | `Failed` | **yes** |
 | exited 0 having written nothing | `Succeeded`, then recorded by `run_one` | **yes** |
 | exited 0 having written a thumbnail | `Succeeded`, published by `run_one` | no |
 
-`run_one` records on its `Succeeded | Failed` arm (`src/backend/thumbs.rs:211-213`), which a
+`run_one` records through `records_marker` (`src/backend/thumbs.rs:records_marker`), which a
 success reaches only when it wrote nothing, and `tests/thumbs.sh` exercises that arm on every
 run. What the recording paths share is that a decoder ran on the file and produced no answer.
 
@@ -4651,11 +4652,11 @@ exactly as before, because no thumbnailer on this box was observed to produce on
 is the conservative direction against recording a verdict nothing measured.
 
 **Three failures were moved the other way, onto the not-recorded side.** A missing `bwrap` or
-`prlimit` records nothing, see "Thumbnail sandbox". And `run_with_timeout` returns three states
+`prlimit` records nothing, see "Thumbnail sandbox". And `run_with_timeout` returns four states
 rather than a bool: a child that could not be SPAWNED at all is `NotStarted` and records nothing,
 because a fork that failed under memory pressure says nothing about the file, and so is a child
-this process could not `wait` on, while a child that ran and exited non-zero, or that was killed
-at the deadline, is `Failed` and does record.
+this process could not `wait` on, while a child that ran and exited non-zero is `Failed` and does
+record and a child killed at the deadline is `TimedOut` and records only for a local file.
 The rule that separates them is whether a decoder ever looked at the bytes. The seam that
 bound the raw path while `argv` handed the child the canonical one, see "Thumbnailer specs",
 was in the recording class and wrote a permanent marker for every video under a symlinked
@@ -5887,11 +5888,10 @@ names have twins carrying the same MIME type.
   weight 50, and `lookup("cert.pem")` resolves to `application/pkcs7-mime`, the first
   of the eleven in the file.
 
-- `scan.rs`: an entry the directory iterator itself cannot read (`fs::read_dir`'s
-  per-entry `Result` came back `Err`) is dropped by `.flatten()` and never reaches the
-  listing. An entry that read fine but whose `file_type()` call then fails is kept, as
-  a file (`unwrap_or(false)`), because the entry itself is real even if the type
-  lookup raced it. Two different failures, two different outcomes, on purpose.
+- `scan.rs`: a `readdir` error fails the whole listing rather than a short success, and a
+  typeless entry whose `fstatat` then fails is kept as a dir, because the entry itself is real
+  even if the type lookup raced it and a folder must survive xfs ftype=0. Two different
+  failures, two different outcomes, on purpose.
 - `meta.rs`: a row that existed during `scan` but is gone by the time `stat_range`
   reaches it (deleted, renamed) reports `size: 0, mtime: 0, mode: 0` rather than
   failing the whole window; one vanished file should not blank the screen.

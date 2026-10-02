@@ -75,7 +75,8 @@ pub fn run() -> i32 {
     spawn_reader(tx.clone(), Arc::clone(&ops.live));
     let mut fsinfo = FsInfo::new(tx.clone());
     // Armed before the first request, so no listing is ever answered with nothing watching it.
-    let mut watch = Watch::start(tx);
+    let mut watch = Watch::start(tx.clone());
+    let poller = super::watchpoll::Poller::new(tx.clone());
     loop {
         start_next(&mut st);
         // Size results wake this receiver; only search still needs idle ticks.
@@ -97,7 +98,7 @@ pub fn run() -> i32 {
         };
         match event {
             Event::Request(line) => {
-                if handle_line(&line, &mut out, &mut st, &tb, &pool, &cache, &mut ops, &mut watch, &mut fsinfo) == Control::Quit {
+                if handle_line(&line, &mut out, &mut st, &tb, &pool, &cache, &mut ops, &mut watch, &mut fsinfo, &poller) == Control::Quit {
                     break;
                 }
             }
@@ -112,6 +113,21 @@ pub fn run() -> i32 {
             // The one line no client asked for, and only ever for the directory being listed now.
             Event::Changed(wd) => {
                 if watch.is_current(wd) {
+                    say(&mut out, &changed_line(&st.base));
+                }
+            }
+            // The open mount went away, so the pane leaves the volume for its nearest parent.
+            Event::Unmounted(wd) => {
+                if watch.is_current(wd) {
+                    let start = watch.unmount_start(&st.base);
+                    let parent = super::watch::nearest_parent(&start, |p| p.symlink_metadata().is_ok());
+                    say(&mut out, &super::watch::unmounted_line(&st.base, &parent));
+                    poller.clear();
+                }
+            }
+            // A network folder's mtime moved, which inotify never delivers; only the open path counts.
+            Event::PollChanged(path) => {
+                if path == st.base {
                     say(&mut out, &changed_line(&st.base));
                 }
             }
@@ -146,6 +162,7 @@ fn handle_line(
     ops: &mut Ops,
     watch: &mut Watch,
     fsinfo: &mut FsInfo,
+    poller: &super::watchpoll::Poller,
 ) -> Control {
     // Rows read from a numbering this listing has already replaced name other files, so they are refused.
     if let Some(refused) = super::rowguard::refusal(line, st.generation) {
@@ -197,6 +214,8 @@ fn handle_line(
                     out.flush().ok();
                     // After the rows, because a statfs beside gio's own listing slows it on the share.
                     fsinfo.list_arrived(Path::new(&path));
+                    // The open folder alone is polled, so a remote change arrives without inotify.
+                    poller.set(PathBuf::from(&path));
                 }
                 Err(e) => {
                     // The listing did not move, so neither does its watch.
@@ -212,6 +231,7 @@ fn handle_line(
         // A set of named paths is not a directory, so the watch stops rather than following its base.
         Request::ListPaths { paths, first } => {
             watch.stop();
+            poller.clear();
             listpaths::answer(out, st, pool, tb, &paths, first, line)
         }
         Request::Window { start, count } => {
@@ -226,6 +246,7 @@ fn handle_line(
             st.listing = Listing::new();
             // A walk's matches are not a directory either, so nothing is watched until list asks again.
             watch.stop();
+            poller.clear();
             forget_rows(st, pool);
             // The client is told at once that its old rows are gone, then the count grows as matches arrive.
             writeln!(out, "{}", listed_line(0, 0.0, 0.0, dev_of(&st.base), &st.base.to_string_lossy())).ok();
@@ -387,6 +408,7 @@ pub fn forget_rows(st: &mut State, pool: &Pool) {
     st.generation += 1;
     st.outstanding = st.outstanding.saturating_sub(pool.cancel_all().len());
     st.asked.clear();
+    st.window_meta.clear();
     // A list or a sort changes which row an index names, the same reason thumbnails clear their map.
     st.dirsizes.clear();
     st.dirsize_queue.clear();
@@ -449,9 +471,15 @@ pub(crate) fn drain(
     out.flush().ok();
 }
 
-pub fn write_window(out: &mut impl Write, st: &State, start: usize, count: usize, tb: &Tables) {
+pub fn write_window(out: &mut impl Write, st: &mut State, start: usize, count: usize, tb: &Tables) {
     let (metas, ms) = stat_range(&st.base, &st.listing, start, count);
     let start = start.min(st.listing.len());
+    for (i, m) in metas.iter().enumerate() {
+        st.window_meta.insert(start + i, (m.mode, m.mtime, m.target_is_dir));
+    }
+    // Sample window: start 0 with 3 metas keeps keys 0..3, so a scrolled-past window never grows the map.
+    let end = start.saturating_add(metas.len());
+    st.window_meta.retain(|&row, _| row >= start && row < end);
     let mut kinds = tb.kinds.borrow_mut();
     let line = rows_line(&st.listing, &metas, start, ms, &tb.mime, &tb.icons, &tb.aliases, &tb.thumbs, &mut kinds);
     writeln!(out, "{}", super::rowguard::stamped(line, st.generation)).ok();

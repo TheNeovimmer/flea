@@ -6,6 +6,7 @@ use crate::backend::proto::{parse_request, Request, TRANSFER_CANCEL};
 use crate::backend::thumbs::Done;
 use crate::error::{from_io, FleaError};
 use std::io::{self, BufRead};
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
@@ -22,6 +23,10 @@ pub enum Event {
     // The watch descriptor that saw it, so a burst belonging to the directory the client has already
     // left is dropped rather than answered for the new one; see src/backend/watch.rs.
     Changed(i32),
+    // The watch descriptor whose mount went away, so the pane leaves the volume instead of re-listing it.
+    Unmounted(i32),
+    // A network folder's mtime moved between polls, which inotify never delivers; the open path only.
+    PollChanged(PathBuf),
     ReadError(FleaError),
     Closed,
 }

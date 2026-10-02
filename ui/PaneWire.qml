@@ -208,6 +208,15 @@ Item {
             pane.listArea.restartSettle()
         }
 
+        // Sample input: {"t":"unmounted","path":"/media/stick","parent":"/media"}
+        // The open mount went away, so the pane moves to the nearest existing parent.
+        function onUnmounted(path, parent) {
+            if (path !== pane.path && !pane.path.startsWith(path + "/"))
+                return
+            pane.openWithoutHistory(parent)
+            pane.message("The mount went away, so this folder is no longer available.", false)
+        }
+
         // Sample input: {"t":"changed","path":"/home/gm/Downloads"}
         // Unsolicited, and the only line here that is: the listed directory changed under the pane.
         function onChanged(path) {

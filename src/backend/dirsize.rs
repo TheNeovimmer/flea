@@ -60,28 +60,46 @@ pub fn walk_cancellable(path: &Path, deadline: Instant, cancelled: &impl Fn() ->
 // two seconds; the transfer needs the whole total, however long the tree takes, or it draws no
 // estimate at all, so the stop it is given is its own cancel rather than a deadline.
 pub fn walk_while(path: &Path, stop: &dyn Fn() -> bool) -> DirSize {
+    walk_while_with(path, stop, None)
+}
+
+// One lookup override for tests; None takes the entry's own device, so production pays no indirection.
+type DevLookup<'a> = Option<&'a dyn Fn(&Path) -> Option<u64>>;
+
+// Sample input: dev_of answering another device for "other" keeps its bytes out of the total.
+fn walk_while_with(path: &Path, stop: &dyn Fn() -> bool, dev_of: DevLookup<'_>) -> DirSize {
     let mut bytes = 0u64;
     let mut partial = false;
+    // The walk never crosses into a nested mount, matching du -x; the mountpoint entry itself counts.
+    let start_dev = path.symlink_metadata().map(|m| m.dev()).ok();
     // The target's own directory entry counts too, matching what `du -s` reports for the directory itself.
     match path.symlink_metadata() {
         Ok(meta) => bytes += meta.size(),
         Err(_) => partial = true,
     }
-    walk_into(path, stop, &mut bytes, &mut partial);
+    walk_into(path, stop, &mut bytes, &mut partial, start_dev, dev_of);
     DirSize { bytes, partial }
 }
 
+// Stays on the starting device, so Home Size never walks a nested mount; None disables the guard.
+fn same_device(start: Option<u64>, child: u64) -> bool {
+    match start {
+        None => true,
+        Some(d) => d == child,
+    }
+}
+
 // Recursion, not a stack, and each listing is closed before its folders are walked, so depth costs no descriptors.
-fn walk_into(path: &Path, stop: &dyn Fn() -> bool, bytes: &mut u64, partial: &mut bool) {
+fn walk_into(path: &Path, stop: &dyn Fn() -> bool, bytes: &mut u64, partial: &mut bool, start_dev: Option<u64>, dev_of: DevLookup<'_>) {
     let mut folders = Vec::new();
-    list_into(path, stop, bytes, partial, &mut folders);
+    list_into(path, stop, bytes, partial, &mut folders, start_dev, dev_of);
     for folder in folders {
-        walk_into(&folder, stop, bytes, partial);
+        walk_into(&folder, stop, bytes, partial, start_dev, dev_of);
     }
 }
 
 // Counts one directory's entries and hands back the folders among them, still unwalked.
-fn list_into(path: &Path, stop: &dyn Fn() -> bool, bytes: &mut u64, partial: &mut bool, folders: &mut Vec<PathBuf>) {
+fn list_into(path: &Path, stop: &dyn Fn() -> bool, bytes: &mut u64, partial: &mut bool, folders: &mut Vec<PathBuf>, start_dev: Option<u64>, dev_of: DevLookup<'_>) {
     if stop() {
         *partial = true;
         return;
@@ -131,7 +149,9 @@ fn list_into(path: &Path, stop: &dyn Fn() -> bool, bytes: &mut u64, partial: &mu
             }
         };
         *bytes += meta.size();
-        if file_type.is_dir() {
+        // Sample mount: start_dev 2049 with child 62 never descends, so du -x holds across mounts.
+        let child_dev = dev_of.and_then(|f| f(&entry.path())).unwrap_or_else(|| meta.dev());
+        if file_type.is_dir() && same_device(start_dev, child_dev) {
             folders.push(entry.path());
         }
     }
@@ -284,6 +304,41 @@ mod tests {
         let expected_min = fs::symlink_metadata(&d).unwrap().size()
             + fs::symlink_metadata(d.join("visible.txt")).unwrap().size();
         assert!(result.bytes >= expected_min, "what the walk could see must still be counted");
+    }
+
+    #[test]
+    fn a_walk_never_descends_off_its_starting_device() {
+        assert!(same_device(Some(2049), 2049), "the starting device itself descends");
+        assert!(!same_device(Some(2049), 62), "a nested tmpfs mount never descends");
+        assert!(same_device(None, 62), "an unknown start walks as before");
+    }
+
+    #[test]
+    fn a_walk_applies_its_device_gate_to_every_folder_it_lists() {
+        // Sample input: dev_of answers another device for "other", so its payload stays uncounted.
+        let (_sandbox, d) = fixture("dirsize-device-gate");
+        fs::create_dir(d.join("keep")).unwrap();
+        fs::write(d.join("keep/in.txt"), "12345678").unwrap();
+        fs::create_dir(d.join("other")).unwrap();
+        fs::write(d.join("other/out.txt"), "12345678").unwrap();
+        let start_dev = fs::symlink_metadata(&d).unwrap().dev();
+        let other = d.join("other");
+        let dev_of = |p: &Path| {
+            if p.starts_with(&other) || *p == other {
+                Some(start_dev.wrapping_add(1))
+            } else {
+                None
+            }
+        };
+        let result = walk_while_with(&d, &|| false, Some(&dev_of));
+        assert!(!result.partial, "the gate skips rather than failing");
+        let want = fs::symlink_metadata(&d).unwrap().size()
+            + fs::symlink_metadata(d.join("keep")).unwrap().size()
+            + fs::symlink_metadata(d.join("keep/in.txt")).unwrap().size()
+            + fs::symlink_metadata(d.join("other")).unwrap().size();
+        let out = fs::symlink_metadata(d.join("other/out.txt")).unwrap().size();
+        assert_eq!(result.bytes, want, "the other-device subtree never descends, dropping the gate goes red");
+        assert!(out > 0, "the skipped payload is real bytes, so the equality above is not vacuous");
     }
 
     #[test]

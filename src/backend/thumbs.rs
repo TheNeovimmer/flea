@@ -202,21 +202,29 @@ pub(crate) fn run_one(tables: &Tables, job: &mut Job) -> Outcome {
     if let Some(t) = job.trace.as_mut() {
         t.exited = t.at.elapsed();
     }
-    match ran {
-        Ran::Succeeded if wrote_something(&temp) => {}
-        // corner: a child that never started is the machine's fault, not the file's, so it is not recorded in fail/; see AGENTS.md "Thumbnail pool".
-        Ran::NotStarted => return discard(&temp),
+    if matches!(ran, Ran::Succeeded) && wrote_something(&temp) {
+    } else if records_marker(&ran, super::extclass::classify(&job.path)) {
         // corner: glycin exits 0 on bytes it cannot decode, so an empty output is the decoder's verdict on the file; see AGENTS.md "Thumbnail pool".
-        Ran::Succeeded | Ran::Failed => {
-            record_failure(&tables.cache, &key_uri, job.mtime);
-            return discard(&temp);
-        }
+        record_failure(&tables.cache, &key_uri, job.mtime);
+        return discard(&temp);
+    } else {
+        // corner: a child that never started is the machine's fault, not the file's, so it is not recorded in fail/; see AGENTS.md "Thumbnail pool".
+        return discard(&temp);
     }
     // The child wrote a bare PNG, so the spec's own metadata is added before the file is published.
     if stamp(&temp, &key_uri, job.mtime).is_err() || std::fs::rename(&temp, &final_path).is_err() {
         return discard(&temp);
     }
     Outcome::Ready(final_path)
+}
+
+// A timeout on a non-local file records nothing, so a slow share never stays broken.
+fn records_marker(ran: &Ran, class: &str) -> bool {
+    match ran {
+        Ran::Succeeded | Ran::Failed => true,
+        Ran::TimedOut => class.is_empty(),
+        Ran::NotStarted => false,
+    }
 }
 
 // A decoder that ran to completion and left an empty file has judged these bytes, which is exactly what a fail marker records.
@@ -389,6 +397,16 @@ mod tests {
         pool.cancel(&PathBuf::from(format!("/definitely/not/here-{}.jpg", MAX_QUEUE * 2 - 1)));
         let left = pool.pending();
         assert_eq!(left, MAX_QUEUE - 1);
+    }
+
+    #[test]
+    fn a_timeout_records_locally_but_never_on_network_or_usb() {
+        assert!(records_marker(&Ran::Failed, ""), "a decoder verdict records");
+        assert!(records_marker(&Ran::Failed, "network"), "a decoder verdict records anywhere");
+        assert!(records_marker(&Ran::TimedOut, ""), "a local timeout still records");
+        assert!(!records_marker(&Ran::TimedOut, "network"), "a network timeout never stays broken");
+        assert!(!records_marker(&Ran::TimedOut, "usb"), "a USB timeout never stays broken");
+        assert!(!records_marker(&Ran::NotStarted, ""), "a machine fault never records");
     }
 
     #[test]
