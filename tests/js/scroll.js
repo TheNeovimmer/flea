@@ -106,10 +106,7 @@ function run(check) {
     check("update is a touchpad", Scroll.isTouchpad(2), true)
     check("end is a touchpad", Scroll.isTouchpad(3), true)
     check("touchpad pixels gain GTK4's 2.5", Scroll.touchDistance(-10), -25)
-    check("a sub-pixel frame moves nothing, never a notch",
-          Scroll.touchDistance(0), 0)
-    check("a touchpad stroke uses only gained pixels",
-          Scroll.touchDistance(-10), -25)
+    check("zero pixels travel zero", Scroll.touchDistance(0), 0)
     check("a notch through the handler's distance helper is still 288",
           Scroll.distance(0, -120, 3, 24, 4), -288)
     // The lift is the stroke's last 100 ms; fingers paused before it give no tail.
