@@ -33,6 +33,41 @@ pub(crate) fn thumb_rows(
         let t = Instant::now();
         let name = st.listing.name(row);
         let path = st.base.join(name);
+        // The window already statted this row, so a thumb request reuses its mode and mtime with no stat.
+        if let Some((mode, mtime, target_dir)) = st.window_meta.get(&row).copied() {
+            if target_dir {
+                writeln!(out, "{}", thumbed_line(row, "", since(t))).ok();
+                continue;
+            }
+            let declared = crate::backend::meta::thumbnailable(mode).then(|| {
+                tb.mime.lookup(name).filter(|m| tb.thumbs.for_mime(m, &tb.aliases).is_some()).map(str::to_string)
+            }).flatten();
+            let mime = match declared {
+                None => {
+                    writeln!(out, "{}", thumbed_line(row, "", since(t))).ok();
+                    continue;
+                }
+                Some(m) => m,
+            };
+            match cache.lookup(&path, mtime) {
+                Hit::Ready(p) => {
+                    writeln!(out, "{}", thumbed_line(row, &p.to_string_lossy(), since(t))).ok();
+                }
+                Hit::Failed => {
+                    writeln!(out, "{}", thumbed_line(row, "", since(t))).ok();
+                }
+                Hit::Miss if cache_only => {
+                    writeln!(out, "{}", thumbed_line(row, "", since(t))).ok();
+                }
+                Hit::Miss => queue_row(out, st, pool, row, path, mtime, mime),
+            }
+            continue;
+        }
+        // No window covered this row, so a cache-only ask answers none rather than statting on the loop.
+        if cache_only {
+            writeln!(out, "{}", thumbed_line(row, "", since(t))).ok();
+            continue;
+        }
         // corner: only a regular file is queued, so a fifo or a device node named like a video cannot block a worker; see AGENTS.md "Thumbnail requests".
         let meta = std::fs::metadata(&path).ok().filter(|m| m.is_file());
         let declared = meta.as_ref().and_then(|_| {
@@ -181,6 +216,10 @@ mod tests {
         let mut l = Listing::new();
         l.push("photo.jpg", false);
         st.listing = l;
+        // The window statted this row, so a thumb request reuses its figures with no stat.
+        if let Ok(m) = std::fs::symlink_metadata(dir.join("photo.jpg")) {
+            st.window_meta.insert(0, (m.mode(), m.mtime(), false));
+        }
     }
 
     fn harness(dir: &TestDir, tb: &Tables) -> (State, Pool, Cache) {
@@ -221,13 +260,30 @@ mod tests {
         thumbwrite::write_marker(&large, &uri, mtime).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
         listed(&d, &mut st);
+        // The window already holds this row's figures, so the request reuses them with no stat.
+        std::fs::remove_file(&path).unwrap();
         let mut out = Vec::new();
         thumb_rows(&mut out, &[0], &mut st, &tb, &pool, &cache, true);
         let line = String::from_utf8(out).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         assert!(line.contains(&large.to_string_lossy().into_owned()),
             "the cached entry is served although the source no longer opens: {}", line);
         assert_eq!(st.outstanding, 0, "a served row queues nothing either");
+        pool.cancel_all();
+    }
+
+    #[test]
+    fn a_windowed_row_queues_from_its_cached_figures_with_no_stat() {
+        let d = TestDir::new("thumbcachedqueue");
+        d.file("photo.jpg", "not a picture, and nothing here decodes it");
+        let tb = tables();
+        let (mut st, pool, cache) = harness(&d, &tb);
+        listed(&d, &mut st);
+        std::fs::remove_file(d.join("photo.jpg")).unwrap();
+        let mut out = Vec::new();
+        thumb_rows(&mut out, &[0], &mut st, &tb, &pool, &cache, false);
+        assert!(out.is_empty(), "a genuine miss is queued from cached figures, not answered: {}",
+            String::from_utf8_lossy(&out));
+        assert_eq!(st.outstanding, 1, "the job is in flight from the window's figures alone");
         pool.cancel_all();
     }
 

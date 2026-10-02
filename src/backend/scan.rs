@@ -1,5 +1,6 @@
 use crate::backend::listing::Listing;
 use crate::error::{from_io, FleaError};
+use std::ffi::{c_char, c_int, CString};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::time::Instant;
@@ -33,26 +34,91 @@ pub fn scan_with(
         }
     }
     let t = Instant::now();
-    let rd = match fs::read_dir(path) {
-        Ok(rd) => rd,
-        Err(e) => return Err(from_io("scan", path, &e)),
-    };
     let mut l = Listing::new();
-    // corner: unreadable entries skip, typeless ones become files, see AGENTS.md.
     // corner: a non-UTF8 name goes lossy here and then cannot be stat'd, see AGENTS.md.
-    for entry in rd.flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        // corner: a dot-prefixed name is dropped before any stat, so a hidden directory costs nothing when hidden is false.
+    scan_raw(path, hidden, &mut l)?;
+    Ok((l, t.elapsed().as_secs_f64() * 1000.0))
+}
+
+// d_type values from dirent.h: unknown 0, dir 4, link 10; only these decide the listing.
+const DT_UNKNOWN: u8 = 0;
+const DT_DIR: u8 = 4;
+const DT_LNK: u8 = 10;
+
+// Sample dirent: d_type 4 with name "sub", d_type 0 with name "xfs-file"; unknown stays a dir.
+fn dir_from_dtype(dtype: u8) -> (bool, bool) {
+    match dtype {
+        DT_DIR => (true, false),
+        DT_LNK => (false, true),
+        DT_UNKNOWN => (true, false),
+        _ => (false, false),
+    }
+}
+
+// Sample input: [Ok(("a", 8)), Err(EIO), Ok(("b", 8))] answers Err, never a short Ok.
+#[cfg(test)]
+fn collect_strict(entries: Vec<Result<(String, u8), std::io::Error>>) -> Result<Vec<(String, u8)>, std::io::Error> {
+    let mut out = Vec::with_capacity(entries.len());
+    for entry in entries {
+        out.push(entry?);
+    }
+    Ok(out)
+}
+
+// dirent as the kernel lays it: ino, off, reclen, type, then the NUL-terminated name.
+#[repr(C)]
+struct Dirent {
+    ino: u64,
+    off: i64,
+    reclen: u16,
+    dtype: u8,
+    name: [c_char; 256],
+}
+
+extern "C" {
+    fn opendir(path: *const c_char) -> *mut std::ffi::c_void;
+    fn readdir(dir: *mut std::ffi::c_void) -> *mut Dirent;
+    fn closedir(dir: *mut std::ffi::c_void) -> c_int;
+    fn __errno_location() -> *mut c_int;
+}
+
+// Raw getdents without the lstat fallback, so xfs ftype=0 and FUSE cost no stat per entry.
+fn scan_raw(path: &str, hidden: bool, l: &mut Listing) -> Result<(), FleaError> {
+    let c = match CString::new(path) {
+        Ok(c) => c,
+        Err(_) => return Err(from_io("scan", path, &std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid input"))),
+    };
+    let dir = unsafe { opendir(c.as_ptr()) };
+    if dir.is_null() {
+        return Err(from_io("scan", path, &std::io::Error::last_os_error()));
+    }
+    loop {
+        unsafe { *__errno_location() = 0 };
+        let entry = unsafe { readdir(dir) };
+        if entry.is_null() {
+            let code = unsafe { *__errno_location() };
+            unsafe { closedir(dir) };
+            if code != 0 {
+                return Err(from_io("scan", path, &std::io::Error::from_raw_os_error(code)));
+            }
+            return Ok(());
+        }
+        let dtype = unsafe { (*entry).dtype };
+        let bytes: Vec<u8> = unsafe { (*entry).name.iter().take_while(|&&b| b != 0).map(|&b| b as u8).collect() };
+        let name = String::from_utf8_lossy(&bytes);
+        // readdir returns . and .. like any other entry, while ReadDir filters them.
+        if name == "." || name == ".." {
+            continue;
+        }
         if !hidden && name.starts_with('.') {
             continue;
         }
-        let file_type = entry.file_type().ok();
+        // corner: unknown never becomes a file, so a folder survives xfs ftype=0; the window corrects files.
+        let (is_dir, is_link) = dir_from_dtype(dtype);
         let index = l.len();
-        l.push(&name, file_type.is_some_and(|kind| kind.is_dir()));
-        l.spans[index].is_symlink = file_type.is_some_and(|kind| kind.is_symlink());
+        l.push(&name, is_dir);
+        l.spans[index].is_symlink = is_link;
     }
-    Ok((l, t.elapsed().as_secs_f64() * 1000.0))
 }
 
 // The st_mode of a path whose listing failed. The stat outlives the denial: /root answers mode
@@ -145,6 +211,20 @@ mod tests {
         let (l, _) = scan(d.path().to_str().unwrap(), false).unwrap();
         assert_eq!(l.len(), 1);
         assert_eq!(crate::backend::fsinfo::statfs_calls(), 0, "the fsinfo answer never blocks a listing, so scan makes no statfs call");
+    }
+
+    #[test]
+    fn a_mid_read_error_fails_rather_than_a_short_success() {
+        let entries = vec![Ok(("a".to_string(), 8u8)), Err(std::io::Error::from_raw_os_error(5)), Ok(("b".to_string(), 8u8))];
+        assert!(collect_strict(entries).is_err(), "EIO mid-readdir must fail, never a short listing as success");
+    }
+
+    #[test]
+    fn an_unknown_type_stays_a_dir_so_a_folder_is_never_a_file() {
+        assert_eq!(dir_from_dtype(DT_UNKNOWN), (true, false), "DT_UNKNOWN defaults to dir");
+        assert_eq!(dir_from_dtype(DT_DIR), (true, false));
+        assert_eq!(dir_from_dtype(DT_LNK), (false, true));
+        assert_eq!(dir_from_dtype(8), (false, false), "a regular d_type stays a file");
     }
 
     #[test]

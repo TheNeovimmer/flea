@@ -17,6 +17,12 @@ const IN_CREATE: u32 = 0x0000_0100;
 const IN_DELETE: u32 = 0x0000_0200;
 // Not IN_DELETE_SELF: the watch's own removal is reported whatever the mask holds, measured.
 const IN_MOVE_SELF: u32 = 0x0000_0800;
+const IN_DELETE_SELF: u32 = 0x0000_0400;
+// The mount went away: the pane leaves the volume instead of re-listing a vanished path.
+const IN_UNMOUNT: u32 = 0x0000_2000;
+// Never a listing change: dropped without a line, like the removed watch's own IN_IGNORED.
+const IN_Q_OVERFLOW: u32 = 0x0000_4000;
+const IN_IGNORED: u32 = 0x0000_8000;
 const MASK: u32 = IN_ATTRIB
     | IN_CLOSE_WRITE
     | IN_MOVED_FROM
@@ -138,8 +144,14 @@ fn pump(fd: c_int, tx: Sender<Event>) {
         if n == 0 {
             return;
         }
-        for wd in descriptors(&buf[..n as usize]) {
+        let (changed, unmounted) = classify_burst(&buf[..n as usize]);
+        for wd in changed {
             if tx.send(Event::Changed(wd)).is_err() {
+                return;
+            }
+        }
+        for wd in unmounted {
+            if tx.send(Event::Unmounted(wd)).is_err() {
                 return;
             }
         }
@@ -147,25 +159,56 @@ fn pump(fd: c_int, tx: Sender<Event>) {
     }
 }
 
-// Which watches this burst touched, each once; nothing past the descriptor is ever read.
-fn descriptors(buf: &[u8]) -> Vec<i32> {
-    let mut out: Vec<i32> = Vec::new();
+// Sample input: one IN_CREATE on wd 3 plus one IN_UNMOUNT on wd 4 answers ([3], [4]).
+fn classify_burst(buf: &[u8]) -> (Vec<i32>, Vec<i32>) {
+    let mut changed: Vec<i32> = Vec::new();
+    let mut unmounted: Vec<i32> = Vec::new();
     let mut at = 0;
     while at + EVENT_HEADER <= buf.len() {
         let wd = i32::from_ne_bytes([buf[at], buf[at + 1], buf[at + 2], buf[at + 3]]);
+        let mask = u32::from_ne_bytes([buf[at + 4], buf[at + 5], buf[at + 6], buf[at + 7]]);
         let len = u32::from_ne_bytes([buf[at + 12], buf[at + 13], buf[at + 14], buf[at + 15]]) as usize;
-        if !out.contains(&wd) {
-            out.push(wd);
+        if mask & IN_UNMOUNT != 0 {
+            if !unmounted.contains(&wd) {
+                unmounted.push(wd);
+            }
+        } else if mask & (MASK | IN_DELETE_SELF | IN_Q_OVERFLOW | IN_IGNORED) != 0 && !changed.contains(&wd) {
+            changed.push(wd);
         }
         // The condition above is the bound that keeps this indexing inside the slice.
         at += EVENT_HEADER + len;
     }
-    out
+    (changed, unmounted)
+}
+
+// Which watches this burst touched, each once; nothing past the descriptor is ever read.
+#[cfg(test)]
+fn descriptors(buf: &[u8]) -> Vec<i32> {
+    classify_burst(buf).0
 }
 
 // The one unsolicited line: the listed directory is no longer what the listing answered with.
 pub fn changed_line(path: &Path) -> String {
     format!(r#"{{"t":"changed","path":"{}"}}"#, escape(&path.to_string_lossy()))
+}
+
+// Sample output: {"t":"unmounted","path":"/media/stick","parent":"/media"}; parent is nearest existing.
+pub fn unmounted_line(path: &Path, parent: &Path) -> String {
+    format!(r#"{{"t":"unmounted","path":"{}","parent":"{}"}}"#, escape(&path.to_string_lossy()), escape(&parent.to_string_lossy()))
+}
+
+// Climbs until exists() holds, so an ejected stick lands on its mountpoint's parent, never /.
+pub fn nearest_parent(path: &Path, exists: impl Fn(&Path) -> bool) -> std::path::PathBuf {
+    let mut at = path.to_path_buf();
+    loop {
+        if exists(&at) {
+            return at;
+        }
+        match at.parent() {
+            Some(p) if p != at => at = p.to_path_buf(),
+            _ => return std::path::PathBuf::from("/"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -208,6 +251,41 @@ mod tests {
     #[test]
     fn a_short_buffer_names_nothing() {
         assert_eq!(descriptors(&[0u8; 8]), Vec::<i32>::new());
+    }
+
+    // Sample input: wd 7 mask IN_UNMOUNT answers unmounted [7] and changed [].
+    fn unmount_event(wd: i32) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&wd.to_ne_bytes());
+        out.extend_from_slice(&IN_UNMOUNT.to_ne_bytes());
+        out.extend_from_slice(&0u32.to_ne_bytes());
+        out.extend_from_slice(&0u32.to_ne_bytes());
+        out
+    }
+
+    #[test]
+    fn an_unmount_never_becomes_a_changed_relist() {
+        assert_eq!(descriptors(&unmount_event(7)), Vec::<i32>::new());
+        assert_eq!(classify_burst(&unmount_event(7)), (Vec::new(), vec![7]));
+    }
+
+    #[test]
+    fn a_removed_watch_still_answers_a_changed_relist() {
+        let mut out = Vec::new();
+        out.extend_from_slice(&7i32.to_ne_bytes());
+        out.extend_from_slice(&IN_IGNORED.to_ne_bytes());
+        out.extend_from_slice(&0u32.to_ne_bytes());
+        out.extend_from_slice(&0u32.to_ne_bytes());
+        assert_eq!(classify_burst(&out), (vec![7], Vec::new()));
+    }
+
+    #[test]
+    fn an_ejected_folder_lands_on_its_nearest_existing_parent() {
+        use std::collections::HashSet;
+        let live: HashSet<&str> = ["/media", "/"].into_iter().collect();
+        let at = nearest_parent(Path::new("/media/stick/photos"), |p| live.contains(p.to_str().unwrap_or("")));
+        assert_eq!(at, Path::new("/media"));
+        assert_eq!(unmounted_line(Path::new("/media/stick"), &at), r#"{"t":"unmounted","path":"/media/stick","parent":"/media"}"#);
     }
 
     #[test]

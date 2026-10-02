@@ -62,26 +62,36 @@ pub fn walk_cancellable(path: &Path, deadline: Instant, cancelled: &impl Fn() ->
 pub fn walk_while(path: &Path, stop: &dyn Fn() -> bool) -> DirSize {
     let mut bytes = 0u64;
     let mut partial = false;
+    // The walk never crosses into a nested mount, matching du -x; the mountpoint entry itself counts.
+    let start_dev = path.symlink_metadata().map(|m| m.dev()).ok();
     // The target's own directory entry counts too, matching what `du -s` reports for the directory itself.
     match path.symlink_metadata() {
         Ok(meta) => bytes += meta.size(),
         Err(_) => partial = true,
     }
-    walk_into(path, stop, &mut bytes, &mut partial);
+    walk_into(path, stop, &mut bytes, &mut partial, start_dev);
     DirSize { bytes, partial }
 }
 
+// Stays on the starting device, so Home Size never walks a nested mount; None disables the guard.
+fn same_device(start: Option<u64>, child: u64) -> bool {
+    match start {
+        None => true,
+        Some(d) => d == child,
+    }
+}
+
 // Recursion, not a stack, and each listing is closed before its folders are walked, so depth costs no descriptors.
-fn walk_into(path: &Path, stop: &dyn Fn() -> bool, bytes: &mut u64, partial: &mut bool) {
+fn walk_into(path: &Path, stop: &dyn Fn() -> bool, bytes: &mut u64, partial: &mut bool, start_dev: Option<u64>) {
     let mut folders = Vec::new();
-    list_into(path, stop, bytes, partial, &mut folders);
+    list_into(path, stop, bytes, partial, &mut folders, start_dev);
     for folder in folders {
-        walk_into(&folder, stop, bytes, partial);
+        walk_into(&folder, stop, bytes, partial, start_dev);
     }
 }
 
 // Counts one directory's entries and hands back the folders among them, still unwalked.
-fn list_into(path: &Path, stop: &dyn Fn() -> bool, bytes: &mut u64, partial: &mut bool, folders: &mut Vec<PathBuf>) {
+fn list_into(path: &Path, stop: &dyn Fn() -> bool, bytes: &mut u64, partial: &mut bool, folders: &mut Vec<PathBuf>, start_dev: Option<u64>) {
     if stop() {
         *partial = true;
         return;
@@ -131,7 +141,7 @@ fn list_into(path: &Path, stop: &dyn Fn() -> bool, bytes: &mut u64, partial: &mu
             }
         };
         *bytes += meta.size();
-        if file_type.is_dir() {
+        if file_type.is_dir() && same_device(start_dev, meta.dev()) {
             folders.push(entry.path());
         }
     }
@@ -284,6 +294,13 @@ mod tests {
         let expected_min = fs::symlink_metadata(&d).unwrap().size()
             + fs::symlink_metadata(d.join("visible.txt")).unwrap().size();
         assert!(result.bytes >= expected_min, "what the walk could see must still be counted");
+    }
+
+    #[test]
+    fn a_walk_never_descends_off_its_starting_device() {
+        assert!(same_device(Some(2049), 2049), "the starting device itself descends");
+        assert!(!same_device(Some(2049), 62), "a nested tmpfs mount never descends");
+        assert!(same_device(None, 62), "an unknown start walks as before");
     }
 
     #[test]

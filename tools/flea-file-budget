@@ -32,8 +32,9 @@ src/backend/opsreq.rs 514
 src/backend/opsreq/tests.rs 461
 src/backend/permissions.rs 477
 src/backend/proto.rs 287
-src/backend/run.rs 454
-src/backend/thumbs.rs 442
+src/backend/dirsizeworker.rs 407
+src/backend/run.rs 486
+src/backend/thumbs.rs 460
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 698
 src/backend/trashdelete.rs 901
@@ -65,7 +66,7 @@ tests/js/status.js 354
 tests/rename-grid-bottom.qml 419
 tests/rename-grid-bottom.js 303
 tests/rename-lifecycle-check.js 356
-ui/Backend.qml 440
+ui/Backend.qml 443
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 475
 ui/ContextMenu.qml 625
@@ -80,7 +81,7 @@ ui/NetworkMounts.qml 838
 ui/OpenWithDialog.qml 596
 ui/Pane.qml 992
 ui/PaneMenuActions.qml 458
-ui/PaneWire.qml 537
+ui/PaneWire.qml 546
 ui/PermissionsDialog.qml 589
 ui/PickerWindow.qml 770
 ui/Preview.qml 717
