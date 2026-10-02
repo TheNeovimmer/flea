@@ -266,7 +266,7 @@ FocusScope {
         preferences.restart()
     }
     onVisibleChanged: if (root.visible) preferences.restart()
-    onListInFlightChanged: if (!root.listInFlight) preferences.restart()
+    onListInFlightChanged: if (!root.listInFlight) { preferences.restart(); Sort.applyPending(root) }
     onSearchModeChanged: if (root.searchMode.length === 0) preferences.restart()
     onRecentModeChanged: if (root.recentMode.length === 0) preferences.restart()
     Timer {

@@ -19,6 +19,7 @@ function pane(sortBy, sortDesc) {
         renamingIndex: -1,
         renamePending: false,
         pendingSort: null,
+        listInFlight: false,
         committed: 0
     }
     p.message = function (text, isError) { p.said.push(text) }
@@ -207,4 +208,18 @@ function run(check) {
     var wired = Source.source("ui/Pane.qml")
     check("the pending-false arm applies the held sort",
           wired.indexOf("onRenamePendingChanged: if (!root.renamePending) Sort.applyPending(root)") >= 0, true)
+    var inflight = pane("name", false)
+    inflight.pendingSort = { key: "size", desc: false }
+    inflight.listInFlight = true
+    Sort.applyPending(inflight)
+    check("a hold outlives its listing and sends nothing while it is out", inflight.sent.join(","), "")
+    check("and keeps the hold while the listing is out", JSON.stringify(inflight.pendingSort),
+          JSON.stringify({ key: "size", desc: false }))
+    inflight.listInFlight = false
+    Sort.applyPending(inflight)
+    check("the hold applies to the rows that landed", inflight.sent.join(","), "sort size asc,window 0 200")
+    var flightSrc = Source.source("ui/Pane.qml")
+    var flightLine = flightSrc.split("\n").filter(function (l) { return l.indexOf("onListInFlightChanged") >= 0 }).join("\n")
+    check("a hold that outlived its listing applies once the rows land",
+          flightLine.indexOf("Sort.applyPending(root)") >= 0, true)
 }

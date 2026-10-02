@@ -160,17 +160,15 @@ fn an_anchored_listed_line_answers_the_anchor_and_a_bare_one_is_unchanged() {
 #[test]
 fn a_listed_line_says_when_the_directory_cannot_be_written() {
     use std::os::unix::fs::PermissionsExt;
-    let dir = std::env::temp_dir().join(format!("flea-listed-w-{}", std::process::id()));
-    let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
-    let _ = std::fs::remove_dir(&dir);
-    std::fs::create_dir(&dir).unwrap();
+    // Marked sandbox, so a failed assert cannot leave a 0o555 dir behind.
+    let d = crate::backend::testdir::TestDir::new("listed-w");
+    let dir = d.dir("w");
     let open = listed_line(1, 0.0, 0.0, 1, &dir.to_string_lossy());
     assert!(open.contains(r#""w":true"#), "{open}");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
     let locked = listed_line(1, 0.0, 0.0, 1, &dir.to_string_lossy());
     assert!(locked.contains(r#""w":false"#), "{locked}");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
-    std::fs::remove_dir(&dir).unwrap();
 }
 
 #[test]

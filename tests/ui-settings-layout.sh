@@ -32,10 +32,10 @@ case_settingscompact() {
             || fail "settingscompact: stable height is not measured View content"
         if [[ "$viewport" == 1100x800 ]]; then
             scroll=$(ipc settingsScrollState)
-            # View has grown past the card clamp, so clamp-and-scroll is intended: no scroll only
-            # when content plus chrome fits the viewport minus two clamp margins, else the card
-            # sits at the clamp and its body scrolls to the last View row.
-            max_h=$(( wh - 16 ))
+            # A View taller than the clamp scrolls inside a clamped card.
+            # Two clamp margins from ui/SettingsPanel.qml clampMargin.
+            clamp_margin=8
+            max_h=$(( wh - 2 * clamp_margin ))
             if (( ch < max_h )); then
                 # Border subtraction can differ by one floating-point rounding step, never a pixel tolerance.
                 jq -e '((.pane.height - .compactHeight) | fabs) <= (.compactHeight * pow(2; -52))' <<< "$scroll" >/dev/null \
