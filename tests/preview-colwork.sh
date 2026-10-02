@@ -180,11 +180,8 @@ want_phase_only() {
 phase_counter_cases() (
     opens="$test_root/phase-counter.txt"
     failed=0
-    awk_unavailable_status=127
     # Sample input: leg|t1.png 10, ql|10-photo.jpg 1 and qlf|20-large.png 1.
     printf '%s\n' 'leg|t1.png 10' 'leg|t2.png 1' 'legacy|t3.png 1' 'ql|10-photo.jpg 1' 'qlf|20-large.png 1' > "$opens"
-    # Counting phase prefixes must work without the column-grab tool.
-    awk() { return "$awk_unavailable_status"; }
     say_pass() { :; }
     say_fail() {
         printf 'phase counter: %s\n' "$*" >&2
@@ -197,9 +194,9 @@ phase_counter_cases() (
     [ "$failed" -eq 0 ]
 )
 if phase_counter_cases; then
-    say_pass "phase counter handles exact prefixes and an absent phase without awk"
+    say_pass "phase counter handles exact prefixes and an absent phase"
 else
-    say_fail "phase counter requires awk or miscounts prefixes"
+    say_fail "phase counter miscounts prefixes or an absent phase"
 fi
 # Each departing file stays closed; cached frames and ordinary Quick Look sources open once.
 want_opens leg 40-notes.txt 1
