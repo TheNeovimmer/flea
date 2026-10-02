@@ -21,6 +21,7 @@ QtObject {
     property var shareBrowser: null
     property var emptyState: null
     property var permissionsDialog: null
+    property IpcMenuState menuProbe: IpcMenuState { pane: root.pane; fleaWindow: root.fleaWindow }
     // Overlays and the columns view are built by their first open, see ui/shell.qml, so until then
     // each reader below answers the empty value its type has: "", false or -1, never a throw.
     readonly property var columns: root.pane ? root.pane.columnsArea : null
@@ -144,15 +145,7 @@ QtObject {
             return JSON.stringify({held: root.pane.held, loaded: root.pane.rows.length,
                 windowSize: root.pane.windowSize, total: root.pane.total, shownTotal: root.pane.shownTotal})
         }
-        function menuState(): string {
-            var menu = root.pane.contextMenu()
-            return JSON.stringify({opened: menu.visible, entries: menu.entries, cursor: menu.cursor,
-                snapshotReady: root.pane.menuActions.ready, snapshotId: root.pane.menuActions.requestId,
-                shebangAsked: root.pane.shebangAsked, shebangHas: root.pane.rowHasShebang,
-                submenu: menu.submenuOpen, submenuCursor: menu.submenuCursor, submenuEntries: menu.submenuEntries,
-                frame: root.fleaWindow.rectOf(menu.frameItem), flyout: root.fleaWindow.rectOf(menu.submenuFrameItem),
-                workArea: menu.workArea, forHeader: menu.forHeader, forRail: menu.forRail, hasRow: menu.hasRow})
-        }
+        function menuState(): string { return root.menuProbe.state() }
         function contextMenuModel(): string { return JSON.stringify(root.pane.contextMenu().entries) }
         function providerState(): string {
             var pane = root.pane, actions = pane.menuActions, taildrop = pane.taildropService, dropbox = pane.dropboxService

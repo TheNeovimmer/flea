@@ -3245,17 +3245,10 @@ case_makeexec() {
     key -k Escape >/dev/null
     settle
     seek_row_named "notes.txt"
+    local before_probe
+    before_probe=$(ipc menuState | jq -er '.shebangId') || fail "makeexec: could not read the probe id"
     click_row "$(ipc cursor)" right
-    settle
-    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "makeexec: notes.txt opened no menu"
-    # The Make executable row arrives async off a head read, so the control waits for that read to land first.
-    local shebang="pending" deadline4=$(( $(date +%s%3N) + async_wait_ms ))
-    while (( $(date +%s%3N) < deadline4 )); do
-        shebang=$(ipc menuState 2>/dev/null | jq -r '.shebangAsked' 2>/dev/null || printf ipc-broken)
-        [[ -z "$shebang" ]] && break
-        sleep 0.1
-    done
-    [[ -z "$shebang" ]] || fail "makeexec: the shebang read never landed, asked=$shebang"
+    makeexec_wait_shebang "$dir/notes.txt" "$before_probe"
     local plain=""
     plain=$(ipc contextMenuEntries)
     printf 'MAKEEXEC notes entries=%s\n' "$plain"
@@ -3264,6 +3257,22 @@ case_makeexec() {
     key -k Escape >/dev/null
     settle
     if [[ -n "$real_state" ]]; then export XDG_STATE_HOME="$real_state"; else unset XDG_STATE_HOME; fi
+}
+
+# Wait for this menu's negative reply, not the retained request path or an earlier menu's receipt.
+makeexec_wait_shebang() {
+    local path="$1" before="$2" observed="ipc-broken" deadline=$(( $(date +%s%3N) + async_wait_ms ))
+    while (( $(date +%s%3N) < deadline )); do
+        observed=$(ipc menuState 2>/dev/null) || observed="ipc-broken"
+        if jq -e --arg path "$path" --argjson before "$before" '
+            .opened == true and .hasRow == true and .shebangAsked == $path and .shebangId > $before
+            and .shebangReply.path == $path and .shebangReply.id == .shebangId
+            and .shebangReply.hasShebang == false and .shebangHas == false' <<< "$observed" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    fail "makeexec: the plain-file probe never settled, expected=$path after=$before state=$observed"
 }
 
 # Opens the background menu and clicks one of its rows by label, optionally stepping into that row's
