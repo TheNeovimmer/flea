@@ -61,7 +61,7 @@ install -Dm644 "$repo/packaging/flea.portal" \
   "$repo/packaging/flea.hook" -t "$root/packaging"
 install -Dm644 "$repo/ui/qmldir" "$repo"/ui/*.qml -t "$root/ui"
 install -Dm644 "$repo"/ui/js/*.js -t "$root/ui/js"
-install -Dm644 "$repo/ui/boot/shell.qml" "$repo/ui/boot/picker.qml" -t "$root/ui/boot"
+install -Dm644 "$repo/ui/boot/shell.qml" "$repo/ui/boot/picker.qml" "$repo/ui/boot/fleatab.qml" "$repo/ui/boot/tabtearoff.qml" -t "$root/ui/boot"
 install -Dm644 "$repo/shelf/manifest.json" "$repo/shelf/README.md" "$repo"/shelf/*.qml "$repo"/shelf/*.js -t "$root/shelf"
 
 # Owner, order, modes, mtime and gzip's own header are fixed, so the same tree and binary give the same bytes.
