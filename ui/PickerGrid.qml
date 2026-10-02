@@ -160,27 +160,15 @@ GridView {
             ? Thumbs.fileFor(root.picker.thumbState, index) : ""
     }
 
-    Keys.onPressed: function (event) {
-        // Bare arrows and h/l step to visual neighbours in the grid, the main grid's own rule;
-        // the map below would read them as parent and browse-in instead.
-        if (event.modifiers === Qt.NoModifier
-                && (event.key === Qt.Key_Left || event.key === Qt.Key_Right
-                    || event.text === "h" || event.text === "l")) {
-            var across = (event.key === Qt.Key_Left || event.text === "h") ? -1 : 1
-            event.accepted = true
-            root.firstArmed = false
-            root.moveCursor(across)
-            return
-        }
-        var action = Keymap.lookup(event.key, event.text, event.modifiers, "listing")
-        event.accepted = true
+    // One dispatch for every action the lookup names, so a key test pins the live path.
+    function handleAction(action, key, modifiers) {
         if (action === "cursorFirstArm") {
             if (root.firstArmed) root.jumpTo(0)
             root.firstArmed = !root.firstArmed
-            return
+            return true
         }
         root.firstArmed = false
-        if (event.key === Qt.Key_Escape) {
+        if (key === Qt.Key_Escape) {
             root.picker.cancel()
         } else if (action === "cursorDown") {
             root.moveCursor(root.columns)
@@ -198,9 +186,9 @@ GridView {
             root.picker.setView("list")
         } else if (action === "viewGrid") {
             root.picker.setView("grid")
-        } else if (event.key === Qt.Key_Space && event.modifiers === Qt.NoModifier) {
+        } else if (key === Qt.Key_Space && modifiers === Qt.NoModifier) {
             root.picker.toggleMark(root.picker.cursorIndex)
-        } else if (Picker.activates(action, event.key)) {
+        } else if (Picker.activates(action, key)) {
             root.picker.activate(root.picker.cursorIndex)
         } else if (action === "parent") {
             root.picker.goUp()
@@ -215,8 +203,25 @@ GridView {
             if (root.picker.path.length > 0)
                 root.picker.openWithoutHistory(root.picker.path)
         } else {
-            event.accepted = false
+            return false
         }
+        return true
+    }
+
+    Keys.onPressed: function (event) {
+        // Bare arrows and h/l step to visual neighbours in the grid, the main grid's own rule;
+        // the map below would read them as parent and browse-in instead.
+        if (event.modifiers === Qt.NoModifier
+                && (event.key === Qt.Key_Left || event.key === Qt.Key_Right
+                    || event.text === "h" || event.text === "l")) {
+            var across = (event.key === Qt.Key_Left || event.text === "h") ? -1 : 1
+            event.accepted = true
+            root.firstArmed = false
+            root.moveCursor(across)
+            return
+        }
+        var action = Keymap.lookup(event.key, event.text, event.modifiers, "listing")
+        event.accepted = root.handleAction(action, event.key, event.modifiers)
     }
 
     // A scroll refetches the window and restarts the thumb settle for newly visible tiles.

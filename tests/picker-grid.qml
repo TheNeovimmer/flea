@@ -177,6 +177,29 @@ ShellRoot {
             root.scrolledLast = Math.min(root.rowCount - 1, first2 + tileRows2 * cols2 - 1)
             if (!root.inBounds(now, 0, root.scrolledLast)) { root.fail("an ask named a tile never scrolled into view"); return }
             if (root.stubBackend.windowCalls !== 0) { root.fail("the held window covered the scroll, yet " + root.stubBackend.windowCalls + " refetch ran"); return }
+            root.stage = 20
+            return
+        }
+        case 20: {
+            var pageCols = Math.max(1, grid.columns)
+            var pageRows = Math.max(1, grid.visibleTileRows)
+            var page = pageRows * pageCols
+            if (page < 2) { root.fail("page holds " + page + ", want at least 2"); return }
+            var lastTile = root.rowCount - 1
+            var start = Math.max(1, lastTile - Math.floor(page / 2))
+            if (lastTile - start >= page) { root.fail("start " + start + " is a full page from the end"); return }
+            root.stubPicker.cursorIndex = start
+            var downHandled = grid.handleAction("pageDown", 0, 0)
+            if (!downHandled) { root.fail("pageDown went unhandled"); return }
+            if (root.stubPicker.cursorIndex !== lastTile) { root.fail("pageDown from " + start + " landed on " + root.stubPicker.cursorIndex + ", want " + lastTile); return }
+            root.stage = 21
+            return
+        }
+        case 21: {
+            root.stubPicker.cursorIndex = 1
+            var upHandled = grid.handleAction("pageUp", 0, 0)
+            if (!upHandled) { root.fail("pageUp went unhandled"); return }
+            if (root.stubPicker.cursorIndex !== 0) { root.fail("pageUp from 1 landed on " + root.stubPicker.cursorIndex + ", want 0"); return }
             root.stage = 3
             root.stageSince = Date.now()
             return
