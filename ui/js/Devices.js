@@ -125,6 +125,21 @@ function powerOffDisk(device) {
     return bare ? text : ""
 }
 
+// The sysfs block name for a disk path, so the eject chain can watch its write counter.
+// Sample input: "/dev/sda" answers "sda", "/dev/nvme0n1" answers "nvme0n1.
+function sysBase(disk) {
+    var text = String(disk || "")
+    var m = text.match(/^\/dev\/(.+)$/)
+    return m ? m[1] : ""
+}
+
+// The written-sector counter out of one /sys/block/<disk>/stat read, "" when unreadable.
+// Sample input: "   1 0 2 3 0 0 42 0 0 0 0 0 0 0 0" answers "42".
+function writtenSectors(body) {
+    var fields = String(body || "").trim().split(/\s+/)
+    return fields.length >= 7 ? fields[6] : ""
+}
+
 // Every mounted volume on one disk, for a power-off that unmounts each before stopping the drive.
 function powerOffQueue(entries, disk) {
     var queue = []

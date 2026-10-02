@@ -812,14 +812,16 @@ lines whatever `text` says, because the newlines in a bitmap are a number nothin
 
 ### pdfcopy
 
-`{"c":"pdfcopy","id":<uint>,"path":"<string>"}`
+`{"c":"pdfcopy","id":<uint>,"slot":"<string>","path":"<string>"}`
 
-Example: `{"c":"pdfcopy","id":3,"path":"/run/media/gm/128GB/doc.pdf"}`
+Example: `{"c":"pdfcopy","id":3,"slot":"column","path":"/run/media/gm/128GB/doc.pdf"}`
 
 Fetches one PDF the preview actually opened into a session-private copy under an 8 s deadline, and
 answers one `pdfcopied` line: `{"t":"pdfcopied","id":3,"path":"<local copy>"}` on success, or
 `{"t":"pdfcopied","id":3,"err":"that file is not responding"}` when the wait runs out. `err` rides
-only on a failure. The copy runs beside the loop, so a dead mount costs the viewer a sentence and
+only on a failure. The `id` is minted by the one counter in `ui/Backend.qml`, so two viewers never
+share one; `slot` names the viewer, so a newer fetch supersedes only its own viewer's copy.
+The copy runs beside the loop, so a dead mount costs the viewer a sentence and
 never the window; a stale reply is dropped by its `id`, the way a superseded listing's result is.
 
 ### undo

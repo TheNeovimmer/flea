@@ -45,6 +45,8 @@ Item {
     property string _pendingOpenLabel: ""
     // The volume an unmount was asked for, so its refusal can name it.
     property string _unmountLabel: ""
+    // The last written-sector count the chain saw, so a flushing leg restarts the deadline.
+    property string _powerSectors: ""
     // A power-off in flight: the disk to stop and the nodes still to unmount.
     property string _powerOffDisk: ""
     property var _powerOffQueue: []
@@ -67,8 +69,10 @@ Item {
     // Cleared only when the next listing starts, which onExited's own release of _streamPending
     // guarantees cannot happen until the ended listing is fully done with.
     property bool _listTimedOut: false
-    // Set when the chain deadline ends a leg, so that leg's own onExited is swallowed once.
-    property bool _chainEndedLate: false
+    // Set when the chain deadline ends that leg, so its own onExited is swallowed once.
+    property bool _unmountEndedLate: false
+    // The -t leg's own ended-late flag, never set by an unmount the deadline ends.
+    property bool _ejectEndedLate: false
     // The rail's DEVICES gate: true once the first listing answered, timed out or not, without replacing anything.
     property bool firstAnswered: false
 
@@ -81,6 +85,14 @@ Item {
         printErrors: false
         onLoaded: root.rebuild()
         onLoadFailed: root.rebuild()
+    }
+
+    // The ejecting disk's write counter, re-read every poll; growth restarts the deadline.
+    FileView {
+        id: powerSectorsFile
+        path: "/sys/block/" + Devices.sysBase(root._powerOffDisk) + "/stat"
+        printErrors: false
+        onLoaded: root.notePowerSectors(String(text || ""))
     }
 
     Timer {
@@ -99,6 +111,9 @@ Item {
         root._listingsStarted += 1
         listProcess.running = true
         listTimeout.restart()
+        // A flushing disk answers here, so a leg still writing restarts the deadline below.
+        if (root._powerOffDisk.length > 0)
+            powerSectorsFile.reload()
     }
 
     Timer {
@@ -185,6 +200,11 @@ Item {
         var e = root.entries[index]
         if (!e || e.kind !== "volume" || !e.mounted || unmountProcess.running)
             return
+        // A chain owns unmountProcess for its legs, so a user unmount waits for the eject.
+        if (root._powerOffDisk.length > 0) {
+            root.message("Still ejecting " + root._ejectLabel + "; wait for its result.", false)
+            return
+        }
         root._unmountLabel = e.label
         root._unmountErr = ""
         unmountProcess.command = ["gio", "mount", "-u", e.path]
@@ -237,12 +257,14 @@ Item {
         root.armEject(e)
         root._powerOffDisk = disk
         root._powerOffQueue = Devices.powerOffQueue(root.entries, disk)
+        root._powerSectors = ""
         root.message("Ejecting " + e.label + ", do not unplug it yet.", false)
-        powerOffTimeout.restart()
         root.powerOffNext()
     }
 
     function powerOffNext() {
+        // Every leg restarts the deadline, so 15 s bounds a stalled leg, not a flushing chain.
+        powerOffTimeout.restart()
         if (root._powerOffQueue.length === 0) {
             root._ejectErr = ""
             ejectProcess.command = ["gio", "mount", "-t", root._powerOffDisk]
@@ -254,6 +276,18 @@ Item {
         root._unmountErr = ""
         unmountProcess.command = ["gio", "mount", "-u", Devices.mountpointOf(root.entries, device)]
         unmountProcess.running = true
+    }
+
+    // A grown write counter is progress, so the deadline restarts instead of ending the chain.
+    function notePowerSectors(body) {
+        if (root._powerOffDisk.length === 0)
+            return
+        var sectors = Devices.writtenSectors(body)
+        if (sectors.length === 0)
+            return
+        if (root._powerSectors.length > 0 && sectors !== root._powerSectors)
+            powerOffTimeout.restart()
+        root._powerSectors = sectors
     }
 
     // Nothing is judged while gio still runs, and only a listing started after it exited counts.
@@ -310,9 +344,14 @@ Item {
         onTriggered: {
             if (root._powerOffDisk.length === 0 || (!unmountProcess.running && !ejectProcess.running))
                 return
-            root._chainEndedLate = true
-            unmountProcess.running = false
-            ejectProcess.running = false
+            // Only the leg the deadline ends is marked, so a user unmount is never swallowed.
+            if (unmountProcess.running) {
+                root._unmountEndedLate = true
+                unmountProcess.running = false
+            } else {
+                root._ejectEndedLate = true
+                ejectProcess.running = false
+            }
             ejectVerdictTimeout.stop()
             var label = root._ejectLabel
             root._powerOffDisk = ""
@@ -392,8 +431,8 @@ Item {
         onExited: function (exitCode) {
             // A power-off unmounts each volume first; a refusal stops the chain instead of
             // powering off under a volume that is still mounted.
-            if (root._chainEndedLate) {
-                root._chainEndedLate = false
+            if (root._unmountEndedLate) {
+                root._unmountEndedLate = false
                 root.poll()
                 return
             }
@@ -422,8 +461,8 @@ Item {
         onExited: function (exitCode) {
             // A refused stop says so at once; a stop that ran is judged on the listing that
             // follows, because gio has exited 0 over a volume that was still mounted.
-            if (root._chainEndedLate) {
-                root._chainEndedLate = false
+            if (root._ejectEndedLate) {
+                root._ejectEndedLate = false
                 root.poll()
                 return
             }

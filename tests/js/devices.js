@@ -288,4 +288,10 @@ function run(check) {
     check("no entries queue nothing", Devices.powerOffQueue(null, "/dev/sda").join(","), "")
     check("a mountpoint comes from the last listing", Devices.mountpointOf(vols, "/dev/sda2"), "/run/media/u/b")
     check("an unlisted device has no mountpoint", Devices.mountpointOf(vols, "/dev/sdz9"), "")
+    // The eject chain watches the disk's write counter, so a flushing leg restarts its deadline.
+    check("a disk path answers its sysfs block name", Devices.sysBase("/dev/sda"), "sda")
+    check("an nvme disk answers whole", Devices.sysBase("/dev/nvme0n1"), "nvme0n1")
+    check("a non-device answers nothing", Devices.sysBase(""), "")
+    check("a stat read answers its written sectors", Devices.writtenSectors("   1 0 2 3 0 0 42 0 0 0 0 0 0 0 0"), "42")
+    check("a short read answers nothing", Devices.writtenSectors("1 2 3"), "")
 }

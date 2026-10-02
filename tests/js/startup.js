@@ -82,11 +82,9 @@ function run(check) {
     check("a saved pair of the wrong length is no pair",
           pair({ paths: ["/home/gm/Music"], focus: 1 }, "/home/gm/Pictures", "/tmp/asked"), "/tmp/asked | /tmp/asked @0")
 
-    // Defect 26: restoring the last folder has a listing deadline past which Home stays reachable.
-    // The wait is proved live by tests/ui.sh hanglisting; its helper had no caller to vary, so it went.
+    // Defect 26: the restore's listing deadline, proved live by tests/ui.sh hanglisting.
     check("the restore waits this long for its listing", Startup.LISTING_WAIT_MS, 10000)
 
-    // Defect 25: the favourite inspector always clears its guard, a dead mount included.
-    // The guard is proved live by tests/ui.sh hanginspect; the expired helper had no caller.
+    // Defect 25: the inspector's answer deadline, proved live by tests/ui.sh hanginspect.
     check("the inspector waits this long for its answer", FavGuard.INSPECT_WAIT_MS, 10000)
 }

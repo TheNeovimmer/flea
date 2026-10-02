@@ -61,6 +61,8 @@ Item {
     signal redoStarted(int id, int n, string op)
     signal metaResult(var message)
     property int metaToken: 0
+    // One counter numbers every PDF fetch, so two viewers never share an id.
+    property int pdfCopySeq: 0
     signal meta(int row, int w, int h, int orient, real durationMs, int sampleRate, int entries, real unpacked, bool archiveFailed, var names, real lines, bool partial, bool linesFailed, string target, bool targetDir, string owner)
     // A PDF fetched into a session-private copy under a deadline; err names the wait or the refusal.
     signal pdfCopied(int id, string path, string err)
@@ -258,8 +260,11 @@ Item {
     // media and archive each cost a subprocess in the backend, so each is only ever true for a row
     // whose kind actually names the facts it would answer.
     // One document, only when a surface asks: the same no-sweep rule thumb and dirsize follow.
-    function pdfCopy(id, path) {
-        root.send({ c: "pdfcopy", id: id, path: path })
+    // The id is minted here and returned, so the viewer matches the answer it asked for.
+    function pdfCopy(path, slot) {
+        root.pdfCopySeq += 1
+        root.send({ c: "pdfcopy", id: root.pdfCopySeq, slot: slot || "", path: path })
+        return root.pdfCopySeq
     }
 
     function askMeta(row, text, media, archive) {

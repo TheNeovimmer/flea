@@ -22,15 +22,16 @@ ShellRoot {
         return "page=" + item.page + " shown=" + item.shownPage + " fellBack=" + (item.fellBack ? 1 : 0)
     }
 
-    // A backend stand-in: PreviewPdf only calls pdfCopy and listens for pdfCopied.
+    // A backend stand-in: PreviewPdf takes the returned id as its fetch, one counter per backend.
     property var viewerBackend: QtObject {
         signal pdfCopied(int id, string path, string err)
         property int calls: 0
-        function pdfCopy(id, path) { calls += 1 }
+        property string lastSlot: ""
+        function pdfCopy(path, slot) { calls += 1; lastSlot = slot; return calls }
     }
     property var lateBackend: QtObject {
         signal pdfCopied(int id, string path, string err)
-        function pdfCopy(id, path) {}
+        function pdfCopy(path, slot) { return 1 }
     }
 
     // The inner PreviewPdf Quick Look binds path, active and viewport to, found by its fetch id.
@@ -83,6 +84,7 @@ ShellRoot {
                     item.active = true
                     item.backend = Qt.binding(function () { return shell.viewerBackend })
                     item.fetchFirst = Qt.binding(function () { return shell.wantFetch })
+                    item.viewerSlot = "quicklook"
                     item.forceActiveFocus()
                     shell.log("VIEWER loaded")
                 }
@@ -107,7 +109,9 @@ ShellRoot {
                 shell.viewerDone = true
                 shell.log("VIEWER backend=" + (inner.backend !== null ? 1 : 0)
                     + " fetchFirst=" + (inner.fetchFirst === true ? 1 : 0)
-                    + " asked=" + shell.viewerBackend.calls)
+                    + " asked=" + shell.viewerBackend.calls
+                    + " fetchId=" + inner.fetchId
+                    + " slot=" + inner.viewerSlot)
             } else if (waited > 8000) {
                 stop()
                 shell.viewerDone = true

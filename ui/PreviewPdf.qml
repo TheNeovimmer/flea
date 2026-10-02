@@ -15,6 +15,8 @@ Item {
     property bool active: false
     // The backend a slow document is fetched through, null where no fetch runs.
     property var backend: null
+    // Which viewer this is, so the backend's copy cleanup never touches the other's.
+    property string viewerSlot: ""
     // True on a storage class that can hang: the document loads from the fetched copy.
     property bool fetchFirst: false
     // The fetch in flight, the local copy it handed back, and what its failure says.
@@ -66,8 +68,7 @@ Item {
         root.fetchedCopy = root.opened.length > 0 && root.fetchFirst === true && root.backend !== null
         if (!root.fetchedCopy)
             return
-        root.fetchId += 1
-        root.backend.pdfCopy(root.fetchId, root.opened)
+        root.fetchId = root.backend.pdfCopy(root.opened, root.viewerSlot)
     }
 
     Connections {

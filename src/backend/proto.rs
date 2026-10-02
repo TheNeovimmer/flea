@@ -47,7 +47,7 @@ pub enum Request {
     // A read-only look at a directory that is not the current listing; the columns view's ancestors.
     Peek { path: String, first: usize, hidden: bool, hidden_last: bool, focus: String },
     // A PDF fetched into a session-private copy under a deadline, so a hung mount never freezes the window.
-    PdfCopy { id: usize, path: String },
+    PdfCopy { id: usize, slot: String, path: String },
     // op is "compress" or "extract"; a compress names paths and a format, an extract names one path.
     Archive { op: String, paths: Vec<String>, path: String, dest: String, format: String, menu_id: usize },
     Convert { path: String, dest: String, strip: bool, menu_id: usize, request_id: usize, check: bool },
@@ -200,6 +200,8 @@ pub fn parse_request(line: &str) -> Request {
         Some("formats") => Request::Formats { id: field_usize(line, "id").unwrap_or(0) },
         Some("pdfcopy") => Request::PdfCopy {
             id: field_usize(line, "id").unwrap_or(0),
+            // Absent is one viewer, so an older client's fetch keeps the shared slot.
+            slot: field_str(line, "slot").unwrap_or_default(),
             path: field_str(line, "path").unwrap_or_default(),
         },
         Some("peek") => Request::Peek {

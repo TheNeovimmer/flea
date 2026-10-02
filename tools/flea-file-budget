@@ -65,12 +65,12 @@ tests/js/status.js 354
 tests/rename-grid-bottom.qml 419
 tests/rename-grid-bottom.js 303
 tests/rename-lifecycle-check.js 356
-ui/Backend.qml 453
+ui/Backend.qml 458
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 475
 ui/ContextMenu.qml 625
 ui/ConvertDialog.qml 440
-ui/DeviceMounts.qml 448
+ui/DeviceMounts.qml 487
 ui/GridArea.qml 410
 ui/Ipc.qml 832
 ui/KeymapSheet.qml 585
@@ -84,8 +84,8 @@ ui/PaneMenuActions.qml 458
 ui/PaneWire.qml 542
 ui/PermissionsDialog.qml 589
 ui/PickerWindow.qml 770
-ui/Preview.qml 719
-ui/PreviewColumn.qml 579
+ui/Preview.qml 720
+ui/PreviewColumn.qml 580
 ui/PreviewMarkdown.qml 473
 ui/Row.qml 478
 ui/SettingsPanel.qml 542

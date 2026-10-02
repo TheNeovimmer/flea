@@ -14,6 +14,8 @@ Item {
     // Forwarded to the page below, so Quick Look assigns like the column does.
     property var backend: null
     property bool fetchFirst: false
+    // Forwarded to the page below, so Quick Look cleans up only its own copy.
+    property string viewerSlot: ""
     // Expand fills the window; the overlay that hosts this reads the flag and drops its own inset.
     property bool expanded: false
     property int pdfControlIndex: -1
@@ -266,6 +268,7 @@ Item {
                 active: root.active
                 backend: root.backend
                 fetchFirst: root.fetchFirst
+                viewerSlot: root.viewerSlot
             }
         }
     }

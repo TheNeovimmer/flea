@@ -84,10 +84,10 @@ else
     else
         bad "the turned-to page never showed (log $log)"
     fi
-    # Sample input: 'PDFFIRST VIEWER backend=1 fetchFirst=1 asked=1', the forwarded fetch.
+    # Sample input: 'PDFFIRST VIEWER backend=1 fetchFirst=1 asked=1 fetchId=1 slot=quicklook', the forwarded fetch.
     viewer_line=$(grep -a -m1 'PDFFIRST VIEWER backend=' "$log")
     case "$viewer_line" in
-    *backend=1*fetchFirst=1*asked=1*) ok "Quick Look forwards its backend and fetches" ;;
+    *backend=1*fetchFirst=1*asked=1*fetchId=1*slot=quicklook*) ok "Quick Look forwards its backend and fetches" ;;
     *) bad "Quick Look never fetched through its viewer: $viewer_line (log $log)" ;;
     esac
     # Sample input: 'PDFFIRST FETCHLATE source=1', the document kept after a late class.

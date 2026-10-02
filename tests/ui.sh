@@ -8449,7 +8449,7 @@ EOS
     sandbox_remove "$fixture_home"; sandbox_remove "$good_dir"
 }
 
-# A restored folder's listing deadline (ui/Pane.qml): a proxy holds the first list past the wait, then the rows land; opt-in like hangshare.
+# A restored folder's listing deadline (ui/Pane.qml): a proxy holds the first list past the wait, then the rows land.
 case_hanglisting() {
     local dir="$fixture_root/hanglisting"
     sandbox_scratch "$dir"
@@ -8508,7 +8508,7 @@ EOS
     kill_flea
 }
 
-# The favourite inspector's deadline (ui/Favourites.qml): the first inspect hangs, 40 favourites let a rail scroll refire it, and a second inspect proves the guard cleared; opt-in like hangshare.
+# The favourite inspector's deadline (ui/Favourites.qml): the first inspect hangs, 40 favourites let a rail scroll refire it, and a second inspect proves the guard cleared.
 case_hanginspect() {
     local dir="$fixture_root/hanginspect"
     sandbox_scratch "$dir"
@@ -9229,6 +9229,157 @@ EOS
         || fail "eject: expected exactly two ejects, log is: $(cat "$gio_log")"
 
     printf 'EJECT menu=ok internal-disk-offers-nothing=ok exit-code-is-not-the-verdict=ok listing-is=ok no-force=ok\n'
+    kill_flea
+    if [[ -n "$real_state" ]]; then export XDG_STATE_HOME="$real_state"; else unset XDG_STATE_HOME; fi
+    sandbox_remove "$fixture_home"
+}
+
+# A rail row by its label, so the poweroff case follows volumes across rail rebuilds.
+poweroff_row() {
+    local want="$1" n i
+    n=$(ipc railCount)
+    for ((i = 0; i < n; i++)); do
+        if [[ "$(ipc railLabel "$i")" == "$want" ]]; then printf '%s' "$i"; return 0; fi
+    done
+    fail "poweroff: no rail row labelled $want, labels are $(ipc railLabels)"
+}
+
+# The USB power-off chain (ui/DeviceMounts.qml): a hung unmount leg ends at the deadline with its
+# own sentence, a user unmount mid-chain is refused, slow legs that still finish beat the old
+# whole-chain bound, and later operations are answered with their own verdicts. An rm=false
+# tran=usb disk with two volumes routes Eject to powerOff, the way a USB bridge reports itself.
+case_poweroff() {
+    local dir="$fixture_root/poweroff"
+    sandbox_scratch "$dir"
+    mkdir -p "$dir/bin" "$dir/mnt/DATA1" "$dir/mnt/DATA2"
+    : > "$dir/0-one.txt"
+
+    local gio_log="$dir/gio.log"
+    : > "$gio_log"
+    cat > "$dir/bin/lsblk" <<EOS
+#!/bin/sh
+mp1="$dir/mnt/DATA1"
+mp2="$dir/mnt/DATA2"
+[ -f "$dir/un-sdb1" ] && mp1=""
+[ -f "$dir/un-sdb2" ] && mp2=""
+if [ -n "\$mp1" ]; then j1="\"\$mp1\""; else j1=null; fi
+if [ -n "\$mp2" ]; then j2="\"\$mp2\""; else j2=null; fi
+cat <<JSON
+{"blockdevices":[
+{"name":"nvme0n1","path":"/dev/nvme0n1","label":null,"mountpoints":[null],"rm":false,"size":"238.5G","type":"disk","model":"KBG40ZNS256G",
+"children":[{"name":"nvme0n1p1","path":"/dev/nvme0n1p1","label":null,"mountpoints":["/"],"rm":false,"size":"238.5G","type":"part","model":null}]},
+{"name":"sdb","path":"/dev/sdb","label":null,"mountpoints":[null],"rm":false,"tran":"usb","size":"1000.2G","type":"disk","model":"USB HDD",
+"children":[{"name":"sdb1","path":"/dev/sdb1","label":"DATA1","mountpoints":[\$j1],"rm":false,"size":"500.1G","type":"part","model":null,"fstype":"ext4"},
+{"name":"sdb2","path":"/dev/sdb2","label":"DATA2","mountpoints":[\$j2],"rm":false,"size":"500.1G","type":"part","model":null,"fstype":"ext4"}]}]}
+JSON
+EOS
+    chmod +x "$dir/bin/lsblk"
+    # A hung first leg sleeps past the chain deadline; slow legs sleep 8 s each, so the two legs
+    # together pass the old whole-chain bound while each leg stays inside the per-leg one.
+    cat > "$dir/bin/gio" <<EOS
+#!/bin/sh
+printf '%s\n' "\$*" >> "$gio_log"
+case "\$1 \$2" in
+"mount -u")
+  if [ -f "$dir/hang-unmount" ] && [ "\$3" = "$dir/mnt/DATA1" ]; then sleep 30; fi
+  if [ -f "$dir/slowlegs" ]; then sleep 8; fi
+  case "\$3" in
+  "$dir/mnt/DATA1") : > "$dir/un-sdb1" ;;
+  "$dir/mnt/DATA2") : > "$dir/un-sdb2" ;;
+  esac
+  exit 0 ;;
+"mount -d")
+  case "\$3" in
+  /dev/sdb1) rm -f "$dir/un-sdb1" ;;
+  /dev/sdb2) rm -f "$dir/un-sdb2" ;;
+  esac
+  exit 0 ;;
+*) exit 0 ;;
+esac
+EOS
+    chmod +x "$dir/bin/gio"
+
+    local fixture_home="$fixture_root/poweroff-home"
+    fixture_home_make "$fixture_home"
+    local real_home="$HOME" saved_path="$PATH" real_state="${XDG_STATE_HOME-}"
+    seed_ui_state "$fixture_root/poweroff-state" '{"places":{"showUnmounted":true}}'
+    export PATH="$dir/bin:$PATH"
+    export HOME="$fixture_home"
+    launch "$dir"
+    export HOME="$real_home"
+    export PATH="$saved_path"
+    wait_listing 5
+    for _attempt in $(seq 1 100); do
+        [[ "$(ipc deviceEntries)" == *"DATA1|device|volume|true"* ]] \
+            && [[ "$(ipc deviceEntries)" == *"DATA2|device|volume|true"* ]] && break
+        sleep 0.05
+    done
+    [[ "$(ipc deviceEntries)" == *"DATA1|device|volume|true"* ]] \
+        || fail "poweroff: DATA1 never appeared live, got $(ipc deviceEntries)"
+    [[ "$(ipc deviceEntries)" == *"DATA2|device|volume|true"* ]] \
+        || fail "poweroff: DATA2 never appeared live, got $(ipc deviceEntries)"
+
+    # The hung leg: the first unmount never answers, so the chain deadline ends it.
+    : > "$dir/hang-unmount"
+    click_rail_row "$(poweroff_row DATA1)" right
+    settle
+    menu_seek Eject
+    key -k Return >/dev/null
+    sleep 3
+    # A user unmount of the other volume mid-chain is refused and never reaches gio.
+    local unmounts_before unmounts_after
+    unmounts_before=$(grep -c "^mount -u $dir/mnt/DATA2\$" "$gio_log")
+    click_rail_row "$(poweroff_row DATA2)" right
+    settle
+    menu_seek Unmount
+    key -k Return >/dev/null
+    wait_message "Still ejecting DATA1; wait for its result."
+    unmounts_after=$(grep -c "^mount -u $dir/mnt/DATA2\$" "$gio_log")
+    [[ "$unmounts_after" == "$unmounts_before" ]] \
+        || fail "poweroff: the refused unmount still ran gio mount -u on DATA2"
+    # The deadline ends the hung leg with its own sentence, and the volume stays mounted.
+    wait_message "DATA1 did not finish ejecting and is still mounted."
+    [[ "$(ipc deviceEntries)" == *"DATA1|device|volume|true"* ]] \
+        || fail "poweroff: the hung volume left the rail: $(ipc deviceEntries)"
+    rm -f "$dir/hang-unmount"
+
+    # Two slow legs finish past the old whole-chain bound and earn the safe sentence.
+    : > "$dir/slowlegs"
+    click_rail_row "$(poweroff_row DATA1)" right
+    settle
+    menu_seek Eject
+    key -k Return >/dev/null
+    wait_message "Ejected DATA1, it is safe to unplug."
+    rm -f "$dir/slowlegs"
+
+    # A later mount and unmount are answered with their own verdicts, not the chain's.
+    click_rail_row "$(poweroff_row DATA2)" right
+    settle
+    [[ "$(ipc contextMenuEntries)" == "Mount" ]] \
+        || fail "poweroff: the unmounted volume offers $(ipc contextMenuEntries), not Mount"
+    menu_seek Mount
+    key -k Return >/dev/null
+    for _attempt in $(seq 1 100); do
+        [[ "$(ipc deviceEntries)" == *"DATA2|device|volume|true"* ]] && break
+        sleep 0.1
+    done
+    [[ "$(ipc deviceEntries)" == *"DATA2|device|volume|true"* ]] \
+        || fail "poweroff: DATA2 never remounted: $(ipc deviceEntries)"
+    click_rail_row "$(poweroff_row DATA2)" right
+    settle
+    menu_seek Unmount
+    key -k Return >/dev/null
+    for _attempt in $(seq 1 100); do
+        [[ "$(ipc deviceEntries)" == *"DATA2|device|volume|false"* ]] && break
+        sleep 0.1
+    done
+    [[ "$(ipc deviceEntries)" == *"DATA2|device|volume|false"* ]] \
+        || fail "poweroff: the later unmount never landed: $(ipc deviceEntries)"
+    if grep -qE '(^| )(-f|--force)( |$)' "$gio_log"; then
+        fail "poweroff: a forced unmount reached gio: $(cat "$gio_log")"
+    fi
+
+    printf 'POWEROFF deadline=ok still-ejecting-refused=ok slow-legs-safe=ok later-mount=ok later-unmount=ok no-force=ok\n'
     kill_flea
     if [[ -n "$real_state" ]]; then export XDG_STATE_HOME="$real_state"; else unset XDG_STATE_HOME; fi
     sandbox_remove "$fixture_home"
@@ -11686,7 +11837,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 . "$repo/tests/ui-captures-markdown.sh"
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar touchpad terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare openwithdesign noblank previewswap transferlive recent middleclick opentab)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar touchpad terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject poweroff rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare hanglisting hanginspect openwithdesign noblank previewswap transferlive recent middleclick opentab)
 
 : > "$run_log"
 : > "$flea_log"
