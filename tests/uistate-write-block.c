@@ -1,5 +1,4 @@
-// Test-only ui.json write barrier: hold the owned tmp publication inside its first write.
-// A second barrier holds after the publication rename, so a kill there lands past the rename.
+// Test-only ui.json barriers hold inside the owned temp's first write and after the publication rename.
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <errno.h>

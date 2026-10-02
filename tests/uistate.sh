@@ -498,17 +498,15 @@ temps=$(ls -A "$STATE/flea" | grep -c '^ui\.json\.[0-9]\+\.tmp$')
 strays=$(ls -A "$STATE/flea" | grep -vc '^ui\.json$\|^ui\.json\.lock$\|^ui\.json\.[0-9]\+\.tmp$')
 echo "     the sweep left $temps temp file(s) behind, one per round killed inside the write"
 check "the sweep left nothing but ui.json, its lock and killed writers' own temps" "0" "$strays"
-check "and never more temps than there were kills" "1" "$([ "$temps" -le "$kills" ] && echo 1 || echo 0)"
+check "the sweep left no more temps than its $kills killed rounds" "1" "$([ "$temps" -le "$kills" ] && echo 1 || echo 0)"
 
-# The kill count is printed and never asserted: it measures how fast the box finishes
-# inside a 1 to 9 ms budget, so a faster box kills fewer rounds and a floor on it is a speed check.
+# The kill count is printed and never asserted: a floor inside the 1 to 9 ms budget measures box speed.
 echo "     the sweep killed $kills of 120 rounds, diagnostic only"
 # A 0-temp timed sweep proves nothing about the write window, so its temp count stays diagnostic.
 echo "     the sweep left $temps write-window temp(s), diagnostic only"
-check "no kill ever left a partial state file" "0" "$partial"
+check "none of the $kills killed rounds left a partial state file" "0" "$partial"
 
-# The stage kills below carry the proof the sweep cannot: a kill at each named point of the
-# write leaves ui.json exactly the before or exactly the after document, on any box.
+# The stage kills prove ui.json stays exactly the before or after document at each named write stage.
 DET="$FIXTURE_ROOT/flea-uistate-det-$$"
 sandbox_make "$DET" || exit 1
 # Sample input: `deterministic receipt 12345 7 /…/flea/ui.json.12345.tmp` plus the sha256 line.

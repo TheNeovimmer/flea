@@ -1088,9 +1088,12 @@ reads the old bytes back through it and compares inodes. The
 sweep beside it fires a `SIGKILL` 1 to 9 ms into each of 120 rounds and lands on a live process in 88
 to 120 of them, measured across nine sweeps on this box and four more with other lanes live on it,
 the second set ranging 92 to 120; no round of the 120 has ever left the file as
-anything but the old document or the new one. The suite prints the count it achieved and asserts only
-a fifth of the rounds, because a faster box kills fewer of them: at a 15 ms budget the same sweep
-killed 3 of 120, which is what the old floor of one kill was letting "120 SIGKILL rounds" be read off.
+anything but the old document or the new one. The timed sweep's kill count is printed as a diagnostic
+and never asserted, because a faster box finishes more writes inside its 1 to 9 ms budget. The proof
+that a kill never leaves a partial `ui.json` is the three deterministic stage kills in
+`tests/uistate-deterministic.py`: before the temp, inside the publication, and after the rename.
+Each stage witnesses a live writer, requires SIGKILL termination and compares `ui.json` with the
+complete before or after document.
 A killed round leaves litter: `write()` unlinks only `ui.json.<own pid>.tmp`, so a process killed
 between `write_new` and the rename leaves that temp for good, and tens of the 120 rounds do, 47 to
 90 across the four runs that added the check, which is a magnitude and not a number to cite. Nothing
