@@ -328,7 +328,7 @@ pub(crate) fn run_link(op: &str, paths: Vec<String>, dest_path: PathBuf, policy:
             super::collide::Place::Skip => { skipped += 1; }
             super::collide::Place::Refuse(msg) => {
                 failed += 1;
-                if first_err.is_empty() { first_err = msg; }
+                if first_err.is_empty() { first_err = format!("{source}: {msg}"); }
             }
             super::collide::Place::Land { to, replace } => {
                 let mut replaced: Vec<super::trash::Entry> = Vec::new();
@@ -337,7 +337,7 @@ pub(crate) fn run_link(op: &str, paths: Vec<String>, dest_path: PathBuf, policy:
                         (trashed, 0) => replaced = trashed,
                         _ => {
                             failed += 1;
-                            if first_err.is_empty() { first_err = super::collide::TRASH_REFUSED.to_string(); }
+                            if first_err.is_empty() { first_err = format!("{source}: {}", super::collide::TRASH_REFUSED); }
                             continue;
                         }
                     }
@@ -383,7 +383,7 @@ pub(crate) fn run_link(op: &str, paths: Vec<String>, dest_path: PathBuf, policy:
                                     steps.push(Step::Trashed(entry));
                                 }
                                 failed += 1;
-                                if first_err.is_empty() { first_err = e.msg.clone(); }
+                                if first_err.is_empty() { first_err = format!("{source}: {}", e.msg); }
                             }
                         }
                     }
@@ -397,7 +397,7 @@ pub(crate) fn run_link(op: &str, paths: Vec<String>, dest_path: PathBuf, policy:
                             steps.push(Step::Trashed(entry));
                         }
                         failed += 1;
-                        if first_err.is_empty() { first_err = e.msg.clone(); }
+                        if first_err.is_empty() { first_err = format!("{source}: {}", e.msg); }
                     }
                 }
             }
@@ -413,6 +413,18 @@ pub(crate) fn test_reported_link(o: &mut Ops, buf: &mut Vec<u8>, op: &str, paths
     let entry = Entry { op: "link".to_string(), steps: done.steps };
     report_op(buf, o, OpMsg::Linked { ok: done.ok, failed: done.failed, skipped: done.skipped,
         entry, note: done.note, first_err: done.first_err, dest: dest.to_string_lossy().to_string() });
+}
+
+// Show original answers beside the loop, because read_link and canonicalize can stall on a dead mount.
+pub(crate) fn start_link_target(ops: &Ops, path: &str) {
+    let owned = path.to_string();
+    let tx = ops.tx.clone();
+    thread::spawn(move || {
+        let mut buf = Vec::new();
+        do_link_target(&mut buf, &owned);
+        let line = String::from_utf8_lossy(&buf).trim_end_matches('\n').to_string();
+        let _ = tx.send(OpMsg::Meta { line });
+    });
 }
 
 // Show original: reveal the symlink target in its own folder, never resolve a non-link.
@@ -436,8 +448,7 @@ pub(crate) fn do_link_target(out: &mut impl Write, path: &str) {
     out.flush().ok();
 }
 
-// A trailing `..` names a real folder and never a link, so it canonicalizes whole; any other target
-// splits the way create_relative does, its folder canonicalized and its leaf never touched.
+// A trailing .. canonicalizes whole, any other target only its folder, as create_relative splits it.
 fn link_target_parts(absolute: &Path) -> (String, String) {
     let lexical = || {
         let directory = absolute.parent().unwrap_or(Path::new("/")).to_string_lossy().to_string();
@@ -909,6 +920,7 @@ mod tests {
         let line = text(&buf);
         assert!(line.contains(r#""ok":1"#) && line.contains(r#""failed":1"#), "{}", line);
         assert!(line.contains("a hard link to a directory is refused"), "mixed failure silent: {}", line);
+        assert!(line.contains(&sub.to_string_lossy().into_owned()), "mixed failure unnamed: {}", line);
         assert_eq!(o.journal.len(), 1);
     }
 
@@ -995,6 +1007,21 @@ mod tests {
         assert!(line.contains(&format!("\"directory\":\"{}\"", b.display())), "{}", line);
         assert!(line.contains("\"name\":\"c\""), "{}", line);
         assert!(!line.contains(".."), "a joined .. leaked onto the wire: {}", line);
+    }
+
+    #[test]
+    fn link_target_answers_from_a_thread_as_meta() {
+        let d = TestDir::new("dispatchlinktargetthread");
+        let target = d.file("real.txt", "r");
+        let link = d.join("l");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let (tx, rx) = channel();
+        let o = Ops::new(tx);
+        start_link_target(&o, &link.to_string_lossy());
+        let OpMsg::Meta { line } = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap() else { panic!("no meta line"); };
+        assert!(line.contains(r#""t":"linktarget""#), "{}", line);
+        assert!(line.contains(&format!("\"directory\":\"{}\"", d.path().display())), "{}", line);
+        assert!(line.contains("\"name\":\"real.txt\""), "{}", line);
     }
 
     #[test]

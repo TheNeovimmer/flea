@@ -5267,8 +5267,8 @@ here only as the control that proves this box reads `GLIBC_TUNABLES` at all.
 
 ## Write operations and the undo journal
 
-Ten of the main backend's requests write. Seven are file operations of their own: `transfer`,
-`transfercancel`, `trash`, `rename`, `duplicate`, `mkdir` and `undo`; a New File from the menu writes
+Thirteen of the main backend's requests write. Ten are file operations of their own: `transfer`,
+`transfercancel`, `trash`, `rename`, `duplicate`, `mkdir`, `undo`, `link`, `redo` and `permissionsBatch`; a New File from the menu writes
 through `menuaction` and journals `MadeFile` (`opsdispatch.rs` `do_newfile`), and `archive` and
 `convert` write below. Two helpers write on command loops of their own and journal nothing: the trash
 browser's `restore` and `delete` (`trashbrowse.rs`, `trashdelete.rs`) and the permissions dialog's
@@ -5319,7 +5319,7 @@ exercised live. Say the cost plainly rather than burying it: for a large rclone
 directory this build is worse than the one before it, which failed the rename with a sentence
 instead of hanging the window. Spawning the copy is the first item of the next release.
 `trash` shells to `gio` twice for the list diff plus once to trash; `duplicate` may copy a
-whole tree; a `transfer` is unbounded. Those three send their results back through `Event::Op`,
+whole tree; a `transfer` is unbounded; a `link` Replace moves the name already there through `gio` first. Those four send their results back through `Event::Op`,
 joined onto the loop's receiver exactly the way the thumbnail pool's `Event::Thumb` already is, so
 the loop stays the only writer of stdout.
 

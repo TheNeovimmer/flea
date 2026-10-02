@@ -654,7 +654,10 @@ Example: `{"c":"linktarget","path":"/home/gm/latest"}`
 Answers one `linktarget` line,
 `{"t":"linktarget","path":"<string>","directory":"<string>","name":"<string>"}`,
 naming the folder the symlink's target lives in and the target's own leaf, the
-same path Show in folder uses. A path that is not a symlink answers an `error`
+same path Show in folder uses. `directory` is the target's folder with every
+symlinked folder and `..` resolved the way the kernel follows them, falling back
+to the link text's own split when it cannot be resolved, and the line is answered
+from a thread, as `meta` is. A path that is not a symlink answers an `error`
 line with `where` of `linktarget` and touches nothing.
 
 ### permissionsBatch

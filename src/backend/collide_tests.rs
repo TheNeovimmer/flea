@@ -17,7 +17,6 @@ const WAIT: Duration = Duration::from_secs(5);
 const POLL: Duration = Duration::from_millis(5);
 
 // Clears this thread's stand-in on the way out, so no later test on the thread inherits it.
-// Shared with the link dispatch tests, which drive the same worker and the same refusal.
 pub(crate) struct StandIn;
 
 impl Drop for StandIn {

@@ -3,7 +3,7 @@ use crate::backend::archivereq::{formats_line, start_archive, start_convert};
 use crate::backend::convert;
 use crate::backend::peek::peek_line;
 use crate::backend::metareq::spawn as spawn_meta;
-use crate::backend::opsdispatch::{cancel_transfer, do_link_target, do_mkdir, do_newfile, do_permissions_batch, do_rename, do_undo, report_op, resolve_rows, start_duplicate, start_link, start_trash, start_transfer, start_menu_transfer, start_redo, Ops};
+use crate::backend::opsdispatch::{cancel_transfer, do_mkdir, do_newfile, do_permissions_batch, do_rename, do_undo, report_op, resolve_rows, start_duplicate, start_link, start_link_target, start_trash, start_transfer, start_menu_transfer, start_redo, Ops};
 use crate::backend::opsreq::OpMsg;
 use crate::backend::dirsizereq::{queue_dirsizes, seed_answered, start_next, report_done as report_dirsize};
 use crate::backend::dirsize::DirSize;
@@ -306,7 +306,7 @@ fn handle_line(
             let named = resolve_rows(paths, &rows, &st.base, &st.listing);
             start_link(out, ops, &op, named, &dest, collide)
         }
-        Request::LinkTarget { path } => do_link_target(out, &path),
+        Request::LinkTarget { path } => start_link_target(ops, &path),
         Request::PermissionsBatch { paths, modes, id } => do_permissions_batch(out, ops, paths, modes, id),
         Request::TransferCancel { id } => cancel_transfer(ops, id),
         Request::Trash { paths, rows, menu_id } => {
