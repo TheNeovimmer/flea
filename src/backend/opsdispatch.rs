@@ -9,7 +9,7 @@ use crate::backend::listing::Listing;
 use crate::backend::proto::error_line;
 use crate::backend::undo::{Entry, ItemIdentity, Journal, Step};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -262,8 +262,8 @@ fn fail_link_verify() -> bool {
     }
 }
 
-// Paste as links: one syscall per source on this thread, journaled as one entry.
-pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<String>, dest: &str, collide: super::collide::Ask) {
+// Paste as links: the slot and the collide answer are decided here, the links land beside the loop.
+pub(crate) fn start_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<String>, dest: &str, collide: super::collide::Ask) {
     if ops.live.running().is_some() { busy(out, "link"); return; }
     let dest_path = match usable_dest(dest) {
         Ok(d) => d,
@@ -275,12 +275,41 @@ pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<
         }
     };
     let policy = collide.policy(ops.question.take(), &dest_path).for_batch(&paths);
+    ops.claim_transfer();
+    let tx = ops.tx.clone();
+    let owned_op = op.to_string();
+    let owned_dest = dest.to_string();
+    thread::spawn(move || {
+        let done = run_link(&owned_op, paths, dest_path, policy);
+        let entry = Entry { op: "link".to_string(), steps: done.steps };
+        let _ = tx.send(OpMsg::Linked { ok: done.ok, failed: done.failed, skipped: done.skipped,
+            entry, note: done.note, first_err: done.first_err, dest: owned_dest });
+    });
+}
+
+// What the link thread sends back: the counts, the journal steps, and both failure texts.
+pub(crate) struct LinkOutcome {
+    pub(crate) ok: usize,
+    pub(crate) failed: usize,
+    pub(crate) skipped: usize,
+    pub(crate) steps: Vec<Step>,
+    pub(crate) first_err: String,
+    pub(crate) note: String,
+}
+
+// One exclusive link per source, replacing through the trash when the card chose it.
+pub(crate) fn run_link(op: &str, paths: Vec<String>, dest_path: PathBuf, policy: super::collide::Policy) -> LinkOutcome {
+    let kind = match op {
+        "absolute" => super::link::LinkKind::Absolute,
+        "hard" => super::link::LinkKind::Hard,
+        _ => super::link::LinkKind::Relative,
+    };
     let mut steps: Vec<Step> = Vec::new();
     let mut ok = 0usize;
     let mut failed = 0usize;
     let mut skipped = 0usize;
     let mut first_err = String::new();
-    // Each stranded replace sentence, reported on the linked line beside first_err.
+    // Each stranded replace sentence, and a mixed batch's first failure, reported on the linked line.
     let mut note = String::new();
     for source in &paths {
         let src = Path::new(source);
@@ -313,12 +342,7 @@ pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<
                         }
                     }
                 }
-                let kind = match op {
-                    "absolute" => super::link::LinkKind::Absolute,
-                    "hard" => super::link::LinkKind::Hard,
-                    _ => super::link::LinkKind::Relative,
-                };
-                let made = match kind {
+                let made = match &kind {
                     super::link::LinkKind::Absolute => super::link::create_absolute(src, &to),
                     super::link::LinkKind::Hard => super::link::create_hard(src, &to),
                     super::link::LinkKind::Relative => super::link::create_relative(src, &to),
@@ -331,7 +355,7 @@ pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<
                                     steps.push(Step::Trashed(entry));
                                 }
                                 steps.push(Step::Linked { path: to, identity,
-                                    source: src.to_path_buf(), kind });
+                                    source: src.to_path_buf(), kind: kind.clone() });
                                 ok += 1;
                             }
                             Err(e) => {
@@ -379,15 +403,16 @@ pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<
             }
         }
     }
-    ops.journal.push(Entry { op: "link".to_string(), steps });
-    if (failed == 0 && first_err.is_empty()) || ok > 0 || skipped > 0 {
-        writeln!(out, "{}", super::proto::linked_line(ok, failed, skipped, &note)).ok();
-    } else {
-        // An earlier failure never hides a stranded replace, so the note rides along.
-        let msg = if first_err.is_empty() { note } else if note.is_empty() { first_err } else { format!("{first_err}; {note}") };
-        writeln!(out, "{}", error_line(&op_err("link", dest, &msg))).ok();
-    }
-    out.flush().ok();
+    LinkOutcome { ok, failed, skipped, steps, first_err, note }
+}
+
+// Tests drive the worker directly, because the fault hooks it reads are thread-local.
+#[cfg(test)]
+pub(crate) fn test_reported_link(o: &mut Ops, buf: &mut Vec<u8>, op: &str, paths: Vec<String>, dest: PathBuf, policy: super::collide::Policy) {
+    let done = run_link(op, paths, dest.clone(), policy);
+    let entry = Entry { op: "link".to_string(), steps: done.steps };
+    report_op(buf, o, OpMsg::Linked { ok: done.ok, failed: done.failed, skipped: done.skipped,
+        entry, note: done.note, first_err: done.first_err, dest: dest.to_string_lossy().to_string() });
 }
 
 // Show original: reveal the symlink target in its own folder, never resolve a non-link.
@@ -406,10 +431,30 @@ pub(crate) fn do_link_target(out: &mut impl Write, path: &str) {
     } else {
         target.parent().unwrap_or(Path::new("/")).join(&text)
     };
-    let directory = absolute.parent().unwrap_or(Path::new("/")).to_string_lossy().to_string();
-    let name = absolute.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let (directory, name) = link_target_parts(&absolute);
     writeln!(out, "{}", super::proto::linktarget_line(path, &directory, &name)).ok();
     out.flush().ok();
+}
+
+// A trailing `..` names a real folder and never a link, so it canonicalizes whole; any other target
+// splits the way create_relative does, its folder canonicalized and its leaf never touched.
+fn link_target_parts(absolute: &Path) -> (String, String) {
+    let lexical = || {
+        let directory = absolute.parent().unwrap_or(Path::new("/")).to_string_lossy().to_string();
+        let name = absolute.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        (directory, name)
+    };
+    if matches!(absolute.components().next_back(), Some(Component::ParentDir)) {
+        let Ok(resolved) = absolute.canonicalize() else { return lexical() };
+        return (
+            resolved.parent().unwrap_or(Path::new("/")).to_string_lossy().to_string(),
+            resolved.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        );
+    }
+    let Some(folder) = absolute.parent() else { return lexical() };
+    let Ok(folder) = folder.canonicalize() else { return lexical() };
+    let name = absolute.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    (folder.to_string_lossy().to_string(), name)
 }
 
 // Permissions batch: one entry holds every path Apply changed, so one undo restores all.
@@ -504,6 +549,19 @@ pub(crate) fn report_op(out: &mut impl Write, ops: &mut Ops, msg: OpMsg) {
             ops.live.finished();
             writeln!(out, "{}", trashed_line(ok, failed)).ok();
         }
+        OpMsg::Linked { ok, failed, skipped, entry, note, first_err, dest } => {
+            ops.journal.push(entry);
+            ops.live.finished();
+            if (failed == 0 && first_err.is_empty()) || ok > 0 || skipped > 0 {
+                // A mixed batch reports its first failure here, never silently, ahead of any stranded sentence.
+                let note = if first_err.is_empty() { note } else if note.is_empty() { first_err } else { format!("{first_err}; {note}") };
+                writeln!(out, "{}", super::proto::linked_line(ok, failed, skipped, &note)).ok();
+            } else {
+                // An earlier failure never hides a stranded replace, so the note rides along.
+                let msg = if first_err.is_empty() { note } else if note.is_empty() { first_err } else { format!("{first_err}; {note}") };
+                writeln!(out, "{}", error_line(&op_err("link", &dest, &msg))).ok();
+            }
+        }
         OpMsg::Asked { turn, question, line } => if super::collide::landed(ops, turn, question) { writeln!(out, "{}", line).ok(); },
         // Meta never claims the operation slot, so it does not clear it either.
         OpMsg::Meta { line } => {
@@ -543,6 +601,18 @@ mod tests {
     fn ops() -> Ops {
         let (tx, _rx) = channel();
         Ops::new(tx)
+    }
+
+    fn ops_link() -> (Ops, std::sync::mpsc::Receiver<OpMsg>) {
+        let (tx, rx) = channel();
+        (Ops::new(tx), rx)
+    }
+
+    // A link answers beside the loop, so its line arrives through its message like every spawned operation.
+    fn link_reported(buf: &mut Vec<u8>, o: &mut Ops, rx: &std::sync::mpsc::Receiver<OpMsg>) {
+        let msg = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert!(matches!(&msg, OpMsg::Linked { .. }), "link answered with another message");
+        report_op(buf, o, msg);
     }
 
     fn out() -> Vec<u8> {
@@ -759,9 +829,31 @@ mod tests {
     }
 
     #[test]
+    fn link_runs_beside_the_loop_and_claims_the_slot() {
+        let d = TestDir::new("dispatchlinkasync");
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        let a = d.file("a.txt", "a");
+        let dest = d.dir("dest");
+        let mut buf = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+        start_link(&mut buf, &mut o, "relative",
+            vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        assert!(buf.is_empty(), "link answered on the calling thread: {}", text(&buf));
+        assert!(o.live.running().is_some(), "link holds no slot while it runs");
+        let msg = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert!(matches!(&msg, OpMsg::Linked { .. }), "link answered with another message");
+        report_op(&mut buf, &mut o, msg);
+        let line = text(&buf);
+        assert!(line.contains(r#""t":"linked""#) && line.contains(r#""ok":1"#), "{}", line);
+        assert!(o.live.running().is_none(), "the slot stayed claimed after the answer");
+        assert_eq!(o.journal.len(), 1);
+    }
+
+    #[test]
     fn paste_as_links_answers_one_line_and_undo_removes_them() {
         let d = TestDir::new("dispatchlink");
-        let mut o = ops();
+        let (mut o, rx) = ops_link();
         let src = d.dir("src");
         let a = d.file("src/a.txt", "a");
         let b = d.file("src/b.txt", "b");
@@ -769,9 +861,10 @@ mod tests {
         let _ = src;
         let mut buf = out();
         let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        do_link(&mut buf, &mut o, "relative",
+        start_link(&mut buf, &mut o, "relative",
             vec![a.to_string_lossy().to_string(), b.to_string_lossy().to_string()],
             &dest.to_string_lossy(), ask);
+        link_reported(&mut buf, &mut o, &rx);
         assert_eq!(text(&buf).trim(), r#"{"t":"linked","ok":2,"failed":0,"skipped":0}"#);
         assert_eq!(o.journal.len(), 1);
         assert_eq!(std::fs::read_to_string(dest.join("a.txt")).unwrap(), "a");
@@ -786,28 +879,49 @@ mod tests {
     #[test]
     fn an_existing_name_is_refused_and_journals_nothing() {
         let d = TestDir::new("dispatchlinkrefuse");
-        let mut o = ops();
+        let (mut o, rx) = ops_link();
         let a = d.file("a.txt", "a");
         let dest = d.dir("dest");
         d.file("dest/a.txt", "someone else");
         let mut buf = out();
         let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        do_link(&mut buf, &mut o, "relative",
+        start_link(&mut buf, &mut o, "relative",
             vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        link_reported(&mut buf, &mut o, &rx);
         assert!(text(&buf).contains(r#""t":"error","where":"link""#));
         assert!(o.journal.is_empty(), "a link that was not made must not be undoable");
         assert_eq!(std::fs::read_to_string(dest.join("a.txt")).unwrap(), "someone else");
     }
 
     #[test]
+    fn a_mixed_hard_batch_names_its_first_refusal_on_the_linked_line() {
+        let d = TestDir::new("dispatchlinkmixed");
+        let (mut o, rx) = ops_link();
+        let a = d.file("a.txt", "a");
+        let sub = d.dir("sub");
+        let dest = d.dir("dest");
+        let mut buf = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+        start_link(&mut buf, &mut o, "hard",
+            vec![a.to_string_lossy().to_string(), sub.to_string_lossy().to_string()],
+            &dest.to_string_lossy(), ask);
+        link_reported(&mut buf, &mut o, &rx);
+        let line = text(&buf);
+        assert!(line.contains(r#""ok":1"#) && line.contains(r#""failed":1"#), "{}", line);
+        assert!(line.contains("a hard link to a directory is refused"), "mixed failure silent: {}", line);
+        assert_eq!(o.journal.len(), 1);
+    }
+
+    #[test]
     fn a_hard_link_to_a_directory_is_refused() {
         let d = TestDir::new("dispatchharddir");
-        let mut o = ops();
+        let (mut o, rx) = ops_link();
         let src = d.dir("src");
         let dest = d.dir("dest");
         let mut buf = out();
         let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        do_link(&mut buf, &mut o, "hard", vec![src.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        start_link(&mut buf, &mut o, "hard", vec![src.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        link_reported(&mut buf, &mut o, &rx);
         let line = text(&buf);
         assert!(line.contains("a hard link to a directory is refused"), "{}", line);
         assert!(line.contains(r#""where":"link""#), "{}", line);
@@ -821,11 +935,13 @@ mod tests {
         let mut o = ops();
         let a = d.file("a.txt", "a");
         let dest = d.dir("dest");
+        // The fault hook is thread-local, so this drives the worker directly and reports its answer.
         test_fail_link_verify(true);
         let mut buf = out();
         let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        do_link(&mut buf, &mut o, "relative",
-            vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        let paths = vec![a.to_string_lossy().to_string()];
+        let policy = ask.policy(None, &dest).for_batch(&paths);
+        test_reported_link(&mut o, &mut buf, "relative", paths, dest.clone(), policy);
         test_fail_link_verify(false);
         let line = text(&buf);
         let at = dest.join("a.txt");
@@ -833,6 +949,52 @@ mod tests {
         assert!(line.contains("could not be removed"), "cleanup failure silent: {}", line);
         assert!(at.symlink_metadata().is_ok(), "the leftover stays and is reported, never dropped");
         assert!(o.journal.is_empty(), "a link never identified journals nothing");
+    }
+
+    #[test]
+    fn a_replace_whose_trash_is_refused_reports_that_and_replaces_nothing() {
+        use crate::backend::collide::tests::{asked, chosen, refusing_trash};
+        let d = TestDir::new("dispatchlinkreplace");
+        let mut o = ops();
+        let a = d.file("a.txt", "a");
+        let dest = d.dir("dest");
+        let there = d.file("dest/a.txt", "someone else");
+        let _trash = refusing_trash();
+        // The worker runs here, so the thread-local refusal is the one it reads.
+        let question = asked(7, &[&a], &dest);
+        let paths = vec![a.to_string_lossy().to_string()];
+        let policy = chosen("replace", question, &dest).for_batch(&paths);
+        let mut buf = out();
+        test_reported_link(&mut o, &mut buf, "relative", paths, dest.clone(), policy);
+        drop(_trash);
+        let line = text(&buf);
+        assert!(line.contains(r#""t":"error""#) && line.contains("could not be moved to Trash"), "{}", line);
+        assert_eq!(std::fs::read_to_string(&there).unwrap(), "someone else");
+        assert!(o.journal.is_empty(), "a refused replace journals nothing");
+    }
+
+    #[test]
+    fn a_link_target_ending_in_dotdot_reveals_the_resolved_folder() {
+        let d = TestDir::new("dispatchlinktargetdotdot");
+        let b = d.dir("a/b");
+        let up = b.join("up");
+        std::os::unix::fs::symlink("..", &up).unwrap();
+        let mut buf = out();
+        do_link_target(&mut buf, &up.to_string_lossy());
+        let line = text(&buf);
+        // The link names its grandparent, so Show original reveals that folder with its leaf.
+        assert!(line.contains(&format!("\"directory\":\"{}\"", d.path().display())), "{}", line);
+        assert!(line.contains("\"name\":\"a\""), "{}", line);
+        let c = d.dir("a/b/c");
+        let sib = b.join("sib");
+        std::os::unix::fs::symlink("../b/c", &sib).unwrap();
+        let _ = c;
+        let mut buf = out();
+        do_link_target(&mut buf, &sib.to_string_lossy());
+        let line = text(&buf);
+        assert!(line.contains(&format!("\"directory\":\"{}\"", b.display())), "{}", line);
+        assert!(line.contains("\"name\":\"c\""), "{}", line);
+        assert!(!line.contains(".."), "a joined .. leaked onto the wire: {}", line);
     }
 
     #[test]
@@ -845,7 +1007,7 @@ mod tests {
         std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o555)).unwrap();
         let mut buf = out();
         let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        do_link(&mut buf, &mut o, "relative", vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        start_link(&mut buf, &mut o, "relative", vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
         std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).unwrap();
         let line = text(&buf);
         assert!(line.contains(r#""where":"link""#), "{}", line);
@@ -856,13 +1018,14 @@ mod tests {
     #[test]
     fn a_folder_put_at_a_link_name_survives_undo() {
         let d = TestDir::new("dispatchlinkkept");
-        let mut o = ops();
+        let (mut o, rx) = ops_link();
         let a = d.file("a.txt", "a");
         let dest = d.dir("dest");
         let mut buf = out();
         let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        do_link(&mut buf, &mut o, "relative",
+        start_link(&mut buf, &mut o, "relative",
             vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        link_reported(&mut buf, &mut o, &rx);
         assert!(text(&buf).contains(r#""t":"linked""#));
         let at = dest.join("a.txt");
         std::fs::remove_file(&at).unwrap();
@@ -878,13 +1041,14 @@ mod tests {
     fn undone_links_redo_in_each_kind() {
         for op in ["relative", "absolute", "hard"] {
             let d = TestDir::new("dispatchlinkredo");
-            let mut o = ops();
+            let (mut o, rx) = ops_link();
             let a = d.file("a.txt", "a");
             let dest = d.dir("dest");
             let mut buf = out();
             let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-            do_link(&mut buf, &mut o, op,
+            start_link(&mut buf, &mut o, op,
                 vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+            link_reported(&mut buf, &mut o, &rx);
             assert!(text(&buf).contains(r#""t":"linked""#), "link lands for {op}");
             let at = dest.join("a.txt");
             let mut buf = out();
@@ -913,13 +1077,14 @@ mod tests {
     #[test]
     fn redo_refuses_a_link_name_taken_since() {
         let d = TestDir::new("dispatchlinkredotaken");
-        let mut o = ops();
+        let (mut o, rx) = ops_link();
         let a = d.file("a.txt", "a");
         let dest = d.dir("dest");
         let mut buf = out();
         let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        do_link(&mut buf, &mut o, "relative",
+        start_link(&mut buf, &mut o, "relative",
             vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        link_reported(&mut buf, &mut o, &rx);
         let mut buf = out();
         do_undo(&mut buf, &mut o);
         std::fs::write(dest.join("a.txt"), "someone else").unwrap();
@@ -932,14 +1097,15 @@ mod tests {
     #[test]
     fn undoing_a_hard_link_keeps_the_last_name_when_its_source_is_gone() {
         let d = TestDir::new("link-hard-last");
-        let mut o = ops();
+        let (mut o, rx) = ops_link();
         d.dir("src");
         let a = d.file("src/a.txt", "precious");
         let dest = d.dir("dest");
         let mut buf = out();
         let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        do_link(&mut buf, &mut o, "hard",
+        start_link(&mut buf, &mut o, "hard",
             vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        link_reported(&mut buf, &mut o, &rx);
         assert!(text(&buf).contains(r#""ok":1"#), "{}", text(&buf));
         std::fs::remove_file(&a).unwrap();
         assert_eq!(std::fs::read_to_string(dest.join("a.txt")).unwrap(), "precious");
@@ -968,7 +1134,7 @@ mod tests {
         let dest = d.dir("dest");
         let mut buf = out();
         let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        do_link(&mut buf, &mut o, "relative",
+        start_link(&mut buf, &mut o, "relative",
             vec![a.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
         assert!(text(&buf).contains("already running"), "{}", text(&buf));
         assert!(!text(&buf).contains(r#""t":"linked""#), "{}", text(&buf));
@@ -988,7 +1154,7 @@ mod tests {
     #[test]
     fn a_hard_link_of_a_symlink_undoes() {
         let d = TestDir::new("link-hard-sym");
-        let mut o = ops();
+        let (mut o, rx) = ops_link();
         d.dir("src");
         let t = d.file("src/t.txt", "t");
         let l = d.join("src/l");
@@ -996,8 +1162,9 @@ mod tests {
         let dest = d.dir("dest");
         let mut buf = out();
         let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        do_link(&mut buf, &mut o, "hard",
+        start_link(&mut buf, &mut o, "hard",
             vec![l.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        link_reported(&mut buf, &mut o, &rx);
         assert!(text(&buf).contains(r#""t":"linked""#), "{}", text(&buf));
         let mut buf = out();
         do_undo(&mut buf, &mut o);
@@ -1009,13 +1176,14 @@ mod tests {
     #[test]
     fn a_hard_link_of_a_fifo_undoes_and_redoes() {
         let d = TestDir::new("link-hard-fifo");
-        let mut o = ops();
+        let (mut o, rx) = ops_link();
         let src = d.join("src.pipe");
         assert!(std::process::Command::new("mkfifo").arg(&src).status().unwrap().success());
         let dest = d.dir("dest");
         let mut buf = out();
         let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        do_link(&mut buf, &mut o, "hard", vec![src.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        start_link(&mut buf, &mut o, "hard", vec![src.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        link_reported(&mut buf, &mut o, &rx);
         assert!(text(&buf).contains(r#""t":"linked""#), "{}", text(&buf));
         let mut buf = out();
         do_undo(&mut buf, &mut o);
@@ -1032,13 +1200,14 @@ mod tests {
     #[test]
     fn a_link_to_a_missing_source_is_refused_per_path() {
         let d = TestDir::new("link-missing");
-        let mut o = ops();
+        let (mut o, rx) = ops_link();
         let gone = d.join("gone.txt");
         let dest = d.dir("dest");
         let mut buf = out();
         let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        do_link(&mut buf, &mut o, "relative",
+        start_link(&mut buf, &mut o, "relative",
             vec![gone.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        link_reported(&mut buf, &mut o, &rx);
         assert!(!text(&buf).contains(r#""ok":1"#), "a link to nothing reported success: {}", text(&buf));
         assert!(o.journal.is_empty(), "a refused link journals nothing");
         assert!(std::fs::symlink_metadata(dest.join("gone.txt")).is_err());

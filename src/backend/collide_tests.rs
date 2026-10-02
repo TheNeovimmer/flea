@@ -17,7 +17,8 @@ const WAIT: Duration = Duration::from_secs(5);
 const POLL: Duration = Duration::from_millis(5);
 
 // Clears this thread's stand-in on the way out, so no later test on the thread inherits it.
-pub(super) struct StandIn;
+// Shared with the link dispatch tests, which drive the same worker and the same refusal.
+pub(crate) struct StandIn;
 
 impl Drop for StandIn {
     fn drop(&mut self) {
@@ -26,7 +27,7 @@ impl Drop for StandIn {
 }
 
 // A trash that takes nothing, the way gio answers on a mount with no trash of its own.
-pub(super) fn refusing_trash() -> StandIn {
+pub(crate) fn refusing_trash() -> StandIn {
     trash::STAND_IN.with(|slot| *slot.borrow_mut() = Some(Rc::new(|_: &[&str]| -> Option<Output> { None })));
     StandIn
 }
@@ -39,7 +40,7 @@ pub(super) fn owned(paths: &[&Path]) -> Vec<String> {
     paths.iter().map(|p| p.to_string_lossy().to_string()).collect()
 }
 
-pub(super) fn asked(id: usize, paths: &[&Path], dest: &Path) -> Question {
+pub(crate) fn asked(id: usize, paths: &[&Path], dest: &Path) -> Question {
     ask(id, &owned(paths), &dest.to_string_lossy()).0
 }
 
@@ -80,7 +81,7 @@ fn swept(paths: &[String], dest: &Path, policy: &Policy) -> u64 {
     settled.load(Ordering::Relaxed)
 }
 
-pub(super) fn chosen(word: &str, question: Question, dest: &Path) -> Policy {
+pub(crate) fn chosen(word: &str, question: Question, dest: &Path) -> Policy {
     let id = question.id;
     Ask { word: Some(word.to_string()), id }.policy(Some(question), dest)
 }

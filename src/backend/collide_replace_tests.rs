@@ -395,7 +395,7 @@ fn a_link_at_the_name_is_replaced_as_itself_and_its_target_is_never_touched() {
 
 #[test]
 fn a_failed_link_cleanup_with_a_replaced_entry_still_undoes_the_good_link() {
-    use crate::backend::opsdispatch::{do_link, do_undo, test_fail_link_verify, Ops};
+    use crate::backend::opsdispatch::{do_undo, test_fail_link_verify, test_reported_link, Ops};
     let d = TestDir::new("collide-link-leftover-undo");
     d.dir("src");
     let a = d.file("src/a.txt", "a-new");
@@ -423,8 +423,9 @@ fn a_failed_link_cleanup_with_a_replaced_entry_still_undoes_the_good_link() {
     o.question = Some(asked(1, &[&a, &b], &dest));
     let ask = Ask::parse(r#"{"c":"link","collide":"replace","collideId":1}"#);
     let mut buf = Vec::new();
-    do_link(&mut buf, &mut o, "relative",
-        vec![a.to_string_lossy().to_string(), b.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+    let paths = vec![a.to_string_lossy().to_string(), b.to_string_lossy().to_string()];
+    let policy = ask.policy(o.question.take(), &dest).for_batch(&paths);
+    test_reported_link(&mut o, &mut buf, "relative", paths, dest.clone(), policy);
     test_fail_link_verify(false);
     let line = String::from_utf8_lossy(&buf).to_string();
     assert!(line.contains(r#""t":"linked","ok":1,"failed":1,"skipped":0"#), "one link lands and one is left over: {}", line);
@@ -447,8 +448,9 @@ fn a_failed_link_cleanup_with_a_replaced_entry_still_undoes_the_good_link() {
     let ask = Ask::parse(r#"{"c":"link","collide":"replace","collideId":2}"#);
     test_fail_link_verify(true);
     let mut buf = Vec::new();
-    do_link(&mut buf, &mut o, "relative",
-        vec![c.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+    let paths = vec![c.to_string_lossy().to_string()];
+    let policy = ask.policy(o.question.take(), &dest).for_batch(&paths);
+    test_reported_link(&mut o, &mut buf, "relative", paths, dest.clone(), policy);
     test_fail_link_verify(false);
     let line = String::from_utf8_lossy(&buf).to_string();
     assert!(line.contains(r#""where":"link""#), "an all-failed link is an error line: {}", line);
@@ -459,7 +461,7 @@ fn a_failed_link_cleanup_with_a_replaced_entry_still_undoes_the_good_link() {
 #[test]
 fn a_missing_source_never_hides_a_stranded_replace_note() {
     // F25: an earlier batch failure must not hide the stranded link sentence.
-    use crate::backend::opsdispatch::{do_link, test_fail_link_verify, Ops};
+    use crate::backend::opsdispatch::{test_fail_link_verify, test_reported_link, Ops};
     let d = TestDir::new("collide-link-stranded-first");
     d.dir("src");
     let c = d.file("src/c.txt", "c-new");
@@ -473,7 +475,9 @@ fn a_missing_source_never_hides_a_stranded_replace_note() {
     let gone = d.path().join("src/x.txt").to_string_lossy().to_string();
     test_fail_link_verify(true);
     let mut buf = Vec::new();
-    do_link(&mut buf, &mut o, "relative", vec![gone, c.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+    let paths = vec![gone, c.to_string_lossy().to_string()];
+    let policy = ask.policy(o.question.take(), &dest).for_batch(&paths);
+    test_reported_link(&mut o, &mut buf, "relative", paths, dest.clone(), policy);
     test_fail_link_verify(false);
     let line = String::from_utf8_lossy(&buf).to_string();
     assert!(line.contains(r#""where":"link""#), "an all-failed link is an error line: {}", line);

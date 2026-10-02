@@ -621,14 +621,18 @@ when both are present. A `link` whose `listing` is not the numbering in force
 is refused with `where` of `stale` before a single index is resolved, the
 same rule `transfer` follows.
 
-Unlike `transfer`, this answers on the loop's own thread and never takes the
-one-operation slot: every link is one syscall, so there is nothing to show
-progress for and nothing to cancel. A `link` arriving while an operation runs
+Like `transfer`, this runs beside the loop and takes the one-operation slot:
+the busy check and the collide answer are decided on the loop, then one
+thread links each source, replacing through the trash when the card chose
+it, and the answer is written from its message. A Replace trashes through
+gio, which stalls on an unresponsive mount, so that work never runs on the
+loop's own thread. A `link` arriving while an operation runs
 answers an `error` line carrying `an operation is already running` and journals nothing. The answer is one `linked` line,
 `{"t":"linked","ok":<uint>,"failed":<uint>,"skipped":<uint>}`, and one journal
 entry, so one undo removes every link this request created. `note` rides on that line whenever a link this request
 made could be neither verified nor removed, plain or replacing, naming each leftover link and its cleanup error with
-`the replaced item stays in the trash` where a replaced item was kept, and an all-failed batch answers an `error` line with `where` of `link` carrying the first
+`the replaced item stays in the trash` where a replaced item was kept, and ahead of that a mixed batch's first
+failure, so a batch that lands some links still names what the rest failed with. An all-failed batch answers an `error` line with `where` of `link` carrying the first
 failure with that note appended. A source that no longer exists is refused
 for that item and counts in `failed`, so one missing source never stops the rest. A name that
 already exists is refused for that item unless the request carries the

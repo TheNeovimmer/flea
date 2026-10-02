@@ -392,7 +392,7 @@ pub(crate) fn landed(ops: &mut Ops, turn: usize, question: Question) -> bool {
 
 #[cfg(test)]
 #[path = "collide_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 #[cfg(test)]
 #[path = "collide_replace_tests.rs"]
 mod replace_tests;
