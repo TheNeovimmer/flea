@@ -85,7 +85,6 @@ QtObject {
 
     Component.onCompleted: {
         if (!callbackChecks()) { Qt.exit(1); return; }
-        var measured = loadLibrary("Markdown.js", {});
         var small = 65536;
         var large = 524288;
         var dir = "/doc";
@@ -169,16 +168,21 @@ QtObject {
         }
         var arraySlice = Array.prototype.slice;
         Array.prototype.counted_slice = function () { work++; return arraySlice.apply(this, arguments); };
+        var measured = loadLibrary("Markdown.js", {});
         for (var k = 0; k < names.length; k++) {
             var name = names[k];
             var a = inputs[name](small);
             work = 0;
+            if (typeof gc === "function")
+                gc();
             var t0 = Date.now();
             measured.blocks(a, dir, "#181825", "#c0caf5");
             var t1 = Date.now();
             var workA = work;
             var b = inputs[name](large);
             work = 0;
+            if (typeof gc === "function")
+                gc();
             var t2 = Date.now();
             measured.blocks(b, dir, "#181825", "#c0caf5");
             var t3 = Date.now();
