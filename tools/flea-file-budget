@@ -104,8 +104,7 @@ ui/js/Drag.js 302
 ui/js/Ops.js 438
 ui/js/Picker.js 325
 ui/js/Settings.js 455
-ui/js/Tabs.js 390
-tests/markdown-figures.qml 495"
+ui/js/Tabs.js 390"
 
 status=0
 

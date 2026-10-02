@@ -9,8 +9,8 @@ cd "$(dirname "$0")" || exit 1
 npm ci || exit 1
 
 # One exact command per bundle. Flags: --bundle (single file), --format=esm
-# (the ui/js worker imports it), --platform=neutral (no node shims; the worker
-# runs under QML, not node), --target=es2017 (the pinned build target),
+# (the helper imports it), --platform=neutral (no node shims; the helper
+# runs under quickjs-ng, not node), --target=es2017 (the pinned build target),
 # --minify (the shipped files are minified). Entry files name the export
 # surface: texToSvg(source, display) and mermaidToSvg(source, bg, fg).
 npx esbuild math-entry.mjs --bundle --format=esm --platform=neutral --target=es2017 --minify --outfile=math-bundle.mjs || exit 1
@@ -20,8 +20,3 @@ npx esbuild mermaid-entry.mjs --bundle --format=esm --platform=neutral --target=
 cmp math-bundle.mjs ../ui/vendor/math.mjs || { echo "vendor-js: math.mjs differs, copy the rebuilt file over ui/vendor/math.mjs"; exit 1; }
 cmp mermaid-bundle.mjs ../ui/vendor/mermaid.mjs || { echo "vendor-js: mermaid.mjs differs, copy the rebuilt file over ui/vendor/mermaid.mjs"; exit 1; }
 echo "vendor-js: both bundles reproduce byte for byte"
-
-# The classic workers need no npm: reassemble from the committed tree and
-# prove the committed workers match.
-python3 assemble-figure-workers.py --check || exit 1
-echo "vendor-js: both figure workers reproduce from the committed tree"
