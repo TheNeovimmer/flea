@@ -124,4 +124,22 @@ function run(check) {
     check("and the same absolute parent", Recent.locationOf("home/gm/a.txt"), "/home/gm")
     check("a bare name sits in the root", Recent.locationOf("a.txt"), "/")
     check("a root-level file sits in the root", Recent.locationOf("/a.txt"), "/")
+
+    // The rail joins every asker waiting on one history read, null naming the rail pane itself.
+    check("the asker join lives in Recent", typeof Recent.joinRequesters, "function")
+    if (typeof Recent.joinRequesters === "function") {
+        var paneA = { name: "paneA" }
+        var paneB = { name: "paneB" }
+        var askers = Recent.joinRequesters([], paneA)
+        check("one asker waits", askers.length, 1)
+        askers = Recent.joinRequesters(askers, paneB)
+        check("two panes both wait", askers.length, 2)
+        check("the first pane still waits", askers[0] === paneA, true)
+        check("and the second waits behind it", askers[1] === paneB, true)
+        check("a repeat asks nothing twice", Recent.joinRequesters(askers, paneA).length, 2)
+        var railAsk = Recent.joinRequesters([], null)
+        check("the rail pane itself joins as null", railAsk.length === 1 && railAsk[0] === null, true)
+        check("and a null repeat joins once", Recent.joinRequesters(railAsk, null).length, 1)
+        check("a pane joins beside the rail pane", Recent.joinRequesters(railAsk, paneA).length, 2)
+    }
 }

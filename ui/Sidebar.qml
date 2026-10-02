@@ -169,16 +169,16 @@ Item {
     property int recentReads: 0
     function readRecent(requester) {
         // One read at a time: every asker waits on it, so each pane opens once it lands.
-        var asker = requester || null
         if (root.recentReading) {
-            if (root.recentRequesters.indexOf(asker) < 0) root.recentRequesters.push(asker)
+            root.recentRequesters = Recent.joinRequesters(root.recentRequesters, requester)
             return
         }
         if (root.recentKept && root.recentReadAt === root.recentChanges) {
-            root.recentRequested(root.recentPaths, asker)
+            root.recentRequested(root.recentPaths, requester || null)
             return
         }
-        root.recentRequesters = [asker]
+        // A fresh read waits on its asker alone; later askers join through the same helper.
+        root.recentRequesters = Recent.joinRequesters([], requester)
         root.recentReading = true
         root.recentReadAt = root.recentChanges
         recentWatcher.path = Recent.historyPath(Quickshell.env("XDG_DATA_HOME"), Quickshell.env("HOME"))

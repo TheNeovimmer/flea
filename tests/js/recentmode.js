@@ -183,7 +183,7 @@ function run(check) {
     RecentMode.run(hopping, ["/home/gm/a.txt"])
     hopping.listInFlight = false
     hopping.openWithoutHistory("/home/gm/Elsewhere")
-    check("a hop out of Recent hands the standing order back",
+    check("a hop out of Recent restores the standing order through the mirror",
           hopping.backend.sortBy + "|" + hopping.backend.sortDesc, "kind|true")
     check("and the mode is off after the hop", hopping.recentMode, "")
     check("and lands where the hop asked", hopping.opened.join(","), "/home/gm/Elsewhere")
@@ -191,8 +191,8 @@ function run(check) {
     var searchSrc = Source.source("ui/js/Search.js")
     check("a walk started from Recent hands the standing order back",
           searchSrc.indexOf("root.restoreRecentSort()") >= 0, true)
-    check("and the pane answers that call through RecentMode",
-          declared.indexOf("function restoreRecentSort()") >= 0, true)
-    check("and every navigation restores direct",
-          declared.indexOf("RecentMode.restoreSort(root)") >= 0, true)
+    check("and the pane answers that call inside restoreRecentSort",
+          Source.slice(declared, "function restoreRecentSort()", "function openRecent(").indexOf("RecentMode.restoreSort(root)") >= 0, true)
+    check("and every navigation restores direct inside openWithoutHistory",
+          Source.slice(declared, "function openWithoutHistory(", "if (!root.listInFlight)").indexOf("RecentMode.restoreSort(root)") >= 0, true)
 }
