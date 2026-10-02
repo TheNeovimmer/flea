@@ -4,10 +4,7 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 
-// Headless preview geometry gate: every preview surface, kind and source-size class against one
-// rule table (AGENTS.md "The preview swap"). Images draw at min(own size, aspect-fit), never
-// enlarged; video posters fill the frame like the player; office thumbnails fill it only when the
-// embedded picture reaches cache size; a PDF page contains. tests/preview-geometry.sh drives it.
+// The preview geometry gate (AGENTS.md "The preview swap"); tests/preview-geometry.sh drives it.
 ShellRoot {
     id: root
 
@@ -32,6 +29,7 @@ ShellRoot {
         { surf: "C", kind: "image", src: "1920x1080", decW: 256, decH: 144, leg: "cache", rule: "image-cache-cap", limit: 1920 / 256, metaW: 1920, metaH: 1080 },
         { surf: "C", kind: "image", src: "1080x1920", decW: 144, decH: 256, leg: "cache", rule: "image-cache-cap", limit: 1080 / 144, metaW: 1080, metaH: 1920 },
         { surf: "C", kind: "image", src: "6000x4000", decW: 256, decH: 171, leg: "cache", rule: "image-cache-cap", limit: 6000 / 256, metaW: 6000, metaH: 4000 },
+        { surf: "C", kind: "image", src: "400x300", decW: 256, decH: 192, leg: "cache", rule: "image-cache-cap", limit: 400 / 256, metaW: 400, metaH: 300 },
         { surf: "N", kind: "image", src: "1920x1080", decW: 256, decH: 144, leg: "cache", rule: "image-cache-cap", limit: 1920 / 256, metaW: 1920, metaH: 1080 },
         { surf: "N", kind: "image", src: "1080x1920", decW: 144, decH: 256, leg: "cache", rule: "image-cache-cap", limit: 1080 / 144, metaW: 1080, metaH: 1920 },
         { surf: "N", kind: "image", src: "6000x4000", decW: 256, decH: 171, leg: "cache", rule: "image-cache-cap", limit: 6000 / 256, metaW: 6000, metaH: 4000 },
@@ -110,9 +108,8 @@ ShellRoot {
     function qlFor(c) { return c.surf === "S" ? qlNarrowImage : qlWideImage }
     function qlBox(c) { return c.surf === "S" ? qlNarrow : qlWide }
 
-    // The row and the backend-shaped extras each cell stands in for. A clear phase runs first:
-    // a new source reports Loading synchronously, but a PDF settle keeps the old page for 120 ms,
-    // so a check taken at once would measure the previous cell as this one.
+    // A clear phase runs first, since a PDF settle keeps the old page for 120 ms: a check taken
+    // at once would measure the previous cell as this one.
     function clear(c) {
         if (c.surf === "W" || c.surf === "S") {
             qlFor(c).path = ""
@@ -197,15 +194,10 @@ ShellRoot {
             var page = column.pdfPageItem()
             if (!page) return "no page item to measure"
             var box = page.parent
-            var fillsW = root.near(page.width, box.width)
-            var fillsH = root.near(page.height, box.height)
-            if (!fillsW && !fillsH)
-                return "page " + page.width.toFixed(1) + "x" + page.height.toFixed(1) + " fills neither side of " + box.width.toFixed(1) + "x" + box.height.toFixed(1)
-            if (page.width > box.width + 1 || page.height > box.height + 1)
-                return "page overflows its box"
-            if (!root.near(page.x, (box.width - page.width) / 2) || !root.near(page.y, (box.height - page.height) / 2))
-                return "page not centred"
-            return ""
+            // The page keeps its own aspect: contain of the box for the src size, in one rule. Sample input: c.src "400x560".
+            var dims = c.src.split("x")
+            var sized = { decW: parseInt(dims[0], 10), decH: parseInt(dims[1], 10), limit: Infinity }
+            return root.checkBox(sized, box.width, box.height, page.width, page.height, page.x, page.y, box.width, box.height)
         }
         var boxW = 0
         var boxH = 0
@@ -224,8 +216,9 @@ ShellRoot {
         } else {
             var col = root.columnFor(c)
             item = col.pictureItem
-            boxW = item.boxWidth
-            boxH = item.boxHeight
+            // The box off the frame itself, not the picture's own properties.
+            boxW = col.frameItem.width - 2 * col.frameItem.border.width
+            boxH = col.frameItem.height - 2 * col.frameItem.border.width
             frameW = col.frameItem.width
             frameH = col.frameItem.height
             if (!root.near(item.implicitWidth, c.decW) || !root.near(item.implicitHeight, c.decH))
