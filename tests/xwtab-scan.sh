@@ -179,5 +179,54 @@ ok "empty set stays empty"
 else
 bad "empty set stays empty, got '$norm_empty'"
 fi
+# The probe verdict against the native lines that failed it: before "169083 "
+# and after "169083 169306 " is one torn pid, and a torn window reading as the
+# lifted folder through the qs ipc reader is the drop reaching the catcher.
+. "$repo/tests/probes/layer-drop-verdict.sh" || { bad "cannot source layer-drop-verdict.sh"; }
+torn_case=$(layerdrop_torn_pids "169083 " "169083 169306 " || true)
+if [ "$torn_case" = "169306" ]; then
+ok "native before/after leaves one torn pid: $torn_case"
+else
+bad "native before/after leaves one torn pid, want '169306', got '$torn_case'"
+fi
+paths_case=$(printf '169306\t%s' "/fake/layer-drop/src")
+if layerdrop_any_on_path "$torn_case" "/fake/layer-drop/src" "$paths_case"; then
+ok "a torn window on the lifted folder is the drop reaching the catcher"
+else
+bad "a torn window on the lifted folder should count as the drop reaching the catcher"
+fi
+if layerdrop_any_on_path "$torn_case" "/fake/layer-drop/src" "$(printf '169306\t%s' "/elsewhere")"; then
+bad "a torn window on another folder must not count as the drop reaching the catcher"
+else
+ok "a torn window on another folder does not count"
+fi
+if layerdrop_any_on_path "" "/fake/layer-drop/src" "$paths_case"; then
+bad "no torn window must not count as the drop reaching the catcher"
+else
+ok "no torn window does not count"
+fi
+printf 'PANEL-DROP\n' > "$scratch/panel-hit.log"
+if layerdrop_panel_hit "$scratch/panel-hit.log"; then
+ok "the probe panel route still passes on its own log line"
+else
+bad "the probe panel route should still pass on its own log line"
+fi
+: > "$scratch/panel-miss.log"
+if layerdrop_panel_hit "$scratch/panel-miss.log"; then
+bad "an empty panel log must not count as the panel taking the drop"
+else
+ok "an empty panel log does not count"
+fi
+# The probe shares this verdict file, so a revert of its verdict section reddens here too.
+if grep -q 'FLEA_PATH=$srcdir' "$repo/tests/probes/layer-drop-bottom.sh"; then
+bad "the probe verdict still keys on the torn window environ"
+else
+ok "the probe verdict no longer keys on the torn window environ"
+fi
+if grep -q 'layerdrop_torn_pids' "$repo/tests/probes/layer-drop-bottom.sh"; then
+ok "the probe verdict shares the torn computation above"
+else
+bad "the probe verdict should share the torn computation above"
+fi
 printf '%s checks, %s failed\n' "$((pass+fail))" "$fail"
 exit "$((fail>0))"

@@ -10845,7 +10845,46 @@ print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$pid") || fail "xwdrag: no window for pid $pid"
     [[ -n "$addr" ]] || fail "xwdrag: no address for pid $pid"
     hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
-    sleep 0.4
+    xwdrag_wait_focus "$pid" "$addr"
+}
+
+# Bounded wait until the active window is the wanted pid, so a later key reaches it.
+xwdrag_wait_focus() {
+    local pid="$1" addr="$2" i active apid
+    for i in $(seq 1 40); do
+        active=$(hyprctl activewindow -j 2>/dev/null || true)
+        apid=$(printf '%s' "$active" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("pid",""))' 2>/dev/null || true)
+        [[ "$apid" == "$pid" ]] && { sleep 0.2; return 0; }
+        sleep 0.25
+    done
+    xwdrag_fail_unfocused "$pid" "$addr"
+}
+
+# Names the window that stole the focus, so a key that would have missed is loud.
+xwdrag_fail_unfocused() {
+    local pid="$1" addr="$2" active apid aaddr aclass atitle
+    active=$(hyprctl activewindow -j 2>/dev/null || true)
+    apid=$(printf '%s' "$active" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("pid",""))' 2>/dev/null || true)
+    aaddr=$(printf '%s' "$active" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("address",""))' 2>/dev/null || true)
+    aclass=$(printf '%s' "$active" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("class",""))' 2>/dev/null || true)
+    atitle=$(printf '%s' "$active" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("title",""))' 2>/dev/null || true)
+    [[ -n "$apid" ]] || apid="(none)"
+    fail "xwdrag: window $pid at $addr never took focus, active is pid=$apid addr=$aaddr class=$aclass title=$atitle"
+}
+
+# A keystroke aimed at one owned window by address, after the focus wait proves it is active.
+xwtab_key() {
+    local pid="$1"; shift
+    local addr
+    addr=$(hyprctl clients -j | python3 -c '
+import json, sys
+hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
+print(hits[0]["address"] if len(hits) == 1 else "")
+' "$pid") || fail "xwtab: no window for pid $pid"
+    [[ -n "$addr" ]] || fail "xwtab: no address for pid $pid"
+    hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwtab: could not focus $pid"
+    xwdrag_wait_focus "$pid" "$addr"
+    omarchy-drive key --window "$addr" "$@" >/dev/null || fail "xwtab: key did not reach $pid"
 }
 
 xwdrag_geometry() {
@@ -11281,8 +11320,8 @@ case_xwtab() {
     xwdrag_kill_second "$cpid"
     xwtab_restore_place
     # A opens a second tab again for the legs below: Escape, own-strip and the refusals.
-    xwdrag_focus "$apid"
-    key t >/dev/null
+    # Focus is waited on by address, so the key cannot land on the window the kill left active.
+    xwtab_key "$apid" t
     settle
     [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: t did not reopen a second tab on A"
     local esc_before
@@ -11297,7 +11336,8 @@ case_xwtab() {
     sleep 0.3
     xwdrag_glide "$((awx + 200))" "$((awy + awh + 60))"
     xwdrag_glide "$sx" "$sy"
-    key -k Escape >/dev/null
+    # Aimed at A by address, so the cancel cannot reach the window the restore parked last.
+    xwtab_key "$apid" -k Escape
     sleep 0.5
     ydotool click 0x80 >/dev/null 2>&1 || fail "xwtab: pointer release failed"
     sleep 0.5
@@ -11313,8 +11353,8 @@ case_xwtab() {
     [[ "$(flea_pids | tr '\n' ' ')" == "$esc_before" ]] || fail "xwtab: own-strip drop opened a window"
     printf 'XWTAB own-strip ok\n'
     # A drop on B's listing when B has two tabs changes nothing.
-    xwdrag_focus "$bpid"
-    key t >/dev/null
+    # Focus is waited on by address, so the key cannot land on A instead.
+    xwtab_key "$bpid" t
     settle
     [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: t did not open a second tab on B"
     xwdrag_focus "$apid"

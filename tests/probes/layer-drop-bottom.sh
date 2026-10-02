@@ -18,6 +18,10 @@ flea_ui="${FLEA_UI:-$(cd "$(dirname "$0")/../../ui" && pwd)}"
 [ -f "$flea_ui/boot/shell.qml" ] || refuse "no Flea ui at $flea_ui (set FLEA_UI)"
 probe_py="$(cd "$(dirname "$0")/.." && pwd)/xwtab_free_point.py"
 [ -f "$probe_py" ] || refuse "no free-point helper at $probe_py"
+verdict_sh="$(dirname "$0")/layer-drop-verdict.sh"
+[ -f "$verdict_sh" ] || refuse "no verdict helper at $verdict_sh"
+# shellcheck disable=SC1090
+. "$verdict_sh"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/layer-drop.XXXXXXXX") || refuse "mktemp failed"
 trap 'kill "$qs_pid" "$flea_pid" $torn 2>/dev/null; rm -rf "$work"' EXIT
@@ -109,6 +113,9 @@ for _ in $(seq 1 40); do
 done
 [ -n "$two" ] || refuse "t did not open a second tab"
 sleep 0.5
+# The lifted folder, read through the same qs ipc reader the case uses for its tabs.
+lifted_path=$(qs ipc -i "$qid" call flea path 2>/dev/null || true)
+[ -n "$lifted_path" ] || refuse "no path for the lifted tab"
 # The drag starts on the second tab centre, never on a guessed chrome offset.
 centre=$(qs ipc -i "$qid" call flea tabCentre 1 2>/dev/null || true)
 [ -n "$centre" ] || refuse "second tab has no centre"
@@ -172,22 +179,47 @@ move_to "$dx" "$dy"
 sleep 0.6
 ydotool click 0x80 >/dev/null 2>&1 || refuse "pointer release failed"
 sleep 1
-if grep -q PANEL-DROP "$log"; then
+# The qs instance id for a torn-off pid, same lookup the case uses for its tabs.
+layerdrop_qsid() {
+    local pid="$1" i tid
+    for i in $(seq 1 20); do
+        tid=$(qs list --all --json 2>/dev/null | python3 -c '
+import json, sys
+hits = [x for x in json.load(sys.stdin) if x.get("config_path") == sys.argv[1] and x.get("pid") == int(sys.argv[2])]
+print(hits[0]["id"] if len(hits) == 1 else "")
+' "$flea_ui/boot/shell.qml" "$pid") || true
+        if [ -n "$tid" ]; then printf '%s' "$tid"; return 0; fi
+        sleep 0.5
+    done
+    return 1
+}
+if layerdrop_panel_hit "$log"; then
     out "PASS"
     exit 0
 fi
-# The drop reached Flea's own Bottom catcher instead: a new Flea window on the source tree proves it.
+# The drop reached Flea's own Bottom catcher instead: a new owned window reads
+# as the lifted folder through the same qs ipc reader the case uses for its tabs.
 after_flea=$(pgrep -x qs | while read -r pid; do tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq "$flea_ui" && printf '%s ' "$pid"; done)
-for pid in $after_flea; do
-    case " $before_flea " in *" $pid "*) ;; *) torn="$torn $pid";; esac
-done
+torn=$(layerdrop_torn_pids "$before_flea" "$after_flea")
+paths_tsv=""
 for pid in $torn; do
-    if tr '\0' '\n' 2>/dev/null < "/proc/$pid/environ" | grep -Fx "FLEA_PATH=$srcdir" >/dev/null; then
-        printf 'torn-off window %s took the drop\n' "$pid" >&2
+    tid=$(layerdrop_qsid "$pid" || true)
+    [ -n "${tid:-}" ] || continue
+    seen=""
+    for _ in $(seq 1 30); do
+        seen=$(qs ipc -i "$tid" call flea path 2>/dev/null || true)
+        layerdrop_path_matches "$seen" "$lifted_path" && break
+        sleep 0.5
+    done
+    paths_tsv="${paths_tsv}${pid}$(printf '\t')${seen}
+"
+    if layerdrop_path_matches "$seen" "$lifted_path"; then
+        printf 'torn-off window %s took the drop on %s\n' "$pid" "$seen" >&2
         out "PASS"
         exit 0
     fi
 done
 printf 'flea windows before: %s after: %s\n' "$before_flea" "$after_flea" >&2
+printf 'lifted folder: %s torn: %s paths: %s\n' "$lifted_path" "$torn" "$(printf '%s' "$paths_tsv" | tr '\n' ';')" >&2
 tail -5 "$work/qs.log" 2>/dev/null >&2 || true
 refuse "no PANEL-DROP in $log and no torn-off window"
