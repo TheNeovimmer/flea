@@ -70,9 +70,11 @@ def masked(source, suffix):
                     i += 1
         elif source[i] in '"\'`' and not (suffix == '.rs' and source[i] == "'" and not re.match(r"'(?:\\.|[^'\\\n])'", source[i:])):
             quote = source[i]
+            # Sample input: $'it\'s'; x    y escapes its quote; 'a\' ; x    y does not.
+            literal_backslash = suffix == '.sh' and quote == "'" and not (i > 0 and source[i - 1] == '$')
             i += 1
             while i < len(source):
-                if source[i] == '\\' and not (suffix == '.sh' and quote == "'"):
+                if source[i] == '\\' and not literal_backslash:
                     i += 2
                 elif source[i] == quote:
                     i += 1

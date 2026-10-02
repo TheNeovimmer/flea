@@ -182,6 +182,15 @@ class StaticGateTests(unittest.TestCase):
         self.assertEqual(gates.conflict_marker(self.root, ['left.txt', 'README.md']),
                          (2, ['left.txt:1: unresolved conflict marker', 'README.md:3: unresolved conflict marker']))
 
+    def test_F13_shell_ansi_c_and_plain_single_quotes(self):
+        for source in ("printf $'it\\'s'; x    y\n", "printf 'a\\' ; x    y\n"):
+            with self.subTest(source=source):
+                file = self.write('sample.sh', source)
+                syntax = subprocess.run(['/bin/bash', '-n', str(file)], capture_output=True, text=True)
+                self.assertEqual(syntax.returncode, 0, syntax.stderr)
+                self.assertEqual(gates.fused_line(self.root, ['sample.sh']),
+                                 (1, ['sample.sh:1: fused code gap (4 spaces)']))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
