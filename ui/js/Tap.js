@@ -43,9 +43,7 @@ function tapped(index, tapCount, modifiers, root) {
     // standing would extend the next shift+click from an anchor nothing on screen names, and every
     // write operation targets the selection ahead of the cursor row.
     root.selectOnly(index, 0)
-    // Single-click mode opened on the first tap, so a second tap of the same
-    // press sequence never opens again: the first tap's open already moved the
-    // listing on, and acting there would open the new listing's row instead.
+    // The first tap already moved the listing, so a second tap never opens again.
     if (tapCount === 2 || verb === "reveal") {
         if (!(root.singleClick === true && verb === "open" && tapCount !== 1))
             root.act(verb)

@@ -258,9 +258,7 @@ function escapeUp(root) {
         && !(root.collide && root.collide.opened) && !hasDeliberateMarks(root) && !root.listInFlight
 }
 
-// A climb lands with the child row marked, and that landing highlight is Flea's
-// rather than the user's: a lone following mark never counts as a selection for
-// the unwind, so Escape keeps climbing instead of clearing it first.
+// A lone following mark never counts as a selection, so Escape keeps climbing.
 function hasDeliberateMarks(root) {
     if (root.selectionCount() === 0)
         return false
@@ -305,9 +303,7 @@ function leavesLine(event) {
     return LEAVES_LINE.indexOf(Keymap.lookup(event.key, event.text, event.modifiers)) >= 0
 }
 
-// The first press of a vim pair; the second press of the same pair on the same
-// selection fires, anything else disarms. Escape disarms through
-// escapeCancelsArm above and never reaches here.
+// Only the second press of the same pair on the same selection fires.
 var ARMED_PAIRS = { copyArm: true, cutArm: true, pasteArm: true, cursorFirstArm: true }
 // Vim pairs are consecutive inputs on the same selection; pointer or navigation changes disarm them.
 function sequenceAction(action, root) {
@@ -353,9 +349,7 @@ function handleKey(event, root, sidebar) {
         return Filter.typeKey(event, root)
     }
     var action = lookup(event, root)
-    // Escape backs out of an armed trash or vim pair first and stops: the
-    // disarm below would otherwise clear the arm and act() would climb while
-    // its sentence is still standing.
+    // Escape cancels an armed trash or vim pair first and stops.
     var escapeCancelsArm = action === "escape"
         && (root.trashArmedAt > 0 || ARMED_PAIRS[root.keySequence] === true)
     action = sequenceAction(action, root)
@@ -411,8 +405,7 @@ function handleKey(event, root, sidebar) {
         RailKeys.act(action, root, sidebar)
         return true
     }
-    // An armed trash or vim pair keeps Escape: it cancels the arm and stops,
-    // clearing the arm's sentence, instead of climbing behind it.
+    // An armed pair keeps Escape to cancel the arm instead of climbing.
     if (action === "escape" && escapeCancelsArm) {
         root.trashArmedAt = 0
         root.keySequence = ""

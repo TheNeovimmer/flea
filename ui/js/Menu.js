@@ -312,9 +312,7 @@ function pasteAsEntries() {
     ]
 }
 
-// B1: the c and P keys open their flyout even while its row is hidden, so the
-// leaves are built from the action rather than from the visible rows; a
-// visible row keeps the entries the menu already built for it.
+// A hidden row still opens its flyout, built from the action.
 function flyoutEntries(action) {
     if (action === "copyAs")
         return copyAsEntries()
