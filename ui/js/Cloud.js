@@ -1,5 +1,7 @@
 .pragma library
 
+.import "NetFs.js" as NetFs
+
 // The NETWORK half's cloud rows: FUSE mounts inside the home folder (rclone, Proton Drive
 // clients, other cloud mounts), read out of /proc/self/mountinfo on the rail's own five
 // second poll, so no new process runs. Split out of ui/js/Mounts.js, which keeps gio's own
@@ -43,6 +45,44 @@ function parseCloudMounts(body, home) {
 function isCloudFstype(fstype) {
     var lower = String(fstype || "").toLowerCase()
     return lower === "fuse" || lower.indexOf("fuse.") === 0
+}
+
+// Kernel NFS and CIFS mounts and network FUSE mounts outside home appear as NETWORK rows.
+// Sample input: "31 1 0:45 / /mnt/nas rw - nfs nas:/share rw" with home "/home/u" becomes one row.
+function parseNetworkMounts(body, home) {
+    var root = String(home || "")
+    var prefix = root.length > 0 && root.charAt(root.length - 1) !== "/" ? root + "/" : root
+    var out = []
+    var at = {}
+    var lines = String(body || "").split("\n")
+    for (var i = 0; i < lines.length; i++) {
+        var parsed = parseMountinfoLine(lines[i])
+        if (!parsed || !NetFs.isNetworkFstype(parsed.fstype))
+            continue
+        if (parsed.path === "/" || isSystemMountPath(parsed.path))
+            continue // The box's own plumbing is never a network row.
+        if (root.length > 0 && (parsed.path === root || parsed.path.indexOf(prefix) === 0)) {
+            if (isCloudFstype(parsed.fstype))
+                continue // Inside home a FUSE mount is already a cloud row above.
+        }
+        if (at[parsed.path] === undefined)
+            at[parsed.path] = out.length
+        out[at[parsed.path]] = parsed
+    }
+    return out
+}
+
+// Sample input: "/run/user/1000/gvfs" trues, "/mnt/nas" falses; read without a per-row stat.
+function isSystemMountPath(p) {
+    if (p.indexOf("/proc/") === 0 || p === "/proc")
+        return true
+    if (p.indexOf("/sys/") === 0 || p === "/sys")
+        return true
+    if (p.indexOf("/dev/") === 0 || p === "/dev")
+        return true
+    if (p.indexOf("/run/") === 0)
+        return true
+    return false
 }
 
 // One mountinfo line into its mountpoint and fstype, or null: the mountpoint is field five
