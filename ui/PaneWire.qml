@@ -344,8 +344,10 @@ Item {
 
         // MenuAdditions040: Paste as links answers one line per request, and
         // one journal entry, so one undo removes every link it created.
-        function onLinked(ok, failed, skipped) {
-            pane.message(Ops.linkedLine(ok, failed, skipped), failed > 0 && ok === 0)
+        function onLinked(ok, failed, skipped, note) {
+            // A stranded note is shown as an error, so a leftover link is never silent.
+            var stranded = String(note || "").length > 0
+            pane.message(Ops.linkedLine(ok, failed, skipped, note || ""), (failed > 0 && ok === 0) || stranded)
             pane.refresh("")
         }
 

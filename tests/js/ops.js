@@ -427,4 +427,11 @@ function run(check) {
     check("no verdict note leaves the shipped line alone",
           Ops.transferDone({ moving: false, n: 2 }, 2, 0, 0, false, false, ""),
           "Copied 2 items · z undoes")
+    // A stranded replace rides ahead of the undo hint, and silence stays silent.
+    check("a stranded link is named on the linked line",
+          Ops.linkedLine(1, 1, 0, "the link left at /d/b.txt could not be removed (stale); the replaced item stays in the trash"),
+          "Linked 1 item · 1 failed · the link left at /d/b.txt could not be removed (stale); the replaced item stays in the trash · z undoes")
+    check("no stranded note leaves the shipped line alone",
+          Ops.linkedLine(2, 0, 0, ""),
+          "Linked 2 items · z undoes")
 }

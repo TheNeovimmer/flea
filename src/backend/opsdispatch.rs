@@ -280,6 +280,8 @@ pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<
     let mut failed = 0usize;
     let mut skipped = 0usize;
     let mut first_err = String::new();
+    // Each stranded replace sentence, reported on the linked line beside first_err.
+    let mut note = String::new();
     for source in &paths {
         let src = Path::new(source);
         if src.symlink_metadata().is_err() {
@@ -337,11 +339,16 @@ pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<
                                 if let Err(remove) = remove_made_link(&to) {
                                     // The link holds their name, so restoring them can only fail and they stay in the trash.
                                     let stayed = if replaced.is_empty() { String::new() } else { "; the replaced item stays in the trash".to_string() };
-                                    failed += 1;
-                                    if first_err.is_empty() {
-                                        first_err = format!("{}; the link left at {} could not be removed ({}){}",
-                                            e.msg, to.to_string_lossy(), crate::error::io_message(&remove), stayed);
+                                    // The sentence lives in note, so a landed batch still reports it.
+                                    let sentence = format!("{}; the link left at {} could not be removed ({}){}",
+                                        e.msg, to.to_string_lossy(), crate::error::io_message(&remove), stayed);
+                                    if note.is_empty() {
+                                        note = sentence;
+                                    } else {
+                                        note.push_str("; ");
+                                        note.push_str(&sentence);
                                     }
+                                    failed += 1;
                                     continue;
                                 }
                                 for entry in replaced {
@@ -374,9 +381,11 @@ pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<
     }
     ops.journal.push(Entry { op: "link".to_string(), steps });
     if (failed == 0 && first_err.is_empty()) || ok > 0 || skipped > 0 {
-        writeln!(out, "{}", super::proto::linked_line(ok, failed, skipped)).ok();
+        writeln!(out, "{}", super::proto::linked_line(ok, failed, skipped, &note)).ok();
     } else {
-        writeln!(out, "{}", error_line(&op_err("link", dest, &first_err))).ok();
+        // An earlier failure never hides a stranded replace, so the note rides along.
+        let msg = if first_err.is_empty() { note } else if note.is_empty() { first_err } else { format!("{first_err}; {note}") };
+        writeln!(out, "{}", error_line(&op_err("link", dest, &msg))).ok();
     }
     out.flush().ok();
 }

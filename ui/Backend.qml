@@ -42,7 +42,7 @@ Item {
     // The names a transfer would land on, asked first; ui/CollideHost.qml holds the transfer until it lands.
     signal collisions(int id, int total, var names)
     // MenuAdditions040: Paste as links answers one line per request.
-    signal linked(int ok, int failed, int skipped)
+    signal linked(int ok, int failed, int skipped, string note)
     // MenuAdditions040: Show original reveals the link's target in its own folder.
     signal linkTarget(string path, string directory, string name)
     signal trashed(int ok, int failed)
@@ -366,6 +366,7 @@ Item {
     // Sample input: {"t":"transferitem","id":12,"index":1,"name":"photos","ok":false,"err":"permission denied"}
     // Sample input: {"t":"transferdone","id":12,"ok":1,"failed":1,"skipped":0,"cancelled":false,"note":"rclone uploads them in the background"}
     // Sample input: {"t":"collisions","id":7,"total":1,"names":[{"n":"screenshot.png","d":false,"i":"image-x-generic"}]}
+    // Sample input: {"t":"linked","ok":1,"failed":1,"skipped":0,"note":"the link left at /home/gm/b.txt could not be removed (stale)"}
     // Sample input: {"t":"trashed","ok":1,"failed":0}
     // Sample input: {"t":"made","ok":true,"path":"/home/gm/Pictures/New Folder"}
     // Sample input: {"t":"undone","op":"move","ok":true}

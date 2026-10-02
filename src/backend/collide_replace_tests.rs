@@ -428,6 +428,10 @@ fn a_failed_link_cleanup_with_a_replaced_entry_still_undoes_the_good_link() {
     test_fail_link_verify(false);
     let line = String::from_utf8_lossy(&buf).to_string();
     assert!(line.contains(r#""t":"linked","ok":1,"failed":1,"skipped":0"#), "one link lands and one is left over: {}", line);
+    // F24: the mixed answer carries the stranded sentence as a note.
+    assert!(line.contains(r#""note":"#), "a stranded replace is named on the mixed answer: {}", line);
+    assert!(line.contains("b.txt"), "the note names the leftover link: {}", line);
+    assert!(line.contains("stays in the trash"), "the note says the replaced item was not restored: {}", line);
     assert_eq!(std::fs::read_to_string(dest.join("a.txt")).unwrap(), "a-new");
     let mut buf = Vec::new();
     do_undo(&mut buf, &mut o);
@@ -449,5 +453,31 @@ fn a_failed_link_cleanup_with_a_replaced_entry_still_undoes_the_good_link() {
     let line = String::from_utf8_lossy(&buf).to_string();
     assert!(line.contains(r#""where":"link""#), "an all-failed link is an error line: {}", line);
     assert!(line.contains("could not be removed"), "the cleanup failure is named: {}", line);
+    assert!(line.contains("stays in the trash"), "the replaced item is not reported as restored: {}", line);
+}
+
+#[test]
+fn a_missing_source_never_hides_a_stranded_replace_note() {
+    // F25: an earlier batch failure must not hide the stranded link sentence.
+    use crate::backend::opsdispatch::{do_link, test_fail_link_verify, Ops};
+    let d = TestDir::new("collide-link-stranded-first");
+    d.dir("src");
+    let c = d.file("src/c.txt", "c-new");
+    let dest = d.dir("dest");
+    d.file("dest/c.txt", "c-old");
+    let (_trash, _can) = working_trash(&d);
+    let (tx, _rx) = channel();
+    let mut o = Ops::new(tx);
+    o.question = Some(asked(7, &[&c], &dest));
+    let ask = Ask::parse(r#"{"c":"link","collide":"replace","collideId":7}"#);
+    let gone = d.path().join("src/x.txt").to_string_lossy().to_string();
+    test_fail_link_verify(true);
+    let mut buf = Vec::new();
+    do_link(&mut buf, &mut o, "relative", vec![gone, c.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+    test_fail_link_verify(false);
+    let line = String::from_utf8_lossy(&buf).to_string();
+    assert!(line.contains(r#""where":"link""#), "an all-failed link is an error line: {}", line);
+    assert!(line.contains("x.txt"), "the first failure is still named: {}", line);
+    assert!(line.contains("c.txt"), "the stranded link is named too: {}", line);
     assert!(line.contains("stays in the trash"), "the replaced item is not reported as restored: {}", line);
 }

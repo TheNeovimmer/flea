@@ -27,8 +27,8 @@ src/backend/meta.rs 436
 src/backend/metareq.rs 416
 src/backend/movebatch.rs 469
 src/backend/movebatch_tests.rs 751
-src/backend/opsdispatch.rs 1068
-src/backend/collide_replace_tests.rs 453
+src/backend/opsdispatch.rs 1076
+src/backend/collide_replace_tests.rs 483
 src/backend/opsreq.rs 514
 src/backend/opsreq/tests.rs 461
 src/backend/permissions.rs 545
@@ -55,7 +55,7 @@ tests/js/mounts.js 383
 tests/js/menu.js 335
 tests/js/nav.js 323
 tests/js/network.js 306
-tests/js/ops.js 430
+tests/js/ops.js 437
 tests/js/settings.js 337
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
@@ -66,7 +66,7 @@ tests/js/status.js 354
 tests/rename-grid-bottom.qml 419
 tests/rename-grid-bottom.js 303
 tests/rename-lifecycle-check.js 356
-ui/Backend.qml 440
+ui/Backend.qml 441
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 475
 ui/ContextMenu.qml 625
@@ -81,7 +81,7 @@ ui/NetworkMounts.qml 838
 ui/OpenWithDialog.qml 596
 ui/Pane.qml 992
 ui/PaneMenuActions.qml 458
-ui/PaneWire.qml 537
+ui/PaneWire.qml 539
 ui/PermissionsDialog.qml 589
 ui/PickerWindow.qml 770
 ui/Preview.qml 717
@@ -102,7 +102,7 @@ ui/js/Keymap.js 338
 ui/js/Markdown.js 527
 ui/js/Menu.js 425
 ui/js/Drag.js 302
-ui/js/Ops.js 438
+ui/js/Ops.js 440
 ui/js/Picker.js 325
 ui/js/Settings.js 455
 ui/js/Tabs.js 390"

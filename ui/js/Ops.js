@@ -88,10 +88,12 @@ function transferFailure(t, name, error) {
 
 // MenuAdditions040: Paste as links answers one line per request, and one
 // journal entry, so one undo removes every link it created.
-function linkedLine(ok, failed, skipped) {
+function linkedLine(ok, failed, skipped, note) {
     var line = "Linked " + items(ok)
     if (failed > 0) line += " · " + Format.count(failed) + " failed"
     if (skipped > 0) line += " · " + Format.count(skipped) + " skipped"
+    // A stranded replace rides ahead of the undo hint, so the counts keep their shape.
+    if (String(note || "").length > 0) line += " · " + note
     return line + (ok > 0 ? Status.UNDO_HINT : "")
 }
 

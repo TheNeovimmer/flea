@@ -293,8 +293,12 @@ pub fn paths_line(paths: &[String]) -> String {
 }
 
 // Sample output: {"t":"linked","ok":2,"failed":0,"skipped":1}
-pub fn linked_line(ok: usize, failed: usize, skipped: usize) -> String {
-    format!(r#"{{"t":"linked","ok":{},"failed":{},"skipped":{}}}"#, ok, failed, skipped)
+// Sample output: {"t":"linked","ok":1,"failed":1,"skipped":0,"note":"the link left at /d/b.txt could not be removed (stale); the replaced item stays in the trash"}
+pub fn linked_line(ok: usize, failed: usize, skipped: usize, note: &str) -> String {
+    if note.is_empty() {
+        return format!(r#"{{"t":"linked","ok":{},"failed":{},"skipped":{}}}"#, ok, failed, skipped);
+    }
+    format!(r#"{{"t":"linked","ok":{},"failed":{},"skipped":{},"note":"{}"}}"#, ok, failed, skipped, escape(note))
 }
 
 // Sample output: {"t":"linktarget","path":"/a/link","directory":"/b","name":"f.txt"}
