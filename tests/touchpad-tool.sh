@@ -57,6 +57,16 @@ for req, arg in calls:
     if req in SETBITS and not isinstance(arg, int):
         fail("req %#x passes %s, not an int" % (req, type(arg).__name__))
 
+# Each request number is the kernel's own: _IOW('U', nr, size) and _IO('U', nr) from linux/uinput.h.
+def iow(nr, size):
+    return (1 << 30) | (size << 16) | (ord("U") << 8) | nr
+abi = {"UI_SET_EVBIT": iow(100, 4), "UI_SET_KEYBIT": iow(101, 4), "UI_SET_ABSBIT": iow(103, 4),
+       "UI_SET_PROPBIT": iow(110, 4), "UI_DEV_SETUP": iow(3, 92), "UI_ABS_SETUP": iow(4, 28),
+       "UI_DEV_CREATE": (ord("U") << 8) | 1, "UI_DEV_DESTROY": (ord("U") << 8) | 2}
+for name, want in abi.items():
+    if getattr(tp, name) != want:
+        fail("%s is %#x, the kernel's is %#x" % (name, getattr(tp, name), want))
+
 # Every buffer arg matches the size the request number encodes in bits 16..29.
 for req, arg in calls:
     if isinstance(arg, (bytes, bytearray, memoryview)):
