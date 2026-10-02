@@ -10724,6 +10724,11 @@ case_xwdrag_cleanup() {
         rm -rf "$xdev" >/dev/null 2>&1 || true
     fi
 }
+# A signal must not resume the case after cleanup, so this handler exits instead of returning.
+xwdrag_signal_cleanup() {
+    case_xwdrag_cleanup
+    exit 1
+}
 # Two Flea windows are two qs processes with two backends: a drop from one into the other moves
 # within one device and copies across, with Shift forcing a move, Ctrl a copy and Ctrl with Shift
 # a link. The controller runs this on minipc; it needs the display, a real pointer and two owned
@@ -10744,7 +10749,8 @@ case_xwdrag() {
     xdev=$(mktemp -d "$XDG_RUNTIME_DIR/flea-xwdrag-XXXXXX") || fail "xwdrag: could not create tmpfs root"
     [[ -n "$xdev" && "$xdev" == "$XDG_RUNTIME_DIR"/flea-xwdrag-* ]] || fail "xwdrag: tmpfs root escaped: $xdev"
     : > "$xdev/.flea-test-sandbox" || fail "xwdrag: could not mark tmpfs root"
-    trap case_xwdrag_cleanup EXIT HUP INT TERM
+    trap case_xwdrag_cleanup EXIT
+    trap xwdrag_signal_cleanup HUP INT TERM
     [ "$(stat -c %d "$xdev")" != "$(stat -c %d "$adir")" ] || fail "xwdrag: $xdev is not another filesystem"
     launch "$adir"
     local apid aid
@@ -10794,7 +10800,11 @@ case_xwdrag() {
     printf 'XWDRAG link ok\n'
     xwdrag_focus "$bpid"
     xwdrag_assert_focus "$bpid"
-    key -M ctrl -k z -m ctrl >/dev/null || fail "xwdrag: undo chord never reached the second window"
+    local undo_addr
+    undo_addr=$(xwdrag_addr "$bpid") || fail "xwdrag: no address for pid $bpid"
+    [[ -n "$undo_addr" ]] || fail "xwdrag: no address for pid $bpid"
+    xwdrag_key "$undo_addr" -M ctrl -k z -m ctrl >/dev/null || fail "xwdrag: undo chord never reached the second window"
+    xwdrag_assert_focus "$bpid"
     for i in $(seq 1 40); do [[ ! -L "$bdir/link.txt" ]] && break; sleep 0.25; done
     [[ ! -L "$bdir/link.txt" ]] || fail "xwdrag: undo left the link in place"
     printf 'XWDRAG undo ok\n'
@@ -11008,14 +11018,35 @@ xwdrag_assert_focus() {
     [[ -n "$got" ]] || fail "xwdrag: active window has no pid, wanted $want"
     [[ "$got" == "$want" ]] || fail "xwdrag: active window is $got, wanted $want"
 }
+# Sample input: hyprctl clients -j carries {"pid": 123, "address": "0xabc"} for one owned window.
+xwdrag_addr() {
+    local pid="$1"
+    hyprctl clients -j | python3 -c '
+import json, sys
+hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
+print(hits[0]["address"] if len(hits) == 1 else "")
+' "$pid"
+}
+# Targeted keystrokes carry a window address, since --window flea matches both windows at once.
+xwdrag_key() {
+    local addr="$1"
+    shift
+    omarchy-drive key --window "$addr" "$@"
+}
 xwdrag_navigate_second() {
     local want="$1"
+    local addr
+    addr=$(xwdrag_addr "$bpid") || fail "xwdrag: no address for pid $bpid"
+    [[ -n "$addr" ]] || fail "xwdrag: no address for pid $bpid"
     xwdrag_focus "$bpid"
     xwdrag_assert_focus "$bpid"
-    key -M ctrl -k l -m ctrl >/dev/null || fail "xwdrag: path-bar chord never reached the second window"
+    xwdrag_key "$addr" -M ctrl -k l -m ctrl >/dev/null || fail "xwdrag: path-bar chord never reached the second window"
+    xwdrag_assert_focus "$bpid"
     for _attempt in $(seq 1 100); do [[ "$(xwdrag_qs "$bid" pathBarOpen 2>/dev/null)" == true ]] && break; sleep 0.05; done
-    omarchy-drive key --window flea "$want" >/dev/null || fail "xwdrag: path text never reached the second window"
-    key -k Return >/dev/null || fail "xwdrag: Return never reached the second window"
+    xwdrag_key "$addr" "$want" >/dev/null || fail "xwdrag: path text never reached the second window"
+    xwdrag_assert_focus "$bpid"
+    xwdrag_key "$addr" -k Return >/dev/null || fail "xwdrag: Return never reached the second window"
+    xwdrag_assert_focus "$bpid"
     for _attempt in $(seq 1 100); do
         [[ "$(xwdrag_qs "$bid" path 2>/dev/null)" == "$want" && "$(xwdrag_qs "$bid" listInFlight 2>/dev/null)" == false ]] && return 0
         sleep 0.05

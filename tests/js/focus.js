@@ -107,8 +107,7 @@ function armHandle(p) {
     p.act = function (action) { p.acted.push(action); Focus.act(action, p) }
     return p
 }
-// Only the members the escape case reads. Search.cancel and Pane.escapePressed both record rather
-// than act, because what is being checked is the order they are reached in.
+// Escape-case members only: Search.cancel and Pane.escapePressed record rather than act to pin reach order.
 function escaper(query, retreated) {
     var p = pane(closed())
     p.filterQuery = query

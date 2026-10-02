@@ -1,5 +1,29 @@
 .import "../../ui/js/Permissions.js" as Permissions
 .import "sourcefixture.js" as Source
+// Sample input: blockAfter("function f() { if (x) { y = 1 } }", "function f") answers the outer braces.
+function blockAfter(src, marker) {
+    var at = src.indexOf(marker)
+    if (at < 0) {
+        return ""
+    }
+    var open = src.indexOf("{", at + marker.length)
+    if (open < 0) {
+        return ""
+    }
+    var depth = 0
+    for (var i = open; i < src.length; i++) {
+        if (src[i] === "{") {
+            depth += 1
+        }
+        if (src[i] === "}") {
+            depth -= 1
+        }
+        if (depth === 0) {
+            return src.substring(open, i + 1)
+        }
+    }
+    return ""
+}
 function run(check) {
     check("ordinary mode", Permissions.parse("644"), 420)
     check("leading zero", Permissions.parse("0644"), 420)
@@ -56,10 +80,11 @@ function run(check) {
     check("and noteMode reports done exactly once", summaries, 1)
     // receiveMany's only multiModes write rides the noteMode-true branch, never a bare reply.
     var dialog = Source.source("ui/PermissionsDialog.qml")
-    var received = dialog.substring(dialog.indexOf("function receiveMany"), dialog.indexOf("function backendFailed"))
-    check("receiveMany writes multiModes exactly once", received.split("multiModes =").length - 1, 1)
-    check("and that write sits inside the noteMode-true branch",
-          received.indexOf("multiModes =") > received.indexOf("Permissions.noteMode("), true)
+    var received = blockAfter(dialog, "function receiveMany")
+    var noteBlock = blockAfter(received, "if (Permissions.noteMode(")
+    var expectedWrites = 1
+    check("receiveMany writes multiModes exactly once", received.split("multiModes =").length - expectedWrites, expectedWrites)
+    check("and that write sits inside the noteMode-true branch", noteBlock.indexOf("multiModes =") >= 0, true)
     var refused = { modes: [], reasons: [], skipped: [], pending: 3 }
     Permissions.noteMode(refused, 0, "/d/a.txt", { ok: true, mode: "2755", reason: "Read-only: setgid bit is present." })
     Permissions.noteMode(refused, 1, "/d/b.txt", { ok: false, error: "Gone." })

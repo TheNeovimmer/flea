@@ -1,7 +1,5 @@
 #!/bin/bash
-# Guards what an external application sees when Flea drags a file out. tests/drag.sh proves the
-# gesture but needs the display and a real pointer, so it never runs in the headless battery.
-# A plain lift offers copy alone, narrowed by modifiers, because a browser uploader refuses a move offer.
+# External drag offer guard: a plain lift offers copy alone since a browser uploader refuses a move, unlike tests/drag.sh which needs a display.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
@@ -31,13 +29,15 @@ if [ "$final" = "Qt.CopyAction" ]; then
 else
     bad "a plain lift must end on Qt.CopyAction alone, got: $final"
 fi
-for want in 'dragLink ? Qt.LinkAction' 'dragCopy ? Qt.CopyAction' 'dragShift ? Qt.MoveAction'; do
-    if printf '%s\n' "$offer" | grep -qF "$want"; then
-        ok "the offer narrows on ${want%% *}"
-    else
-        bad "the offer must carry $want, got: $offer"
-    fi
-done
+# Sample input: root.dragLink ? Qt.LinkAction : root.dragCopy ? Qt.CopyAction : root.dragShift ? Qt.MoveAction : Qt.CopyAction
+offer_seq=$(printf '%s\n' "$offer" | tr -d '[:space:];' | sed -e 's/root\.//g' -e 's/?/ /g' -e 's/:/;/g')
+# Link precedes copy because a link lift carries ctrl, so order decides the verb.
+expected_seq='dragLink Qt.LinkAction;dragCopy Qt.CopyAction;dragShift Qt.MoveAction;Qt.CopyAction'
+if [ "$offer_seq" = "$expected_seq" ]; then
+    ok "the offer narrows in link, copy, shift order ending on copy alone"
+else
+    bad "the offer must read $expected_seq, got: $offer_seq"
+fi
 if printf '%s' "$advertised" | grep -q 'Qt\.LinkAction'; then
     ok "a link lift offers a link"
 else
