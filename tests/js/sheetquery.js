@@ -128,4 +128,7 @@ function run(check) {
     check("trash refuses while a listing is out", SheetQuery.listingRefusal(true, "trash"), "A directory is already loading.")
     check("open still answers while a listing is out", SheetQuery.listingRefusal(true, "open"), "")
     check("at rest nothing refuses", SheetQuery.listingRefusal(false, "trash"), "")
+    // Every menu row resolves its rows through the snapshot, so none is exempt like navigations are.
+    check("a menu row refuses while a listing is out", SheetQuery.menuRefusal(true), "A directory is already loading.")
+    check("a menu row answers at rest", SheetQuery.menuRefusal(false), "")
 }

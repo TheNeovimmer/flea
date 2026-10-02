@@ -73,7 +73,7 @@ ui/ContextMenu.qml 675
 ui/ConvertDialog.qml 440
 ui/GridArea.qml 410
 ui/Ipc.qml 832
-ui/KeymapSheet.qml 585
+ui/KeymapSheet.qml 539
 ui/List.qml 435
 ui/NetworkDialog.qml 449
 ui/NetworkForm.qml 405

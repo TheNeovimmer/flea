@@ -278,3 +278,10 @@ function listingRefusal(listInFlight, action) {
         return Swap.LOADING
     return ""
 }
+// Sample input: menuRefusal(true) is Swap.LOADING, menuRefusal(false) is "".
+// Every menu row resolves its rows through the snapshot, so none is exempt like navigations are.
+function menuRefusal(listInFlight) {
+    if (listInFlight === true)
+        return Swap.LOADING
+    return ""
+}

@@ -2983,7 +2983,7 @@ for the `recentMode` listing (the mode, the return, the guards and the header wi
 `ui/Row.qml` 456 to 461 for the `recenting` name split with Used beside it. `ui/SidebarRow.qml`
 stays inside its budget at 257 for the reorder drag and its two insertion bars.
 `ui/SettingsFavourite.qml` stays inside its budget at 118 for the 19 px mark slot and the 24 px
-handle and remove boxes. `ui/KeymapSheet.qml` recorded at 585, over the hard cap, for the query field
+handle and remove boxes. `ui/KeymapSheet.qml` recorded at 539, over the hard cap, for the query field
 that appears on the first typed key, the ranked results across actions, menu rows, places and recents, and their activation. `ui/Header.qml` stays inside its budget at 186 for the Used
 title and the hidden Mode and Kind. `ui/js/Settings.js` 427 to 430 for the Built in Recent row.
 `ui/js/Focus.js` 339 to 343 for the Recent reveal, escape and write guards. `ui/js/Tabs.js` holds
@@ -3011,7 +3011,7 @@ with its watcher cache, and the favourites drag reorder with its insertion line)
 header wire). `ui/Row.qml` 474 to 478 for the `recenting` name split with Used beside it.
 `ui/SidebarRow.qml` keeps inside the hard cap at 338 for the reorder drag and its two insertion
 bars. `ui/SettingsFavourite.qml` keeps inside its budget at 118 for the 19 px mark slot and the
-24 px handle and remove boxes. `ui/KeymapSheet.qml` recorded at 585, over the hard cap, for the query
+24 px handle and remove boxes. `ui/KeymapSheet.qml` recorded at 539, over the hard cap, for the query
 field that appears on the first typed key with the same ranked results and activation. `ui/Header.qml` keeps inside the hard cap at 391 for the
 Used title and the hidden Mode and Kind. `ui/js/Settings.js` 432 to 435 for the Built in Recent row.
 `ui/js/Focus.js` 373 to 377 for the Recent reveal, escape and write guards. `ui/js/Tabs.js` 299 to
