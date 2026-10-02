@@ -210,3 +210,8 @@ function tableBlock(head, aligns, rows) {
 function blocks(source, dir, chrome, ink) {
     return Blocks.blocks(source, dir, chrome, ink)
 }
+
+// The fenced info string naming a figure, or "" for code. Tests pin it.
+function figureKind(info) {
+    return Blocks.figureKind(info)
+}

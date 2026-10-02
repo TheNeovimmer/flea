@@ -40,6 +40,11 @@ Item {
     readonly property string chromeHex: hexOf(Theme.color.surface)
     // The render suite reads the ink it asserts beside the border, same assembly, no coercion.
     readonly property string inkHex: hexOf(Theme.color.foreground)
+    readonly property string accentHex: hexOf(Theme.color.accent)
+    // Figures render only for the file under the cursor in the rendered
+    // view: the Source view shows raw text and sends no request, and a path
+    // change clears the block list, destroying delegates with their tickets.
+    readonly property bool figuresArmed: root.active && root.view !== Markdown.SOURCE
     // The parse runs off the UI thread: the worker posts the block tree and the
     // UI shows the previous content or the loading state until it arrives. A
     // newer file cancels an older parse by sequence number.
@@ -80,6 +85,29 @@ Item {
     }
     // Instantiated delegates only: the lazy suite asserts this stays bounded.
     function delegateCount() { return body.contentItem.children.length }
+    // One figure delegate's live state, for the figures suite: null while the
+    // block is further than the cache from the viewport, so no request left.
+    function figureInfo(i) {
+        var d = blockItem(i)
+        if (!d)
+            return null
+        var box = null
+        var kids = d.children
+        for (var k = 0; k < kids.length; k++)
+            if (kids[k].objectName === "figureBox" && kids[k].visible)
+                box = kids[k]
+        if (!box)
+            return null
+        var fig = null
+        var inner = box.children
+        for (var m = 0; m < inner.length; m++)
+            if (inner[m].objectName === "figureItem")
+                fig = inner[m]
+        if (!fig)
+            return null
+        return { ready: fig.ready, failed: fig.failed, boxW: box.width,
+            imgW: fig.fitWidth, imgH: fig.fitHeight }
+    }
     readonly property real flickContentHeight: sourceFlick.visible
         ? sourceFlick.contentHeight : body.contentHeight
 
@@ -215,12 +243,22 @@ Item {
         }
 
         delegate: Item {
+            id: blockDelegate
             property var block: modelData
             property int blockIndex: index
             width: ListView.view.width
+            // True while any of this delegate shows in the viewport: figures ask
+            // only here, so a block the viewport never reaches sends nothing.
+            readonly property bool inView: {
+                var v = ListView.view
+                if (!v)
+                    return true
+                return (y + height >= v.contentY) && (y <= v.contentY + v.height)
+            }
             // Only the drawn child lends its height; the rest hold no geometry that matters.
             height: block.type === "run" ? runText.height
                 : block.type === "fence" ? fenceBox.height
+                : block.type === "figure" ? figureBox.height
                 : block.type === "quote" ? quoteRow.height
                 : block.type === "remote" ? remoteBox.height
                 : block.type === "list" ? listGrid.height
@@ -402,6 +440,36 @@ Item {
                             color: Theme.color.foreground
                             font.family: Theme.font.family
                             font.pixelSize: Theme.font.body
+                        }
+                    }
+
+                    // A figure draws through the shared service at the text width,
+                    // scaled down to fit and never up. Same chrome surface and
+                    // inset as a fenced block; a failure draws the source mono,
+                    // exactly what the fence shows, with no new sentence or box.
+                    Rectangle {
+                        id: figureBox
+                        objectName: "figureBox"
+                        visible: block.type === "figure"
+                        width: parent.width
+                        height: figureItem.implicitHeight + 2 * Theme.spacing.gap
+                        color: Theme.color.surface
+
+                        Flea.MarkdownFigure {
+                            id: figureItem
+                            objectName: "figureItem"
+                            anchors.fill: parent
+                            anchors.margins: Theme.spacing.gap
+                            kind: block.type === "figure" ? block.kind : "math"
+                            source: block.type === "figure" ? block.source : ""
+                            display: true
+                            askArmed: root.figuresArmed
+                            inView: blockDelegate.inView
+                            bgHex: root.chromeHex
+                            fgHex: root.inkHex
+                            accentHex: root.accentHex
+                            fontFamily: Theme.font.family
+                            bodyPx: Theme.font.body
                         }
                     }
 

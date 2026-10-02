@@ -29,9 +29,13 @@ function run(check) {
     check("indented code carries no info", indented.info, "")
 
     var mermaid = Markdown.blocks("```mermaid\ngraph TD\n```\n", dir, chrome, ink)[0]
-    check("a mermaid fence keeps its info", mermaid.info, "mermaid")
+    check("a mermaid fence becomes a figure", mermaid.type, "figure")
+    check("a mermaid figure names its kind", mermaid.kind, "mermaid")
     var math = Markdown.blocks("```math\nx^2\n```\n", dir, chrome, ink)[0]
-    check("a math fence keeps its info", math.info, "math")
+    check("a math fence becomes a figure", math.type, "figure")
+    check("a math figure names its kind", math.kind, "math")
+    check("a mermaid figure keeps its source", mermaid.source, "graph TD")
+    check("a math figure keeps its source", math.source, "x^2")
     check("inline math styles as code",
         styled("See $x^2$ here.").indexOf('data-math="inline"') >= 0, true)
     check("display math styles as code",
@@ -135,4 +139,39 @@ function run(check) {
     check("an ordered list keeps its start", Markdown.blocks("3. a\n4. b\n", dir, chrome, ink)[0].start, 3)
     var lazy = Markdown.blocks("1. a\nlazy line\n2. b\n", dir, chrome, ink)[0]
     check("a lazy line joins its item", lazy.items[0].indexOf("lazy") >= 0, true)
+
+    var latexFig = Markdown.blocks("```latex\nx^2\n```\n", dir, chrome, ink)[0]
+    check("a latex fence becomes a figure", latexFig.type, "figure")
+    check("a latex figure renders as math", latexFig.kind, "math")
+    var loudFig = Markdown.blocks("```Mermaid\ngraph TD\n```\n", dir, chrome, ink)[0]
+    check("a loud info still becomes a figure", loudFig.type, "figure")
+    var jsFence = Markdown.blocks("```js\nvar a = 1;\n```\n", dir, chrome, ink)[0]
+    check("a js fence stays a fence", jsFence.type, "fence")
+    check("a figure kind reads off the info", Markdown.figureKind("mermaid"), "mermaid")
+    check("latex reads as math", Markdown.figureKind("latex"), "math")
+    check("an unknown info is no figure", Markdown.figureKind("js"), "")
+
+    var dispOne = Markdown.blocks("$$\nx^2\n$$\n", dir, chrome, ink)[0]
+    check("a display block becomes a figure", dispOne.type, "figure")
+    check("a display block renders as math", dispOne.kind, "math")
+    check("a display block keeps its source", dispOne.source, "x^2")
+    var dispSolo = Markdown.blocks("$$x^2$$\n", dir, chrome, ink)[0]
+    check("a solo display line becomes a figure", dispSolo.type, "figure")
+    var dispOpen = Markdown.blocks("$$\nx^2\n", dir, chrome, ink)
+    check("an unterminated display stays prose", dispOpen.map(function (b) { return b.type }).join(","), "run")
+    check("a figure source stays raw",
+        Markdown.blocks("```mermaid\n$a [b](c)\n```\n", dir, chrome, ink)[0].source, "$a [b](c)")
+
+    check("a spaced opener is no maths",
+        styled("See $ x$ here.").indexOf('data-math="inline"') < 0, true)
+    check("a spaced closer is no maths",
+        styled("See $x $ here.").indexOf('data-math="inline"') < 0, true)
+    check("a closer before a digit is no maths",
+        styled("See $x$5 here.").indexOf('data-math="inline"') < 0, true)
+    check("prices never become maths",
+        styled("It costs $5 and $10 here.").indexOf('data-math="inline"') < 0, true)
+    check("a lone dollar stays literal",
+        styled("It costs $5 here.").indexOf('data-math="inline"') < 0, true)
+    check("a tight pair stays maths",
+        styled("See $x^2$ here.").indexOf('data-math="inline"') >= 0, true)
 }

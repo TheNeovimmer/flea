@@ -30,6 +30,26 @@ A paragraph with `loadFile()` inline code and [a guide](https://example.com/guid
 var fenced = true;
 ```
 
+```mermaid
+flowchart TD
+    A --> B
+```
+
+```mermaid
+sequenceDiagram
+    A->>B: hi
+```
+
+$$
+x^2
+```
+
+```mermaid
+not a diagram {{{
+```
+
+A paragraph with $x^2$ inline maths and $5 and $10 prices.
+
 ![shot](https://cdn.example.com/shot.png)
 EOF
     launch "$dir/listing"

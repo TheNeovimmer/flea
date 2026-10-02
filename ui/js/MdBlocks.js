@@ -32,9 +32,18 @@ function listMarker(line) {
         text: Leaf.taskText(m[4]), contentCol: indent + m[2].length + gap }
 }
 
-// Top-level block split: runs of ordinary blocks share one Text.MarkdownText,
-// and the special kinds get their own delegates in ui/PreviewMarkdown.qml.
-// Fenced blocks keep their info string (mermaid, math) for the later unit.
+// A fenced info string naming a figure: mermaid draws a diagram, math and
+// latex draw a display formula. The first word decides, case-insensitively,
+// so an info string carrying a title still figures. Anything else is code.
+function figureKind(info) {
+    var first = String(info || "").trim().split(/\s+/)[0] || ""
+    var word = first.toLowerCase()
+    if (word === "mermaid")
+        return "mermaid"
+    if (word === "math" || word === "latex")
+        return "math"
+    return ""
+}
 function blocks(source, dir, chrome, ink) {
     var body = String(source)
     var rawLines = body.split("\n")
@@ -93,7 +102,11 @@ function blocks(source, dir, chrome, ink) {
         quote = []
     }
     function flushFence() {
-        out.push({ type: "fence", text: fence.join("\n"), info: fenceInfo })
+        var kind = figureKind(fenceInfo)
+        if (kind !== "")
+            out.push({ type: "figure", kind: kind, source: fence.join("\n"), display: true })
+        else
+            out.push({ type: "fence", text: fence.join("\n"), info: fenceInfo })
         fence = null
         fenceInfo = ""
     }
@@ -142,6 +155,51 @@ function blocks(source, dir, chrome, ink) {
             fenceTick = open.tick
             fenceLen = open.len
             continue
+        }
+        // A $$ display block draws a math figure. Solo on one line or spanning
+        // lines until its closing $$; an unterminated one stays prose.
+        var disp = /^ {0,3}\$\$(.*)$/.exec(line)
+        if (disp !== null) {
+            var rest = disp[1]
+            var closeAt = rest.indexOf("$$")
+            if (closeAt >= 0) {
+                var inner = rest.slice(0, closeAt)
+                var after = rest.slice(closeAt + 2)
+                if (inner.trim().length > 0 && after.trim().length === 0) {
+                    flushRun()
+                    flushQuote()
+                    flushList()
+                    out.push({ type: "figure", kind: "math", source: inner.trim(), display: true })
+                    inParagraph = false
+                    continue
+                }
+            } else {
+                var acc = [rest]
+                var dj = i + 1
+                var dfound = false
+                while (dj < lines.length) {
+                    var dclose = lines[dj].indexOf("$$")
+                    if (dclose >= 0) {
+                        acc.push(lines[dj].slice(0, dclose))
+                        dfound = true
+                        break
+                    }
+                    acc.push(lines[dj])
+                    dj++
+                }
+                if (dfound) {
+                    var dsrc = acc.join("\n").trim()
+                    if (dsrc.length > 0) {
+                        flushRun()
+                        flushQuote()
+                        flushList()
+                        out.push({ type: "figure", kind: "math", source: dsrc, display: true })
+                        inParagraph = false
+                        i = dj
+                        continue
+                    }
+                }
+            }
         }
         // Indented code: four spaces or a tab outside a paragraph draws verbatim.
         if (!inParagraph && (/^ {4}/.test(line) || /^\t/.test(line))) {

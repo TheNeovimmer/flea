@@ -48,6 +48,10 @@ function spanIntervals(text) {
     }
     // Math per GitHub's rules, kept as code-styled literal text with a kind tag
     // a later unit swaps for a figure. Same run pairing over $ runs of length 1-2.
+    // An opener holds only when the next character is not a space, a closer
+    // only when the previous character is not a space and the next is not a
+    // digit, so prices such as $5 and $10 never pair. An escaped dollar is
+    // literal and neither opens nor closes.
     if (text.indexOf("$") >= 0) {
     var i = 0
     var mopen = -1
@@ -65,10 +69,35 @@ function spanIntervals(text) {
             i = j
             continue
         }
+        var back = 0
+        var b = i - 1
+        while (b >= 0 && text.charAt(b) === "\\") {
+            back++
+            b--
+        }
+        if (back % 2 === 1) {
+            i = j
+            continue
+        }
         if (mopen < 0) {
+            var after = j < text.length ? text.charAt(j) : ""
+            if (after === " " || after === "\t" || after === "\n" || after === "\r") {
+                i = j
+                continue
+            }
             mopen = i
             mlen = len
         } else if (len === mlen) {
+            var before = text.charAt(i - 1)
+            var afterClose = j < text.length ? text.charAt(j) : ""
+            if (before === " " || before === "\t" || before === "\n" || before === "\r") {
+                i = j
+                continue
+            }
+            if (afterClose >= "0" && afterClose <= "9") {
+                i = j
+                continue
+            }
             appendSpan(out, mopen, j, mlen, 1)
             mopen = -1
         }

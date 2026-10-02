@@ -86,7 +86,7 @@ ui/PermissionsDialog.qml 589
 ui/PickerWindow.qml 770
 ui/Preview.qml 647
 ui/PreviewColumn.qml 585
-ui/PreviewMarkdown.qml 576
+ui/PreviewMarkdown.qml 644
 ui/Row.qml 478
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
@@ -100,6 +100,8 @@ ui/js/Filter.js 253
 ui/js/Focus.js 408
 ui/js/Keymap.js 338
 ui/js/Markdown.js 527
+ui/js/MdBlocks.js 356
+ui/js/MdInline.js 329
 ui/js/Menu.js 425
 ui/js/Drag.js 302
 ui/js/Ops.js 438

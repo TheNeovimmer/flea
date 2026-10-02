@@ -26,13 +26,23 @@ Item {
     property string svg: ""
     property string error: ""
     property int ticket: 0
+    // False while the Source view is drawn: no request leaves, and arming
+    // later asks with the same props, answered from the service cache.
+    property bool askArmed: true
+    // False while the delegate sits outside the visible viewport: no request
+    // leaves, and scrolling into view asks once. Unlike askArmed this keeps
+    // whatever arrived, so a settled figure never redraws on a scroll.
+    property bool inView: true
 
     function hexTheme() {
         return { bg: root.bgHex, fg: root.fgHex, accent: root.accentHex,
             font: root.fontFamily, bodyPx: root.bodyPx };
     }
     function ask() {
-        if (root.source === "") {
+        // Off screen a prop change invalidates rather than sends, so the
+        // scroll back in refetches with the current props; on screen the old
+        // figure stays until its replacement lands.
+        if (!root.askArmed || root.source === "" || !root.inView) {
             root.ticket = 0;
             root.svg = "";
             root.error = "";
@@ -42,15 +52,29 @@ Item {
             root.display, root.hexTheme());
     }
 
-    onKindChanged: root.ask()
-    onSourceChanged: root.ask()
-    onDisplayChanged: root.ask()
-    onBgHexChanged: root.ask()
-    onFgHexChanged: root.ask()
-    onAccentHexChanged: root.ask()
-    onFontFamilyChanged: root.ask()
-    onBodyPxChanged: root.ask()
-    Component.onCompleted: root.ask()
+    onKindChanged: askTimer.restart()
+    onSourceChanged: askTimer.restart()
+    onDisplayChanged: askTimer.restart()
+    onBgHexChanged: askTimer.restart()
+    onFgHexChanged: askTimer.restart()
+    onAccentHexChanged: askTimer.restart()
+    onFontFamilyChanged: askTimer.restart()
+    onBodyPxChanged: askTimer.restart()
+    onAskArmedChanged: askTimer.restart()
+    // A delegate built off screen asks nothing until it scrolls into view,
+    // which always lands post-layout, so this edge needs no debounce below.
+    onInViewChanged: if (root.inView && root.askArmed && root.source !== "" && root.ticket === 0 && root.svg === "" && root.error === "") root.ask()
+    Component.onCompleted: askTimer.restart()
+
+    // Setup assigns every prop in turn, and ListView positions the delegate
+    // after it completes, so asking at once sends from pre-position geometry
+    // and fires once per prop. One short debounce coalesces the churn and
+    // outlasts the layout pass, so inView reads the placed position.
+    Timer {
+        id: askTimer
+        interval: 50
+        onTriggered: root.ask()
+    }
 
     Connections {
         target: FigureService
