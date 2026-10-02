@@ -337,6 +337,17 @@ function submenuFor(action, entries, clipboardAvailable) {
         return { kind: "refuse" }
     return { kind: "lone" }
 }
+// Sample input: loneChoice("copyAs", "copyPath", false, false, true, "a", "a") fires "copyAs:copyPath".
+function loneChoice(action, id, forRail, forHeader, hasRow, openedIdentity, selectionIdentity) {
+    var leaves = flyoutEntries(action)
+    var known = false
+    for (var i = 0; i < leaves.length; i++)
+        if (leaves[i].separator !== true && leaves[i].id === id) known = true
+    var moved = !forRail && !forHeader && hasRow && openedIdentity !== selectionIdentity
+    if (!known) return { kind: "unknown" }
+    if (moved) return { kind: "moved" }
+    return { kind: "fire", fired: action + ":" + id }
+}
 
 
 // The Sort by flyout, built from ui/js/Sort.js's own ORDERS so it can only ever offer an order the

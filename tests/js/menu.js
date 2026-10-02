@@ -360,6 +360,13 @@ function providerRefresh(check) {
     check("shown Paste as with clipboard opens its row", loneFor("pasteAs", shownFull, true).kind, "row")
     check("shown Copy as opens its row", loneFor("copyAs", shownFull, true).kind, "row")
     check("an action with no flyout opens nothing", loneFor("trash", shownFull, true).kind, "none")
+    check("Menu decides a lone leaf in one place", typeof Menu.loneChoice === "function", true)
+    var lonePick = Menu.loneChoice || function () { return { kind: "none" } }
+    check("a known leaf with no move fires", lonePick("copyAs", "copyPath", false, false, true, "a", "a").kind, "fire")
+    check("and names the fired action with its leaf", lonePick("copyAs", "copyPath", false, false, true, "a", "a").fired, "copyAs:copyPath")
+    check("an unknown leaf refuses", lonePick("copyAs", "bogus", false, false, true, "a", "a").kind, "unknown")
+    check("a moved selection refuses", lonePick("copyAs", "copyPath", false, false, true, "a", "b").kind, "moved")
+    check("a rail move never counts as moved", lonePick("copyAs", "copyPath", true, false, true, "a", "b").kind, "fire")
     // Pane root carries the cursor sequence Filter and Marks bump, so QML must declare it.
     var paneSrc = Source.source("ui/Pane.qml")
     check("Pane declares cursorSeq beside cursorIndex", paneSrc.indexOf("property int cursorSeq: 0") >= 0, true)
@@ -368,6 +375,7 @@ function providerRefresh(check) {
     // QML routes through the same decision, so a revert goes red here.
     var contextSrc = Source.source("ui/ContextMenu.qml")
     check("ContextMenu opens through Menu.submenuFor", contextSrc.indexOf("Menu.submenuFor(action, root.entries, root.clipboardAvailable)") >= 0, true)
+    check("ContextMenu chooses through Menu.loneChoice", contextSrc.indexOf("Menu.loneChoice(root.loneFlyoutAction, id,") >= 0, true)
     check("its refusal names the empty-clipboard sentence", contextSrc.indexOf("root.refused(Menu.EMPTY_CLIPBOARD)") >= 0, true)
     var pasteBody = Source.slice(paneSrc, "function openPasteAs()", "function invertSelection")
     check("Pane.openPasteAs closes and says empty on refuse", pasteBody.indexOf("menu.close()") >= 0 && pasteBody.indexOf("There is nothing to paste; y copies and x cuts.") >= 0, true)

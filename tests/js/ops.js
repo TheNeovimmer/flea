@@ -483,8 +483,7 @@ function run(check) {
           Ops.transferDone({ moving: false, n: 2 }, 2, 0, 0, false, false, ""),
           "Copied 2 items · z undoes")
 
-    // A slow click renames with pointer context 0 so the list never moves
-    // under it; F2 and r keep the keyboard's three-row context.
+    // A slow click renames with context 0 so the list stays still; F2 and r keep the three-row context.
     function contextPane() {
         return { cursorIndex: 5, path: "/d", renamingIndex: -1, renamePending: false,
             renameError: "", renameSource: "", renameMenuId: 0,

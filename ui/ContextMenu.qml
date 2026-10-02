@@ -344,25 +344,16 @@ Item {
 
     // One signal covers every submenu: the row's own action, a colon, and the entry chosen inside it.
     function chooseSub(id) {
-        // A lone flyout answers the rows' identity check, refusing on a moved selection.
+        // A lone flyout answers through Menu.loneChoice, refusing on an unknown leaf or a moved selection.
         if (root.loneFlyoutAction.length > 0) {
-            var loneLeaves = Menu.flyoutEntries(root.loneFlyoutAction)
-            var loneKnown = false
-            for (var l = 0; l < loneLeaves.length; l++) {
-                if (loneLeaves[l].separator !== true && loneLeaves[l].id === id)
-                    loneKnown = true
-            }
-            var loneMoved = !root.forRail && !root.forHeader && root.hasRow
-                && root.openedIdentity !== root.selectionIdentity
-            if (!loneKnown || loneMoved) {
+            var lonePick = Menu.loneChoice(root.loneFlyoutAction, id, root.forRail, root.forHeader, root.hasRow, root.openedIdentity, root.selectionIdentity)
+            if (lonePick.kind !== "fire") {
                 root.close()
-                root.refused(loneMoved ? "Selected items changed; reopen the menu."
-                                       : "That action is no longer available; reopen the menu.")
+                root.refused(lonePick.kind === "moved" ? "Selected items changed; reopen the menu." : "That action is no longer available; reopen the menu.")
                 return
             }
-            var loneFired = root.loneFlyoutAction
             root.close()
-            root.chosen(loneFired + ":" + id)
+            root.chosen(lonePick.fired)
             return
         }
         var entry = root.entries[root.openSubmenuRow]

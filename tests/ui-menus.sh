@@ -536,6 +536,49 @@ menus_stale_rename_commit() {
     menus_visit "$menu_dir" 4
 }
 
+# A hidden Copy as leaf still reaches wl-copy through the lone flyout.
+menus_hidden_copy_as() {
+    local directory="$menu_box/hidden-copyas"
+    local log="$menu_box/wl-copy.log"
+    local deadline observed
+    menus_guard "$directory"
+    mkdir -p "$directory" || fail "menus: cannot create hidden Copy as fixture"
+    menus_guard "$directory/a.txt"
+    printf 'hidden\n' > "$directory/a.txt"
+    menus_guard "$menu_box/bin/wl-copy"
+    cat > "$menu_box/bin/wl-copy" <<'SH'
+#!/usr/bin/env bash
+set -eu
+log=${FLEA_MENUS_BOX:?}/wl-copy.log
+cat >> "$log"
+SH
+    chmod +x "$menu_box/bin/wl-copy" || fail "menus: cannot make wl-copy stub executable"
+    menus_guard "$log"
+    : > "$log"
+    "$flea_bin" --ui-state '{"view":"list","keys":"default","menu":{"hidden":["copyAs"]}}' >/dev/null || fail "menus: hidden Copy as fixture settings failed"
+    launch "$directory"
+    wait_listing 1
+    key c >/dev/null
+    menus_expect menuState '.opened and .submenu' "hidden Copy as opens its lone flyout"
+    menus_expect menuState 'any(.submenuEntries[]; .label == "Path")' "lone flyout offers Path"
+    menus_expect menuState '.snapshotReady' "hidden Copy as snapshot is ready"
+    key p >/dev/null
+    menus_expect menuState '.opened | not' "hidden Copy as leaf closes the menu"
+    deadline=$((SECONDS + 15))
+    while (( SECONDS < deadline ))
+    do
+        observed=$(cat -- "$log") || fail "menus: cannot read wl-copy log"
+        if [[ "$observed" == *"$directory/a.txt"* ]]
+        then
+            menus_checks=$((menus_checks + 1))
+            printf 'MENUS_CHECK %s %s\n' "$menus_checks" "hidden Copy as leaf reaches wl-copy"
+            return
+        fi
+        sleep 0.05
+    done
+    fail "menus: hidden Copy as leaf never reached wl-copy: $observed"
+}
+
 case_menuscoverage() (
     local menu_box="$fixture_root/menus" menu_dir="$fixture_root/menus/list" menus_checks=0
     local trash_box="$fixture_root/menus" trash_checks=0 menus_trashed=0
@@ -615,6 +658,7 @@ case_menuscoverage() (
     [[ ! -e "$menu_dir/folder" ]] || fail "menus: freshly confirmed directory was not deleted"
     [[ "$(cat "$menu_dir/a.txt")" == alpha && "$(cat "$menu_dir/b.txt")" == beta ]] || fail "menus: deletion widened outside its confirmation"
     menus_shot deletion-completed
+    menus_hidden_copy_as
     printf 'MENUS_NATIVE_CHECKS=%s\n' "$menus_checks"
     printf 'MENUS_UNVERIFIED new-file/new-folder, archive/convert, provider states, hidden-row persistence, work-area/scale matrix, partial deletion failure, directory Permissions scope, concurrent windows\n'
     trash_cleanup 0
