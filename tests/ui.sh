@@ -1666,6 +1666,8 @@ case_rows() {
         || fail "rows: the real directory draws $(ipc rowGlyph "$dir_row"), not a folder"
 
     # Menus.html's hint slot: a key on every bound row, nothing on Duplicate, which nothing binds.
+    key -k y >/dev/null
+    settle
     seek_row_named target.txt
     key m >/dev/null
     settle
@@ -3010,6 +3012,8 @@ case_background() {
     seed_ui_state "$fixture_root/background-state" "{\"menu\":{\"hidden\":$menu_shipped}}"
     launch "$dir"
     wait_listing 4
+    key -k y >/dev/null
+    settle
 
     click_background
     settle
@@ -12872,6 +12876,131 @@ case_previewviews() {
 . "$repo/tests/ui-railpointer.sh"
 . "$repo/tests/ui-openwith-design.sh"
 . "$repo/tests/ui-providers.sh"
+# Two owned Flea windows share the compositor's file clipboard. Fixtures and every removal live
+# under this case's marked root. The detached clipboard owner must survive closing its source
+# window, foreign GTK files must paste, and plain text must leave Paste absent. The native runner
+# on minipc supplies Wayland and wl-clipboard; this case never runs in the headless battery.
+case_clipboard() {
+    command -v wl-copy >/dev/null || fail "clipboard: wl-copy is missing"
+    command -v wl-paste >/dev/null || fail "clipboard: wl-paste is missing"
+    local dir="$fixture_root/clipboard" adir bdir apid aid bpid bid types start_ns elapsed_ns state
+    sandbox_scratch "$dir"
+    adir="$dir/a"; bdir="$dir/b"
+    mkdir -p "$adir" "$bdir"
+    printf 'first\n' > "$adir/f1"
+    printf 'second\n' > "$adir/f2"
+    printf 'third\n' > "$adir/f3"
+    printf 'GTK\n' > "$dir/gtk"
+    trap 'case_xwdrag_cleanup' EXIT
+    trap xwdrag_signal_cleanup HUP INT TERM
+    launch "$adir"
+    wait_listing 3
+    apid=$(flea_pid) || fail "clipboard: no owned first window"
+    aid=$(xwdrag_qsid "$apid") || fail "clipboard: no first instance id"
+    xwdrag_launch_second "$bdir"
+    bpid=$XW_SECOND_PID; bid=$XW_SECOND_ID
+
+    clipboard_press "$apid" -k y
+    clipboard_wait "$bid" copy "$adir/f1"
+    types=$(timeout 3 wl-paste -l) || fail "clipboard: no offered types"
+    for type in x-special/gnome-copied-files text/uri-list text/plain; do
+        grep -Fx "$type" <<< "$types" >/dev/null || fail "clipboard: missing $type"
+    done
+    [[ "$(timeout 3 wl-paste -t text/plain)" == "$adir/f1" ]] || fail "clipboard: plain path differs"
+    printf 'CLIPBOARD types ok\n'
+    clipboard_press "$bpid" -k p
+    xwdrag_wait_path "$bdir/f1" present || fail "clipboard: cross-window copy never arrived"
+    cmp "$adir/f1" "$bdir/f1" || fail "clipboard: copy differs or removed its source"
+    xwdrag_row_point "$bid" "$bpid" f1 >/dev/null || fail "clipboard: copied row never appeared"
+    clipboard_press "$bpid" -k m
+    [[ "$(clipboard_ipc "$bid" contextMenuVisible)" == true ]] || fail "clipboard: file menu did not open"
+    [[ "|$(clipboard_ipc "$bid" contextMenuEntries)|" == *"|Paste|"* ]] || fail "clipboard: file copy has no Paste row"
+    clipboard_press "$bpid" -k Escape
+    printf 'CLIPBOARD copy ok\n'
+
+    clipboard_press "$apid" -k j -k x
+    clipboard_wait "$bid" cut "$adir/f2"
+    [[ "$(clipboard_ipc "$aid" rowClipMark 1)" == scissors ]] || fail "clipboard: source has no scissors mark"
+    xwdrag_focus "$bpid"
+    xwdrag_assert_focus "$bpid"
+    local baddr
+    baddr=$(xwdrag_addr "$bpid") || fail "clipboard: no destination address"
+    [[ -n "$baddr" ]] || fail "clipboard: empty destination address"
+    start_ns=$(date +%s%N)
+    xwdrag_key "$baddr" -k p >/dev/null || fail "clipboard: cut paste key failed"
+    while :; do
+        state=$(clipboard_ipc "$aid" fileClipboard 2>/dev/null || true)
+        if jq -e '.paths == [] and .moving == false' <<< "$state" >/dev/null 2>&1; then break; fi
+        elapsed_ns=$(( $(date +%s%N) - start_ns ))
+        (( elapsed_ns < 1000000000 )) || fail "clipboard: source cut remained past 1 s"
+        sleep 0.02
+    done
+    elapsed_ns=$(( $(date +%s%N) - start_ns ))
+    (( elapsed_ns <= 1000000000 )) || fail "clipboard: source cut cleared too late"
+    xwdrag_wait_path "$bdir/f2" present || fail "clipboard: cut never arrived"
+    xwdrag_wait_path "$adir/f2" absent || fail "clipboard: cut left its source"
+    [[ "$(clipboard_ipc "$aid" rowClipMark 0)" != scissors ]] || fail "clipboard: source still draws scissors"
+    printf 'CLIPBOARD cut ok\n'
+
+    xwdrag_wait_row_gone "$aid" f2 || fail "clipboard: source still lists f2"
+    clipboard_press "$apid" -k End -k y
+    clipboard_wait "$bid" copy "$adir/f3"
+    xwdrag_kill_second "$apid"
+    clipboard_press "$bpid" -k p
+    xwdrag_wait_path "$bdir/f3" present || fail "clipboard: source close lost its copy"
+    cmp "$adir/f3" "$bdir/f3" || fail "clipboard: surviving copy differs"
+    printf 'CLIPBOARD owner-close ok\n'
+
+    printf 'copy\nfile://%s' "$dir/gtk" | timeout 3 wl-copy -t x-special/gnome-copied-files
+    clipboard_wait "$bid" copy "$dir/gtk"
+    clipboard_press "$bpid" -k p
+    xwdrag_wait_path "$bdir/gtk" present || fail "clipboard: GTK copy never arrived"
+    cmp "$dir/gtk" "$bdir/gtk" || fail "clipboard: GTK copy differs"
+    printf 'CLIPBOARD GTK ok\n'
+
+    timeout 3 wl-copy hello || fail "clipboard: text ownership failed"
+    clipboard_wait "$bid" none ""
+    clipboard_press "$bpid" -k m
+    [[ "$(clipboard_ipc "$bid" contextMenuVisible)" == true ]] || fail "clipboard: text-only menu did not open"
+    state=$(clipboard_ipc "$bid" contextMenuEntries) || fail "clipboard: no menu model"
+    [[ "|$state|" != *"|Paste|"* ]] || fail "clipboard: Paste remains for plain text"
+    clipboard_press "$bpid" -k Escape
+    local before after
+    before=$(find "$bdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+    clipboard_press "$bpid" -k p
+    sleep 0.3
+    after=$(find "$bdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+    [[ "$before" == "$after" && ! -e "$bdir/hello" ]] || fail "clipboard: plain text pasted a file"
+    printf 'CLIPBOARD text-only ok\n'
+    xwdrag_kill_second "$bpid"
+    XW_SECOND_PID=""
+    printf 'clipboard: 6 checks, 0 failed\n'
+}
+
+clipboard_ipc() {
+    timeout -k "$ipc_call_kill_after" "$ipc_call_timeout" qs ipc -i "$1" call flea "${@:2}"
+}
+clipboard_press() {
+    local pid="$1" addr
+    shift
+    xwdrag_focus "$pid"
+    xwdrag_assert_focus "$pid"
+    addr=$(xwdrag_addr "$pid") || fail "clipboard: no address for $pid"
+    [[ -n "$addr" ]] || fail "clipboard: empty address for $pid"
+    xwdrag_key "$addr" "$@" >/dev/null || fail "clipboard: key failed for $pid"
+}
+clipboard_wait() {
+    local id="$1" kind="$2" path="$3" deadline=$((SECONDS + 5)) state
+    while (( SECONDS <= deadline )); do
+        state=$(clipboard_ipc "$id" fileClipboard 2>/dev/null || true)
+        if jq -e --arg kind "$kind" --arg path "$path" \
+            'if $kind == "none" then .paths == [] and .moving == false
+             else .paths == [$path] and .moving == ($kind == "cut") end' <<< "$state" >/dev/null 2>&1; then return; fi
+        sleep 0.05
+    done
+    fail "clipboard: $id never mirrored $kind $path"
+}
+
 . "$repo/tests/ui-rail.sh"
 . "$repo/tests/ui-dropbox-roots.sh"
 . "$repo/tests/ui-settings-layout.sh"

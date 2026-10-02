@@ -6,6 +6,7 @@ import "js/Errors.js" as Errors
 import "js/Anchor.js" as Anchor
 import "js/Nav.js" as Nav
 import "js/Ops.js" as Ops
+import "js/Clipboard.js" as Clipboard
 import "js/Permissions.js" as Permissions
 import "js/Status.js" as Status
 import "js/Search.js" as Search
@@ -453,6 +454,8 @@ Item {
         function onPaths(list) {
             Ops.pathsResolved(pane, list)
         }
+
+        function onClipResult(message) { Clipboard.receive(pane, message) }
 
         function onFailed(where, input, message, mode) {
             if (pane.path.length === 0 && input.length > 0) pane.path = input

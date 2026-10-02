@@ -16,6 +16,7 @@ import "js/Startup.js" as Startup
 import "js/Nav.js" as Nav
 import "js/RecentMode.js" as RecentMode
 import "js/Ops.js" as Ops
+import "js/Clipboard.js" as Clipboard
 import "js/Permissions.js" as Permissions
 import "js/Selection.js" as Selection
 import "js/Anchor.js" as Anchor
@@ -226,6 +227,7 @@ FocusScope {
 
     // The cut or copied paths, absolute because a paste lands in a different directory; see ui/js/Ops.js.
     property var clipboard: Ops.emptyClipboard()
+    property var clipboardState: Clipboard.state()
     // The mode of an askPaths round trip in flight, or null; nothing reaches the clipboard until it answers.
     property var clipPending: null
     // Which asker a pending paths reply belongs to, null meaning the clipboard, which is what every
@@ -614,16 +616,10 @@ FocusScope {
         root.linkTargetPendingId = root.backend.nextLinkTargetId()
         root.backend.send({ c: "linktarget", path: path, id: root.linkTargetPendingId })
     }
-    // MenuAdditions040: Paste as links, undoable, through the collision card;
-    // with paths the links go out of those, else out of the file clipboard.
-    function pasteLink(kind, paths) {
+    // Paste as links reads the file clipboard and asks through the collision card.
+    function pasteLink(kind) {
         if (RecentMode.refusePaste(root)) return
-        var sources = paths && paths.length > 0 ? paths : root.clipboard.paths
-        if (sources.length === 0) {
-            root.message("There is nothing to paste; y copies and x cuts.", false)
-            return
-        }
-        root.collide.ask({ c: "link", op: kind, paths: sources, dest: root.path }, null, false)
+        Ops.pasteLink(root, kind)
     }
 
     // index is a listing row, which is what every caller outside ui/js/Filter.js holds; the clamp

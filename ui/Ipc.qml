@@ -70,6 +70,8 @@ QtObject {
         function selectionCount(): int { return root.pane.selectionCount() }
         function favouritesSaving(): bool { return Favourites.busy || Favourites.operationActive }
         function selectedIndices(): string { return root.pane.selectedIndices().join(",") }
+        function fileClipboard(): string { return JSON.stringify(root.pane.clipboard) }
+        function rowClipMark(i: int): string { var row = root.pane.itemFor(i); return row ? row.clipMark : "unavailable" }
         function focusView(): string { return root.pane.focusView }
         function keyDeliveryState(): string {
             var pane = root.pane

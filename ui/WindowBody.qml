@@ -247,6 +247,7 @@ Rectangle {
                 id: otherPane
                 anchors.fill: parent
                 backend: otherBackend
+                clipboardState: primaryPane.clipboardState
                 sharedSidebar: primaryPane.sidebar
                 networkService: view.networkService
                 sharedNetworkService: primaryPane.networkService

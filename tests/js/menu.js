@@ -30,13 +30,13 @@ function run(check) {
     check("Restore all uses the authoritative undo geometry", Icons.pathFor("undo"), "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5")
     check("inventory storage ids are unique", Object.keys(Menu.INVENTORY.reduce(function (out, row) { out[row[0]] = true; return out }, {})).length, 49)
     check("default image menu matches Menus specimen", actions(file),
-          "open,openWith,cut,copy,paste,duplicate,rename,compress,convert,addToShelf,taildrop,dropbox,trash,addFavourite,toggleHidden")
-    check("empty clipboard leaves Paste visible and disabled", entry(file, "paste").disabled, true)
+          "open,openWith,cut,copy,duplicate,rename,compress,convert,addToShelf,taildrop,dropbox,trash,addFavourite,toggleHidden")
+    check("empty clipboard leaves Paste absent", entry(file, "paste").action, undefined)
     check("populated clipboard enables Paste", entry(Menu.listingEntries(state({ clipboardAvailable: true })), "paste").disabled, false)
     check("folder omits conversion and extraction", actions(Menu.listingEntries(state({ rowMode: 0o040755, rowIsImage: false }))),
-          "open,openWith,cut,copy,paste,duplicate,rename,compress,addToShelf,taildrop,dropbox,trash,addFavourite,toggleHidden")
+          "open,openWith,cut,copy,duplicate,rename,compress,addToShelf,taildrop,dropbox,trash,addFavourite,toggleHidden")
     check("background menu includes real creation actions in order", actions(Menu.listingEntries(state({ hasRow: false }))),
-          "newFolder,newFile,paste,selectAll,openTerminal,addFavourite,sort,toggleHidden,settings")
+          "newFolder,newFile,selectAll,openTerminal,addFavourite,sort,toggleHidden,settings")
     var background = Menu.listingEntries(state({ hasRow: false, updateVersion: "0.3.4" }))
     check("a known newer build adds Update Flea under Settings, in the same group, with the download mark",
           background.slice(-2).map(function (r) { return (r.separator ? "|" : r.action) + ":" + r.glyph }).join(","),
@@ -89,7 +89,7 @@ function run(check) {
           Icons.pathFor(openTabSpec[2]) === Icons.pathFor("file"), false)
     check("Add to shelf draws the shelf's own cut glyph, not the file fallback",
           Icons.pathFor(shelfSpec[2]) === Icons.pathFor("file"), false)
-    var all = Menu.listingEntries(state({ hiddenActions: [], rowIsSymlink: true, hasShebang: true, cursorIsTarget: true }))
+    var all = Menu.listingEntries(state({ hiddenActions: [], clipboardAvailable: true, rowIsSymlink: true, hasShebang: true, cursorIsTarget: true }))
     check("stored delete id reaches permanent deletion action", entry(all, "deletePermanently").id, "delete")
     check("all optional file controls exist", ["openWith", "moveTo", "copyTo", "properties", "permissions", "makeExecutable", "copyAs", "showOriginal", "pasteAs", "openTerminal"].every(function (a) { return !!entry(all, a).action }), true)
     // Invert selection lives on the background menu beside Select all, never on a file row.

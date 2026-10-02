@@ -1,5 +1,5 @@
 import QtQuick
-import "js/ClipMarks.js" as ClipMarks
+import "js/Clipboard.js" as Clipboard
 import "js/Collide.js" as Collide
 
 // A pane's question before a transfer lands on names that exist: the transfer waits here, so Cancel sends nothing.
@@ -15,6 +15,7 @@ Loader {
     // The transfer waiting on the answer, or null, and whether sending it spends a cut clipboard.
     property var pending: null
     property bool spendsCut: false
+    property var cutClipboard: null
     property int askId: 0
 
     // A cut is spent when its transfer goes out, so a Cancel leaves it on the clipboard to paste elsewhere.
@@ -28,6 +29,7 @@ Loader {
         // Its rows keep the numbering they were read in, so a listing landing before the answer gets the transfer refused, not resolved anew.
         root.pending = Collide.waiting(request, root.pane.backend.heldListing)
         root.spendsCut = cut === true
+        root.cutClipboard = cut === true ? root.pane.clipboard : null
         root.pane.backend.send(Collide.question(root.pending, probe, root.askId))
         return true
     }
@@ -51,9 +53,10 @@ Loader {
             // MenuAdditions040: Paste as links asks through this same card.
             root.pane.backend.send(request.c === "link" ? Collide.link(request, choice, root.askId)
                                                         : Collide.transfer(request, choice, root.askId))
-            root.pane.clipboard = ClipMarks.spent(root.pane.clipboard, root.spendsCut)
+            Clipboard.spent(root.pane, root.cutClipboard, root.spendsCut)
         }
         root.pending = null
+        root.cutClipboard = null
     }
 
     Connections {
@@ -62,8 +65,10 @@ Loader {
         // A dead backend answers nothing and takes nothing, so the transfer goes; a choice on a card still open then sends nothing and keeps the cut.
         // A refused question never opens the card either, so the wait ends here or the next paste is refused behind it.
         function onFailed(where, input) {
-            if (where === "backend" || Collide.droppedPending(where, input))
+            if (where === "backend" || Collide.droppedPending(where, input)) {
                 root.pending = null
+                root.cutClipboard = null
+            }
         }
     }
     Connections {

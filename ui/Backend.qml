@@ -437,6 +437,7 @@ Item {
             root.queueing = false
             // Asked once per process: which formats exist cannot change while the backend runs.
             root.askFormats()
+            if (!root.pickerOnly) root.send({ c: "clipWatch" })
             for (var i = 0; i < root.pending.length; i++) {
                 child.write(root.pending[i])
             }
