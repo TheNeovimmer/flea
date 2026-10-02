@@ -45,7 +45,6 @@ src/backend/collide_replace_tests.rs 487
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 779
 src/backend/trashdelete.rs 916
-src/backend/iomount.rs 549
 src/gui.rs 501
 src/tui/actions.rs 1067
 src/tui/input.rs 449
@@ -63,7 +62,7 @@ tests/js/focus.js 728
 tests/js/mounts.js 262
 tests/js/menu.js 493
 tests/js/nav.js 361
-tests/picker-grid.qml 448
+tests/picker-grid.qml 450
 tests/js/network.js 306
 tests/js/ops.js 509
 tests/js/settings.js 337

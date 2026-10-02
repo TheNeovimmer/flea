@@ -85,6 +85,7 @@ PickerChrome 1.0 PickerChrome.qml
 PickerGrid 1.0 PickerGrid.qml
 PickerHeader 1.0 PickerHeader.qml
 PickerList 1.0 PickerList.qml
+PickerSelection 1.0 PickerSelection.qml
 PickerPlaces 1.0 PickerPlaces.qml
 PickerRecent 1.0 PickerRecent.qml
 PickerSave 1.0 PickerSave.qml

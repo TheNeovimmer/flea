@@ -104,7 +104,7 @@ function hints(req) {
     if (req.mode === "save") {
         return "Enter save · Esc cancel"
     }
-    var pick = req.directory ? "Enter open · Space mark folder" : "Space select · Enter open/send"
+    var pick = req.multiple ? (req.directory ? "Enter open · Space mark folder" : "Space select · Enter open/send") : "Enter open"
     return pick + " · Esc cancel"
 }
 

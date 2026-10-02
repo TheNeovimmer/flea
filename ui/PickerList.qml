@@ -55,7 +55,7 @@ ListView {
             : cell.row
         // A file request marks files and a folder request marks folders; the other kind is a way
         // through the tree and never an answer, so it carries no box at all.
-        readonly property bool markable: cell.row !== null && Picker.directory(cell.row) === root.picker.folderMode
+        readonly property bool markable: root.picker.marksAllowed && cell.row !== null && Picker.directory(cell.row) === root.picker.folderMode
         readonly property bool isMarked: cell.markable && Picker.marked(root.picker.marks, cell.rowPath)
 
         // The scroll lane stays clear, the same rule the window's own list follows.
@@ -82,7 +82,7 @@ ListView {
         Flea.Row {
             anchors.fill: parent
             paintWidth: root.width
-            leadingSlot: root.checkSize + Theme.spacing.gap
+            leadingSlot: root.picker.marksAllowed ? root.checkSize + Theme.spacing.gap : 0
             compactDate: true
             foregroundMetadata: true
             hiddenCols: Picker.HIDDEN_COLS
@@ -122,13 +122,18 @@ ListView {
             acceptedButtons: Qt.LeftButton
             // One tap moves the cursor, a second tap on the same path opens or sends, a box tap toggles.
             onTapped: function (eventPoint, button) {
+                var was = root.picker.cursorIndex
+                var extending = (tap.point.modifiers & Qt.ShiftModifier) !== 0 && root.picker.marksAllowed
+                if (!extending) root.picker.endRange()
                 root.picker.cursorIndex = cell.listingIndex
                 root.forceActiveFocus()
                 var onBox = box.visible && eventPoint.position.x <= box.x + box.width + Theme.spacing.gap
                 var second = tap.tapCount === 2
                 var firstPath = root.lastTapPath
                 root.lastTapPath = cell.rowPath
-                if (onBox)
+                if (extending)
+                    root.picker.markRange(was, cell.listingIndex)
+                else if (onBox)
                     root.picker.toggleMark(cell.listingIndex)
                 else if (second && Picker.sameTap(firstPath, cell.rowPath))
                     root.picker.doubleActivate(cell.listingIndex, cell.rowPath, firstPath)
@@ -136,12 +141,14 @@ ListView {
         }
     }
 
-    function moveCursor(delta) {
+    function moveCursor(delta, extending) {
         if (root.picker.shownTotal === 0)
             return
         var was = root.picker.cursorIndex
         var to = Math.max(0, Math.min(root.picker.shownTotal - 1, was + delta))
+        if (!extending) root.picker.endRange()
         root.picker.cursorIndex = to
+        if (extending) root.picker.markRange(was, to)
         root.positionViewAtIndex(to, ListView.Contain)
     }
 
@@ -160,6 +167,12 @@ ListView {
             root.moveCursor(1)
         } else if (action === "cursorUp") {
             root.moveCursor(-1)
+        } else if (action === "extendDown") {
+            root.moveCursor(1, true)
+        } else if (action === "extendUp") {
+            root.moveCursor(-1, true)
+        } else if (action === "selectAll") {
+            root.picker.selectAll()
         } else if (action === "pageDown") {
             root.moveCursor(root.visibleRows)
         } else if (action === "pageUp") {

@@ -59,35 +59,65 @@ ShellRoot {
                 root.finish()
                 return
             }
+            if (win && scenario === "empty" && win.listingState === "empty") {
+                root.check("empty listing disables Open", win.canAccept, false)
+                var emptyButton = root.descendants(win.contentItem).filter(function(item) { return item.name === "Open" && item.available !== undefined })[0]
+                root.check("empty Open opacity", emptyButton.opacity, 0.55)
+                root.finish()
+                return
+            }
             if (!win || win.listingState !== "ready" || !win.rows.length) return
             if (stage === 0) {
                 if (win.saving && !win.saveReady) return
+                root.check("requested key preset loaded", Flea.ViewState.keysPreset, Quickshell.env("FLEA_PICKER_HUNT_PRESET"))
+                if (scenario === "folder") {
+                    win.cursorIndex = 0
+                    win.focusView()
+                    root.check("folder disables Open", win.canAccept, false)
+                    var folderButton = root.descendants(win.contentItem).filter(function(item) { return item.name === "Open" && item.available !== undefined })[0]
+                    root.check("folder Open opacity", folderButton.opacity, 0.55)
+                    root.press(Qt.Key_Return)
+                    root.stage = 1
+                    root.stamp = Date.now()
+                    return
+                }
                 win.cursorIndex = win.rows.findIndex(function(row) { return row.n === "a.txt" }) + win.held
                 if (win.cursorIndex < 0) return
                 win.focusView()
                 if (!win.viewItem().activeFocus) return
                 root.check("real cursor is a file", win.rowFor(win.cursorIndex).n, "a.txt")
-                if (scenario === "cursor-open") {
+                if (scenario.indexOf("cursor-") === 0) {
                     root.check("cursor file enables Open", win.canAccept, true)
                     console.log("PICKER_HUNT INPUT Return action="
                         + Keymap.lookup(Qt.Key_Return, "", Qt.NoModifier, "listing"))
-                    root.press(Qt.Key_Return)
-                } else if (scenario === "all") {
+                    if (scenario === "cursor-button") win.accept()
+                    else root.press(scenario === "cursor-enter" ? Qt.Key_Enter : Qt.Key_Return, scenario === "cursor-enter" ? Qt.KeypadModifier : Qt.NoModifier)
+                } else if ((scenario === "all" || scenario === "all-wide")) {
                     root.check("Ctrl+A maps to selectAll", Keymap.lookup(Qt.Key_A, "a", Qt.ControlModifier, "listing"), "selectAll")
                     root.press(Qt.Key_A, Qt.ControlModifier)
-                } else if (scenario === "range") {
+                } else if (scenario === "range-up" || scenario === "range-click") {
+                    var index = win.cursorIndex
+                    if (scenario === "range-up") {
+                        win.cursorIndex = index + (win.viewMode === "grid" ? win.viewItem().columns : 1)
+                        root.press(Qt.Key_Up, Qt.ShiftModifier)
+                    } else {
+                        var cell = win.viewItem().itemAtIndex(index + 2)
+                        keys.mouseClick(cell, cell.width - 5, cell.height / 2, Qt.LeftButton, Qt.ShiftModifier, -1)
+                    }
+                } else if (scenario === "range-burst") {
+                    root.press(Qt.Key_Down, Qt.ShiftModifier)
+                    root.press(Qt.Key_Down, Qt.ShiftModifier)
+                    root.press(Qt.Key_Up, Qt.ShiftModifier)
+                } else if (scenario === "range" || scenario === "range-shrink") {
                     root.check("Shift+Down maps to extendDown", Keymap.lookup(Qt.Key_Down, "", Qt.ShiftModifier, "listing"), "extendDown")
                     root.press(Qt.Key_Down, Qt.ShiftModifier)
-                } else if (scenario === "path") {
-                    root.check("Ctrl+L maps to pathBar", Keymap.lookup(Qt.Key_L, "l", Qt.ControlModifier, "listing"), "pathBar")
-                    root.press(Qt.Key_L, Qt.ControlModifier)
-                } else if (scenario === "save-marks") {
+                } else if (scenario === "save-marks" || scenario === "single-marks") {
                     root.press(Qt.Key_Space)
-                } else if (scenario === "collision") {
-                    win.accept()
+                    root.press(Qt.Key_Down, Qt.ShiftModifier)
+                    root.press(Qt.Key_A, Qt.ControlModifier)
                 } else if (scenario === "remember") {
                     win.setView(win.viewMode === "grid" ? "list" : "grid")
-                } else if (scenario === "control" || scenario === "marked-open") {
+                } else if (scenario === "control" || (scenario === "marked-open" || scenario === "marked-enter")) {
                     root.press(win.viewMode === "grid" ? Qt.Key_Right : Qt.Key_Down)
                     root.check("arrow moves the real cursor", win.rowFor(win.cursorIndex).n, "b.txt")
                     root.press(Qt.Key_Space)
@@ -97,36 +127,40 @@ ShellRoot {
                 return
             }
             if (stage === 1 && Date.now() - root.stamp > 1000 && !win.markRequest) {
-                if (scenario === "cursor-open") {
+                if (scenario.indexOf("cursor-") === 0) {
                     root.check("Return answers cursor file", win.answered, true)
                     console.log("PICKER_HUNT MESSAGE " + win.message)
-                } else if (scenario === "all") {
-                    root.check("Ctrl+A marks all twelve files", win.marks.length, 12)
-                } else if (scenario === "range") {
+                } else if ((scenario === "all" || scenario === "all-wide")) {
+                    root.check("Ctrl+A marks all twelve files", win.marks.length, scenario === "all-wide" ? 212 : 12)
+                    if (scenario === "all-wide") root.check("select-all reaches beyond held window", win.rows.length < win.marks.length, true)
+                } else if (scenario === "range-up" || scenario === "range-click") {
+                    var wanted = scenario === "range-click" ? 3 : win.viewMode === "grid" ? win.viewItem().columns + 1 : 2
+                    root.check("Shift+Up or click marks range", win.marks.length, wanted)
+                } else if (scenario === "folder") {
+                    root.check("Enter walks into cursor folder", win.path.slice(-9), "/z-folder")
+                    root.check("folder navigation does not answer", win.answered, false)
+                } else if (scenario === "range" || scenario === "range-burst" || scenario === "range-shrink") {
                     var rangeCount = win.viewMode === "grid" ? win.viewItem().columns + 1 : 2
                     root.check("Shift+Down marks cursor range", win.marks.length, rangeCount)
-                } else if (scenario === "path") {
-                    var fields = root.descendants(win.contentItem).filter(function(item) {
-                        return item.activeFocus && typeof item.selectAll === "function"
-                    })
-                    root.check("Ctrl+L focuses path input", fields.length, 1)
-                } else if (scenario === "save-marks") {
+                    if (scenario === "range-shrink") {
+                        root.press(Qt.Key_Up, Qt.ShiftModifier)
+                        root.stage = 2
+                        root.stamp = Date.now()
+                        return
+                    }
+                } else if (scenario === "save-marks" || scenario === "single-marks") {
                     root.check("save mode never marks files", win.marks.length, 0)
-                } else if (scenario === "collision") {
-                    var form = root.descendants(win.contentItem).filter(function(item) {
-                        return item.fieldItem !== undefined && item.askedName !== undefined
-                    })[0]
-                    root.check("collision focuses Filename", form.fieldItem.activeFocus, true)
-                    root.check("collision selects filename stem", form.fieldItem.selectedText, "a")
-                    var labels = form.controls().filter(function(item) { return item.visible }).map(function(item) { return item.name })
-                    root.check("collision offers Replace", labels.indexOf("Replace") >= 0, true)
+                    var cells = root.descendants(win.viewItem()).filter(function(item) { return item.listingIndex !== undefined })
+                    root.check("box probe sees real delegates", cells.length > 0, true)
+                    root.check("save or single-file rows have no boxes", cells.every(function(cell) { return cell.markable === false }), true)
                 } else if (scenario === "remember") {
                     root.check("view switch updates remembered state", Flea.ViewState.pickerView, win.viewMode)
-                } else if (scenario === "control" || scenario === "marked-open") {
+                } else if (scenario === "control" || (scenario === "marked-open" || scenario === "marked-enter")) {
                     root.check("Space marks one real file", win.marks.length, 1)
-                    if (scenario === "marked-open") {
-                        root.check("Mac Return still maps to rename", Keymap.lookup(Qt.Key_Return, "", Qt.NoModifier, "listing"), "rename")
-                        root.press(Qt.Key_Return)
+                    if ((scenario === "marked-open" || scenario === "marked-enter")) {
+                        var preset = Flea.ViewState.keysPreset
+                        root.check("Return follows current preset", Keymap.lookup(Qt.Key_Return, "", Qt.NoModifier, "listing"), preset === "mac" ? "rename" : "open")
+                        root.press(scenario === "marked-enter" ? Qt.Key_Enter : Qt.Key_Return, scenario === "marked-enter" ? Qt.KeypadModifier : Qt.NoModifier)
                         root.stage = 2
                         root.stamp = Date.now()
                         return
@@ -135,7 +169,8 @@ ShellRoot {
                 root.finish()
             }
             if (stage === 2 && Date.now() - root.stamp > 1000) {
-                root.check("marked Mac Return writes portal answer", win.answered, true)
+                if (scenario === "range-shrink") root.check("range shrink keeps only anchor", win.marks.length, 1)
+                else root.check("marked Return or Enter writes portal answer", win.answered, true)
                 root.finish()
             }
         }

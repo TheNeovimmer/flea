@@ -39,6 +39,7 @@ Item {
         property bool available: true
         // A mark that is live but not the one in force, like the picker's inactive view mark.
         property bool dimmed: false
+        opacity: available ? 1 : 0.55
         enabled: available
         activeFocusOnTab: available
         Keys.onTabPressed: function(event) { root.picker.stepFocus(control, (event.modifiers & Qt.ShiftModifier) !== 0) }
@@ -64,16 +65,14 @@ Item {
             NumberAnimation { duration: 150; easing.type: Easing.OutQuad }
         }
 
-        // Muted is the resting frame of a neutral control, the role ThemeRoles.html gives an inactive
-        // one, and an unavailable control stays there: a frame may recede only when the control is
-        // inert. ui/DialogButton.qml has drawn its own frames this way all along.
-        readonly property color frame: control.available && control.primary
+        // A disabled primary keeps its frame and wash under the control's 0.55 opacity.
+        readonly property color frame: control.primary
             ? Theme.color.accentFrame : Theme.color.muted
 
         // The primary control carries its wash at rest, because it is the one action the request is
         // asking for; every other control earns one under the pointer or the keyboard.
-        readonly property real wash: !control.available ? 0
-            : (control.activeFocus || press.pressed || control.primary) ? Theme.washActive
+        readonly property real wash: control.primary ? Theme.washActive : !control.available ? 0
+            : (control.activeFocus || press.pressed) ? Theme.washActive
             : hover.hovered ? Theme.washHover : 0
         // The wash carries the role now that the label does not, so only a primary's is accent.
         readonly property color washInk: control.primary ? Theme.color.accent : Theme.color.foreground
