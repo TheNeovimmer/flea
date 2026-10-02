@@ -25,8 +25,6 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# The contact sheet outlives the sandbox, which cleanup removes on exit 0.
-evidence_root=$(mktemp -d /tmp/flea-preview-geometry.XXXXXXXX) || exit 1
 mkdir -p "$test_root/config" "$test_root/home" "$test_root/state" "$test_root/runtime" "$test_root/fixture" "$test_root/out" || exit 1
 chmod 700 "$test_root/runtime" || exit 1
 # The probe imports ui/ as Flea, and ui/'s qs.Commons resolves against this root, as it does from ui/boot.
@@ -80,7 +78,10 @@ printf '%s\n' "$output" | grep -a 'GEOMETRY [a-z-]* [a-z]* [0-9x]* frame='
 # The contact sheet: every cell grab in index order, titled by its own file name, for a human to look at.
 mapfile -t grabs < <(ls "$test_root"/out/geometry-*.png | sort -V)
 [ "${#grabs[@]}" -eq "$expected_cells" ] || { echo "preview-geometry.sh: want $expected_cells cell grabs, got ${#grabs[@]}"; exit 1; }
-montage "${grabs[@]}" -tile 4x -geometry 320x240+4+4 -label '%f' "$evidence_root/sheet.png" \
+montage "${grabs[@]}" -tile 4x -geometry 320x240+4+4 -label '%f' "$test_root/sheet.png" \
     || { echo "preview-geometry.sh: the contact sheet failed"; exit 1; }
+# The contact sheet outlives the sandbox, which cleanup removes on exit 0.
+evidence_root=$(mktemp -d /tmp/flea-preview-geometry.XXXXXXXX) || exit 1
+mv "$test_root/sheet.png" "$evidence_root/sheet.png" || { echo "preview-geometry.sh: the contact sheet failed"; exit 1; }
 printf 'GEOMETRY cells=%s ok=%s fail=%s\n' "$cells" "$ok_count" "$fail_count"
 printf 'GEOMETRY_SHEET %s\n' "$evidence_root/sheet.png"
