@@ -52,6 +52,7 @@ src/uistore.rs 540
 src/vulkan.rs 728
 tests/js/columns.js 666
 tests/js/drag.js 402
+tests/js/devices.js 303
 tests/js/previewswap.js 386
 tests/js/focus.js 729
 tests/js/mounts.js 262
@@ -105,6 +106,7 @@ ui/Theme.qml 415
 ui/TrashView.qml 475
 ui/ViewState.qml 410
 ui/WindowBody.qml 581
+ui/js/Devices.js 366
 ui/js/Filter.js 253
 ui/js/Focus.js 434
 ui/js/Keymap.js 338

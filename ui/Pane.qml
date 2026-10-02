@@ -280,11 +280,7 @@ FocusScope {
             }
         }
     }
-    onListInFlightChanged: {
-        if (!root.listInFlight) { preferences.restart(); Sort.applyPending(root) }
-        if (root.listInFlight) listingWait.restart()
-        else listingWait.stop()
-    }
+    onListInFlightChanged: if (!root.listInFlight) { preferences.restart(); Sort.applyPending(root); listingWait.stop() } else listingWait.restart()
     onSearchModeChanged: if (root.searchMode.length === 0) preferences.restart()
     onRecentModeChanged: if (root.recentMode.length === 0) preferences.restart()
     Timer {
