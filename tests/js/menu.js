@@ -334,30 +334,35 @@ function providerRefresh(check) {
     check("refused hop names the ask, re-read names itself, ready and error name nothing", lockedAs("/d", "/d/locked", "locked") + "|" + lockedAs("/d", "/d", "locked") + "|" + lockedAs("/d", "/d", "ready") + "|" + lockedAs("/d", "/d", "error"), "/d/locked|/d||")
     check("a refused bookmark with a trailing slash names the folder without it", lockedAs("/d", "/root/", "locked"), "/root")
     // Show original answers only its own pending id, so a late reply never yanks a navigation.
-    // Sample input: "function onLinkTarget(" opens the brace scan at depth 1.
-    var linkMark = "function onLinkTarget("
-    var linkText = Source.source("ui/PaneWire.qml")
-    var linkAt = linkText.indexOf(linkMark)
-    if (linkAt < 0)
-        throw new Error("sourcefixture: missing onLinkTarget")
-    var linkBrace = linkText.indexOf("{", linkAt)
-    var linkScan = linkBrace + 1, linkDepth = 1, linkQuote = "", linkComment = false
-    while (linkDepth > 0 && linkScan < linkText.length) {
-        var linkCh = linkText.charAt(linkScan)
-        if (linkComment) {
-            if (linkCh === "\n") linkComment = false
-        } else if (linkQuote.length > 0) {
-            if (linkCh === linkQuote) linkQuote = ""
-        } else if (linkCh === "/" && linkText.charAt(linkScan + 1) === "/") linkComment = true
-        else if (linkCh === '"' || linkCh === "'") linkQuote = linkCh
-        else if (linkCh === "{") linkDepth += 1
-        else if (linkCh === "}") linkDepth -= 1
-        linkScan += 1
+    // One brace scan serves every shipped body below; an inline copy beside it is the defect this pins.
+    // Sample input: functionBody("head function f(a) { return a } tail", "function f(") answers " return a ".
+    function functionBody(sourceText, mark) {
+        var at = sourceText.indexOf(mark)
+        if (at < 0)
+            throw new Error("sourcefixture: missing " + mark)
+        var brace = sourceText.indexOf("{", at)
+        var scan = brace + 1, depth = 1, quote = "", comment = false
+        while (depth > 0 && scan < sourceText.length) {
+            var ch = sourceText.charAt(scan)
+            if (comment) {
+                if (ch === "\n") comment = false
+            } else if (quote.length > 0) {
+                if (ch === quote) quote = ""
+            } else if (ch === "/" && sourceText.charAt(scan + 1) === "/") comment = true
+            else if (ch === '"' || ch === "'") quote = ch
+            else if (ch === "{") depth += 1
+            else if (ch === "}") depth -= 1
+            scan += 1
+        }
+        if (depth > 0)
+            throw new Error("sourcefixture: unterminated " + mark)
+        return sourceText.substring(brace + 1, scan - 1)
     }
-    if (linkDepth > 0)
-        throw new Error("sourcefixture: unterminated onLinkTarget")
+    var selfText = Source.source("tests/js/menu.js")
+    check("the brace scan lives in one helper, not three inline loops", selfText.split("Depth +=" + " 1").length - 1, 0)
+    var linkText = Source.source("ui/PaneWire.qml")
     var onLinkTarget = eval("(function (pane, path, directory, name, id) {"
-        + linkText.substring(linkBrace + 1, linkScan - 1) + "})")
+        + functionBody(linkText, "function onLinkTarget(") + "})")
     function linkPane(pending) {
         var p = {linkTargetPendingId: pending, pendingSelect: "", said: [], opened: []}
         p.message = function (text) { p.said.push(text) }
@@ -381,54 +386,14 @@ function providerRefresh(check) {
     check("and the request carries that id", paneText.indexOf("id: root.linkTargetPendingId") >= 0, true)
     check("and no pane mints an id of its own", paneText.indexOf("linkTargetPendingId += 1") < 0, true)
     // The counter never resets, so an id is never handed out twice in one process.
-    // Sample input: "function nextLinkTargetId(" opens the brace scan at depth 1.
     var backText = Source.source("ui/Backend.qml")
     check("the backend owns the linktarget counter", backText.indexOf("linkTargetSeq") >= 0, true)
     check("and nothing ever resets it", backText.indexOf("linkTargetSeq = 0") < 0, true)
-    var backAt = backText.indexOf("function nextLinkTargetId(")
-    if (backAt < 0)
-        throw new Error("sourcefixture: missing nextLinkTargetId")
-    var backBrace = backText.indexOf("{", backAt)
-    var backScan = backBrace + 1, backDepth = 1, backQuote = "", backComment = false
-    while (backDepth > 0 && backScan < backText.length) {
-        var backCh = backText.charAt(backScan)
-        if (backComment) {
-            if (backCh === "\n") backComment = false
-        } else if (backQuote.length > 0) {
-            if (backCh === backQuote) backQuote = ""
-        } else if (backCh === "/" && backText.charAt(backScan + 1) === "/") backComment = true
-        else if (backCh === '"' || backCh === "'") backQuote = backCh
-        else if (backCh === "{") backDepth += 1
-        else if (backCh === "}") backDepth -= 1
-        backScan += 1
-    }
-    if (backDepth > 0)
-        throw new Error("sourcefixture: unterminated nextLinkTargetId")
-    var nextLinkTargetId = eval("(function (root) {" + backText.substring(backBrace + 1, backScan - 1) + "})")
+    var nextLinkTargetId = eval("(function (root) {" + functionBody(backText, "function nextLinkTargetId(") + "})")
     var sharedBackend = { linkTargetSeq: 0 }
     check("the counter rises forever", nextLinkTargetId(sharedBackend) + "|" + nextLinkTargetId(sharedBackend), "1|2")
     // Both entrances send through here, so the test runs the shipped body, not a copy.
-    // Sample input: "function requestLinkTarget(" opens the brace scan at depth 1.
-    var reqAt = paneText.indexOf("function requestLinkTarget(")
-    if (reqAt < 0)
-        throw new Error("sourcefixture: missing requestLinkTarget")
-    var reqBrace = paneText.indexOf("{", reqAt)
-    var reqScan = reqBrace + 1, reqDepth = 1, reqQuote = "", reqComment = false
-    while (reqDepth > 0 && reqScan < paneText.length) {
-        var reqCh = paneText.charAt(reqScan)
-        if (reqComment) {
-            if (reqCh === "\n") reqComment = false
-        } else if (reqQuote.length > 0) {
-            if (reqCh === reqQuote) reqQuote = ""
-        } else if (reqCh === "/" && paneText.charAt(reqScan + 1) === "/") reqComment = true
-        else if (reqCh === '"' || reqCh === "'") reqQuote = reqCh
-        else if (reqCh === "{") reqDepth += 1
-        else if (reqCh === "}") reqDepth -= 1
-        reqScan += 1
-    }
-    if (reqDepth > 0)
-        throw new Error("sourcefixture: unterminated requestLinkTarget")
-    var requestLinkTarget = eval("(function (root, path) {" + paneText.substring(reqBrace + 1, reqScan - 1) + "})")
+    var requestLinkTarget = eval("(function (root, path) {" + functionBody(paneText, "function requestLinkTarget(") + "})")
     function linkRequester() {
         var stub = { linkTargetPendingId: 0, pendingSelect: "", said: [], opened: [], sent: [] }
         stub.message = function (text) { stub.said.push(text) }
@@ -443,18 +408,20 @@ function providerRefresh(check) {
     requestLinkTarget(secondPane, "/b/first")
     check("two panes sharing one backend get different ids", firstPane.linkTargetPendingId === secondPane.linkTargetPendingId, false)
     check("and each request carries its pending id", firstPane.sent[0].id === firstPane.linkTargetPendingId && secondPane.sent[0].id === secondPane.linkTargetPendingId, true)
-    requestLinkTarget(firstPane, "/a/second")
-    var staleId = firstPane.sent[1].id
+    // Exactly one request stands when the navigation lands, so a per-pane counter would hand its id out again.
+    var navPane = linkRequester()
+    requestLinkTarget(navPane, "/a/second")
+    var staleId = navPane.sent[0].id
     // A navigation drops the wait, which is what ui/js/Nav.js openWithoutHistory writes.
-    firstPane.linkTargetPendingId = 0
-    requestLinkTarget(firstPane, "/a/third")
-    var freshId = firstPane.linkTargetPendingId
+    navPane.linkTargetPendingId = 0
+    requestLinkTarget(navPane, "/a/third")
+    var freshId = navPane.linkTargetPendingId
     check("a navigation and a new request never reuse an id", staleId === freshId, false)
-    onLinkTarget(firstPane, "/a/second", "/b", "f.txt", staleId)
-    check("a reply for the older id opens nothing", firstPane.opened.length, 0)
-    check("and keeps waiting for the new one", firstPane.linkTargetPendingId, freshId)
-    onLinkTarget(firstPane, "/a/third", "/c", "g.txt", freshId)
-    check("the new reply still reveals its folder", firstPane.opened.join("|"), "/c")
+    onLinkTarget(navPane, "/a/second", "/b", "f.txt", staleId)
+    check("a reply for the older id opens nothing", navPane.opened.length, 0)
+    check("and keeps waiting for the new one", navPane.linkTargetPendingId, freshId)
+    onLinkTarget(navPane, "/a/third", "/c", "g.txt", freshId)
+    check("the new reply still reveals its folder", navPane.opened.join("|"), "/c")
     // Show original has one route out, so a raw send cannot bypass the pending id.
     var pmaText = Source.source("ui/PaneMenuActions.qml")
     check("Show original sends through requestLinkTarget", pmaText.indexOf("requestLinkTarget") >= 0, true)
