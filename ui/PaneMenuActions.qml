@@ -127,6 +127,8 @@ Loader {
     property bool activationUsed: false
     // Which row a keyboard rename was asked for, so its reply cannot open the editor over another.
     property int pendingRenameIndex: -1
+    // The pointer rename's own reveal context beside it, so a slow click never scrolls; -1 keeps the keyboard's.
+    property int pendingRenameContext: -1
     property int launchingId: 0
     // OpenWith.html's flyout: the registry for the cursor row, asked for as the menu opens so the
     // submenu is populated by the time the row is reached. The flyout writes nothing; the dialog
@@ -214,7 +216,7 @@ Loader {
         }
         open("rename")
     }
-    function open(action, menuId) {
+    function open(action, menuId, context) {
         if (opened) return
         if (action === "rename" && pane.renamePending) { pane.message("Rename is still finishing.", false); return }
         if (deleting || survivorId) { pane.message("The deletion is still finishing.", false); return }
@@ -226,7 +228,10 @@ Loader {
         }
         // The row the editor will open over, captured now: the cursor can move between this request
         // and its reply, and the editor used to open over wherever it had got to by then.
-        if (action === "rename" && !menuId) pendingRenameIndex = pane.cursorIndex
+        if (action === "rename" && !menuId) {
+            pendingRenameIndex = pane.cursorIndex
+            pendingRenameContext = context === 0 ? 0 : -1
+        }
         if (!requestId || identity !== pane.menuSelectionIdentity || (action === "rename" && !menuId))
             snapshot(action === "rename" && !menuId ? [pane.cursorIndex] : undefined)
         pendingAction = action
@@ -276,7 +281,12 @@ Loader {
     }
     function show(action) {
         pendingAction = ""
-        if (action === "rename") { Ops.startRename(pane, requestId, pendingRenameIndex); pendingRenameIndex = -1; return }
+        if (action === "rename") {
+            Ops.startRename(pane, requestId, pendingRenameIndex, pendingRenameContext === 0 ? 0 : undefined)
+            pendingRenameIndex = -1
+            pendingRenameContext = -1
+            return
+        }
         dialogFor = action
         active = true
         item.open(action, requestId, folder, pane.listArea)
