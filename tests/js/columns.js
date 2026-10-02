@@ -338,11 +338,22 @@ function runFolderHold(check) {
 // Middle click opens the drawn folder in a tab, so each column wires its own path.
 function runTabWiring(check) {
     var area = Source.source("ui/ColumnsArea.qml")
-    check("great-grandparent opens its drawn folder in a tab", area.indexOf("Tap.tappedTab(row, root.greatGrandparentPath, root.pane)") >= 0, true)
-    check("grandparent opens its drawn folder in a tab", area.indexOf("Tap.tappedTab(row, root.grandparentPath, root.pane)") >= 0, true)
-    check("parent opens its drawn folder in a tab", area.indexOf("Tap.tappedTab(row, root.parentPath, root.pane)") >= 0, true)
-    check("current opens its drawn folder in a tab", area.indexOf("Tap.tappedTab(row, root.pane.path, root.pane)") >= 0, true)
-    check("child opens its drawn folder in a tab", area.indexOf("Tap.tappedTab(row, root.shownChildPath, root.pane)") >= 0, true)
+    // Sample input: slice("id: a onTabRequested Tap.tappedTab(row, p) id: b", "id: a", "id: b").
+    var greatTab = Source.slice(area, "id: greatGrandparentLoader", "id: grandparentLoader")
+    var grandTab = Source.slice(area, "id: grandparentLoader", "id: parentColumn")
+    var parentTab = Source.slice(area, "id: parentColumn", "id: active")
+    var activeTab = Source.slice(area, "id: active", "id: childColumn")
+    var childTab = Source.slice(area, "id: childColumn", "id: preview")
+    check("great-grandparent tab stays in its own column", greatTab.split("onTabRequested").length - 1, 1)
+    check("great-grandparent opens its drawn folder in a tab", greatTab.indexOf("Tap.tappedTab(row, root.greatGrandparentPath, root.pane)") >= 0, true)
+    check("grandparent tab stays in its own column", grandTab.split("onTabRequested").length - 1, 1)
+    check("grandparent opens its drawn folder in a tab", grandTab.indexOf("Tap.tappedTab(row, root.grandparentPath, root.pane)") >= 0, true)
+    check("parent tab stays in its own column", parentTab.split("onTabRequested").length - 1, 1)
+    check("parent opens its drawn folder in a tab", parentTab.indexOf("Tap.tappedTab(row, root.parentPath, root.pane)") >= 0, true)
+    check("current tab stays in its own column", activeTab.split("onTabRequested").length - 1, 1)
+    check("current opens its drawn folder in a tab", activeTab.indexOf("Tap.tappedTab(row, root.pane.path, root.pane)") >= 0, true)
+    check("child tab stays in its own column", childTab.split("onTabRequested").length - 1, 1)
+    check("child opens its drawn folder in a tab", childTab.indexOf("Tap.tappedTab(row, root.shownChildPath, root.pane)") >= 0, true)
     check("each of the five columns answers a tab", area.split("onTabRequested").length - 1, 5)
 }
 
