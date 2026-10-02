@@ -12,6 +12,7 @@ ShellRoot {
     readonly property string dir: Quickshell.env("CW_DIR")
     readonly property string cache: Quickshell.env("CW_CACHE")
     readonly property string watchlog: Quickshell.env("CW_WATCHLOG")
+    readonly property bool swallowReply: Quickshell.env("CW_SWALLOW_REPLY") === "1"
     readonly property int pollMs: 16
     readonly property int deadlineMs: 15000
     readonly property int fixtureColumns: 3
@@ -48,6 +49,7 @@ ShellRoot {
         property int dirDev: 0
         property int seq: 0
         property var pending: []
+        property bool swallowed: false
         function peek(path, size, hidden) {}
         function askMeta(index, wantLines, wantMedia, wantArchive) {
             root.bump("meta")
@@ -61,10 +63,13 @@ ShellRoot {
             pending = []
             for (var i = 0; i < p.length; i++) {
                 var r = root.rowsList[p[i].index]
-                backend.metaResult({ token: p[i].token, w: r.w || 0, h: r.h || 0, ms: r.ms || 0, rate: 0, entries: 0,
+                var message = { token: p[i].token, w: r.w || 0, h: r.h || 0, ms: r.ms || 0, rate: 0, entries: 0,
                     unpacked: 0, afailed: false, names: [], lines: r.lines || 0, partial: false, lfailed: false,
-                    target: "", targetdir: "", owner: "", orient: 1 })
-                root.bump("replies")
+                    target: "", targetdir: "", owner: "", orient: 1 }
+                if (root.swallowReply && !swallowed && root.label === "col1") {
+                    swallowed = true
+                    root.log("SWALLOWED meta token=" + message.token)
+                } else backend.metaResult(message)
             }
         }
         function thumb(rows, cacheOnly) { root.bump("thumb", rows ? rows.length : 0) }
@@ -158,6 +163,13 @@ ShellRoot {
             id: quick
             pane: pane
             onPathChanged: if (path !== "") root.bump("qlShow")
+        }
+    }
+
+    Connections {
+        target: area.previewColumn
+        function onMetaChanged() {
+            if (area.previewColumn.meta !== null) root.bump("replies")
         }
     }
 

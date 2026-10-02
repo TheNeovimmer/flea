@@ -33,12 +33,14 @@ cache="$test_root/cache"
 config_dir="$test_root/config"
 runtime="$test_root/runtime"
 log="$test_root/colwork.log"
+swallowed_log="$test_root/swallowed.log"
 watchlog="$test_root/watch.log"
 opens="$test_root/opens.txt"
 encoderlog="$test_root/encoder.log"
 watch_deadline_s=15
 watch_poll_s=0.02
 qs_deadline_s=120
+qs_self_stop_status=143
 mkdir -p "$fx" "$cache" "$config_dir" "$test_root/home" "$runtime" "$test_root/tmp" || exit 1
 chmod 700 "$runtime" || exit 1
 ln -s "$PWD/tests/preview-colwork.qml" "$config_dir/shell.qml" || exit 1
@@ -83,14 +85,18 @@ WAIT_WATCH
 }
 wait_watch 'Watches established.' || { echo "COLWORK FAIL watcher readiness deadline (watch $watchlog)"; exit 1; }
 
-( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
-    HOME="$test_root/home" XDG_RUNTIME_DIR="$runtime" TMPDIR="$test_root/tmp" \
-    XDG_CONFIG_HOME="$test_root/home/.config" XDG_STATE_HOME="$test_root/home/.local/state" \
-    XDG_CACHE_HOME="$test_root/home/.cache" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=16 \
-    QT_FORCE_STDERR_LOGGING=1 \
-    CW_DIR="$fx" CW_CACHE="$cache" CW_WATCHLOG="$watchlog" \
-    timeout "$qs_deadline_s" qs -p "$config_dir" > "$log" 2>&1 )
+run_harness() {
+    local swallow="$1" output="$2"
+    ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+        HOME="$test_root/home" XDG_RUNTIME_DIR="$runtime" TMPDIR="$test_root/tmp" \
+        XDG_CONFIG_HOME="$test_root/home/.config" XDG_STATE_HOME="$test_root/home/.local/state" \
+        XDG_CACHE_HOME="$test_root/home/.cache" \
+        QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=16 \
+        QT_FORCE_STDERR_LOGGING=1 \
+        CW_DIR="$fx" CW_CACHE="$cache" CW_WATCHLOG="$watchlog" CW_SWALLOW_REPLY="$swallow" \
+        timeout "$qs_deadline_s" qs -p "$config_dir" > "$output" 2>&1 )
+}
+run_harness 0 "$log"
 status=$?
 watch_done=0
 wait_watch "CREATE|.mark-done" && watch_done=1
@@ -102,6 +108,19 @@ checks=0
 failed=0
 say_pass() { printf 'COLWORK PASS %s\n' "$*"; checks=$((checks + 1)); }
 say_fail() { printf 'COLWORK FAIL %s\n' "$*"; checks=$((checks + 1)); failed=$((failed + 1)); }
+
+run_harness 1 "$swallowed_log"
+swallowed_status=$?
+if [ "$swallowed_status" -eq "$qs_self_stop_status" ] \
+    && grep -aq 'COLWORK SWALLOWED meta token=' "$swallowed_log" \
+    && grep -aq 'COLWORK STEP col1 meta=1 replies=0 ' "$swallowed_log" \
+    && grep -aq 'COLWORK FAIL col1 replies got=0 want=1' "$swallowed_log" \
+    && grep -aq 'COLWORK FAIL col1 deadline waiting for work got=false want=true' "$swallowed_log" \
+    && grep -aq 'COLWORK QMLTALLY passed=' "$swallowed_log"; then
+    say_pass "swallowed metadata reply leaves meta=1 replies=0 and fails col1 at its deadline"
+else
+    say_fail "swallowed metadata reply was not detected (qs exit $swallowed_status, log $swallowed_log)"
+fi
 
 [ "$watch_done" -eq 1 ] || say_fail "done marker deadline (watch $watchlog)"
 
@@ -151,13 +170,37 @@ want_opens() {
 want_phase_only() {
     local phase="$1" want="$2" got
     # Sample input: leg|t1.png 1
-    got=$(awk -v p="$phase|" 'index($1, p) == 1 { c++ } END { print c + 0 }' "$opens")
+    got=$(grep -c -- "^$phase|" "$opens")
     if [ "$got" -eq "$want" ]; then
         say_pass "opens $phase no file besides the $want expected"
     else
         say_fail "opens $phase $got distinct file(s), want $want (watch $watchlog)"
     fi
 }
+phase_counter_cases() (
+    opens="$test_root/phase-counter.txt"
+    failed=0
+    awk_unavailable_status=127
+    # Sample input: leg|t1.png 10, ql|10-photo.jpg 1 and qlf|20-large.png 1.
+    printf '%s\n' 'leg|t1.png 10' 'leg|t2.png 1' 'legacy|t3.png 1' 'ql|10-photo.jpg 1' 'qlf|20-large.png 1' > "$opens"
+    # Counting phase prefixes must work without the column-grab tool.
+    awk() { return "$awk_unavailable_status"; }
+    say_pass() { :; }
+    say_fail() {
+        printf 'phase counter: %s\n' "$*" >&2
+        failed=$((failed + 1))
+    }
+    want_phase_only leg 2
+    want_phase_only ql 1
+    want_phase_only qlf 1
+    want_phase_only missing 0
+    [ "$failed" -eq 0 ]
+)
+if phase_counter_cases; then
+    say_pass "phase counter handles exact prefixes and an absent phase without awk"
+else
+    say_fail "phase counter requires awk or miscounts prefixes"
+fi
 # Each departing file stays closed; cached frames and ordinary Quick Look sources open once.
 want_opens leg 40-notes.txt 1
 # PDF permits one document open plus one type sniff, including the column page reader.
