@@ -69,17 +69,11 @@ Item {
             hasShebang: holder.rowHasShebang === true,
             cursorIsTarget: false,
         }
-        try {
-            if (holder.permissionSelection) {
-                var sel = holder.permissionSelection()
-                if (sel)
-                    p.rowMode = sel.p
-            }
-            if (holder.selectionCount)
-                p.selectionCount = holder.selectionCount()
-            if (holder.isSingleCursorTarget)
-                p.cursorIsTarget = holder.isSingleCursorTarget() === true
-        } catch (e) {}
+        var sel = holder.permissionSelection()
+        if (sel)
+            p.rowMode = sel.p
+        p.selectionCount = holder.selectionCount()
+        p.cursorIsTarget = holder.isSingleCursorTarget() === true
         return Menu.listingEntries(p)
     }
     function railModel() {
@@ -93,9 +87,7 @@ Item {
         root.recentAsked = true
         recentLoader.active = true
     }
-    // Enter runs the highlighted row: an action as its key would, a menu row as the menu
-    // would, a place like a rail click, a recent file like Enter on that row would, and a
-    // destructive row through the same confirm card with Cancel as default.
+    // Enter runs the highlighted row the way its own surface would.
     function activateResult() {
         var pick = root.queryResults[root.resultCursor]
         if (!pick)
@@ -105,30 +97,21 @@ Item {
         if (!holder || decided.kind === "disabled" || decided.kind === "none")
             return
         if (decided.kind === "action") {
+            var refusal = SheetQuery.listingRefusal(holder.listInFlight, decided.action)
+            if (refusal.length > 0) { holder.message(refusal, false); return }
             root.close()
             holder.act(decided.action)
             return
         }
         if (decided.kind === "menu" || decided.kind === "confirm") {
-            root.close()
-            SheetQuery.runMenu(holder, decided.menuAction)
+            SheetQuery.runMenu(holder, decided.menuAction, function () { root.close() })
             return
         }
         if (decided.kind === "place") {
-            var bar = holder.sidebar
-            var at = -1
-            if (bar) {
-                for (var i = 0; i < bar.entries.length; i++) {
-                    if (bar.entries[i].label === decided.entry.label
-                            && String(bar.entries[i].group || "") === String(decided.entry.group || "")) {
-                        at = i
-                        break
-                    }
-                }
-            }
+            var at = SheetQuery.placeIndex(holder.sidebar ? holder.sidebar.entries : [], decided)
             root.close()
-            if (bar && at >= 0)
-                bar.activate(at)
+            if (at >= 0)
+                holder.sidebar.activate(at)
             return
         }
         if (decided.kind === "recent") {
@@ -251,9 +234,8 @@ Item {
         root.recentAsked = false
         root.resultCursor = 0
         recentLoader.active = false
-        // MenuAdditions040 callout 10: one two-byte read for the cursor row, the sheet's own
-        // menu-open moment, so the query finds Make executable the way the menu shows it.
-        try { if (holder && holder.checkShebang) holder.checkShebang() } catch (e) {}
+        // MenuAdditions040 callout 10: one two-byte read for the cursor row, so Make executable reads as the menu shows.
+        holder.checkShebang()
         root.opened = true
         keys.forceActiveFocus()
     }
@@ -532,53 +514,22 @@ Item {
         anchors.fill: parent
         focus: true
 
-        // The sheet is a reference and not a mode: a typed key narrows it instead of closing it,
-        // and ? is how it comes back. Esc clears the query first, then closes on the next press.
-        // Printable keys type, arrows move, Enter runs the highlighted row, esc closes.
+        // Esc clears a standing query before it closes; every other key answers through SheetQuery.sheetKey.
         Keys.onPressed: function (event) {
-            if (event.key === Qt.Key_Escape) {
-                if (root.query.length > 0)
-                    root.query = ""
-                else
-                    root.close()
-                event.accepted = true
-                return
+            var decision = SheetQuery.sheetKey(root.query, root.queryResults.length, root.resultCursor, event.key, event.text)
+            if (decision === "clear") { root.query = "" }
+            else if (decision === "up" || decision === "down") {
+                root.resultCursor = SheetQuery.stepCursor(root.resultCursor, decision === "up" ? -1 : 1, root.queryResults.length)
             }
-            if (root.query.length > 0) {
-                if (event.key === Qt.Key_Up) {
-                    if (root.queryResults.length > 0)
-                        root.resultCursor = (root.resultCursor - 1 + root.queryResults.length) % root.queryResults.length
-                    event.accepted = true
-                    return
-                }
-                if (event.key === Qt.Key_Down) {
-                    if (root.queryResults.length > 0)
-                        root.resultCursor = (root.resultCursor + 1) % root.queryResults.length
-                    event.accepted = true
-                    return
-                }
-                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                    root.activateResult()
-                    event.accepted = true
-                    return
-                }
-            }
-            if (event.key === Qt.Key_Backspace) {
-                if (root.query.length > 0)
-                    root.query = root.query.substring(0, root.query.length - 1)
-                else
-                    root.close()
-                event.accepted = true
-                return
-            }
-            if (event.text.length === 1 && event.text >= " ") {
+            else if (decision === "activate") { root.activateResult() }
+            else if (decision === "backspace") { root.query = root.query.substring(0, root.query.length - 1) }
+            else if (decision === "type") {
                 if (root.query.length === 0)
                     root.ensureRecent()
                 root.query += event.text
-                event.accepted = true
-                return
             }
-            root.close()
+            else if (decision === "ignore") { event.accepted = true; return }
+            else { root.close() }
             event.accepted = true
         }
     }
