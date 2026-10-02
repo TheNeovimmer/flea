@@ -5121,8 +5121,9 @@ against a 41 ms worst case that was measured at 40 ms twice in twenty runs.
 LINES, not rows, so an implementation that swept a whole directory in one `thumb` naming every row
 would score one request and satisfy every count assertion. `tests/ui.sh thumbs` therefore asserts
 what `~/.cache/thumbnails/large` grew by against a viewport-derived bound, the requests issued
-times `pane.visibleRows`, which the read-only seam reports as `visibleRows()`. Every request names
-a subset of one viewport, so the rows generated cannot exceed a screenful a request, and a clean
+times `pane.visibleRows`, which the read-only seam reports as `visibleRows()`. Every listing request
+names a subset of one viewport (Quick Look's cacheOnly next-row ask above never decodes, so it
+generates nothing this bound counts), so the rows generated cannot exceed a screenful a request, and a clean
 run sits exactly ON that bound rather than under it. The WINDOW's own height over the row pitch was
 tried first and rejected: it exceeds the list's by the header and the status bar, and one request
 can never generate more than `MAX_QUEUE` plus the worker count, 74 rows, however large the
