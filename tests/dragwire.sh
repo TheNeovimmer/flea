@@ -106,5 +106,30 @@ else
     printf '%s\n' "${outside:-none}" | sed 's/^/     /'
 fi
 
+# The shortened bound, and the fewest stub calls that show the wait kept polling.
+short_wait_ns=300000000
+min_poll_calls=2
+# Sample input: "xwdrag_wait_row_gone() {", the ui.sh wait run with only its 10 s bound cut to short_wait_ns.
+eval "$(sed -n '/^xwdrag_wait_row_gone()/,/^}/p' tests/ui.sh | sed "s/wait_ns=[0-9][0-9]*/wait_ns=$short_wait_ns/")"
+# A stub qs that fails every call, so the wait must keep polling to the bound.
+xwdrag_qs() {
+    printf 'call\n' >&3
+    return 255
+}
+calls=$(
+    {
+        xwdrag_wait_row_gone stub-id "move.txt" >/dev/null 2>&1
+        printf 'rc=%s\n' "$?"
+    } 3>&1
+)
+wait_rc=$(printf '%s\n' "$calls" | sed -n 's/^rc=//p')
+poll_calls=$(printf '%s\n' "$calls" | grep -c '^call$')
+# A wait that saw no row and no total answers 1 only after polling for it.
+if [ "$wait_rc" -eq 1 ] && [ "$poll_calls" -ge "$min_poll_calls" ]; then
+    ok "a failing total call keeps waiting and answers 1 at the bound"
+else
+    bad "a failing total call must wait and answer 1, got rc=$wait_rc calls=$poll_calls"
+fi
+
 printf 'dragwire: %s check(s), %s failed\n' "$((pass + fail))" "$fail"
 [ "$fail" -eq 0 ]

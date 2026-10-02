@@ -1916,7 +1916,7 @@ drive_preview_key() {
       before=$(ipc cursor)
       k "$@"; settle
       after=$(ipc cursor)
-      changed_to "preview follows cursor" "$before" "$after" "$((before + ($([[ "$action" == cursorDown ]] && printf 1 || printf -1))))" ;;
+      changed_to "preview follows cursor" "$before" "$after" "$((before + ($([[ "$action" == cursorDown ]] && printf 1 || printf -- -1))))" ;;
     *) WHY="$DRIVE_CONTEXT $action requires a focused native control assertion"; return 2 ;;
   esac
 }
