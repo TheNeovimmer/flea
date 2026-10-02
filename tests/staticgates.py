@@ -121,15 +121,25 @@ def masked(source, suffix):
         lines = text.splitlines(keepends=True)
         originals = source.splitlines(keepends=True)
         until = None
+        arithmetic_depth = 0
         for n, line in enumerate(originals):
             if until is not None:
                 lines[n] = re.sub(r'[^\n]', '~', line)
                 if line.strip() == until:
                     until = None
             else:
-                match = re.search(r'<<-?\s*[\'"]?(\w+)[\'"]?', line)
-                if match and '<<<' not in line:
-                    until = match[1]
+                # Sample input: (( a << 2 )); cat <<'EOF' opens a heredoc only at the second <<.
+                for token in re.finditer(r'\(\(|[()]|(?<!<)<<-?(?!<)', lines[n]):
+                    if token[0] == '((':
+                        arithmetic_depth += len(token[0])
+                    elif arithmetic_depth:
+                        arithmetic_depth += (token[0] == '(') - (token[0] == ')')
+                    elif token[0].startswith('<<'):
+                        # Sample input: <<'EOF' reads its delimiter from the original opener position.
+                        match = re.match(r'<<-?[ \t]*[\'"]?(\w+)[\'"]?', line[token.start():])
+                        if match:
+                            until = match[1]
+                            break
         text = ''.join(lines)
     return text
 

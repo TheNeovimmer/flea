@@ -201,6 +201,36 @@ class StaticGateTests(unittest.TestCase):
                 self.assertEqual(gates.fused_line(self.root, ['sample.sh']),
                                  (1, ['sample.sh:1: fused code gap (4 spaces)']))
 
+    def test_F15_shell_non_heredoc_openers_do_not_hide_code(self):
+        for opener in ('echo "<<EOF"', '# <<EOF', '(( a << 2 ))', 'x=$(( a << 2 ))', 'cat <<<EOF'):
+            with self.subTest(opener=opener):
+                file = self.write('sample.sh', opener + '\nx    y\n')
+                syntax = subprocess.run(['/bin/bash', '-n', str(file)], capture_output=True, text=True)
+                self.assertEqual(syntax.returncode, 0, syntax.stderr)
+                self.assertEqual(gates.fused_line(self.root, ['sample.sh']),
+                                 (1, ['sample.sh:2: fused code gap (4 spaces)']))
+
+    def test_F15_shell_nested_and_multiline_arithmetic_keeps_code_visible(self):
+        for arithmetic in ('(( (a + 1) << 2 ))', 'x=$(( (a + 1) << 2 ))',
+                           '((\n a << 2\n))', 'x=$((\n a << 2\n))'):
+            with self.subTest(arithmetic=arithmetic):
+                source = arithmetic + '\nx    y\n'
+                file = self.write('sample.sh', source)
+                syntax = subprocess.run(['/bin/bash', '-n', str(file)], capture_output=True, text=True)
+                self.assertEqual(syntax.returncode, 0, syntax.stderr)
+                self.assertEqual(gates.fused_line(self.root, ['sample.sh']),
+                                 (1, [f'sample.sh:{source.count(chr(10))}: fused code gap (4 spaces)']))
+
+    def test_F15_shell_real_heredoc_masks_only_its_body(self):
+        for opener in ('cat <<EOF', "cat <<'EOF'", 'cat <<"EOF"', 'cat <<-EOF', "cat <<<EOF <<'EOF'",
+                       "(( a << 2 )); cat <<'EOF'"):
+            with self.subTest(opener=opener):
+                file = self.write('sample.sh', opener + '\nx    y\nEOF\nx    y\n')
+                syntax = subprocess.run(['/bin/bash', '-n', str(file)], capture_output=True, text=True)
+                self.assertEqual(syntax.returncode, 0, syntax.stderr)
+                self.assertEqual(gates.fused_line(self.root, ['sample.sh']),
+                                 (1, ['sample.sh:4: fused code gap (4 spaces)']))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
