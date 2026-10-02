@@ -5327,7 +5327,7 @@ case_columnresize() {
     IFS='|' read -r trace_start trace_last trace_width trace_preview <<< "$trace"
     # headerDragTrace carries QML reals (Header.qml dragStartX, dragLastX), which bash arithmetic cannot compare.
     python3 - "$trace_start" "$trace_last" "$before_w" "$grown_w" "$trace_preview" "$injected" "$col_travel_tol_px" "$col_grown_tol_px" <<'PYEOF' \
-        || fail "columnresize: the header did not follow the pointer as the app saw it, trace=$trace before=$before_w grown=$grown_w"
+        || fail "columnresize: the header did not follow the pointer as the app saw it, trace=$trace before=$before_w grown=$grown_w expected-start=$cell_x expected-last=$(( cell_x - injected ))"
 import sys
 start, last, before, grown, preview, injected, travel_tol, grown_tol = [float(v) for v in sys.argv[1:9]]
 if not last < start:
