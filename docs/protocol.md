@@ -698,7 +698,8 @@ Example: `{"c":"trash","rows":[4,9]}`
 
 `rows` is the same alternative to `paths` that `transfer` documents above, resolved the same way.
 
-Moves each path to the freedesktop trash by running `gio trash`, and answers one `trashed` line.
+Moves each path to the freedesktop trash by running `gio trash` under a 10 s deadline, and answers
+one `trashed` line.
 **Nothing about the freedesktop trash specification is implemented in this codebase**, only an argv and
 a result: `gio` already handles the same-filesystem-move-versus-copy question, the `.trashinfo`
 metadata, and the per-mount `.Trash-$uid` fallback for a volume with no home-relative trash.
@@ -808,6 +809,18 @@ The three booleans are the client's own hints, taken from the classification it 
 asks for a line count, `media` for a duration and sample rate, `archive` for the index. Each costs
 something, so none is inferred here. A file whose header parses as an image is never counted for
 lines whatever `text` says, because the newlines in a bitmap are a number nothing should be shown.
+
+### pdfcopy
+
+`{"c":"pdfcopy","id":<uint>,"path":"<string>"}`
+
+Example: `{"c":"pdfcopy","id":3,"path":"/run/media/gm/128GB/doc.pdf"}`
+
+Fetches one PDF the preview actually opened into a session-private copy under an 8 s deadline, and
+answers one `pdfcopied` line: `{"t":"pdfcopied","id":3,"path":"<local copy>"}` on success, or
+`{"t":"pdfcopied","id":3,"err":"that file is not responding"}` when the wait runs out. `err` rides
+only on a failure. The copy runs beside the loop, so a dead mount costs the viewer a sentence and
+never the window; a stale reply is dropped by its `id`, the way a superseded listing's result is.
 
 ### undo
 
@@ -1259,9 +1272,12 @@ the background` for a copy onto an rclone mount, and is empty otherwise.
 
 Example: `{"t":"trashed","ok":1,"failed":0}`
 
-Counts only. Unlike `transferitem` there is no per-path error text, because trash is one `gio` call for
+Counts, plus the batch's own reason when anything failed: `{"t":"trashed","ok":0,"failed":1,"err":"<string>"}`.
+Unlike `transferitem` there is no per-path error text, because trash is one `gio` call for
 the batch and its exit status cannot attribute a failure to a single path; a path that is still on disk
-afterwards is counted in `failed`.
+afterwards is counted in `failed`. `err` rides only on a failure, so a successful line is byte-identical
+to before. `gio` runs under a 10 s deadline, so a hung mount answers "Trash took too long to answer"
+instead of holding the single operation slot.
 
 ### renamed
 

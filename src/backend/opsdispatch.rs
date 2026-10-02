@@ -261,7 +261,7 @@ pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<
                 let mut replaced: Vec<super::trash::Entry> = Vec::new();
                 if replace {
                     match super::trash::trash(std::slice::from_ref(&to)) {
-                        (trashed, 0) => replaced = trashed,
+                        (trashed, 0, _) => replaced = trashed,
                         _ => {
                             failed += 1;
                             if first_err.is_empty() { first_err = super::collide::TRASH_REFUSED.to_string(); }
@@ -431,10 +431,10 @@ pub(crate) fn report_op(out: &mut impl Write, ops: &mut Ops, msg: OpMsg) {
             ops.transfer_retry = (id, retry);
             writeln!(out, "{}", transferdone_line(id, ok, failed, skipped, cancelled, &ops.transfer_retry.1, durable, &note)).ok();
         }
-        OpMsg::Trashed { ok, failed, entry } => {
+        OpMsg::Trashed { ok, failed, entry, reason } => {
             ops.journal.push(entry);
             ops.live.finished();
-            writeln!(out, "{}", trashed_line(ok, failed)).ok();
+            writeln!(out, "{}", trashed_line(ok, failed, &reason)).ok();
         }
         OpMsg::Asked { turn, question, line } => if super::collide::landed(ops, turn, question) { writeln!(out, "{}", line).ok(); },
         // Meta never claims the operation slot, so it does not clear it either.
@@ -655,7 +655,7 @@ mod tests {
         report_op(
             &mut buf,
             &mut o,
-            OpMsg::Trashed { ok: 1, failed: 0, entry: Entry { op: "trash".to_string(), steps: vec![Step::Created { path: "/x".into() }] } },
+            OpMsg::Trashed { ok: 1, failed: 0, entry: Entry { op: "trash".to_string(), steps: vec![Step::Created { path: "/x".into() }] }, reason: String::new() },
         );
         assert!(o.live.running().is_none(), "the cap would otherwise refuse every operation for the rest of the session");
         assert_eq!(o.journal.len(), 1);

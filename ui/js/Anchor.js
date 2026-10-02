@@ -41,6 +41,40 @@ function afterDelete(pane, landed) {
     return anchoredRefresh(pane, true)
 }
 
+// A listing past its wait stops loading the pane: the next navigation starts clean, and the
+// late rows, if they ever land, are dropped by the swap as a listing already replaced.
+function clearWaiting(pane) {
+    if (pane.listingState === "waiting") {
+        pane.listInFlight = false
+        pane.listingState = "loading"
+        pane.stateMessage = ""
+        return true
+    }
+    return false
+}
+
+// Which row a full target path names: the backend lists the name it stored, so an NFC name on
+// hfsplus matches the NFD row it actually listed rather than missing it by bytes.
+function selectMatch(rows, target, folder) {
+    var leaf = target.substring(folder.length === 1 ? 1 : folder.length + 1)
+    var want = typeof leaf.normalize === "function" ? leaf.normalize("NFC") : leaf
+    for (var i = 0; i < rows.length; i++) {
+        var name = String(rows[i].n || "")
+        if (name === leaf)
+            return i
+        var norm = typeof name.normalize === "function" ? name.normalize("NFC") : name
+        if (norm === want)
+            return i
+    }
+    return -1
+}
+
+// The cursor index for a full target path, or -1 when the listing holds no such row.
+function matchListed(pane, target) {
+    var at = selectMatch(pane.rows, target, pane.path)
+    return at >= 0 ? pane.held + at : -1
+}
+
 // A rename commit keeps the row the operator was on: the pointer's row for a click-away,
 // the renamed row for Enter (the cursor still sits on the source, so that leaf maps to dest).
 function pointerRow(pane, request) {

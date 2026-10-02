@@ -55,3 +55,15 @@ function newTabPath(state, here, home) {
 function orHome(path, home) {
     return path && String(path).length > 0 ? String(path) : home
 }
+
+// How long a restored folder waits for its first listing before the first window stops loading:
+// past it the pane shows the waiting state with Home reachable instead of loading forever.
+var LISTING_WAIT_MS = 10000
+
+// What the first window draws while its restored folder answers: "ready" once rows land,
+// "loading" while the wait still runs, "waiting" once it has run out.
+function listingStateFor(landed, elapsedMs) {
+    if (landed === true)
+        return "ready"
+    return elapsedMs >= LISTING_WAIT_MS ? "waiting" : "loading"
+}

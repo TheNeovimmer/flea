@@ -16,6 +16,9 @@ Item {
 
     signal opened(string path)
     signal message(string text, bool isError)
+    // An eject is about to release this mountpoint: readers on it stop first, so no
+    // Flea thumbnail, size walk or preview holds the unmount busy (#232).
+    signal quiesce(string path)
     // The verdict this surface last posted, so a newer one replaces it and nothing else.
     signal forgetMessage(string text)
     property string _lastVerdict: ""
@@ -41,6 +44,14 @@ Item {
     property string _pendingOpenLabel: ""
     // The volume an unmount was asked for, so its refusal can name it.
     property string _unmountLabel: ""
+    // A power-off in flight: the disk to stop once its volumes are unmounted, and the
+    // device nodes still to unmount ahead of it. Empty while no power-off runs.
+    property string _powerOffDisk: ""
+    property var _powerOffQueue: []
+    // gio's own stderr per action, so a refusal names its cause instead of a guess.
+    property string _mountErr: ""
+    property string _unmountErr: ""
+    property string _ejectErr: ""
     // The device whose eject awaits its verdict, "" when none. The listing taken after gio exits is
     // the only witness: gio's own exit code has been 0 over a volume that was still mounted.
     property string _ejectDevice: ""
@@ -114,7 +125,8 @@ Item {
             var r = rows[i]
             var label = r.kind === "disk" ? root.hostLabel(r.label) : r.label
             out.push({ path: r.path, label: label, group: "device", kind: r.kind,
-                       device: r.device, mounted: r.mounted, removable: r.removable, size: r.size,
+                       device: r.device, mounted: r.mounted, removable: r.removable,
+                       mediaRemovable: r.mediaRemovable === true, size: r.size,
                        volumeMenu: r.volumeMenu === true, glyph: "drive" })
         }
         // Same rule as ui/NetworkMounts.qml's: an unchanged poll assigns nothing, see Mounts.sameEntries.
@@ -153,13 +165,15 @@ Item {
     }
 
     function mountVolume(e) {
-        if (mountProcess.running)
+        if (mountProcess.running) {
+            root.message("Another device is still mounting; wait for its result.", false)
             return
+        }
         root._pendingOpenDevice = e.device
         root._pendingOpenLabel = e.label
+        root._mountErr = ""
         mountProcess.command = ["gio", "mount", "-d", e.device]
         mountProcess.running = true
-        mountTimeout.restart()
     }
 
     // RailAdditions rule 2's Unmount, which is not Eject: a fixed disk stays where it is and only
@@ -170,8 +184,16 @@ Item {
         if (!e || e.kind !== "volume" || !e.mounted || unmountProcess.running)
             return
         root._unmountLabel = e.label
+        root._unmountErr = ""
         unmountProcess.command = ["gio", "mount", "-u", e.path]
         unmountProcess.running = true
+    }
+
+    // One eject in flight at a time; the verdict timeout below ends the wait it starts.
+    function armEject(e) {
+        root._ejectDevice = e.device
+        root._ejectLabel = e.label
+        root._verdictFromListing = 0
     }
 
     // Eject goes through the mount point. gio mount dispatches on --device before it ever reads
@@ -186,13 +208,44 @@ Item {
             root.message("Still ejecting " + root._ejectLabel + "; wait for its result.", false)
             return
         }
-        root._ejectDevice = e.device
-        root._ejectLabel = e.label
-        root._verdictFromListing = 0
+        // A USB disk that is not media-removable (a USB HDD or SSD bridge) is powered off
+        // instead: ejecting its media re-announces the disk and udiskie remounts it at once.
+        var disk = Devices.powerOffDisk(e.device)
+        if (disk.length > 0 && e.mediaRemovable !== true) {
+            root.powerOff(e, disk)
+            return
+        }
+        root.armEject(e)
+        root._ejectErr = ""
         ejectProcess.command = ["gio", "mount", "-e", e.path]
         ejectProcess.running = true
         // Replaces the arm prompt, and a stick mid-flush can take a while to come unmounted.
         root.message("Ejecting " + e.label + ", do not unplug it yet.", false)
+    }
+
+    // Unmount every volume on the disk, then stop the drive itself, so nothing is left
+    // for udiskie to remount. Flea's own readers leave first, through quiesce.
+    function powerOff(e, disk) {
+        root.quiesce(e.path)
+        root.armEject(e)
+        root._powerOffDisk = disk
+        root._powerOffQueue = Devices.powerOffQueue(root.entries, disk)
+        root.message("Ejecting " + e.label + ", do not unplug it yet.", false)
+        root.powerOffNext()
+    }
+
+    function powerOffNext() {
+        if (root._powerOffQueue.length === 0) {
+            root._ejectErr = ""
+            ejectProcess.command = ["gio", "mount", "-t", root._powerOffDisk]
+            ejectProcess.running = true
+            return
+        }
+        var device = root._powerOffQueue[0]
+        root._powerOffQueue = root._powerOffQueue.slice(1)
+        root._unmountErr = ""
+        unmountProcess.command = ["gio", "mount", "-u", Devices.mountpointOf(root.entries, device)]
+        unmountProcess.running = true
     }
 
     // Nothing is judged while gio still runs, and only a listing started after it exited counts.
@@ -281,30 +334,71 @@ Item {
 
     Process {
         id: mountProcess
+        stderr: StdioCollector { onStreamFinished: root._mountErr = this.text }
         onExited: function (exitCode) {
-            if (exitCode === 0) {
+            // The wait starts here, not at launch: an admin polkit prompt longer than the
+            // wait is a slow prompt, not a mount that never reported a folder to open.
+            if (Devices.mountTimerStart(exitCode)) {
+                mountTimeout.restart()
+                root.poll()
+                return
+            }
+            var label = root._pendingOpenLabel
+            var sentence = Devices.mountError("mount", exitCode, root._mountErr, label)
+            // "" names the already-mounted refusal, so the poll below opens it like a success.
+            if (sentence.length === 0 && label.length > 0) {
+                mountTimeout.restart()
                 root.poll()
                 return
             }
             mountTimeout.stop()
             root._pendingOpenDevice = ""
-            root.message(root._pendingOpenLabel + " could not be mounted.", true)
+            root.message(sentence.length > 0 ? sentence : label + " could not be mounted.", true)
         }
     }
 
     Process {
         id: unmountProcess
+        stderr: StdioCollector { onStreamFinished: root._unmountErr = this.text }
         onExited: function (exitCode) {
+            // A power-off unmounts each volume first; a refusal stops the chain instead of
+            // powering off under a volume that is still mounted.
+            if (root._powerOffDisk.length > 0) {
+                if (exitCode !== 0) {
+                    root._powerOffDisk = ""
+                    root._powerOffQueue = []
+                    root._ejectDevice = ""
+                    root.message(Devices.mountError("unmount", exitCode, root._unmountErr, root._ejectLabel), true)
+                } else {
+                    root.powerOffNext()
+                }
+                root.poll()
+                return
+            }
             if (exitCode !== 0)
-                root.message(root._unmountLabel + " could not be unmounted; something is still using it.", true)
+                root.message(Devices.mountError("unmount", exitCode, root._unmountErr, root._unmountLabel), true)
             root.poll()
         }
     }
 
     Process {
         id: ejectProcess
-        // The exit code is not read on purpose: the verdict is the listing that follows, see judgeEject.
-        onExited: {
+        stderr: StdioCollector { onStreamFinished: root._ejectErr = this.text }
+        onExited: function (exitCode) {
+            // A refused stop says so at once; a stop that ran is judged on the listing that
+            // follows, because gio has exited 0 over a volume that was still mounted.
+            if (exitCode !== 0 && root._powerOffDisk.length > 0) {
+                var sentence = Devices.mountError("eject", exitCode, root._ejectErr, root._ejectLabel)
+                root._powerOffDisk = ""
+                root._powerOffQueue = []
+                root._ejectDevice = ""
+                ejectVerdictTimeout.stop()
+                root.message(sentence.length > 0 ? sentence : root._ejectLabel + " could not be ejected.", true)
+                root.poll()
+                return
+            }
+            if (root._powerOffDisk.length > 0)
+                root._powerOffDisk = ""
             root._verdictFromListing = root._listingsStarted + 1
             ejectVerdictTimeout.restart()
             root.poll()

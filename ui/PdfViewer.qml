@@ -283,7 +283,7 @@ Item {
         Text {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
-            text: "This file could not be read."
+            text: pdf.failSentence
             color: Theme.color.foreground
             font.family: Theme.font.family
             font.pixelSize: Theme.font.caption

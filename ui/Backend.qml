@@ -45,7 +45,7 @@ Item {
     signal linked(int ok, int failed, int skipped)
     // MenuAdditions040: Show original reveals the link's target in its own folder.
     signal linkTarget(string path, string directory, string name)
-    signal trashed(int ok, int failed)
+    signal trashed(int ok, int failed, string reason)
     signal renamed(bool ok, string path)
     signal made(bool ok, string path)
     signal duplicated(bool ok, string path)
@@ -62,6 +62,8 @@ Item {
     signal metaResult(var message)
     property int metaToken: 0
     signal meta(int row, int w, int h, int orient, real durationMs, int sampleRate, int entries, real unpacked, bool archiveFailed, var names, real lines, bool partial, bool linesFailed, string target, bool targetDir, string owner)
+    // A PDF fetched into a session-private copy under a deadline; err names the wait or the refusal.
+    signal pdfCopied(int id, string path, string err)
     signal fsInfo(string fs, real free, string path, string storageClass)
     // The one line no request asked for: the directory the current listing came from changed under
     // it. path is that directory, so a pane that has since moved can ignore it; see docs/protocol.md.
@@ -255,6 +257,11 @@ Item {
     // One row, only when a surface asks: the same no-sweep rule thumb and dirsize already follow.
     // media and archive each cost a subprocess in the backend, so each is only ever true for a row
     // whose kind actually names the facts it would answer.
+    // One document, only when a surface asks: the same no-sweep rule thumb and dirsize follow.
+    function pdfCopy(id, path) {
+        root.send({ c: "pdfcopy", id: id, path: path })
+    }
+
     function askMeta(row, text, media, archive) {
         root.metaToken += 1
         root.send({ c: "meta", row: row, text: text, media: media, archive: archive, token: root.metaToken })
@@ -315,6 +322,12 @@ Item {
             return
         }
         root.send({ c: "thumbcancel", rows: rows })
+    }
+
+    // An eject releases the volume, so queued thumbnail and size work stops before the unmount.
+    function quiesce() {
+        root.send({ c: "thumbcancel", rows: [] })
+        root.send({ c: "dirsizecancel" })
     }
 
     function dirsize(rows) {

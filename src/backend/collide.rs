@@ -279,7 +279,7 @@ pub fn already_there(src: &Path, name: &str, dst: &Path, dest_real: &Path) -> bo
 
 // Replace is Trash and then the transfer, journaled as one entry: undo removes the new item, then restores the old.
 pub fn replacing(dst: &Path, steps: &mut Vec<Step>, land: impl FnOnce(&mut Vec<Step>) -> Result<(), FleaError>) -> Result<(), FleaError> {
-    let (mut entries, failed) = trash::trash(&[dst.to_path_buf()]);
+    let (mut entries, failed, _) = trash::trash(&[dst.to_path_buf()]);
     if failed != 0 || entries.len() != 1 {
         return Err(FleaError { where_: "transfer".into(), path: dst.to_string_lossy().into(), msg: TRASH_REFUSED.into() });
     }

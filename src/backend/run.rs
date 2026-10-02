@@ -341,6 +341,9 @@ fn handle_line(
             let (info, class) = fsinfo.answer(&st.base);
             say(out, &fsinfo_line(&info, &st.base.to_string_lossy(), class));
         }
+        Request::PdfCopy { id, path } => {
+            super::pdfcopy::spawn(id, PathBuf::from(&path), ops.tx.clone());
+        }
         // One row, only when a client asked: the same no-sweep rule thumb and dirsize already follow.
         Request::Meta { row, text, media, archive, token } => {
             if row < st.listing.len() {

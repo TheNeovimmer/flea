@@ -1,4 +1,5 @@
 .import "../../ui/js/Startup.js" as Startup
+.import "../../ui/js/FavGuard.js" as FavGuard
 
 // Settings > View > Opening, which decides where a window opens and where a new tab opens. Before
 // 0.2.1 a window always opened on $HOME unless the command line named a path, and a new tab always
@@ -80,4 +81,17 @@ function run(check) {
           pair(null, "/home/gm/Pictures", "/tmp/asked"), "/tmp/asked | /tmp/asked @0")
     check("a saved pair of the wrong length is no pair",
           pair({ paths: ["/home/gm/Music"], focus: 1 }, "/home/gm/Pictures", "/tmp/asked"), "/tmp/asked | /tmp/asked @0")
+
+    // Defect 26: restoring the last folder has a listing deadline past which Home stays reachable.
+    check("the restore waits this long for its listing", Startup.LISTING_WAIT_MS, 10000)
+    check("a landed listing is ready whatever the clock says", Startup.listingStateFor(true, 0), "ready")
+    check("a listing still out inside the wait is loading", Startup.listingStateFor(false, 9999), "loading")
+    check("a listing still out at the wait is not responding", Startup.listingStateFor(false, 10000), "waiting")
+    check("a listing still out past the wait stays waiting", Startup.listingStateFor(false, 60000), "waiting")
+
+    // Defect 25: the favourite inspector always clears its guard, a dead mount included.
+    check("the inspector waits this long for its answer", FavGuard.INSPECT_WAIT_MS, 10000)
+    check("an answer inside the wait keeps the guard honest", FavGuard.expired(0, 9999), false)
+    check("no answer at the wait clears the guard", FavGuard.expired(0, 10000), true)
+    check("no answer past the wait stays cleared", FavGuard.expired(5000, 60000), true)
 }

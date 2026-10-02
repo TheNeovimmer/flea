@@ -271,4 +271,21 @@ function run(check) {
     check("an unmounted partition names its mounted crypt child", Eject.blockers(crypt, "/dev/sda1").join(","), "vault")
     check("a vanished device names nothing", Eject.blockers(gone, "/dev/sda1").join(","), "")
     check("garbage names nothing", Eject.blockers("not json", "/dev/sda1").join(","), "")
+
+    // Defect 7: the mount wait starts when gio exits 0, never at launch, so a slow polkit
+    // prompt is a slow prompt and not a mount that never reported a folder to open.
+    check("an exited gio starts the wait", Devices.mountTimerStart(0), true)
+    check("a refused gio never starts it", Devices.mountTimerStart(1), false)
+    check("a killed gio never starts it", Devices.mountTimerStart(137), false)
+
+    // Defect 9: a power-off unmounts every mounted volume on the disk before stopping it.
+    var vols = [{ kind: "volume", device: "/dev/sda1", path: "/run/media/u/a", mounted: true },
+                { kind: "volume", device: "/dev/sda2", path: "/run/media/u/b", mounted: true },
+                { kind: "volume", device: "/dev/sdb1", path: "/run/media/u/c", mounted: true },
+                { kind: "volume", device: "/dev/sda3", path: "", mounted: false }]
+    check("both mounted volumes on the disk queue", Devices.powerOffQueue(vols, "/dev/sda").join(","), "/dev/sda1,/dev/sda2")
+    check("the other disk queues nothing", Devices.powerOffQueue(vols, "/dev/sdb").join(","), "/dev/sdb1")
+    check("no entries queue nothing", Devices.powerOffQueue(null, "/dev/sda").join(","), "")
+    check("a mountpoint comes from the last listing", Devices.mountpointOf(vols, "/dev/sda2"), "/run/media/u/b")
+    check("an unlisted device has no mountpoint", Devices.mountpointOf(vols, "/dev/sdz9"), "")
 }

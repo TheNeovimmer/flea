@@ -48,7 +48,7 @@ function route(root, message) {
     } else if (message.t === "linktarget") {
         root.linkTarget(message.path || "", message.directory || "", message.name || "")
     } else if (message.t === "trashed") {
-        root.trashed(message.ok, message.failed)
+        root.trashed(message.ok, message.failed, message.err || "")
     } else if (message.t === "renamed") {
         root.renamed(message.ok, message.path)
     } else if (message.t === "made") {
@@ -73,6 +73,8 @@ function route(root, message) {
         root.pickerResult(message)
     } else if (message.t === "menuaction") {
         root.menuResult(message)
+    } else if (message.t === "pdfcopied") {
+        root.pdfCopied(message.id || 0, message.path || "", message.err || "")
     } else if (message.t === "meta") {
         root.metaResult(message)
         root.meta(message.row, message.w, message.h, message.orient || 1, message.ms, message.rate, message.entries, message.unpacked, message.afailed, message.names, message.lines, message.partial, message.lfailed === true, message.target, message.targetdir, message.owner || "")

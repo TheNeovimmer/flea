@@ -1,4 +1,5 @@
 .import "../../ui/js/Nav.js" as Nav
+.import "../../ui/js/Anchor.js" as Anchor
 .import "../../ui/js/SlowClick.js" as SlowClick
 
 // Nav.js had no suite at all, so nothing loaded it outside the running app and a broken .import in
@@ -320,4 +321,30 @@ function run(check) {
           lockedUp("/home/gm/Downloads", "/root"), "/ /root")
     check("up from a Locked tile of a bookmark with a trailing slash trims it first",
           lockedUp("/home/gm/Downloads", "/root/"), "/ /root")
+
+    // Defect 30: a new item is selected by the name the backend lists, so an NFC name on
+    // hfsplus finds the NFD row it actually listed rather than missing it by bytes.
+    var nfc = "Café"
+    var nfd = nfc.normalize("NFD")
+    check("the fixture really has two spellings", nfc === nfd, false)
+    check("an exact row still matches first", Anchor.selectMatch([{ n: "a.txt" }, { n: "b.txt" }], "/d/b.txt", "/d"), 1)
+    check("an NFC target finds its NFD row", Anchor.selectMatch([{ n: nfd }, { n: "other" }], "/d/" + nfc, "/d"), 0)
+    check("an NFD target finds its NFC row", Anchor.selectMatch([{ n: nfc }], "/d/" + nfd, "/d"), 0)
+    check("a name that is nowhere matches nothing", Anchor.selectMatch([{ n: "a.txt" }], "/d/nope.txt", "/d"), -1)
+    check("a target outside the folder matches nothing", Anchor.selectMatch([{ n: "a.txt" }], "/elsewhere/a.txt", "/d"), -1)
+
+    // Defect 26: past the wait a navigation starts clean instead of refusing forever.
+    function waitingPane() {
+        return { listInFlight: true, listingState: "waiting", stateMessage: "stale", path: "/mnt/dead",
+                 history: [], said: [], message: function (t) { this.said.push(t) },
+                 openWithoutHistory: function () {} }
+    }
+    var waiting = waitingPane()
+    check("clearing a waiting pane ends its flight", Anchor.clearWaiting(waiting), true)
+    check("its flight flag is gone", waiting.listInFlight, false)
+    check("its state is loading again", waiting.listingState, "loading")
+    check("its stale sentence is gone", waiting.stateMessage, "")
+    var settled = { listInFlight: true, listingState: "loading", stateMessage: "" }
+    check("a loading pane is left alone", Anchor.clearWaiting(settled), false)
+    check("and keeps its flight", settled.listInFlight, true)
 }

@@ -102,12 +102,15 @@ function retrySelectionLine(matches) {
 }
 
 // The canvas draws this one verbatim: "Moved 4 items to Trash · z undoes".
-function trashed(ok, failed) {
+// A failure names its reason, so a hung mount or a denial reads as what happened rather than silence.
+function trashed(ok, failed, reason) {
+    var why = String(reason || "")
     if (ok === 0)
-        return failed === 1 ? "That item could not be moved to Trash." : items(failed) + " could not be moved to Trash."
+        return failed === 1 ? "That item could not be moved to Trash" + (why.length > 0 ? ": " + why + "." : ".")
+                            : items(failed) + " could not be moved to Trash" + (why.length > 0 ? ": " + why + "." : ".")
     var line = "Moved " + items(ok) + " to Trash"
     if (failed > 0)
-        line += ", " + Format.count(failed) + " failed"
+        line += ", " + Format.count(failed) + " failed" + (why.length > 0 ? ": " + why : "")
     return line + Status.UNDO_HINT
 }
 

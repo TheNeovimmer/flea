@@ -102,7 +102,7 @@ function lookup(event, root) {
         return row && (row.d || (Format.isSymlink(row.p) && row.i === "folder")) ? "open" : (row ? "preview" : "")
     }
     // The key follows the row: where gio has no Trash the refusal names trashRefused, never arming a d that can only fail.
-    if ((action === "trashArm" || action === "trash") && !Mounts.trashable(root.path))
+    if ((action === "trashArm" || action === "trash") && !Mounts.trashable(root.path, !root.backend || root.backend.dirWritable !== false))
         return "trashRefused"
     // reveal only means something on a search result or a recent row, so o is discarded everywhere else.
     if (action === "reveal" && root.searchMode !== Search.RESULTS && root.recentMode !== RecentMode.RESULTS)

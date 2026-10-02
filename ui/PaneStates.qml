@@ -39,7 +39,7 @@ Item {
         y: root.pane.listSlot.y
         width: root.pane.listSlot.width
         height: root.pane.listSlot.height
-        visible: !root.trashOpen && root.pane.listingState === "loading"
+        visible: !root.trashOpen && (root.pane.listingState === "loading" || root.pane.listingState === "waiting")
         heldOff: root.pane.swap.fellBack
     }
 

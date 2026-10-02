@@ -58,7 +58,7 @@ Item {
             rowIsImage: m ? m.rowIsImage : false, canConvert: m ? m.canConvert : false,
             canExtract: m ? m.canExtract : false,
             clipboardAvailable: holder.clipboard && holder.clipboard.paths.length > 0,
-            canTrash: Mounts.trashable(holder.path),
+            canTrash: Mounts.trashable(holder.path, holder.backend ? holder.backend.dirWritable !== false : true),
             openWithApps: [], openWithLoaded: false,
             rowMode: 0, selectionCount: 1, scripts: [], localSendInstalled: false,
             localSendPeers: [], localSendChecking: false, hiddenActions: [],

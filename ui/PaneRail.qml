@@ -169,6 +169,7 @@ Item {
                 }
             }
             onForgetMessage: function (text) { root.pane.forgetMessage(text) }
+            onQuiesce: function (path) { root.pane.quiesceVolume(path) }
             onFirstAnsweredChanged: root.hiddenEjectReady()
         }
     }

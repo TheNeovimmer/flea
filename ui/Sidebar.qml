@@ -223,6 +223,8 @@ Item {
         onOpened: function (path) { root.opened(path) }
         onMessage: function (text, isError) { root.message(text, isError) }
         onForgetMessage: function (text) { root.forgetMessage(text) }
+        // An eject releases the volume, so readers on it stop first and panes on it go Home.
+        onQuiesce: function (path) { if (root.navigationPane) root.navigationPane.quiesceVolume(path) }
     }
 
     // Lists and unmounts only: activate() below routes a phone's mount-and-open through the same openShare leg a share rides.

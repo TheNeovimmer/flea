@@ -46,7 +46,11 @@ function localPath(body) {
 
 // Issue 133 (mfilm77): no GVFS backend implements trash, so gio trash refuses every path under its FUSE folder.
 // Sample input: /run/user/1000/gvfs/smb-share:server=192.168.21.25,share=data/photos, where "smb-share:" names the mount.
-function trashable(path) {
+// A read-only folder has no trash either: the listed line's own writability rides along, so iso9660
+// and a root-owned stick root offer Delete permanently instead of a Trash row that only fails.
+function trashable(path, writable) {
+    if (writable === false)
+        return false
     return !/\/gvfs\/[a-z0-9-]+:/i.test(String(path || ""))
 }
 
