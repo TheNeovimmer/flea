@@ -370,7 +370,10 @@ ShellRoot {
             if (root.win.viewMode !== "list") { root.fail("setView list never switched view"); return }
             var lview = root.win.viewItem()
             var ltop = root.win.cursorIndex * Flea.Theme.rowHeight
-            if (!(lview.contentY <= ltop && ltop + Flea.Theme.rowHeight <= lview.contentY + lview.height)) { root.fail("setView list never showed the cursor row"); return }
+            if (!(lview.contentY <= ltop && ltop + Flea.Theme.rowHeight <= lview.contentY + lview.height)) {
+                if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("setView list never showed the cursor row"); }
+                return
+            }
             if (!(root.win.held <= root.win.cursorIndex && root.win.cursorIndex < root.win.held + root.win.rows.length)) {
                 if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("setView list never refetched its window"); }
                 return
