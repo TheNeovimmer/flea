@@ -1746,6 +1746,10 @@ failure fails the check rather than passing it.
   job: how work reaches the loop, as against what the loop does with it.
 - `backend/watch.rs` the one inotify watch on the directory the current listing came from, its
   reader thread and the `changed` line it answers with, see "The open directory is watched".
+- `backend/undoshare.rs` the one undo history every backend in the session shares, under
+  `$XDG_RUNTIME_DIR/flea/` with an flocked lock file and predictable-path writes; a take is one
+  locked read-modify-write, so two windows pressing Ctrl+Z undo two different operations.
+- `backend/undocodec.rs` that journal's versioned wire form and its read-time checks, both directions.
 - `heap.rs` pins glibc's mmap threshold for the backend, see "The listing arena returns to the OS".
 - `launcher/mod.rs` re-exports `prewarm`, nothing else.
 - `launcher/prewarm.rs` writes the listing and first screenful before the UI starts.

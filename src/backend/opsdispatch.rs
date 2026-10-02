@@ -39,6 +39,13 @@ impl Ops {
               transfer_retry: (0, Vec::new()), question: None, asked: 0, next_id: 1, live: Arc::new(super::opscancel::Live::new()), detached: Arc::new(super::opscancel::DetachedJobs::new()), tx }
     }
 
+    // Production shares one undo history across every backend in the session; tests keep new().
+    pub fn new_shared(tx: Sender<OpMsg>) -> Ops {
+        let mut ops = Ops::new(tx);
+        ops.journal.attach_shared();
+        ops
+    }
+
     // An id with no slot claimed: archive and convert are id-keyed and run concurrently by design,
     // so they number themselves without taking the transfer's one-at-a-time slot.
     pub fn claim_id(&mut self) -> usize {

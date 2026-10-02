@@ -21,6 +21,13 @@ impl ItemIdentity {
         Self { dev: meta.dev(), ino: meta.ino(), kind: meta.mode() & 0o170000, len: meta.len(),
             mtime: (meta.mtime(), meta.mtime_nsec()), changed: (meta.ctime(), meta.ctime_nsec()) }
     }
+    // The shared journal's wire form, field for field; the kind set it accepts is checked on read.
+    pub(crate) fn to_parts(&self) -> (u64, u64, u32, u64, (i64, i64), (i64, i64)) {
+        (self.dev, self.ino, self.kind, self.len, self.mtime, self.changed)
+    }
+    pub(crate) fn from_parts(dev: u64, ino: u64, kind: u32, len: u64, mtime: (i64, i64), changed: (i64, i64)) -> Self {
+        Self { dev, ino, kind, len, mtime, changed }
+    }
     pub fn inspect(path: &std::path::Path) -> Result<Self, FleaError> {
         path.symlink_metadata().map(|meta| Self::record(&meta))
             .map_err(|e| from_io("journal", &path.to_string_lossy(), &e))
@@ -94,20 +101,39 @@ impl Entry {
 }
 
 // The operations design's own number: a 50-entry ring costs nothing to reason about and is process-lifetime, not persisted.
-const DEPTH: usize = 50;
+pub(crate) const DEPTH: usize = 50;
 
 pub struct Journal {
     entries: Vec<Entry>,
     redo: Vec<Result<super::redo::Replay, FleaError>>,
+    shared: Option<super::undoshare::Shared>,
 }
 
 impl Journal {
     pub fn new() -> Journal {
-        Journal { entries: Vec::new(), redo: Vec::new() }
+        Journal { entries: Vec::new(), redo: Vec::new(), shared: None }
+    }
+
+    // Production attaches the session journal file; a refused directory keeps the in-memory one.
+    pub(crate) fn attach_shared(&mut self) {
+        if self.shared.is_none() {
+            self.shared = super::undoshare::Shared::from_env();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn attach_test_shared(&mut self, dir: std::path::PathBuf) {
+        self.shared = super::undoshare::Shared::at(dir);
     }
 
     // An operation that changed nothing records nothing, so undo never reports a no-op as work.
     pub fn push(&mut self, entry: Entry) {
+        if let Some(shared) = &self.shared {
+            if super::undoshare::push_entry(shared, &entry).is_ok() {
+                return;
+            }
+            self.shared = None;
+        }
         if entry.steps.is_empty() {
             return;
         }
@@ -135,6 +161,9 @@ impl Journal {
     // The whole entry is reversed or the failure is reported; a step that fails stops the rest, because
     // continuing past it would leave the operation half-reversed with nothing recording which half.
     pub fn undo(&mut self) -> Result<String, FleaError> {
+        if self.shared.is_some() {
+            return super::undoshare::undo_newest(&mut self.shared);
+        }
         let entry = match self.entries.pop() {
             Some(e) => e,
             None => return Err(err("there is nothing to undo")),
@@ -148,6 +177,9 @@ impl Journal {
     }
 
     pub fn redo_info(&self) -> Result<(String, usize), FleaError> {
+        if let Some(shared) = &self.shared {
+            return super::undoshare::redo_info(shared);
+        }
         match self.redo.last() {
             Some(Ok(replay)) => Ok((replay.op().to_string(), replay.len())),
             Some(Err(error)) => Err(FleaError { where_: "redo".into(), path: error.path.clone(), msg: error.msg.clone() }),
@@ -157,6 +189,9 @@ impl Journal {
 
     pub fn redo(&mut self, id: usize, cancel: &std::sync::atomic::AtomicBool,
                 tx: &std::sync::mpsc::Sender<super::opsreq::OpMsg>) -> Result<String, FleaError> {
+        if self.shared.is_some() {
+            return super::undoshare::redo_newest(&mut self.shared, id, cancel, tx);
+        }
         let replay = self.redo.pop().ok_or_else(|| FleaError { where_: "redo".into(), path: String::new(), msg: "there is nothing to redo".into() })??;
         let (entry, changes, result) = replay.run(id, cancel, tx);
         for (old, new) in changes { self.rebase(&old, &new); }
@@ -192,7 +227,7 @@ pub fn moved(from: &std::path::Path, to: &std::path::Path, before: ItemIdentity)
     Ok(Step::Moved { from: from.to_path_buf(), to: to.to_path_buf(), before, after: ItemIdentity::inspect(to)? })
 }
 
-fn reverse(step: &Step) -> Result<Option<(ItemIdentity, ItemIdentity)>, FleaError> {
+pub(crate) fn reverse(step: &Step) -> Result<Option<(ItemIdentity, ItemIdentity)>, FleaError> {
     match step {
         // Back the way it came, and still refusing to clobber: something may occupy the old name now.
         Step::Moved { from, to, after, .. } => {

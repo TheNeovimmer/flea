@@ -13,6 +13,9 @@ D=$FIXTURE_ROOT/flea-thumbs-test-$$
 # The cache this suite fills is its own, redirected inside that sandbox: src/backend/thumbcache.rs
 # honours XDG_CACHE_HOME, so nothing here reads or writes the operator's real cache at all.
 export XDG_CACHE_HOME="$D/cache"
+# The backend attaches the session undo journal when the runtime dir validates; a scratch dir keeps
+# this suite's backends off the operator's session journal entirely.
+export XDG_RUNTIME_DIR="$D/runtime"
 CACHE="$D/cache/thumbnails"
 # The operator's own, read twice and never written, only to prove this run left it alone.
 REAL_CACHE="$HOME/.cache/thumbnails"

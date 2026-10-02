@@ -30,12 +30,14 @@ check() {
   fi
 }
 
-# One backend process per scenario, because the undo journal is process-lifetime by design.
+# One backend process and one session journal per scenario: the journal is shared across
+# backends by design now, so each scenario gets a scratch runtime dir and stays hermetic.
 start_backend() {
   sandbox_make "$D"
   rm -f "$D/out"; : > "$D/out"
   mkfifo "$D/in"
-  $BIN --backend < "$D/in" > "$D/out" 2>/dev/null &
+  sandbox_remove "$D/rt"; mkdir -p "$D/rt"
+  XDG_RUNTIME_DIR="$D/rt" $BIN --backend < "$D/in" > "$D/out" 2>/dev/null &
   BACKEND_PID=$!
   exec 3> "$D/in"
 }

@@ -1,0 +1,299 @@
+// Two journals in one test process pointed at one temp runtime dir, never at the operator's own.
+use super::{Shared, JOURNAL_FILE};
+use crate::backend::testdir::TestDir;
+use crate::backend::undo::{Entry, ItemIdentity, Journal, Step};
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::channel;
+
+fn runtime(sandbox: &TestDir) -> PathBuf {
+    sandbox.path().join("runtime")
+}
+
+// Pre-created with the mode the validator demands, so the test exercises the file, not the fallback.
+fn runtime_0700(sandbox: &TestDir) -> PathBuf {
+    use std::os::unix::fs::DirBuilderExt;
+    let dir = runtime(sandbox);
+    std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
+    dir
+}
+
+fn shared_journal(sandbox: &TestDir) -> Journal {
+    let mut journal = Journal::new();
+    journal.attach_test_shared(runtime(sandbox));
+    journal
+}
+
+fn guard(sandbox: &TestDir, paths: &[&Path]) {
+    for path in paths {
+        assert!(!path.as_os_str().is_empty() && path.is_absolute() && path.starts_with(sandbox.path()));
+    }
+    assert!(sandbox.path().join(".flea-test-sandbox").is_file());
+}
+
+fn rename_steps(sandbox: &TestDir, from: &str, to: &str) -> (PathBuf, PathBuf, Vec<Step>) {
+    let from_path = sandbox.path().join(from);
+    std::fs::write(&from_path, "payload").unwrap();
+    let to_path = sandbox.path().join(to);
+    guard(sandbox, &[&from_path, &to_path]);
+    let (dst, steps) = crate::backend::ops::rename(&from_path, to).unwrap();
+    assert_eq!(dst, to_path);
+    (from_path, to_path, steps)
+}
+
+#[test]
+fn an_entry_recorded_by_a_is_undone_by_b() {
+    let sandbox = TestDir::new("xundo-ab");
+    let (from, to, steps) = rename_steps(&sandbox, "a.txt", "b.txt");
+    let mut a = shared_journal(&sandbox);
+    a.push(Entry { op: "rename".to_string(), steps });
+    assert!(to.exists());
+    let mut b = shared_journal(&sandbox);
+    assert_eq!(b.undo().unwrap(), "rename");
+    assert!(from.exists(), "B undid A's rename");
+    assert!(!to.exists());
+    assert_eq!(std::fs::read_to_string(&from).unwrap(), "payload");
+    // Spent in both: a second undo anywhere finds nothing.
+    assert!(b.undo().is_err());
+    assert!(a.undo().is_err());
+}
+
+#[test]
+fn concurrent_takes_never_take_one_entry_twice() {
+    let sandbox = TestDir::new("xundo-race");
+    let count = 8;
+    let mut maker = shared_journal(&sandbox);
+    for index in 0..count {
+        let (_, _, steps) = rename_steps(&sandbox, &format!("f{}.txt", index), &format!("g{}.txt", index));
+        maker.push(Entry { op: "rename".to_string(), steps });
+    }
+    let dir = runtime(&sandbox);
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(4));
+    let mut handles = Vec::new();
+    for _ in 0..4 {
+        let dir = dir.clone();
+        let gate = barrier.clone();
+        handles.push(std::thread::spawn(move || {
+            let mut journal = Journal::new();
+            journal.attach_test_shared(dir);
+            gate.wait();
+            let mut taken = 0;
+            loop {
+                match journal.undo() {
+                    Ok(op) => {
+                        assert_eq!(op, "rename");
+                        taken += 1;
+                    }
+                    Err(e) if e.msg == "there is nothing to undo" => break,
+                    Err(e) => panic!("unexpected undo error: {} {}", e.where_, e.msg),
+                }
+            }
+            taken
+        }));
+    }
+    let total: usize = handles.into_iter().map(|h| h.join().unwrap()).sum();
+    assert_eq!(total, count, "every entry undone exactly once across four journals");
+    for index in 0..count {
+        assert!(sandbox.path().join(format!("f{}.txt", index)).exists());
+        assert!(!sandbox.path().join(format!("g{}.txt", index)).exists());
+    }
+}
+
+#[test]
+fn a_symlinked_runtime_dir_is_refused_and_falls_back() {
+    let sandbox = TestDir::new("xundo-link");
+    let target = sandbox.path().join("target");
+    std::fs::create_dir(&target).unwrap();
+    let link = sandbox.path().join("runtime");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    assert!(Shared::at(link.clone()).is_none(), "a symlinked dir is refused");
+    let mut journal = Journal::new();
+    journal.attach_test_shared(link);
+    // The fallback is today's in-memory journal: the entry undoes locally and nothing is written
+    // through the link.
+    let (_, to, steps) = rename_steps(&sandbox, "a.txt", "b.txt");
+    journal.push(Entry { op: "rename".to_string(), steps });
+    assert_eq!(journal.undo().unwrap(), "rename");
+    assert!(!to.exists());
+    assert_eq!(std::fs::read_dir(&target).unwrap().count(), 0, "nothing was written through the link");
+}
+
+#[test]
+fn a_group_accessible_runtime_dir_is_refused_and_falls_back() {
+    let sandbox = TestDir::new("xundo-mode");
+    let dir = runtime(&sandbox);
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(Shared::at(dir.clone()).is_none(), "a 0755 dir is refused");
+    let mut journal = Journal::new();
+    journal.attach_test_shared(dir.clone());
+    let (_, to, steps) = rename_steps(&sandbox, "a.txt", "b.txt");
+    journal.push(Entry { op: "rename".to_string(), steps });
+    assert_eq!(journal.undo().unwrap(), "rename");
+    assert!(!to.exists());
+    assert!(!dir.join(JOURNAL_FILE).exists(), "a refused dir gains no journal file");
+}
+
+#[test]
+fn a_malformed_file_is_ignored_and_heals_on_push() {
+    let sandbox = TestDir::new("xundo-malformed");
+    let dir = runtime_0700(&sandbox);
+    std::fs::write(dir.join(JOURNAL_FILE), "{ this is not json").unwrap();
+    let mut journal = shared_journal(&sandbox);
+    // Ignored, not trusted: the next push starts a fresh document over it.
+    let (_, to, steps) = rename_steps(&sandbox, "a.txt", "b.txt");
+    journal.push(Entry { op: "rename".to_string(), steps });
+    let text = std::fs::read_to_string(dir.join(JOURNAL_FILE)).unwrap();
+    assert!(crate::backend::undocodec::decode(&text).is_some(), "the push healed the file it ignored");
+    assert_eq!(journal.undo().unwrap(), "rename");
+    assert!(!to.exists());
+}
+
+#[test]
+fn an_oversized_file_is_ignored() {
+    let sandbox = TestDir::new("xundo-huge");
+    let dir = runtime_0700(&sandbox);
+    let big = vec![b'x'; 33 * 1024 * 1024];
+    std::fs::write(dir.join(JOURNAL_FILE), &big).unwrap();
+    let mut journal = shared_journal(&sandbox);
+    assert!(journal.undo().is_err(), "an oversized file is ignored, not trusted");
+    // ...and the next push heals it into a working shared journal.
+    let (_, to, steps) = rename_steps(&sandbox, "a.txt", "b.txt");
+    journal.push(Entry { op: "rename".to_string(), steps });
+    let mut other = shared_journal(&sandbox);
+    assert_eq!(other.undo().unwrap(), "rename");
+    assert!(!to.exists());
+    drop(big);
+}
+
+#[test]
+fn a_planted_symlink_at_the_journal_path_is_replaced_not_followed() {
+    let sandbox = TestDir::new("xundo-plant");
+    let dir = runtime_0700(&sandbox);
+    let outside = sandbox.path().join("outside.txt");
+    std::fs::write(&outside, "untouched").unwrap();
+    std::os::unix::fs::symlink(&outside, dir.join(JOURNAL_FILE)).unwrap();
+    let mut journal = shared_journal(&sandbox);
+    journal.push(Entry { op: "rename".to_string(), steps: vec![Step::Created { path: sandbox.path().join("x") }] });
+    assert!(!dir.join(JOURNAL_FILE).symlink_metadata().unwrap().file_type().is_symlink());
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "untouched");
+}
+
+#[test]
+fn the_journal_holds_fifty_entries_oldest_dropped() {
+    let sandbox = TestDir::new("xundo-cap");
+    let mut journal = shared_journal(&sandbox);
+    for index in 0..55 {
+        journal.push(Entry { op: format!("op-{}", index), steps: vec![Step::Created { path: sandbox.path().join(format!("f{}", index)) }] });
+    }
+    let text = std::fs::read_to_string(runtime(&sandbox).join(JOURNAL_FILE)).unwrap();
+    let doc = crate::backend::undocodec::decode(&text).expect("the journal file decodes");
+    assert_eq!(doc.undo.len(), 50);
+    assert_eq!(doc.undo.first().unwrap().op, "op-5", "the oldest entries went first");
+    assert_eq!(doc.undo.last().unwrap().op, "op-54");
+}
+
+#[test]
+fn an_empty_push_writes_nothing() {
+    let sandbox = TestDir::new("xundo-empty");
+    let mut journal = shared_journal(&sandbox);
+    journal.push(Entry { op: "rename".to_string(), steps: Vec::new() });
+    assert!(!runtime(&sandbox).join(JOURNAL_FILE).exists(), "a no-op records nothing, not even a file");
+}
+
+#[test]
+fn identity_check_still_refuses_a_replaced_file() {
+    let sandbox = TestDir::new("xundo-identity");
+    let (from, to, steps) = rename_steps(&sandbox, "a.txt", "b.txt");
+    let mut a = shared_journal(&sandbox);
+    a.push(Entry { op: "rename".to_string(), steps });
+    // Someone else's file now lives at the new name, so the undo must refuse, not remove it.
+    std::fs::remove_file(&to).unwrap();
+    std::fs::write(&to, "someone else").unwrap();
+    let mut b = shared_journal(&sandbox);
+    let error = b.undo().unwrap_err();
+    assert!(error.msg.contains("replaced"), "unexpected refusal: {}", error.msg);
+    assert_eq!(std::fs::read_to_string(&to).unwrap(), "someone else");
+    assert!(!from.exists());
+}
+
+#[test]
+fn redo_follows_the_same_rule_across_journals() {
+    let sandbox = TestDir::new("xundo-redo");
+    let (from, to, steps) = rename_steps(&sandbox, "a.txt", "b.txt");
+    let mut a = shared_journal(&sandbox);
+    a.push(Entry { op: "rename".to_string(), steps });
+    let mut b = shared_journal(&sandbox);
+    assert_eq!(b.undo().unwrap(), "rename");
+    assert!(from.exists());
+    let (tx, _rx) = channel();
+    assert_eq!(a.redo(1, &AtomicBool::new(false), &tx).unwrap(), "rename");
+    assert!(to.exists(), "A redid the entry B undid");
+    assert!(!from.exists());
+    // And back once more from the other side, so the redo stack itself is shared.
+    assert_eq!(b.undo().unwrap(), "rename");
+    assert!(from.exists());
+}
+
+#[test]
+fn every_step_kind_round_trips_with_exact_integers() {
+    let sandbox = TestDir::new("xundo-codec");
+    let dir = sandbox.path();
+    // Past f64's exact range, so a float-parsed number would come back a different file.
+    let id = ItemIdentity::from_parts(u64::MAX, 1 << 60, 0o100000, 7, (1 << 62, -3), (0, 1 << 62));
+    let entry = Entry {
+        op: "mixed".to_string(),
+        steps: vec![
+            Step::Moved { from: dir.join("a"), to: dir.join("b"), before: id.clone(), after: id.clone() },
+            Step::Created { path: dir.join("c") },
+            Step::Linked { path: dir.join("d"), identity: id.clone(), source: dir.join("e"),
+                kind: crate::backend::link::LinkKind::Hard },
+            Step::Copied { from: dir.join("f"), to: dir.join("g"), source: id.clone(), created: id.clone(), manifest: None },
+            Step::MadeDir { path: dir.join("h"), identity: id.clone() },
+            Step::MadeFile { path: dir.join("i"), identity: id.clone() },
+            Step::Trashed(crate::backend::trash::Entry { original: dir.join("j"), uri: "trash:///j".to_string() }),
+            Step::Mode { path: dir.join("k"), before: 0o644, after: 0o600 },
+        ],
+    };
+    let doc = super::Doc { undo: vec![entry], redo: Vec::new() };
+    let text = crate::jsondoc::render(&crate::backend::undocodec::encode(&doc));
+    let back = crate::backend::undocodec::decode(&text).expect("the codec reads what it wrote");
+    assert_eq!(crate::jsondoc::render(&crate::backend::undocodec::encode(&back)), text,
+        "a second render is byte-identical, so every integer survived exactly");
+    assert!(text.contains(&u64::MAX.to_string()), "the huge device number is really in the file");
+}
+
+#[test]
+fn a_trash_entry_with_no_uri_is_a_record_not_a_defect() {
+    // trash.rs journals an empty uri when gio listed nothing for the file it took; the codec must
+    // read that back rather than ignoring the whole file.
+    let sandbox = TestDir::new("xundo-nouri");
+    let doc = super::Doc {
+        undo: vec![Entry {
+            op: "trash".to_string(),
+            steps: vec![Step::Trashed(crate::backend::trash::Entry {
+                original: sandbox.path().join("gone"),
+                uri: String::new(),
+            })],
+        }],
+        redo: Vec::new(),
+    };
+    let text = crate::jsondoc::render(&crate::backend::undocodec::encode(&doc));
+    let mut back = crate::backend::undocodec::decode(&text).expect("an empty uri decodes");
+    assert_eq!(back.undo.len(), 1);
+    let mut journal = shared_journal(&sandbox);
+    journal.push(Entry { op: "trash".to_string(), steps: back.undo.pop().unwrap().steps });
+    assert!(journal.undo().unwrap_err().msg.contains("cannot be restored"));
+}
+
+#[test]
+fn foreign_records_are_never_trusted() {    for (tag, body) in [
+        ("version", r#"{"v":2,"undo":[],"redo":[]}"#),
+        ("relative", r#"{"v":1,"undo":[{"op":"rename","steps":[{"k":"c","path":"rel/x"}]}],"redo":[]}"#),
+        ("kind", r#"{"v":1,"undo":[{"op":"rename","steps":[{"k":"mf","path":"/x","id":{"d":1,"i":2,"k":511,"l":0,"m":[0,0],"c":[0,0]}}]}],"redo":[]}"#),
+        ("shape", r#"{"v":1,"undo":[{"op":"rename","steps":[{"k":"m","from":"/a"}]}],"redo":[]}"#),
+    ] {
+        assert!(crate::backend::undocodec::decode(body).is_none(), "{} record trusted", tag);
+    }
+}

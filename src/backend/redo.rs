@@ -64,6 +64,14 @@ impl Replay {
     }
     pub fn op(&self) -> &str { &self.op }
     pub fn len(&self) -> usize { self.steps.len() }
+    // The shared journal's wire form: every field the file needs to rebuild this replay, so an
+    // undo in one window is redoable in another.
+    pub(crate) fn steps_data(&self) -> (String, Vec<(Step, Option<ItemIdentity>, Option<(PathBuf, ItemIdentity)>)>) {
+        (self.op.clone(), self.steps.iter().map(|saved| (saved.step.clone(), saved.input.clone(), saved.parent.clone())).collect())
+    }
+    pub(crate) fn from_steps(op: String, steps: Vec<(Step, Option<ItemIdentity>, Option<(PathBuf, ItemIdentity)>)>) -> Self {
+        Self { op, steps: steps.into_iter().map(|(step, input, parent)| ReplayStep { step, input, parent }).collect() }
+    }
     pub fn rebase(&mut self, old: &ItemIdentity, new: &ItemIdentity) {
         for saved in &mut self.steps {
             if saved.input.as_ref() == Some(old) { saved.input = Some(new.clone()); }
