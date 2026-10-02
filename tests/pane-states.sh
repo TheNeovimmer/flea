@@ -36,11 +36,11 @@ output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
 qs_status=$?
 
 # Sample input, one probe line: "  INFO qml: PANESTATES PASS states=11 overlays-gated".
-# Sample input, the receipt: "  INFO qml: PANESTATES DONE failures=0".
-# The owned termination is the probe's own self-kill (SIGTERM, 143) after its one DONE receipt; a PASS beside any other status is a double's, never a proof.
 pass_count=$(printf '%s\n' "$output" | grep -c 'PANESTATES PASS')
 fail_count=$(printf '%s\n' "$output" | grep -c 'PANESTATES FAIL')
+# Sample input, the receipt: "  INFO qml: PANESTATES DONE failures=0".
 done_count=$(printf '%s\n' "$output" | grep -c 'PANESTATES DONE')
+# The owned termination is the probe's own self-kill (SIGTERM, 143) after its one DONE receipt; a PASS beside any other status is a double's, never a proof.
 verdict=0
 if [ "$qs_status" -ne 143 ]; then
     printf 'FAIL qs exited %s, want the owned self-kill 143 after DONE\n' "$qs_status"
