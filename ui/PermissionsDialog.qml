@@ -11,6 +11,9 @@ FocusScope {
     visible: opened
     property bool opened: false
     property int requestId: 0
+    // Inspect ids are request blocks of this width; a wider selection reserves whole blocks.
+    readonly property int inspectStride: 1000
+    property int multiBase: 0
     property var facts: ({})
     property string path: ""
     property string modeText: ""
@@ -18,9 +21,7 @@ FocusScope {
     property bool busy: false
     property bool transportFailed: false
     property Item focusHolder: null
-    // Permissions040: the whole selection's paths, modes in the same order,
-    // and the bits the operator explicitly set or cleared across all of them.
-    // A mixed box the operator never touched keeps each file's own bit.
+    // The selection's paths with modes in the same order, the first inspect refusal, and the explicit bits.
     property var multiPaths: []
     // The live inspect store noteMode owns; multiModes is its one last-reply snapshot.
     property var multiStore: ({ modes: [], reasons: [], skipped: [] })
@@ -65,6 +66,7 @@ FocusScope {
         : "Scope this item only · ownership unchanged"
     signal requested(var message)
     signal changed(string note)
+    signal refreshNeeded()
     signal closed()
 
     function open(itemPath, holder) {
@@ -90,11 +92,10 @@ FocusScope {
         cancelFocus.forceActiveFocus()
         requested({ c: "permissions", op: "inspect", id: requestId, path: path })
     }
-    // Permissions040: one Entry holds every path the Apply changed, so one
-    // undo restores them all. Each file keeps its own bits except the ones
-    // the operator explicitly set or cleared across the whole selection.
+    // One Entry holds every path the Apply changed, so one undo restores them all.
     function openMany(paths, holder) {
         requestId += 1
+        multiBase = requestId
         multiPaths = paths.slice()
         multiStore = ({ modes: [], reasons: [], skipped: [], pending: paths.length })
         multiModes = []
@@ -115,7 +116,9 @@ FocusScope {
         body.contentY = 0
         cancelFocus.forceActiveFocus()
         for (var i = 0; i < paths.length; i++)
-            requested({ c: "permissions", op: "inspect", id: requestId * 1000 + i, path: paths[i] })
+            requested({ c: "permissions", op: "inspect", id: multiBase * inspectStride + i, path: paths[i] })
+        // A wider selection reserves whole strides so the next open's block cannot overlap this one.
+        requestId += Math.max(0, Math.floor((paths.length - 1) / inspectStride))
     }
     function receive(message) {
         if (isMulti) { receiveMany(message); return }
@@ -127,9 +130,7 @@ FocusScope {
         facts = message
         modeText = message.mode
     }
-    // Permissions040: the grid over several files. An untouched mixed box
-    // keeps each file's own bit; the first click sets the bit everywhere,
-    // the next clears it, and the next after that lets go of it again.
+    // The grid over several files; an untouched box takes the explicit opposite of what it shows.
     function multiBit(bit) {
         if (!multiSummary) return { on: false, mixed: false }
         for (var i = 0; i < multiSummary.bits.length; i++) {
@@ -150,18 +151,23 @@ FocusScope {
         if (found.mixed) return "some"
         return found.on ? "on" : "off"
     }
+    // A set box lets go unless mixed, so a uniform-off box reads off, on, off, on.
     function multiToggle(bit) {
         if ((explicitSet & bit) !== 0) {
             explicitSet &= ~bit
-            explicitClear |= bit
+            if (multiBit(bit).mixed) explicitClear |= bit
         } else if ((explicitClear & bit) !== 0) {
             explicitClear &= ~bit
-        } else {
+        } else if (multiBit(bit).mixed || !multiBit(bit).on) {
             explicitSet |= bit
             explicitClear &= ~bit
+        } else {
+            explicitClear |= bit
+            explicitSet &= ~bit
         }
     }
-    function receiveMany(message) {        if (!opened || transportFailed) return
+    function receiveMany(message) {
+        if (!opened || transportFailed) return
         if (message.op === "applyMany") {
             applyingMany = false
             if (message.ok === true) {
@@ -172,20 +178,28 @@ FocusScope {
             errorText = message.error || "Could not change permissions."
             if (multiApplySkipped.length > 0)
                 errorText += "\n" + Permissions.skipNote(multiApplySkipped)
-            busy = false
+            // A failed batch re-reads every mode so the grid and a retry start from disk.
+            multiStore = ({ modes: [], reasons: [], skipped: [], pending: multiPaths.length })
+            multiModes = []
+            multiPending = multiPaths.length
+            busy = true
             cancelFocus.forceActiveFocus()
+            for (var i = 0; i < multiPaths.length; i++)
+                requested({ c: "permissions", op: "inspect", id: multiBase * inspectStride + i, path: multiPaths[i] })
+            refreshNeeded()
             return
         }
         if (message.op !== "inspect") return
-        var at = (message.id || 0) - requestId * 1000
+        var at = (message.id || 0) - multiBase * inspectStride
         if (at < 0 || at >= multiPaths.length) return
-        // Accumulated in place through noteMode, pinned to one summary per selection.
+        // Accumulated in place through noteMode, which answers true once per selection.
         if (Permissions.noteMode(multiStore, at, multiPaths[at], message)) {
             multiPending = 0
             busy = false
-            // One assignment notifies once, so multiSummary summarizes once.
+            // The single assignment lands with the last reply.
             multiModes = multiStore.modes.slice()
-            if (multiStore.skipped.length > 0) errorText = Permissions.skipNote(multiStore.skipped)
+            var note = Permissions.inspectNote(multiStore, multiPaths)
+            if (note.length > 0 && errorText.length === 0) errorText = note
             cancelFocus.forceActiveFocus()
         } else {
             multiPending = multiStore.pending
@@ -193,7 +207,9 @@ FocusScope {
     }
     function backendFailed(message) {
         if (!opened || transportFailed) return
-        var applying = busy && facts.ok === true
+        // A multi Apply counts as applying with an unknown outcome, and ends so Cancel and close work.
+        var applying = (busy && facts.ok === true) || applyingMany
+        applyingMany = false
         transportFailed = true
         busy = false
         cancelFocus.forceActiveFocus()
@@ -207,7 +223,7 @@ FocusScope {
         if (!opened || applying || applyingMany) return
         if (isMulti) {
             for (var i = 0; i < multiPaths.length; i++)
-                requested({ c: "permissions", op: "close", id: requestId * 1000 + i })
+                requested({ c: "permissions", op: "close", id: multiBase * inspectStride + i })
         } else {
             requested({ c: "permissions", op: "close", id: requestId })
         }
@@ -366,8 +382,7 @@ FocusScope {
                     width: parent.width
                     height: root.controlHeight
                     spacing: Theme.spacing.gap
-                    // Permissions040: for several items the grid and Apply are
-                    // the whole card, so the name row drops out with the rest.
+                    // For several items the grid and Apply are the whole card, so the name row drops out.
                     visible: !root.isMulti
                     Flea.Glyph { width: Theme.markSize; height: nameLabel.height; anchors.verticalCenter: parent.verticalCenter; name: root.facts.directory ? "folder" : "file"; color: Theme.color.muted }
                     Text { id: nameLabel; width: parent.width - Theme.markSize - kindLabel.width - 2 * parent.spacing; anchors.verticalCenter: parent.verticalCenter; text: root.path.split("/").pop(); elide: Text.ElideMiddle; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
@@ -423,8 +438,7 @@ FocusScope {
                                 Keys.onBacktabPressed: root.stepFocus(true)
                                 Flea.CheckBox {
                                     anchors.centerIn: parent
-                                    // Permissions040: a bit differing across the
-                                    // files shows a bar until it is clicked.
+                                    // A bit differing across the files shows a bar until it is clicked.
                                     value: root.isMulti ? root.multiValue(bit) : checkbox.checked ? "on" : "off"
                                     focused: checkbox.activeFocus
                                     // A disabled row stays checked, so the box dims and keeps its value.
@@ -547,8 +561,7 @@ FocusScope {
                 Text {
                     id: changeSummary
                     width: parent.width
-                    // Permissions040: for several items the grid and Apply are
-                    // the whole card, so the preview drops out with the rest.
+                    // For several items the grid and Apply are the whole card, so the preview drops out.
                     visible: !root.isMulti
                     text: (root.facts.ok && !root.facts.reason && root.modeValue >= 0
                         ? "Requested mode " + Permissions.octal(root.modeValue) : "No changes available")
@@ -562,8 +575,7 @@ FocusScope {
                 Text {
                     id: scopeLabel
                     width: parent.width
-                    // Permissions040: a box whose bit differs across the files
-                    // shows a bar and changes nothing until it is clicked.
+                    // A box whose bit differs across the files shows a bar until it is clicked.
                     text: root.isMulti ? Permissions.mixedNote() : root.scopeText
                     textFormat: Text.PlainText
                     wrapMode: Text.Wrap
@@ -595,8 +607,7 @@ FocusScope {
                         id: applyFocus
                         width: applyButton.implicitWidth; height: applyButton.implicitHeight
                         activeFocusOnTab: true
-                        // Permissions040: the multi card has no octal to
-                        // validate, so Apply enables on the grid alone.
+                        // The multi card has no octal to validate, so Apply enables on the grid alone.
                         enabled: root.isMulti ? root.editable : root.editable && root.modeValue >= 0
                         Keys.onTabPressed: function(event) { root.stepFocus((event.modifiers & Qt.ShiftModifier) !== 0) }
                         Keys.onBacktabPressed: root.stepFocus(true)

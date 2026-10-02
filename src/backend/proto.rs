@@ -5,7 +5,7 @@ use crate::json::{escape, field_bool, field_str, field_str_array, field_usize, f
 pub const TRANSFER_CANCEL: &str = "transfercancel";
 
 pub enum Request {
-    List { path: String, first: usize, hidden: bool },
+    List { path: String, first: usize, hidden: bool, want_changed: bool },
     // A listing built from paths the client names, in the order it named them; the picker's Recent.
     ListPaths { paths: Vec<String>, first: usize },
     Window { start: usize, count: usize },
@@ -48,6 +48,8 @@ pub enum Request {
     FsInfo,
     // A read-only look at a directory that is not the current listing; the columns view's ancestors.
     Peek { path: String, first: usize, hidden: bool, hidden_last: bool, focus: String },
+    // A PDF fetched into a session-private copy under a deadline, so a hung mount never freezes the window.
+    PdfCopy { id: usize, slot: String, path: String },
     // op is "compress" or "extract"; a compress names paths and a format, an extract names one path.
     Archive { op: String, paths: Vec<String>, path: String, dest: String, format: String, menu_id: usize },
     Convert { path: String, dest: String, strip: bool, menu_id: usize, request_id: usize, check: bool },
@@ -57,9 +59,12 @@ pub enum Request {
     // Paste as links: one symlink or hard link per source inside dest; see docs/protocol.md "link".
     Link { op: String, paths: Vec<String>, rows: Vec<usize>, dest: String,
            collide: super::collide::Ask },
-    // Show original: where a symlink's target lives; see docs/protocol.md "linktarget".
-    LinkTarget { path: String },
-    // Permissions for the whole selection, one undo for every path; see docs/protocol.md "permissionsBatch".
+    // Show original: where a symlink's target lives, the same path Show in
+    // folder uses; see docs/protocol.md "linktarget".
+    LinkTarget { path: String, id: usize },
+    // Permissions for the whole selection: one Entry holds every path the
+    // Apply changed, so one undo restores them all; see docs/protocol.md
+    // "permissionsBatch".
     PermissionsBatch { paths: Vec<String>, modes: Vec<String>, id: usize },
     Picker { line: String },
     MenuAction { line: String, rows: Vec<usize> },
@@ -90,7 +95,7 @@ pub fn parse_request(line: &str) -> Request {
             dest: field_str(line, "dest").unwrap_or_default(),
             collide: super::collide::Ask::parse(line),
         },
-        Some("linktarget") => Request::LinkTarget { path: field_str(line, "path").unwrap_or_default() },
+        Some("linktarget") => Request::LinkTarget { path: field_str(line, "path").unwrap_or_default(), id: field_usize(line, "id").unwrap_or(0) },
         Some("picker") => Request::Picker { line: line.to_string() },
         Some("menuaction") => Request::MenuAction { line: line.to_string(), rows: field_usize_array(line, "rows") },
         Some("localsend") => Request::LocalSend {
@@ -104,6 +109,8 @@ pub fn parse_request(line: &str) -> Request {
             first: field_usize(line, "first").unwrap_or(0),
             // A missing hidden is false, so an older client's request still lists dotfile-free.
             hidden: field_bool(line, "hidden"),
+            // Absent is today's silent re-read, so an older client never pays the count.
+            want_changed: field_bool(line, "wantChanged"),
         },
         Some("listpaths") => Request::ListPaths { paths: field_str_array(line, "paths"), first: field_usize(line, "first").unwrap_or(0) },
         Some("window") => Request::Window {
@@ -193,6 +200,12 @@ pub fn parse_request(line: &str) -> Request {
             strip: field_bool(line, "strip"),
         },
         Some("formats") => Request::Formats { id: field_usize(line, "id").unwrap_or(0) },
+        Some("pdfcopy") => Request::PdfCopy {
+            id: field_usize(line, "id").unwrap_or(0),
+            // Absent is one viewer, so an older client's fetch keeps the shared slot.
+            slot: field_str(line, "slot").unwrap_or_default(),
+            path: field_str(line, "path").unwrap_or_default(),
+        },
         Some("peek") => Request::Peek {
             path: field_str(line, "path").unwrap_or_default(),
             first: field_usize(line, "first").unwrap_or(0),
@@ -231,8 +244,8 @@ pub fn located_many_line(directory: &str, id: usize, transfer_id: usize, matches
         escape(directory), id, transfer_id, matches.join(","), error.is_none(), escape(error.unwrap_or_default()))
 }
 
-pub fn listed_line(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str) -> String {
-    say_listed(n, read_ms, sort_ms, dev, path, crate::backend::ops::dir_writable(std::path::Path::new(path)))
+pub fn listed_line(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str, writable: bool) -> String {
+    say_listed(n, read_ms, sort_ms, dev, path, writable)
 }
 
 // `w` is whether this user can create or delete entries here; a drag from one that cannot copies.
@@ -243,15 +256,17 @@ pub(crate) fn say_listed(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &
     )
 }
 
-// The anchor's index in the new order, or -1; the fields ride last, so an unanchored reply is the line above exactly.
-pub fn listed_line_anchor(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str, anchor: &str, anchor_index: isize) -> String {
-    with_anchor(&listed_line(n, read_ms, sort_ms, dev, path), anchor, anchor_index)
-}
-
 // A listed line with the anchor fields added before its closing brace.
 pub(crate) fn with_anchor(listed: &str, anchor: &str, anchor_index: isize) -> String {
     let body = listed.strip_suffix('}').unwrap_or(listed);
     format!(r#"{},"anchor":"{}","anchorIndex":{}}}"#, body, escape(anchor), anchor_index)
+}
+
+// Sample output: {"t":"listed","n":3,"read":0.000,"sort":0.000,"v":1,"w":true,"path":"/d","changed":2}
+// A same-path re-list names added plus removed rows, so a rename counts 2 against a net delta of 0.
+pub(crate) fn with_changed(listed: &str, changed: usize) -> String {
+    let body = listed.strip_suffix('}').unwrap_or(listed);
+    format!(r#"{},"changed":{}}}"#, body, changed)
 }
 
 // The streaming progress of a search: its own type rather than a listed line, because a mid-walk update is not a fresh listing and carries no read or sort timing.
@@ -278,7 +293,8 @@ pub fn dirsized_line(row: usize, bytes: u64, partial: bool, ms: f64) -> String {
 }
 
 // Sample output: {"t":"paths","paths":["/home/gm/a.txt","/home/gm/b.txt"]}
-pub fn paths_line(paths: &[String]) -> String {    let mut out = String::from(r#"{"t":"paths","paths":["#);
+pub fn paths_line(paths: &[String]) -> String {
+    let mut out = String::from(r#"{"t":"paths","paths":["#);
     for (i, p) in paths.iter().enumerate() {
         if i > 0 {
             out.push(',');
@@ -291,15 +307,24 @@ pub fn paths_line(paths: &[String]) -> String {    let mut out = String::from(r#
     out
 }
 
-// Sample output: {"t":"linked","ok":2,"failed":0,"skipped":1}
-pub fn linked_line(ok: usize, failed: usize, skipped: usize) -> String {
-    format!(r#"{{"t":"linked","ok":{},"failed":{},"skipped":{}}}"#, ok, failed, skipped)
+// Sample output: {"t":"slow","op":"rename","path":"/hung/a.txt","msg":"/hung is slow. The rename continues and will finish on its own."}
+pub fn slow_line(op: &str, path: &str, msg: &str) -> String {
+    format!(r#"{{"t":"slow","op":"{}","path":"{}","msg":"{}"}}"#, escape(op), escape(path), escape(msg))
 }
 
-// Sample output: {"t":"linktarget","path":"/a/link","directory":"/b","name":"f.txt"}
-pub fn linktarget_line(path: &str, directory: &str, name: &str) -> String {
-    format!(r#"{{"t":"linktarget","path":"{}","directory":"{}","name":"{}"}}"#,
-        escape(path), escape(directory), escape(name))
+// Sample output: {"t":"linked","ok":2,"failed":0,"skipped":1}
+// Sample output: {"t":"linked","ok":1,"failed":1,"skipped":0,"note":"the link left at /d/b.txt could not be removed (stale); the replaced item stays in the trash"}
+pub fn linked_line(ok: usize, failed: usize, skipped: usize, note: &str) -> String {
+    if note.is_empty() {
+        return format!(r#"{{"t":"linked","ok":{},"failed":{},"skipped":{}}}"#, ok, failed, skipped);
+    }
+    format!(r#"{{"t":"linked","ok":{},"failed":{},"skipped":{},"note":"{}"}}"#, ok, failed, skipped, escape(note))
+}
+
+// Sample output: {"t":"linktarget","path":"/a/link","directory":"/b","name":"f.txt","id":3}
+pub fn linktarget_line(path: &str, directory: &str, name: &str, id: usize) -> String {
+    format!(r#"{{"t":"linktarget","path":"{}","directory":"{}","name":"{}","id":{}}}"#,
+        escape(path), escape(directory), escape(name), id)
 }
 
 // Sample output: {"t":"permissions","id":7,"op":"applyMany","ok":true,"mode":"0600","error":""}

@@ -33,6 +33,7 @@ function run(check) {
     runStored(check)
     runBoardTable(check)
     runAnnounce(check)
+    runDirection(check)
 }
 
 function runStops(check) {
@@ -160,4 +161,11 @@ function runAnnounce(check) {
           "Text size 16px. Ctrl+Shift+0 follows Omarchy again.")
     check("and following reports whose size it is",
           TextSize.announce(TextSize.follow(), 14), "Text size follows Omarchy, 14px.")
+}
+
+// One mapping for every caller, so a swapped delta reddens here instead of shipping twice.
+function runDirection(check) {
+    check("up grows the text", TextSize.direction("textSizeUp"), 1)
+    check("down shrinks it", TextSize.direction("textSizeDown"), -1)
+    check("reset lands back on zero", TextSize.direction("textSizeReset"), 0)
 }

@@ -70,6 +70,11 @@ function parse(stored) {
     return px > 0 ? { mode: nearest(px) } : follow()
 }
 
+// One action-to-delta mapping for every caller, so Focus and the Trash host cannot drift apart.
+function direction(action) {
+    return action === "textSizeReset" ? 0 : (action === "textSizeUp" ? 1 : -1)
+}
+
 function body(base) {
     return Math.max(1, Math.round(base * BODY_RATIO))
 }

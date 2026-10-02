@@ -1,6 +1,7 @@
 import QtQuick
 import "js/Scroll.js" as Scroll
 import "js/Motion.js" as Motion
+import "js/MenuWheel.js" as MenuWheel
 
 // A MouseArea because Flickable eats wheel before a child WheelHandler; presses pass through, arithmetic in Scroll.js.
 MouseArea {
@@ -11,6 +12,21 @@ MouseArea {
     property var ctrlWheelAction: null
     property bool tailRunning: false
     property bool returnRunning: false
+    // A menu highlight steps here; null everywhere else, so pixel scrolling is untouched.
+    property bool stepMode: false
+    property real stepRowHeight: 0
+    property var stepBy: null
+    property real stepAccum: 0
+    // The notch remainder in raw angleDelta units and the phaseless-pixel remainder in raw
+    // pixels; both reset when the menu opens, so one menu never spends another's travel.
+    property real notchAccum: 0
+    property real pixelAccum: 0
+
+    function resetSteps() {
+        root.stepAccum = 0
+        root.notchAccum = 0
+        root.pixelAccum = 0
+    }
 
     anchors.fill: parent
     acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
@@ -346,7 +362,39 @@ MouseArea {
         root.tailRunning = true
     }
 
+    // Menu step: one row a notch of angleDelta, one row per row height of touchpad travel or phaseless pixels, no tail, always consumed.
+    function stepWheel(wheel) {
+        var phase = wheel.phase !== undefined ? wheel.phase : Qt.NoScrollPhase
+        if (Scroll.isTouchpad(phase)) {
+            if (phase === Qt.ScrollBegin)
+                root.stepAccum = 0
+            var folded = MenuWheel.touchSteps(root.stepAccum, Scroll.touchDistance(wheel.pixelDelta.y),
+                                              root.stepRowHeight)
+            root.stepAccum = folded.rest
+            for (var i = 0; i < Math.abs(folded.steps); i++)
+                root.stepBy(folded.steps > 0 ? 1 : -1)
+            return true
+        }
+        var pd = Number(wheel.pixelDelta.y) || 0
+        if (pd !== 0) {
+            var held = MenuWheel.pixelSteps(root.pixelAccum, pd, root.stepRowHeight)
+            root.pixelAccum = held.rest
+            for (var j = 0; j < Math.abs(held.steps); j++)
+                root.stepBy(held.steps > 0 ? 1 : -1)
+            return true
+        }
+        var notched = MenuWheel.notchSteps(root.notchAccum, Number(wheel.angleDelta.y) || 0)
+        root.notchAccum = notched.rest
+        for (var k = 0; k < Math.abs(notched.steps); k++)
+            root.stepBy(notched.steps > 0 ? 1 : -1)
+        return true
+    }
+
     function handleWheel(wheel) {
+        if (root.stepMode && root.stepBy !== null) {
+            wheel.accepted = root.stepWheel(wheel)
+            return wheel.accepted
+        }
         if ((wheel.modifiers & Qt.ControlModifier) && root.ctrlWheelAction !== null) {
             wheel.accepted = root.ctrlWheelAction(wheel)
             if (wheel.accepted) {
@@ -361,6 +409,8 @@ MouseArea {
             if (phase === Qt.ScrollBegin) {
                 root.stopTail()
                 root.stopReturn(true)
+                // The Begin carries no pixels and anchors the lift's span.
+                Scroll.pushSample(root.flickable, Scroll.now(), 0, 0)
             } else if (phase !== Qt.ScrollEnd && root.tailActive()) {
                 root.stopTail()
             } else if (root.returnActive()) {

@@ -243,22 +243,4 @@ function run(check) {
     Tabs.openCursorTab(emptyPane)
     check("no cursor row opens no tab either", Tabs.count(emptyPane), 1)
     check("and says the same sentence", emptyPane.said[emptyPane.said.length - 1], "Only a folder opens in a new tab.")
-
-    // A reorder lists nothing, so the pending restore rides through it mid-listing.
-    var switching = Fixture.pane("/tmp/b")
-    switching.tabs = {
-        items: [{ path: "/tmp/a" }, { path: "/tmp/b" }],
-        index: 1,
-        pendingCursor: 6,
-        pendingSortBy: "size",
-        pendingSortDesc: true
-    }
-    switching.listInFlight = true
-    Tabs.act("tabMoveLeft", switching)
-    check("a reorder mid-listing is kept, not refused", switching.said.length, 0)
-    check("and the pending cursor rides through it", switching.tabs.pendingCursor, 6)
-    check("and the pending sort rides through it too",
-          switching.tabs.pendingSortBy + ":" + switching.tabs.pendingSortDesc, "size:true")
-    check("and the strip still reordered",
-          switching.tabs.items[0].path + "," + switching.tabs.items[1].path, "/tmp/b,/tmp/a")
 }

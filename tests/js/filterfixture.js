@@ -48,6 +48,7 @@ function pane(query, held) {
         selectionVersion: 0,
         selectionAnchor: 0,
         scrolled: -1,
+        contexts: [],
         picked: {}
     }
     // ui/Pane.qml's own: the window starts at held, and an index outside it has no row at all.
@@ -55,11 +56,16 @@ function pane(query, held) {
         var offset = index - p.held
         return offset < 0 || offset >= p.rows.length ? null : p.rows[offset]
     }
-    p.showRow = function (view) { p.scrolled = view }
+    // The contexts each showRow was handed, so a pointer path proves its 0.
+    p.showRow = function (view, context) {
+        p.scrolled = view
+        p.contexts.push(context)
+    }
     // Mirrors ui/js/Selection.js: only() arms the lone row a plain move carries and every deliberate mark drops it.
     var lone = false
     var shiftBase = null
     var shiftLast = -1
+    var shiftSeq = 0
     p.selection = {
         has: function (i) { return p.picked[i] === true },
         promote: function (i) { if (lone && p.selectedIndices().length === 1 && p.picked[i]) { lone = false; return true } return false },
@@ -74,9 +80,9 @@ function pane(query, held) {
             lone = false
             shiftBase = null
         },
-        shiftBegin: function (base, last) { shiftBase = base.slice(); shiftLast = last },
-        shiftMoved: function (last) { shiftLast = last },
-        shiftState: function () { return shiftBase === null ? null : { base: shiftBase, last: shiftLast } },
+        shiftBegin: function (base, last, seq) { shiftBase = base.slice(); shiftLast = last; shiftSeq = seq || 0 },
+        shiftMoved: function (last, seq) { shiftLast = last; shiftSeq = seq || 0 },
+        shiftState: function () { return shiftBase === null ? null : { base: shiftBase, last: shiftLast, seq: shiftSeq } },
         shiftApply: function (range) {
             p.picked = {}
             for (var i = 0; i < shiftBase.length; i++) p.picked[shiftBase[i]] = true

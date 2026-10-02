@@ -92,7 +92,7 @@ Item {
                 width: root.tabWidth
                 height: strip.height
                 // The tab under the pointer draws ghosted while its drag runs.
-                opacity: root.dragFrom === tab.index ? 0.55 : 1.0
+                opacity: root.dragFrom === tab.index ? Theme.disabledOpacity : 1
 
                 readonly property bool current: root.currentIndex === tab.index
                 // Every input named, so the label re-reads when a tab opens or the pane navigates.
@@ -213,9 +213,8 @@ Item {
                     }
                 }
 
-                // Tabs040 callout 1: a left-button drag reorders rather than selects.
-                // A press without a move still taps above, and a file drag never
-                // enters here, so DropInto's hover switch answers only files.
+                // A left-button drag reorders; a press without a move still taps above.
+                // A file drag never enters here, so the hover switch answers only files.
                 DragHandler {
                     acceptedButtons: Qt.LeftButton
                     target: null

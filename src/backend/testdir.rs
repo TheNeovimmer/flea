@@ -1,6 +1,6 @@
 // Hard rule 9's sandbox, in code: every destructive test writes inside one of these and nowhere else.
 use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -95,6 +95,18 @@ impl TestDir {
         let p = self.join(name);
         std::fs::create_dir_all(&p).expect("test sandbox dir");
         p
+    }
+
+    // Hold the old inode across unlink and creation so ext4 cannot reuse it, even without birth time.
+    pub fn replace_file(&self, path: &Path, body: &str) {
+        self.assert_contains(path);
+        let held = std::fs::File::open(path).expect("hold the file being replaced");
+        let old = held.metadata().expect("the file being replaced");
+        std::fs::remove_file(path).expect("test sandbox remove");
+        std::fs::write(path, body).expect("test sandbox file");
+        let now = path.symlink_metadata().expect("the replacement");
+        assert_ne!(old.ino(), now.ino(), "the replacement must have a new inode: {}", path.display());
+        drop(held);
     }
 }
 
@@ -246,6 +258,33 @@ mod tests {
         // Right shape, right place, no marker.
         let bare = outside.dir(&format!("{}bare", PREFIX));
         assert!(!removable(&bare));
+    }
+
+    #[test]
+    fn a_replaced_path_reads_new_bytes_while_its_old_handle_keeps_old_bytes() {
+        let d = TestDir::new("replacefile");
+        let path = d.file("a.txt", "old");
+        let mut held = std::fs::File::open(&path).unwrap();
+        d.replace_file(&path, "new");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+        let mut old_body = String::new();
+        std::io::Read::read_to_string(&mut held, &mut old_body).unwrap();
+        assert_eq!(old_body, "old", "replacement must not rewrite the held file");
+    }
+
+    #[test]
+    fn replacing_an_unheld_file_changes_its_inode_without_birth_time() {
+        // Repeated replacements exercise freed-inode reuse without waiting for a birth-time tick.
+        const REPLACEMENTS: usize = 64;
+        let d = TestDir::new("replaceidentity");
+        let path = d.file("a.txt", "old");
+        for _ in 0..REPLACEMENTS {
+            let old = path.symlink_metadata().unwrap();
+            d.replace_file(&path, "new");
+            let new = path.symlink_metadata().unwrap();
+            assert_ne!(old.ino(), new.ino(), "replacement must change the inode without relying on birth time");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+        }
     }
 
     #[test]

@@ -11,6 +11,11 @@ Item {
 
     property string path: ""
     property bool active: false
+    // Forwarded to the page below, so Quick Look assigns like the column does.
+    property var backend: null
+    property bool fetchFirst: false
+    // Forwarded to the page below, so Quick Look cleans up only its own copy.
+    property string viewerSlot: ""
     // Expand fills the window; the overlay that hosts this reads the flag and drops its own inset.
     property bool expanded: false
     property int pdfControlIndex: -1
@@ -261,6 +266,9 @@ Item {
                 viewport: pageFlick
                 path: root.path
                 active: root.active
+                backend: root.backend
+                fetchFirst: root.fetchFirst
+                viewerSlot: root.viewerSlot
             }
         }
     }
@@ -283,7 +291,7 @@ Item {
         Text {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
-            text: "This file could not be read."
+            text: pdf.failSentence
             color: Theme.color.foreground
             font.family: Theme.font.family
             font.pixelSize: Theme.font.caption

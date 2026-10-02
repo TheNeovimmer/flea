@@ -38,6 +38,65 @@ fn settle_open(model: &mut Model, wire: &mut Wire) {
     drain(wire);
 }
 
+fn open_key() -> Key {
+    let key = Key::named("Return", "ctrl");
+    assert_eq!(Map::load().action(&key, "default"), "openTab", "the test presses the shipped open-tab chord");
+    key
+}
+
+// A single listing row for the open-tab branches below.
+fn folder_row() -> crate::tui::model::Row {
+    crate::tui::model::Row { name: "sub".into(), directory: true, size: 0, mode: 0o40755, link: String::new(), kind: String::new(), thumbnail: false, modified: 0, icon: String::new() }
+}
+
+// A file row refuses the same chord the folder row above accepts.
+fn file_row() -> crate::tui::model::Row {
+    crate::tui::model::Row { name: "note.txt".into(), directory: false, size: 3, mode: 0o100644, link: String::new(), kind: String::new(), thumbnail: false, modified: 0, icon: String::new() }
+}
+
+#[test]
+fn ctrl_return_opens_only_a_folder_in_a_new_tab() {
+    let (mut wire, reader) = echo_wire();
+    let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
+    model.rows.insert(0, folder_row());
+    press(&mut model, &mut wire, &open_key());
+    assert_eq!(model.tabs.len(), 2, "a folder row opens one tab");
+    assert_eq!(model.tabs[1].path, PathBuf::from("/listing/sub"), "the new tab stands on that folder");
+    drain(&mut wire);
+    finish(wire, reader);
+    let (mut wire, reader) = echo_wire();
+    let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
+    model.rows.insert(0, file_row());
+    press(&mut model, &mut wire, &open_key());
+    assert_eq!(model.tabs.len(), 1, "a file row opens no tab");
+    assert_eq!(model.message, "Only a folder opens in a new tab.", "a file row says only a folder does");
+    finish(wire, reader);
+    let (mut wire, reader) = echo_wire();
+    let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
+    press(&mut model, &mut wire, &open_key());
+    assert_eq!(model.tabs.len(), 1, "no row opens no tab");
+    assert_eq!(model.message, "Only a folder opens in a new tab.", "no row says the same sentence");
+    finish(wire, reader);
+}
+
+#[test]
+fn a_tenth_tab_is_refused_in_both_adding_arms() {
+    let cap = crate::uischema::MAX_LAST_TABS;
+    let (mut wire, reader) = echo_wire();
+    let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
+    model.tabs = (0..cap).map(|_| crate::tui::model::Tab { path: PathBuf::from("/listing"), cursor: 0, back: Vec::new(), forward: Vec::new() }).collect();
+    model.tab = cap - 1;
+    model.rows.insert(0, folder_row());
+    press(&mut model, &mut wire, &Key::character('t', ""));
+    assert_eq!(model.tabs.len(), cap, "t on a full strip adds nothing");
+    assert_eq!(model.message, "Nine tabs is the most.", "t on a full strip says the cap");
+    model.message.clear();
+    press(&mut model, &mut wire, &open_key());
+    assert_eq!(model.tabs.len(), cap, "ctrl-return on a full strip adds nothing");
+    assert_eq!(model.message, "Nine tabs is the most.", "ctrl-return on a full strip says the cap");
+    finish(wire, reader);
+}
+
 #[test]
 fn reorder_keys_move_the_current_tab_and_send_nothing() {
     let (mut wire, reader) = echo_wire();

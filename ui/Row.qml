@@ -4,6 +4,7 @@ import "js/Drag.js" as DragOps
 import "js/Format.js" as Format
 import "js/Icons.js" as Icons
 import "js/Match.js" as Match
+import "js/Recent.js" as Recent
 import "." as Flea
 
 Item {
@@ -56,7 +57,7 @@ Item {
     readonly property string linkMark: root.row && root.row.l ? " -> " + root.row.l : ""
     // The name, then a link's target; a folder carries no slash, its glyph and the folders-first order already say it.
     readonly property string decoratedName: root.displayName + root.linkMark
-    readonly property string locationText: root.locating ? Match.location(root.row.n) : ""
+    readonly property string locationText: root.locating ? (root.recenting ? Recent.locationOf(root.row.n) : Match.location(root.row.n)) : ""
     readonly property var nameRun: Match.run(root.displayName, root.searchQuery)
     // Assigned by List.qml's shared budgets; -2 keeps the local geometry default for PickerList and drop-target rows.
     property int assignedNameBudget: -2
@@ -76,9 +77,8 @@ Item {
     property var assignedCols: null // Set by List.qml; null keeps the local default below.
     readonly property var cols: root.assignedCols !== null ? root.assignedCols : (root.dualMode ? Theme.dualColumns(root.width, root.hiddenCols) : Theme.columns(root.width, root.hiddenCols, root.dateWidth))
     readonly property bool modeShown: !root.locating && root.cols.mode
-    // The search column set keeps Size and drops the other three, so only this one ignores searching.
+    // A search row keeps Size where it fits and shows Date only when it is a Recent row.
     readonly property bool sizeShown: root.cols.size
-    // Recent keeps the date as Used, newest first; a search keeps no date at all.
     readonly property bool dateShown: (!root.searching || root.recenting) && root.cols.date
     readonly property bool kindShown: !root.locating && root.cols.kind
 

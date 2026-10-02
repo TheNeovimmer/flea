@@ -42,8 +42,7 @@ fi
 clone="$work/$pkgname"
 git clone --quiet "$remote_base/$pkgname.git" "$clone"
 
-# GM 2026-10-01: flea-git is published on every release like flea and flea-bin, so even a
-# pkgver-only change pushes; only a byte-identical PKGBUILD pushes nothing (the no-op below).
+# flea-git pushes on every release like flea and flea-bin; docs/release.md states the ruling.
 
 cp "$pkgbuild" "$clone/PKGBUILD"
 (cd "$clone" && makepkg --printsrcinfo > .SRCINFO)

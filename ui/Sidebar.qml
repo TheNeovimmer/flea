@@ -34,9 +34,7 @@ Item {
         return entry
     })
     property var homeEntries: []
-    // Recent sits under Home, ahead of the XDG folders, and ships off, so a shared screen never
-    // names a recent file. Its row carries the location token ui/js/Picker.js names, the same
-    // token the chooser's own Recent row carries, because it is a location and not a path.
+    // Recent sits under Home, ships off, and carries the location token, not a path.
     readonly property var homeLead: root.homeEntries.slice(0, 1)
     readonly property var homeRest: root.homeEntries.slice(1)
     readonly property var recentEntries: root.placesState.showRecent === true
@@ -70,6 +68,8 @@ Item {
     onNetworkEntriesChanged: root.cancelRename()
     // Phones ride the DEVICES group behind the block devices: a plugged phone is a device to the person holding it, whatever transport gvfs reaches it over.
     readonly property var deviceEntries: root.placesState.showDevices === false || !root.railGate.showDevices ? [] : devices.entries.concat(phones.entries)
+    // The eject chain's guard state, read fresh at ipc time, so a failed eject names its guard.
+    function ejectChainState() { return devices.ejectState() }
     readonly property var entries: root.placesEntries.concat(root.networkEntries, root.deviceEntries)
 
     // The rail lands in one step by gating the entries themselves, so cursor, IPC and menus match only drawn rows.
@@ -97,7 +97,7 @@ Item {
     signal opened(string path)
     // The rail's Recent row answers with the history's own paths, newest first and bounded the way
     // the path jump reads them; the pane lists them with listpaths rather than listing a directory.
-    signal recentRequested(var paths)
+    signal recentRequested(var paths, var requester)
     signal addRequested()
     // The rail's Edit row asks the window to open the dialog over the saved place.
     signal editRequested(string uri, string label, string password, string reason, bool failedConnect, var origin)
@@ -159,26 +159,28 @@ Item {
     // Departure hands the timer back to a flight, if any, and the last listing stands while it is off.
     Component.onDestruction: { if (root.service && root.arrived) root.service.railLeft() }
 
-    // The desktop's own recent history, read and never written, the way the path jump reads it:
-    // kept across opens and re-read only once the watcher has seen a change, so opening Recent
-    // never pays the parse twice, and a re-read is per open, so the rail never serves what another
-    // application appended while this window stood open.
+    // The desktop's own history, read and never written, kept across opens.
     property var recentPaths: []
     property bool recentKept: false
     property bool recentReading: false
     property int recentChanges: 0
     property int recentReadAt: -1
+    // Every asker waiting on the read in flight, null meaning the rail pane itself.
+    property var recentRequesters: []
     // How many times the history has been parsed; the seam reads it the way it reads the jump's.
     property int recentReads: 0
-    function readRecent() {
-        // One read at a time: its answer opens the listing, so a second press while it is out waits for that one.
+    function readRecent(requester) {
+        // One read at a time: every asker waits on it, so each pane opens once it lands.
         if (root.recentReading) {
+            root.recentRequesters = Recent.joinRequesters(root.recentRequesters, requester)
             return
         }
         if (root.recentKept && root.recentReadAt === root.recentChanges) {
-            root.recentRequested(root.recentPaths)
+            root.recentRequested(root.recentPaths, requester || null)
             return
         }
+        // A fresh read waits on its asker alone; later askers join through the same helper.
+        root.recentRequesters = Recent.joinRequesters([], requester)
         root.recentReading = true
         root.recentReadAt = root.recentChanges
         recentWatcher.path = Recent.historyPath(Quickshell.env("XDG_DATA_HOME"), Quickshell.env("HOME"))
@@ -209,7 +211,9 @@ Item {
             // The parsed model goes once its newest paths are kept, which bounds what stays in
             // memory at Recent.LIMIT paths; later, because the reader is the one emitting this signal.
             Qt.callLater(function () { if (!root.recentReading) recentReader.active = false })
-            root.recentRequested(root.recentPaths)
+            var askers = root.recentRequesters
+            root.recentRequesters = []
+            for (var i = 0; i < askers.length; i++) root.recentRequested(root.recentPaths, askers[i])
         }
     }
 
@@ -223,6 +227,8 @@ Item {
         onOpened: function (path) { root.opened(path) }
         onMessage: function (text, isError) { root.message(text, isError) }
         onForgetMessage: function (text) { root.forgetMessage(text) }
+        // An eject releases the volume, so readers on it stop first and panes on it go Home.
+        onQuiesce: function (path) { if (root.navigationPane) root.navigationPane.quiesceVolume(path) }
     }
 
     // Lists and unmounts only: activate() below routes a phone's mount-and-open through the same openShare leg a share rides.
@@ -448,7 +454,7 @@ Item {
             parent: scroller
             flickable: scroller
         }
-        Flea.ViewportScrollBar { parent: scroller; anchors.top: parent.top; anchors.right: parent.right; flickable: scroller }
+        // No bar and no lane: rows fill the rail and still scroll by wheel, touchpad and keys.
         Column {
             id: rail
             anchors.top: parent.top

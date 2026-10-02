@@ -1,13 +1,11 @@
 .pragma library
 
-// Paths a foreign drop may copy, and the one sentence a refused drop says.
-// A drag this window started keeps its own marker and never re-reads text/plain:
-// a newline in a file name would otherwise become a second source.
-
+// Foreign-drop paths and its one refusal sentence; own drags keep their marker and never re-read text/plain.
 function usePlain(marker, shelf) {
     return !marker && !shelf
 }
 
+// Sample input "file:///d/a%20b.txt" answers "/d/a b.txt"; anything else answers null.
 function filePath(url) {
     var text = String(url)
     if (text.indexOf("file://") !== 0) return null
@@ -37,6 +35,7 @@ function filePaths(urls) {
     return paths
 }
 
+// Sample input "/a/x.txt\nhttp://e/y\n" answers ["/a/x.txt"]; a line not starting with "/" is left behind.
 function plainPaths(plain) {
     var paths = []
     if (!plain) return paths
@@ -79,8 +78,7 @@ function askAllowed(pathsPending, clipPending) {
     return !pathsPending && clipPending === null
 }
 
-// The floor refuses while the listing is out. A hovered tab keeps the folder it already stored.
-// The tab whose own listing has not landed refuses with the floor.
+// Floor refuses while a listing is out; a hovered tab keeps its stored folder, an unlanded one refuses with the floor.
 function refuseLoading(listInFlight, hoverTab, currentTab) {
     if (listInFlight !== true) return false
     if (hoverTab !== true) return true

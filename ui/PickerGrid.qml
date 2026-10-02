@@ -9,9 +9,7 @@ import "js/Thumbs.js" as Thumbs
 import "js/ExtThumbs.js" as ExtThumbs
 import "js/Sort.js" as Sort
 
-// The picker's grid mode, issue #191: the main window's tiles over the same rows, asking for
-// thumbnails for visible tiles only like the main grid. No drag, no rename, no directory
-// sizes: a chooser moves through the tree and answers, and a tile draws no size.
+// Issue #191 grid mode: the main window's tiles over the same rows, visible tiles only.
 GridView {
     id: root
 
@@ -162,36 +160,24 @@ GridView {
             ? Thumbs.fileFor(root.picker.thumbState, index) : ""
     }
 
-    Keys.onPressed: function (event) {
-        // Bare arrows and h/l step to visual neighbours in the grid, the main grid's own rule;
-        // the map below would read them as parent and browse-in instead.
-        if (event.modifiers === Qt.NoModifier
-                && (event.key === Qt.Key_Left || event.key === Qt.Key_Right
-                    || event.text === "h" || event.text === "l")) {
-            var across = (event.key === Qt.Key_Left || event.text === "h") ? -1 : 1
-            event.accepted = true
-            root.firstArmed = false
-            root.moveCursor(across)
-            return
-        }
-        var action = Keymap.lookup(event.key, event.text, event.modifiers, "listing")
-        event.accepted = true
+    // One dispatch for every action the lookup names, so a key test pins the live path.
+    function handleAction(action, key, modifiers) {
         if (action === "cursorFirstArm") {
             if (root.firstArmed) root.jumpTo(0)
             root.firstArmed = !root.firstArmed
-            return
+            return true
         }
         root.firstArmed = false
-        if (event.key === Qt.Key_Escape) {
+        if (key === Qt.Key_Escape) {
             root.picker.cancel()
         } else if (action === "cursorDown") {
             root.moveCursor(root.columns)
         } else if (action === "cursorUp") {
             root.moveCursor(-root.columns)
         } else if (action === "pageDown") {
-            root.moveCursor(root.visibleTileRows * root.columns)
+            root.jumpTo(Picker.pageTarget(root.picker.cursorIndex, root.visibleTileRows * root.columns, root.picker.total))
         } else if (action === "pageUp") {
-            root.moveCursor(-root.visibleTileRows * root.columns)
+            root.jumpTo(Picker.pageTarget(root.picker.cursorIndex, -root.visibleTileRows * root.columns, root.picker.total))
         } else if (action === "cursorFirst") {
             root.jumpTo(0)
         } else if (action === "cursorLast") {
@@ -200,9 +186,9 @@ GridView {
             root.picker.setView("list")
         } else if (action === "viewGrid") {
             root.picker.setView("grid")
-        } else if (event.key === Qt.Key_Space && event.modifiers === Qt.NoModifier) {
+        } else if (key === Qt.Key_Space && modifiers === Qt.NoModifier) {
             root.picker.toggleMark(root.picker.cursorIndex)
-        } else if (Picker.activates(action, event.key)) {
+        } else if (Picker.activates(action, key)) {
             root.picker.activate(root.picker.cursorIndex)
         } else if (action === "parent") {
             root.picker.goUp()
@@ -217,27 +203,59 @@ GridView {
             if (root.picker.path.length > 0)
                 root.picker.openWithoutHistory(root.picker.path)
         } else {
-            event.accepted = false
+            return false
         }
+        return true
     }
 
-    // The listing is a window around the viewport, not the directory, so scrolling refetches.
-    onContentYChanged: coalesce.restart()
+    Keys.onPressed: function (event) {
+        // Bare arrows and h/l step to visual neighbours in the grid, the main grid's own rule;
+        // the map below would read them as parent and browse-in instead.
+        if (event.modifiers === Qt.NoModifier
+                && (event.key === Qt.Key_Left || event.key === Qt.Key_Right
+                    || event.text === "h" || event.text === "l")) {
+            var across = (event.key === Qt.Key_Left || event.text === "h") ? -1 : 1
+            event.accepted = true
+            root.firstArmed = false
+            root.moveCursor(across)
+            return
+        }
+        var action = Keymap.lookup(event.key, event.text, event.modifiers, "listing")
+        event.accepted = root.handleAction(action, event.key, event.modifiers)
+    }
+
+    // A scroll refetches the window and restarts the thumb settle for newly visible tiles.
+    // Held rows are never refetched, so without the restart no settle asks for them.
+    onContentYChanged: {
+        coalesce.restart()
+        settle.restart()
+    }
 
     Timer {
         id: coalesce
-        interval: 16
+        interval: root.picker.coalesceMs
         onTriggered: root.requestIfDrifted()
     }
 
+    // Settle fires counted, so a probe waits on the first run rather than a delay.
+    property int settleRuns: 0
+    // Whether a settle fire is pending, so a probe quiesces before proving a restart.
+    property alias settleRunning: settle.running
     Timer {
         id: settle
         interval: root.firstSettleMs
-        onTriggered: root.requestThumbs()
+        onTriggered: { root.settleRuns += 1; root.requestThumbs() }
     }
 
     function primeSettle() { settle.interval = root.firstSettleMs }
     function restartSettle() { settle.restart() }
+
+    // A reshow owns its window: move to the cursor, refetch there, restart thumbs.
+    function reshow(index) {
+        root.positionViewAtIndex(index, GridView.Contain)
+        root.requestIfDrifted()
+        root.restartSettle()
+    }
 
     function requestIfDrifted() {
         if (!root.visible || root.picker.backendUnavailable || root.picker.total === 0 || root.picker.pendingListings > 0)
@@ -247,7 +265,7 @@ GridView {
         if (root.picker.rows.length === 0
                 || (range.first < root.picker.held && root.picker.held > 0)
                 || (range.last >= heldEnd && heldEnd < root.picker.total)) {
-            var start = Math.max(0, range.first - Math.floor(root.picker.windowSize / 4))
+            var start = Math.max(0, range.first - Math.floor(root.picker.windowSize * root.picker.windowLead))
             root.backend.window(Math.floor(start), root.picker.windowSize)
         }
     }

@@ -1,10 +1,5 @@
 #!/bin/bash
-# Guards what an external application sees when Flea drags a file out. tests/drag.sh proves the
-# gesture but needs the display and a real pointer, so it never runs in the headless battery.
-# A plain lift offers copy alone until the browser-upload work settles the offer: a browser
-# uploader refuses a move offer. Ctrl offers copy alone, Shift move alone, Ctrl with Shift link
-# alone, so a receiver that takes whatever is offered still takes the lift's verb. The shelf drag
-# stays copy only.
+# Headless guard for what an external drop target sees, unlike tests/drag.sh which needs a display: plain offers copy alone since a browser uploader refuses a move, Ctrl copy, Shift move, Ctrl with Shift link, shelf copy only.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
@@ -13,9 +8,10 @@ fail=0
 ok()  { printf 'ok   %s\n' "$*"; pass=$((pass+1)); }
 bad() { printf 'FAIL %s\n' "$*"; fail=$((fail+1)); }
 
-# Comments may name an action to explain it, so every check below reads code only.
+# Comments may name an action, so every check reads code only. Sample input, code_of('a // note') strips to 'a'.
 code_of() { sed -e 's://.*::' "$1"; }
 
+# Sample input, ui/FileDrag.qml:27: '    Drag.supportedActions: root.dragLink ? Qt.LinkAction : ...'
 advertised=$(for f in ui/*.qml; do code_of "$f" | grep -H --label="$f" -n 'Drag\.supportedActions'; done)
 count=$(printf '%s' "$advertised" | grep -c . )
 if [ "$count" -eq 1 ]; then
@@ -25,21 +21,23 @@ else
     printf '%s\n' "$advertised" | sed 's/^/     /'
 fi
 
-# Qt hands effectAllowed straight from this line. A plain lift names copy alone.
-if printf '%s' "$advertised" | grep -q 'Qt\.CopyAction'; then
-    ok "a leaving drag offers copy"
-else
-    bad "a leaving drag must offer Qt.CopyAction, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
-fi
-if printf '%s' "$advertised" | grep -q 'Qt\.CopyAction | Qt\.MoveAction'; then
-    bad "a plain lift must not offer both copy and move, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
-else
+# Comparing the whole normalized offer pins every ternary arm and rejects a trailing token.
+offer=$(code_of ui/FileDrag.qml | grep 'Drag\.supportedActions:' | sed 's/.*Drag\.supportedActions:[[:space:]]*//')
+[ -n "$offer" ] || bad "no Drag.supportedActions line left in ui/FileDrag.qml to pin"
+final=$(printf '%s\n' "$offer" | sed 's/.*://;s/[[:space:];]//g')
+if [ "$final" = "Qt.CopyAction" ]; then
     ok "a plain lift offers copy alone"
-fi
-if printf '%s' "$advertised" | grep -q 'dragCopy' && printf '%s' "$advertised" | grep -q 'dragShift' && printf '%s' "$advertised" | grep -q 'dragLink'; then
-    ok "ctrl offers copy alone, shift move alone, ctrl with shift link alone"
 else
-    bad "the offer must narrow on dragCopy, dragShift and dragLink, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
+    bad "a plain lift must end on Qt.CopyAction alone, got: $final"
+fi
+# Sample input: root.dragLink ? Qt.LinkAction : root.dragCopy ? Qt.CopyAction : root.dragShift ? Qt.MoveAction : Qt.CopyAction
+offer_seq=$(printf '%s\n' "$offer" | tr -d '[:space:];' | sed -e 's/root\.//g' -e 's/?/ /g' -e 's/:/;/g')
+# Link precedes copy because a link lift carries ctrl, so order decides the verb.
+expected_seq='dragLink Qt.LinkAction;dragCopy Qt.CopyAction;dragShift Qt.MoveAction;Qt.CopyAction'
+if [ "$offer_seq" = "$expected_seq" ]; then
+    ok "the offer narrows arm by arm: link alone, Ctrl copy alone, Shift move alone, plain copy alone"
+else
+    bad "the offer must read $expected_seq, got: $offer_seq"
 fi
 if printf '%s' "$advertised" | grep -q 'Qt\.LinkAction'; then
     ok "a link lift offers a link"
@@ -61,9 +59,7 @@ else
     bad "the shelf drag must stay Qt.CopyAction alone, got: $shelf"
 fi
 
-# Flea's own verb is the marker, not the DragEvent field. proposedAction may reach only the one
-# helper in ui/js/Drag.js that ignores it for any Flea marker; QML call sites only pass it through
-# to dropInto, dropVerb, feedbackFor, enterTarget or dropped. Anything else is the verb riding on it.
+# Own verb rides the marker: proposedAction reaches only the Drag.js helper plus pass-through call sites (dropInto, dropVerb, feedbackFor, enterTarget, dropped).
 if ! grep -q '^function foreignHeld' ui/js/Drag.js || ! grep -q '^function dropVerb' ui/js/Drag.js; then
     bad "ui/js/Drag.js must hold the single proposedAction helper (foreignHeld and dropVerb)"
 else
@@ -74,7 +70,7 @@ if ! grep -q 'dropVerb(marker, proposed' ui/js/Drag.js; then
 else
     ok "dropInto chooses its verb through dropVerb"
 fi
-side=$(for f in ui/*.qml ui/js/*.js; do code_of "$f" | grep -H --label="$f" -n 'proposedAction'; done)
+side=$(for f in ui/*.qml ui/js/*.js; do code_of "$f" | grep -H --label="$f" -n 'proposed'; done)
 badside=""
 while IFS= read -r hit; do
     [ -n "$hit" ] || continue
@@ -83,8 +79,7 @@ while IFS= read -r hit; do
     case "$file" in
         ui/js/Drag.js) continue ;;
         ui/DropInto.qml|ui/RowDrag.qml|ui/FileDrag.qml)
-            # Pass-through only: the offer setting and argument forwarding carry no decision.
-            # A bitwise read or comparison here would decide the verb outside the helper.
+            # Pass-through only (offer setting and argument forwarding); a bitwise read or comparison here would decide the verb outside the helper.
             case "$text" in
                 *"&"*|*"=="*|*"!="*) ;;
                 *) continue ;;
@@ -100,11 +95,22 @@ else
     bad "the internal verb is back on proposedAction outside the helper:"
     printf '%s\n' "${badside:-$side}" | sed 's/^/     /'
 fi
-# The helper must ignore the platform action for any Flea marker: no bitwise read of proposed
-# outside foreignHeld. A verb decided elsewhere from proposedAction fails this before it ships.
+# Helper ignores proposed for any Flea marker: no bitwise proposed read outside foreignHeld.
 bites=$(grep -n 'proposed &' ui/js/Drag.js)
 start=$(grep -n '^function foreignHeld' ui/js/Drag.js | cut -d: -f1)
-finish=$(awk -v s="$start" 'NR>s && /^function /{print NR; exit}' ui/js/Drag.js)
+if [ -z "$start" ]; then
+    bad "ui/js/Drag.js has no ^function foreignHeld line, so the single-helper range is unbounded"
+fi
+finish=""
+while IFS= read -r n; do
+    if [ "$n" -gt "${start:-0}" ]; then
+        finish=$n
+        break
+    fi
+done <<< "$(grep -n '^function ' ui/js/Drag.js | cut -d: -f1)"
+if [ -z "$finish" ]; then
+    finish=$(($(wc -l < ui/js/Drag.js) + 1))
+fi
 outside=""
 while IFS= read -r hit; do
     [ -n "$hit" ] || continue
@@ -118,8 +124,34 @@ done <<< "$bites"
 if [ -z "$outside" ] && [ -n "$bites" ]; then
     ok "only foreignHeld reads the proposedAction bits"
 else
-    bad "proposedAction bits are read outside foreignHeld:"
-    printf '%s\n' "${outside:-none}" | sed 's/^/     /'
+    bad "proposedAction bits are read outside foreignHeld lines $start-$finish:"
+    printf '%s\n' "${outside:-no bitwise read left to place}" | sed 's/^/     /'
+fi
+
+# The shortened bound, and the fewest stub calls that show the wait kept polling.
+short_wait_ns=300000000
+min_poll_calls=2
+# Sample input: "xwdrag_wait_row_gone() {", the ui.sh wait run with only its 10 s bound cut to short_wait_ns.
+# The wait reads through xwdrag_count, so the guard comes along; the stub below answers both.
+eval "$(sed -n '/^xwdrag_count()/,/^}/p;/^xwdrag_wait_row_gone()/,/^}/p' tests/ui.sh | sed "s/wait_ns=[0-9][0-9]*/wait_ns=$short_wait_ns/")"
+# A stub qs that fails every call, so the wait must keep polling to the bound.
+xwdrag_qs() {
+    printf 'call\n' >&3
+    return 255
+}
+calls=$(
+    {
+        xwdrag_wait_row_gone stub-id "move.txt" >/dev/null 2>&1
+        printf 'rc=%s\n' "$?"
+    } 3>&1
+)
+wait_rc=$(printf '%s\n' "$calls" | sed -n 's/^rc=//p')
+poll_calls=$(printf '%s\n' "$calls" | grep -c '^call$')
+# A wait that saw no row and no total answers 1 only after polling for it.
+if [ "$wait_rc" -eq 1 ] && [ "$poll_calls" -ge "$min_poll_calls" ]; then
+    ok "a failing total call keeps waiting and answers 1 at the bound"
+else
+    bad "a failing total call must wait and answer 1, got rc=$wait_rc calls=$poll_calls"
 fi
 
 printf 'dragwire: %s check(s), %s failed\n' "$((pass + fail))" "$fail"

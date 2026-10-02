@@ -234,4 +234,137 @@ function run(check) {
     check("a refused writer leaves its own setting in the patch behind it",
           refusedUnder.start, '{"keys":"windows","display":{"textSize":{"mode":16}}}')
     check("and the refusal is still reported", refusedUnder.failed, true)
+
+    // xw4: one window's Settings change applies in every other open window. Per-window state is
+    // the view a window shows, its widths, its dual pair, where it was, and the sweep and stamp
+    // keys; everything else is a preference some panel or toggle writes.
+    for (var w = 0; w < ["view", "pickerView", "columnWidths", "dual", "lastPath", "lastTabs"].length; w++)
+        check("a window key is never taken from the file",
+              UiState.isWindowKey(["view", "pickerView", "columnWidths", "dual", "lastPath", "lastTabs"][w]), true)
+    check("a setting key is", UiState.isWindowKey("hidden"), false)
+    check("and so is a group key", UiState.isWindowKey("display"), false)
+    var other = { hidden: false, density: "compact", view: "list", lastPath: "/a",
+                  display: { textSize: { mode: "system" } }, sort: { key: "name", reverse: false },
+                  places: { showUnmounted: true, favourites: [{ label: "Old", path: "/old" }] } }
+    var changedFile = '{"hidden":true,"density":"normal","view":"grid","lastPath":"/b",' +
+        '"display":{"textSize":{"mode":16}},"sort":{"key":"size","reverse":false},' +
+        '"places":{"showUnmounted":false,"favourites":[]},"stateVersion":3}'
+    var applied = UiState.applyExternal(other, {}, changedFile)
+    check("a changed preference applies", applied.state.hidden, true)
+    check("with its group beside it", applied.state.display.textSize.mode, 16)
+    check("while a window's own sort stays put", applied.state.sort.key, "name")
+    check("a Places leaf applies too", applied.state.places.showUnmounted, false)
+    check("while the view stays the window's own", applied.state.view, "list")
+    check("and where it was stays too", applied.state.lastPath, "/a")
+    check("favourites are never taken here", JSON.stringify(applied.state.places.favourites), '[{"label":"Old","path":"/old"}]')
+    var sameFile = JSON.stringify(other)
+    // An owed key keeps the window's own value against a file that says otherwise; without the owed branch each of these takes the file's.
+    var ownState = { hidden: false, density: "compact" }
+    var ownKept = UiState.applyExternal(ownState, { hidden: false }, '{"hidden":true,"density":"normal"}')
+    check("an owed whole key keeps the window's own value", ownKept.state.hidden, false)
+    check("while a key beside it still applies", ownKept.state.density, "normal")
+    check("and a file holding nothing new moves nothing",
+          UiState.applyExternal(other, {}, sameFile).changed, false)
+    check("a half-written file is ignored", UiState.applyExternal(other, {}, "{").changed, false)
+    check("a non-object file is too", UiState.applyExternal(other, {}, "[1,2]").changed, false)
+    check("an empty read is too", UiState.applyExternal(other, {}, "").changed, false)
+    var racing = { hidden: false, display: { textSize: { mode: 16 }, hyprlandIcons: false } }
+    var raced = UiState.applyExternal(racing, { display: { textSize: { mode: 16 } } },
+        '{"hidden":true,"display":{"textSize":{"mode":20},"hyprlandIcons":true}}')
+    check("an owed leaf keeps the window's own value", raced.state.display.textSize.mode, 16)
+    check("while a leaf beside it still applies", raced.state.display.hyprlandIcons, true)
+    check("and a whole key beside that does too", raced.state.hidden, true)
+    var maps = { folderSorts: { "/a": { key: "size", reverse: true } } }
+    var mapped = UiState.applyExternal(maps, { folderSorts: { "/a": { key: "size", reverse: true } } },
+        '{"folderSorts":{"/a":{"key":"name","reverse":false},"/b":{"key":"name","reverse":false}}}')
+    check("an owed map entry keeps the window's own", mapped.state.folderSorts["/a"].key, "size")
+    check("while another window's entry applies", mapped.state.folderSorts["/b"].key, "name")
+    check("a key a newer Flea wrote is kept verbatim",
+          UiState.applyExternal({}, {}, '{"aKeyThisBuildHasNeverHeardOf":true}').state.aKeyThisBuildHasNeverHeardOf, true)
+
+    // xw4-r2 finding 2: a window's sort is its own, the file still records the last one for new windows.
+    check("sort joins the window keys", UiState.isWindowKey("sort"), true)
+    var sortHeld = { sort: { key: "name", reverse: false } }
+    var sortFile = '{"sort":{"key":"size","reverse":true},"hidden":true}'
+    var sortApplied = UiState.applyExternal(sortHeld, {}, sortFile)
+    check("another window's sort never lands", JSON.stringify(sortApplied.state.sort), '{"key":"name","reverse":false}')
+    check("while a preference beside it still does", sortApplied.state.hidden, true)
+
+    // xw4-r2 finding 3: rail, preview column and grid zoom stay per window, Finder's rule.
+    check("rail is a window leaf", UiState.isWindowLeaf("places", "rail"), true)
+    check("preview column is too", UiState.isWindowLeaf("preview", "column"), true)
+    check("and so is the grid zoom", UiState.isWindowLeaf("preview", "thumbSize"), true)
+    check("but a Places switch beside it is not", UiState.isWindowLeaf("places", "showUnmounted"), false)
+    var railHeld = { places: { rail: "hidden", showUnmounted: true, favourites: [] } }
+    var railFile = '{"places":{"rail":"shown","showUnmounted":false,"favourites":[]}}'
+    var railApplied = UiState.applyExternal(railHeld, {}, railFile)
+    check("another window's rail never lands", railApplied.state.places.rail, "hidden")
+    check("while its Places switch still does", railApplied.state.places.showUnmounted, false)
+    var zoomHeld = { preview: { column: false, thumbSize: "large", loadOn: "automatic" } }
+    var zoomFile = '{"preview":{"column":true,"thumbSize":"small","loadOn":"manual"}}'
+    var zoomApplied = UiState.applyExternal(zoomHeld, {}, zoomFile)
+    check("another window's preview column never lands", zoomApplied.state.preview.column, false)
+    check("and its grid zoom neither", zoomApplied.state.preview.thumbSize, "large")
+    check("while its load switch still does", zoomApplied.state.preview.loadOn, "manual")
+
+    // xw4-r2 finding 1: raw bytes are only a guard; empty or garbage never applies.
+    check("empty text is not an object", UiState.parsesAsObject(""), false)
+    check("garbage is not either", UiState.parsesAsObject("{"), false)
+    check("but a settled document is", UiState.parsesAsObject('{"hidden":true}'), true)
+
+    // Only a schema-invalid patch prunes; a transient failure keeps today's retry and loses nothing.
+    check("a bogus column set prunes off the patch", UiState.isPatchInvalid('{"columns":["name","size","bogus"]}'), true)
+    check("while a valid one retries", UiState.isPatchInvalid('{"columns":["name","size","date"]}'), false)
+    check("and a null places group prunes too", UiState.isPatchInvalid('{"places":null}'), true)
+
+    // A refused patch never blocks later saves: its keys drop and revert to the settled values.
+    var owedBogus = { columns: ["name", "size", "bogus"], density: "compact" }
+    var settledDefaults = { columns: ["name", "size", "date"], density: "compact" }
+    var pruned = UiState.pruneRefused(owedBogus, '{"columns":["name","size","bogus"]}', settledDefaults)
+    check("a refused key drops out of what is owed", pruned.unsaved.columns, undefined)
+    check("and names itself once", pruned.dropped.length > 0, true)
+    var reverted = UiState.revertedState({ columns: ["name", "size", "bogus"] },
+        '{"columns":["name","size","bogus"]}', settledDefaults)
+    check("and the state heals to the settled value", JSON.stringify(reverted.columns), '["name","size","date"]')
+    // A refused patch drops only its schema-refused keys: a valid key beside it and a newer owed value both survive.
+    var twoKey = UiState.pruneRefused({ columns: ["name", "size", "bogus"], density: "normal" },
+        '{"columns":["name","size","bogus"],"density":"normal"}', settledDefaults)
+    check("a valid key beside a refusal survives the prune", twoKey.unsaved.density, "normal")
+    check("while the refused key still drops", twoKey.unsaved.columns, undefined)
+    check("and only the refused key is named", JSON.stringify(twoKey.dropped), '["columns"]')
+    var newer = UiState.pruneRefused({ columns: ["name"], density: "normal" },
+        '{"columns":["name","size","bogus"],"density":"normal"}', settledDefaults)
+    check("a newer owed value the refused writer never carried survives too", JSON.stringify(newer.unsaved.columns), '["name"]')
+    var revertTwo = UiState.revertedState({ columns: ["name", "size", "bogus"], density: "normal" },
+        '{"columns":["name","size","bogus"],"density":"normal"}', settledDefaults)
+    check("the revert heals only the refused key", JSON.stringify(revertTwo.columns), '["name","size","date"]')
+    check("and leaves a valid key alone", revertTwo.density, "normal")
+    var revertNewer = UiState.revertedState({ columns: ["name"], density: "normal" },
+        '{"columns":["name","size","bogus"],"density":"normal"}', settledDefaults)
+    check("and a newer value for the refused key survives the revert", JSON.stringify(revertNewer.columns), '["name"]')
+    // A prune settle that never answers still drops what the schema refused, so no save strands behind a phantom writer.
+    var failed = UiState.dropInvalid({ columns: ["name", "size", "bogus"], density: "normal" },
+        '{"columns":["name","size","bogus"],"density":"normal"}')
+    check("a failed settle still drops the refused key", failed.columns, undefined)
+    check("and keeps the valid one queued behind it", failed.density, "normal")
+    // A settler's exit and its collected text land in either order, so only a whole answer is ever read.
+    check("half an answer is not whole", UiState.whole({ code: 0 }), false)
+    check("both halves are", UiState.whole(UiState.landed({ code: 0 }, { text: "{}" })), true)
+    check("in either order", UiState.whole(UiState.landed({ text: "{}" }, { code: 0 })), true)
+    check("a program that never started is told from a real exit", UiState.neverRan({}, false), true)
+    check("and a real exit never is", UiState.neverRan({ code: 0 }, false), false)
+    // A refused write queues its prune behind a running settle; the settle's end spends the prune before a dirty re-read.
+    check("a prune behind a running settle queues", UiState.pruneAsk(true, '{"columns":[]}').queue, '{"columns":[]}')
+    check("and starts nothing", UiState.pruneAsk(true, '{"columns":[]}').start, "")
+    check("while an idle settler starts it at once", UiState.pruneAsk(false, '{"columns":[]}').start, '{"columns":[]}')
+    // A half-landed settle still counts as running, so a refused write behind it queues.
+    check("an exit without its text still counts as running", UiState.settleBusy(false, "apply", { code: 0 }), true)
+    check("and text without its exit does too", UiState.settleBusy(false, "apply", { text: "{}" }), true)
+    check("while a whole answer does not", UiState.settleBusy(false, "apply", { code: 0, text: "{}" }), false)
+    check("and an idle settler neither", UiState.settleBusy(false, "", {}), false)
+    check("a half-landed prune queues behind it", UiState.pruneAsk(UiState.settleBusy(false, "apply", { code: 0 }), '{"columns":[]}').queue, '{"columns":[]}')
+    check("and never starts over it", UiState.pruneAsk(UiState.settleBusy(false, "apply", { text: "{}" }), '{"columns":[]}').start, "")
+    check("a queued prune spends before a dirty re-read", UiState.settleNext(true, '{"columns":[]}'), "prune")
+    check("a dirty flag alone re-reads", UiState.settleNext(true, ""), "apply")
+    check("and a quiet settle ends idle", UiState.settleNext(false, ""), "idle")
 }

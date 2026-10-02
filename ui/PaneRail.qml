@@ -92,7 +92,7 @@ Item {
             onOpened: function(path) { RailKeys.openFrom(root.pane.railPane, path, sidebar) }
             // Sidebar040: the rail's Recent row answers with the history's own paths, which the
             // pane lists with listpaths; focus follows into the folder the way a mount's open does.
-            onRecentRequested: function (paths) { root.pane.railPane.openRecent(paths); RailKeys.landed(root.pane.railPane, sidebar) }
+            onRecentRequested: function (paths, requester) { var target = requester || root.pane.railPane; target.openRecent(paths); RailKeys.landed(target, sidebar) }
             onTrashRequested: root.pane.railPane.trash.open()
             onMessage: function(text, isError) { RailKeys.messaged(sidebar, isError); root.pane.message(text, isError) }
             onForgetMessage: function(text) { root.pane.forgetMessage(text) }
@@ -169,6 +169,7 @@ Item {
                 }
             }
             onForgetMessage: function (text) { root.pane.forgetMessage(text) }
+            onQuiesce: function (path) { root.pane.quiesceVolume(path) }
             onFirstAnsweredChanged: root.hiddenEjectReady()
         }
     }

@@ -23,7 +23,8 @@ Item {
     property int lockedMode: 0
 
     readonly property bool locked: root.listingState === "locked"
-    readonly property bool failed: root.locked || root.listingState === "error"
+    // A listing past its wait is the Error state too, so the sentence draws with the alert mark.
+    readonly property bool failed: root.locked || root.listingState === "error" || root.listingState === "waiting"
     readonly property bool nothingMatched: root.filterQuery.length > 0 && root.shown === 0 && root.total > 0
     // The detail is the directory's own mode, which only a locked state has and only when the
     // backend could stat it; everything else proves nothing extra and draws nothing.

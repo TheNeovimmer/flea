@@ -53,7 +53,8 @@ pub enum OpMsg {
     Item { id: usize, index: usize, name: String, ok: bool, err: String },
     TransferDone { id: usize, ok: usize, failed: usize, skipped: usize, cancelled: bool, entry: Entry,
                    retry: Vec<(PathBuf, ItemIdentity)>, durable: bool, note: String },
-    Trashed { ok: usize, failed: usize, entry: Entry },
+    Trashed { ok: usize, failed: usize, entry: Entry, reason: String },
+    Linked { ok: usize, failed: usize, skipped: usize, entry: Entry, note: String, first_err: String, dest: String },
     Duplicated { ok: bool, path: String, err: String, entry: Entry },
     RedoDone { journal: super::undo::Journal, result: Result<String, FleaError> },
     MenuDeleteDone { line: String },
@@ -62,9 +63,22 @@ pub enum OpMsg {
     DetachedDone { id: usize, line: String },
     // A collisions answer, kept as the latest question before its line goes out; it claims no slot.
     Asked { turn: usize, question: crate::backend::collide::Question, line: String },
-    // Not an operation: meta rides this channel because a media probe is a subprocess and the loop
-    // must not wait on one. Nothing about it claims the one-at-a-time slot.
+    // A slow remote write reporting late: the loop journals it exactly as the in-time path would.
+    RenameDone { id: usize, result: Result<(PathBuf, Vec<Step>), FleaError> },
+    MkdirDone { id: usize, result: Result<(PathBuf, Vec<Step>), FleaError> },
+    // Meta rides this channel because a media probe is a subprocess; it claims no operation slot.
     Meta { line: String },
+}
+
+// One link request's whole answer: its counts, its journal steps and the first failure's words.
+pub struct LinkOutcome {
+    pub ok: usize,
+    pub failed: usize,
+    pub skipped: usize,
+    pub steps: Vec<Step>,
+    pub first_err: String,
+    // Each stranded replace sentence, reported on the linked line ahead of the undo hint.
+    pub note: String,
 }
 
 // moving is the verb the request actually resolved to, so the client names the operation from the
@@ -122,8 +136,12 @@ pub fn retain_retry(retry: &[(PathBuf, ItemIdentity)], matches: &mut Vec<(&str, 
         ItemIdentity::inspect(Path::new(path)).is_ok_and(|current| original.same_item(&current))));
 }
 
-pub fn trashed_line(ok: usize, failed: usize) -> String {
-    format!(r#"{{"t":"trashed","ok":{},"failed":{}}}"#, ok, failed)
+// err rides only on a failure, so a successful trash line is byte-identical to before.
+pub fn trashed_line(ok: usize, failed: usize, reason: &str) -> String {
+    if reason.is_empty() {
+        return format!(r#"{{"t":"trashed","ok":{},"failed":{}}}"#, ok, failed);
+    }
+    format!(r#"{{"t":"trashed","ok":{},"failed":{},"err":"{}"}}"#, ok, failed, escape(reason))
 }
 
 pub fn renamed_line(ok: bool, path: &str) -> String {
@@ -148,12 +166,16 @@ pub fn usable_dest(dest: &str) -> Result<PathBuf, FleaError> {
     if !p.is_absolute() {
         return Err(op_err("transfer", dest, "a destination must be an absolute path"));
     }
-    match p.metadata() {
-        Ok(m) if m.is_dir() && crate::backend::ops::dir_writable(&p) => Ok(p),
-        Ok(m) if m.is_dir() => Err(op_err("transfer", dest, "that folder cannot be written")),
-        Ok(_) => Err(op_err("transfer", dest, "the destination is not a directory")),
-        Err(e) => Err(from_io("transfer", dest, &e)),
-    }
+    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+    let owned = p.clone();
+    let dest_owned = dest.to_string();
+    super::iomount::call(&p, &body, "transfer", move || match owned.metadata() {
+        Ok(m) if m.is_dir() && crate::backend::ops::dir_writable(&owned) => Ok(owned),
+        Ok(m) if m.is_dir() => Err(op_err("transfer", &dest_owned, "that folder cannot be written")),
+        Ok(_) => Err(op_err("transfer", &dest_owned, "the destination is not a directory")),
+        Err(e) => Err(from_io("transfer", &dest_owned, &e)),
+    })
+    .unwrap_or_else(Err)
 }
 
 pub fn op_err(where_: &str, path: &str, msg: &str) -> FleaError {
@@ -491,18 +513,18 @@ fn one_item(
 
 pub(crate) fn run_trash(paths: Vec<String>, tx: Sender<OpMsg>, selection: Option<Vec<super::menu_actions::Selected>>) {
     let owned: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
-    let (entries, failed) = match trash::trash_checked(&owned, selection.as_deref()) {
+    let (entries, failed, reason) = match trash::trash_checked(&owned, selection.as_deref()) {
         Ok(result) => result,
         Err(error) => {
             let line = super::proto::error_line(&op_err("trash", "", &error));
             let _ = tx.send(OpMsg::Meta { line });
-            (Vec::new(), owned.len())
+            (Vec::new(), owned.len(), error)
         }
     };
     let ok = entries.len();
     let steps = entries.into_iter().map(Step::Trashed).collect();
     let entry = Entry { op: "trash".to_string(), steps };
-    let _ = tx.send(OpMsg::Trashed { ok, failed, entry });
+    let _ = tx.send(OpMsg::Trashed { ok, failed, entry, reason });
 }
 
 // The same for a duplicate: ui/Pane.qml's own path is run_duplicate_checked.

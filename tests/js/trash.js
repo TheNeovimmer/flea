@@ -55,8 +55,7 @@ function run(check) {
     Trash.arm(picked)
     check("the pair trashes the selection when there is one", picked.trashedIdx.join(","), "1,4")
 
-    // Issue 227: window-level keys reach the window handlers from the Trash view instead of
-    // answering "keymapSheet is not built yet". Direct bypasses pane.act the way handleKey does.
+    // Issue 227: window-level keys from the Trash view reach the window handlers, "direct" ones skipping pane.act.
     check("? reaches the sheet without going through the pane", Trash.route("keymapSheet"), "direct")
     check("the path bar does too", Trash.route("pathBar"), "direct")
     check("larger text does too", Trash.route("textSizeUp"), "direct")

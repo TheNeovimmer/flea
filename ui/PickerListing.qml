@@ -41,6 +41,11 @@ Item {
         if (current && current.running && !current.obsolete && !quitting)
             current.write(JSON.stringify({c: "window", start: start, count: count}) + "\n")
     }
+    // Storage class for the grid planner, asked after the listing lands.
+    function fsinfo() {
+        if (current && current.running && !current.obsolete && !quitting)
+            current.write(JSON.stringify({c: "fsinfo"}) + "\n")
+    }
     // Sort reorders the worker's own listing without replacing it; the caller re-asks the window after.
     function sort(by, desc, foldersFirst, groupByKind) {
         if (current && current.running && !current.obsolete && !quitting)

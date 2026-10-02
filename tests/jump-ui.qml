@@ -45,6 +45,17 @@ ShellRoot {
             keys.keyClickChar(text.charAt(i), Qt.NoModifier, -1)
     }
     function press(key) { keys.keyClick(key, Qt.NoModifier, -1) }
+    // The dropdown CardScroll's stepping handler, the wheel's own route into Jump.step.
+    function stepHandler(item) {
+        var stack = [item]
+        while (stack.length > 0) {
+            var o = stack.pop()
+            if (o !== item && o.stepMode === true) return o
+            var kids = (o && o.children !== undefined) ? o.children : []
+            for (var i = 0; i < kids.length; i++) stack.push(kids[i])
+        }
+        return null
+    }
     function answer(offset) {
         var last = root.asked[root.asked.length - 1]
         chrome.jump.take(last.id + offset, root.sources.favourites, root.sources.zoxide, root.sources.recent)
@@ -113,6 +124,14 @@ ShellRoot {
             root.check("widening again rebinds the same delegates", [root.rows().length, chrome.jump.dropItem.liveAt(0) === first], [7, true])
             root.press(Qt.Key_Down); root.press(Qt.Key_Down); root.press(Qt.Key_Down)
             root.check("three downs move three rows", chrome.jump.cursor, 3)
+            var dropH = root.stepHandler(chrome.jump.dropItem)
+            root.check("the dropdown wheel handler steps", dropH !== null, true)
+            if (dropH !== null) {
+                dropH.handleWheel({ phase: 0, pixelDelta: { x: 0, y: 0 }, angleDelta: { x: 0, y: -120 }, accepted: false })
+                root.check("one notch down steps like Down", chrome.jump.cursor, 4)
+                dropH.handleWheel({ phase: 0, pixelDelta: { x: 0, y: 0 }, angleDelta: { x: 0, y: 120 }, accepted: false })
+                root.check("one notch up steps back", chrome.jump.cursor, 3)
+            }
             root.press(Qt.Key_Down); root.press(Qt.Key_Up); root.press(Qt.Key_Down)
             root.press(Qt.Key_Return)
             root.check("Enter opens the row under the cursor", root.entered[1], root.home + "/Pictures/screenshots")

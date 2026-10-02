@@ -423,11 +423,7 @@ Item {
             parent: detailView
             flickable: detailView
         }
-        Flea.ViewportScrollBar {
-            parent: detailView
-            anchors { top: parent.top; right: parent.right }
-            flickable: detailView
-        }
+        // No bar and no lane: the detail fills the strip and still scrolls by wheel and touchpad.
         Text {
             id: detailText
             x: Theme.spacing.rowPaddingX

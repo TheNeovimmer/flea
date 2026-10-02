@@ -52,6 +52,7 @@ Flickable {
         parent: root
         flickable: root
     }
+    // No bar and no lane: rows fill the pane and still scroll by wheel, touchpad and keys.
 
     // SettingsMenus rule 4: a section taller than the viewport fades at its lower edge instead of
     // slicing a row, so the cut says that more follows. parent: root keeps it off the content item,
@@ -68,12 +69,6 @@ Flickable {
             GradientStop { position: 0; color: Qt.rgba(Theme.color.surface.r, Theme.color.surface.g, Theme.color.surface.b, 0) }
             GradientStop { position: 1; color: Theme.color.surface }
         }
-    }
-
-    Flea.ViewportScrollBar {
-        parent: root
-        anchors { top: parent.top; right: parent.right }
-        flickable: root
     }
 
     // The row item at an index of the chosen section, or null before the columns exist.

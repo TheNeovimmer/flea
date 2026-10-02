@@ -26,6 +26,14 @@ pub struct Tables {
     pub formats: Arc<Formats>,
 }
 
+// Which listing the pane holds, so a re-read counts only over its own kind.
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum Held {
+    List,
+    ListPaths,
+    Walk,
+}
+
 // Everything the loop mutates, gathered so a handler takes one borrow instead of ten arguments.
 pub struct State {
     pub listing: Listing,
@@ -33,6 +41,8 @@ pub struct State {
     // Only the rows a client named, so this never grows with the directory; see AGENTS.md "Thumbnail requests".
     pub asked: Vec<(PathBuf, usize)>,
     pub outstanding: usize,
+    // The last window's mode, mtime and link-dir flag per row, so a thumb request reuses them with no stat.
+    pub window_meta: HashMap<usize, (u32, i64, bool)>,
     // Answered directory rows, kept until the next list or sort reassigns what a row index names.
     pub dirsizes: HashMap<usize, (u64, bool)>,
     // Rows still to walk, one at a time; dirsizecancel empties this without touching dirsizes.
@@ -44,6 +54,8 @@ pub struct State {
     pub search_reported: Instant,
     // Which numbering the rows are in; forget_rows moves it, see src/backend/rowguard.rs.
     pub generation: u64,
+    // The source of the held listing, set by the arm that answered it.
+    pub held: Held,
 }
 
 impl Tables {
@@ -60,8 +72,9 @@ impl State {
     pub fn new(dirsize_worker: super::dirsizeworker::Worker) -> State {
         State {
             listing: Listing::new(), base: PathBuf::new(), asked: Vec::new(), outstanding: 0,
+            window_meta: HashMap::new(),
             dirsizes: HashMap::new(), dirsize_queue: Vec::new(), dirsize_worker,
-            search: None, search_reported: Instant::now(), generation: FIRST_LISTING - 1,
+            search: None, search_reported: Instant::now(), generation: FIRST_LISTING - 1, held: Held::List,
         }
     }
 }

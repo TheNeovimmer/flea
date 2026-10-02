@@ -66,11 +66,7 @@ Item {
         currentIndex: 0
         onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
         Flea.FastScrollHandler { flickable: rail }
-        Flea.ViewportScrollBar {
-            parent: rail
-            anchors { top: parent.top; right: parent.right }
-            flickable: rail
-        }
+        // No bar and no lane: rows fill the rail and still scroll by wheel, touchpad and keys.
         Keys.onTabPressed: function(event) { root.picker.stepFocus(rail, (event.modifiers & Qt.ShiftModifier) !== 0) }
         Keys.onBacktabPressed: root.picker.stepFocus(rail, true)
         Keys.onPressed: function(event) {

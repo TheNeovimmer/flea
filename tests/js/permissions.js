@@ -2,6 +2,39 @@
 .import "../../ui/js/Ops.js" as Ops
 .import "../../ui/js/Menu.js" as Menu
 .import "sourcefixture.js" as Source
+// Sample input: blockAfter("function f() { if (x) { y = 1 } }", "function f") answers the outer braces.
+function blockAfter(src, marker) {
+    var at = src.indexOf(marker)
+    if (at < 0) {
+        return ""
+    }
+    var open = src.indexOf("{", at + marker.length)
+    if (open < 0) {
+        return ""
+    }
+    var depth = 0
+    for (var i = open; i < src.length; i++) {
+        if (src[i] === "{") {
+            depth += 1
+        }
+        if (src[i] === "}") {
+            depth -= 1
+        }
+        if (depth === 0) {
+            return src.substring(open, i + 1)
+        }
+    }
+    return ""
+}
+// Sample input: ".pragma library\nfunction summarize(modes) { ... }"; wrapping its shared binding counts internal calls too.
+function countedPermissions(counter) {
+    var source = Source.source("ui/js/Permissions.js").replace(".pragma library", "")
+    var load = new Function("counter", source
+        + "\nvar realSummarize = summarize;"
+        + "\nsummarize = function (modes) { counter.calls += 1; return realSummarize(modes); };"
+        + "\nreturn { noteMode: noteMode, summarize: summarize };")
+    return load(counter)
+}
 function run(check) {
     check("ordinary mode", Permissions.parse("644"), 420)
     check("leading zero", Permissions.parse("0644"), 420)
@@ -43,19 +76,52 @@ function run(check) {
         Permissions.multiResult(0, 1, [{ path: "/d/secret.txt", why: "Read-only: setgid bit is present." }]),
         "Permissions changed for 0 of 1; 1 left alone: secret.txt: Read-only: setgid bit is present.")
 
-    // N replies cost N writes plus one summary, never N summaries.
-    var store = { modes: [], reasons: [], skipped: [], pending: 5000 }
-    var summaries = 0
+    // One skip reads singular, and four show three with an and-1-more tail.
+    check("one skip reads singular",
+        Permissions.skipNote([{ path: "/d/a.txt", why: "Gone." }]),
+        "1 item cannot be changed: a.txt: Gone.")
+    check("four skips show three with an and-1-more tail",
+        Permissions.skipNote([{ path: "/d/a.txt", why: "r1" }, { path: "/d/b.txt", why: "r2" },
+                              { path: "/d/c.txt", why: "r3" }, { path: "/d/d.txt", why: "r4" }]),
+        "4 items cannot be changed: a.txt: r1; b.txt: r2; c.txt: r3; and 1 more")
+    check("four skips ride multiResult with the same tail",
+        Permissions.multiResult(1, 5, [{ path: "/d/a.txt", why: "r1" }, { path: "/d/b.txt", why: "r2" },
+                                       { path: "/d/c.txt", why: "r3" }, { path: "/d/d.txt", why: "r4" }]),
+        "Permissions changed for 1 of 5; 4 left alone: a.txt: r1; b.txt: r2; c.txt: r3; and 1 more")
+
+    // noteMode answers done once, on the last reply, and calls summarize never.
+    var REPLY_COUNT = 5000
+    var counter = { calls: 0 }
+    var batch = countedPermissions(counter)
+    var store = { modes: [], reasons: [], skipped: [], pending: REPLY_COUNT }
+    var completions = 0
     var done = false
-    for (var i = 0; i < 5000; i++) {
-        done = Permissions.noteMode(store, i, "/f" + i, { ok: true, mode: "0644", reason: "" })
-        if (done) {
-            summaries += 1
-            Permissions.summarize(store.modes)
-        }
+    var early = false
+    for (var i = 0; i < REPLY_COUNT; i++) {
+        done = batch.noteMode(store, i, "/f" + i, { ok: true, mode: "0644", reason: "" })
+        if (done && i + 1 < REPLY_COUNT) early = true
+        if (done) completions += 1
+        // Stop at the first early done or stray summarize before a per-reply regression grows quadratic.
+        if (early || counter.calls > 0) break
     }
-    check("5000 replies land every mode", done + "|" + store.modes.length, "true|5000")
-    check("and summarize exactly once", summaries, 1)
+    check("5000 replies land every mode", done + "|" + store.modes.length, "true|" + REPLY_COUNT)
+    check("and done answers only on the last reply", early + "|" + done, "false|true")
+    check("and noteMode reports done exactly once", completions, 1)
+    check("and noteMode makes no summarize call", counter.calls, 0)
+    // receiveMany's last-reply write stays inside noteMode-true; a failed batch resets modes so the grid and retry start from disk.
+    var dialog = Source.source("ui/PermissionsDialog.qml")
+    var received = blockAfter(dialog, "function receiveMany")
+    var noteBlock = blockAfter(received, "if (Permissions.noteMode(")
+    var failedBlock = blockAfter(received, "if (message.op === \"applyMany\")")
+    check("receiveMany writes multiModes exactly twice", received.split("multiModes =").length - 1, 2)
+    check("one write sits inside the noteMode-true branch", noteBlock.indexOf("multiModes =") >= 0, true)
+    check("and the other resets the failed batch", failedBlock.indexOf("multiModes =") >= 0, true)
+    // The multiSummary binding reruns on a multiModes write, so a summarize call anywhere else is a per-reply cost.
+    var summaryBinding = "readonly property var multiSummary: isMulti ? Permissions.summarize(multiModes) : null"
+    var summarizeCalls = dialog.split("Permissions.summarize(").length - 1
+    var allowedCalls = noteBlock.split("Permissions.summarize(").length - 1 + (dialog.indexOf(summaryBinding) >= 0 ? 1 : 0)
+    check("the only summarize caller is the multiSummary binding or the noteMode-true branch",
+          summarizeCalls + "|" + allowedCalls, "1|1")
     var refused = { modes: [], reasons: [], skipped: [], pending: 3 }
     Permissions.noteMode(refused, 0, "/d/a.txt", { ok: true, mode: "2755", reason: "Read-only: setgid bit is present." })
     Permissions.noteMode(refused, 1, "/d/b.txt", { ok: false, error: "Gone." })
@@ -98,4 +164,11 @@ function run(check) {
     check("and the newest id on it lands", Permissions.landsShebang("/d/a.sh", 2, "/d/a.sh", 2), true)
     check("and the newest id on another path is refused", Permissions.landsShebang("/d/b.sh", 2, "/d/a.sh", 2), false)
     check("Pane.qml lands through the helper", Source.source("ui/Pane.qml").indexOf("Permissions.landsShebang") >= 0, true)
+    // One note names reasoned and refused rows together, and nothing when all apply.
+    var noted = { modes: ["0644", "0644", ""], reasons: ["", "Read-only: you are not the owner.", "Gone."], skipped: [], pending: 0 }
+    check("reasoned and refused rows share one note",
+        Permissions.inspectNote(noted, ["/d/a.txt", "/d/b.txt", "/d/c.txt"]),
+        "2 items cannot be changed: b.txt: Read-only: you are not the owner.; c.txt: Gone.")
+    check("and an applicable selection names nothing",
+        Permissions.inspectNote({ modes: ["0644"], reasons: [""], skipped: [], pending: 0 }, ["/d/a.txt"]), "")
 }

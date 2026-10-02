@@ -20,6 +20,10 @@ pub(crate) struct Replay {
     steps: Vec<ReplayStep>,
 }
 
+// One alias for the wire form steps_data and from_steps share, so neither signature repeats it.
+pub(crate) type SavedStep = (Step, Option<ItemIdentity>, Option<(PathBuf, ItemIdentity)>);
+pub(crate) type SavedSteps = Vec<SavedStep>;
+
 fn error(path: &Path, message: &str) -> FleaError {
     FleaError { where_: "redo".into(), path: path.to_string_lossy().into(), msg: message.into() }
 }
@@ -46,7 +50,7 @@ impl Replay {
     pub fn capture(entry: Entry) -> Result<Self, FleaError> {
         let mut steps = Vec::new();
         for step in entry.steps {
-            if matches!(step, Step::Created { .. }) {
+            if matches!(step, Step::Created { .. } | Step::Barrier) {
                 return Err(error(Path::new(""), "this interrupted operation has no recorded source to redo"));
             }
             let input = match &step {
@@ -64,9 +68,16 @@ impl Replay {
     }
     pub fn op(&self) -> &str { &self.op }
     pub fn len(&self) -> usize { self.steps.len() }
+    // Every field the file needs to rebuild this replay for a redo in another window.
+    pub(crate) fn steps_data(&self) -> (String, SavedSteps) {
+        (self.op.clone(), self.steps.iter().map(|saved| (saved.step.clone(), saved.input.clone(), saved.parent.clone())).collect())
+    }
+    pub(crate) fn from_steps(op: String, steps: SavedSteps) -> Self {
+        Self { op, steps: steps.into_iter().map(|(step, input, parent)| ReplayStep { step, input, parent }).collect() }
+    }
     pub fn rebase(&mut self, old: &ItemIdentity, new: &ItemIdentity) {
         for saved in &mut self.steps {
-            if saved.input.as_ref() == Some(old) { saved.input = Some(new.clone()); }
+            if saved.input.as_ref().is_some_and(|identity| identity.unchanged_for_move(old)) { saved.input = Some(new.clone()); }
             if let Some((_, identity)) = &mut saved.parent {
                 if identity.same_item(old) { *identity = new.clone(); }
             }
@@ -77,7 +88,7 @@ impl Replay {
     }
     fn check(saved: &ReplayStep, vacated: bool) -> Result<(), FleaError> {
         if let (Some(path), Some(identity)) = (source(&saved.step), &saved.input) {
-            if !path.is_absolute() || ItemIdentity::inspect(path)? != *identity {
+            if !path.is_absolute() || !identity.unchanged_for_move(&ItemIdentity::inspect(path)?) {
                 return Err(error(path, "the original item changed or was replaced; redo left it in place"));
             }
         }
@@ -107,11 +118,19 @@ impl Replay {
                 Self::check(saved, destination(&saved.step).is_some_and(|path| vacated.contains(path)))?;
                 if let Step::Trashed(entry) = &saved.step { vacated.insert(entry.original.as_path()); }
             }
+            let mut skipped: Vec<String> = Vec::new();
             for (index, saved) in self.steps.iter().enumerate() {
                 if cancel.load(Ordering::Relaxed) { return Err(error(Path::new(""), "redo cancelled")); }
                 Self::check(saved, false)?;
                 let before = entry.steps.len();
-                apply(saved, id, index, cancel, tx, &mut entry.steps)?;
+                match apply(saved, id, index, cancel, tx, &mut entry.steps) {
+                    Ok(()) => {}
+                    Err(e) if matches!(saved.step, Step::Mode { .. }) => {
+                        skipped.push(format!("{}: {}", e.path, e.msg));
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                }
                 if let Some(step) = entry.steps.get(before) {
                     match (&saved.step, step) {
                         (Step::Copied { created: old, .. }, Step::Copied { created: new, .. }) => changes.push((old.clone(), new.clone())),
@@ -124,6 +143,9 @@ impl Replay {
                         _ => {}
                     }
                 }
+            }
+            if !skipped.is_empty() {
+                return Err(error(Path::new(""), &format!("{} path(s) left in place: {}", skipped.len(), skipped.join("; "))));
             }
             Ok(self.op.clone())
         })();
@@ -177,12 +199,14 @@ fn apply(saved: &ReplayStep, id: usize, index: usize, cancel: &AtomicBool, tx: &
             Ok(())
         }
         Step::Trashed(entry) => {
-            let (mut trashed, failed) = super::trash::trash(std::slice::from_ref(&entry.original));
+            let (mut trashed, failed, _) = super::trash::trash(std::slice::from_ref(&entry.original));
             if failed != 0 || trashed.len() != 1 { return Err(error(&entry.original, "could not move the original item back to Trash")); }
             steps.push(Step::Trashed(trashed.remove(0)));
             Ok(())
         }
         Step::Created { path } => Err(error(path, "this operation has no recorded replay source")),
+        // A barrier never reaches a replay; refusing here keeps it from running as a file.
+        Step::Barrier => Err(error(Path::new(""), "That operation was too large to undo.")),
         // A link replays through the same exclusive create, so a name taken
         // since refuses honestly and a fresh identity is recorded.
         Step::Linked { path, source, kind, .. } => {
@@ -195,14 +219,9 @@ fn apply(saved: &ReplayStep, id: usize, index: usize, cancel: &AtomicBool, tx: &
                 kind: kind.clone(), identity: ItemIdentity::inspect(path)? });
             Ok(())
         }
-        Step::Mode { path, after, .. } => {
-            use std::os::unix::fs::PermissionsExt;
-            let meta = path.symlink_metadata().map_err(|e| from_io("redo", &path.to_string_lossy(), &e))?;
-            if meta.file_type().is_symlink() {
-                return Err(error(path, "the item is a link, so redo left its mode in place"));
-            }
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(*after))
-                .map_err(|e| from_io("redo", &path.to_string_lossy(), &e))?;
+        Step::Mode { path, before, after, dev, ino, born } => {
+            super::permissions::chmod_pinned(path, *dev, *ino, *born, *before, *after)
+                .map_err(|msg| error(path, &msg))?;
             steps.push(saved.step.clone());
             Ok(())
         }
@@ -223,14 +242,13 @@ mod tests {
     }
     // Before Linux 6.13 ctime ticks every few milliseconds, so the rewrite repeats until the filesystem records it.
     fn rewrite_until_recorded(path: &Path, payload: &str) {
-        const TRIES: u32 = 1000;
+        const TRIES: u32 = 1_000_000;
         let before = ItemIdentity::inspect(path).unwrap();
         for _ in 0..TRIES {
             std::fs::write(path, payload).unwrap();
-            if ItemIdentity::inspect(path).unwrap() != before {
+            if !before.unchanged_for_move(&ItemIdentity::inspect(path).unwrap()) {
                 return;
             }
-            std::thread::sleep(std::time::Duration::from_millis(1));
         }
         panic!("{} kept its ctime across {} rewrites", path.display(), TRIES);
     }
@@ -371,3 +389,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(empty).unwrap(), "replacement");
     }
 }
+
+#[cfg(test)]
+#[path = "redo_birth_tests.rs"]
+mod birth_tests;

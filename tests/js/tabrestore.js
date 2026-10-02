@@ -39,8 +39,8 @@ function run(check) {
     check("with the index clamped to the last survivor", capped.index, 8)
     check("a negative index clamps to the first", Tabs.restorePlan(planOf(["/a", "/b"], -1), "").index, 0)
     check("and a non-number reads as the first", Tabs.restorePlan(planOf(["/a", "/b"], "1"), "").index, 0)
-    check("while a non-string entry is dropped rather than restored",
-          Tabs.restorePlan({ startIn: "last", lastTabs: { paths: ["/a", 7], index: 0 } }, "").paths.join(","), "/a")
+    check("while a non-string entry voids the whole strip",
+          Tabs.restorePlan({ startIn: "last", lastTabs: { paths: ["/a", 7], index: 0 } }, ""), null)
 
     // A restored tab starts exactly like a tab opened fresh at that folder: restoreItems()
     // goes through the same snapshot() openNew() records, so the standing view, sort and hidden
@@ -64,6 +64,23 @@ function run(check) {
     Tabs.selectAt(pane, 1)
     check("a restored tab lists its folder on first visit", pane.listed.join(","), "/b")
     check("and becomes current", Tabs.currentIndex(pane), 1)
+
+    // The write taken before landing names the folder being opened, not the one left.
+    var lag = Fixture.pane("/a")
+    lag.listInFlight = false
+    lag.listingPath = ""
+    lag.dropPath = "/a"
+    lag.openWithoutHistory = function (next) { lag.listInFlight = true; lag.listingPath = next; lag.dropPath = next; lag.listed.push(next) }
+    lag.land = function () { lag.path = lag.listingPath; lag.dropPath = lag.path; lag.listInFlight = false; lag.listingPath = "" }
+    lag.tabs = Tabs.pack(Tabs.restoreItems(lag, ["/a", "/b"]), 0)
+    Tabs.selectAt(lag, 1)
+    check("a switch before landing already names the folder being opened",
+          JSON.stringify(Tabs.remembered(lag)),
+          JSON.stringify({ paths: ["/a", "/b"], index: 1 }))
+    lag.land()
+    check("and after landing it still does",
+          JSON.stringify(Tabs.remembered(lag)),
+          JSON.stringify({ paths: ["/a", "/b"], index: 1 }))
 
     // What a strip change writes: open, switch and move all reassign pane.tabs, which is the
     // signal ui/WindowBody.qml hooks for its own write, so the stored order never goes stale.

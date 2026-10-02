@@ -46,13 +46,8 @@ Rectangle {
         if (!initialized || !dualMode || !secondPane.item || !primaryPane.path || !secondPane.item.pane.path) return
         Qt.callLater(view.rememberDual)
     }
-    // The strip itself changing (open, close, move, switch) writes the tabs even when no path
-    // changed, so a quit right after a reorder reopens the new order. Hooked on pane.tabs, which
-    // only a strip reassignment fires: a cursor move never touches it, and owe() drops a write
-    // whose strip did not move. Single view only, the strip remembered is the primary pane's.
-    // Queued past the move: ui/js/Tabs.js reassigns pane.tabs before apply() moves the pane, so a
-    // switch read at the tabs signal writes the old tab's path at the new index. Both signals queue
-    // one deferred write, which lands after the pane has moved.
+    // A strip change queues one deferred write; remembered() reads dropPath so a pre-landing write names the target.
+    // Hooked on pane.tabs, which only a strip reassignment fires, so a cursor move never writes.
     property bool tabStripQueued: false
     function queueTabStrip() {
         if (view.tabStripQueued)
@@ -369,6 +364,7 @@ Rectangle {
         target: permissionsDialog.item
         function onRequested(message) { permissionsDialog.owner.backend.send(message) }
         function onChanged(note) { permissionsDialog.owner.refresh(); bar.say(note && note.length > 0 ? note : "Permissions changed.", false) }
+        function onRefreshNeeded() { permissionsDialog.owner.refresh() }
     }
     Connections {
         target: permissionsDialog.owner ? permissionsDialog.owner.backend : null

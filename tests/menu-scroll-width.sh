@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# A context menu keeps no scrollbar gutter at rest or overflowing; offscreen, no display or lock.
+# A context menu draws no bar in any state and steps the highlight on wheel and touchpad, while an
+# ordinary CardScroll keeps pixel scrolling; offscreen, no display or lock.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1

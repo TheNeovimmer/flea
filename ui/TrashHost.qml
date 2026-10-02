@@ -1,6 +1,7 @@
 import QtQuick
 import "js/Focus.js" as Focus
 import "js/Menu.js" as Menu
+import "js/TextSize.js" as TextSize
 import "js/Trash.js" as TrashKeys
 import "js/TrashDates.js" as TrashDates
 
@@ -122,7 +123,7 @@ Loader {
     function directWindowAction(action) {
         if (action === "keymapSheet") root.pane.keymapSheet.open(root.pane)
         else if (action === "pathBar") root.pane.pathBarRequested()
-        else root.pane.textSizeRequested(action === "textSizeReset" ? 0 : (action === "textSizeUp" ? 1 : -1))
+        else root.pane.textSizeRequested(TextSize.direction(action))
     }
     function action(name) {
         if (confirming) return

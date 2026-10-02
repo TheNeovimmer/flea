@@ -39,6 +39,7 @@ Item {
         y: root.pane.listSlot.y
         width: root.pane.listSlot.width
         height: root.pane.listSlot.height
+        // A listing past its wait is the Error state, so the crawl yields to the sentence.
         visible: !root.trashOpen && root.pane.listingState === "loading"
         heldOff: root.pane.swap.fellBack
     }

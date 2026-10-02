@@ -1,19 +1,22 @@
 //@ pragma ShellId flea-touchpad-test
 
 import QtQuick
+import QtTest
 import Quickshell
 import "flea" as Flea
 import "flea/js/Scroll.js" as Scroll
 
-// tp1: fake wheel objects with an injected clock into the real FastScrollHandler on a real
-// ui/List.qml over 3000 rows. Stroke travel is the gained pixel sum, the tail travels the closed
-// form and ends, each stop lands at once, the scrollbar lane shares the tail, and a tail adds no
-// objects. tests/touchpad.sh drives it offscreen.
+// Fake wheel objects with an injected clock into the real FastScrollHandler on a real ui/List.qml.
+// Stroke, tail, stops, lane sharing and object cost; tests/touchpad.sh drives it offscreen.
 ShellRoot {
     id: root
 
     property var failures: []
     property int rowCount: 3000
+    // Park sits inside one 1200 px flick with room for a 9.6 px notch
+    property int parkAbovePx: 400
+    readonly property int lastPageStrokeSamples: 12
+    readonly property int lastPageStrokePx: -40
     property double fakeT: 1000
     property int livePolls: 0
     property double liveLiftY: 0
@@ -94,6 +97,13 @@ ShellRoot {
             function rowFor(index) { var o = index - held; return (o >= 0 && o < rows.length) ? rows[o] : null }
             function isSelected(index) { return false }
             function commitRename(newName) {}
+            function commitOpenRename() {}
+            function selectOnly(index, context) {}
+            function pressSlowClick() { slowClickPresses += 1 }
+            function slowClickWasSole(index) { return false }
+            function armSlowClick(index, modifiers, dragging, sole) {}
+            function cancelSlowClick() {}
+            property int slowClickPresses: 0
             function focusRequested() {}
             property string focusView: "list"
             property var listArea: null
@@ -126,6 +136,8 @@ ShellRoot {
             pane: root.stubPane
             menu: root.stubMenu
         }
+
+        TestEvent { id: driver }
     }
 
     Component.onCompleted: {
@@ -161,11 +173,6 @@ ShellRoot {
             phase: phase, modifiers: 0, accepted: false }
     }
 
-    function notchWheel() {
-        return { pixelDelta: { x: 0, y: 0 }, angleDelta: { x: 0, y: -120 },
-            phase: 0, modifiers: 0, accepted: false }
-    }
-
     function tailActive() {
         var found = Scroll.tailState(list, false)
         return found !== null && found.active
@@ -179,7 +186,7 @@ ShellRoot {
 
     // One flick through a handler; returns the mirrored gained samples and the End time.
     function feedStroke(handler, rawDeltas, dtMs) {
-        var mirror = []
+        var mirror = [{ t: root.fakeT, x: 0, y: 0 }]
         handler.handleWheel(touchWheel(0, 1))
         for (var i = 0; i < rawDeltas.length; i++) {
             root.fakeT += dtMs
@@ -302,13 +309,14 @@ ShellRoot {
         var h = handlers()
         var fed = root.startFrozenFlick(flickRaw(12, -40))
         if (fed === null) { root.report(); return }
-        var press = { accepted: true }
-        h.body.handlePress(press)
-        if (press.accepted !== false) {
-            fail("press was consumed instead of reaching the row")
+        var presses = root.stubPane.slowClickPresses
+        driver.mousePress(list, 10, 10, Qt.LeftButton, Qt.NoModifier, 1)
+        if (root.stubPane.slowClickPresses !== presses + 1) {
+            fail("a press over a row never reached it")
             root.report()
             return
         }
+        driver.mouseRelease(list, 10, 10, Qt.LeftButton, Qt.NoModifier, 1)
         if (!root.stoppedAtOnce("a press")) { root.report(); return }
 
         fed = root.startFrozenFlick(flickRaw(12, -40))
@@ -319,7 +327,7 @@ ShellRoot {
         fed = root.startFrozenFlick(flickRaw(12, -40))
         if (fed === null) { root.report(); return }
         var before = list.contentY
-        h.body.handleWheel(notchWheel())
+        driver.mouseWheel(list, 350, 10, Qt.NoButton, Qt.NoModifier, 0, -120, 1)
         if (!root.stoppedAtOnce("a notch")) { root.report(); return }
         if (Math.abs(list.contentY - before - 288) > 1) {
             fail("notch after momentum moved " + (list.contentY - before).toFixed(2) + ", want 288")
@@ -475,6 +483,7 @@ ShellRoot {
             root.report()
             return
         }
+
         root.propagatedFlick(liftObjs, liftDelegates, liftY, got)
     }
 
@@ -653,7 +662,6 @@ ShellRoot {
     }
 
     function checkFixupRested() {
-        var a = root.fixupArgs
         if (root.returnActive()) {
             fail("the handler return restarted during the view fixup")
             root.report()
@@ -664,13 +672,70 @@ ShellRoot {
             root.report()
             return
         }
+        root.endStop()
+    }
+
+    // The stroke lifts inside the bound; its elastic tail carries past, then returns to the last page.
+    function endStop() {
+        var h = handlers()
+        var maxY = list.contentHeight - list.height
+        list.contentY = maxY + root.lastPageStrokeSamples * root.lastPageStrokePx * Scroll.TOUCH_GAIN - root.parkAbovePx
+        feedStroke(h.body, flickRaw(root.lastPageStrokeSamples, root.lastPageStrokePx), 8)
+        root.freeze()
+        if (!root.tailActive()) {
+            fail("no tail to end at the content edge")
+            root.report()
+            return
+        }
+        var guard = 0
+        while (guard < 10000) {
+            var before = list.contentY
+            h.body.advanceTail(16.7)
+            guard += 1
+            if (list.contentY === before)
+                break
+        }
+        guard = 0
+        while (root.returnActive() && guard < 10000) { h.body.advanceReturn(16.7); guard += 1 }
+        if (Math.abs(list.contentY - maxY) > 1) {
+            fail("tail ended at " + list.contentY.toFixed(2) + ", want the last page " + maxY.toFixed(2))
+            root.report()
+            return
+        }
+        if (root.tailActive()) {
+            fail("tail still active past the last page")
+            root.report()
+            return
+        }
+        root.angleFree()
+    }
+
+    // A sub-pixel touchpad frame carries pixels 0 with a nonzero angle and moves nothing.
+    function angleFree() {
+        var h = handlers()
+        var maxY = list.contentHeight - list.height
+        list.contentY = maxY - root.parkAbovePx
+        var before = list.contentY
+        h.body.handleWheel({ pixelDelta: { x: 0, y: 0 }, angleDelta: { x: 0, y: -4 },
+            phase: 2, modifiers: 0, accepted: false })
+        if (list.contentY !== before) {
+            fail("an angle-only touchpad frame moved the list")
+            root.report()
+            return
+        }
+        if (root.tailActive()) {
+            fail("an angle-only touchpad frame started a tail")
+            root.report()
+            return
+        }
+        var b = root.fixupArgs
         console.log("TOUCHPAD PASS stroke=1200 lift=" + Math.round(root.liveLiftY)
-            + " rest=" + Math.round(a.liftY + a.liftGot) + " tail=" + a.liftGot.toFixed(1)
-            + " objs=" + a.objs + " delegates=" + a.delegates
-            + " edgeTop=" + a.top.toFixed(1) + " edgeBottom=" + a.bottom.toFixed(1)
-            + " tailPeak=" + a.tail.toFixed(1))
-        console.log("TOUCHPAD EDGE PASS top=" + a.top.toFixed(1) + " bottom=" + a.bottom.toFixed(1)
-            + " tailPeak=" + a.tail.toFixed(1) + " rest=bound")
+            + " rest=" + Math.round(b.liftY + b.liftGot) + " tail=" + b.liftGot.toFixed(1)
+            + " objs=" + b.objs + " delegates=" + b.delegates
+            + " edgeTop=" + b.top.toFixed(1) + " edgeBottom=" + b.bottom.toFixed(1)
+            + " tailPeak=" + b.tail.toFixed(1))
+        console.log("TOUCHPAD EDGE PASS top=" + b.top.toFixed(1) + " bottom=" + b.bottom.toFixed(1)
+            + " tailPeak=" + b.tail.toFixed(1) + " rest=bound")
         root.report()
     }
 

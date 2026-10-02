@@ -1,26 +1,24 @@
 use crate::backend::meta::stat_range;
+use crate::backend::meta::Meta;
 use crate::backend::archivereq::{formats_line, start_archive, start_convert};
 use crate::backend::convert;
 use crate::backend::peek::peek_line;
 use crate::backend::metareq::spawn as spawn_meta;
-use crate::backend::opsdispatch::{cancel_transfer, do_link, do_link_target, do_mkdir, do_newfile, do_permissions_batch, do_rename, do_undo, report_op, resolve_rows, start_duplicate, start_trash, start_transfer, start_menu_transfer, start_redo, Ops};
+use crate::backend::opsdispatch::{cancel_transfer, do_mkdir, do_newfile, do_permissions_batch, do_rename, do_undo, report_op, resolve_rows, start_duplicate, start_link, start_link_target, start_trash, start_transfer, start_menu_transfer, start_redo, Ops};
 use crate::backend::opsreq::OpMsg;
 use crate::backend::dirsizereq::{queue_dirsizes, seed_answered, start_next, report_done as report_dirsize};
-use crate::backend::dirsize::DirSize;
 use crate::backend::events::{spawn_forwarder, spawn_op_forwarder, spawn_reader, Event};
 use crate::backend::fsinfo::fsinfo_line;
-use crate::backend::fsinfo::dev_of;
 use crate::backend::fsinforeq::FsInfo;
 use crate::backend::listpaths;
-use crate::backend::proto::{error_line, error_line_with_mode, listed_line, listed_line_anchor, parse_request, paths_line, thumbed_line, Request};
+use crate::backend::proto::{error_line, error_line_with_mode, listed_line, parse_request, paths_line, thumbed_line, Request};
+use crate::backend::proto::with_anchor;
 use crate::backend::rows::rows_line;
 use crate::backend::sandbox;
-use crate::backend::scan::{mode_of, scan};
 use crate::backend::listing::Listing;
 use crate::backend::search::Search;
-use crate::backend::state::{State, Tables};
+use crate::backend::state::{Held, State, Tables};
 use crate::backend::searchreq::{finish_search, step_search};
-use crate::backend::ordering;
 use crate::backend::thumbcache::{default_root, Cache};
 use crate::backend::thumbreq::{cancel_row, forget_one, report_done, thumb_rows};
 use crate::backend::thumbs::{Done, Pool};
@@ -30,7 +28,7 @@ use crate::error::FleaError;
 use crate::heap;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, TryRecvError};
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -62,7 +60,7 @@ pub fn run() -> i32 {
     let mut st = State::new(super::dirsizeworker::Worker::new(tx.clone()));
     let (results, done) = channel::<Done>();
     let (op_tx, op_rx) = channel::<OpMsg>();
-    let mut ops = Ops::new(op_tx);
+    let mut ops = Ops::new_shared(op_tx);
     let pool = Pool::new(THUMB_WORKERS, results, default_root(), Arc::clone(&tb.aliases), Arc::clone(&tb.thumbs));
     let cache = Cache::new();
     // Every thumbnail job fails closed without these two, so the reason is said once here rather than never; see AGENTS.md "Thumbnail sandbox".
@@ -74,8 +72,10 @@ pub fn run() -> i32 {
     spawn_op_forwarder(op_rx, tx.clone());
     spawn_reader(tx.clone(), Arc::clone(&ops.live));
     let mut fsinfo = FsInfo::new(tx.clone());
+    let loop_tx = tx.clone();
     // Armed before the first request, so no listing is ever answered with nothing watching it.
-    let mut watch = Watch::start(tx);
+    let mut watch = Watch::start(tx.clone());
+    let poller = super::watchpoll::Poller::new(tx.clone());
     loop {
         start_next(&mut st);
         // Size results wake this receiver; only search still needs idle ticks.
@@ -97,7 +97,7 @@ pub fn run() -> i32 {
         };
         match event {
             Event::Request(line) => {
-                if handle_line(&line, &mut out, &mut st, &tb, &pool, &cache, &mut ops, &mut watch, &mut fsinfo) == Control::Quit {
+                if handle_line(&line, &mut out, &mut st, &tb, &pool, &cache, &mut ops, &mut watch, &mut fsinfo, &poller, &loop_tx) == Control::Quit {
                     break;
                 }
             }
@@ -115,6 +115,23 @@ pub fn run() -> i32 {
                     say(&mut out, &changed_line(&st.base));
                 }
             }
+            // The open mount went away, so the pane leaves the volume for its nearest parent.
+            Event::Unmounted(wd) => {
+                if watch.is_current(wd) {
+                    let start = watch.unmount_start(&st.base);
+                    let parent = super::watch::nearest_parent(&start, |p| p.symlink_metadata().is_ok());
+                    say(&mut out, &super::watch::unmounted_line(&st.base, &parent));
+                    poller.clear();
+                }
+            }
+            // A network folder's mtime moved, which inotify never delivers; only the open path counts.
+            Event::PollChanged(path) => {
+                if path == st.base {
+                    say(&mut out, &changed_line(&st.base));
+                }
+            }
+            // A late list worker's descriptor goes unless a re-list aliased it onto the live watch.
+            Event::AbandonWatch(wd) => watch.abandon_wd(wd),
             Event::Op(m) => report_op(&mut out, &mut ops, m),
             Event::ReadError(e) => {
                 // The framing cannot be trusted past a decode failure, so this reports and stops, as before.
@@ -131,14 +148,14 @@ pub fn run() -> i32 {
 }
 
 // One answer, written and flushed: the four read-only requests below differ only in what they say.
-fn say(out: &mut BufWriter<io::Stdout>, line: &str) {
+fn say(out: &mut impl Write, line: &str) {
     writeln!(out, "{}", line).ok();
     out.flush().ok();
 }
 
 fn handle_line(
     line: &str,
-    out: &mut BufWriter<io::Stdout>,
+    out: &mut impl Write,
     st: &mut State,
     tb: &Tables,
     pool: &Pool,
@@ -146,6 +163,8 @@ fn handle_line(
     ops: &mut Ops,
     watch: &mut Watch,
     fsinfo: &mut FsInfo,
+    poller: &super::watchpoll::Poller,
+    loop_tx: &Sender<Event>,
 ) -> Control {
     // Rows read from a numbering this listing has already replaced name other files, so they are refused.
     if let Some(refused) = super::rowguard::refusal(line, st.generation) {
@@ -168,42 +187,44 @@ fn handle_line(
         Request::LocalSend { op, peer, paths, id } => super::localsend::request(op, peer, paths, id, ops.tx.clone()),
         Request::TrashBrowse { line } => {
             let replies = ops.tx.clone();
-            ops.trashbrowser.get_or_insert_with(|| super::trashbrowse::TrashBrowser::new(replies)).request(line);
+            // The browser resolves its originals inside, so the mounts held slow travel with the request.
+            let pending = ops.pending.iter().map(|held| held.mount.clone()).collect();
+            let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+            ops.trashbrowser.get_or_insert_with(|| super::trashbrowse::TrashBrowser::new(replies)).request(line, pending, body);
         }
-        Request::List { path, first, hidden } => {
+        Request::List { path, first, hidden, want_changed } => {
             // A new listing replaces whatever the walk was filling, so the walk ends before the scan starts.
             if finish_search(out, st, true) {
                 forget_rows(st, pool);
             }
-            // Before the scan, because a change readdir raced is missing from the rows this answers with.
-            watch.begin(Path::new(&path));
-            match scan(&path, hidden) {
-                Ok((mut l, read_ms)) => {
-                    super::picker::filter_listing(&mut l, &tb.mime, line);
-                    let (pass_ms, sort_ms, sized) = match ordering::request(&mut l, Path::new(&path), &tb.mime, line) {
-                        Ok(timing) => timing,
-                        Err(msg) => {
-                            watch.abandon();
-                            say(out, &error_line(&FleaError { where_: "sort".into(), path: path.clone(), msg: msg.into() }));
-                            return Control::Continue;
-                        }
-                    };
+            let fd = watch.raw_fd();
+            let mime = std::sync::Arc::clone(&tb.mime);
+            let line_owned = line.to_string();
+            match super::iomount::list_dir(path.clone(), hidden, first, line_owned, mime, fd, loop_tx.clone()) {
+                Ok(done) => {
+                    watch.set_incoming(done.watch_wd);
                     watch.commit();
                     // Said once per listing, because a folder nobody can watch goes stale in silence.
                     if watch.refused() {
                         eprintln!("flea: {} will not follow outside changes, inotify refused a watch on it", path);
                     }
-                    adopt(out, st, pool, tb, &path, l, (read_ms + pass_ms, sort_ms), &sized, first);
+                    adopt_listed(out, st, pool, tb, &path, done, want_changed);
                     out.flush().ok();
                     // After the rows, because a statfs beside gio's own listing slows it on the share.
                     fsinfo.list_arrived(Path::new(&path));
+                    // The open folder alone is polled, so a remote change arrives without inotify.
+                    poller.set(PathBuf::from(&path));
                 }
-                Err(e) => {
-                    // The listing did not move, so neither does its watch.
-                    watch.abandon();
+                Err(failed) => {
+                    // The listing did not move, so the loop removes the watch the failed scan armed.
+                    watch.abandon_wd(failed.watch_wd);
                     // A typed path reaches the denial with no parent row to remember the mode from,
                     // so the stat that survives the refused read is the pane's only source for it.
-                    writeln!(out, "{}", error_line_with_mode(&e, mode_of(&path))).ok();
+                    if failed.mode == 0 {
+                        writeln!(out, "{}", error_line(&failed.error)).ok();
+                    } else {
+                        writeln!(out, "{}", error_line_with_mode(&failed.error, failed.mode)).ok();
+                    }
                 }
             }
             out.flush().ok();
@@ -212,10 +233,21 @@ fn handle_line(
         // A set of named paths is not a directory, so the watch stops rather than following its base.
         Request::ListPaths { paths, first } => {
             watch.stop();
+            poller.clear();
             listpaths::answer(out, st, pool, tb, &paths, first, line)
         }
         Request::Window { start, count } => {
-            write_window(out, st, start, count, tb);
+            match window_metas(st, start, count) {
+                Ok((metas, ms)) => {
+                    let start_w = start.min(st.listing.len());
+                    let mut kinds = tb.kinds.borrow_mut();
+                    let line = super::rows::rows_line(&st.listing, &metas, start_w, ms, &tb.mime, &tb.icons, &tb.aliases, &tb.thumbs, &mut kinds);
+                    writeln!(out, "{}", super::rowguard::stamped(line, st.generation)).ok();
+                }
+                Err(e) => {
+                    writeln!(out, "{}", error_line(&e)).ok();
+                }
+            }
             out.flush().ok();
         }
         Request::Search { path, query, hidden } => {
@@ -224,13 +256,22 @@ fn handle_line(
             }
             st.base = PathBuf::from(&path);
             st.listing = Listing::new();
+            // A walk holds no directory listing, so neither re-read counts over it.
+            st.held = Held::Walk;
             // A walk's matches are not a directory either, so nothing is watched until list asks again.
             watch.stop();
+            poller.clear();
             forget_rows(st, pool);
             // The client is told at once that its old rows are gone, then the count grows as matches arrive.
-            writeln!(out, "{}", listed_line(0, 0.0, 0.0, dev_of(&st.base), &st.base.to_string_lossy())).ok();
-            st.search = Some(Search::new(&path, &query, hidden));
-            st.search_reported = Instant::now();
+            match search_root_info(&st.base) {
+                // A root that answers nothing starts no walk, so no terminal line can strand it.
+                Err(e) => { writeln!(out, "{}", error_line(&e)).ok(); }
+                Ok((dev, writable)) => {
+                    writeln!(out, "{}", listed_line(0, 0.0, 0.0, dev, &st.base.to_string_lossy(), writable)).ok();
+                    st.search = Some(Search::new(&path, &query, hidden));
+                    st.search_reported = Instant::now();
+                }
+            }
             out.flush().ok();
         }
         Request::SearchCancel => {
@@ -243,24 +284,44 @@ fn handle_line(
             if finish_search(out, st, true) {
                 forget_rows(st, pool);
             }
+            let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+            let base = st.base.clone();
+            let listing = st.listing.clone();
+            let mime = std::sync::Arc::clone(&tb.mime);
+            let line_owned = line.to_string();
             // A key that names no order is refused by name, so a client's sort mark can only describe the order it got.
-            match ordering::request(&mut st.listing, &st.base, &tb.mime, line) {
-                Err(msg) => {
-                    let e = FleaError { where_: "sort".to_string(), path: by.clone(), msg: msg.to_string() };
+            match super::iomount::call_bulk(&base.clone(), &body, "sort", move || {
+                let mut l = listing;
+                match super::ordering::request(&mut l, &base, &mime, &line_owned) {
+                    Err(msg) => Err(msg.to_string()),
+                    Ok((pass_ms, sort_ms, sized)) => {
+                        let dev = super::fsinfo::dev_of(&base);
+                        let writable = super::ops::dir_writable(&base);
+                        Ok((l, pass_ms, sort_ms, sized, dev, writable))
+                    }
+                }
+            }) {
+                Err(e) => {
                     writeln!(out, "{}", error_line(&e)).ok();
                 }
-                Ok((pass_ms, sort_ms, sized)) => {
+                Ok(Err(msg)) => {
+                    let e = FleaError { where_: "sort".to_string(), path: by.clone(), msg };
+                    writeln!(out, "{}", error_line(&e)).ok();
+                }
+                Ok(Ok((l, pass_ms, sort_ms, sized, dev, writable))) => {
+                    st.listing = l;
                     forget_rows(st, pool);
                     // After forget_rows, which clears the very map this seeds.
                     seed_answered(st, &sized);
                     let line = match anchor.as_deref() {
                         // The listing is a snapshot, so only a path it never held answers -1.
-                        Some(anchor) => listed_line_anchor(
-                            st.listing.len(), pass_ms, sort_ms, dev_of(&st.base),
-                            &st.base.to_string_lossy(), anchor,
-                            st.listing.index_of(&st.base, Path::new(anchor)).map(|index| index as isize).unwrap_or(-1),
-                        ),
-                        None => listed_line(st.listing.len(), pass_ms, sort_ms, dev_of(&st.base), &st.base.to_string_lossy()),
+                        Some(anchor) => {
+                            let base = listed_line(st.listing.len(), pass_ms, sort_ms, dev,
+                                &st.base.to_string_lossy(), writable);
+                            with_anchor(&base, anchor,
+                                st.listing.index_of(&st.base, Path::new(anchor)).map(|index| index as isize).unwrap_or(-1))
+                        }
+                        None => listed_line(st.listing.len(), pass_ms, sort_ms, dev, &st.base.to_string_lossy(), writable),
                     };
                     writeln!(out, "{}", line).ok();
                 }
@@ -304,11 +365,11 @@ fn handle_line(
         Request::Collisions { id, paths, rows, dest, menu_id } => super::collide::ask_beside(ops, id, menu_id, resolve_rows(paths, &rows, &st.base, &st.listing), &dest, &tb.mime, &tb.icons),
         Request::Link { op, paths, rows, dest, collide } => {
             let named = resolve_rows(paths, &rows, &st.base, &st.listing);
-            do_link(out, ops, &op, named, &dest, collide)
+            start_link(out, ops, &op, named, &dest, collide)
         }
-        Request::LinkTarget { path } => do_link_target(out, &path),
+        Request::LinkTarget { path, id } => start_link_target(ops, &path, id),
         Request::PermissionsBatch { paths, modes, id } => do_permissions_batch(out, ops, paths, modes, id),
-        Request::TransferCancel { id } => cancel_transfer(ops, id),
+        Request::TransferCancel { id } => cancel_transfer(out, ops, id),
         Request::Trash { paths, rows, menu_id } => {
             let named = resolve_rows(paths, &rows, &st.base, &st.listing);
             start_trash(out, ops, named, menu_id)
@@ -323,8 +384,18 @@ fn handle_line(
         Request::Undo => do_undo(out, ops),
         Request::Redo => start_redo(out, ops),
         // Never touches st.listing, which is the whole point: a column is not the pane's own listing.
-        Request::Peek { path, first, hidden, hidden_last, focus } =>
-            say(out, &peek_line(&path, first, hidden, hidden_last, &focus, &tb.mime, &tb.icons)),
+        Request::Peek { path, first, hidden, hidden_last, focus } => {
+            let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+            let base = PathBuf::from(&path);
+            let mime = std::sync::Arc::clone(&tb.mime);
+            let icons = std::sync::Arc::clone(&tb.icons);
+            match super::iomount::call(&base, &body, "peek", move || {
+                peek_line(&path, first, hidden, hidden_last, &focus, &mime, &icons)
+            }) {
+                Ok(line) => say(out, &line),
+                Err(_) => say(out, &format!("{{\"t\":\"peeked\",\"path\":\"{}\",\"hidden\":{},\"hiddenLast\":{},\"first\":{},\"n\":0,\"failed\":true,\"rows\":[]}}", crate::json::escape(&base.to_string_lossy()), hidden, hidden_last, first)),
+            }
+        }
         // A compress names absolute paths and no path; an extract names the one archive in path.
         Request::Archive { op, paths, path, dest, format, menu_id } => start_archive(
             out, ops, Arc::clone(&tb.formats), &op,
@@ -340,6 +411,9 @@ fn handle_line(
         Request::FsInfo => {
             let (info, class) = fsinfo.answer(&st.base);
             say(out, &fsinfo_line(&info, &st.base.to_string_lossy(), class));
+        }
+        Request::PdfCopy { id, slot, path } => {
+            super::pdfcopy::spawn(id, slot, PathBuf::from(&path), ops.tx.clone());
         }
         // One row, only when a client asked: the same no-sweep rule thumb and dirsize already follow.
         Request::Meta { row, text, media, archive, token } => {
@@ -387,23 +461,30 @@ pub fn forget_rows(st: &mut State, pool: &Pool) {
     st.generation += 1;
     st.outstanding = st.outstanding.saturating_sub(pool.cancel_all().len());
     st.asked.clear();
+    st.window_meta.clear();
     // A list or a sort changes which row an index names, the same reason thumbnails clear their map.
     st.dirsizes.clear();
     st.dirsize_queue.clear();
     st.dirsize_worker.cancel();
 }
 
-// A list's scanned and ordered result becomes the listing and is answered: its listed line, then its first rows.
-pub(crate) fn adopt(out: &mut impl Write, st: &mut State, pool: &Pool, tb: &Tables, path: &str, l: Listing, (read_ms, sort_ms): (f64, f64), sized: &[Option<DirSize>], first: usize) {
-    // base and listing only move together, so a failed list cannot mix them.
+// A worker-built listing lands without a syscall, carrying its own dev and writability.
+pub(crate) fn adopt_listed(out: &mut impl Write, st: &mut State, pool: &Pool, tb: &Tables, path: &str, done: super::iomount::ListOut, want_changed: bool) {
+    // A same-path re-list names added plus removed rows, so a rename counts 2 against a net delta of 0.
+    let same = st.held == Held::List && Path::new(path) == st.base.as_path();
+    let changed = if same && want_changed { crate::backend::listing::changed_count(&st.listing, &done.listing) } else { 0 };
     st.base = PathBuf::from(path);
-    st.listing = l;
+    st.listing = done.listing;
+    // A list holds a directory now, so only its own re-read counts.
+    st.held = Held::List;
     forget_rows(st, pool);
-    // After forget_rows, which clears the very map this seeds.
-    seed_answered(st, sized);
-    writeln!(out, "{}", listed_line(st.listing.len(), read_ms, sort_ms, dev_of(&st.base), &st.base.to_string_lossy())).ok();
-    // Rides along unasked: asking costs a 60 ms round trip at first paint.
-    write_window(out, st, 0, first, tb);
+    seed_answered(st, &done.sized);
+    let listed = super::proto::say_listed(st.listing.len(), done.read_ms, done.sort_ms, done.dev, &st.base.to_string_lossy(), done.writable);
+    let listed = if same && want_changed { crate::backend::proto::with_changed(&listed, changed) } else { listed };
+    writeln!(out, "{}", listed).ok();
+    let mut kinds = tb.kinds.borrow_mut();
+    let line = super::rows::rows_line(&st.listing, &done.first_metas, 0, done.first_ms, &tb.mime, &tb.icons, &tb.aliases, &tb.thumbs, &mut kinds);
+    writeln!(out, "{}", super::rowguard::stamped(line, st.generation)).ok();
 }
 
 // Search advances only when the request channel is idle.
@@ -449,10 +530,133 @@ pub(crate) fn drain(
     out.flush().ok();
 }
 
-pub fn write_window(out: &mut impl Write, st: &State, start: usize, count: usize, tb: &Tables) {
+pub fn write_window(out: &mut impl Write, st: &mut State, start: usize, count: usize, tb: &Tables) {
     let (metas, ms) = stat_range(&st.base, &st.listing, start, count);
     let start = start.min(st.listing.len());
+    for (i, m) in metas.iter().enumerate() {
+        st.window_meta.insert(start + i, (m.mode, m.mtime, m.target_is_dir));
+    }
+    // Sample window: start 0 with 3 metas keeps keys 0..3, so a scrolled-past window never grows the map.
+    let end = start.saturating_add(metas.len());
+    st.window_meta.retain(|&row, _| row >= start && row < end);
     let mut kinds = tb.kinds.borrow_mut();
     let line = rows_line(&st.listing, &metas, start, ms, &tb.mime, &tb.icons, &tb.aliases, &tb.thumbs, &mut kinds);
     writeln!(out, "{}", super::rowguard::stamped(line, st.generation)).ok();
+}
+
+// The walk root's figures, statted through the bound so a dead server answers instead of hanging.
+pub(crate) fn search_root_info(base: &Path) -> Result<(u64, bool), FleaError> {
+    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+    let owned = base.to_path_buf();
+    let key = owned.clone();
+    super::iomount::call(&key, &body, "search", move || (super::fsinfo::dev_of(&owned), super::ops::dir_writable(&owned)))
+}
+
+// One window's metas: remoteness is decided before anything is moved, so a local window stats inline with no clone and a remote one moves only its rows to the worker.
+pub(crate) fn window_metas(st: &State, start: usize, count: usize) -> Result<(Vec<Meta>, f64), FleaError> {
+    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+    if super::iomount::is_remote(&st.base, &body) {
+        let rows = super::meta::window_rows(&st.listing, start, count);
+        let threaded = st.listing.threaded_cached_with(&body);
+        let base = st.base.clone();
+        super::iomount::call(&base.clone(), &body, "window", move || super::meta::stat_window_rows(&base, &rows, threaded))
+    } else {
+        Ok(super::meta::stat_range(&st.base, &st.listing, start, count))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::testdir::TestDir;
+
+    const REPLY_DEADLINE: Duration = Duration::from_secs(5);
+    const THUMB_TEST_WORKERS: usize = 1;
+
+    #[test]
+    fn a_held_link_keeps_requests_responsive_and_holds_the_operation_slot() {
+        let d = TestDir::new("heldlink");
+        let src = d.dir("src");
+        let a = d.file("src/a.txt", "a");
+        let b = d.file("src/b.txt", "b");
+        let dest = d.dir("dest");
+        let (release, entered) = super::super::opsdispatch::test_hold_link(&dest);
+        let (answered, answers) = channel();
+        let dest_path = dest.clone();
+        let cache_root = d.join("cache");
+        let backend = std::thread::spawn(move || {
+            let tb = Tables::load();
+            let (events, _events_rx) = channel();
+            let mut st = State::new(super::super::dirsizeworker::Worker::new(events.clone()));
+            st.base = src;
+            st.listing.push("a.txt", false);
+            st.listing.push("b.txt", false);
+            let (results, _done) = channel();
+            let pool = Pool::new(THUMB_TEST_WORKERS, results, cache_root, Arc::clone(&tb.aliases), Arc::clone(&tb.thumbs));
+            let cache = Cache::new();
+            let (tx, rx) = channel();
+            let mut ops = Ops::new(tx);
+            let mut watch = Watch::start(events.clone());
+            let mut fsinfo = FsInfo::new(events.clone());
+            let poller = super::super::watchpoll::Poller::new(events.clone());
+            let link = format!(r#"{{"c":"link","rows":[0,1],"dest":"{}","op":"relative"}}"#, crate::json::escape(&dest_path.to_string_lossy()));
+            let mut out = Vec::new();
+            for line in [&link, r#"{"c":"paths","rows":[0,1]}"#, &link] {
+                assert!(handle_line(line, &mut out, &mut st, &tb, &pool, &cache, &mut ops,
+                    &mut watch, &mut fsinfo, &poller, &events) == Control::Continue);
+            }
+            answered.send((std::mem::take(&mut out), ops.live.running().is_some(), ops.journal.is_empty(), ops.pending.is_empty())).unwrap();
+            let landed = rx.recv_timeout(REPLY_DEADLINE).expect("the released link reports through the op channel");
+            assert!(matches!(landed, OpMsg::Linked { .. }), "the production link sends Linked");
+            report_op(&mut out, &mut ops, landed);
+            assert_eq!(String::from_utf8_lossy(&out).trim(), r#"{"t":"linked","ok":2,"failed":0,"skipped":0}"#);
+            assert_eq!(ops.journal.len(), 1, "one journal entry covers both links");
+            assert!(ops.live.running().is_none(), "Linked releases the operation slot");
+            super::super::opsdispatch::do_undo(&mut out, &mut ops);
+            assert!(String::from_utf8_lossy(&out).contains(r#"{"t":"undone","op":"link","ok":true}"#));
+        });
+        entered.recv_timeout(REPLY_DEADLINE).expect("run_link reached the handshake");
+        let responsive = answers.recv_timeout(REPLY_DEADLINE);
+        drop(release);
+        backend.join().expect("the backend finishes after releasing the held link");
+        let (out, running, unjournalled, no_pending) = responsive.expect("a held link must leave Request::Paths responsive");
+        let lines = String::from_utf8(out).unwrap();
+        let mut replies = lines.lines();
+        assert_eq!(replies.next(), Some(paths_line(&[a.to_string_lossy().to_string(), b.to_string_lossy().to_string()]).as_str()));
+        let refused = replies.next().expect("the second link is refused while the slot is held");
+        assert!(refused.contains(r#""t":"error""#) && refused.contains("an operation is already running"), "{refused}");
+        assert!(replies.next().is_none(), "a held link emits neither slow nor a premature linked line: {lines}");
+        assert!(running && unjournalled && no_pending, "the link holds the slot, with no slow claim or journal before completion");
+        assert!(std::fs::symlink_metadata(dest.join("a.txt")).is_err(), "undo removed the first link");
+        assert!(std::fs::symlink_metadata(dest.join("b.txt")).is_err(), "undo removed the second link");
+        assert!(a.exists() && b.exists(), "undo preserves both sources");
+    }
+
+    // A local window stats inline: an O(directory) copy per scroll breaks load-bearing rule 1.
+    #[test]
+    fn a_local_window_stats_inline_with_no_bound_call() {
+        crate::backend::iomount::test_reset();
+        let d = TestDir::new("windowlocal");
+        d.file("a.txt", "a");
+        d.file("b.txt", "b");
+        let (tx, _rx) = channel::<Event>();
+        let mut st = State::new(crate::backend::dirsizeworker::Worker::new(tx));
+        st.base = d.path().to_path_buf();
+        st.listing.push("a.txt", false);
+        st.listing.push("b.txt", false);
+        let (metas, _) = window_metas(&st, 0, 10).expect("a local window answers");
+        assert_eq!(metas.len(), 2, "the window carries its rows");
+        assert_eq!(crate::backend::iomount::test_calls(), 0, "a local window takes no bound call and clones no listing");
+    }
+
+    // The search root's figures go through the bound, so a dead server answers instead of hanging.
+    #[test]
+    fn a_search_root_is_statted_through_the_bound() {
+        crate::backend::iomount::test_reset();
+        let d = TestDir::new("searchroot");
+        let (dev, writable) = search_root_info(d.path()).expect("a live root answers");
+        assert_eq!(dev, crate::backend::fsinfo::dev_of(d.path()), "the bound answers the root's own figures");
+        assert!(writable, "the sandbox is writable");
+        assert_eq!(crate::backend::iomount::test_calls(), 1, "the root's stat takes exactly one bound call");
+    }
 }

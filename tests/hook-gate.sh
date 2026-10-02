@@ -342,11 +342,16 @@ zrec "$AT_B" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "" "$
 check "commit-rules rejects an AI-attributed contributor" 1 $?
 expect_grep "commit-rules names the contributor attribution" "$root/fix/contrib-attr.out" "attribution 'claude'"
 
-# A non-GM commit on the first-parent chain still fails identity.
+# A non-GM commit on the first-parent chain still fails identity, even when a GM merge reaches it.
 CH_B=$(python3 -c 'print("1" * 39 + "2")')
+CH_G1=$(python3 -c 'print("1" * 39 + "4")')
+CH_M=$(python3 -c 'print("1" * 39 + "5")')
 CH_T=$(python3 -c 'print("1" * 39 + "3")')
-zrec "$CH_T" Someone x@y.z GM gianmarcomorales@icloud.com "$CH_B" "$GOOD_B" > "$root/fix/chain.z"
-zrec "$CH_B" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "" "$GOOD_B" >> "$root/fix/chain.z"
+CH_MB=$'Merge side work into the release\n\nFirst body line.\nSecond body line.'
+zrec "$CH_T" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$CH_M" "$GOOD_B" > "$root/fix/chain.z"
+zrec "$CH_M" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$CH_G1 $CH_B" "$CH_MB" >> "$root/fix/chain.z"
+zrec "$CH_G1" GM gianmarcomorales@icloud.com GM gianmarcomorales@icloud.com "$CH_B" "$GOOD_B" >> "$root/fix/chain.z"
+zrec "$CH_B" Someone x@y.z GM gianmarcomorales@icloud.com "" "$GOOD_B" >> "$root/fix/chain.z"
 "$repo/tools/flea-commit-rules" "$root/fix/chain.z" "$root/out" > "$root/fix/chain.out" 2>&1
 check "commit-rules rejects a non-GM commit on the chain" 1 $?
 expect_grep "commit-rules names the chain identity" "$root/fix/chain.out" "identity an=Someone <x@y.z>"

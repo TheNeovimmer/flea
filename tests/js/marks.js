@@ -52,4 +52,13 @@ function run(check) {
     same.cursorIndex = 3
     Marks.toggleRow(same, 3)
     check("ctrl click on the cursor row with nothing selected marks it once", Fixture.picks(same), "3")
+
+    var shift = Fixture.pane()
+    shift.cursorIndex = 2
+    Marks.extendToRow(shift, 4)
+    check("a shift click hands context 0 to the view", shift.contexts.join(","), "0")
+    var ctrl = Fixture.pane()
+    ctrl.cursorIndex = 2
+    Marks.toggleRow(ctrl, 4)
+    check("a ctrl click hands context 0 to the view", ctrl.contexts.join(","), "0")
 }

@@ -329,6 +329,11 @@ Item {
 
             Flea.CardScroll {
                 id: scroll
+                // The dropdown steps the highlight like a menu: one row a notch, one row per
+                // row height of gained touchpad travel. The cursor's reveal() follows.
+                highlightSteps: true
+                stepRowHeight: Theme.rowHeight
+                stepBy: function (delta) { root.cursor = Jump.step(root.entries, root.cursor, delta) }
                 anchors.fill: parent
                 anchors.topMargin: Theme.spacing.rowPaddingY
                 anchors.bottomMargin: Theme.spacing.rowPaddingY

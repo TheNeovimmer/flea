@@ -1,12 +1,14 @@
 .import "../../ui/js/Reload.js" as Reload
+.import "../../ui/js/Messages.js" as Messages
+.import "sourcefixture.js" as Source
 
-// F5 and Ctrl+R re-read the folder through the listing swap, and the notice names
-// how many rows changed, said only when rows changed.
+// F5 and Ctrl+R re-read the folder through the listing swap, saying the changed count only when rows changed.
 
 function pane() {
     return {
         listInFlight: false,
         searchMode: "",
+        recentMode: "",
         total: 10,
         held: 0,
         windowSize: 40,
@@ -14,12 +16,20 @@ function pane() {
         cursorIndex: 3,
         filterQuery: "",
         reloadFrom: -1,
+        reloadChanged: -1,
         said: [],
         listed: [],
+        refreshed: [],
+        asked: [],
         windowed: [],
         rowFor: function () { return { n: "notes.txt" } },
         message: function (text) { this.said.push(text) },
-        openWithoutHistory: function (path, options) { this.listed.push(path) },
+        openWithoutHistory: function (path, options) {
+            this.listed.push(path)
+            this.asked.push(options && options.wantChanged === true)
+            this.reloadFrom = -1
+        },
+        refresh: function (select) { this.refreshed.push(select) },
         backend: { window: function (start, count) { } }
     }
 }
@@ -48,47 +58,82 @@ function run(check) {
     check("a reload over search results asks for no listing", Reload.begin(searching, wire()), false)
     check("and says nothing, the way the sort keys go quiet there", searching.said.length + "|" + searching.listed.length, "0|0")
 
+    var recent = pane()
+    recent.recentMode = "results"
+    var recentWire = wire()
+    check("a reload over Recent re-reads its history", Reload.begin(recent, recentWire), true)
+    check("through refresh rather than re-listing its base", recent.refreshed.length + "|" + recent.listed.length, "1|0")
+    check("and remembers the count it is answering against", recent.reloadFrom, 10)
+    check("and leaves the watched anchor alone", recentWire.anchor, "kept")
+
     var plain = pane()
     var w = wire()
     check("a reload of the open folder re-lists it", Reload.begin(plain, w), true)
     check("through the same anchored re-read a watched change takes", plain.listed.join(","), "/home/gm/Work")
+    check("and asks the backend to count the rows a rename may have moved", plain.asked.join(","), "true")
     check("and remembers the count it is answering against", plain.reloadFrom, 10)
-    check("and holds the cursor anchor for the rows reply", w.anchor !== "kept" && w.anchor !== undefined, true)
+    check("and holds the cursor anchor for the rows reply", (w.anchor ? w.anchor.name : "") + "|" + (w.anchor ? w.anchor.index : "") + "|" + (w.anchor ? w.anchor.path : ""), "notes.txt|3|/home/gm/Work")
 
-    // Recent stands on the root, so reload re-reads Recent instead of listing root.
-    var recent = pane()
-    recent.recentMode = "results"
-    recent.recentFrom = "/home/gm/Work"
-    recent.recentPaths = ["/home/gm/a.txt", "/home/gm/b.txt"]
-    recent.path = "/"
-    recent.askedPaths = []
-    recent.swap = { hold: function () { return true } }
-    recent.backend.listPaths = function (paths) { recent.askedPaths = paths }
-    recent.backend.sortBy = "mtime"
-    recent.backend.sortDesc = true
-    check("a reload in Recent re-reads Recent itself", Reload.begin(recent, wire()), true)
-    check("and never lists the root it stands on",
-          recent.listed.length + "|" + recent.askedPaths.join(","), "0|/home/gm/a.txt,/home/gm/b.txt")
-    check("and still remembers the count its notice answers against", recent.reloadFrom, 10)
-
+    var renamed = pane()
+    renamed.reloadFrom = 10
+    renamed.reloadChanged = 2
+    renamed.total = 10
+    Reload.landed(renamed)
+    check("one added and one removed still say two changed", renamed.said.join("|"), "Reloaded · 2 rows changed")
+    check("and spend the reload, so the next listing says nothing", renamed.reloadFrom + "|" + renamed.reloadChanged, "-1|-1")
+    var recentLanded = pane()
+    recentLanded.recentMode = "results"
+    recentLanded.reloadFrom = 2
+    recentLanded.reloadChanged = 2
+    recentLanded.total = 2
+    Reload.landed(recentLanded)
+    check("a Recent re-read with one path replaced says two changed", recentLanded.said.join("|"), "Reloaded · 2 rows changed")
     var grown = pane()
     grown.said = []
     grown.reloadFrom = 10
+    grown.reloadChanged = 4
     grown.total = 12
     Reload.landed(grown)
-    check("two rows gained say so", grown.said.join("|"), "Reloaded · 2 rows changed")
-    check("and spend the reload, so the next listing says nothing", grown.reloadFrom, -1)
+    check("three added and one removed say four", grown.said.join("|"), "Reloaded · 4 rows changed")
     var shrunk = pane()
     shrunk.reloadFrom = 10
+    shrunk.reloadChanged = 1
     shrunk.total = 9
     Reload.landed(shrunk)
     check("one row lost reads singular", shrunk.said.join("|"), "Reloaded · 1 row changed")
     var same = pane()
     same.reloadFrom = 10
+    same.reloadChanged = 0
     same.total = 10
     Reload.landed(same)
-    check("an unchanged folder says nothing at all", same.said.length, 0)
+    check("a folder with nothing added or removed says nothing at all", same.said.length, 0)
+    var legacy = pane()
+    legacy.reloadFrom = 10
+    legacy.reloadChanged = -1
+    legacy.total = 12
+    Reload.landed(legacy)
+    check("a listing with no backend count falls back to net delta", legacy.said.join("|"), "Reloaded · 2 rows changed")
     var idle = pane()
     Reload.landed(idle)
     check("an ordinary navigation owes no notice", idle.said.length + "|" + idle.reloadFrom, "0|-1")
+
+    // The listed line's changed count reaches the listed signal PaneSwap reads; a missing one reads unknown.
+    var routed = []
+    var fake = { dirDev: 0, dirWritable: true,
+        listed: function (total, readMs, sortMs, path, changed) { routed.push(total + "|" + path + "|" + changed) } }
+    // Sample input: {"t":"listed","n":12,"read":1,"sort":2,"path":"/d","changed":2} routes 2.
+    Messages.route(fake, { t: "listed", n: 12, read: 1, sort: 2, path: "/d", changed: 2 })
+    check("a listed line with a count hands it to the listed signal", routed.join(";"), "12|/d|2")
+    // Sample input: the same line with no changed field routes undefined, which PaneSwap reads as unknown.
+    Messages.route(fake, { t: "listed", n: 12, read: 1, sort: 2, path: "/d" })
+    check("and one without hands over no count", routed.join(";"), "12|/d|2;12|/d|undefined")
+    // Each check reads the shipped QML source, so a live window is not needed.
+    var swap = Source.source("ui/PaneSwap.qml")
+    var swapListed = Source.slice(swap, "function applyListed(", "function ")
+    check("PaneSwap keeps the listed line's count for the reload", swapListed.indexOf("pane.reloadChanged = (changed === undefined || changed === null) ? -1 : changed") >= 0, true)
+    var backend = Source.source("ui/Backend.qml")
+    var backendList = Source.slice(backend, "function listRequest(", "function ")
+    check("the list request sends wantChanged only when asked", backendList.indexOf("wantChanged: wantChanged === true") >= 0, true)
+    check("Backend declares changed on its listed signal", backend.indexOf("signal listed(int total, real readMs, real sortMs, string path, var changed)") >= 0, true)
+    check("PaneSwap applyListed declares the changed count", swapListed.indexOf("function applyListed(total, readMs, sortMs, path, changed)") === 0, true)
 }

@@ -373,6 +373,10 @@ cat > "$SANDBOX/wrapflea" <<'WRAP'
 #!/bin/sh
 set -u
 # Sample input: --ui-state {"keys":"windows"}
+# The settled reader calls --ui-state with no patch; it is never counted, held or refused.
+if [ "$#" -lt 2 ]; then
+  exec "$PROBE_WRAP_REAL" "$@"
+fi
 n=$(cat "$PROBE_WRAP_DIR/count" 2>/dev/null || echo 0)
 n=$((n + 1))
 printf '%s\n' "$n" > "$PROBE_WRAP_DIR/count"

@@ -80,6 +80,10 @@ re-scanning: `sort` reorders whichever listing `list` last produced and cannot a
 remove rows, so changing `hidden` always means a fresh `list`, which is also what
 clears the cursor and selection back to row 0.
 
+Optional `wantChanged`, `false` unless `true`: with it on, a `list` that re-reads the
+directory already listed names added plus removed rows in `changed`. Absent is off, so
+every navigation and watched re-read stays silent and pays no count.
+
 ### locate
 
 `{"c":"locate","path":"/directory/selected.txt"}`
@@ -164,6 +168,9 @@ so a symlink to a directory is listed as a file and a symlink to nothing is stil
 
 There is no cancel and no streaming: the build is one `lstat` per path inside the read loop, and the
 one caller sends a few hundred at most.
+
+A re-read over the listing already held names added plus removed rows in `changed`, so a reload
+over Recent says how many history entries came or went; a first `listpaths` carries no `changed`.
 
 ### window
 
@@ -481,7 +488,7 @@ Example: `{"c":"transfer","op":"copy","paths":["/home/gm/a.txt","/home/gm/photos
 Copies or moves each top-level path into `dest`. `op` of `"move"` moves; **anything else, including a
 missing `op`, copies**, so a malformed request can never remove a source. `paths` are absolute; `dest`
 is an absolute directory that must already exist, because Flea does not create a destination as a side
-effect of a transfer. A `dest` that is missing, relative, or not a directory answers a single `error`
+effect of a transfer. A `dest` that is missing, relative, not a directory, or cannot be written answers a single `error`
 line with `where` of `transfer` and nothing is started.
 
 Unlike `thumb` and `dirsize`, this names paths rather than row indices: a transfer outlives the listing
@@ -494,7 +501,9 @@ so it still owns a snapshot that outlives whatever the listing does next. `paths
 present, and an index past the end of the listing is dropped in silence.
 
 **One of `transfer`, `trash`, `duplicate` or an archive `extract` runs at a time.** One of those
-arriving while another is still running answers an `error` line saying so and touches nothing. The cap
+arriving while another is still running answers an `error` line saying so and touches nothing. `link`
+and `permissionsBatch` are refused the same way while one runs, without taking the slot: `link`
+answers an `error` line and `permissionsBatch` answers its `permissions` line with `ok` false. The cap
 is one because the status bar carries one transient slot for the running operation, and an extract
 drives that same card, so a second concurrent operation would have nowhere to report. `rename` and
 `mkdir` never take that slot, and an archive `compress` and a `convert` are keyed by their own `id` and
@@ -588,7 +597,7 @@ round trip for each, so the question runs on a thread of its own and the loop ke
 requests; the `collisions` line arrives whenever it is done, and a client waits for it before sending
 the `transfer`. A source that is not absolute, that no longer exists, or that already lives in `dest`
 is not counted, because the transfer settles those without a question. A `dest` that is missing,
-relative or not a directory answers a `total` of 0, and the `transfer` that follows answers its own
+relative, not a directory, or cannot be written answers a `total` of 0, and the `transfer` that follows answers its own
 `error`.
 
 **The backend keeps the latest question**: each colliding source with the identity of the item its
@@ -601,7 +610,8 @@ at a time and waits for its line. The next file transfer spends the kept questio
 and a `transfer` carrying that `menuId` and naming this question in `collideId` runs on that capture:
 Copy to closes its dialog, which sends `menuaction` `close` and expires the live selection, before the
 answer comes back. The capture holds the same device, inode and type identities the live selection
-does, and they are still checked per item when the transfer runs. A `menuId` whose selection has
+does, and they are still checked per item when the transfer runs. Collision destination identities
+also compare birth time when the filesystem reports it on both sides. A `menuId` whose selection has
 already expired answers a `total` of 0, and the `transfer` then answers `Menu selection expired`.
 
 ### link
@@ -620,11 +630,22 @@ when both are present. A `link` whose `listing` is not the numbering in force
 is refused with `where` of `stale` before a single index is resolved, the
 same rule `transfer` follows.
 
-Unlike `transfer`, this answers on the loop's own thread and never takes the
-one-operation slot: every link is one syscall, so there is nothing to show
-progress for and nothing to cancel. The answer is one `linked` line,
+Like `transfer`, this runs beside the loop and takes the one-operation slot:
+the busy check and the collide answer are decided on the loop, then one
+thread links each source, replacing through the trash when the card chose
+it, and the answer is written from its message. A source or the destination
+on a mount with a pending slow write waits first, the same gate every other
+write passes. A Replace trashes through
+gio, which stalls on an unresponsive mount, so that work never runs on the
+loop's own thread. A `link` arriving while an operation runs
+answers an `error` line carrying `an operation is already running` and journals nothing. The answer is one `linked` line,
 `{"t":"linked","ok":<uint>,"failed":<uint>,"skipped":<uint>}`, and one journal
-entry, so one undo removes every link this request created. A name that
+entry, so one undo removes every link this request created. `note` rides on that line whenever a link this request
+made could be neither verified nor removed, plain or replacing, naming each leftover link and its cleanup error with
+`the replaced item stays in the trash` where a replaced item was kept, and ahead of that a mixed batch's first
+failure, so a batch that lands some links still names what the rest failed with. An all-failed batch answers an `error` line with `where` of `link` carrying the first
+failure with that note appended, naming the failing source as `<source>: <message>`. A source that no longer exists is refused
+for that item and counts in `failed`, so one missing source never stops the rest. A name that
 already exists is refused for that item unless the request carries the
 `collide` and `collideId` choice a `transfer` carries, applied by the same
 rule: only what the question listed, only while the name still holds the same
@@ -632,18 +653,24 @@ item. `keep` lands the link under the name `duplicate` would give it, `skip`
 leaves the item where it is and counts it in `skipped`, and `replace` moves
 the item already there to the trash first and then links under the name. A
 hard link across filesystems is refused with both filesystem names in the
-sentence, and a hard link to a directory is refused outright.
+sentence, and a hard link to a directory is refused outright. A `dest` that is missing, relative, not a directory,
+or cannot be written answers a single `error` line with `where` of `link` and nothing is started.
 
 ### linktarget
 
-`{"c":"linktarget","path":"<string>"}`
+`{"c":"linktarget","path":"<string>","id":<uint>}`
 
-Example: `{"c":"linktarget","path":"/home/gm/latest"}`
+Example: `{"c":"linktarget","path":"/home/gm/latest","id":3}`
 
 Answers one `linktarget` line,
-`{"t":"linktarget","path":"<string>","directory":"<string>","name":"<string>"}`,
+`{"t":"linktarget","path":"<string>","directory":"<string>","name":"<string>","id":<uint>}`,
 naming the folder the symlink's target lives in and the target's own leaf, the
-same path Show in folder uses. A path that is not a symlink answers an `error`
+same path Show in folder uses. `id` echoes the request's, so a reply landing
+after the pane navigated elsewhere is answered only when it still names the
+pending one. `directory` is the target's folder with every
+symlinked folder and `..` resolved the way the kernel follows them, falling back
+to the link text's own split when it cannot be resolved, and the line is answered
+from a thread, as `meta` is. A path that is not a symlink answers an `error`
 line with `where` of `linktarget` and touches nothing.
 
 ### permissionsBatch
@@ -657,7 +684,8 @@ the same three-or-leading-zero-four octal rule the dialog's own `apply`
 enforces, and answers one `permissions` line with `op` of `applyMany`,
 `{"t":"permissions","id":7,"op":"applyMany","ok":true,"mode":"0600","error":""}`.
 One journal entry holds every path the Apply changed, so one undo restores
-them all. Octal, Owner, Group and the change preview drop out for several
+them all. A `permissionsBatch` arriving while an operation runs answers `ok` false with
+`an operation is already running` and changes nothing. Octal, Owner, Group and the change preview drop out for several
 items: the grid and Apply are the whole card. A mixed box the operator never
 touched keeps each file's own bit, because the client sends that file's own
 target mode rather than one mode for all.
@@ -699,7 +727,8 @@ Example: `{"c":"trash","rows":[4,9]}`
 
 `rows` is the same alternative to `paths` that `transfer` documents above, resolved the same way.
 
-Moves each path to the freedesktop trash by running `gio trash`, and answers one `trashed` line.
+Moves each path to the freedesktop trash by running `gio trash` under a 10 s deadline, and answers
+one `trashed` line.
 **Nothing about the freedesktop trash specification is implemented in this codebase**, only an argv and
 a result: `gio` already handles the same-filesystem-move-versus-copy question, the `.trashinfo`
 metadata, and the per-mount `.Trash-$uid` fallback for a volume with no home-relative trash.
@@ -750,10 +779,13 @@ whose move-back from its temp sibling fails answers `rename-stranded` instead: i
 source, its `msg` names the temp leaf and the move-back's cause, and the file stays under that
 hidden name.
 
-Unlike the three above, this answers on the loop's own thread: the ordinary case is one `renameat2`,
-which costs less than spawning a thread. The compatibility paths above are not one syscall and
-run on that same thread, so a directory rename on rclone or MEGA copies the whole tree inline before it
-answers. See `AGENTS.md`, "Write operations and the undo journal".
+Unlike the three above, this answers on the loop's own thread on a local mount: the ordinary
+case is one `renameat2`, which costs less than spawning a thread. On a remote mount it runs on its
+own worker with the single-call deadline and answers `slow` first, then its `renamed` line when the
+write lands, journalled exactly as the in-time path would journal it; see `slow`. The compatibility
+paths above are not one syscall, and on a remote mount they run on that worker too, so a directory
+rename on rclone or MEGA no longer holds the loop while it copies. See `AGENTS.md`, "Write operations
+and the undo journal".
 
 ### duplicate
 
@@ -795,7 +827,9 @@ answers `No such file or directory (os error 2)`, a parent the user cannot write
 (os error 13)`, a read-only mount `Read-only file system (os error 30)`, a name past `NAME_MAX` `File
 name too long (os error 36)`.
 
-Like `rename`, this answers on the loop's own thread and never takes the one-operation slot.
+Like `rename`, this answers on the loop's own thread on a local mount and never takes the
+one-operation slot; on a remote mount it runs on its own worker with the single-call deadline and
+answers `slow` first, then its `made` line when the write lands; see `slow`.
 
 ### meta
 
@@ -827,6 +861,20 @@ on a thread, because an open on a hung mount never returns and the loop waits on
 keeps the newest `id` and drops any line naming an older one. A path that is not a regular file,
 or that cannot be read, answers `hasShebang` false rather than an error, so the row stays absent.
 
+### pdfcopy
+
+`{"c":"pdfcopy","id":<uint>,"slot":"<string>","path":"<string>"}`
+
+Example: `{"c":"pdfcopy","id":3,"slot":"column","path":"/run/media/gm/128GB/doc.pdf"}`
+
+Fetches one PDF the preview actually opened into a session-private copy under an 8 s deadline, and
+answers one `pdfcopied` line: `{"t":"pdfcopied","id":3,"path":"<local copy>"}` on success, or
+`{"t":"pdfcopied","id":3,"err":"that file is not responding"}` when the wait runs out. `err` rides
+only on a failure. The `id` is minted by the one counter in `ui/Backend.qml`, so two viewers never
+share one; `slot` names the viewer, so a newer fetch supersedes only its own viewer's copy.
+The copy runs beside the loop, so a dead mount costs the viewer a sentence and
+never the window; a stale reply is dropped by its `id`, the way a superseded listing's result is.
+
 ### undo
 
 `{"c":"undo"}`
@@ -836,16 +884,20 @@ An empty journal answers an `error` line with `where` of `undo`, and so does a r
 removing what an operation created or restoring from the trash. A reversal that renames back goes
 through the same call a `rename` does, so its failure answers `rename`, `rename-kept` or `rename-stranded` instead.
 
-**The journal is an in-memory ring of the last 50 completed operations and is not persisted**, so it
-does not survive a restart. Each kind reverses as follows: a rename or a move renames back (still
+**The journal is the session journal under $XDG_RUNTIME_DIR/flea**, newest entry from any window, surviving a backend restart but not the session, with an in-memory fallback when the dir is refused. An entry too big for the file stores a small barrier, its op name only and no paths, and no window keeps the payload: the undo that claims it answers `That operation was too large to undo.`, the next undo continues with older entries, and a barrier never enters redo. A file written by a newer version is unavailable, never rewritten: the reader falls back to memory. Each kind reverses as follows: a rename or a move renames back (still
 refusing to clobber, because something may occupy the old name by now), a copy or a duplicate removes
-what that operation created, and a trash restores through `gio trash --restore` using the URI captured
-when it was trashed. A transfer that replaced an item reverses both halves in that one step, newest
+what that operation created, a link removes only the link it made, and a trash restores through
+`gio trash --restore` using the URI captured
+when it was trashed. A hard link whose source is gone or was replaced stays as the last name holding
+those bytes. A transfer that replaced an item reverses both halves in that one step, newest
 first: the incoming item is removed or moved back, and then the item it replaced is restored from the
-trash to its name. A reversal that fails stops the rest and is spent, so when the incoming half cannot
+trash to its name. A reversal that fails stops the rest and is spent, except a `Mode` step whose file
+was replaced or whose mode changed since: that step is skipped with a note while the rest restore, and
+redo skips the same way. So when the incoming half cannot
 go (a partial folder copy with a file inside newer than its root) or the trash cannot be read back (a
 `gio` with no `trash://` to list), the replaced item stays in the trash, restorable from the trash
-browser rather than by `undo`. A `mkdir` removes the folder it made only while it is still empty: a folder the
+browser rather than by `undo`. A partial `permissions` undo answers `N path(s) left in place` and names
+how many it restored for redo, which replays the undone half before anything older. A `mkdir` removes the folder it made only while it is still empty: a folder the
 user has filled since is theirs, so that reversal answers an `error` line, leaves it and its contents in
 place, and is spent like any failed reversal, so the next `undo` reaches the operation before it.
 
@@ -857,7 +909,7 @@ leaves it on disk, because removing it on a transient error would destroy data, 
 lets `undo` remove it. A destination that already existed is never recorded, because nothing was created
 there. The steps of one operation reverse
 newest first, and a step that fails stops the rest rather than leaving the operation half-reversed with
-nothing recording which half.
+nothing recording which half, except a `Mode` step, which is skipped with a note while the rest restore.
 
 ### jump
 
@@ -927,6 +979,11 @@ omits `w` is an older backend, and a client reads that the same as true.
 `path` is the directory exactly as the `list` that made this listing spelled it, byte for byte, with a
 trailing slash, a symlink or a `..` left unresolved, because a client drops any `listed` line whose
 `path` differs from the one it asked for (`ui/js/Swap.js` `onListed`).
+
+`changed` rides only on a `list` with `wantChanged` that re-read the directory
+already listed, and on a `listpaths` that re-read the listing it already held, and names
+added plus removed rows between the two scans, so a rename counts 2 against a net delta of 0.
+A first listing and a navigation carry no `changed`, and a client reads a missing one as unknown rather than 0.
 
 ### rows
 
@@ -1289,9 +1346,31 @@ the background` for a copy onto an rclone mount, and is empty otherwise.
 
 Example: `{"t":"trashed","ok":1,"failed":0}`
 
-Counts only. Unlike `transferitem` there is no per-path error text, because trash is one `gio` call for
+Counts, plus the batch's own reason when anything failed: `{"t":"trashed","ok":0,"failed":1,"err":"<string>"}`.
+Unlike `transferitem` there is no per-path error text, because trash is one `gio` call for
 the batch and its exit status cannot attribute a failure to a single path; a path that is still on disk
-afterwards is counted in `failed`.
+afterwards is counted in `failed`. `err` rides only on a failure, so a successful line is byte-identical
+to before. `gio` runs under a 10 s deadline, so a hung mount answers "Trash took too long to answer"
+instead of holding the single operation slot.
+
+### slow
+
+`{"t":"slow","op":"<string>","path":"<string>","msg":"<string>"}`
+
+Example: `{"t":"slow","op":"rename","path":"/hung/a.txt","msg":"/hung is slow. The rename continues and will finish on its own."}`
+
+A remote `rename` or `mkdir` past the single-call deadline answers this line and moves
+on: the write stays running on its own worker, so the loop keeps answering every other request,
+and the mount is never marked stuck for a write still running. `op` names the request (`rename`
+or `mkdir`), `path` the path it is writing (the rename source or the mkdir parent), and `msg` the sentence the client shows as information, never as an error. The
+`slow` line releases the one-at-a-time slot at once, so writes on other mounts and on local paths
+still run; the write stays pending under its mount root instead. A write touching a mount with a
+pending slow write answers `an operation is already running` and journals nothing, and `undo` and
+`redo` answer the same while any slow write is pending, naming its path. The late reply clears
+only its own pending entry. There is still no cancel id and no progress for the running write.
+The write's own reply follows whenever it lands: the same `renamed` or `made` line the
+in-time path writes, or the same `error` line if the write failed, journalled exactly once either
+way, so one `undo` reverses it.
 
 ### renamed
 

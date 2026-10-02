@@ -12,11 +12,13 @@ import "js/Menu.js" as Menu
 import "js/Mounts.js" as Mounts
 import "js/Search.js" as Search
 import "js/Archive.js" as Archive
+import "js/Startup.js" as Startup
 import "js/Nav.js" as Nav
 import "js/RecentMode.js" as RecentMode
 import "js/Ops.js" as Ops
 import "js/Permissions.js" as Permissions
 import "js/Selection.js" as Selection
+import "js/Anchor.js" as Anchor
 import "js/SlowClick.js" as SlowClick
 import "js/Sort.js" as Sort
 import "js/Thumbs.js" as Thumbs
@@ -38,6 +40,8 @@ FocusScope {
     property string listingPath: ""
     property int total: 0
     property int cursorIndex: 0
+    // Filter and Marks bump this on every cursor move, ending a shift gesture.
+    property int cursorSeq: 0
     property string listingState: "loading"
     property string stateMessage: ""
     property int lockedMode: 0
@@ -54,16 +58,17 @@ FocusScope {
     readonly property bool clickRename: ViewState.state.clickRename !== false
     // A manual reload's own count, or -1; ui/js/Reload.js sets it and ui/PaneSwap.qml spends it.
     property int reloadFrom: -1
+    // Added plus removed rows on the reload's listed line, or -1; ui/PaneSwap.qml sets it from changed.
+    property int reloadChanged: -1
     // The slow click's own window: the last tap's row and time, read by ui/js/SlowClick.js alone.
     property double slowClickAt: 0
-    property int slowClickIndex: -2
-    // The slow-click rename timer, one per pane: a tap arms it and a second tap in time opens as a double click does.
-    // Its firing renames only while the row still holds the cursor.
+    property int slowClickIndex: SlowClick.CLEARED
+    // One slow-click timer for the whole pane; a tap arms it and a second tap in time opens as a double click does, and its firing renames only while the row still holds the cursor.
     Timer {
         id: slowClickTimer
         interval: Qt.styleHints.mouseDoubleClickInterval
         repeat: false
-        onTriggered: SlowClick.fire(root, Date.now(), Qt.styleHints.mouseDoubleClickInterval)
+        onTriggered: SlowClick.fire(root)
     }
     function armSlowClick(index, modifiers, dragging, wasSole) {
         if (SlowClick.arm(root, index, modifiers, Date.now(), Qt.styleHints.mouseDoubleClickInterval, dragging, wasSole))
@@ -252,6 +257,9 @@ FocusScope {
     readonly property string listingPreferences: JSON.stringify([ViewState.state.hidden, ViewState.state.sort,
         ViewState.state.foldersFirst, ViewState.state.groupByKind, ViewState.state.hiddenLast, ViewState.state.rememberSort])
     property string appliedListingPreferences: ""
+    // A preference re-list keeps selection and cursor by name, Finder's rule; the watcher defers
+    // while a selection stands, this one preserves it instead. Cleared when its rows land.
+    property var preferenceAnchor: null
     onListingPreferencesChanged: {
         // A hidden dual pane retains its session sort when the single pane changes the saved default.
         if (root.backend && root.backend.preserveSort && !root.visible && root.appliedListingPreferences.length > 0) {
@@ -262,7 +270,20 @@ FocusScope {
         preferences.restart()
     }
     onVisibleChanged: if (root.visible) preferences.restart()
-    onListInFlightChanged: if (!root.listInFlight) { preferences.restart(); Sort.applyPending(root) }
+    // A restored folder that never answers leaves "loading" for the waiting state, with Home
+    // reachable through it; the late rows, if they ever land, are dropped by the swap as stale.
+    readonly property int listingWaitMs: Startup.LISTING_WAIT_MS
+    Timer {
+        id: listingWait
+        interval: root.listingWaitMs
+        onTriggered: {
+            if (root.listInFlight && root.listingState === "loading") {
+                root.listingState = "waiting"
+                root.stateMessage = "That folder is not responding."
+            }
+        }
+    }
+    onListInFlightChanged: if (!root.listInFlight) { preferences.restart(); Sort.applyPending(root); listingWait.stop() } else listingWait.restart()
     onSearchModeChanged: if (root.searchMode.length === 0) preferences.restart()
     onRecentModeChanged: if (root.recentMode.length === 0) preferences.restart()
     Timer {
@@ -274,7 +295,10 @@ FocusScope {
             if (!root.visible || !root.path || root.listInFlight || root.searchMode.length > 0
                     || root.recentMode.length > 0
                     || root.appliedListingPreferences === root.listingPreferences) return
+            root.preferenceAnchor = Anchor.preference(root)
             root.openWithoutHistory(root.path)
+            if (root.preferenceAnchor && root.preferenceAnchor.start > 0)
+                root.backend.window(root.preferenceAnchor.start, root.windowSize)
         }
     }
     Connections {
@@ -365,6 +389,19 @@ FocusScope {
         if (trashHost.confirming) return
         trashHost.close()
         Nav.open(root, newPath)
+    }
+
+    // An eject releases the mount under path: queued reads stop first, the preview lets go,
+    // and a pane showing that volume moves Home rather than standing on a vanished folder.
+    function quiesceVolume(path) {
+        if (root.backend)
+            root.backend.quiesce()
+        if (root.preview)
+            root.preview.close()
+        var home = root.home
+        if (home.length > 0 && String(path).length > 0
+                && (root.path === path || root.path.indexOf(path + "/") === 0))
+            Nav.openPlace(root, home)
     }
 
     // options.keepHidden is the tab restore's alone: it just put back this tab's own dotfile answer, which the standing preference would overwrite.
@@ -461,6 +498,8 @@ FocusScope {
     property string shebangAsked: ""
     property int shebangId: 0
     property int makeExecPendingId: 0
+    // Show original's own pending id, dropped by any navigation before its reply lands.
+    property int linkTargetPendingId: 0
     // The one path a shebang answer may land for, "" unless the cursor row is a regular file without its owner bit.
     function shebangTarget() {
         var row = root.cursorRow
@@ -500,7 +539,7 @@ FocusScope {
         }
         var taken = [root.join(root.path, row.n)]
         var oldBits = (Number(row.p) || 0) & 0o7777
-        var octal = Permissions.octal((oldBits | 0o100) & 0o7777)
+        var octal = Permissions.octal((oldBits | Format.S_IXUSR) & 0o7777)
         root.makeExecPendingId += 1
         root.backend.send({ c: "permissionsBatch", paths: taken, modes: [octal], id: Permissions.MAKE_EXEC_ID + root.makeExecPendingId })
     }
@@ -518,6 +557,7 @@ FocusScope {
     function openPermissions() {
         var idx = Ops.targetIndices(root)
         if (idx.length === 0) { Ops.sayNoTarget(root); return }
+        if (root.pathsPending || root.clipPending !== null) { Ops.pathsBusy(root); return }
         // The selection can reach past the held window, so the backend
         // resolves the indices while it still can, the same rule clip follows.
         root.pathsPending = { kind: "permissions" }
@@ -551,7 +591,10 @@ FocusScope {
             root.message("No row under the cursor to open a menu on.", false)
             return
         }
-        menu.openSubmenuFor("pasteAs")
+        if (!menu.openSubmenuFor("pasteAs")) {
+            menu.close()
+            root.message("There is nothing to paste; y copies and x cuts.", false)
+        }
     }
     // MenuAdditions040: V flips the marks over the rows the listing draws;
     // the filter applies, and a close match is never selected.
@@ -564,7 +607,12 @@ FocusScope {
             root.message("Show original needs the cursor on a symlink.", false)
             return
         }
-        root.backend.send({ c: "linktarget", path: root.join(root.path, row.n) })
+        root.requestLinkTarget(root.join(root.path, row.n))
+    }
+    // Both entrances send through here, so one pending id covers the cursor and the menu.
+    function requestLinkTarget(path) {
+        root.linkTargetPendingId = root.backend.nextLinkTargetId()
+        root.backend.send({ c: "linktarget", path: path, id: root.linkTargetPendingId })
     }
     // MenuAdditions040: Paste as links, undoable, through the collision card;
     // with paths the links go out of those, else out of the file clipboard.
@@ -625,6 +673,8 @@ FocusScope {
 
     function openParent() { if (trashHost.opened) trashHost.close(); else if (root.recentMode.length > 0) { if (root.listInFlight) root.message("A directory is already loading.", false); else RecentMode.close(root) } else Nav.parent(root) }
 
+    // The sort Recent replaced, handed back on leaving; ui/js/Search.js reaches it through here.
+    function restoreRecentSort() { RecentMode.restoreSort(root) }
     // The rail's Recent row answers with the history's paths, read bounded the way the
     // path jump reads them; a second open while one lands replaces it, the way a navigation does.
     function openRecent(paths) { RecentMode.run(root, paths) }
@@ -875,7 +925,8 @@ FocusScope {
         rowInDropbox: root.dropboxService && root.cursorRow
             && Dropbox.contains(root.dropboxService.dropboxPath, root.join(root.path, root.cursorRow.n))
         // Issue 133: no GVFS mount, share or phone, has a trash of its own, so the row is not offered there.
-        canTrash: Mounts.trashable(root.path)
+        // A read-only folder has none either: the listed line's own writability rides along.
+        canTrash: Mounts.trashable(root.path, root.backend ? root.backend.dirWritable !== false : true)
         // The listing's own w flag turns the menu's write rows off in a read-only folder.
         dirWritable: root.backend ? root.backend.dirWritable !== false : true
         // vfat and exfat hold no links, so the Paste as rows are not offered there either.

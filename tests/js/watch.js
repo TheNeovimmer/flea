@@ -27,7 +27,8 @@ function pane() {
         filterTyping: true,
         cleared: 0,
         said: [],
-        sent: []
+        sent: [],
+        want: []
     }
     p.clearSelection = function () { p.cleared += 1 }
     p.message = function (text, isError) { p.said.push(text) }
@@ -35,7 +36,10 @@ function pane() {
     // ui/PaneSwap.qml with nothing held, so the reset and the query it hands back both run at the request.
     p.swap = { hold: function () { return false } }
     p.backend = {
-        list: function (path, first, hidden) { p.sent.push("list " + path) },
+        list: function (path, first, hidden, wantChanged) {
+            p.sent.push("list " + path)
+            p.want.push(wantChanged === true)
+        },
         askFsInfo: function () { p.sent.push("fsinfo") },
         window: function (start, count) { p.sent.push("window " + start) }
     }
@@ -52,16 +56,28 @@ function watched(held, rows, cursorIndex, total) {
     p.total = total === undefined ? 40 : total
     p.windowSize = 350
     p.cursorSetTo = -1
+    p.contexts = []
     p.rowFor = function (index) {
         var offset = index - p.held
         return offset < 0 || offset >= p.rows.length ? null : p.rows[offset]
     }
-    p.setCursor = function (index) { p.cursorSetTo = index }
+    p.setCursor = function (index, context) {
+        p.cursorSetTo = index
+        p.contexts.push(context)
+    }
     // Only a delete's own anchor selects; a watched re-read must never touch the operator's marks.
     p.selectedAt = -1
-    p.selectOnly = function (index) { p.selectedAt = index; p.cursorSetTo = index }
+    p.selectOnly = function (index, context) {
+        p.selectedAt = index
+        p.cursorSetTo = index
+        p.contexts.push(context)
+    }
     // The same wrapper ui/Pane.qml carries, so the re-read takes the one route that can refuse.
     p.openWithoutHistory = function (target, options) { Nav.openWithoutHistory(p, target, options) }
+    // A preference anchor re-marks by name, so the stub carries the mark set the pane owns.
+    p.marked = []
+    p.selection = { clear: function () { p.marked = [] }, toggle: function (i) { p.marked.push(i) } }
+    p.selectionVersion = 0
     return p
 }
 
@@ -77,6 +93,12 @@ function run(check) {
           anchor.name + "|" + anchor.index, "b|1")
     check("and keeps the filter, which narrows rows rather than choosing the directory",
           seen.filterQuery, "scr")
+    check("and a watched re-read asks for no count", seen.want.join(","), "false")
+    // A manual reload wants the count, so true reaches backend.list through Nav.
+    var seenCounted = watched(0, [{ n: "a" }, { n: "b" }, { n: "c" }], 1)
+    var countedAnchor = Anchor.watched(seenCounted, true)
+    check("and a watched re-read that wants the count asks for it", seenCounted.want.join(","), "true")
+    check("and the counted re-read still anchors on the cursor name", countedAnchor.name, "b")
 
     // The name moved down a row, which is exactly what a create above the cursor does.
     seen.held = 0
@@ -84,6 +106,7 @@ function run(check) {
     seen.total = 41
     check("the cursor lands on the anchored name at its new index",
           Anchor.apply(seen, anchor) + "|" + seen.cursorSetTo, "null|2")
+    check("and the re-land moves with context 0", seen.contexts.join(","), "0")
 
     // A name that is gone leaves the old index, which keeps the view where the user left it rather
     // than throwing them back to the top of the directory.
@@ -226,21 +249,22 @@ function run(check) {
     // A click-away rename keeps the pointer's row: the reply anchors on the clicked name.
     var click = watched(0, [{ n: "a-original.md" }, { n: "b-existing.md" }], 1, 1202)
     click.path = "/dir"
-    var clickReq = { source: "/dir/a-original.md", destination: "/dir/a-clickaway.md", folder: "/dir" }
+    var clickReq = { source: "/dir/a-original.md", destination: "/dir/c-clickaway.md", folder: "/dir" }
     var clickAnchor = Anchor.pointerRow(click, clickReq)
     check("a click-away anchors on the clicked row, not the renamed one",
           clickAnchor.name + "|" + clickAnchor.index + "|" + clickAnchor.start + "|" + clickAnchor.select,
           "b-existing.md|1|0|true")
-    click.rows = [{ n: "a-clickaway.md" }, { n: "b-existing.md" }]
+    click.rows = [{ n: "b-existing.md" }, { n: "c-clickaway.md" }]
     click.total = 1202
     check("and lands on that name after the rows shift",
-          Anchor.apply(click, clickAnchor) + "|" + click.cursorSetTo, "null|1")
-    check("and selects it, so the next write reads the clicked row", click.selectedAt, 1)
+          Anchor.apply(click, clickAnchor) + "|" + click.cursorSetTo, "null|0")
+    check("and selects it, so the next write reads the clicked row", click.selectedAt, 0)
 
     // Enter still sits on the source when the reply lands, so that leaf maps to the dest.
     var enter = watched(0, [{ n: "a-original.md" }, { n: "b-existing.md" }], 0, 1202)
     enter.path = "/dir"
-    var enterAnchor = Anchor.pointerRow(enter, clickReq)
+    var enterReq = { source: "/dir/a-original.md", destination: "/dir/a-clickaway.md", folder: "/dir" }
+    var enterAnchor = Anchor.pointerRow(enter, enterReq)
     check("Enter maps the source leaf to the destination leaf",
           enterAnchor.name + "|" + enterAnchor.index, "a-clickaway.md|0")
     enter.rows = [{ n: "a-clickaway.md" }, { n: "b-existing.md" }]
@@ -260,9 +284,9 @@ function run(check) {
     check("the first window does not resolve a deep click-away",
           Anchor.apply(deepClick, deepAnchor) === deepAnchor, true)
     deepClick.held = 900
-    deepClick.rows = [{ n: "f1198.txt" }, { n: "f1199-new.txt" }]
+    deepClick.rows = [{ n: "f1199-new.txt" }, { n: "f1198.txt" }]
     check("the asked window puts the cursor back on the clicked row",
-          Anchor.apply(deepClick, deepAnchor) + "|" + deepClick.cursorSetTo, "null|900")
+          Anchor.apply(deepClick, deepAnchor) + "|" + deepClick.cursorSetTo, "null|901")
 
     // A deep Enter misses the first window too, so it waits for the same ask.
     var deepEnter = watched(900, [{ n: "f1199.txt" }], 900, 1202)
@@ -286,4 +310,45 @@ function run(check) {
     var beyondAnchor = Anchor.pointerRow(beyond, clickReq)
     check("a cursor past the held window anchors on no name but keeps its index",
           beyondAnchor.name + "|" + beyondAnchor.index, "|5")
+
+    // A preference re-list keeps selection and cursor by name across a hidden toggle that inserts .dot ahead of the files.
+    var pref = watched(0, [{ n: "sub" }, { n: "a.txt" }, { n: "b.txt" }], 2)
+    pref.path = "/dir"
+    pref.selectedIndices = function () { return [1, 2] }
+    var prefAnchor = Anchor.preference(pref)
+    check("a preference anchor names the cursor file", prefAnchor.name, "b.txt")
+    check("and the selected files", prefAnchor.selected.join(","), "a.txt,b.txt")
+    pref.held = 0
+    pref.rows = [{ n: ".dot" }, { n: "sub" }, { n: "a.txt" }, { n: "b.txt" }]
+    pref.total = 4
+    Anchor.applyPreference(pref, prefAnchor)
+    check("the cursor follows its file past the insertion", pref.cursorSetTo, 3)
+    check("and the selection follows its files too", pref.marked.join(","), "2,3")
+    // A selection reaching past the held window never keeps its in-window subset; the whole of it clears instead.
+    var wide = []
+    for (var w = 0; w < 350; w++) wide.push({ n: "f" + w })
+    var partial = watched(0, wide, 10)
+    partial.selectedIndices = function () { var all = []; for (var s = 0; s < 500; s++) all.push(s); return all }
+    check("a selection past the held window clears whole", Anchor.preference(partial).selected.length, 0)
+    // A pane without rowFor drops the selection instead of throwing on it.
+    var noRowFor = { cursorIndex: 1, held: 0, path: "/dir", selectedIndices: function () { return [0, 1] } }
+    check("a pane without rowFor drops the selection instead of throwing", Anchor.preference(noRowFor).selected.length, 0)
+    // A preference anchor waits only for its asked window: a scrolled reply or a moved cursor drops it without moving anything.
+    var asked = { name: "m", index: 4000, start: 4000, path: "/home/gm", selected: [] }
+    var firstWin = watched(4000, [{ n: "a" }, { n: "b" }], 0, 100000)
+    firstWin.held = 0
+    check("the first window keeps the anchor waiting", Anchor.applyPreference(firstWin, asked) === asked, true)
+    var scrolled = watched(4000, [{ n: "x" }, { n: "y" }], 0, 100000)
+    scrolled.held = 350
+    check("a scrolled window drops it without moving", Anchor.applyPreference(scrolled, asked) === null && scrolled.cursorSetTo === -1, true)
+    var moved = watched(4000, [{ n: "a" }, { n: "b" }], 7, 100000)
+    moved.held = 0
+    check("a moved cursor drops it too", Anchor.applyPreference(moved, asked) === null && moved.cursorSetTo === -1, true)
+    var landedWin = watched(4000, [{ n: "m" }, { n: "n" }], 0, 100000)
+    landedWin.held = 4000
+    check("its asked window lands the cursor", Anchor.applyPreference(landedWin, asked) === null && landedWin.cursorSetTo === 4000, true)
+    var clampedPref = watched(4000, [{ n: "a" }], 0, 2)
+    clampedPref.held = 0
+    var clampedAnchor = { name: "gone", index: 4001, start: 4000, path: "/home/gm", selected: [] }
+    check("a listing clamped past the asked window still resolves", Anchor.applyPreference(clampedPref, clampedAnchor) === null && clampedPref.cursorSetTo === 1, true)
 }

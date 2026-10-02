@@ -296,22 +296,17 @@ function closeAt(pane, i) {
 }
 
 function move(pane, from, to) {
+    if (busy(pane))
+        return
     var items = currentItems(pane)
     if (items.length < 2)
         return
     var index = currentIndex(pane)
     items[index] = snapshot(pane, restingPath(pane))
-    var kept = pane.tabs || {}
-    var next = pack(items, TabMove.reorder(items, from, to, index))
-    // A reorder lists nothing, so the pending restore rides through it mid-listing.
-    next.pendingCursor = kept.pendingCursor === undefined ? -1 : kept.pendingCursor
-    next.pendingSortBy = kept.pendingSortBy || ""
-    next.pendingSortDesc = kept.pendingSortDesc === true
-    pane.tabs = next
+    pane.tabs = pack(items, TabMove.reorder(items, from, to, index))
 }
 
-// Tabs040 callout 1: the { and } keys move the current tab one place. A reorder
-// keeps the strip only: the pane stays on its path and lists nothing.
+// Tabs040 callout 1: { and } move the current tab with no re-list.
 function moveCurrent(pane, delta) {
     var total = count(pane)
     if (total < 2)
@@ -343,14 +338,12 @@ function act(action, pane) {
         selectAt(pane, parseInt(action.charAt(3), 10) - 1)
 }
 
-// Tabs040 callout 2: with "Flea opens in" on Last folder the window reopens every tab in
-// order. remembered() runs where lastPath is written and carries no new trigger; restorePlan()
-// is the pure startup decision tests/js/tabrestore.js drives; restoreItems() shapes the plan
-// into snapshots apply() can switch to. A folder that no longer exists is kept, because nothing
-// here can stat a path: the listing's own error names it, the way startPath leaves a missing
-// lastPath to that same error.
+// Last folder reopens every tab; a missing folder stays for the listing error to name.
 function remembered(pane) {
+    // The write lands before the pane moves, so the current tab reads dropPath.
     var here = restingPath(pane)
+    if (here === pane.path && pane.dropPath)
+        here = pane.dropPath
     var items = pane.tabs && pane.tabs.items && pane.tabs.items.length > 0 ? pane.tabs.items : null
     if (!items)
         return { paths: [here], index: 0 }
@@ -361,9 +354,7 @@ function remembered(pane) {
     return { paths: out, index: index }
 }
 
-// Null unless Last folder holds a remembered strip: Home and Chosen folder start exactly as
-// startPath answers, a named path outranks the strip, and an old file without the key, an
-// empty strip or one with nothing usable falls back to that same startPath answer.
+// Without a Last-folder strip or with a named path there is no plan.
 function restorePlan(state, argvPath) {
     if (argvPath && String(argvPath).length > 0)
         return null
@@ -372,11 +363,13 @@ function restorePlan(state, argvPath) {
         return null
     var stored = data.lastTabs || null
     var kept = stored && Array.isArray(stored.paths) ? stored.paths : []
-    var paths = []
-    for (var i = 0; i < kept.length && paths.length < MAX; i++) {
-        if (typeof kept[i] === "string" && kept[i].length > 0)
-            paths.push(kept[i])
+    for (var i = 0; i < kept.length; i++) {
+        if (typeof kept[i] !== "string" || kept[i].length === 0)
+            return null
     }
+    var paths = []
+    for (var j = 0; j < kept.length && paths.length < MAX; j++)
+        paths.push(kept[j])
     if (paths.length === 0)
         return null
     var index = stored && stored.index === Math.floor(stored.index) ? stored.index : 0
@@ -385,9 +378,7 @@ function restorePlan(state, argvPath) {
     return { paths: paths, index: index }
 }
 
-// A restored tab starts exactly like a tab opened fresh at that folder: snapshot() is what
-// openNew() records for its own new tab, so the standing view, sort and hidden preference all
-// come from the pane rather than from literals here.
+// A restored tab snapshots like a fresh tab, so view, sort and hidden come from the pane.
 function restoreItems(pane, paths) {
     var out = []
     for (var i = 0; i < paths.length; i++)

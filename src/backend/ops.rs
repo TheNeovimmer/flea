@@ -44,27 +44,29 @@ pub fn rename(path: &Path, to_name: &str) -> Result<(PathBuf, Vec<Step>), FleaEr
         // Renaming a file to its own name is not a failure and is not work, so it records nothing.
         return Ok((to, Vec::new()));
     }
-    let before = ItemIdentity::inspect(path)?;
+    let from = path.to_path_buf();
+    let dest = to.clone();
+    let before = ItemIdentity::inspect(&from)?;
     // A case-only rename on a case-insensitive filesystem stats as the source itself, so the no-clobber rename moves via a temp sibling.
-    if let Ok(dest) = ItemIdentity::inspect(&to) {
-        if dest.same_item(&before) {
+    if let Ok(same) = ItemIdentity::inspect(&dest) {
+        if same.same_item(&before) {
             return case_only_rename(path, &to, before);
         }
     }
-    renamecompat::rename_path(path, &to)?;
+    renamecompat::rename_path(&from, &dest)?;
     {
         // A same-filesystem rename is atomic, so its folder confirmation stays best effort.
-        let mut confirm = crate::backend::durable::Durability::begin(&to);
+        let mut confirm = crate::backend::durable::Durability::begin(&dest);
         if confirm.durable {
-            if let Some(parent) = to.parent() {
+            if let Some(parent) = dest.parent() {
                 confirm.touch(parent);
             }
             if let Err(error) = confirm.flush_dirs() {
-                eprintln!("flea: rename {} landed but the drive did not confirm the folder: {}", to.display(), error);
+                eprintln!("flea: rename {} landed but the drive did not confirm the folder: {}", dest.display(), error);
             }
         }
     }
-    Ok((to.clone(), vec![undo::moved(path, &to, before)?]))
+    Ok((dest.clone(), vec![undo::moved(&from, &dest, before)?]))
 }
 
 // A rename whose destination is the source itself under another spelling runs the shared twin path.
@@ -142,14 +144,15 @@ pub fn duplicate(path: &Path) -> (Result<PathBuf, FleaError>, Vec<Step>) {
     }
 }
 
-// A directory this user cannot create entries in. access(2) W_OK is 2, the check Files uses.
+// True when this user can create entries in path, by access(2) W_OK.
 pub(crate) fn dir_writable(path: &Path) -> bool {
+    const W_OK: std::ffi::c_int = 2;
     let bytes = std::os::unix::ffi::OsStrExt::as_bytes(path.as_os_str());
     let Ok(c) = std::ffi::CString::new(bytes) else { return false };
     extern "C" {
         fn access(path: *const std::ffi::c_char, mode: std::ffi::c_int) -> std::ffi::c_int;
     }
-    unsafe { access(c.as_ptr(), 2) == 0 }
+    unsafe { access(c.as_ptr(), W_OK) == 0 }
 }
 
 // A given name is created exactly or refused; an empty one takes the first free default, because a
@@ -159,16 +162,18 @@ pub fn mkdir(parent: &Path, name: &str) -> Result<(PathBuf, Vec<Step>), FleaErro
     if !parent.is_absolute() {
         return Err(named("mkdir", parent, "a parent must be an absolute path"));
     }
-    let dir = if name.is_empty() {
-        match free_new_folder(parent) {
+    let base = parent.to_path_buf();
+    let given = name.to_string();
+    let dir = if given.is_empty() {
+        match free_new_folder(&base) {
             Some(d) => d,
-            None => return Err(named("mkdir", parent, "every default folder name here is already taken")),
+            None => return Err(named("mkdir", &base, "every default folder name here is already taken")),
         }
-    } else if valid_name(name) {
-        if let Some(refusal) = crate::backend::fsname::refuse_in(parent, name) {
-            return Err(named("mkdir", parent, &refusal));
+    } else if valid_name(&given) {
+        if let Some(refusal) = crate::backend::fsname::refuse_in(&base, &given) {
+            return Err(named("mkdir", &base, &refusal));
         }
-        parent.join(name)
+        base.join(&given)
     } else {
         return Err(named("mkdir", parent, "a name cannot be . or .., or contain a separator"));
     };

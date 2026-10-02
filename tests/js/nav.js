@@ -1,4 +1,5 @@
 .import "../../ui/js/Nav.js" as Nav
+.import "../../ui/js/Anchor.js" as Anchor
 .import "../../ui/js/SlowClick.js" as SlowClick
 
 // Nav.js had no suite at all, so nothing loaded it outside the running app and a broken .import in
@@ -225,6 +226,15 @@ function run(check) {
     Nav.mouseBack(cardUp)
     check("mouse back behind an open collision card goes nowhere at all",
           cardUp.path + "|" + cardUp.sent.length + "|" + cardUp.history.join(","), "/home/gm/Work|0|/home/gm")
+    // Show original's pending id belongs to the listing being left, so leaving it drops the reveal.
+    var waiting = pane()
+    waiting.linkTargetPendingId = 7
+    Nav.openWithoutHistory(waiting, "/home/gm/Elsewhere")
+    check("a navigation elsewhere drops a waiting Show original", waiting.linkTargetPendingId, 0)
+    var staying = pane()
+    staying.linkTargetPendingId = 7
+    Nav.openWithoutHistory(staying, "/home/gm")
+    check("a same-path re-read keeps it", staying.linkTargetPendingId, 7)
     var noHistory = browsing([])
     noHistory.collide = { opened: true }
     Nav.mouseBack(noHistory)
@@ -318,4 +328,34 @@ function run(check) {
           lockedUp("/home/gm/Downloads", "/root"), "/ /root")
     check("up from a Locked tile of a bookmark with a trailing slash trims it first",
           lockedUp("/home/gm/Downloads", "/root/"), "/ /root")
+
+    // Defect 30: a new item is selected by the name the backend lists, so an NFC name on
+    // hfsplus finds the NFD row it actually listed rather than missing it by bytes.
+    var nfc = "Café"
+    var nfd = nfc.normalize("NFD")
+    check("the fixture really has two spellings", nfc === nfd, false)
+    check("an exact row still matches first", Anchor.selectMatch([{ n: "a.txt" }, { n: "b.txt" }], "/d/b.txt", "/d"), 1)
+    check("an NFC target finds its NFD row", Anchor.selectMatch([{ n: nfd }, { n: "other" }], "/d/" + nfc, "/d"), 0)
+    check("an NFD target finds its NFC row", Anchor.selectMatch([{ n: nfc }], "/d/" + nfd, "/d"), 0)
+    check("a name that is nowhere matches nothing", Anchor.selectMatch([{ n: "a.txt" }], "/d/nope.txt", "/d"), -1)
+    check("a target outside the folder matches nothing", Anchor.selectMatch([{ n: "a.txt" }], "/elsewhere/a.txt", "/d"), -1)
+    check("an equal-length sibling folder matches nothing", Anchor.selectMatch([{ n: "a.txt" }], "/e/a.txt", "/d"), -1)
+    check("a USB1 row never matches a USB2 target", Anchor.selectMatch([{ n: "untitled folder" }], "/run/media/gm/USB2/untitled folder", "/run/media/gm/USB1"), -1)
+    check("the root folder still matches its row", Anchor.selectMatch([{ n: "a.txt" }], "/a.txt", "/"), 0)
+    check("an exact later row wins over an earlier NFC-only row", Anchor.selectMatch([{ n: nfd }, { n: nfc }], "/d/" + nfc, "/d"), 1)
+
+    // Defect 26: past the wait a navigation starts clean instead of refusing forever.
+    function waitingPane() {
+        return { listInFlight: true, listingState: "waiting", stateMessage: "stale", path: "/mnt/dead",
+                 history: [], said: [], message: function (t) { this.said.push(t) },
+                 openWithoutHistory: function () {} }
+    }
+    var waiting = waitingPane()
+    check("clearing a waiting pane ends its flight", Anchor.clearWaiting(waiting), true)
+    check("its flight flag is gone", waiting.listInFlight, false)
+    check("its state is loading again", waiting.listingState, "loading")
+    check("its stale sentence is gone", waiting.stateMessage, "")
+    var settled = { listInFlight: true, listingState: "loading", stateMessage: "" }
+    check("a loading pane is left alone", Anchor.clearWaiting(settled), false)
+    check("and keeps its flight", settled.listInFlight, true)
 }

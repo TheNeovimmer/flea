@@ -40,6 +40,19 @@ function openSidebar(pane) {
              message: function (text) { this.said = text } }
 }
 
+// A pane Tabs.openNew can snapshot: history, selection and backend sort state it reads.
+function tabPane(path) {
+    return { path: path, home: "/home/gm", cursorIndex: 0, viewMode: "list", showHidden: false,
+             searchMode: "", recentMode: "", recentFrom: "", filterQuery: "", filterTyping: false,
+             history: [], forwardHistory: [], preview: { active: false },
+             tabs: { items: [], index: 0 }, listInFlight: false, said: "", opened: [],
+             selection: { follows: function () { return false } },
+             selectedIndices: function () { return [] },
+             backend: { sortBy: "name", sortDesc: false, listRequests: 0, dirDev: 0 },
+             message: function (text) { this.said = text },
+             openWithoutHistory: function (p) { this.opened.push(p) } }
+}
+
 function labels(rows) {
     return rows.filter(function (row) { return !row.separator }).map(function (row) { return row.label }).join("|")
 }
@@ -134,4 +147,21 @@ function run(check) {
     check("a middle click on the Trash opens nothing", middle.said + middle.navigationPane.tabs.items.length, "0")
     PlaceMenu.openTabAt(middle, 1)
     check("and a remote favourite says it opens in this tab only", middle.said, "NAS opens in this tab only.")
+    // A home row and a local file:// favourite open a tab on the decoded path.
+    function tabSidebar(pane) {
+        return { navigationPane: pane, said: "", message: function (text) { this.said = text },
+                 entries: [{ kind: "home", label: "Downloads", path: "/home/gm/Downloads" },
+                           { kind: "favourite", label: "My Docs", path: "file:///home/gm/My%20Docs",
+                             original: { label: "My Docs", path: "file:///home/gm/My%20Docs" } }] }
+    }
+    var tabbed = tabPane("/home/gm")
+    PlaceMenu.openTabAt(tabSidebar(tabbed), 0)
+    check("a middle click on a home row opens its folder in a new tab",
+          tabbed.tabs.items[tabbed.tabs.items.length - 1].path + "|" + tabbed.opened.join(","),
+          "/home/gm/Downloads|/home/gm/Downloads")
+    var decoded = tabPane("/home/gm")
+    PlaceMenu.openTabAt(tabSidebar(decoded), 1)
+    check("a file:// favourite opens the decoded path in a new tab",
+          decoded.tabs.items[decoded.tabs.items.length - 1].path + "|" + decoded.opened.join(","),
+          "/home/gm/My Docs|/home/gm/My Docs")
 }

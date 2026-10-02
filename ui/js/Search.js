@@ -62,11 +62,12 @@ function run(root) {
     }
     root.path = scope
     root.searchMode = RESULTS
-    // A walk started from Recent leaves it the way a navigation does: the scope is a directory
-    // the walk can stand on, and the history it stood on is not one.
+    // A walk from Recent leaves it as a navigation does: the scope is a real directory, the history is not.
     root.recentMode = ""
     root.recentFrom = ""
     root.recentPaths = []
+    // Through the pane: importing RecentMode.js here would close a Nav import cycle.
+    root.restoreRecentSort()
     root.searchRunning = true
     root.searchScanned = 0
     root.searchCancelled = false

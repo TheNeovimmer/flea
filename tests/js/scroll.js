@@ -106,17 +106,16 @@ function run(check) {
     check("update is a touchpad", Scroll.isTouchpad(2), true)
     check("end is a touchpad", Scroll.isTouchpad(3), true)
     check("touchpad pixels gain GTK4's 2.5", Scroll.touchDistance(-10), -25)
-    check("a sub-pixel frame moves nothing, never a notch",
-          Scroll.strokeDistance(0, -4, 2, 3, 24, 4), 0)
-    check("a touchpad stroke ignores the angle riding along",
-          Scroll.strokeDistance(-10, -120, 2, 3, 24, 4), -25)
-    check("a notch through the same entry is still 288",
-          Scroll.strokeDistance(0, -120, 0, 3, 24, 4), -288)
+    check("zero pixels travel zero", Scroll.touchDistance(0), 0)
+    check("a notch through the handler's distance helper is still 288",
+          Scroll.distance(0, -120, 3, 24, 4), -288)
     // The lift is the stroke's last 100 ms; fingers paused before it give no tail.
     check("a pause before the lift gives no tail",
           Scroll.liftVelocity([{ t: 0, x: -50, y: 0 }], 500).vx, 0)
     check("a steady stroke reads its own rate",
           Scroll.liftVelocity([{ t: 0, x: 0, y: 0 }, { t: 50, x: -100, y: 0 }], 50).vx, -2)
+    check("three 25 px frames at 8 ms read 3.125 off the stale Begin anchor",
+          Scroll.liftVelocity([{ t: 0, x: 0, y: 0 }, { t: 8, x: 25, y: 0 }, { t: 16, x: 25, y: 0 }, { t: 24, x: 25, y: 0 }], 104).vx, 3.125)
     check("two events in one millisecond take the 16 ms floor",
           Scroll.liftVelocity([{ t: 100, x: 25, y: 0 }, { t: 100, x: 25, y: 0 }], 100).vx, 3.125)
     check("the lift caps at the named maximum",

@@ -39,6 +39,7 @@ pub mod metareq;
 pub mod metasort;
 pub mod owner;
 pub mod peek;
+pub mod pdfcopy;
 pub mod proto;
 mod providers;
 // Directive 71: the LocalSend row's peers and its send, driven against localsend-cli on a pty.
@@ -84,14 +85,19 @@ pub mod opscancel;
 pub mod opsdispatch;
 pub mod opsreq;
 pub mod movebatch;
+pub mod iomount;
 mod mountinfo;
 mod renamecompat;
 pub mod trash;
 pub mod undo;
+pub mod undoshare;
+pub mod undocodec;
 pub mod redo;
 pub mod link;
 // The open listing's directory, watched so an outside change reaches the client; see docs/protocol.md "changed".
 pub mod watch;
+// Network folders inotify cannot see, re-statted at a named interval for the open folder only.
+pub mod watchpoll;
 // Test-only: the failing-first manifest behaviour for undo of a failed tree copy.
 #[cfg(test)]
 mod undomanifest_tests;

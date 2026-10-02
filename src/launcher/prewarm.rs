@@ -46,7 +46,7 @@ fn write_to_tmp(path: &str, first: usize, dest: &Path, tmp: &Path) -> Result<(),
         .map_err(|e| from_io("prewarm", &tmp.display().to_string(), &e))?;
     let mut out = BufWriter::new(file);
 
-    writeln!(out, "{}", listed_line(listing.len(), read_ms, sort_ms, dev_of(&PathBuf::from(path)), path))
+    writeln!(out, "{}", listed_line(listing.len(), read_ms, sort_ms, dev_of(&PathBuf::from(path)), path, crate::backend::ops::dir_writable(std::path::Path::new(path))))
         .map_err(|e| from_io("prewarm", &tmp.display().to_string(), &e))?;
     let (metas, ms) = stat_range(&PathBuf::from(path), &listing, 0, first);
     // Its own copy: prewarm is one shot, so there is no loop to hoist the load out of.
@@ -78,9 +78,10 @@ mod tests {
         let ((events, _events), (results, _results)) = (channel(), channel());
         let (mut st, tb) = (State::new(Worker::new(events)), Tables::load());
         let pool = Pool::new(1, results, cache, Arc::clone(&tb.aliases), Arc::clone(&tb.thumbs));
-        let (listing, read_ms) = scan(path, false).expect("scan");
+        let fd = -1;
+        let done = crate::backend::iomount::list_dir(path.to_string(), false, 2, r#"{"c":"list"}"#.to_string(), Arc::clone(&tb.mime), fd, channel::<crate::backend::events::Event>().0).expect("list");
         let mut out = Vec::new();
-        crate::backend::run::adopt(&mut out, &mut st, &pool, &tb, path, listing, (read_ms, 0.0), &[], 2);
+        crate::backend::run::adopt_listed(&mut out, &mut st, &pool, &tb, path, done, false);
         field_usize(String::from_utf8(out).unwrap().lines().nth(1)?, "listing")
     }
 

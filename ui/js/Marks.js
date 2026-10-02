@@ -22,12 +22,10 @@ function selectAll(pane) {
 // any other cursor move, and any mark made outside the gesture, ends it through shiftState.
 function continuing(pane) {
     var state = pane.selection.shiftState()
-    return state !== null && pane.cursorIndex === state.last
+    return state !== null && pane.cursorIndex === state.last && (pane.cursorSeq || 0) === (state.seq || 0)
 }
 
-// Invert selection flips the marks over the rows the listing draws. The filter
-// applies, so under a filter only the exact matches flip; a close match a later
-// filter draws beside them is never in shown and so is never selected here.
+// Invert flips the drawn marks; a row no filter draws is never selected.
 function inverted(total, shown, selected) {
     var drawn = shown === null ? range(total) : shown.slice()
     var has = {}
@@ -62,12 +60,12 @@ function invert(pane) {
 // several blocks can be marked and the gesture's own range still grows and shrinks.
 function extend(pane, delta) {
     if (!continuing(pane)) {
-        pane.selection.shiftBegin(pane.selectedIndices(), pane.cursorIndex)
+        pane.selection.shiftBegin(pane.selectedIndices(), pane.cursorIndex, pane.cursorSeq || 0)
         pane.selectionAnchor = pane.cursorIndex
     }
     Filter.moveCursor(pane, delta)
     extendTo(pane, pane.selectionAnchor)
-    pane.selection.shiftMoved(pane.cursorIndex)
+    pane.selection.shiftMoved(pane.cursorIndex, pane.cursorSeq || 0)
     pane.selectionVersion += 1
 }
 
@@ -76,12 +74,12 @@ function extend(pane, delta) {
 // A click carries context 0 so the list never moves under the pointer.
 function extendToRow(pane, index) {
     if (!continuing(pane)) {
-        pane.selection.shiftBegin(pane.selectedIndices(), pane.cursorIndex)
+        pane.selection.shiftBegin(pane.selectedIndices(), pane.cursorIndex, pane.cursorSeq || 0)
         pane.selectionAnchor = pane.cursorIndex
     }
     Filter.setCursor(pane, index, 0)
     extendTo(pane, pane.selectionAnchor)
-    pane.selection.shiftMoved(pane.cursorIndex)
+    pane.selection.shiftMoved(pane.cursorIndex, pane.cursorSeq || 0)
     pane.selectionVersion += 1
 }
 
@@ -101,7 +99,8 @@ function toggleRow(pane, index) {
 function follow(pane) {
     if (!pane.selection.follows() || pane.cursorIndex === pane.selectedIndices()[0])
         return
-    pane.selection.only(pane.cursorIndex)
+    var keep = pane.selection.isLanded ? pane.selection.isLanded() : false
+    pane.selection.only(pane.cursorIndex, keep)
     pane.selectionAnchor = pane.cursorIndex
     pane.selectionVersion += 1
 }
@@ -113,9 +112,7 @@ function toggleSelect(pane) {
     pane.selectionVersion += 1
 }
 
-// The rows drawn between the cursor and the anchor, for both gestures above. Inside a gesture the
-// base joins them, so shrinking the range never removes a base mark; with no gesture this stays the
-// plain single range it always was.
+// The drawn rows between cursor and anchor; a shrinking gesture keeps its base.
 function extendTo(pane, anchor) {
     var state = pane.selection.shiftState()
     if (state === null) {

@@ -21,13 +21,12 @@ Item {
     property var feedback: null
 
     Drag.dragType: Drag.Automatic
-    // A plain lift offers copy alone until the browser-upload work settles the offer: a browser
-    // uploader refuses a move offer. Ctrl offers copy alone, Shift move alone, Ctrl with Shift link
-    // alone, so a receiver that takes whatever is offered still takes the lift's verb.
+    // Plain lift offers copy alone, narrowed by modifiers (a browser uploader refuses move); Ctrl copy, Shift move, both link, so any receiver takes the lift's verb.
     Drag.supportedActions: root.dragLink ? Qt.LinkAction : root.dragCopy ? Qt.CopyAction : root.dragShift ? Qt.MoveAction : Qt.CopyAction
     Drag.proposedAction: root.dragLink ? Qt.LinkAction : root.dragCopy ? Qt.CopyAction : root.dragShift ? Qt.MoveAction : Qt.CopyAction
     Drag.mimeData: root.dragMime
-    Drag.onDragFinished: function (dropAction) { root.liftEnded(dropAction) }
+    // The receiver moves or copies itself: deleting on its acceptance would trash files before Files reads them.
+    Drag.onDragFinished: function () { root.liftEnded() }
 
     function liftBegan(index, centroid) {
         if (!root.pane || root.pane.listInFlight || index < 0 || !root.pane.rowFor(index)) return
@@ -111,8 +110,12 @@ Item {
         return mime
     }
 
+    // Too wide carries no uri-list, so the gesture ends here and the refusal reads as a pane message.
     function cannotLeave() {
-        root.say(DragOps.line(root.dragRows.length, "", root.dragCopy, root.dragLink) + DragOps.reachNote(false))
+        var line = DragOps.line(root.dragRows.length, "", root.dragCopy, root.dragLink) + DragOps.reachNote(false)
+        root.awaitingPaths = false
+        root.liftEnded()
+        if (root.pane) root.pane.message(line, false)
     }
 
     function verbAt(marker, row) {
@@ -121,12 +124,7 @@ Item {
                                row ? row.v : 0, DragOps.markerDeletable(marker))
     }
 
-    function liftEnded(dropAction) {
-        var landed = !!(root.pane && root.pane.backend && root.pane.backend.dragLanded)
-        // Files moves a uri-list after it accepts the drag. Deleting on that acceptance
-        // puts the files in Trash before Files has read them. releaseDeletes stays false.
-        DragOps.releaseDeletes(dropAction, landed)
-        if (root.pane && root.pane.backend) root.pane.backend.dragLanded = false
+    function liftEnded() {
         root.Drag.active = false
         root.dragRows = []
         root.dragListing = 0

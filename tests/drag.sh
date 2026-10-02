@@ -20,6 +20,7 @@ pass=0
 fail=0
 button_down=false
 control_down=false
+shift_held=false
 RECV_PID=""
 pointer_tolerance=4
 
@@ -122,6 +123,9 @@ cleanup() {
   if [ "$control_down" = true ]; then
     ydotool key 29:0 >/dev/null 2>&1 || { bad "cleanup could not release Ctrl"; status=1; }
   fi
+  if [ "$shift_held" = true ]; then
+    ydotool key 42:0 >/dev/null 2>&1 || { bad "cleanup could not release Shift"; status=1; }
+  fi
   if [ -n "$RECV_PID" ]; then
     kill "$RECV_PID" 2>/dev/null || true
     wait "$RECV_PID" 2>/dev/null || true
@@ -165,6 +169,9 @@ release() { owned_path "$pressed_path"; ydotool click 0x80 >/dev/null 2>&1 || di
 # evdev KEY_LEFTCTRL. Held through ydotool because a compositor keybind must not swallow it.
 ctrl_down() { control_down=true; ydotool key 29:1 >/dev/null 2>&1 || die "Ctrl press failed"; }
 ctrl_up()   { ydotool key 29:0 >/dev/null 2>&1 || die "Ctrl release failed"; control_down=false; }
+# ydotool key 42 is Shift (29 above is Ctrl); held across the lift so the offer reads it.
+shift_down() { shift_held=true; ydotool key 42:1 >/dev/null 2>&1 || die "Shift press failed"; }
+shift_up()   { ydotool key 42:0 >/dev/null 2>&1 || die "Shift release failed"; shift_held=false; }
 
 # glide_to x y : converge on an absolute target with real frame-carrying motion. libinput accelerates
 # relative motion about 2x here, so each step is half the remaining distance and re-read, never trusted.
@@ -414,9 +421,7 @@ check "a plain drag is a move, so the source is gone" \
 # ---------------------------------------------------------------- R3
 echo
 echo "== R3: ctrl decides copy versus move, and the lift is where it is read =="
-# Ctrl and Shift are read when the drag starts. Drag.active then runs a nested loop in which the
-# window receives no keys, so a ctrl pressed after that leaves the verb as it was at the lift.
-# The drag offers both copy and move. This case holds Ctrl before the press, so the drop copies.
+# Lift reads Ctrl here, so the copy-alone offer drops a copy while Drag.active ignores later keys.
 set -- $(screen_centre r3.txt); sx=$1; sy=$2
 set -- $(screen_centre aaa);    ax=$1; ay=$2
 warp "$sx" "$sy"; sleep 0.4
@@ -1055,9 +1060,7 @@ echo
 # ---------------------------------------------------------------- outbound
 echo
 echo "== outbound: one file dragged into a second process =="
-# The in-window cases above never leave this process, so a green run said nothing about whether
-# wl_data_device.start_drag reached another client. This receiver is that client. It logs the offer
-# and exits. A missing window is a failed launch, and that failure must not be read as a drag that left.
+# In-window cases never leave the process, so this receiver client proves wl_data_device.start_drag reached another client (a missing window is a failed launch, not a drag that left).
 printf 'outbound payload\n' > "$HOMEDIR/outbound.txt"
 printf 'inner payload\n' > "$HOMEDIR/inner.txt"
 native_key :; sleep 0.3
@@ -1071,9 +1074,15 @@ check "the outbound case is looking at the fixture" "$(ipc path)" "$HOMEDIR"
 
 RECV_LOG=$SB/receiver.log
 : > "$RECV_LOG"
-setsid python3 "$repo/tests/drag-receiver.py" "$RECV_LOG" >"$SB/receiver-err.log" 2>&1 &
+# Outbound geometry, named once (receiver size rides FLEA_RECV_W/H), and the expected offer mask (1 is Gdk COPY for the plain lift).
+recv_w=420; recv_h=320
+recv_x=1100; recv_y=80
+flea_x=40; flea_y=80; flea_w=1000; flea_h=720
+want_actions=1
+FLEA_RECV_W=$recv_w FLEA_RECV_H=$recv_h setsid python3 "$repo/tests/drag-receiver.py" "$RECV_LOG" >"$SB/receiver-err.log" 2>&1 &
 RECV_PID=$!
 RECV_ADDR=""
+# Sample input, hyprctl clients -j: '[{"pid": 123, "address": "0xabc", "title": "flea-drag-receiver"}]'.
 for i in $(seq 1 40); do
   RECV_ADDR=$(hyprctl clients -j | python3 -c '
 import json, sys
@@ -1094,10 +1103,11 @@ else
   sleep 0.3
   hyprctl dispatch "hl.dsp.window.float()" >/dev/null
   sleep 0.3
-  hyprctl dispatch "hl.dsp.window.resize({ x = 420, y = 320 })" >/dev/null
+  hyprctl dispatch "hl.dsp.window.resize({ x = $recv_w, y = $recv_h })" >/dev/null
   sleep 0.3
-  hyprctl dispatch "hl.dsp.window.move({ x = 1100, y = 80 })" >/dev/null
+  hyprctl dispatch "hl.dsp.window.move({ x = $recv_x, y = $recv_y })" >/dev/null
   sleep 0.4
+  # Sample input, hyprctl clients -j: '[{"pid": 456, "address": "0xdef"}]'.
   FLEA_ADDR=$(hyprctl clients -j | python3 -c '
 import json, sys
 pid = int(sys.argv[1])
@@ -1106,9 +1116,9 @@ print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$MYPID")
   hyprctl dispatch "hl.dsp.focus({ window = \"$FLEA_ADDR\" })" >/dev/null
   sleep 0.4
-  hyprctl dispatch "hl.dsp.window.move({ x = 40, y = 80 })" >/dev/null
+  hyprctl dispatch "hl.dsp.window.move({ x = $flea_x, y = $flea_y })" >/dev/null
   sleep 0.4
-  hyprctl dispatch "hl.dsp.window.resize({ x = 1000, y = 720 })" >/dev/null
+  hyprctl dispatch "hl.dsp.window.resize({ x = $flea_w, y = $flea_h })" >/dev/null
   sleep 0.6
   geometry=$(r11_geometry) || die "outbound window geometry unavailable"
   read -r WX WY WW WH _ <<< "$geometry"
@@ -1130,6 +1140,7 @@ print(hits[0]["address"] if len(hits) == 1 else "")
 
   point=$(screen_centre outbound.txt) || die "outbound.txt is not visible"
   read -r sx sy <<< "$point"
+  # Sample input, hyprctl clients -j: '{"address": "0xabc", "at": [1100, 80], "size": [420, 320]}'.
   set -- $(hyprctl clients -j | python3 -c '
 import json, sys
 addr = sys.argv[1]
@@ -1139,6 +1150,8 @@ for w in json.load(sys.stdin):
         print(x + w_ // 2, y + h // 2)
         break
 ' "$RECV_ADDR")
+  # A pair holds the receiver centre x and y.
+  [ $# -eq 2 ] || die "the receiver $RECV_ADDR has no geometry in hyprctl clients"
   rx=$1; ry=$2
   warp "$sx" "$sy"; sleep 0.4
   press; sleep 0.3
@@ -1159,8 +1172,98 @@ end = text.find(">>", start)
 body = text[start:end] if start >= 0 else ""
 print("received" if needle in body and name in body else "missing")
 ' "$RECV_LOG" "outbound.txt")" "received"
+  # Sample input, receiver.log: 'actions=1\nformats=text/uri-list\nbody<<\nfile:///x/outbound.txt\n>>'.
+  check "the receiver saw the copy-alone offer" \
+        "$(grep '^actions=' "$RECV_LOG" | cut -d= -f2)" "$want_actions"
   check "and the original is still in the folder" \
         "$([ -e "$HOMEDIR/outbound.txt" ] && echo kept || echo GONE)" "kept"
+  # A Shift lift offers move alone (2 is Gdk MOVE); the receiver finishes MOVE and Flea still keeps the original.
+  printf 'shift payload\n' > "$HOMEDIR/outbound-shift.txt"
+  for i in $(seq 1 40); do
+    rowidx outbound-shift.txt >/dev/null 2>&1 && break
+    sleep 0.25
+  done
+  : > "$RECV_LOG"
+  want_actions=2
+  # End the first receiver so the Shift lookup can match only its own.
+  kill "$RECV_PID" 2>/dev/null || true
+  wait "$RECV_PID" 2>/dev/null || true
+  FLEA_RECV_W=$recv_w FLEA_RECV_H=$recv_h setsid python3 "$repo/tests/drag-receiver.py" "$RECV_LOG" >"$SB/receiver-shift-err.log" 2>&1 &
+  RECV_PID=$!
+  RECV_ADDR=""
+  # Sample input, hyprctl clients -j: '[{"pid": 123, "address": "0xabc", "title": "flea-drag-receiver"}]'.
+  for i in $(seq 1 40); do
+    RECV_ADDR=$(hyprctl clients -j | python3 -c '
+import json, sys
+pid = int(sys.argv[1])
+hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid or w.get("title") == "flea-drag-receiver"]
+print(hits[0]["address"] if len(hits) == 1 else "")
+' "$RECV_PID") || true
+    [ -n "$RECV_ADDR" ] && break
+    sleep 0.25
+  done
+  if [ -z "$RECV_ADDR" ]; then
+    bad "the Shift receiver is absent"
+  else
+    hyprctl dispatch "hl.dsp.focus({ window = \"$RECV_ADDR\" })" >/dev/null
+    sleep 0.3
+    hyprctl dispatch "hl.dsp.window.float()" >/dev/null
+    sleep 0.3
+    hyprctl dispatch "hl.dsp.window.resize({ x = $recv_w, y = $recv_h })" >/dev/null
+    sleep 0.3
+    hyprctl dispatch "hl.dsp.window.move({ x = $recv_x, y = $recv_y })" >/dev/null
+    sleep 0.4
+    hyprctl dispatch "hl.dsp.focus({ window = \"$FLEA_ADDR\" })" >/dev/null
+    sleep 0.4
+    point=$(screen_centre outbound-shift.txt) || die "outbound-shift.txt is not visible"
+    read -r sx sy <<< "$point"
+    # Sample input, hyprctl clients -j: '{"address": "0xabc", "at": [1100, 80], "size": [420, 320]}'.
+    set -- $(hyprctl clients -j | python3 -c '
+import json, sys
+addr = sys.argv[1]
+for w in json.load(sys.stdin):
+    if w.get("address") == addr:
+        x, y = w["at"]; w_, h = w["size"]
+        print(x + w_ // 2, y + h // 2)
+        break
+' "$RECV_ADDR")
+    # A pair holds the Shift receiver centre x and y.
+    [ $# -eq 2 ] || die "the Shift receiver $RECV_ADDR has no geometry in hyprctl clients"
+    rx=$1
+    ry=$2
+    warp "$sx" "$sy"
+    sleep 0.4
+    shift_down
+    sleep 0.2
+    press
+    sleep 0.3
+    glide_to "$rx" "$ry"
+    sleep 0.6
+    release
+    sleep 0.5
+    shift_up
+    sleep 0.2
+    for i in $(seq 1 40); do
+      grep -q 'body<<' "$RECV_LOG" && break
+      sleep 0.25
+    done
+    check "the other process received the Shift-dragged file URI" \
+          "$(python3 -c '
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text() if pathlib.Path(sys.argv[1]).exists() else ""
+needle = "file://"
+name = sys.argv[2]
+start = text.find("body<<")
+end = text.find(">>", start)
+body = text[start:end] if start >= 0 else ""
+print("received" if needle in body and name in body else "missing")
+' "$RECV_LOG" "outbound-shift.txt")" "received"
+    # Sample input, receiver.log: 'actions=2\nformats=text/uri-list\nbody<<\nfile:///x/outbound-shift.txt\n>>'.
+    check "the receiver saw the move-alone offer" \
+          "$(grep '^actions=' "$RECV_LOG" | cut -d= -f2)" "$want_actions"
+    check "and the original is still in the folder after a MOVE finish" \
+          "$([ -e "$HOMEDIR/outbound-shift.txt" ] && echo kept || echo GONE)" "kept"
+  fi
   if grep -q "Couldn't start a drag because the origin window could not be found." "$SB/flea.log"; then
     printf 'DRAG_OUTBOUND record=missing-origin\n'
   elif grep -q 'start_drag' "$SB/flea.log"; then

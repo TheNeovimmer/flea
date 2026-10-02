@@ -87,7 +87,7 @@ function openTabAt(sidebar, index) {
     var error = entry.kind === "favourite" ? Places.recordError(entry.original) : ""
     if (error) { sidebar.message("Could not open " + entry.label + " · " + error, true); return }
     var path = String(entry.path)
-    if (path.indexOf("file://") === 0) path = Mounts.decodePath(path.substring(7))
+    if (path.indexOf("file://") === 0) path = Mounts.decodePath(path.substring("file://".length))
     else if (path.indexOf("://") >= 0) { sidebar.message(entry.label + " opens in this tab only.", false); return }
     Tabs.openNew(pane, path)
 }

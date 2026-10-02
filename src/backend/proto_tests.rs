@@ -24,10 +24,11 @@ fn convert_preserves_probe_and_caller_identity_without_changing_legacy_activatio
 #[test]
 fn parses_each_request_shape() {
     match parse_request(r#"{"c":"list","path":"/home/gm","first":350}"#) {
-        Request::List { path, first, hidden } => {
+        Request::List { path, first, hidden, want_changed } => {
             assert_eq!(path, "/home/gm");
             assert_eq!(first, 350);
             assert!(!hidden);
+            assert!(!want_changed);
         }
         _ => panic!("expected List"),
     }
@@ -124,6 +125,19 @@ fn a_list_request_carries_its_hidden_flag() {
 }
 
 #[test]
+fn a_list_request_names_the_reload_count_only_when_asked() {
+    match parse_request(r#"{"c":"list","path":"/tmp","first":0,"wantChanged":true}"#) {
+        Request::List { want_changed, .. } => assert!(want_changed),
+        _ => panic!("expected List"),
+    }
+    // Absent is the silent re-read every navigation and watch already takes.
+    match parse_request(r#"{"c":"list","path":"/tmp","first":0}"#) {
+        Request::List { want_changed, .. } => assert!(!want_changed),
+        _ => panic!("expected List"),
+    }
+}
+
+#[test]
 fn emits_a_listed_line_naming_the_directory_it_listed() {
     let s = say_listed(100000, 26.4, 2.5, 56, "/home/gm", true);
     assert_eq!(s, r#"{"t":"listed","n":100000,"read":26.400,"sort":2.500,"v":56,"w":true,"path":"/home/gm"}"#);
@@ -166,15 +180,23 @@ fn an_anchored_listed_line_answers_the_anchor_and_a_bare_one_is_unchanged() {
 }
 
 #[test]
+fn a_relist_names_added_plus_removed_rather_than_net_delta() {
+    let base = say_listed(3, 0.0, 0.0, 1, "/d", true);
+    assert_eq!(with_changed(&base, 2),
+        r#"{"t":"listed","n":3,"read":0.000,"sort":0.000,"v":1,"w":true,"path":"/d","changed":2}"#);
+    assert_eq!(with_changed(&base, 0).matches("changed").count(), 1);
+}
+
+#[test]
 fn a_listed_line_says_when_the_directory_cannot_be_written() {
     use std::os::unix::fs::PermissionsExt;
     // Marked sandbox, so a failed assert cannot leave a 0o555 dir behind.
     let d = crate::backend::testdir::TestDir::new("listed-w");
     let dir = d.dir("w");
-    let open = listed_line(1, 0.0, 0.0, 1, &dir.to_string_lossy());
+    let open = listed_line(1, 0.0, 0.0, 1, &dir.to_string_lossy(), crate::backend::ops::dir_writable(&dir));
     assert!(open.contains(r#""w":true"#), "{open}");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
-    let locked = listed_line(1, 0.0, 0.0, 1, &dir.to_string_lossy());
+    let locked = listed_line(1, 0.0, 0.0, 1, &dir.to_string_lossy(), crate::backend::ops::dir_writable(&dir));
     assert!(locked.contains(r#""w":false"#), "{locked}");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
@@ -294,4 +316,12 @@ fn a_jump_request_carries_both_client_sources_and_a_bare_one_carries_none() {
         Request::Jump { id: 4, favourites, recent } if favourites == ["/home/gm/Projects"] && recent == ["/home/gm/a, b.txt"]));
     assert!(matches!(parse_request(r#"{"c":"jump"}"#),
         Request::Jump { id: 0, favourites, recent } if favourites.is_empty() && recent.is_empty()));
+}
+
+#[test]
+fn slow_names_its_op_path_and_sentence() {
+    assert_eq!(
+        slow_line("rename", "/hung/a.txt", "/hung is slow. The rename continues and will finish on its own."),
+        r#"{"t":"slow","op":"rename","path":"/hung/a.txt","msg":"/hung is slow. The rename continues and will finish on its own."}"#
+    );
 }

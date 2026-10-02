@@ -13,6 +13,21 @@ Item {
 
     property string path: ""
     property bool active: false
+    // The backend a slow document is fetched through, null where no fetch runs.
+    property var backend: null
+    // Which viewer this is, so the backend's copy cleanup never touches the other's.
+    property string viewerSlot: ""
+    // True on a storage class that can hang: the document loads from the fetched copy.
+    property bool fetchFirst: false
+    // The fetch in flight, the local copy it handed back, and what its failure says.
+    property int fetchId: 0
+    property string localCopy: ""
+    property string copyError: ""
+    // Decided once per opened document, so a later class change neither blanks nor reloads it.
+    property bool fetchedCopy: false
+    // What an unreadable document says: a fetch that never answered is not responding.
+    readonly property string failSentence: root.copyError.length > 0 ? "This file is not responding."
+        : "This file could not be read."
     // Which page the frame is showing, zero-based, always inside the document it belongs to.
     property int page: 0
     // The Flickable the page scrolls in, so the loading mark stands in the visible frame at any zoom.
@@ -20,7 +35,7 @@ Item {
 
     // What the facts table shows as Pages; 0 until the document is ready, or if it never becomes so.
     readonly property int pageCount: doc.status === PdfDocument.Ready ? doc.pageCount : 0
-    readonly property bool failed: doc.status === PdfDocument.Error
+    readonly property bool failed: doc.status === PdfDocument.Error || root.copyError.length > 0
 
     // The page whose render is on screen, -1 until one has landed for this document.
     property int shownPage: -1
@@ -44,6 +59,38 @@ Item {
     // A new document starts at its first page, whatever page the last one was left on, and its own
     // opening waits for the cursor to settle, which is issue 117 below.
     onPathChanged: { root.page = 0; pdfSettle.restart() }
+    onOpenedChanged: root.fetchForOpened()
+
+    // A hangable document is fetched once per opening; anything else loads in place.
+    function fetchForOpened() {
+        root.localCopy = ""
+        root.copyError = ""
+        root.fetchedCopy = root.opened.length > 0 && root.fetchFirst === true && root.backend !== null
+        if (!root.fetchedCopy)
+            return
+        root.fetchId = root.backend.pdfCopy(root.opened, root.viewerSlot)
+    }
+
+    Connections {
+        target: root.backend
+        function onPdfCopied(id, path, err) {
+            if (id !== root.fetchId || root.fetchedCopy !== true)
+                return
+            if (err.length > 0)
+                root.copyError = err
+            else
+                root.localCopy = path
+        }
+    }
+
+    // The copy, once it lands; in place while no fetch runs, and nothing while one is out.
+    function docSource() {
+        if (root.opened.length === 0)
+            return ""
+        if (root.fetchedCopy !== true)
+            return Format.fileUri(root.opened)
+        return root.localCopy.length > 0 ? Format.fileUri(root.localCopy) : ""
+    }
     onPageCountChanged: if (root.pageCount > 0) root.page = Math.min(root.page, root.pageCount - 1)
     // A turn arms the cap for a page other than the one on screen; with no page shown yet it does nothing, and turning back onto the shown page stops the cap instead.
     onPageChanged: {
@@ -105,7 +152,7 @@ Item {
         id: doc
         // Format.fileUri, not a concatenation: a path can carry a # or a ? and either one truncates
         // a hand-built URI at that character. A document is only opened while the column shows one.
-        source: root.opened.length > 0 ? Format.fileUri(root.opened) : ""
+        source: root.docSource()
     }
 
     // The page's own paper under the raster: on this box a rendered page can arrive with text drawn

@@ -13,6 +13,8 @@ D=$FIXTURE_ROOT/flea-thumbs-test-$$
 # The cache this suite fills is its own, redirected inside that sandbox: src/backend/thumbcache.rs
 # honours XDG_CACHE_HOME, so nothing here reads or writes the operator's real cache at all.
 export XDG_CACHE_HOME="$D/cache"
+# A scratch runtime dir keeps this suite's backends off the operator's session journal.
+export XDG_RUNTIME_DIR="$D/runtime"
 CACHE="$D/cache/thumbnails"
 # The operator's own, read twice and never written, only to prove this run left it alone.
 REAL_CACHE="$HOME/.cache/thumbnails"
@@ -31,6 +33,8 @@ check() {
 
 [ -d "$FIXTURE" ] || { echo "thumbs.sh: the media fixture is missing at $FIXTURE"; exit 1; }
 [ -x "$BIN" ] || { echo "thumbs.sh: $BIN is missing, run cargo build --release"; exit 1; }
+# Before the sandbox exists: without qs the probe below cannot run, so refuse before making anything.
+if ! command -v qs >/dev/null; then echo "thumbs.sh: qs is not installed"; exit 1; fi
 
 sandbox_make "$D"
 mkdir -p "$D/files" "$D/gen" "$D/other"
@@ -262,18 +266,16 @@ check "the exec entry's chunks were read" "1" "$(echo "$exec_facts" | grep -c '^
 check "the two publish the same image and keys" "$exec_facts" "$(png_facts "$worker_png")"
 chmod 600 "$D/worker/w3-unreadable.mp4"
 
-# Quick Look's bounded prefetch through the production overlay: one cache-only ask for
-# the next row per settled rest, none while a held key is still bursting.
-if ! command -v qs >/dev/null; then echo "thumbs.sh: qs is not installed"; exit 1; fi
+# Quick Look prefetch: one cache-only ask for the next row per settled rest, none mid-burst.
 prefetch_root="$D/qlprefetch"
 prefetch_log="$D/qlprefetch.log"
-mkdir -p "$prefetch_root/config" "$prefetch_root/runtime" || exit 1
-chmod 700 "$prefetch_root/runtime" || exit 1
-ln -s "$PWD/tests/thumbs-qlprefetch.qml" "$prefetch_root/config/shell.qml" || exit 1
+mkdir -p "$prefetch_root/config" "$prefetch_root/runtime" || { sandbox_remove "$D"; exit 1; }
+chmod 700 "$prefetch_root/runtime" || { sandbox_remove "$D"; exit 1; }
+ln -s "$PWD/tests/thumbs-qlprefetch.qml" "$prefetch_root/config/shell.qml" || { sandbox_remove "$D"; exit 1; }
 # The probe plans with production Thumbs and ExtThumbs, so it reads ui/ as flea.
-ln -s "$PWD/ui" "$prefetch_root/config/flea" || exit 1
-ln -s /usr/share/omarchy/shell/Commons "$prefetch_root/config/Commons" || exit 1
-ln -s /usr/share/omarchy/shell/Ui "$prefetch_root/config/Ui" || exit 1
+ln -s "$PWD/ui" "$prefetch_root/config/flea" || { sandbox_remove "$D"; exit 1; }
+ln -s /usr/share/omarchy/shell/Commons "$prefetch_root/config/Commons" || { sandbox_remove "$D"; exit 1; }
+ln -s /usr/share/omarchy/shell/Ui "$prefetch_root/config/Ui" || { sandbox_remove "$D"; exit 1; }
 ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$D" XDG_RUNTIME_DIR="$prefetch_root/runtime" TMPDIR="$D" \
     XDG_CONFIG_HOME="$D/.config" XDG_STATE_HOME="$D/.local/state" XDG_CACHE_HOME="$D/cache" \

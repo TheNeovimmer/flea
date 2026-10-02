@@ -163,9 +163,10 @@ phase and is not in this tree yet.
 
 ## Two-phase listing
 
-Phase 1 (`scan.rs`) reads only names and `file_type()`, which is backed by `d_type` in
-the `getdents64` buffer libstd already read to produce the directory iterator, so
-knowing whether an entry is a directory costs nothing extra. Phase 2 (`meta.rs`) calls
+Phase 1 (`scan.rs`) reads only names and `d_type` from raw `getdents64` via `opendir`/`readdir`,
+resolving only `DT_UNKNOWN` entries by `fstatat` on the open dir fd with `AT_SYMLINK_NOFOLLOW`,
+so knowing whether an entry is a directory costs nothing extra except on typeless filesystems.
+Phase 2 (`meta.rs`) calls
 `symlink_metadata()`, either for the rows one `window` request names, through
 `stat_range()`, or for every row in the directory when a sort needs it, through
 `stat_all()`. Sorting by name and directory-first works entirely on phase-1 data;
@@ -213,7 +214,11 @@ itself raced, a hole the width of one readdir: reproduced on the 100,000 file fi
 create during the scan answered no `changed` line at all and the same create a second later
 answered one. The new watch is armed BESIDE the current one rather than in place of it, so a scan
 that fails costs the directory still on screen nothing: `commit` drops the old watch only once the
-new listing replaced it, and `abandon` drops the new one when the scan failed. Replacing it up front
+new listing replaced it. The scan runs on the list worker, so the arming does too:
+`Watch::add_raw` before the scan, `set_incoming` plus `commit` on success, and `abandon_wd`
+dropping the armed descriptor on failure; a worker that outlives its call hands its descriptor
+back as `Event::AbandonWatch`, and the loop drops it unless a re-list aliased it onto the live watch.
+Replacing it up front
 was the first fix and it was wrong, because a failed list then handed the open directory a new
 descriptor and `is_current` dropped anything still carrying the old one.
 Its reader thread sends the loop an `Event::Changed(wd)`, and the loop answers
@@ -259,7 +264,13 @@ that has changed names another file. Re-pointing a selection at other files is h
 wrong ones, so `PaneWire`'s `watchBusy`, decided by `ui/js/Anchor.js busy`, defers the re-read while
 a selection stands, and with it while a rename editor is open, the context menu is up, a filter is
 being typed, a search listing is showing, a list is already in flight or a transfer waits on the
-collision card. The debt is kept, not dropped: `onWatchBusyChanged` starts the 400 ms timer the moment
+collision card. A preference re-list is the one re-list that re-marks instead of clearing:
+a settings change to hidden, sort or grouping captures `Anchor.preference` before it re-lists and
+`ui/PaneSwap.qml` re-marks cursor and marks by name when the rows land, following each name to its
+new index. When any selected row lies outside the held window the preference re-list clears the whole
+selection instead of keeping its in-window subset, because a subset would silently drop files from a
+delete or move. The preference anchor resolves only on the rows reply for the window it asked for; a
+scroll elsewhere or a cursor move drops it, so a later unrelated reply never yanks the cursor. The debt is kept, not dropped: `onWatchBusyChanged` starts the 400 ms timer the moment
 the last of those clears, and `ui/CollideHost.qml decide` writes its transfer before it clears
 `pending`, so the transfer reaches the backend ahead of any re-read the card held back. A user holding a selection therefore sees the same stale
 listing 0.1.4 always showed, for as long as they hold it. **The debt does not travel**: leaving the
@@ -280,6 +291,40 @@ listing does not draw a partial size, so a row's size follows `IN_CLOSE_WRITE` i
 read twice. The second read is anchored the same way and moves nothing the user can see. Suppressing
 it would mean deciding that a `changed` arriving during a listing belongs to that listing, which is
 exactly the guess that would drop a real outside change, so it is paid rather than guessed at.
+
+## Mount workers
+
+Path syscalls leave the loop for mount-keyed workers, which is what keeps one hung server from
+wedging the window. `src/backend/iomount.rs` owns the mechanism. `mount_key` names the mount a
+path sits under lexically, never by stat, so a dead server costs no syscall there, and `is_remote`
+says whether its syscalls can wedge: gvfs, network fstypes and any FUSE daemon. A local mount runs
+inline with no hop. A remote one runs on a worker with a deadline, `CALL_DEADLINE` of 5 s for a
+single call and `BULK_DEADLINE` of 15 s for a bulk pass, and past it the loop answers
+"<mount> is not responding." A mount past its deadline is marked stuck for `STUCK_TTL` of 30 s, and
+a call on one answers at once without a worker until that passes, when the next request probes it
+again. A worker that dies before answering is this machine's fault and marks nothing: only a
+deadline still running marks the mount stuck. A remote `rename` or `mkdir` runs on its own worker with
+CALL_DEADLINE, as reads do, and the loop never waits on it longer than that: a local one stays
+inline with no hop, an in-time remote write answers exactly as before, and past the deadline the loop
+answers a `slow` line and moves on, never marking the mount stuck for a write still running. The worker
+stays tracked and reports through the op channel when it lands, journalled exactly as the in-time path
+would, so one journal entry per request and one undo reverses it. A `link` claims the one-operation slot
+through `start_link` and runs every item on a worker from the start, so the loop stays responsive with
+no `slow` line; one `linked` line and one journal entry land with the batch and release the slot.
+Only `rename` and `mkdir` answer `slow`. A worker that dies before answering marks nothing,
+like a dead read worker.
+
+What runs where: `list_dir` scans, sorts and stats the first window on the worker; `search` reads
+each directory as one bound call returning (name, is_dir) pairs; `window` stats inline with no
+listing clone on a local mount and moves only the window's rows to the worker on a remote one;
+`sort` re-sorts on the bulk worker; `peek`, `thumb` and `listpaths` bound their per-row stats the
+same way; the search root's dev and writability go through the bound before any walk starts.
+`listpaths`' first window is the exception that still stats on the loop: its `answer` ends in
+`write_window`, which runs `stat_range` on the loop's thread directly. The watch is armed on the
+list worker beside the current one: `Watch::add_raw` before the scan, `set_incoming` plus
+`commit` on success, and on failure the loop drops the armed descriptor through `abandon_wd`;
+a worker that outlives its call hands its descriptor back as `Event::AbandonWatch` for the same
+guarded drop, kept when a re-list aliased it onto the live watch.
 
 ## The listing swap
 
@@ -1087,9 +1132,12 @@ reads the old bytes back through it and compares inodes. The
 sweep beside it fires a `SIGKILL` 1 to 9 ms into each of 120 rounds and lands on a live process in 88
 to 120 of them, measured across nine sweeps on this box and four more with other lanes live on it,
 the second set ranging 92 to 120; no round of the 120 has ever left the file as
-anything but the old document or the new one. The suite prints the count it achieved and asserts only
-a fifth of the rounds, because a faster box kills fewer of them: at a 15 ms budget the same sweep
-killed 3 of 120, which is what the old floor of one kill was letting "120 SIGKILL rounds" be read off.
+anything but the old document or the new one. The timed sweep's kill count is printed as a diagnostic
+and never asserted, because a faster box finishes more writes inside its 1 to 9 ms budget. The proof
+that a kill never leaves a partial `ui.json` is the three deterministic stage kills in
+`tests/uistate-deterministic.py`: before the temp, inside the publication, and after the rename.
+Each stage witnesses a live writer, requires SIGKILL termination and compares `ui.json` with the
+complete before or after document.
 A killed round leaves litter: `write()` unlinks only `ui.json.<own pid>.tmp`, so a process killed
 between `write_new` and the rename leaves that temp for good, and tens of the 120 rounds do, 47 to
 90 across the four runs that added the check, which is a magnitude and not a number to cite. Nothing
@@ -1710,7 +1758,7 @@ failure fails the check rather than passing it.
   declares more modules than the list below names, which is the load-bearing ones and not a census.
 - `backend/listing.rs` the arena-backed `Listing`.
 - `backend/aliases.rs` resolves a MIME alias to its canonical name, see "MIME aliases".
-- `backend/scan.rs` phase 1: readdir plus `file_type()`.
+- `backend/scan.rs` phase 1: readdir plus `fstatat` for typeless entries only.
 - `backend/sort.rs` parses the sort key, holds the name order, and holds the one sentence a key it does not know answers with.
 - `backend/meta.rs` phase 2: stat a row range for a `window`, or every row for a size or date sort.
 - `backend/metasort.rs` the size and date orders: sorts an index over the metadata pass, then
@@ -1747,6 +1795,10 @@ failure fails the check rather than passing it.
   job: how work reaches the loop, as against what the loop does with it.
 - `backend/watch.rs` the one inotify watch on the directory the current listing came from, its
   reader thread and the `changed` line it answers with, see "The open directory is watched".
+- `backend/undoshare.rs` the one undo history every backend in the session shares, under
+  `$XDG_RUNTIME_DIR/flea/` with an flocked lock file and predictable-path writes; a take is one
+  locked read-modify-write, so two windows pressing Ctrl+Z undo two different operations.
+- `backend/undocodec.rs` that journal's versioned wire form and its read-time checks, both directions.
 - `heap.rs` pins glibc's mmap threshold for the backend, see "The listing arena returns to the OS".
 - `launcher/mod.rs` re-exports `prewarm`, nothing else.
 - `launcher/prewarm.rs` writes the listing and first screenful before the UI starts.
@@ -1760,11 +1812,16 @@ failure fails the check rather than passing it.
   `thumb` and `thumbcancel` out and `thumbed` in alongside `list`, `window` and `sort`.
 - `ui/ViewState.qml` reads `ui.json` once at startup with a blocking `FileView` and writes nothing
   itself: every change, the header menu's columns and all three settings sections alike, goes back
-  out through `flea --ui-state` as a patch naming that change alone, see "The state file".
+  out through `flea --ui-state` as a patch naming that change alone, see "The state file". It also
+  watches the file and applies another window's settled preferences live through
+  `UiState.applyExternal`, owning the apply/prune settler whose exit and collected text join the
+  landed/whole way before anything is parsed.
 - `ui/js/UiState.js` is `ViewState`'s writer bookkeeping and the two pure rebuilds every writer goes
   through: the newest patch a writer landed, what the running writer carries and what waits behind
   it, and the key and group rebuilds `ViewState` runs over both the state it draws and the patch it
-  owes. It imports no QML, so
+  owes. It also owns the refusal prune (`invalidKeys`, `dropInvalid`, `pruneRefused`,
+  `revertedState`) and the settle join and order (`landed`, `whole`, `pruneAsk`, `settleNext`).
+  It imports no QML, so
   `tests/js/uistate.js` can redden on a mutation of the rule that only a zero exit proves a save.
 - `ui/Theme.qml` owns the singleton palette, type and spacing tokens from the Omarchy
   theme plus the user override.
@@ -2049,6 +2106,13 @@ had gone stale by a whole plan and were re-derived from `wc -l` in Plan 5 Task 5
 touch a file here, re-derive its count from the artefact rather than adjusting the nearest
 number.
 
+mga round 1 records `src/backend/opsdispatch.rs` at 2204 and `src/backend/opsreq.rs` at 551
+after deleting the obsolete slow-link lifecycle and its duplicate landing. `src/backend/run.rs`
+is 662: its test-only `adopt` is gone, and the held-link regression now drives the production
+request dispatcher here, checking read responsiveness, the operation slot, completion and undo.
+Each ceiling is re-derived with `wc -l`; `src/backend/proto.rs` is 363, below the 400-line hard cap,
+so its unused recorded exception is removed. Global limits stay unchanged.
+
 `src/vulkan.rs` is 0.3.2's own exception, recorded rather than split. PR119's display-GPU pin took
 it from 472 to 604 lines, the growth being `icd_for_displays`, `display_pin` and the tests that
 drive a hybrid tree this box cannot produce. The file has one subject, which is what Vulkan can be
@@ -2088,7 +2152,8 @@ refusal ahead of the dispatch, the numbering's first value and its move in `forg
 and its tests are `src/backend/rowguard.rs`. It moved the listing's `listed` and `rows` handling out of
 `ui/PaneWire.qml` whole into `ui/PaneSwap.qml`, inside the soft budget, which took `ui/PaneWire.qml` from 485
 to 453, under its recorded ceiling.
-Its review then moved the list arm's success tail into `run::adopt`, which prewarm's test drives, and the
+Its review then moved the list arm's success tail into `run::adopt_listed`, which the `list_dir`
+writability test drives, and the
 backend's start into `State::new` and `Tables::load`, which took `src/backend/run.rs` back down to 427, now
 its recorded ceiling.
 `src/uistate.rs` goes from 440 to 442 for `Rule::Version`, one arm in `fits` and the refusal in `check`
@@ -2425,7 +2490,7 @@ a boundary against the filesystem rather than against a mock.
 `src/backend/child.rs` is 231 lines by `wc -l`, inside both budgets and so not one of the files the
 tool warns about, with its `#[cfg(test)]` at line 96, so 95 lines of implementation and 136 of
 tests. It runs one argv
-under a deadline and reports `Ran::Succeeded`, `Ran::Failed` or `Ran::NotStarted`. It came out of
+under a deadline and reports `Ran::Succeeded`, `Ran::Failed`, `Ran::TimedOut` or `Ran::NotStarted`. It came out of
 `thumbs.rs` at 397 of the 400 hard cap, and it completes a three-part story each of whose parts is one file:
 `thumbargv` builds the inner argv, `sandbox` wraps it, `child` runs the result. Nothing in it
 knows about thumbnails, which is why the pool's `JOB_TIMEOUT` stays in `thumbs.rs` and is passed
@@ -2951,7 +3016,7 @@ the ghost and the insertion bar at 266, over the soft budget and under the hard 
 t2-tabrestore moves seven recorded ceilings, each re-derived with `wc -l`: `src/uischema.rs` 439 to
 484 for the `lastTabs` key with its `Rule::LastTabs`, the `MAX_LAST_TABS` cap and the edge tests beside
 the existing ones; `src/uistate.rs` 625 to 653 for the `is_last_tabs` validator beside `is_a_place`;
-`ui/js/Tabs.js` 323 to 375 for `remembered`, the pure `restorePlan` and the `restoreItems` snapshots;
+`ui/js/Tabs.js` 326 to 378 for `remembered`, the pure `restorePlan` and the `restoreItems` snapshots;
 `ui/js/Settings.js` 440 to 450 for the Last folder hint spliced under its control; `ui/ViewState.qml`
 398 to 404 for the `rememberTabs` writer beside `rememberLastPath`, entering the tool's list as the one
 file this unit pushes over the hard cap; `ui/WindowBody.qml` 547 to 564 for the tab write beside the
@@ -2984,18 +3049,19 @@ for the `recentMode` listing (the mode, the return, the guards and the header wi
 `ui/Row.qml` 456 to 461 for the `recenting` name split with Used beside it. `ui/SidebarRow.qml`
 stays inside its budget at 257 for the reorder drag and its two insertion bars.
 `ui/SettingsFavourite.qml` stays inside its budget at 118 for the 19 px mark slot and the 24 px
-handle and remove boxes. `ui/KeymapSheet.qml` stays inside its budget at 363 for the query field
-that appears on the first typed key. `ui/Header.qml` stays inside its budget at 186 for the Used
-title and the hidden Mode and Kind. `ui/js/Settings.js` 427 to 430 for the Built in Recent row.
+handle and remove boxes. `ui/KeymapSheet.qml` stands recorded at 585 for the four-section query
+(actions, menu rows, places, recent files) with its query field that appears on the first typed key.
+`ui/Header.qml` stays inside its budget at 186 for the Used title and the hidden Mode and Kind.
+`ui/js/Settings.js` 427 to 430 for the Built in Recent row.
 `ui/js/Focus.js` 339 to 343 for the Recent reveal, escape and write guards. `ui/js/Tabs.js` holds
-its 300 hard cap by calling into the new `ui/js/RecentMode.js`, 132 lines inside both budgets,
-rather than carrying the tab logic itself; the sheet query's rank went to the new
-`ui/js/SheetQuery.js`, 36 lines inside both budgets, rather than into the generated
+its 300 hard cap by calling into the new `ui/js/RecentMode.js`, 125 lines inside both budgets,
+rather than carrying the tab logic itself; the sheet query went to the new
+`ui/js/SheetQuery.js`, 195 lines inside both budgets, rather than into the generated
 `ui/js/Keymap.js`, which is never hand edited. `ui/Ipc.qml` 802 to 807 for the `recentMode`,
 `recentFrom` and `keymapQuery` readers. `src/uischema.rs` 408 to 412 for the `showRecent` key,
 off by default, with its rule and default test. `tests/js/focus.js` 404 to 405 for the new field
-on its stub panes; `tests/js/recentmode.js` and `tests/js/sheetquery.js` hold the mode and the
-rank at 129 and 39 lines.
+on its stub panes; `tests/js/recentmode.js` at 159, `tests/js/sheetquery.js` at 78 and
+`tests/js/sheetcandidates.js` at 79 hold the mode, the rank and the candidates.
 
 Ported onto the 0.3.6 release head, the same change re-derives to `ui/Sidebar.qml` 669,
 `ui/Pane.qml` 799, `ui/js/Focus.js` 387, `ui/js/Settings.js` 443, `ui/js/Tabs.js` 321,
@@ -3012,25 +3078,47 @@ with its watcher cache, and the favourites drag reorder with its insertion line)
 header wire). `ui/Row.qml` 474 to 478 for the `recenting` name split with Used beside it.
 `ui/SidebarRow.qml` keeps inside the hard cap at 338 for the reorder drag and its two insertion
 bars. `ui/SettingsFavourite.qml` keeps inside its budget at 118 for the 19 px mark slot and the
-24 px handle and remove boxes. `ui/KeymapSheet.qml` keeps inside the hard cap at 363 for the query
-field that appears on the first typed key. `ui/Header.qml` keeps inside the hard cap at 391 for the
+24 px handle and remove boxes. `ui/KeymapSheet.qml` stands recorded at 585, over the 400 hard cap, for the
+four-section query (actions, menu rows, places, recent files) with its query field that appears on
+the first typed key. `ui/Header.qml` keeps inside the hard cap at 391 for the
 Used title and the hidden Mode and Kind. `ui/js/Settings.js` 432 to 435 for the Built in Recent row.
 `ui/js/Focus.js` 373 to 377 for the Recent reveal, escape and write guards. `ui/js/Tabs.js` 299 to
-302 for the resting-path and dropOverlay calls into the new `ui/js/RecentMode.js`, 121 lines inside
-both budgets, rather than carrying the tab logic itself; the sheet query's rank went to the new
-`ui/js/SheetQuery.js`, 36 lines inside both budgets, rather than into the generated
+302 for the resting-path and dropOverlay calls into the new `ui/js/RecentMode.js`, 125 lines inside
+both budgets, rather than carrying the tab logic itself; the sheet query went to the new
+`ui/js/SheetQuery.js`, 195 lines inside both budgets, rather than into the generated
 `ui/js/Keymap.js`, which is never hand edited. `ui/Ipc.qml` 818 to 823 for the `recentMode`,
 `recentFrom` and `keymapQuery` readers. `ui/WindowBody.qml` 547 to 549 for the chrome's Recent name.
 `ui/PaneWire.qml` 468 to 471 for the floor and fsinfo guards. `ui/List.qml` 400 to 402 for the
 `recenting` wire, recorded rather than split. `src/uischema.rs` 421 to 425 for the `showRecent` key,
 off by default, with its rule and default test. `tests/js/focus.js` 456 to 457 and
 `tests/js/settings.js` 298 to 301, the second recorded rather than split, for the new fields and the
-Recent row pins; `tests/js/recentmode.js` at 119 and `tests/js/sheetquery.js` at 39 hold the mode and
-the rank. The Photos roll is gone on this head, so the port drops the prepared roll-clearing lines
-and `ui/js/Photos.js` stays deleted; the rail menus, eject marks and auto-hide rail are main's and
-are carried untouched. Menu rows, rail places and recent files join the sheet's candidates only with
-provider plumbing, so the sheet ranks the keymap's actions alone and `SheetQuery.rank` already holds
-their section order.
+Recent row pins; `tests/js/recentmode.js` at 159, `tests/js/sheetquery.js` at 78 and
+`tests/js/sheetcandidates.js` at 79 hold the mode, the rank and the candidates. The Photos roll is
+gone on this head, so the port drops the prepared roll-clearing lines and `ui/js/Photos.js` stays
+deleted; the rail menus, eject marks and auto-hide rail are main's and are carried untouched. The
+sheet ranks all four sections in order and `SheetQuery.rank` holds their exact-place, exact, matched
+and keyed buckets.
+
+kb1b (17f14f7d) moves ten recorded ceilings, each re-derived with `wc -l` at the commit that
+recorded it. `tests/js/focus.js` 522 to 595 for the Escape climb landing-mark, armed-pair and
+sheet-snapshot pins. `tests/js/menu.js` 335 to 348 for the hidden Copy as and Paste as lone-flyout
+pins. `tests/js/tap.js` enters the tool's list at 317 for the single-click tap-count suite, over the
+300 hard cap and recorded rather than split. `ui/ContextMenu.qml` 625 to 675 for the lone-flyout
+state the c and P keys open while their rows hide. `ui/Pane.qml` 992 to 998 for the Recent paste
+refusal in pasteLink. `ui/PermissionsDialog.qml` 589 to 627 for the multi-row card with its
+accumulated inspect and skip notes. `ui/Row.qml` 478 to 479 for the Recent location branch, railed
+in ea0f9a7d on the same merged head. `ui/js/Focus.js` 408 to 439 for the deliberate-marks Escape
+and sheet-snapshot dispatch. `ui/js/Menu.js` 425 to 436 for flyoutEntries over the Copy as and Paste
+as leaves. `ui/js/Tabs.js` 390 to 399 for the pending restore carried across a reorder. kb1c's
+comment cuts then left every one of those files under its ceiling, and kb1d took `ui/Pane.qml` 998
+to 1000 for the two sort declarations Recent hands back. This round takes `ui/Pane.qml` 1000 to
+1003 for the hop restore in openWithoutHistory and its pane route, and `ui/Sidebar.qml` 675 to 677
+for the asker list a history read answers one by one.
+
+Advfix-picker records `ui/PickerWindow.qml` 706 to 778, each re-derived with `wc -l`: the grid view
+with its thumbnail plan and the persisted `pickerView` (706 to 770), the scroll-ask follow-up that
+re-plans newly visible tiles (770 to 776), and the named coalesce interval and window lead the two
+views share (776 to 778).
 
 MenuAdditions040 moves sixteen recorded ceilings, each re-derived with `wc -l`
 against the 0.3.8 integration head. `ui/js/Menu.js` 337 to 399 for the Copy as
@@ -3040,7 +3128,7 @@ cap and recorded rather than split: the inventory, its availability and its
 flyouts are one subject, and the leaves carry the board's own glyphs.
 `src/backend/opsdispatch.rs` 540 to 719 for the link, link-target and
 permissions-batch operations with their journal entries and the dispatch tests
-that prove one undo removes every created link. `ui/Pane.qml` 735 to 816 for the
+that prove one undo removes every created link. `ui/Pane.qml` 788 to 869 for the
 Copy as, Paste as, invert, show-original and multi-permissions routes with the
 menu's new bindings. `ui/PermissionsDialog.qml` 432 to 589 for the multi-row
 card, its mixed bars, its note and its one-step Apply. `ui/PaneMenuActions.qml`
@@ -3051,7 +3139,7 @@ for the Copy as clipboard flow and the link status line. `ui/PaneWire.qml` 468
 to 486 for the linked and link-target replies. `ui/Backend.qml` 431 to 435 for
 the two new reply signals. `ui/js/Focus.js` 373 to 387 for the new listing and
 menu actions. `ui/js/Settings.js` 432 to 434 for the four new Menus switches.
-`ui/js/Keymap.js` 314 to 327 for the generated listing and menu bindings.
+`ui/js/Keymap.js` 322 to 335 for the generated listing and menu bindings.
 `ui/WindowBody.qml` 547 to 551 for the batch dialog route. `src/backend/run.rs`
 448 to 454 for the three new request arms. `src/uischema.rs` 421 to 422 for the
 hidden list the new rows ship in. `tests/js/menu.js` enters the tool's list at
@@ -3062,7 +3150,30 @@ and recorded rather than split. The new `ui/js/CopyAs.js` (57 lines) and
 invert, `ui/js/Permissions.js` 11 to 36 the multi summary, `ui/js/Collide.js`
 93 to 105 the link question and `ui/js/Messages.js` 97 to 104 the two replies.
 
-e80 optional preview candidate records `ui/Preview.qml` at 490 with its existing scoped ceiling, `ui/SelectionPreview.qml` at 302, `ui/js/PreviewSettle.js` at 14 and `tests/js/previewswap.js` at 267, each re-derived with `wc -l`. The exact `tests/preview-settle-live.qml` ceiling is 424 for the real Window parent, production-shaped meta and selection signals, runner-provided readable images, gate diagnostics and fresh close/reopen checks. It preserves 35 automatic and 3 seeded manual checks, the 120ms timer, storage and no-swap gates, identity refresh, visibility restoration and the exact picture-capture queue order. Its runner generates a tiny JPEG with the existing ffmpeg dependency and copies it into eight names inside each fresh marked sandbox and requires exit 143, one clean DONE, exact PASS counts, no FAIL and no warnings. Native acceptance remains with the controller.
+Advfix-backendops round 2 moves two recorded ceilings, each re-derived with `wc -l`:
+`src/backend/opsdispatch.rs` 719 to 1068 for the link leftover reporting (the inspect and remove
+helpers with their test-only fault hook, the named-leftover failure with its test) and the
+usable_dest refusal pin, and `src/backend/permissions.rs` 477 to 545 for the link, busy and
+permissions-batch operations, their undo steps and their tests (540 at the lk1 merge, recorded at
+543 without re-deriving the 545 HEAD).
+
+e80 optional preview candidate records `ui/Preview.qml` at 490 with its existing scoped ceiling, `ui/SelectionPreview.qml` at 302, `ui/js/PreviewSettle.js` at 14 and `tests/js/previewswap.js` at 267, each re-derived with `wc -l`. The exact `tests/preview-settle-live.qml` ceiling is 450, the file at 450 lines against its recorded cap of 450, for the real Window parent, production-shaped meta and selection signals, runner-provided readable images, gate diagnostics and fresh close/reopen checks. It preserves 38 automatic and 3 seeded manual checks, the 120ms timer and <200ms duplicate bound, storage and no-swap gates, identity refresh, visibility restoration and the exact picture-capture queue order. Its runner generates a tiny JPEG with the existing ffmpeg dependency and copies it into eight names inside each fresh marked sandbox and requires exit 143, one clean DONE, exact PASS counts, no FAIL and no warnings. Native acceptance remains with the controller.
+
+The drag verbs and the slow-click rename move nine recorded ceilings, each re-derived with `wc -l` at the commit that recorded it. `0c77b1bf` (Finder verbs between Flea windows) takes `ui/js/Drag.js` 302 to 346 for the verb, offer and modifier decisions and `tests/js/drag.js` 301 to 363 for their pins, with `ui/GridArea.qml` 410 to 411, `ui/List.qml` 435 to 436 and `ui/Row.qml` 478 to 479 for the one drag wire each. `86343a01` (offer copy out, keep refused rows dark) takes `tests/js/drag.js` 363 to 398 for the copy-out offer and the refused-row pins. `5cec3768` (a slow-click rename keeps the scroll still) takes `tests/js/ops.js` 430 to 448 for the context pins, `ui/PaneMenuActions.qml` 458 to 468 for the context-carrying rename route and `ui/js/Ops.js` 438 to 439 for the context argument. `aab6ba79` (the round 1 harness settle) takes `ui/Ipc.qml` 832 to 833 for the one reader it added. `tests/js/drag.js` and `ui/js/Drag.js` sit over the 300-line JS hard cap and are recorded rather than split: the verbs and their pins are one subject.
+
+The stage2 merge of fs1 and fs5 records `ui/js/Devices.js` at 366, fs1's udisks hide rules beside fs5's
+`mediaRemovable` for the USB power-off chain, and `tests/js/devices.js` at 303 for both units' pins, each over the
+300 hard cap and recorded rather than split, re-derived with `wc -l`.
+
+The stage4 merge records the merged ceilings, re-derived with `wc -l` at
+the merge: `tests/js/watch.js` 354 (us1's kill-sweep pins beside xw4r2's two-window settle pins) and `ui/Pane.qml` 1013
+(xw4r2's settler wiring beside stage2's Anchor import and drag state). The merged undo ceilings are also re-derived
+with `wc -l`: `src/backend/undo.rs` 612 and `src/backend/undoshare_tests.rs` 532. The duplicate `src/backend/iomount.rs` row
+is gone: two rows made the tool read the ceiling as two numbers, fail its comparison and skip the file.
+
+The mgb merge-resolution pass records `src/backend/undo_tests.rs` at 423, re-derived with `wc -l`: its round 4
+pins legacy records without birth time through rebase, move, copy and new-file undo, which belong beside the undo
+journal's own tests rather than in a second file.
 
 ## The key table is generated
 
@@ -3267,7 +3378,7 @@ waits for its consumer.
   loop in which the window receives no keys, so Ctrl
   or Shift pressed after the drag starts cannot change the verb. The status line says
   `ctrl copies and shift moves, read at lift` rather than claiming the key still works
-  mid-drag. `drag.sh` proves a same-device move and a Ctrl copy but needs the display and a
+  mid-drag, and a Ctrl with Shift lift links, its Link line naming the verb outright. `drag.sh` proves a same-device move and a Ctrl copy but needs the display and a
   real pointer, so `dragwire.sh` carries the offer into the headless battery: a leaving drag
   must offer copy alone and `text/uri-list`, a link lift must offer `Qt.LinkAction`,
   and the shelf drag stays copy only.
@@ -4436,8 +4547,8 @@ sends the job down the exec path, which judges the file exactly as it always has
 thumbnailer program ever writes a `fail/` marker: the worker's child is more confined than the
 program, with no writable `/tmp`, and a file only the worker failed must not be recorded broken on
 its word. `N` retires the worker, as below. corner: a video that hangs the decoder costs two
-deadlines, one in the worker and one on the exec path, and costs them once, because the exec path's
-failure records the marker. `workerlink::tests::
+deadlines, one in the worker and one on the exec path, paid once locally and on every request
+off-local, where a timeout records no marker. `workerlink::tests::
 only_a_thumbnail_is_final_and_a_machine_failure_retires_the_worker` answers one request each way
 from a stand-in worker and pins that only `S` publishes, that `F` keeps the worker and that `N`
 retires it, and `gone_because` is what names an `N` apart from a worker that stopped answering.
@@ -4520,8 +4631,8 @@ already inside a child runs to its own end or to the timeout.
 `JOB_TIMEOUT` is 20 seconds, and `backend/child.rs` enforces it. The child is waited on
 exactly, not polled: `pidfd_open` gives a descriptor that becomes readable when the child exits,
 and one `poll` on it with the remaining time as its timeout is BOTH the wait and the deadline, so
-a child still alive at the deadline is killed and reaped and only that case records a marker in
-`fail/`. `poll` returning `POLLIN` says only that the child exited, so the status itself still
+a child still alive at the deadline is killed and reaped and answers `Ran::TimedOut`, which records
+a marker only for a local file and never for network or USB. `poll` returning `POLLIN` says only that the child exited, so the status itself still
 comes from `wait`. The two symbols are `extern "C"` declarations in the idiom `src/thp.rs` already
 uses, because `std` links the system libc and this project takes zero crates; glibc has shipped a
 `pidfd_open` wrapper since 2.36, so no `syscall()` is needed. The descriptor is held in an
@@ -4544,11 +4655,11 @@ The distinction this enum draws is whether a thumbnailer's verdict on these byte
 `pidfd_open`, a `poll` or a `wait` this process could not complete produces no verdict at all,
 exactly like a fork that failed under memory pressure.
 
-**Three of the eight ways a job can end record a marker, and the deadline is only one of them.**
+**Two of the eight ways a job can end always record a marker, and the deadline records only for local files.**
 That count is the `yes` column of the table below, counted off it rather than carried in from
-anywhere else. `run_with_timeout` itself returns `Ran::Failed` for only two of the three, a child
-still alive at the deadline and a child that exited non-zero; the third is `run_one`'s. Every way
-a job can end:
+anywhere else. `run_with_timeout` itself returns `Ran::TimedOut` for a child still alive at the
+deadline and `Ran::Failed` for a child that exited non-zero; the empty-output case is `run_one`'s.
+Every way a job can end:
 
 | Path | Variant | Marker |
 |---|---|---|
@@ -4556,12 +4667,12 @@ a job can end:
 | `pidfd_open` failed | `NotStarted` | no |
 | `poll` failed, or was ready with no `POLLIN` | `NotStarted` | no |
 | `wait` failed | `NotStarted` | no |
-| still alive at the deadline | `Failed` | **yes** |
+| still alive at the deadline | `TimedOut` | local only |
 | exited non-zero | `Failed` | **yes** |
 | exited 0 having written nothing | `Succeeded`, then recorded by `run_one` | **yes** |
 | exited 0 having written a thumbnail | `Succeeded`, published by `run_one` | no |
 
-`run_one` records on its `Succeeded | Failed` arm (`src/backend/thumbs.rs:211-213`), which a
+`run_one` records through `records_marker` (`src/backend/thumbs.rs:records_marker`), which a
 success reaches only when it wrote nothing, and `tests/thumbs.sh` exercises that arm on every
 run. What the recording paths share is that a decoder ran on the file and produced no answer.
 
@@ -4651,11 +4762,11 @@ exactly as before, because no thumbnailer on this box was observed to produce on
 is the conservative direction against recording a verdict nothing measured.
 
 **Three failures were moved the other way, onto the not-recorded side.** A missing `bwrap` or
-`prlimit` records nothing, see "Thumbnail sandbox". And `run_with_timeout` returns three states
+`prlimit` records nothing, see "Thumbnail sandbox". And `run_with_timeout` returns four states
 rather than a bool: a child that could not be SPAWNED at all is `NotStarted` and records nothing,
 because a fork that failed under memory pressure says nothing about the file, and so is a child
-this process could not `wait` on, while a child that ran and exited non-zero, or that was killed
-at the deadline, is `Failed` and does record.
+this process could not `wait` on, while a child that ran and exited non-zero is `Failed` and does
+record and a child killed at the deadline is `TimedOut` and records only for a local file.
 The rule that separates them is whether a decoder ever looked at the bytes. The seam that
 bound the raw path while `argv` handed the child the canonical one, see "Thumbnailer specs",
 was in the recording class and wrote a permanent marker for every video under a symlinked
@@ -5209,6 +5320,10 @@ shipped instead with a before/after delta bound (`1 <= delta <= 2`, one settle's
 per fling rather than a literal zero), the same upper bound this section's own settled-state check
 already accepts and for the identical reason.
 
+Touchpad history: GM ruled 2026-10-01 that touchpad input answers Finder's feel, so the Motion.js
+animation-free rule and the old touchpad 1:1 no longer hold for it; the 2.5 gain is GTK4's own
+factor from gtkscrolledwindow.c, and a wheel notch is unchanged.
+
 ## A drag does not survive a workspace switch
 
 Reported on 2026-09-22 (PR #186) as a drag from Flea into a terminal on another workspace pasting
@@ -5269,8 +5384,8 @@ here only as the control that proves this box reads `GLIBC_TUNABLES` at all.
 
 ## Write operations and the undo journal
 
-Ten of the main backend's requests write. Seven are file operations of their own: `transfer`,
-`transfercancel`, `trash`, `rename`, `duplicate`, `mkdir` and `undo`; a New File from the menu writes
+Thirteen of the main backend's requests write. Ten are file operations of their own: `transfer`,
+`transfercancel`, `trash`, `rename`, `duplicate`, `mkdir`, `undo`, `link`, `redo` and `permissionsBatch`; a New File from the menu writes
 through `menuaction` and journals `MadeFile` (`opsdispatch.rs` `do_newfile`), and `archive` and
 `convert` write below. Two helpers write on command loops of their own and journal nothing: the trash
 browser's `restore` and `delete` (`trashbrowse.rs`, `trashdelete.rs`) and the permissions dialog's
@@ -5289,36 +5404,34 @@ rows carry the number of the listing they were read in, as do `paths` and `menua
 its sources the way the `transfer` it precedes will: paths, rows resolved at request time exactly as
 the transfer's are, or a menu's captured selection.
 
-**One of `transfer`, `trash` or `duplicate` runs at a time.** `opsdispatch.rs` holds `Ops::running`, and a second `transfer`,
-`trash` or `duplicate` while one is live answers an `error` line rather than queueing. The reason is the
+**One of `transfer`, `trash`, `duplicate` or `link` runs at a time.** `opsdispatch.rs` holds `Ops::running`, and a second `transfer`,
+`trash`, `duplicate` or `link` while one is live answers an `error` line rather than queueing. `permissionsBatch` is
+refused the same way while one runs, without taking the slot. The reason is the
 surface, not the backend: the operations design gives transfers the status bar's single transient slot,
-so a second concurrent operation would have nowhere to report itself. `rename` and `mkdir` are exempt because
-neither spawns at all. An `archive` extract takes the transfer slot, so a copy, move or second extract
+so a second concurrent operation would have nowhere to report itself. `rename` and `mkdir` are exempt on a local mount, where
+neither spawns at all; a remote one records a pending slow write for its mount instead, see below. An `archive` extract takes the transfer slot, so a copy, move or second extract
 is refused busy while one runs; a compress and a convert never claim it: `Ops::claim_id` numbers them
 and they run alongside by design, tracked in the detached registry a quit cancels, so the cap was never one write of any kind.
 
-**`rename` and `mkdir` run on the loop's thread, the other three spawn.** Both normally take one
+**A local `rename` or `mkdir` answers on the loop's thread; a remote one runs on a worker.** Both normally take one
 syscall, but neither compatibility path below is one: an rclone directory rename copies the whole
 tree and a GVFS WebDAV rename copies whatever the path is, file or tree, before removing the source,
-inline on the loop's thread. That is an unbounded network transfer in the one place nothing else can
-run. A 40 GB rclone folder is downloaded and re-uploaded through FUSE with no progress, because the
-copy's byte sink is discarded, and with no way to cancel, because its flag is a fresh `AtomicBool`
-nothing can set; the loop is the only writer of stdout, so the application is frozen rather than
-slow for the whole transfer. The copied tree carries the source mtime best effort, so a Date Modified column or sort still shows the file's own history. **The alternative to this freeze is not data loss, and any
-sentence saying it is has been wrong.** `duplicate` and `transfer` already spawn and report through
-`Event::Op`, and `rename` could do the same while still building its target through the exclusive
-copy primitives: spawning the copy and refusing to replace a raced destination are independent
-choices, so taking the first has never required giving up the second. Spawning was not taken here
-because a spawn that answers this complaint needs the progress and the cancel the inline copy throws
-away, which turns `rename` from answer-once into started, progress and done and puts it in the
-one-at-a-time `running` slot `do_rename` has never claimed. That is a wire-contract change on the eve
-of a release, on the one unit that has already taken five review rounds, one of which produced a
-data-loss defect, and hard rule 6 would then want every state of that new asynchronous path
-exercised live. Say the cost plainly rather than burying it: for a large rclone
-directory this build is worse than the one before it, which failed the rename with a sentence
-instead of hanging the window. Spawning the copy is the first item of the next release.
+and the copied tree keeps source file and directory modification times best effort through
+`copy_any`. Errors setting those timestamps are ignored, so a Date Modified column or sort retains
+the source history when preservation succeeds. On a local mount that copy runs inline on the loop's thread, as it always has.
+On a remote mount, rclone and WebDAV included, which "Mount workers" classifies without a syscall, the write runs on
+`slow_write_with`'s worker instead: past `CALL_DEADLINE` the loop answers a `slow` line and moves on, and the worker
+reports late through `Event::Op`, journalled exactly as the in-time answer would have been. The window no longer freezes,
+though the copy still has no progress and no cancel, because the worker runs the copy to its end and the late result
+carries no byte counts and answers no cancel id. The `slow` line releases the one-at-a-time slot for its own id
+at once, so writes on other mounts and on local paths run while the held write is still going; the write is recorded
+as pending under the remote mount root its paths sit on instead. A write any of whose sources or target sits on a
+mount with a pending slow write answers busy and journals nothing, and `undo` and `redo` answer busy naming the
+pending path until the late entry lands, so no reversal races it. The late Done journals exactly as the in-time
+answer would have and clears only its own pending entry, and one undo still reverses the late write like any other
+entry. There is still no cancel and no progress for the running write.
 `trash` shells to `gio` twice for the list diff plus once to trash; `duplicate` may copy a
-whole tree; a `transfer` is unbounded. Those three send their results back through `Event::Op`,
+whole tree; a `transfer` is unbounded; a `link` Replace moves the name already there through `gio` first. Those four send their results back through `Event::Op`,
 joined onto the loop's receiver exactly the way the thumbnail pool's `Event::Thumb` already is, so
 the loop stays the only writer of stdout.
 
@@ -5382,6 +5495,8 @@ the name a kept copy came from may be left whole, half emptied, or already gone;
 promises the copy only, says that name may now be incomplete, and tells the operator to check it
 before deleting anything. Removing the duplicate is the operator's call, not Ctrl+Z's.
 
+**One undo history for every Flea window.** Each backend keeps its in-memory journal until the session dir validates, then every push and take goes through the file under `$XDG_RUNTIME_DIR/flea/` (`FLEA_UNDO_DIR` when set) under an flock, so the newest entry from any window is what Ctrl+Z undoes. A take is one locked read-modify-write, so two windows pressing Ctrl+Z undo two different operations; the filesystem work runs after the claim, so a slow undo never holds the lock. The published doc stays under 32 MiB by dropping oldest undo then redo records until it fits; an entry too big alone stores a small barrier through the normal store path, its op name only and no paths, and no window keeps the payload. Any window's undo that claims a barrier consumes it in the same locked claim and answers `That operation was too large to undo.`, the next undo continues with older entries, and a barrier never enters redo. The codec versions the file: a decoder meeting a newer version treats the file as unavailable, falls back to memory, and never rewrites the newer file. A claim stamps the push generation, and the finish replays only when no push ran since, otherwise the stale replay is dropped.
+
 **The journal records only what an operation created or moved.** `undo.rs`'s `Step` has five shapes the
 product writes: `Moved` (rename back), `Copied` (remove the copy; a failed tree copy carries a manifest, a success carries none), `MadeDir` (remove it
 while it is still empty, because whatever is inside it now was put there by someone else), `MadeFile`
@@ -5390,10 +5505,14 @@ by a transfer that replaced an item, ahead of that item's own step); `Created` e
 for the tests that drive undo's own ladder. A path an operation merely read is never recorded, so an undo
 cannot delete a file the operation did not put there once the step is journaled. An operation
 whose step list is empty is not pushed at all, so a refused rename leaves nothing to undo. Steps reverse
-newest first, and a failing step stops the rest rather than half-reversing. A copy that fails short of a
+newest first, and a failing step stops the rest rather than half-reversing, except a `Mode` step whose
+file was replaced or rechmodded: that step is skipped with a note while the rest restore, and redo
+skips the same way. A partial `permissions` undo captures the restored steps for redo, so redo replays
+the undone half before anything older. A hard link is removed only while its source still holds the same
+dev and inode, so undo leaves the last name in place when the source is gone or replaced. A copy that fails short of a
 cancel (ENOSPC, EPERM, a socket deeper in the tree) leaves the partial destination it created on disk,
 because removing it on a transient error would destroy data, and `copyfile.rs` reports that path in
-`Progress.partial` so `transfer` and `duplicate` journal it as a `Copied` step. A failed tree copy records every path it creates in `copymanifest.rs` as it runs, each identity captured at create from the copy's own descriptor (fstat) or its at-path pin and buffered to an anonymous file on the runtime filesystem in 64 KiB batches, never on the destination, so a full destination cannot fail the manifest and the journal holds no descriptor on the mount being ejected; every directory move is manifested, since EXDEV through a symlinked parent defeats a device check and a rename drops it unread. A failed append latches and the transfer reports it loud beside the copy error. Finish stats nothing, so a failed or cancelled copy answers at once. Undo walks that manifest deepest first and removes each recorded path only while it still holds the recorded identity, keeping a file edited after the copy, a path replaced by another inode, and a directory left non-empty by a stray, and reporting each kept path with its cause; a manifest that never verified a record falls back to the whole-tree check, and a success journals the plain step with no manifest. A destination that already existed is never reported, because nothing was created there.
+`Progress.partial` so `transfer` and `duplicate` journal it as a `Copied` step. A failed tree copy records every path it creates in `copymanifest.rs` as it runs, each identity captured at create from the copy's own descriptor (fstat) or its at-path pin and buffered to an anonymous file on the runtime filesystem in 64 KiB batches, never on the destination, so a full destination cannot fail the manifest and the journal holds no descriptor on the mount being ejected; every directory move is manifested, since EXDEV through a symlinked parent defeats a device check and a rename drops it unread. A failed append latches and the transfer reports it loud beside the copy error. Finish stats nothing, so a failed or cancelled copy answers at once. Each `Copied` manifest stays in the recording backend keyed by a per-entry nonce stored in the file, so a claim by that backend reattaches it and walks it deepest first, removing each recorded path only while it still holds the recorded identity and keeping a file edited after the copy, a path replaced by another inode, and a directory left non-empty by a stray, reporting each kept path with its cause; a claim elsewhere finds no key and takes the whole-tree fallback, and a manifest that never verified a record falls back the same way, while a success journals the plain step with no manifest. A destination that already existed is never reported, because nothing was created there.
 corner: a copy is not snapshot-isolated, so a concurrent write into a recorded path that keeps its identity goes with the tree; only identity mismatch keeps a path.
 
 **A cross-device move of many items confirms its folders once per batch instead of once per item.**
@@ -5416,7 +5535,7 @@ Before it sends a transfer, `ui/CollideHost.qml` sends `collisions`, which `coll
 read-only: the sources whose name `dest` already holds, each kept in `Ops::question` with the identity
 of the item at that name, the latest question only. The transfer then carries `collide` and
 `collideId`, and `collide.rs` `Policy::place` applies the choice to an item only while that question
-listed its source for this destination and the name still holds the same item (device, inode, type).
+listed its source for this destination and the name still holds the same item (device, inode, type, plus birth time when the filesystem reports it on both sides).
 Every other existing name goes on to the exclusive create and is refused by it exactly as before, which
 is the whole race story: a name that appears while the card is open is never replaced, kept or skipped.
 Keep both is `ops.rs` `free_copy_path` worked out in `dest`, the name Duplicate gives. Skip counts the
@@ -5473,8 +5592,8 @@ menu, since the transfer waiting on the card names the folder it asked about; th
 chrome's own back and up buttons are covered by the card's focus and backdrop, and there is no
 forward mouse button binding to gate. `tests/ui-operations-design.sh` and `tests/ui-providers.sh`
 drove their error and retry footers with a real name collision through Copy to and Move to Dropbox;
-a collision now asks instead, so those flows fail on an unreadable source file and a read-only Dropbox
-folder, both real failures that are not a name.
+a collision now asks instead, so the Copy to flow fails on an unreadable source file and Move to Dropbox
+fails on a source folder that cannot be written, each a real failure that is not a name.
 corner: replacing N items costs 3N `gio` runs, a list before and after each trash, because the URI is
 captured per call; one batch trash up front would have to restore every untouched item on a cancel.
 
@@ -5887,11 +6006,10 @@ names have twins carrying the same MIME type.
   weight 50, and `lookup("cert.pem")` resolves to `application/pkcs7-mime`, the first
   of the eleven in the file.
 
-- `scan.rs`: an entry the directory iterator itself cannot read (`fs::read_dir`'s
-  per-entry `Result` came back `Err`) is dropped by `.flatten()` and never reaches the
-  listing. An entry that read fine but whose `file_type()` call then fails is kept, as
-  a file (`unwrap_or(false)`), because the entry itself is real even if the type
-  lookup raced it. Two different failures, two different outcomes, on purpose.
+- `scan.rs`: a `readdir` error fails the whole listing rather than a short success, and a
+  typeless entry whose `fstatat` then fails is kept as a dir, because the entry itself is real
+  even if the type lookup raced it and a folder must survive xfs ftype=0. Two different
+  failures, two different outcomes, on purpose.
 - `meta.rs`: a row that existed during `scan` but is gone by the time `stat_range`
   reaches it (deleted, renamed) reports `size: 0, mtime: 0, mode: 0` rather than
   failing the whole window; one vanished file should not blank the screen.
@@ -5974,21 +6092,23 @@ this cannot become a directory sweep. `t` stays true for every symlink whatever 
 target, which is a documented gap the renderer guards against rather than a narrowing
 this made.
 
-That second call follows the link, and following a link is a blocking syscall with no
-timeout on the one thread that answers requests. A symlink pointing into a mount that has
-stopped answering therefore stalls the backend itself, not just the row that named it.
+That second call follows the link, and following a link is a blocking syscall. On a remote
+mount that syscall no longer runs on the loop: the window stat goes through `window_metas` in
+`backend/run.rs`, which stats inline with no listing clone on a local mount and moves only the
+window's rows to a mount-keyed worker on a remote one, bounded by `CALL_DEADLINE` like every
+`iomount::call`. The thumbnail path is bounded the same way: `thumb_rows` in `backend/thumbreq.rs`
+stats each client-named row through `iomount::call` under `"thumb"` before it queues anything.
+`listpaths` is the exception that still stats on the loop: its `answer` ends in `write_window`,
+which runs `stat_range` on the loop's thread directly.
 This box has no NFS, no CIFS and no sshfs, but it does mount `fuse.gvfsd-fuse` at
 `/run/user/1000/gvfs` and `fuse.portal` at `/run/user/1000/doc`, so a symlink into a live
 gvfs mount whose server goes away is a reachable case here rather than a hypothetical.
 The exposure is bounded by the window: `stat_range` only ever runs over the rows a client
 asked for, so a 100,000 row listing with 350 rows held makes at most 350 of these calls,
-and only for the symlinks among those 350. It is not defended against in code on purpose.
-There is no way to put a timeout on a synchronous `stat` without giving each row its own
-thread, which is an absurd price for an icon, and the precedent is already shipped:
-`thumb_rows` in `backend/run.rs` calls `std::fs::metadata` on a client-named path, also
-following the link, also on this loop, and Plan 4 shipped that deliberately. A real fix is
-one asynchronous stat path for both call sites and belongs to whichever plan takes on
-non-blocking IO, not to an icon change.
+and only for the symlinks among those 350. There is no way to put a timeout on a synchronous
+`stat` without giving each row its own thread, which is an absurd price for an icon, so the
+bound above is per window rather than per row: one hung symlink in the window still costs the
+window its deadline, answered as "<mount> is not responding." on a remote mount. `window_metas` picks the path by the listing's base (`run.rs:506`), so a local listing's symlink into a hung mount still follow-stats on the loop through `stat_range` (`meta.rs:111`) and stalls the backend, and that corner stays undefended on purpose.
 
 190 of the 613 distinct `application/*` types in `globs2` have no `generic-icons` entry on
 this box and fall through to the class arm. Both counts move with the installed applications,
@@ -6369,6 +6489,12 @@ list stayed sentence case in its source, matching `activePhrases`' own authoring
 an identically-named `dim` property in `tailscale/Panel.qml` governing its own rows rather than
 `PanelHero.qml` itself. `PanelHero.qml:22` reads `readonly property color dim: Qt.darker(foreground,
 1.4)`; `ui/EmptyState.qml` and the value above are both corrected to `1.4`.
+
+### Motion: what stays animation-free
+
+`ui/js/Motion.js` owns the curve and the two durations every structural transition answers with,
+OutCubic at 180 ms to reveal and 140 ms to hide. Scroll, cursor and hover fills stay
+animation-free, except `Scroll.js` touchpad momentum, and reduced motion snaps instead of easing.
 
 ### Capitalization, derived from the shipped plugins and not from a stale doc comment
 
@@ -7110,3 +7236,11 @@ Advfix-fs1 round 1 records one ceiling, re-derived with `wc -l`: `ui/NetworkMoun
 tp2-r2 answers the six elastic-edge findings, each re-derived with `wc -l`: `ui/js/Scroll.js` 289 to 299, 297 after the advfix-tp2-r1 comment cut, for margin-aware `limits`/`bounded` with `limitsY`/`limitsX`, the `rangesX`/`rangesY` no-range-no-delta rule and `OVER_DECAY` 0.98 with `overDecel`, staying under the 300 hard cap; `ui/FastScrollHandler.qml` 455 to 493, 469 after advfix-tp2-r1 with the dead release settle deleted and the comments cut to one line, for accepting the overscrolled lift End, the `scrollsX`/`scrollsY` direction-plus-range gates with zeroed dead samples, per-axis tail ends, frame-by-frame past-bound integration through banked raw travel, no-snap press with the view's own release fixup as the settle, and the stale-banked-travel drop after a listing swap; `ui/List.qml` 435 to 445, 440 after advfix-tp2-r1 with the dedupe keyed on the bounded position, for the cursor clamp reading the bounded view and firing only when that view moved; `ui/ViewportScrollBar.qml` and `ui/SelectionBand.qml` keep their ceilings for the margin-aware clamps; `tests/touchpad.qml` 540 to 568, 585 after advfix-tp2-r1, for the press-stops-where-it-is update with the production-path settle pins. The proof is the new `tests/touchpad-edge.qml` at 384, 400 after advfix-tp2-r1 (return acceptance plus 12-frame OutCubic, cursor never moves on 1.37/140 px bounces, press holds 140/30 px with the under-pointer row and settles through the view's own fixup, tail peak 55 past with no past-bound frame above the in-bound max) and `tests/scroll-bounds.qml` at 212 (grid rests at -gap through press, Begin and End and returns there, diagonal coasts exactly like the pure stroke at 2028.9 px), each with its 42-line `.sh` offscreen driver, both registered in `tests/run-all.sh` headless; `tests/js/scroll.js` 159 to 184 after advfix-tp2-r1 carries the pure margin, range and brake pins with typeof guards so the old tree fails them clean instead of erroring.
 
 tp2-r2 moved detail (advfix-tp2-r1 cut the runs above to one constraint line each): Flickable eats wheel before a child WheelHandler, so the handler is a MouseArea; touchpad strokes move gained pixels with Finder momentum tail and rubber-band past bounds while a wheel notch keeps the Theme rate with none and never overscrolls; gates read direction first, so a tilt never overscrolls a vertical list sideways nor steals its lift tail; a new stroke snaps the return to its bound while a press stops it where it is, so the tapped row is the row under the pointer; raw travel accumulates past the bound with shown staying under the view, and content back inside with travel still banked is a listing swap under held fingers, so it is dropped rather than spent; reduced motion still overscrolls as direct manipulation but returns at once; the FrameAnimation and the headless probe both enter per-frame, the overshoot grows over frames and peaks instead of jumping, and each axis ends on its own; a vertical list keeps contentX 0 through any diagonal; snapping on press would move the row Qt picked the target from, so the tap would land on nothing; the cursor follows the bounded view because overscroll shows no new rows and the return lands back on the view it left; `bounded` never leaves origin-less-leading to last-page-plus-trailing, and margins default to 0 so margin-less callers read as before.
+
+Advfix-scroll round 2 records two over-cap ceilings, each re-derived with `wc -l`: `tests/touchpad.qml` 452 to 454 as a new over-cap test exception (round 1's end at 452 for the angle-free and real-press and notch stops, plus 2 for the round 2 angleFree mid-list park that makes a notch-routed frame move 9.6 px instead of clamping at the last page) and `ui/PickerWindow.qml` 770 to 776 for pk1's onListed fsinfo ask (the grid plans thumbnails against the storage class, asked only when the listing lands and never for Recent).
+
+Advfix-scroll round 3 names the 400 px park once, re-derived with `wc -l`: `tests/touchpad.qml` 454 to 456 for `parkAbovePx` beside `rowCount` with its one-line comment, used at both parks, so no bare 400 remains.
+
+mg-stage3 records two over-cap ceilings, each re-derived with `wc -l`: `src/backend/undo.rs` at 601 for the shared journal (the pinned Mode with its birth time, the payload-free barrier with its codec helpers, and the manifest reattach) with its undo, redo and codec tests beside it, and `src/backend/undoshare_tests.rs` at 513 for the shared-journal pins (the two-window undo and redo, the barrier consume, the exact-integer round trip with the pinned birth time, and the oversized-entry trims), each over the hard cap and recorded rather than split.
+
+xw4r2 records four ceilings, each re-derived with `wc -l`: `ui/ViewState.qml` 495 to 529 for the joined settler halves, the queued prune with its settleNext order, the failure-arm pruneFailed and the per-load favourites sync; `ui/js/UiState.js` 432 to 442 for invalidKeys, dropInvalid and the settle join and order helpers; `tests/js/uistate.js` 329 to 363 for the two-key prune, the owed-differing and the settle-order pins; `tests/js/watch.js` 307 to 334 for the .dot-insertion reorder, the partial-selection clear and the anchor-resolution pins. `ui/Pane.qml` keeps 999 with no added line and `ui/js/Anchor.js` keeps 178 inside the soft budget; `tests/xwsettings.sh` stands at 467 lines of shell the budget scan does not read.

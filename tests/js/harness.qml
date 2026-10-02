@@ -64,10 +64,12 @@ import "renderer.js" as RendererSuite
 import "rowcells.js" as RowCellsSuite
 import "scroll.js" as ScrollSuite
 import "scrolloff.js" as ScrollOffSuite
+import "menuscroll.js" as MenuScrollSuite
 import "search.js" as SearchSuite
 import "selection.js" as SelectionSuite
 import "reload.js" as ReloadSuite
 import "slowclick.js" as SlowClickSuite
+import "slowop.js" as SlowOpSuite
 import "shiftranges.js" as ShiftRangesSuite
 import "sheetquery.js" as SheetQuerySuite
 import "sheetcandidates.js" as SheetCandidatesSuite
@@ -140,8 +142,8 @@ Item {
             ["recentdates", RecentDatesSuite],
             ["reclick", ReclickSuite],
             ["renderer", RendererSuite], ["rowcells", RowCellsSuite],
-            ["scroll", ScrollSuite], ["scrolloff", ScrollOffSuite], ["search", SearchSuite],
-            ["selection", SelectionSuite], ["shiftranges", ShiftRangesSuite], ["sheetquery", SheetQuerySuite], ["sheetcandidates", SheetCandidatesSuite], ["reload", ReloadSuite], ["slowclick", SlowClickSuite], ["settings", SettingsSuite], ["settingsmenus", SettingsMenusSuite], ["settingsshelf", SettingsShelfSuite], ["settingsabout", SettingsAboutSuite],
+            ["scroll", ScrollSuite], ["scrolloff", ScrollOffSuite], ["menuscroll", MenuScrollSuite], ["search", SearchSuite],
+            ["selection", SelectionSuite], ["shiftranges", ShiftRangesSuite], ["sheetquery", SheetQuerySuite], ["sheetcandidates", SheetCandidatesSuite], ["reload", ReloadSuite], ["slowclick", SlowClickSuite], ["slowop", SlowOpSuite], ["settings", SettingsSuite], ["settingsmenus", SettingsMenusSuite], ["settingsshelf", SettingsShelfSuite], ["settingsabout", SettingsAboutSuite],
             ["sort", SortSuite], ["swap", SwapSuite], ["startup", StartupSuite], ["trashdates", TrashDatesSuite], ["permissions", PermissionsSuite], ["status", StatusSuite], ["statusfix", StatusFixSuite], ["taildrop", TaildropSuite], ["textsize", TextSizeSuite],
             ["trash", TrashSuite], ["tap", TapSuite], ["marquee", MarqueeSuite], ["tabs", TabsSuite], ["tabs-switch", TabsSwitchSuite], ["tabmove", TabMoveSuite], ["tabrestore", TabRestoreSuite], ["shelfmodel", ShelfModelSuite],
             ["themes", ThemesSuite], ["thumbs", ThumbsSuite], ["extthumbs", ExtThumbsSuite], ["transfer", TransferSuite], ["uistate", UiStateSuite], ["update", UpdateSuite],

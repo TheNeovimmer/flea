@@ -65,6 +65,10 @@ function sentence(where, message, named) {
     if (where === "stale") {
         return "The listing changed before that arrived, so nothing was done."
     }
+    // A window past its deadline names its mount, so the backend's own sentence is the one to show.
+    if (where === "window") {
+        return capitalised(message)
+    }
     if (where === "transfer" || where === "archive" || where === "convert"
             || where === "link" || where === "linktarget" || where === "rename-stranded") {
         return capitalised(message)

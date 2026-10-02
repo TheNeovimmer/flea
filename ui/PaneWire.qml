@@ -9,6 +9,7 @@ import "js/Ops.js" as Ops
 import "js/Permissions.js" as Permissions
 import "js/Status.js" as Status
 import "js/Search.js" as Search
+import "js/SlowOp.js" as SlowOp
 import "js/Swap.js" as Swap
 import "js/Thumbs.js" as Thumbs
 import "js/ExtThumbs.js" as ExtThumbs
@@ -131,15 +132,18 @@ Item {
         pane.backend.send({c: "locate", paths: root.retryPaths, transferId: root.retryId})
     }
 
-    // Only arm an editor after the new folder's actual row arrives in the held window.
+    // Only arm an editor after the new folder's actual row arrives in the held window, matched
+    // by the name the backend lists so an NFC name on hfsplus finds its NFD row and editor.
     function openRenameOnArrival() {
         if (root.renameOnArrival.length === 0)
             return
         var target = root.renameOnArrival
         root.renameOnArrival = ""
-        var row = pane.rowFor(pane.cursorIndex)
-        if (row && pane.join(pane.path, row.n) === target)
+        var at = Anchor.matchListed(pane, target)
+        if (at >= 0) {
+            pane.setCursor(at)
             pane.act("rename")
+        }
     }
 
     function refreshRename(request, selected, pointer) {
@@ -157,7 +161,7 @@ Item {
     Connections {
         target: pane.backend
 
-        function onListed(total, readMs, sortMs, path) { swap.takeListed(total, readMs, sortMs, path) }
+        function onListed(total, readMs, sortMs, path, changed) { swap.takeListed(total, readMs, sortMs, path, changed) }
         function onRows(start, items, ms, kinds, listing) { swap.takeRows(start, items, kinds, listing) }
 
         function onLocated(message) {
@@ -206,6 +210,15 @@ Item {
             // fix that: it asks for a window only on drift, and a full held one drifts on neither edge.
             Search.ranked(pane)
             pane.listArea.restartSettle()
+        }
+
+        // Sample input: {"t":"unmounted","path":"/media/stick","parent":"/media"}
+        // The open mount went away, so the pane moves to the nearest existing parent.
+        function onUnmounted(path, parent) {
+            if (path !== pane.path && !pane.path.startsWith(path + "/"))
+                return
+            pane.openWithoutHistory(parent)
+            pane.message("The mount went away, so this folder is no longer available.", false)
         }
 
         // Sample input: {"t":"changed","path":"/home/gm/Downloads"}
@@ -309,10 +322,10 @@ Item {
         // The listing is read again with the cursor left where the deleted rows were, and the row
         // that took their place selected, so the next delete needs no mouse. The whole selection is
         // gone from disk, so there is nothing to carry over but the position.
-        function onTrashed(ok, failed) {
+        function onTrashed(ok, failed, reason) {
             if (ok === 0 && failed === 0) return
             pane.sticky("")
-            pane.message(Ops.trashed(ok, failed), ok === 0)
+            pane.message(Ops.trashed(ok, failed, reason), ok === 0)
             pane.clearSelection()
             root.anchor = Anchor.afterDelete(pane, ok > 0)
         }
@@ -321,12 +334,16 @@ Item {
         // under the cursor; a rename the pointer committed keeps the pointer's own row instead.
         function onRenamed(ok, path) {
             var request = pane.renameRequest
-            if (!request || path !== request.destination) return
+            if (!SlowOp.closesRename(request, path)) return
             pane.renameRequest = null
             pane.renamingIndex = -1
             var target = Nav.renameRefreshTarget(pane, path)
             root.refreshRename(request, target, target === "")
         }
+
+        // A remote write past its deadline: information only, so the request stays open
+        // for the late reply, which closes it exactly as an in-time reply would.
+        function onSlowOp(op, path, msg) { SlowOp.show(pane, msg) }
 
         // Sample input: {"t":"made","ok":true,"path":"/home/gm/Pictures/New Folder"}
         // The same refresh onRenamed does, which is also what puts the order back to name ascending
@@ -344,14 +361,19 @@ Item {
 
         // MenuAdditions040: Paste as links answers one line per request, and
         // one journal entry, so one undo removes every link it created.
-        function onLinked(ok, failed, skipped) {
-            pane.message(Ops.linkedLine(ok, failed, skipped), failed > 0 && ok === 0)
+        function onLinked(ok, failed, skipped, note) {
+            // A stranded note is shown as an error, so a leftover link is never silent.
+            var stranded = String(note || "").length > 0
+            pane.message(Ops.linkedLine(ok, failed, skipped, note || ""), (failed > 0 && ok === 0) || stranded)
             pane.refresh("")
         }
 
         // MenuAdditions040: Show original reveals the link's target in its own
         // folder, the same path Show in folder uses.
-        function onLinkTarget(path, directory, name) {
+        function onLinkTarget(path, directory, name, id) {
+            // A stale or foreign id is ignored, so a late reply never yanks a navigation.
+            if (!pane.linkTargetPendingId || id !== pane.linkTargetPendingId) return
+            pane.linkTargetPendingId = 0
             if (directory.length === 0 || name.length === 0) {
                 pane.message("That link points nowhere to reveal.", true)
                 return
@@ -509,7 +531,9 @@ Item {
                 pane.transfer = Ops.emptyTransfer()
                 pane.sticky("")
             }
-            if (terminal || where === "scan" || pane.listingState === "loading") {
+            // A failure landing on the waiting state ends the wait the same way, so no
+            // stale "not responding" outlives the answer that replaced it.
+            if (terminal || where === "scan" || pane.listingState === "loading" || pane.listingState === "waiting") {
                 pane.listingState = Errors.listingState(where, message)
                 pane.lockedMode = mode; pane.stateMessage = text
             }
