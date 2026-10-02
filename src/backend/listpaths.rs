@@ -3,7 +3,7 @@ use crate::backend::listing::Listing;
 use crate::backend::proto::listed_line;
 use crate::backend::run::{forget_rows, write_window};
 use crate::backend::searchreq::finish_search;
-use crate::backend::state::{State, Tables};
+use crate::backend::state::{Held, State, Tables};
 use crate::backend::thumbs::Pool;
 use std::fs;
 use std::io::Write;
@@ -54,13 +54,13 @@ pub fn answer(
     let (mut l, read_ms) = listing_of(paths);
     super::picker::filter_listing(&mut l, &tb.mime, line);
     // A history is small, so a re-read over one always names its added plus removed rows.
-    let recheck = st.listpaths_held;
+    let recheck = st.held == Held::ListPaths;
     let changed = if recheck { super::listing::changed_count(&st.listing, &l) } else { 0 };
     // base and listing only move together, exactly as a list moves them.
     st.base = PathBuf::from(BASE);
     st.listing = l;
     // The held listing is a listpaths one now, so a re-read over it names its count.
-    st.listpaths_held = true;
+    st.held = Held::ListPaths;
     forget_rows(st, pool);
     // The sort figure is always zero: nothing here is sorted, see docs/protocol.md "listpaths".
     let listed = listed_line(st.listing.len(), read_ms, 0.0, dev_of(&st.base), &st.base.to_string_lossy());
@@ -233,5 +233,32 @@ mod tests {
         answer(&mut out, &mut st, &pool, &tb, &[astr], 10, "");
         let line = String::from_utf8(out).unwrap();
         assert!(!line.lines().next().unwrap().contains("changed"), "a first listpaths after list / carries no count: {}", line);
+    }
+
+    #[test]
+    fn a_list_root_after_listpaths_carries_no_count() {
+        use crate::backend::dirsizeworker::Worker;
+        use crate::backend::state::{State, Tables};
+        use crate::backend::thumbs::Pool;
+        use std::sync::{mpsc::channel, Arc};
+        // A held history is not a root list, so a root re-list over it names no count.
+        let d = TestDir::new("listpaths-held-root");
+        let a = d.join("a.txt");
+        fs::write(&a, "a").unwrap();
+        let astr = a.to_string_lossy().to_string();
+        let (tx, _rx) = channel();
+        let (mut st, tb) = (State::new(Worker::new(tx)), Tables::load());
+        let (results, _done) = channel();
+        let pool = Pool::new(1, results, d.join("cache"), Arc::clone(&tb.aliases), Arc::clone(&tb.thumbs));
+        let mut out = Vec::new();
+        answer(&mut out, &mut st, &pool, &tb, &[astr], 10, "");
+        let mut root = Listing::new();
+        for name in ["bin", "etc", "home"] {
+            root.push(name, false);
+        }
+        let mut out = Vec::new();
+        super::super::run::adopt(&mut out, &mut st, &pool, &tb, "/", root, (0.0, 0.0), &[], 10, true);
+        let line = String::from_utf8(out).unwrap();
+        assert!(!line.lines().next().unwrap().contains("changed"), "a root list over a held history carries no count: {}", line);
     }
 }

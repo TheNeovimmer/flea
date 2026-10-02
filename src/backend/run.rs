@@ -18,7 +18,7 @@ use crate::backend::sandbox;
 use crate::backend::scan::{mode_of, scan};
 use crate::backend::listing::Listing;
 use crate::backend::search::Search;
-use crate::backend::state::{State, Tables};
+use crate::backend::state::{Held, State, Tables};
 use crate::backend::searchreq::{finish_search, step_search};
 use crate::backend::ordering;
 use crate::backend::thumbcache::{default_root, Cache};
@@ -224,8 +224,8 @@ fn handle_line(
             }
             st.base = PathBuf::from(&path);
             st.listing = Listing::new();
-            // A walk replaces any held listpaths, so the next first listpaths carries no count.
-            st.listpaths_held = false;
+            // A walk holds no directory listing, so neither re-read counts over it.
+            st.held = Held::Walk;
             // A walk's matches are not a directory either, so nothing is watched until list asks again.
             watch.stop();
             forget_rows(st, pool);
@@ -394,13 +394,13 @@ pub fn forget_rows(st: &mut State, pool: &Pool) {
 // A list's scanned and ordered result becomes the listing and is answered: its listed line, then its first rows.
 pub(crate) fn adopt(out: &mut impl Write, st: &mut State, pool: &Pool, tb: &Tables, path: &str, l: Listing, (read_ms, sort_ms): (f64, f64), sized: &[Option<DirSize>], first: usize, want_changed: bool) {
     // A same-path re-list names added plus removed rows, so a rename counts 2 against a net delta of 0.
-    let same = Path::new(path) == st.base.as_path();
+    let same = st.held == Held::List && Path::new(path) == st.base.as_path();
     let changed = if same && want_changed { crate::backend::listing::changed_count(&st.listing, &l) } else { 0 };
     // base and listing only move together, so a failed list cannot mix them.
     st.base = PathBuf::from(path);
     st.listing = l;
-    // A list replaces any held listpaths, so the next first listpaths carries no count.
-    st.listpaths_held = false;
+    // A list holds a directory now, so only its own re-read counts.
+    st.held = Held::List;
     forget_rows(st, pool);
     // After forget_rows, which clears the very map this seeds.
     seed_answered(st, sized);
