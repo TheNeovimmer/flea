@@ -13,6 +13,8 @@ ShellRoot {
 
     property var failures: []
     property int rowCount: 3000
+    // Park sits inside one 1200 px flick with room for a 9.6 px notch
+    property int parkAbovePx: 400
     property double fakeT: 1000
     property int livePolls: 0
     property double liveLiftY: 0
@@ -396,7 +398,7 @@ ShellRoot {
     function endStop() {
         var h = handlers()
         var maxY = list.contentHeight - list.height
-        list.contentY = maxY - 400
+        list.contentY = maxY - root.parkAbovePx
         feedStroke(h.body, flickRaw(12, -40), 8)
         root.freeze()
         if (!root.tailActive()) {
@@ -429,7 +431,7 @@ ShellRoot {
     function angleFree() {
         var h = handlers()
         var maxY = list.contentHeight - list.height
-        list.contentY = maxY - 400
+        list.contentY = maxY - root.parkAbovePx
         var before = list.contentY
         h.body.handleWheel({ pixelDelta: { x: 0, y: 0 }, angleDelta: { x: 0, y: -4 },
             phase: 2, modifiers: 0, accepted: false })
