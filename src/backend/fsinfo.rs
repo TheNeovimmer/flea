@@ -29,6 +29,11 @@ const MAGIC: &[(i64, &str)] = &[
     (0x65735546, "fuse"),
     (0x4D44, "vfat"),
     (0x5346544E, "ntfs"),
+    (0x7366746E, "ntfs3"),
+    (0x482B, "hfsplus"),
+    (0xF2F52010, "f2fs"),
+    (0x9660, "iso9660"),
+    (0x15013346, "udf"),
     (0x9FA0, "proc"),
     (0x62656572, "sysfs"),
     (0x27E0EB, "cgroup"),
@@ -147,6 +152,15 @@ mod tests {
         assert_eq!(name_for(0x01021997), "9p");
         assert_eq!(name_for(0x00C36400), "ceph");
         assert_eq!(name_for(0x2011BAB0), "exfat");
+    }
+
+    #[test]
+    fn usb_and_optical_magics_read_back_as_names() {
+        assert_eq!(name_for(0x7366746E), "ntfs3");
+        assert_eq!(name_for(0x482B), "hfsplus");
+        assert_eq!(name_for(0xF2F52010), "f2fs");
+        assert_eq!(name_for(0x9660), "iso9660");
+        assert_eq!(name_for(0x15013346), "udf");
     }
 
     #[test]

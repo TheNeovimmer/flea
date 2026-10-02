@@ -374,8 +374,19 @@ Item {
         // the way gio lists its own mounts. No menu at defaults, like Dropbox's row: the
         // tool that made the mount owns it, so Flea never mounts, unmounts or configures it.
         var clouds = Cloud.parseCloudMounts(cloudFile.text(), Quickshell.env("HOME"))
+        var seenPath = {}
         for (var c = 0; c < clouds.length; c++) {
+            seenPath[clouds[c].path] = true
             out.push({ path: clouds[c].path, label: Mounts.leaf(clouds[c].path), group: "network",
+                       kind: "cloud", uri: "", mounted: true, glyph: "server" })
+        }
+        // Kernel NFS and CIFS mounts and network FUSE mounts outside home show the same way, read without a per-row stat.
+        var nets = Cloud.parseNetworkMounts(cloudFile.text(), Quickshell.env("HOME"))
+        for (var v = 0; v < nets.length; v++) {
+            if (seenPath[nets[v].path])
+                continue
+            seenPath[nets[v].path] = true
+            out.push({ path: nets[v].path, label: Mounts.leaf(nets[v].path), group: "network",
                        kind: "cloud", uri: "", mounted: true, glyph: "server" })
         }
         // Every five seconds forever, so an unchanged poll must not assign: see Mounts.sameEntries.

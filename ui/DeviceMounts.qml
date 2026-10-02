@@ -247,9 +247,9 @@ Item {
         // which hid / behind /home here and left the system disk unidentifiable.
         // TRAN is the transport, asked for because RM alone misses a USB bridge: a WD My Passport
         // reports rm=false with tran=usb, and a drive you can unplug has to offer Eject (PR 74).
-        // FSTYPE and PARTTYPENAME are RailAdditions rule 1's three exceptions: swap, the EFI system
-        // partition and a volume with no filesystem are the rows an unmounted sweep must not draw.
-        command: ["lsblk", "--bytes", "--json", "-o", "NAME,PATH,LABEL,MOUNTPOINTS,RM,TRAN,SIZE,TYPE,MODEL,FSTYPE,PARTTYPENAME"]
+        // PARTTYPE, PTTYPE, PARTN and UUID are the hide rule's own columns: a firmware type, an
+        // installer ISO keep, a recovery label and the dedupe key never come out of FSTYPE alone.
+        command: ["lsblk", "--bytes", "--json", "-o", "NAME,PATH,LABEL,MOUNTPOINTS,RM,TRAN,SIZE,TYPE,MODEL,FSTYPE,PARTTYPENAME,PARTTYPE,PTTYPE,PARTN,UUID"]
         stdout: StdioCollector {
             id: listOut
             waitForEnd: true

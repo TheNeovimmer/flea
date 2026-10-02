@@ -199,9 +199,9 @@ fn is_dir_path(candidate: &Candidate) -> Option<String> {
     Path::new(&candidate.path).is_dir().then(|| candidate.path.clone())
 }
 
-// A filesystem whose stat can wedge for good: network kinds and any FUSE mount.
+// A filesystem whose stat can wedge: the shared network list plus any FUSE mount.
 fn remote(kind: &str) -> bool {
-    matches!(kind, "nfs" | "nfs4" | "cifs" | "smb3" | "smbfs" | "9p" | "ceph" | "afs" | "fuse") || kind.starts_with("fuse.")
+    super::netfs::is_network_fstype(kind) || kind == "fuse" || kind.starts_with("fuse.")
 }
 
 // What a check is known by: the mount on a remote filesystem, else the path itself; lexical, never a stat.

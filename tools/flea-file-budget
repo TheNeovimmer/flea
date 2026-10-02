@@ -16,7 +16,7 @@ src/backend/copyfile_tests.rs 460
 src/backend/durable.rs 662
 src/backend/durable_tests.rs 1248
 src/backend/fsinforeq.rs 407
-src/backend/jump_tests.rs 403
+src/backend/jump_tests.rs 406
 src/backend/renamecompat.rs 447
 src/backend/gvfslist.rs 549
 src/backend/imagesize.rs 475
@@ -76,7 +76,7 @@ ui/KeymapSheet.qml 585
 ui/List.qml 435
 ui/NetworkDialog.qml 449
 ui/NetworkForm.qml 405
-ui/NetworkMounts.qml 838
+ui/NetworkMounts.qml 849
 ui/OpenWithDialog.qml 596
 ui/Pane.qml 992
 ui/PaneMenuActions.qml 458

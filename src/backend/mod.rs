@@ -10,6 +10,7 @@ pub mod mime;
 pub mod fsinfo;
 pub mod fsinforeq;
 pub mod extclass;
+pub mod netfs;
 pub mod durable;
 pub mod icons;
 pub mod regfile;
