@@ -10,10 +10,7 @@ function create() {
     var lone = false
     // True only for the row a navigation landed on, which Escape climbs past instead of unwinding.
     var landed = false
-    // Additive Shift ranges: the marks a gesture started from, plus the cursor the last extend left.
-    // Every mutator below ends the gesture except the gesture's own apply, so a plain move, a v, a
-    // ctrl+click, a select-all or a fresh listing all start a new block; extend detects a move by the
-    // cursor no longer matching shiftLast.
+    // Shift adds to the gesture's starting marks; other mutators end it, and a cursor differing from shiftLast starts a new block.
     var shiftBase = null
     var shiftLast = -1
     var shiftSeq = 0

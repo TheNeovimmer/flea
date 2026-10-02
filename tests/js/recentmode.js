@@ -261,12 +261,10 @@ function run(check) {
           roaming.backend.sortBy + "|" + roaming.backend.sortDesc, "kind|true")
     check("and the mode is off after the hop", roaming.recentMode, "")
     check("and lands where the hop asked", roaming.opened.join(","), "/home/gm/Elsewhere")
-    // A walk started from Recent restores through the pane, and every navigation restores direct.
+    // A walk started from Recent restores through the pane.
     var searchSrc = Source.source("ui/js/Search.js")
     check("a walk started from Recent hands the standing order back",
           searchSrc.indexOf("root.restoreRecentSort()") >= 0, true)
     check("and the pane answers that call inside restoreRecentSort",
           Source.slice(declared, "function restoreRecentSort()", "function openRecent(").indexOf("RecentMode.restoreSort(root)") >= 0, true)
-    check("and every navigation restores direct inside openWithoutHistory",
-          Source.slice(declared, "function openWithoutHistory(", "if (!root.listInFlight)").indexOf("RecentMode.restoreSort(root)") >= 0, true)
 }

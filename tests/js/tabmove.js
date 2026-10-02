@@ -86,7 +86,6 @@ function run(check) {
         order(busyMove) + "|" + busyMove.said[busyMove.said.length - 1], "/tmp/a,/tmp/b,/tmp/c|A directory is already loading.")
     check("and it keeps the pending restore", busyMove.tabs.pendingSortBy + "|" + busyMove.tabs.pendingCursor, "size|7")
     // The rail's favourite drag answers its landing and its line from the same helper.
-    // The rail's favourite drag answers its landing and its line from the same helper.
     var down = TabMove.railReorder(30, 1, 30, 5)
     check("a rail drag down one lands one lower", down.to, 2)
     check("and draws the line below it", down.line, 3)

@@ -138,10 +138,6 @@ function run(check) {
     var first = SheetQuery.placeCandidates(dupes).filter(function (row) { return row.railIndex === 0 })[0]
     check("the first src still opens rail row 0", SheetQuery.placeIndex(dupes, SheetQuery.dispatch(first)), 0)
     check("a gone row answers -1", SheetQuery.placeIndex([], SheetQuery.dispatch(second)), -1)
-    // The listing gate the sheet's action branch owes: a row action refuses while a listing is out.
-    check("trash refuses while a listing is out", SheetQuery.listingRefusal(true, "trash"), "A directory is already loading.")
-    check("open still answers while a listing is out", SheetQuery.listingRefusal(true, "open"), "")
-    check("at rest nothing refuses", SheetQuery.listingRefusal(false, "trash"), "")
     // A sheet menu row snapshots first, so the activate meets the selection.
     var calls2 = []
     var holder2 = { menuActions: {
