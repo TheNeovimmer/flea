@@ -3215,7 +3215,7 @@ case_xwsettings() {
     assert_window
     local ipcA=(omarchy-drive ipc -p "$flea_ui/boot" flea)
     local ipcB=(omarchy-drive ipc -p "$uib/boot" flea)
-    wait_listing 2
+    wait_listing 3
     [[ "$("${ipcA[@]}" path)" == "$dir" ]] || fail "xwsettings: A opened $("${ipcA[@]}" path), not $dir"
 
     # Window B on the copied tree, over the same state file.
@@ -3250,22 +3250,33 @@ case_xwsettings() {
     settle
     printf 'XWSETTINGS route=ok\n'
 
+    # Views stay their own and non-vacuous: A in list, B in grid, so the shared hidden change below
+    # proves each kept its view rather than two list windows agreeing by doing nothing.
+    omarchy-drive focus "$addrB" >/dev/null
+    omarchy-drive key --window "$addrB" -M ctrl -k 3 -m ctrl >/dev/null
+    settle
+    [[ "$("${ipcB[@]}" viewMode)" == "grid" ]] || fail "xwsettings: B did not switch to grid, it is $("${ipcB[@]}" viewMode)"
+    [[ "$("${ipcA[@]}" viewMode)" == "list" ]] || fail "xwsettings: A did not stay in list, it is $("${ipcA[@]}" viewMode)"
+
     # Hidden files, toggled in A and applied in B: the '.' and Ctrl+> keys and the menu row all
     # write the one global hidden preference, so one keypress stands in for all three entrances.
+    # The fixture holds sub, a.txt, b.txt and .dot, so 3 rows without dotfiles and 4 with.
     omarchy-drive focus "$addrA" >/dev/null
     local hid_start hid_ms hid_total=0
     hid_start=$(date +%s%3N)
     omarchy-drive key --window "$addrA" . >/dev/null
     for (( attempt = 0; attempt < 20; attempt++ )); do
         hid_total=$("${ipcB[@]}" total 2>/dev/null || printf 0)
-        [[ "$hid_total" == 3 ]] && break
+        [[ "$hid_total" == 4 ]] && break
         sleep 0.05
     done
     hid_ms=$(( $(date +%s%3N) - hid_start ))
-    [[ "$hid_total" == 3 ]] || fail "xwsettings: B never showed the dotfiles, total is $hid_total"
+    [[ "$hid_total" == 4 ]] || fail "xwsettings: B never showed the dotfiles, total is $hid_total"
     (( hid_ms <= 1000 )) || fail "xwsettings: B took ${hid_ms}ms to show the dotfiles, over the 1s bound"
-    [[ "$("${ipcB[@]}" showHidden)" == "true" ]] || fail "xwsettings: B lists three rows but reports showHidden $("${ipcB[@]}" showHidden)"
+    [[ "$("${ipcB[@]}" showHidden)" == "true" ]] || fail "xwsettings: B lists four rows but reports showHidden $("${ipcB[@]}" showHidden)"
     [[ "$("${ipcA[@]}" showHidden)" == "true" ]] || fail "xwsettings: A's own toggle did not take"
+    [[ "$("${ipcA[@]}" viewMode)" == "list" ]] || fail "xwsettings: the shared hidden change moved A to $("${ipcA[@]}" viewMode)"
+    [[ "$("${ipcB[@]}" viewMode)" == "grid" ]] || fail "xwsettings: the shared hidden change moved B to $("${ipcB[@]}" viewMode)"
     printf 'XWSETTINGS hidden=ok elapsed_ms=%s\n' "$hid_ms"
 
     # Density, stepped in B's own Settings panel and applied in A: compact is the default, so one
@@ -3324,7 +3335,8 @@ case_xwsettings() {
     [[ "$("${ipcB[@]}" path)" == "$dir/sub" ]] || fail "xwsettings: B never opened sub, it is at $("${ipcB[@]}" path)"
     [[ "$("${ipcA[@]}" path)" == "$dir" ]] || fail "xwsettings: A left $dir for $("${ipcA[@]}" path)"
     [[ "$("${ipcA[@]}" viewMode)" == "list" ]] || fail "xwsettings: A's view moved to $("${ipcA[@]}" viewMode)"
-    [[ "$("${ipcA[@]}" total)" == "3" ]] || fail "xwsettings: A lost the applied toggle, total is $("${ipcA[@]}" total)"
+    [[ "$("${ipcB[@]}" viewMode)" == "grid" ]] || fail "xwsettings: B's view moved to $("${ipcB[@]}" viewMode)"
+    [[ "$("${ipcA[@]}" total)" == "4" ]] || fail "xwsettings: A lost the applied toggle, total is $("${ipcA[@]}" total)"
     printf 'XWSETTINGS pinned=ok\n'
 
     kill "$bpid" 2>/dev/null || true

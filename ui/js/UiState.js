@@ -45,13 +45,156 @@ function favouritesAfter(records, operation) {
 
 // Keys one window never takes from the state file, because they name where that window is
 // rather than how Flea behaves: the view it shows, the widths it drew, the dual pair and focus,
-// where it was, and stamps the sweep and the migrations own. Everything else is a preference the
-// Settings panel or a global toggle writes, and applies live in every open window.
+// where it was, its own sort, and stamps the sweep and the migrations own. Everything else is a
+// preference the Settings panel or a global toggle writes, and applies live in every open window.
 var WINDOW_KEYS = ["view", "pickerView", "columnWidths", "dual", "lastPath", "lastTabs",
-                   "trashSweptOn", "stateVersion"]
+                   "trashSweptOn", "stateVersion", "sort"]
 
 function isWindowKey(key) {
     return WINDOW_KEYS.indexOf(key) >= 0
+}
+
+// Leaves one window never takes, Finder-style: the rail, the preview column and the grid zoom
+// stay per window like the sidebar, preview pane and icon size. A change made in Settings still
+// writes the file and a new window reads it; open windows keep their own.
+var WINDOW_LEAF_KEYS = ["places.rail", "preview.column", "preview.thumbSize"]
+
+function isWindowLeaf(key, leaf) {
+    return WINDOW_LEAF_KEYS.indexOf(key + "." + leaf) >= 0
+}
+
+// True for a patch the schema refused, which settled heals and a retry can never land: the
+// binary names the key it refused. Anything else (an unwritable directory, a wrapper's simulated
+// refusal, a writer that never started) keeps today's retry, so transient failures lose nothing.
+// The writer reads this off its own inflight patch rather than the child's stderr, because onExited
+// races the collector's text and an empty read would retry a refusal forever.
+function isValidationRefusal(stderrText) {
+    var text = String(stderrText || "")
+    return text.indexOf("must be a JSON object") >= 0
+        || text.indexOf("is not a ui.json key") >= 0
+        || text.indexOf("takes an object, not") >= 0
+        || text.indexOf("is kept by Flea") >= 0
+        || text.indexOf("does not take") >= 0
+}
+
+// The same decision off the patch itself, which is what the writer gates on: a columns set without
+// name, with an unknown key or with a duplicate, and a places group that is not an object, are the
+// shapes a hand edit plants and a retry can never land. Anything else retries, so the wrapper's
+// simulated refusal of a valid patch keeps the old behaviour.
+function isPatchInvalid(patchText) {
+    var patch = null
+    try {
+        patch = JSON.parse(patchText)
+    } catch (e) {
+        return false
+    }
+    if (!patch || typeof patch !== "object" || Array.isArray(patch))
+        return false
+    if (patch.columns !== undefined) {
+        var cols = patch.columns
+        if (!Array.isArray(cols) || cols.indexOf("name") < 0)
+            return true
+        var seen = {}
+        var keys = ["name", "mode", "size", "date", "kind"]
+        for (var i = 0; i < cols.length; i++) {
+            if (keys.indexOf(cols[i]) < 0 || seen[cols[i]])
+                return true
+            seen[cols[i]] = true
+        }
+    }
+    if (patch.places !== undefined && (patch.places === null || typeof patch.places !== "object" || Array.isArray(patch.places)))
+        return true
+    return false
+}
+
+// True when text parses as a JSON object; empty or garbage is ignored until the next valid write.
+function parsesAsObject(text) {
+    try {
+        var found = JSON.parse(text)
+        return found && typeof found === "object" && !Array.isArray(found)
+    } catch (e) {
+        return false
+    }
+}
+
+// Drop a refused patch's keys from what is owed and revert them to the settled document, so one
+// refusal never blocks every later save. Groups drop leaf by leaf, maps entry by entry; whole
+// keys drop whole. Returns the pruned owed patch plus the dropped top-level keys.
+function pruneRefused(unsaved, inflightText, settled) {
+    var inflight = null
+    try {
+        inflight = JSON.parse(inflightText)
+    } catch (e) {
+        return { unsaved: unsaved, dropped: [] }
+    }
+    if (!inflight || typeof inflight !== "object" || Array.isArray(inflight))
+        return { unsaved: unsaved, dropped: [] }
+    var out = {}
+    for (var k in unsaved)
+        out[k] = unsaved[k]
+    var dropped = []
+    for (var key in inflight) {
+        if (out[key] === undefined)
+            continue
+        if (isGroup(out[key]) && isGroup(inflight[key])) {
+            var kept = {}
+            var any = false
+            for (var leaf in out[key]) {
+                if (inflight[key][leaf] !== undefined
+                        && JSON.stringify(out[key][leaf]) === JSON.stringify(inflight[key][leaf])) {
+                    if (settled && settled[key] && JSON.stringify(inflight[key][leaf])
+                            !== JSON.stringify(settled[key][leaf]))
+                        continue
+                } else {
+                    kept[leaf] = out[key][leaf]
+                    any = true
+                }
+            }
+            if (any)
+                out[key] = kept
+            else
+                delete out[key]
+            dropped.push(key)
+        } else {
+            delete out[key]
+            dropped.push(key)
+        }
+    }
+    return { unsaved: out, dropped: dropped }
+}
+
+// The settled values a dropped key reverts to: whole keys copy, group leaves copy leaf by leaf.
+function revertedState(state, inflightText, settled) {
+    var inflight = null
+    try {
+        inflight = JSON.parse(inflightText)
+    } catch (e) {
+        return state
+    }
+    if (!inflight || typeof inflight !== "object" || !settled)
+        return state
+    var out = {}
+    for (var s in state)
+        out[s] = state[s]
+    for (var key in inflight) {
+        if (settled[key] === undefined)
+            continue
+        if (isGroup(inflight[key]) && isGroup(settled[key]) && isGroup(out[key])) {
+            var group = {}
+            for (var h in out[key])
+                group[h] = out[key][h]
+            for (var leaf in inflight[key]) {
+                if (settled[key][leaf] !== undefined)
+                    group[leaf] = settled[key][leaf]
+                else
+                    delete group[leaf]
+            }
+            out[key] = group
+        } else {
+            out[key] = settled[key]
+        }
+    }
+    return out
 }
 
 // A change another window saved, read off the file's own bytes. Preference keys the file names and
@@ -96,6 +239,8 @@ function applyExternal(state, unsaved, text) {
                         delete merged[leaf]
                 }
             }
+            if (held.rail !== undefined)
+                merged.rail = held.rail
             if (JSON.stringify(merged) !== JSON.stringify(state.places)) {
                 out.places = merged
                 changed = true
@@ -115,12 +260,46 @@ function applyExternal(state, unsaved, text) {
                     else
                         delete group[o]
                 }
+                for (var w in group) {
+                    if (isWindowLeaf(key, w)) {
+                        if (current[w] !== undefined)
+                            group[w] = current[w]
+                        else
+                            delete group[w]
+                    }
+                }
                 if (JSON.stringify(group) !== JSON.stringify(state[key])) {
                     out[key] = group
                     changed = true
                 }
             }
             continue
+        }
+        if (isGroup(value) && isGroup(state[key])) {
+            var anyLeafWindow = false
+            for (var vl in value) {
+                if (isWindowLeaf(key, vl)) {
+                    anyLeafWindow = true
+                    break
+                }
+            }
+            if (anyLeafWindow) {
+                var leafGroup = {}
+                for (var vg in value) {
+                    if (!isWindowLeaf(key, vg))
+                        leafGroup[vg] = value[vg]
+                }
+                var heldGroup = state[key] || {}
+                for (var hg in heldGroup) {
+                    if (isWindowLeaf(key, hg))
+                        leafGroup[hg] = heldGroup[hg]
+                }
+                if (JSON.stringify(leafGroup) !== JSON.stringify(state[key])) {
+                    out[key] = leafGroup
+                    changed = true
+                }
+                continue
+            }
         }
         if (JSON.stringify(value) !== JSON.stringify(state[key])) {
             out[key] = value

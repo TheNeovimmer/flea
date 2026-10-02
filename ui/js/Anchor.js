@@ -115,3 +115,56 @@ function landOn(pane, index, anchor) {
     else
         pane.setCursor(index, 0)
 }
+
+// A preference re-list (hidden files) keeps selection and cursor by name, the way the watcher keeps
+// the cursor. Names are captured before forget() clears them; rows outside the held window have no
+// name to keep and are left out, the small fixture holds all of them.
+function preference(pane) {
+    var cursorRow = pane.rowFor ? pane.rowFor(pane.cursorIndex) : null
+    var names = []
+    var indices = pane.selectedIndices ? pane.selectedIndices() : []
+    for (var i = 0; i < indices.length; i++) {
+        var row = pane.rowFor(indices[i])
+        if (row)
+            names.push(String(row.n))
+    }
+    return { name: cursorRow ? String(cursorRow.n) : "", index: pane.cursorIndex,
+             start: pane.held, path: pane.path, selected: names }
+}
+
+// Runs on each rows reply while a preference anchor stands. The cursor lands by name with the
+// watcher's fallback, then every selected name still present is marked again.
+function applyPreference(pane, anchor) {
+    if (!anchor)
+        return null
+    if (pane.path !== anchor.path)
+        return null
+    var cursorAt = -1
+    for (var i = 0; i < pane.rows.length; i++) {
+        if (String(pane.rows[i].n) === anchor.name) {
+            cursorAt = pane.held + i
+            break
+        }
+    }
+    if (cursorAt < 0 && anchor.start > 0 && pane.held === 0 && pane.total > anchor.start)
+        return anchor
+    if (cursorAt < 0 && pane.total > 0)
+        cursorAt = Math.min(anchor.index, pane.total - 1)
+    var marks = []
+    for (var s = 0; s < anchor.selected.length; s++) {
+        for (var r = 0; r < pane.rows.length; r++) {
+            if (String(pane.rows[r].n) === anchor.selected[s]) {
+                marks.push(pane.held + r)
+                break
+            }
+        }
+    }
+    if (cursorAt >= 0)
+        pane.setCursor(cursorAt, 0)
+    pane.selection.clear()
+    for (var m = 0; m < marks.length; m++)
+        pane.selection.toggle(marks[m])
+    if (marks.length > 0 || cursorAt >= 0)
+        pane.selectionVersion++
+    return null
+}

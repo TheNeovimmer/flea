@@ -286,4 +286,22 @@ function run(check) {
     var beyondAnchor = Anchor.pointerRow(beyond, clickReq)
     check("a cursor past the held window anchors on no name but keeps its index",
           beyondAnchor.name + "|" + beyondAnchor.index, "|5")
+
+    // xw4-r2 finding 2: a preference re-list keeps selection and cursor by name, Finder's rule.
+    var pref = watched(0, [{ n: "sub" }, { n: "a.txt" }, { n: "b.txt" }, { n: ".dot" }], 2)
+    pref.path = "/dir"
+    pref.selection = { clear: function () {}, toggle: function (i) { pref.marked.push(i) } }
+    pref.marked = []
+    pref.selectedIndices = function () { return [1, 2] }
+    pref.setCursor = function (i) { pref.cursorSetTo = i }
+    var prefAnchor = Anchor.preference(pref)
+    check("a preference anchor names the cursor file", prefAnchor.name, "b.txt")
+    check("and the selected files", prefAnchor.selected.join(","), "a.txt,b.txt")
+    pref.held = 0
+    pref.rows = [{ n: "sub" }, { n: "a.txt" }, { n: "b.txt" }, { n: ".dot" }]
+    pref.total = 4
+    pref.selectionVersion = 0
+    Anchor.applyPreference(pref, prefAnchor)
+    check("the cursor lands back on its file", pref.cursorSetTo, 2)
+    check("and the selection lands back on its files", pref.marked.join(","), "1,2")
 }

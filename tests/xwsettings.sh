@@ -211,19 +211,219 @@ if [ "$fail" -eq 0 ]; then
     sleep 0.05
   done
   if [ "$fail" -eq 0 ]; then
-    # Truncated mid-object, the way an editor's own write looks between its truncate and its close.
-    printf '%s' '{"hidden":true,"view":"grid","density":"compact"' \
-      > "$SANDBOX/garbage/state/flea/ui.json" || exit 1
-    wait "$garbage_pid"
-    check "a half-written file applies nothing" "1" "$(grep -c 'PROBE stalled hidden=false' "$SANDBOX/garbage.log")"
-    # The write after the garbage still applies: the ignore ends at the next valid write.
-    env XDG_STATE_HOME="$SANDBOX/garbage/state" "$BIN" --ui-state \
-      '{"hidden":true,"view":"grid","density":"compact"}' >/dev/null 2>&1 \
-      || { echo "FAIL xwsettings: the recovery write failed"; fail=1; }
-    out=$(env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/garbage/state" \
-        FLEA_BIN="$BIN" timeout 60 qs -p "$QMLDIR/watcher.qml" 2>&1)
-    check "the next valid write applies again" "1" "$(echo "$out" | grep -c 'PROBE applied hidden=true')"
+    # A live second replace in the same process: the stayer stays alive across the garbage and the
+    # recovery write, so the recovery applying in its own log proves no fresh process was needed.
+    cat > "$QMLDIR/stayer.qml" <<'QML'
+import QtQuick
+import Quickshell
+
+ShellRoot {
+    id: root
+    Component.onCompleted: {
+        console.log("PROBE watching hidden=" + ViewState.state.hidden)
+    }
+    property var watcher: Timer {
+        interval: 50
+        repeat: true
+        running: true
+        onTriggered: {
+            if (ViewState.state.hidden === true) {
+                console.log("PROBE applied hidden=" + ViewState.state.hidden)
+                console.log("PROBE patch=" + ViewState.patch())
+                Qt.quit()
+            }
+        }
+    }
+    property var backstop: Timer {
+        interval: 30000
+        running: true
+        onTriggered: {
+            console.log("PROBE stalled hidden=" + ViewState.state.hidden)
+            Qt.quit()
+        }
+    }
+}
+QML
+    kill "$garbage_pid" 2>/dev/null || true
+    wait "$garbage_pid" 2>/dev/null || true
+    env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/garbage/state" \
+        FLEA_BIN="$BIN" timeout 60 qs -p "$QMLDIR/stayer.qml" > "$SANDBOX/stayer.log" 2>&1 &
+    stayer_pid=$!
+    waited=0
+    until grep -q 'PROBE watching' "$SANDBOX/stayer.log" 2>/dev/null; do
+      waited=$((waited + 1))
+      if [ "$waited" -gt 600 ]; then
+        echo "FAIL xwsettings: the stayer never reported its read"
+        fail=1
+        kill "$stayer_pid" 2>/dev/null
+        wait "$stayer_pid" 2>/dev/null
+        break
+      fi
+      sleep 0.05
+    done
+    if [ "$fail" -eq 0 ]; then
+      # Truncated mid-object, the way an editor's own write looks between its truncate and its close.
+      printf '%s' '{"hidden":true,"view":"grid","density":"compact"' \
+        > "$SANDBOX/garbage/state/flea/ui.json" || exit 1
+      sleep 2
+      check "a half-written file applies nothing live" "1" "$(grep -c 'PROBE watching hidden=false' "$SANDBOX/stayer.log")"
+      check "and no apply sneaks in behind it" "0" "$(grep -c 'PROBE applied' "$SANDBOX/stayer.log")"
+      # The live second replace in the same process: the recovery write lands in the stayer's own log.
+      env XDG_STATE_HOME="$SANDBOX/garbage/state" "$BIN" --ui-state \
+        '{"hidden":true,"view":"grid","density":"compact"}' >/dev/null 2>&1 \
+        || { echo "FAIL xwsettings: the recovery write failed"; fail=1; }
+      wait "$stayer_pid"
+      check "the next valid write applies again live" "1" "$(grep -c 'PROBE applied hidden=true' "$SANDBOX/stayer.log")"
+    fi
   fi
+fi
+
+# Settled values, not raw bytes: a bogus column heals, a null places group keeps favourites,
+# and a removed key reads as its default. Each hand edit below fails on raw_bytes and passes on settled.
+if [ "$fail" -eq 0 ]; then
+  sandbox_scratch "$SANDBOX/settled" || exit 1
+  mkdir -p "$SANDBOX/settled/state/flea" || exit 1
+  env XDG_STATE_HOME="$SANDBOX/settled/state" "$BIN" --ui-state \
+    '{"hidden":true,"density":"compact","columns":["name","size","date"],"places":{"showUnmounted":true,"favourites":[{"label":"Old","path":"/old"}]}}' >/dev/null 2>&1 \
+    || { echo "FAIL xwsettings: the settled-phase seed write failed"; exit 1; }
+  cat > "$QMLDIR/settled.qml" <<'QML'
+import QtQuick
+import Quickshell
+
+ShellRoot {
+    id: root
+    Component.onCompleted: {
+        console.log("PROBE watching columns=" + JSON.stringify(ViewState.state.columns)
+                    + " placesType=" + (ViewState.state.places === null ? "null" : typeof ViewState.state.places)
+                    + " hidden=" + ViewState.state.hidden)
+    }
+    property var watcher: Timer {
+        interval: 100
+        repeat: true
+        running: true
+        onTriggered: {
+            console.log("PROBE live columns=" + JSON.stringify(ViewState.state.columns)
+                        + " placesType=" + (ViewState.state.places === null ? "null" : typeof ViewState.state.places)
+                        + " hidden=" + ViewState.state.hidden
+                        + " favourites=" + JSON.stringify((ViewState.state.places || {}).favourites))
+        }
+    }
+    property var backstop: Timer {
+        interval: 30000
+        running: true
+        onTriggered: Qt.quit()
+    }
+}
+QML
+  env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/settled/state" \
+      FLEA_BIN="$BIN" timeout 60 qs -p "$QMLDIR/settled.qml" > "$SANDBOX/settled.log" 2>&1 &
+  settled_pid=$!
+  waited=0
+  until grep -q 'PROBE watching' "$SANDBOX/settled.log" 2>/dev/null; do
+    waited=$((waited + 1))
+    if [ "$waited" -gt 600 ]; then
+      echo "FAIL xwsettings: the settled watcher never reported its read"
+      fail=1
+      kill "$settled_pid" 2>/dev/null
+      wait "$settled_pid" 2>/dev/null
+      break
+    fi
+    sleep 0.05
+  done
+  if [ "$fail" -eq 0 ]; then
+    python3 - "$SANDBOX/settled/state/flea/ui.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+doc = json.load(open(p))
+doc["columns"] = ["name", "size", "bogus"]
+json.dump(doc, open(p, "w"))
+PY
+    sleep 3
+    check "a bogus column is never taken" "0" "$(grep -c 'bogus' "$SANDBOX/settled.log" | head -1)"
+    # The healed default appears live; on raw_bytes the bogus string stays in the log.
+    check "and the settled default lands instead" "1" "$([ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -1 | grep -c '"name","size","date"')" -ge 1 ] && echo 1 || echo 0)"
+    python3 - "$SANDBOX/settled/state/flea/ui.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+doc = json.load(open(p))
+doc["places"] = None
+json.dump(doc, open(p, "w"))
+PY
+    sleep 3
+    check "a null places group never empties favourites" "0" "$(grep -c 'placesType=null' "$SANDBOX/settled.log")"
+    check "and the kept entries survive it" "1" "$([ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -1 | grep -c '/old')" -ge 1 ] && echo 1 || echo 0)"
+    printf '%s' '{"density":"normal"}' > "$SANDBOX/settled/state/flea/ui.json" || exit 1
+    sleep 3
+    check "a removed key reads as its default" "1" "$([ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -3 | grep -c 'hidden=false')" -ge 1 ] && echo 1 || echo 0)"
+    echo "settled tail:"
+    grep 'PROBE live' "$SANDBOX/settled.log" | tail -3 || true
+  fi
+  kill "$settled_pid" 2>/dev/null || true
+  wait "$settled_pid" 2>/dev/null || true
+fi
+
+# A refused patch never blocks later saves: bogus columns are refused, then a valid density lands
+# in the same process. On raw_bytes the second write is refused for the window's life.
+if [ "$fail" -eq 0 ]; then
+  sandbox_scratch "$SANDBOX/refuse" || exit 1
+  mkdir -p "$SANDBOX/refuse/state/flea" || exit 1
+  env XDG_STATE_HOME="$SANDBOX/refuse/state" "$BIN" --ui-state \
+    '{"hidden":false,"density":"compact"}' >/dev/null 2>&1 \
+    || { echo "FAIL xwsettings: the refuse-phase seed write failed"; exit 1; }
+  cat > "$QMLDIR/refuse.qml" <<'QML'
+import QtQuick
+import Quickshell
+
+ShellRoot {
+    id: root
+    property int failures: 0
+    property bool stepped: false
+    property var reporter: Connections {
+        target: ViewState
+        function onSaveFailed() { root.failures = root.failures + 1 }
+    }
+    Component.onCompleted: {
+        ViewState.changeKey("columns", ["name", "size", "bogus"])
+    }
+    property var step: Timer {
+        interval: 1500
+        running: true
+        repeat: false
+        onTriggered: {
+            root.stepped = true
+            console.log("PROBE afterRefuse failures=" + root.failures + " patch=" + ViewState.patch())
+            ViewState.changeKey("density", "normal")
+        }
+    }
+    property var done: Timer {
+        interval: 300
+        repeat: true
+        running: true
+        onTriggered: {
+            if (root.stepped && root.failures > 0 && ViewState.writeBook.inflight.length === 0) {
+                console.log("PROBE final failures=" + root.failures + " patch=" + ViewState.patch()
+                            + " density=" + ViewState.state.density)
+                Qt.quit()
+            }
+        }
+    }
+    property var backstop: Timer {
+        interval: 30000
+        running: true
+        onTriggered: {
+            console.log("PROBE stalled failures=" + root.failures + " patch=" + ViewState.patch())
+            Qt.quit()
+        }
+    }
+}
+QML
+  out=$(env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/refuse/state" \
+      FLEA_BIN="$BIN" timeout 60 qs -p "$QMLDIR/refuse.qml" 2>&1)
+  check "the refused patch is reported once" "1" "$(echo "$out" | grep -c 'PROBE afterRefuse failures=1')"
+  check "and a later valid write applies again in the same process" "1" "$(echo "$out" | grep -c 'PROBE final failures=1 patch={} density=normal')"
+  flat=$(tr -d ' \n' < "$SANDBOX/refuse/state/flea/ui.json" 2>/dev/null)
+  check "and the file holds the valid write" "1" "$(echo "$flat" | grep -c '"density":"normal"')"
+  echo "$out" | grep -a 'PROBE ' | tail -5 || true
 fi
 
 sandbox_remove "$SANDBOX" || exit 1

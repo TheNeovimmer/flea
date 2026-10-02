@@ -346,14 +346,67 @@ QtObject {
         return read.error.length === 0
     }
 
-    // A change another window saved: changed preferences apply live through the same state
-    // assignment the Settings panel's own owe() makes, so bindings, listings and menus update the
-    // way a local change does. Per-window state is left alone, an own write is never re-applied,
-    // and applying writes nothing back. An invalid file is ignored until the next valid write.
+    // A change another window saved: the settled document `flea --ui-state` prints with no
+    // argument, merged and validated, writes nothing. Raw bytes are only a guard, so a hand edit
+    // with a bogus column, a null places group or a removed key never takes: bogus heals to its
+    // default, null keeps favourites, a removed key reads as its default. Empty or garbage text is
+    // ignored until the next valid write, the way fromFile treats a half-written file.
+    property string settleMode: ""
+    property bool settleDirty: false
+    property string pruneInflight: ""
     function applyShared(text) {
-        var applied = UiState.applyExternal(root.state, root.unsaved, text)
+        if (!UiState.parsesAsObject(text))
+            return
+        if (settler.running) {
+            root.settleDirty = true
+            return
+        }
+        root.settleMode = "apply"
+        settler.command = [Quickshell.env("FLEA_BIN") || "flea", "--ui-state"]
+        settler.running = true
+    }
+    function settleDone(exitCode, out) {
+        var mode = root.settleMode
+        root.settleMode = ""
+        var again = root.settleDirty
+        root.settleDirty = false
+        if (again && mode === "apply") {
+            root.applyShared(stateFile.text())
+            return
+        }
+        if (exitCode !== 0) {
+            if (mode === "prune") {
+                root.pruneInflight = ""
+                root.writeBook = { saved: root.writeBook.saved, inflight: "", pending: "", start: "" }
+            }
+            return
+        }
+        var settled = null
+        try {
+            settled = JSON.parse(out)
+        } catch (e) {
+            return
+        }
+        if (mode === "prune") {
+            if (!UiState.parsesAsObject(stateFile.text()))
+                return
+            var pruned = UiState.pruneRefused(root.unsaved, root.pruneInflight, settled)
+            root.unsaved = pruned.unsaved
+            root.state = UiState.revertedState(root.state, root.pruneInflight, settled)
+            root.pruneInflight = ""
+            root.writeBook = { saved: root.writeBook.saved, inflight: "", pending: "", start: "" }
+            if (JSON.stringify(root.unsaved) !== "{}") {
+                root.saveStatus = "Saving…"
+                root.save()
+            }
+            return
+        }
+        if (!UiState.parsesAsObject(stateFile.text()))
+            return
+        var applied = UiState.applyExternal(root.state, root.unsaved, out)
         if (applied.changed)
             root.state = applied.state
+        root.syncFavourites(stateFile.text())
     }
     function refreshFavourites() {
         stateFile.reload()
@@ -376,9 +429,7 @@ QtObject {
         onLoaded: {
             root.favouritesReadError = ""
             if (root.initialReadComplete) {
-                var body = text()
-                root.applyShared(body)
-                root.syncFavourites(body)
+                root.applyShared(text())
             }
         }
         printErrors: false
@@ -394,7 +445,9 @@ QtObject {
     }
 
     // The writer answered, with its own status or with 2 for one that never started: the same refusal
-    // to the pane and the same retry to the book, because neither reached the file.
+    // to the pane and the same retry to the book, because neither reached the file. A refusal never
+    // leaves a key owed forever: the owed keys the settled document disagrees with are dropped once,
+    // said once in the status line, so a later valid write applies again in the same process.
     function wrote(exitCode) {
         // Taken out before the patch below is built, so a writer queued behind this one launches with
         // what is still owed and not with the settings this one has just stored.
@@ -402,10 +455,18 @@ QtObject {
             : "Could not save settings · changes apply to this session only"
         if (exitCode === 0)
             root.unsaved = UiState.acknowledged(root.unsaved, root.writeBook.inflight)
+        var failedPatch = root.writeBook.inflight
         var next = UiState.exited(root.writeBook, exitCode, root.patch())
         root.writeBook = next
         if (next.failed)
             root.saveFailed()
+        if (exitCode !== 0 && UiState.isPatchInvalid(failedPatch)) {
+            root.pruneInflight = failedPatch
+            root.settleMode = "prune"
+            settler.command = [Quickshell.env("FLEA_BIN") || "flea", "--ui-state"]
+            settler.running = true
+            return
+        }
         if (next.start.length > 0)
             root.run(next.start)
     }
@@ -419,6 +480,16 @@ QtObject {
         onRunningChanged: {
             if (!patcher.running && root.writeBook.inflight.length > 0)
                 root.wrote(2)
+        }
+    }
+
+    property var settler: Process {
+        id: settler
+        stdout: StdioCollector { waitForEnd: true }
+        onExited: function (exitCode, exitStatus) { root.settleDone(exitCode, settler.stdout.text) }
+        onRunningChanged: {
+            if (!settler.running && root.settleMode.length > 0 && settler.stdout.text.length === 0)
+                root.settleDone(2, "")
         }
     }
 }

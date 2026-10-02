@@ -252,7 +252,7 @@ function run(check) {
     var applied = UiState.applyExternal(other, {}, changedFile)
     check("a changed preference applies", applied.state.hidden, true)
     check("with its group beside it", applied.state.display.textSize.mode, 16)
-    check("and its whole-value beside that", applied.state.sort.key, "size")
+    check("while a window's own sort stays put", applied.state.sort.key, "name")
     check("a Places leaf applies too", applied.state.places.showUnmounted, false)
     check("while the view stays the window's own", applied.state.view, "list")
     check("and where it was stays too", applied.state.lastPath, "/a")
@@ -278,4 +278,52 @@ function run(check) {
     check("while another window's entry applies", mapped.state.folderSorts["/b"].key, "name")
     check("a key a newer Flea wrote is kept verbatim",
           UiState.applyExternal({}, {}, '{"aKeyThisBuildHasNeverHeardOf":true}').state.aKeyThisBuildHasNeverHeardOf, true)
+
+    // xw4-r2 finding 2: a window's sort is its own, the file still records the last one for new windows.
+    check("sort joins the window keys", UiState.isWindowKey("sort"), true)
+    var sortHeld = { sort: { key: "name", reverse: false } }
+    var sortFile = '{"sort":{"key":"size","reverse":true},"hidden":true}'
+    var sortApplied = UiState.applyExternal(sortHeld, {}, sortFile)
+    check("another window's sort never lands", JSON.stringify(sortApplied.state.sort), '{"key":"name","reverse":false}')
+    check("while a preference beside it still does", sortApplied.state.hidden, true)
+
+    // xw4-r2 finding 3: rail, preview column and grid zoom stay per window, Finder's rule.
+    check("rail is a window leaf", UiState.isWindowLeaf("places", "rail"), true)
+    check("preview column is too", UiState.isWindowLeaf("preview", "column"), true)
+    check("and so is the grid zoom", UiState.isWindowLeaf("preview", "thumbSize"), true)
+    check("but a Places switch beside it is not", UiState.isWindowLeaf("places", "showUnmounted"), false)
+    var railHeld = { places: { rail: "hidden", showUnmounted: true, favourites: [] } }
+    var railFile = '{"places":{"rail":"shown","showUnmounted":false,"favourites":[]}}'
+    var railApplied = UiState.applyExternal(railHeld, {}, railFile)
+    check("another window's rail never lands", railApplied.state.places.rail, "hidden")
+    check("while its Places switch still does", railApplied.state.places.showUnmounted, false)
+    var zoomHeld = { preview: { column: false, thumbSize: "large", loadOn: "automatic" } }
+    var zoomFile = '{"preview":{"column":true,"thumbSize":"small","loadOn":"manual"}}'
+    var zoomApplied = UiState.applyExternal(zoomHeld, {}, zoomFile)
+    check("another window's preview column never lands", zoomApplied.state.preview.column, false)
+    check("and its grid zoom neither", zoomApplied.state.preview.thumbSize, "large")
+    check("while its load switch still does", zoomApplied.state.preview.loadOn, "manual")
+
+    // xw4-r2 finding 1: raw bytes are only a guard; empty or garbage never applies.
+    check("empty text is not an object", UiState.parsesAsObject(""), false)
+    check("garbage is not either", UiState.parsesAsObject("{"), false)
+    check("but a settled document is", UiState.parsesAsObject('{"hidden":true}'), true)
+
+    // Only a validation refusal prunes; a transient failure keeps today's retry and loses nothing.
+    check("a schema refusal prunes", UiState.isValidationRefusal("flea: columns does not take [x]"), true)
+    check("while a wrapper's simulated refusal retries", UiState.isValidationRefusal("flea: refused by the uiwriter wrapper"), false)
+    check("and a writer that never started retries too", UiState.isValidationRefusal(""), false)
+    check("a bogus column set prunes off the patch", UiState.isPatchInvalid('{"columns":["name","size","bogus"]}'), true)
+    check("while a valid one retries", UiState.isPatchInvalid('{"columns":["name","size","date"]}'), false)
+    check("and a null places group prunes too", UiState.isPatchInvalid('{"places":null}'), true)
+
+    // A refused patch never blocks later saves: its keys drop and revert to the settled values.
+    var owedBogus = { columns: ["name", "size", "bogus"], density: "compact" }
+    var settledDefaults = { columns: ["name", "size", "date"], density: "compact" }
+    var pruned = UiState.pruneRefused(owedBogus, '{"columns":["name","size","bogus"]}', settledDefaults)
+    check("a refused key drops out of what is owed", pruned.unsaved.columns, undefined)
+    check("and names itself once", pruned.dropped.length > 0, true)
+    var reverted = UiState.revertedState({ columns: ["name", "size", "bogus"] },
+        '{"columns":["name","size","bogus"]}', settledDefaults)
+    check("and the state heals to the settled value", JSON.stringify(reverted.columns), '["name","size","date"]')
 }
