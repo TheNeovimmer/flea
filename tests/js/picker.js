@@ -1,6 +1,7 @@
 .import "../../ui/js/Picker.js" as Picker
 .import "../../ui/js/Sort.js" as Sort
 .import "../../ui/js/Keymap.js" as Keymap
+.import "sourcefixture.js" as Source
 
 function run(check) {
     // The shape tools/flea-portal writes for an OpenFile with two filters, taken from its request_for().
@@ -215,4 +216,10 @@ function run(check) {
     check("the shared window covers the wider grid screen", Picker.windowSize(10, 4, 5), 100)
     check("a wide list still sizes the window", Picker.windowSize(30, 2, 5), 120)
     check("a 160-tile screen fits inside its window lead", Picker.windowSize(37, 10, 16) * 0.75 > 160, true)
+    // Sample input: Source.source("ui/PickerWindow.qml") holds the windowSize binding.
+    var winSrc = Source.source("ui/PickerWindow.qml")
+    check("the window sizes through the shared function",
+        winSrc.indexOf("Picker.windowSize(list.visibleRows, grid.visibleTileRows, grid.columns)") >= 0, true)
+    check("a view switch reshows the grid", winSrc.indexOf("grid.reshow(") >= 0, true)
+    check("and the list", winSrc.indexOf("list.reshow(") >= 0, true)
 }

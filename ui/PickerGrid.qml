@@ -237,14 +237,25 @@ GridView {
         onTriggered: root.requestIfDrifted()
     }
 
+    // Settle fires counted, so a probe waits on the first run rather than a delay.
+    property int settleRuns: 0
+    // Whether a settle fire is pending, so a probe quiesces before proving a restart.
+    property alias settleRunning: settle.running
     Timer {
         id: settle
         interval: root.firstSettleMs
-        onTriggered: root.requestThumbs()
+        onTriggered: { root.settleRuns += 1; root.requestThumbs() }
     }
 
     function primeSettle() { settle.interval = root.firstSettleMs }
     function restartSettle() { settle.restart() }
+
+    // A reshow owns its window: move to the cursor, refetch there, restart thumbs.
+    function reshow(index) {
+        root.positionViewAtIndex(index, GridView.Contain)
+        root.requestIfDrifted()
+        root.restartSettle()
+    }
 
     function requestIfDrifted() {
         if (!root.visible || root.picker.backendUnavailable || root.picker.total === 0 || root.picker.pendingListings > 0)

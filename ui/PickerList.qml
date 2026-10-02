@@ -215,4 +215,10 @@ ListView {
             root.backend.window(Math.floor(start), root.picker.windowSize)
         }
     }
+
+    // A reshow owns its window: move to the cursor and refetch there.
+    function reshow(index) {
+        root.positionViewAtIndex(index, ListView.Contain)
+        root.requestIfDrifted()
+    }
 }

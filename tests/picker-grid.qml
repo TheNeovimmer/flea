@@ -22,6 +22,8 @@ ShellRoot {
     property int stage1Asks: 0
     property var winShell: null
     property var win: null
+    property bool settledWritten: false
+    property bool wideSetup: false
     readonly property int askWaitMs: 5000
     readonly property int probeTimeoutMs: 30000
 
@@ -207,9 +209,10 @@ ShellRoot {
             return
         }
         case 4: {
-            if (Date.now() - root.stageSince < 200) return
+            // The wide layout itself, not elapsed time: columns at the 1600 px width with tiles.
+            if (grid.width !== 1600 || grid.columns < 1) return
             var vis = root.visibleTiles()
-            if (vis.length === 0) { root.fail("no delegate met the wide viewport"); return }
+            if (vis.length === 0) return
             var listRows = Math.max(1, listProbe.visibleRows)
             var wide = Picker.windowSize(listRows, grid.visibleTileRows, grid.columns)
             var old = listRows + 60
@@ -217,19 +220,31 @@ ShellRoot {
             if (!(wide * (1 - root.stubPicker.windowLead) >= vis.length)) { root.fail("the shared window leaves blank tiles at wide width"); return }
             for (var w = 0; w < vis.length; w++)
                 if (vis[w] >= wide) { root.fail("tile " + vis[w] + " has no row in a " + wide + " window"); return }
-            root.stubPicker.held = 100
-            root.stubPicker.rows = root.stubPicker.rows.slice(0, 60)
-            root.stubPicker.total = 500
-            root.stubPicker.shownTotal = 500
-            var calls = root.stubBackend.windowCalls
-            listProbe.requestIfDrifted()
-            if (root.stubBackend.windowCalls !== calls) { root.fail("a hidden list refetched its window"); return }
-            listProbe.visible = true
-            root.stubPicker.cursorIndex = 300
-            listProbe.positionViewAtIndex(300, ListView.Contain)
-            listProbe.requestIfDrifted()
-            if (root.stubBackend.windowCalls === calls) { root.fail("a reshown list never refetched its window"); return }
-            listProbe.visible = false
+            // One-shot setup: re-running it would re-arm the settle the quiesce below waits out.
+            if (!root.wideSetup) {
+                root.wideSetup = true
+                root.stubPicker.held = 10
+                root.stubPicker.rows = root.stubPicker.rows.slice(0, 60)
+                root.stubPicker.total = 500
+                root.stubPicker.shownTotal = 500
+                var calls = root.stubBackend.windowCalls
+                listProbe.requestIfDrifted()
+                if (root.stubBackend.windowCalls !== calls) { root.fail("a hidden list refetched its window"); return }
+                listProbe.visible = true
+                root.stubPicker.cursorIndex = 300
+                listProbe.reshow(300)
+                if (root.stubBackend.windowCalls === calls) { root.fail("a reshown list never refetched its window"); return }
+                listProbe.visible = false
+                return
+            }
+            // Quiesce the settle, so only the reshow below may restart it.
+            if (grid.settleRunning) return
+            var gCalls = root.stubBackend.windowCalls
+            root.stubPicker.cursorIndex = vis[0]
+            grid.reshow(vis[0])
+            if (root.stubBackend.windowCalls === gCalls) { root.fail("a reshown grid never refetched its window"); return }
+            if (!grid.settleRunning) { root.fail("a reshown grid never restarted its settle"); return }
+            root.wideSetup = false
             root.stubPicker.held = 0
             root.rowCount = 60
             root.stubPicker.rows = root.buildRows()
@@ -303,6 +318,15 @@ ShellRoot {
             return
         }
         case 41: {
+            // Release fsinfo once the first settle ran unknown with no thumb ask.
+            if (root.win && !root.win.storageKnown && !root.settledWritten) {
+                var firstGrid = root.win.viewItem()
+                if (firstGrid && firstGrid.settleRuns > 0) {
+                    if (root.winThumbPending()) { root.fail("the first settle asked while storage was unknown"); return }
+                    Quickshell.execDetached(["touch", Quickshell.env("FLEA_PICKER_SETTLED")])
+                    root.settledWritten = true
+                }
+            }
             if (!root.win || !root.win.storageKnown) {
                 if (Date.now() - root.stageSince > root.askWaitMs) { root.fail("window onListed never asked fsinfo"); }
                 return

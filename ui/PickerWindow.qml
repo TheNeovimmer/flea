@@ -68,14 +68,9 @@ ShellRoot {
             // reads, and cursor moves never owe the file anything.
             ViewState.changeKey("pickerView", next)
             // A reshow owns its window: the shown view moves to the cursor and refetches there.
-            if (next === "grid") {
-                grid.positionViewAtIndex(Math.max(0, Math.min(win.cursorIndex, win.total - 1)), GridView.Contain)
-                grid.requestIfDrifted()
-                grid.restartSettle()
-            } else {
-                list.positionViewAtIndex(Math.max(0, Math.min(win.cursorIndex, win.total - 1)), ListView.Contain)
-                list.requestIfDrifted()
-            }
+            var at = Math.max(0, Math.min(win.cursorIndex, win.total - 1))
+            if (next === "grid") grid.reshow(at)
+            else list.reshow(at)
             win.focusView()
         }
         function viewItem() { return win.viewMode === "grid" ? grid : list }

@@ -31,7 +31,11 @@ if "--ui-state" in sys.argv:
     sys.stdout.write("{}")
     sys.stdout.flush()
     sys.exit(0)
+# Poll step and hold cap for the settled marker, so a loaded lane still orders fsinfo late.
+SETTLED_POLL_S = 0.05
+SETTLED_CAP_S = 10.0
 log_path = os.environ.get("FLEA_PICKER_REQUESTS", "")
+settled_path = os.environ.get("FLEA_PICKER_SETTLED", "")
 def log(req):
     if log_path:
         with open(log_path, "a") as f:
@@ -68,8 +72,15 @@ for line in sys.stdin:
             continue
         emit({"t": "rows", "start": start, "rows": served[start:start + count], "ms": 1.0, "kinds": []})
     elif kind == "fsinfo":
-        # Hold past the first settle, so only its restart may ask.
-        time.sleep(0.5)
+        # Hold until the first settle ran unknown with no ask, capped at 10 s.
+        waited = 0.0
+        while settled_path and not os.path.exists(settled_path):
+            if waited >= SETTLED_CAP_S:
+                sys.stderr.write("FAIL fsinfo settled marker never appeared within 10 s cap\n")
+                sys.stderr.flush()
+                break
+            time.sleep(SETTLED_POLL_S)
+            waited += SETTLED_POLL_S
         emit({"t": "fsinfo", "fs": "tmpfs", "free": 123, "path": served_path, "class": "network"})
     elif kind == "quit":
         break
@@ -78,7 +89,7 @@ chmod +x "$test_root/stub-backend" || exit 1
 probe_timeout=30
 output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
-    FLEA_BIN="$test_root/stub-backend" FLEA_PICKER_REQUESTS="$test_root/requests" \
+    FLEA_BIN="$test_root/stub-backend" FLEA_PICKER_REQUESTS="$test_root/requests" FLEA_PICKER_SETTLED="$test_root/settled" \
     FLEA_PICKER='{"mode":"open","title":"grid probe","folder":"/winprobe"}' FLEA_PICKER_REPLY="$test_root/reply.json" \
     QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
     timeout "$probe_timeout" qs -p "$test_root/config" 2>&1)
