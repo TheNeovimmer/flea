@@ -51,6 +51,7 @@ cleanup() {
   [ ! -e "$test_root/interrupted/flea" ] || unlink "$test_root/interrupted/flea"
   [ ! -e "$test_root/term-state" ] || unlink "$test_root/term-state"
   [ ! -e "$test_root/term-report" ] || unlink "$test_root/term-report"
+  [ ! -e "$test_root/term-ready" ] || unlink "$test_root/term-ready"
   [ ! -e "$test_root/preexisting-unit-started" ] || unlink "$test_root/preexisting-unit-started"
   [ ! -d "$test_root/preexisting" ] || rmdir "$test_root/preexisting"
   [ ! -d "$test_root/post-launch" ] || rmdir "$test_root/post-launch"
@@ -602,11 +603,12 @@ rmdir "$test_root/rolling-guardian" "$test_root/rolling-parent" \
 OWNED_PIDS=()
 BOUNDARY_PIDS=()
 OWNED_STARTS=()
-python3 -c 'import signal, sys, time; signal.signal(signal.SIGTERM, lambda s, f: (time.sleep(0.6), sys.exit(0))); time.sleep(60)' &
+mkfifo "$test_root/term-ready" || exit 1
+python3 -c 'import signal, sys, time; signal.signal(signal.SIGTERM, lambda s, f: (time.sleep(0.6), sys.exit(0))); open(sys.argv[1], "w").write("ready\n"); time.sleep(60)' "$test_root/term-ready" &
 term_hold_pid=$!
 named_pids+=("$term_hold_pid")
 register_named_pid "$term_hold_pid"
-sleep 0.5
+read -r term_ready < "$test_root/term-ready" || exit 1
 begin_owned_boundary "$term_hold_pid"
 capture_owned_boundary || exit 1
 stop_owned_entrants
@@ -615,6 +617,7 @@ sleep 0.1
 named_running "$term_hold_pid"
 check "TERM-delayed member is stopped" 1 "$?"
 stop_named "$term_hold_pid"
+unlink "$test_root/term-ready"
 
 OWNED_PIDS=()
 BOUNDARY_PIDS=()

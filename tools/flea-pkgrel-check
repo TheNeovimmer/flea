@@ -10,6 +10,8 @@ die() {
 [ "$#" -le 1 ] || die "usage: flea-pkgrel-check [COMMIT]"
 commit=${1:-HEAD}
 
+. "$(dirname "$0")/flea-pkgrel-field"
+
 command -v git >/dev/null 2>&1 || die "git is not on PATH"
 
 sha=$(git rev-parse --verify "$commit^{commit}" 2>/dev/null) || die "commit '$commit' is not a commit in this checkout"
@@ -26,19 +28,6 @@ if ! git rev-parse --verify --quiet "$sha^" >/dev/null 2>&1; then
 fi
 prevtag=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$sha^" 2>/dev/null) \
   || die "no vX.Y.Z tag reachable from $short, fetch tags before tagging a release"
-
-# Sample input: pkgver=0.3.8 or pkgrel='1'  # note
-# One field out of one stored PKGBUILD, failing closed when git or the file cannot be read.
-field() {
-  local body line value
-  body=$(git show "$1:$2" 2>/dev/null) || return 1
-  line=$(printf '%s\n' "$body" | grep -m1 "^$3=") || return 1
-  value=${line#*=}
-  value=${value%%#*}
-  value=$(printf '%s' "$value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e "s/^['\"]//" -e "s/['\"]$//")
-  [ -n "$value" ] || return 1
-  printf '%s' "$value"
-}
 
 flea_file=packaging/flea/PKGBUILD
 bin_file=packaging/flea-bin/PKGBUILD

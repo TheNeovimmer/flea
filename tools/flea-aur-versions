@@ -15,19 +15,19 @@ commit=$2
 [[ "$commit" =~ ^[0-9a-f]{7,40}$ ]] || { echo "flea-aur-versions: commit must be 7 to 40 hex digits" >&2; exit 2; }
 short=${commit:0:7}
 
-# The wanted pkgrel comes from the tag commit's own PKGBUILD; outside a checkout it stays 1.
+. "$(dirname "$0")/flea-pkgrel-field"
+
+# The wanted pkgrel comes from the tag commit's own PKGBUILD, failing closed outside a checkout.
 want_rel() {
-    local body line value
-    body=$(git show "$commit:$1" 2>/dev/null) || { printf '1'; return; }
-    line=$(printf '%s\n' "$body" | grep -m1 '^pkgrel=') || { printf '1'; return; }
-    value=${line#*=}
-    value=${value%%#*}
-    value=$(printf '%s' "$value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e "s/^['\"]//" -e "s/['\"]$//")
-    [ -n "$value" ] || { printf '1'; return; }
-    printf '%s' "$value"
+  local value
+  value=$(field "$commit" "$1" pkgrel) || {
+    echo "flea-aur-versions: cannot read pkgrel from $1 at $commit" >&2
+    exit 2
+  }
+  printf '%s' "$value"
 }
-flea_rel=$(want_rel packaging/flea/PKGBUILD)
-bin_rel=$(want_rel packaging/flea-bin/PKGBUILD)
+flea_rel=$(want_rel packaging/flea/PKGBUILD) || exit 2
+bin_rel=$(want_rel packaging/flea-bin/PKGBUILD) || exit 2
 
 if [ -n "$json_file" ]; then
     [ -f "$json_file" ] || { echo "flea-aur-versions: no file at '$json_file'" >&2; exit 2; }
