@@ -107,9 +107,7 @@ Item {
     property int cursor: 0
     property int openSubmenuRow: -1
     property int submenuCursor: 0
-    // B1: the c and P keys open their flyout while its row is hidden, so the
-    // leaves ride this action rather than a visible row; "" while no such
-    // flyout stands, and a visible row keeps today's row-bound path.
+    // A hidden row still opens its flyout from the action, not a visible row.
     property string loneFlyoutAction: ""
     readonly property bool submenuOpen: root.openSubmenuRow >= 0 || root.loneFlyoutAction.length > 0
     // The glyph every open flyout row draws, read back so a test can name it without OCR.
@@ -129,8 +127,7 @@ Item {
         return out.join("|")
     }
 
-    // The entries the open flyout draws, which belong to the row that opened it,
-    // or to the lone action the c and P keys opened while its row is hidden.
+    // The open flyout draws the row's entries, or the lone action's leaves.
     readonly property var submenuEntries: root.loneFlyoutAction.length > 0
         ? Menu.flyoutEntries(root.loneFlyoutAction)
         : (root.submenuOpen && root.entries[root.openSubmenuRow]
@@ -347,8 +344,7 @@ Item {
 
     // One signal covers every submenu: the row's own action, a colon, and the entry chosen inside it.
     function chooseSub(id) {
-        // A lone flyout answers the same identity check the rows do: a
-        // selection that moved under it refuses rather than acting elsewhere.
+        // A lone flyout answers the rows' identity check, refusing on a moved selection.
         if (root.loneFlyoutAction.length > 0) {
             var loneLeaves = Menu.flyoutEntries(root.loneFlyoutAction)
             var loneKnown = false
@@ -384,9 +380,7 @@ Item {
         subScroll.contentY = 0
     }
 
-    // MenuAdditions040: c opens Copy as at the cursor and P opens Paste as,
-    // each with its flyout already open on its first row. A hidden row keeps
-    // no entry, so the key builds the flyout from the action instead.
+    // c and P open Copy as and Paste as with the flyout already open.
     function openSubmenuFor(action) {
         for (var i = 0; i < root.entries.length; i++) {
             if (root.entries[i].action === action && Menu.hasSubmenu(root.entries[i])
@@ -443,8 +437,7 @@ Item {
         return false
     }
 
-    // Rows above the open one are a mix of full rows and separators, so the offset is summed, not multiplied.
-    // A lone flyout answers no row, so it stands at the menu's own top.
+    // Offsets are summed, not multiplied; a lone flyout stands at the top.
     function submenuOffset() {
         if (root.loneFlyoutAction.length > 0)
             return 0

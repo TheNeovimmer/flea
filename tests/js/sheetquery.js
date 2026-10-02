@@ -70,8 +70,7 @@ function run(check) {
     check("a multi-context key names none either", SheetQuery.whereForContext("rail,menu"), "")
     check("a single place is named", SheetQuery.whereForContext("media"), "media")
 
-    // B2: a sheet-query menu row runs what the menu row runs, so the snapshot
-    // the menu takes on open is taken first, for the current selection.
+    // A sheet menu row snapshots first, then activates for the current selection.
     var calls = []
     var holder = { menuActions: {
         snapshot: function () { calls.push("snapshot") },
