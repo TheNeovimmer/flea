@@ -318,6 +318,7 @@ function run(check) {
     armedPairOff.selectionVersion = 1
     armedPairOff.keySequence = "copyArm"
     armedPairOff.keySequenceIdentity = '["/d",3,1,"list"]'
+    check("the off pair holds a live identity", armedPairOff.keySequenceIdentity, Focus.stampOf(armedPairOff))
     check("Escape with an armed vim pair and the setting off is consumed too", Focus.handleKey(armedKey, armedPairOff, null), true)
     check("and blanks the pair before running Escape's own action",
           armedPairOff.keySequence + "|" + armedPairOff.climbed + "|" + armedPairOff.retreated, "|0|1")

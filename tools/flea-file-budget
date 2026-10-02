@@ -49,7 +49,7 @@ src/vulkan.rs 728
 tests/js/columns.js 618
 tests/js/drag.js 301
 tests/js/previewswap.js 367
-tests/js/focus.js 685
+tests/js/focus.js 686
 tests/js/mounts.js 383
 tests/js/menu.js 348
 tests/js/watch.js 309

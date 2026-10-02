@@ -134,4 +134,6 @@ function run(check) {
     var backend = Source.source("ui/Backend.qml")
     var backendList = Source.slice(backend, "function listRequest(", "function ")
     check("the list request sends wantChanged only when asked", backendList.indexOf("wantChanged: wantChanged === true") >= 0, true)
+    check("Backend declares changed on its listed signal", backend.indexOf("signal listed(int total, real readMs, real sortMs, string path, var changed)") >= 0, true)
+    check("PaneSwap applyListed declares the changed count", swapListed.indexOf("function applyListed(total, readMs, sortMs, path, changed)") === 0, true)
 }
