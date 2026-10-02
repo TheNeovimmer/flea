@@ -62,6 +62,7 @@ Item {
     signal metaResult(var message)
     property int metaToken: 0
     signal meta(int row, int w, int h, int orient, real durationMs, int sampleRate, int entries, real unpacked, bool archiveFailed, var names, real lines, bool partial, bool linesFailed, string target, bool targetDir, string owner)
+    signal shebang(string path, bool hasShebang, int id)
     signal fsInfo(string fs, real free, string path, string storageClass)
     // The one line no request asked for: the directory the current listing came from changed under
     // it. path is that directory, so a pane that has since moved can ignore it; see docs/protocol.md.

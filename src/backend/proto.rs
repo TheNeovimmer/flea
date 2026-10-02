@@ -42,6 +42,8 @@ pub enum Request {
     LocateMany { paths: Vec<String>, id: usize, menu_id: usize, transfer_id: usize },
     // The preview column's own extras for one row: pixels, line count, symlink target.
     Meta { row: usize, text: bool, media: bool, archive: bool, token: usize },
+    // The cursor row's two-byte shebang probe for the Make executable row; see docs/protocol.md "shebang".
+    Shebang { path: String, id: usize },
     // The status bar's filesystem line for the directory the pane is on.
     FsInfo,
     // A read-only look at a directory that is not the current listing; the columns view's ancestors.
@@ -210,6 +212,10 @@ pub fn parse_request(line: &str) -> Request {
             text: field_bool(line, "text"),
             media: field_bool(line, "media"),
             archive: field_bool(line, "archive"),
+        },
+        Some("shebang") => Request::Shebang {
+            path: field_str(line, "path").unwrap_or_default(),
+            id: field_usize(line, "id").unwrap_or(0),
         },
         Some("jump") => Request::Jump { id: field_usize(line, "id").unwrap_or(0), favourites: field_str_array(line, "favourites"), recent: field_str_array(line, "recent") },
         Some("quit") => Request::Quit,

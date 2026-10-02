@@ -72,6 +72,14 @@ fn a_paths_line_escapes_every_element_and_survives_an_empty_list() {
 }
 
 #[test]
+fn a_shebang_request_names_its_path_and_caller_id() {
+    assert!(matches!(parse_request(r#"{"c":"shebang","path":"/home/gm/run.sh","id":3}"#),
+        Request::Shebang { path, id: 3 } if path == "/home/gm/run.sh"));
+    assert_eq!(crate::backend::shebang::shebang_line("/home/gm/run.sh", true, 3),
+        r#"{"t":"shebang","path":"/home/gm/run.sh","hasShebang":true,"id":3}"#);
+}
+
+#[test]
 fn junk_is_unknown_rather_than_a_panic() {
     assert!(matches!(parse_request(""), Request::Unknown));
     assert!(matches!(parse_request("not json at all"), Request::Unknown));

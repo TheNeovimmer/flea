@@ -1,4 +1,7 @@
 .import "../../ui/js/Permissions.js" as Permissions
+.import "../../ui/js/Ops.js" as Ops
+.import "../../ui/js/Menu.js" as Menu
+.import "sourcefixture.js" as Source
 function run(check) {
     check("ordinary mode", Permissions.parse("644"), 420)
     check("leading zero", Permissions.parse("0644"), 420)
@@ -65,4 +68,32 @@ function run(check) {
           "true|1|Gone.")
     check("and rides the reasons once, beside its row",
           refused.reasons.join("|"), "Read-only: setgid bit is present.|Gone.|")
+
+    // The single-path Permissions branch vets the target row, never the cursor row.
+    var single = {
+        cursorIndex: 5,
+        selectedIndices: function () { return [3] },
+        rowFor: function (i) { return i === 3 ? { p: 33188 } : { p: 41471 } }
+    }
+    check("the target is the selection, not the cursor", Ops.targetIndices(single).join(","), "3")
+    check("the regular target opens Permissions", Menu.permissionsEntry(single.rowFor(3).p, 1).disabled, false)
+    check("while the cursor row alone would refuse", Menu.permissionsEntry(single.rowFor(5).p, 1).disabled, true)
+    var branch = Source.slice(Source.source("ui/Pane.qml"), "function openPermissionsWith(paths)", "function openCopyAs()")
+    check("the branch vets the target row", branch.indexOf("permissionSelection()") >= 0, true)
+    check("and never the cursor row", branch.indexOf("rowFor(root.cursorIndex)") < 0, true)
+
+    // The one-shot Make executable id offset lives once in Permissions, and both QML readers add to it.
+    check("the offset is named once", Permissions.MAKE_EXEC_ID, 1000000)
+    check("Pane.qml reads the named offset",
+          Source.source("ui/Pane.qml").indexOf("Permissions.MAKE_EXEC_ID + root.makeExecPendingId") >= 0, true)
+    check("PaneWire.qml reads the named offset",
+          Source.source("ui/PaneWire.qml").indexOf("Permissions.MAKE_EXEC_ID + pane.makeExecPendingId") >= 0, true)
+    check("no bare offset math remains in Pane.qml",
+          Source.source("ui/Pane.qml").indexOf("1000000 + root.makeExecPendingId") < 0, true)
+    check("no bare offset math remains in PaneWire.qml",
+          Source.source("ui/PaneWire.qml").indexOf("1000000 + pane.makeExecPendingId") < 0, true)
+
+    // The two-byte shebang read left QML for the backend: no Process runs head from the UI.
+    check("no shebang Process remains in Pane.qml", Source.source("ui/Pane.qml").indexOf("shebangProc") < 0, true)
+    check("the check asks the backend instead", Source.source("ui/Pane.qml").indexOf('c: "shebang"') >= 0, true)
 }

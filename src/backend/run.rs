@@ -348,6 +348,10 @@ fn handle_line(
                 spawn_meta(row, st.base.join(st.listing.name(row)), text, media, want, token, ops.tx.clone())
             }
         }
+        // The Make executable row's own probe, answered on a thread: an open on a hung mount never returns.
+        Request::Shebang { path, id } => {
+            super::shebang::spawn(PathBuf::from(&path), id, ops.tx.clone())
+        }
         Request::Paths { rows } =>
             say(out, &paths_line(&resolve_rows(Vec::new(), &rows, &st.base, &st.listing))),
         Request::Locate { path } => {

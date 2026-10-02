@@ -104,6 +104,21 @@ check "a local fsinfo answers exactly one line" "1" "$(echo "$out" | grep -c '"t
 check "and that line names the directory's own filesystem, not unknown" "1" "$(echo "$out" | grep '"t":"fsinfo"' | grep -vc '"fs":""')"
 check "for the directory just listed" "1" "$(echo "$out" | grep -c "\"t\":\"fsinfo\",\"fs\":\"[^\"]*\",\"free\":[0-9]*,\"path\":\"$D\"")"
 
+# Shebang probe (src/backend/shebang.rs): the cursor row's two-byte read, answered off the loop, so stdin stays open until its lines land.
+printf '#!/bin/sh\necho hi\n' > "$D/run.sh"
+SHEBANG_REPLY="$SB/shebang-reply"
+{ printf '{"c":"shebang","path":"%s/run.sh","id":3}\n{"c":"shebang","path":"%s/three.txt","id":4}\n{"c":"shebang","path":"%s/gone.txt","id":5}\n' "$D" "$D" "$D"
+  for _ in $(seq 1 100); do
+    [ "$(grep -c '"t":"shebang"' "$SHEBANG_REPLY" 2>/dev/null)" = "3" ] && break
+    sleep 0.05
+  done
+  printf '{"c":"quit"}\n'; } | $BIN --backend > "$SHEBANG_REPLY"
+shebang_out=$(cat "$SHEBANG_REPLY")
+check "a script answers its shebang with its id" "1" "$(echo "$shebang_out" | grep -c "\"t\":\"shebang\",\"path\":\"$D/run.sh\",\"hasShebang\":true,\"id\":3")"
+check "a plain file answers false with its id" "1" "$(echo "$shebang_out" | grep -c "\"t\":\"shebang\",\"path\":\"$D/three.txt\",\"hasShebang\":false,\"id\":4")"
+check "a missing path answers false rather than an error" "1" "$(echo "$shebang_out" | grep -c "\"t\":\"shebang\",\"path\":\"$D/gone.txt\",\"hasShebang\":false,\"id\":5")"
+rm -f "$D/run.sh"
+
 # Task 11: rows carries a per-response Kind dictionary, read against the box's real freedesktop tables, see docs/protocol.md "rows".
 kind_out=$(printf '{"c":"list","path":"%s","first":10}\n{"c":"quit"}\n' "$D" | $BIN --backend)
 kind_row=$(echo "$kind_out" | sed -n 2p)

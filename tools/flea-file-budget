@@ -31,8 +31,8 @@ src/backend/opsdispatch.rs 810
 src/backend/opsreq.rs 514
 src/backend/opsreq/tests.rs 461
 src/backend/permissions.rs 477
-src/backend/proto.rs 287
-src/backend/run.rs 454
+src/backend/proto.rs 344
+src/backend/run.rs 458
 src/backend/thumbs.rs 442
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 698
@@ -49,10 +49,10 @@ src/vulkan.rs 728
 tests/js/columns.js 618
 tests/js/drag.js 301
 tests/js/previewswap.js 367
-tests/js/focus.js 595
+tests/js/focus.js 638
 tests/js/mounts.js 383
 tests/js/menu.js 348
-tests/js/nav.js 323
+tests/js/nav.js 321
 tests/js/network.js 306
 tests/js/ops.js 430
 tests/js/settings.js 337
@@ -66,7 +66,7 @@ tests/js/status.js 354
 tests/rename-grid-bottom.qml 419
 tests/rename-grid-bottom.js 303
 tests/rename-lifecycle-check.js 356
-ui/Backend.qml 440
+ui/Backend.qml 441
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 475
 ui/ContextMenu.qml 675
@@ -74,12 +74,12 @@ ui/ConvertDialog.qml 440
 ui/GridArea.qml 410
 ui/Ipc.qml 832
 ui/KeymapSheet.qml 585
-ui/List.qml 435
+ui/List.qml 430
 ui/NetworkDialog.qml 449
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 838
 ui/OpenWithDialog.qml 596
-ui/Pane.qml 998
+ui/Pane.qml 965
 ui/PaneMenuActions.qml 458
 ui/PaneWire.qml 537
 ui/PermissionsDialog.qml 627

@@ -212,6 +212,49 @@ function run(check) {
     Focus.act("escape", typing)
     check("esc while the query line has the caret closes it", typing.filterTyping, false)
 
+    // A hop out of Recent while a listing is out is refused before the mode is touched.
+    var held = escaper("", 0)
+    held.focusView = "list"
+    held.recentMode = "results"
+    held.recentFrom = "/home/gm/Work"
+    held.recentPaths = ["/home/gm/a.txt"]
+    held.listInFlight = true
+    held.said = ""
+    held.message = function (text) { held.said = text }
+    held.opened = []
+    held.openWithoutHistory = function (next) { held.opened.push(next) }
+    held.backend = { sortBy: "name", sortDesc: false }
+    Focus.act("escape", held)
+    check("Escape refuses the hop out of Recent while a listing is out", held.said, "A directory is already loading.")
+    check("and keeps the mode standing", held.recentMode + "|" + held.recentFrom, "results|/home/gm/Work")
+    check("and asks for nothing", held.opened.length, 0)
+    var stuck = escaper("", 0)
+    stuck.recentMode = "results"
+    stuck.listInFlight = true
+    stuck.path = "/"
+    stuck.held = 0
+    stuck.cursorIndex = 0
+    stuck.rows = [{ n: "home/gm/Docs/a.txt", d: false }]
+    stuck.rowFor = function (i) { return stuck.rows[i] || null }
+    stuck.join = function (base, name) { return base === "/" ? "/" + name : base + "/" + name }
+    stuck.said = ""
+    stuck.message = function (text) { stuck.said = text }
+    stuck.opened = []
+    stuck.openWithoutHistory = function (next) { stuck.opened.push(next) }
+    Focus.act("reveal", stuck)
+    check("o refuses the reveal while a listing is out", stuck.said, "A directory is already loading.")
+    check("and keeps the mode standing", stuck.recentMode, "results")
+    check("and asks for nothing", stuck.opened.length, 0)
+
+    // Pane.qml's own Back, Up and re-list entries refuse the same hop before touching the mode.
+    var backLine = Source.slice(Source.source("ui/Pane.qml"), "function goBack()", "function goForward()")
+    check("goBack refuses before it closes", backLine.indexOf("root.listInFlight") >= 0, true)
+    var upLine = Source.slice(Source.source("ui/Pane.qml"), "function openParent()", "function openRecent(paths)")
+    check("openParent refuses before it closes", upLine.indexOf("root.listInFlight") >= 0, true)
+    var relist = Source.slice(Source.source("ui/Pane.qml"), "function openWithoutHistory(newPath, options)", "function toggleHidden()")
+    check("a re-list refuses before it clears",
+          relist.indexOf("if (root.listInFlight)") >= 0 && relist.indexOf("if (root.listInFlight)") < relist.indexOf('root.recentMode = ""'), true)
+
     var activeStatus = escaper("needle", 0)
     var statusEscapes = 0
     activeStatus.statusBar = {escapePressed: function () { statusEscapes += 1; return true }}

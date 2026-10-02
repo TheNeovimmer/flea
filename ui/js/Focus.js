@@ -147,7 +147,7 @@ function act(action, root, menuId, paths) {
     case "escape":
         if (root.filterTyping || root.filterQuery.length > 0) Filter.close(root)
         else if (root.searchMode.length > 0 && root.focusView === LIST) Search.cancel(root)
-        else if (root.recentMode.length > 0 && root.focusView === LIST) RecentMode.close(root)
+        else if (root.recentMode.length > 0 && root.focusView === LIST) { if (root.listInFlight) root.message("A directory is already loading.", false); else RecentMode.close(root) }
         else if (root.statusBar && root.statusBar.escapePressed()) return
         else if (escapeUp(root)) root.openParent()
         else root.escapePressed()
@@ -162,7 +162,7 @@ function act(action, root, menuId, paths) {
     // does: leaving it up would hide every result that did not happen to match it.
     case "search": Filter.close(root); Search.start(root); return
     case "filter": Filter.start(root); return
-    case "reveal": if (root.recentMode.length > 0) RecentMode.reveal(root); else Search.reveal(root); return
+    case "reveal": if (root.recentMode.length > 0) { if (root.listInFlight) root.message("A directory is already loading.", false); else RecentMode.reveal(root) } else Search.reveal(root); return
     // The write operations; every one of them is reversible with undo, so none of them confirms.
     case "duplicate": Ops.duplicate(root, menuId); return
     case "trash": Ops.trash(root, menuId); return

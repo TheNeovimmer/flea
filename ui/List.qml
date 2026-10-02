@@ -296,15 +296,10 @@ ListView {
         onTriggered: root.requestIfDrifted()
     }
 
-    // The cursor keeps three rows of context above and below while scrolling, and still reaches
-    // the first and last rows; ui/Pane.qml routes every cursor move through here, never Contain.
-    // A click carries context 0 so the list never moves under the pointer.
+    // The cursor keeps three rows of context above and below while scrolling; every cursor move routes through here.
     function showCursor(view, context) {
         var rowH = Theme.fileRowHeight
-        // The pointer case answers in pixels in the originY space, the way the
-        // columns view does: Qt shifts originY when expanded delegates collapse,
-        // and row offsets start at that origin. A row cut by the edge moves just
-        // enough to show it whole, and a whole row moves nothing.
+        // The pointer case answers in pixels in the originY space, where rows start; a cut row moves just enough to show whole.
         if (context === 0) {
             var top = view * rowH
             var rel = ScrollOff.containY(top, rowH, root.contentY - root.originY, root.height)
