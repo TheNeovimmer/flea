@@ -35,9 +35,7 @@ function summarize(modes) {
 
 function mixedNote() { return "Mixed boxes keep each file's own bit unless you change them." }
 
-// The backend names an unchangeable file "Read-only: <bit> bit is present."
-// (src/backend/permissions.rs reason), so a mode carrying special bits is
-// named here in those same words instead of vanishing on parse's -1.
+// A mode with special bits is named in the backend's own words, never dropped on parse -1.
 function specialReason(text) {
     var digits = String(text || "")
     if (!/^[1-7][0-7]{3}$/.test(digits))
@@ -53,18 +51,13 @@ function leafOf(path) {
     return cut < 0 ? text : text.substring(cut + 1)
 }
 
-// The inspect accumulation behind the multi dialog: modes land in arrival
-// order into the store the dialog owns, written in place, and the dialog
-// summarizes once when this answers true. N replies cost N writes plus one
-// summary, never N summaries; tests/js/permissions.js pins the count.
+// Modes land in arrival order in place; the dialog summarizes once when this answers true.
 function noteMode(store, at, path, message) {
     if (message.ok === true) {
         store.modes[at] = message.mode
         store.reasons[at] = message.reason || ""
     } else {
-        // A refused inspect rides the reasons beside its row, so the Apply
-        // names it once with the backend's own words instead of dropping it
-        // or counting it twice.
+        // A refused inspect rides the reasons once, in the backend's own words.
         var why = message.error || "Could not change permissions."
         store.modes[at] = ""
         store.reasons[at] = why
@@ -74,8 +67,7 @@ function noteMode(store, at, path, message) {
     return store.pending <= 0
 }
 
-// What the dialog shows while some items can never be changed: every skip
-// named with its reason, capped so a whole drive of them stays one line.
+// Every skip is named with its reason, capped so a whole drive stays one line.
 function skipNote(skipped) {
     var list = skipped || []
     var shown = []
@@ -86,8 +78,7 @@ function skipNote(skipped) {
         + shown.join("; ") + tail
 }
 
-// The multi Apply's final message: how many changed and how many were left
-// alone and why. A batch with a skip never reports a plain success.
+// A batch with a skip names every count and reason, never a plain success.
 function multiResult(changed, total, skipped) {
     var list = skipped || []
     if (list.length === 0)
