@@ -11114,6 +11114,16 @@ xwtab_wait_outcome() {
     done
     fail "xwtab: catcher never reported outcome=$outcome"
 }
+# An own drop lands on the catcher or, when Hyprland re-enters the source, on its own strip; both reorder.
+xwtab_wait_own_return() {
+    local i lines
+    for i in $(seq 1 30); do
+        lines=$(xwtab_trace_lines | grep -a "TABDRAG .* pid=$xwtab_source " || true)
+        grep -aq "TABDRAG catcher-drop pid=$xwtab_source outcome=return \|TABDRAG drop-strip pid=$xwtab_source " <<< "$lines" && return 0
+        sleep 0.1
+    done
+    fail "xwtab: own drop reached neither the catcher return nor the source strip"
+}
 
 # Start beyond the source edge before any target motion; Hyprland retargets only on motion.
 xwtab_drag_to_window() {
@@ -11430,7 +11440,7 @@ sys.exit(1 if contains(json.load(sys.stdin)) else 0)
     # The first tab's left quarter inserts before it; its centre is the next insertion slot.
     ox=$((ox - (sx - ox) / 4))
     xwtab_drag_to_window "$sx" "$sy" "$ox" "$oy" "$apid" "$apid" catcher
-    xwtab_wait_outcome return
+    xwtab_wait_own_return
     for i in $(seq 1 40); do [[ "$(xwdrag_qs "$aid" tabIndex 2>/dev/null)" == 0 ]] && break; sleep 0.1; done
     [[ "$(xwdrag_qs "$aid" tabIndex 2>/dev/null)" == 0 ]] || fail "xwtab: own-strip drop did not reorder the active tab"
     sleep 0.5
