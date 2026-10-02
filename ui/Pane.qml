@@ -605,6 +605,12 @@ FocusScope {
     // MenuAdditions040: Paste as links, undoable, through the collision card;
     // with paths the links go out of those, else out of the file clipboard.
     function pasteLink(kind, paths) {
+        // Recent is a history, not a directory: the menu reaches this past the
+        // key dispatch, so the refusal lives here as well as on the actions.
+        if (root.recentMode.length > 0) {
+            root.message("This listing is a history, and cannot take a paste.", false)
+            return
+        }
         var sources = paths && paths.length > 0 ? paths : root.clipboard.paths
         if (sources.length === 0) {
             root.message("There is nothing to paste; y copies and x cuts.", false)
