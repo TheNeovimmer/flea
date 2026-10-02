@@ -2191,6 +2191,21 @@ case_click() {
     kill_flea
 }
 
+# Prints the last whole row index, so the three clickedge scans share one rule.
+last_whole_row() {
+    local visible="$1" ay="$2" ah="$3" ci crx cry crw crh last probe
+    # Two rows past the count, so a cut bottom row never hides a whole one.
+    probe=2
+    last=-1
+    for (( ci = 0; ci < visible + probe; ci++ )); do
+        [[ -n "$(ipc rowRect "$ci")" ]] || break
+        read -r crx cry crw crh <<< "$(ipc rowRect "$ci")"
+        (( cry + crh <= ay + ah )) || break
+        last=$ci
+    done
+    printf '%s\n' "$last"
+}
+
 # A click never scrolls the list under the pointer: every cursor move keeps three
 # rows of context while scrolling, so a click within three rows of the edge used to
 # move the row away from the pointer and the second tap of a double click landed on
@@ -2233,16 +2248,10 @@ case_clickedge() {
         visible=$(ipc visibleRows)
         [[ "$visible" =~ ^[1-9][0-9]*$ ]] || fail "clickedge: $mode has no visible row count, got [$visible]"
         # visibleRows counts the cut bottom row too, so last is the last whole row, never the cut one.
-        local ex ey ew eh erx ery erw erh ei
+        local ex ey ew eh
         read -r ex ey ew eh <<< "$(ipc listAreaRect)"
         [[ "$ex $ey $ew $eh" =~ ^[0-9]+\ [0-9]+\ [0-9]+\ [0-9]+$ ]] || fail "clickedge: $mode has no listing area, got [$ex $ey $ew $eh]"
-        last=-1
-        for (( ei = 0; ei < visible + 2; ei++ )); do
-            [[ -n "$(ipc rowRect "$ei")" ]] || break
-            read -r erx ery erw erh <<< "$(ipc rowRect "$ei")"
-            (( ery + erh <= ey + eh )) || break
-            last=$ei
-        done
+        last=$(last_whole_row "$visible" "$ey" "$eh")
         (( last >= 1 )) || fail "clickedge: $mode found no whole rows, last $last"
         target=$((last - 1))
         # A cut row's centre can lie outside the list, so click inside its drawn part.
@@ -2331,13 +2340,8 @@ case_clickedge() {
         key -k Home >/dev/null || fail "clickedge: key Home was rejected"
         settle
         read -r ax ay aw ah <<< "$(ipc listAreaRect)"
-        local whole_last=-1
-        for (( ci = 0; ci < visible + 2; ci++ )); do
-            [[ -n "$(ipc rowRect "$ci")" ]] || break
-            read -r crx cry crw crh <<< "$(ipc rowRect "$ci")"
-            (( cry + crh <= ay + ah )) || break
-            whole_last=$ci
-        done
+        local whole_last
+        whole_last=$(last_whole_row "$visible" "$ay" "$ah")
         (( whole_last >= 1 )) || fail "clickedge: $mode found no whole rows, last $whole_last"
         local slow=$((whole_last - 1)) slow_name before_slow after_slow
         slow_name=$(ipc visibleRowName "$slow")
@@ -2364,13 +2368,7 @@ case_clickedge() {
         settle
         [[ "$(ipc viewContentY)" == "0" ]] || fail "clickedge: $mode Home did not return to the top before the band, contentY $(ipc viewContentY)"
         read -r ax ay aw ah <<< "$(ipc listAreaRect)"
-        whole_last=-1
-        for (( ci = 0; ci < visible + 2; ci++ )); do
-            [[ -n "$(ipc rowRect "$ci")" ]] || break
-            read -r crx cry crw crh <<< "$(ipc rowRect "$ci")"
-            (( cry + crh <= ay + ah )) || break
-            whole_last=$ci
-        done
+        whole_last=$(last_whole_row "$visible" "$ay" "$ah")
         local upper=2
         (( whole_last > upper + 1 )) || fail "clickedge: $mode the window holds no band span, last whole $whole_last"
         read -r crx cry crw crh <<< "$(ipc rowRect "$upper")"
@@ -10840,11 +10838,10 @@ print(("%s %s" % (hits[0]["id"], hits[0]["pid"])) if len(hits) == 1 else "")
 }
 
 xwdrag_qs() {
-    qs ipc -i "$1" call flea "${@:2}" 2>&1
+    qs ipc -i "$1" call flea "${@:2}"
 }
 
-# A second owned window on top of the one launch() already opened. launch() kills first, so this
-# never calls it: same binary, same UI, same run marker, and the pid must be new and owned.
+# A second owned window over launch()'s own: same binary, UI and run marker, pid new and owned.
 xwdrag_launch_second() {
     local start_path="$1" before after pid
     before=$(flea_pids | tr '\n' ' ')
@@ -10992,7 +10989,9 @@ xwdrag_wait_path() {
 
 xwdrag_wait_row_gone() {
     local id="$1" want="$2" total
-    local deadline=$(( $(date +%s%N) + 1000000000 ))
+    # 40 polls of 0.25 s, the watch path plus a full ipc pass.
+    local wait_ns=10000000000
+    local deadline=$(( $(date +%s%N) + wait_ns ))
     while (( $(date +%s%N) < deadline )); do
         total=$(xwdrag_qs "$id" total 2>/dev/null || printf -1)
         if [[ "$total" != "-1" ]]; then
