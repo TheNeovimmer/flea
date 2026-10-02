@@ -4,6 +4,7 @@
 .import "../../ui/js/Nav.js" as Nav
 .import "../../ui/js/Icons.js" as Icons
 .import "../../ui/js/Mounts.js" as Mounts
+.import "sourcefixture.js" as Source
 
 function state(changes) {
     var value = { hasRow: true, selectionCount: 1, rowMode: 0o100644, clipboardAvailable: false,
@@ -360,4 +361,40 @@ function providerRefresh(check) {
           Menu.flyoutEntries("pasteAs").map(function (l) { return l.id }).join(","),
           "pasteLink,pasteAbsoluteLink,pasteHardLink")
     check("while any other action builds no flyout", Menu.flyoutEntries("trash").length, 0)
+    // Lone flyout opens only with no row and an available action; otherwise it refuses.
+    check("Menu decides lone vs refuse in one place", typeof Menu.submenuFor === "function", true)
+    var loneFor = Menu.submenuFor || function () { return { kind: "none" } }
+    var loneHidden = Menu.listingEntries(state({ clipboardAvailable: true }))
+    check("hidden Copy as with clipboard opens lone", loneFor("copyAs", loneHidden, true).kind, "lone")
+    check("hidden Paste as with clipboard opens lone", loneFor("pasteAs", loneHidden, true).kind, "lone")
+    var loneEmpty = Menu.listingEntries(state({ clipboardAvailable: false }))
+    check("hidden Paste as with empty clipboard refuses", loneFor("pasteAs", loneEmpty, false).kind, "refuse")
+    check("and names the empty-clipboard sentence", Menu.EMPTY_CLIPBOARD || "", "There is nothing to paste; y copies and x cuts.")
+    var shownEmpty = Menu.listingEntries(state({ clipboardAvailable: false, hiddenActions: [] }))
+    check("shown Paste as with empty clipboard refuses", loneFor("pasteAs", shownEmpty, false).kind, "refuse")
+    var shownFull = Menu.listingEntries(state({ clipboardAvailable: true, hiddenActions: [] }))
+    check("shown Paste as with clipboard opens its row", loneFor("pasteAs", shownFull, true).kind, "row")
+    check("shown Copy as opens its row", loneFor("copyAs", shownFull, true).kind, "row")
+    check("an action with no flyout opens nothing", loneFor("trash", shownFull, true).kind, "none")
+    check("Menu decides a lone leaf in one place", typeof Menu.loneChoice === "function", true)
+    var lonePick = Menu.loneChoice || function () { return { kind: "none" } }
+    check("a known leaf with no move fires", lonePick("copyAs", "copyPath", false, false, true, "a", "a").kind, "fire")
+    check("and names the fired action with its leaf", lonePick("copyAs", "copyPath", false, false, true, "a", "a").fired, "copyAs:copyPath")
+    check("an unknown leaf refuses", lonePick("copyAs", "bogus", false, false, true, "a", "a").kind, "unknown")
+    check("a moved selection refuses", lonePick("copyAs", "copyPath", false, false, true, "a", "b").kind, "moved")
+    // A moved selection outranks an unknown leaf, the order chooseSub carried.
+    check("a moved selection outranks an unknown leaf", lonePick("copyAs", "bogus", false, false, true, "a", "b").kind, "moved")
+    check("a rail move never counts as moved", lonePick("copyAs", "copyPath", true, false, true, "a", "b").kind, "fire")
+    // Pane root carries the cursor sequence Filter and Marks bump, so QML must declare it.
+    var paneSrc = Source.source("ui/Pane.qml")
+    check("Pane declares cursorSeq beside cursorIndex", paneSrc.indexOf("property int cursorSeq: 0") >= 0, true)
+    check("Pane declares recentSortBy", paneSrc.indexOf('property string recentSortBy: ""') >= 0, true)
+    check("Pane declares recentSortDesc", paneSrc.indexOf("property bool recentSortDesc: false") >= 0, true)
+    // QML routes through the same decision, so a revert goes red here.
+    var contextSrc = Source.source("ui/ContextMenu.qml")
+    check("ContextMenu opens through Menu.submenuFor", contextSrc.indexOf("Menu.submenuFor(action, root.entries, root.clipboardAvailable)") >= 0, true)
+    check("ContextMenu chooses through Menu.loneChoice", contextSrc.indexOf("Menu.loneChoice(root.loneFlyoutAction, id,") >= 0, true)
+    check("its refusal names the empty-clipboard sentence", contextSrc.indexOf("root.refused(Menu.EMPTY_CLIPBOARD)") >= 0, true)
+    var pasteBody = Source.slice(paneSrc, "function openPasteAs()", "function invertSelection")
+    check("Pane.openPasteAs closes and says empty on refuse", pasteBody.indexOf("menu.close()") >= 0 && pasteBody.indexOf("There is nothing to paste; y copies and x cuts.") >= 0, true)
 }

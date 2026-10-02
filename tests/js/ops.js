@@ -190,6 +190,61 @@ function run(check) {
           String(zipPane.pathsPending),
           "null")
 
+    // A paths round trip in flight refuses every other asker out loud, so none steals another's reply.
+    function pathsPane(sent) {
+        var p = windowedPane(sent)
+        p.said = []
+        p.message = function (text, failed) { p.said.push([text, failed]) }
+        p.opener = { copied: [], copyText: function (text) { this.copied.push(text) } }
+        p.openPermissionsWith = function (list) { p.permitted = list }
+        return p
+    }
+    var copySent = []
+    var copyPane = pathsPane(copySent)
+    Ops.copyAs(copyPane, "path", ["/d/a", "/d/b"])
+    check("Copy as with paths copies at once in the asked format",
+          copyPane.opener.copied.join(";") + "|" + copySent.length + "|" + String(copyPane.pathsPending),
+          "/d/a\n/d/b|0|null")
+    var askSent = []
+    var askPane = pathsPane(askSent)
+    Ops.copyAs(askPane, "quoted")
+    check("Copy as without paths asks under a copyAs claim",
+          askSent.length + "|" + askPane.pathsPending.kind + "|" + askPane.pathsPending.format,
+          "1|copyAs|quoted")
+    var heldSent = []
+    var heldPane = pathsPane(heldSent)
+    heldPane.pathsPending = { kind: "drag" }
+    Ops.copyAs(heldPane, "path")
+    check("Copy as refuses while a drag claim is waiting",
+          heldSent.length + "|" + heldPane.pathsPending.kind + "|" + JSON.stringify(heldPane.said),
+          "0|drag|[[\"Still resolving the last selection; try again.\",false]]")
+    var cutSent = []
+    var cutPane = pathsPane(cutSent)
+    cutPane.pathsPending = { kind: "drag" }
+    Ops.clip(cutPane, true)
+    check("a cut refuses out loud while a drag claim is waiting",
+          cutSent.length + "|" + String(cutPane.clipPending) + "|" + JSON.stringify(cutPane.said),
+          "0|null|[[\"Still resolving the last selection; try again.\",false]]")
+    var zipSent = []
+    var zipBusy = pathsPane(zipSent)
+    zipBusy.clipPending = true
+    Ops.compress(zipBusy, "zip")
+    check("a compress refuses out loud while a cut is waiting",
+          zipSent.length + "|" + String(zipBusy.pathsPending) + "|" + JSON.stringify(zipBusy.said),
+          "0|null|[[\"Still resolving the last selection; try again.\",false]]")
+    var answeredPane = pathsPane([])
+    answeredPane.pathsPending = { kind: "copyAs", format: "quoted" }
+    Ops.pathsResolved(answeredPane, ["/d/a b"])
+    check("a copyAs reply copies the resolved list in the claimed format",
+          answeredPane.opener.copied.join(";") + "|" + String(answeredPane.pathsPending),
+          "'/d/a b'|null")
+    var allowedPane = pathsPane([])
+    allowedPane.pathsPending = { kind: "permissions" }
+    Ops.pathsResolved(allowedPane, ["/d/x"])
+    check("a permissions reply opens the dialog over the resolved list",
+          (allowedPane.permitted || []).join(",") + "|" + String(allowedPane.pathsPending),
+          "/d/x|null")
+
     var captured = ["/d/captured.txt", "/d/second.txt"]
     var capturedRequests = []
     var capturedPane = windowedPane(capturedRequests)
@@ -428,8 +483,7 @@ function run(check) {
           Ops.transferDone({ moving: false, n: 2 }, 2, 0, 0, false, false, ""),
           "Copied 2 items · z undoes")
 
-    // A slow click renames with pointer context 0 so the list never moves
-    // under it; F2 and r keep the keyboard's three-row context.
+    // A slow click renames with context 0 so the list stays still; F2 and r keep the three-row context.
     function contextPane() {
         return { cursorIndex: 5, path: "/d", renamingIndex: -1, renamePending: false,
             renameError: "", renameSource: "", renameMenuId: 0,

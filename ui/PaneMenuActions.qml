@@ -205,11 +205,7 @@ Loader {
         pane.backend.send({c: "menuaction", op: "snapshot", id: requestId,
             rows: rows !== undefined ? rows : Ops.targetIndices(pane), cursor: pane.cursorIndex})
     }
-    // Issue #170: the menu's Rename opens the editor at once by the route F2
-    // takes, instead of queueing an activate behind the cold Open-with catalogue.
-    // A ready snapshot over the current selection opens now; anything else takes
-    // the F2 route below, which snapshots the cursor row and shows on its reply.
-    // The catalogue itself is untouched: it keeps running and answers the flyout.
+    // A ready snapshot opens the editor at once; anything else takes the F2 route.
     function openRenameFromMenu() {
         if (pane.renamePending) { pane.message("Rename is still finishing.", false); return }
         if (deleting || survivorId) { pane.message("The deletion is still finishing.", false); return }

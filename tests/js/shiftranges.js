@@ -22,6 +22,7 @@ function pane(n) {
 
 function picks(p) { return p.selectedIndices().join(",") }
 function down(p) { Filter.moveCursor(p, 1); Marks.follow(p) }
+function up(p) { Filter.moveCursor(p, -1); Marks.follow(p) }
 function click(p, i) {
     Filter.setCursor(p, i)
     p.selection.only(p.cursorIndex)
@@ -47,6 +48,18 @@ function run(check) {
     Marks.extend(p, -1)
     check("and keeps shrinking past it the same way", picks(p), "0,1,2,4,5")
 
+    // A plain move away and back ends the gesture even when the cursor returns.
+    var m = pane(10)
+    Marks.extend(m, 1)
+    Marks.extend(m, 1)
+    check("two Shift+J mark 0,1,2", picks(m), "0,1,2")
+    down(m)
+    up(m)
+    down(m)
+    up(m)
+    Marks.extend(m, -1)
+    check("a move away and back starts the next Shift over", picks(m), "0,1,2")
+
     // Two Shift+click blocks: consecutive clicks share one base, a click between starts another.
     var q = pane(10)
     q.cursorIndex = 1
@@ -59,7 +72,7 @@ function run(check) {
     check("a ctrl+click between starts a second block beside the first", picks(q), "1,2,3,4,5,6,7,8")
     q.selection.clear()
     Marks.extend(q, 1)
-    check("Escape clears every block and the next Shift starts over", picks(q), "8,9")
+    check("clearing the selection ends every block and the next Shift starts over", picks(q), "8,9")
 
     // v mid-gesture ends it: the next Shift snapshots the marks v left, anchor and all.
     var r = pane(10)

@@ -38,6 +38,8 @@ FocusScope {
     property string listingPath: ""
     property int total: 0
     property int cursorIndex: 0
+    // Filter and Marks bump this on every cursor move, ending a shift gesture.
+    property int cursorSeq: 0
     property string listingState: "loading"
     property string stateMessage: ""
     property int lockedMode: 0
@@ -500,7 +502,7 @@ FocusScope {
         }
         var taken = [root.join(root.path, row.n)]
         var oldBits = (Number(row.p) || 0) & 0o7777
-        var octal = Permissions.octal((oldBits | 0o100) & 0o7777)
+        var octal = Permissions.octal((oldBits | Format.S_IXUSR) & 0o7777)
         root.makeExecPendingId += 1
         root.backend.send({ c: "permissionsBatch", paths: taken, modes: [octal], id: Permissions.MAKE_EXEC_ID + root.makeExecPendingId })
     }
@@ -518,6 +520,7 @@ FocusScope {
     function openPermissions() {
         var idx = Ops.targetIndices(root)
         if (idx.length === 0) { Ops.sayNoTarget(root); return }
+        if (root.pathsPending || root.clipPending !== null) { Ops.pathsBusy(root); return }
         // The selection can reach past the held window, so the backend
         // resolves the indices while it still can, the same rule clip follows.
         root.pathsPending = { kind: "permissions" }
@@ -551,7 +554,10 @@ FocusScope {
             root.message("No row under the cursor to open a menu on.", false)
             return
         }
-        menu.openSubmenuFor("pasteAs")
+        if (!menu.openSubmenuFor("pasteAs")) {
+            menu.close()
+            root.message("There is nothing to paste; y copies and x cuts.", false)
+        }
     }
     // MenuAdditions040: V flips the marks over the rows the listing draws;
     // the filter applies, and a close match is never selected.
