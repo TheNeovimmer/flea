@@ -250,9 +250,22 @@ ShellRoot {
             root.check("rapid move trails", backend.metaCalls === root.metaMark)
             var heldAt = preview.lastMoveAt - root.duplicateBackdateMs
             preview.lastMoveAt = heldAt
+            // The settle Timer is the one Timer under preview; its root type declares none.
+            var settleTimer = null
+            for (var i = 0; i < preview.resources.length; i++) {
+                if (preview.resources[i] instanceof Timer) {
+                    settleTimer = preview.resources[i]
+                }
+            }
+            var settleRestarts = 0
+            var counted = function () {
+                settleRestarts += 1
+            }
+            settleTimer.runningChanged.connect(counted)
             root.step(7)
+            settleTimer.runningChanged.disconnect(counted)
             root.check("duplicate moves no second arm", backend.metaCalls === root.metaMark
-                && preview.lastMoveKey === pane.path + "\n7" && preview.lastMoveAt === heldAt)
+                && preview.lastMoveKey === pane.path + "\n7" && preview.lastMoveAt === heldAt && settleRestarts === 0)
             root.pollFor(7, 400, root.stage + 1)
         },
         function () {
