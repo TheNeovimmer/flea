@@ -325,3 +325,16 @@ fn slow_names_its_op_path_and_sentence() {
         r#"{"t":"slow","op":"rename","path":"/hung/a.txt","msg":"/hung is slow. The rename continues and will finish on its own."}"#
     );
 }
+
+#[test]
+fn clip_requests_carry_their_operation_paths_and_token() {
+    assert!(matches!(parse_request(r#"{"c":"clipSet","op":"copy","paths":["/home/gm/a.txt"]}"#),
+        Request::ClipSet { op, paths } if op == "copy" && paths == ["/home/gm/a.txt"]));
+    assert!(matches!(parse_request(r#"{"c":"clipGet"}"#), Request::ClipGet));
+    assert!(matches!(parse_request(r#"{"c":"clipClear","token":"ab12"}"#),
+        Request::ClipClear { token, cut } if token == "ab12" && cut.is_empty()));
+    assert!(matches!(parse_request(r#"{"c":"clipClear"}"#), Request::ClipClear { token, cut } if token.is_empty() && cut.is_empty()));
+    assert!(matches!(parse_request(r#"{"c":"clipClear","cut":["/a"]}"#),
+        Request::ClipClear { cut, .. } if cut == ["/a"]));
+    assert!(matches!(parse_request(r#"{"c":"clipWatch"}"#), Request::ClipWatch));
+}

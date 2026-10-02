@@ -73,6 +73,11 @@ pub enum Request {
     TrashBrowse { line: String },
     // The path bar's folder jump: the favourites and recent files the client read, joined with zoxide's ranking.
     Jump { id: usize, favourites: Vec<String>, recent: Vec<String> },
+    // The system clipboard for files, owned across windows; see docs/protocol.md "clip".
+    ClipSet { op: String, paths: Vec<String> },
+    ClipGet,
+    ClipClear { token: String, cut: Vec<String> },
+    ClipWatch,
     Quit,
     Unknown,
 }
@@ -226,6 +231,16 @@ pub fn parse_request(line: &str) -> Request {
             id: field_usize(line, "id").unwrap_or(0),
         },
         Some("jump") => Request::Jump { id: field_usize(line, "id").unwrap_or(0), favourites: field_str_array(line, "favourites"), recent: field_str_array(line, "recent") },
+        Some("clipSet") => Request::ClipSet {
+            op: field_str(line, "op").unwrap_or_default(),
+            paths: field_str_array(line, "paths"),
+        },
+        Some("clipGet") => Request::ClipGet,
+        Some("clipClear") => Request::ClipClear {
+            token: field_str(line, "token").unwrap_or_default(),
+            cut: field_str_array(line, "cut"),
+        },
+        Some("clipWatch") => Request::ClipWatch,
         Some("quit") => Request::Quit,
         _ => Request::Unknown,
     }

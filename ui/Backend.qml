@@ -63,6 +63,8 @@ Item {
     signal redone(string op, bool ok)
     signal redoStarted(int id, int n, string op)
     signal metaResult(var message)
+    // The system clipboard for files, one line for set, get and clear alike.
+    signal clipResult(var message)
     property int metaToken: 0
     // One counter numbers every PDF fetch, so two viewers never share an id.
     property int pdfCopySeq: 0

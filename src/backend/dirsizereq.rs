@@ -81,6 +81,7 @@ mod tests {
             search_reported: Instant::now(),
             generation: 0,
             held: crate::backend::state::Held::List,
+            clip_watching: false,
         }
     }
 
