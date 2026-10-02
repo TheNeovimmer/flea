@@ -445,6 +445,7 @@ round_fs() {
     elif [ -n "$opts" ]; then as_root mount -t "$fstype" -o "loop,$opts" "$loop" "$mnt";
     else as_root mount -t "$fstype" -o loop "$loop" "$mnt"; fi
     case "$fs" in ext4|btrfs|xfs|f2fs|udf) as_root chown -R "$(id -u):$(id -g)" "$mnt" ;; esac
+    # The subvolume is seed_tree's own sub, so the root still lists SEED_TOP_LINK entries; only ext4 adds lost+found.
     [ "$fs" = "btrfs" ] && btrfs subvolume create "$mnt/sub" >/dev/null 2>&1 || true
     if [ "$class" != "readonly" ]; then case "$class" in vfatlike) seed_tree "$mnt" 0 ;; *) seed_tree "$mnt" 1 ;; esac; fi
   fi
@@ -527,7 +528,7 @@ round_nfs() {
   check "nfs soft rename lands" "yes" "$([ -f "$ROOT/mnt-nfssoft/soft-after.txt" ] && echo yes || echo no)"
   # Dead server: local request answers inside its deadline while the NFS one errors.
   as_root exportfs -u "127.0.0.1:$ROOT/nfsroot" 2>/dev/null || true
-  # Record the host server state before stopping it, so cleanup restores what was running.
+  # round_nfs starts no server and a stopped one already skipped at the hard mount, so this is the host's own state.
   NFS_WAS_ACTIVE=$(systemctl is-active nfs-server 2>/dev/null || printf 'inactive')
   if command -v systemctl >/dev/null 2>&1; then as_root systemctl stop nfs-server 2>/dev/null || true; fi
   seed_tree "$ROOT/nfslocal" 0
