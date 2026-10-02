@@ -29,7 +29,6 @@ ShellRoot {
 
     function log(line) { console.log("PREVIEW " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
-    function mark(name) { Quickshell.execDetached(["touch", shell.photoDir + "/sentinel-" + name]) }
     // Sentinel handshake: touch runs as a Process so CREATE lands before the next open.
     Process {
         id: markProc
@@ -42,7 +41,19 @@ ShellRoot {
     }
     function onMarkDone(name) {
         if (name === "sweep") { shell.log("SWEEP START"); shell.movesLeft = shell.sweepCount; moveTimer.restart() }
+        else if (name === "rest") {
+            stub.cursorIndex = shell.restRow
+            shell.log("REST START")
+            restPoll.restart()
+        }
+        else if (name === "done") {
+            shell.log("DONE")
+            quickLook.active = true
+            shell.lookAt("portrait", shell.photoDir + "/portrait.jpg")
+        }
         else if (name.indexOf("istart-") === 0) { shell.openAfterMark() }
+        else if (name === "iend-small") { shell.beginInterim("large", "seed0.jpg", "thumb.png", 640, 480) }
+        else if (name === "iend-large") { shell.runGuards() }
     }
     function openAfterMark() {
         quickPreview.item.open(shell.photoDir + "/" + shell.interimOrig, "image-x-generic", 1000, "", shell.photoDir + "/" + shell.interimCache)
@@ -205,10 +216,8 @@ ShellRoot {
             if (shell.movesLeft <= 0) {
                 stop()
                 shell.log("SWEEP END")
-                stub.cursorIndex = shell.restRow
-                shell.mark("rest")
-                shell.log("REST START")
-                restPoll.restart()
+                markProc.touchName = "rest"
+                markProc.running = true
             }
         }
     }
@@ -238,10 +247,8 @@ ShellRoot {
         id: doneTimer
         interval: 2000
         onTriggered: {
-            shell.mark("done")
-            shell.log("DONE")
-            quickLook.active = true
-            shell.lookAt("portrait", shell.photoDir + "/portrait.jpg")
+            markProc.touchName = "done"
+            markProc.running = true
         }
     }
 
@@ -362,9 +369,8 @@ ShellRoot {
                 stop()
                 shell.log("INTERIM " + shell.interimPhase + " irect=" + shell.geom(pair[0]) + " frect=" + shell.geom(pair[1]))
                 shell.log("INTERIMSTACK " + shell.interimPhase + " " + (shell.stackOk() ? "ok" : "bad"))
-                shell.mark("iend-" + shell.interimPhase)
-                if (shell.interimPhase === "small") shell.beginInterim("large", "seed0.jpg", "thumb.png", 640, 480)
-                else shell.runGuards()
+                markProc.touchName = "iend-" + shell.interimPhase
+                markProc.running = true
             } else if (waited > 8000) {
                 stop()
                 shell.log("FAIL the interim never settled for " + shell.interimPhase)
