@@ -55,7 +55,6 @@ qlist() { local s=""; local x; for x in "$@"; do s="$s\"$x\","; done; printf '%s
 STICK_FILES=1000
 STICK_DIRS=50
 STICK_MANY=10000
-MBR_ESP_START=64
 MBR_ESP_SIZE=2048
 # One host seed tree copied per image; vfat and exfat copies drop the link they cannot hold.
 NFC_NAME="caf$(printf '\303\251')-nfc.txt"
@@ -96,8 +95,8 @@ PY
 }
 seed_copy() {
   local src="$1" dst="$2" nolinks="$3"
-  # FAT targets skip link, mode and owner preservation, which those drives refuse.
-  if [ "$nolinks" = 1 ]; then cp -r --preserve=timestamps "$src/seed/tree/." "$dst/" || return 1
+  # FAT targets refuse links, modes and owners, so links are dereferenced and nothing else is preserved.
+  if [ "$nolinks" = 1 ]; then cp -rL --preserve=timestamps "$src/seed/tree/." "$dst/" || return 1
   else cp -a "$src/seed/tree/." "$dst/" || return 1; fi
   if [ "$nolinks" = 1 ]; then rm -f "$dst/rel-link"; fi
 }
@@ -263,7 +262,19 @@ layout_isohybrid() {
   # Sectors of 512 B: partition 1 spans the ISO, the ESP starts where the ISO ends.
   iso_sectors=$(($(stat -c %s "$img") / 512)) || return 1
   as_root truncate -s $(( (iso_sectors + MBR_ESP_SIZE) * 512 )) "$img"
-  printf 'label: dos\nstart=0, size=%s, type=00\nstart=%s, size=%s, type=ef\n' "$iso_sectors" "$iso_sectors" "$MBR_ESP_SIZE" | as_root sfdisk -q "$img" >/dev/null || return 1
+  # MBR entries are 16 B at offset 446 with 0x55AA at 510; sfdisk refuses start 0.
+  as_root python3 - "$img" "$iso_sectors" "$MBR_ESP_SIZE" <<'PY' || return 1
+import struct, sys
+img, iso_sectors, esp_size = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+def entry(boot, ctype, lba, sectors):
+    return struct.pack('<B3sB3sII', boot, b'\0\0\0', ctype, b'\0\0\0', lba, sectors)
+with open(img, 'r+b') as f:
+    f.seek(446)
+    f.write(entry(0, 0x00, 0, iso_sectors))
+    f.write(entry(0, 0xef, iso_sectors, esp_size))
+    f.seek(510)
+    f.write(struct.pack('<H', 0xAA55))
+PY
   emit isohybrid "$img" "$(qlist FLEA-ISO)" "$(qlist FLEA-ISO)" "ISO row kept, ESP hidden"
 }
 

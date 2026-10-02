@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Headless backend matrix over ten filesystems plus NFSv4 (ROOTCAUSE section 5 piece 1).
 set -u
+# Absolute self survives the cd below, so the re-exec names the script from any cwd.
+self=$(readlink -f "$0")
 cd "$(dirname "$0")/.." || exit 1
 
 BIN=${BIN:-./target/debug/flea}
@@ -21,7 +23,7 @@ if [ "$DRY" = 0 ] && [ ! -x "$BIN" ]; then
 fi
 command -v jq >/dev/null 2>&1 || { printf 'fs-matrix.sh: jq is required to read the wire\n' >&2; exit 1; }
 # Without a session bus trash would race undo in one backend, so re-exec under one instead.
-if [ "$DRY" = 0 ] && [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$0" "$@"; fi
+if [ "$DRY" = 0 ] && [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$self" "$@"; fi
 
 # Root steps run through this one function, so the controller runs the script with sudo -n on a VPS.
 as_root() {
@@ -73,6 +75,9 @@ cleanup() {
   fi
   if [ -n "$ROOT" ]; then
     case "$ROOT" in /*/*) [ -f "$ROOT/.flea-test-sandbox" ] && rm -rf "$ROOT" ;; esac
+  fi
+  if [ -n "${SMOKE_XDEV:-}" ]; then
+    case "$SMOKE_XDEV" in /*/*) [ -f "$SMOKE_XDEV/.flea-test-sandbox" ] && rm -rf "$SMOKE_XDEV" ;; esac
   fi
 }
 trap cleanup EXIT HUP INT TERM
@@ -526,9 +531,10 @@ round_nfs() {
   NFS_WAS_ACTIVE=$(systemctl is-active nfs-server 2>/dev/null || printf 'inactive')
   if command -v systemctl >/dev/null 2>&1; then as_root systemctl stop nfs-server 2>/dev/null || true; fi
   seed_tree "$ROOT/nfslocal" 0
-  # About 2 s (40 polls of 50 ms): a frozen loop must not pass as a live listing.
-  LOCAL_LIVE_LIMIT=40
-  NFS_ERROR_LIMIT=40
+  # 8 s (160 polls of 50 ms) covers the 5 s list CALL_DEADLINE before a wedged error lands.
+  NFS_WAIT_POLLS=160
+  LOCAL_LIVE_LIMIT=$NFS_WAIT_POLLS
+  NFS_ERROR_LIMIT=$NFS_WAIT_POLLS
   fresh
   send "{\"c\":\"list\",\"path\":\"$ROOT/mnt-nfssoft\",\"first\":5,\"hidden\":true}"
   send "{\"c\":\"list\",\"path\":\"$ROOT/nfslocal\",\"first\":70,\"hidden\":true}"
@@ -574,7 +580,10 @@ if [ "$SMOKE" = 1 ]; then
   seed_tree "$mnt" 1
   # A cross-device side on another st_dev (/dev/shm is tmpfs), or the move guard skips honestly.
   SMOKE_XDEV=""
-  if SHM_TMP=$(mktemp -d /dev/shm/flea-fs-smoke-xdev.XXXXXX 2>/dev/null); then SMOKE_XDEV="$SHM_TMP"; fi
+  if SHM_TMP=$(mktemp -d /dev/shm/flea-fs-smoke-xdev.XXXXXX 2>/dev/null); then
+    SMOKE_XDEV="$SHM_TMP"
+    : > "$SMOKE_XDEV/.flea-test-sandbox"
+  fi
   if [ -n "$SMOKE_XDEV" ] && [ "$(stat -c %d "$mnt")" != "$(stat -c %d "$SMOKE_XDEV")" ]; then SMOKE_OTHER="$SMOKE_XDEV"; else SMOKE_OTHER="$HARNESS/xdev"; fi
   start_backend
   c_list "$mnt" "$SEED_TOP_LINK"
@@ -587,7 +596,6 @@ if [ "$SMOKE" = 1 ]; then
   c_links "$mnt" native
   c_perms "$mnt" native
   stop_backend
-  [ -n "$SMOKE_XDEV" ] && rm -rf "$SMOKE_XDEV"
   printf 'fs-matrix --smoke: %s passed, %s failed, %s skipped\n' "$pass" "$fail" "$skip"
   [ "$fail" = 0 ]
   exit $?
