@@ -311,6 +311,16 @@ function run(check) {
     check("Escape with an armed vim pair is consumed too", Focus.handleKey(armedKey, armedPair, null), true)
     check("and drops the pair instead of climbing",
           armedPair.keySequence + "|" + armedPair.climbed + "|" + armedPair.retreated, "|0|0")
+    var armedPairOff = escaper("", 0)
+    armHandle(armedPairOff)
+    armedPairOff.path = "/d"
+    armedPairOff.cursorIndex = 3
+    armedPairOff.selectionVersion = 1
+    armedPairOff.keySequence = "copyArm"
+    armedPairOff.keySequenceIdentity = '["/d",3,1,"list"]'
+    check("Escape with an armed vim pair and the setting off is consumed too", Focus.handleKey(armedKey, armedPairOff, null), true)
+    check("and blanks the pair before running Escape's own action",
+          armedPairOff.keySequence + "|" + armedPairOff.climbed + "|" + armedPairOff.retreated, "|0|1")
     var stalePair = escaper("", 0)
     stalePair.escapeUp = true
     armHandle(stalePair)

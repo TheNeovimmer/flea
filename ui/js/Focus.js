@@ -350,7 +350,7 @@ function handleKey(event, root, sidebar) {
         return Filter.typeKey(event, root)
     }
     var action = lookup(event, root)
-    // Escape cancels an armed trash or a live vim pair first and stops.
+    // With escape-up on Escape cancels an armed trash or a live vim pair and stops, with it off Escape disarms through the sequence and runs its own action.
     var escapeCancelsArm = action === "escape" && root.escapeUp === true
         && (root.trashArmedAt > 0 || (ARMED_PAIRS[root.keySequence] === true && root.keySequenceIdentity === stampOf(root)))
     action = sequenceAction(action, root)

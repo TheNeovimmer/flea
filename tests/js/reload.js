@@ -129,7 +129,9 @@ function run(check) {
     check("and one without hands over no count", routed.join(";"), "12|/d|2;12|/d|undefined")
     // Each check reads the shipped QML source, so a live window is not needed.
     var swap = Source.source("ui/PaneSwap.qml")
-    check("PaneSwap keeps the listed line's count for the reload", swap.indexOf("pane.reloadChanged = (changed === undefined || changed === null) ? -1 : changed") >= 0, true)
+    var swapListed = Source.slice(swap, "function applyListed(", "function ")
+    check("PaneSwap keeps the listed line's count for the reload", swapListed.indexOf("pane.reloadChanged = (changed === undefined || changed === null) ? -1 : changed") >= 0, true)
     var backend = Source.source("ui/Backend.qml")
-    check("the list request sends wantChanged only when asked", backend.indexOf("wantChanged: wantChanged === true") >= 0, true)
+    var backendList = Source.slice(backend, "function listRequest(", "function ")
+    check("the list request sends wantChanged only when asked", backendList.indexOf("wantChanged: wantChanged === true") >= 0, true)
 }
