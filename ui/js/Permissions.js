@@ -34,3 +34,68 @@ function summarize(modes) {
 }
 
 function mixedNote() { return "Mixed boxes keep each file's own bit unless you change them." }
+
+// The backend names an unchangeable file "Read-only: <bit> bit is present."
+// (src/backend/permissions.rs reason), so a mode carrying special bits is
+// named here in those same words instead of vanishing on parse's -1.
+function specialReason(text) {
+    var digits = String(text || "")
+    if (!/^[1-7][0-7]{3}$/.test(digits))
+        return ""
+    var special = parseInt(digits.charAt(0), 8)
+    var label = (special & 4) !== 0 ? "setuid" : (special & 2) !== 0 ? "setgid" : "sticky"
+    return "Read-only: " + label + " bit is present."
+}
+
+function leafOf(path) {
+    var text = String(path || "")
+    var cut = text.lastIndexOf("/")
+    return cut < 0 ? text : text.substring(cut + 1)
+}
+
+// The inspect accumulation behind the multi dialog: modes land in arrival
+// order into the store the dialog owns, written in place, and the dialog
+// summarizes once when this answers true. N replies cost N writes plus one
+// summary, never N summaries; tests/js/permissions.js pins the count.
+function noteMode(store, at, path, message) {
+    if (message.ok === true) {
+        store.modes[at] = message.mode
+        store.reasons[at] = message.reason || ""
+    } else {
+        // A refused inspect rides the reasons beside its row, so the Apply
+        // names it once with the backend's own words instead of dropping it
+        // or counting it twice.
+        var why = message.error || "Could not change permissions."
+        store.modes[at] = ""
+        store.reasons[at] = why
+        store.skipped.push({ path: path, why: why })
+    }
+    store.pending -= 1
+    return store.pending <= 0
+}
+
+// What the dialog shows while some items can never be changed: every skip
+// named with its reason, capped so a whole drive of them stays one line.
+function skipNote(skipped) {
+    var list = skipped || []
+    var shown = []
+    for (var i = 0; i < list.length && i < 3; i++)
+        shown.push(leafOf(list[i].path) + ": " + list[i].why)
+    var tail = list.length > 3 ? "; and " + (list.length - 3) + " more" : ""
+    return (list.length === 1 ? "1 item cannot be changed: " : list.length + " items cannot be changed: ")
+        + shown.join("; ") + tail
+}
+
+// The multi Apply's final message: how many changed and how many were left
+// alone and why. A batch with a skip never reports a plain success.
+function multiResult(changed, total, skipped) {
+    var list = skipped || []
+    if (list.length === 0)
+        return "Permissions changed."
+    var shown = []
+    for (var i = 0; i < list.length && i < 3; i++)
+        shown.push(leafOf(list[i].path) + ": " + list[i].why)
+    var tail = list.length > 3 ? "; and " + (list.length - 3) + " more" : ""
+    var left = list.length === 1 ? "1 left alone: " : list.length + " left alone: "
+    return "Permissions changed for " + changed + " of " + total + "; " + left + shown.join("; ") + tail
+}

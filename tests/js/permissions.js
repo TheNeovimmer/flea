@@ -19,4 +19,50 @@ function run(check) {
         Permissions.summarize(["0644", "0644"]).bits[2].on, false)
     check("mixed boxes keep each file's own bit note",
         Permissions.mixedNote(), "Mixed boxes keep each file's own bit unless you change them.")
+
+    // B8: an item with special bits is named the way the single-item dialog
+    // explains it, never silently dropped on parse's -1.
+    check("setgid is named in the dialog's own words",
+        Permissions.specialReason("2775"), "Read-only: setgid bit is present.")
+    check("and so are setuid and sticky",
+        Permissions.specialReason("4755") + "|" + Permissions.specialReason("1755"),
+        "Read-only: setuid bit is present.|Read-only: sticky bit is present.")
+    check("while an ordinary mode names nothing", Permissions.specialReason("0644"), "")
+    check("and neither does an unparseable one", Permissions.specialReason("0688"), "")
+
+    // B8: the final message says how many changed and how many were left alone
+    // and why, and a batch with a skip never reports a plain success.
+    check("an untouched batch reports the plain success",
+        Permissions.multiResult(2, 2, []), "Permissions changed.")
+    check("a batch with skips names every count and reason",
+        Permissions.multiResult(1, 3, [{ path: "/d/secret.txt", why: "Read-only: setgid bit is present." },
+                                       { path: "/d/gone.txt", why: "Could not change permissions." }]),
+        "Permissions changed for 1 of 3; 2 left alone: secret.txt: Read-only: setgid bit is present.; gone.txt: Could not change permissions.")
+    check("a batch with nothing applicable still answers every item",
+        Permissions.multiResult(0, 1, [{ path: "/d/secret.txt", why: "Read-only: setgid bit is present." }]),
+        "Permissions changed for 0 of 1; 1 left alone: secret.txt: Read-only: setgid bit is present.")
+
+    // B7: a 5000-row selection reads in linear time. N replies cost N writes
+    // plus the one summary the dialog computes when noteMode answers true,
+    // never N summaries.
+    var store = { modes: [], reasons: [], skipped: [], pending: 5000 }
+    var summaries = 0
+    var done = false
+    for (var i = 0; i < 5000; i++) {
+        done = Permissions.noteMode(store, i, "/f" + i, { ok: true, mode: "0644", reason: "" })
+        if (done) {
+            summaries += 1
+            Permissions.summarize(store.modes)
+        }
+    }
+    check("5000 replies land every mode", done + "|" + store.modes.length, "true|5000")
+    check("and summarize exactly once", summaries, 1)
+    var refused = { modes: [], reasons: [], skipped: [], pending: 3 }
+    Permissions.noteMode(refused, 0, "/d/a.txt", { ok: true, mode: "2755", reason: "Read-only: setgid bit is present." })
+    Permissions.noteMode(refused, 1, "/d/b.txt", { ok: false, error: "Gone." })
+    var last = Permissions.noteMode(refused, 2, "/d/c.txt", { ok: true, mode: "0644", reason: "" })
+    check("a refused inspect lands as a named skip", last + "|" + refused.skipped.length + "|" + refused.skipped[0].why,
+          "true|1|Gone.")
+    check("and rides the reasons once, beside its row",
+          refused.reasons.join("|"), "Read-only: setgid bit is present.|Gone.|")
 }

@@ -107,12 +107,17 @@ Item {
     property int cursor: 0
     property int openSubmenuRow: -1
     property int submenuCursor: 0
-    readonly property bool submenuOpen: root.openSubmenuRow >= 0
+    // B1: the c and P keys open their flyout while its row is hidden, so the
+    // leaves ride this action rather than a visible row; "" while no such
+    // flyout stands, and a visible row keeps today's row-bound path.
+    property string loneFlyoutAction: ""
+    readonly property bool submenuOpen: root.openSubmenuRow >= 0 || root.loneFlyoutAction.length > 0
     // The glyph every open flyout row draws, read back so a test can name it without OCR.
     function submenuGlyphs() {
         if (!root.submenuOpen)
             return ""
-        var mark = Menu.submenuGlyph(root.entries[root.openSubmenuRow].action)
+        var mark = Menu.submenuGlyph(root.loneFlyoutAction.length > 0
+            ? root.loneFlyoutAction : root.entries[root.openSubmenuRow].action)
         var out = []
         for (var i = 0; i < root.submenuEntries.length; i++) {
             // What the row draws, not what the flyout defaults to: an Open with row carries its own
@@ -124,9 +129,12 @@ Item {
         return out.join("|")
     }
 
-    // The entries the open flyout draws, which belong to the row that opened it.
-    readonly property var submenuEntries: root.submenuOpen && root.entries[root.openSubmenuRow]
-        ? root.entries[root.openSubmenuRow].submenu : []
+    // The entries the open flyout draws, which belong to the row that opened it,
+    // or to the lone action the c and P keys opened while its row is hidden.
+    readonly property var submenuEntries: root.loneFlyoutAction.length > 0
+        ? Menu.flyoutEntries(root.loneFlyoutAction)
+        : (root.submenuOpen && root.entries[root.openSubmenuRow]
+            ? root.entries[root.openSubmenuRow].submenu : [])
 
     // The row list this menu currently offers; a test reads this back through shell.qml's IPC.
     property var entries: []
@@ -291,6 +299,7 @@ Item {
         root.placeY = point.y
         root.entries = root.buildEntries()
         root.openedIdentity = root.selectionIdentity
+        root.loneFlyoutAction = ""
         scroll.contentY = 0
         root.clampFrame()
         root.cursor = root.firstRow()
@@ -310,6 +319,7 @@ Item {
             return
         root.opened = false
         root.openSubmenuRow = -1
+        root.loneFlyoutAction = ""
         root.clearRail()
         var holder = root.focusHolder && root.focusHolder.visible && root.focusHolder.enabled ? root.focusHolder : root.focusOwner
         if (holder)
@@ -337,6 +347,28 @@ Item {
 
     // One signal covers every submenu: the row's own action, a colon, and the entry chosen inside it.
     function chooseSub(id) {
+        // A lone flyout answers the same identity check the rows do: a
+        // selection that moved under it refuses rather than acting elsewhere.
+        if (root.loneFlyoutAction.length > 0) {
+            var loneLeaves = Menu.flyoutEntries(root.loneFlyoutAction)
+            var loneKnown = false
+            for (var l = 0; l < loneLeaves.length; l++) {
+                if (loneLeaves[l].separator !== true && loneLeaves[l].id === id)
+                    loneKnown = true
+            }
+            var loneMoved = !root.forRail && !root.forHeader && root.hasRow
+                && root.openedIdentity !== root.selectionIdentity
+            if (!loneKnown || loneMoved) {
+                root.close()
+                root.refused(loneMoved ? "Selected items changed; reopen the menu."
+                                       : "That action is no longer available; reopen the menu.")
+                return
+            }
+            var loneFired = root.loneFlyoutAction
+            root.close()
+            root.chosen(loneFired + ":" + id)
+            return
+        }
         var entry = root.entries[root.openSubmenuRow]
         if (!entry || !root.validateChoice(entry.action, id)) return
         root.close()
@@ -345,6 +377,7 @@ Item {
     }
 
     function openSubmenu(index) {
+        root.loneFlyoutAction = ""
         if (!Menu.hasSubmenu(root.entries[index]) || root.entries[index].disabled === true) return
         root.openSubmenuRow = index
         root.submenuCursor = 0
@@ -352,7 +385,8 @@ Item {
     }
 
     // MenuAdditions040: c opens Copy as at the cursor and P opens Paste as,
-    // each with its flyout already open on its first row.
+    // each with its flyout already open on its first row. A hidden row keeps
+    // no entry, so the key builds the flyout from the action instead.
     function openSubmenuFor(action) {
         for (var i = 0; i < root.entries.length; i++) {
             if (root.entries[i].action === action && Menu.hasSubmenu(root.entries[i])
@@ -362,7 +396,13 @@ Item {
                 return true
             }
         }
-        return false
+        if (Menu.flyoutEntries(action).length === 0)
+            return false
+        root.openSubmenuRow = -1
+        root.loneFlyoutAction = action
+        root.submenuCursor = 0
+        subScroll.contentY = 0
+        return true
     }
 
     // Fresh capabilities use the normal inventory; selection stays on its action and placement uses the existing clamp.
@@ -404,7 +444,10 @@ Item {
     }
 
     // Rows above the open one are a mix of full rows and separators, so the offset is summed, not multiplied.
+    // A lone flyout answers no row, so it stands at the menu's own top.
     function submenuOffset() {
+        if (root.loneFlyoutAction.length > 0)
+            return 0
         var y = 0
         for (var i = 0; i < root.openSubmenuRow; i++)
             y += root.entries[i].separator === true ? separatorProbe.separatorHeight : Theme.rowHeight
@@ -470,7 +513,7 @@ Item {
                         if (root.pointerSettling) return
                         root.cursor = row.index
                         if (Menu.hasSubmenu(row.modelData)) root.openSubmenu(row.index)
-                        else root.openSubmenuRow = -1
+                        else { root.openSubmenuRow = -1; root.loneFlyoutAction = "" }
                     }
                     onActivated: {
                         if (Menu.hasSubmenu(row.modelData))
@@ -542,7 +585,8 @@ Item {
                                   ? subRow.modelData.keyHint : undefined,
                               icon: subRow.modelData.icon,
                               glyph: subRow.modelData.glyph !== undefined ? subRow.modelData.glyph
-                                   : Menu.submenuGlyph(root.entries[root.openSubmenuRow].action) })
+                                   : Menu.submenuGlyph(root.loneFlyoutAction.length > 0
+                                       ? root.loneFlyoutAction : root.entries[root.openSubmenuRow].action) })
                     current: root.submenuCursor === subRow.index
                     // A flyout opened by key can land under the resting pointer too, so it reads the same point.
                     lastPointerGlobal: root.pointerGlobal
@@ -567,9 +611,10 @@ Item {
             var action = Keymap.lookup(event.key, event.text, event.modifiers, "menu")
             event.accepted = true
             if (action === "escape") {
-                if (root.submenuOpen)
+                if (root.submenuOpen) {
                     root.openSubmenuRow = -1
-                else
+                    root.loneFlyoutAction = ""
+                } else
                     root.close()
                 event.accepted = true
                 return
@@ -590,14 +635,19 @@ Item {
                 event.accepted = true
                 return
             }
-            if (action === "parent") { root.openSubmenuRow = -1; return }
+            if (action === "parent") {
+                root.openSubmenuRow = -1
+                root.loneFlyoutAction = ""
+                return
+            }
             if (action === "menuRight") { root.openSubmenu(root.cursor); return }
             // MenuAdditions040: each Copy as row's letter copies at once and
             // each Paste as row's letter links at once, with the flyout open.
             // Only the flyout they were opened for answers, so a letter never
             // fires a row of whatever flyout happens to stand open.
             if (root.submenuOpen) {
-                var opener = root.entries[root.openSubmenuRow]
+                var opener = root.loneFlyoutAction.length > 0
+                    ? { action: root.loneFlyoutAction } : root.entries[root.openSubmenuRow]
                 if (opener && (opener.action === "copyAs" || opener.action === "pasteAs")) {
                     var leaves = root.submenuEntries
                     for (var l = 0; l < leaves.length; l++) {
