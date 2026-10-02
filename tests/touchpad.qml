@@ -15,6 +15,8 @@ ShellRoot {
     property int rowCount: 3000
     // Park sits inside one 1200 px flick with room for a 9.6 px notch
     property int parkAbovePx: 400
+    readonly property int lastPageStrokeSamples: 12
+    readonly property int lastPageStrokePx: -40
     property double fakeT: 1000
     property int livePolls: 0
     property double liveLiftY: 0
@@ -673,14 +675,12 @@ ShellRoot {
         root.endStop()
     }
 
-    // A flick into the last page ends the tail there: the stroke stays inside the page
-    // under elastic edges, the tail carries past the bound, and the return it hands to
-    // settles back onto it, so the tail is inactive and the page is the last one.
+    // The stroke lifts inside the bound; its elastic tail carries past, then returns to the last page.
     function endStop() {
         var h = handlers()
         var maxY = list.contentHeight - list.height
-        list.contentY = maxY - 12 * 40 * Scroll.TOUCH_GAIN - root.parkAbovePx
-        feedStroke(h.body, flickRaw(12, -40), 8)
+        list.contentY = maxY + root.lastPageStrokeSamples * root.lastPageStrokePx * Scroll.TOUCH_GAIN - root.parkAbovePx
+        feedStroke(h.body, flickRaw(root.lastPageStrokeSamples, root.lastPageStrokePx), 8)
         root.freeze()
         if (!root.tailActive()) {
             fail("no tail to end at the content edge")
