@@ -9,6 +9,7 @@ ShellRoot {
     id: root
 
     property var failures: []
+    readonly property real pressTolerance: 0.001
 
     Flea.Header {
         id: listHeader
@@ -135,16 +136,16 @@ ShellRoot {
         var beforeX = handle.mapToItem(listHeader, mouse.x, mouse.y).x
         var beforeWidth = cell.width
         handle.pressed(mouse)
-        if (Math.abs(listHeader.dragStartX - beforeX) > 0.001)
+        if (Math.abs(listHeader.dragStartX - beforeX) > root.pressTolerance)
             root.fail(handle.columnKey + " press shifted from " + beforeX + " to " + listHeader.dragStartX)
         if (listHeader.dragLastX !== listHeader.dragStartX)
             root.fail(handle.columnKey + " press already has travel")
         if (listHeader.dragStartWidth !== beforeWidth || listHeader.dragPreview !== beforeWidth)
             root.fail(handle.columnKey + " press did not keep its width " + beforeWidth)
-        if (Math.abs(cell.width - beforeWidth) > 0.001 || listHeader.dragMoved)
+        if (Math.abs(cell.width - beforeWidth) > root.pressTolerance || listHeader.dragMoved)
             root.fail(handle.columnKey + " press resized without pointer motion")
         handle.released()
-        if (listHeader.dragKey !== "" || Math.abs(cell.width - beforeWidth) > 0.001)
+        if (listHeader.dragKey !== "" || Math.abs(cell.width - beforeWidth) > root.pressTolerance)
             root.fail(handle.columnKey + " click did not release at its original width")
     }
 

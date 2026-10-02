@@ -21,8 +21,9 @@ output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     FLEA_BIN="$PWD/target/debug/flea" SHEBANG_SCRIPT="$test_root/build.sh" SHEBANG_NOTES="$test_root/notes.txt" \
     QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 timeout 25 qs -p "$test_root/config" 2>&1)
 status=$?
-if [[ "$status" != 143 || $(grep -c 'MENUSHEBANG PASS' <<< "$output") != 8 \
-    || $(grep -c 'MENUSHEBANG DONE checks=8 failures=0' <<< "$output") != 1 ]] \
+backend_checks=14
+if [[ "$status" != 143 || $(grep -c 'MENUSHEBANG PASS' <<< "$output") != "$backend_checks" \
+    || $(grep -c "MENUSHEBANG DONE checks=$backend_checks failures=0" <<< "$output") != 1 ]] \
     || grep -aqE 'MENUSHEBANG FAIL|WARN|ERROR|TypeError|ReferenceError' <<< "$output"; then
     printf 'FAIL menu-shebang: real backend/IPC proof, qs_exit=%s\n%s\n' "$status" "$output"
     exit 1
@@ -34,12 +35,14 @@ wait_def=$(sed -n '/^makeexec_wait_shebang() {/,/^}/p' tests/ui.sh)
 [[ -n "$wait_def" ]] || fail "menu-shebang: missing native wait"
 eval "$wait_def"
 async_wait_ms=5000
-base='{"opened":true,"hasRow":true,"shebangAsked":"/fixture/notes.txt","shebangId":3,"shebangHas":false,"shebangReply":{"path":"/fixture/notes.txt","id":3,"hasShebang":false}}'
+base='{"pane":"pane-B","opened":true,"hasRow":true,"shebangAsked":"/fixture/notes.txt","shebangId":3,"shebangHas":false,"shebangReply":{"pane":"pane-B","path":"/fixture/notes.txt","id":3,"hasShebang":false}}'
 # Each incomplete or unrelated observation must be rejected before the matching negative receipt.
+# Sample input: {"pane":"pane-B","opened":true,"hasRow":true,"shebangAsked":"/fixture/notes.txt","shebangId":3,"shebangHas":false,"shebangReply":{"pane":"pane-B","path":"/fixture/notes.txt","id":3,"hasShebang":false}}
 jq -c '(.shebangReply = {}), (.shebangId = 2 | .shebangReply.id = 2),
     (.shebangReply.id = 1), (.shebangReply.path = "/fixture/build.sh"),
     (.shebangAsked = ""), (.opened = false), (.hasRow = false),
-    (.shebangReply.hasShebang = true), (.shebangHas = true), .' <<< "$base" > "$test_root/observations" || exit 1
+    (.shebangReply.hasShebang = true), (.shebangHas = true), (.shebangReply.pane = "pane-A"),
+    (del(.pane, .shebangReply.pane)), .' <<< "$base" > "$test_root/observations" || exit 1
 printf '0\n' > "$test_root/reads"
 ipc() {
     local n
@@ -49,8 +52,9 @@ ipc() {
     sed -n "${n}p" "$test_root/observations"
 }
 makeexec_wait_shebang /fixture/notes.txt 2 || exit 1
-[[ $(cat "$test_root/reads") == 10 ]] || fail "menu-shebang: native wait accepted an incomplete receipt"
-echo 'MENUSHEBANG PASS native-wait-rejects-nine-incomplete-receipts'
+incomplete_receipts=11
+[[ $(cat "$test_root/reads") == $((incomplete_receipts + 1)) ]] || fail "menu-shebang: native wait accepted an incomplete receipt"
+echo 'MENUSHEBANG PASS native-wait-rejects-eleven-incomplete-receipts'
 # The timeout must name the retained path and state in one failure line, even when IPC fails.
 async_wait_ms=150
 ipc() { return 1; }
@@ -59,4 +63,4 @@ status=$?
 [[ "$status" != 0 && "$failure" == 'FAIL makeexec: the plain-file probe never settled, expected=/fixture/notes.txt after=2 state=ipc-broken' ]] \
     || fail "menu-shebang: missing one-line failure diagnostic: $failure"
 echo 'MENUSHEBANG PASS native-wait-refuses-broken-ipc'
-echo 'menu-shebang: 10 checks, 0 failed'
+echo "menu-shebang: $((backend_checks + 2)) checks, 0 failed"

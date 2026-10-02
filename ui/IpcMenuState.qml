@@ -8,11 +8,12 @@ QtObject {
     property var fleaWindow: null
     property var shebangReply: ({})
     property var shebangLastReply: ({})
+    onPaneChanged: root.shebangReply = ({})
 
     property Connections replies: Connections {
         target: root.pane ? root.pane.backend : null
         function onShebang(path, hasShebang, id) {
-            var reply = {path: path, hasShebang: hasShebang, id: id}
+            var reply = {pane: String(root.pane), path: path, hasShebang: hasShebang, id: id}
             root.shebangLastReply = reply
             if (Permissions.landsShebang(path, id, root.pane.shebangAsked, root.pane.shebangId))
                 root.shebangReply = reply
@@ -21,7 +22,7 @@ QtObject {
 
     function state() {
         var menu = root.pane.contextMenu()
-        return JSON.stringify({opened: menu.visible, entries: menu.entries, cursor: menu.cursor,
+        return JSON.stringify({pane: String(root.pane), opened: menu.visible, entries: menu.entries, cursor: menu.cursor,
             snapshotReady: root.pane.menuActions.ready, snapshotId: root.pane.menuActions.requestId,
             shebangAsked: root.pane.shebangAsked, shebangHas: root.pane.rowHasShebang,
             shebangId: root.pane.shebangId, shebangReply: root.shebangReply, shebangLastReply: root.shebangLastReply,

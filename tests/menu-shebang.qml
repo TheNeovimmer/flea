@@ -42,6 +42,17 @@ ShellRoot {
         }
     }
     QtObject { id: windowStub; function rectOf(item) { return "" } }
+    QtObject { id: otherBackend; signal shebang(string path, bool hasShebang, int id) }
+    QtObject {
+        id: otherPane
+        property var backend: otherBackend
+        property string shebangAsked: root.notesPath
+        property int shebangId: 3
+        property bool rowHasShebang: false
+        property var columnsArea: null
+        property var menuActions: stubPane.menuActions
+        function contextMenu() { return stubPane.contextMenu() }
+    }
     Flea.Ipc { id: ipc; pane: stubPane; fleaWindow: windowStub }
     Connections {
         target: probeBackend
@@ -85,9 +96,32 @@ ShellRoot {
             s = root.state()
             root.check("late-old-reply-keeps-completion", s.shebangReply.id === 3
                 && s.shebangLastReply.id === 2 && s.shebangHas === false)
+            root.checkPaneSwitch()
             root.phase = 3
             probeBackend.quit()
         }
+    }
+    // Both panes ask for the same path and id, so only ownership distinguishes their receipts.
+    function checkPaneSwitch() {
+        probeBackend.shebang(root.notesPath, false, stubPane.shebangId)
+        var s = root.state()
+        root.check("first-pane-receipt-stamped", s.pane === String(stubPane) && s.shebangReply.pane === s.pane)
+        ipc.pane = otherPane
+        s = root.state()
+        root.check("pane-switch-clears-receipt", Object.keys(s.shebangReply).length === 0)
+        root.check("same-path-id-awaits-other-pane", s.shebangAsked === root.notesPath
+            && s.shebangId === stubPane.shebangId && s.shebangReply.id !== s.shebangId)
+        probeBackend.shebang(root.notesPath, true, stubPane.shebangId)
+        s = root.state()
+        root.check("previous-backend-cannot-land", Object.keys(s.shebangReply).length === 0
+            && s.shebangLastReply.hasShebang === false)
+        otherBackend.shebang(root.notesPath, false, otherPane.shebangId)
+        s = root.state()
+        root.check("other-pane-receipt-stamped", s.pane === String(otherPane) && s.shebangReply.pane === s.pane
+            && s.shebangLastReply.pane === s.pane && s.shebangReply.id === s.shebangId
+            && s.shebangReply.path === s.shebangAsked && s.shebangReply.hasShebang === false)
+        ipc.pane = stubPane
+        root.check("switch-back-clears-receipt", Object.keys(root.state().shebangReply).length === 0)
     }
     function finish() {
         console.log("MENUSHEBANG DONE checks=" + root.checks + " failures=" + root.failures)

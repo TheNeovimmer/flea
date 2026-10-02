@@ -43,6 +43,7 @@ function run(check) {
     check("a keys-only miss is empty too", SheetQuery.rank(rows, "Open ^z").length, 0)
     // The native capture must query a board specimen supported by the shipped key table.
     var capture = Source.slice(Source.source("tests/ui-captures.sh"), "case_cap_sheet() {", "\nmatrix_check() {")
+    // Sample input: key p >/dev/null
     var typed = capture.match(/^\s*key [a-z] >\/dev\/null$/gm) || []
     var captureQuery = typed.map(function (line) { return line.trim().split(/\s+/)[1] }).join("")
     var captureRows = SheetQuery.rank(SheetQuery.actionCandidates(Keymap.sheetFor("default", "gui", false)), captureQuery)

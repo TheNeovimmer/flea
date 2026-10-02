@@ -3264,8 +3264,10 @@ makeexec_wait_shebang() {
     local path="$1" before="$2" observed="ipc-broken" deadline=$(( $(date +%s%3N) + async_wait_ms ))
     while (( $(date +%s%3N) < deadline )); do
         observed=$(ipc menuState 2>/dev/null) || observed="ipc-broken"
+        # Sample input: {"pane":"pane-B","opened":true,"hasRow":true,"shebangAsked":"/fixture/notes.txt","shebangId":3,"shebangReply":{"pane":"pane-B","path":"/fixture/notes.txt","id":3,"hasShebang":false},"shebangHas":false}
         if jq -e --arg path "$path" --argjson before "$before" '
             .opened == true and .hasRow == true and .shebangAsked == $path and .shebangId > $before
+            and .pane != null and .shebangReply.pane == .pane
             and .shebangReply.path == $path and .shebangReply.id == .shebangId
             and .shebangReply.hasShebang == false and .shebangHas == false' <<< "$observed" >/dev/null 2>&1; then
             return 0
