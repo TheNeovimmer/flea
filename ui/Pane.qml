@@ -230,6 +230,9 @@ FocusScope {
     // Which asker a pending paths reply belongs to, null meaning the clipboard, which is what every
     // reply meant before compress also had to resolve a selection wider than this pane holds.
     property var pathsPending: null
+    // A file drag in progress holds the watched re-read, so rows never shift under a live pointer.
+    property bool dragActive: false
+    property bool awaitingPaths: false
     // What the status bar's sticky slot is reporting, or an idle transfer; see ui/js/Ops.js.
     property var transfer: Ops.emptyTransfer()
     // The row that is its own editor right now, or -1; ui/List.qml's delegate reads it per row.

@@ -3378,17 +3378,17 @@ case_watch() {
     (( during > before )) \
         || fail "watch: nothing re-read while the directory was still being written, total stayed $before"
 
-    # A debt owed by this directory must not be paid by re-listing the next one. The re-read pays
-    # promptly even under a selection now, so the sleep below lets it land before leaving; without
-    # the onPathChanged guard a debt still outstanding at the navigation (held back by a menu, a
-    # rename editor or the collision card) would be paid by a full re-list of the folder being opened.
-    key v >/dev/null
+    # A debt owed by this directory must not be paid by re-listing the next one. A bare selection
+    # no longer holds the re-read, so the debt is held with the menu open instead, which still does
+    # and survives the navigation; without the onPathChanged guard that debt is paid by a full
+    # re-list of the folder being opened.
+    key m >/dev/null
     settle
     printf 'owed\n' > "$dir/CCC-owed-on-leaving.txt"
     sleep 0.5
-    # Counted from before the navigation, not from after it: the owed re-read lands about 400 ms after
-    # the selection clears, which is inside wait_path's own polling, so a sample taken on arrival has
-    # already counted it and could never tell the two apart.
+    # Counted from before the navigation, not from after it: the menu still holds the debt at the
+    # navigation, so without the guard the timer pays it with a re-list of the folder being opened,
+    # which wait_path polling would otherwise count as the navigation itself.
     local before_nav after_nav
     before_nav=$(ipc listRequests)
     key -k Backspace >/dev/null

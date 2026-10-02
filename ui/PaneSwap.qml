@@ -128,7 +128,7 @@ Item {
         if (pane.rowsAt === 0 && pane.inputAt > 0 && pane.rowFor(pane.cursorIndex))
             pane.rowsAt = Date.now()
         pane.applyPendingSelect()
-        root.wire.anchor = Anchor.apply(pane, root.wire.anchor)
+        root.wire.anchor = Anchor.apply(pane, root.wire.anchor, Theme.fileRowHeight)
         // A manual reload's notice, said only when rows changed; every other listing owes none.
         Reload.landed(pane)
         Tabs.applyPending(pane)

@@ -34,6 +34,7 @@ Item {
         if (root.pane.cancelSlowClick) root.pane.cancelSlowClick()
         root.buttonUp = false
         root.awaitingPaths = false
+        if (root.pane) root.pane.awaitingPaths = false
         root.dragRows = DragOps.carried(root.pane, index)
         root.dragListing = root.pane.backend ? root.pane.backend.heldListing : 0
         root.dropIndex = -1
@@ -50,6 +51,7 @@ Item {
             return
         }
         root.awaitingPaths = true
+        if (root.pane) root.pane.awaitingPaths = true
         var dev = root.pane.backend.dirDev || 0
         root.feedback = { own: true, copy: root.dragCopy, shift: root.dragShift, dev: dev,
                           deletable: DragOps.listingDeletable(root.pane), count: root.dragRows.length, canLeave: true }
@@ -81,10 +83,12 @@ Item {
         root.showTarget("", root.feedback.dev)
         // This enters the platform event loop; every payload field must already be fixed.
         root.Drag.active = true
+        if (root.pane) root.pane.dragActive = true
     }
 
     function deliverPaths(list, pending) {
         root.awaitingPaths = false
+        if (root.pane) root.pane.awaitingPaths = false
         var held = root.pane && root.pane.backend ? root.pane.backend.heldListing : 0
         if (root.buttonUp || held !== pending.listing || !list || list.length !== pending.rows.length) {
             root.cannotLeave()
@@ -124,6 +128,7 @@ Item {
         DragOps.releaseDeletes(dropAction, landed)
         if (root.pane && root.pane.backend) root.pane.backend.dragLanded = false
         root.Drag.active = false
+        if (root.pane) { root.pane.dragActive = false; root.pane.awaitingPaths = false }
         root.dragRows = []
         root.dragListing = 0
         root.dragMime = ({})

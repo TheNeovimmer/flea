@@ -95,7 +95,7 @@ Item {
         if (root.watchBusy)
             return
         root.stale = false
-        root.anchor = Anchor.watched(pane)
+        root.anchor = Anchor.watched(pane, null, Theme.fileRowHeight)
     }
 
     // The owed re-read goes through the timer rather than straight out of this handler: reading
@@ -162,6 +162,12 @@ Item {
         function onRows(start, items, ms, kinds, listing) { swap.takeRows(start, items, kinds, listing) }
 
         function onLocated(message) {
+            if (root.anchor && root.anchor.locateSent && !root.anchor.locateDone) {
+                if (message.directory === pane.path) {
+                    root.anchor = Anchor.fillLocated(pane, root.anchor, message.matches || [])
+                    return
+                }
+            }
             if (!root.retryId || message.transferId !== root.retryId) return
             root.retryId = 0
             root.retryPaths = []
@@ -429,6 +435,10 @@ Item {
 
         // The answer to Ops.clip's askPaths; nothing reaches the clipboard until this lands.
         function onPaths(list) {
+            if (root.anchor && root.anchor.needPaths) {
+                root.anchor = Anchor.fillPaths(pane, root.anchor, list)
+                return
+            }
             Ops.pathsResolved(pane, list)
         }
 
