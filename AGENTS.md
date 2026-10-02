@@ -2288,7 +2288,7 @@ visit on a 33 Mpx PNG and 2 to 4 MB of PSS over v0.3.4. As in v0.3.4 the frame d
 cache file, and decodes the original only when no cache file exists, now at the exact fit of the frame and
 EXIF-upright; a cache file is never enlarged past the original's own size. The sharp frame returns in
 0.3.6 from a disk-cached sharp file, GM's ruling. `tests/preview-decode.sh` pins it from outside the
-column: a key-repeat sweep loads its first row at once and then only its last, and a rest opens the cache file
+column: a key-repeat sweep opens only the first moved row's cache file t0.png, no more often than one load opens a cache file, and no original, and a rest opens the cache file
 and no original. It also pins Quick Look's `ui/PreviewImage.qml`: a 3000x100 banner decodes at the exact
 fit (754x25, not the covering 14130x471), and an EXIF-turned photo decodes upright and draws at the exact
 fit, decoded whole when its stored size fits the box before the turn, because Qt weighs `sourceSize`
