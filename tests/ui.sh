@@ -11034,6 +11034,8 @@ case_xwtab() {
     # B has one tab and no strip, so anywhere in B takes the tab at the end.
     xwdrag_focus "$apid"
     local sx sy dx dy i
+    local move_before
+    move_before=$(flea_pids | tr '\n' ' ')
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
     read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwtab: B has no floor"
     xwdrag_drag "$sx" "$sy" "$dx" "$dy" none
@@ -11048,6 +11050,8 @@ case_xwtab() {
     [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "1" ]] || fail "xwtab: A kept its moved tab"
     [[ "$(xwdrag_qs "$aid" path 2>/dev/null)" == "$adir" ]] \
         || fail "xwtab: A shows $(xwdrag_qs "$aid" path 2>/dev/null), not $adir"
+    [[ "$(flea_pids | tr '\n' ' ')" == "$move_before" ]] \
+        || fail "xwtab: the move opened a window of its own"
     printf 'XWTAB move ok\n'
     # B's new tab torn off onto empty desktop space opens a third owned window on it.
     local mon_h ex ey before cpid cid
@@ -11071,7 +11075,99 @@ case_xwtab() {
     for i in $(seq 1 40); do [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "1" ]] && break; sleep 0.25; done
     [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "1" ]] || fail "xwtab: B kept its torn-off tab"
     printf 'XWTAB tearoff ok\n'
+    # The tear-off opened exactly one window: the pids after it are the pids before plus the third.
+    sleep 2
+    local want_after
+    want_after=$(printf '%s %s ' $before "$cpid" | tr ' ' '\n' | sort | tr '\n' ' ')
+    [[ "$(flea_pids | sort | tr '\n' ' ')" == "$want_after" ]] \
+        || fail "xwtab: the tear-off opened more than one window"
+    printf 'XWTAB tearoff-count ok\n'
     xwdrag_kill_second "$cpid"
+    # A opens a second tab again for the legs below: Escape, own-strip and the refusals.
+    xwdrag_focus "$apid"
+    key t >/dev/null
+    settle
+    [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: t did not reopen a second tab on A"
+    local esc_before
+    esc_before=$(flea_pids | tr '\n' ' ')
+    # Escape mid-drag over A cancels with no move, no tear-off and no new window.
+    read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
+    local awx awy aww awh
+    read -r awx awy aww awh < <(xwdrag_geometry "$apid") || fail "xwtab: no geometry for A"
+    xwdrag_glide "$sx" "$sy"
+    sleep 0.4
+    ydotool click 0x40 >/dev/null 2>&1 || fail "xwtab: pointer press failed"
+    sleep 0.3
+    xwdrag_glide "$((awx + 200))" "$((awy + awh + 60))"
+    xwdrag_glide "$sx" "$sy"
+    key -k Escape >/dev/null
+    sleep 0.5
+    ydotool click 0x80 >/dev/null 2>&1 || fail "xwtab: pointer release failed"
+    sleep 0.5
+    [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: Escape moved the tab"
+    [[ "$(flea_pids | tr '\n' ' ')" == "$esc_before" ]] || fail "xwtab: Escape opened a window"
+    printf 'XWTAB escape ok\n'
+    # Out and back onto the own strip reorders with no new window.
+    local ox oy
+    read -r ox oy < <(xwtab_tab_point "$aid" "$apid" 0) || fail "xwtab: A's first tab has no centre"
+    xwdrag_drag "$sx" "$sy" "$ox" "$oy" none
+    sleep 0.5
+    [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: own-strip drop changed the tab count"
+    [[ "$(flea_pids | tr '\n' ' ')" == "$esc_before" ]] || fail "xwtab: own-strip drop opened a window"
+    printf 'XWTAB own-strip ok\n'
+    # A drop on B's listing when B has two tabs changes nothing.
+    xwdrag_focus "$bpid"
+    key t >/dev/null
+    settle
+    [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: t did not open a second tab on B"
+    xwdrag_focus "$apid"
+    read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
+    read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwtab: B has no floor"
+    xwdrag_drag "$sx" "$sy" "$dx" "$dy" none
+    sleep 0.5
+    [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: B took a listing drop"
+    [[ "$(xwdrag_qs "$bid" path 2>/dev/null)" == "$bdir" ]] || fail "xwtab: B left $bdir"
+    [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: A lost its tab to a refused drop"
+    [[ "$(flea_pids | tr '\n' ' ')" == "$esc_before" ]] || fail "xwtab: a refused drop opened a window"
+    printf 'XWTAB listing-refused ok\n'
+    # A drop onto a foreign receiver is refused and A keeps its tab: the receiver only
+    # takes uri-list and plain text, and the tab drag offers neither.
+    : > "$dir/.flea-test-sandbox"
+    local recv_log="$dir/receiver.log" recv_pid="" recv_addr="" rcx rcy
+    : > "$recv_log"
+    setsid python3 "$repo/tests/drag-receiver.py" "$recv_log" >"$dir/receiver-err.log" 2>&1 &
+    recv_pid=$!
+    for i in $(seq 1 40); do
+        recv_addr=$(hyprctl clients -j | python3 -c '
+import json, sys
+hits = [w for w in json.load(sys.stdin) if w.get("title") == "flea-drag-receiver"]
+print(hits[0]["address"] if len(hits) == 1 else "")
+') || true
+        [[ -n "$recv_addr" ]] && break
+        sleep 0.25
+    done
+    [[ -n "$recv_addr" ]] || fail "xwtab: the foreign receiver never came up: $(cat "$dir/receiver-err.log" 2>/dev/null)"
+    hyprctl dispatch "hl.dsp.focus({ window = \"$recv_addr\" })" >/dev/null
+    sleep 0.3
+    hyprctl dispatch "hl.dsp.window.float()" >/dev/null
+    sleep 0.3
+    hyprctl dispatch "hl.dsp.window.move({ x = 1100, y = 500 })" >/dev/null
+    sleep 0.4
+    read -r rcx rcy < <(hyprctl clients -j | python3 -c '
+import json, sys
+hits = [w for w in json.load(sys.stdin) if w.get("title") == "flea-drag-receiver"]
+c = hits[0]
+print(c["at"][0] + c["size"][0] // 2, c["at"][1] + c["size"][1] // 2)
+') || fail "xwtab: no geometry for the foreign receiver"
+    xwdrag_focus "$apid"
+    read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
+    xwdrag_drag "$sx" "$sy" "$rcx" "$rcy" none
+    sleep 1
+    [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: A lost its tab to a foreign receiver"
+    grep -q '^actions=' "$recv_log" && fail "xwtab: the foreign receiver took the tab drop"
+    [[ "$(flea_pids | tr '\n' ' ')" == "$esc_before" ]] || fail "xwtab: a foreign drop opened a window"
+    kill "$recv_pid" 2>/dev/null || true
+    printf 'XWTAB foreign-refused ok\n'
     xwdrag_kill_second "$bpid"
     kill_flea
 }

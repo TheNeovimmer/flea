@@ -193,14 +193,26 @@ Rectangle {
         anchors.right: parent.right
         anchors.top: chrome.bottom
         pane: view.currentPane
-        // Dual panes share this window, so a last tab moved there never closes it.
-        allowWindowClose: !view.dualMode
-        onCloseRequested: view.quitBackends()
+    }
+
+    // The taken ack the receiving window calls after it validated and opened the tab.
+    // It loads by file URL from the boot directory, beside the entries, so the
+    // startup path that avoids ui/qmldir never compiles it.
+    Loader {
+        id: tabAck
+        active: true
+        source: "file://" + Quickshell.shellDir + "/fleatab.qml"
+        onLoaded: {
+            item.tabBar = tabBar
+            item.view = view
+            item.tabs = Tabs
+        }
     }
 
     // xw6: with one tab the strip is hidden, so a tab from another window lands
     // anywhere in this one, at the end. A DropArea takes no pointer input, and the
     // listing floor refuses the tab MIME, so this is the only thing that answers.
+    // Validation and the ack run through the strip's own path, at the end position.
     DropArea {
         anchors.fill: parent
         keys: [Tabs.TAB_MIME]
@@ -216,8 +228,7 @@ Rectangle {
             var info = Tabs.parseTabMime(payload)
             if (!info || Tabs.isOwnTab(info))
                 return
-            if (Tabs.receiveTab(view.currentPane, payload, -1))
-                drop.accept(Qt.MoveAction)
+            tabBar.acceptTabDrop(payload, info, -1)
         }
     }
 

@@ -1,6 +1,5 @@
 .pragma library
 
-.import "Drag.js" as DragOps
 .import "Filter.js" as Filter
 .import "Format.js" as Format
 .import "RecentMode.js" as RecentMode
@@ -390,14 +389,32 @@ function restoreItems(pane, paths) {
     return out
 }
 
-// xw6: a tab dragged past its window's edge becomes a platform drag. The payload is a JSON
-// array, [instance, path, view, cursor], because a folder path may itself hold a newline and a
-// line format could not carry it: instance tells this window's own drag from another Flea's,
-// path is the folder the tab stands on, view its mode, cursor the cursor row's file name.
-// The drag also carries the folder's uri-list, so another app takes it as a folder drop.
+// xw6: a tab dragged past its window's edge becomes a platform drag carrying only
+// Flea's private tab type. The payload is a JSON array, [pid, token, path, view,
+// cursor]: pid names the source process the taken ack returns to, token names the
+// lift the ack closes, path is the folder the tab stands on, view its mode, cursor
+// the cursor row's file name. A folder path may itself hold a newline, so a line
+// format could not carry it. No text/uri-list, no text/plain: a foreign app refuses
+// the private type, so a tab can never move or copy the folder on disk (F4: Files
+// moves a folder whenever Move is offered). supportedActions is Move only.
 var TAB_MIME = "application/x-flea-tab"
 
 var TAB_VIEWS = ["list", "grid", "columns"]
+
+// The process this window runs as, set once from Quickshell.processId where the
+// library is shared; tests/js/tabs.js sets it by hand. Empty until set, and an
+// empty self never owns a tab, so an unset caller refuses its own drag.
+var ownPid = ""
+
+// Set once per window; every caller reads this rather than threading a pid.
+function setOwnPid(pid) {
+    ownPid = String(pid || "")
+}
+
+// One lift's token: the pid names the window, the token names the lift inside it.
+function newToken() {
+    return String(Date.now()) + "-" + String(Math.floor(Math.random() * 1000000000))
+}
 
 // The tab a lift names: the live snapshot for the current tab, the stored one for a hidden
 // tab, with the cursor file name only when the row is at hand. Null when no such tab.
@@ -434,31 +451,32 @@ function tabInfo(pane, index) {
 
 // The platform payload for a lift: JSON because the path may hold a newline. Each field is
 // stripped of carriage returns first, so the decode never meets a split it did not write.
-function tabPayload(pane, index) {
+// pid and token default to this window and none; a payload with no token never validates.
+function tabPayload(pane, index, pid, token) {
     var info = tabInfo(pane, index)
     if (!info)
         return ""
     var clean = function (text) { return String(text).replace(/\r/g, "") }
-    return JSON.stringify([DragOps.INSTANCE, clean(info.path), clean(info.view), clean(info.cursor)])
+    var who = pid === undefined ? ownPid : pid
+    var lift = token === undefined ? "" : token
+    return JSON.stringify([clean(who), clean(lift), clean(info.path), clean(info.view), clean(info.cursor)])
 }
 
-// What the lift offers: the tab MIME plus the folder's uri-list and plain path, so a foreign
-// app takes the folder while a Flea window takes the tab. Empty when there is no such tab.
-function tabDragMime(pane, index) {
-    var payload = tabPayload(pane, index)
+// What the lift offers: the private tab MIME and nothing else, so a foreign app refuses
+// it. Empty when there is no such tab.
+function tabDragMime(pane, index, pid, token) {
+    var payload = tabPayload(pane, index, pid, token)
     if (!payload)
         return {}
-    var info = tabInfo(pane, index)
     var mime = {}
     mime[TAB_MIME] = payload
-    mime["text/uri-list"] = DragOps.uriFor(info.path) + "\r\n"
-    mime["text/plain"] = info.path
     return mime
 }
 
-// The receiver takes only an absolute folder path with no control character: anything else,
-// a foreign payload or a corrupt one, refuses. Existence and kind are the listing's own
-// error once the tab opens, the way a typed path meets it.
+// The receiver takes only a well-formed lift: a numeric pid, a non-empty token without
+// control characters, and an absolute folder path with none. Anything else, a foreign
+// payload or a corrupt one, refuses. Existence and kind are the backend's own peek
+// once the tab lands, the way a typed path meets it.
 function parseTabMime(payload) {
     var fields = null
     try {
@@ -466,19 +484,27 @@ function parseTabMime(payload) {
     } catch (error) {
         return null
     }
-    if (!fields || fields.length !== 4)
+    if (!fields || fields.length !== 5)
         return null
-    var path = String(fields[1] || "")
+    var pid = String(fields[0] || "")
+    var token = String(fields[1] || "")
+    var path = String(fields[2] || "")
+    if (!/^[0-9]+$/.test(pid))
+        return null
+    if (token.length === 0 || /[\x00-\x1f\x7f]/.test(token))
+        return null
     if (path.length === 0 || path.charAt(0) !== "/" || /[\x00-\x1f\x7f]/.test(path))
         return null
-    return { instance: String(fields[0] || ""), path: path,
-             view: String(fields[2] || ""), cursor: String(fields[3] || "") }
+    return { pid: pid, token: token, path: path,
+             view: String(fields[3] || ""), cursor: String(fields[4] || "") }
 }
 
 // This window's own drag is the reorder path's, never a receive: without this a platform drag
 // set down back on its own strip would open a second tab on the folder it came from.
-function isOwnTab(info) {
-    return !!info && info.instance === DragOps.INSTANCE
+// pid defaults to this window, so callers name only a foreign one to test against.
+function isOwnTab(info, pid) {
+    var self = pid === undefined ? ownPid : String(pid)
+    return !!info && self.length > 0 && info.pid === self
 }
 
 // The strip answers an insertion point, 0 before the first tab and count past the last;
@@ -527,9 +553,20 @@ function receiveTab(pane, payload, at) {
     return true
 }
 
-// After an accepted drop the source closes the tab that left: "window" when it was the
-// last one, so the caller closes the window the way its last tab does, "kept" when a
-// loading listing refuses, which leaves the duplicate standing rather than losing a tab.
+// Finder parity: with one tab the strip is hidden, so a lone tab is not lifted;
+// moving a window's only tab is moving the window.
+function canLift(pane) {
+    return count(pane) >= 2
+}
+
+// The taken ack names the lift it closes. True only for the outstanding token; the
+// caller clears it, so a second ack for the same lift answers false.
+function takeToken(stored, token) {
+    return !!stored && stored.length > 0 && stored === String(token || "")
+}
+
+// After an accepted drop the source closes the tab that left. A lone tab is never
+// lifted, so no move ever closes a window's only tab: that arm answers kept.
 function closeTabAfterMove(pane, index) {
     if (!pane)
         return "kept"
@@ -539,7 +576,7 @@ function closeTabAfterMove(pane, index) {
     if (busy(pane))
         return "kept"
     if (total <= 1)
-        return "window"
+        return "kept"
     closeAt(pane, index)
     return "closed"
 }

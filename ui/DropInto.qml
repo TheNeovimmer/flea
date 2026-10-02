@@ -46,7 +46,7 @@ DropArea {
     onDestDevChanged: root.updateFeedback()
 
     onEntered: function (drag) {
-        // xw6: a tab drag carries the folder's uri-list too, but it is never a file drop:
+        // xw6: a tab drag carries only the private tab type and is never a file drop:
         // the strip catcher owns it, and the hover switch must not fire for it either.
         if (drag.getDataAsString(Tabs.TAB_MIME) !== "") {
             drag.accepted = false

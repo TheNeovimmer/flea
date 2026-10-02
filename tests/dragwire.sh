@@ -1,10 +1,11 @@
 #!/bin/bash
-# Guards what an external application sees when Flea drags a file out. tests/drag.sh proves the
+# Guards what an external application sees when Flea drags out. tests/drag.sh proves the
 # gesture but needs the display and a real pointer, so it never runs in the headless battery.
-# A plain lift offers copy alone until the browser-upload work settles the offer: a browser
+# A plain file lift offers copy alone until the browser-upload work settles the offer: a browser
 # uploader refuses a move offer. Ctrl offers copy alone, Shift move alone, Ctrl with Shift link
 # alone, so a receiver that takes whatever is offered still takes the lift's verb. The shelf drag
-# stays copy only.
+# stays copy only. A tab drag offers Move alone with only the private tab type, so a foreign
+# app refuses it and a tab can never move or copy the folder on disk.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
@@ -17,38 +18,54 @@ bad() { printf 'FAIL %s\n' "$*"; fail=$((fail+1)); }
 code_of() { sed -e 's://.*::' "$1"; }
 
 advertised=$(for f in ui/*.qml; do code_of "$f" | grep -H --label="$f" -n 'Drag\.supportedActions'; done)
-count=$(printf '%s' "$advertised" | grep -c . )
-if [ "$count" -eq 1 ]; then
-    ok "exactly one view advertises a drag: $(printf '%s' "$advertised" | cut -d: -f1)"
+
+# Exactly one file-drag advertiser of copy, the file lift, plus the tab drag's own Move.
+copy_files=$(printf '%s' "$advertised" | grep 'CopyAction' | cut -d: -f1 | sort -u)
+if [ "$(printf '%s' "$copy_files" | grep -c .)" -eq 1 ] && [ "$copy_files" = "ui/FileDrag.qml" ]; then
+    ok "exactly one file-drag advertiser of copy: ui/FileDrag.qml"
 else
-    bad "expected exactly 1 Drag.supportedActions in ui/, found $count"
-    printf '%s\n' "$advertised" | sed 's/^/     /'
+    bad "expected the one copy advertiser to be ui/FileDrag.qml alone, found: $(printf '%s' "$copy_files" | tr '\n' ' ')"
+fi
+move_line=$(printf '%s' "$advertised" | grep '^ui/TabBar.qml' | cut -d: -f3-)
+if printf '%s' "$move_line" | grep -q 'Drag\.supportedActions:[[:space:]]*Qt\.MoveAction[[:space:]]*$'; then
+    ok "the tab drag advertises Move alone"
+else
+    bad "the tab drag must advertise Qt.MoveAction alone, got: $move_line"
 fi
 
-# Qt hands effectAllowed straight from this line. A plain lift names copy alone.
-if printf '%s' "$advertised" | grep -q 'Qt\.CopyAction'; then
-    ok "a leaving drag offers copy"
+# Qt hands effectAllowed straight from this line. A plain file lift names copy alone.
+if code_of ui/FileDrag.qml | grep -q 'Qt\.CopyAction'; then
+    ok "a leaving file drag offers copy"
 else
-    bad "a leaving drag must offer Qt.CopyAction, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
+    bad "a leaving file drag must offer Qt.CopyAction"
 fi
-if printf '%s' "$advertised" | grep -q 'Qt\.CopyAction | Qt\.MoveAction'; then
-    bad "a plain lift must not offer both copy and move, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
-else
-    ok "a plain lift offers copy alone"
-fi
-if printf '%s' "$advertised" | grep -q 'dragCopy' && printf '%s' "$advertised" | grep -q 'dragShift' && printf '%s' "$advertised" | grep -q 'dragLink'; then
+if code_of ui/FileDrag.qml | grep -q 'dragCopy' && code_of ui/FileDrag.qml | grep -q 'dragShift' && code_of ui/FileDrag.qml | grep -q 'dragLink'; then
     ok "ctrl offers copy alone, shift move alone, ctrl with shift link alone"
 else
-    bad "the offer must narrow on dragCopy, dragShift and dragLink, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
+    bad "the file offer must narrow on dragCopy, dragShift and dragLink"
 fi
-if printf '%s' "$advertised" | grep -q 'Qt\.LinkAction'; then
+if code_of ui/FileDrag.qml | grep -q 'Qt\.LinkAction'; then
     ok "a link lift offers a link"
 else
-    bad "a link lift must offer Qt.LinkAction, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
+    bad "a link lift must offer Qt.LinkAction"
+fi
+
+# The Move-alone advertiser is the tab drag, and it carries no folder with it: Files
+# moves a folder whenever Move is offered, so the private type rides alone. The file
+# lift's own Shift move keeps its uri-list by the verb rule the checks above pin.
+if grep -q 'text/uri-list' ui/TabBar.qml; then
+    bad "the tab drag must not offer text/uri-list with Move"
+else
+    ok "no tab drag offers text/uri-list with Move"
+fi
+if code_of ui/js/Tabs.js | grep -q 'text/uri-list'; then
+    bad "the tab payload must not offer text/uri-list"
+else
+    ok "the tab payload carries only the private tab type"
 fi
 
 if grep -q 'text/uri-list' ui/js/Drag.js; then
-    ok "a leaving drag still offers text/uri-list"
+    ok "a leaving file drag still offers text/uri-list"
 else
     bad "text/uri-list is gone from ui/js/Drag.js"
 fi

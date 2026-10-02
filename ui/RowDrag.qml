@@ -32,7 +32,7 @@ Item {
         anchors.fill: parent
         keys: [DragOps.ROWS_MIME, "text/uri-list", "text/plain"]
         onEntered: function (drag) {
-            // xw6: a tab drag is never a file drop, even though it carries a uri-list.
+            // xw6: a tab drag carries only the private tab type and is never a file drop.
             if (drag.getDataAsString(Tabs.TAB_MIME) !== "") {
                 drag.accepted = false
                 return

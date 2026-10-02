@@ -244,35 +244,53 @@ function run(check) {
     check("no cursor row opens no tab either", Tabs.count(emptyPane), 1)
     check("and says the same sentence", emptyPane.said[emptyPane.said.length - 1], "Only a folder opens in a new tab.")
 
-    // xw6: a tab dragged past its window's edge leaves as a platform drag carrying the
-    // folder, the view and the cursor file name, plus the folder alone for another app.
+    // xw6: a tab dragged past its window's edge leaves as a platform drag carrying
+    // only the private tab type, with the source pid and the lift token naming the
+    // ack back. No uri-list, no plain text: a foreign app refuses the private type.
+    Tabs.setOwnPid("111")
     var tabbed = Fixture.pane("/tmp/a")
     tabbed.tabs = { items: [{ path: "/tmp/a" }, { path: "/tmp/b", history: [], cursorIndex: 2,
                             viewMode: "grid", showHidden: false, selected: [],
                             sortBy: "name", sortDesc: false }],
                    index: 0, pendingCursor: -1, pendingSortBy: "", pendingSortDesc: false }
     tabbed.rowFor = function (i) { return i === 4 ? { n: "note.txt", d: false } : null }
-    var info = Tabs.parseTabMime(Tabs.tabPayload(tabbed, 0))
-    check("a tab encodes its folder, view and cursor file",
-          info.path + "|" + info.view + "|" + info.cursor, "/tmp/a|list|note.txt")
-    var hiddenInfo = Tabs.parseTabMime(Tabs.tabPayload(tabbed, 1))
+    var info = Tabs.parseTabMime(Tabs.tabPayload(tabbed, 0, "111", "tok-1"))
+    check("a tab encodes its pid, token, folder, view and cursor file",
+          info.pid + "|" + info.token + "|" + info.path + "|" + info.view + "|" + info.cursor,
+          "111|tok-1|/tmp/a|list|note.txt")
+    var hiddenInfo = Tabs.parseTabMime(Tabs.tabPayload(tabbed, 1, "111", "tok-2"))
     check("a hidden tab encodes its own snapshot", hiddenInfo.path + "|" + hiddenInfo.view, "/tmp/b|grid")
-    var lift = Tabs.tabDragMime(tabbed, 0)
-    check("the lift offers the tab MIME", lift[Tabs.TAB_MIME] === Tabs.tabPayload(tabbed, 0), true)
-    check("and the folder as uri-list for another app", lift["text/uri-list"], "file:///tmp/a\r\n")
-    check("and as plain text", lift["text/plain"], "/tmp/a")
-    check("no such tab offers no payload", Tabs.tabPayload(tabbed, 7), "")
-    check("and no MIME at all", Tabs.tabDragMime(tabbed, 7)["text/uri-list"], undefined)
+    var lift = Tabs.tabDragMime(tabbed, 0, "111", "tok-1")
+    check("the lift offers the tab MIME", lift[Tabs.TAB_MIME] === Tabs.tabPayload(tabbed, 0, "111", "tok-1"), true)
+    check("and no uri-list for another app", lift["text/uri-list"], undefined)
+    check("and no plain text either", lift["text/plain"], undefined)
+    check("no such tab offers no payload", Tabs.tabPayload(tabbed, 7, "111", "tok-1"), "")
+    check("and no MIME at all", Tabs.tabDragMime(tabbed, 7, "111", "tok-1")[Tabs.TAB_MIME], undefined)
     check("this window's own drag is never a receive", Tabs.isOwnTab(info), true)
-    check("another window's is", Tabs.isOwnTab(Tabs.parseTabMime(
-        JSON.stringify(["other-instance", "/tmp/a", "list", ""]))), false)
+    check("another window's is",
+          Tabs.isOwnTab(Tabs.parseTabMime(JSON.stringify(["222", "tok-9", "/tmp/a", "list", ""]))), false)
+    check("an explicit pid decides too",
+          Tabs.isOwnTab(Tabs.parseTabMime(JSON.stringify(["222", "tok-9", "/tmp/a", "list", ""])), "222"), true)
     check("garbage refuses", Tabs.parseTabMime("not json"), null)
     check("an empty payload refuses", Tabs.parseTabMime(""), null)
+    check("the old four-field shape refuses",
+          Tabs.parseTabMime(JSON.stringify(["i", "/tmp/a", "list", ""])), null)
     check("a relative path refuses",
-          Tabs.parseTabMime(JSON.stringify(["i", "tmp/a", "list", ""])), null)
+          Tabs.parseTabMime(JSON.stringify(["111", "tok-1", "tmp/a", "list", ""])), null)
+    var bel = String.fromCharCode(7)
     check("a control character refuses",
-          Tabs.parseTabMime(JSON.stringify(["i", "/tmp/ab", "list", ""])), null)
-    check("a wrong arity refuses", Tabs.parseTabMime(JSON.stringify(["i", "/tmp/a"])), null)
+          Tabs.parseTabMime(JSON.stringify(["111", "tok-1", "/tmp/a" + bel + "b", "list", ""])), null)
+    check("a non-numeric pid refuses",
+          Tabs.parseTabMime(JSON.stringify(["other-instance", "tok-1", "/tmp/a", "list", ""])), null)
+    check("an empty token refuses",
+          Tabs.parseTabMime(JSON.stringify(["111", "", "/tmp/a", "list", ""])), null)
+    check("a control character in the token refuses",
+          Tabs.parseTabMime(JSON.stringify(["111", "tok" + bel + "-1", "/tmp/a", "list", ""])), null)
+    check("a wrong arity refuses", Tabs.parseTabMime(JSON.stringify(["111", "tok-1", "/tmp/a"])), null)
+    check("a taken ack matches its lift", Tabs.takeToken("tok-1", "tok-1"), true)
+    check("and no other lift", Tabs.takeToken("tok-1", "tok-2"), false)
+    check("and nothing matches an empty outstanding token", Tabs.takeToken("", "tok-1"), false)
+    Tabs.setOwnPid("")
 
     // The strip answers an insertion point; off the strip the tab lands at the end.
     check("a drop past the last tab lands at the end", Tabs.dropIndexAt(9999, 100, 3), 3)
@@ -280,8 +298,9 @@ function run(check) {
     check("a drop over the second tab names its near edge", Tabs.dropIndexAt(140, 100, 3), 1)
 
     // A tab from another window opens at the drop position and is shown.
+    Tabs.setOwnPid("111")
     var receiver = Fixture.pane("/tmp/r")
-    var foreign = JSON.stringify(["other-instance", "/tmp/folder", "grid", "note.txt"])
+    var foreign = JSON.stringify(["222", "tok-9", "/tmp/folder", "grid", "note.txt"])
     check("a foreign tab opens", Tabs.receiveTab(receiver, foreign, 1), true)
     check("at the drop position and shown",
           Tabs.currentIndex(receiver) + "|" + Tabs.count(receiver), "1|2")
@@ -289,11 +308,11 @@ function run(check) {
     check("in the view it names", receiver.viewMode, "grid")
     check("carrying the cursor name", receiver.tabs.items[1].cursorName, "note.txt")
     var plainView = Fixture.pane("/tmp/r")
-    Tabs.receiveTab(plainView, JSON.stringify(["other-instance", "/tmp/g", "britelite", ""]), -1)
+    Tabs.receiveTab(plainView, JSON.stringify(["222", "tok-9", "/tmp/g", "britelite", ""]), -1)
     check("an unknown view keeps the standing one", plainView.viewMode, "list")
     check("and off the strip lands at the end", Tabs.currentIndex(plainView), 1)
     var own = Fixture.pane("/tmp/r")
-    Tabs.receiveTab(own, Tabs.tabPayload(tabbed, 0), 0)
+    Tabs.receiveTab(own, Tabs.tabPayload(tabbed, 0, "111", "tok-1"), 0)
     check("this window's own drag never receives", Tabs.count(own), 1)
     var busyReceiver = Fixture.pane("/tmp/r")
     busyReceiver.listInFlight = true
@@ -309,7 +328,8 @@ function run(check) {
     check("with the cap's own sentence",
           fullReceiver.said[fullReceiver.said.length - 1], "Nine tabs is the most.")
 
-    // After an accepted drop the source closes the tab that left.
+    // The taken ack closes the lifted tab; a lone tab is never lifted, so no move
+    // ever closes a window's only tab.
     var moved = Fixture.pane("/tmp/one")
     moved.tabs = { items: [{ path: "/tmp/one" }, { path: "/tmp/two", history: [], cursorIndex: 0,
                            viewMode: "list", showHidden: false, selected: [],
@@ -318,8 +338,15 @@ function run(check) {
     check("a moved tab closes", Tabs.closeTabAfterMove(moved, 1), "closed")
     check("and is gone", Tabs.count(moved), 1)
     var only = Fixture.pane("/tmp/only")
-    check("the last tab closes the window instead", Tabs.closeTabAfterMove(only, 0), "window")
-    check("and stands until the drop answers", Tabs.count(only), 1)
+    check("a lone tab never lifts, so it is kept rather than closing the window",
+          Tabs.closeTabAfterMove(only, 0), "kept")
+    check("and stands", Tabs.count(only), 1)
+    check("a lone tab is not lifted", Tabs.canLift(only), false)
+    var pair = Fixture.pane("/tmp/one")
+    pair.tabs = { items: [{ path: "/tmp/one" }, { path: "/tmp/two" }],
+                  index: 0, pendingCursor: -1, pendingSortBy: "", pendingSortDesc: false }
+    check("while a pair lifts", Tabs.canLift(pair), true)
+    Tabs.setOwnPid("")
     var kept = Fixture.pane("/tmp/one")
     kept.listInFlight = true
     check("a loading source keeps its tab", Tabs.closeTabAfterMove(kept, 0), "kept")
