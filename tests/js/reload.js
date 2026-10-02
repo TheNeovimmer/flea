@@ -55,8 +55,7 @@ function run(check) {
     check("and remembers the count it is answering against", plain.reloadFrom, 10)
     check("and holds the cursor anchor for the rows reply", w.anchor !== "kept" && w.anchor !== undefined, true)
 
-    // B6: Recent is a history standing on the root, not the root itself, so a
-    // reload re-reads Recent rather than listing "/" over the place just left.
+    // Recent stands on the root, so reload re-reads Recent instead of listing root.
     var recent = pane()
     recent.recentMode = "results"
     recent.recentFrom = "/home/gm/Work"
