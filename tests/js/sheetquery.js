@@ -70,14 +70,25 @@ function run(check) {
     check("a multi-context key names none either", SheetQuery.whereForContext("rail,menu"), "")
     check("a single place is named", SheetQuery.whereForContext("media"), "media")
 
-    // A sheet menu row snapshots first, then activates for the current selection.
+    // A sheet menu row closes then snapshots and activates, but refuses while a listing is out.
     var calls = []
-    var holder = { menuActions: {
-        snapshot: function () { calls.push("snapshot") },
-        activate: function (action, selected) { calls.push("activate:" + action + ":" + selected) }
-    } }
-    SheetQuery.runMenu(holder, "trash")
-    check("the sheet snapshots before it activates", calls.join(","), "snapshot,activate:trash:true")
+    var holder = { listInFlight: false,
+        message: function (text, sticky) { calls.push("message:" + text + ":" + sticky) },
+        menuActions: {
+            snapshot: function () { calls.push("snapshot") },
+            activate: function (action, selected) { calls.push("activate:" + action + ":" + selected) }
+        } }
+    SheetQuery.runMenu(holder, "trash", function () { calls.push("close") })
+    check("the sheet closes before it snapshots", calls.join(","), "close,snapshot,activate:trash:true")
+    var blocked = []
+    var busy = { listInFlight: true,
+        message: function (text, sticky) { blocked.push("message:" + text + ":" + sticky) },
+        menuActions: {
+            snapshot: function () { blocked.push("snapshot") },
+            activate: function (action, selected) { blocked.push("activate:" + action + ":" + selected) }
+        } }
+    SheetQuery.runMenu(busy, "trash", function () { blocked.push("close") })
+    check("a menu row refuses while a listing is out", blocked.join(","), "message:A directory is already loading.:false")
 
     // A printable key types into the query; DEL never does, so Delete types nothing invisible.
     check("a letter is printable", SheetQuery.isPrintable("c"), true)
@@ -129,6 +140,5 @@ function run(check) {
     check("open still answers while a listing is out", SheetQuery.listingRefusal(true, "open"), "")
     check("at rest nothing refuses", SheetQuery.listingRefusal(false, "trash"), "")
     // Every menu row resolves its rows through the snapshot, so none is exempt like navigations are.
-    check("a menu row refuses while a listing is out", SheetQuery.menuRefusal(true), "A directory is already loading.")
-    check("a menu row answers at rest", SheetQuery.menuRefusal(false), "")
+    check("at rest the menu branch carries no separate refusal", typeof SheetQuery.menuRefusal, "undefined")
 }

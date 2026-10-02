@@ -201,8 +201,14 @@ function dispatch(candidate) {
     return { kind: "none" }
 }
 
-// A sheet menu row snapshots first for the current selection, then activates.
-function runMenu(holder, menuAction) {
+// A sheet menu row refuses while a listing is out, else closes then snapshots and activates.
+// Sample input: runMenu(busy, "trash", close) says Swap.LOADING and skips close, snapshot, activate.
+function runMenu(holder, menuAction, close) {
+    if (holder.listInFlight === true) {
+        holder.message(Swap.LOADING, false)
+        return
+    }
+    close()
     holder.menuActions.snapshot()
     holder.menuActions.activate(menuAction, true)
 }
@@ -275,13 +281,6 @@ function placeIndex(entries, decided) {
 // The action branch owes the same gate Focus.handleKey answers every listing key through.
 function listingRefusal(listInFlight, action) {
     if (Swap.swallows(listInFlight, action))
-        return Swap.LOADING
-    return ""
-}
-// Sample input: menuRefusal(true) is Swap.LOADING, menuRefusal(false) is "".
-// Every menu row resolves its rows through the snapshot, so none is exempt like navigations are.
-function menuRefusal(listInFlight) {
-    if (listInFlight === true)
         return Swap.LOADING
     return ""
 }

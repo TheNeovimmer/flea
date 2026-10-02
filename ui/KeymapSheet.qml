@@ -104,10 +104,7 @@ Item {
             return
         }
         if (decided.kind === "menu" || decided.kind === "confirm") {
-            var menuRefusal = SheetQuery.menuRefusal(holder.listInFlight)
-            if (menuRefusal.length > 0) { holder.message(menuRefusal, false); return }
-            root.close()
-            SheetQuery.runMenu(holder, decided.menuAction)
+            SheetQuery.runMenu(holder, decided.menuAction, function () { root.close() })
             return
         }
         if (decided.kind === "place") {
