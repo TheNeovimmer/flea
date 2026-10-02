@@ -26,6 +26,12 @@ function run(pane, paths) {
         pane.message("A directory is already loading.", false)
         return
     }
+    // The newest-first order replaces the standing one, so it is kept for the
+    // way back: leaving Recent restores it instead of keeping mtime behind.
+    if (pane.recentMode.length === 0 && pane.backend) {
+        pane.recentSortBy = pane.backend.sortBy
+        pane.recentSortDesc = pane.backend.sortDesc === true
+    }
     if (pane.recentFrom.length === 0) {
         pane.recentFrom = pane.path
     }
@@ -67,7 +73,20 @@ function close(pane) {
     pane.recentMode = OFF
     pane.recentFrom = ""
     pane.recentPaths = []
+    restoreSort(pane)
     pane.openWithoutHistory(back)
+}
+
+// The order run() replaced, handed back before the folder re-lists so the
+// request carries it; a tab switch restores it the same way through dropOverlay
+// below, so the snapshot it takes keeps the folder's own order.
+function restoreSort(pane) {
+    if (pane.backend && typeof pane.recentSortBy === "string" && pane.recentSortBy.length > 0) {
+        pane.backend.sortBy = pane.recentSortBy
+        pane.backend.sortDesc = pane.recentSortDesc === true
+    }
+    pane.recentSortBy = ""
+    pane.recentSortDesc = false
 }
 
 // An operation changed a file under the listing, so the history is read again rather than the
@@ -99,6 +118,7 @@ function dropOverlay(pane) {
     pane.recentMode = OFF
     pane.recentFrom = ""
     pane.recentPaths = []
+    restoreSort(pane)
     return true
 }
 
