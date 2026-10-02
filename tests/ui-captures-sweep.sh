@@ -439,7 +439,7 @@ sweep_run() {
     local sweep_theme="$1" sweep_root="$fixture_root/capsweep-$1" sweep_real_bin="$flea_bin" sweep_home
     local real_foreground="$real_foreground" flea_bin="$flea_bin" evidence_dir="$evidence_dir/$1" menus_checks=0
     local -a sweep_sections
-    sandbox_scratch "$sweep_root"
+    sandbox_make "$sweep_root"
     sweep_home="$sweep_root/home"
     fixture_home_make "$sweep_home"
     if [[ "$sweep_theme" == cool-dawn ]]; then
