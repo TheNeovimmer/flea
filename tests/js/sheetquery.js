@@ -79,4 +79,54 @@ function run(check) {
     } }
     SheetQuery.runMenu(holder, "trash")
     check("the sheet snapshots before it activates", calls.join(","), "snapshot,activate:trash:true")
+
+    // A printable key types into the query; DEL never does, so Delete types nothing invisible.
+    check("a letter is printable", SheetQuery.isPrintable("c"), true)
+    check("a space is printable", SheetQuery.isPrintable(" "), true)
+    check("DEL is not printable", SheetQuery.isPrintable("\u007f"), false)
+    check("empty is not printable", SheetQuery.isPrintable(""), false)
+    check("two chars are not printable", SheetQuery.isPrintable("ab"), false)
+    // A bare modifier press is no query edit and never closes the sheet, so a shifted letter types.
+    check("Shift alone is a bare modifier", SheetQuery.isBareModifier(Qt.Key_Shift), true)
+    check("Control alone is a bare modifier", SheetQuery.isBareModifier(Qt.Key_Control), true)
+    check("Alt alone is a bare modifier", SheetQuery.isBareModifier(Qt.Key_Alt), true)
+    check("AltGr alone is a bare modifier", SheetQuery.isBareModifier(Qt.Key_AltGr), true)
+    check("Meta alone is a bare modifier", SheetQuery.isBareModifier(Qt.Key_Meta), true)
+    check("CapsLock alone is a bare modifier", SheetQuery.isBareModifier(Qt.Key_CapsLock), true)
+    check("Delete is no bare modifier", SheetQuery.isBareModifier(Qt.Key_Delete), false)
+    check("Escape is no bare modifier", SheetQuery.isBareModifier(Qt.Key_Escape), false)
+    // The key decision the sheet's Keys.onPressed runs: Esc clears a standing query before it closes.
+    check("Esc clears a standing query", SheetQuery.sheetKey("co", 2, 0, Qt.Key_Escape, ""), "clear")
+    check("Esc with none closes", SheetQuery.sheetKey("", 0, 0, Qt.Key_Escape, ""), "close")
+    check("Up moves the cursor", SheetQuery.sheetKey("c", 3, 1, Qt.Key_Up, ""), "up")
+    check("Down moves the cursor", SheetQuery.sheetKey("c", 3, 1, Qt.Key_Down, ""), "down")
+    check("Return runs the row", SheetQuery.sheetKey("c", 3, 0, Qt.Key_Return, ""), "activate")
+    check("Enter runs the row too", SheetQuery.sheetKey("c", 3, 0, Qt.Key_Enter, ""), "activate")
+    check("Backspace shortens a query", SheetQuery.sheetKey("c", 1, 0, Qt.Key_Backspace, ""), "backspace")
+    check("Backspace with none closes", SheetQuery.sheetKey("", 0, 0, Qt.Key_Backspace, ""), "close")
+    check("a letter types", SheetQuery.sheetKey("", 0, 0, Qt.Key_C, "c"), "type")
+    check("Shift alone is ignored", SheetQuery.sheetKey("co", 2, 0, Qt.Key_Shift, ""), "ignore")
+    check("Shift first is ignored too", SheetQuery.sheetKey("", 0, 0, Qt.Key_Shift, ""), "ignore")
+    check("Delete never types DEL", SheetQuery.sheetKey("co", 2, 0, Qt.Key_Delete, "\u007f"), "ignore")
+    check("an unbound key closes", SheetQuery.sheetKey("co", 2, 0, Qt.Key_F1, ""), "close")
+    // The cursor wraps at both ends, the way the sheet's arrows move.
+    check("Up at the top wraps to the last", SheetQuery.stepCursor(0, -1, 3), 2)
+    check("Down at the end wraps to the first", SheetQuery.stepCursor(2, 1, 3), 0)
+    check("a middle step does not wrap", SheetQuery.stepCursor(1, -1, 3), 0)
+    check("no rows parks the cursor", SheetQuery.stepCursor(0, 1, 0), 0)
+    // The place lookup answers the rail's own index, never the first label match.
+    var dupes = [
+        { label: "src", group: "favourite", kind: "favourite", path: "/a/src", original: { label: "src", path: "/a/src" } },
+        { label: "src", group: "favourite", kind: "favourite", path: "/b/src", original: { label: "src", path: "/b/src" } }
+    ]
+    var second = SheetQuery.placeCandidates(dupes).filter(function (row) { return row.railIndex === 1 })[0]
+    check("the second src is offered", second.label, "Open src")
+    check("the second src opens rail row 1", SheetQuery.placeIndex(dupes, SheetQuery.dispatch(second)), 1)
+    var first = SheetQuery.placeCandidates(dupes).filter(function (row) { return row.railIndex === 0 })[0]
+    check("the first src still opens rail row 0", SheetQuery.placeIndex(dupes, SheetQuery.dispatch(first)), 0)
+    check("a gone row answers -1", SheetQuery.placeIndex([], SheetQuery.dispatch(second)), -1)
+    // The listing gate the sheet's action branch owes: a row action refuses while a listing is out.
+    check("trash refuses while a listing is out", SheetQuery.listingRefusal(true, "trash"), "A directory is already loading.")
+    check("open still answers while a listing is out", SheetQuery.listingRefusal(true, "open"), "")
+    check("at rest nothing refuses", SheetQuery.listingRefusal(false, "trash"), "")
 }

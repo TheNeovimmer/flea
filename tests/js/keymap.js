@@ -16,9 +16,7 @@ function run(check) {
         key(preset, "Space", " ", ctrl, "loadPreview")
         key(preset, "PageDown", "", ctrl, "tabNext")
         key(preset, "PageUp", "", ctrl, "tabPrevious")
-        // Tabs040 callout 1: the reorder keys beside the drag, free in every preset.
-        // Keys040: [ and ] step between tabs; the mac super chords on the same
-        // key codes are a different modifier state and keep their history rows below.
+        // Tabs040 callout 1 and Keys040: [ and ] step between tabs beside the drag, free in every preset; mac super chords on the same codes keep their history rows.
         key(preset, "BraceLeft", "{", shift, "tabMoveLeft")
         key(preset, "BraceRight", "}", shift, "tabMoveRight")
         key(preset, "PageDown", "", ctrl | shift, "tabMoveRight")
@@ -164,9 +162,7 @@ function run(check) {
         return row.action === "trash"
     })[0].keys.split(" / ").indexOf("d"), -1)
     check("menu-only actions invent no shortcut", Keymap.hintFor("emptyTrash"), "")
-    // MenuAdditions040: c opens Copy as, P opens Paste as, V flips the
-    // selection, and Ctrl+Shift+C copies the paths; every one is free in all
-    // four presets, and each flyout leaf answers its own letter in the menu.
+    // MenuAdditions040: c opens Copy as, P opens Paste as, V flips the selection, Ctrl+Shift+C copies paths, free in all four presets; each leaf answers its own letter.
     for (var k = 0; k < Keymap.PRESETS.length; k++) {
         var preset = Keymap.PRESETS[k]
         key(preset, "C", "c", none, "copyAs")
