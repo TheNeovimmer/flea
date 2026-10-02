@@ -102,6 +102,9 @@ FocusScope {
     property string recentFrom: ""
     // The history paths the listing stands on, so a refresh with the rail hidden re-asks them.
     property var recentPaths: []
+    // The sort Recent replaced, handed back on leaving; ui/js/RecentMode.js run and restoreSort write it.
+    property string recentSortBy: ""
+    property bool recentSortDesc: false
     // The query narrowing the listing in place, and whether its line still has the keyboard;
     // ui/js/Filter.js owns every transition, the way ui/js/Search.js owns the walk's.
     property string filterQuery: ""
