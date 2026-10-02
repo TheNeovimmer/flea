@@ -574,8 +574,7 @@ if [ "$fail" -eq 0 ]; then
   fi
 fi
 
-# Tab and window keys must execute through the loaded WindowBody, not just stub pane methods.
-# Record detached window launches in this fixture; all other invocations use the real candidate.
+# Drive tab/window keys through WindowBody; record detached launches and forward other calls to the real candidate.
 sandbox_scratch "$SANDBOX/tabs" || exit 1
 mkdir -p "$SANDBOX/tabs/config" "$SANDBOX/tabs/a/sub" "$SANDBOX/tabs/b/sub" || exit 1
 printf 'a\n' > "$SANDBOX/tabs/a/a.txt" || exit 1
@@ -593,17 +592,17 @@ fi
 exec "$PROBE_REAL_BIN" "$@"
 SH
 chmod +x "$SANDBOX/tabs/launcher" || exit 1
-for mode in tabs window trash tabview restore openers watch quickdrag; do
+for mode in tabs window trash tabview restore openers watch quickdrag dragpreview; do
   mkdir -p "$SANDBOX/tabs/$mode" || exit 1
   : > "$SANDBOX/tabs/$mode/launches" || exit 1
   env XDG_STATE_HOME="$SANDBOX/tabs/$mode/state" "$BIN" --ui-state \
     '{"keys":"default","view":"list","sort":{"key":"name","reverse":false},"updates":{"autoCheck":false}}' >/dev/null 2>&1 || exit 1
   start_path="$SANDBOX/tabs/a"
-  if [ "$mode" = restore ]; then
-    restored=$(python3 - "$SANDBOX/tabs/a" "$SANDBOX/tabs/b" <<'PY'
+  if [ "$mode" = restore ] || [ "$mode" = dragpreview ]; then
+    restored=$(python3 - "$SANDBOX/tabs/a" "$SANDBOX/tabs/b" "$mode" <<'PY'
 import json, sys
-a, b = sys.argv[1:]
-print(json.dumps({"startIn": "last", "lastTabs": {"paths": [a, b, a + "/sub"], "index": 1}}))
+a, b, mode = sys.argv[1:]
+print(json.dumps({"startIn": "last", "lastTabs": {"paths": [a, b, a + "/sub"], "index": 0 if mode == "dragpreview" else 1}}))
 PY
     ) || exit 1
     env XDG_STATE_HOME="$SANDBOX/tabs/$mode/state" "$BIN" --ui-state "$restored" >/dev/null 2>&1 || exit 1
@@ -612,7 +611,7 @@ PY
   out=$(env DISPLAY=flea-offscreen QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 QSG_RHI_BACKEND=opengl \
       XDG_STATE_HOME="$SANDBOX/tabs/$mode/state" FLEA_BIN="$SANDBOX/tabs/launcher" \
       FLEA_PATH="$start_path" PROBE_BASE="$SANDBOX/tabs/a" PROBE_OTHER_PATH="$SANDBOX/tabs/b" \
-      PROBE_MODE="$mode" PROBE_REAL_BIN="$BIN" PROBE_LAUNCHES="$SANDBOX/tabs/$mode/launches" \
+      PROBE_MODE="$mode" PROBE_REAL_BIN="$BIN" PROBE_LAUNCHES="$SANDBOX/tabs/$mode/launches" PROBE_SHOT="$SANDBOX/tabs/$mode/held.png" \
       PROBE_BODY="$PWD/ui/WindowBody.qml" timeout 30 qs -p "$SANDBOX/tabs/config" 2>&1)
   result=$?
   printf '%s\n' "$out" | grep -E 'TAB_HUNT (FAIL|DONE)|TypeError|ReferenceError|ERROR' || true
@@ -623,6 +622,9 @@ PY
   check "the $mode key/pointer probe has no script errors" 0 \
     "$(printf '%s\n' "$out" | grep -cE 'TypeError|ReferenceError|ERROR')"
   if ! printf '%s\n' "$out" | grep -q "TAB_HUNT DONE $mode "; then printf '%s\n' "$out" | tail -15; fi
+  if [ "$mode" = dragpreview ] && [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then
+    cp "$SANDBOX/tabs/$mode/held.png" "$FLEA_CI_SUITE_LOGS/cap-tabs-drag-held-offscreen.png" || fail=1
+  fi
 done
 
 python3 tests/xwsettings-backends.py "$BIN" "$SANDBOX/two-backends" || fail=1

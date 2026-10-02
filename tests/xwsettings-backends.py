@@ -8,6 +8,10 @@ import subprocess
 import sys
 import threading
 import time
+from unittest.mock import patch
+
+REPLY_TIMEOUT_SECONDS = 8
+MIN_QUEUE_WAIT_SECONDS = 0.01
 
 
 class Backend:
@@ -32,9 +36,12 @@ class Backend:
         self.process.stdin.flush()
 
     def receive(self, kind):
-        deadline = time.monotonic() + 8
+        deadline = time.monotonic() + REPLY_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
-            answer = self.answers.get(timeout=max(0.01, deadline - time.monotonic()))
+            try:
+                answer = self.answers.get(timeout=max(MIN_QUEUE_WAIT_SECONDS, deadline - time.monotonic()))
+            except queue.Empty as error:
+                raise AssertionError(f"no {kind} reply") from error
             if answer.get("t") == "error":
                 raise AssertionError(f"waiting for {kind}: {answer}")
             if answer.get("t") == kind:
@@ -50,6 +57,20 @@ class Backend:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait()
+
+
+def check_timeouts(check):
+    quiet = Backend.__new__(Backend)
+    quiet.answers = queue.Queue()
+    for kind in ("listed", "rows"):
+        with patch.object(quiet.answers, "get", side_effect=queue.Empty):
+            try:
+                quiet.receive(kind)
+            except (AssertionError, queue.Empty) as error:
+                detail = str(error)
+            else:
+                detail = "returned without a reply"
+        check(f"timeout names awaited {kind} reply", detail, f"no {kind} reply")
 
 
 def main():
@@ -71,6 +92,7 @@ def main():
         print("ok   " + label)
 
     try:
+        check_timeouts(check)
         for backend in backends:
             backend.send({"c": "list", "path": str(folder), "first": 20})
             check("each backend lists the shared folder", backend.receive("listed")["n"], 0)

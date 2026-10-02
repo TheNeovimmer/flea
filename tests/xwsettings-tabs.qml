@@ -5,8 +5,7 @@ import Quickshell.Io
 import "flea" as Flea
 import "flea/js/Tabs.js" as Tabs
 
-// Drive real keys and pointer events through WindowBody, Pane and their backend replies.
-// The launcher wrapper records new-window requests while forwarding every backend/state call.
+// Drive real WindowBody keys and pointers; record new-window launches while forwarding backend/state calls.
 ShellRoot {
     id: root
     readonly property string mode: Quickshell.env("PROBE_MODE")
@@ -25,6 +24,10 @@ ShellRoot {
     property int initialTotal: 0
     property int firstLists: 0
     property int secondLists: 0
+    property bool previewGrabbed: false
+    readonly property int dragInset: 10
+    readonly property int pointerMoveMs: 20
+    readonly property int pointerEventMs: 1
 
     function check(label, actual, expected) {
         root.checks++
@@ -38,6 +41,11 @@ ShellRoot {
     function focusList() { pane.focusView = "list"; pane.listArea.forceActiveFocus() }
     function focusRail() { pane.focusView = "rail"; pane.sidebar.forceActiveFocus() }
     function tabStrip() { return body.children.filter(function (item) { return typeof item.itemAt === "function" && item.tabCount !== undefined })[0] }
+    function checkDrag(label) {
+        check(label, Tabs.currentIndex(pane), 0)
+        check(label + " labels", [dragItem.itemAt(0).title, dragItem.itemAt(1).title], [Tabs.label(other, pane.home), Tabs.label(here, pane.home)])
+        check(label + " dragged identity at destination", pane.tabs.items[0].path, root.other)
+    }
     function press(key, modifiers) { keys.keyClick(key, modifiers || Qt.NoModifier, -1) }
     function text(value) { keys.keyClickChar(value, Qt.NoModifier, -1) }
     function finish() {
@@ -143,6 +151,34 @@ ShellRoot {
                 check("middle click adds one tab in " + modes[view], Tabs.count(pane), 2)
                 Tabs.closeAt(pane, Tabs.currentIndex(pane)); next()
             } else if (part === 5) next()
+        } else if (root.mode === "dragpreview") {
+            if (phase === 0) {
+                root.dragItem = tabStrip()
+                var tab = dragItem.itemAt(1)
+                keys.mousePress(tab, tab.width / 2, tab.height / 2, Qt.LeftButton, Qt.NoModifier, pointerEventMs)
+                keys.mouseMove(tab.parent, 3 * dragItem.tabWidth - dragInset, tab.height / 2, pointerMoveMs, Qt.LeftButton, Qt.NoModifier)
+                next()
+            } else if (phase === 1) {
+                var held = dragItem.itemAt(1), after = dragItem.itemAt(2)
+                check("the preview drag is held at the far insertion point", [dragItem.dragFrom, dragItem.dropAt], [1, 3])
+                check("the held tab occupies its destination slot", held.x, 2 * dragItem.tabWidth)
+                check("the following tab closes the source slot", after.x, dragItem.tabWidth)
+                var bar = dragItem.children.filter(function (item) { return item.color === Flea.Theme.color.accent && item.width === 2 * Flea.Theme.spacing.hairline })[0]
+                check("the insertion bar borders the ghost's leading edge", bar ? bar.x : -1, held.mapToItem(dragItem, 0, 0).x - Flea.Theme.spacing.hairline)
+                check("the held tab draws at disabled opacity", held.opacity, Flea.Theme.disabledOpacity)
+                check("a preview keeps the committed order", Tabs.labels(pane), [Tabs.label(here, pane.home), Tabs.label(other, pane.home), "sub"])
+                dragItem.grabToImage(function (result) { check("the held preview capture saves", result.saveToFile(Quickshell.env("PROBE_SHOT")), true); root.previewGrabbed = true })
+                next()
+            } else if (phase === 2) {
+                if (!root.previewGrabbed) return
+                var tab = dragItem.itemAt(1)
+                keys.mouseRelease(tab.parent, 3 * dragItem.tabWidth - dragInset, tab.height / 2, Qt.LeftButton, Qt.NoModifier, pointerEventMs)
+                next()
+            } else if (phase === 3) {
+                check("the preview order becomes the committed order", Tabs.labels(pane), [Tabs.label(here, pane.home), "sub", Tabs.label(other, pane.home)])
+                check("dragging another tab preserves the current tab", [Tabs.currentIndex(pane), pane.path], [0, root.here])
+                finish()
+            }
         } else if (root.mode === "quickdrag") {
             if (phase === 0) { focusList(); text("t"); pane.open(root.other); next() }
             else if (phase === 1) {
@@ -157,7 +193,7 @@ ShellRoot {
                 keys.mouseRelease(tab, -root.dragItem.tabWidth + 10, tab.height / 2, Qt.LeftButton, Qt.NoModifier, 1)
                 next()
             } else if (phase === 3) {
-                check("a tab drag with one move event lands where released", Tabs.currentIndex(pane), 0)
+                checkDrag("a tab drag with one move event lands where released")
                 // Reset the current tab's place so the slower control is independent of this result.
                 Tabs.moveCurrent(pane, 1)
                 var tab = root.dragItem.itemAt(1)
@@ -170,7 +206,7 @@ ShellRoot {
                 keys.mouseRelease(tab, -root.dragItem.tabWidth + 10, tab.height / 2, Qt.LeftButton, Qt.NoModifier, 1)
                 next()
             } else if (phase === 5) {
-                check("the same drag with two move events reorders", Tabs.currentIndex(pane), 0)
+                checkDrag("the same drag with two move events reorders")
                 Tabs.moveCurrent(pane, 1)
                 var tab = root.dragItem.itemAt(1)
                 keys.mousePress(tab, 30, tab.height / 2, Qt.LeftButton, Qt.NoModifier, 1)
@@ -182,7 +218,7 @@ ShellRoot {
                 keys.mouseRelease(tab, -root.dragItem.tabWidth + 10, tab.height / 2, Qt.LeftButton, Qt.NoModifier, 1)
                 next()
             } else if (phase === 7) {
-                check("release updates the insertion slot without another move", Tabs.currentIndex(pane), 0)
+                checkDrag("release updates the insertion slot without another move")
                 finish()
             }
         } else if (root.mode === "window") {
