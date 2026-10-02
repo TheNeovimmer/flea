@@ -3,18 +3,20 @@ use crate::backend::opsreq::OpMsg;
 use crate::clip::{control, own, reply, watch};
 use std::sync::mpsc::Sender;
 
+static SETS: std::sync::OnceLock<SetQueue> = std::sync::OnceLock::new();
+
 // Validated before any spawn: a bad op or path answers rather than owning.
 pub fn request_set(replies: Sender<OpMsg>, op: String, paths: Vec<String>) {
-    static SETS: std::sync::OnceLock<SetQueue> = std::sync::OnceLock::new();
     SETS.get_or_init(SetQueue::new).start(replies, move || own::spawn_owner(&op, &paths));
 }
 
 struct SetWork {
     replies: Sender<OpMsg>,
-    start: Box<dyn FnOnce() -> Result<String, String> + Send>,
+    start: Box<dyn FnOnce() -> String + Send>,
+    op: &'static str,
 }
 
-// One queue keeps owner starts and replies in request order without holding the backend loop.
+// One queue keeps clipboard mutations and replies in request order without holding the backend loop.
 struct SetQueue {
     sets: Sender<SetWork>,
 }
@@ -25,9 +27,11 @@ impl SetQueue {
         std::thread::spawn(move || {
             for work in rx {
                 let line = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work.start)) {
-                    Ok(Ok(token)) => reply::reply_set(true, &token, ""),
-                    Ok(Err(e)) => reply::reply_set(false, "", &e),
-                    Err(_) => reply::reply_set(false, "", "the clipboard owner start panicked"),
+                    Ok(line) => line,
+                    Err(_) => {
+                        let error = if work.op == "set" { "the clipboard owner start panicked" } else { "the clipboard clear start panicked" };
+                        mutation_failure(work.op, error)
+                    }
                 };
                 let _ = work.replies.send(OpMsg::Meta { line });
             }
@@ -36,10 +40,28 @@ impl SetQueue {
     }
 
     fn start(&self, replies: Sender<OpMsg>, start: impl FnOnce() -> Result<String, String> + Send + 'static) {
-        if let Err(error) = self.sets.send(SetWork { replies, start: Box::new(start) }) {
-            let line = reply::reply_set(false, "", "the clipboard set worker stopped");
+        self.enqueue(replies, "set", move || match start() {
+            Ok(token) => reply::reply_set(true, &token, ""),
+            Err(e) => reply::reply_set(false, "", &e),
+        });
+    }
+
+    fn clear(&self, replies: Sender<OpMsg>, clear: impl FnOnce() -> String + Send + 'static) {
+        self.enqueue(replies, "clear", clear);
+    }
+
+    fn enqueue(&self, replies: Sender<OpMsg>, op: &'static str, start: impl FnOnce() -> String + Send + 'static) {
+        if let Err(error) = self.sets.send(SetWork { replies, start: Box::new(start), op }) {
+            let line = mutation_failure(op, &format!("the clipboard {} worker stopped", op));
             let _ = error.0.replies.send(OpMsg::Meta { line });
         }
+    }
+}
+
+fn mutation_failure(op: &str, error: &str) -> String {
+    match op {
+        "clear" => reply::reply_clear(false, false, error),
+        _ => reply::reply_set(false, "", error),
     }
 }
 
@@ -51,9 +73,9 @@ pub fn request_get(replies: Sender<OpMsg>) {
     });
 }
 
-// Either clear form can block on a foreign owner, so both answer from a thread like get.
+// Either clear form can block on a foreign owner, so it waits in the mutation queue off the loop.
 pub fn request_clear(replies: Sender<OpMsg>, token: String, cut: Vec<String>) {
-    beside(replies, move || clear_line(&token, &cut));
+    SETS.get_or_init(SetQueue::new).clear(replies, move || clear_line(&token, &cut));
 }
 
 fn clear_line(token: &str, cut: &[String]) -> String {
@@ -90,27 +112,39 @@ mod tests {
     use super::*;
     use crate::json::{field_str, field_usize};
 
+    const TEST_WATCHDOG: std::time::Duration = std::time::Duration::from_secs(5);
+
     #[test]
-    fn a_bad_set_is_refused_before_any_owner_starts() {
-        let queue = SetQueue::new();
+    fn mutation_wrappers_use_one_queue_and_refuse_bad_input() {
+        // A captured queue pins both wrappers without starting an owner or sharing it with another test.
+        let (sets, pending) = std::sync::mpsc::channel();
+        assert!(SETS.set(SetQueue { sets }).is_ok(), "only this test may use the static mutation queue");
         for (op, path) in [("move", "/tmp/a"), ("copy", "relative/a")] {
-            let (tx, rx) = std::sync::mpsc::channel();
-            queue.start(tx, move || own::spawn_owner(op, &[path.into()]));
-            let line = match rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap() {
-                OpMsg::Meta { line } => line,
-                _ => panic!("a set reply"),
-            };
+            let (tx, _rx) = std::sync::mpsc::channel();
+            request_set(tx, op.into(), vec![path.into()]);
+            let work = pending.try_recv().expect("request_set must enqueue on the static mutation queue");
+            assert_eq!(work.op, "set");
+            let line = (work.start)();
             assert_eq!(field_str(&line, "t").as_deref(), Some("clip"));
             assert_eq!(field_str(&line, "op").as_deref(), Some("set"));
             assert!(line.contains(r#""ok":false"#));
+            assert!(line.contains(if op == "move" { "the clipboard operation is copy or cut" } else { "absolute" }));
         }
+        let (tx, _rx) = std::sync::mpsc::channel();
+        request_clear(tx, String::new(), Vec::new());
+        let work = pending.try_recv().expect("request_clear must enqueue on the same static mutation queue");
+        assert_eq!(work.op, "clear");
+        let line = (work.start)();
+        assert_eq!(field_str(&line, "op").as_deref(), Some("clear"));
+        assert!(line.contains(r#""ok":false"#));
     }
 
     #[test]
     fn an_empty_clear_token_is_refused() {
+        let queue = SetQueue::new();
         let (tx, rx) = std::sync::mpsc::channel();
-        request_clear(tx, String::new(), Vec::new());
-        let line = match rx.recv_timeout(std::time::Duration::from_secs(5)).expect("a clear reply") {
+        queue.clear(tx, || clear_line("", &[]));
+        let line = match rx.recv_timeout(TEST_WATCHDOG).expect("a clear reply") {
             OpMsg::Meta { line } => line,
             _ => panic!("a clear reply"),
         };
