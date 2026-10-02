@@ -14,18 +14,18 @@ Item {
     property int dropIndex: -1
     property bool dragCopy: false
     property bool dragShift: false
+    property bool dragLink: false
     property bool awaitingPaths: false
     property bool buttonUp: false
     property var dragMime: ({})
     property var feedback: null
 
     Drag.dragType: Drag.Automatic
-    // A plain lift offers both. Files then moves on the same device and copies across.
-    // Ctrl offers copy alone and Shift offers move alone: a receiver that takes move
-    // whenever it is offered would otherwise ignore the key held at the lift.
-    // Chromium prefers move when it is offered, and an uploader may refuse that drag.
-    Drag.supportedActions: root.dragCopy ? Qt.CopyAction : root.dragShift ? Qt.MoveAction : (Qt.CopyAction | Qt.MoveAction)
-    Drag.proposedAction: root.dragCopy ? Qt.CopyAction : Qt.MoveAction
+    // A plain lift offers copy alone until the browser-upload work settles the offer: a browser
+    // uploader refuses a move offer. Ctrl offers copy alone, Shift move alone, Ctrl with Shift link
+    // alone, so a receiver that takes whatever is offered still takes the lift's verb.
+    Drag.supportedActions: root.dragLink ? Qt.LinkAction : root.dragCopy ? Qt.CopyAction : root.dragShift ? Qt.MoveAction : Qt.CopyAction
+    Drag.proposedAction: root.dragLink ? Qt.LinkAction : root.dragCopy ? Qt.CopyAction : root.dragShift ? Qt.MoveAction : Qt.CopyAction
     Drag.mimeData: root.dragMime
     Drag.onDragFinished: function (dropAction) { root.liftEnded(dropAction) }
 
@@ -40,6 +40,7 @@ Item {
         // Ctrl is the threshold's, and a paths reply must not sample it again.
         root.dragCopy = DragOps.copying(centroid.modifiers)
         root.dragShift = DragOps.shifting(centroid.modifiers)
+        root.dragLink = DragOps.linking(centroid.modifiers)
         root.dragMime = DragOps.mimeFor(root.pane, root.dragRows, root.dragCopy, root.dragShift)
         if (root.dragMime["text/uri-list"]) {
             root.startOffer()
@@ -58,8 +59,9 @@ Item {
         var listing = root.dragListing
         var copy = root.dragCopy
         var shift = root.dragShift
+        var link = root.dragLink
         root.pane.pathsPending = {
-            kind: "drag", rows: rows, listing: listing, copy: copy, shift: shift,
+            kind: "drag", rows: rows, listing: listing, copy: copy, shift: shift, link: link,
             deliver: function (list, pending) { root.deliverPaths(list, pending) }
         }
         root.pane.backend.send({ c: "paths", rows: rows, listing: listing })
@@ -73,6 +75,7 @@ Item {
         if (root.awaitingPaths || root.Drag.active) return
         root.dragCopy = DragOps.copying(centroid.modifiers)
         root.dragShift = DragOps.shifting(centroid.modifiers)
+        root.dragLink = DragOps.linking(centroid.modifiers)
     }
 
     function startOffer() {
@@ -92,6 +95,7 @@ Item {
         }
         root.dragCopy = pending.copy
         root.dragShift = pending.shift === true
+        root.dragLink = pending.link === true || (pending.copy === true && pending.shift === true)
         root.dragMime = root.mimeForPaths(pending.rows, list, pending.copy, root.dragShift)
         root.startOffer()
     }
@@ -108,7 +112,7 @@ Item {
     }
 
     function cannotLeave() {
-        root.say(DragOps.line(root.dragRows.length, "", root.dragCopy) + DragOps.reachNote(false))
+        root.say(DragOps.line(root.dragRows.length, "", root.dragCopy, root.dragLink) + DragOps.reachNote(false))
     }
 
     function verbAt(marker, row) {
@@ -130,6 +134,7 @@ Item {
         root.dropIndex = -1
         root.dragCopy = false
         root.dragShift = false
+        root.dragLink = false
         root.feedback = null
         // A different view may now speak for this gesture; its activity is separate from every transfer.
         var bar = root.pane ? root.pane.statusBar : null
@@ -161,6 +166,7 @@ Item {
     function showTarget(name, destDev) {
         if (!root.feedback) return
         root.dragCopy = DragOps.copyingFor(root.feedback, destDev)
+        root.dragLink = DragOps.linkingFor(root.feedback, destDev)
         root.say(DragOps.feedbackLine(root.feedback, name, destDev))
     }
 

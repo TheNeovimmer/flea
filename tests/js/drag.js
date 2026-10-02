@@ -215,7 +215,7 @@ function run(check) {
     check("shift forces a move even across two volumes", Drag.verbFor(true, false, true, 56, 32, true), "move")
     check("a drag that started in another process follows the same device rule",
           Drag.verbFor(false, false, false, 56, 56, true), "move")
-    check("ctrl forces a copy from that other process too", Drag.verbFor(false, true, true, 56, 56, true), "copy")
+    check("ctrl with shift links from that other process too", Drag.verbFor(false, true, true, 56, 56, true), "link")
     check("a source device that could not be read copies rather than risk a move",
           Drag.verbFor(true, false, false, 0, 56, true), "copy")
     check("and a destination that could not be read does the same",
@@ -294,8 +294,105 @@ function run(check) {
         "Copy 1 item to drafts")
   check("a drag with no shelf token is still read off its own marker",
         Drag.copyingFor(Drag.feedbackFor("", ["file:///p/one"], ""), 0), true)
-  check("the token is the first line and the intent the second",
-        Drag.shelfToken(moveDrag) + "|" + Drag.shelfCopying(moveDrag) + "|" + Drag.shelfCopying(copyDrag),
-        "9f2c|false|true")
-  check("and a payload that carries nothing names no token", Drag.shelfToken(""), "")
+    check("the token is the first line and the intent the second",
+          Drag.shelfToken(moveDrag) + "|" + Drag.shelfCopying(moveDrag) + "|" + Drag.shelfCopying(copyDrag),
+          "9f2c|false|true")
+    check("and a payload that carries nothing names no token", Drag.shelfToken(""), "")
+
+    // Cross-window table: another Flea window follows the device rule, modifiers win.
+    check("ctrl with shift is a link lift", Drag.linking(Qt.ControlModifier | Qt.ShiftModifier), true)
+    check("ctrl alone is not a link", Drag.linking(Qt.ControlModifier), false)
+    check("shift alone is not a link", Drag.linking(Qt.ShiftModifier), false)
+    check("a plain lift is not a link", Drag.linking(Qt.NoModifier), false)
+    check("ctrl with shift links within one volume", Drag.verbFor(false, true, true, 56, 56, true), "link")
+    check("and across two volumes", Drag.verbFor(false, true, true, 56, 32, true), "link")
+    check("a link needs no device and no deletable source", Drag.verbFor(false, true, true, 0, 0, false), "link")
+    check("the row says link here", Drag.label(false, true), "link here")
+    check("and the bar names the link", Drag.line(2, "omarchy", false, true), "Link 2 items to omarchy")
+    var linkSent = []
+    Drag.dropInto(pane(linkSent, [], rows), "some-other-flea\n0\ncopy\n/x\n56\n1\n1", ["file:///x/a.txt"], "/d/omarchy", 56)
+    check("ctrl with shift from another window links",
+          linkSent.length === 1 ? linkSent[0].c + " " + linkSent[0].op : "nothing sent", "link relative")
+    check("and a link carries the uri-list paths",
+          linkSent.length === 1 ? String(linkSent[0].paths) : "nothing sent", "/x/a.txt")
+    var linkRow = []
+    Drag.dropByIndex(pane(linkRow, [], rows), [2], 0, "link", 1)
+    check("a link by index asks the link card with those rows",
+          linkRow.length === 1 ? linkRow[0].c + " " + linkRow[0].op : "nothing sent", "link relative")
+    var otherAcross = []
+    Drag.dropInto(pane(otherAcross, [], rows), "some-other-flea\n0\nmove\n/x\n56", ["file:///x/a.txt"], "/d/omarchy", 7)
+    check("another window across devices copies", otherAcross.length === 1 ? otherAcross[0].op : "nothing sent", "copy")
+    var otherCtrl = []
+    Drag.dropInto(pane(otherCtrl, [], rows), "some-other-flea\n0\ncopy\n/x\n56", ["file:///x/a.txt"], "/d/omarchy", 56)
+    check("another window with ctrl copies on one device", otherCtrl.length === 1 ? otherCtrl[0].op : "nothing sent", "copy")
+    var otherShift = []
+    Drag.dropInto(pane(otherShift, [], rows), "some-other-flea\n0\nmove\n/x\n56\n1\n1", ["file:///x/a.txt"], "/d/omarchy", 7)
+    check("another window with shift moves across devices", otherShift.length === 1 ? otherShift[0].op : "nothing sent", "move")
+
+    // A foreign drag follows its own action.
+    var foreignMove = []
+    Drag.dropInto(pane(foreignMove, [], rows), "", ["file:///x/a.txt"], "/d/omarchy", 0, "", "", Qt.MoveAction)
+    check("a foreign move offer moves", foreignMove.length === 1 ? foreignMove[0].op : "nothing sent", "move")
+    var foreignCopy = []
+    Drag.dropInto(pane(foreignCopy, [], rows), "", ["file:///x/a.txt"], "/d/omarchy", 0, "", "", Qt.CopyAction)
+    check("a foreign copy offer copies", foreignCopy.length === 1 ? foreignCopy[0].op : "nothing sent", "copy")
+    var foreignLink = []
+    Drag.dropInto(pane(foreignLink, [], rows), "", ["file:///x/a.txt"], "/d/omarchy", 0, "", "", Qt.LinkAction)
+    check("a foreign link offer links", foreignLink.length === 1 ? foreignLink[0].c : "nothing sent", "link")
+    check("a foreign link hover says link",
+          Drag.feedbackLine(Drag.feedbackFor("", ["file:///x/a.txt"], "", Qt.LinkAction), "drafts", 0), "Link 1 item to drafts")
+
+    // Trust: only the uri-list paths are acted on, never a path the marker alone names.
+    var markerOnly = []
+    check("a marker path missing from the uri-list is ignored",
+          Drag.dropInto(pane(markerOnly, [], rows), "some-other-flea\n0\nmove\n/secret\n56", ["file:///x/a.txt"], "/d/omarchy", 56), true)
+    check("and the transfer names the uri-list path only",
+          markerOnly.length === 1 ? String(markerOnly[0].paths) : "nothing sent", "/x/a.txt")
+    check("a folder into its own subtree is refused cross-window",
+          Drag.canDropInto("some-other-flea\n0\nmove\n/x\n56", ["file:///d/omarchy"], "/d/omarchy/deep", ""), false)
+    check("an item into its own folder is refused cross-window",
+          Drag.canDropInto("some-other-flea\n0\nmove\n/x\n56", ["file:///d/a.txt"], "/d", ""), false)
+
+    // The single helper ignores the platform action for any Flea marker.
+    var helperMarker = Drag.markerPayload([0], false, "/d", 56)
+    check("dropVerb reads the marker under a move offer", Drag.dropVerb(helperMarker, Qt.MoveAction, 56), "move")
+    check("and under a copy offer", Drag.dropVerb(helperMarker, Qt.CopyAction, 56), "move")
+    check("and under a link offer", Drag.dropVerb(helperMarker, Qt.LinkAction, 56), "move")
+    check("a foreign move offer still moves with no marker", Drag.dropVerb("", Qt.MoveAction, 0), "move")
+    check("a foreign copy offer still copies with no marker", Drag.dropVerb("", Qt.CopyAction, 0), "copy")
+
+    // The lift's own round trip: the marker built the way FileDrag.liftBegan builds it, from the
+    // lift's ctrl and shift bits, read back through dropVerb, feedbackLine and the badge label.
+    // Hand-built markers cannot catch a lift that drops the shift field, a feedback that ignores
+    // it, or a badge that never links, so each row below travels the real mimeFor path.
+    var lifts = [
+        { mods: Qt.NoModifier, same: "move", cross: "copy" },
+        { mods: Qt.ControlModifier, same: "copy", cross: "copy" },
+        { mods: Qt.ShiftModifier, same: "move", cross: "move" },
+        { mods: Qt.ControlModifier | Qt.ShiftModifier, same: "link", cross: "link" }
+    ]
+    for (var li = 0; li < lifts.length; li++) {
+        var lift = lifts[li]
+        var bay = pane([], [], rows)
+        bay.backend.dirDev = 56
+        var lifted = Drag.mimeFor(bay, [2, 3], Drag.copying(lift.mods), Drag.shifting(lift.mods))
+        var tag = lift.mods === Qt.NoModifier ? "plain" : lift.mods === Qt.ControlModifier ? "ctrl"
+            : lift.mods === Qt.ShiftModifier ? "shift" : "ctrl with shift"
+        check("a " + tag + " lift keeps its shift in the marker", Drag.markerShift(lifted[Drag.ROWS_MIME]), Drag.shifting(lift.mods))
+        var arms = [["same device", 56, lift.same], ["across devices", 7, lift.cross]]
+        for (var ai = 0; ai < arms.length; ai++) {
+            var spot = arms[ai][0], into = arms[ai][1], verb = arms[ai][2]
+            var hostile = verb === "move" ? Qt.CopyAction : Qt.MoveAction
+            var back = Drag.feedbackFor(lifted[Drag.ROWS_MIME], lifted["text/uri-list"].split("\r\n"), "", hostile)
+            var want = verb === "move" ? "Move 2 items to omarchy · ctrl copies and shift moves, read at lift"
+                : verb === "copy" ? "Copy 2 items to omarchy" : "Link 2 items to omarchy"
+            var badge = verb === "move" ? "move here" : verb === "copy" ? "copy here" : "link here"
+            check("a " + tag + " lift " + spot + " drops as " + verb,
+                  Drag.dropVerb(lifted[Drag.ROWS_MIME], hostile, into), verb)
+            check("and its status line says " + verb,
+                  Drag.feedbackLine(back, "omarchy", into), want)
+            check("and its badge says " + verb,
+                  Drag.label(Drag.copyingFor(back, into), Drag.linkingFor(back, into)), badge)
+        }
+    }
 }
