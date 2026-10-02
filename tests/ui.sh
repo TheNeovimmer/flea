@@ -109,6 +109,9 @@ transient_clear_s=5
 rail_poll_wait_s=7
 # The window coalescer is 16 ms and a refill is a round trip, so injected input needs a moment.
 settle_s=0.4
+# omarchy-drive bounds one ipc call at 2 s and kills it 1 s later; a call that names a pid keeps the same bounds.
+ipc_call_timeout=2s
+ipc_call_kill_after=1s
 # Two pixels inside each edge of the strip: the rows a font-tall crumb box left dead, measured at y=2 and y=24 of 27.
 chrome_band_inset=2
 # Wide enough to hold the elided head's opaque fill and the hairline either side of it; that gap measured at x 80 to 86.
@@ -3189,6 +3192,27 @@ xwsettings_route_snapshot() {
         "$addrB" "$("${ipcB[@]}" cursor 2>/dev/null)" "$("${ipcB[@]}" path 2>/dev/null)"
 }
 
+# The qs pid is the window's client pid; sample hyprctl clients -j: [{"address":"0x62e8374307c0","pid":2072895}].
+xwsettings_pid() {
+    local address="$1" tree="$2" pid
+    pid=$(hyprctl clients -j | jq -er --arg a "$address" \
+        '[.[] | select(.address == $a) | .pid] | select(length == 1) | .[0] | select(type == "number" and . > 0)') \
+        || fail "xwsettings: window $address has no single client pid"
+    flea_process_owned "$pid" || fail "xwsettings: pid $pid of window $address is not owned by this run"
+    tr '\0' ' ' < "$(flea_process_dir "$pid")/cmdline" | grep -Fq -- "$tree/boot" \
+        || fail "xwsettings: pid $pid of window $address does not run $tree"
+    printf '%s\n' "$pid"
+}
+
+# xw4: one window's Settings change applies live in every other open window, the way Finder's
+# Show hidden files reaches every Finder window at once, while per-window state stays put. Two
+# owned windows share one state file: A keeps the shipped ui tree and B runs a byte copy of it, so
+# kill_flea reaps B through the copied boot-path enumeration in flea_pids. Both trees declare
+# ShellId flea, so a qs path route reaches the newest instance whichever tree it names; each window
+# is read through its own pid from hyprctl clients instead, and a first-rows stamp that must differ
+# proves the two routes reach two instances. The case then proves the key routing: it waits for A
+# to be the active window before typing, and moves only A's cursor. The toggle is pressed in A,
+# the density choice is stepped in B's own Settings panel, and A is read throughout through its pid.
 case_xwsettings() {
     local root="$fixture_root/xwsettings" dir config state uib
     dir="$root/files"
@@ -3219,13 +3243,13 @@ case_xwsettings() {
     FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" \
         setsid nohup "$flea_bin" --gui "$dir" >"$flea_log" 2>&1 </dev/null &
     omarchy-drive wait window flea --timeout 15 >/dev/null
-    local addrA addrB
+    local addrA addrB pidA pidB
     addrA=$(omarchy-drive windows --json | jq -r '[.windows[] | select(.title == "Flea")] | .[0].address // empty')
     [[ -n "$addrA" ]] || fail "xwsettings: no Flea window after launching A"
     omarchy-drive focus "$addrA" >/dev/null
     assert_window
-    local ipcA=(omarchy-drive ipc -p "$flea_ui/boot" flea)
-    local ipcB=(omarchy-drive ipc -p "$uib/boot" flea)
+    pidA=$(xwsettings_pid "$addrA" "$flea_ui") || fail "xwsettings: A has no owned qs pid"
+    local ipcA=(timeout --kill-after="$ipc_call_kill_after" "$ipc_call_timeout" qs ipc --pid "$pidA" call flea)
     wait_listing 3
     [[ "$("${ipcA[@]}" path)" == "$dir" ]] || fail "xwsettings: A opened $("${ipcA[@]}" path), not $dir"
 
@@ -3242,12 +3266,23 @@ case_xwsettings() {
     addrB=$(omarchy-drive windows --json \
         | jq -r --arg a "$addrA" '[.windows[] | select(.title == "Flea" and .address != $a)] | .[0].address // empty')
     [[ -n "$addrB" ]] || fail "xwsettings: the second window has no address of its own"
+    pidB=$(xwsettings_pid "$addrB" "$uib") || fail "xwsettings: B has no owned qs pid"
+    local ipcB=(timeout --kill-after="$ipc_call_kill_after" "$ipc_call_timeout" qs ipc --pid "$pidB" call flea)
     omarchy-drive focus "$addrB" >/dev/null
     for (( attempt = 0; attempt < 150; attempt++ )); do
         [[ "$("${ipcB[@]}" path 2>/dev/null)" == "$dir" ]] && break
         sleep 0.1
     done
     [[ "$("${ipcB[@]}" path)" == "$dir" ]] || fail "xwsettings: B never listed $dir"
+
+    # Both windows list $dir, so only a field that must differ tells the routes apart: A listed before B launched.
+    local firstA firstB
+    firstA=$("${ipcA[@]}" firstRowsAt)
+    firstB=$("${ipcB[@]}" firstRowsAt)
+    [[ "$firstA" =~ ^[0-9]+$ && "$firstB" =~ ^[0-9]+$ ]] \
+        || fail "xwsettings: no first-rows stamp over the pid routes, A (pid $pidA) gave '$firstA' and B (pid $pidB) gave '$firstB'"
+    (( firstB > firstA )) \
+        || fail "xwsettings: the pid routes reach one instance, A (pid $pidA) and B (pid $pidB) both answered first-rows $firstA and $firstB"
 
     # Focus once, then poll only the active address before injecting the routing proof.
     local active="" focus_wait_tries=50 focus_poll_s=0.1
