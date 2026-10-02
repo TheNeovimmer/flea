@@ -110,8 +110,7 @@ fn a_symlinked_runtime_dir_is_refused_and_falls_back() {
     assert!(Shared::at(link.clone()).is_none(), "a symlinked dir is refused");
     let mut journal = Journal::new();
     journal.attach_test_shared(link);
-    // The fallback is today's in-memory journal: the entry undoes locally and nothing is written
-    // through the link.
+    // A refused dir falls back to memory: the entry undoes locally, nothing writes through the link.
     let (_, to, steps) = rename_steps(&sandbox, "a.txt", "b.txt");
     journal.push(Entry { op: "rename".to_string(), steps });
     assert_eq!(journal.undo().unwrap(), "rename");
@@ -249,14 +248,14 @@ fn every_step_kind_round_trips_with_exact_integers() {
             Step::Created { path: dir.join("c") },
             Step::Linked { path: dir.join("d"), identity: id.clone(), source: dir.join("e"),
                 kind: crate::backend::link::LinkKind::Hard },
-            Step::Copied { from: dir.join("f"), to: dir.join("g"), source: id.clone(), created: id.clone(), manifest: None },
+            Step::Copied { from: dir.join("f"), to: dir.join("g"), source: id.clone(), created: id.clone(), manifest: None, manifest_nonce: None },
             Step::MadeDir { path: dir.join("h"), identity: id.clone() },
             Step::MadeFile { path: dir.join("i"), identity: id.clone() },
             Step::Trashed(crate::backend::trash::Entry { original: dir.join("j"), uri: "trash:///j".to_string() }),
             Step::Mode { path: dir.join("k"), before: 0o644, after: 0o600 },
         ],
     };
-    let doc = super::Doc { undo: vec![entry], redo: Vec::new() };
+    let doc = super::Doc { undo: vec![entry], redo: Vec::new(), push_gen: 0 };
     let text = crate::jsondoc::render(&crate::backend::undocodec::encode(&doc));
     let back = crate::backend::undocodec::decode(&text).expect("the codec reads what it wrote");
     assert_eq!(crate::jsondoc::render(&crate::backend::undocodec::encode(&back)), text,
@@ -266,8 +265,7 @@ fn every_step_kind_round_trips_with_exact_integers() {
 
 #[test]
 fn a_trash_entry_with_no_uri_is_a_record_not_a_defect() {
-    // trash.rs journals an empty uri when gio listed nothing for the file it took; the codec must
-    // read that back rather than ignoring the whole file.
+    // An empty uri is a record: the codec reads it back instead of ignoring the whole file.
     let sandbox = TestDir::new("xundo-nouri");
     let doc = super::Doc {
         undo: vec![Entry {
@@ -278,6 +276,7 @@ fn a_trash_entry_with_no_uri_is_a_record_not_a_defect() {
             })],
         }],
         redo: Vec::new(),
+        push_gen: 0,
     };
     let text = crate::jsondoc::render(&crate::backend::undocodec::encode(&doc));
     let mut back = crate::backend::undocodec::decode(&text).expect("an empty uri decodes");
@@ -296,4 +295,63 @@ fn foreign_records_are_never_trusted() {    for (tag, body) in [
     ] {
         assert!(crate::backend::undocodec::decode(body).is_none(), "{} record trusted", tag);
     }
+}
+
+// A doc past 32 MiB trims oldest first and keeps the newest; the render decides, never a count.
+#[test]
+fn an_oversized_doc_trims_oldest_and_keeps_newest() {
+    let big = "op-".to_string() + &"x".repeat(1024 * 1024);
+    let mut doc = super::Doc { undo: Vec::new(), redo: Vec::new(), push_gen: 0 };
+    for index in 0..40 {
+        let path = PathBuf::from(format!("/x{}", index));
+        doc.undo.push(Entry { op: format!("{}-{}", big, index), steps: vec![Step::Created { path }] });
+    }
+    assert!(crate::jsondoc::render(&crate::backend::undocodec::encode(&doc)).len() as u64 > super::MAX_FILE_BYTES);
+    super::trim_to_fit(&mut doc);
+    assert!(super::fits(&doc), "trimmed doc fits the cap");
+    assert_eq!(doc.undo.last().unwrap().op, format!("{}-{}", big, 39));
+}
+
+// One entry over the cap alone never reaches the file; the recorder still undoes it from memory.
+#[test]
+fn a_single_entry_over_the_cap_stays_local_and_keeps_history() {
+    let sandbox = TestDir::new("xundo-toobig");
+    let dir = runtime_0700(&sandbox);
+    let f1 = sandbox.path().join("f1");
+    let f2 = sandbox.path().join("f2");
+    let fh = sandbox.path().join("fh");
+    std::fs::write(&f1, "1").unwrap();
+    std::fs::write(&f2, "2").unwrap();
+    std::fs::write(&fh, "h").unwrap();
+    let mut a = shared_journal(&sandbox);
+    a.push(Entry { op: "small1".to_string(), steps: vec![Step::Created { path: f1.clone() }] });
+    a.push(Entry { op: "small2".to_string(), steps: vec![Step::Created { path: f2.clone() }] });
+    let huge_op = "h".repeat(33 * 1024 * 1024);
+    a.push(Entry { op: huge_op.clone(), steps: vec![Step::Created { path: fh.clone() }] });
+    let bytes = std::fs::read(dir.join(JOURNAL_FILE)).unwrap();
+    assert!(bytes.len() as u64 <= super::MAX_FILE_BYTES, "history preserved under cap");
+    let back = crate::backend::undocodec::decode(&String::from_utf8(bytes).unwrap()).unwrap();
+    assert_eq!(back.undo.len(), 2, "the huge entry never reached the file");
+    assert_eq!(a.undo().unwrap().len(), huge_op.len(), "recorder undoes its huge entry from memory");
+    assert!(!fh.exists());
+    let mut b = shared_journal(&sandbox);
+    assert_eq!(b.undo().unwrap(), "small2", "older entries still undo from the file");
+}
+
+// A push between claim and finish drops the stale replay; the pushed entry still undoes.
+#[test]
+fn a_push_between_claim_and_finish_drops_the_stale_replay() {
+    let sandbox = TestDir::new("xundo-gen");
+    let dir = runtime_0700(&sandbox);
+    let shared = Shared::at(dir).unwrap();
+    let made = |name: &str| Entry { op: name.to_string(), steps: vec![Step::Created { path: PathBuf::from(format!("/{}", name)) }] };
+    super::push_entry(&shared, &made("first")).unwrap();
+    let (claimed, gen) = super::claim_undo(&shared).unwrap().unwrap();
+    assert_eq!(claimed.op, "first");
+    super::push_entry(&shared, &made("second")).unwrap();
+    super::finish_undone(&shared, Some(claimed), &[], gen).unwrap();
+    let info = super::redo_info(&shared).unwrap_err();
+    assert_eq!(info.msg, "there is nothing to redo", "stale replay dropped");
+    let (top, _) = super::claim_undo(&shared).unwrap().unwrap();
+    assert_eq!(top.op, "second", "the pushed entry still undoes");
 }

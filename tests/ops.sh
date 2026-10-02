@@ -30,8 +30,7 @@ check() {
   fi
 }
 
-# One backend process and one session journal per scenario: the journal is shared across
-# backends by design now, so each scenario gets a scratch runtime dir and stays hermetic.
+# One backend and one session journal per scenario, each in a scratch runtime dir.
 start_backend() {
   sandbox_make "$D"
   rm -f "$D/out"; : > "$D/out"

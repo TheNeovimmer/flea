@@ -1,6 +1,4 @@
-// The shared journal's wire form, both directions: every record is checked on read, never
-// trusted. A Copied step's manifest never crosses a process, so decode always answers None for
-// it and the undoing process takes today's whole-tree check instead.
+// The shared journal's wire form, both directions; a Copied nonce reattaches only in its recorder.
 use super::undoshare::{Doc, StoredRedo};
 use crate::backend::redo::Replay;
 use crate::backend::undo::{Entry, ItemIdentity, Step};
@@ -65,12 +63,17 @@ fn step(step: &Step) -> Json {
             ("k", s("l")), ("path", s(&path.to_string_lossy())), ("id", identity(id)),
             ("src", s(&source.to_string_lossy())), ("kind", s(link_kind(kind))),
         ]),
-        // The manifest is the recording process's own anonymous file, so it never crosses one:
-        // the undoing process takes today's whole-tree check instead.
-        Step::Copied { from, to, source, created, .. } => obj(vec![
-            ("k", s("cp")), ("from", s(&from.to_string_lossy())), ("to", s(&to.to_string_lossy())),
-            ("src", identity(source)), ("made", identity(created)),
-        ]),
+        // Sample input: {"k":"cp","from":"/a","to":"/b","src":{...},"made":{...},"nonce":7}.
+        Step::Copied { from, to, source, created, manifest_nonce, .. } => {
+            let mut pairs = vec![
+                ("k", s("cp")), ("from", s(&from.to_string_lossy())), ("to", s(&to.to_string_lossy())),
+                ("src", identity(source)), ("made", identity(created)),
+            ];
+            if let Some(nonce) = manifest_nonce {
+                pairs.push(("nonce", n(nonce)));
+            }
+            obj(pairs)
+        }
         Step::MadeDir { path, identity: id } => obj(vec![
             ("k", s("md")), ("path", s(&path.to_string_lossy())), ("id", identity(id)),
         ]),
@@ -124,6 +127,7 @@ fn stored_redo(stored: &StoredRedo) -> Json {
 pub(crate) fn encode(doc: &Doc) -> Json {
     obj(vec![
         ("v", n(VERSION)),
+        ("gen", n(doc.push_gen)),
         ("undo", arr(doc.undo.iter().map(entry).collect())),
         ("redo", arr(doc.redo.iter().map(stored_redo).collect())),
     ])
@@ -161,8 +165,7 @@ fn parse_u32(value: &Json) -> Option<u32> {
     }
 }
 
-// Absolute paths only: a relative one names whatever directory the reader happens to run in, so it
-// is foreign rather than a record.
+// Absolute paths only: a relative one names the reader's own directory, so it is foreign.
 fn checked_path(value: &Json) -> Option<PathBuf> {
     match value {
         Json::Str(text) if !text.is_empty() && text.len() <= MAX_PATH
@@ -178,8 +181,7 @@ fn checked_text(value: &Json) -> Option<String> {
     }
 }
 
-// A trash entry journals an empty uri when gio listed nothing for the file it took, so the uri
-// alone of every text field may be empty; bounded and NUL-free is the whole check either way.
+// An empty uri is a record when gio listed nothing; bounded and NUL-free is the whole check.
 fn checked_uri(value: &Json) -> Option<String> {
     checked_text(value)
 }
@@ -238,13 +240,17 @@ fn decode_step(value: &Json) -> Option<Step> {
                 kind,
             })
         }
-        "cp" => Some(Step::Copied {
-            from: checked_path(get(pairs, "from")?)?,
-            to: checked_path(get(pairs, "to")?)?,
-            source: decode_identity(get(pairs, "src")?)?,
-            created: decode_identity(get(pairs, "made")?)?,
-            manifest: None,
-        }),
+        "cp" => {
+            let nonce = get(pairs, "nonce").and_then(parse_u64);
+            Some(Step::Copied {
+                from: checked_path(get(pairs, "from")?)?,
+                to: checked_path(get(pairs, "to")?)?,
+                source: decode_identity(get(pairs, "src")?)?,
+                created: decode_identity(get(pairs, "made")?)?,
+                manifest: None,
+                manifest_nonce: nonce,
+            })
+        }
         "md" => Some(Step::MadeDir {
             path: checked_path(get(pairs, "path")?)?,
             identity: decode_identity(get(pairs, "id")?)?,
@@ -279,7 +285,7 @@ fn decode_entry(value: &Json) -> Option<Entry> {
     Some(Entry { op: checked_op(get(pairs, "op")?)?, steps: out })
 }
 
-fn decode_replay_step(value: &Json) -> Option<(Step, Option<ItemIdentity>, Option<(PathBuf, ItemIdentity)>)> {
+fn decode_replay_step(value: &Json) -> Option<super::redo::SavedStep> {
     let pairs = value.as_object()?;
     let step = decode_step(get(pairs, "s")?)?;
     let input = match get(pairs, "in")? {
@@ -322,6 +328,7 @@ pub(crate) fn decode(text: &str) -> Option<Doc> {
         Some(Json::Num(literal)) if literal == &VERSION.to_string() => {}
         _ => return None,
     }
+    let push_gen = get(pairs, "gen").and_then(parse_u64).unwrap_or(0);
     let undo_items = get(pairs, "undo")?.as_array()?;
     let redo_items = get(pairs, "redo")?.as_array()?;
     if undo_items.len() > MAX_READ_ENTRIES || redo_items.len() > MAX_READ_ENTRIES {
@@ -335,5 +342,5 @@ pub(crate) fn decode(text: &str) -> Option<Doc> {
     for item in redo_items {
         redo.push(decode_redo(item)?);
     }
-    Some(Doc { undo, redo })
+    Some(Doc { undo, redo, push_gen })
 }

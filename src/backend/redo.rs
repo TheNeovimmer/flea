@@ -20,6 +20,10 @@ pub(crate) struct Replay {
     steps: Vec<ReplayStep>,
 }
 
+// One alias for the wire form steps_data and from_steps share, so neither signature repeats it.
+pub(crate) type SavedStep = (Step, Option<ItemIdentity>, Option<(PathBuf, ItemIdentity)>);
+pub(crate) type SavedSteps = Vec<SavedStep>;
+
 fn error(path: &Path, message: &str) -> FleaError {
     FleaError { where_: "redo".into(), path: path.to_string_lossy().into(), msg: message.into() }
 }
@@ -64,12 +68,11 @@ impl Replay {
     }
     pub fn op(&self) -> &str { &self.op }
     pub fn len(&self) -> usize { self.steps.len() }
-    // The shared journal's wire form: every field the file needs to rebuild this replay, so an
-    // undo in one window is redoable in another.
-    pub(crate) fn steps_data(&self) -> (String, Vec<(Step, Option<ItemIdentity>, Option<(PathBuf, ItemIdentity)>)>) {
+    // Every field the file needs to rebuild this replay for a redo in another window.
+    pub(crate) fn steps_data(&self) -> (String, SavedSteps) {
         (self.op.clone(), self.steps.iter().map(|saved| (saved.step.clone(), saved.input.clone(), saved.parent.clone())).collect())
     }
-    pub(crate) fn from_steps(op: String, steps: Vec<(Step, Option<ItemIdentity>, Option<(PathBuf, ItemIdentity)>)>) -> Self {
+    pub(crate) fn from_steps(op: String, steps: SavedSteps) -> Self {
         Self { op, steps: steps.into_iter().map(|(step, input, parent)| ReplayStep { step, input, parent }).collect() }
     }
     pub fn rebase(&mut self, old: &ItemIdentity, new: &ItemIdentity) {

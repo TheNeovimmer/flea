@@ -818,8 +818,7 @@ An empty journal answers an `error` line with `where` of `undo`, and so does a r
 removing what an operation created or restoring from the trash. A reversal that renames back goes
 through the same call a `rename` does, so its failure answers `rename` or `rename-kept` instead.
 
-**The journal is an in-memory ring of the last 50 completed operations and is not persisted**, so it
-does not survive a restart. Each kind reverses as follows: a rename or a move renames back (still
+**The journal is the session journal under $XDG_RUNTIME_DIR/flea**, newest entry from any window, surviving a backend restart but not the session, with an in-memory fallback when the dir is refused. Each kind reverses as follows: a rename or a move renames back (still
 refusing to clobber, because something may occupy the old name by now), a copy or a duplicate removes
 what that operation created, and a trash restores through `gio trash --restore` using the URI captured
 when it was trashed. A transfer that replaced an item reverses both halves in that one step, newest

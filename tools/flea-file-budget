@@ -33,6 +33,8 @@ src/backend/opsreq/tests.rs 461
 src/backend/permissions.rs 477
 src/backend/proto.rs 287
 src/backend/run.rs 454
+src/backend/undo.rs 476
+src/backend/undoshare.rs 411
 src/backend/thumbs.rs 442
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 698

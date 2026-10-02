@@ -60,7 +60,8 @@ pub enum Step {
     // is still that same link, so a folder or file put at that name since
     // survives, the way a changed copy or new file is left in place.
     Linked { path: PathBuf, identity: ItemIdentity, source: PathBuf, kind: super::link::LinkKind },
-    Copied { from: PathBuf, to: PathBuf, source: ItemIdentity, created: ItemIdentity, manifest: Option<super::copymanifest::Handle> },
+    // manifest_nonce keys the recording backend's in-memory manifest; None means whole-tree fallback.
+    Copied { from: PathBuf, to: PathBuf, source: ItemIdentity, created: ItemIdentity, manifest: Option<super::copymanifest::Handle>, manifest_nonce: Option<u64> },
     // This operation made the empty directory `path`; reversing it removes it only while it is still
     // empty, because anything inside it now was put there by someone else, never by this operation.
     MadeDir { path: PathBuf, identity: ItemIdentity },
@@ -100,18 +101,21 @@ impl Entry {
     }
 }
 
-// The operations design's own number: a 50-entry ring costs nothing to reason about and is process-lifetime, not persisted.
+// The operations design's own number: a 50-entry ring; the cap also bounds the session file.
 pub(crate) const DEPTH: usize = 50;
 
 pub struct Journal {
     entries: Vec<Entry>,
     redo: Vec<Result<super::redo::Replay, FleaError>>,
     shared: Option<super::undoshare::Shared>,
+    // Manifests by nonce for entries this backend recorded; a claim elsewhere finds no key and falls back.
+    manifests: std::collections::HashMap<u64, super::copymanifest::Handle>,
+    next_nonce: u32,
 }
 
 impl Journal {
     pub fn new() -> Journal {
-        Journal { entries: Vec::new(), redo: Vec::new(), shared: None }
+        Journal { entries: Vec::new(), redo: Vec::new(), shared: None, manifests: std::collections::HashMap::new(), next_nonce: 0 }
     }
 
     // Production attaches the session journal file; a refused directory keeps the in-memory one.
@@ -126,13 +130,59 @@ impl Journal {
         self.shared = super::undoshare::Shared::at(dir);
     }
 
+    // A nonce this backend alone can reattach; pid in the high bits keeps it unique across backends.
+    fn next_nonce(&mut self) -> u64 {
+        self.next_nonce = self.next_nonce.wrapping_add(1);
+        ((std::process::id() as u64) << 32) | (self.next_nonce as u64)
+    }
+
     // An operation that changed nothing records nothing, so undo never reports a no-op as work.
     pub fn push(&mut self, entry: Entry) {
-        if let Some(shared) = &self.shared {
-            if super::undoshare::push_entry(shared, &entry).is_ok() {
+        let shared = match &self.shared {
+            Some(shared) => shared.clone(),
+            None => {
+                if entry.steps.is_empty() {
+                    return;
+                }
+                self.redo.clear();
+                for step in &entry.steps {
+                    if let Step::Moved { before, after, .. } = step { self.rebase(before, after); }
+                }
+                self.entries.push(entry);
+                if self.entries.len() > DEPTH {
+                    self.entries.remove(0);
+                }
                 return;
             }
-            self.shared = None;
+        };
+        let mut filed = entry.clone();
+        let mut nonces = Vec::new();
+        for index in 0..filed.steps.len() {
+            let handle = match &filed.steps[index] {
+                Step::Copied { manifest: Some(handle), .. } => handle.clone(),
+                _ => continue,
+            };
+            let nonce = self.next_nonce();
+            self.manifests.insert(nonce, handle);
+            nonces.push(nonce);
+            if let Step::Copied { manifest, manifest_nonce, .. } = &mut filed.steps[index] {
+                *manifest = None;
+                *manifest_nonce = Some(nonce);
+            }
+        }
+        match super::undoshare::push_entry(&shared, &filed) {
+            Ok(super::undoshare::PushResult::Stored) => return,
+            Ok(super::undoshare::PushResult::TooBig) => {
+                for nonce in nonces {
+                    self.manifests.remove(&nonce);
+                }
+            }
+            Err(()) => {
+                for nonce in nonces {
+                    self.manifests.remove(&nonce);
+                }
+                self.shared = None;
+            }
         }
         if entry.steps.is_empty() {
             return;
@@ -158,15 +208,54 @@ impl Journal {
         self.entries.is_empty()
     }
 
-    // The whole entry is reversed or the failure is reported; a step that fails stops the rest, because
-    // continuing past it would leave the operation half-reversed with nothing recording which half.
+    // Shared entries undo from the file with this backend's manifests reattached; overflow undoes local first.
     pub fn undo(&mut self) -> Result<String, FleaError> {
-        if self.shared.is_some() {
-            return super::undoshare::undo_newest(&mut self.shared);
+        if self.shared.is_some() && self.entries.is_empty() {
+            let shared = self.shared.clone().expect("shared checked");
+            let (mut entry, gen) = match super::undoshare::claim_undo(&shared) {
+                Ok(Some(pair)) => pair,
+                Ok(None) => return Err(err("there is nothing to undo")),
+                Err(()) => {
+                    self.shared = None;
+                    return Err(FleaError { where_: "undo".into(), path: String::new(), msg: "the shared undo journal is unavailable".into() });
+                }
+            };
+            for step in &mut entry.steps {
+                if let Step::Copied { manifest, manifest_nonce: Some(nonce), .. } = step {
+                    if let Some(handle) = self.manifests.remove(nonce) {
+                        *manifest = Some(handle);
+                    }
+                }
+            }
+            let op = entry.op.clone();
+            let mut changes = Vec::new();
+            for step in entry.steps.iter().rev() {
+                match reverse(step) {
+                    Ok(Some((old, new))) => {
+                        changes.push((old.clone(), new.clone()));
+                        self.rebase(&old, &new);
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        let _ = super::undoshare::finish_undone(&shared, None, &changes, gen);
+                        return Err(error);
+                    }
+                }
+            }
+            let _ = super::undoshare::finish_undone(&shared, Some(entry), &changes, gen);
+            return Ok(op);
+        }
+        if self.shared.is_some() && !self.entries.is_empty() {
+            // Overflow mode: the too-big entry never reached the file, so it undoes from memory.
         }
         let entry = match self.entries.pop() {
             Some(e) => e,
-            None => return Err(err("there is nothing to undo")),
+            None => {
+                if self.shared.is_some() {
+                    return super::undoshare::undo_newest(&mut self.shared);
+                }
+                return Err(err("there is nothing to undo"));
+            }
         };
         for step in entry.steps.iter().rev() {
             if let Some((old, new)) = reverse(step)? { self.rebase(&old, &new); }
@@ -214,13 +303,12 @@ pub fn move_back(to: &std::path::Path, from: &std::path::Path) -> Result<(), Fle
 }
 
 pub fn copied(from: &std::path::Path, to: &std::path::Path, source: ItemIdentity) -> Result<Step, FleaError> {
-    Ok(Step::Copied { from: from.to_path_buf(), to: to.to_path_buf(), source, created: ItemIdentity::inspect(to)?, manifest: None })
+    Ok(Step::Copied { from: from.to_path_buf(), to: to.to_path_buf(), source, created: ItemIdentity::inspect(to)?, manifest: None, manifest_nonce: None })
 }
 
 // A failed or cancelled tree copy carries what it managed to create; a success keeps the plain step.
-
 pub fn copied_partial(from: &std::path::Path, to: &std::path::Path, source: ItemIdentity, manifest: Option<super::copymanifest::Handle>) -> Result<Step, FleaError> {
-    Ok(Step::Copied { from: from.to_path_buf(), to: to.to_path_buf(), source, created: ItemIdentity::inspect(to)?, manifest })
+    Ok(Step::Copied { from: from.to_path_buf(), to: to.to_path_buf(), source, created: ItemIdentity::inspect(to)?, manifest, manifest_nonce: None })
 }
 
 pub fn moved(from: &std::path::Path, to: &std::path::Path, before: ItemIdentity) -> Result<Step, FleaError> {

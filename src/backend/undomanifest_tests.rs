@@ -297,3 +297,69 @@ fn a_failed_copy_holds_no_descriptor_on_the_destination_filesystem() {
     assert_ne!(fd_dev, dest_dev, "manifest lives off the destination filesystem");
     drop(handle);
 }
+
+// The recording backend walks its manifest while another backend takes the whole-tree fallback.
+#[test]
+fn a_shared_failed_tree_copy_walks_for_its_recorder_and_falls_back_elsewhere() {
+    use std::os::unix::fs::DirBuilderExt;
+    // Same-backend walk: the stray keeps its directories while the copy's own files go.
+    let d = TestDir::new("undosharedwalk");
+    let src = d.dir("source");
+    for i in 0..10 {
+        std::fs::write(src.join(format!("t{i}.bin")), "x".repeat(64)).unwrap();
+    }
+    let nested = src.join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    for i in 0..3 {
+        std::fs::write(nested.join(format!("n{i}.bin")), "y".repeat(64)).unwrap();
+    }
+    let partial = d.join("clone");
+    let mut planted = false;
+    let mut hook = |reports: u32, src: &Path, _dst: &Path| {
+        if !planted && reports >= 3 && partial.join("nested").is_dir() {
+            planted = true;
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            std::fs::write(partial.join("nested/stray.txt"), "stray").unwrap();
+            std::fs::set_permissions(src, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let _ = std::fs::set_permissions(src.join("nested"), std::fs::Permissions::from_mode(0o000));
+        }
+    };
+    let handle = partial_with_manifest(&src, &partial, &mut hook);
+    check_root(&d, &partial);
+    let runtime = d.path().join("runtime");
+    std::fs::DirBuilder::new().mode(0o700).create(&runtime).unwrap();
+    let mut a = Journal::new();
+    a.attach_test_shared(runtime.clone());
+    let step = copied_partial(&src, &partial, ItemIdentity::inspect(&src).unwrap(), Some(handle)).unwrap();
+    a.push(Entry { op: "copy".to_string(), steps: vec![step] });
+    let err = a.undo().expect_err("the stray keeps its directories");
+    assert!(err.msg.contains("kept") && err.msg.contains("is not empty"), "manifest walk: {}", err.msg);
+    assert_eq!(std::fs::read_to_string(partial.join("nested/stray.txt")).unwrap(), "stray");
+    assert!(walk_bins(&partial).is_empty(), "every file the copy made is gone");
+    // Other-backend fallback: the same shape refuses the whole tree instead of walking it.
+    let e = TestDir::new("undosharedfallback");
+    let src2 = e.dir("source");
+    for i in 0..10 {
+        std::fs::write(src2.join(format!("t{i}.bin")), "x".repeat(64)).unwrap();
+    }
+    let partial2 = e.join("clone");
+    let handle2 = partial_with_manifest(&src2, &partial2, &mut fail_after_three);
+    check_root(&e, &partial2);
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let touched = std::fs::read_dir(&partial2).unwrap().flatten().find_map(|entry| {
+        let p = entry.path();
+        (p.extension().and_then(|x| x.to_str()) == Some("bin")).then_some(p)
+    }).expect("a copied file to touch");
+    std::fs::write(&touched, "changed after").unwrap();
+    let runtime2 = e.path().join("runtime");
+    std::fs::DirBuilder::new().mode(0o700).create(&runtime2).unwrap();
+    let mut rec = Journal::new();
+    rec.attach_test_shared(runtime2.clone());
+    let step2 = copied_partial(&src2, &partial2, ItemIdentity::inspect(&src2).unwrap(), Some(handle2)).unwrap();
+    rec.push(Entry { op: "copy".to_string(), steps: vec![step2] });
+    let mut other = Journal::new();
+    other.attach_test_shared(runtime2);
+    let err2 = other.undo().expect_err("no manifest means today's check decides");
+    assert!(err2.msg.contains("something inside the copied folder changed"), "fallback: {}", err2.msg);
+    assert!(partial2.is_dir(), "the fallback keeps the tree");
+}

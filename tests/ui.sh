@@ -99,6 +99,11 @@ printf 'NATIVE_EVIDENCE_ROOT=%s\n' "$run_root"
 suite_state="$run_root/state"
 mkdir -p "$suite_state" || fail "the suite state home could not be created at $suite_state"
 export XDG_STATE_HOME="$suite_state"
+# One scratch journal dir for the run; only the backend reads it, qs keeps the session runtime dir.
+suite_undo="$run_root/undo-journal"
+mkdir -p "$suite_undo" || fail "the suite undo dir could not be created at $suite_undo"
+chmod 0700 "$suite_undo" || fail "the suite undo dir could not be locked down"
+export FLEA_UNDO_DIR="$suite_undo"
 
 # Ten bursts of twelve clicks moved the 100k viewport about eleven rows when measured.
 scroll_bursts=10
@@ -455,6 +460,8 @@ launch() {
     kill_flea
     cat "$flea_log" >> "$run_log" 2>/dev/null || true
     : > "$flea_log"
+    # Each case starts with an empty session journal, so one case never undoes another's operation.
+    rm -f "$FLEA_UNDO_DIR/undo-journal" "$FLEA_UNDO_DIR/undo-journal.lock"
     FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" \
         setsid nohup "$flea_bin" --gui "$start_path" >"$flea_log" 2>&1 </dev/null &
     omarchy-drive wait window flea --timeout 15 >/dev/null
@@ -5912,34 +5919,27 @@ case_middleclick() {
     kill_flea
 }
 
-# Ctrl+Return opens the cursor folder in a new tab, the keyboard twin of the
-# middle click above, in each of the three views; tests/js/tabs.js holds the
-# decision in ui/js/Tabs.js and this presses it at the real window. A file row
-# is the negative control: the same chord on a row with no folder must leave
-# the count alone and say only a folder does, which is what says the count
-# below moved because of the directory and not because of the chord.
 # One undo history for every Flea window: two live windows share one session journal, so the
 # newest entry from either is what Ctrl+Z undoes in whichever window it is pressed. The two
-# backends are separate processes with one scratch XDG_RUNTIME_DIR between them, and each window
+# backends are separate processes sharing the suite scratch journal dir, and each window
 # is driven by its Hyprland address: --window flea refuses an ambiguous match, and qs ipc cannot
 # address one instance out of two, so every assertion past the second launch reads the filesystem
 # rather than the seam. Each directory holds one file, so the cursor can only ever be row 0.
 case_xwundo() {
-    local dir="$fixture_root/xwundo" dirB="$fixture_root/xwundo/B"
+    local dir="$fixture_root/xwundo" dirB="$fixture_root/xwundo-b"
     sandbox_scratch "$dir"
-    mkdir -p "$dirB"
+    sandbox_scratch "$dirB"
     printf 'note\n' > "$dir/note.txt"
     printf 'boxed\n' > "$dirB/b.txt"
-    local xrunt="$run_root/xrunt" blog="$run_root/flea-b.log"
-    mkdir -p "$xrunt"
+    local blog="$run_root/flea-b.log"
     : > "$blog"
 
     kill_flea
     cat "$flea_log" >> "$run_log" 2>/dev/null || true
     : > "$flea_log"
-    # The runtime override rides on each window's own command line, never the suite's
-    # environment, so the hyprctl helpers keep reading the session's own runtime dir.
-    XDG_RUNTIME_DIR="$xrunt" FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" \
+    # Both windows run under the session runtime dir; only their backends share the suite journal dir.
+    rm -f "$FLEA_UNDO_DIR/undo-journal" "$FLEA_UNDO_DIR/undo-journal.lock"
+    FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" \
         setsid nohup "$flea_bin" --gui "$dir" >"$flea_log" 2>&1 </dev/null &
     omarchy-drive wait window flea --timeout 15 >/dev/null
     omarchy-drive focus flea >/dev/null
@@ -5949,7 +5949,7 @@ case_xwundo() {
     addrA=$(omarchy-drive windows --json | jq -r '.windows[] | select(.title == "Flea") | .address')
     [[ -n "$addrA" ]] || fail "xwundo: window A never appeared"
 
-    XDG_RUNTIME_DIR="$xrunt" FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" \
+    FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" \
         setsid nohup "$flea_bin" --gui "$dirB" >"$blog" 2>&1 </dev/null &
     local addrB="" attempt
     for attempt in $(seq 1 150); do
@@ -6005,8 +6005,7 @@ case_xwundo() {
     kill_flea
 }
 
-# A bounded filesystem poll: the two-window case cannot read listings off the seam, because qs ipc
-# cannot address one instance out of two.
+# A bounded filesystem poll: qs ipc cannot address one instance out of two.
 xwundo_wait_file() {
     local file="$1" message="$2" i
     for i in $(seq 1 100); do
@@ -6016,8 +6015,7 @@ xwundo_wait_file() {
     fail "$message"
 }
 
-# The polled file starts absent; the key is (re)sent until it appears, which is safe here because
-# an undo with an empty journal only posts a status message and changes nothing.
+# The polled file starts absent; the key is resent until it appears, which an empty journal tolerates.
 xwundo_until() {
     local attempts="$1" file="$2" message="$3"; shift 3
     local i
@@ -6029,6 +6027,12 @@ xwundo_until() {
     fail "$message"
 }
 
+# Ctrl+Return opens the cursor folder in a new tab, the keyboard twin of the
+# middle click above, in each of the three views; tests/js/tabs.js holds the
+# decision in ui/js/Tabs.js and this presses it at the real window. A file row
+# is the negative control: the same chord on a row with no folder must leave
+# the count alone and say only a folder does, which is what says the count
+# below moved because of the directory and not because of the chord.
 case_opentab() {
     local dir="$fixture_root/opentab"
     sandbox_scratch "$dir"
