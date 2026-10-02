@@ -1,4 +1,4 @@
-//@ pragma ShellId flea-scroll-lanes-test
+//@ pragma ShellId flea-scroll-bounds-test
 
 import QtQuick
 import Quickshell
@@ -8,7 +8,7 @@ import "flea/js/Scroll.js" as Scroll
 // tp2-r2: grid margin lanes and axis lanes on bare views, offscreen. A grid rests at -gap on
 // both axes and never reads overscrolled there; an axis with no scroll range takes no delta,
 // so a diagonal on a vertical list coasts exactly like the pure vertical stroke.
-// tests/scroll-lanes.sh drives it.
+// tests/scroll-bounds.sh drives it.
 ShellRoot {
     id: root
 
@@ -204,9 +204,9 @@ ShellRoot {
 
     function report() {
         if (root.failures.length === 0)
-            console.log("SCROLL_LANES PASS grid diag")
+            console.log("SCROLL_BOUNDS PASS grid diag")
         for (var f = 0; f < root.failures.length; f++)
-            console.log("SCROLL_LANES FAIL " + root.failures[f])
+            console.log("SCROLL_BOUNDS FAIL " + root.failures[f])
         Quickshell.execDetached(["kill", String(Quickshell.processId)])
     }
 }
