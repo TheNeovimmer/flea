@@ -261,12 +261,13 @@ Item {
     }
 
     function beginDrag(key, handle, mouse) {
-        root.dragKey = key
         root.dragStartX = handle.mapToItem(root, mouse.x, mouse.y).x
         root.dragLastX = root.dragStartX
         root.dragStartWidth = root.currentWidthOf(key)
         root.dragPreview = root.dragStartWidth
         root.dragMoved = false
+        // Activate the preview only after capture, because its width binding moves the handle.
+        root.dragKey = key
     }
 
     function moveDrag(key, handle, mouse) {

@@ -129,6 +129,25 @@ ShellRoot {
             root.fail(label + " builds " + handles.length + " ResizeHandles, want 0")
     }
 
+    // The real handle signal must capture the press before preview bindings can move its anchored cell.
+    function checkPress(handle, cell) {
+        var mouse = { x: Math.floor(handle.width / 2), y: handle.height / 2 }
+        var beforeX = handle.mapToItem(listHeader, mouse.x, mouse.y).x
+        var beforeWidth = cell.width
+        handle.pressed(mouse)
+        if (Math.abs(listHeader.dragStartX - beforeX) > 0.001)
+            root.fail(handle.columnKey + " press shifted from " + beforeX + " to " + listHeader.dragStartX)
+        if (listHeader.dragLastX !== listHeader.dragStartX)
+            root.fail(handle.columnKey + " press already has travel")
+        if (listHeader.dragStartWidth !== beforeWidth || listHeader.dragPreview !== beforeWidth)
+            root.fail(handle.columnKey + " press did not keep its width " + beforeWidth)
+        if (Math.abs(cell.width - beforeWidth) > 0.001 || listHeader.dragMoved)
+            root.fail(handle.columnKey + " press resized without pointer motion")
+        handle.released()
+        if (listHeader.dragKey !== "" || Math.abs(cell.width - beforeWidth) > 0.001)
+            root.fail(handle.columnKey + " click did not release at its original width")
+    }
+
     function check() {
         root.checkGated(columnsHeader, root.handlesUnder(columnsHeader), "columns view")
         root.checkGated(gridHeader, root.handlesUnder(gridHeader), "grid view")
@@ -168,9 +187,11 @@ ShellRoot {
             var expect = cell.x - Math.floor(handle.width / 2)
             if (Math.abs(handle.x - expect) > 0.5)
                 root.fail(keys[k] + " sits at x " + handle.x + ", want " + expect)
+            root.checkPress(handle, cell)
+            root.checkPress(handle, cell)
         }
         if (root.failures.length === 0)
-            console.log("HEADERHANDLES PASS list=4 shown=" + shown + " columns=0 grid=0 dual=0 search=0 nopane=0")
+            console.log("HEADERHANDLES PASS list=4 shown=" + shown + " columns=0 grid=0 dual=0 search=0 nopane=0 presses=" + (shown * 2))
         root.report()
     }
 
