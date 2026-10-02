@@ -432,7 +432,7 @@ FocusScope {
     function thumbFor(index) { return list.thumbFor(index) }
 
     // Lifted to Focus.act, see ui/js/Focus.js, which routes "settings" here from the list and the rail alike.
-    function act(action, menuId, paths) {
+    function act(action, menuId, paths, context) {
         if (trashHost.confirming) return
         if (action === "openTrash" || action === "emptyTrash" || action === "restoreAll") { trashHost.action(action); return }
         if (action === "settings") { root.settingsPanel.open(root); return }
@@ -440,7 +440,7 @@ FocusScope {
         // Recent is a history, not a directory: a new file there would land in the root it stands on.
         if (action === "newFile" && root.recentMode.length > 0) { root.message("This listing is a history, and cannot take a new file.", false); return }
         if (["newFile", "rename", "openWith", "moveTo", "copyTo", "properties", "deletePermanently"].indexOf(action) >= 0) {
-            menuActions.open(action, menuId || 0)
+            menuActions.open(action, menuId || 0, context)
             return
         }
         Focus.act(action, root, menuId, paths)
