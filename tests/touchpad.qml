@@ -428,6 +428,8 @@ ShellRoot {
     // A sub-pixel touchpad frame carries pixels 0 with a nonzero angle and moves nothing.
     function angleFree() {
         var h = handlers()
+        var maxY = list.contentHeight - list.height
+        list.contentY = maxY - 400
         var before = list.contentY
         h.body.handleWheel({ pixelDelta: { x: 0, y: 0 }, angleDelta: { x: 0, y: -4 },
             phase: 2, modifiers: 0, accepted: false })

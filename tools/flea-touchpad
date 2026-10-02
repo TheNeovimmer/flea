@@ -13,6 +13,11 @@ UI_SET_EVBIT = 0x40045564
 UI_SET_KEYBIT = 0x40045565
 UI_SET_ABSBIT = 0x40045567
 UI_SET_PROPBIT = 0x4004556E
+# Bit-setter request numbers from linux/uinput.h, one _IOW per bit class.
+UI_SET_EVBIT_NR = 100
+UI_SET_KEYBIT_NR = 101
+UI_SET_ABSBIT_NR = 103
+UI_SET_PROPBIT_NR = 110
 UI_ABS_SETUP = 0x401C5504
 UI_DEV_SETUP = 0x405C5503
 UINPUT_SETUP_FMT = "HHHH80sI"
@@ -128,12 +133,22 @@ def check_api():
 
     setup_size = struct.calcsize(UINPUT_SETUP_FMT)
     abs_size = struct.calcsize(UINPUT_ABS_SETUP_FMT)
+    int_size = struct.calcsize("i")
     check("struct uinput_setup size", setup_size, 92)
     check("struct uinput_abs_setup size", abs_size, 28)
     check("UI_DEV_SETUP request", UI_DEV_SETUP,
           0x40000000 | (setup_size << 16) | (ord("U") << 8) | 3)
     check("UI_ABS_SETUP request", UI_ABS_SETUP,
           0x40000000 | (abs_size << 16) | (ord("U") << 8) | 4)
+    # Each UI_SET_* enables one plain int bit, so each request is _IOW('U', its nr, int).
+    check("UI_SET_EVBIT request", UI_SET_EVBIT,
+          0x40000000 | (int_size << 16) | (ord("U") << 8) | UI_SET_EVBIT_NR)
+    check("UI_SET_KEYBIT request", UI_SET_KEYBIT,
+          0x40000000 | (int_size << 16) | (ord("U") << 8) | UI_SET_KEYBIT_NR)
+    check("UI_SET_ABSBIT request", UI_SET_ABSBIT,
+          0x40000000 | (int_size << 16) | (ord("U") << 8) | UI_SET_ABSBIT_NR)
+    check("UI_SET_PROPBIT request", UI_SET_PROPBIT,
+          0x40000000 | (int_size << 16) | (ord("U") << 8) | UI_SET_PROPBIT_NR)
     if failures:
         for failure in failures:
             print("FAIL " + failure, file=sys.stderr)
