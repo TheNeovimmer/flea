@@ -2,12 +2,7 @@ import QtQuick
 import "js/Scroll.js" as Scroll
 import "js/Motion.js" as Motion
 
-// Writes the bounded position directly, on both axes. A MouseArea because a Flickable consumes wheel
-// events before a child WheelHandler can answer them. Presses pass through untouched: the press arm
-// below stops the momentum tail and the edge return and leaves the event unaccepted, so the row
-// under the pointer still gets the click. Touchpad strokes (any phase but Qt.NoScrollPhase) move
-// gained pixels with Finder's momentum tail and rubber-band past the bounds; a wheel notch keeps
-// the Theme rate with none and never overscrolls. The arithmetic is ui/js/Scroll.js.
+// A MouseArea because Flickable eats wheel before a child WheelHandler; presses pass through, arithmetic in Scroll.js.
 MouseArea {
     id: root
     objectName: "fleaScroll"
@@ -44,8 +39,7 @@ MouseArea {
         return found !== null && found.retActive
     }
 
-    // An axis the view cannot scroll takes no delta at all: direction first, overflow second,
-    // so a tilt never overscrolls a vertical list sideways nor steals its lift's own tail.
+    // An axis the view cannot scroll takes no delta at all.
     function scrollsX() {
         var f = root.flickable
         if (!f || f.flickableDirection === Flickable.VerticalFlick)
@@ -59,8 +53,7 @@ MouseArea {
         return Scroll.rangesY(f)
     }
 
-    // Any write the return did not make ends it; a new stroke snaps to its bound, a press
-    // stops it where it is so the row under the pointer is the row that is tapped.
+    // Any foreign write ends the return; a press holds it instead of snapping to the bound.
     function stopReturn(snap) {
         var f = root.flickable
         if (!f) {
@@ -126,9 +119,7 @@ MouseArea {
         root.flickable.contentX = at
     }
 
-    // A touchpad stroke past a bound resists: raw travel accumulates, shown stays under the view.
-    // Content back inside the bounds with travel still banked is a listing swap under held
-    // fingers, so the banked travel is dropped rather than spent on the new listing.
+    // Past the bound travel resists; banked travel from a swapped listing is dropped.
     function touchY(down) {
         var f = root.flickable
         var lim = Scroll.limitsY(f)
@@ -193,8 +184,7 @@ MouseArea {
         writeRawX(st.overX < 0 ? lim.min - s : lim.max + s)
     }
 
-    // The lift leaves the content past the bound; Omarchy's duration carries it back.
-    // Reduced motion still overscrolls (direct manipulation) but returns at once.
+    // A past-bound lift returns on Omarchy's duration, at once under reduced motion.
     function startReturn() {
         var f = root.flickable
         if (!f)
@@ -263,10 +253,7 @@ MouseArea {
         return moved
     }
 
-    // One frame of the tail; the FrameAnimation below and the headless probe both enter here.
-    // Past a bound the tail keeps integrating frame by frame through the same resistance a stroke
-    // meets, braking hard, so the overshoot grows over a few frames and peaks instead of jumping
-    // there in one. Each axis ends on its own: an X overshoot never cancels Y momentum.
+    // Past the bound the tail integrates through stroke resistance and brakes to a peak.
     function advanceTail(dtMs) {
         var found = Scroll.tailState(root.flickable, false)
         if (found === null || !found.active) {
@@ -292,8 +279,7 @@ MouseArea {
                 else
                     moved += Math.abs(root.flickable.contentY - beforeY)
             } else {
-                // The frame's own raw travel joins the banked raw total; the shown offset is
-                // that total through the resistance, so it grows over a few frames and peaks.
+                // The frame's raw travel joins the banked total shown through resistance.
                 var boundY = wantY < ly.min ? ly.min : ly.max
                 var stY = Scroll.tailState(root.flickable, true)
                 var dimY = Math.max(1, root.flickable.height)
@@ -379,17 +365,15 @@ MouseArea {
             }
             var down = Scroll.touchDistance(wheel.pixelDelta.y)
             var across = Scroll.touchDistance(wheel.pixelDelta.x)
-            // An axis the view cannot scroll takes no delta at all, so neither samples nor
-            // overscroll ever name it; a vertical list keeps contentX 0 through any diagonal.
+            // A dead axis takes no delta, so samples and overscroll never name it.
             if (!root.scrollsY())
                 down = 0
             if (!root.scrollsX())
                 across = 0
             if ((down === 0 && across === 0) || !root.flickable.interactive) {
                 if (phase === Qt.ScrollEnd && root.flickable.interactive) {
-                    // The lift's own End is accepted when the return starts it: left
-                    // unaccepted, the view's own wheel handler snaps to the bound in the same
-                    // delivery and our Connections stop the return for a foreign write.
+                    // The overscrolled lift End is accepted to start the return: left unaccepted,
+                    // the view snaps to the bound in the same delivery and kills it.
                     if (root.overscrolled()) {
                         root.startReturn()
                         wheel.accepted = true
@@ -440,18 +424,10 @@ MouseArea {
     }
 
     onWheel: function (wheel) { root.handleWheel(wheel) }
-    // A press stops the tail and the return where they are and reaches the row: snapping to the
-    // bound here would move the row Qt already picked the press target from, so the tap lands on
-    // nothing. The release settles back to the bound without moving a held press.
+    // A press stops the tail and the return where they are for the row Qt picked; left
+    // unaccepted it takes no grab, so the view's own release fixup returns the held overscroll.
     function handlePress(mouse) { root.stopTail(); root.stopReturn(false); mouse.accepted = false }
-    function handleRelease(mouse) {
-        if (root.overscrolled())
-            root.startReturn()
-        mouse.accepted = false
-    }
     onPressed: function (mouse) { root.handlePress(mouse) }
-    onReleased: function (mouse) { root.handleRelease(mouse) }
-    onCanceled: function () { root.handleRelease({ accepted: false }) }
 
     Connections {
         target: root.flickable

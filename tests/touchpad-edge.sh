@@ -5,7 +5,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 if ! command -v qs >/dev/null; then
-    echo "touchpad_edge.sh: qs is not installed, cannot drive the scroll probe"
+    echo "touchpad-edge.sh: qs is not installed, cannot drive the scroll probe"
     exit 1
 fi
 

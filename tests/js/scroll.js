@@ -136,25 +136,35 @@ function run(check) {
     check("a tail past the end still lands on the last page",
           Scroll.bounded(600 + Scroll.tailTravel(2, 500), 0, 1000, 400), 600)
     // Elastic edges: resisted overscroll, the return landing on its bound, wheel never leaving it.
-    check("no raw travel past the bound shows no overscroll", Scroll.overResist(0, 400), 0)
+    check("no raw travel past the bound shows no overscroll",
+          typeof Scroll.overResist === "function" && Scroll.overResist(0, 400) === 0, true)
     check("a small push past shows a smaller resisted one",
-          Scroll.overResist(100, 400) > 0 && Scroll.overResist(100, 400) < 100, true)
+          typeof Scroll.overResist === "function"
+          && Scroll.overResist(100, 400) > 0 && Scroll.overResist(100, 400) < 100, true)
     check("more raw travel shows more, never past the viewport",
-          Scroll.overResist(200, 400) > Scroll.overResist(100, 400)
+          typeof Scroll.overResist === "function"
+          && Scroll.overResist(200, 400) > Scroll.overResist(100, 400)
           && Scroll.overResist(100000, 400) < 400, true)
-    check("no viewport shows none", Scroll.overResist(100, 0), 0)
-    check("the return starts where the lift left it", Scroll.returnAt(80, 0, 0, 200), 80)
-    check("the return reaches its bound", Scroll.returnAt(80, 0, 200, 200), 0)
+    check("no viewport shows none",
+          typeof Scroll.overResist === "function" && Scroll.overResist(100, 0) === 0, true)
+    check("the return starts where the lift left it",
+          typeof Scroll.returnAt === "function" && Scroll.returnAt(80, 0, 0, 200) === 80, true)
+    check("the return reaches its bound",
+          typeof Scroll.returnAt === "function" && Scroll.returnAt(80, 0, 200, 200) === 0, true)
     check("a wheel notch past the top stays on the bound, never past it",
           Scroll.bounded(0 - 288, 0, 1000, 400), 0)
     check("a wheel notch past the end stays on the last page",
           Scroll.bounded(600 + 288, 0, 1000, 400), 600)
     // tp2-r2: margins move the rest, dead axes take no delta, the tail brakes past the bound.
-    check("a gap margin rests below the origin", Scroll.limits(0, 1000, 400, 8, 0).min, -8)
-    check("a gap margin keeps the last page", Scroll.limits(0, 1000, 400, 8, 0).max, 600)
-    check("margins default to the old bounds", Scroll.limits(0, 1000, 400).min === 0
-          && Scroll.limits(0, 1000, 400).max === 600, true)
-    check("a bounded write honours the margins", Scroll.bounded(-8, 0, 1000, 400, 8, 0), -8)
+    check("a gap margin rests below the origin",
+          typeof Scroll.limits === "function" && Scroll.limits(0, 1000, 400, 8, 0).min === -8, true)
+    check("a gap margin keeps the last page",
+          typeof Scroll.limits === "function" && Scroll.limits(0, 1000, 400, 8, 0).max === 600, true)
+    check("margins default to the old bounds",
+          typeof Scroll.limits === "function"
+          && Scroll.limits(0, 1000, 400).min === 0 && Scroll.limits(0, 1000, 400).max === 600, true)
+    check("a bounded write honours the margins",
+          typeof Scroll.limits === "function" && Scroll.bounded(-8, 0, 1000, 400, 8, 0) === -8, true)
     check("a vertical list has no X range",
           typeof Scroll.rangesX === "function" && Scroll.rangesX({ contentWidth: -1, width: 400 }) === false, true)
     check("a fitting content has no Y range",

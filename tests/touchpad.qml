@@ -536,8 +536,25 @@ ShellRoot {
             root.report()
             return
         }
-        // The release settles back to the bound without moving a held press.
-        h.body.handleRelease({ accepted: true })
+        // The dead release settle stays gone: an unaccepted press takes no grab, so prod never reaches it.
+        if (typeof h.body.handleRelease !== "undefined") {
+            fail("the dead release settle is back")
+            root.report()
+            return
+        }
+        // Production settles the held overscroll through the view's own release fixup onto the bound.
+        if (!h.body.overscrolled()) {
+            fail("a press held nothing past the bound")
+            root.report()
+            return
+        }
+        var bound = Scroll.bounded(list.contentY, list.originY, list.contentHeight, list.height)
+        if (Math.abs(bound) > 0.01) {
+            fail("a held fixup target " + bound.toFixed(2) + ", want the bound 0")
+            root.report()
+            return
+        }
+        h.body.startReturn()
         if (!root.returnActive()) {
             fail("a release after a held overscroll settled nothing")
             root.report()

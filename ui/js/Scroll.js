@@ -169,8 +169,7 @@ function tailLive(vx, vy) {
     return tailSpeed(vx, vy) > STOP_V_PX_PER_MS
 }
 
-// A content position kept inside the Flickable: never above its origin less the leading
-// margin, never past its last page plus the trailing one. A grid with a gap margin rests at -gap.
+// A content kept inside its bounds; a gap-margined grid rests at -gap.
 function bounded(value, originY, contentHeight, viewHeight, startMargin, endMargin) {
     var lim = limits(originY, contentHeight, viewHeight, startMargin, endMargin)
     return Math.max(lim.min, Math.min(lim.max, value))
@@ -186,8 +185,7 @@ function overResist(x, d) {
         return 0
     return (1 - 1 / (raw * RESIST_K / len + 1)) * len
 }
-// The bounds a content sits in: min origin less the leading margin, max last page plus the
-// trailing one, short content pins to min. Margins default to 0, so margin-less callers read as before.
+// Bounds from origin, length and viewport; short content pins to min, margins default 0.
 function limits(origin, contentLength, viewportLength, startMargin, endMargin) {
     var lead = Number(startMargin) || 0
     var min = (Number(origin) || 0) - lead

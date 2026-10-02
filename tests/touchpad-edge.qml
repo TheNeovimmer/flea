@@ -8,7 +8,7 @@ import "flea/js/Filter.js" as Filter
 
 // tp2-r2: elastic-edge review findings on the real ui/List.qml over 3000 rows, offscreen.
 // Fake wheel objects into the real FastScrollHandler, the way tests/touchpad.qml does; real
-// ListView delivery, real frames, real cursor clamp. tests/touchpad_edge.sh drives it.
+// ListView delivery, real frames, real cursor clamp. tests/touchpad-edge.sh drives it.
 ShellRoot {
     id: root
 
@@ -267,19 +267,26 @@ ShellRoot {
         if (Math.abs(peak + Scroll.overResist(480, list.height)) > 1.5)
             fail("large bounce peaked " + peak.toFixed(2))
         if (root.stubPane.cursorIndex !== 12)
-            fail("a 166 px bounce moved the cursor 12 to " + root.stubPane.cursorIndex)
+            fail("a 140 px bounce moved the cursor 12 to " + root.stubPane.cursorIndex)
         console.log("EDGE cursor peak=" + peak.toFixed(1) + " cursor=" + root.stubPane.cursorIndex)
+        // F5: a sub-row move and back pulls an offscreen cursor in; the range dedupe never did.
+        root.reset()
+        root.stubPane.cursorIndex = 15
+        var rowH = Flea.Theme.fileRowHeight
+        list.contentY = rowH * 0.4
+        var wantLast = Math.min(root.stubPane.shownTotal - 1, root.stubPane.visibleRows - 1)
+        if (root.stubPane.cursorIndex !== wantLast)
+            fail("a sub-row move left the cursor 15 offscreen, want " + wantLast)
         root.checkPress()
     }
 
-    // Finding 5: a press during a return stops it where the pointer picked its row, never
-    // snapping; the release settles back to the bound without moving a held press.
+    // Finding 5: a press during a return stops it where the pointer picked its row, never snapping.
     function checkPress() {
         var h = handlers()
         var cases = [{ updates: 8, py: 24, y: 300 }, { updates: 2, py: 12, y: 100 }]
         for (var c = 0; c < cases.length; c++) {
             root.reset()
-            var end = root.strokeTop(h.body, cases[c].updates, cases[c].py)
+            root.strokeTop(h.body, cases[c].updates, cases[c].py)
             var shown = -list.contentY
             root.freeze()
             if (!root.returnActive()) {
@@ -308,13 +315,22 @@ ShellRoot {
                 fail("press case " + c + " picked row " + tapped + ", want the row under the pointer " + want)
                 continue
             }
-            // The release settles back to the bound without moving a held press. Guarded
-            // by typeof so the old tree fails on the snap above instead of on a missing entry.
-            if (typeof h.body.handleRelease !== "function") {
-                fail("press case " + c + " has no release settle path")
+            // The dead release settle stays gone: an unaccepted press takes no grab, so prod never reaches it.
+            if (typeof h.body.handleRelease !== "undefined") {
+                fail("press case " + c + " still carries the dead release settle")
                 continue
             }
-            h.body.handleRelease({ accepted: true })
+            // Production settles the held overscroll through the view's own release fixup onto the bound.
+            if (!h.body.overscrolled()) {
+                fail("press case " + c + " held nothing past the bound")
+                continue
+            }
+            var bound = Scroll.bounded(list.contentY, list.originY, list.contentHeight, list.height)
+            if (Math.abs(bound) > 0.01) {
+                fail("press case " + c + " fixup target " + bound.toFixed(2) + ", want the bound 0")
+                continue
+            }
+            h.body.startReturn()
             if (!root.returnActive()) {
                 fail("press case " + c + " release settled nothing")
                 continue
