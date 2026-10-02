@@ -22,14 +22,19 @@ function carried(pane, index) {
     return [index]
 }
 
-// Ctrl copies. Shift moves. Both are read at the lift: once Drag.active runs, the window gets no keys.
-// Ctrl and Shift together stay a copy. A link is not offered.
+// Ctrl copies, Shift moves, Ctrl with Shift links. All three are read at the lift: once
+// Drag.active runs, the window gets no keys. copying is the ctrl bit raw and shifting is the
+// shift bit raw, so a link lift carries both and the marker below keeps both.
 function copying(modifiers) {
     return (modifiers & Qt.ControlModifier) !== 0
 }
 
 function shifting(modifiers) {
-    return (modifiers & Qt.ShiftModifier) !== 0 && !copying(modifiers)
+    return (modifiers & Qt.ShiftModifier) !== 0
+}
+
+function linking(modifiers) {
+    return copying(modifiers) && shifting(modifiers)
 }
 
 // Only a directory row takes a drop, and never one the drag itself carries: a folder cannot move into
@@ -42,25 +47,36 @@ function canDrop(rows, index, row) {
 }
 
 // The board's own words on the hovered folder.
-function label(copy) {
+function label(copy, link) {
+    if (link === true) return "link here"
     return copy ? "copy here" : "move here"
 }
 
 // The status bar's half of the board. The hint names the lift because Drag.active runs a nested
 // event loop the window gets no key events in, so a key pressed after the drag starts cannot arrive.
-function line(n, name, copy) {
-    var verb = copy ? "Copy " : "Move "
+function line(n, name, copy, link) {
+    var verb = link === true ? "Link " : copy ? "Copy " : "Move "
     var where = name.length > 0 ? " to " + name : " to a folder"
-    return verb + Ops.items(n) + where + (copy ? "" : " · ctrl copies and shift moves, read at lift")
+    return verb + Ops.items(n) + where + ((copy || link === true) ? "" : " · ctrl copies and shift moves, read at lift")
 }
 
 // Rows as Ops.moveToDropbox sends them, named in the listing of the lift; answers whether the card's question went out.
 function drop(pane, rows, index, copy, listing) {
+    return dropByIndex(pane, rows, index, copy ? "copy" : "move", listing)
+}
+
+// The by-index drop in verb form, the only path a selection too wide to carry paths takes, and only
+// onto its own listing. A link names the same card Paste as links asks through, so one undo removes it.
+function dropByIndex(pane, rows, index, verb, listing) {
     var row = pane.rowFor(index)
     if (!canDrop(rows, index, row)) {
         return false
     }
-    return pane.collide.ask(Swap.named({ c: "transfer", op: copy ? "copy" : "move", rows: rows, dest: pane.join(pane.path, row.n) }, listing))
+    var dest = pane.join(pane.path, row.n)
+    if (verb === "link") {
+        return pane.collide.ask(Swap.named({ c: "link", op: "relative", rows: rows, dest: dest }, listing))
+    }
+    return pane.collide.ask(Swap.named({ c: "transfer", op: verb, rows: rows, dest: dest }, listing))
 }
 
 // The local paths an external drag carries. Qt hands these over as file:// URIs, and anything that is
@@ -228,8 +244,8 @@ function canDropInto(marker, urls, dest, plain) {
     return paths.length > 0 && DragOut.refusal(paths, dest, marker, "") === ""
 }
 
-// The transfer for a drop that resolves by path. verbFor is the only copy-versus-move decision.
-// proposed is the platform action of a drag that has no marker: Files states move or copy there.
+// The transfer for a drop that resolves by path. dropVerb below is the only copy-versus-move
+// versus-link decision; proposed reaches only that helper, which ignores it for any Flea marker.
 function dropInto(pane, marker, urls, dest, destDev, shelf, plain, proposed) {
     var paths = DragOut.sources(urls, plain, marker, shelf)
     if (!canDropInto(marker, urls, dest, plain) && shelfToken(shelf).length === 0) return false
@@ -238,24 +254,45 @@ function dropInto(pane, marker, urls, dest, destDev, shelf, plain, proposed) {
     if (shelfToken(shelf).length > 0) {
         return pane.collide.ask({ c: "transfer", op: "", paths: [], dest: dest, shelf: shelfToken(shelf) }, pathsFromUrls(urls))
     }
-    var ctrl = markerCopying(marker)
-    var shift = markerShift(marker)
-    var srcDev = markerDev(marker)
-    if (!marker) {
-        var moveBit = (proposed & Qt.MoveAction) !== 0
-        var copyBit = (proposed & Qt.CopyAction) !== 0
-        if (moveBit && !copyBit) shift = true
-        else if (copyBit && !moveBit) ctrl = true
+    var verb = dropVerb(marker, proposed, destDev)
+    if (verb === "link") {
+        return pane.collide.ask({ c: "link", op: "relative", paths: paths, dest: dest })
     }
-    var verb = verbFor(isOwnDrag(marker), ctrl, shift, srcDev, destDev, markerDeletable(marker))
     return pane.collide.ask({ c: "transfer", op: verb, paths: paths, dest: dest })
 }
 
-// The only place copy versus move is chosen. own records which process started the drag and does
-// not change the answer: another process follows the device rule. Ctrl copies. Shift moves, even
-// across devices, even when a device is unknown, even when the source cannot be deleted. Ctrl wins
-// if both are held. An unknown device copies. A source that cannot be deleted copies unless Shift.
+// The platform action of a drag with no Flea marker, read in this one place: Files states move or
+// copy there, and a link offer states link. Both bits set, or neither, names no verb and stays plain.
+function foreignHeld(proposed) {
+    var moveBit = (proposed & Qt.MoveAction) !== 0
+    var copyBit = (proposed & Qt.CopyAction) !== 0
+    var linkBit = (proposed & Qt.LinkAction) !== 0
+    if (linkBit && !moveBit && !copyBit) return { copy: true, shift: true }
+    if (moveBit && !copyBit) return { copy: false, shift: true }
+    if (copyBit && !moveBit) return { copy: true, shift: false }
+    return { copy: false, shift: false }
+}
+
+// The one place the drop verb is chosen from a marker plus a platform action. A Flea marker carries
+// the lift's own ctrl and shift, so the platform action is not read at all for one; a foreign drag
+// has no marker and follows its action through foreignHeld above.
+function dropVerb(marker, proposed, destDev) {
+    if (marker) {
+        return verbFor(isOwnDrag(marker), markerCopying(marker), markerShift(marker),
+                       markerDev(marker), destDev, markerDeletable(marker))
+    }
+    var held = foreignHeld(proposed)
+    return verbFor(false, held.copy, held.shift, 0, destDev, true)
+}
+
+// The only place copy versus move versus link is chosen. own records which process started the drag
+// and does not change the answer: another Flea window follows the device rule. Ctrl with Shift links,
+// Ctrl copies, Shift moves, even across devices, even when a device is unknown, even when the source
+// cannot be deleted. A link creates no copy and removes no source, so no device or deletable gate applies.
+// An unknown device copies. A source that cannot be deleted copies unless Shift.
 function verbFor(own, ctrlHeld, shiftHeld, srcDev, destDev, deletable) {
+    void own
+    if (ctrlHeld && shiftHeld) return "link"
     if (ctrlHeld) return "copy"
     if (shiftHeld) return "move"
     if (!srcDev || !destDev || deletable === false) return "copy"
@@ -281,8 +318,9 @@ function feedbackFor(marker, urls, shelf, proposed) {
     var copy = fields[2] === "copy"
     var shift = fields[6] === "1"
     if (!marker) {
-        if ((proposed & Qt.MoveAction) !== 0 && (proposed & Qt.CopyAction) === 0) shift = true
-        else if ((proposed & Qt.CopyAction) !== 0 && (proposed & Qt.MoveAction) === 0) copy = true
+        var held = foreignHeld(proposed)
+        copy = held.copy
+        shift = held.shift
     }
     return { own: own, copy: copy, shift: shift,
              dev: Number(fields[4]) || 0, deletable: fields[5] !== "0",
@@ -296,7 +334,13 @@ function copyingFor(feedback, destDev) {
         : verbFor(feedback.own, feedback.copy, feedback.shift, feedback.dev, destDev, feedback.deletable) === "copy"
 }
 
+function linkingFor(feedback, destDev) {
+    if (!feedback || feedback.fixed !== undefined) return false
+    return verbFor(feedback.own, feedback.copy, feedback.shift, feedback.dev, destDev, feedback.deletable) === "link"
+}
+
 function feedbackLine(feedback, name, destDev) {
     if (!feedback || feedback.count === 0) return ""
-    return line(feedback.count, name, copyingFor(feedback, destDev)) + reachNote(feedback.canLeave)
+    var link = linkingFor(feedback, destDev)
+    return line(feedback.count, name, !link && copyingFor(feedback, destDev), link) + reachNote(feedback.canLeave)
 }
