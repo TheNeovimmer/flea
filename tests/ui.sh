@@ -8500,7 +8500,8 @@ EOS
         || fail "hanglisting: the deadline never spoke, stateMessage is $seen"
     [[ "$(ipc state)" == "waiting" ]] \
         || fail "hanglisting: the pane is not waiting, state is $(ipc state)"
-    wait_listing 2
+    # flea-proxy and delayed are the stub entries beside the two files under test.
+    wait_listing 4
     [[ "$(ipc path)" == "$dir" ]] || fail "hanglisting: the landed listing navigated to $(ipc path)"
     [[ -z "$(ipc stateMessage)" ]] || fail "hanglisting: the landed listing kept $(ipc stateMessage)"
 
@@ -8531,10 +8532,12 @@ exec "$flea_bin" "\$@"
 EOS
     chmod +x "$dir/bin-flea"
     local real_bin="$flea_bin" real_state="${XDG_STATE_HOME-}"
-    seed_ui_state "$dir/state" "{\"places\":{\"favourites\":[${favs%,}]}}"
+    # The state sits beside the listing so the guard sees a marked parent.
+    seed_ui_state "$fixture_root/hanginspect-state" "{\"places\":{\"favourites\":[${favs%,}]}}"
     flea_bin="$dir/bin-flea"
     launch "$dir"
-    wait_listing 1
+    # bin-flea is the stub entry beside the one file under test.
+    wait_listing 2
     wait_rail 40
     # Warp onto a rail row, then one uinput pixel so Qt sees the pointer rest there, as case_scroll does.
     # One second past the inspector's 10 s guard, FavGuard.INSPECT_WAIT_MS.
@@ -9308,7 +9311,8 @@ EOS
     launch "$dir"
     export HOME="$real_home"
     export PATH="$saved_path"
-    wait_listing 5
+    # bin/, mnt/ and gio.log are the stub entries beside the one file under test.
+    wait_listing 4
     for _attempt in $(seq 1 100); do
         [[ "$(ipc deviceEntries)" == *"DATA1|device|volume|true"* ]] \
             && [[ "$(ipc deviceEntries)" == *"DATA2|device|volume|true"* ]] && break
