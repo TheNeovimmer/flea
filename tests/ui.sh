@@ -10989,11 +10989,11 @@ xwdrag_wait_path() {
 
 xwdrag_wait_row_gone() {
     local id="$1" want="$2" total
-    # 40 polls of 0.25 s, the watch path plus a full ipc pass.
+    # The watch's 0.5 s re-read, then two passes of up to six ipc calls at up to 565 ms each.
     local wait_ns=10000000000
     local deadline=$(( $(date +%s%N) + wait_ns ))
     while (( $(date +%s%N) < deadline )); do
-        total=$(xwdrag_qs "$id" total 2>/dev/null || printf -1)
+        total=$(xwdrag_qs "$id" total 2>/dev/null || printf -- -1)
         if [[ "$total" != "-1" ]]; then
             local found=1 r seen
             for r in $(seq 0 $((total - 1))); do
