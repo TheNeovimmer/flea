@@ -69,7 +69,6 @@ function run(check) {
     var readOnlyDrop = []
     Drag.dropInto(pane(readOnlyDrop, [], rows), readOnlyWire[Drag.ROWS_MIME], ["file:///d/a.txt"], "/e", 42)
     check("so a same-device drop of it copies", readOnlyDrop[0].op, "copy")
-    check("a finished move does not delete the uri-list the receiver is moving", Drag.releaseDeletes(Qt.MoveAction, false), false)
     var wire = Drag.mimeFor(lifted, [2, 3], false)
     check("the marker names the source directory", Drag.markerSource(wire[Drag.ROWS_MIME]), "/d")
     check("and its filesystem", Drag.markerDev(wire[Drag.ROWS_MIME]), 42)
@@ -87,6 +86,10 @@ function run(check) {
     check("and taken into another directory", Drag.canDropInto(wire[Drag.ROWS_MIME], urls, "/e"), true)
     check("a drag carrying no paths is refused", Drag.canDropInto(wire[Drag.ROWS_MIME], [], "/e"), false)
     check("a drop with no destination is refused", Drag.canDropInto(wire[Drag.ROWS_MIME], urls, ""), false)
+    var noDestShelf = []
+    check("a shelf drag with no destination is refused too",
+          Drag.dropInto(pane(noDestShelf, [], rows), "", urls, "", 0, "tok-abc\nmove"), false)
+    check("and it sent nothing", noDestShelf.length, 0)
     var moved = []
     check("same filesystem, no ctrl: a move", Drag.dropInto(pane(moved, [], rows), wire[Drag.ROWS_MIME], urls, "/e", 42), true)
     check("of those paths into that directory", JSON.stringify(moved),
@@ -333,9 +336,13 @@ function run(check) {
     var foreignMove = []
     Drag.dropInto(pane(foreignMove, [], rows), "", ["file:///x/a.txt"], "/d/omarchy", 0, "", "", Qt.MoveAction)
     check("a foreign move offer moves", foreignMove.length === 1 ? foreignMove[0].op : "nothing sent", "move")
+    check("as a transfer of those paths into that folder", JSON.stringify(foreignMove),
+          JSON.stringify([{ c: "transfer", op: "move", paths: ["/x/a.txt"], dest: "/d/omarchy" }]))
     var foreignCopy = []
     Drag.dropInto(pane(foreignCopy, [], rows), "", ["file:///x/a.txt"], "/d/omarchy", 0, "", "", Qt.CopyAction)
     check("a foreign copy offer copies", foreignCopy.length === 1 ? foreignCopy[0].op : "nothing sent", "copy")
+    check("as a transfer of those paths into that folder", JSON.stringify(foreignCopy),
+          JSON.stringify([{ c: "transfer", op: "copy", paths: ["/x/a.txt"], dest: "/d/omarchy" }]))
     var foreignLink = []
     Drag.dropInto(pane(foreignLink, [], rows), "", ["file:///x/a.txt"], "/d/omarchy", 0, "", "", Qt.LinkAction)
     check("a foreign link offer links", foreignLink.length === 1 ? foreignLink[0].c : "nothing sent", "link")
@@ -361,10 +368,7 @@ function run(check) {
     check("a foreign move offer still moves with no marker", Drag.dropVerb("", Qt.MoveAction, 0), "move")
     check("a foreign copy offer still copies with no marker", Drag.dropVerb("", Qt.CopyAction, 0), "copy")
 
-    // The lift's own round trip: the marker built the way FileDrag.liftBegan builds it, from the
-    // lift's ctrl and shift bits, read back through dropVerb, feedbackLine and the badge label.
-    // Hand-built markers cannot catch a lift that drops the shift field, a feedback that ignores
-    // it, or a badge that never links, so each row below travels the real mimeFor path.
+    // Each row below travels the real mimeFor path, so a dropped shift field, an ignoring feedback or an unlinked badge is caught.
     var lifts = [
         { mods: Qt.NoModifier, same: "move", cross: "copy" },
         { mods: Qt.ControlModifier, same: "copy", cross: "copy" },

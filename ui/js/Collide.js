@@ -92,10 +92,7 @@ function transfer(request, choice, id) {
     return Object.assign({}, request, { collide: choice, collideId: id })
 }
 
-// MenuAdditions040: the waiting Paste as links with the answer on it; same
-// question, same card, same collide words as the transfer above. Rows ride
-// along only when the request named them, so a paths-only paste is never
-// refused for a listing it never read.
+// Paste as links answers on the waiting request like a transfer; rows ride along only when named, so paths-only pastes skip listing checks.
 function link(request, choice, id) {
     var out = { c: "link", op: request.op, paths: request.paths || [],
                 dest: request.dest, collide: choice, collideId: id }

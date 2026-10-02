@@ -153,10 +153,47 @@ function run(check) {
     failedClears(check)
     busyMenu(check)
     refusedRow(check)
+    cannotLeaveEnds(check)
+    pasteLinks(check)
 }
 
-// The real ui/RowDrag.qml over a stub pane: a refused folder row stays dark and names its
-// refusal instead of a verb, and a refused drop darkens exactly like dropped().
+// Paste as links goes through the same card; the link line keeps paths with only named rows and listing.
+function pasteLinks(check) {
+    var at = Fixture.scene(7)
+    var backend = at.backend, p = at.pane
+    p.collide.ask({ c: "link", op: "relative", paths: ["/s/a.txt"], dest: "/d" }, null, false)
+    check("a links question asks about its paths", JSON.stringify(backend.sent[0]),
+          JSON.stringify({ c: "collisions", id: 1, dest: "/d", paths: ["/s/a.txt"] }))
+    p.collide.decide("keep")
+    check("a paths-only Paste as links sends a link line with no rows and no listing", JSON.stringify(backend.sent[1]),
+          JSON.stringify({ c: "link", op: "relative", paths: ["/s/a.txt"], dest: "/d", collide: "keep", collideId: 1 }))
+    p.collide.ask({ c: "link", op: "relative", paths: ["/s/a.txt"], rows: [2], dest: "/d" }, null, false)
+    p.collide.decide("replace")
+    check("a rows Paste as links keeps its rows in the numbering they were read in", JSON.stringify(backend.sent[3]),
+          JSON.stringify({ c: "link", op: "relative", paths: ["/s/a.txt"], dest: "/d", collide: "replace", collideId: 2, rows: [2], listing: 7 }))
+    at.parent.destroy()
+}
+
+// Too wide to leave carries no uri-list, so cannotLeave ends the gesture instead of stranding it.
+function cannotLeaveEnds(check) {
+    var said = []
+    var at = Fixture.scene(7, said)
+    var session = at.session
+    session.dragRows = [0, 9]
+    session.dragListing = 7
+    session.dragCopy = true
+    session.dragMime = { "text/plain": "/d/a.txt" }
+    session.feedback = { own: true, copy: true, shift: false, dev: 56, deletable: true, count: 2, canLeave: false }
+    session.cannotLeave()
+    check("cannotLeave clears the rows it could not carry out", session.dragRows.length + "|" + session.dragListing, "0|0")
+    check("and the mime, feedback and modifiers go with them",
+          JSON.stringify(session.dragMime) + "|" + session.feedback + "|" + session.dragCopy, "{}|null|false")
+    check("and the too-wide refusal reads as a pane message", said.join("|"),
+          "Copy 2 items to a folder · too wide to drag out")
+    at.parent.destroy()
+}
+
+// The real RowDrag over a stub pane: a refused row stays dark and names its refusal, darkening like dropped().
 function refusedRow(check) {
     var said = []
     var at = Fixture.scene(7, said)
@@ -178,6 +215,9 @@ function refusedRow(check) {
     session.dropIndex = 2
     check("an eligible drop refuses nothing and keeps the row lit",
           target.refuseDrop("", ["file:///x/a.txt"], "", "") + "|" + session.dropIndex, "|2")
+    check("a refused drop takes nothing",
+          target.dropped(marker, selfUrls, "", "", Qt.CopyAction), false)
+    check("and leaves the row dark", session.dropIndex, -1)
     at.parent.destroy()
 }
 

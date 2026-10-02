@@ -82,7 +82,6 @@ DropArea {
             return
         }
         if (DragOps.dropInto(root.pane, marker, drop.urls, root.dest, root.destDev, shelf, plain, drop.proposedAction)) {
-            if (root.pane && root.pane.backend) root.pane.backend.dragLanded = true
             // CopyAction: this transfer already moved or copied. MoveAction would make the source delete too.
             drop.accept(Qt.CopyAction)
         }

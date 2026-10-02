@@ -15,8 +15,6 @@ Item {
     // False when the listed directory cannot be written. A drag from it copies. Absent on an
     // older reply stays true, which is the move that reply always described.
     property bool dirWritable: true
-    // Set by a drop this window's transfer is handling, so dragFinished does not delete those files again.
-    property bool dragLanded: false
     // listing is the numbering the rows are in, 0 from a backend that does not say; see docs/protocol.md "listing".
     signal rows(int start, var items, real ms, var kinds, real listing)
     // The numbering of the rows the pane holds, which every row-indexed request names back; ui/PaneSwap.qml writes it.

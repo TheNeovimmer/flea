@@ -20,6 +20,10 @@ from gi.repository import Gdk, GLib, Gtk
 
 MARKER = ".flea-test-sandbox"
 MAX_BODY = 1024 * 1024
+READ_CHUNK = 65536
+RECEIVER_LIFETIME = 90
+RECEIVER_WIDTH = int(os.environ.get("FLEA_RECV_W", "420"))
+RECEIVER_HEIGHT = int(os.environ.get("FLEA_RECV_H", "320"))
 
 
 def owned_log_path(argv):
@@ -49,12 +53,14 @@ def write(text):
 
 
 class Receiver(Gtk.Application):
+    finish_action = Gdk.DragAction.COPY
+
     def __init__(self):
         super().__init__(application_id="com.thisisgm.FleaDragReceiver")
 
     def do_activate(self):
         window = Gtk.ApplicationWindow(application=self, title="flea-drag-receiver")
-        window.set_default_size(420, 320)
+        window.set_default_size(RECEIVER_WIDTH, RECEIVER_HEIGHT)
         label = Gtk.Label(label="drop here")
         label.set_hexpand(True)
         label.set_vexpand(True)
@@ -69,8 +75,11 @@ class Receiver(Gtk.Application):
         write("ready")
 
     def on_drop(self, _target, drop, _x, _y):
+        actions = int(drop.get_actions())
         formats = drop.get_formats()
-        write(f"actions={int(drop.get_actions())}")
+        # A reintroduced move offer must trip "original kept", so finish MOVE only when the offer holds it.
+        self.finish_action = Gdk.DragAction.MOVE if actions & int(Gdk.DragAction.MOVE) else Gdk.DragAction.COPY
+        write(f"actions={actions}")
         write(f"formats={formats.to_string() if formats is not None else ''}")
         drop.read_async(
             ["text/uri-list", "text/plain"],
@@ -86,7 +95,7 @@ class Receiver(Gtk.Application):
             chunks = []
             total = 0
             while True:
-                piece = stream.read_bytes(65536, None)
+                piece = stream.read_bytes(READ_CHUNK, None)
                 data = piece.get_data()
                 if not data:
                     break
@@ -101,13 +110,13 @@ class Receiver(Gtk.Application):
             write(">>")
         except Exception as error:
             write(f"read-error={error}")
-        drop.finish(Gdk.DragAction.COPY)
+        drop.finish(self.finish_action)
         self.quit()
 
 
 def main():
     app = Receiver()
-    GLib.timeout_add_seconds(90, app.quit)
+    GLib.timeout_add_seconds(RECEIVER_LIFETIME, app.quit)
     raise SystemExit(app.run(None))
 
 
