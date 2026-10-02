@@ -30,11 +30,19 @@ ShellRoot {
         id: backend
         property var calls: []
         property var metaCalls: []
+        property var metaShown: []
         property int dirDev: 0
         signal meta(int row, int w, int h, int orient, real durationMs, int sampleRate, int entries, real unpacked, bool archiveFailed, var names, real lines, bool partial, bool linesFailed, string target, bool targetDir, string owner)
         signal thumbed(int row, string file)
-        function askMeta(index, wantText, wantMedia, wantArchive) { metaCalls.push(index); return 0 }
-        function thumb(ask, cacheOnly) { calls.push({ ask: ask, cacheOnly: cacheOnly === true }) }
+        // Each ask records the overlay path it was made for.
+        function askMeta(index, wantText, wantMedia, wantArchive) {
+            metaCalls.push(index)
+            metaShown.push(quick.item.path)
+            return 0
+        }
+        function thumb(ask, cacheOnly) {
+            calls.push({ ask: ask, cacheOnly: cacheOnly === true, shown: quick.item.path })
+        }
         function thumbcancel(rows) {}
     }
 
@@ -168,8 +176,8 @@ ShellRoot {
             waited += interval
             if (backend.calls.length > shell.burstMark) {
                 stop()
-                shell.check("nothing asks mid-burst", backend.calls.length === shell.burstMark + 1)
-                shell.check("no meta asks mid-burst", backend.metaCalls.length === shell.metaMark + 1)
+                shell.check("nothing asks mid-burst", backend.calls[shell.burstMark].shown === "/t/c.jpg")
+                shell.check("no meta asks mid-burst", backend.metaShown[shell.metaMark] === "/t/c.jpg")
                 shell.check("the trailing rest asks once more", backend.calls.length === shell.burstMark + 1)
                 shell.check("for the row after it",
                     backend.calls[backend.calls.length - 1].ask.join(",") === "3")
