@@ -32,7 +32,7 @@ src/backend/opsreq.rs 514
 src/backend/opsreq/tests.rs 461
 src/backend/permissions.rs 477
 src/backend/proto.rs 287
-src/backend/run.rs 459
+src/backend/run.rs 463
 src/backend/thumbs.rs 442
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 698
@@ -52,7 +52,7 @@ tests/js/previewswap.js 367
 tests/js/focus.js 669
 tests/js/mounts.js 383
 tests/js/menu.js 348
-tests/js/watch.js 304
+tests/js/watch.js 309
 tests/js/nav.js 323
 tests/js/network.js 306
 tests/js/ops.js 430

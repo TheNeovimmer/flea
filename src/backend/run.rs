@@ -224,6 +224,8 @@ fn handle_line(
             }
             st.base = PathBuf::from(&path);
             st.listing = Listing::new();
+            // A walk replaces any held listpaths, so the next first listpaths carries no count.
+            st.listpaths_held = false;
             // A walk's matches are not a directory either, so nothing is watched until list asks again.
             watch.stop();
             forget_rows(st, pool);
@@ -397,6 +399,8 @@ pub(crate) fn adopt(out: &mut impl Write, st: &mut State, pool: &Pool, tb: &Tabl
     // base and listing only move together, so a failed list cannot mix them.
     st.base = PathBuf::from(path);
     st.listing = l;
+    // A list replaces any held listpaths, so the next first listpaths carries no count.
+    st.listpaths_held = false;
     forget_rows(st, pool);
     // After forget_rows, which clears the very map this seeds.
     seed_answered(st, sized);

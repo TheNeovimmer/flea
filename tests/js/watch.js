@@ -90,6 +90,11 @@ function run(check) {
     check("and keeps the filter, which narrows rows rather than choosing the directory",
           seen.filterQuery, "scr")
     check("and a watched re-read asks for no count", seen.want.join(","), "false")
+    // A manual reload wants the count, so true reaches backend.list through Nav.
+    var seenCounted = watched(0, [{ n: "a" }, { n: "b" }, { n: "c" }], 1)
+    var countedAnchor = Anchor.watched(seenCounted, true)
+    check("and a watched re-read that wants the count asks for it", seenCounted.want.join(","), "true")
+    check("and the counted re-read still anchors on the cursor name", countedAnchor.name, "b")
 
     // The name moved down a row, which is exactly what a create above the cursor does.
     seen.held = 0

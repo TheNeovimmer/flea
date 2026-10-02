@@ -44,6 +44,8 @@ pub struct State {
     pub search_reported: Instant,
     // Which numbering the rows are in; forget_rows moves it, see src/backend/rowguard.rs.
     pub generation: u64,
+    // True while the held listing came from listpaths, so a first listpaths after list carries no count.
+    pub listpaths_held: bool,
 }
 
 impl Tables {
@@ -61,7 +63,7 @@ impl State {
         State {
             listing: Listing::new(), base: PathBuf::new(), asked: Vec::new(), outstanding: 0,
             dirsizes: HashMap::new(), dirsize_queue: Vec::new(), dirsize_worker,
-            search: None, search_reported: Instant::now(), generation: FIRST_LISTING - 1,
+            search: None, search_reported: Instant::now(), generation: FIRST_LISTING - 1, listpaths_held: false,
         }
     }
 }

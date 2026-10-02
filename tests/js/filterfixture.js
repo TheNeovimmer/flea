@@ -56,11 +56,11 @@ function pane(query, held) {
         var offset = index - p.held
         return offset < 0 || offset >= p.rows.length ? null : p.rows[offset]
     }
+    // The contexts each showRow was handed, so a pointer path proves its 0.
     p.showRow = function (view, context) {
         p.scrolled = view
         p.contexts.push(context)
     }
-    // The contexts each showRow was handed, so a pointer path proves its 0.
     // Mirrors ui/js/Selection.js: only() arms the lone row a plain move carries and every deliberate mark drops it.
     var lone = false
     var shiftBase = null

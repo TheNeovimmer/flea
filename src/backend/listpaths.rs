@@ -7,7 +7,7 @@ use crate::backend::state::{State, Tables};
 use crate::backend::thumbs::Pool;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
 // A listing built from paths the client names instead of a directory it scans; see docs/protocol.md
@@ -54,11 +54,13 @@ pub fn answer(
     let (mut l, read_ms) = listing_of(paths);
     super::picker::filter_listing(&mut l, &tb.mime, line);
     // A history is small, so a re-read over one always names its added plus removed rows.
-    let recheck = st.base.as_path() == Path::new(BASE);
+    let recheck = st.listpaths_held;
     let changed = if recheck { super::listing::changed_count(&st.listing, &l) } else { 0 };
     // base and listing only move together, exactly as a list moves them.
     st.base = PathBuf::from(BASE);
     st.listing = l;
+    // The held listing is a listpaths one now, so a re-read over it names its count.
+    st.listpaths_held = true;
     forget_rows(st, pool);
     // The sort figure is always zero: nothing here is sorted, see docs/protocol.md "listpaths".
     let listed = listed_line(st.listing.len(), read_ms, 0.0, dev_of(&st.base), &st.base.to_string_lossy());
@@ -204,5 +206,32 @@ mod tests {
         super::super::run::adopt(&mut out, &mut st, &pool, &tb, &path, new, (0.0, 0.0), &[], 10, false);
         let silent = String::from_utf8(out).unwrap();
         assert!(!silent.lines().next().unwrap().contains("changed"), "an unasked re-read stays silent: {}", silent);
+    }
+
+    #[test]
+    fn a_first_listpaths_after_list_root_carries_no_count() {
+        use crate::backend::dirsizeworker::Worker;
+        use crate::backend::state::{State, Tables};
+        use crate::backend::thumbs::Pool;
+        use std::sync::{mpsc::channel, Arc};
+        // BASE is "/", so a base-keyed recheck miscounts a root list as a history re-read.
+        let d = TestDir::new("listpaths-root");
+        let a = d.join("a.txt");
+        fs::write(&a, "a").unwrap();
+        let astr = a.to_string_lossy().to_string();
+        let (tx, _rx) = channel();
+        let (mut st, tb) = (State::new(Worker::new(tx)), Tables::load());
+        let (results, _done) = channel();
+        let pool = Pool::new(1, results, d.join("cache"), Arc::clone(&tb.aliases), Arc::clone(&tb.thumbs));
+        let mut root = Listing::new();
+        for name in ["bin", "etc", "home"] {
+            root.push(name, false);
+        }
+        let mut out = Vec::new();
+        super::super::run::adopt(&mut out, &mut st, &pool, &tb, "/", root, (0.0, 0.0), &[], 10, false);
+        let mut out = Vec::new();
+        answer(&mut out, &mut st, &pool, &tb, &[astr], 10, "");
+        let line = String::from_utf8(out).unwrap();
+        assert!(!line.lines().next().unwrap().contains("changed"), "a first listpaths after list / carries no count: {}", line);
     }
 }

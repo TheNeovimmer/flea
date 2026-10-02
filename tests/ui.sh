@@ -2337,6 +2337,18 @@ case_clickedge() {
         printf 'CLICKEDGE %s rename row=%s before=%s after=%s live=%s\n' "$mode" "$slow" "$before_slow" "$after_slow" "$(ipc renameEditorLive)"
         [[ "$(ipc renameEditorLive)" == "true" ]] || fail "clickedge: $mode the slow click never opened rename on row $slow"
         [[ "$after_slow" == "$before_slow" ]] || fail "clickedge: $mode the slow click scrolled $before_slow to $after_slow"
+        # An in-place error expands the editor, and the reveal carries context 0 so it stays under the pointer.
+        key -M ctrl -k a -m ctrl -k BackSpace >/dev/null || fail "clickedge: $mode clearing the rename draft failed"
+        key "bad/name" >/dev/null || fail "clickedge: $mode typing the slash name failed"
+        local before_error after_error rename_err
+        before_error=$(ipc viewContentY)
+        key -k Return >/dev/null || fail "clickedge: $mode submitting the slash name failed"
+        settle
+        rename_err=$(ipc renameState | jq -er .error)
+        [[ "$rename_err" == *"A name cannot"* ]] || fail "clickedge: $mode the slash name did not raise the in-place error, got $rename_err"
+        after_error=$(ipc viewContentY)
+        printf 'CLICKEDGE %s rename-error before=%s after=%s err=%q\n' "$mode" "$before_error" "$after_error" "$rename_err"
+        [[ "$after_error" == "$before_error" ]] || fail "clickedge: $mode the in-place error scrolled $before_error to $after_error"
         key -k Escape >/dev/null
         settle
         [[ "$(ipc renameEditorLive)" == "false" ]] || fail "clickedge: $mode Escape left the rename open"

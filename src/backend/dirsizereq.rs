@@ -79,6 +79,7 @@ mod tests {
             search: None,
             search_reported: Instant::now(),
             generation: 0,
+            listpaths_held: false,
         }
     }
 
