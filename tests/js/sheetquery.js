@@ -1,9 +1,7 @@
 .import "../../ui/js/SheetQuery.js" as SheetQuery
 
 function run(check) {
-    // Candidates arrive in section order: the keymap's actions (0), the cursor row's menu
-    // rows and leaves (1), the rail's places (2) and the recent files (3), each place and
-    // file reading "Open <name>" with its "in <where>".
+    // Candidates arrive in section order, each place and file reading "Open <name>".
     function candidate(label, keys, section, where) {
         return { label: label, keys: keys, section: section, where: where || "" }
     }
@@ -36,8 +34,7 @@ function run(check) {
     // A query matching nothing lists nothing rather than the whole sheet.
     check("no match is an empty sheet", SheetQuery.rank(rows, "zzz").length, 0)
     check("a keys-only miss is empty too", SheetQuery.rank(rows, "Open ^z").length, 0)
-    // A place whose NAME the query matches exactly ranks first, above an action whose
-    // label matches exactly: the NAME is compared, not the "Open <name>" label.
+    // An exact NAME match ranks first, above an exact action label.
     var trashRows = [
         { label: "trash", keys: "dd", section: 0, where: "", action: "trash" },
         { label: "Open Trash", name: "Trash", keys: "", section: 2, where: "Places",
@@ -70,8 +67,7 @@ function run(check) {
     check("a multi-context key names none either", SheetQuery.whereForContext("rail,menu"), "")
     check("a single place is named", SheetQuery.whereForContext("media"), "media")
 
-    // B2: a sheet-query menu row runs what the menu row runs, so the snapshot
-    // the menu takes on open is taken first, for the current selection.
+    // A sheet menu row snapshots first, so the activate meets the selection.
     var calls = []
     var holder = { menuActions: {
         snapshot: function () { calls.push("snapshot") },

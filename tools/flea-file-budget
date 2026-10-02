@@ -87,7 +87,7 @@ ui/PickerWindow.qml 770
 ui/Preview.qml 717
 ui/PreviewColumn.qml 571
 ui/PreviewMarkdown.qml 473
-ui/Row.qml 478
+ui/Row.qml 479
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
 ui/Sidebar.qml 675

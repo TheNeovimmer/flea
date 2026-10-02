@@ -30,9 +30,7 @@ Item {
     signal tabRequested(int index)
     signal renameCommitted(int index, string text)
     signal renameCancelled(int index)
-    // Sidebar040: favourites reorder by drag, so a favourite carries its store index here and every
-    // other kind leaves -1 and drags nothing. line is the insertion boundary the drag hovers,
-    // fav-relative with lineCount past the last row, and moved(to) is the store index it lands on.
+    // Favourites reorder by drag; a favourite carries its store index, others leave -1.
     property int dragFrom: -1
     property int line: -1
     property int lineCount: 0
@@ -324,13 +322,13 @@ Item {
         }
     }
 
-    // The insertion line the drag hovers: flush over the boundary, the accent's own 3 px weight.
+    // The insertion line the drag hovers: flush over the boundary, the accent's own edge weight.
     Rectangle {
         visible: root.dragFrom >= 0 && root.line === root.index
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 3 * Theme.spacing.hairline
+        height: Theme.accentEdge * Theme.spacing.hairline
         color: Theme.color.accent
     }
     Rectangle {
@@ -338,7 +336,7 @@ Item {
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 3 * Theme.spacing.hairline
+        height: Theme.accentEdge * Theme.spacing.hairline
         color: Theme.color.accent
     }
 }

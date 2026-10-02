@@ -1,19 +1,12 @@
 .pragma library
 
-// The picker's Recent location, read out of the desktop's own history and never written to. Flea
-// keeps no history of its own; this is the freedesktop file every application on the box appends to,
-// so everything here treats it as untrusted input. Pure, so tests/js/recent.js drives it with no
-// window; ui/PickerRecent.qml is the Qt XML reader that feeds it.
+// The desktop's own history, read and never written; every bookmark is untrusted input.
 
 // The freedesktop recent file, and where XDG_DATA_HOME defaults to when the session did not set it.
 var HISTORY_LEAF = "recently-used.xbel"
 var DEFAULT_DATA_HOME = "/.local/share"
 
-// A hostile or merely enormous history is still a listing this window has to build, so the output
-// loop below stops here and hands the rail the newest LIMIT paths. It bounds that loop and nothing
-// else: ui/PickerRecent.qml reads the whole model, because bounding the read in file order sorts
-// an arbitrary LIMIT of a file XBEL never promised an order for, and a 5,000 bookmark history in
-// oldest-first order then answered with its 500 oldest.
+// The output loop stops here and hands the rail the newest LIMIT paths.
 var LIMIT = 500
 
 // Sample input: ("/home/gm/.local/share", "/home/gm") and ("", "/home/gm"); an XDG_DATA_HOME that
@@ -26,15 +19,8 @@ function historyPath(dataHome, home) {
     return root.replace(/\/+$/, "") + "/" + HISTORY_LEAF
 }
 
-// Sample input: "file:///home/gm/a%20b.png" becomes "/home/gm/a b.png"; everything else becomes "".
-// The rules, in the order they are applied, because each one is a way a bookmark could otherwise
-// become a path this window never meant to open:
-// a scheme that is not file is not a local file, so smb:// and trash:// are refused whole;
-// an authority that is neither empty nor localhost names another machine and is refused with it;
-// a malformed percent sequence makes decodeURIComponent throw and is refused there, while a
-// well-formed one decodes to whatever it names, so the decoded form is re-checked rather than
-// trusted; and a decoded path must still be one absolute path, so a NUL, a newline or any other
-// control character refuses it.
+// Sample input: "file:///home/gm/a%20b.png" becomes "/home/gm/a b.png".
+// Refuses non-file schemes, foreign authorities, bad escapes and control characters.
 function pathOf(href) {
     var raw = String(href || "")
     if (raw.substring(0, 7).toLowerCase() !== "file://") {
@@ -66,12 +52,8 @@ function pathOf(href) {
     return decoded
 }
 
-// The main window's Recent listing keeps each bookmark's own stamp, because the Used
-// column draws when the file was last used and the backend's mtime only says when it
-// changed. entries() is paths() with the stamps kept: same newest-first order, same
-// first-position-wins dedupe, same LIMIT bound. Sample bookmarks: [{ href:
-// "file:///home/gm/a.txt", stamp: "2026-08-30T11:32:04Z" }], answering [{ path:
-// "/home/gm/a.txt", stamp: "2026-08-30T11:32:04Z" }].
+// Sample bookmarks: [{ href: "file:///home/gm/a.txt", stamp: "2026-08-30T11:32:04Z" }].
+// Newest first with the stamps kept, so the Used column draws the visit, not the mtime.
 function entries(bookmarks) {
     var rows = []
     for (var i = 0; i < bookmarks.length; i++) {
@@ -100,10 +82,8 @@ function entries(bookmarks) {
     return out
 }
 
-// A recent row's name and location, split the way docs/protocol.md "listpaths" leaves to the
-// client: the leaf draws as the name and its parent as the caption beside it. A listpaths row
-// carries no leading slash, so the parent is still drawn as the absolute folder it is.
 // Sample input: "/home/gm/a.txt" names "a.txt" in "/home/gm".
+// The leaf draws as the name and its parent as the caption beside it.
 function nameOf(path) {
     var text = String(path || "")
     var cut = text.lastIndexOf("/")
@@ -112,21 +92,18 @@ function nameOf(path) {
 
 function locationOf(path) {
     var text = String(path || "")
-    var cut = text.lastIndexOf("/")
-    if (cut < 0) {
+    if (text.length === 0) {
         return ""
+    }
+    var cut = text.lastIndexOf("/")
+    if (cut <= 0) {
+        return "/"
     }
     var parent = text.substring(0, cut)
-    if (parent.length === 0) {
-        return ""
-    }
     return parent.charAt(0) === "/" ? parent : "/" + parent
 }
 
-// The rail's rows, newest first. Each bookmark is { href, stamp }, exactly what ui/PickerRecent.qml
-// reads off the XBEL. Sample stamp: "2026-08-30T11:32:04Z", which sorts as a string because it is
-// fixed-width UTC; a stamp in any other shape sorts among its own kind and never throws.
-// A path seen twice keeps its first, newest position, the same rule Places.favorites follows.
+// The rail's rows, newest first; a path seen twice keeps its first, newest position.
 function paths(bookmarks) {
     return entries(bookmarks).map(function (entry) { return entry.path })
 }
