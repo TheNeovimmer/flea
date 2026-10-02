@@ -119,6 +119,7 @@ ListView {
         // -1 is also what Filter.at answers for a stale delegate, so an idle list must never light one.
         dropTarget: dragSession.dropIndex >= 0 && listingIndex === dragSession.dropIndex
         dropCopying: dragSession.dragCopy
+        dropLinking: dragSession.dragLink
 
         onRenameCommitted: function (newName) { root.pane.commitRename(newName) }
         onRenameAbandoned: root.pane.renamingIndex = -1

@@ -10732,6 +10732,293 @@ case_duallaunch() {
     done
 }
 
+# Two Flea windows are two qs processes with two backends: a drop from one into the other moves
+# within one device and copies across, with Shift forcing a move, Ctrl a copy and Ctrl with Shift
+# a link. The controller runs this on minipc; it needs the display, a real pointer and two owned
+# windows, so the headless battery never invokes it. Teardown kills only processes proven owned by
+# this run, and every deleted path is checked absolute and non-empty under a marked root.
+case_xwdrag() {
+    local dir adir bdir xdev
+    dir="$fixture_root/xwdrag"
+    sandbox_scratch "$dir"
+    adir="$dir/a"
+    bdir="$dir/b"
+    mkdir -p "$adir" "$bdir" || fail "xwdrag: could not create fixtures"
+    printf 'move payload\n' > "$adir/move.txt" || fail "xwdrag: could not seed move.txt"
+    printf 'copy payload\n' > "$adir/copy.txt" || fail "xwdrag: could not seed copy.txt"
+    printf 'xdev payload\n' > "$adir/xdev.txt" || fail "xwdrag: could not seed xdev.txt"
+    printf 'shift payload\n' > "$adir/shift.txt" || fail "xwdrag: could not seed shift.txt"
+    printf 'link payload\n' > "$adir/link.txt" || fail "xwdrag: could not seed link.txt"
+    xdev=$(mktemp -d "$XDG_RUNTIME_DIR/flea-xwdrag-XXXXXX") || fail "xwdrag: could not create tmpfs root"
+    [[ -n "$xdev" && "$xdev" == "$XDG_RUNTIME_DIR"/flea-xwdrag-* ]] || fail "xwdrag: tmpfs root escaped: $xdev"
+    : > "$xdev/.flea-test-sandbox" || fail "xwdrag: could not mark tmpfs root"
+    [ "$(stat -c %d "$xdev")" != "$(stat -c %d "$adir")" ] || fail "xwdrag: $xdev is not another filesystem"
+    launch "$adir"
+    local apid aid
+    apid=$(flea_pid) || fail "xwdrag: no owned first window"
+    aid=$(xwdrag_qsid "$apid") || fail "xwdrag: no qs instance for $apid"
+    xwdrag_launch_second "$bdir"
+    local bpid bid
+    bpid=$XW_SECOND_PID
+    bid=$XW_SECOND_ID
+    xwdrag_place "$apid" 40 80 1000 720
+    xwdrag_place "$bpid" 1100 80 1000 720
+    xwdrag_focus "$apid"
+    local i sx sy dx dy
+    read -r sx sy < <(xwdrag_row_point "$aid" "$apid" "move.txt") || fail "xwdrag: move.txt is not visible"
+    read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwdrag: second window has no floor"
+    xwdrag_drag "$sx" "$sy" "$dx" "$dy" none
+    xwdrag_wait_path "$bdir/move.txt" present || fail "xwdrag: move.txt never landed in b"
+    xwdrag_wait_path "$adir/move.txt" absent || fail "xwdrag: move.txt survived its move"
+    xwdrag_wait_row_gone "$aid" "move.txt" || fail "xwdrag: A still lists move.txt"
+    printf 'XWDRAG move ok\n'
+    read -r sx sy < <(xwdrag_row_point "$aid" "$apid" "copy.txt") || fail "xwdrag: copy.txt is not visible"
+    read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwdrag: second window has no floor"
+    xwdrag_drag "$sx" "$sy" "$dx" "$dy" ctrl
+    xwdrag_wait_path "$bdir/copy.txt" present || fail "xwdrag: copy.txt never landed in b"
+    [[ -e "$adir/copy.txt" ]] || fail "xwdrag: ctrl copy deleted its source"
+    printf 'XWDRAG copy ok\n'
+    xwdrag_navigate_second "$xdev"
+    read -r sx sy < <(xwdrag_row_point "$aid" "$apid" "xdev.txt") || fail "xwdrag: xdev.txt is not visible"
+    read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwdrag: tmpfs window has no floor"
+    xwdrag_drag "$sx" "$sy" "$dx" "$dy" none
+    xwdrag_wait_path "$xdev/xdev.txt" present || fail "xwdrag: xdev.txt never landed on tmpfs"
+    [[ -e "$adir/xdev.txt" ]] || fail "xwdrag: cross-device plain drag moved its source"
+    printf 'XWDRAG xdev-copy ok\n'
+    read -r sx sy < <(xwdrag_row_point "$aid" "$apid" "shift.txt") || fail "xwdrag: shift.txt is not visible"
+    read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwdrag: tmpfs window has no floor"
+    xwdrag_drag "$sx" "$sy" "$dx" "$dy" shift
+    xwdrag_wait_path "$xdev/shift.txt" present || fail "xwdrag: shift.txt never landed on tmpfs"
+    xwdrag_wait_path "$adir/shift.txt" absent || fail "xwdrag: shift drag left its source"
+    printf 'XWDRAG xdev-move ok\n'
+    xwdrag_navigate_second "$bdir"
+    read -r sx sy < <(xwdrag_row_point "$aid" "$apid" "link.txt") || fail "xwdrag: link.txt is not visible"
+    read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwdrag: second window has no floor"
+    xwdrag_drag "$sx" "$sy" "$dx" "$dy" ctrllink
+    xwdrag_wait_path "$bdir/link.txt" present || fail "xwdrag: link.txt never landed in b"
+    [[ -L "$bdir/link.txt" ]] || fail "xwdrag: $bdir/link.txt is not a symlink"
+    [[ -e "$adir/link.txt" ]] || fail "xwdrag: link drag deleted its source"
+    printf 'XWDRAG link ok\n'
+    xwdrag_focus "$bpid"
+    key -M ctrl -k z -m ctrl >/dev/null
+    for i in $(seq 1 40); do [[ ! -L "$bdir/link.txt" ]] && break; sleep 0.25; done
+    [[ ! -L "$bdir/link.txt" ]] || fail "xwdrag: undo left the link in place"
+    printf 'XWDRAG undo ok\n'
+    xwdrag_kill_second "$bpid"
+    if [[ -n "$xdev" && -f "$xdev/.flea-test-sandbox" ]]; then
+        rm -rf "$xdev" || fail "xwdrag: could not remove tmpfs root"
+    else
+        fail "xwdrag: refusing cleanup of unmarked tmpfs root"
+    fi
+    kill_flea
+}
+
+# The qs instance id for an owned pid, so two windows sharing one config path stay addressable.
+xwdrag_qsid() {
+    local pid="$1" i pair
+    for i in $(seq 1 60); do
+        pair=$(qs list --all --json 2>/dev/null | python3 -c '
+import json, sys
+hits = [x for x in json.load(sys.stdin) if x["config_path"] == sys.argv[1] and x["pid"] == int(sys.argv[2])]
+print(("%s %s" % (hits[0]["id"], hits[0]["pid"])) if len(hits) == 1 else "")
+' "$flea_ui/boot/shell.qml" "$pid") || true
+        [[ -n "$pair" ]] && { printf '%s\n' "$pair" | cut -d' ' -f1; return 0; }
+        sleep 0.5
+    done
+    return 1
+}
+
+xwdrag_qs() {
+    qs ipc -i "$1" call flea "${@:2}" 2>&1
+}
+
+# A second owned window on top of the one launch() already opened. launch() kills first, so this
+# never calls it: same binary, same UI, same run marker, and the pid must be new and owned.
+xwdrag_launch_second() {
+    local start_path="$1" before after pid
+    before=$(flea_pids | tr '\n' ' ')
+    FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" \
+        setsid nohup "$flea_bin" --gui "$start_path" >"$run_root/flea-second.log" 2>&1 </dev/null &
+    for i in $(seq 1 60); do
+        after=$(flea_pids | tr '\n' ' ')
+        for pid in $after; do
+            [[ " $before " == *" $pid "* ]] && continue
+            if flea_process_owned "$pid"; then
+                XW_SECOND_PID=$pid
+                XW_SECOND_ID=$(xwdrag_qsid "$pid") || continue
+                [[ -n "$XW_SECOND_ID" ]] || continue
+                for _attempt in $(seq 1 100); do
+                    [[ "$(xwdrag_qs "$XW_SECOND_ID" path 2>/dev/null)" == "$start_path" \
+                        && "$(xwdrag_qs "$XW_SECOND_ID" listInFlight 2>/dev/null)" == false ]] && return 0
+                    sleep 0.05
+                done
+            else
+                fail "xwdrag: refusing unowned second window $pid"
+            fi
+        done
+        sleep 0.5
+    done
+    fail "xwdrag: no second owned window came up on $start_path"
+}
+
+xwdrag_place() {
+    local pid="$1" x="$2" y="$3" w="$4" h="$5" addr
+    addr=$(hyprctl clients -j | python3 -c '
+import json, sys
+hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
+print(hits[0]["address"] if len(hits) == 1 else "")
+' "$pid") || fail "xwdrag: no window for pid $pid"
+    [[ -n "$addr" ]] || fail "xwdrag: no address for pid $pid"
+    hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
+    sleep 0.3
+    hyprctl dispatch "hl.dsp.window.float()" >/dev/null || fail "xwdrag: could not float $pid"
+    sleep 0.3
+    hyprctl dispatch "hl.dsp.window.resize({ x = $w, y = $h })" >/dev/null || fail "xwdrag: could not resize $pid"
+    sleep 0.3
+    hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y })" >/dev/null || fail "xwdrag: could not move $pid"
+    sleep 0.4
+}
+
+xwdrag_focus() {
+    local pid="$1" addr
+    addr=$(hyprctl clients -j | python3 -c '
+import json, sys
+hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
+print(hits[0]["address"] if len(hits) == 1 else "")
+' "$pid") || fail "xwdrag: no window for pid $pid"
+    [[ -n "$addr" ]] || fail "xwdrag: no address for pid $pid"
+    hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
+    sleep 0.4
+}
+
+xwdrag_geometry() {
+    hyprctl clients -j | python3 -c '
+import json, sys
+hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
+if len(hits) != 1:
+    raise SystemExit(1)
+c = hits[0]
+print(c["at"][0], c["at"][1], c["size"][0], c["size"][1])
+' "$1" || fail "xwdrag: no geometry for pid $1"
+}
+
+xwdrag_row_point() {
+    local id="$1" pid="$2" want="$3" total i n centre cx cy wx wy ww wh
+    for _attempt in $(seq 1 100); do
+        total=$(xwdrag_qs "$id" total 2>/dev/null || printf 0)
+        for i in $(seq 0 $((total - 1))); do
+            n=$(xwdrag_qs "$id" rowAt "$i" 2>/dev/null || true)
+            case "$n" in "$want|"*) centre=$(xwdrag_qs "$id" rowCentre "$i" 2>/dev/null || true); break 2;; esac
+        done
+        sleep 0.1
+    done
+    [[ -n "${centre:-}" ]] || return 1
+    read -r cx cy <<< "$centre"
+    read -r wx wy ww wh < <(xwdrag_geometry "$pid") || return 1
+    printf '%s %s\n' "$((wx + cx))" "$((wy + cy))"
+}
+
+xwdrag_floor_point() {
+    local id="$1" pid="$2" area x y width height total last rx ry rw rh bottom wx wy ww wh
+    area=$(xwdrag_qs "$id" listAreaRect 2>/dev/null) || return 1
+    read -r x y width height <<< "$area"
+    read -r wx wy ww wh < <(xwdrag_geometry "$pid") || return 1
+    bottom=$y
+    total=$(xwdrag_qs "$id" total 2>/dev/null || printf 0)
+    if (( total > 0 )); then
+        last=$(xwdrag_qs "$id" rowRect "$((total - 1))" 2>/dev/null) || return 1
+        read -r rx ry rw rh <<< "$last"
+        bottom=$((ry + rh))
+        x=$rx; width=$rw
+    fi
+    (( y + height - bottom > 8 )) || return 1
+    printf '%s %s\n' "$((wx + x + width / 2))" "$((wy + (bottom + y + height) / 2))"
+}
+
+xwdrag_glide() {
+    local tx="$1" ty="$2" i cx cy dx dy
+    for i in $(seq 1 16); do
+        set -- $(hyprctl cursorpos | tr -d ",")
+        cx=$1; cy=$2
+        dx=$(( tx - cx )); dy=$(( ty - cy ))
+        if [ "${dx#-}" -le 4 ] && [ "${dy#-}" -le 4 ]; then return 0; fi
+        ydotool mousemove -x "$(( dx / 2 ))" -y "$(( dy / 2 ))" >/dev/null 2>&1 || fail "xwdrag: pointer motion failed"
+        sleep 0.05
+    done
+    fail "xwdrag: pointer did not reach $tx,$ty"
+}
+
+xwdrag_drag() {
+    local sx="$1" sy="$2" dx="$3" dy="$4" mods="$5"
+    xwdrag_glide "$sx" "$sy"
+    sleep 0.4
+    case "$mods" in ctrl) ydotool key 29:1 >/dev/null 2>&1 || fail "xwdrag: ctrl press failed";; esac
+    case "$mods" in shift) ydotool key 42:1 >/dev/null 2>&1 || fail "xwdrag: shift press failed";; esac
+    case "$mods" in ctrllink) ydotool key 29:1 >/dev/null 2>&1 || fail "xwdrag: ctrl press failed"
+        ydotool key 42:1 >/dev/null 2>&1 || fail "xwdrag: shift press failed";; esac
+    ydotool click 0x40 >/dev/null 2>&1 || fail "xwdrag: pointer press failed"
+    sleep 0.3
+    xwdrag_glide "$dx" "$dy"
+    sleep 0.6
+    ydotool click 0x80 >/dev/null 2>&1 || fail "xwdrag: pointer release failed"
+    sleep 0.5
+    case "$mods" in ctrl|ctrllink) ydotool key 29:0 >/dev/null 2>&1 || fail "xwdrag: ctrl release failed";; esac
+    case "$mods" in shift|ctrllink) ydotool key 42:0 >/dev/null 2>&1 || fail "xwdrag: shift release failed";; esac
+    sleep 0.4
+}
+
+xwdrag_wait_path() {
+    local p="$1" want="$2" i
+    for i in $(seq 1 40); do
+        if [[ "$want" == present && -e "$p" ]]; then return 0; fi
+        if [[ "$want" == absent && ! -e "$p" ]]; then return 0; fi
+        sleep 0.25
+    done
+    return 1
+}
+
+xwdrag_wait_row_gone() {
+    local id="$1" want="$2" total
+    local deadline=$(( $(date +%s%N) + 1000000000 ))
+    while (( $(date +%s%N) < deadline )); do
+        total=$(xwdrag_qs "$id" total 2>/dev/null || printf -1)
+        if [[ "$total" != "-1" ]]; then
+            local found=1 r seen
+            for r in $(seq 0 $((total - 1))); do
+                seen=$(xwdrag_qs "$id" rowAt "$r" 2>/dev/null || true)
+                case "$seen" in "$want|"*) found=0;; esac
+            done
+            (( found )) && return 0
+        fi
+        sleep 0.05
+    done
+    return 1
+}
+
+xwdrag_navigate_second() {
+    local want="$1"
+    xwdrag_focus "$bpid"
+    key -M ctrl -k l -m ctrl >/dev/null
+    for _attempt in $(seq 1 100); do [[ "$(xwdrag_qs "$bid" pathBarOpen 2>/dev/null)" == true ]] && break; sleep 0.05; done
+    omarchy-drive key --window flea "$want" >/dev/null
+    key -k Return >/dev/null
+    for _attempt in $(seq 1 100); do
+        [[ "$(xwdrag_qs "$bid" path 2>/dev/null)" == "$want" && "$(xwdrag_qs "$bid" listInFlight 2>/dev/null)" == false ]] && return 0
+        sleep 0.05
+    done
+    fail "xwdrag: second window never opened $want"
+}
+
+xwdrag_kill_second() {
+    local pid="$1"
+    flea_process_owned "$pid" || fail "xwdrag: refusing to kill unowned window $pid"
+    kill "$pid" || fail "xwdrag: could not stop second window $pid"
+    for _attempt in $(seq 1 200); do
+        flea_process_owned "$pid" && sleep 0.05 || return 0
+    done
+    fail "xwdrag: second window $pid survived"
+}
+
 # The cursor parks on row 0 above the card, so a press that runs on from an overlay control to any row beneath moves it.
 case_clickthrough() {
     local dir="$fixture_root/clickthrough"

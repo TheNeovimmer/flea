@@ -17,6 +17,7 @@ Item {
     property bool selected: false
     property bool dropTarget: false
     property bool dropCopying: false
+    property bool dropLinking: false
     property string thumb: ""
     property bool renaming: false
     property var renamePane: null
@@ -193,7 +194,7 @@ Item {
         visible: root.dropTarget
         height: Theme.grid.captionLineHeight
         horizontalAlignment: Text.AlignHCenter
-        text: DragOps.label(root.dropCopying)
+        text: DragOps.label(root.dropCopying, root.dropLinking)
         color: Theme.color.accent
         font.family: Theme.font.family
         font.pixelSize: Theme.font.caption
