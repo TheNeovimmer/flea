@@ -213,16 +213,7 @@ pub fn apply_many(items: &[(PathBuf, String)]) -> Result<Vec<crate::backend::und
     Ok(steps)
 }
 
-// A filesystem with a fixed mask answers a mode change with success while keeping its mode, so a mismatch refuses with the filesystem named.
-fn verify_applied(path: &Path, requested: u32) -> Result<(), String> {
-    let after = path.symlink_metadata().map(|m| m.mode() & 0o777).map_err(|e| crate::error::io_message(&e))?;
-    if after == requested & 0o777 {
-        return Ok(());
-    }
-    Err(refusal_for(path))
-}
-
-// The mode comes from the held descriptor, so a path swapped after the syscall is not verified.
+// A fixed-mask filesystem answers success and keeps its mode; the held descriptor's mode is read so a swapped path is not.
 fn verify_applied_fd(file: &File, path: &Path, requested: u32) -> Result<(), String> {
     let after = file.metadata().map(|m| m.mode() & 0o777).map_err(|e| crate::error::io_message(&e))?;
     if after == requested & 0o777 {
@@ -417,8 +408,9 @@ mod tests {
         let d = TestDir::new("permissions-verify");
         let path = d.file("item", "a");
         std::fs::set_permissions(&path, Mode::from_mode(0o644)).unwrap();
-        assert!(verify_applied(&path, 0o644).is_ok(), "a mode that landed verifies");
-        let err = verify_applied(&path, 0o600).expect_err("a mode that never landed must refuse");
+        let file = OpenOptions::new().read(true).custom_flags(O_NOFOLLOW | O_PATH).open(&path).unwrap();
+        assert!(verify_applied_fd(&file, &path, 0o644).is_ok(), "a mode that landed verifies");
+        let err = verify_applied_fd(&file, &path, 0o600).expect_err("a mode that never landed must refuse");
         assert!(err.contains("ignores permission changes"), "the refusal names the cause: {err}");
         let fs = crate::backend::fsinfo::read(&path).map(|i| i.name).unwrap_or_default();
         assert!(!fs.is_empty(), "the fixture sits on a named filesystem");
@@ -434,7 +426,8 @@ mod tests {
         std::fs::set_permissions(&other, Mode::from_mode(0o644)).unwrap();
         let file = OpenOptions::new().read(true).custom_flags(O_NOFOLLOW | O_PATH).open(&held_path).unwrap();
         assert!(verify_applied_fd(&file, &other, 0o600).is_ok(), "the descriptor's mode verifies against another path's name");
-        assert!(verify_applied(&other, 0o600).is_err(), "the path read sees the other's mode and refuses");
+        let other_file = OpenOptions::new().read(true).custom_flags(O_NOFOLLOW | O_PATH).open(&other).unwrap();
+        assert!(verify_applied_fd(&other_file, &other, 0o600).is_err(), "the other file's own descriptor sees its mode and refuses");
     }
     #[test]
     fn a_pinned_change_reads_back_from_its_descriptor() {
