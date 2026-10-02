@@ -1,48 +1,33 @@
 .pragma library
 
-// MdRun: the single-pass inline driver. Code and math spans are held first (so
-// image syntax inside backticks never resolves), then one forward scan resolves
-// images, links, footnote refs, autolinks and raw HTML while escaping every
-// bracket and angle bracket it did not emit itself. Link bottoms follow
-// CommonMark: resolving a link deactivates every opener below it, so an outer
-// link never forms around an inner one; image openers stay active throughout.
+// MdRun: hold code/math, then resolve links, images and HTML in one forward scan; links deactivate earlier link openers, while image openers stay active.
 .import "MdUrl.js" as MdUrl
 .import "MdHtml.js" as MdHtml
 .import "MdInline.js" as Md
 .import "MdRefs.js" as Refs
 .import "MdResolve.js" as Res
 
-// The driver: held spans first, then one forward scan. defs maps normalised
-// labels to targets; numbers maps footnote ids to numbers.
+// The driver: held spans first, then one forward scan. defs maps normalised labels to targets; numbers maps footnote ids to numbers.
 function parseInline(text, dir, defs, numbers, chrome, ink, tokens) {
     var body = String(text)
-    // Plain prose takes no interpreted walk at all: one native scan for every
-    // trigger character and bare-link prefix, and the text returns as is.
-    // Anything reaching the loop below carries syntax worth parsing.
+    // Plain prose without syntax triggers returns directly after one native scan.
     if (!/[`$[\]<>\\!]|https?:\/\/|www\./.test(body))
         return body
     var spans = Md.spanIntervals(body)
     var out = []
     var frames = []
-    // Without a usable ink links stay literal, the way unworn chrome leaves
-    // code spans literal: nothing is styled, so nothing is rewritten. The
-    // chrome check is hoisted out of the per-span path, and styled spans are
-    // cached by content: dense documents repeat the same spans thousands of
-    // times, and each rebuild costs a regex the cache pays once.
+    // Without usable ink, link brackets are escaped so md4c cannot resolve unvetted targets.
     var styleLinks = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(ink || ""))
     var chromeOk = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(chrome || ""))
     var styleCache = {}
-    // Dense documents repeat one span thousands of times. The last span's
-    // content is compared in place, so a repeat reuses its token with no slice
-    // and no allocation at all; the cache below covers the rest.
+    // Compare the last span in place to reuse its held token without slicing; the cache covers other repeats.
     var lastStart = -1
     var lastLen = -1
     var lastOpen = -1
     var lastKind = -1
     var lastHeld = null
     var lastRef = 0
-    // Exact dead flags: the first scan to find no "-->" or ">" ahead proves
-    // no later opener can close either, so dense hostile inputs pay once.
+    // Exact dead flags: the first scan to find no "-->" or ">" ahead proves no later opener can close either, so dense hostile inputs pay once.
     var dead = { tagDead: -1, commentDead: false }
     var i = 0
     var sp = 0
@@ -133,7 +118,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens) {
             if (!styleLinks) {
                 frames.push({ bang: false, mark: out.length, rawStart: i + 1,
                     active: false, passthrough: true })
-                out.push("[")
+                out.push("&#91;")
                 i++
                 continue
             }
@@ -145,7 +130,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens) {
         if (c === "]" && frames.length > 0) {
             var frame = frames.pop()
             if (frame.passthrough) {
-                out.push("]")
+                out.push("&#93;")
                 i++
                 continue
             }
@@ -179,7 +164,8 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens) {
                 }
                 if (made !== null && !frame.bang) {
                     for (var f = 0; f < frames.length; f++)
-                        frames[f].active = false
+                        if (!frames[f].bang)
+                            frames[f].active = false
                 }
             }
             if (made !== null) {
@@ -233,9 +219,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens) {
         out.push(c)
         i++
     }
-    // Native join over strings and token references: a reference is -1 minus
-    // its index, so the walk is arithmetic with no per-span objects for the
-    // GC to re-scan. No interpreted per-char walk over the styled output.
+    // Join strings and -1-index token references without per-span objects or another interpreted output scan.
     var parts = new Array(out.length)
     for (var k = 0; k < out.length; k++)
         parts[k] = typeof out[k] === "string" ? out[k] : tokens[-1 - out[k]]

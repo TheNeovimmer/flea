@@ -1,10 +1,9 @@
 .pragma library
 
-// MdUrl: URL reading and image-target classification for rendered Markdown.
-// Every scan here advances one character at a time and never re-scans from an
-// earlier position, so pathological inputs stay linear. Regexes below are all
-// anchored to a fixed start with no nested quantifiers, never run over the tail.
+// MdUrl: linear URL decoding and image classification, with anchored scans and lexical folder containment.
 .import "Format.js" as Format
+
+var MAX_UNICODE_SCALAR = 1114111
 
 // An http(s) URL, or a protocol-relative one (which inherits https), loads from the network.
 function isRemoteUrl(url) {
@@ -34,8 +33,7 @@ function placeholder(host) {
     return "Remote image not loaded \u00b7 " + host
 }
 
-// Decode one numeric character reference starting at i (after &#); answers the
-// character and the index past the semicolon, or null when it is not one.
+// Decode one numeric character reference starting at i (after &#); answers the character and the index past the semicolon, or null when it is not one.
 function numericRef(text, i) {
     var j = i
     var base = 10
@@ -56,13 +54,12 @@ function numericRef(text, i) {
     if (j === start || text.charAt(j) !== ";")
         return null
     var code = parseInt(text.slice(start, j), base)
-    if (!(code > 0) || code > 1114111)
+    if (!(code > 0) || code > MAX_UNICODE_SCALAR)
         return null
     return { ch: String.fromCharCode(code), end: j + 1 }
 }
 
-// A URL as the loader reads it: numeric references decoded, percent escapes
-// decoded, ASCII whitespace and controls stripped. One pass, linear.
+// A URL as the loader reads it: numeric references decoded, percent escapes decoded, ASCII whitespace and controls stripped. One pass, linear.
 function canonicalUrl(raw) {
     var text = String(raw === undefined || raw === null ? "" : raw)
     var out = ""
@@ -84,8 +81,7 @@ function canonicalUrl(raw) {
             i += 3
         } else {
             var code = text.charCodeAt(i)
-            // Spaces survive: angle destinations may legally contain them.
-            // Tabs, newlines and other controls never do.
+            // Spaces survive: angle destinations may legally contain them. Tabs, newlines and other controls never do.
             if (code === 32 || code > 32 && code !== 127)
                 out += c
             i++
@@ -94,8 +90,7 @@ function canonicalUrl(raw) {
     return out
 }
 
-// Collapse . and a/.. segments without touching the filesystem. Answers null
-// when the path escapes its root, so .. can reach beside the file but never above it.
+// Collapse . and a/.. segments without touching the filesystem. Answers null when the path escapes its root, so .. can reach beside the file but never above it.
 function normalizeSubpath(name) {
     var parts = String(name).split("/")
     var kept = []
@@ -116,9 +111,7 @@ function normalizeSubpath(name) {
     return kept.join("/")
 }
 
-// Where an image URL lands: remote (placeholder), local (inside the document's
-// folder, as file://), or dropped (any other scheme, an absolute path or file://
-// URL outside the folder, or a relative path escaping it: alt text only).
+// Classify images as remote placeholders, local file URLs inside the document folder, or dropped alt text.
 function classifyImage(raw, dir) {
     var url = String(raw === undefined || raw === null ? "" : raw)
     if (url.length === 0)
@@ -138,9 +131,7 @@ function classifyImage(raw, dir) {
             } catch (e) {
                 return { kind: "dropped" }
             }
-            var base = String(dir)
-            if (fp === base || fp.indexOf(base + "/") === 0)
-                return { kind: "local", url: Format.fileUri(fp) }
+            return localAbsolute(fp, dir)
         }
         return { kind: "dropped" }
     }
@@ -151,16 +142,26 @@ function classifyImage(raw, dir) {
         name = name.slice(2)
     // An absolute path loads only inside the document's folder tree.
     if (name.charAt(0) === "/" || name.charAt(0) === "\\") {
-        var abs = name
-        var root = String(dir)
-        if (abs === root || abs.indexOf(root + "/") === 0)
-            return { kind: "local", url: Format.fileUri(abs) }
-        return { kind: "dropped" }
+        return localAbsolute(name, dir)
     }
     if (name.length === 0 || name === "." || name === ".." || name.indexOf("\\") >= 0)
         return { kind: "dropped" }
     var collapsed = normalizeSubpath(name)
     if (collapsed === null)
         return { kind: "dropped" }
-    return { kind: "local", url: Format.fileUri(String(dir) + "/" + collapsed) }
+    return localAbsolute(String(dir || "") + "/" + collapsed, dir)
+}
+
+// Sample: /docs/notes/../pic.png resolves inside /docs; /docs/../pic.png is refused.
+function localAbsolute(path, dir) {
+    var root = String(dir || "")
+    if (root.charAt(0) !== "/" || String(path).charAt(0) !== "/"
+            || root.indexOf("\\") >= 0 || String(path).indexOf("\\") >= 0)
+        return { kind: "dropped" }
+    var base = normalizeSubpath(root)
+    var collapsed = normalizeSubpath(path)
+    if (collapsed === null || (base !== null && collapsed !== base
+            && collapsed.indexOf(base + "/") !== 0))
+        return { kind: "dropped" }
+    return { kind: "local", url: Format.fileUri("/" + collapsed) }
 }

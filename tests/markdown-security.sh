@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# The security gate for rendered Markdown: every image form the parser knows,
-# crossed with every container it implements, plus every raw-HTML vector, is
-# rendered through the real ui/PreviewMarkdown.qml (and through the reviewer's
-# own method of feeding each block's text to Text.MarkdownText) against a
-# hit-counting HTTP server on 127.0.0.1. Zero hits is the verdict.
+# Render hostile Markdown through the preview and Text.MarkdownText; require a control GET and zero corpus requests.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
@@ -19,6 +15,7 @@ fi
 
 test_root="$FIXTURE_ROOT/flea-markdown-security-$$"
 sandbox_make "$test_root"
+server_pid=""
 cleanup() { sandbox_remove "$test_root"; kill "$server_pid" 2>/dev/null; }
 trap cleanup EXIT
 
@@ -29,13 +26,14 @@ ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/markdown-security.qml "$test_root/config/shell.qml" || exit 1
 
-# A free loopback port, then the counter. Each GET appends its path, so the hits
-# file both counts and names the vector that leaked.
+# A free loopback port, then the counter. Each GET appends its path, so the hits file both counts and names the vector that leaked.
 port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
 hits="$test_root/hits.log"
 : > "$hits" || exit 1
 cat > "$test_root/serve.py" <<EOF
-import http.server, zlib, struct
+import http.server, zlib, struct, threading
+CONTROL = threading.Event()
+CONTROL_TIMEOUT_SECONDS = 25
 HITS = "$hits"
 def chunk(kind, body):
     c = struct.pack(">I", len(body)) + kind + body
@@ -44,8 +42,18 @@ PIXEL = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 
     + chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00\x00\x00")) + chunk(b"IEND", b""))
 class Count(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/drain":
+            if not CONTROL.wait(CONTROL_TIMEOUT_SECONDS):
+                self.send_error(504, "control image never fetched")
+                return
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"control landed")
+            return
         with open(HITS, "a") as f:
             f.write(self.path + "\n")
+        if self.path == "/control.png":
+            CONTROL.set()
         body = PIXEL
         self.send_response(200)
         self.send_header("Content-Type", "image/png")
@@ -70,14 +78,19 @@ if [ -z "$reached" ]; then
     exit 1
 fi
 
-# The corpus. Every image URL points at the counter with a path naming its form
-# and context (/f<form>/c<context>/x.png), so a hit names the leak. Bracketed
-# [port] keeps one server for every spelling, including uppercase schemes.
+# The corpus. Every image URL points at the counter with a path naming its form and context (/f<form>/c<context>/x.png), so a hit names the leak. Bracketed [port] keeps one server for every spelling, including uppercase schemes.
 python3 - "$test_root/notes.md" "$port" <<'EOF'
 import sys
 dest, port = sys.argv[1], sys.argv[2]
 H = f"http://127.0.0.1:{port}"
 forms = [
+    ("altnosrc", lambda p: f'<img alt="![x]({H}/{p}/x.png)">'),
+    ("altbadsrc", lambda p: f'<img src="x:y" alt="![x]({H}/{p}/x.png)">'),
+    ("badge", lambda p: f'[![badge](pic.png)]({H}/{p}/x.png)'),
+    ("gaptag", lambda p: f'!<bogus>[x]({H}/{p}/x.png)'),
+    ("gapcomment", lambda p: f'!<!--gap-->[x]({H}/{p}/x.png)'),
+    ("hostmarkup", lambda p: 'prefix <img src="http://a%3Cb%3Ex/x">'),
+    ("hostentity", lambda p: 'prefix <img src="http://%3Cimg%20src=http%26%2347%3B%26%2347%3B127.0.0.1/x">'),
     ("inline", lambda p: f"![pic]({H}/{p}/x.png)"),
     ("titled", lambda p: f'![pic]({H}/{p}/x.png "a title")'),
     ("angle", lambda p: f"![pic](<{H}/{p}/x.png>)"),
@@ -163,27 +176,30 @@ EOF
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIXTURE="$test_root/notes.md" \
+    FLEA_MARKDOWN_COUNTER="http://127.0.0.1:$port" \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
-if printf '%s\n' "$output" | grep -q 'MARKDOWN_SECURITY FAIL'; then
-    printf 'FAIL the preview refused its own fixture\n'
-    printf '%s\n' "$output" | grep -aE 'MARKDOWN_SECURITY|ERROR' | head -10
-    exit 1
-fi
-# The preview must have lived through its drain; without this line an empty qs
-# output and a dead counter read as a pass.
+# The preview must have lived through its drain; without this line an empty qs output and a dead counter read as a pass.
 if ! printf '%s\n' "$output" | grep -q 'MARKDOWN_SECURITY drained'; then
     printf 'FAIL the render harness never drained (no live preview ran)\n'
     printf '%s\n' "$output" | grep -aE 'MARKDOWN_SECURITY|ERROR|error' | head -20
     exit 1
 fi
-sleep 1
-count=$(grep -c . "$hits" 2>/dev/null || true)
+if ! grep -qx '/control.png' "$hits"; then
+    echo 'FAIL positive control never reached the counter'
+    exit 1
+fi
+count=$(grep -cvx '/control.png' "$hits" 2>/dev/null || true)
 if [ "$count" -gt 0 ]; then
     printf 'FAIL %s remote request(s) left the preview\n' "$count"
     sort "$hits" | uniq -c | sort -rn | head -12
     printf '%s\n' "$output" | grep -aE 'MARKDOWN_SECURITY' | head -5
+    exit 1
+fi
+if printf '%s\n' "$output" | grep -q 'MARKDOWN_SECURITY FAIL'; then
+    printf 'FAIL the preview refused its own fixture\n'
+    printf '%s\n' "$output" | grep -aE 'MARKDOWN_SECURITY|ERROR' | head -10
     exit 1
 fi
 blocks=$(printf '%s\n' "$output" | grep -aoE 'blocks=[0-9]+' | head -1)
