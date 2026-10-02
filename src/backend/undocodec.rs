@@ -6,7 +6,7 @@ use crate::error::FleaError;
 use crate::jsondoc::{parse, Json};
 use std::path::PathBuf;
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 // A single record is checked, never trusted: absolute paths, closed kind sets, parsed numbers.
 const MAX_OP: usize = 128;
 const MAX_PATH: usize = 4096;
@@ -86,10 +86,8 @@ fn step(step: &Step) -> Json {
         Step::Mode { path, before, after } => obj(vec![
             ("k", s("pm")), ("path", s(&path.to_string_lossy())), ("before", n(before)), ("after", n(after)),
         ]),
-        // Sample input: {"k":"local","nonce":7,"pid":123,"summary":"/a, /b"}.
-        Step::LocalOnly { nonce, maker, summary } => obj(vec![
-            ("k", s("local")), ("nonce", n(nonce)), ("pid", n(maker)), ("summary", s(summary)),
-        ]),
+        // Sample input: {"k":"barrier"}.
+        Step::Barrier => obj(vec![("k", s("barrier"))]),
     }
 }
 
@@ -272,11 +270,8 @@ fn decode_step(value: &Json) -> Option<Step> {
             before: get(pairs, "before").and_then(parse_u32)?,
             after: get(pairs, "after").and_then(parse_u32)?,
         }),
-        "local" => Some(Step::LocalOnly {
-            nonce: get(pairs, "nonce").and_then(parse_u64)?,
-            maker: get(pairs, "pid").and_then(parse_u32)?,
-            summary: checked_text(get(pairs, "summary")?)?,
-        }),
+        "local" => None,
+        "barrier" => Some(Step::Barrier),
         _ => None,
     }
 }
@@ -334,7 +329,8 @@ pub(crate) fn decode(text: &str) -> Option<Doc> {
     let root = parse(text).ok()?;
     let pairs = root.as_object()?;
     match get(pairs, "v") {
-        Some(Json::Num(literal)) if literal == &VERSION.to_string() => {}
+        // v1 files predate the barrier kind and still read; anything newer is foreign.
+        Some(Json::Num(literal)) if literal == "1" || literal == &VERSION.to_string() => {}
         _ => return None,
     }
     let push_gen = get(pairs, "gen").and_then(parse_u64).unwrap_or(0);
@@ -352,4 +348,14 @@ pub(crate) fn decode(text: &str) -> Option<Doc> {
         redo.push(decode_redo(item)?);
     }
     Some(Doc { undo, redo, push_gen })
+}
+
+// A newer writer owns the file; the reader falls back to memory and never rewrites it.
+pub(crate) fn is_newer_version(text: &str) -> bool {
+    let Ok(root) = parse(text) else { return false };
+    let Some(pairs) = root.as_object() else { return false };
+    match get(pairs, "v") {
+        Some(Json::Num(literal)) => literal.parse::<u64>().is_ok_and(|v| v > VERSION as u64),
+        _ => false,
+    }
 }

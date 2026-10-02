@@ -130,6 +130,12 @@ fn empty_doc() -> Doc {
     Doc { undo: Vec::new(), redo: Vec::new(), push_gen: 0 }
 }
 
+// A newer writer owns the file when its version reads past this reader's own.
+fn is_newer_file(shared: &Shared) -> bool {
+    let Ok(text) = std::fs::read_to_string(shared.journal_path()) else { return false };
+    super::undocodec::is_newer_version(&text)
+}
+
 // A malformed file is ignored with one log line; a missing file is the normal first run.
 fn load(shared: &Shared) -> Doc {
     let path = shared.journal_path();
@@ -239,6 +245,10 @@ pub(crate) fn push_entry(shared: &Shared, entry: &Entry) -> Result<PushResult, (
         return Ok(PushResult::Stored);
     }
     let _guard = lock(shared).map_err(|msg| eprintln!("flea: {}", msg))?;
+    // A newer file is unavailable, never rewritten: the caller falls back to memory.
+    if is_newer_file(shared) {
+        return Err(());
+    }
     let mut doc = load(shared);
     for step in &entry.steps {
         if let Step::Moved { before, after, .. } = step {
@@ -262,32 +272,23 @@ pub(crate) fn push_entry(shared: &Shared, entry: &Entry) -> Result<PushResult, (
 // Every nonce the doc still names, so a journal drops handles for entries it no longer holds.
 pub(crate) fn live_nonces(shared: &Shared) -> Option<std::collections::HashSet<u64>> {
     let _guard = lock(shared).map_err(|msg| eprintln!("flea: {}", msg)).ok()?;
+    if is_newer_file(shared) {
+        return None;
+    }
     let doc = load(shared);
     let mut live = std::collections::HashSet::new();
     for entry in &doc.undo {
         for step in &entry.steps {
-            match step {
-                Step::Copied { manifest_nonce: Some(nonce), .. } => {
-                    live.insert(*nonce);
-                }
-                Step::LocalOnly { nonce, .. } => {
-                    live.insert(*nonce);
-                }
-                _ => {}
+            if let Step::Copied { manifest_nonce: Some(nonce), .. } = step {
+                live.insert(*nonce);
             }
         }
     }
     for stored in &doc.redo {
         if let StoredRedo::Ok(replay) = stored {
             for (step, _, _) in replay.steps_data().1 {
-                match &step {
-                    Step::Copied { manifest_nonce: Some(nonce), .. } => {
-                        live.insert(*nonce);
-                    }
-                    Step::LocalOnly { nonce, .. } => {
-                        live.insert(*nonce);
-                    }
-                    _ => {}
+                if let Step::Copied { manifest_nonce: Some(nonce), .. } = &step {
+                    live.insert(*nonce);
                 }
             }
         }
@@ -295,25 +296,12 @@ pub(crate) fn live_nonces(shared: &Shared) -> Option<std::collections::HashSet<u
     Some(live)
 }
 
-// A foreign marker goes back on top untouched, so the recorder still owns it.
-pub(crate) fn restore_undo(shared: &Shared, entry: Entry) -> Result<(), ()> {
-    let _guard = lock(shared).map_err(|msg| eprintln!("flea: {}", msg))?;
-    let mut doc = load(shared);
-    doc.undo.push(entry);
-    while doc.undo.len() > DEPTH {
-        doc.undo.remove(0);
-    }
-    trim_to_fit(&mut doc);
-    if !fits(&doc) {
-        return Ok(());
-    }
-    store(shared, &doc).map_err(|msg| eprintln!("flea: {}", msg))?;
-    Ok(())
-}
-
 // One locked read-modify-write pops the newest entry; the generation lets finish drop a stale replay.
 pub(crate) fn claim_undo(shared: &Shared) -> Result<Option<(Entry, u64)>, ()> {
     let _guard = lock(shared).map_err(|msg| eprintln!("flea: {}", msg))?;
+    if is_newer_file(shared) {
+        return Err(());
+    }
     let mut doc = load(shared);
     let claimed = doc.undo.pop();
     if claimed.is_some() {
@@ -325,6 +313,9 @@ pub(crate) fn claim_undo(shared: &Shared) -> Result<Option<(Entry, u64)>, ()> {
 // The entry is spent whether the reversal worked or not; a replay lands only with no push since claim.
 pub(crate) fn finish_undone(shared: &Shared, entry: Option<Entry>, changes: &[(ItemIdentity, ItemIdentity)], claimed_gen: u64) -> Result<(), ()> {
     let _guard = lock(shared).map_err(|msg| eprintln!("flea: {}", msg))?;
+    if is_newer_file(shared) {
+        return Err(());
+    }
     let mut doc = load(shared);
     for (old, new) in changes {
         rebase_doc(&mut doc, old, new);
@@ -358,6 +349,9 @@ pub(crate) fn redo_info(shared: &Shared) -> Result<(String, usize), FleaError> {
     let _guard = lock(shared).map_err(|msg| {
         eprintln!("flea: {}", msg);
     }).map_err(|_| FleaError { where_: "redo".into(), path: String::new(), msg: "the shared undo journal is unavailable".into() })?;
+    if is_newer_file(shared) {
+        return Err(FleaError { where_: "redo".into(), path: String::new(), msg: "the shared undo journal is unavailable".into() });
+    }
     let doc = load(shared);
     match doc.redo.last() {
         Some(StoredRedo::Ok(replay)) => Ok((replay.op().to_string(), replay.len())),
@@ -370,6 +364,9 @@ pub(crate) fn redo_info(shared: &Shared) -> Result<(String, usize), FleaError> {
 
 pub(crate) fn claim_redo(shared: &Shared) -> Result<Option<StoredRedo>, ()> {
     let _guard = lock(shared).map_err(|msg| eprintln!("flea: {}", msg))?;
+    if is_newer_file(shared) {
+        return Err(());
+    }
     let mut doc = load(shared);
     let claimed = doc.redo.pop();
     if claimed.is_some() {
@@ -381,6 +378,9 @@ pub(crate) fn claim_redo(shared: &Shared) -> Result<Option<StoredRedo>, ()> {
 // Mirrors Journal::redo's tail: the redone entry rejoins the undo stack, and a failed redo clears it.
 pub(crate) fn finish_redone(shared: &Shared, entry: Entry, changes: &[(ItemIdentity, ItemIdentity)], failed: bool) -> Result<(), ()> {
     let _guard = lock(shared).map_err(|msg| eprintln!("flea: {}", msg))?;
+    if is_newer_file(shared) {
+        return Err(());
+    }
     let mut doc = load(shared);
     for (old, new) in changes {
         rebase_doc(&mut doc, old, new);

@@ -72,48 +72,12 @@ pub enum Step {
     // Permissions for several items: one entry holds every path the Apply changed,
     // so one undo restores them all; a path edited since keeps nothing to restore to.
     Mode { path: PathBuf, before: u32, after: u32 },
-    // A too-big push leaves this small marker in the shared doc with the full entry held locally.
-    LocalOnly { nonce: u64, maker: u32, summary: String },
+    // A too-big push leaves this payload-free barrier in the shared doc; no window keeps the entry.
+    Barrier,
 }
 
-// The codec bounds an op name, so a placeholder truncates an over-long one to fit it.
+// The codec bounds an op name, so a barrier truncates an over-long one to fit it.
 const MAX_OP_LEN: usize = 128;
-// A placeholder names a few paths, never the whole entry, so it always fits the file.
-const PLACEHOLDER_PATHS: usize = 3;
-// The summary is bounded, so one entry with long names still leaves a small marker.
-const PLACEHOLDER_SUMMARY_LEN: usize = 1024;
-
-// A few destination paths joined for the placeholder, truncated to its bound.
-fn summarize_entry(entry: &Entry) -> String {
-    let mut paths = Vec::new();
-    for step in &entry.steps {
-        match step {
-            Step::Moved { from, to, .. } => {
-                paths.push(from.to_string_lossy().into_owned());
-                paths.push(to.to_string_lossy().into_owned());
-            }
-            Step::Created { path } => paths.push(path.to_string_lossy().into_owned()),
-            Step::Linked { path, source, .. } => {
-                paths.push(path.to_string_lossy().into_owned());
-                paths.push(source.to_string_lossy().into_owned());
-            }
-            Step::Copied { from, to, .. } => {
-                paths.push(from.to_string_lossy().into_owned());
-                paths.push(to.to_string_lossy().into_owned());
-            }
-            Step::MadeDir { path, .. } => paths.push(path.to_string_lossy().into_owned()),
-            Step::MadeFile { path, .. } => paths.push(path.to_string_lossy().into_owned()),
-            Step::Trashed(entry) => paths.push(entry.original.to_string_lossy().into_owned()),
-            Step::Mode { path, .. } => paths.push(path.to_string_lossy().into_owned()),
-            Step::LocalOnly { .. } => {}
-        }
-        if paths.len() >= PLACEHOLDER_PATHS {
-            break;
-        }
-    }
-    let joined = paths.join(", ");
-    joined.chars().take(PLACEHOLDER_SUMMARY_LEN).collect()
-}
 
 // The codec refuses an over-long op, so the marker carries the fitting prefix.
 fn placeholder_op(op: &str) -> String {
@@ -125,13 +89,9 @@ fn placeholder_op(op: &str) -> String {
     }
 }
 
-// A placeholder is one local-only step and nothing else, so a mixed entry never matches.
-fn placeholder_of(entry: &Entry) -> Option<(u64, u32)> {
-    if let [Step::LocalOnly { nonce, maker, .. }] = &entry.steps[..] {
-        Some((*nonce, *maker))
-    } else {
-        None
-    }
+// A barrier is one payload-free step and nothing else, so a mixed entry never matches.
+fn is_barrier(entry: &Entry) -> bool {
+    matches!(&entry.steps[..], [Step::Barrier])
 }
 
 // One user-visible operation, however many steps it took, named the way the status bar already named it.
@@ -173,8 +133,6 @@ pub struct Journal {
     next_nonce: u32,
     // Random per journal, so two journals in one process never mint the same nonce.
     nonce_high: u32,
-    // Full entries behind the placeholders this backend stored in the shared doc.
-    local_payloads: std::collections::HashMap<u64, Entry>,
 }
 
 // Four bytes of randomness read once per journal, with no new crate.
@@ -214,7 +172,7 @@ fn process_start_time() -> Option<u64> {
 
 impl Journal {
     pub fn new() -> Journal {
-        Journal { entries: Vec::new(), redo: Vec::new(), shared: None, manifests: std::collections::HashMap::new(), next_nonce: 0, nonce_high: nonce_high_once(), local_payloads: std::collections::HashMap::new() }
+        Journal { entries: Vec::new(), redo: Vec::new(), shared: None, manifests: std::collections::HashMap::new(), next_nonce: 0, nonce_high: nonce_high_once() }
     }
 
     // Production attaches the session journal file; a refused directory keeps the in-memory one.
@@ -222,11 +180,24 @@ impl Journal {
         if self.shared.is_none() {
             self.shared = super::undoshare::Shared::from_env();
         }
+        self.drain_local();
     }
 
     #[cfg(test)]
     pub(crate) fn attach_test_shared(&mut self, dir: std::path::PathBuf) {
         self.shared = super::undoshare::Shared::at(dir);
+        self.drain_local();
+    }
+
+    // Entries pushed before the attach join the shared doc oldest first, so none strands locally.
+    fn drain_local(&mut self) {
+        if self.shared.is_none() || self.entries.is_empty() {
+            return;
+        }
+        let pending = std::mem::take(&mut self.entries);
+        for entry in pending {
+            self.push(entry);
+        }
     }
 
     // A nonce this backend alone can reattach; the random high half keeps it unique across backends.
@@ -235,12 +206,11 @@ impl Journal {
         ((self.nonce_high as u64) << 32) | (self.next_nonce as u64)
     }
 
-    // Drops every manifest and payload whose nonce left the shared doc with its entry.
+    // Drops every manifest whose nonce left the shared doc with its entry.
     fn prune(&mut self) {
         let Some(shared) = self.shared.clone() else { return };
         let Some(live) = super::undoshare::live_nonces(&shared) else { return };
         self.manifests.retain(|nonce, _| live.contains(nonce));
-        self.local_payloads.retain(|nonce, _| live.contains(nonce));
     }
 
     // Test-only: the next nonce without recording anything, so uniqueness is pinned directly.
@@ -292,26 +262,14 @@ impl Journal {
                 for nonce in &nonces {
                     self.manifests.remove(nonce);
                 }
-                // The full entry stays local while a small marker keeps its place in line.
-                let nonce = self.next_nonce();
-                let marker = Entry { op: placeholder_op(&entry.op), steps: vec![Step::LocalOnly { nonce, maker: std::process::id(), summary: summarize_entry(&entry) }] };
-                self.local_payloads.insert(nonce, entry.clone());
-                match super::undoshare::push_entry(&shared, &marker) {
-                    Ok(super::undoshare::PushResult::Stored) => {
-                        self.prune();
-                        return;
-                    }
-                    Ok(super::undoshare::PushResult::TooBig) => {
-                        self.local_payloads.remove(&nonce);
-                    }
-                    Err(()) => {
-                        self.local_payloads.remove(&nonce);
-                        for nonce in &nonces {
-                            self.manifests.remove(nonce);
-                        }
-                        self.shared = None;
-                    }
+                // The payload is kept nowhere: a small barrier keeps the entry's place in line.
+                let barrier = Entry { op: placeholder_op(&entry.op), steps: vec![Step::Barrier] };
+                match super::undoshare::push_entry(&shared, &barrier) {
+                    Ok(super::undoshare::PushResult::Stored) => self.prune(),
+                    Ok(super::undoshare::PushResult::TooBig) => {}
+                    Err(()) => self.shared = None,
                 }
+                return;
             }
             Err(()) => {
                 for nonce in &nonces {
@@ -344,7 +302,7 @@ impl Journal {
         self.entries.is_empty()
     }
 
-    // Shared entries undo from the file with this backend's manifests reattached; a local-only marker reattaches its payload here.
+    // Shared entries undo from the file with this backend's manifests reattached.
     pub fn undo(&mut self) -> Result<String, FleaError> {
         if let Some(shared) = self.shared.clone() {
             let (mut entry, gen) = match super::undoshare::claim_undo(&shared) {
@@ -355,32 +313,10 @@ impl Journal {
                     return Err(FleaError { where_: "undo".into(), path: String::new(), msg: "the shared undo journal is unavailable".into() });
                 }
             };
-            // A marker undoes its local payload here; another window names the maker and keeps the marker.
-            if let Some((nonce, maker)) = placeholder_of(&entry) {
-                if let Some(payload) = self.local_payloads.remove(&nonce) {
-                    let op = payload.op.clone();
-                    let mut changes = Vec::new();
-                    for step in payload.steps.iter().rev() {
-                        match reverse(step) {
-                            Ok(Some((old, new))) => {
-                                changes.push((old.clone(), new.clone()));
-                                self.rebase(&old, &new);
-                            }
-                            Ok(None) => {}
-                            Err(error) => {
-                                let _ = super::undoshare::finish_undone(&shared, None, &changes, gen);
-                                self.prune();
-                                return Err(error);
-                            }
-                        }
-                    }
-                    let _ = super::undoshare::finish_undone(&shared, Some(payload), &changes, gen);
-                    self.prune();
-                    return Ok(op);
-                }
-                let _ = super::undoshare::restore_undo(&shared, entry);
+            // The claim already spent the barrier, so this answers and never replays it.
+            if is_barrier(&entry) {
                 self.prune();
-                return Err(FleaError { where_: "undo".into(), path: String::new(), msg: format!("that operation was recorded in another window (process {maker}), so undo it there") });
+                return Err(FleaError { where_: "undo".into(), path: String::new(), msg: "That operation was too large to undo.".into() });
             }
             for step in &mut entry.steps {
                 if let Step::Copied { manifest, manifest_nonce: Some(nonce), .. } = step {
@@ -513,8 +449,8 @@ pub(crate) fn reverse(step: &Step) -> Result<Option<(ItemIdentity, ItemIdentity)
         Step::MadeFile { path, identity } => remove_new_file(path, identity)?,
         Step::Trashed(entry) => trash::restore(entry)?,
         Step::Mode { path, before, .. } => restore_mode(path, *before)?,
-        // Undo claims the marker first, so reaching one here is a defect, never a file to judge.
-        Step::LocalOnly { .. } => return Err(FleaError { where_: "undo".into(), path: String::new(), msg: "that operation was recorded in another window, so undo it there".into() }),
+        // A claimed barrier never reaches a reversal; refusing here keeps it from running as a file.
+        Step::Barrier => return Err(FleaError { where_: "undo".into(), path: String::new(), msg: "That operation was too large to undo.".into() }),
     }
     Ok(None)
 }
