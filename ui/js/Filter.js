@@ -1,4 +1,5 @@
 .pragma library
+.import "Input.js" as Input
 
 .import "Format.js" as Format
 .import "Match.js" as Match
@@ -248,7 +249,7 @@ function typeKey(event, pane) {
         backspace(pane)
         return true
     }
-    if (event.text.length === 1 && event.text >= " ") {
+    if (Input.isPrintable(event.text)) {
         typed(pane, event.text)
         return true
     }

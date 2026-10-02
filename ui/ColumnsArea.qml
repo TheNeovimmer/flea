@@ -183,6 +183,9 @@ Item {
     // The one column whose rows are the pane's own, for ui/Ipc.qml: a neighbour column's background navigates to its drawn directory first, so no peek lands a background right click at once.
     function activeColumn() { return active }
     readonly property var scrollBar: active.scrollBar
+    readonly property bool dragging: active.dragging || parentColumn.dragging || childColumn.dragging
+        || !!(grandparentLoader.item && grandparentLoader.item.dragging)
+        || !!(greatGrandparentLoader.item && greatGrandparentLoader.item.dragging)
     // All active views accept a view position; the pane maps filtered listing indices before calling.
     function itemAtIndex(index) { return active.itemAtIndex(index) }
     function activeContentY() { return active.contentY() }

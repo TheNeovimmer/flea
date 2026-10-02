@@ -132,6 +132,13 @@ function escaper(query, retreated) {
 }
 
 function run(check) {
+    check("DEL does not mask a cursor key as printable", Focus.leavesLine(key(Qt.Key_Down, "\u007f", Qt.NoModifier)), true)
+    check("a normal letter stays on the query line", Focus.leavesLine(key(Qt.Key_J, "j", Qt.NoModifier)), false)
+    var printablePane = chromePane("list")
+    Focus.handleKey(key(Qt.Key_unknown, "\u007f", Qt.NoModifier), printablePane, printablePane.sidebar)
+    check("DEL produces no type-ahead hint", printablePane.said, "")
+    Focus.handleKey(key(Qt.Key_unknown, "é", Qt.NoModifier), printablePane, printablePane.sidebar)
+    check("a normal unbound letter still produces the filter hint", printablePane.said, "Press / to filter this listing by name.")
     var none = Qt.NoModifier
     var shift = Qt.ShiftModifier
 

@@ -3165,6 +3165,13 @@ The stage2 merge of fs1 and fs5 records `ui/js/Devices.js` at 366, fs1's udisks 
 `mediaRemovable` for the USB power-off chain, and `tests/js/devices.js` at 303 for both units' pins, each over the
 300 hard cap and recorded rather than split, re-derived with `wc -l`.
 
+sg1 records nine narrowly changed ceilings, each re-derived with `wc -l`: `src/backend/undoshare_tests.rs` 513 to 514
+and `src/uischema.rs` 500 to 501 split fused function bodies back into separate lines; `tests/js/focus.js` 728 to 735
+adds DEL and normal-letter event regressions; `ui/Pane.qml` 1009 to 1011 exposes its existing wire to the reload
+dispatcher and the live drag state; `ui/OpenWithDialog.qml` 607 to 608 and `ui/js/Focus.js` 434 to 435 import the
+shared printable helper. `ui/List.qml` 436 to 437, `ui/GridArea.qml` 411 to 412 and `ui/ColumnsArea.qml` 477 to 480
+expose the live drag state used by the existing slow-click tests. Global limits and all checks remain intact.
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.

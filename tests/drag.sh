@@ -375,7 +375,8 @@ aaa_before_r0=$(ls -A "$HOMEDIR/aaa" | tr '\n' ' ')
 printf 's1 payload\n' > "$HOMEDIR/s1.txt"
 expect_ipc total $((r0_before + 1))
 set -- $(screen_centre s1.txt); s1x=$1; s1y=$2
-set -- $(screen_centre aaa);    a1x=$1; a1y=$2
+set -- $(screen_centre aaa)
+a1x=$1; a1y=$2
 native_key -M ctrl -k comma -m ctrl
 expect_ipc settingsOpen true
 warp "$s1x" "$s1y"; sleep 0.4
@@ -403,8 +404,10 @@ echo "== R2: the drop lands where the pointer is, not one frame stale =="
 # and Drag.drop() flushes the pending one first. A stale ghost drops into a folder the drag merely
 # crossed, so this drag crosses aaa deliberately and finishes on bbb.
 set -- $(screen_centre r2.txt); sx=$1; sy=$2
-set -- $(screen_centre aaa);    ax=$1; ay=$2
-set -- $(screen_centre bbb);    bx=$1; by=$2
+set -- $(screen_centre aaa)
+ax=$1; ay=$2
+set -- $(screen_centre bbb)
+bx=$1; by=$2
 warp "$sx" "$sy"; sleep 0.4
 press; sleep 0.3
 glide_to "$ax" "$ay"; sleep 0.4
@@ -423,7 +426,8 @@ echo
 echo "== R3: ctrl decides copy versus move, and the lift is where it is read =="
 # Lift reads Ctrl here, so the copy-alone offer drops a copy while Drag.active ignores later keys.
 set -- $(screen_centre r3.txt); sx=$1; sy=$2
-set -- $(screen_centre aaa);    ax=$1; ay=$2
+set -- $(screen_centre aaa)
+ax=$1; ay=$2
 warp "$sx" "$sy"; sleep 0.4
 ctrl_down; sleep 0.3
 press; sleep 0.3
@@ -443,7 +447,8 @@ echo "== R4: the status line names the folder under the pointer =="
 # dropIndex is not refreshed yet inside onDropIndexChanged and the line read "to a folder" over a
 # folder whose frame was already up.
 set -- $(screen_centre r4.txt); sx=$1; sy=$2
-set -- $(screen_centre bbb);    bx=$1; by=$2
+set -- $(screen_centre bbb)
+bx=$1; by=$2
 warp "$sx" "$sy"; sleep 0.4
 press; sleep 0.3
 glide_to "$bx" "$by"; sleep 0.8
