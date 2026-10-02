@@ -23,9 +23,7 @@ function begin(pane, wire) {
     }
     if (pane.searchMode.length > 0)
         return false
-    // Recent is a history standing on the root, not the root itself: re-listing
-    // the pane path would draw "/" over the place just left, so the history is
-    // re-read instead, under the same notice shape.
+    // Recent stands on the root, so the history is re-read instead of listing root.
     if (pane.recentMode && pane.recentMode.length > 0) {
         pane.reloadFrom = pane.total
         RecentMode.refresh(pane, "")
