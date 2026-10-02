@@ -152,6 +152,33 @@ function run(check) {
     wired(check)
     failedClears(check)
     busyMenu(check)
+    refusedRow(check)
+}
+
+// The real ui/RowDrag.qml over a stub pane: a refused folder row stays dark and names its
+// refusal instead of a verb, and a refused drop darkens exactly like dropped().
+function refusedRow(check) {
+    var said = []
+    var at = Fixture.scene(7, said)
+    var p = at.pane, session = at.session, target = at.target
+    var marker = Drag.markerPayload([2], false, "/d", 56)
+    var selfUrls = ["file:///d/omarchy"]
+    check("a refused folder row is not entered", target.enter(marker, selfUrls, "", "", Qt.CopyAction), false)
+    check("and it never lights as a target", session.dropIndex, -1)
+    check("and it says the refusal instead of a verb", said.join("|"), "That folder is inside the drag.")
+    check("with no verb armed and no feedback", session.dragCopy + "|" + session.dragLink + "|" + session.feedback, "false|false|null")
+    check("an eligible folder row still lights", target.enter("", ["file:///x/a.txt"], "", "", Qt.CopyAction), true)
+    check("on the hovered row with the offered verb", session.dropIndex + "|" + session.dragCopy, "2|true")
+    session.dropIndex = 2
+    session.dragCopy = true
+    check("a refused drop says the sentence",
+          target.refuseDrop(marker, selfUrls, "", ""), "That folder is inside the drag.")
+    check("and darkens the row it had lit", session.dropIndex, -1)
+    check("and disarms the verb", session.dragCopy + "|" + session.dragLink, "false|false")
+    session.dropIndex = 2
+    check("an eligible drop refuses nothing and keeps the row lit",
+          target.refuseDrop("", ["file:///x/a.txt"], "", "") + "|" + session.dropIndex, "|2")
+    at.parent.destroy()
 }
 
 // A watcher re-read landing while a menu action waits loses the rename: the

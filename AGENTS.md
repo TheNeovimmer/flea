@@ -3247,16 +3247,17 @@ waits for its consumer.
   because `Drag.active = true` runs a nested event loop in which **the window receives no key
   events at all**, so the `Keys.onPressed` handler carrying ctrl never fired and every
   ctrl-copy silently became a move. The file still arrived, so nothing looked wrong.
-- **Copy versus move is one function, and the modifiers are read at the lift.**
-  Same device moves, another device copies, Ctrl forces a copy, Shift forces a move. A device
+- **Copy versus move versus link is one function, and the modifiers are read at the lift.**
+  Same device moves, another device copies, Ctrl forces a copy, Shift forces a move, Ctrl with
+  Shift links. A link needs no device and no deletable source. A device
   that could not be read copies, and a source that cannot be deleted copies, unless Shift is
   held. A drag that started in another process follows that same device rule. A plain lift's
-  `Drag.supportedActions` offers both `Qt.CopyAction` and `Qt.MoveAction`: Qt hands that straight
-  to Chromium as `effectAllowed`, and offering move is what made Chromium report `dropEffect: move`,
-  which Google's uploader refused in 0.1.4. The plain offer stays, because dropping move would also
-  stop Files from moving; a Chromium upload can still refuse the drag. Ctrl at the lift offers copy
-  alone and Shift offers move alone, because Files takes a move whenever a move is offered and does
-  not have to notice the key Flea read. Files accepts a move and then
+  `Drag.supportedActions` offers `Qt.CopyAction` alone: Qt hands that straight
+  to Chromium as `effectAllowed`, and a move offer is what made Chromium report `dropEffect: move`,
+  which Google's uploader refused in 0.1.4. Ctrl at the lift offers copy
+  alone, Shift offers move alone, and Ctrl with Shift offers a link alone, because a receiver
+  takes whatever is offered and does not have to notice the key Flea read, so it still takes
+  the lift's verb. Files accepts a move and then
   moves the uri-list itself, after `dragFinished`, so Flea does not delete on that acceptance:
   doing so trashes the files before Files has read them and the destination never gets them. A
   drop this window's own transfer handles accepts copy instead, and the transfer does the move
@@ -3267,7 +3268,8 @@ waits for its consumer.
   `ctrl copies and shift moves, read at lift` rather than claiming the key still works
   mid-drag. `drag.sh` proves a same-device move and a Ctrl copy but needs the display and a
   real pointer, so `dragwire.sh` carries the offer into the headless battery: a leaving drag
-  must offer both actions and `text/uri-list`, and the shelf drag stays copy only.
+  must offer copy alone and `text/uri-list`, a link lift must offer `Qt.LinkAction`,
+  and the shelf drag stays copy only.
 - **It drives the pointer through uinput, never `omarchy-drive drag`**, which cannot drive a Qt
   client at all: it interpolates through `hl.dsp.cursor.move`, which emits `wl_pointer.motion`
   with no `wl_pointer.frame`, and Qt dispatches buffered pointer events only on `frame`. A drag

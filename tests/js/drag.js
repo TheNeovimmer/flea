@@ -360,4 +360,39 @@ function run(check) {
     check("and under a link offer", Drag.dropVerb(helperMarker, Qt.LinkAction, 56), "move")
     check("a foreign move offer still moves with no marker", Drag.dropVerb("", Qt.MoveAction, 0), "move")
     check("a foreign copy offer still copies with no marker", Drag.dropVerb("", Qt.CopyAction, 0), "copy")
+
+    // The lift's own round trip: the marker built the way FileDrag.liftBegan builds it, from the
+    // lift's ctrl and shift bits, read back through dropVerb, feedbackLine and the badge label.
+    // Hand-built markers cannot catch a lift that drops the shift field, a feedback that ignores
+    // it, or a badge that never links, so each row below travels the real mimeFor path.
+    var lifts = [
+        { mods: Qt.NoModifier, same: "move", cross: "copy" },
+        { mods: Qt.ControlModifier, same: "copy", cross: "copy" },
+        { mods: Qt.ShiftModifier, same: "move", cross: "move" },
+        { mods: Qt.ControlModifier | Qt.ShiftModifier, same: "link", cross: "link" }
+    ]
+    for (var li = 0; li < lifts.length; li++) {
+        var lift = lifts[li]
+        var bay = pane([], [], rows)
+        bay.backend.dirDev = 56
+        var lifted = Drag.mimeFor(bay, [2, 3], Drag.copying(lift.mods), Drag.shifting(lift.mods))
+        var tag = lift.mods === Qt.NoModifier ? "plain" : lift.mods === Qt.ControlModifier ? "ctrl"
+            : lift.mods === Qt.ShiftModifier ? "shift" : "ctrl with shift"
+        check("a " + tag + " lift keeps its shift in the marker", Drag.markerShift(lifted[Drag.ROWS_MIME]), Drag.shifting(lift.mods))
+        var arms = [["same device", 56, lift.same], ["across devices", 7, lift.cross]]
+        for (var ai = 0; ai < arms.length; ai++) {
+            var spot = arms[ai][0], into = arms[ai][1], verb = arms[ai][2]
+            var hostile = verb === "move" ? Qt.CopyAction : Qt.MoveAction
+            var back = Drag.feedbackFor(lifted[Drag.ROWS_MIME], lifted["text/uri-list"].split("\r\n"), "", hostile)
+            var want = verb === "move" ? "Move 2 items to omarchy · ctrl copies and shift moves, read at lift"
+                : verb === "copy" ? "Copy 2 items to omarchy" : "Link 2 items to omarchy"
+            var badge = verb === "move" ? "move here" : verb === "copy" ? "copy here" : "link here"
+            check("a " + tag + " lift " + spot + " drops as " + verb,
+                  Drag.dropVerb(lifted[Drag.ROWS_MIME], hostile, into), verb)
+            check("and its status line says " + verb,
+                  Drag.feedbackLine(back, "omarchy", into), want)
+            check("and its badge says " + verb,
+                  Drag.label(Drag.copyingFor(back, into), Drag.linkingFor(back, into)), badge)
+        }
+    }
 }

@@ -10935,10 +10935,10 @@ xwdrag_wait_path() {
 }
 
 xwdrag_wait_row_gone() {
-    local id="$1" want="$2" i total n
-    for i in $(seq 1 20); do
+    local id="$1" want="$2" total
+    local deadline=$(( $(date +%s%N) + 1000000000 ))
+    while (( $(date +%s%N) < deadline )); do
         total=$(xwdrag_qs "$id" total 2>/dev/null || printf -1)
-        n=$(xwdrag_qs "$id" rowAt 0 2>/dev/null || true)
         if [[ "$total" != "-1" ]]; then
             local found=1 r seen
             for r in $(seq 0 $((total - 1))); do
