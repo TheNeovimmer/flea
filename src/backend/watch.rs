@@ -75,6 +75,7 @@ impl Watch {
     }
 
     // Armed beside the current watch, so a scan that fails costs the open folder nothing.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn begin(&mut self, path: &Path) {
         self.drop_one(self.incoming);
         self.incoming = self.add(path);
@@ -100,6 +101,14 @@ impl Watch {
         }
         self.incoming = -1;
         self.incoming_mount = std::path::PathBuf::new();
+    }
+
+    // A failed scan armed its watch on the worker, so the loop removes that descriptor too; an aliased re-list stays.
+    pub fn abandon_wd(&mut self, wd: c_int) {
+        if wd >= 0 && wd != self.wd {
+            self.drop_one(wd);
+        }
+        self.abandon();
     }
 
     pub fn stop(&mut self) {
@@ -133,7 +142,25 @@ impl Watch {
             Err(_) => -1,
         }
     }
-
+    // The listing worker adds the watch, so a dead mount never blocks the loop.
+    pub(crate) fn raw_fd(&self) -> c_int {
+        self.fd
+    }
+    // The worker's descriptor becomes the incoming watch the commit takes over.
+    pub(crate) fn set_incoming(&mut self, wd: c_int) {
+        self.drop_one(self.incoming);
+        self.incoming = wd;
+    }
+    // One inotify_add_watch on a worker, never on the loop, keyed by mount outside.
+    pub(crate) fn add_raw(fd: c_int, path: &Path) -> c_int {
+        if fd < 0 {
+            return -1;
+        }
+        match CString::new(path.as_os_str().as_encoded_bytes()) {
+            Ok(c) => unsafe { inotify_add_watch(fd, c.as_ptr(), MASK) },
+            Err(_) => -1,
+        }
+    }
     fn drop_one(&self, wd: c_int) {
         if self.fd >= 0 && wd >= 0 {
             unsafe { inotify_rm_watch(self.fd, wd) };
@@ -378,6 +405,71 @@ mod tests {
 
         sandbox.file("after-an-abandoned-relist.txt", "x");
         assert!(saw_a_create(fd, live), "the abandoned re-list took the open folder's watch with it");
+    }
+
+    // A removal queues IN_IGNORED synchronously, so one nonblocking read observes it with no wait.
+    const IN_IGNORED: u32 = 0x0000_8000;
+    // Sample input: wd 1, mask 0x00000100, cookie 0, len 16, then "NEWFILE.txt\0\0\0\0\0".
+    fn ignored_wds(fd: c_int) -> Vec<c_int> {
+        let mut buf = [0u8; BUF];
+        let mut out = Vec::new();
+        loop {
+            let n = unsafe { read(fd, buf.as_mut_ptr() as *mut c_void, BUF) };
+            if n <= 0 {
+                break;
+            }
+            let mut at = 0;
+            while at + EVENT_HEADER <= n as usize {
+                let wd = i32::from_ne_bytes([buf[at], buf[at + 1], buf[at + 2], buf[at + 3]]);
+                let mask = u32::from_ne_bytes([buf[at + 4], buf[at + 5], buf[at + 6], buf[at + 7]]);
+                let len = u32::from_ne_bytes([buf[at + 12], buf[at + 13], buf[at + 14], buf[at + 15]]) as usize;
+                if mask & IN_IGNORED != 0 && !out.contains(&wd) {
+                    out.push(wd);
+                }
+                at += EVENT_HEADER + len;
+            }
+        }
+        out
+    }
+
+    // A late worker hands its descriptor back instead of removing it, so a re-list of the open folder keeps its watch.
+    #[test]
+    fn a_late_re_list_of_the_open_folder_keeps_its_watch() {
+        let sandbox = crate::backend::testdir::TestDir::new("watch-late");
+        let fd = unsafe { inotify_init1(IN_CLOEXEC | IN_NONBLOCK) };
+        assert!(fd >= 0, "this box has no inotify to test with");
+        let mut w = Watch { fd, wd: -1, incoming: -1, mount: std::path::PathBuf::new(), incoming_mount: std::path::PathBuf::new() };
+        w.begin(sandbox.path());
+        w.commit();
+        let live = w.wd;
+        assert!(live >= 0, "the sandbox could not be watched");
+        let late = Watch::add_raw(fd, sandbox.path());
+        assert_eq!(late, live, "a re-list of one inode aliases onto the descriptor it has");
+        w.abandon_wd(late);
+        sandbox.file("after-a-late-relist.txt", "x");
+        assert!(saw_a_create(fd, live), "the late re-list took the open folder's watch with it");
+    }
+
+    // A failed scan's descriptor goes, but a failed re-list aliases onto the live one, which stays.
+    #[test]
+    fn abandon_wd_removes_only_a_watch_that_is_not_live() {
+        let a = crate::backend::testdir::TestDir::new("abandon-a");
+        let b = crate::backend::testdir::TestDir::new("abandon-b");
+        let fd = unsafe { inotify_init1(IN_CLOEXEC | IN_NONBLOCK) };
+        assert!(fd >= 0, "this box has no inotify to test with");
+        let mut w = Watch { fd, wd: -1, incoming: -1, mount: std::path::PathBuf::new(), incoming_mount: std::path::PathBuf::new() };
+        w.begin(a.path());
+        w.commit();
+        let live = w.wd;
+        assert!(live >= 0, "the sandbox could not be watched");
+        let other = Watch::add_raw(fd, b.path());
+        assert!(other >= 0 && other != live, "the second sandbox arms its own descriptor");
+        assert!(ignored_wds(fd).is_empty(), "arming queues no removal");
+        w.abandon_wd(other);
+        assert_eq!(ignored_wds(fd), vec![other], "the failed scan's descriptor is removed");
+        assert!(w.is_current(live), "the open folder is still followed");
+        w.abandon_wd(live);
+        assert!(ignored_wds(fd).is_empty(), "a failed re-list aliases onto the live watch, which stays");
     }
 
     // No descriptor in these two, so they pin the bookkeeping alone; the one above pins the syscall.

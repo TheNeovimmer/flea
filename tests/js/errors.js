@@ -101,6 +101,13 @@ function run(check) {
     check("a stale refusal says nothing was done, not that something failed partway",
           Errors.sentence("stale", "the listing changed before this request arrived"),
           "The listing changed before that arrived, so nothing was done.")
+    // src/backend/iomount.rs: a window past its deadline names its mount, which the pane keeps.
+    check("a window timeout reads back as the backend's own sentence",
+          Errors.sentence("window", "/hung is not responding."),
+          "/hung is not responding.")
+    check("and an empty window message still yields a sentence rather than a bare stop",
+          Errors.sentence("window", ""),
+          "That action could not be completed; try again.")
     check("a transfer failure reads back as the backend's own sentence",
           Errors.sentence("transfer", "the destination is not a directory"),
           "The destination is not a directory.")

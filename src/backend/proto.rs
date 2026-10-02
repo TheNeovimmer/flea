@@ -244,8 +244,8 @@ pub fn located_many_line(directory: &str, id: usize, transfer_id: usize, matches
         escape(directory), id, transfer_id, matches.join(","), error.is_none(), escape(error.unwrap_or_default()))
 }
 
-pub fn listed_line(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str) -> String {
-    say_listed(n, read_ms, sort_ms, dev, path, crate::backend::ops::dir_writable(std::path::Path::new(path)))
+pub fn listed_line(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str, writable: bool) -> String {
+    say_listed(n, read_ms, sort_ms, dev, path, writable)
 }
 
 // `w` is whether this user can create or delete entries here; a drag from one that cannot copies.
@@ -257,8 +257,8 @@ pub(crate) fn say_listed(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &
 }
 
 // The anchor's index in the new order, or -1; the fields ride last, so an unanchored reply is the line above exactly.
-pub fn listed_line_anchor(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str, anchor: &str, anchor_index: isize) -> String {
-    with_anchor(&listed_line(n, read_ms, sort_ms, dev, path), anchor, anchor_index)
+pub fn listed_line_anchor(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str, writable: bool, anchor: &str, anchor_index: isize) -> String {
+    with_anchor(&listed_line(n, read_ms, sort_ms, dev, path, writable), anchor, anchor_index)
 }
 
 // A listed line with the anchor fields added before its closing brace.
@@ -310,6 +310,11 @@ pub fn paths_line(paths: &[String]) -> String {
     }
     out.push_str("]}");
     out
+}
+
+// Sample output: {"t":"slow","op":"rename","path":"/hung/a.txt","msg":"/hung is slow. The rename continues and will finish on its own."}
+pub fn slow_line(op: &str, path: &str, msg: &str) -> String {
+    format!(r#"{{"t":"slow","op":"{}","path":"{}","msg":"{}"}}"#, escape(op), escape(path), escape(msg))
 }
 
 // Sample output: {"t":"linked","ok":2,"failed":0,"skipped":1}

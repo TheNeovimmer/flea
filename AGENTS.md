@@ -214,7 +214,11 @@ itself raced, a hole the width of one readdir: reproduced on the 100,000 file fi
 create during the scan answered no `changed` line at all and the same create a second later
 answered one. The new watch is armed BESIDE the current one rather than in place of it, so a scan
 that fails costs the directory still on screen nothing: `commit` drops the old watch only once the
-new listing replaced it, and `abandon` drops the new one when the scan failed. Replacing it up front
+new listing replaced it. The scan runs on the list worker, so the arming does too:
+`Watch::add_raw` before the scan, `set_incoming` plus `commit` on success, and `abandon_wd`
+dropping the armed descriptor on failure; a worker that outlives its call hands its descriptor
+back as `Event::AbandonWatch`, and the loop drops it unless a re-list aliased it onto the live watch.
+Replacing it up front
 was the first fix and it was wrong, because a failed list then handed the open directory a new
 descriptor and `is_current` dropped anything still carrying the old one.
 Its reader thread sends the loop an `Event::Changed(wd)`, and the loop answers
@@ -281,6 +285,39 @@ listing does not draw a partial size, so a row's size follows `IN_CLOSE_WRITE` i
 read twice. The second read is anchored the same way and moves nothing the user can see. Suppressing
 it would mean deciding that a `changed` arriving during a listing belongs to that listing, which is
 exactly the guess that would drop a real outside change, so it is paid rather than guessed at.
+
+## Mount workers
+
+Path syscalls leave the loop for mount-keyed workers, which is what keeps one hung server from
+wedging the window. `src/backend/iomount.rs` owns the mechanism. `mount_key` names the mount a
+path sits under lexically, never by stat, so a dead server costs no syscall there, and `is_remote`
+says whether its syscalls can wedge: gvfs, network fstypes and any FUSE daemon. A local mount runs
+inline with no hop. A remote one runs on a worker with a deadline, `CALL_DEADLINE` of 5 s for a
+single call and `BULK_DEADLINE` of 15 s for a bulk pass, and past it the loop answers
+"<mount> is not responding." A mount past its deadline is marked stuck for `STUCK_TTL` of 30 s, and
+a call on one answers at once without a worker until that passes, when the next request probes it
+again. A worker that dies before answering is this machine's fault and marks nothing: only a
+deadline still running marks the mount stuck. A remote write runs on its own worker with
+CALL_DEADLINE, as reads do, and the loop never waits on it longer than that: a local write stays
+inline with no hop, an in-time remote write answers exactly as before, and past the deadline the loop
+answers a `slow` line and moves on, never marking the mount stuck for a write still running. The worker
+stays tracked and reports through the op channel when it lands, journalled exactly as the in-time path
+would, so one journal entry per request and one undo reverses it. A multi-item link that goes slow
+finishes its remaining items on the worker side, then answers one `linked` line and one journal entry
+when the batch lands. A worker that dies before answering is this machine's fault and marks nothing,
+like a dead read worker.
+
+What runs where: `list_dir` scans, sorts and stats the first window on the worker; `search` reads
+each directory as one bound call returning (name, is_dir) pairs; `window` stats inline with no
+listing clone on a local mount and moves only the window's rows to the worker on a remote one;
+`sort` re-sorts on the bulk worker; `peek`, `thumb` and `listpaths` bound their per-row stats the
+same way; the search root's dev and writability go through the bound before any walk starts.
+`listpaths`' first window is the exception that still stats on the loop: its `answer` ends in
+`write_window`, which runs `stat_range` on the loop's thread directly. The watch is armed on the
+list worker beside the current one: `Watch::add_raw` before the scan, `set_incoming` plus
+`commit` on success, and on failure the loop drops the armed descriptor through `abandon_wd`;
+a worker that outlives its call hands its descriptor back as `Event::AbandonWatch` for the same
+guarded drop, kept when a re-list aliased it onto the live watch.
 
 ## The listing swap
 
@@ -2093,7 +2130,8 @@ refusal ahead of the dispatch, the numbering's first value and its move in `forg
 and its tests are `src/backend/rowguard.rs`. It moved the listing's `listed` and `rows` handling out of
 `ui/PaneWire.qml` whole into `ui/PaneSwap.qml`, inside the soft budget, which took `ui/PaneWire.qml` from 485
 to 453, under its recorded ceiling.
-Its review then moved the list arm's success tail into `run::adopt`, which prewarm's test drives, and the
+Its review then moved the list arm's success tail into `run::adopt_listed`, which the `list_dir`
+writability test drives, and the
 backend's start into `State::new` and `Tables::load`, which took `src/backend/run.rs` back down to 427, now
 its recorded ceiling.
 `src/uistate.rs` goes from 440 to 442 for `Rule::Version`, one arm in `fits` and the refusal in `check`
@@ -5338,31 +5376,28 @@ the transfer's are, or a menu's captured selection.
 `trash`, `duplicate` or `link` while one is live answers an `error` line rather than queueing. `permissionsBatch` is
 refused the same way while one runs, without taking the slot. The reason is the
 surface, not the backend: the operations design gives transfers the status bar's single transient slot,
-so a second concurrent operation would have nowhere to report itself. `rename` and `mkdir` are exempt because
-neither spawns at all. An `archive` extract takes the transfer slot, so a copy, move or second extract
+so a second concurrent operation would have nowhere to report itself. `rename` and `mkdir` are exempt on a local mount, where
+neither spawns at all; a remote one records a pending slow write for its mount instead, see below. An `archive` extract takes the transfer slot, so a copy, move or second extract
 is refused busy while one runs; a compress and a convert never claim it: `Ops::claim_id` numbers them
 and they run alongside by design, tracked in the detached registry a quit cancels, so the cap was never one write of any kind.
 
-**`rename` and `mkdir` run on the loop's thread; `transfer`, `trash`, `duplicate` and `link` spawn.** Both normally take one
+**A local `rename` or `mkdir` answers on the loop's thread; a remote one runs on a worker.** Both normally take one
 syscall, but neither compatibility path below is one: an rclone directory rename copies the whole
 tree and a GVFS WebDAV rename copies whatever the path is, file or tree, before removing the source,
-inline on the loop's thread. That is an unbounded network transfer in the one place nothing else can
-run. A 40 GB rclone folder is downloaded and re-uploaded through FUSE with no progress, because the
-copy's byte sink is discarded, and with no way to cancel, because its flag is a fresh `AtomicBool`
-nothing can set; the loop is the only writer of stdout, so the application is frozen rather than
-slow for the whole transfer. The copied tree carries the source mtime best effort, so a Date Modified column or sort still shows the file's own history. **The alternative to this freeze is not data loss, and any
-sentence saying it is has been wrong.** `duplicate` and `transfer` already spawn and report through
-`Event::Op`, and `rename` could do the same while still building its target through the exclusive
-copy primitives: spawning the copy and refusing to replace a raced destination are independent
-choices, so taking the first has never required giving up the second. Spawning was not taken here
-because a spawn that answers this complaint needs the progress and the cancel the inline copy throws
-away, which turns `rename` from answer-once into started, progress and done and puts it in the
-one-at-a-time `running` slot `do_rename` has never claimed. That is a wire-contract change on the eve
-of a release, on the one unit that has already taken five review rounds, one of which produced a
-data-loss defect, and hard rule 6 would then want every state of that new asynchronous path
-exercised live. Say the cost plainly rather than burying it: for a large rclone
-directory this build is worse than the one before it, which failed the rename with a sentence
-instead of hanging the window. Spawning the copy is the first item of the next release.
+and the copied tree lands with new modification times, since the crate
+has no dependencies and the copy sets none, so a Date Modified column or sort shows when the copy
+ran rather than the file's own history. On a local mount that copy runs inline on the loop's thread, as it always has.
+On a remote mount, rclone and WebDAV included, which "Mount workers" classifies without a syscall, the write runs on
+`slow_write_with`'s worker instead: past `CALL_DEADLINE` the loop answers a `slow` line and moves on, and the worker
+reports late through `Event::Op`, journalled exactly as the in-time answer would have been. The window no longer freezes,
+though the copy still has no progress and no cancel, because the worker runs the copy to its end and the late result
+carries no byte counts and answers no cancel id. The `slow` line releases the one-at-a-time slot for its own id
+at once, so writes on other mounts and on local paths run while the held write is still going; the write is recorded
+as pending under the remote mount root its paths sit on instead. A write any of whose sources or target sits on a
+mount with a pending slow write answers busy and journals nothing, and `undo` and `redo` answer busy naming the
+pending path until the late entry lands, so no reversal races it. The late Done journals exactly as the in-time
+answer would have and clears only its own pending entry, and one undo still reverses the late write like any other
+entry. There is still no cancel and no progress for the running write.
 `trash` shells to `gio` twice for the list diff plus once to trash; `duplicate` may copy a
 whole tree; a `transfer` is unbounded; a `link` Replace moves the name already there through `gio` first. Those four send their results back through `Event::Op`,
 joined onto the loop's receiver exactly the way the thumbnail pool's `Event::Thumb` already is, so
@@ -6025,21 +6060,23 @@ this cannot become a directory sweep. `t` stays true for every symlink whatever 
 target, which is a documented gap the renderer guards against rather than a narrowing
 this made.
 
-That second call follows the link, and following a link is a blocking syscall with no
-timeout on the one thread that answers requests. A symlink pointing into a mount that has
-stopped answering therefore stalls the backend itself, not just the row that named it.
+That second call follows the link, and following a link is a blocking syscall. On a remote
+mount that syscall no longer runs on the loop: the window stat goes through `window_metas` in
+`backend/run.rs`, which stats inline with no listing clone on a local mount and moves only the
+window's rows to a mount-keyed worker on a remote one, bounded by `CALL_DEADLINE` like every
+`iomount::call`. The thumbnail path is bounded the same way: `thumb_rows` in `backend/thumbreq.rs`
+stats each client-named row through `iomount::call` under `"thumb"` before it queues anything.
+`listpaths` is the exception that still stats on the loop: its `answer` ends in `write_window`,
+which runs `stat_range` on the loop's thread directly.
 This box has no NFS, no CIFS and no sshfs, but it does mount `fuse.gvfsd-fuse` at
 `/run/user/1000/gvfs` and `fuse.portal` at `/run/user/1000/doc`, so a symlink into a live
 gvfs mount whose server goes away is a reachable case here rather than a hypothetical.
 The exposure is bounded by the window: `stat_range` only ever runs over the rows a client
 asked for, so a 100,000 row listing with 350 rows held makes at most 350 of these calls,
-and only for the symlinks among those 350. It is not defended against in code on purpose.
-There is no way to put a timeout on a synchronous `stat` without giving each row its own
-thread, which is an absurd price for an icon, and the precedent is already shipped:
-`thumb_rows` in `backend/run.rs` calls `std::fs::metadata` on a client-named path, also
-following the link, also on this loop, and Plan 4 shipped that deliberately. A real fix is
-one asynchronous stat path for both call sites and belongs to whichever plan takes on
-non-blocking IO, not to an icon change.
+and only for the symlinks among those 350. There is no way to put a timeout on a synchronous
+`stat` without giving each row its own thread, which is an absurd price for an icon, so the
+bound above is per window rather than per row: one hung symlink in the window still costs the
+window its deadline, answered as "<mount> is not responding." on a remote mount. `window_metas` picks the path by the listing's base (`run.rs:506`), so a local listing's symlink into a hung mount still follow-stats on the loop through `stat_range` (`meta.rs:111`) and stalls the backend, and that corner stays undefended on purpose.
 
 190 of the 613 distinct `application/*` types in `globs2` have no `generic-icons` entry on
 this box and fall through to the class arm. Both counts move with the installed applications,
@@ -7171,3 +7208,5 @@ tp2-r2 moved detail (advfix-tp2-r1 cut the runs above to one constraint line eac
 Advfix-scroll round 2 records two over-cap ceilings, each re-derived with `wc -l`: `tests/touchpad.qml` 452 to 454 as a new over-cap test exception (round 1's end at 452 for the angle-free and real-press and notch stops, plus 2 for the round 2 angleFree mid-list park that makes a notch-routed frame move 9.6 px instead of clamping at the last page) and `ui/PickerWindow.qml` 770 to 776 for pk1's onListed fsinfo ask (the grid plans thumbnails against the storage class, asked only when the listing lands and never for Recent).
 
 Advfix-scroll round 3 names the 400 px park once, re-derived with `wc -l`: `tests/touchpad.qml` 454 to 456 for `parkAbovePx` beside `rowCount` with its one-line comment, used at both parks, so no bare 400 remains.
+
+mg-stage3 records two over-cap ceilings, each re-derived with `wc -l`: `src/backend/undo.rs` at 601 for the shared journal (the pinned Mode with its birth time, the payload-free barrier with its codec helpers, and the manifest reattach) with its undo, redo and codec tests beside it, and `src/backend/undoshare_tests.rs` at 513 for the shared-journal pins (the two-window undo and redo, the barrier consume, the exact-integer round trip with the pinned birth time, and the oversized-entry trims), each over the hard cap and recorded rather than split.

@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::thread;
 use super::menu_actions::{validate_sources, Selected};
 use super::opsdispatch::menu_sources;
+use super::opsdispatch::pending_busy_for;
 
 
 pub fn archivestarted_line(id: usize) -> String {
@@ -138,6 +139,18 @@ pub fn start_archive(
         out.flush().ok();
         return;
     }
+    // A source or target on a pending mount waits; writes elsewhere run beside the held write.
+    let mut sources: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+    if !compressing {
+        sources.push(archive.clone());
+    }
+    if let Some(items) = &selection {
+        sources.extend(items.iter().map(|item| item.path.clone()));
+    }
+    let target = dest.clone();
+    if pending_busy_for(out, ops, "archive", &sources, &[target]) {
+        return;
+    }
     // A compress runs alongside by design, so its flag is tracked for a quit to set.
     let (id, cancel) = if compressing { (ops.claim_id(), Arc::new(AtomicBool::new(false))) } else { ops.claim_transfer() };
     if compressing {
@@ -160,6 +173,17 @@ pub fn start_archive(
 pub fn start_convert(out: &mut impl Write, ops: &mut Ops, input: PathBuf, dest: PathBuf, strip: bool,
                      menu_id: usize, request_id: usize, check: bool) {
     let selection = menu_sources(ops, menu_id);
+    // A source or target on a pending mount waits; a check only probes and never waits.
+    if !check {
+        let mut sources = vec![input.clone()];
+        if let Ok(Some(items)) = &selection {
+            sources.extend(items.iter().map(|item| item.path.clone()));
+        }
+        let target = dest.clone();
+        if pending_busy_for(out, ops, "convert", &sources, &[target]) {
+            return;
+        }
+    }
     let result = match &selection {
         Ok(items) => check_convert(&input, &dest, items.as_deref()),
         Err(error) => Err(error.clone()),

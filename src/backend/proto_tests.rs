@@ -193,10 +193,10 @@ fn a_listed_line_says_when_the_directory_cannot_be_written() {
     // Marked sandbox, so a failed assert cannot leave a 0o555 dir behind.
     let d = crate::backend::testdir::TestDir::new("listed-w");
     let dir = d.dir("w");
-    let open = listed_line(1, 0.0, 0.0, 1, &dir.to_string_lossy());
+    let open = listed_line(1, 0.0, 0.0, 1, &dir.to_string_lossy(), crate::backend::ops::dir_writable(&dir));
     assert!(open.contains(r#""w":true"#), "{open}");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
-    let locked = listed_line(1, 0.0, 0.0, 1, &dir.to_string_lossy());
+    let locked = listed_line(1, 0.0, 0.0, 1, &dir.to_string_lossy(), crate::backend::ops::dir_writable(&dir));
     assert!(locked.contains(r#""w":false"#), "{locked}");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
@@ -316,4 +316,12 @@ fn a_jump_request_carries_both_client_sources_and_a_bare_one_carries_none() {
         Request::Jump { id: 4, favourites, recent } if favourites == ["/home/gm/Projects"] && recent == ["/home/gm/a, b.txt"]));
     assert!(matches!(parse_request(r#"{"c":"jump"}"#),
         Request::Jump { id: 0, favourites, recent } if favourites.is_empty() && recent.is_empty()));
+}
+
+#[test]
+fn slow_names_its_op_path_and_sentence() {
+    assert_eq!(
+        slow_line("rename", "/hung/a.txt", "/hung is slow. The rename continues and will finish on its own."),
+        r#"{"t":"slow","op":"rename","path":"/hung/a.txt","msg":"/hung is slow. The rename continues and will finish on its own."}"#
+    );
 }

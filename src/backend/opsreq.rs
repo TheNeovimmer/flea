@@ -63,9 +63,26 @@ pub enum OpMsg {
     DetachedDone { id: usize, line: String },
     // A collisions answer, kept as the latest question before its line goes out; it claims no slot.
     Asked { turn: usize, question: crate::backend::collide::Question, line: String },
-    // Not an operation: meta rides this channel because a media probe is a subprocess and the loop
+    // A slow remote write reporting late: the loop journals it exactly as the in-time path would.
+    RenameDone { id: usize, result: Result<(PathBuf, Vec<Step>), FleaError> },
+    MkdirDone { id: usize, result: Result<(PathBuf, Vec<Step>), FleaError> },
+    // A slow link's late answer; only the test-only slow path constructs it, the loop still lands it.
+    #[cfg_attr(not(test), allow(dead_code))]
+    LinkDone { id: usize, result: Result<LinkOutcome, FleaError> },    // Not an operation: meta rides this channel because a media probe is a subprocess and the loop
     // must not wait on one. Nothing about it claims the one-at-a-time slot.
     Meta { line: String },
+}
+
+// One link request's whole answer: its counts, its journal steps and the first failure's words.
+pub struct LinkOutcome {
+    pub ok: usize,
+    pub failed: usize,
+    pub skipped: usize,
+    pub steps: Vec<Step>,
+    pub first_err: String,
+    pub dest: String,
+    // Each stranded replace sentence, reported on the linked line ahead of the undo hint.
+    pub note: String,
 }
 
 // moving is the verb the request actually resolved to, so the client names the operation from the
@@ -153,12 +170,16 @@ pub fn usable_dest(dest: &str) -> Result<PathBuf, FleaError> {
     if !p.is_absolute() {
         return Err(op_err("transfer", dest, "a destination must be an absolute path"));
     }
-    match p.metadata() {
-        Ok(m) if m.is_dir() && crate::backend::ops::dir_writable(&p) => Ok(p),
-        Ok(m) if m.is_dir() => Err(op_err("transfer", dest, "that folder cannot be written")),
-        Ok(_) => Err(op_err("transfer", dest, "the destination is not a directory")),
-        Err(e) => Err(from_io("transfer", dest, &e)),
-    }
+    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+    let owned = p.clone();
+    let dest_owned = dest.to_string();
+    super::iomount::call(&p, &body, "transfer", move || match owned.metadata() {
+        Ok(m) if m.is_dir() && crate::backend::ops::dir_writable(&owned) => Ok(owned),
+        Ok(m) if m.is_dir() => Err(op_err("transfer", &dest_owned, "that folder cannot be written")),
+        Ok(_) => Err(op_err("transfer", &dest_owned, "the destination is not a directory")),
+        Err(e) => Err(from_io("transfer", &dest_owned, &e)),
+    })
+    .unwrap_or_else(Err)
 }
 
 pub fn op_err(where_: &str, path: &str, msg: &str) -> FleaError {

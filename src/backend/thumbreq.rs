@@ -30,6 +30,7 @@ pub(crate) fn thumb_rows(
     cache: &Cache,
     cache_only: bool,
 ) {
+    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
     for &row in rows {
         if row >= st.listing.len() {
             continue;
@@ -75,11 +76,20 @@ pub(crate) fn thumb_rows(
             writeln!(out, "{}", thumbed_line(row, "", since(t))).ok();
             continue;
         }
+        let name = st.listing.name(row).to_string();
+        let path = st.base.join(&name);
         // corner: only a regular file is queued, so a fifo or a device node named like a video cannot block a worker; see AGENTS.md "Thumbnail requests".
-        let meta = std::fs::metadata(&path).ok().filter(|m| m.is_file());
+        let owned = path.clone();
+        let meta = match super::iomount::call(&path, &body, "thumb", move || std::fs::metadata(&owned).ok()) {
+            Ok(found) => found.filter(|m| m.is_file()),
+            Err(_) => {
+                writeln!(out, "{}", thumbed_line(row, "", since(t))).ok();
+                continue;
+            }
+        };
         let declared = meta.as_ref().and_then(|_| {
             tb.mime
-                .lookup(name)
+                .lookup(&name)
                 .filter(|m| tb.thumbs.for_mime(m, &tb.aliases).is_some())
                 .map(str::to_string)
         });

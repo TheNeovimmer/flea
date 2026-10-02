@@ -23,6 +23,7 @@ pub const BASE: &str = "/";
 pub fn listing_of(paths: &[String]) -> (Listing, f64) {
     let t = Instant::now();
     let mut l = Listing::new();
+    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
     for path in paths {
         // A trust boundary: this list comes from a file every application on the desktop writes.
         let Some(name) = path.strip_prefix('/') else { continue };
@@ -31,7 +32,11 @@ pub fn listing_of(paths: &[String]) -> (Listing, f64) {
         }
         // The link's own type, the same rule scan() reads off d_type: a symlink to a directory is
         // listed as a file, and a symlink to nothing is still an entry the user put here.
-        let Ok(meta) = fs::symlink_metadata(path) else { continue };
+        let owned = path.clone();
+        let meta = match super::iomount::call(std::path::Path::new(path), &body, "listpaths", move || fs::symlink_metadata(&owned)) {
+            Ok(Ok(meta)) => meta,
+            _ => continue,
+        };
         let index = l.len();
         l.push(name, meta.is_dir());
         l.spans[index].is_symlink = meta.file_type().is_symlink();
@@ -63,7 +68,7 @@ pub fn answer(
     st.held = Held::ListPaths;
     forget_rows(st, pool);
     // The sort figure is always zero: nothing here is sorted, see docs/protocol.md "listpaths".
-    let listed = listed_line(st.listing.len(), read_ms, 0.0, dev_of(&st.base), &st.base.to_string_lossy());
+    let listed = listed_line(st.listing.len(), read_ms, 0.0, dev_of(&st.base), &st.base.to_string_lossy(), crate::backend::ops::dir_writable(&st.base));
     let listed = if recheck { super::proto::with_changed(&listed, changed) } else { listed };
     writeln!(out, "{}", listed).ok();
     // Rides along unasked, the same first-paint saving a list makes.

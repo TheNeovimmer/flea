@@ -71,7 +71,14 @@ pub fn create_absolute(source: &Path, dest_file: &Path) -> Result<(), FleaError>
 
 // Refused before the syscall so the sentence names the refusal, not the errno.
 pub fn create_hard(source: &Path, dest_file: &Path) -> Result<(), FleaError> {
-    if source.symlink_metadata().map(|m| m.is_dir()).unwrap_or(false) {
+    let body = super::iomount::mount_body();
+    let from = source.to_path_buf();
+    let from_for_key = from.clone();
+    let is_dir = super::iomount::call(&from_for_key, &body, "link", move || {
+        from.symlink_metadata().map(|m| m.is_dir()).unwrap_or(false)
+    })
+    .unwrap_or(false);
+    if is_dir {
         return Err(FleaError {
             where_: "link".to_string(),
             path: dest_file.to_string_lossy().to_string(),
@@ -120,12 +127,6 @@ fn no_links_sentence(magic: Option<i64>) -> Option<&'static str> {
         Some(VFAT_MAGIC) | Some(EXFAT_MAGIC) => Some("this drive cannot hold links"),
         _ => None,
     }
-}
-
-// The filesystem type of the deepest mount owning path, or "unknown" when the table cannot be read.
-fn fs_name(path: &Path) -> String {
-    let text = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
-    crate::backend::mountinfo::mount_type_in(path, &text).unwrap_or_else(|| "unknown".to_string())
 }
 
 // Sample input: "/run/user/1000/gvfs/smb-share:server=1,share=d" is matched by prefix on the decoded mount.

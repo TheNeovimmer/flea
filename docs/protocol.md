@@ -632,7 +632,9 @@ same rule `transfer` follows.
 Like `transfer`, this runs beside the loop and takes the one-operation slot:
 the busy check and the collide answer are decided on the loop, then one
 thread links each source, replacing through the trash when the card chose
-it, and the answer is written from its message. A Replace trashes through
+it, and the answer is written from its message. A source or the destination
+on a mount with a pending slow write waits first, the same gate every other
+write passes. A Replace trashes through
 gio, which stalls on an unresponsive mount, so that work never runs on the
 loop's own thread. A `link` arriving while an operation runs
 answers an `error` line carrying `an operation is already running` and journals nothing. The answer is one `linked` line,
@@ -776,10 +778,13 @@ whose move-back from its temp sibling fails answers `rename-stranded` instead: i
 source, its `msg` names the temp leaf and the move-back's cause, and the file stays under that
 hidden name.
 
-Unlike the three above, this answers on the loop's own thread: the ordinary case is one `renameat2`,
-which costs less than spawning a thread. The compatibility paths above are not one syscall and
-run on that same thread, so a directory rename on rclone or MEGA copies the whole tree inline before it
-answers. See `AGENTS.md`, "Write operations and the undo journal".
+Unlike the three above, this answers on the loop's own thread on a local mount: the ordinary
+case is one `renameat2`, which costs less than spawning a thread. On a remote mount it runs on its
+own worker with the single-call deadline and answers `slow` first, then its `renamed` line when the
+write lands, journalled exactly as the in-time path would journal it; see `slow`. The compatibility
+paths above are not one syscall, and on a remote mount they run on that worker too, so a directory
+rename on rclone or MEGA no longer holds the loop while it copies. See `AGENTS.md`, "Write operations
+and the undo journal".
 
 ### duplicate
 
@@ -821,7 +826,9 @@ answers `No such file or directory (os error 2)`, a parent the user cannot write
 (os error 13)`, a read-only mount `Read-only file system (os error 30)`, a name past `NAME_MAX` `File
 name too long (os error 36)`.
 
-Like `rename`, this answers on the loop's own thread and never takes the one-operation slot.
+Like `rename`, this answers on the loop's own thread on a local mount and never takes the
+one-operation slot; on a remote mount it runs on its own worker with the single-call deadline and
+answers `slow` first, then its `made` line when the write lands; see `slow`.
 
 ### meta
 
@@ -1344,6 +1351,25 @@ the batch and its exit status cannot attribute a failure to a single path; a pat
 afterwards is counted in `failed`. `err` rides only on a failure, so a successful line is byte-identical
 to before. `gio` runs under a 10 s deadline, so a hung mount answers "Trash took too long to answer"
 instead of holding the single operation slot.
+
+### slow
+
+`{"t":"slow","op":"<string>","path":"<string>","msg":"<string>"}`
+
+Example: `{"t":"slow","op":"rename","path":"/hung/a.txt","msg":"/hung is slow. The rename continues and will finish on its own."}`
+
+A remote `rename` or `mkdir` past the single-call deadline answers this line and moves
+on: the write stays running on its own worker, so the loop keeps answering every other request,
+and the mount is never marked stuck for a write still running. `op` names the request (`rename`
+or `mkdir`), `path` the path it is writing (the rename source or the mkdir parent), and `msg` the sentence the client shows as information, never as an error. The
+`slow` line releases the one-at-a-time slot at once, so writes on other mounts and on local paths
+still run; the write stays pending under its mount root instead. A write touching a mount with a
+pending slow write answers `an operation is already running` and journals nothing, and `undo` and
+`redo` answer the same while any slow write is pending, naming its path. The late reply clears
+only its own pending entry. There is still no cancel id and no progress for the running write.
+The write's own reply follows whenever it lands: the same `renamed` or `made` line the
+in-time path writes, or the same `error` line if the write failed, journalled exactly once either
+way, so one `undo` reverses it.
 
 ### renamed
 

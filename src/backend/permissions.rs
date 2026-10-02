@@ -4,8 +4,6 @@ use crate::oflags::O_NOFOLLOW;
 #[cfg(test)]
 use std::fs::Permissions as Mode;
 use std::fs::{File, Metadata, OpenOptions};
-#[cfg(test)]
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};

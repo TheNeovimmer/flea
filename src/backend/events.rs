@@ -27,6 +27,8 @@ pub enum Event {
     Unmounted(i32),
     // A network folder's mtime moved between polls, which inotify never delivers; the open path only.
     PollChanged(PathBuf),
+    // A list worker that outlived its call hands back the watch it armed; the loop drops it unless live.
+    AbandonWatch(i32),
     ReadError(FleaError),
     Closed,
 }

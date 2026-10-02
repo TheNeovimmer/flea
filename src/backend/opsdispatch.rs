@@ -1,19 +1,29 @@
 // Dispatch for the five write operations: one runs at a time, because the status bar has one sticky slot for it.
+use crate::backend::iomount::{internal_failure, mount_body, mount_key, slow_sentence, slow_write_with, CALL_DEADLINE, SlowWrite};
 use crate::backend::ops;
 use crate::backend::opsreq::{
     duplicated_line, made_line, op_err, renamed_line, run_duplicate_checked, run_transfer_checked, run_trash, trashed_line,
     transferdone_line, transferitem_line, transferprogress_line, transferstarted_line, undone_line, usable_dest,
-    OpMsg,
+    LinkOutcome, OpMsg,
 };
 use crate::backend::listing::Listing;
-use crate::backend::proto::error_line;
+use crate::backend::proto::{error_line, linked_line, slow_line};
 use crate::backend::undo::{Entry, ItemIdentity, Journal, Step};
+use crate::error::FleaError;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
+
+// A slow remote write still running past its slow line, keyed by the mount it holds.
+pub(crate) struct SlowClaim {
+    pub id: usize,
+    pub path: String,
+    pub mount: PathBuf,
+}
 
 // Everything the write operations own, kept apart from the listing state they never touch.
 pub(crate) struct Ops {
@@ -28,6 +38,8 @@ pub(crate) struct Ops {
     pub next_id: usize,
     // The operation on the thread and its cancel flag, shared with the reader thread; one at a time.
     pub live: Arc<super::opscancel::Live>,
+    // Slow writes still running past their slow lines; a second write on the same mount waits.
+    pub pending: Vec<SlowClaim>,
     // Detached jobs, so a quit cancels each one; they run alongside by design.
     pub detached: Arc<super::opscancel::DetachedJobs>,
     pub tx: Sender<OpMsg>,
@@ -36,7 +48,7 @@ pub(crate) struct Ops {
 impl Ops {
     pub fn new(tx: Sender<OpMsg>) -> Ops {
         Ops { journal: Journal::new(), permissions: super::permissions::Permissions::default(), picker: None, menuactions: None, trashbrowser: None,
-              transfer_retry: (0, Vec::new()), question: None, asked: 0, next_id: 1, live: Arc::new(super::opscancel::Live::new()), detached: Arc::new(super::opscancel::DetachedJobs::new()), tx }
+               transfer_retry: (0, Vec::new()), question: None, asked: 0, next_id: 1, live: Arc::new(super::opscancel::Live::new()), pending: Vec::new(), detached: Arc::new(super::opscancel::DetachedJobs::new()), tx }
     }
 
     // Production shares one undo history across every backend in the session; tests keep new().
@@ -95,6 +107,14 @@ pub(crate) fn request_menu_action(out: &mut impl Write, ops: &mut Ops, line: Str
         out.flush().ok();
         return;
     }
+    // A delete names its targets by snapshot, so with no paths to check any pending write blocks it.
+    let snapshot = deleting.then(|| crate::json::field_usize(&line, "id")).flatten()
+        .and_then(|id| menu_sources(ops, id).ok()).flatten();
+    if deleting && delete_blocked(ops, &paths, cursor.as_deref(), snapshot.as_deref()) {
+        writeln!(out, "{}", super::menu_actions::response(&line, Err("An operation is already running.".into()))).ok();
+        out.flush().ok();
+        return;
+    }
     let replies = ops.tx.clone();
     let accepted = ops.menuactions.get_or_insert_with(|| super::menu_actions::MenuActions::new(replies)).request(line, paths, cursor);
     if deleting && accepted { ops.claim_transfer(); }
@@ -127,6 +147,18 @@ fn start_transfer_checked(out: &mut impl Write, ops: &mut Ops, op: &str, paths: 
             return;
         }
     };
+    // A source or target on a pending mount waits; writes elsewhere run beside the held write.
+    let mut sources: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+    if let Some(items) = &selection {
+        sources.extend(items.iter().map(|item| item.path.clone()));
+    }
+    let mut dests = vec![dest.clone()];
+    if let Some(held) = &destination {
+        dests.push(held.path.clone());
+    }
+    if pending_busy_for(out, ops, "transfer", &sources, &dests) {
+        return;
+    }
     // Anything that is not exactly "move" is a copy, so a malformed op can never remove a source.
     let moving = op == "move";
     let n = paths.len();
@@ -139,9 +171,60 @@ fn start_transfer_checked(out: &mut impl Write, ops: &mut Ops, op: &str, paths: 
     thread::spawn(move || run_transfer_checked(id, moving, paths, dest, cancel, tx, selection, destination, policy));
 }
 
-// No response line of its own: the running operation answers with its own terminal transferdone.
-pub(crate) fn cancel_transfer(ops: &Ops, id: usize) {
+// A slow write holds no slot and no flag its worker polls, so a cancel reaches only the live operation.
+pub(crate) fn cancel_transfer(_out: &mut impl Write, ops: &mut Ops, id: usize) {
     ops.live.cancel(id);
+}
+
+// One gate for every write: each resolved source and the destination wait while their mount holds a slow write.
+pub(crate) fn pending_on_any(ops: &Ops, sources: &[PathBuf], dests: &[PathBuf]) -> bool {
+    let body = mount_body();
+    sources.iter().chain(dests.iter()).any(|p| pending_on(ops, &body, &p.to_string_lossy()))
+}
+
+// Same gate with the standard refusal, so the slot-taking writes share one answering line.
+pub(crate) fn pending_busy_for(out: &mut impl Write, ops: &Ops, where_: &str, sources: &[PathBuf], dests: &[PathBuf]) -> bool {
+    if pending_on_any(ops, sources, dests) {
+        busy(out, where_);
+        return true;
+    }
+    false
+}
+// A path whose mount holds a pending slow write waits, so the late journal lands first.
+pub(crate) fn pending_on(ops: &Ops, body: &str, path: &str) -> bool {
+    let key = mount_key(Path::new(path), body);
+    ops.pending.iter().any(|held| held.mount == key)
+}
+
+// Undo and redo wait while any slow write is pending, naming its path, so no reversal races the late journal.
+fn pending_busy(out: &mut impl Write, ops: &Ops, where_: &str) -> bool {
+    if let Some(held) = ops.pending.first() {
+        let denied = op_err(where_, &held.path, "an operation is already running");
+        writeln!(out, "{}", error_line(&denied)).ok();
+        out.flush().ok();
+        return true;
+    }
+    false
+}
+
+// A delete names its targets by snapshot, so with no paths to check any pending write blocks it.
+fn delete_blocked(ops: &Ops, paths: &[String], cursor: Option<&str>, selection: Option<&[super::menu_actions::Selected]>) -> bool {
+    let mut sources: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+    if let Some(at) = cursor {
+        sources.push(PathBuf::from(at));
+    }
+    if let Some(items) = selection {
+        sources.extend(items.iter().map(|item| item.path.clone()));
+    }
+    if sources.is_empty() {
+        return !ops.pending.is_empty();
+    }
+    pending_on_any(ops, &sources, &[])
+}
+
+// A landed Done clears only its own pending entry, so a second mount's write stays busy.
+fn forget_pending(ops: &mut Ops, id: usize) {
+    ops.pending.retain(|held| held.id != id);
 }
 
 pub(crate) fn menu_sources(ops: &Ops, id: usize) -> Result<Option<Vec<super::menu_actions::Selected>>, String> {
@@ -159,6 +242,14 @@ pub(crate) fn start_trash(out: &mut impl Write, ops: &mut Ops, paths: Vec<String
         Ok(selection) => selection,
         Err(message) => { writeln!(out, "{}", error_line(&op_err("trash", "", &message))).ok(); out.flush().ok(); return; }
     };
+    // A path on a pending mount waits; writes elsewhere run beside the held write.
+    let mut sources: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+    if let Some(items) = &selection {
+        sources.extend(items.iter().map(|item| item.path.clone()));
+    }
+    if pending_busy_for(out, ops, "trash", &sources, &[]) {
+        return;
+    }
     ops.claim_transfer();
     let tx = ops.tx.clone();
     thread::spawn(move || run_trash(paths, tx, selection));
@@ -173,6 +264,14 @@ pub(crate) fn start_duplicate(out: &mut impl Write, ops: &mut Ops, path: &str, m
         Ok(selection) => selection,
         Err(message) => { writeln!(out, "{}", error_line(&op_err("duplicate", path, &message))).ok(); out.flush().ok(); return; }
     };
+    // The source's mount waits while its slow write is pending; writes elsewhere run.
+    let mut sources = vec![PathBuf::from(path)];
+    if let Some(items) = &selection {
+        sources.extend(items.iter().map(|item| item.path.clone()));
+    }
+    if pending_busy_for(out, ops, "duplicate", &sources, &[]) {
+        return;
+    }
     ops.claim_transfer();
     let tx = ops.tx.clone();
     let owned = path.to_string();
@@ -192,9 +291,46 @@ pub(crate) fn do_menu_rename(out: &mut impl Write, ops: &mut Ops, path: &str, to
     do_rename(out, ops, path, to);
 }
 
+// A local rename answers inline; a remote one past the deadline answers slow first and journals when its worker lands, so the loop never waits on a hung share longer than CALL_DEADLINE.
 pub(crate) fn do_rename(out: &mut impl Write, ops: &mut Ops, path: &str, to: &str) {
     if ops.live.running().is_some() { busy(out, "rename"); return; }
-    match ops::rename(Path::new(path), to) {
+    let from = path.to_string();
+    let name = to.to_string();
+    do_rename_with(out, ops, path, CALL_DEADLINE, move || ops::rename(Path::new(&from), &name))
+}
+// The work is a parameter so tests hold it on a channel while production runs the real rename.
+pub(crate) fn do_rename_with<F>(out: &mut impl Write, ops: &mut Ops, path: &str, deadline: Duration, work: F)
+where
+    F: FnOnce() -> Result<(PathBuf, Vec<Step>), FleaError> + Send + 'static,
+{
+    let key = Path::new(path).parent().unwrap_or(Path::new("/")).to_path_buf();
+    // A source or target on a pending mount waits; writes elsewhere run beside the held write.
+    let source = PathBuf::from(path);
+    let target = key.clone();
+    if pending_busy_for(out, ops, "rename", &[source], &[target]) {
+        return;
+    }
+    let body = mount_body();
+    match slow_write_with(&key, &body, "rename", deadline, work) {
+        SlowWrite::Ready(result) => land_rename(out, ops, result),
+        SlowWrite::Slow { mount, rx } => {
+            writeln!(out, "{}", slow_line("rename", path, &slow_sentence(&mount, "rename"))).ok();
+            out.flush().ok();
+            // The pending id is only a number: the slot stays with whatever holds it, so a transfer beside this write keeps its id and its cancel.
+            let id = ops.claim_id();
+            ops.pending.push(SlowClaim { id, path: path.to_string(), mount });
+            let tx = ops.tx.clone();
+            let failed = internal_failure("rename", Path::new(path));
+            thread::spawn(move || {
+                let result = rx.recv().unwrap_or(Err(failed));
+                let _ = tx.send(OpMsg::RenameDone { id, result });
+            });
+        }
+    }
+}
+// One journal entry per request, so one undo reverses the in-time answer and the late one alike.
+fn land_rename(out: &mut impl Write, ops: &mut Ops, result: Result<(PathBuf, Vec<Step>), FleaError>) {
+    match result {
         Ok((dst, steps)) => {
             ops.journal.push(Entry { op: "rename".to_string(), steps });
             writeln!(out, "{}", renamed_line(true, &dst.to_string_lossy())).ok();
@@ -206,10 +342,45 @@ pub(crate) fn do_rename(out: &mut impl Write, ops: &mut Ops, path: &str, to: &st
     out.flush().ok();
 }
 
-// One mkdir(2), so like rename it answers on the calling thread and never takes the operation slot.
+// One mkdir(2), so like rename it answers inline on a local mount and goes slow on a remote one.
 pub(crate) fn do_mkdir(out: &mut impl Write, ops: &mut Ops, parent: &str, name: &str) {
     if ops.live.running().is_some() { busy(out, "mkdir"); return; }
-    match ops::mkdir(Path::new(parent), name) {
+    let base = parent.to_string();
+    let given = name.to_string();
+    do_mkdir_with(out, ops, parent, CALL_DEADLINE, move || ops::mkdir(Path::new(&base), &given))
+}
+// The work is a parameter so tests hold it on a channel while production runs the real mkdir.
+pub(crate) fn do_mkdir_with<F>(out: &mut impl Write, ops: &mut Ops, parent: &str, deadline: Duration, work: F)
+where
+    F: FnOnce() -> Result<(PathBuf, Vec<Step>), FleaError> + Send + 'static,
+{
+    let key = PathBuf::from(parent);
+    // The new folder lands in its parent, so the parent is the whole gate; writes elsewhere run beside the held write.
+    let gate = key.clone();
+    if pending_busy_for(out, ops, "mkdir", &[gate], &[]) {
+        return;
+    }
+    let body = mount_body();
+    match slow_write_with(&key, &body, "mkdir", deadline, work) {
+        SlowWrite::Ready(result) => land_mkdir(out, ops, result),
+        SlowWrite::Slow { mount, rx } => {
+            writeln!(out, "{}", slow_line("mkdir", parent, &slow_sentence(&mount, "mkdir"))).ok();
+            out.flush().ok();
+            // The pending id is only a number: the slot stays with whatever holds it, so a transfer beside this write keeps its id and its cancel.
+            let id = ops.claim_id();
+            ops.pending.push(SlowClaim { id, path: parent.to_string(), mount });
+            let tx = ops.tx.clone();
+            let failed = internal_failure("mkdir", Path::new(parent));
+            thread::spawn(move || {
+                let result = rx.recv().unwrap_or(Err(failed));
+                let _ = tx.send(OpMsg::MkdirDone { id, result });
+            });
+        }
+    }
+}
+// One journal entry per request, so one undo reverses the in-time answer and the late one alike.
+fn land_mkdir(out: &mut impl Write, ops: &mut Ops, result: Result<(PathBuf, Vec<Step>), FleaError>) {
+    match result {
         Ok((dir, steps)) => {
             ops.journal.push(Entry { op: "mkdir".to_string(), steps });
             writeln!(out, "{}", made_line(true, &dir.to_string_lossy())).ok();
@@ -223,6 +394,7 @@ pub(crate) fn do_mkdir(out: &mut impl Write, ops: &mut Ops, parent: &str, name: 
 
 pub(crate) fn do_undo(out: &mut impl Write, ops: &mut Ops) {
     if ops.live.running().is_some() { busy(out, "undo"); return; }
+    if pending_busy(out, ops, "undo") { return; }
     match ops.journal.undo() {
         Ok(op) => writeln!(out, "{}", undone_line(&op, true)).ok(),
         Err(e) => writeln!(out, "{}", error_line(&e)).ok(),
@@ -281,6 +453,12 @@ pub(crate) fn start_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: V
             return;
         }
     };
+    // A source or target on a pending mount waits, before the question is taken.
+    let sources: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+    let target = dest_path.clone();
+    if pending_busy_for(out, ops, "link", &sources, &[target]) {
+        return;
+    }
     let policy = collide.policy(ops.question.take(), &dest_path).for_batch(&paths);
     ops.claim_transfer();
     let tx = ops.tx.clone();
@@ -294,18 +472,34 @@ pub(crate) fn start_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: V
     });
 }
 
-// What the link thread sends back: the counts, the journal steps, and both failure texts.
-pub(crate) struct LinkOutcome {
-    pub(crate) ok: usize,
-    pub(crate) failed: usize,
-    pub(crate) skipped: usize,
-    pub(crate) steps: Vec<Step>,
-    pub(crate) first_err: String,
-    pub(crate) note: String,
+// What the link thread sends back lives in opsreq::LinkOutcome, shared with the slow-write land path.
+
+// The inline entry fs3's pending-mount tests drive; production links take the slot in start_link above.
+#[cfg(test)]
+pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<String>, dest: &str, collide: super::collide::Ask) {
+    let dest_path = match usable_dest(dest) {
+        Ok(d) => d,
+        Err(mut e) => {
+            e.where_ = "link".to_string();
+            writeln!(out, "{}", error_line(&e)).ok();
+            out.flush().ok();
+            return;
+        }
+    };
+    // A source or target on a pending mount waits, before the question is taken.
+    let sources: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+    let target = dest_path.clone();
+    if pending_busy_for(out, ops, "link", &sources, &[target]) {
+        return;
+    }
+    let policy = collide.policy(ops.question.take(), &dest_path).for_batch(&paths);
+    let owned_op = op.to_string();
+    let dest_name = dest.to_string();
+    do_link_with(out, ops, &dest_name, CALL_DEADLINE, move || Ok(link_items(&owned_op, paths, dest_path, policy)))
 }
 
 // One exclusive link per source, replacing through the trash when the card chose it.
-pub(crate) fn run_link(op: &str, paths: Vec<String>, dest_path: PathBuf, policy: super::collide::Policy) -> LinkOutcome {
+pub(crate) fn run_link(op: &str, paths: Vec<String>, dest: PathBuf, policy: super::collide::Policy) -> LinkOutcome {
     let kind = match op {
         "absolute" => super::link::LinkKind::Absolute,
         "hard" => super::link::LinkKind::Hard,
@@ -325,12 +519,12 @@ pub(crate) fn run_link(op: &str, paths: Vec<String>, dest_path: PathBuf, policy:
             if first_err.is_empty() { first_err = format!("the link source {source} no longer exists"); }
             continue;
         }
-        let Some(dst) = super::link::dest_path(&dest_path, src) else {
+        let Some(dst) = super::link::dest_path(&dest, src) else {
             failed += 1;
             if first_err.is_empty() { first_err = format!("{source} has no file name"); }
             continue;
         };
-        let here = src.parent() == Some(dest_path.as_path());
+        let here = src.parent() == Some(dest.as_path());
         match policy.place(src, dst.clone(), here, false) {
             super::collide::Place::Skip => { skipped += 1; }
             super::collide::Place::Refuse(msg) => {
@@ -410,7 +604,62 @@ pub(crate) fn run_link(op: &str, paths: Vec<String>, dest_path: PathBuf, policy:
             }
         }
     }
-    LinkOutcome { ok, failed, skipped, steps, first_err, note }
+    LinkOutcome { ok, failed, skipped, steps, first_err, note, dest: dest.to_string_lossy().to_string() }
+}
+
+// The batch is the work, so a slow destination finishes its remaining items on the worker side.
+#[cfg(test)]
+pub(crate) fn do_link_with<F>(out: &mut impl Write, ops: &mut Ops, dest: &str, deadline: Duration, work: F)
+where
+    F: FnOnce() -> Result<LinkOutcome, FleaError> + Send + 'static,
+{
+    let key = PathBuf::from(dest);
+    // A target on a pending mount waits; writes elsewhere run beside the held write.
+    let target = key.clone();
+    if pending_busy_for(out, ops, "link", &[], &[target]) {
+        return;
+    }
+    let body = mount_body();
+    match slow_write_with(&key, &body, "link", deadline, work) {
+        SlowWrite::Ready(Ok(outcome)) => land_link(out, ops, outcome),
+        SlowWrite::Ready(Err(e)) => {
+            writeln!(out, "{}", error_line(&e)).ok();
+            out.flush().ok();
+        }
+        SlowWrite::Slow { mount, rx } => {
+            writeln!(out, "{}", slow_line("link", dest, &slow_sentence(&mount, "link"))).ok();
+            out.flush().ok();
+            // The pending id is only a number: the slot stays with whatever holds it, so a transfer beside this write keeps its id and its cancel.
+            let id = ops.claim_id();
+            ops.pending.push(SlowClaim { id, path: dest.to_string(), mount });
+            let tx = ops.tx.clone();
+            let at = dest.to_string();
+            thread::spawn(move || {
+                let result = rx.recv().unwrap_or_else(|_| Err(internal_failure("link", Path::new(&at))));
+                let _ = tx.send(OpMsg::LinkDone { id, result });
+            });
+        }
+    }
+}
+// One linked line and one journal entry, whether the batch answered in time or late.
+fn land_link(out: &mut impl Write, ops: &mut Ops, outcome: LinkOutcome) {
+    ops.journal.push(Entry { op: "link".to_string(), steps: outcome.steps });
+    if (outcome.failed == 0 && outcome.first_err.is_empty()) || outcome.ok > 0 || outcome.skipped > 0 {
+        // A mixed batch reports its first failure here, never silently, ahead of any stranded sentence.
+        let note = if outcome.first_err.is_empty() { outcome.note } else if outcome.note.is_empty() { outcome.first_err } else { format!("{}; {}", outcome.first_err, outcome.note) };
+        writeln!(out, "{}", linked_line(outcome.ok, outcome.failed, outcome.skipped, &note)).ok();
+    } else {
+        // An earlier failure never hides a stranded replace, so the note rides along.
+        let msg = if outcome.first_err.is_empty() { outcome.note.clone() } else if outcome.note.is_empty() { outcome.first_err.clone() } else { format!("{}; {}", outcome.first_err, outcome.note) };
+        writeln!(out, "{}", error_line(&op_err("link", &outcome.dest, &msg))).ok();
+    }
+    out.flush().ok();
+}
+
+// The test runner with fs3's name; run_link above is the fuller check, so this stays a thin alias.
+#[cfg(test)]
+fn link_items(op: &str, paths: Vec<String>, dest: PathBuf, policy: super::collide::Policy) -> LinkOutcome {
+    run_link(op, paths, dest, policy)
 }
 
 // Tests drive the worker directly, because the fault hooks it reads are thread-local.
@@ -490,6 +739,15 @@ pub(crate) fn do_permissions_batch(out: &mut impl Write, ops: &mut Ops, paths: V
     let items: Vec<(PathBuf, String)> = paths.into_iter().zip(modes).map(|(p, m)| (PathBuf::from(p), m)).collect();
     // The reply names the first target mode.
     let shown = items.first().map(|(_, m)| m.clone()).unwrap_or_default();
+    // A target on a pending mount waits; writes elsewhere run beside the held write.
+    {
+        let sources: Vec<PathBuf> = items.iter().map(|(p, _)| p.clone()).collect();
+        if pending_on_any(ops, &sources, &[]) {
+            writeln!(out, "{}", super::proto::permissions_batch_line(id, false, &shown, "an operation is already running")).ok();
+            out.flush().ok();
+            return;
+        }
+    }
     match super::permissions::apply_many(&items) {
         Ok(steps) => {
             ops.journal.push(Entry { op: "permissions".to_string(), steps });
@@ -513,6 +771,13 @@ pub(crate) fn do_newfile(out: &mut impl Write, ops: &mut Ops, parent: &str, name
         out.flush().ok();
         return;
     }
+    // A parent on a pending mount waits; writes elsewhere run beside the held write.
+    if pending_on_any(ops, &[PathBuf::from(parent)], &[]) {
+        let request = format!(r#"{{"op":"newFile","id":{}}}"#, id);
+        writeln!(out, "{}", super::menu_actions::response(&request, Err("An operation is already running.".into()))).ok();
+        out.flush().ok();
+        return;
+    }
     let result = super::menu_actions::create_file(Path::new(parent), name).map(|(path, identity)| {
         ops.journal.push(Entry { op: "newfile".into(), steps: vec![super::undo::Step::MadeFile { path: path.clone(), identity }] });
         format!(r#""path":"{}""#, crate::json::escape(&path.to_string_lossy()))
@@ -524,6 +789,7 @@ pub(crate) fn do_newfile(out: &mut impl Write, ops: &mut Ops, parent: &str, name
 
 pub(crate) fn start_redo(out: &mut impl Write, ops: &mut Ops) {
     if ops.live.running().is_some() { busy(out, "redo"); return; }
+    if pending_busy(out, ops, "redo") { return; }
     let (op, n) = match ops.journal.redo_info() {
         Ok(info) => info,
         Err(error) => {
@@ -581,6 +847,27 @@ pub(crate) fn report_op(out: &mut impl Write, ops: &mut Ops, msg: OpMsg) {
             }
         }
         OpMsg::Asked { turn, question, line } => if super::collide::landed(ops, turn, question) { writeln!(out, "{}", line).ok(); },
+        // A slow remote write reporting late journals exactly as its in-time path would.
+        OpMsg::RenameDone { id, result } => {
+            land_rename(out, ops, result);
+            forget_pending(ops, id);
+            ops.live.finished_if(id);
+        }
+        OpMsg::MkdirDone { id, result } => {
+            land_mkdir(out, ops, result);
+            forget_pending(ops, id);
+            ops.live.finished_if(id);
+        }
+        OpMsg::LinkDone { id, result } => {
+            match result {
+                Ok(outcome) => land_link(out, ops, outcome),
+                Err(e) => {
+                    writeln!(out, "{}", error_line(&e)).ok();
+                }
+            }
+            forget_pending(ops, id);
+            ops.live.finished_if(id);
+        }
         // Meta never claims the operation slot, so it does not clear it either.
         OpMsg::Meta { line } => {
             writeln!(out, "{}", line).ok();
@@ -659,9 +946,10 @@ mod tests {
     fn a_cancel_for_an_operation_that_is_not_running_does_nothing() {
         let mut o = ops();
         let (id, flag) = o.claim_transfer();
-        cancel_transfer(&o, id + 99);
+        let mut buf = out();
+        cancel_transfer(&mut buf, &mut o, id + 99);
         assert!(!flag.load(Ordering::Relaxed), "a stale id must not cancel the live operation");
-        cancel_transfer(&o, id);
+        cancel_transfer(&mut buf, &mut o, id);
         assert!(flag.load(Ordering::Relaxed));
     }
 
@@ -1275,5 +1563,744 @@ mod tests {
             report_op(&mut sink, &mut o, msg);
             if done { break; }
         }
+    }
+    // A sandbox mapped onto a hung nfs mount, so the dispatch takes its slow path for it.
+    fn remote_body(dir: &std::path::Path) -> String {
+        format!("1 0 8:1 / / rw - ext4 /dev/a rw\n30 1 0:45 / {} rw - nfs n:/s rw\n", dir.to_string_lossy())
+    }
+
+    // Shorter than the production deadline, so the held pair below proves the shape without waiting it out.
+    const SHORT_DEADLINE: std::time::Duration = std::time::Duration::from_millis(300);
+
+    // Margin past a slow deadline, so scheduling noise never flakes the slow proof.
+    const SLOW_MARGIN: std::time::Duration = std::time::Duration::from_secs(2);
+
+    // Outer bound for one late Done to arrive once its worker is released.
+    const LAND_BOUND: std::time::Duration = std::time::Duration::from_secs(5);
+
+    // Enough rounds to report a transfer's own lines before the slow Done lands.
+    const LAND_ROUNDS: usize = 8;
+
+    // A held rename answers slow within CALL_DEADLINE, then journals when it lands.
+    #[test]
+    fn a_held_remote_rename_answers_slow_then_journals_when_it_lands() {
+        crate::backend::iomount::test_reset();
+        let d = TestDir::new("slowrename");
+        let from = d.file("before.txt", "body");
+        let path = from.to_string_lossy().to_string();
+        let _body = crate::backend::iomount::test_hold_body(remote_body(d.path()));
+        let (release, wait) = channel::<()>();
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        let mut buf = out();
+        // The worker runs the real rename only after the test releases it.
+        let from_work = from.clone();
+        let work = move || {
+            let _ = wait.recv();
+            super::ops::rename(&from_work, "after.txt")
+        };
+        let started = std::time::Instant::now();
+        do_rename_with(&mut buf, &mut o, &path, crate::backend::iomount::CALL_DEADLINE, work);
+        let waited = started.elapsed();
+        let line = text(&buf);
+        assert!(line.contains(r#""t":"slow""#), "a held rename answers slow, never an error: {}", line);
+        assert!(line.contains("is slow"), "the slow line carries its sentence: {}", line);
+        assert!(line.contains(r#""op":"rename""#), "the slow line names its op: {}", line);
+        assert!(waited >= crate::backend::iomount::CALL_DEADLINE, "the slow line waits out the deadline: {:?}", waited);
+        assert!(waited < crate::backend::iomount::CALL_DEADLINE + SLOW_MARGIN, "the slow line answers at the deadline: {:?}", waited);
+        let mut busy = out();
+        do_undo(&mut busy, &mut o);
+        assert!(text(&busy).contains("already running"), "undo waits for the late entry: {}", text(&busy));
+        assert!(o.journal.is_empty(), "nothing is journalled until the held write lands");
+        drop(release);
+        let landed = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("the released write reports through the op channel");
+        let mut late = out();
+        report_op(&mut late, &mut o, landed);
+        assert!(text(&late).contains(r#""t":"renamed","ok":true"#), "the late write answers its own reply: {}", text(&late));
+        assert_eq!(o.journal.len(), 1, "one journal entry per request, so one undo reverses it");
+        let mut undone = out();
+        do_undo(&mut undone, &mut o);
+        assert!(text(&undone).contains(r#"{"t":"undone","op":"rename","ok":true}"#), "{}", text(&undone));
+        assert!(from.exists(), "undo put the old name back");
+        assert_eq!(std::fs::read_to_string(&from).unwrap(), "body");
+    }
+
+    // The same pair for mkdir: a held remote mkdir answers slow, then journals on landing.
+    #[test]
+    fn a_held_remote_mkdir_answers_slow_then_journals_when_it_lands() {
+        crate::backend::iomount::test_reset();
+        let d = TestDir::new("slowmkdir");
+        let parent = d.path().to_string_lossy().to_string();
+        let _body = crate::backend::iomount::test_hold_body(remote_body(d.path()));
+        let (release, wait) = channel::<()>();
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        let mut buf = out();
+        let base_work = d.path().to_path_buf();
+        let work = move || {
+            let _ = wait.recv();
+            super::ops::mkdir(&base_work, "photos")
+        };
+        do_mkdir_with(&mut buf, &mut o, &parent, SHORT_DEADLINE, work);
+        let line = text(&buf);
+        assert!(line.contains(r#""t":"slow""#), "a held mkdir answers slow, never an error: {}", line);
+        assert!(line.contains(r#""op":"mkdir""#), "the slow line names its op: {}", line);
+        assert!(o.journal.is_empty(), "nothing is journalled until the held write lands");
+        drop(release);
+        let landed = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("the released write reports through the op channel");
+        let mut late = out();
+        report_op(&mut late, &mut o, landed);
+        assert!(text(&late).contains(r#""t":"made","ok":true"#), "the late write answers its own reply: {}", text(&late));
+        assert!(d.join("photos").is_dir(), "the released mkdir landed");
+        assert_eq!(o.journal.len(), 1, "one journal entry per request, so one undo reverses it");
+        let mut undone = out();
+        do_undo(&mut undone, &mut o);
+        assert!(text(&undone).contains(r#"{"t":"undone","op":"mkdir","ok":true}"#), "{}", text(&undone));
+        assert!(!d.join("photos").exists(), "undo removed the folder it made");
+    }
+
+    // The same pair for a two-item link: one slow line, one linked line, one undo for both.
+    #[test]
+    fn a_held_remote_link_answers_slow_then_journals_one_entry_for_both() {
+        crate::backend::iomount::test_reset();
+        let d = TestDir::new("slowlink");
+        let src = d.dir("src");
+        let a = d.file("src/a.txt", "a");
+        let b = d.file("src/b.txt", "b");
+        let dest = d.dir("dest");
+        let _ = src;
+        let _body = crate::backend::iomount::test_hold_body(remote_body(d.path()));
+        let (release, wait) = channel::<()>();
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        let mut buf = out();
+        let sources = vec![a.to_string_lossy().to_string(), b.to_string_lossy().to_string()];
+        let sources_work = sources.clone();
+        let dest_work = dest.clone();
+        let ask_work = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+        let policy_work = ask_work.policy(None, &dest_work).for_batch(&sources_work);
+        let work = move || {
+            let _ = wait.recv();
+            Ok(link_items("relative", sources_work, dest_work, policy_work))
+        };
+        do_link_with(&mut buf, &mut o, &dest.to_string_lossy(), SHORT_DEADLINE, work);
+        let line = text(&buf);
+        assert!(line.contains(r#""t":"slow""#), "a held link answers slow, never an error: {}", line);
+        assert!(line.contains(r#""op":"link""#), "the slow line names its op: {}", line);
+        assert!(o.journal.is_empty(), "nothing is journalled until the held write lands");
+        drop(release);
+        let landed = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("the released write reports through the op channel");
+        let mut late = out();
+        report_op(&mut late, &mut o, landed);
+        assert_eq!(text(&late).trim(), r#"{"t":"linked","ok":2,"failed":0,"skipped":0}"#, "the late write answers one line: {}", text(&late));
+        assert_eq!(o.journal.len(), 1, "one journal entry per request, so one undo reverses it");
+        let mut undone = out();
+        do_undo(&mut undone, &mut o);
+        assert!(text(&undone).contains(r#"{"t":"undone","op":"link","ok":true}"#), "{}", text(&undone));
+        assert!(std::fs::symlink_metadata(dest.join("a.txt")).is_err(), "undo removed the first link");
+        assert!(std::fs::symlink_metadata(dest.join("b.txt")).is_err(), "undo removed the second link");
+        assert!(a.exists() && b.exists(), "undo removes the links, never the sources");
+    }
+
+    // A slow write holds its mount, so undo, redo and a write on that mount answer busy until it lands.
+    #[test]
+    fn an_undo_while_a_slow_write_is_in_flight_answers_busy() {
+        crate::backend::iomount::test_reset();
+        let d = TestDir::new("slowbusy");
+        let parent = d.path().to_string_lossy().to_string();
+        let _body = crate::backend::iomount::test_hold_body(remote_body(d.path()));
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        let mut buf = out();
+        do_mkdir(&mut buf, &mut o, &parent, "older");
+        assert!(text(&buf).contains(r#""t":"made""#), "the older mkdir journals first: {}", text(&buf));
+        let victim = d.file("victim.txt", "v");
+        let path = victim.to_string_lossy().to_string();
+        let (release, wait) = channel::<()>();
+        let from_work = victim.clone();
+        let work = move || {
+            let _ = wait.recv();
+            super::ops::rename(&from_work, "after.txt")
+        };
+        let mut slow = out();
+        do_rename_with(&mut slow, &mut o, &path, SHORT_DEADLINE, work);
+        assert!(text(&slow).contains(r#""t":"slow""#), "the held rename answers slow: {}", text(&slow));
+        let mut undone = out();
+        do_undo(&mut undone, &mut o);
+        assert!(text(&undone).contains("already running"), "undo waits for the late entry: {}", text(&undone));
+        assert_eq!(o.journal.len(), 1, "the older mkdir survives an undo aimed past it");
+        let mut redone = out();
+        start_redo(&mut redone, &mut o);
+        assert!(text(&redone).contains("already running"), "redo waits too: {}", text(&redone));
+        let mut second = out();
+        do_mkdir(&mut second, &mut o, &parent, "newer");
+        assert!(text(&second).contains("already running"), "a second write waits too: {}", text(&second));
+        drop(release);
+        let landed = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("the released write reports through the op channel");
+        let mut late = out();
+        report_op(&mut late, &mut o, landed);
+        assert!(text(&late).contains(r#""t":"renamed""#), "the late write journals on landing: {}", text(&late));
+        assert_eq!(o.journal.len(), 2, "the late entry lands behind the older one");
+        let mut undone = out();
+        do_undo(&mut undone, &mut o);
+        assert!(text(&undone).contains(r#"{"t":"undone","op":"rename""#), "undo reverses the late write first: {}", text(&undone));
+        assert!(victim.exists(), "undo put the rename's old name back");
+        assert!(d.join("older").is_dir(), "the older mkdir is still journalled underneath");
+    }
+
+    // A slow line frees the slot at once, so a local transfer starts while the remote write is still held.
+    #[test]
+    fn a_slow_write_releases_the_slot_so_a_local_transfer_runs() {
+        crate::backend::iomount::test_reset();
+        let remote = TestDir::new("slowfreeslot");
+        let victim = remote.file("victim.txt", "v");
+        let path = victim.to_string_lossy().to_string();
+        let _body = crate::backend::iomount::test_hold_body(remote_body(remote.path()));
+        let (release, wait) = channel::<()>();
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        let mut buf = out();
+        let from_work = victim.clone();
+        let work = move || {
+            let _ = wait.recv();
+            super::ops::rename(&from_work, "after.txt")
+        };
+        do_rename_with(&mut buf, &mut o, &path, SHORT_DEADLINE, work);
+        assert!(text(&buf).contains(r#""t":"slow""#), "the held rename answers slow: {}", text(&buf));
+        assert!(o.live.running().is_none(), "a slow line frees the slot at once");
+        let local = TestDir::new("slowfreeslotlocal");
+        let source = local.file("cargo.txt", "cargo");
+        let dest = local.dir("dest");
+        let mut started = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"copy"}"#);
+        start_transfer(&mut started, &mut o, "copy", vec![source.to_string_lossy().to_string()], &dest.to_string_lossy(), ask);
+        assert!(text(&started).contains(r#""t":"transferstarted""#), "a local transfer runs beside the held write: {}", text(&started));
+        drop(release);
+        let mut landed = false;
+        for _ in 0..LAND_ROUNDS {
+            let msg = rx.recv_timeout(LAND_BOUND).expect("the released write reports through the op channel");
+            let mut sink = out();
+            report_op(&mut sink, &mut o, msg);
+            if text(&sink).contains(r#""t":"renamed""#) {
+                landed = true;
+                break;
+            }
+        }
+        assert!(landed, "the released rename journals late");
+        // The local transfer's own Done may still be in flight; it frees the slot it claimed.
+        for _ in 0..LAND_ROUNDS {
+            if o.live.running().is_none() {
+                break;
+            }
+            let msg = rx.recv_timeout(LAND_BOUND).expect("the local transfer reports through the op channel");
+            let mut sink = out();
+            report_op(&mut sink, &mut o, msg);
+        }
+        assert!(o.live.running().is_none(), "the local transfer frees the slot it claimed");
+        assert!(dest.join("cargo.txt").exists(), "the local transfer landed beside the held write");
+        let mut undone = out();
+        do_undo(&mut undone, &mut o);
+        assert!(text(&undone).contains(r#"{"t":"undone""#), "no pending entry survives the late Done: {}", text(&undone));
+    }
+
+    // A write on the slow mount waits while the slot stays free; it runs nothing and journals nothing.
+    #[test]
+    fn a_write_on_the_slow_mount_answers_busy_while_the_slot_stays_free() {
+        crate::backend::iomount::test_reset();
+        let remote = TestDir::new("slowsamemount");
+        let victim = remote.file("victim.txt", "v");
+        let path = victim.to_string_lossy().to_string();
+        let _body = crate::backend::iomount::test_hold_body(remote_body(remote.path()));
+        let (release, wait) = channel::<()>();
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        let mut buf = out();
+        let from_work = victim.clone();
+        let work = move || {
+            let _ = wait.recv();
+            super::ops::rename(&from_work, "after.txt")
+        };
+        do_rename_with(&mut buf, &mut o, &path, SHORT_DEADLINE, work);
+        assert!(text(&buf).contains(r#""t":"slow""#), "the held rename answers slow: {}", text(&buf));
+        assert!(o.live.running().is_none(), "a slow line frees the slot at once");
+        let parent = remote.path().to_string_lossy().to_string();
+        let base_work = remote.path().to_path_buf();
+        let mut second = out();
+        do_mkdir_with(&mut second, &mut o, &parent, SHORT_DEADLINE, move || super::ops::mkdir(&base_work, "newer"));
+        assert!(text(&second).contains("already running"), "a write on the slow mount waits: {}", text(&second));
+        assert!(!remote.join("newer").exists(), "the refused write touches nothing");
+        assert!(o.journal.is_empty(), "the refused write journals nothing");
+        drop(release);
+        let landed = rx.recv_timeout(LAND_BOUND).expect("the released write reports through the op channel");
+        let mut late = out();
+        report_op(&mut late, &mut o, landed);
+        assert!(text(&late).contains(r#""t":"renamed""#), "the late write journals on landing: {}", text(&late));
+        assert_eq!(o.journal.len(), 1, "one journal entry per request, so one undo reverses it");
+    }
+
+    // Undo waits on the pending path until the late Done journals, then reverses it.
+    #[test]
+    fn an_undo_names_the_pending_path_until_the_late_done_journals() {
+        crate::backend::iomount::test_reset();
+        let d = TestDir::new("slowundoname");
+        let victim = d.file("victim.txt", "v");
+        let path = victim.to_string_lossy().to_string();
+        let _body = crate::backend::iomount::test_hold_body(remote_body(d.path()));
+        let (release, wait) = channel::<()>();
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        let mut buf = out();
+        let from_work = victim.clone();
+        let work = move || {
+            let _ = wait.recv();
+            super::ops::rename(&from_work, "after.txt")
+        };
+        do_rename_with(&mut buf, &mut o, &path, SHORT_DEADLINE, work);
+        assert!(text(&buf).contains(r#""t":"slow""#), "the held rename answers slow: {}", text(&buf));
+        let mut blocked = out();
+        do_undo(&mut blocked, &mut o);
+        let line = text(&blocked);
+        assert!(line.contains("already running"), "undo waits for the late entry: {}", line);
+        assert!(line.contains(&path), "undo names the pending path: {}", line);
+        drop(release);
+        let landed = rx.recv_timeout(LAND_BOUND).expect("the released write reports through the op channel");
+        let mut late = out();
+        report_op(&mut late, &mut o, landed);
+        assert!(text(&late).contains(r#""t":"renamed""#), "the late write journals on landing: {}", text(&late));
+        let mut undone = out();
+        do_undo(&mut undone, &mut o);
+        assert!(text(&undone).contains(r#"{"t":"undone","op":"rename""#), "undo reverses the late write: {}", text(&undone));
+        assert!(victim.exists(), "undo put the rename's old name back");
+    }
+
+    // Two slow writes on two mounts each clear only their own entry.
+    #[test]
+    fn two_pending_writes_each_clear_only_their_own_entry() {
+        crate::backend::iomount::test_reset();
+        let first = TestDir::new("slowtwofirst");
+        let second = TestDir::new("slowtwosecond");
+        let body = format!("1 0 8:1 / / rw - ext4 /dev/a rw\n30 1 0:45 / {} rw - nfs n:/s rw\n31 1 0:46 / {} rw - nfs n:/t rw\n", first.path().to_string_lossy(), second.path().to_string_lossy());
+        let _guard = crate::backend::iomount::test_hold_body(body);
+        let victim = first.file("victim.txt", "v");
+        let path = victim.to_string_lossy().to_string();
+        let (release_first, wait_first) = channel::<()>();
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        let mut buf = out();
+        let from_work = victim.clone();
+        let work = move || {
+            let _ = wait_first.recv();
+            super::ops::rename(&from_work, "after.txt")
+        };
+        do_rename_with(&mut buf, &mut o, &path, SHORT_DEADLINE, work);
+        assert!(text(&buf).contains(r#""t":"slow""#), "the held rename answers slow: {}", text(&buf));
+        let parent = second.path().to_string_lossy().to_string();
+        let (release_second, wait_second) = channel::<()>();
+        let base_work = second.path().to_path_buf();
+        let mut buf2 = out();
+        let work2 = move || {
+            let _ = wait_second.recv();
+            super::ops::mkdir(&base_work, "photos")
+        };
+        do_mkdir_with(&mut buf2, &mut o, &parent, SHORT_DEADLINE, work2);
+        assert!(text(&buf2).contains(r#""t":"slow""#), "a second mount's slow write answers slow beside the first: {}", text(&buf2));
+        drop(release_first);
+        let mut first_landed = false;
+        for _ in 0..LAND_ROUNDS {
+            let msg = rx.recv_timeout(LAND_BOUND).expect("the released write reports through the op channel");
+            let mut sink = out();
+            report_op(&mut sink, &mut o, msg);
+            if text(&sink).contains(r#""t":"renamed""#) {
+                first_landed = true;
+                break;
+            }
+        }
+        assert!(first_landed, "the first released write journals late");
+        let mut blocked = out();
+        do_undo(&mut blocked, &mut o);
+        let line = text(&blocked);
+        assert!(line.contains("already running"), "undo still waits on the second mount: {}", line);
+        assert!(line.contains(&parent), "undo names the remaining path: {}", line);
+        drop(release_second);
+        let mut second_landed = false;
+        for _ in 0..LAND_ROUNDS {
+            let msg = rx.recv_timeout(LAND_BOUND).expect("the released write reports through the op channel");
+            let mut sink = out();
+            report_op(&mut sink, &mut o, msg);
+            if text(&sink).contains(r#""t":"made""#) {
+                second_landed = true;
+                break;
+            }
+        }
+        assert!(second_landed, "the second released write journals late");
+        let mut undone = out();
+        do_undo(&mut undone, &mut o);
+        assert!(text(&undone).contains(r#"{"t":"undone","op":"mkdir""#), "undo reverses the newest entry first: {}", text(&undone));
+        assert!(!second.join("photos").exists(), "undo removed the folder it made");
+        let mut undone = out();
+        do_undo(&mut undone, &mut o);
+        assert!(text(&undone).contains(r#"{"t":"undone","op":"rename""#), "undo reverses the late write next: {}", text(&undone));
+        assert!(victim.exists(), "undo put the rename's old name back");
+    }
+
+    // A late Done carries its own id, so it never frees a newer operation's slot.
+    #[test]
+    fn a_late_done_after_a_newer_claim_leaves_the_newer_claim_running() {
+        crate::backend::iomount::test_reset();
+        let d = TestDir::new("slowlatedone");
+        let victim = d.file("victim.txt", "v");
+        let path = victim.to_string_lossy().to_string();
+        let _body = crate::backend::iomount::test_hold_body(remote_body(d.path()));
+        let (release, wait) = channel::<()>();
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        let mut buf = out();
+        let from_work = victim.clone();
+        let work = move || {
+            let _ = wait.recv();
+            super::ops::rename(&from_work, "after.txt")
+        };
+        do_rename_with(&mut buf, &mut o, &path, SHORT_DEADLINE, work);
+        assert!(text(&buf).contains(r#""t":"slow""#), "the held rename answers slow: {}", text(&buf));
+        assert!(o.live.running().is_none(), "a slow line frees the slot at once");
+        let (next, _flag) = o.claim_transfer();
+        assert_eq!(o.live.running(), Some(next), "a newer operation claims the free slot beside the held write");
+        drop(release);
+        let landed = rx.recv_timeout(LAND_BOUND).expect("the released write reports through the op channel");
+        let mut late = out();
+        report_op(&mut late, &mut o, landed);
+        assert!(text(&late).contains(r#""t":"renamed""#), "the late write still lands: {}", text(&late));
+        assert_eq!(o.live.running(), Some(next), "a late Done never frees a newer operation's slot");
+        assert_eq!(o.journal.len(), 1, "the late entry still journals exactly once");
+        o.live.finished();
+    }
+
+    // A slow write never takes the slot: a held rename beside a running transfer keeps that transfer's id and its cancel.
+    #[test]
+    fn a_slow_rename_beside_a_running_transfer_keeps_the_transfer_slot() {
+        crate::backend::iomount::test_reset();
+        let remote = TestDir::new("slowkeepstransfer");
+        let victim = remote.file("victim.txt", "v");
+        let path = victim.to_string_lossy().to_string();
+        let _body = crate::backend::iomount::test_hold_body(remote_body(remote.path()));
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        // A transfer holds the slot first, so the slow write must number itself without touching it.
+        let (transfer, flag) = o.claim_transfer();
+        assert_eq!(o.live.running(), Some(transfer));
+        let (release, wait) = channel::<()>();
+        let from_work = victim.clone();
+        let work = move || {
+            let _ = wait.recv();
+            super::ops::rename(&from_work, "after.txt")
+        };
+        let mut slow = out();
+        do_rename_with(&mut slow, &mut o, &path, SHORT_DEADLINE, work);
+        assert!(text(&slow).contains(r#""t":"slow""#), "the held rename answers slow: {}", text(&slow));
+        assert_eq!(o.live.running(), Some(transfer), "the slow rename never took the transfer's slot");
+        cancel_transfer(&mut slow, &mut o, transfer);
+        assert!(flag.load(Ordering::Relaxed), "the transfer's cancel still reaches it");
+        drop(release);
+        let landed = rx.recv_timeout(LAND_BOUND).expect("the released write reports through the op channel");
+        let mut late = out();
+        report_op(&mut late, &mut o, landed);
+        assert!(text(&late).contains(r#""t":"renamed""#), "the late write still lands: {}", text(&late));
+        assert_eq!(o.live.running(), Some(transfer), "the late Done never frees the transfer's slot");
+        assert_eq!(o.journal.len(), 1, "the late entry still journals exactly once");
+        o.live.finished();
+    }
+
+    // One sweep over every write kind: each answers busy on a mount held slow and runs elsewhere.
+    #[test]
+    fn every_write_kind_waits_on_a_pending_mount_and_runs_elsewhere() {
+        crate::backend::iomount::test_reset();
+        let remote = TestDir::new("gateallremote");
+        let local = TestDir::new("gatealllocal");
+        let _body = crate::backend::iomount::test_hold_body(remote_body(remote.path()));
+        let (tx, rx) = channel();
+        let mut o = Ops::new(tx);
+        // One held rename keeps the remote mount pending for the whole sweep.
+        let victim = remote.file("victim.txt", "v");
+        let (release, wait) = channel::<()>();
+        let from_work = victim.clone();
+        let held = move || {
+            let _ = wait.recv();
+            super::ops::rename(&from_work, "after.txt")
+        };
+        let mut slow = out();
+        do_rename_with(&mut slow, &mut o, &victim.to_string_lossy(), SHORT_DEADLINE, held);
+        assert!(text(&slow).contains(r#""t":"slow""#), "the sweep holds its mount slow: {}", text(&slow));
+        // A transfer on the held mount waits, and journals nothing.
+        let remote_dest = remote.dir("xferdest");
+        let remote_cargo = remote.file("cargo.txt", "cargo");
+        let journaled = o.journal.len();
+        let mut busy = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"copy"}"#);
+        start_transfer(&mut busy, &mut o, "copy", vec![remote_cargo.to_string_lossy().to_string()], &remote_dest.to_string_lossy(), ask);
+        assert!(text(&busy).contains("already running"), "a transfer onto a pending mount waits: {}", text(&busy));
+        assert_eq!(o.journal.len(), journaled, "the refused transfer journals nothing");
+        assert!(remote_dest.read_dir().unwrap().next().is_none(), "the refused transfer lands nothing");
+        // The same transfer elsewhere runs beside the held write.
+        let local_dest = local.dir("xferdest");
+        let local_cargo = local.file("cargo.txt", "cargo");
+        let mut started = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"copy"}"#);
+        start_transfer(&mut started, &mut o, "copy", vec![local_cargo.to_string_lossy().to_string()], &local_dest.to_string_lossy(), ask);
+        assert!(text(&started).contains(r#""t":"transferstarted""#), "a local transfer runs beside the held write: {}", text(&started));
+        for _ in 0..LAND_ROUNDS {
+            let msg = rx.recv_timeout(LAND_BOUND).expect("the local transfer reports through the op channel");
+            let terminal = matches!(&msg, OpMsg::TransferDone { .. });
+            let mut sink = out();
+            report_op(&mut sink, &mut o, msg);
+            if terminal {
+                break;
+            }
+        }
+        assert!(o.live.running().is_none(), "the local transfer frees the slot it claimed");
+        assert!(local_dest.join("cargo.txt").exists(), "the local transfer landed beside the held write");
+        // Trash on the held mount waits, and the file stays where it was.
+        let remote_trash = remote.file("t.txt", "t");
+        let journaled = o.journal.len();
+        let mut busy = out();
+        start_trash(&mut busy, &mut o, vec![remote_trash.to_string_lossy().to_string()], 0);
+        assert!(text(&busy).contains("already running"), "trash on a pending mount waits: {}", text(&busy));
+        assert_eq!(o.journal.len(), journaled, "the refused trash journals nothing");
+        assert!(remote_trash.exists(), "the refused trash touches nothing");
+        // The same trash elsewhere leaves the process with no refusal on the wire.
+        let local_trash = local.file("t.txt", "t");
+        let mut quiet = out();
+        start_trash(&mut quiet, &mut o, vec![local_trash.to_string_lossy().to_string()], 0);
+        assert!(text(&quiet).is_empty(), "trash elsewhere answers nothing in sync: {}", text(&quiet));
+        for _ in 0..LAND_ROUNDS {
+            let msg = rx.recv_timeout(LAND_BOUND).expect("the trash reports through the op channel");
+            let terminal = matches!(&msg, OpMsg::Trashed { .. });
+            let mut sink = out();
+            report_op(&mut sink, &mut o, msg);
+            if terminal {
+                break;
+            }
+        }
+        assert!(o.live.running().is_none(), "the trash frees the slot it claimed");
+        // A menu selection on the held mount waits even when the paths name files elsewhere.
+        let remote_sel = remote.file("sel.txt", "s");
+        let menu = super::super::menu_actions::MenuActions::new(o.tx.clone());
+        assert!(menu.request(r#"{"op":"snapshot","id":5}"#.into(), vec![remote_sel.to_string_lossy().to_string()], None));
+        let snap = rx.recv_timeout(LAND_BOUND).expect("the snapshot replies");
+        assert!(matches!(&snap, OpMsg::Meta { .. }), "the snapshot answers Meta");
+        o.menuactions = Some(menu);
+        let local_other = local.file("other.txt", "o");
+        let journaled = o.journal.len();
+        let mut busy = out();
+        start_trash(&mut busy, &mut o, vec![local_other.to_string_lossy().to_string()], 5);
+        assert!(text(&busy).contains("already running"), "a selection on a pending mount waits: {}", text(&busy));
+        assert_eq!(o.journal.len(), journaled, "the refused trash journals nothing");
+        assert!(local_other.exists(), "the refused trash touches nothing");
+        // Duplicate on the held mount waits, and the source stays single.
+        let remote_dup = remote.file("d.txt", "d");
+        let journaled = o.journal.len();
+        let mut busy = out();
+        start_duplicate(&mut busy, &mut o, &remote_dup.to_string_lossy(), 0);
+        assert!(text(&busy).contains("already running"), "a duplicate on a pending mount waits: {}", text(&busy));
+        assert_eq!(o.journal.len(), journaled, "the refused duplicate journals nothing");
+        assert!(remote_dup.exists(), "the refused duplicate touches nothing");
+        // The same duplicate elsewhere runs, and a divergent selection still waits.
+        let local_dup = local.file("d.txt", "d");
+        let mut quiet = out();
+        start_duplicate(&mut quiet, &mut o, &local_dup.to_string_lossy(), 0);
+        assert!(text(&quiet).is_empty(), "a duplicate elsewhere answers nothing in sync: {}", text(&quiet));
+        let landed = rx.recv_timeout(LAND_BOUND).expect("the duplicate reports through the op channel");
+        let mut late = out();
+        report_op(&mut late, &mut o, landed);
+        assert!(text(&late).contains(r#""t":"duplicated""#), "the duplicate lands elsewhere: {}", text(&late));
+        let local_divergent = local.file("divergent.txt", "d");
+        let journaled = o.journal.len();
+        let mut busy = out();
+        start_duplicate(&mut busy, &mut o, &local_divergent.to_string_lossy(), 5);
+        assert!(text(&busy).contains("already running"), "a divergent selection on a pending mount waits: {}", text(&busy));
+        assert_eq!(o.journal.len(), journaled, "the refused duplicate journals nothing");
+        // Rename on the held mount waits, and the old name stays.
+        let remote_rename = remote.file("r.txt", "r");
+        let journaled = o.journal.len();
+        let mut busy = out();
+        do_rename(&mut busy, &mut o, &remote_rename.to_string_lossy(), "r2.txt");
+        assert!(text(&busy).contains("already running"), "a rename on a pending mount waits: {}", text(&busy));
+        assert_eq!(o.journal.len(), journaled, "the refused rename journals nothing");
+        assert!(remote_rename.exists() && !remote.join("r2.txt").exists(), "the refused rename touches nothing");
+        // The same rename elsewhere lands at once.
+        let local_rename = local.file("r.txt", "r");
+        let mut done = out();
+        do_rename(&mut done, &mut o, &local_rename.to_string_lossy(), "r2.txt");
+        assert!(text(&done).contains(r#""t":"renamed","ok":true"#), "a rename elsewhere lands: {}", text(&done));
+        // Mkdir on the held mount waits, and the folder never appears.
+        let journaled = o.journal.len();
+        let mut busy = out();
+        do_mkdir(&mut busy, &mut o, &remote.path().to_string_lossy(), "heldsub");
+        assert!(text(&busy).contains("already running"), "a mkdir on a pending mount waits: {}", text(&busy));
+        assert_eq!(o.journal.len(), journaled, "the refused mkdir journals nothing");
+        assert!(!remote.join("heldsub").exists(), "the refused mkdir touches nothing");
+        // The same mkdir elsewhere lands at once.
+        let mut done = out();
+        do_mkdir(&mut done, &mut o, &local.path().to_string_lossy(), "photos");
+        assert!(text(&done).contains(r#""t":"made","ok":true"#), "a mkdir elsewhere lands: {}", text(&done));
+        // A new file on the held mount waits, and nothing is created.
+        let journaled = o.journal.len();
+        let mut busy = out();
+        do_newfile(&mut busy, &mut o, &remote.path().to_string_lossy(), "held.txt", 21);
+        assert!(text(&busy).contains("already running"), "a new file on a pending mount waits: {}", text(&busy));
+        assert_eq!(o.journal.len(), journaled, "the refused new file journals nothing");
+        assert!(!remote.join("held.txt").exists(), "the refused new file touches nothing");
+        // The same new file elsewhere lands at once.
+        let mut done = out();
+        do_newfile(&mut done, &mut o, &local.path().to_string_lossy(), "fresh.txt", 22);
+        assert!(text(&done).contains(r#""ok":true"#), "a new file elsewhere lands: {}", text(&done));
+        assert!(local.join("fresh.txt").exists(), "the new file landed elsewhere");
+        // A link onto the held mount waits, and nothing is linked.
+        let remote_linkdest = remote.dir("linkdest");
+        let remote_link = remote.file("l.txt", "l");
+        let journaled = o.journal.len();
+        let mut busy = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+        do_link(&mut busy, &mut o, "relative", vec![remote_link.to_string_lossy().to_string()], &remote_linkdest.to_string_lossy(), ask);
+        assert!(text(&busy).contains("already running"), "a link onto a pending mount waits: {}", text(&busy));
+        assert_eq!(o.journal.len(), journaled, "the refused link journals nothing");
+        assert!(remote_linkdest.read_dir().unwrap().next().is_none(), "the refused link lands nothing");
+        // The same link elsewhere lands at once.
+        let local_linkdest = local.dir("linkdest");
+        let local_link = local.file("l.txt", "l");
+        let mut done = out();
+        let ask = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
+        do_link(&mut done, &mut o, "relative", vec![local_link.to_string_lossy().to_string()], &local_linkdest.to_string_lossy(), ask);
+        assert!(text(&done).contains(r#""t":"linked""#), "a link elsewhere lands: {}", text(&done));
+        // A delete on the held mount waits, and the file stays.
+        let remote_del = remote.file("del.txt", "d");
+        let journaled = o.journal.len();
+        let mut busy = out();
+        request_menu_action(&mut busy, &mut o, r#"{"op":"delete","id":6,"token":1}"#.into(), vec![remote_del.to_string_lossy().to_string()], None);
+        assert!(text(&busy).contains("already running"), "a delete on a pending mount waits: {}", text(&busy));
+        assert_eq!(o.journal.len(), journaled, "the refused delete journals nothing");
+        assert!(remote_del.exists(), "the refused delete touches nothing");
+        // The same delete elsewhere reaches the menu's own expiry rather than the gate.
+        let local_del = local.file("del.txt", "d");
+        let mut quiet = out();
+        request_menu_action(&mut quiet, &mut o, r#"{"op":"delete","id":6,"token":1}"#.into(), vec![local_del.to_string_lossy().to_string()], None);
+        assert!(text(&quiet).is_empty(), "a delete elsewhere passes the gate in sync: {}", text(&quiet));
+        let msg = rx.recv_timeout(LAND_BOUND).expect("the delete answers through the op channel");
+        let mut late = out();
+        report_op(&mut late, &mut o, msg);
+        assert!(text(&late).contains("expired"), "a delete elsewhere reaches the menu's own expiry: {}", text(&late));
+        assert!(!text(&late).contains("already running"), "a delete elsewhere is never the gate: {}", text(&late));
+        assert!(o.live.running().is_none(), "the expired delete frees the slot it claimed");
+        // A compress naming the held mount waits before any tool runs.
+        let remote_compress = remote.file("c.txt", "c");
+        let journaled = o.journal.len();
+        let mut busy = out();
+        let formats = std::sync::Arc::new(crate::backend::archive::Formats::from_tools(true, true));
+        crate::backend::archivereq::start_archive(&mut busy, &mut o, std::sync::Arc::clone(&formats), "compress",
+            vec![remote_compress.to_string_lossy().to_string()], "tar".into(), PathBuf::new(), remote.join("out.tar"), 0);
+        assert!(text(&busy).contains("already running"), "a compress on a pending mount waits: {}", text(&busy));
+        assert!(!text(&busy).contains("archivestarted"), "the refused compress starts nothing: {}", text(&busy));
+        assert_eq!(o.journal.len(), journaled, "the refused compress journals nothing");
+        assert!(!remote.join("out.tar").exists(), "the refused compress touches nothing");
+        // The same compress elsewhere starts, and a divergent selection still waits.
+        let local_compress = local.file("c.txt", "c");
+        let mut started = out();
+        crate::backend::archivereq::start_archive(&mut started, &mut o, std::sync::Arc::clone(&formats), "compress",
+            vec![local_compress.to_string_lossy().to_string()], "tar".into(), PathBuf::new(), local.join("out.tar"), 0);
+        assert!(text(&started).contains("archivestarted"), "a compress elsewhere starts: {}", text(&started));
+        for _ in 0..LAND_ROUNDS {
+            let msg = rx.recv_timeout(LAND_BOUND).expect("the compress reports through the op channel");
+            let terminal = matches!(&msg, OpMsg::DetachedDone { .. });
+            let mut sink = out();
+            report_op(&mut sink, &mut o, msg);
+            if terminal {
+                break;
+            }
+        }
+        assert!(o.detached.is_empty(), "the compress leaves the quit registry");
+        let local_divergent = local.file("c2.txt", "c");
+        let mut busy = out();
+        crate::backend::archivereq::start_archive(&mut busy, &mut o, std::sync::Arc::clone(&formats), "compress",
+            vec![local_divergent.to_string_lossy().to_string()], "tar".into(), PathBuf::new(), local.join("out2.tar"), 5);
+        assert!(text(&busy).contains("already running"), "a divergent selection on a pending mount waits: {}", text(&busy));
+        assert!(!text(&busy).contains("archivestarted"), "the refused compress starts nothing: {}", text(&busy));
+        // An extract of the held mount waits before any tool runs.
+        let remote_archive = remote.file("pkg.tar", "p");
+        let remote_exdest = remote.dir("exdest");
+        let journaled = o.journal.len();
+        let mut busy = out();
+        crate::backend::archivereq::start_archive(&mut busy, &mut o, std::sync::Arc::clone(&formats), "extract",
+            Vec::new(), "tar".into(), remote_archive.clone(), remote_exdest.clone(), 0);
+        assert!(text(&busy).contains("already running"), "an extract on a pending mount waits: {}", text(&busy));
+        assert!(!text(&busy).contains("archivestarted"), "the refused extract starts nothing: {}", text(&busy));
+        assert_eq!(o.journal.len(), journaled, "the refused extract journals nothing");
+        // The same extract elsewhere starts, even when its archive is not one.
+        let bogus = local.join("pkg.tar");
+        std::fs::write(&bogus, "not an archive").unwrap();
+        let fresh = local.join("exdest-fresh");
+        let mut started = out();
+        crate::backend::archivereq::start_archive(&mut started, &mut o, std::sync::Arc::clone(&formats), "extract",
+            Vec::new(), "tar".into(), bogus, fresh, 0);
+        assert!(text(&started).contains("archivestarted"), "an extract elsewhere starts: {}", text(&started));
+        for _ in 0..LAND_ROUNDS {
+            let msg = rx.recv_timeout(LAND_BOUND).expect("the extract reports through the op channel");
+            let terminal = matches!(&msg, OpMsg::SlotDone { .. });
+            let mut sink = out();
+            report_op(&mut sink, &mut o, msg);
+            if terminal {
+                break;
+            }
+        }
+        assert!(o.live.running().is_none(), "the extract frees the slot it claimed");
+        // A convert of the held mount waits before anything is inspected.
+        let remote_convert = remote.file("in.png", "pixels");
+        let journaled = o.journal.len();
+        let mut busy = out();
+        crate::backend::archivereq::start_convert(&mut busy, &mut o, remote_convert.clone(), remote.join("out.jpg"), false, 0, 71, false);
+        assert!(text(&busy).contains("already running"), "a convert on a pending mount waits: {}", text(&busy));
+        assert!(!text(&busy).contains("convertstarted"), "the refused convert starts nothing: {}", text(&busy));
+        assert_eq!(o.journal.len(), journaled, "the refused convert journals nothing");
+        assert!(!remote.join("out.jpg").exists(), "the refused convert touches nothing");
+        // The same convert elsewhere passes the gate, and a divergent selection still waits.
+        let local_convert = local.file("in.png", "pixels");
+        let mut past = out();
+        crate::backend::archivereq::start_convert(&mut past, &mut o, local_convert.clone(), local.join("out.jpg"), false, 0, 72, false);
+        assert!(!text(&past).contains("already running"), "a convert elsewhere passes the gate: {}", text(&past));
+        if text(&past).contains("convertstarted") {
+            let landed = rx.recv_timeout(LAND_BOUND).expect("the convert reports through the op channel");
+            assert!(matches!(&landed, OpMsg::DetachedDone { .. }), "a convert leaves the quit registry");
+            let mut sink = out();
+            report_op(&mut sink, &mut o, landed);
+        }
+        let local_in2 = local.file("in2.png", "pixels");
+        let mut busy = out();
+        crate::backend::archivereq::start_convert(&mut busy, &mut o, local_in2, local.join("out2.jpg"), false, 5, 73, false);
+        assert!(text(&busy).contains("already running"), "a divergent selection on a pending mount waits: {}", text(&busy));
+        // A convert probe only reads, so it never waits on the gate.
+        let mut probe = out();
+        crate::backend::archivereq::start_convert(&mut probe, &mut o, remote_convert, remote.join("out.jpg"), false, 0, 74, true);
+        assert!(text(&probe).contains("convertchecked"), "a probe answers past the gate: {}", text(&probe));
+        assert!(!text(&probe).contains("already running"), "a probe is never the gate: {}", text(&probe));
+        // A permissions batch on the held mount waits, and the mode stays.
+        let remote_perm = remote.file("p.txt", "p");
+        let journaled = o.journal.len();
+        let mut busy = out();
+        do_permissions_batch(&mut busy, &mut o, vec![remote_perm.to_string_lossy().to_string()], vec!["644".to_string()], 81);
+        assert!(text(&busy).contains("already running"), "permissions on a pending mount wait: {}", text(&busy));
+        assert_eq!(o.journal.len(), journaled, "the refused permissions batch journals nothing");
+        // The same batch elsewhere applies at once.
+        let local_perm = local.file("p.txt", "p");
+        let mut done = out();
+        do_permissions_batch(&mut done, &mut o, vec![local_perm.to_string_lossy().to_string()], vec!["644".to_string()], 82);
+        assert!(text(&done).contains(r#""ok":true"#), "permissions elsewhere apply: {}", text(&done));
+        // Releasing the held write journals it late behind everything the sweep ran.
+        let journaled = o.journal.len();
+        drop(release);
+        let landed = rx.recv_timeout(LAND_BOUND).expect("the released write reports through the op channel");
+        let mut late = out();
+        report_op(&mut late, &mut o, landed);
+        assert!(text(&late).contains(r#""t":"renamed""#), "the released rename journals late: {}", text(&late));
+        assert_eq!(o.journal.len(), journaled + 1, "the late entry lands exactly once");
+        assert!(o.live.running().is_none(), "no pending entry survives the late Done");
+        assert!(o.pending.is_empty(), "the late Done clears its own pending entry");
     }
 }
