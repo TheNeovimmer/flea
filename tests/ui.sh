@@ -443,11 +443,9 @@ seed_ui_state() {
     export XDG_STATE_HOME="$state"
 }
 
-# DEFAULTS' twelve less placeMenu, runScript, extThumbs and openTerminal, so a case can drive
-# that row without changing any other row of the menu.
+# DEFAULTS' twelve less placeMenu, runScript, extThumbs and openTerminal, so a case drives that row alone.
 terminal_shown='["delete","moveto","copyto","properties","permissions","copyAs","pasteAs","invertSelection"]'
-# DEFAULTS' twelve less placeMenu, runScript and extThumbs, the shipped set whole otherwise. A case
-# asserting a menu's exact row list seeds this rather than reading whatever the operator switched off.
+# DEFAULTS' twelve less placeMenu, runScript and extThumbs; an exact-row-list case seeds this.
 menu_shipped='["delete","openTerminal","moveto","copyto","properties","permissions","copyAs","pasteAs","invertSelection"]'
 
 launch() {
@@ -10732,6 +10730,17 @@ case_duallaunch() {
     done
 }
 
+# A fail below exits the case subshell holding Ctrl, Shift or the button, so the trap releases the seat.
+xwdrag_cleanup() {
+    ydotool click 0x80 >/dev/null 2>&1 || true
+    ydotool key 29:0 >/dev/null 2>&1 || true
+    ydotool key 42:0 >/dev/null 2>&1 || true
+    ( kill_flea ) >/dev/null 2>&1 || true
+    if [[ -n "${xdev:-}" && "$xdev" == /* && -f "$xdev/.flea-test-sandbox" ]]; then
+        rm -rf "$xdev" || true
+    fi
+}
+
 # Two Flea windows are two qs processes with two backends: a drop from one into the other moves
 # within one device and copies across, with Shift forcing a move, Ctrl a copy and Ctrl with Shift
 # a link. The controller runs this on minipc; it needs the display, a real pointer and two owned
@@ -10752,6 +10761,7 @@ case_xwdrag() {
     xdev=$(mktemp -d "$XDG_RUNTIME_DIR/flea-xwdrag-XXXXXX") || fail "xwdrag: could not create tmpfs root"
     [[ -n "$xdev" && "$xdev" == "$XDG_RUNTIME_DIR"/flea-xwdrag-* ]] || fail "xwdrag: tmpfs root escaped: $xdev"
     : > "$xdev/.flea-test-sandbox" || fail "xwdrag: could not mark tmpfs root"
+    trap 'xwdrag_cleanup' EXIT
     [ "$(stat -c %d "$xdev")" != "$(stat -c %d "$adir")" ] || fail "xwdrag: $xdev is not another filesystem"
     launch "$adir"
     local apid aid
@@ -10811,6 +10821,7 @@ case_xwdrag() {
         fail "xwdrag: refusing cleanup of unmarked tmpfs root"
     fi
     kill_flea
+    trap - EXIT
 }
 
 # The qs instance id for an owned pid, so two windows sharing one config path stay addressable.
@@ -10861,14 +10872,21 @@ xwdrag_launch_second() {
     fail "xwdrag: no second owned window came up on $start_path"
 }
 
-xwdrag_place() {
-    local pid="$1" x="$2" y="$3" w="$4" h="$5" addr
+# Sample input: `hyprctl clients -j` prints [{"address": "0x2a", "pid": 111}]; prints 0x2a.
+xwdrag_addr() {
+    local pid="$1" addr
     addr=$(hyprctl clients -j | python3 -c '
 import json, sys
 hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$pid") || fail "xwdrag: no window for pid $pid"
     [[ -n "$addr" ]] || fail "xwdrag: no address for pid $pid"
+    printf '%s\n' "$addr"
+}
+
+xwdrag_place() {
+    local pid="$1" x="$2" y="$3" w="$4" h="$5" addr
+    addr=$(xwdrag_addr "$pid") || fail "xwdrag: no window address for pid $pid"
     hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
     sleep 0.3
     hyprctl dispatch "hl.dsp.window.float()" >/dev/null || fail "xwdrag: could not float $pid"
@@ -10881,12 +10899,7 @@ print(hits[0]["address"] if len(hits) == 1 else "")
 
 xwdrag_focus() {
     local pid="$1" addr
-    addr=$(hyprctl clients -j | python3 -c '
-import json, sys
-hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
-print(hits[0]["address"] if len(hits) == 1 else "")
-' "$pid") || fail "xwdrag: no window for pid $pid"
-    [[ -n "$addr" ]] || fail "xwdrag: no address for pid $pid"
+    addr=$(xwdrag_addr "$pid") || fail "xwdrag: no window address for pid $pid"
     hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
     sleep 0.4
 }
