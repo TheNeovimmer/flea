@@ -289,7 +289,7 @@ mod tests {
         assert_eq!(d.get("hiddenLast").and_then(Json::as_bool), Some(false));
         assert_eq!(d.get("highlightToday").and_then(Json::as_bool), Some(false));
         assert_eq!(d.get("wrapAtEnds").and_then(Json::as_bool), Some(false));
-        // ClickAndRefresh ships 0.3.4's behaviour: Escape stays put, a double click opens, slow click renames.
+        // Escape stays put and a double click opens as in 0.3.4; slow click renames, on by the defaults ledger.
         assert_eq!(d.get("escapeUp").and_then(Json::as_bool), Some(false));
         assert_eq!(d.get("openMode").and_then(Json::as_str), Some("double"));
         assert_eq!(d.get("clickRename").and_then(Json::as_bool), Some(true));
