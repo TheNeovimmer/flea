@@ -13,14 +13,23 @@ import tarfile
 
 GATES = ('conflict-marker', 'fused-line', 'paneprops', 'del-printable', 'qml-undeclared-read')
 SUFFIXES = {'.rs', '.qml', '.js', '.sh'}
+# Bound alias propagation so pathological chains cannot keep a source gate running.
+ALIAS_FIXPOINT_CAP = 8
+# Allow the whole QML tree to finish while bounding a stalled qmllint process.
+QMLLINT_TIMEOUT_SECONDS = 120
+# Keep a missing-JSON diagnostic readable even when qmllint emits a long error.
+STDERR_EXCERPT_LENGTH = 200
 
 
 def inventory(root, tracked=False):
     args = ['git', '-C', str(root), 'ls-files', '-z']
     if not tracked:
         args += ['--cached', '--others', '--exclude-standard']
-    result = subprocess.run(args, capture_output=True)
-    if result.returncode == 0:
+    try:
+        result = subprocess.run(args, capture_output=True)
+    except FileNotFoundError:
+        result = None
+    if result is not None and result.returncode == 0:
         return sorted(set(p for p in result.stdout.decode().split('\0') if p))
     # The CI lane exports Git's tree to /work/flea and mounts its authoritative tar at /in/tree.tar.
     archive = Path(os.environ.get('FLEA_SOURCE_ARCHIVE', '/in/tree.tar'))
@@ -63,7 +72,7 @@ def masked(source, suffix):
             quote = source[i]
             i += 1
             while i < len(source):
-                if source[i] == '\\':
+                if source[i] == '\\' and not (suffix == '.sh' and quote == "'"):
                     i += 2
                 elif source[i] == quote:
                     i += 1
@@ -145,9 +154,18 @@ def conflict_marker(root, files):
         except UnicodeDecodeError:
             continue
         scanned += 1
+        markers, separators = [], None
         for n, line in enumerate(source.splitlines(), 1):
-            if re.fullmatch(r'(?:<<<<<<< .*|=======|>>>>>>> .*|\|\|\|\|\|\|\| .*)', line):
-                errors.append(f'{file}:{n}: unresolved conflict marker')
+            if re.fullmatch(r'(?:<<<<<<< .*|>>>>>>> .*|\|\|\|\|\|\|\| .*)', line):
+                markers.append(n)
+                if line.startswith('<<<<<<< '):
+                    separators = []
+                elif line.startswith('>>>>>>> ') and separators is not None:
+                    markers.extend(separators)
+                    separators = None
+            elif line == '=======' and separators is not None:
+                separators.append(n)
+        errors.extend(f'{file}:{n}: unresolved conflict marker' for n in sorted(markers))
     return scanned, errors
 
 
@@ -206,7 +224,7 @@ def pane_references(code, file, members):
     if file == 'ui/SettingsPanel.qml':
         refs.discard('pane')
     # Aliases retain their Pane role, including member references such as root.pane and holder.pane.
-    for _ in range(8):
+    for _ in range(ALIAS_FIXPOINT_CAP):
         before = set(refs)
         for m in re.finditer(r'\b(?:var|let|const)\s+(\w+)\s*=\s*([^\n;]+)', code):
             expression = m[2].split('?', 1)[-1]
@@ -238,7 +256,7 @@ def pane_flow(root, files, members):
     sources, scopes, imports, functions, calls = {}, {}, {}, {}, []
     for file in files:
         path = root / file
-        if path.suffix not in ('.js', '.qml') or not file.startswith(('ui/', 'tests/js/')):
+        if path.suffix not in ('.js', '.qml') or not file.startswith(('ui/', 'tests/js/')) or not path.is_file():
             continue
         source = path.read_text()
         code = member_code(source, path.suffix)
@@ -336,7 +354,7 @@ def paneprops(root, files, sample=False):
     sources, references = pane_flow(root, files, members)
     for file in files:
         path = root / file
-        if path.suffix not in ('.js', '.qml') or not file.startswith(('ui/', 'tests/js/')):
+        if path.suffix not in ('.js', '.qml') or not file.startswith(('ui/', 'tests/js/')) or not path.is_file():
             continue
         scanned += 1
         code = sources[file]
@@ -360,7 +378,8 @@ def paneprops(root, files, sample=False):
                     else:
                         errors.append(f'{location(file, code, at)}: stub field {field} absent from Pane/FocusScope')
     for key in allowances.keys() - used:
-        errors.append(f'{key[0]}: stale stub instrumentation allowance {key[1]}')
+        if (root / key[0]).is_file():
+            errors.append(f'{key[0]}: stale stub instrumentation allowance {key[1]}')
     return scanned, sorted(set(errors))
 
 
@@ -538,13 +557,13 @@ def del_printable(root, files):
     scanned = 0
     for file in files:
         path = root / file
-        if path.suffix not in ('.qml', '.js') or not file.startswith('ui/'):
+        if path.suffix not in ('.qml', '.js') or not file.startswith('ui/') or not path.is_file():
             continue
         scanned += 1
         source = path.read_text()
         code = masked(source, path.suffix)
         aliases = {'event.text'}
-        for _ in range(8):
+        for _ in range(ALIAS_FIXPOINT_CAP):
             before = set(aliases)
             for m in re.finditer(r'\b(?:var|let|const)\s+(\w+)\s*=\s*([\w.]+)\b', code):
                 if m[2] in aliases:
@@ -566,16 +585,19 @@ def del_printable(root, files):
 
 
 def qml_undeclared_read(root, files, sample=False):
-    qml = [f for f in files if f.startswith('ui/') and f.endswith('.qml')]
+    qml = [f for f in files if f.startswith('ui/') and f.endswith('.qml') and (root / f).is_file()]
+    if not qml:
+        return 0, []
     binary = os.environ.get('FLEA_QMLLINT', '/usr/lib/qt6/bin/qmllint')
     if not Path(binary).is_file() or not os.access(binary, os.X_OK):
         return len(qml), [f'qmllint unavailable: {binary}']
     with tempfile.TemporaryDirectory(prefix='staticgates-qmllint-') as scratch:
         out = Path(scratch) / 'diagnostics.json'
-        result = subprocess.run([binary, '--json', str(out), *qml], cwd=root, capture_output=True, text=True, timeout=120)
+        result = subprocess.run([binary, '--json', str(out), *qml], cwd=root, capture_output=True, text=True, timeout=QMLLINT_TIMEOUT_SECONDS)
         if not out.exists():
-            return len(qml), [f'qmllint returned {result.returncode} without JSON: {result.stderr[:200]}']
+            return len(qml), [f'qmllint returned {result.returncode} without JSON: {result.stderr[:STDERR_EXCERPT_LENGTH]}']
         try:
+            # Sample input: {"files":[{"filename":"ui/A.qml","warnings":[{"id":"unqualified","line":1,"column":1,"length":5}]}]}
             data = json.loads(out.read_text())
             reported = {str((root / f['filename']).resolve().relative_to(root)) for f in data['files']}
         except (ValueError, KeyError) as error:
@@ -598,17 +620,23 @@ def qml_undeclared_read(root, files, sample=False):
             profile = 'quickshell-missing' if missing else 'quickshell-present'
             active = False
             found = False
-            for line in (root / 'tests/staticgates-unqualified.tsv').read_text().splitlines():
+            for row, line in enumerate((root / 'tests/staticgates-unqualified.tsv').read_text().splitlines(), 1):
                 if line.startswith('# profile '):
                     active = line == '# profile ' + profile
                     found |= active
                     continue
                 if not line or line.startswith('#') or not active:
                     continue
-                file, n, name, reason = line.split('\t', 3)
-                if not reason.strip():
-                    return len(qml), ['unqualified baseline entry lacks a reason']
-                baseline[(file, int(n), name)] += 1
+                try:
+                    # Sample input: ui/A.qml\t1\tasker\tDeclared QML id.
+                    file, n, name, reason = line.split('\t', 3)
+                    n = int(n)
+                    if not reason.strip():
+                        raise ValueError('unqualified baseline entry lacks a reason')
+                except ValueError as error:
+                    return len(qml), [f'tests/staticgates-unqualified.tsv:{row}: {error}']
+                if (root / file).is_file():
+                    baseline[(file, n, name)] += 1
             if not found:
                 return len(qml), [f'no unqualified baseline for import profile {profile}']
         errors = [f'{f}:{n}: new unqualified read {name}' for f, n, name in (current - baseline).elements()]
