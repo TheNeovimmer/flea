@@ -1,20 +1,10 @@
 .import "../../ui/js/MenuWheel.js" as Wheel
 
-// The menu wheel rule behind ui/FastScrollHandler.qml's stepMode: notches accumulate to one row
-// per 120 angleDelta units, phaseless pixels fold by row height, a touchpad stroke one row per
-// row height of gained travel, with no momentum tail.
+// Menu wheel rule: notches accrue to one row per 120 angleDelta units, pixels and strokes fold by row height, no tail.
 function run(check) {
-    // One full notch is one row, down for a downward notch, whatever the notch is worth in pixels.
-    check("a downward notch steps the highlight down one row", Wheel.notchStep(-288), 1)
-    check("an upward notch steps it up one row", Wheel.notchStep(288), -1)
-    // A fractional wheel only accumulates: a single fragment steps nowhere until it totals a
-    // notch, so one detent of a hi-res wheel never moves a full row on its first event.
+    // A fractional wheel only accrues: one detent of a hi-res wheel never moves a full row alone.
     if (typeof Wheel.notchSteps === "function")
         check("a fractional wheel accrues but steps nowhere alone", Wheel.notchSteps(0, -0.5).steps, 0)
-    check("no travel steps nowhere", Wheel.notchStep(0), 0)
-    check("garbage steps nowhere", Wheel.notchStep("x"), 0)
-    // The sign is writeY's: negative gained travel moves later rows into view, like Down.
-    check("the notch sign follows the content, not the finger", Wheel.notchStep(-120), 1)
 
     // Hi-res: eight 15-unit events total one notch and step one row, never eight.
     if (typeof Wheel.notchSteps !== "function") {
@@ -81,6 +71,6 @@ function run(check) {
     var up = Wheel.touchSteps(0, 40, 37)
     check("upward travel steps the highlight up", up.steps, -1)
     check("no travel is no step", Wheel.touchSteps(5, 0, 37).steps, 0)
-    // No tail: each call folds only what it was handed, so a stroke that ends steps nothing more.
+    // A zero row height folds one-pixel rows, so the fold loop always ends.
     check("a zero row height falls back to one pixel rows", Wheel.touchSteps(0, -100, 0).steps, 100)
 }

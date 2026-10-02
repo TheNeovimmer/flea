@@ -236,6 +236,7 @@ ShellRoot {
                 mh.handleWheel(shell.frag(false, 15))
             mh.handleWheel(shell.frag(true, 15))
             shell.check("long:hires-flip", menu.cursor === hiAt, String(menu.cursor))
+            shell.check("long:hires-flip-drops", mh.notchAccum === -15, String(mh.notchAccum))
             // Phaseless pixels fold by row height: twenty -2 nudges are one row, not twenty.
             menu.cursor = 30
             shell.resetStepsOf(main)
@@ -307,8 +308,7 @@ ShellRoot {
             shell.check("openwith:field-keeps-focus", openWith.fieldItem.activeFocus === true,
                         "field lost focus")
             shell.check("openwith:field-no-toggle", openWith.always === alwaysAt, "toggled")
-            // While busy the wheel steps nothing, the arrow keys' own guard. The cursor
-            // parks off the end, so the clamp cannot answer for a step that never came.
+            // Cursor 0 of three, where an unguarded notch would land on 1, so only the busy guard holds it.
             openWith.busy = true
             openWith.cursor = 0
             var busyAt = openWith.cursor
@@ -328,6 +328,11 @@ ShellRoot {
             for (var w = 0; w < 4; w++)
                 mh5.handleWheel(shell.frag(true, 15))
             shell.check("reopen:held", mh5.notchAccum === -60, String(mh5.notchAccum))
+            // ScrollUpdate inputs reach the other two accums, so a reset that kept them would show here.
+            mh5.handleWheel(shell.nudge(-2))
+            mh5.handleWheel(shell.stroke(2, 1))
+            shell.check("reopen:pixel-live", mh5.pixelAccum !== 0, String(mh5.pixelAccum))
+            shell.check("reopen:touch-live", mh5.stepAccum !== 0, String(mh5.stepAccum))
             menu.place(Qt.point(20, 20))
             shell.check("reopen:notch-dropped", mh5.notchAccum === 0, String(mh5.notchAccum))
             shell.check("reopen:pixel-dropped", mh5.pixelAccum === 0, String(mh5.pixelAccum))

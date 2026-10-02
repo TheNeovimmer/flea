@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Non-file surfaces draw no scroll bar anywhere and file surfaces keep their lane: a source sweep
-# over both tables plus an offscreen probe that a rail and a dialog body still scroll by wheel.
+# Non-file surfaces draw no scroll bar and file surfaces keep their lane: source sweep plus offscreen rail and dialog wheel probe.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
@@ -9,6 +8,7 @@ verdict=0
 # No bar and no lane off the file surfaces: a bar item cannot be visible if no file declares one.
 nobar="ui/Sidebar.qml ui/PickerPlaces.qml ui/SettingsRail.qml ui/SettingsPane.qml ui/StatusBar.qml ui/CardScroll.qml ui/OpenWithDialog.qml"
 for f in $nobar; do
+    [ -f "$f" ] || { printf 'FAIL %s is missing\n' "$f"; verdict=1; continue; }
     if grep -q "ViewportScrollBar" "$f"; then
         printf 'FAIL %s still declares a scroll bar\n' "$f"
         verdict=1
@@ -31,8 +31,7 @@ fi
 
 # A marked sandbox of its own under the fixture root, so cleanup deletes only what this run owns.
 test_root=$(mktemp -d "$FIXTURE_ROOT/flea-scroll-lanes-XXXXXX") || exit 1
-# GNU mktemp -d honours a relative TMPDIR verbatim, so the one path this suite makes is checked
-# absolute and non-empty before anything trusts it.
+# GNU mktemp honours a relative TMPDIR verbatim, so the made path is checked absolute first.
 case $test_root in
   /*/*) ;;
   *) echo "FAIL: mktemp -d gave '$test_root', which is not an absolute path two components deep"; exit 1 ;;

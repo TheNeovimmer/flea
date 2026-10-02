@@ -1,10 +1,8 @@
 import QtQuick
 import "." as Flea
 
-// A card body that can be taller than the window: the content keeps its own height, this viewport
-// clamps to what the card gave it and scrolls the rest, by wheel and by a focus move below the fold.
-// No bar and no lane anywhere it is used: dialogs, sheets, menus and pick lists show files nowhere,
-// so rows fill to the frame's padding and the content still scrolls by wheel, touchpad and keys.
+// A card body taller than the window: this viewport clamps to the card and scrolls the rest by wheel,
+// touchpad, keys and focus moves, with no bar and no lane, since a card never lists files.
 Flickable {
     id: root
 

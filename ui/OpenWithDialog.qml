@@ -143,9 +143,7 @@ Item {
         list.positionViewAtIndex(OpenWith.rowOf(root.rows, root.cursor), ListView.Contain)
     }
 
-    // The wheel's own step: the cursor and the view move, focus and focusPart never do, and a
-    // busy list answers nothing, the arrow keys' own guard. The pointer moves the cursor and
-    // never the focus, and so does the wheel.
+    // Wheel step: cursor and view move, focus never does; a busy list answers nothing.
     function stepCursor(delta) {
         if (root.busy) return
         var count = root.applications.length

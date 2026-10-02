@@ -7,8 +7,6 @@ import "js/MenuWheel.js" as MenuWheel
 // below stops the momentum tail and leaves the event unaccepted, so the row under the pointer still
 // gets the click. Touchpad strokes (any phase but Qt.NoScrollPhase) move gained pixels with Finder's
 // momentum tail; a wheel notch keeps the Theme rate with none. The arithmetic is ui/js/Scroll.js.
-// stepMode answers menus instead: a notch steps the highlight one row through stepBy, a touchpad
-// stroke one row per stepRowHeight of gained travel, with no tail ever started. CardScroll owns it.
 MouseArea {
     id: root
     objectName: "fleaScroll"
@@ -123,9 +121,7 @@ MouseArea {
         root.tailRunning = true
     }
 
-    // Menus step the highlight: one row a notch of accumulated angleDelta, one row per row
-    // height of gained touchpad travel or raw phaseless pixels, no tail. Always consumed while
-    // the menu stands, so nothing beneath scrolls.
+    // Menu step: one row a notch of angleDelta, one row per row height of touchpad travel or phaseless pixels, no tail, always consumed.
     function stepWheel(wheel) {
         var phase = wheel.phase !== undefined ? wheel.phase : Qt.NoScrollPhase
         if (Scroll.isTouchpad(phase)) {
