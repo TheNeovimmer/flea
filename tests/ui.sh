@@ -2229,14 +2229,40 @@ case_clickedge() {
             settle
             [[ "$(ipc viewMode)" == "$mode" ]] || fail "clickedge: the chrome drew '$(ipc viewMode)', not $mode"
         fi
-        key -k Home >/dev/null
+        key -k Home >/dev/null || fail "clickedge: key Home was rejected"
         settle
         [[ "$(ipc viewContentY)" == "0" ]] || fail "clickedge: $mode did not start at the top, contentY $(ipc viewContentY)"
         local visible target last before after_first after_double target_name want
         visible=$(ipc visibleRows)
         [[ "$visible" =~ ^[1-9][0-9]*$ ]] || fail "clickedge: $mode has no visible row count, got [$visible]"
-        target=$((visible - 2))
-        last=$((visible - 1))
+        # visibleRows counts the partly drawn bottom row on purpose, whose centre
+        # can lie over the status bar, so last is the last whole row, never the cut one.
+        local ex ey ew eh erx ery erw erh ei
+        read -r ex ey ew eh <<< "$(ipc listAreaRect)"
+        [[ "$ex $ey $ew $eh" =~ ^[0-9]+\ [0-9]+\ [0-9]+\ [0-9]+$ ]] || fail "clickedge: $mode has no listing area, got [$ex $ey $ew $eh]"
+        last=-1
+        for (( ei = 0; ei < visible + 2; ei++ )); do
+            [[ -n "$(ipc rowRect "$ei")" ]] || break
+            read -r erx ery erw erh <<< "$(ipc rowRect "$ei")"
+            (( ery + erh <= ey + eh )) || break
+            last=$ei
+        done
+        (( last >= 1 )) || fail "clickedge: $mode found no whole rows, last $last"
+        target=$((last - 1))
+        # A cut row's centre can lie outside the list, so click inside its drawn part.
+        click_drawn() {
+            local index="$1"; shift
+            local qrx qry qrw qrh qax qay qaw qah qcx qwx qwy qww qwh bottom y
+            read -r qrx qry qrw qrh <<< "$(ipc rowRect "$index")"
+            [[ -n "$qrx" ]] || fail "clickedge: $mode row $index has no rect"
+            read -r qax qay qaw qah <<< "$(ipc listAreaRect)"
+            bottom=$((qay + qah))
+            y=$(((qry + bottom) / 2))
+            (( y > qry && y < bottom )) || fail "clickedge: $mode row $index has no drawn part, top $qry bottom $bottom"
+            qcx=$((qrx + qrw / 2))
+            read -r qwx qwy qww qwh < <(window_box) || fail "clickedge: native window coordinates unavailable"
+            omarchy-drive click "$((qcx + qwx))" "$((y + qwy))" "$@" >/dev/null
+        }
         [[ -n "$(ipc rowCentre "$target")" ]] || fail "clickedge: $mode row $target has no centre, visible $visible"
         [[ -n "$(ipc rowCentre "$last")" ]] || fail "clickedge: $mode row $last has no centre, visible $visible"
         target_name=$(ipc visibleRowName "$target")
@@ -2266,14 +2292,14 @@ case_clickedge() {
         printf 'CLICKEDGE %s menu before=%s after=%s visible=%s cursor=%s\n' "$mode" "$before_menu" "$after_menu" "$(ipc contextMenuVisible)" "$(ipc cursor)"
         [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "clickedge: $mode a right click opened no menu"
         [[ "$after_menu" == "$before_menu" ]] || fail "clickedge: $mode a right click scrolled $before_menu to $after_menu"
-        key -k Escape >/dev/null
+        key -k Escape >/dev/null || fail "clickedge: key Escape was rejected"
         settle
         [[ "$(ipc contextMenuVisible)" == "false" ]] || fail "clickedge: $mode Escape left the menu open"
         # A click on the row the viewport edge cuts scrolls by exactly the cut
         # amount, in pixels and never by rows, so the second tap of a double
         # click still lands on that row. Geometry first: the cut row is the one
         # whose bottom runs past the listing area while its top stays inside it.
-        key -k Home >/dev/null
+        key -k Home >/dev/null || fail "clickedge: key Home was rejected"
         settle
         [[ "$(ipc viewContentY)" == "0" ]] || fail "clickedge: $mode Home did not return to the top, contentY $(ipc viewContentY)"
         local ax ay aw ah
@@ -2292,7 +2318,7 @@ case_clickedge() {
             cut_name=$(ipc visibleRowName "$cut")
             [[ -n "$cut_name" ]] || fail "clickedge: $mode cut row $cut names nothing"
             before_cut=$(ipc viewContentY)
-            click_row "$cut" left
+            click_drawn "$cut" left
             settle
             after_cut=$(ipc viewContentY)
             printf 'CLICKEDGE %s cut click row=%s before=%s after=%s want=%s\n' "$mode" "$cut" "$before_cut" "$after_cut" "$((before_cut + cut_amount))"
@@ -2300,7 +2326,7 @@ case_clickedge() {
             drift=$((after_cut - before_cut - cut_amount))
             (( drift >= -1 && drift <= 1 )) || fail "clickedge: $mode the cut click scrolled $before_cut to $after_cut, want $((before_cut + cut_amount))"
             : > "$opened"
-            click_row "$cut" left --double
+            click_drawn "$cut" left --double
             for _attempt in $(seq 1 100); do
                 grep -q "^OPENED $dir/$cut_name$" "$opened" && break
                 sleep 0.05
@@ -2310,7 +2336,7 @@ case_clickedge() {
         fi
         # A slow click on the second-to-last whole row begins a rename and moves
         # nothing: the reveal carries context 0, so the editor stays under the pointer.
-        key -k Home >/dev/null
+        key -k Home >/dev/null || fail "clickedge: key Home was rejected"
         settle
         read -r ax ay aw ah <<< "$(ipc listAreaRect)"
         local whole_last=-1
@@ -2337,7 +2363,7 @@ case_clickedge() {
         printf 'CLICKEDGE %s rename row=%s before=%s after=%s live=%s\n' "$mode" "$slow" "$before_slow" "$after_slow" "$(ipc renameEditorLive)"
         [[ "$(ipc renameEditorLive)" == "true" ]] || fail "clickedge: $mode the slow click never opened rename on row $slow"
         [[ "$after_slow" == "$before_slow" ]] || fail "clickedge: $mode the slow click scrolled $before_slow to $after_slow"
-        key -k Escape >/dev/null
+        key -k Escape >/dev/null || fail "clickedge: key Escape was rejected"
         settle
         [[ "$(ipc renameEditorLive)" == "false" ]] || fail "clickedge: $mode Escape left the rename open"
         printf 'CLICKEDGE %s rename cancelled row=%s contentY=%s\n' "$mode" "$slow" "$(ipc viewContentY)"
@@ -2345,7 +2371,7 @@ case_clickedge() {
         # without scrolling: the release carries context 0 too. The press starts
         # two pixels past the row's right edge, in the scroll lane no row covers,
         # which is the empty ground the band starts on.
-        key -k Home >/dev/null
+        key -k Home >/dev/null || fail "clickedge: key Home was rejected"
         settle
         [[ "$(ipc viewContentY)" == "0" ]] || fail "clickedge: $mode Home did not return to the top before the band, contentY $(ipc viewContentY)"
         read -r ax ay aw ah <<< "$(ipc listAreaRect)"
@@ -5907,7 +5933,7 @@ wait_tabs() {
         [[ "$(ipc tabCount)" == "$want" ]] && return
         sleep 0.25
     done
-    fail "middleclick: $2 left $(ipc tabCount) tabs, not $want"
+    fail "${FUNCNAME[1]}: $2 left $(ipc tabCount) tabs, not $want"
 }
 
 case_middleclick() {
@@ -5984,7 +6010,7 @@ case_opentab() {
 
     echo "-- a file opens no tab --"
     seek_row_named "note.txt" || fail "opentab: could not find note.txt"
-    key -M ctrl -k Return -m ctrl >/dev/null
+    key -M ctrl -k Return -m ctrl >/dev/null || fail "opentab: key Ctrl+Return was rejected"
     wait_message "Only a folder opens in a new tab."
     [[ "$(ipc tabCount)" == "1" ]] || fail "opentab: Ctrl+Return on a file opened a tab"
     [[ "$(ipc path)" == "$dir" ]] || fail "opentab: Ctrl+Return on a file left for $(ipc path)"
@@ -5998,8 +6024,8 @@ case_opentab() {
         seek_row_named "alpha" || fail "opentab: could not find alpha in $view"
         local first_cursor
         first_cursor=$(ipc cursor)
-        if [[ "$view" == grid ]]; then chord="Enter"; else chord="Return"; fi
-        key -M ctrl -k "$chord" -m ctrl >/dev/null
+        if [[ "$view" == grid ]]; then chord="KP_Enter"; else chord="Return"; fi
+        key -M ctrl -k "$chord" -m ctrl >/dev/null || fail "opentab: key Ctrl+$chord was rejected"
         count=$((count + 1))
         wait_tabs "$count" "Ctrl+Return on alpha in $view"
         wait_path "$dir/alpha"

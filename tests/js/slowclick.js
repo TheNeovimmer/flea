@@ -71,6 +71,14 @@ function run(check) {
     SlowClick.arm(fired, 4, none, 1500, 400)
     check("the timer fires a rename when nothing moved", SlowClick.fire(fired), true)
     check("and the rename went out", fired.did.join(","), "rename")
+    // The slow click is the pointer path, so its rename carries context 0 and the list never moves under it.
+    var firedCtx = root()
+    SlowClick.arm(firedCtx, 4, none, 1000, 400)
+    SlowClick.arm(firedCtx, 4, none, 1500, 400)
+    var firedArgs = []
+    firedCtx.act = function (action, menuId, paths, context) { firedArgs = [action, context] }
+    SlowClick.fire(firedCtx)
+    check("the timer's rename carries pointer context", firedArgs.join("|"), "rename|0")
     // A double click cancels the armed timer through the pane and opens instead.
     var doubled = root()
     SlowClick.arm(doubled, 4, none, 1000, 400)
