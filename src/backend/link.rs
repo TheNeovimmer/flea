@@ -46,7 +46,7 @@ fn dest_dir_of(file: &Path) -> &Path {
 }
 
 pub fn create_relative(source: &Path, dest_file: &Path) -> Result<(), FleaError> {
-    // Only the dest folder is canonicalized, so the source leaf stays the item named.
+    // Both folders are canonicalized but never the source leaf, so a symlink source stays the item named.
     source.symlink_metadata()
         .map_err(|e| from_io("link", &source.to_string_lossy(), &e))?;
     let base = match source.parent().filter(|p| !p.as_os_str().is_empty()) {

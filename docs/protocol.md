@@ -624,7 +624,7 @@ same rule `transfer` follows.
 Unlike `transfer`, this answers on the loop's own thread and never takes the
 one-operation slot: every link is one syscall, so there is nothing to show
 progress for and nothing to cancel. A `link` arriving while an operation runs
-is refused with `an operation is already running` and journals nothing. The answer is one `linked` line,
+answers an `error` line carrying `an operation is already running` and journals nothing. The answer is one `linked` line,
 `{"t":"linked","ok":<uint>,"failed":<uint>,"skipped":<uint>}`, and one journal
 entry, so one undo removes every link this request created. A source that no longer exists is refused
 for that item and counts in `failed`, so one missing source never stops the rest. A name that

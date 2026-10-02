@@ -268,7 +268,7 @@ fn remove_new_file(path: &PathBuf, identity: &ItemIdentity) -> Result<(), FleaEr
     std::fs::remove_file(path).map_err(|e| from_io("undo", &path.to_string_lossy(), &e))
 }
 
-// A directory keeps its own ctime while a file inside it is edited, so the root identity alone cannot prove the tree untouched.
+// Issue 111: a directory keeps its own ctime while a file inside it is edited, and the copy sets the root mode last, so the root identity alone cannot prove the tree untouched.
 fn newer_inside(root: &std::path::Path, copied: (i64, i64)) -> Result<Option<PathBuf>, FleaError> {
     let meta = root.symlink_metadata().map_err(|e| from_io("undo", &root.to_string_lossy(), &e))?;
     if !meta.is_dir() || meta.file_type().is_symlink() {
@@ -279,6 +279,7 @@ fn newer_inside(root: &std::path::Path, copied: (i64, i64)) -> Result<Option<Pat
         let entry = entry.map_err(|e| from_io("undo", &root.to_string_lossy(), &e))?;
         let path = entry.path();
         let meta = path.symlink_metadata().map_err(|e| from_io("undo", &path.to_string_lossy(), &e))?;
+        // corner: a change after this walk, or inside the filesystem timestamp granularity such as tmpfs, goes unseen.
         if (meta.ctime(), meta.ctime_nsec()) > copied {
             return Ok(Some(path));
         }

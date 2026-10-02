@@ -226,7 +226,7 @@ pub(crate) fn do_undo(out: &mut impl Write, ops: &mut Ops) {
 // A link the journal cannot identify is removed at once, so only a named leftover stays.
 fn remove_made_link(to: &Path) -> std::io::Result<()> {
     if fail_link_verify() {
-        return Err(std::io::Error::from_raw_os_error(116));
+        return Err(std::io::Error::from_raw_os_error(super::movebatch::ESTALE));
     }
     std::fs::remove_file(to)
 }
@@ -234,7 +234,7 @@ fn remove_made_link(to: &Path) -> std::io::Result<()> {
 // The identity read beside that cleanup, failing together on a flaky mount.
 fn inspect_made_link(to: &Path) -> Result<ItemIdentity, crate::error::FleaError> {
     if fail_link_verify() {
-        let stale = std::io::Error::from_raw_os_error(116);
+        let stale = std::io::Error::from_raw_os_error(super::movebatch::ESTALE);
         return Err(crate::error::from_io("journal", &to.to_string_lossy(), &stale));
     }
     ItemIdentity::inspect(to)
@@ -335,13 +335,12 @@ pub(crate) fn do_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<
                             Err(e) => {
                                 // A failed cleanup leaves the link behind, so its result is reported, never ignored.
                                 if let Err(remove) = remove_made_link(&to) {
-                                    for entry in replaced {
-                                        steps.push(Step::Trashed(entry));
-                                    }
+                                    // The link holds their name, so restoring them can only fail and they stay in the trash.
+                                    let stayed = if replaced.is_empty() { String::new() } else { "; the replaced item stays in the trash".to_string() };
                                     failed += 1;
                                     if first_err.is_empty() {
-                                        first_err = format!("{}; the link left at {} could not be removed ({})",
-                                            e.msg, to.to_string_lossy(), crate::error::io_message(&remove));
+                                        first_err = format!("{}; the link left at {} could not be removed ({}){}",
+                                            e.msg, to.to_string_lossy(), crate::error::io_message(&remove), stayed);
                                     }
                                     continue;
                                 }
