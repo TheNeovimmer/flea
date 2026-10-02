@@ -320,6 +320,23 @@ function flyoutEntries(action) {
         return pasteAsEntries()
     return []
 }
+// The sentence an empty Paste as refuses with, the same one ui/Pane.qml shows.
+var EMPTY_CLIPBOARD = "There is nothing to paste; y copies and x cuts."
+// Sample input: submenuFor("pasteAs", [], false) answers refuse.
+function submenuFor(action, entries, clipboardAvailable) {
+    if (flyoutEntries(action).length === 0)
+        return { kind: "none" }
+    for (var i = 0; i < entries.length; i++) {
+        if (entries[i].action === action) {
+            if (entries[i].disabled === true || !hasSubmenu(entries[i]))
+                return { kind: "refuse" }
+            return { kind: "row", index: i }
+        }
+    }
+    if (action === "pasteAs" && clipboardAvailable !== true)
+        return { kind: "refuse" }
+    return { kind: "lone" }
+}
 
 
 // The Sort by flyout, built from ui/js/Sort.js's own ORDERS so it can only ever offer an order the

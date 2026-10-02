@@ -204,9 +204,7 @@ function refuseRename(pane, reason) {
     return "status"
 }
 
-// Every view draws the same inline editor: the list and the grid inside the row, the columns view
-// over its active column, see ui/ColumnPane.qml's own corner. A pointer rename carries context 0
-// so the list never moves under it; a keyboard one keeps the default three-row context.
+// One inline editor in every view; a pointer rename passes context 0 so the list never moves under it.
 function startRename(pane, menuId, index, context) {
     if (pane.renamePending) return
     // The row the request named, not wherever the cursor has reached by the time the reply lands.

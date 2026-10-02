@@ -382,21 +382,25 @@ Item {
 
     // c and P open Copy as and Paste as with the flyout already open.
     function openSubmenuFor(action) {
-        for (var i = 0; i < root.entries.length; i++) {
-            if (root.entries[i].action === action && Menu.hasSubmenu(root.entries[i])
-                    && root.entries[i].disabled !== true) {
-                root.cursor = i
-                root.openSubmenu(i)
-                return true
-            }
+        var pick = Menu.submenuFor(action, root.entries, root.clipboardAvailable)
+        if (pick.kind === "row") {
+            root.cursor = pick.index
+            root.openSubmenu(pick.index)
+            return true
         }
-        if (Menu.flyoutEntries(action).length === 0)
+        if (pick.kind === "lone") {
+            root.openSubmenuRow = -1
+            root.loneFlyoutAction = action
+            root.submenuCursor = 0
+            subScroll.contentY = 0
+            return true
+        }
+        if (pick.kind === "refuse") {
+            root.close()
+            root.refused(Menu.EMPTY_CLIPBOARD)
             return false
-        root.openSubmenuRow = -1
-        root.loneFlyoutAction = action
-        root.submenuCursor = 0
-        subScroll.contentY = 0
-        return true
+        }
+        return false
     }
 
     // Fresh capabilities use the normal inventory; selection stays on its action and placement uses the existing clamp.
