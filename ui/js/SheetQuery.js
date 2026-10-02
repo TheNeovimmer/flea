@@ -201,8 +201,7 @@ function dispatch(candidate) {
     return { kind: "none" }
 }
 
-// A sheet menu row refuses while a listing is out, else closes then snapshots and activates.
-// Sample input: runMenu(busy, "trash", close) says Swap.LOADING and skips close, snapshot, activate.
+// Every menu row resolves its rows through the snapshot, so it refuses while a listing is out, unlike navigations.
 function runMenu(holder, menuAction, close) {
     if (holder.listInFlight === true) {
         holder.message(Swap.LOADING, false)
