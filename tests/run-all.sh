@@ -25,6 +25,7 @@ headless="js keymap-gen charts budget aurpush aur-versions pkgrel-check signalar
 
 
 
+headless="$headless capsweep-check"
 failed=0
 ran=0
 
