@@ -9217,25 +9217,30 @@ case_fsdevice() {
     [[ -f "$mnt/thumb.png" ]] || fail "fsdevice: $mnt holds no seeded tree, refusing to run against the wrong disk"
     printf 'FSDEVICE %s mount=%s\n' "$layout" "$mnt"
 
-    # Open and list against ls: total matches ls -A, every built row is a member.
-    local want_sorted="$dir/ls-want" want_n have_n vis cap i row built
+    # Open and list against ls: total matches ls -A, built first-screen rows are members.
+    local want_sorted="$dir/ls-want" want_n have_n vis cap i row built built_names
     ls -A "$mnt" | sort > "$want_sorted"
     want_n=$(wc -l < "$want_sorted" | tr -d ' ')
     wait_listing "$want_n"
     have_n=$(ipc total)
     [[ "$have_n" == "$want_n" ]] || fail "fsdevice: the listing holds $have_n rows, ls -A holds $want_n"
-    vis=$(ipc visibleRows 2>/dev/null || printf '')
-    [[ "$vis" =~ ^[0-9]+$ ]] && (( vis > 0 )) || vis=36
-    cap=$((vis + 5)); (( have_n < cap )) && cap=$have_n
+    vis=$(ipc visibleRows)
+    [[ "$vis" =~ ^[1-9][0-9]*$ ]] || fail "fsdevice: no visible row count, got [$vis]"
+    cap=$vis; (( have_n < cap )) && cap=$have_n
     built=0
+    built_names="$dir/built-names"
+    : > "$built_names"
     for (( i = 0; i < cap; i++ )); do
         row=$(ipc rowAt "$i")
         [[ "$row" == "loading" ]] && continue
         built=$((built + 1))
+        printf '%s\n' "${row%%|*}" >> "$built_names"
         grep -Fxq "${row%%|*}" "$want_sorted" || fail "fsdevice: row ${row%%|*} is no ls -A member"
     done
+    # A repeated built name means one ls row is drawn twice and another never answers.
+    [[ -z "$(sort "$built_names" | uniq -d)" ]] || fail "fsdevice: a built row name repeats: $(sort "$built_names" | uniq -d | tr '\n' ',')"
     (( built >= (have_n < vis ? have_n : vis) )) || fail "fsdevice: only $built built rows answer of $vis on screen"
-    printf 'FSDEVICE %s list=%s rows match ls\n' "$layout" "$have_n"
+    printf 'FSDEVICE %s list=%s total and first screen match ls\n' "$layout" "$have_n"
 
     if [[ "$layout" == "isohybrid" ]]; then
         # iso9660 is read-only: the paste is refused and no row offers Trash.
@@ -9264,10 +9269,13 @@ case_fsdevice() {
     printf 'FSDEVICE %s copy-in undo=ok\n' "$layout"
 
     # Trash through dd, proving the volume's own trash dir, then restore from the Trash view.
+    local before
+    before=$(ipc total)
     printf 'trash me' > "$mnt/trash-me.txt"
     # The watch re-read moves total by one; seeking then names the row with bounded IPC.
-    local before; end=$((SECONDS + 30)); before=$(ipc total)
+    end=$((SECONDS + 30))
     while (( SECONDS < end )); do [[ "$(ipc total)" != "$before" ]] && break; sleep 0.5; done
+    [[ "$(ipc total)" != "$before" ]] || fail "fsdevice: the open listing never followed the outside change"
     seek_row_named trash-me.txt
     local trash_before trash_uid trash_idx
     trash_before=$(ipc trashState | jq -r '.count')
@@ -9310,9 +9318,11 @@ case_fsdevice() {
     fsname=$(ipc statusFooterState | jq -r '.filesystem')
     [[ -n "$fsname" && "$fsname" != 0x* ]] || fail "fsdevice: the status bar names no filesystem, got '$fsname'"
     if [[ "$layout" != "isohybrid" ]]; then
+    before=$(ipc total)
     printf 'touch' > "$mnt/from-shell.txt"
-    end=$((SECONDS + 30)); before=$(ipc total)
+    end=$((SECONDS + 30))
     while (( SECONDS < end )); do [[ "$(ipc total)" != "$before" ]] && break; sleep 0.5; done
+    [[ "$(ipc total)" != "$before" ]] || fail "fsdevice: the open listing never followed the outside change"
     seek_row_named from-shell.txt
     rm -f "$mnt/from-shell.txt"
     fi

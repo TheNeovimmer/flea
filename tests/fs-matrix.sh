@@ -159,7 +159,7 @@ fs_config() {
     xfs) printf 'mkfs.xfs|2048|mkfs.xfs -q -L FLEA-XFS|xfs|native' ;;
     f2fs) printf 'mkfs.f2fs|2048|mkfs.f2fs -f -l FLEA-F2FS|f2fs|native' ;;
     iso9660) printf 'xorrisofs|0|xorrisofs -J -R -V FLEA-ISO|iso9660|readonly' ;;
-    udf) printf 'mkudffs|2048|mkudffs --media-type=hd -b 512 --utf8 -l FLEA-UDF|udf|native' ;;
+    udf) printf 'mkudffs|2048|mkudffs --utf8 --media-type=hd -b 512 -l FLEA-UDF|udf|native' ;;
   esac
 }
 
