@@ -7,7 +7,7 @@ use crate::backend::opsreq::{
     LinkOutcome, OpMsg,
 };
 use crate::backend::listing::Listing;
-use crate::backend::proto::{error_line, linked_line, slow_line};
+use crate::backend::proto::{error_line, slow_line};
 use crate::backend::undo::{Entry, ItemIdentity, Journal, Step};
 use crate::error::FleaError;
 use std::io::Write;
@@ -472,10 +472,36 @@ pub(crate) fn start_link(out: &mut impl Write, ops: &mut Ops, op: &str, paths: V
     });
 }
 
-// What the link thread sends back lives in opsreq::LinkOutcome, shared with the slow-write land path.
+// A path-keyed handshake holds the real link worker without delaying unrelated tests.
+#[cfg(test)]
+struct HeldLink {
+    dest: PathBuf,
+    entered: Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+}
+#[cfg(test)]
+static HELD_LINK: std::sync::Mutex<Option<HeldLink>> = std::sync::Mutex::new(None);
+#[cfg(test)]
+pub(crate) fn test_hold_link(dest: &Path) -> (Sender<()>, std::sync::mpsc::Receiver<()>) {
+    let (release, wait) = std::sync::mpsc::channel();
+    let (entered, started) = std::sync::mpsc::channel();
+    *HELD_LINK.lock().unwrap() = Some(HeldLink { dest: dest.to_path_buf(), entered, release: wait });
+    (release, started)
+}
 
 // One exclusive link per source, replacing through the trash when the card chose it.
 pub(crate) fn run_link(op: &str, paths: Vec<String>, dest: PathBuf, policy: super::collide::Policy) -> LinkOutcome {
+    #[cfg(test)]
+    {
+        let held = {
+            let mut hook = HELD_LINK.lock().unwrap();
+            if hook.as_ref().is_some_and(|held| held.dest == dest) { hook.take() } else { None }
+        };
+        if let Some(held) = held {
+            let _ = held.entered.send(());
+            let _ = held.release.recv();
+        }
+    }
     let kind = match op {
         "absolute" => super::link::LinkKind::Absolute,
         "hard" => super::link::LinkKind::Hard,
@@ -580,62 +606,7 @@ pub(crate) fn run_link(op: &str, paths: Vec<String>, dest: PathBuf, policy: supe
             }
         }
     }
-    LinkOutcome { ok, failed, skipped, steps, first_err, note, dest: dest.to_string_lossy().to_string() }
-}
-
-// The batch is the work, so a slow destination finishes its remaining items on the worker side.
-#[cfg(test)]
-pub(crate) fn do_link_with<F>(out: &mut impl Write, ops: &mut Ops, dest: &str, deadline: Duration, work: F)
-where
-    F: FnOnce() -> Result<LinkOutcome, FleaError> + Send + 'static,
-{
-    let key = PathBuf::from(dest);
-    // A target on a pending mount waits; writes elsewhere run beside the held write.
-    let target = key.clone();
-    if pending_busy_for(out, ops, "link", &[], &[target]) {
-        return;
-    }
-    let body = mount_body();
-    match slow_write_with(&key, &body, "link", deadline, work) {
-        SlowWrite::Ready(Ok(outcome)) => land_link(out, ops, outcome),
-        SlowWrite::Ready(Err(e)) => {
-            writeln!(out, "{}", error_line(&e)).ok();
-            out.flush().ok();
-        }
-        SlowWrite::Slow { mount, rx } => {
-            writeln!(out, "{}", slow_line("link", dest, &slow_sentence(&mount, "link"))).ok();
-            out.flush().ok();
-            // The pending id is only a number: the slot stays with whatever holds it, so a transfer beside this write keeps its id and its cancel.
-            let id = ops.claim_id();
-            ops.pending.push(SlowClaim { id, path: dest.to_string(), mount });
-            let tx = ops.tx.clone();
-            let at = dest.to_string();
-            thread::spawn(move || {
-                let result = rx.recv().unwrap_or_else(|_| Err(internal_failure("link", Path::new(&at))));
-                let _ = tx.send(OpMsg::LinkDone { id, result });
-            });
-        }
-    }
-}
-// One linked line and one journal entry, whether the batch answered in time or late.
-fn land_link(out: &mut impl Write, ops: &mut Ops, outcome: LinkOutcome) {
-    ops.journal.push(Entry { op: "link".to_string(), steps: outcome.steps });
-    if (outcome.failed == 0 && outcome.first_err.is_empty()) || outcome.ok > 0 || outcome.skipped > 0 {
-        // A mixed batch reports its first failure here, never silently, ahead of any stranded sentence.
-        let note = if outcome.first_err.is_empty() { outcome.note } else if outcome.note.is_empty() { outcome.first_err } else { format!("{}; {}", outcome.first_err, outcome.note) };
-        writeln!(out, "{}", linked_line(outcome.ok, outcome.failed, outcome.skipped, &note)).ok();
-    } else {
-        // An earlier failure never hides a stranded replace, so the note rides along.
-        let msg = if outcome.first_err.is_empty() { outcome.note.clone() } else if outcome.note.is_empty() { outcome.first_err.clone() } else { format!("{}; {}", outcome.first_err, outcome.note) };
-        writeln!(out, "{}", error_line(&op_err("link", &outcome.dest, &msg))).ok();
-    }
-    out.flush().ok();
-}
-
-// The test runner with fs3's name; run_link above is the fuller check, so this stays a thin alias.
-#[cfg(test)]
-fn link_items(op: &str, paths: Vec<String>, dest: PathBuf, policy: super::collide::Policy) -> LinkOutcome {
-    run_link(op, paths, dest, policy)
+    LinkOutcome { ok, failed, skipped, steps, first_err, note }
 }
 
 // Tests drive the worker directly, because the fault hooks it reads are thread-local.
@@ -831,16 +802,6 @@ pub(crate) fn report_op(out: &mut impl Write, ops: &mut Ops, msg: OpMsg) {
         }
         OpMsg::MkdirDone { id, result } => {
             land_mkdir(out, ops, result);
-            forget_pending(ops, id);
-            ops.live.finished_if(id);
-        }
-        OpMsg::LinkDone { id, result } => {
-            match result {
-                Ok(outcome) => land_link(out, ops, outcome),
-                Err(e) => {
-                    writeln!(out, "{}", error_line(&e)).ok();
-                }
-            }
             forget_pending(ops, id);
             ops.live.finished_if(id);
         }
@@ -1633,49 +1594,6 @@ mod tests {
         do_undo(&mut undone, &mut o);
         assert!(text(&undone).contains(r#"{"t":"undone","op":"mkdir","ok":true}"#), "{}", text(&undone));
         assert!(!d.join("photos").exists(), "undo removed the folder it made");
-    }
-
-    // The same pair for a two-item link: one slow line, one linked line, one undo for both.
-    #[test]
-    fn a_held_remote_link_answers_slow_then_journals_one_entry_for_both() {
-        crate::backend::iomount::test_reset();
-        let d = TestDir::new("slowlink");
-        let src = d.dir("src");
-        let a = d.file("src/a.txt", "a");
-        let b = d.file("src/b.txt", "b");
-        let dest = d.dir("dest");
-        let _ = src;
-        let _body = crate::backend::iomount::test_hold_body(remote_body(d.path()));
-        let (release, wait) = channel::<()>();
-        let (tx, rx) = channel();
-        let mut o = Ops::new(tx);
-        let mut buf = out();
-        let sources = vec![a.to_string_lossy().to_string(), b.to_string_lossy().to_string()];
-        let sources_work = sources.clone();
-        let dest_work = dest.clone();
-        let ask_work = crate::backend::collide::Ask::parse(r#"{"c":"link"}"#);
-        let policy_work = ask_work.policy(None, &dest_work).for_batch(&sources_work);
-        let work = move || {
-            let _ = wait.recv();
-            Ok(link_items("relative", sources_work, dest_work, policy_work))
-        };
-        do_link_with(&mut buf, &mut o, &dest.to_string_lossy(), SHORT_DEADLINE, work);
-        let line = text(&buf);
-        assert!(line.contains(r#""t":"slow""#), "a held link answers slow, never an error: {}", line);
-        assert!(line.contains(r#""op":"link""#), "the slow line names its op: {}", line);
-        assert!(o.journal.is_empty(), "nothing is journalled until the held write lands");
-        drop(release);
-        let landed = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("the released write reports through the op channel");
-        let mut late = out();
-        report_op(&mut late, &mut o, landed);
-        assert_eq!(text(&late).trim(), r#"{"t":"linked","ok":2,"failed":0,"skipped":0}"#, "the late write answers one line: {}", text(&late));
-        assert_eq!(o.journal.len(), 1, "one journal entry per request, so one undo reverses it");
-        let mut undone = out();
-        do_undo(&mut undone, &mut o);
-        assert!(text(&undone).contains(r#"{"t":"undone","op":"link","ok":true}"#), "{}", text(&undone));
-        assert!(std::fs::symlink_metadata(dest.join("a.txt")).is_err(), "undo removed the first link");
-        assert!(std::fs::symlink_metadata(dest.join("b.txt")).is_err(), "undo removed the second link");
-        assert!(a.exists() && b.exists(), "undo removes the links, never the sources");
     }
 
     // A slow write holds its mount, so undo, redo and a write on that mount answer busy until it lands.
