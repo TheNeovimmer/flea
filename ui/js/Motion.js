@@ -1,7 +1,6 @@
 .pragma library
 
-// Every Flea transition uses Omarchy's Easing.OutCubic, 180 ms to reveal and 140 ms to hide, never lengthened to match the curve.
-// Scroll, cursor and hover fills stay animation-free, except Scroll.js touchpad momentum; reduced motion snaps.
+// The structural transitions use OutCubic, 180 ms to reveal and 140 ms to hide.
 
 var durMs = {
     // A reveal reads slower than a hide.
