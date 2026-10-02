@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Checks the AUR carries the versions a release tag just published: flea and flea-bin
-# report X.Y.Z-1 and flea-git reports X.Y.Z.r0.g<first 7 hex of the tag's commit>-1.
-# One line per package on stdout, exit 1 on any mismatch, exit 2 on usage errors.
-# Reads the live RPC unless --json FILE gives a saved reply, which is what the suite uses.
+# Checks the AUR carries the versions a release tag published, reading each wanted pkgrel from the tag's own PKGBUILDs.
 set -uo pipefail
 
 json_file=""
@@ -15,8 +12,22 @@ fi
 version=$1
 commit=$2
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "flea-aur-versions: '$version' is not X.Y.Z" >&2; exit 2; }
-[[ "$commit" =~ ^[0-9a-f]{7} ]] || { echo "flea-aur-versions: commit must open with at least 7 hex digits" >&2; exit 2; }
+[[ "$commit" =~ ^[0-9a-f]{7,40}$ ]] || { echo "flea-aur-versions: commit must be 7 to 40 hex digits" >&2; exit 2; }
 short=${commit:0:7}
+
+. "$(dirname "$0")/flea-pkgrel-field"
+
+# The wanted pkgrel comes from the tag commit's own PKGBUILD, failing closed outside a checkout.
+want_rel() {
+  local value
+  value=$(field "$commit" "$1" pkgrel) || {
+    echo "flea-aur-versions: cannot read pkgrel from $1 at $commit" >&2
+    exit 2
+  }
+  printf '%s' "$value"
+}
+flea_rel=$(want_rel packaging/flea/PKGBUILD) || exit 2
+bin_rel=$(want_rel packaging/flea-bin/PKGBUILD) || exit 2
 
 if [ -n "$json_file" ]; then
     [ -f "$json_file" ] || { echo "flea-aur-versions: no file at '$json_file'" >&2; exit 2; }
@@ -28,7 +39,7 @@ else
         || { echo "flea-aur-versions: the AUR RPC could not be read" >&2; exit 1; }
 fi
 
-# Name and version per result, tab separated; a reply that will not parse is a mismatch, not a crash.
+# Sample input: {"results":[{"Name":"flea","Version":"0.3.7-1"}]}
 listed=$(printf '%s' "$reply" | python3 -c '
 import json, sys
 try:
@@ -42,6 +53,7 @@ except Exception as e:
 ') || exit 1
 
 failed=0
+# Sample input: flea<TAB>0.3.7-1
 check() {
     local name=$1 want=$2 got
     got=$(printf '%s\n' "$listed" | awk -F'\t' -v n="$name" '$1 == n { print $2; exit }')
@@ -55,7 +67,7 @@ check() {
         failed=1
     fi
 }
-check flea "$version-1"
-check flea-bin "$version-1"
+check flea "$version-$flea_rel"
+check flea-bin "$version-$bin_rel"
 check flea-git "$version.r0.g$short-1"
 exit "$failed"

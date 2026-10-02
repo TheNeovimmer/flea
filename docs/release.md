@@ -119,7 +119,14 @@ Then the workflow runs five jobs, in order:
   When the AUR already carries the same files there is no commit and no push. SSH trusts only the
   three AUR host keys pinned in `packaging/aur.known_hosts`, with `StrictHostKeyChecking=yes`;
   nothing is scanned or learned at run time. After the workflow, `tools/flea-aur-versions X.Y.Z <tag commit>`
-  reads the AUR RPC and checks `flea` and `flea-bin` report `X.Y.Z-1` and `flea-git` the tag's own `pkgver`.
+  reads the AUR RPC and checks `flea` and `flea-bin` report `X.Y.Z-<pkgrel>`, the pkgrel each
+  PKGBUILD carries at the tag commit itself (so a rebuild at pkgrel 2 expects `X.Y.Z-2`, not
+  `X.Y.Z-1`), and `flea-git` the tag's own `pkgver`. Its usage is
+  `flea-aur-versions [--json FILE] X.Y.Z COMMIT`: one line per package on stdout, exit 1 on
+  any mismatch, exit 2 on usage errors. `tools/flea-pkgrel-check [COMMIT]` (default `HEAD`)
+  is the pre-tag guard above: it exits 0 when the check passes, 1 when the pkgver/pkgrel
+  guard fails, and 2 on usage, git or file errors, including a shallow checkout or a parent
+  with no reachable `vX.Y.Z` tag, which mean tags were never fetched.
 
 A run that failed for a reason outside the tree, a runner outage or a mirror that timed out, is
 started again. When only publish-aur failed, use `Re-run failed jobs` on that same run: it re-runs the
