@@ -31,7 +31,7 @@ pub struct Span {
     pub is_symlink: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Listing {
     pub names: String,
     pub spans: Vec<Span>,

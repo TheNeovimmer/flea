@@ -22,8 +22,14 @@ impl ItemIdentity {
             mtime: (meta.mtime(), meta.mtime_nsec()), changed: (meta.ctime(), meta.ctime_nsec()) }
     }
     pub fn inspect(path: &std::path::Path) -> Result<Self, FleaError> {
-        path.symlink_metadata().map(|meta| Self::record(&meta))
-            .map_err(|e| from_io("journal", &path.to_string_lossy(), &e))
+        let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+        let owned = path.to_path_buf();
+        let owned_for_key = owned.clone();
+        super::iomount::call(&owned_for_key, &body, "journal", move || {
+            owned.symlink_metadata().map(|meta| Self::record(&meta))
+                .map_err(|e| from_io("journal", &owned.to_string_lossy(), &e))
+        })
+        .unwrap_or_else(Err)
     }
     // The shelf keeps its one-step journal in a file of its own, so it needs these three out of here.
     pub fn parts(&self) -> (u64, u64, u32) {

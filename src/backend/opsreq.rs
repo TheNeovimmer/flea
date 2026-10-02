@@ -138,12 +138,16 @@ pub fn usable_dest(dest: &str) -> Result<PathBuf, FleaError> {
     if !p.is_absolute() {
         return Err(op_err("transfer", dest, "a destination must be an absolute path"));
     }
-    match p.metadata() {
-        Ok(m) if m.is_dir() && crate::backend::ops::dir_writable(&p) => Ok(p),
-        Ok(m) if m.is_dir() => Err(op_err("transfer", dest, "that folder cannot be written")),
-        Ok(_) => Err(op_err("transfer", dest, "the destination is not a directory")),
-        Err(e) => Err(from_io("transfer", dest, &e)),
-    }
+    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+    let owned = p.clone();
+    let dest_owned = dest.to_string();
+    super::iomount::call(&p, &body, "transfer", move || match owned.metadata() {
+        Ok(m) if m.is_dir() && crate::backend::ops::dir_writable(&owned) => Ok(owned),
+        Ok(m) if m.is_dir() => Err(op_err("transfer", &dest_owned, "that folder cannot be written")),
+        Ok(_) => Err(op_err("transfer", &dest_owned, "the destination is not a directory")),
+        Err(e) => Err(from_io("transfer", &dest_owned, &e)),
+    })
+    .unwrap_or_else(Err)
 }
 
 pub fn op_err(where_: &str, path: &str, msg: &str) -> FleaError {

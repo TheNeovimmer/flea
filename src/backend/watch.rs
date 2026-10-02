@@ -61,6 +61,7 @@ impl Watch {
     }
 
     // Armed beside the current watch, so a scan that fails costs the open folder nothing.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn begin(&mut self, path: &Path) {
         self.drop_one(self.incoming);
         self.incoming = self.add(path);
@@ -99,6 +100,25 @@ impl Watch {
         }
         match CString::new(path.as_os_str().as_encoded_bytes()) {
             Ok(c) => unsafe { inotify_add_watch(self.fd, c.as_ptr(), MASK) },
+            Err(_) => -1,
+        }
+    }
+    // The listing worker adds the watch, so a dead mount never blocks the loop.
+    pub(crate) fn raw_fd(&self) -> c_int {
+        self.fd
+    }
+    // The worker's descriptor becomes the incoming watch the commit takes over.
+    pub(crate) fn set_incoming(&mut self, wd: c_int) {
+        self.drop_one(self.incoming);
+        self.incoming = wd;
+    }
+    // One inotify_add_watch on a worker, never on the loop, keyed by mount outside.
+    pub(crate) fn add_raw(fd: c_int, path: &Path) -> c_int {
+        if fd < 0 {
+            return -1;
+        }
+        match CString::new(path.as_os_str().as_encoded_bytes()) {
+            Ok(c) => unsafe { inotify_add_watch(fd, c.as_ptr(), MASK) },
             Err(_) => -1,
         }
     }

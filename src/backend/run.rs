@@ -6,7 +6,6 @@ use crate::backend::metareq::spawn as spawn_meta;
 use crate::backend::opsdispatch::{cancel_transfer, do_link, do_link_target, do_mkdir, do_newfile, do_permissions_batch, do_rename, do_undo, report_op, resolve_rows, start_duplicate, start_trash, start_transfer, start_menu_transfer, start_redo, Ops};
 use crate::backend::opsreq::OpMsg;
 use crate::backend::dirsizereq::{queue_dirsizes, seed_answered, start_next, report_done as report_dirsize};
-use crate::backend::dirsize::DirSize;
 use crate::backend::events::{spawn_forwarder, spawn_op_forwarder, spawn_reader, Event};
 use crate::backend::fsinfo::fsinfo_line;
 use crate::backend::fsinfo::dev_of;
@@ -15,12 +14,10 @@ use crate::backend::listpaths;
 use crate::backend::proto::{error_line, error_line_with_mode, listed_line, listed_line_anchor, parse_request, paths_line, thumbed_line, Request};
 use crate::backend::rows::rows_line;
 use crate::backend::sandbox;
-use crate::backend::scan::{mode_of, scan};
 use crate::backend::listing::Listing;
 use crate::backend::search::Search;
 use crate::backend::state::{State, Tables};
 use crate::backend::searchreq::{finish_search, step_search};
-use crate::backend::ordering;
 use crate::backend::thumbcache::{default_root, Cache};
 use crate::backend::thumbreq::{cancel_row, forget_one, report_done, thumb_rows};
 use crate::backend::thumbs::{Done, Pool};
@@ -175,35 +172,32 @@ fn handle_line(
             if finish_search(out, st, true) {
                 forget_rows(st, pool);
             }
-            // Before the scan, because a change readdir raced is missing from the rows this answers with.
-            watch.begin(Path::new(&path));
-            match scan(&path, hidden) {
-                Ok((mut l, read_ms)) => {
-                    super::picker::filter_listing(&mut l, &tb.mime, line);
-                    let (pass_ms, sort_ms, sized) = match ordering::request(&mut l, Path::new(&path), &tb.mime, line) {
-                        Ok(timing) => timing,
-                        Err(msg) => {
-                            watch.abandon();
-                            say(out, &error_line(&FleaError { where_: "sort".into(), path: path.clone(), msg: msg.into() }));
-                            return Control::Continue;
-                        }
-                    };
+            let fd = watch.raw_fd();
+            let mime = std::sync::Arc::clone(&tb.mime);
+            let line_owned = line.to_string();
+            match super::iomount::list_dir(path.clone(), hidden, first, line_owned, mime, fd) {
+                Ok(done) => {
+                    watch.set_incoming(done.watch_wd);
                     watch.commit();
                     // Said once per listing, because a folder nobody can watch goes stale in silence.
                     if watch.refused() {
                         eprintln!("flea: {} will not follow outside changes, inotify refused a watch on it", path);
                     }
-                    adopt(out, st, pool, tb, &path, l, (read_ms + pass_ms, sort_ms), &sized, first);
+                    adopt_listed(out, st, pool, tb, &path, done);
                     out.flush().ok();
                     // After the rows, because a statfs beside gio's own listing slows it on the share.
                     fsinfo.list_arrived(Path::new(&path));
                 }
-                Err(e) => {
+                Err(failed) => {
                     // The listing did not move, so neither does its watch.
                     watch.abandon();
                     // A typed path reaches the denial with no parent row to remember the mode from,
                     // so the stat that survives the refused read is the pane's only source for it.
-                    writeln!(out, "{}", error_line_with_mode(&e, mode_of(&path))).ok();
+                    if failed.mode == 0 {
+                        writeln!(out, "{}", error_line(&failed.error)).ok();
+                    } else {
+                        writeln!(out, "{}", error_line_with_mode(&failed.error, failed.mode)).ok();
+                    }
                 }
             }
             out.flush().ok();
@@ -215,7 +209,22 @@ fn handle_line(
             listpaths::answer(out, st, pool, tb, &paths, first, line)
         }
         Request::Window { start, count } => {
-            write_window(out, st, start, count, tb);
+            let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+            let base = st.base.clone();
+            let listing = st.listing.clone();
+            match super::iomount::call(&base.clone(), &body, "window", move || {
+                super::meta::stat_range(&base, &listing, start, count)
+            }) {
+                Ok((metas, ms)) => {
+                    let start_w = start.min(st.listing.len());
+                    let mut kinds = tb.kinds.borrow_mut();
+                    let line = super::rows::rows_line(&st.listing, &metas, start_w, ms, &tb.mime, &tb.icons, &tb.aliases, &tb.thumbs, &mut kinds);
+                    writeln!(out, "{}", super::rowguard::stamped(line, st.generation)).ok();
+                }
+                Err(e) => {
+                    writeln!(out, "{}", error_line(&e)).ok();
+                }
+            }
             out.flush().ok();
         }
         Request::Search { path, query, hidden } => {
@@ -228,7 +237,7 @@ fn handle_line(
             watch.stop();
             forget_rows(st, pool);
             // The client is told at once that its old rows are gone, then the count grows as matches arrive.
-            writeln!(out, "{}", listed_line(0, 0.0, 0.0, dev_of(&st.base), &st.base.to_string_lossy())).ok();
+            writeln!(out, "{}", listed_line(0, 0.0, 0.0, dev_of(&st.base), &st.base.to_string_lossy(), crate::backend::ops::dir_writable(&st.base))).ok();
             st.search = Some(Search::new(&path, &query, hidden));
             st.search_reported = Instant::now();
             out.flush().ok();
@@ -243,24 +252,43 @@ fn handle_line(
             if finish_search(out, st, true) {
                 forget_rows(st, pool);
             }
+            let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+            let base = st.base.clone();
+            let listing = st.listing.clone();
+            let mime = std::sync::Arc::clone(&tb.mime);
+            let line_owned = line.to_string();
             // A key that names no order is refused by name, so a client's sort mark can only describe the order it got.
-            match ordering::request(&mut st.listing, &st.base, &tb.mime, line) {
-                Err(msg) => {
-                    let e = FleaError { where_: "sort".to_string(), path: by.clone(), msg: msg.to_string() };
+            match super::iomount::call_bulk(&base.clone(), &body, "sort", move || {
+                let mut l = listing;
+                match super::ordering::request(&mut l, &base, &mime, &line_owned) {
+                    Err(msg) => Err(msg.to_string()),
+                    Ok((pass_ms, sort_ms, sized)) => {
+                        let dev = super::fsinfo::dev_of(&base);
+                        let writable = super::ops::dir_writable(&base);
+                        Ok((l, pass_ms, sort_ms, sized, dev, writable))
+                    }
+                }
+            }) {
+                Err(e) => {
                     writeln!(out, "{}", error_line(&e)).ok();
                 }
-                Ok((pass_ms, sort_ms, sized)) => {
+                Ok(Err(msg)) => {
+                    let e = FleaError { where_: "sort".to_string(), path: by.clone(), msg };
+                    writeln!(out, "{}", error_line(&e)).ok();
+                }
+                Ok(Ok((l, pass_ms, sort_ms, sized, dev, writable))) => {
+                    st.listing = l;
                     forget_rows(st, pool);
                     // After forget_rows, which clears the very map this seeds.
                     seed_answered(st, &sized);
                     let line = match anchor.as_deref() {
                         // The listing is a snapshot, so only a path it never held answers -1.
                         Some(anchor) => listed_line_anchor(
-                            st.listing.len(), pass_ms, sort_ms, dev_of(&st.base),
-                            &st.base.to_string_lossy(), anchor,
+                            st.listing.len(), pass_ms, sort_ms, dev,
+                            &st.base.to_string_lossy(), writable, anchor,
                             st.listing.index_of(&st.base, Path::new(anchor)).map(|index| index as isize).unwrap_or(-1),
                         ),
-                        None => listed_line(st.listing.len(), pass_ms, sort_ms, dev_of(&st.base), &st.base.to_string_lossy()),
+                        None => listed_line(st.listing.len(), pass_ms, sort_ms, dev, &st.base.to_string_lossy(), writable),
                     };
                     writeln!(out, "{}", line).ok();
                 }
@@ -323,8 +351,18 @@ fn handle_line(
         Request::Undo => do_undo(out, ops),
         Request::Redo => start_redo(out, ops),
         // Never touches st.listing, which is the whole point: a column is not the pane's own listing.
-        Request::Peek { path, first, hidden, hidden_last, focus } =>
-            say(out, &peek_line(&path, first, hidden, hidden_last, &focus, &tb.mime, &tb.icons)),
+        Request::Peek { path, first, hidden, hidden_last, focus } => {
+            let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+            let base = PathBuf::from(&path);
+            let mime = std::sync::Arc::clone(&tb.mime);
+            let icons = std::sync::Arc::clone(&tb.icons);
+            match super::iomount::call(&base, &body, "peek", move || {
+                peek_line(&path, first, hidden, hidden_last, &focus, &mime, &icons)
+            }) {
+                Ok(line) => say(out, &line),
+                Err(_) => say(out, &format!("{{\"t\":\"peeked\",\"path\":\"{}\",\"hidden\":{},\"hiddenLast\":{},\"first\":{},\"n\":0,\"failed\":true,\"rows\":[]}}", crate::json::escape(&base.to_string_lossy()), hidden, hidden_last, first)),
+            }
+        }
         // A compress names absolute paths and no path; an extract names the one archive in path.
         Request::Archive { op, paths, path, dest, format, menu_id } => start_archive(
             out, ops, Arc::clone(&tb.formats), &op,
@@ -389,17 +427,16 @@ pub fn forget_rows(st: &mut State, pool: &Pool) {
     st.dirsize_worker.cancel();
 }
 
-// A list's scanned and ordered result becomes the listing and is answered: its listed line, then its first rows.
-pub(crate) fn adopt(out: &mut impl Write, st: &mut State, pool: &Pool, tb: &Tables, path: &str, l: Listing, (read_ms, sort_ms): (f64, f64), sized: &[Option<DirSize>], first: usize) {
-    // base and listing only move together, so a failed list cannot mix them.
+// A worker-built listing lands without a syscall, carrying its own dev and writability.
+pub(crate) fn adopt_listed(out: &mut impl Write, st: &mut State, pool: &Pool, tb: &Tables, path: &str, done: super::iomount::ListOut) {
     st.base = PathBuf::from(path);
-    st.listing = l;
+    st.listing = done.listing;
     forget_rows(st, pool);
-    // After forget_rows, which clears the very map this seeds.
-    seed_answered(st, sized);
-    writeln!(out, "{}", listed_line(st.listing.len(), read_ms, sort_ms, dev_of(&st.base), &st.base.to_string_lossy())).ok();
-    // Rides along unasked: asking costs a 60 ms round trip at first paint.
-    write_window(out, st, 0, first, tb);
+    seed_answered(st, &done.sized);
+    writeln!(out, "{}", super::proto::say_listed(st.listing.len(), done.read_ms, done.sort_ms, done.dev, &st.base.to_string_lossy(), done.writable)).ok();
+    let mut kinds = tb.kinds.borrow_mut();
+    let line = super::rows::rows_line(&st.listing, &done.first_metas, 0, done.first_ms, &tb.mime, &tb.icons, &tb.aliases, &tb.thumbs, &mut kinds);
+    writeln!(out, "{}", super::rowguard::stamped(line, st.generation)).ok();
 }
 
 // Search advances only when the request channel is idle.

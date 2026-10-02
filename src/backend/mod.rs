@@ -81,6 +81,7 @@ pub mod opscancel;
 pub mod opsdispatch;
 pub mod opsreq;
 pub mod movebatch;
+pub mod iomount;
 mod mountinfo;
 mod renamecompat;
 pub mod trash;

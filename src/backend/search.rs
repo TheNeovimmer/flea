@@ -46,10 +46,12 @@ impl Search {
 
     fn read_one(&mut self, rel: &str, listing: &mut Listing) {
         let dir = if rel.is_empty() { self.root.clone() } else { self.root.join(rel) };
+        let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
         // corner: an unreadable directory is skipped in silence, exactly as scan.rs's phase one skips an unreadable entry.
-        let rd = match std::fs::read_dir(&dir) {
-            Ok(rd) => rd,
-            Err(_) => return,
+        let owned = dir.clone();
+        let rd = match super::iomount::call(&dir, &body, "search", move || std::fs::read_dir(&owned)) {
+            Ok(Ok(rd)) => rd,
+            _ => return,
         };
         for entry in rd.flatten() {
             let name = entry.file_name();
@@ -60,7 +62,12 @@ impl Search {
             }
             self.scanned += 1;
             // d_type is free and answers is_dir with no stat, matching scan.rs's phase 1.
-            let is_dir = entry.file_type().map(|f| f.is_dir()).unwrap_or(false);
+            let entry_path = dir.join(&*name);
+            let owned_entry = entry;
+            let is_dir = super::iomount::call(&entry_path, &body, "search", move || owned_entry.file_type())
+                .ok()
+                .and_then(|found| found.ok())
+                .is_some_and(|kind| kind.is_dir());
             let child = if rel.is_empty() { name.to_string() } else { format!("{}/{}", rel, name) };
             // The candidate is the whole relative path, not the base name, so one query can span a
             // separator: "dwnhelp" reaches "downloads/helper.txt", see docs/protocol.md "search".

@@ -49,40 +49,65 @@ fn dest_dir_of(file: &Path) -> &Path {
 
 pub fn create_relative(source: &Path, dest_file: &Path) -> Result<(), FleaError> {
     let target = relative_target(dest_dir_of(dest_file), source);
-    std::os::unix::fs::symlink(&target, dest_file)
-        .map_err(|e| from_io("link", &dest_file.to_string_lossy(), &e))
+    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+    let link = target.clone();
+    let at = dest_file.to_path_buf();
+    let at_for_key = at.clone();
+    let dest_name = dest_file.to_string_lossy().to_string();
+    super::iomount::call(&at_for_key, &body, "link", move || {
+        std::os::unix::fs::symlink(&link, &at).map_err(|e| from_io("link", &dest_name, &e))
+    })
+    .unwrap_or_else(Err)
 }
 
 pub fn create_absolute(source: &Path, dest_file: &Path) -> Result<(), FleaError> {
-    std::os::unix::fs::symlink(source, dest_file)
-        .map_err(|e| from_io("link", &dest_file.to_string_lossy(), &e))
+    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+    let from = source.to_path_buf();
+    let at = dest_file.to_path_buf();
+    let at_for_key = at.clone();
+    let dest_name = dest_file.to_string_lossy().to_string();
+    super::iomount::call(&at_for_key, &body, "link", move || {
+        std::os::unix::fs::symlink(&from, &at).map_err(|e| from_io("link", &dest_name, &e))
+    })
+    .unwrap_or_else(Err)
 }
 
 // A hard link to a directory is refused before the syscall, which would fail
 // anyway: the sentence names the refusal rather than the OS errno.
 pub fn create_hard(source: &Path, dest_file: &Path) -> Result<(), FleaError> {
-    if source.symlink_metadata().map(|m| m.is_dir()).unwrap_or(false) {
+    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+    let from = source.to_path_buf();
+    let from_for_key = from.clone();
+    let is_dir = super::iomount::call(&from_for_key, &body, "link", move || {
+        from.symlink_metadata().map(|m| m.is_dir()).unwrap_or(false)
+    })
+    .unwrap_or(false);
+    if is_dir {
         return Err(FleaError {
             where_: "link".to_string(),
             path: dest_file.to_string_lossy().to_string(),
             msg: "a hard link to a directory is refused".to_string(),
         });
     }
-    std::fs::hard_link(source, dest_file).map_err(|e| {
-        if e.raw_os_error() == Some(libc_exdev()) {
-            FleaError {
-                where_: "link".to_string(),
-                path: dest_file.to_string_lossy().to_string(),
-                msg: format!(
-                    "cannot hard link across filesystems ({} to {})",
-                    fs_name(source),
-                    fs_name(dest_dir_of(dest_file))
-                ),
+    let at = dest_file.to_path_buf();
+    let at_for_key = at.clone();
+    let from_link = source.to_path_buf();
+    let dest_name = dest_file.to_string_lossy().to_string();
+    let from_name = source.to_path_buf();
+    super::iomount::call(&at_for_key, &body, "link", move || {
+        std::fs::hard_link(&from_link, &at).map_err(|e| {
+            if e.raw_os_error() == Some(libc_exdev()) {
+                FleaError {
+                    where_: "link".to_string(),
+                    path: dest_name.clone(),
+                    msg: format!("cannot hard link across filesystems ({} to {})", fs_name(&from_name), fs_name(dest_dir_of(&at))),
+                }
+            } else {
+                from_io("link", &dest_name, &e)
             }
-        } else {
-            from_io("link", &dest_file.to_string_lossy(), &e)
-        }
+        })
     })
+    .unwrap_or_else(Err)
 }
 
 // EXDEV without a libc dependency: the one errno this module names.
