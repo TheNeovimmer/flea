@@ -290,6 +290,11 @@ Item {
         root._powerSectors = sectors
     }
 
+    // The chain's guard state in one line, so a failed eject names its guard through ipc.
+    function ejectState() {
+        return [root._ejectDevice, root._ejectLabel, root._powerOffDisk, root._powerOffQueue.length, root._lastVerdict, unmountProcess.running, ejectProcess.running].join("|")
+    }
+
     // Nothing is judged while gio still runs, and only a listing started after it exited counts.
     // A listing that cannot be judged settles nothing, so the next poll tries again, until
     // ejectVerdictTimeout ends the wait.
@@ -357,7 +362,11 @@ Item {
             root._powerOffDisk = ""
             root._powerOffQueue = []
             root._ejectDevice = ""
-            root.message(label + " did not finish ejecting and is still mounted.", true)
+            // A verdict replaces the last one, so the next chain's safe sentence retires this error.
+            var text = label + " did not finish ejecting and is still mounted."
+            root.forgetMessage(root._lastVerdict)
+            root._lastVerdict = text
+            root.message(text, true)
         }
     }
 

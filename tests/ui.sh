@@ -916,6 +916,7 @@ wait_terminal() {
 # 5000 ms poll, so a sentence that lands after a poll has to be caught as it lands, never slept for.
 wait_message() {
     local want="$1" seen="" deadline=$(( $(date +%s%3N) + 25000 ))
+    local diag="${2:-}"
     while (( $(date +%s%3N) < deadline )); do
         # 3 s, not 1: one ipc round trip costs hundreds of ms and grows under load, and a call that
         # times out returns nothing, which spends a sample of a sentence that stands for only 4 s.
@@ -924,7 +925,10 @@ wait_message() {
             return 0
         fi
     done
-    fail "the status bar never said: $want (the last thing it said was: $seen)"
+    # A phase diagnosing its own failure passes its reader, which runs only here, never while waiting.
+    local detail=""
+    [[ -n "$diag" ]] && detail=" ($(eval "$diag"))"
+    fail "the status bar never said: $want (the last thing it said was: $seen)$detail"
 }
 
 # Durable mount state does not disappear with the status bar, so live network checks wait on it.
@@ -9355,7 +9359,8 @@ EOS
     settle
     menu_seek Eject
     key -k Return >/dev/null
-    wait_message "Ejected DATA1, it is safe to unplug."
+    # A slow-legs failure names its guard: the rail plus the eject chain's own state.
+    wait_message "Ejected DATA1, it is safe to unplug." 'printf "rail: %s chain: %s" "$(ipc deviceEntries)" "$(ipc deviceEjectState)"'
     rm -f "$dir/slowlegs"
 
     # A later mount and unmount are answered with their own verdicts, not the chain's.
