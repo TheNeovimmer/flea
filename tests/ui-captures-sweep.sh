@@ -65,6 +65,19 @@ sweep_select() {
     sweep_wait selectionCount 2
 }
 
+# Grid steps tiles with l, since j moves a whole tile row and a one-row grid never reaches the dotfile.
+sweep_seek() {
+    local want="$1" i n
+    [[ "$(ipc viewMode)" == grid ]] || { seek_row_named "$want"; return; }
+    n=$(ipc total)
+    key g >/dev/null
+    for i in $(seq 0 "$n"); do
+        [[ "$(ipc rowAt "$(ipc cursor)")" == "$want|"* ]] && return 0
+        key l >/dev/null
+    done
+    fail "capsweep: could not put the grid cursor on $want"
+}
+
 # List, both Grid stops and Columns show selections, cut marks and visible dotfiles.
 sweep_view_states() {
     local surface="$1" count="$2"
@@ -78,7 +91,7 @@ sweep_view_states() {
     key . >/dev/null
     wait_listing "$((count + 1))"
     sweep_wait showHidden true
-    seek_row_named .hidden.txt
+    sweep_seek .hidden.txt
     sweep_shot "$surface-hidden"
 }
 
