@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-# tp1: a two-finger touchpad stroke through uinput, for the controller's native
-# case_touchpad run on minipc. Python 3 stdlib only: fcntl ioctls and struct.
-# A flick is `swipe --dy-mm 40 --ms 120 --hold-ms 0`; a pause before the lift is
-# the same with `--hold-ms 200`, which must not coast. Positive dy moves the
-# fingers down, which scrolls the content up under natural scroll off.
+# Plays one two-finger touchpad stroke through uinput for the native case_touchpad run.
 import argparse
 import fcntl
 import os
@@ -15,10 +11,10 @@ UINPUT = "/dev/uinput"
 
 UI_SET_EVBIT = 0x40045564
 UI_SET_KEYBIT = 0x40045565
-UI_SET_ABSBIT = 0x40045566
-UI_SET_PROPBIT = 0x40045567
+UI_SET_ABSBIT = 0x40045567
+UI_SET_PROPBIT = 0x4004556E
 UI_ABS_SETUP = 0x401C5504
-UI_DEV_SETUP = 0x445C5503
+UI_DEV_SETUP = 0x405C5503
 UI_DEV_CREATE = 0x5501
 UI_DEV_DESTROY = 0x5502
 
@@ -34,6 +30,13 @@ ABS_MT_TRACKING_ID = 57
 INPUT_PROP_POINTER = 0
 
 SPAN, RES = 1000, 10
+BUS_USB = 0x03
+DEVICE_VENDOR, DEVICE_PRODUCT, DEVICE_VERSION = 0x4711, 0x4712, 1
+MT_SLOT_MAX = 9
+MAX_TRACKING_ID = 65535
+EVENT_STEP_MS = 8
+CREATE_SETTLE_S = 0.5
+POST_SETTLE_S = 0.3
 
 
 def emit(fd, kind, code, value):
@@ -62,24 +65,23 @@ def setup_abs(fd, code, maximum, resolution):
 def create():
     fd = os.open(UINPUT, os.O_WRONLY | os.O_NONBLOCK)
     for bit in (EV_SYN, EV_KEY, EV_ABS):
-        fcntl.ioctl(fd, UI_SET_EVBIT, struct.pack("i", bit))
+        fcntl.ioctl(fd, UI_SET_EVBIT, bit)
     for bit in (BTN_TOUCH, BTN_TOOL_FINGER, BTN_TOOL_DOUBLETAP):
-        fcntl.ioctl(fd, UI_SET_KEYBIT, struct.pack("i", bit))
+        fcntl.ioctl(fd, UI_SET_KEYBIT, bit)
     for bit in (ABS_X, ABS_Y, ABS_MT_SLOT, ABS_MT_TRACKING_ID,
                 ABS_MT_POSITION_X, ABS_MT_POSITION_Y):
-        fcntl.ioctl(fd, UI_SET_ABSBIT, struct.pack("i", bit))
-    fcntl.ioctl(fd, UI_SET_PROPBIT, struct.pack("i", INPUT_PROP_POINTER))
-    limits = [0] * 64
-    limits[ABS_X] = limits[ABS_Y] = SPAN
-    limits[ABS_MT_SLOT] = 9
-    limits[ABS_MT_TRACKING_ID] = 65535
-    limits[ABS_MT_POSITION_X] = limits[ABS_MT_POSITION_Y] = SPAN
-    setup = struct.pack("80sHHHHi", b"flea-touchpad", 0x03, 0x4711, 0x4712, 1, 0)
-    setup += struct.pack("64i", *limits) + struct.pack("64i", *([0] * 64))
-    setup += struct.pack("64i", *([0] * 64)) + struct.pack("64i", *([0] * 64))
+        fcntl.ioctl(fd, UI_SET_ABSBIT, bit)
+    fcntl.ioctl(fd, UI_SET_PROPBIT, INPUT_PROP_POINTER)
+    # Sample input: uinput_setup is input_id, name[80] and ff_effects_max, 92 bytes.
+    setup = struct.pack("HHHH80sI", BUS_USB, DEVICE_VENDOR, DEVICE_PRODUCT,
+                        DEVICE_VERSION, b"flea-touchpad", 0)
     fcntl.ioctl(fd, UI_DEV_SETUP, setup)
-    for code in (ABS_X, ABS_Y, ABS_MT_POSITION_X, ABS_MT_POSITION_Y):
-        setup_abs(fd, code, SPAN, RES)
+    setup_abs(fd, ABS_X, SPAN, RES)
+    setup_abs(fd, ABS_Y, SPAN, RES)
+    setup_abs(fd, ABS_MT_SLOT, MT_SLOT_MAX, 0)
+    setup_abs(fd, ABS_MT_TRACKING_ID, MAX_TRACKING_ID, 0)
+    setup_abs(fd, ABS_MT_POSITION_X, SPAN, RES)
+    setup_abs(fd, ABS_MT_POSITION_Y, SPAN, RES)
     fcntl.ioctl(fd, UI_DEV_CREATE)
     return fd
 
@@ -87,7 +89,7 @@ def create():
 def swipe(fd, dx_mm, dy_mm, ms, hold_ms):
     dx, dy = int(dx_mm * RES), int(dy_mm * RES)
     x0, y0 = SPAN // 2, SPAN // 2
-    steps = max(2, ms // 8)
+    steps = max(2, ms // EVENT_STEP_MS)
     finger(fd, 0, 1, x0, y0)
     finger(fd, 1, 2, x0, y0)
     emit(fd, EV_KEY, BTN_TOUCH, 1)
@@ -126,9 +128,9 @@ def main(argv):
         return 2
     fd = create()
     try:
-        time.sleep(0.5)
+        time.sleep(CREATE_SETTLE_S)
         steps = swipe(fd, args.dx_mm, args.dy_mm, args.ms, args.hold_ms)
-        time.sleep(0.3)
+        time.sleep(POST_SETTLE_S)
     finally:
         try:
             fcntl.ioctl(fd, UI_DEV_DESTROY)

@@ -1,11 +1,8 @@
 import QtQuick
 import "js/Scroll.js" as Scroll
 
-// Writes the bounded position directly, on both axes. A MouseArea because a Flickable consumes wheel
-// events before a child WheelHandler can answer them. Presses pass through untouched: the press arm
-// below stops the momentum tail and leaves the event unaccepted, so the row under the pointer still
-// gets the click. Touchpad strokes (any phase but Qt.NoScrollPhase) move gained pixels with Finder's
-// momentum tail; a wheel notch keeps the Theme rate with none. The arithmetic is ui/js/Scroll.js.
+// Writes the bounded position directly, on both axes; a MouseArea because a Flickable consumes wheel events first.
+// Presses stop the tail unaccepted to reach the row; touchpad strokes move gained pixels, a notch keeps the Theme rate.
 MouseArea {
     id: root
     objectName: "fleaScroll"
@@ -118,6 +115,9 @@ MouseArea {
             // A new stroke ends the old tail; updates of the stroke in flight find none running.
             if (phase === Qt.ScrollBegin || root.tailActive())
                 root.stopTail()
+            // The Begin carries no pixels and anchors the lift's span.
+            if (phase === Qt.ScrollBegin)
+                Scroll.pushSample(root.flickable, Scroll.now(), 0, 0)
             var down = Scroll.touchDistance(wheel.pixelDelta.y)
             var across = Scroll.touchDistance(wheel.pixelDelta.x)
             if ((down === 0 && across === 0) || !root.flickable.interactive) {

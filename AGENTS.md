@@ -5200,6 +5200,10 @@ shipped instead with a before/after delta bound (`1 <= delta <= 2`, one settle's
 per fling rather than a literal zero), the same upper bound this section's own settled-state check
 already accepts and for the identical reason.
 
+Touchpad history: GM ruled 2026-10-01 that touchpad input answers Finder's feel, so the Motion.js
+animation-free rule and the old touchpad 1:1 no longer hold for it; the 2.5 gain is GTK4's own
+factor from gtkscrolledwindow.c, and a wheel notch is unchanged.
+
 ## A drag does not survive a workspace switch
 
 Reported on 2026-09-22 (PR #186) as a drag from Flea into a terminal on another workspace pasting

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# tp1 touchpad: fake wheel objects with an injected clock into the real FastScrollHandler on a
-# real ui/List.qml over 3000 rows, offscreen with no display or lock.
+# Touchpad stroke, tail, stops and cost over the real ui/List.qml offscreen, no display or lock.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
@@ -29,7 +28,7 @@ output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
     timeout 30 qs -p "$test_root/config" 2>&1)
 
-# Sample input, one probe line: "  INFO qml: TOUCHPAD PASS stroke=1200 lift=1290 rest=4272 tail=2982 objs=41 delegates=12"
+# Sample input, one probe line: "TOUCHPAD PASS stroke=1200 lift=1200 rest=4182 tail=2982.3 objs=580 delegates=26"
 pass_count=$(printf '%s\n' "$output" | grep -c 'TOUCHPAD PASS')
 fail_count=$(printf '%s\n' "$output" | grep -c 'TOUCHPAD FAIL')
 if [ "$pass_count" -ne 1 ] || [ "$fail_count" -ne 0 ]; then
