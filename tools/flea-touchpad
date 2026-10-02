@@ -18,7 +18,17 @@ UI_SET_KEYBIT = 0x40045565
 UI_SET_ABSBIT = 0x40045566
 UI_SET_PROPBIT = 0x40045567
 UI_ABS_SETUP = 0x401C5504
-UI_DEV_SETUP = 0x445C5503
+# struct uinput_setup is struct input_id (bustype, vendor, product, version)
+# plus char name[80] plus __u32 ff_effects_max: 8 + 80 + 4, 92 bytes. The old
+# code passed the 1116-byte legacy uinput_user_dev here with 0x445C5503, which
+# Python refuses ("ioctl argument 3 is too long"); the kernel's UI_DEV_SETUP is
+# _IOW('U', 3, struct uinput_setup), 0x405C5503.
+UINPUT_SETUP_FMT = "HHHH80sI"
+UI_DEV_SETUP = 0x405C5503
+# struct uinput_abs_setup is __u16 code plus its pad plus struct input_absinfo
+# (value, minimum, maximum, fuzz, flat, resolution): 2 + 2 + 24, 28 bytes, and
+# UI_ABS_SETUP is _IOW('U', 4, struct uinput_abs_setup).
+UINPUT_ABS_SETUP_FMT = "HHiiiiii"
 UI_DEV_CREATE = 0x5501
 UI_DEV_DESTROY = 0x5502
 
@@ -56,7 +66,7 @@ def finger(fd, slot, tracking, x, y):
 
 
 def setup_abs(fd, code, maximum, resolution):
-    fcntl.ioctl(fd, UI_ABS_SETUP, struct.pack("Iiiiiii", code, 0, 0, maximum, 0, 0, resolution))
+    fcntl.ioctl(fd, UI_ABS_SETUP, struct.pack(UINPUT_ABS_SETUP_FMT, code, 0, 0, 0, maximum, 0, 0, resolution))
 
 
 def create():
@@ -69,14 +79,9 @@ def create():
                 ABS_MT_POSITION_X, ABS_MT_POSITION_Y):
         fcntl.ioctl(fd, UI_SET_ABSBIT, struct.pack("i", bit))
     fcntl.ioctl(fd, UI_SET_PROPBIT, struct.pack("i", INPUT_PROP_POINTER))
-    limits = [0] * 64
-    limits[ABS_X] = limits[ABS_Y] = SPAN
-    limits[ABS_MT_SLOT] = 9
-    limits[ABS_MT_TRACKING_ID] = 65535
-    limits[ABS_MT_POSITION_X] = limits[ABS_MT_POSITION_Y] = SPAN
-    setup = struct.pack("80sHHHHi", b"flea-touchpad", 0x03, 0x4711, 0x4712, 1, 0)
-    setup += struct.pack("64i", *limits) + struct.pack("64i", *([0] * 64))
-    setup += struct.pack("64i", *([0] * 64)) + struct.pack("64i", *([0] * 64))
+    # The modern device setup: one uinput_setup names the device, then one
+    # uinput_abs_setup per axis bounds it. No legacy uinput_user_dev is sent.
+    setup = struct.pack(UINPUT_SETUP_FMT, 0x03, 0x4711, 0x4712, 1, b"flea-touchpad", 0)
     fcntl.ioctl(fd, UI_DEV_SETUP, setup)
     for code in (ABS_X, ABS_Y, ABS_MT_POSITION_X, ABS_MT_POSITION_Y):
         setup_abs(fd, code, SPAN, RES)
@@ -111,6 +116,34 @@ def swipe(fd, dx_mm, dy_mm, ms, hold_ms):
     return steps
 
 
+def check_api():
+    # Packs each uinput struct and asserts its size and request number, with no
+    # device touched: _IOW(type 'U', nr, struct) is 0x40000000 | size << 16 |
+    # type << 8 | nr. Fails on the legacy 1116-byte struct and 0x445C5503.
+    failures = []
+
+    def check(label, actual, expected):
+        if actual != expected:
+            failures.append("%s: got %#x, want %#x" % (label, actual, expected))
+        else:
+            print("ok   %s (%d)" % (label, actual))
+
+    setup_size = struct.calcsize(UINPUT_SETUP_FMT)
+    abs_size = struct.calcsize(UINPUT_ABS_SETUP_FMT)
+    check("struct uinput_setup size", setup_size, 92)
+    check("struct uinput_abs_setup size", abs_size, 28)
+    check("UI_DEV_SETUP request", UI_DEV_SETUP,
+          0x40000000 | (setup_size << 16) | (ord("U") << 8) | 3)
+    check("UI_ABS_SETUP request", UI_ABS_SETUP,
+          0x40000000 | (abs_size << 16) | (ord("U") << 8) | 4)
+    if failures:
+        for failure in failures:
+            print("FAIL " + failure, file=sys.stderr)
+        return 1
+    print("flea-touchpad: uinput API check passed")
+    return 0
+
+
 def main(argv):
     parser = argparse.ArgumentParser(prog="flea-touchpad")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -119,7 +152,10 @@ def main(argv):
     play.add_argument("--dy-mm", type=float, default=40.0)
     play.add_argument("--ms", type=int, default=120)
     play.add_argument("--hold-ms", type=int, default=0)
+    sub.add_parser("check", help="assert the packed uinput structs and request numbers, no device needed")
     args = parser.parse_args(argv)
+    if args.command == "check":
+        return check_api()
     if not os.access(UINPUT, os.W_OK):
         print("flea-touchpad: %s is not writable, cannot create a touchpad" % UINPUT,
               file=sys.stderr)

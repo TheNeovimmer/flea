@@ -10,6 +10,10 @@ if ! command -v qs >/dev/null; then
     exit 1
 fi
 
+# The uinput struct and request-number check needs no device, so it runs before
+# the scroll probe and everywhere the probe runs.
+python3 "$PWD/tools/flea-touchpad" check || exit 1
+
 sandbox_root_ok
 test_root=$(mktemp -d "$SANDBOX_ROOT/flea-touchpad.XXXXXX") || exit 1
 : > "$test_root/$SANDBOX_MARKER" || exit 1

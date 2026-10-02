@@ -41,6 +41,13 @@ Item {
         if (current && current.running && !current.obsolete && !quitting)
             current.write(JSON.stringify({c: "window", start: start, count: count}) + "\n")
     }
+    // The storage class beside the worker's own listing, asked the way the main
+    // pane asks its backend after a listing lands; the grid's thumbnail planner
+    // holds on unknown until this answers, see ui/PickerGrid.qml.
+    function fsinfo() {
+        if (current && current.running && !current.obsolete && !quitting)
+            current.write(JSON.stringify({c: "fsinfo"}) + "\n")
+    }
     // Sort reorders the worker's own listing without replacing it; the caller re-asks the window after.
     function sort(by, desc, foldersFirst, groupByKind) {
         if (current && current.running && !current.obsolete && !quitting)
