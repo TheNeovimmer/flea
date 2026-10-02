@@ -299,9 +299,7 @@ function run(check) {
         Drag.shelfToken(moveDrag) + "|" + Drag.shelfCopying(moveDrag) + "|" + Drag.shelfCopying(copyDrag),
         "9f2c|false|true")
   check("and a payload that carries nothing names no token", Drag.shelfToken(""), "")
-    // F16: startOffer arms the watch before entering the platform event loop, so a
-    // finish handler running inside QDrag::exec cannot overwrite the hold afterwards.
-    // Sample input: function startOffer() { ... root.pane.dragActive = true ... root.Drag.active = true ... }.
+    // F16: startOffer arms pane.dragActive before Drag.active (arm index < exec index), or a QDrag.exec finish handler overwrites the hold.
     var offer = Source.slice(Source.source("ui/FileDrag.qml"), "function startOffer()", "function deliverPaths")
     var arm = offer.indexOf("root.pane.dragActive = true")
     var exec = offer.indexOf("root.Drag.active = true")

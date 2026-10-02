@@ -114,6 +114,9 @@ function failAnchor(pane, anchor, rowH) {
     anchor.locateDone = true
     if (pane.pathsPending && pane.pathsPending.kind === "anchor")
         pane.pathsPending = null
+    // A failed ask still owes the listing that draws the outside change, unless one is already out.
+    if (!pane.listInFlight)
+        Hold.startList(pane, anchor)
     var at = indexOf(pane, anchor.name)
     if (pane.total > 0) {
         landOn(pane, at >= 0 ? at : Math.min(anchor.index, pane.total - 1), anchor)

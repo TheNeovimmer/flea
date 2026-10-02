@@ -90,8 +90,7 @@ function run(check) {
     var standing = Anchor.apply(big, bigAnchor, 37)
     check("F2 held plus locate waits instead of finishing short", standing === bigAnchor, true)
     if (bigAnchor && bigAnchor.locatePaths) {
-        // The backend scans the whole listing, not the held window, so every name resolves
-        // at its listing index; the expectation is computed from the listing, never assigned.
+        // The backend scans the whole listing, so every name resolves at its listing index, computed never assigned.
         var full = ["NEW"].concat(names)
         var matches = []
         for (var k = 0; k < full.length; k++)
@@ -103,7 +102,18 @@ function run(check) {
         check("F2 the locate reply for this directory resolves the anchor",
               taken.handled === true && taken.anchor === null, true)
     }
-    check("F2 one create keeps every row", big.total, names.length + 1)
+    check("F2 held rows carry the fixture names", big.rowFor(1).n + "|" + big.rowFor(349).n, names[0] + "|" + names[348])
+    var sel = big.selectedIndices()
+    var hitNew = false
+    var hitFirst = false
+    for (var z = 0; z < sel.length; z++) {
+        var got = big.rowFor(sel[z])
+        if (got && String(got.n) === after[0]) hitNew = true
+        if (got && String(got.n) === names[0]) hitFirst = true
+    }
+    check("F2 the created file takes no mark", hitNew, false)
+    check("F2 the first fixture file keeps its mark", hitFirst, true)
+    check("F2 marks span the shifted fixture range", sel[0] + "|" + sel[sel.length - 1], "1|" + names.length)
     check("F2 all marks survive on the same files", big.selection.count(), names.length)
 
     // F3: start above zero waits for the asked window when the cursor lands early.
@@ -193,12 +203,13 @@ function run(check) {
     grid.cursorIndex = 7
     var gridAnchor = Anchor.watched(grid, 37)
     check("F5 grid offset counts tile rows, not list rows", gridAnchor.offset, 150)
-    grid.rows = []
+    grid.rows = [{ n: "N1" }, { n: "N2" }]
     for (var h = 0; h < 30; h++)
         grid.rows.push({ n: "h" + h })
-    grid.total = 30
+    grid.total = 32
     Anchor.apply(grid, gridAnchor, 37)
-    check("F5 grid restore keeps the tile row's screen y", grid.listArea.contentY, 50)
+    check("F5 the cursor follows its file past the insert", grid.cursorSetTo, 9)
+    check("F5 grid restore keeps the tile row's screen y", grid.listArea.contentY, 150)
 
     // F5: a drag in progress holds the re-read, and the debt runs after the drop.
     var drag = pane()

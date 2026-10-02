@@ -184,16 +184,14 @@ function run(check) {
     check("a watched re-read with a filter still only moves marks, never the query",
           kept.standing, null)
 
-    // A mark on a row the pane does not hold resolves through the production paths
-    // round trip, so it goes rather than re-pointing at another file when the rows land.
+    // An unheld mark resolves through the paths round trip, so it goes rather than re-pointing at another file.
     var beyond = staged(["a", "b"], 0, [0])
     beyond.selection.toggle(9)
     landed(beyond, ["NEW", "a", "b"], 0)
     check("an unheld mark goes instead of landing on another file",
           beyond.selectedIndices().join(","), "1")
 
-    // The no-resolver fallback, named on purpose: a pane whose backend answers neither
-    // send nor askPaths holds the re-read while an unheld mark stands, as before xw5.
+    // No resolver holds the re-read while an unheld mark stands: a backend answering neither send nor askPaths.
     var bare = pane()
     delete bare.backend.send
     delete bare.backend.askPaths
@@ -223,26 +221,28 @@ function run(check) {
     clipAsk.clipPending = true
     check("a clipboard resolve in flight holds the re-read", Anchor.busy(clipAsk), true)
 
-    // F2: the cursor's file is gone while marks still resolve: the cursor lands on the
-    // clamped old index at once, and the locate answer keeps it there.
-    var gone = staged(["a", "b", "c"], 0, [0, 1])
+    // The cursor's file is gone past the new total, so the cursor lands clamped at once and the locate answer keeps it there.
+    var gone = staged(["a", "b", "c"], 2, [1, 2])
     var goneAnchor = Anchor.watched(gone)
     gone.held = 0
-    gone.rows = [{ n: "b" }, { n: "c" }]
+    gone.rows = [{ n: "a" }, { n: "b" }]
     gone.total = 2
     var goneStanding = Anchor.apply(gone, goneAnchor)
     check("a gone cursor file waits on its marks with the anchor standing", goneStanding === goneAnchor, true)
-    check("landed on the clamped old index", gone.cursorSetTo, 0)
+    check("landed on the clamped old index", gone.cursorSetTo, 1)
     var goneEnd = Anchor.fillLocated(gone, goneStanding, [])
-    check("the locate answer keeps the clamped cursor", goneEnd + "|" + gone.cursorSetTo, "null|0")
-    check("and the surviving mark follows its file", gone.selectedIndices().join(","), "0")
+    check("the locate answer keeps the clamped cursor", goneEnd + "|" + gone.cursorSetTo, "null|1")
+    check("and the surviving mark follows its file", gone.selectedIndices().join(","), "1")
 
     // F3: a failed anchor paths ask ends the anchor instead of stranding it.
+    // A settled listing holds its rows across the re-list, so the failed anchor still lands on them.
     var failed = staged(["a", "b"], 0, [0])
     failed.selection.toggle(9)
+    failed.swap = { hold: function () { return true } }
     var failedAnchor = Anchor.watched(failed)
     check("an unheld mark waits on its paths reply", !!failedAnchor.needPaths, true)
     check("a failed paths reply ends the anchor", Anchor.failAnchor(failed, failedAnchor), null)
+    check("a failed paths reply still lists the changed directory", failed.sent.join(","), "paths:9,list /d,fsinfo")
     check("on the clamped index", failed.cursorSetTo, 0)
     check("and releases the paths claim", failed.pathsPending, null)
     var throwing = pane()

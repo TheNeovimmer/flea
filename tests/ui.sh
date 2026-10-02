@@ -3434,17 +3434,37 @@ xw_window_addr_now() {
     omarchy-drive windows --json | jq -r --argjson pid "$1" '.windows[] | select(.pid == $pid) | .address'
 }
 
-# The compositor address of one owned pid, failing loudly on none or several, so keys never reach a foreign window.
+# Polls until exactly one compositor client holds the pid, so a window still mapping never reads as missing; only the condition is asserted.
 xw_addr_for_pid() {
-    local pid="$1" addr
-    flea_process_owned "$pid" || fail "xwwatch: pid $pid is not a window this run owns"
-    addr=$(xw_window_addr_now "$pid")
-    [[ -n "$addr" && "$addr" != *$'\n'* ]] || fail "xwwatch: pid $pid has no single window address"
-    printf '%s\n' "$addr"
+    local pid="$1" addr status attempt clients
+    local tries=200
+    local gap_s=0.05
+    if ! flea_process_owned "$pid"; then
+        printf 'xwwatch: pid %s is not a window this run owns\n' "$pid" >&2
+        return 1
+    fi
+    addr=""
+    for attempt in $(seq 1 $tries); do
+        addr=$(xw_window_addr_now "$pid")
+        status=$?
+        if [[ $status -ne 0 ]]; then
+            printf 'xwwatch: pid %s has no window address: the clients list could not be read\n' "$pid" >&2
+            return 1
+        fi
+        if [[ -n "$addr" && "$addr" != *$'\n'* ]]; then
+            printf '%s\n' "$addr"
+            return 0
+        fi
+        addr=""
+        sleep $gap_s
+    done
+    clients=$(omarchy-drive windows --json 2>&1)
+    printf 'xwwatch: pid %s has no single window address: %s\n' "$pid" "$clients" >&2
+    return 1
 }
 
 xw_second_window() {
-    local start_path="$1" ui_copy="$2" pid addr
+    local start_path="$1" ui_copy="$2" pid addr status
     mkdir -p "$ui_copy" || fail "xwwatch: could not stage the second window's UI copy"
     cp -a "$flea_ui/." "$ui_copy/" || fail "xwwatch: could not copy the UI for the second window"
     FLEA_UI="$ui_copy" FLEA_BIN="$flea_bin" \
@@ -3457,7 +3477,15 @@ xw_second_window() {
     [[ -n "$pid" ]] || fail "xwwatch: the second window's process never appeared"
     addr=""
     for _attempt in $(seq 1 300); do
-        addr=$(xw_window_addr_now "$pid") && [[ -n "$addr" && "$addr" != *$'\n'* ]] && break || addr=""
+        addr=$(xw_window_addr_now "$pid")
+        status=$?
+        if [[ $status -ne 0 ]]; then
+            fail "xwwatch: the second window's address is unreadable: the clients list could not be read"
+        fi
+        if [[ -n "$addr" && "$addr" != *$'\n'* ]]; then
+            break
+        fi
+        addr=""
         sleep 0.05
     done
     [[ -n "$addr" ]] || fail "xwwatch: pid $pid never showed a window"
@@ -3489,8 +3517,7 @@ xw_kill_second() {
     done
 }
 
-# The hang guard, in seconds: the 400 ms watch settle plus whatever the compositor and IPC
-# cost that day. These waits assert only the condition, never how long it took.
+# The hang guard in seconds: the 400 ms watch settle plus whatever the compositor and IPC cost that day, asserted as condition only.
 xw_hang_s=30
 
 xw_wait_total() {
@@ -3599,7 +3626,7 @@ case_xwwatch() {
     launch "$dir"
     wait_listing 5
     pidB=$(flea_pid)
-    addrB=$(xw_addr_for_pid "$pidB")
+    addrB=$(xw_addr_for_pid "$pidB") || fail "xwwatch: no B window address"
     [[ -n "$addrB" ]] || fail "xwwatch: no B window address"
 
     # B selects three files and parks its cursor on the last of them.
@@ -3615,7 +3642,7 @@ case_xwwatch() {
         || fail "xwwatch: B cursor is on $(ipc rowAt "$(ipc cursor)"), not sel-two.txt"
 
     # A opens beside it on the same folder.
-    addrA=$(xw_second_window "$dir" "$ui_copy")
+    addrA=$(xw_second_window "$dir" "$ui_copy") || fail "xwwatch: no A window address"
     bootA="$ui_copy/boot"
     [[ -n "$addrA" ]] || fail "xwwatch: no A window address"
     xw_wait_total "$bootA" 5 "second window listing"
