@@ -194,8 +194,7 @@ fn apply(saved: &ReplayStep, id: usize, index: usize, cancel: &AtomicBool, tx: &
             Ok(())
         }
         Step::Created { path } => Err(error(path, "this operation has no recorded replay source")),
-        // A link replays through the same exclusive create, so a name taken
-        // since refuses honestly and a fresh identity is recorded.
+        // A link replays through the same exclusive create.
         Step::Linked { path, source, kind, .. } => {
             match kind {
                 super::link::LinkKind::Absolute => super::link::create_absolute(source, path),

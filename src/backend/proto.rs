@@ -278,7 +278,8 @@ pub fn dirsized_line(row: usize, bytes: u64, partial: bool, ms: f64) -> String {
 }
 
 // Sample output: {"t":"paths","paths":["/home/gm/a.txt","/home/gm/b.txt"]}
-pub fn paths_line(paths: &[String]) -> String {    let mut out = String::from(r#"{"t":"paths","paths":["#);
+pub fn paths_line(paths: &[String]) -> String {
+    let mut out = String::from(r#"{"t":"paths","paths":["#);
     for (i, p) in paths.iter().enumerate() {
         if i > 0 {
             out.push(',');

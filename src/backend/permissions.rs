@@ -4,6 +4,7 @@ use crate::oflags::O_NOFOLLOW;
 #[cfg(test)]
 use std::fs::Permissions as Mode;
 use std::fs::{File, Metadata, OpenOptions};
+#[cfg(test)]
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::os::unix::io::AsRawFd;
@@ -116,15 +117,7 @@ fn fail_restore() -> bool {
     }
 }
 
-// Sample input: items [("/a.txt", "600"), ("/b dir/c.txt", "644")]. Every
-// path is an absolute file or folder, never a link; one Entry holds every
-// change so one undo restores them all. Octal, Owner, Group and the change
-// preview drop out for several items: the grid and Apply are the whole card.
-// A mixed box the operator never touched keeps each file's own bit, because
-// the client sends that file's own target mode rather than one mode for all.
-// A change that fails short rolls back what this call already changed,
-// newest first, so "no change was applied" is true when it is said; what will
-// not go back stays journalled instead, with a count of what changed.
+// Sample input: items [("/a.txt", "600")]; one entry holds every change so one undo restores all.
 pub fn apply_many(items: &[(PathBuf, String)]) -> Result<Vec<crate::backend::undo::Step>, BatchError> {
     if items.is_empty() {
         return Err(BatchError { msg: "Permissions needs at least one selected item.".into(), applied: Vec::new() });
@@ -194,10 +187,7 @@ pub fn apply_many(items: &[(PathBuf, String)]) -> Result<Vec<crate::backend::und
     Ok(steps)
 }
 
-// Every chmod goes through the held descriptor: O_PATH with O_NOFOLLOW pins
-// the object, identity and current mode are checked against what the caller
-// recorded, and fchmodat2 changes the held object without reopening a
-// pathname, closing the symlink-swap race a chmod by name leaves open.
+// Every chmod goes through the held descriptor, closing the symlink-swap race.
 pub(crate) fn chmod_pinned(path: &Path, dev: u64, ino: u64, expected: u32, target: u32) -> Result<(), String> {
     let current = path.symlink_metadata().map_err(|e| crate::error::io_message(&e))?;
     if current.file_type().is_symlink() {
@@ -206,7 +196,7 @@ pub(crate) fn chmod_pinned(path: &Path, dev: u64, ino: u64, expected: u32, targe
     if current.dev() != dev || current.ino() != ino {
         return Err("the item was replaced, so its mode was left in place.".into());
     }
-    if current.mode() & 0o777 != expected {
+    if current.mode() & 0o7777 != expected {
         return Err("the mode changed since, so it was left in place.".into());
     }
     let file = OpenOptions::new().read(true).custom_flags(O_NOFOLLOW | O_PATH)
@@ -215,7 +205,7 @@ pub(crate) fn chmod_pinned(path: &Path, dev: u64, ino: u64, expected: u32, targe
     if meta.dev() != dev || meta.ino() != ino {
         return Err("the item was replaced, so its mode was left in place.".into());
     }
-    if meta.mode() & 0o777 != expected {
+    if meta.mode() & 0o7777 != expected {
         return Err("the mode changed since, so it was left in place.".into());
     }
     if unsafe { syscall(SYS_FCHMODAT2, file.as_raw_fd(), c"".as_ptr(), target, AT_EMPTY_PATH) } != 0 {
@@ -515,6 +505,21 @@ mod tests {
         use std::os::unix::fs::MetadataExt;
         assert_eq!(std::fs::metadata(&a).unwrap().mode() & 0o777, 0o600,
             "undo widened a file it never changed");
+    }
+    #[test]
+    fn undo_refuses_a_mode_with_special_bits_added_since() {
+        let d = TestDir::new("permissions-setuid");
+        let a = d.file("a.txt", "old");
+        std::fs::set_permissions(&a, Mode::from_mode(0o644)).unwrap();
+        let steps = apply_many(&[(a.clone(), "600".to_string())]).expect("one ordinary file");
+        assert_eq!(a.metadata().unwrap().mode() & 0o777, 0o600);
+        std::fs::set_permissions(&a, Mode::from_mode(0o4600)).unwrap();
+        let mut journal = crate::backend::undo::Journal::new();
+        journal.push(crate::backend::undo::Entry { op: "permissions".to_string(), steps });
+        let err = journal.undo().expect_err("a setuid added since keeps nothing to restore to");
+        assert!(err.msg.contains("left in place"), "{}", err.msg);
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(std::fs::metadata(&a).unwrap().mode() & 0o7777, 0o4600, "undo cleared a setuid it never set");
     }
     #[test]
     fn undo_restores_the_rest_when_one_of_several_was_replaced() {

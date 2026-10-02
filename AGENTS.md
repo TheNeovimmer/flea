@@ -5463,8 +5463,7 @@ menu, since the transfer waiting on the card names the folder it asked about; th
 chrome's own back and up buttons are covered by the card's focus and backdrop, and there is no
 forward mouse button binding to gate. `tests/ui-operations-design.sh` and `tests/ui-providers.sh`
 drove their error and retry footers with a real name collision through Copy to and Move to Dropbox;
-a collision now asks instead, so those flows fail on an unreadable source file and a read-only Dropbox
-folder, both real failures that are not a name.
+a collision now asks instead, so those flows fail on an unreadable source file, a real failure that is not a name.
 corner: replacing N items costs 3N `gio` runs, a list before and after each trash, because the URI is
 captured per call; one batch trash up front would have to restore every untouched item on a cancel.
 

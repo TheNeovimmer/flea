@@ -126,14 +126,15 @@ pub fn duplicate(path: &Path) -> (Result<PathBuf, FleaError>, Vec<Step>) {
     }
 }
 
-// A directory this user cannot create entries in. access(2) W_OK is 2, the check Files uses.
+// True when this user can create entries in path, by access(2) W_OK.
 pub(crate) fn dir_writable(path: &Path) -> bool {
+    const W_OK: std::ffi::c_int = 2;
     let bytes = std::os::unix::ffi::OsStrExt::as_bytes(path.as_os_str());
     let Ok(c) = std::ffi::CString::new(bytes) else { return false };
     extern "C" {
         fn access(path: *const std::ffi::c_char, mode: std::ffi::c_int) -> std::ffi::c_int;
     }
-    unsafe { access(c.as_ptr(), 2) == 0 }
+    unsafe { access(c.as_ptr(), W_OK) == 0 }
 }
 
 // A given name is created exactly or refused; an empty one takes the first free default, because a
