@@ -193,9 +193,7 @@ function run(check) {
     check("a third tap does not open a second time",
           triple.did.filter(function (v) { return v === "open" }).length, 1)
 
-    // Single-click mode opens on the first tap, so the second tap of the same
-    // press sequence never opens again: the first tap's open already moved the
-    // listing on, and a folder's second tap must not act on the new listing.
+    // The first tap already moved the listing, so a second tap never opens again.
     var single = pane()
     single.singleClick = true
     Tap.tapped(4, 1, Qt.NoModifier, single)
