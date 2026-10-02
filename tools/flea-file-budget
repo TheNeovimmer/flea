@@ -38,9 +38,10 @@ src/backend/thumbs.rs 460
 src/backend/dirsizeworker.rs 574
 src/backend/watch.rs 533
 src/backend/thumbreq.rs 418
-src/backend/undo.rs 599
+src/backend/undo.rs 612
+src/backend/undo_tests.rs 423
 src/backend/undoshare.rs 431
-src/backend/undoshare_tests.rs 513
+src/backend/undoshare_tests.rs 532
 src/backend/collide_replace_tests.rs 487
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 779

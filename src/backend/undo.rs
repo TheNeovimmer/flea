@@ -5,6 +5,9 @@ use crate::error::{from_io, FleaError};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
+// An identity field for field: dev, inode, kind, length, mtime, ctime and birth time.
+pub(crate) type IdentityParts = (u64, u64, u32, u64, (i64, i64), (i64, i64), Option<(u64, u32)>);
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ItemIdentity {
     dev: u64,
@@ -13,19 +16,21 @@ pub struct ItemIdentity {
     len: u64,
     mtime: (i64, i64),
     changed: (i64, i64),
+    born: Option<(u64, u32)>,
 }
 
 impl ItemIdentity {
     pub fn record(meta: &std::fs::Metadata) -> Self {
         Self { dev: meta.dev(), ino: meta.ino(), kind: meta.mode() & 0o170000, len: meta.len(),
-            mtime: (meta.mtime(), meta.mtime_nsec()), changed: (meta.ctime(), meta.ctime_nsec()) }
+            mtime: (meta.mtime(), meta.mtime_nsec()), changed: (meta.ctime(), meta.ctime_nsec()),
+            born: super::permissions::born_of(meta) }
     }
     // The shared journal's wire form, field for field; the kind set it accepts is checked on read.
-    pub(crate) fn to_parts(&self) -> (u64, u64, u32, u64, (i64, i64), (i64, i64)) {
-        (self.dev, self.ino, self.kind, self.len, self.mtime, self.changed)
+    pub(crate) fn to_parts(&self) -> IdentityParts {
+        (self.dev, self.ino, self.kind, self.len, self.mtime, self.changed, self.born)
     }
-    pub(crate) fn from_parts(dev: u64, ino: u64, kind: u32, len: u64, mtime: (i64, i64), changed: (i64, i64)) -> Self {
-        Self { dev, ino, kind, len, mtime, changed }
+    pub(crate) fn from_parts(dev: u64, ino: u64, kind: u32, len: u64, mtime: (i64, i64), changed: (i64, i64), born: Option<(u64, u32)>) -> Self {
+        Self { dev, ino, kind, len, mtime, changed, born }
     }
     pub fn inspect(path: &std::path::Path) -> Result<Self, FleaError> {
         let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
@@ -37,18 +42,27 @@ impl ItemIdentity {
         })
         .unwrap_or_else(Err)
     }
-    // The shelf keeps its one-step journal in a file of its own, so it needs these three out of here.
+    // The shelf keeps its one-step journal in a file of its own, so it needs these four out of here.
     pub fn parts(&self) -> (u64, u64, u32) {
         (self.dev, self.ino, self.kind)
     }
+    pub fn born(&self) -> Option<(u64, u32)> {
+        self.born
+    }
+    // With no birth time on either side this stays the dev, inode and kind check it always was.
     pub fn same_item(&self, other: &Self) -> bool {
-        self.dev == other.dev && self.ino == other.ino && self.kind == other.kind
+        self.dev == other.dev && self.ino == other.ino && self.kind == other.kind && !born_differs(self.born, other.born)
     }
     // A batched move removes its source only while it still holds the bytes its copy took.
     pub fn unchanged_for_move(&self, current: &Self) -> bool {
         self.same_item(current) && self.len == current.len
             && self.mtime == current.mtime && self.changed == current.changed
     }
+}
+
+// A recreated file can reuse a freed inode, so unequal birth times split two items; a side with none cannot.
+pub(crate) fn born_differs(was: Option<(u64, u32)>, now: Option<(u64, u32)>) -> bool {
+    matches!((was, now), (Some(was), Some(now)) if was != now)
 }
 
 // One reversible step. An operation is a list of these, reversed newest first.
@@ -106,15 +120,15 @@ impl Entry {
         for step in &mut self.steps {
             match step {
                 Step::Moved { before, after, .. } => {
-                    if before == old { *before = new.clone(); }
-                    if after == old { *after = new.clone(); }
+                    if before.unchanged_for_move(old) { *before = new.clone(); }
+                    if after.unchanged_for_move(old) { *after = new.clone(); }
                 }
                 Step::Copied { source, created, .. } => {
-                    if source == old { *source = new.clone(); }
-                    if created == old { *created = new.clone(); }
+                    if source.unchanged_for_move(old) { *source = new.clone(); }
+                    if created.unchanged_for_move(old) { *created = new.clone(); }
                 }
-                Step::MadeFile { identity, .. } | Step::MadeDir { identity, .. } if identity == old => *identity = new.clone(),
-                Step::Linked { identity, .. } if identity == old => *identity = new.clone(),
+                Step::MadeFile { identity, .. } | Step::MadeDir { identity, .. } if identity.unchanged_for_move(old) => *identity = new.clone(),
+                Step::Linked { identity, .. } if identity.unchanged_for_move(old) => *identity = new.clone(),
                 _ => {}
             }
         }
@@ -304,8 +318,7 @@ impl Journal {
         self.entries.is_empty()
     }
 
-    // A failing step stops the rest; mode steps skip a replaced path with a note.
-    // Shared entries undo from the file with this backend's manifests reattached.
+    // A failing step stops the rest, mode steps skip replaced paths with a note, and shared entries reattach this backend's manifests.
     pub fn undo(&mut self) -> Result<String, FleaError> {
         if let Some(shared) = self.shared.clone() {
             let (mut entry, gen) = match super::undoshare::claim_undo(&shared) {
@@ -442,7 +455,7 @@ pub(crate) fn reverse(step: &Step) -> Result<Option<(ItemIdentity, ItemIdentity)
                 return Err(FleaError { where_: "undo".into(), path: to.to_string_lossy().into(), msg: "the moved item was replaced, so undo left it in place".into() });
             }
             rename_path(to, from)?;
-            return Ok(if current == *after { Some((current, ItemIdentity::inspect(from)?)) } else { None });
+            return Ok(if after.unchanged_for_move(&current) { Some((current, ItemIdentity::inspect(from)?)) } else { None });
         }
         Step::Created { path } => remove(path)?,
         Step::Linked { path, identity, source, kind, .. } => remove_link(path, identity, source, kind)?,
@@ -479,7 +492,7 @@ pub(crate) fn reverse(step: &Step) -> Result<Option<(ItemIdentity, ItemIdentity)
 
 // Today's whole-tree check, kept for successes and for a manifest that never verified a record.
 fn remove_copied(to: &PathBuf, created: &ItemIdentity) -> Result<Option<(ItemIdentity, ItemIdentity)>, FleaError> {
-    if ItemIdentity::inspect(to)? != *created {
+    if !created.unchanged_for_move(&ItemIdentity::inspect(to)?) {
         return Err(FleaError { where_: "undo".into(), path: to.to_string_lossy().into(),
             msg: "the copied item changed since this operation, so undo left it in place".into() });
     }
@@ -493,7 +506,7 @@ fn remove_copied(to: &PathBuf, created: &ItemIdentity) -> Result<Option<(ItemIde
 
 fn remove_new_file(path: &PathBuf, identity: &ItemIdentity) -> Result<(), FleaError> {
     let meta = path.symlink_metadata().map_err(|e| from_io("undo", &path.to_string_lossy(), &e))?;
-    if !meta.is_file() || meta.len() != 0 || ItemIdentity::record(&meta) != *identity {
+    if !meta.is_file() || meta.len() != 0 || !identity.unchanged_for_move(&ItemIdentity::record(&meta)) {
         return Err(FleaError { where_: "undo".into(), path: path.to_string_lossy().into(),
             msg: "the new file changed since creation, so undo left it in place".into() });
     }

@@ -3170,6 +3170,10 @@ the merge: `tests/js/watch.js` 354 (us1's kill-sweep pins beside xw4r2's two-win
 (xw4r2's settler wiring beside stage2's Anchor import and drag state). The duplicate `src/backend/iomount.rs` row
 is gone: two rows made the tool read the ceiling as two numbers, fail its comparison and skip the file.
 
+The mgb merge-resolution pass records `src/backend/undo_tests.rs` at 423, re-derived with `wc -l`: its round 4
+pins legacy records without birth time through rebase, move, copy and new-file undo, which belong beside the undo
+journal's own tests rather than in a second file.
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.
@@ -5530,7 +5534,7 @@ Before it sends a transfer, `ui/CollideHost.qml` sends `collisions`, which `coll
 read-only: the sources whose name `dest` already holds, each kept in `Ops::question` with the identity
 of the item at that name, the latest question only. The transfer then carries `collide` and
 `collideId`, and `collide.rs` `Policy::place` applies the choice to an item only while that question
-listed its source for this destination and the name still holds the same item (device, inode, type).
+listed its source for this destination and the name still holds the same item (device, inode, type, plus birth time when the filesystem reports it on both sides).
 Every other existing name goes on to the exclusive create and is refused by it exactly as before, which
 is the whole race story: a name that appears while the card is open is never replaced, kept or skipped.
 Keep both is `ops.rs` `free_copy_path` worked out in `dest`, the name Duplicate gives. Skip counts the

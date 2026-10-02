@@ -21,8 +21,7 @@ else
     printf '%s\n' "$advertised" | sed 's/^/     /'
 fi
 
-# Qt hands effectAllowed straight from this line: one ternary arm per lift, matched whole and end-anchored.
-# The whole ternary is the offer, so this pins every branch of it rather than grepping one token.
+# Comparing the whole normalized offer pins every ternary arm and rejects a trailing token.
 offer=$(code_of ui/FileDrag.qml | grep 'Drag\.supportedActions:' | sed 's/.*Drag\.supportedActions:[[:space:]]*//')
 [ -n "$offer" ] || bad "no Drag.supportedActions line left in ui/FileDrag.qml to pin"
 final=$(printf '%s\n' "$offer" | sed 's/.*://;s/[[:space:];]//g')
@@ -102,7 +101,13 @@ start=$(grep -n '^function foreignHeld' ui/js/Drag.js | cut -d: -f1)
 if [ -z "$start" ]; then
     bad "ui/js/Drag.js has no ^function foreignHeld line, so the single-helper range is unbounded"
 fi
-finish=$(awk -v s="${start:-0}" 'NR>s && /^function /{print NR; exit}' ui/js/Drag.js)
+finish=""
+while IFS= read -r n; do
+    if [ "$n" -gt "${start:-0}" ]; then
+        finish=$n
+        break
+    fi
+done <<< "$(grep -n '^function ' ui/js/Drag.js | cut -d: -f1)"
 if [ -z "$finish" ]; then
     finish=$(($(wc -l < ui/js/Drag.js) + 1))
 fi

@@ -1,6 +1,6 @@
 // Hard rule 9's sandbox, in code: every destructive test writes inside one of these and nowhere else.
 use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -11,6 +11,9 @@ const MARKER: &str = ".flea-test-sandbox";
 const PREFIX: &str = "flea-test-";
 // A sandbox lives under the temp root, which is at least two components deep, so a shallower path is a bug and not a root.
 const MIN_COMPONENTS: usize = 3;
+
+// A tick of the kernel clock is a few milliseconds, so a recreated file keeps the old stamp for far fewer tries than this.
+const MAX_RECREATES: usize = 1_000_000;
 
 // Two tests in one process must not collide, and this crate takes no dependency that would generate a suffix.
 static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -95,6 +98,22 @@ impl TestDir {
         let p = self.join(name);
         std::fs::create_dir_all(&p).expect("test sandbox dir");
         p
+    }
+
+    // Recreate until inode or birth time differs, since coarse ticks and freed-inode reuse can conceal a replacement.
+    pub fn replace_file(&self, path: &Path, body: &str) {
+        self.assert_contains(path);
+        let old = path.symlink_metadata().expect("the file being replaced");
+        let old_born = crate::backend::permissions::born_of(&old);
+        for _ in 0..MAX_RECREATES {
+            std::fs::remove_file(path).expect("test sandbox remove");
+            std::fs::write(path, body).expect("test sandbox file");
+            let now = path.symlink_metadata().expect("the replacement");
+            if old_born.is_none() || now.ino() != old.ino() || crate::backend::permissions::born_of(&now) != old_born {
+                return;
+            }
+        }
+        panic!("the replacement kept the old inode and birth stamp: {}", path.display());
     }
 }
 
@@ -246,6 +265,36 @@ mod tests {
         // Right shape, right place, no marker.
         let bare = outside.dir(&format!("{}bare", PREFIX));
         assert!(!removable(&bare));
+    }
+
+    #[test]
+    fn a_replaced_path_reads_new_bytes_while_its_old_handle_keeps_old_bytes() {
+        let d = TestDir::new("replacefile");
+        let path = d.file("a.txt", "old");
+        let mut held = std::fs::File::open(&path).unwrap();
+        d.replace_file(&path, "new");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+        let mut old_body = String::new();
+        std::io::Read::read_to_string(&mut held, &mut old_body).unwrap();
+        assert_eq!(old_body, "old", "replacement must not rewrite the held file");
+    }
+
+    #[test]
+    fn replacing_an_unheld_file_changes_its_inode_or_known_birth_time() {
+        let d = TestDir::new("replaceidentity");
+        let path = d.file("a.txt", "old");
+        let old = path.symlink_metadata().unwrap();
+        let old_born = crate::backend::permissions::born_of(&old);
+        d.replace_file(&path, "new");
+        let new = path.symlink_metadata().unwrap();
+        let new_born = crate::backend::permissions::born_of(&new);
+        if old.ino() == new.ino() && old_born.is_none() && new_born.is_none() {
+            eprintln!("identity check skipped: filesystem has no birth time and reused the inode");
+            return;
+        }
+        assert!(old.ino() != new.ino() || matches!((old_born, new_born),
+            (Some(old), Some(new)) if old != new),
+            "replacement retained inode {} and birth time {:?}", old.ino(), old_born);
     }
 
     #[test]

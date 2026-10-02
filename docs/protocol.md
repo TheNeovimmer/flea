@@ -610,7 +610,8 @@ at a time and waits for its line. The next file transfer spends the kept questio
 and a `transfer` carrying that `menuId` and naming this question in `collideId` runs on that capture:
 Copy to closes its dialog, which sends `menuaction` `close` and expires the live selection, before the
 answer comes back. The capture holds the same device, inode and type identities the live selection
-does, and they are still checked per item when the transfer runs. A `menuId` whose selection has
+does, and they are still checked per item when the transfer runs. Collision destination identities
+also compare birth time when the filesystem reports it on both sides. A `menuId` whose selection has
 already expired answers a `total` of 0, and the `transfer` then answers `Menu selection expired`.
 
 ### link

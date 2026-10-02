@@ -77,7 +77,7 @@ impl Replay {
     }
     pub fn rebase(&mut self, old: &ItemIdentity, new: &ItemIdentity) {
         for saved in &mut self.steps {
-            if saved.input.as_ref() == Some(old) { saved.input = Some(new.clone()); }
+            if saved.input.as_ref().is_some_and(|identity| identity.unchanged_for_move(old)) { saved.input = Some(new.clone()); }
             if let Some((_, identity)) = &mut saved.parent {
                 if identity.same_item(old) { *identity = new.clone(); }
             }
@@ -88,7 +88,7 @@ impl Replay {
     }
     fn check(saved: &ReplayStep, vacated: bool) -> Result<(), FleaError> {
         if let (Some(path), Some(identity)) = (source(&saved.step), &saved.input) {
-            if !path.is_absolute() || ItemIdentity::inspect(path)? != *identity {
+            if !path.is_absolute() || !identity.unchanged_for_move(&ItemIdentity::inspect(path)?) {
                 return Err(error(path, "the original item changed or was replaced; redo left it in place"));
             }
         }
@@ -242,14 +242,13 @@ mod tests {
     }
     // Before Linux 6.13 ctime ticks every few milliseconds, so the rewrite repeats until the filesystem records it.
     fn rewrite_until_recorded(path: &Path, payload: &str) {
-        const TRIES: u32 = 1000;
+        const TRIES: u32 = 1_000_000;
         let before = ItemIdentity::inspect(path).unwrap();
         for _ in 0..TRIES {
             std::fs::write(path, payload).unwrap();
-            if ItemIdentity::inspect(path).unwrap() != before {
+            if !before.unchanged_for_move(&ItemIdentity::inspect(path).unwrap()) {
                 return;
             }
-            std::thread::sleep(std::time::Duration::from_millis(1));
         }
         panic!("{} kept its ctime across {} rewrites", path.display(), TRIES);
     }
@@ -390,3 +389,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(empty).unwrap(), "replacement");
     }
 }
+
+#[cfg(test)]
+#[path = "redo_birth_tests.rs"]
+mod birth_tests;

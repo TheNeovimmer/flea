@@ -113,7 +113,7 @@ fn fail_restore() -> bool {
 }
 
 // Metadata::created carries birth time where the filesystem keeps one, and fails where it does not.
-fn born_of(meta: &Metadata) -> Option<(u64, u32)> {
+pub(crate) fn born_of(meta: &Metadata) -> Option<(u64, u32)> {
     meta.created().ok()?.duration_since(std::time::UNIX_EPOCH).ok().map(|d| (d.as_secs(), d.subsec_nanos()))
 }
 
