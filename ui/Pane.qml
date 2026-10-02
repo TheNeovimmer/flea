@@ -407,9 +407,6 @@ FocusScope {
         // Every real navigation leaves Recent: entering it pushed no history entry, so nothing
         // carries the mode across, and the folder it was opened over is already gone with it.
         RecentMode.leave(root)
-        // Already a no-op after leave, which restored and blanked; the call itself is the contract
-        // every navigation restores the standing order, pinned against the source.
-        RecentMode.restoreSort(root)
         if (!root.listInFlight) {
             var applied = root.appliedListingPreferences ? JSON.parse(root.appliedListingPreferences) : []
             // Search exit can enter here before the preferences timer consumes a deferred Settings change.

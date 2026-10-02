@@ -56,13 +56,6 @@ function touchDistance(pixelDelta) {
     return pixels * TOUCH_GAIN
 }
 
-// The handler's one entry: touchpad by pixels with gain, a wheel by the notch rule.
-function strokeDistance(pixelDelta, angleDelta, phase, lines, notchPx, multiplier) {
-    if (isTouchpad(phase))
-        return touchDistance(pixelDelta)
-    return distance(pixelDelta, angleDelta, lines, notchPx, multiplier)
-}
-
 // One tail state per Flickable, shared by its body handler and its scrollbar lane handler.
 var _tails = []
 function tailState(view, create) {

@@ -17,9 +17,7 @@ function refusePaste(pane) {
     return false
 }
 
-// Opening the rail row: the pane keeps where it stood, moves to the history's base, and asks
-// for its paths, after the jump's own bounded read. No fsinfo is asked: a history spans mounts,
-// so the bar beside the counts reads unknown the way the board draws it.
+// Open keeps where the pane stood and asks the history's paths after the bounded jump; spanning mounts leaves fsinfo unknown.
 function run(pane, paths) {
     if (pane.listInFlight) {
         pane.message("A directory is already loading.", false)
@@ -97,10 +95,7 @@ function leave(pane) {
     pane.recentPaths = []
 }
 
-// An operation changed a file under the listing, so the history is read again rather than the
-// base re-listed: re-listing "/" would draw the root over the place just left, and the backend
-// drops whatever the operation took, so the rows that return are the ones still there. With the
-// rail hidden the sidebar is unloaded, so the paths this listing stands on are asked again.
+// Refresh re-reads history after an operation, never re-listing "/" over it; an unloaded sidebar re-asks the standing paths.
 function refresh(pane, selectPath) {
     pane.pendingSelect = selectPath ? selectPath : ""
     pane.pendingMenu = false

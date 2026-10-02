@@ -77,8 +77,7 @@ function matchListed(pane, target) {
     return at >= 0 ? pane.held + at : -1
 }
 
-// A rename commit keeps the row the operator was on: the pointer's row for a click-away,
-// the renamed row for Enter (the cursor still sits on the source, so that leaf maps to dest).
+// A rename commit keeps the pointer's row on click-away or the renamed row on Enter, mapping the source leaf to the destination.
 function pointerRow(pane, request) {
     var row = pane.rowFor(pane.cursorIndex)
     var name = row ? String(row.n) : ""

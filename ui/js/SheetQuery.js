@@ -190,8 +190,7 @@ function dispatch(candidate) {
     return { kind: "none" }
 }
 
-// Every menu row resolves its rows through the snapshot, so it refuses while a listing is out, unlike navigations.
-// Enter skips the key gate, so a listing started under the sheet is refused here too.
+// Enter skips the key gate, so Swap.swallows refuses listing actions here while allowing navigation.
 function runAction(holder, action, close) {
     if (Swap.swallows(holder.listInFlight, action)) {
         holder.message(Swap.LOADING, false)
@@ -201,7 +200,7 @@ function runAction(holder, action, close) {
     holder.act(action)
 }
 
-// A sheet menu row snapshots first, so the activate meets the current selection.
+// Every menu row resolves its rows through the snapshot, so it refuses while a listing is out, unlike navigations.
 function runMenu(holder, menuAction, close) {
     if (holder.listInFlight === true) {
         holder.message(Swap.LOADING, false)
@@ -275,12 +274,4 @@ function placeIndex(entries, decided) {
             return i
     }
     return -1
-}
-
-// Sample input: listingRefusal(true, "trash") is Swap.LOADING, listingRefusal(true, "open") is "".
-// The action branch owes the same gate Focus.handleKey answers every listing key through.
-function listingRefusal(listInFlight, action) {
-    if (Swap.swallows(listInFlight, action))
-        return Swap.LOADING
-    return ""
 }

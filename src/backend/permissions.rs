@@ -266,7 +266,7 @@ pub(crate) fn chmod_pinned(path: &Path, dev: u64, ino: u64, born: Option<(u64, u
     if unsafe { syscall(SYS_FCHMODAT2, file.as_raw_fd(), c"".as_ptr(), target, AT_EMPTY_PATH) } != 0 {
         return Err(crate::error::io_message(&std::io::Error::last_os_error()));
     }
-    // The syscall answers success on a fixed-mask filesystem too, so the held descriptor is read back.
+    // tests/fs-matrix.sh c_perms on vfat pins this readback with "refused mode stays put" after a successful no-op chmod.
     verify_applied_fd(&file, path, target)?;
     Ok(())
 }
@@ -428,17 +428,6 @@ mod tests {
         assert!(verify_applied_fd(&file, &other, 0o600).is_ok(), "the descriptor's mode verifies against another path's name");
         let other_file = OpenOptions::new().read(true).custom_flags(O_NOFOLLOW | O_PATH).open(&other).unwrap();
         assert!(verify_applied_fd(&other_file, &other, 0o600).is_err(), "the other file's own descriptor sees its mode and refuses");
-    }
-    #[test]
-    fn a_pinned_change_reads_back_from_its_descriptor() {
-        let d = TestDir::new("permissions-pinned-verify");
-        let path = d.file("item", "a");
-        std::fs::set_permissions(&path, Mode::from_mode(0o644)).unwrap();
-        let before = path.symlink_metadata().unwrap();
-        chmod_pinned(&path, before.dev(), before.ino(), born_of(&before), 0o644, 0o600)
-            .expect("a pinned change lands");
-        let file = OpenOptions::new().read(true).custom_flags(O_NOFOLLOW | O_PATH).open(&path).unwrap();
-        assert!(verify_applied_fd(&file, &path, 0o600).is_ok(), "the landed mode verifies from the held descriptor");
     }
     #[test]
     fn inspect_failures_report_plain_causes() {
