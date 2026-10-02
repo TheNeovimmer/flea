@@ -57,7 +57,7 @@ Item {
         }
     }
 
-    // BrandMoments.dc.html's draw keyframe, 0.2s delay then 1.8s on the shell's OutCubic.
+    // BrandMoments.dc.html's draw timing, 0.2s delay then 1.8s; OutCubic replaces its cubic-bezier(0.4, 0, 0.2, 1) per GM's 2026-09-25 motion ruling.
     SequentialAnimation {
         id: draw
         // The caption's own fade-out, so a repeat dissolves the finished mark rather than cutting it.

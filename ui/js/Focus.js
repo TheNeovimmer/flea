@@ -15,6 +15,7 @@
 .import "Search.js" as Search
 .import "Sort.js" as Sort
 .import "Swap.js" as Swap
+.import "TextSize.js" as TextSize
 .import "Trash.js" as Trash
 .import "Tabs.js" as Tabs
 
@@ -372,7 +373,7 @@ function handleKey(event, root, sidebar) {
     }
     // Issue 9: the text size belongs to the window, so it answers from either view.
     if (action.indexOf("textSize") === 0) {
-        root.textSizeRequested(action === "textSizeReset" ? 0 : (action === "textSizeUp" ? 1 : -1))
+        root.textSizeRequested(TextSize.direction(action))
         return true
     }
     // The bar lives in the chrome above both views, so neither owns it; shell.qml holds the field.
