@@ -11015,58 +11015,96 @@ xwdrag_kill_second() {
     fail "xwdrag: second window $pid survived"
 }
 
-# xw6 r6: the first move's drop is lost about half the time, so every window-targeted
-# drag waits for the target's enter before releasing and ends its glide inside it.
-xwtab_mark_a=0
-xwtab_mark_b=0
+# Each launcher preserves stdout and stderr across exec_qs; run.log only archives flea.log.
+xwtab_logs=("$flea_log" "$run_root/flea-second.log")
+xwtab_marks=(0 0)
+xwtab_source=""
+xwtab_target=""
+xwtab_gesture=""
 xwtab_mark_logs() {
-    xwtab_mark_a=$(wc -l < "$flea_log" 2>/dev/null || printf 0)
-    xwtab_mark_b=$(wc -l < "$run_root/flea-second.log" 2>/dev/null || printf 0)
+    local i
+    for i in "${!xwtab_logs[@]}"; do
+        xwtab_marks[i]=$(wc -l 2>/dev/null < "${xwtab_logs[i]}" || printf 0)
+    done
 }
 
-# Bounded pre-release wait: the target pid must log an enter after the press with no
-# later leave. Require fails the case on timeout; observe only prints the diagnostics.
-xwtab_wait_enter() {
-    local bpid="$1" mode="$2" i lines numbered enter_no leave_no
+# Every trace reader uses the same launch files and the marks taken before this press.
+xwtab_trace_lines() {
+    local i
+    for i in "${!xwtab_logs[@]}"; do
+        tail -n +"$((xwtab_marks[i] + 1))" "${xwtab_logs[i]}" 2>/dev/null | grep -a 'TABDRAG' || true
+    done
+}
+
+# Failure-only evidence names the gesture, actual output descriptors and marked log slices.
+xwtab_dump_trace() {
+    local i pid lines
+    printf 'XWTAB source=%s target=%s %s; cursorpos: ' "$xwtab_source" "$xwtab_target" "$xwtab_gesture" >&2
+    hyprctl cursorpos >&2 || true
+    for pid in $(printf '%s\n' "$xwtab_source" "$xwtab_target" | sort -u); do
+        [[ "$pid" =~ ^[0-9]+$ ]] || continue
+        printf 'XWTAB pid=%s rect=%s stdout=%s stderr=%s\n' "$pid" "$(xwtab_rect_of "$pid" || true)" \
+            "$(readlink "/proc/$pid/fd/1" || true)" "$(readlink "/proc/$pid/fd/2" || true)" >&2
+    done
+    for i in "${!xwtab_logs[@]}"; do
+        printf 'XWTAB trace file=%s after-line=%s lines=%s\n' "${xwtab_logs[i]}" "${xwtab_marks[i]}" \
+            "$(wc -l 2>/dev/null < "${xwtab_logs[i]}" || printf 0)" >&2
+    done
+    lines=$(xwtab_trace_lines)
+    printf '%s\n' "${lines:-(no TABDRAG lines since press marks)}" >&2
+}
+
+# A platform drag must start at the source and stay active until the test releases it.
+xwtab_wait_start() {
+    local i lines
     for i in $(seq 1 30); do
-        lines=$( { tail -n +"$((xwtab_mark_a + 1))" "$flea_log" 2>/dev/null; tail -n +"$((xwtab_mark_b + 1))" "$run_root/flea-second.log" 2>/dev/null; } | grep -a "TABDRAG .* pid=$bpid " || true)
+        lines=$(xwtab_trace_lines | grep -a "TABDRAG .* pid=$xwtab_source " || true)
+        if grep -aq 'TABDRAG drag-finished' <<< "$lines"; then fail "xwtab: source $xwtab_source ended the drag before release"; fi
+        grep -aq 'TABDRAG drag-start' <<< "$lines" && return 0
+        sleep 0.1
+    done
+    fail "xwtab: no platform drag started on source $xwtab_source"
+}
+
+# Require an enter after this press with no later leave; observe permits a refused target.
+xwtab_wait_enter() {
+    local bpid="$1" mode="$2" i lines numbered enter_no leave_no source_lines
+    for i in $(seq 1 30); do
+        source_lines=$(xwtab_trace_lines | grep -a "TABDRAG .* pid=$xwtab_source " || true)
+        if grep -aq 'TABDRAG drag-finished' <<< "$source_lines"; then fail "xwtab: source $xwtab_source ended the drag before target $bpid entered"; fi
+        lines=$(xwtab_trace_lines | grep -a "TABDRAG .* pid=$bpid " || true)
         numbered=$(printf '%s\n' "$lines" | grep -a -n -E 'TABDRAG (enter-window|enter-strip|leave-window|leave-strip)' || true)
         enter_no=$(printf '%s\n' "$numbered" | grep -a -E 'TABDRAG (enter-window|enter-strip)' | tail -1 | cut -d: -f1 || true)
         if [[ -n "$enter_no" ]]; then
             leave_no=$(printf '%s\n' "$numbered" | grep -a -E 'TABDRAG (leave-window|leave-strip)' | tail -1 | cut -d: -f1 || true)
-            if [[ -z "$leave_no" ]] || (( enter_no > leave_no )); then
-                return 0
-            fi
+            if [[ -z "$leave_no" ]] || (( enter_no > leave_no )); then return 0; fi
         fi
         sleep 0.1
     done
-    printf 'XWTAB no enter on %s after the press; cursorpos: ' "$bpid" >&2
-    hyprctl cursorpos >&2 || true
-    printf 'XWTAB client rect for %s: ' "$bpid" >&2
-    hyprctl clients -j 2>/dev/null | python3 -c 'import json,sys; cs=json.load(sys.stdin); h=[c for c in cs if str(c.get("pid"))==sys.argv[1]]; print(h[0]["at"],h[0]["size"] if h else "absent")' "$bpid" >&2 || true
-    printf 'XWTAB TABDRAG lines:\n' >&2
-    grep -a -h 'TABDRAG' "$flea_log" "$run_root/flea-second.log" 2>/dev/null >&2 || true
-    if [[ "$mode" == require ]]; then
-        fail "xwtab: no enter on $bpid after the press"
-    fi
+    if [[ "$mode" == require ]]; then fail "xwtab: no enter on $bpid after the press"; fi
     return 0
 }
 
-# A press, a glide ending on two small moves inside the target, the enter wait, release.
+# Own-strip gestures leave the source window first, which is what starts its platform drag.
 xwtab_drag_to_window() {
-    local sx="$1" sy="$2" dx="$3" dy="$4" bpid="$5" mode="$6"
-    xwtab_mark_logs
+    local sx="$1" sy="$2" dx="$3" dy="$4" apid="$5" bpid="$6" mode="$7" wx wy ww wh
+    xwtab_source=$apid; xwtab_target=$bpid
+    xwtab_gesture="press=$sx,$sy target=$dx,$dy"
     xwdrag_glide "$sx" "$sy"
-    sleep 0.4
+    xwtab_mark_logs
     ydotool click 0x40 >/dev/null 2>&1 || fail "xwtab: pointer press failed"
-    sleep 0.3
+    if [[ "$apid" == "$bpid" ]]; then
+        read -r wx wy ww wh < <(xwdrag_geometry "$apid") || fail "xwtab: no source geometry for own-strip drag"
+        xwtab_gesture+=" outside=$((wx + 200)),$((wy + wh + 60))"
+        xwdrag_glide "$((wx + 200))" "$((wy + wh + 60))"
+        xwtab_wait_start
+    fi
     xwdrag_glide "$dx" "$dy"
     xwdrag_glide "$((dx + 6))" "$dy"
     xwdrag_glide "$dx" "$dy"
+    xwtab_wait_start
     xwtab_wait_enter "$bpid" "$mode"
-    sleep 0.6
     ydotool click 0x80 >/dev/null 2>&1 || fail "xwtab: pointer release failed"
-    sleep 0.5
 }
 
 # The addr and rect of one owned pid, so room-making and restore never name a window by guess.
@@ -11212,12 +11250,6 @@ case_xwtab() {
     local dir adir bdir
     # The tab handoff trace, on for both windows; every fail below dumps it first.
     export FLEA_TRACE_TABDRAG=1
-    xwtab_dump_trace() {
-        printf 'TABDRAG trace from flea.log:\n'
-        grep -a 'TABDRAG' "$flea_log" 2>/dev/null || printf '(no TABDRAG lines in flea.log)\n'
-        printf 'TABDRAG trace from flea-second.log:\n'
-        grep -a 'TABDRAG' "$run_root/flea-second.log" 2>/dev/null || printf '(no TABDRAG lines in flea-second.log)\n'
-    }
     eval "$(declare -f fail | sed '1s/fail/xwtab_saved_fail/')"
     fail() { xwtab_dump_trace; xwtab_saved_fail "$@"; }
     dir="$fixture_root/xwtab"
@@ -11250,7 +11282,7 @@ case_xwtab() {
     move_before=$(flea_pids | tr '\n' ' ')
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
     read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwtab: B has no floor"
-    xwtab_drag_to_window "$sx" "$sy" "$dx" "$dy" "$bpid" require
+    xwtab_drag_to_window "$sx" "$sy" "$dx" "$dy" "$apid" "$bpid" require
     for i in $(seq 1 40); do
         [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "2" ]] && break
         sleep 0.25
@@ -11280,6 +11312,8 @@ case_xwtab() {
     read -r ex ey <<< "$xwtab_point"
     xwdrag_focus "$bpid"
     read -r sx sy < <(xwtab_tab_point "$bid" "$bpid" 1) || fail "xwtab: B's second tab has no centre"
+    xwtab_source=$bpid; xwtab_target=desktop; xwtab_gesture="press=$sx,$sy target=$ex,$ey"
+    xwtab_mark_logs
     xwdrag_drag "$sx" "$sy" "$ex" "$ey" none
     cpid=$(xwtab_wait_third "$before") || fail "xwtab: no third window tore off"
     cid=$(xwdrag_qsid "$cpid") || fail "xwtab: no qs instance for $cpid"
@@ -11330,8 +11364,9 @@ case_xwtab() {
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
     local awx awy aww awh
     read -r awx awy aww awh < <(xwdrag_geometry "$apid") || fail "xwtab: no geometry for A"
+    xwtab_source=$apid; xwtab_target=$apid; xwtab_gesture="Escape press=$sx,$sy"
     xwdrag_glide "$sx" "$sy"
-    sleep 0.4
+    xwtab_mark_logs
     ydotool click 0x40 >/dev/null 2>&1 || fail "xwtab: pointer press failed"
     sleep 0.3
     xwdrag_glide "$((awx + 200))" "$((awy + awh + 60))"
@@ -11347,7 +11382,12 @@ case_xwtab() {
     # Out and back onto the own strip reorders with no new window.
     local ox oy
     read -r ox oy < <(xwtab_tab_point "$aid" "$apid" 0) || fail "xwtab: A's first tab has no centre"
-    xwtab_drag_to_window "$sx" "$sy" "$ox" "$oy" "$apid" require
+    read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre after Escape"
+    # The first tab's left quarter inserts before it; its centre is the next insertion slot.
+    ox=$((ox - (sx - ox) / 4))
+    xwtab_drag_to_window "$sx" "$sy" "$ox" "$oy" "$apid" "$apid" require
+    for i in $(seq 1 40); do [[ "$(xwdrag_qs "$aid" tabIndex 2>/dev/null)" == 0 ]] && break; sleep 0.1; done
+    [[ "$(xwdrag_qs "$aid" tabIndex 2>/dev/null)" == 0 ]] || fail "xwtab: own-strip drop did not reorder the active tab"
     sleep 0.5
     [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: own-strip drop changed the tab count"
     [[ "$(flea_pids | tr '\n' ' ')" == "$esc_before" ]] || fail "xwtab: own-strip drop opened a window"
@@ -11360,7 +11400,7 @@ case_xwtab() {
     xwdrag_focus "$apid"
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
     read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwtab: B has no floor"
-    xwtab_drag_to_window "$sx" "$sy" "$dx" "$dy" "$bpid" observe
+    xwtab_drag_to_window "$sx" "$sy" "$dx" "$dy" "$apid" "$bpid" observe
     sleep 0.5
     [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: B took a listing drop"
     [[ "$(xwdrag_qs "$bid" path 2>/dev/null)" == "$bdir" ]] || fail "xwtab: B left $bdir"
@@ -11398,6 +11438,8 @@ print(c["at"][0] + c["size"][0] // 2, c["at"][1] + c["size"][1] // 2)
 ') || fail "xwtab: no geometry for the foreign receiver"
     xwdrag_focus "$apid"
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
+    xwtab_source=$apid; xwtab_target=$recv_pid; xwtab_gesture="press=$sx,$sy target=$rcx,$rcy"
+    xwtab_mark_logs
     xwdrag_drag "$sx" "$sy" "$rcx" "$rcy" none
     sleep 1
     [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: A lost its tab to a foreign receiver"
@@ -11409,7 +11451,7 @@ print(c["at"][0] + c["size"][0] // 2, c["at"][1] + c["size"][1] // 2)
     kill_flea
     # Restore the suite fail and stop the trace past this case.
     eval "$(declare -f xwtab_saved_fail | sed '1s/xwtab_saved_fail/fail/')"
-    unset -f xwtab_saved_fail xwtab_dump_trace
+    unset -f xwtab_saved_fail
     unset FLEA_TRACE_TABDRAG
 }
 

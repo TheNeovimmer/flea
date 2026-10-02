@@ -236,5 +236,69 @@ bad "bare window selector without address: prefix: $bare"
 else
 ok "every window selector carries the address: prefix"
 fi
+# Exercise the live trace helpers with launch logs, including stale events before both marks.
+flea_log="$scratch/flea.log"
+run_root="$scratch"
+printf 'qml: TABDRAG drag-finished pid=101 old=true\n' > "$flea_log"
+printf 'qml: TABDRAG enter-window pid=202 old=true\n' > "$run_root/flea-second.log"
+eval "$(sed -n '/^xwtab_logs=/,/^# The addr and rect/p' "$repo/tests/ui.sh")"
+xwtab_source=101; xwtab_target=202; xwtab_gesture="test press"
+xwtab_mark_logs
+printf 'qml: TABDRAG drag-start pid=101 index=1\n' >> "$flea_log"
+printf 'qml: TABDRAG enter-window pid=202 ok=true\n' >> "$run_root/flea-second.log"
+expected=$(printf 'qml: TABDRAG drag-start pid=101 index=1\nqml: TABDRAG enter-window pid=202 ok=true')
+if [ "$(xwtab_trace_lines)" = "$expected" ]; then
+ok "both live launch logs are read after their own pre-press marks"
+else
+bad "trace reader mixed in stale events or missed a launch log"
+fi
+if (fail() { exit 1; }; xwtab_wait_start; xwtab_wait_enter 202 require); then
+ok "source start and target enter accept the marked launch traces"
+else
+bad "marked source start and target enter should satisfy the waits"
+fi
+if (hyprctl() { printf '281, 106\n'; }; xwtab_rect_of() { printf '0xa 165 65 1000 720 True\n'; }; readlink() { printf 'test launch log\n'; }; xwtab_dump_trace) > "$scratch/dump.out" 2> "$scratch/dump.err" \
+    && [ ! -s "$scratch/dump.out" ] && grep -Fq 'TABDRAG drag-start pid=101' "$scratch/dump.err" \
+    && grep -Fq 'TABDRAG enter-window pid=202' "$scratch/dump.err" && ! grep -Fq old=true "$scratch/dump.err"; then
+ok "failure dump prints both marked traces to stderr without hiding them"
+else
+bad "failure dump hid output, printed stale trace or wrote to stdout"
+fi
+printf 'qml: TABDRAG drag-finished pid=101 action=0\n' >> "$flea_log"
+if (fail() { exit 1; }; xwtab_wait_enter 202 require); then
+bad "a source finishing before release must fail even with a target enter"
+else
+ok "a source finishing before release is refused"
+fi
+# Run the real gesture helper against a compositor and pointer recorder.
+: > "$scratch/own-strip.out"
+(
+    fail() { exit 1; }
+    xwdrag_glide() { printf 'glide %s %s\n' "$1" "$2"; }
+    xwdrag_geometry() { printf '165 65 1000 720\n'; }
+    xwtab_mark_logs() { printf 'mark\n'; }
+    xwtab_wait_start() { printf 'start\n'; }
+    xwtab_wait_enter() { printf 'enter %s %s\n' "$1" "$2"; }
+    ydotool() { printf 'pointer %s %s\n' "$1" "$2" >> "$scratch/own-strip.out"; }
+    xwtab_drag_to_window 501 106 281 106 101 101 require
+) >> "$scratch/own-strip.out"
+expected=$(printf 'glide 501 106\nmark\npointer click 0x40\nglide 365 845\nstart\nglide 281 106\nglide 287 106\nglide 281 106\nstart\nenter 101 require\npointer click 0x80')
+if [ "$(cat "$scratch/own-strip.out")" = "$expected" ]; then
+ok "own-strip drag crosses the actual window edge before waiting for its own enter"
+else
+bad "own-strip drag did not leave its source before returning and releasing"
+fi
+# A reused pid is not enough: the layer probe must read back its exact client address.
+(
+    addr=0xa; flea_pid=101
+    hyprctl() { printf '%s\n' '[{"address":"0xb","pid":101,"at":[900,600],"size":[500,300],"floating":false},{"address":"0xa","pid":101,"at":[40,40],"size":[900,500],"floating":true}]'; }
+    eval "$(sed -n '/^layerdrop_rect()/,/^layerdrop_focus()/p' "$repo/tests/probes/layer-drop-bottom.sh" | sed '$d')"
+    layerdrop_rect
+) > "$scratch/probe-rect.out"
+if [ "$(cat "$scratch/probe-rect.out")" = "40 40 900 500 True" ]; then
+ok "layer probe geometry belongs to its address and pid after the move"
+else
+bad "layer probe geometry selected another client"
+fi
 printf '%s checks, %s failed\n' "$((pass+fail))" "$fail"
 exit "$((fail>0))"

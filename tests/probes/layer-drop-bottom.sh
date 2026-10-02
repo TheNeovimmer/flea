@@ -8,7 +8,7 @@
 # `LAYERDROP PASS` or `LAYERDROP FAIL <why>`; every diagnostic goes to stderr.
 set -u
 out() { printf 'LAYERDROP %s\n' "$*"; }
-refuse() { out "FAIL $*"; exit 1; }
+refuse() { declare -F layerdrop_diagnostics >/dev/null && layerdrop_diagnostics; out "FAIL $*"; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || refuse "missing $1"; }
 need qs; need hyprctl; need ydotool; need omarchy-drive
 [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || refuse "no Hyprland session"
@@ -25,7 +25,27 @@ verdict_sh="$(dirname "$0")/layer-drop-verdict.sh"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/layer-drop.XXXXXXXX") || refuse "mktemp failed"
 trap 'kill "$qs_pid" "$flea_pid" $torn 2>/dev/null; rm -rf "$work"' EXIT
-qs_pid=""; flea_pid=""; torn=""
+qs_pid=""; flea_pid=""; torn=""; addr=""; qid=""; drag_mark=0
+centre=""; lifted_path=""; source_rect=""; sx=""; sy=""; dx=""; dy=""
+
+# Print setup and this gesture's trace only when the probe fails.
+layerdrop_diagnostics() {
+    local lines
+    printf 'LAYERDROP source pid=%s address=%s instance=%s expected=%s lifted=%s\n' "$flea_pid" "$addr" "$qid" "${srcdir:-}" "$lifted_path" >&2
+    printf 'LAYERDROP rect=%s tabCentre=%s press=%s,%s release=%s,%s; cursorpos: ' "$source_rect" "$centre" "$sx" "$sy" "$dx" "$dy" >&2
+    hyprctl cursorpos >&2 || true
+    printf 'LAYERDROP active: ' >&2
+    hyprctl activewindow -j >&2 || true
+    if [ -n "$addr" ]; then printf 'LAYERDROP current source rect=%s\n' "$(layerdrop_rect || true)" >&2; fi
+    if [ -n "$flea_pid" ]; then
+        printf 'LAYERDROP stdout=%s stderr=%s\n' "$(readlink "/proc/$flea_pid/fd/1" || true)" "$(readlink "/proc/$flea_pid/fd/2" || true)" >&2
+    fi
+    printf 'LAYERDROP TABDRAG file=%s/flea.log after-line=%s\n' "$work" "$drag_mark" >&2
+    lines=$(tail -n +"$((drag_mark + 1))" "$work/flea.log" 2>/dev/null | grep -a TABDRAG || true)
+    printf '%s\n' "${lines:-(no TABDRAG lines since press mark)}" >&2
+    tail -5 "$work/qs.log" >&2 2>/dev/null || true
+}
+
 log="$work/panel.log"
 : > "$log"
 
@@ -66,12 +86,14 @@ for _ in $(seq 1 40); do
     if hyprctl layers -j 2>/dev/null | grep -Fq '"namespace": "flea-layer-drop"'; then qs_up=1; break; fi
     sleep 0.25
 done
-if [ -z "$qs_up" ]; then tail -5 "$work/qs.log" 2>/dev/null >&2 || true; refuse "no Quickshell layer surface appeared"; fi
+[ -n "$qs_up" ] || refuse "no Quickshell layer surface appeared"
 
 # A Flea window with two tabs is the drag source: the strip is hidden for one.
 srcdir="$work/src"
-mkdir -p "$srcdir/sub"
-FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" setsid nohup "$flea_bin" --gui "$srcdir" >"$work/flea.log" 2>&1 </dev/null &
+mkdir -p "$srcdir/sub" "$work/state"
+export XDG_STATE_HOME="$work/state"
+"$flea_bin" --ui-state '{"newTab":"current","view":"list"}' >/dev/null || refuse "could not seed probe settings"
+FLEA_TRACE_TABDRAG=1 FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" setsid nohup "$flea_bin" --gui "$srcdir" >"$work/flea.log" 2>&1 </dev/null &
 flea_pid=$!
 addr=""
 for _ in $(seq 1 60); do
@@ -84,14 +106,52 @@ print(hits[0]["address"] if len(hits) == 1 else "")
     sleep 0.5
 done
 [ -n "$addr" ] || refuse "no Flea window came up"
-hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null
-sleep 0.4
-hyprctl dispatch "hl.dsp.window.float()" >/dev/null
-sleep 0.3
-hyprctl dispatch "hl.dsp.window.move({ x = 40, y = 40 })" >/dev/null
-sleep 0.3
-hyprctl dispatch "hl.dsp.window.resize({ x = 900, y = 500 })" >/dev/null
-sleep 0.5
+# Read only the probe's address, including after every compositor operation.
+layerdrop_rect() {
+    hyprctl clients -j 2>/dev/null | python3 -c '
+import json, sys
+hits = [c for c in json.load(sys.stdin) if c.get("address") == sys.argv[1] and str(c.get("pid")) == sys.argv[2]]
+if len(hits) != 1:
+    raise SystemExit(1)
+c = hits[0]
+print(c["at"][0], c["at"][1], c["size"][0], c["size"][1], str(bool(c.get("floating"))))
+' "$addr" "$flea_pid"
+}
+
+layerdrop_focus() {
+    local i active
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null || refuse "could not focus probe window"
+    for i in $(seq 1 40); do
+        active=$(hyprctl activewindow -j 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("address", ""))' || true)
+        [ "$active" = "$addr" ] && return 0
+        sleep 0.1
+    done
+    refuse "probe window never took focus"
+}
+
+layerdrop_focus
+source_rect=$(layerdrop_rect) || refuse "no initial probe geometry"
+read -r wx wy ww wh floating <<< "$source_rect"
+if [ "$floating" != True ]; then
+    hyprctl dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$addr\" })" >/dev/null || refuse "could not float probe window"
+fi
+floated=""
+for _ in $(seq 1 40); do
+    source_rect=$(layerdrop_rect || true)
+    read -r wx wy ww wh floating <<< "$source_rect"
+    if [ "${floating:-}" = True ]; then floated=1; break; fi
+    sleep 0.1
+done
+[ -n "$floated" ] || refuse "probe window never floated"
+hyprctl dispatch "hl.dsp.window.resize({ x = 900, y = 500, relative = false, window = \"address:$addr\" })" >/dev/null || refuse "could not resize probe window"
+hyprctl dispatch "hl.dsp.window.move({ x = 40, y = 40, relative = false, window = \"address:$addr\" })" >/dev/null || refuse "could not park probe window"
+parked=""
+for _ in $(seq 1 60); do
+    source_rect=$(layerdrop_rect || true)
+    if [ "$source_rect" = "40 40 900 500 True" ]; then parked=1; break; fi
+    sleep 0.1
+done
+[ -n "$parked" ] || refuse "probe window never reached 40,40 at 900x500"
 # The qs instance id for this pid, same lookup tests/ui.sh uses for its tabs.
 qid=""
 for _ in $(seq 1 60); do
@@ -104,29 +164,35 @@ print(hits[0]["id"] if len(hits) == 1 else "")
     sleep 0.5
 done
 [ -n "$qid" ] || refuse "no qs instance for $flea_pid"
-omarchy-drive key --window flea t >/dev/null 2>&1 || true
-# The strip only lifts with two tabs, so wait for the second one like the case does.
+# The command-line fixture must have landed before t snapshots it into another tab.
+ready=""
+for _ in $(seq 1 40); do
+    lifted_path=$(qs ipc -i "$qid" call flea path 2>/dev/null || true)
+    if [ "$lifted_path" = "$srcdir" ] && [ "$(qs ipc -i "$qid" call flea listInFlight 2>/dev/null || true)" = false ]; then ready=1; break; fi
+    sleep 0.1
+done
+[ -n "$ready" ] || refuse "source window did not settle on fixture $srcdir"
+layerdrop_focus
+omarchy-drive key --window "$addr" t >/dev/null 2>&1 || refuse "t did not reach probe window"
+# A second tab must be current and settled on the fixture, never the operator's home.
 two=""
 for _ in $(seq 1 40); do
-    if [ "$(qs ipc -i "$qid" call flea tabCount 2>/dev/null || true)" = "2" ]; then two=1; break; fi
-    sleep 0.25
+    lifted_path=$(qs ipc -i "$qid" call flea path 2>/dev/null || true)
+    if [ "$(qs ipc -i "$qid" call flea tabCount 2>/dev/null || true)" = "2" ] \
+        && [ "$(qs ipc -i "$qid" call flea tabIndex 2>/dev/null || true)" = "1" ] \
+        && [ "$lifted_path" = "$srcdir" ] \
+        && [ "$(qs ipc -i "$qid" call flea listInFlight 2>/dev/null || true)" = false ]; then two=1; break; fi
+    sleep 0.1
 done
-[ -n "$two" ] || refuse "t did not open a second tab"
-sleep 0.5
-# The lifted folder, read through the same qs ipc reader the case uses for its tabs.
-lifted_path=$(qs ipc -i "$qid" call flea path 2>/dev/null || true)
-[ -n "$lifted_path" ] || refuse "no path for the lifted tab"
-# The drag starts on the second tab centre, never on a guessed chrome offset.
+[ -n "$two" ] || refuse "second tab did not settle on fixture $srcdir"
+# Read both the painted tab centre and the real client geometry after the park.
 centre=$(qs ipc -i "$qid" call flea tabCentre 1 2>/dev/null || true)
 [ -n "$centre" ] || refuse "second tab has no centre"
 read -r cx cy <<< "$centre"
-read -r wx wy _ww _wh < <(hyprctl clients -j 2>/dev/null | python3 -c '
-import json, sys
-hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
-print("%s %s %s %s" % (hits[0]["at"][0], hits[0]["at"][1], hits[0]["size"][0], hits[0]["size"][1]) if hits else "")
-' "$flea_pid" || true)
-[ -n "${wx:-}" ] || refuse "no geometry for $flea_pid"
+source_rect=$(layerdrop_rect) || refuse "no post-move geometry for $addr"
+read -r wx wy ww wh floating <<< "$source_rect"
 sx=$((wx + cx)); sy=$((wy + cy))
+(( cx > 0 && cy > 0 && cx < ww && cy < wh )) || refuse "tab centre is outside the parked probe window"
 # The release uses the same free-point scan the case uses, after the park above.
 mon_json=$(hyprctl monitors -j 2>/dev/null || true)
 [ -n "$mon_json" ] || refuse "no monitors to scan"
@@ -171,14 +237,28 @@ move_to() {
 }
 # Flea windows before the drop: its own Bottom catcher may take the drop and tear off instead.
 before_flea=$(pgrep -x qs | while read -r pid; do tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq "$flea_ui" && printf '%s ' "$pid"; done)
+[ "$(layerdrop_rect || true)" = "$source_rect" ] || refuse "source geometry changed before the press"
 move_to "$sx" "$sy"
-sleep 0.4
+drag_mark=$(wc -l < "$work/flea.log")
 ydotool click 0x40 >/dev/null 2>&1 || refuse "pointer press failed"
-sleep 0.3
 move_to "$dx" "$dy"
-sleep 0.6
+started=""
+for _ in $(seq 1 40); do
+    lines=$(tail -n +"$((drag_mark + 1))" "$work/flea.log" | grep -a "TABDRAG .* pid=$flea_pid " || true)
+    if grep -aq 'TABDRAG drag-finished' <<< "$lines"; then refuse "drag ended before pointer release"; fi
+    if grep -aq "TABDRAG drag-start .* path=$srcdir mime=" <<< "$lines"; then started=1; break; fi
+    sleep 0.1
+done
+[ -n "$started" ] || refuse "no platform tab drag started from fixture $srcdir"
 ydotool click 0x80 >/dev/null 2>&1 || refuse "pointer release failed"
-sleep 1
+# Wait for an observed panel receipt or a new Flea process before evaluating either route.
+for _ in $(seq 1 40); do
+    layerdrop_panel_hit "$log" && break
+    after_flea=$(pgrep -x qs | while read -r pid; do tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq "$flea_ui" && printf '%s ' "$pid"; done)
+    torn=$(layerdrop_torn_pids "$before_flea" "$after_flea")
+    [ -n "$torn" ] && break
+    sleep 0.1
+done
 # The qs instance id for a torn-off pid, same lookup the case uses for its tabs.
 layerdrop_qsid() {
     local pid="$1" i tid
@@ -221,5 +301,4 @@ for pid in $torn; do
 done
 printf 'flea windows before: %s after: %s\n' "$before_flea" "$after_flea" >&2
 printf 'lifted folder: %s torn: %s paths: %s\n' "$lifted_path" "$torn" "$(printf '%s' "$paths_tsv" | tr '\n' ';')" >&2
-tail -5 "$work/qs.log" 2>/dev/null >&2 || true
 refuse "no PANEL-DROP in $log and no torn-off window"
