@@ -498,29 +498,24 @@ temps=$(ls -A "$STATE/flea" | grep -c '^ui\.json\.[0-9]\+\.tmp$')
 strays=$(ls -A "$STATE/flea" | grep -vc '^ui\.json$\|^ui\.json\.lock$\|^ui\.json\.[0-9]\+\.tmp$')
 echo "     the sweep left $temps temp file(s) behind, one per round killed inside the write"
 check "the sweep left nothing but ui.json, its lock and killed writers' own temps" "0" "$strays"
-check "and never more temps than there were kills" "1" "$([ "$temps" -le "$kills" ] && echo 1 || echo 0)"
+check "the sweep left no more temps than its $kills killed rounds" "1" "$([ "$temps" -le "$kills" ] && echo 1 || echo 0)"
 
-# A floor of one kill is what "120 SIGKILL rounds" was being read off, and a 15 ms budget kills 3 of
-# 120 and still clears it. The floor is a fifth of the rounds: a magnitude, not the 88 to 102 this
-# box reached when the floor was set, nor the 92 to 120 the four runs after it reached, because a
-# faster box finishes more rounds inside the 1 to 9 ms budget and a measured
-# number in an assertion is a red gate waiting for the next machine. The count is printed, so
-# anything said about this sweep is read off the run and not off the floor.
-kill_floor=24
-echo "     the sweep killed $kills of 120 rounds, floor $kill_floor"
-check "the kill sweep killed a fifth of its rounds at least" "1" "$([ "$kills" -ge "$kill_floor" ] && echo 1 || echo 0)"
+# The kill count is printed and never asserted: a floor inside the 1 to 9 ms budget measures box speed.
+echo "     the sweep killed $kills of 120 rounds, diagnostic only"
 # A 0-temp timed sweep proves nothing about the write window, so its temp count stays diagnostic.
 echo "     the sweep left $temps write-window temp(s), diagnostic only"
-check "no kill ever left a partial state file" "0" "$partial"
+check "none of the $kills killed rounds left a partial state file" "0" "$partial"
 
-# The barrier holds the owned tmp inside its first write, so SIGKILL lands in the window by design.
+# The stage kills prove ui.json stays exactly the before or after document at each named write stage.
 DET="$FIXTURE_ROOT/flea-uistate-det-$$"
 sandbox_make "$DET" || exit 1
 # Sample input: `deterministic receipt 12345 7 /…/flea/ui.json.12345.tmp` plus the sha256 line.
 if python3 tests/uistate-deterministic.py "$DET" "$BIN" >"$DET/det.log" 2>&1; then
+  check "a kill before the temp kept the seeded bytes" "1" "$(grep -c 'stage before-temp kill kept' "$DET/det.log")"
   check "deterministic interrupted publication kept the seeded bytes" "1" "$(grep -c 'interrupted publication kept' "$DET/det.log")"
+  check "a kill past the rename kept the published bytes" "1" "$(grep -c 'stage after-rename kill kept' "$DET/det.log")"
   check "released barrier published the exact expected state" "1" "$(grep -c 'released barrier published' "$DET/det.log")"
-  echo "     deterministic hit 1 of 1 killed inside the write window, timed kills $kills of 120 separate"
+  echo "     deterministic hit 3 of 3 stages killed on purpose, timed kills $kills of 120 separate"
 else
   echo "FAIL deterministic interrupted publication proof"
   cat "$DET/det.log"

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Deterministic interrupted ui.json proof; called inside uistate.sh guarded sandbox."""
+import fcntl
 import hashlib
 import os
 import subprocess
@@ -32,6 +33,24 @@ def wait_path(path, deadline_s, label):
     end = time.monotonic() + deadline_s
     while not path.exists():
         assert time.monotonic() < end, f"{label} missing: {path}"
+        time.sleep(0.005)
+
+# The child must prove it reached the lock step, or the kill below proves nothing.
+def wait_lock_held(pid, lock_str, deadline_s):
+    procdir = Path(f"/proc/{pid}/fd")
+    end = time.monotonic() + deadline_s
+    while True:
+        assert time.monotonic() < end, f"child {pid} never opened the lock {lock_str}"
+        try:
+            names = os.listdir(procdir)
+        except OSError as e:
+            raise AssertionError(f"cannot list {procdir}, so the lock wait proves nothing: {e!r}")
+        for name in names:
+            try:
+                if os.readlink(procdir / name) == lock_str:
+                    return
+            except OSError:
+                continue
         time.sleep(0.005)
 
 def read_bytes(path):
@@ -148,6 +167,52 @@ run_once(ref_state, ref_config, '{"view":"grid"}', "reference patch")
 expected = read_bytes(ref_ui)
 assert b'"view": "grid"' in expected, f"reference state incomplete: {expected[:200]!r}"
 
+# Stage before the temp exists: the parent holds the lock, so the child blocks in take_lock.
+case0 = root / "before"
+state0 = case0 / "state"
+config0 = case0 / "config"
+(state0 / "flea").mkdir(parents=True)
+config0.mkdir(parents=True)
+run_once(state0, config0, '{"view":"list"}', "before seed")
+before0 = read_bytes(state0 / "flea" / "ui.json")
+before0_ino = (state0 / "flea" / "ui.json").stat().st_ino
+lock0 = str(state0 / "flea" / "ui.json.lock")
+lock_fd = os.open(lock0, os.O_RDWR)
+try:
+    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    child0 = run_flea(state0, config0, '{"view":"grid"}', {})
+    try:
+        wait_lock_held(child0.pid, lock0, 10)
+        assert child0.poll() is None, "child exited while the lock was held, so the wait proves nothing"
+        left0 = sorted(p.name for p in (state0 / "flea").iterdir())
+        assert left0 == ["ui.json", "ui.json.lock"], f"temp exists before the kill: {left0}"
+        child0.kill()
+        try:
+            child0.wait(timeout=REAP_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            child0.kill()
+            raise AssertionError("before-temp child did not reap")
+        assert child0.returncode == -9, f"before-temp child rc={child0.returncode}"
+        assert read_bytes(state0 / "flea" / "ui.json") == before0, "kill before the temp moved ui.json"
+        assert (state0 / "flea" / "ui.json").stat().st_ino == before0_ino, "kill before the temp replaced inode"
+        left0 = sorted(p.name for p in (state0 / "flea").iterdir())
+        assert left0 == ["ui.json", "ui.json.lock"], f"kill before the temp left litter: {left0}"
+        print(f"ok   stage before-temp kill kept {len(before0)} bytes with no temp", flush=True)
+    finally:
+        if child0.poll() is None:
+            child0.kill()
+            child0.wait(timeout=REAP_TIMEOUT)
+        try:
+            child0.stdout.close()
+        except Exception:
+            pass
+        try:
+            child0.stderr.close()
+        except Exception:
+            pass
+finally:
+    os.close(lock_fd)
+
 # Killed proof holds the owned tmp inside its first write, then SIGKILLs.
 case = root / "killed"
 state = case / "state"
@@ -199,6 +264,8 @@ try:
     after_kill = read_bytes(state / "flea" / "ui.json")
     assert after_kill == before, f"interrupted publication left partial: {after_kill[:200]!r}"
     assert (state / "flea" / "ui.json").stat().st_ino == before_ino, "kill replaced inode"
+    left = sorted(p.name for p in (state / "flea").iterdir())
+    assert set(left) == {"ui.json", "ui.json.lock", tmp_path.name}, f"kill left more than the owned temp: {left}"
     print(f"ok   deterministic interrupted publication kept {len(before)} bytes, tmp {size} bytes", flush=True)
 finally:
     if child.poll() is None:
@@ -210,6 +277,65 @@ finally:
         pass
     try:
         child.stderr.close()
+    except Exception:
+        pass
+
+# Stage after the rename: the barrier holds past the publication rename, then SIGKILLs.
+case3 = root / "after"
+state3 = case3 / "state"
+config3 = case3 / "config"
+(state3 / "flea").mkdir(parents=True)
+config3.mkdir(parents=True)
+run_once(state3, config3, '{"view":"list"}', "after seed")
+before3 = read_bytes(state3 / "flea" / "ui.json")
+before3_ino = (state3 / "flea" / "ui.json").stat().st_ino
+entered3 = case3 / "entered"
+release3 = case3 / "release"
+if entered3.exists():
+    entered3.unlink()
+if release3.exists():
+    release3.unlink()
+child3 = run_flea(state3, config3, '{"view":"grid"}', {
+    "LD_PRELOAD": str(library),
+    "FLEA_TEST_UIS_RENAME_ENTERED": str(entered3),
+    "FLEA_TEST_UIS_RENAME_RELEASE": str(release3),
+})
+try:
+    wait_path(entered3, 10, "rename barrier receipt")
+    receipt3 = entered3.read_text().strip()
+    print(f"rename receipt {receipt3}", flush=True)
+    # Sample input: receipt line `12345 rename /run/.../flea/ui.json`.
+    parts3 = receipt3.split(" ", 2)
+    assert len(parts3) == 3, f"receipt shape: {receipt3!r}"
+    assert parts3[0] == str(child3.pid), f"receipt pid {parts3[0]} != child {child3.pid}"
+    assert parts3[1] == "rename", f"receipt kind: {receipt3!r}"
+    assert parts3[2].endswith("/ui.json"), receipt3
+    assert Path(parts3[2]).is_relative_to(root), f"renamed path outside root: {parts3[2]}"
+    assert child3.poll() is None, "child exited past the rename, so the hold proves nothing"
+    landed = read_bytes(state3 / "flea" / "ui.json")
+    assert landed == expected, f"renamed bytes differ before the kill: {landed[:200]!r}"
+    assert (state3 / "flea" / "ui.json").stat().st_ino != before3_ino, "rename did not replace inode"
+    left3 = sorted(p.name for p in (state3 / "flea").iterdir())
+    assert left3 == ["ui.json", "ui.json.lock"], f"rename left a temp behind: {left3}"
+    child3.kill()
+    try:
+        child3.wait(timeout=REAP_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        child3.kill()
+        raise AssertionError("after-rename child did not reap")
+    assert child3.returncode == -9, f"after-rename child rc={child3.returncode}"
+    assert read_bytes(state3 / "flea" / "ui.json") == expected, "kill past the rename moved ui.json"
+    print(f"ok   stage after-rename kill kept {len(expected)} bytes past the rename", flush=True)
+finally:
+    if child3.poll() is None:
+        child3.kill()
+        child3.wait(timeout=REAP_TIMEOUT)
+    try:
+        child3.stdout.close()
+    except Exception:
+        pass
+    try:
+        child3.stderr.close()
     except Exception:
         pass
 
@@ -268,4 +394,4 @@ finally:
         child2.kill()
         child2.wait(timeout=REAP_TIMEOUT)
 
-print("deterministic ui-state proof: 2 checks passed", flush=True)
+print("deterministic ui-state proof: 4 checks passed", flush=True)
