@@ -96,8 +96,7 @@ function key(code, text, modifiers) {
 // Only the members the escape case reads. Search.cancel and Pane.escapePressed both record rather
 // than act, because what is being checked is the order they are reached in.
 function armHandle(p) {
-    // handleKey's own members past the escape dispatch: the listing view, no
-    // rename editor, and the pane dispatch recording rather than acting.
+    // handleKey members past the escape dispatch: listing view, no rename editor, recording dispatch.
     p.focusView = "list"
     p.viewMode = "list"
     p.shown = null
@@ -262,8 +261,7 @@ function run(check) {
     Focus.act("escape", carded)
     check("and so does the collision card", carded.climbed + "|" + carded.retreated, "0|1")
 
-    // B5a: a climb lands with the child row marked, and that landing highlight
-    // is Flea's rather than the user's, so it never blocks the next climb.
+    // A climb landing mark is Flea's, so it never blocks the next climb.
     var landed = escaper("", 0)
     landed.escapeUp = true
     landed.selectionCount = function () { return 1 }
@@ -277,8 +275,7 @@ function run(check) {
     Focus.act("escape", deliberate)
     check("a deliberate lone mark still unwinds first", deliberate.climbed + "|" + deliberate.retreated, "0|1")
 
-    // B5b: Escape backs out of an armed trash or vim pair and stops, instead
-    // of disarming and climbing behind the arm's own sentence.
+    // Escape cancels an armed trash or vim pair and stops instead of climbing.
     var armedKey = key(Qt.Key_Escape, "", none)
     var armedTrash = escaper("", 0)
     armedTrash.escapeUp = true
@@ -301,8 +298,7 @@ function run(check) {
     check("an unarmed Escape still climbs", Focus.handleKey(armedKey, unarmed, null), true)
     check("through the same climb", unarmed.climbed + "|" + unarmed.retreated, "1|0")
 
-    // B6: Recent is a history, not a directory, so Paste as and its leaves are
-    // refused there exactly the way Paste is.
+    // Recent is a history, so Paste as and its leaves are refused like Paste.
     var historyPaste = escaper("", 0)
     historyPaste.recentMode = "results"
     historyPaste.message = function (text) { historyPaste.said = text }

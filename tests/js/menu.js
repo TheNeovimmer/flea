@@ -333,8 +333,7 @@ function providerRefresh(check) {
     check("refused hop names the ask, re-read names itself, ready and error name nothing", lockedAs("/d", "/d/locked", "locked") + "|" + lockedAs("/d", "/d", "locked") + "|" + lockedAs("/d", "/d", "ready") + "|" + lockedAs("/d", "/d", "error"), "/d/locked|/d||")
     check("a refused bookmark with a trailing slash names the folder without it", lockedAs("/d", "/root/", "locked"), "/root")
 
-    // B1: the c and P keys open their flyout while its row is hidden, so the
-    // leaves are built from the action rather than from the visible rows.
+    // A hidden row still opens its flyout, built from the action.
     var hiddenRows = Menu.listingEntries(state({ clipboardAvailable: true }))
     check("the shipped defaults hide the Copy as row", entry(hiddenRows, "copyAs").action || "absent", "absent")
     check("and the Paste as row", entry(hiddenRows, "pasteAs").action || "absent", "absent")
