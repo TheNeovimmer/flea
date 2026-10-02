@@ -4,15 +4,15 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 
-// The Columns preview frame drawn by the real ui/PreviewColumn.qml, offscreen: an office file's embedded
-// thumbnail at its own aspect with no "no preview" over it, a small original at its own size, never
-// enlarged, and a small clip's poster filling the frame the way its player does. tests/preview-frame.sh drives it.
+// The Columns preview frame (AGENTS.md "The preview swap"); tests/preview-frame.sh drives it.
 ShellRoot {
     id: root
 
     readonly property string dir: Quickshell.env("FLEA_PREVIEW_FRAME_DIR")
     property var failures: []
     property int step: 0
+    // The frame's hairline on both sides, off which fitted heights are measured.
+    readonly property real frameInset: 2 * column.frameItem.border.width
 
     function fail(what) { root.failures.push(what) }
     function near(a, b) { return Math.abs(a - b) <= 1 }
@@ -87,7 +87,7 @@ ShellRoot {
                 if (root.saysNoPreview(column.frameItem)) root.fail("office thumbnail drawn under a no preview mark")
                 if (!thumb.visible || thumb.opacity !== 1) root.fail("office thumbnail not drawn")
                 if (!root.near(thumb.width / thumb.height * 256, 181)) root.fail("office thumbnail drawn at " + thumb.width + "x" + thumb.height + ", not 181:256")
-                if (!root.near(thumb.height, column.frameItem.height - 2)) root.fail("office thumbnail not fitted to the frame, " + thumb.height + " tall")
+                if (!root.near(thumb.height, column.frameItem.height - root.frameInset)) root.fail("office thumbnail not fitted to the frame, " + thumb.height + " tall")
                 root.step = 2; waited = 0
                 root.show({ n: "small.png", d: false, s: 1, m: 1, p: 33188, i: "image-png", t: false, k: 0 }, "PNG image",
                           { path: root.dir + "/small.png", noThumbComing: true })
@@ -102,7 +102,7 @@ ShellRoot {
                 if (column.frameStatus !== Image.Ready) return
                 if (column.previewState !== "video") root.fail("video row read as " + column.previewState)
                 // A 64x64 clip's poster fills the frame on its limiting side, the way the player does.
-                if (!root.near(thumb.height, column.frameItem.height - 2)) root.fail("a 64x64 clip poster drawn at " + thumb.width + "x" + thumb.height + " in a " + column.frameItem.width + "x" + column.frameItem.height + " frame")
+                if (!root.near(thumb.height, column.frameItem.height - root.frameInset)) root.fail("a 64x64 clip poster drawn at " + thumb.width + "x" + thumb.height + " in a " + column.frameItem.width + "x" + column.frameItem.height + " frame")
                 if (!root.near(thumb.width, thumb.height)) root.fail("a square clip poster drawn non-square at " + thumb.width + "x" + thumb.height)
                 if (!root.near(thumb.x, (column.frameItem.width - thumb.width) / 2)) root.fail("a clip poster not centred at x=" + thumb.x)
                 if (!root.near(thumb.y, (column.frameItem.height - thumb.height) / 2)) root.fail("a clip poster not centred at y=" + thumb.y)

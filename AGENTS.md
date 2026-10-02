@@ -505,7 +505,7 @@ measured on every commit: images draw at min(own pixel size, aspect-fit), never 
 Columns column and Quick Look; a video poster and any playing video fill the frame on the limiting
 side like the player, enlarged when the clip is small; an office thumbnail fills only when its
 embedded picture reaches cache size and otherwise draws own-size; a PDF page contains. The headless
-`tests/preview-geometry.sh` (36 cells over both surfaces, both frame widths, every source-size class,
+`tests/preview-geometry.sh` (37 cells over both surfaces, both frame widths, every source-size class,
 one `GEOMETRY` line each plus a `GEOMETRY_SHEET` contact sheet) and the native `previewmatrix` case
 in `tests/ui-captures.sh` (real files, column poster and player content rects, Quick Look picture
 rect, `PREVIEWMATRIX_SHEET` contact sheet) assert every cell within 1 px headless and 2 px native,

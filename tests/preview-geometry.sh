@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# The preview geometry gate (AGENTS.md "The preview swap"): every preview surface, kind and
-# source-size class against one rule table, headless. Images draw at min(own size, aspect-fit),
-# video posters fill the frame like the player, office thumbnails fill only at cache size, a PDF
-# page contains. Prints one GEOMETRY line per cell and montages the cell grabs into a contact
-# sheet a human looks at. Offscreen, so it needs neither the display nor the display lock.
+# The preview geometry gate (AGENTS.md "The preview swap"); tests/preview-geometry.qml holds the rule table.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
@@ -66,12 +62,13 @@ output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
     timeout 180 qs -p "$test_root/config" 2>&1)
 
-# Sample input, one probe line: "  INFO qml: GEOMETRY columns-wide image 64x48 frame=758x473 rule=image-own-size ok".
+# Sample input, one probe line: "GEOMETRY columns-wide image 64x48 frame=736x460 drawn=64x48 rule=image-own-size ok".
+expected_cells=37 # one cell per entry of cases in tests/preview-geometry.qml
 cells=$(printf '%s\n' "$output" | grep -c '^.*GEOMETRY [a-z-]* [a-z]* [0-9x]* frame=')
 ok_count=$(printf '%s\n' "$output" | grep -c ' rule=[a-z-]* ok$')
 fail_count=$(printf '%s\n' "$output" | grep -c 'GEOMETRY FAIL')
 done_count=$(printf '%s\n' "$output" | grep -c 'GEOMETRY DONE')
-if [ "$cells" -ne 36 ] || [ "$ok_count" -ne 36 ] || [ "$fail_count" -ne 0 ] || [ "$done_count" -ne 1 ]; then
+if [ "$cells" -ne "$expected_cells" ] || [ "$ok_count" -ne "$expected_cells" ] || [ "$fail_count" -ne 0 ] || [ "$done_count" -ne 1 ]; then
     printf 'FAIL the preview drew a picture at the wrong size: cells=%s ok=%s fail=%s\n' "$cells" "$ok_count" "$fail_count"
     printf '%s\n' "$output" | grep -aE 'GEOMETRY|ERROR|error' | head -40
     exit 1
@@ -80,8 +77,11 @@ printf '%s\n' "$output" | grep -a 'GEOMETRY [a-z-]* [a-z]* [0-9x]* frame='
 
 # The contact sheet: every cell grab in index order, titled by its own file name, for a human to look at.
 mapfile -t grabs < <(ls "$test_root"/out/geometry-*.png | sort -V)
-[ "${#grabs[@]}" -eq 36 ] || { echo "preview-geometry.sh: want 36 cell grabs, got ${#grabs[@]}"; exit 1; }
+[ "${#grabs[@]}" -eq "$expected_cells" ] || { echo "preview-geometry.sh: want $expected_cells cell grabs, got ${#grabs[@]}"; exit 1; }
 montage "${grabs[@]}" -tile 4x -geometry 320x240+4+4 -label '%f' "$test_root/sheet.png" \
     || { echo "preview-geometry.sh: the contact sheet failed"; exit 1; }
+# The contact sheet outlives the sandbox, which cleanup removes on exit 0.
+evidence_root=$(mktemp -d /tmp/flea-preview-geometry.XXXXXXXX) || exit 1
+mv "$test_root/sheet.png" "$evidence_root/sheet.png" || { echo "preview-geometry.sh: moving the contact sheet to $evidence_root failed"; exit 1; }
 printf 'GEOMETRY cells=%s ok=%s fail=%s\n' "$cells" "$ok_count" "$fail_count"
-printf 'GEOMETRY_SHEET %s\n' "$test_root/sheet.png"
+printf 'GEOMETRY_SHEET %s\n' "$evidence_root/sheet.png"
