@@ -332,4 +332,16 @@ function providerRefresh(check) {
     function lockedAs(path, asked, state) { return Nav.lockedTarget({ path: path, listingPath: asked, listingState: state }) }
     check("refused hop names the ask, re-read names itself, ready and error name nothing", lockedAs("/d", "/d/locked", "locked") + "|" + lockedAs("/d", "/d", "locked") + "|" + lockedAs("/d", "/d", "ready") + "|" + lockedAs("/d", "/d", "error"), "/d/locked|/d||")
     check("a refused bookmark with a trailing slash names the folder without it", lockedAs("/d", "/root/", "locked"), "/root")
+
+    // A hidden row still opens its flyout, built from the action.
+    var hiddenRows = Menu.listingEntries(state({ clipboardAvailable: true }))
+    check("the shipped defaults hide the Copy as row", entry(hiddenRows, "copyAs").action || "absent", "absent")
+    check("and the Paste as row", entry(hiddenRows, "pasteAs").action || "absent", "absent")
+    check("yet Copy as still builds its flyout from the action",
+          Menu.flyoutEntries("copyAs").map(function (l) { return l.id }).join(","),
+          "copyPath,copyName,copyStem,copydirpath,copyUri,copyQuoted")
+    check("and Paste as builds its own",
+          Menu.flyoutEntries("pasteAs").map(function (l) { return l.id }).join(","),
+          "pasteLink,pasteAbsoluteLink,pasteHardLink")
+    check("while any other action builds no flyout", Menu.flyoutEntries("trash").length, 0)
 }

@@ -72,9 +72,7 @@ Item {
     function contentY() { return view.contentY }
     // A platform drag in flight, so a slow click never renames off one; ui/ColumnsArea.qml reads it.
     readonly property bool dragging: dragSession.Drag.active
-    // The cursor keeps three rows of context above and below, the list's own rule; the wheel path
-    // below still follows the viewport with no margin, the same split ui/List.qml keeps.
-    // A click carries context 0 so the list never moves under the pointer.
+    // Cursor keeps three rows context above and below; wheel path follows viewport margin-free; click context 0 never moves list.
     function showCursor(viewIndex, context) {
         var rowH = Theme.fileRowHeight
         // The pointer case answers in pixels in the originY space, clamped the way
@@ -263,6 +261,7 @@ Item {
             selected: root.pane !== null && root.pane.isSelected(listingIndex)
             dropTarget: dragSession.dropIndex >= 0 && listingIndex === dragSession.dropIndex
             dropCopying: dragSession.dragCopy
+            dropLinking: dragSession.dragLink
             // Read off the normalised row above: subscripting rows again hands a shrunk listing's undefined to a bool.
             lifted: root.liftedName.length > 0 && row !== null && row.n === root.liftedName
             dim: root.dim && !lifted
@@ -387,9 +386,8 @@ Item {
         visible: root.drawsEmpty && root.rows.length === 0 && root.lockedMode < 0
     }
 
-    // The cursor can move off screen through the keyboard, so the column follows it with its context.
-    // The selection change itself only ensures the row is whole (context 0): the keyboard's own
-    // showRow already spent the three-row margin, and a second margin here would move a clicked row.
+    // Cursor can move off screen through keyboard, so column follows it with context.
+    // Selection ensures whole row (context 0); showRow spent margin, second margin would move clicked row.
     onSelectedIndexChanged: {
         if (root.selectedIndex >= 0)
             root.showCursor(root.pane ? Filter.viewOf(root.pane.shown, root.selectedIndex) : root.selectedIndex, 0)

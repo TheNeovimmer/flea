@@ -43,8 +43,11 @@ function tapped(index, tapCount, modifiers, root) {
     // standing would extend the next shift+click from an anchor nothing on screen names, and every
     // write operation targets the selection ahead of the cursor row.
     root.selectOnly(index, 0)
-    if (tapCount === 2 || verb === "reveal")
-        root.act(verb)
+    // The first tap already moved the listing, so a second tap never opens again.
+    if (tapCount === 2 || verb === "reveal") {
+        if (!(root.singleClick === true && verb === "open" && tapCount !== 1))
+            root.act(verb)
+    }
     // Single-click mode opens folders and files on one tap, the way the columns view's own middle
     // column already does; a modifier still only selects, and a search result still reveals.
     if (tapCount === 1 && verb === "open" && root.singleClick === true)

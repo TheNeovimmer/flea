@@ -76,6 +76,8 @@ function route(root, message) {
     } else if (message.t === "meta") {
         root.metaResult(message)
         root.meta(message.row, message.w, message.h, message.orient || 1, message.ms, message.rate, message.entries, message.unpacked, message.afailed, message.names, message.lines, message.partial, message.lfailed === true, message.target, message.targetdir, message.owner || "")
+    } else if (message.t === "shebang") {
+        root.shebang(message.path || "", message.hasShebang === true, message.id || 0)
     } else if (message.t === "fsinfo") {
         root.fsInfo(message.fs, message.free, message.path || "", message.class || "")
     } else if (message.t === "changed") {

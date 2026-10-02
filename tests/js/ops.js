@@ -427,4 +427,22 @@ function run(check) {
     check("no verdict note leaves the shipped line alone",
           Ops.transferDone({ moving: false, n: 2 }, 2, 0, 0, false, false, ""),
           "Copied 2 items · z undoes")
+
+    // A slow click renames with pointer context 0 so the list never moves
+    // under it; F2 and r keep the keyboard's three-row context.
+    function contextPane() {
+        return { cursorIndex: 5, path: "/d", renamingIndex: -1, renamePending: false,
+            renameError: "", renameSource: "", renameMenuId: 0,
+            rowFor: function () { return { n: "f.txt" } },
+            join: function (base, name) { return base + "/" + name },
+            message: function () {},
+            seen: "unset",
+            setCursor: function (index, context) { this.seen = context } }
+    }
+    var pointerRename = contextPane()
+    Ops.startRename(pointerRename, 0, 5, 0)
+    check("a pointer rename sets the cursor with context 0", pointerRename.seen, 0)
+    var keyboardRename = contextPane()
+    Ops.startRename(keyboardRename, 0, 5)
+    check("a keyboard rename keeps no pointer context", keyboardRename.seen, undefined)
 }

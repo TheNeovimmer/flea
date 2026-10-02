@@ -2,6 +2,7 @@
 
 .import "Anchor.js" as Anchor
 .import "Format.js" as Format
+.import "RecentMode.js" as RecentMode
 
 // F5 and Ctrl+R re-read the folder through the listing swap, so the new rows land
 // without a blank frame the way every other re-read does. The notice names how many
@@ -22,6 +23,12 @@ function begin(pane, wire) {
     }
     if (pane.searchMode.length > 0)
         return false
+    // Recent stands on the root, so the history is re-read instead of listing root.
+    if (pane.recentMode && pane.recentMode.length > 0) {
+        pane.reloadFrom = pane.total
+        RecentMode.refresh(pane, "")
+        return true
+    }
     wire.anchor = Anchor.watched(pane)
     // Set after the anchored re-read above, because opening the listing clears it first.
     pane.reloadFrom = pane.total

@@ -69,4 +69,13 @@ function run(check) {
     check("listing names no place", SheetQuery.whereForContext("listing"), "")
     check("a multi-context key names none either", SheetQuery.whereForContext("rail,menu"), "")
     check("a single place is named", SheetQuery.whereForContext("media"), "media")
+
+    // A sheet menu row snapshots first, then activates for the current selection.
+    var calls = []
+    var holder = { menuActions: {
+        snapshot: function () { calls.push("snapshot") },
+        activate: function (action, selected) { calls.push("activate:" + action + ":" + selected) }
+    } }
+    SheetQuery.runMenu(holder, "trash")
+    check("the sheet snapshots before it activates", calls.join(","), "snapshot,activate:trash:true")
 }

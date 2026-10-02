@@ -1,5 +1,13 @@
 .pragma library
 
+// Keeps the one-shot Make executable id clear of the dialog's own batch ids; both QML readers add their pending id to it.
+var MAKE_EXEC_ID = 1000000
+
+// Only the newest id on the asked path lands, so a late answer never arms a later file.
+function landsShebang(path, id, asked, currentId) {
+    return path === asked && id === currentId
+}
+
 // Sample input: "644" or "0644"; invalid text remains in the input until corrected.
 function parse(text) {
     return /^(0?[0-7]{3})$/.test(String(text)) ? parseInt(text, 8) : -1
@@ -34,3 +42,59 @@ function summarize(modes) {
 }
 
 function mixedNote() { return "Mixed boxes keep each file's own bit unless you change them." }
+
+// A mode with special bits is named in the backend's own words, never dropped on parse -1.
+function specialReason(text) {
+    var digits = String(text || "")
+    if (!/^[1-7][0-7]{3}$/.test(digits))
+        return ""
+    var special = parseInt(digits.charAt(0), 8)
+    var label = (special & 4) !== 0 ? "setuid" : (special & 2) !== 0 ? "setgid" : "sticky"
+    return "Read-only: " + label + " bit is present."
+}
+
+function leafOf(path) {
+    var text = String(path || "")
+    var cut = text.lastIndexOf("/")
+    return cut < 0 ? text : text.substring(cut + 1)
+}
+
+// Modes land in arrival order in place; the dialog summarizes once when this answers true.
+function noteMode(store, at, path, message) {
+    if (message.ok === true) {
+        store.modes[at] = message.mode
+        store.reasons[at] = message.reason || ""
+    } else {
+        // A refused inspect rides the reasons once, in the backend's own words.
+        var why = message.error || "Could not change permissions."
+        store.modes[at] = ""
+        store.reasons[at] = why
+        store.skipped.push({ path: path, why: why })
+    }
+    store.pending -= 1
+    return store.pending <= 0
+}
+
+// Every skip is named with its reason, capped so a whole drive stays one line.
+function skipNote(skipped) {
+    var list = skipped || []
+    var shown = []
+    for (var i = 0; i < list.length && i < 3; i++)
+        shown.push(leafOf(list[i].path) + ": " + list[i].why)
+    var tail = list.length > 3 ? "; and " + (list.length - 3) + " more" : ""
+    return (list.length === 1 ? "1 item cannot be changed: " : list.length + " items cannot be changed: ")
+        + shown.join("; ") + tail
+}
+
+// A batch with a skip names every count and reason, never a plain success.
+function multiResult(changed, total, skipped) {
+    var list = skipped || []
+    if (list.length === 0)
+        return "Permissions changed."
+    var shown = []
+    for (var i = 0; i < list.length && i < 3; i++)
+        shown.push(leafOf(list[i].path) + ": " + list[i].why)
+    var tail = list.length > 3 ? "; and " + (list.length - 3) + " more" : ""
+    var left = list.length === 1 ? "1 left alone: " : list.length + " left alone: "
+    return "Permissions changed for " + changed + " of " + total + "; " + left + shown.join("; ") + tail
+}

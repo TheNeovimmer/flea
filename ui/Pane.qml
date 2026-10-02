@@ -1,6 +1,5 @@
 import QtQuick
 import Quickshell
-import Quickshell.Io
 import "." as Flea
 import "js/DirSizes.js" as DirSizes
 import "js/Dropbox.js" as Dropbox
@@ -49,9 +48,7 @@ FocusScope {
     property bool showHidden: ViewState.state.hidden === true
     // Issue 27's state-file key: with it on a cursor step past an end comes round; ui/js/Focus.js step is the only reader.
     readonly property bool wrapAtEnds: ViewState.state.wrapAtEnds === true
-    // ClickAndRefresh, all under Settings, View: Escape climbs while on, one tap opens while
-    // single, and the slow click renames while on in double-click mode. ui/js/Focus.js and
-    // ui/js/Tap.js read them; nothing else does.
+    // ClickAndRefresh under Settings, View: Escape climbs, one tap opens, and the slow click renames.
     readonly property bool escapeUp: ViewState.state.escapeUp === true
     readonly property bool singleClick: ViewState.state.openMode === "single"
     readonly property bool clickRename: ViewState.state.clickRename !== false
@@ -60,9 +57,8 @@ FocusScope {
     // The slow click's own window: the last tap's row and time, read by ui/js/SlowClick.js alone.
     property double slowClickAt: 0
     property int slowClickIndex: -2
-    // The slow-click rename timer, one for the whole pane rather than one per
-    // view: a tap arms it, a second tap in time cancels it and opens as a double
-    // click does, and its firing renames only when the row still holds the cursor.
+    // The slow-click rename timer, one per pane: a tap arms it and a second tap in time opens as a double click does.
+    // Its firing renames only while the row still holds the cursor.
     Timer {
         id: slowClickTimer
         interval: Qt.styleHints.mouseDoubleClickInterval
@@ -75,9 +71,8 @@ FocusScope {
         else slowClickTimer.stop()
     }
     function slowClickWasSole(index) { return SlowClick.wasSoleSelection(root, index) }
-    // A press stops the timer without clearing the tap record, so a hold past
-    // the interval cannot fire while the button is still down; the release
-    // still arms through armSlowClick, and a drag clears fully at lift.
+    // A press stops the timer without clearing the tap record, so a hold past the interval cannot fire while down;
+    // the release still arms through armSlowClick, and a drag clears fully at lift.
     function pressSlowClick() { slowClickTimer.stop() }
     function cancelSlowClick() { slowClickTimer.stop(); SlowClick.cancel(root) }
     // ui/js/Tabs.js is a .pragma library and cannot reach a QML singleton, so the state it asks
@@ -98,14 +93,15 @@ FocusScope {
     property bool searchHere: false
     property bool searchRunning: false
     property bool searchCancelled: false
-    // The main window's Recent place, "" off and "results" once the history answered;
-    // ui/js/RecentMode.js owns every transition the way ui/js/Search.js owns the walk's. The pane's
-    // own path is the history's base while it stands, so join keeps working untouched.
+    // Recent place: "" off, "results" once answered; RecentMode.js owns transitions; pane path is history base.
     property string recentMode: ""
     // Where Recent was opened over, and the listing it hands back on leaving.
     property string recentFrom: ""
     // The history paths the listing stands on, so a refresh with the rail hidden re-asks them.
     property var recentPaths: []
+    // The sort Recent replaced, handed back on leaving; ui/js/RecentMode.js run and restoreSort write it.
+    property string recentSortBy: ""
+    property bool recentSortDesc: false
     // The query narrowing the listing in place, and whether its line still has the keyboard;
     // ui/js/Filter.js owns every transition, the way ui/js/Search.js owns the walk's.
     property string filterQuery: ""
@@ -305,10 +301,8 @@ FocusScope {
     property string storageClass: ""
     property bool storageKnown: false
 
-    // Back and up close Recent rather than travelling: entering it pushed no history
-    // entry, so the folder it was opened over is what they hand back, the way Esc does.
-    // Forward has nowhere to go from a listing outside the history, so it stays put.
-    function goBack() { if (trashHost.opened) trashHost.close(); else if (root.recentMode.length > 0) RecentMode.close(root); else Nav.back(root) }
+    // Back and up close Recent rather than travelling; forward stays put outside the history.
+    function goBack() { if (trashHost.opened) trashHost.close(); else if (root.recentMode.length > 0) { if (root.listInFlight) root.message("A directory is already loading.", false); else RecentMode.close(root) } else Nav.back(root) }
     function goForward() { if (!trashHost.opened && root.recentMode.length === 0) Nav.forward(root) }
 
     // Rename lives in ui/js/Ops.js with the other write operations; ui/List.qml's editor commits through this.
@@ -374,12 +368,15 @@ FocusScope {
     }
 
     // options.keepHidden is the tab restore's alone: it just put back this tab's own dotfile answer, which the standing preference would overwrite.
+    // A refused hop clears nothing: Nav refuses while a listing is out, and Recent's rows must survive it.
     function openWithoutHistory(newPath, options) {
+        if (root.listInFlight) {
+            root.message("A directory is already loading.", false)
+            return
+        }
         // Every real navigation leaves Recent: entering it pushed no history entry, so nothing
         // carries the mode across, and the folder it was opened over is already gone with it.
-        root.recentMode = ""
-        root.recentFrom = ""
-        root.recentPaths = []
+        RecentMode.leave(root)
         if (!root.listInFlight) {
             var applied = root.appliedListingPreferences ? JSON.parse(root.appliedListingPreferences) : []
             // Search exit can enter here before the preferences timer consumes a deferred Settings change.
@@ -432,7 +429,7 @@ FocusScope {
     function thumbFor(index) { return list.thumbFor(index) }
 
     // Lifted to Focus.act, see ui/js/Focus.js, which routes "settings" here from the list and the rail alike.
-    function act(action, menuId, paths) {
+    function act(action, menuId, paths, context) {
         if (trashHost.confirming) return
         if (action === "openTrash" || action === "emptyTrash" || action === "restoreAll") { trashHost.action(action); return }
         if (action === "settings") { root.settingsPanel.open(root); return }
@@ -440,7 +437,7 @@ FocusScope {
         // Recent is a history, not a directory: a new file there would land in the root it stands on.
         if (action === "newFile" && root.recentMode.length > 0) { root.message("This listing is a history, and cannot take a new file.", false); return }
         if (["newFile", "rename", "openWith", "moveTo", "copyTo", "properties", "deletePermanently"].indexOf(action) >= 0) {
-            menuActions.open(action, menuId || 0)
+            menuActions.open(action, menuId || 0, context)
             return
         }
         Focus.act(action, root, menuId, paths)
@@ -459,36 +456,12 @@ FocusScope {
         var indices = Ops.targetIndices(root)
         return indices.length === 1 && indices[0] === root.cursorIndex
     }
-    // MenuAdditions040 callout 10: the cursor row's two-byte shebang prefix, read once per menu
-    // open for that one file and never per row or per cursor move. The menu opens first without the
-    // row and refreshes it in when the read lands, the same async shape providers already use.
-    // The flag is cleared when a check starts and an answer lands only on the path asked for, so a
-    // slow read for an earlier file can never arm a later one; a check arriving mid-read queues one
-    // pending path and never runs in parallel.
+    // The cursor row's two-byte shebang probe, asked of the backend once per menu open for that one file.
     property bool rowHasShebang: false
     property string shebangAsked: ""
-    property string shebangPending: ""
+    property int shebangId: 0
     property int makeExecPendingId: 0
-    Process {
-        id: shebangProc
-        stdout: StdioCollector { waitForEnd: true }
-        onExited: function (code, status) {
-            var answered = root.shebangAsked
-            root.shebangAsked = ""
-            var isShebang = code === 0 && shebangProc.stdout.text.substring(0, 2) === "#!"
-            if (answered.length > 0 && answered === root.shebangTarget()) {
-                root.rowHasShebang = isShebang
-                if (menu.opened && menu.hasRow) menu.refreshProviderRows()
-            }
-            if (root.shebangPending.length > 0) {
-                var next = root.shebangPending
-                root.shebangPending = ""
-                root.startShebangRead(next)
-            }
-        }
-    }
-    // The cursor row's own path while it is a regular file without its owner bit, "" otherwise: the
-    // one path a shebang read may answer for, so a landed answer for anywhere else is dropped.
+    // The one path a shebang answer may land for, "" unless the cursor row is a regular file without its owner bit.
     function shebangTarget() {
         var row = root.cursorRow
         if (!row || row.d) return ""
@@ -496,33 +469,25 @@ FocusScope {
         if ((bits & 0o170000) !== 0o100000 || (bits & 0o100) !== 0) return ""
         return root.join(root.path, row.n)
     }
-    function startShebangRead(path) {
-        root.shebangAsked = path
-        root.rowHasShebang = false
-        shebangProc.command = ["head", "-c", "2", "--", path]
-        shebangProc.running = true
-    }
     function checkShebang() {
         var path = root.shebangTarget()
         if (path.length === 0) {
             root.shebangAsked = ""
-            root.shebangPending = ""
-            if (shebangProc.running) shebangProc.signal(9)
             root.rowHasShebang = false
             return
         }
-        if (shebangProc.running) {
-            root.rowHasShebang = false
-            root.shebangPending = path
-            return
-        }
-        root.shebangPending = ""
-        root.startShebangRead(path)
+        root.shebangId += 1
+        root.shebangAsked = path
+        root.rowHasShebang = false
+        root.backend.send({ c: "shebang", path: path, id: root.shebangId })
     }
-    // MenuAdditions040 callout 10: adds the owner execute bit through the existing permissions
-    // batch, so one undo restores it and redo re-applies it via Step::Mode. The target is exactly
-    // the cursor row; anything else refuses with the existing sentence. The old mode comes from
-    // that same row with its special bits kept.
+    // Only the newest id on the asked path lands, so a late answer for an earlier file never arms a later one.
+    function noteShebang(path, hasShebang, id) {
+        if (!Permissions.landsShebang(path, id, root.shebangAsked, root.shebangId)) return
+        root.rowHasShebang = hasShebang
+        if (menu.opened && menu.hasRow) menu.refreshProviderRows()
+    }
+    // MenuAdditions040 callout 10: adds the owner execute bit through the permissions batch, so one undo restores it.
     function makeExecutable(paths) {
         if (!root.isSingleCursorTarget()) {
             root.message("Make executable needs a script without its execute bit.", false)
@@ -537,7 +502,7 @@ FocusScope {
         var oldBits = (Number(row.p) || 0) & 0o7777
         var octal = Permissions.octal((oldBits | 0o100) & 0o7777)
         root.makeExecPendingId += 1
-        root.backend.send({ c: "permissionsBatch", paths: taken, modes: [octal], id: 1000000 + root.makeExecPendingId })
+        root.backend.send({ c: "permissionsBatch", paths: taken, modes: [octal], id: Permissions.MAKE_EXEC_ID + root.makeExecPendingId })
     }
     // MenuAdditions040: Permissions takes the whole selection, so the menu
     // row carries every target's mode and the dialog inspects each in turn.
@@ -561,8 +526,8 @@ FocusScope {
     function openPermissionsWith(paths) {
         if (paths.length === 0) { Ops.sayNoTarget(root); return }
         if (paths.length === 1) {
-            var row = root.rowFor(root.cursorIndex)
-            var single = row ? row.p : 0
+            var target = root.permissionSelection()
+            var single = target ? target.p : 0
             if (Menu.permissionsEntry(single, 1).disabled) {
                 root.message("Permissions takes one file or folder, not a link.", true)
                 return
@@ -604,6 +569,7 @@ FocusScope {
     // MenuAdditions040: Paste as links, undoable, through the collision card;
     // with paths the links go out of those, else out of the file clipboard.
     function pasteLink(kind, paths) {
+        if (RecentMode.refusePaste(root)) return
         var sources = paths && paths.length > 0 ? paths : root.clipboard.paths
         if (sources.length === 0) {
             root.message("There is nothing to paste; y copies and x cuts.", false)
@@ -657,7 +623,7 @@ FocusScope {
     // Quoted when it holds whitespace, because this one is pasted into a shell: see ui/js/Format.js.
     function copyDirPath() { wire.opener.copyText(Format.shellQuoted(root.path)) }
 
-    function openParent() { if (trashHost.opened) trashHost.close(); else if (root.recentMode.length > 0) RecentMode.close(root); else Nav.parent(root) }
+    function openParent() { if (trashHost.opened) trashHost.close(); else if (root.recentMode.length > 0) { if (root.listInFlight) root.message("A directory is already loading.", false); else RecentMode.close(root) } else Nav.parent(root) }
 
     // The rail's Recent row answers with the history's paths, read bounded the way the
     // path jump reads them; a second open while one lands replaces it, the way a navigation does.

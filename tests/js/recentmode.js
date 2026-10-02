@@ -1,4 +1,5 @@
 .import "../../ui/js/RecentMode.js" as RecentMode
+.import "sourcefixture.js" as Source
 
 // The main window's Recent place. ui/Pane.qml holds the mode, this holds what it does.
 
@@ -54,6 +55,24 @@ function pane(path) {
     return p
 }
 
+// Sample input: firstCodeLine("f() {\n// note\n  if (x) return\n}", "f() {") answers "if (x) return".
+function firstCodeLine(branch, marker) {
+    var at = branch.indexOf(marker)
+    if (at < 0) return "missing marker " + marker
+    var tail = branch.substring(at + marker.length)
+    var lines = tail.split("\n")
+    for (var i = 0; i < lines.length; i++) {
+        var trimmed = lines[i].replace(/^\s+/, "")
+        trimmed = trimmed.replace(/\s+$/, "")
+        if (trimmed.length === 0)
+            continue
+        if (trimmed.indexOf("//") === 0)
+            continue
+        return trimmed
+    }
+    return ""
+}
+
 function run(check) {
     // Opening the rail row moves to the history's base and asks for its paths, after the
     // jump's own bounded read; the folder it was opened over is kept for the way back.
@@ -86,6 +105,8 @@ function run(check) {
     RecentMode.close(standing)
     check("leaving Recent hands back the folder it was opened over", standing.opened.join(","), "/home/gm/Work")
     check("and the mode is off", standing.recentMode + "|" + standing.recentFrom, "|")
+    check("and the newest-first order does not follow it out",
+          standing.backend.sortBy + "|" + standing.backend.sortDesc, "name|false")
 
     // An operation under the listing re-reads the history through the rail rather than
     // re-listing the base, which would draw the root over the place just left.
@@ -116,4 +137,62 @@ function run(check) {
     check("reveal opens the row's own folder", revealing.opened.join(","), "/home/gm/Docs")
     check("selecting the row it came from", revealing.pendingSelect, "/home/gm/Docs/a.txt")
     check("and the mode is off", revealing.recentMode, "")
+
+    // A tab switch drops the overlay so the snapshot keeps the folder order.
+    var switching = pane("/home/gm/Work")
+    switching.backend.sortBy = "kind"
+    switching.backend.sortDesc = true
+    RecentMode.run(switching, ["/home/gm/a.txt"])
+    check("dropping the overlay hands the standing order back",
+          RecentMode.dropOverlay(switching) + "|" + switching.backend.sortBy + "|" + switching.backend.sortDesc,
+          "true|kind|true")
+
+    // The sort run() stashes lives on the real pane, so a stub object cannot hide a missing declaration.
+    var paneSource = Source.source("ui/Pane.qml")
+    check("Pane.qml declares recentSortBy", paneSource.indexOf("property string recentSortBy") >= 0, true)
+    check("Pane.qml declares recentSortDesc", paneSource.indexOf("property bool recentSortDesc") >= 0, true)
+    // Leaving Recent goes through one helper, so a plain hop hands the standing order back.
+    var hopping = pane("/home/gm/Work")
+    hopping.backend.sortBy = "size"
+    hopping.backend.sortDesc = true
+    RecentMode.run(hopping, ["/home/gm/a.txt"])
+    check("a hop into Recent takes the newest-first order", hopping.backend.sortBy + "|" + hopping.backend.sortDesc, "mtime|true")
+    hopping.listInFlight = false
+    RecentMode.leave(hopping)
+    check("a plain hop out of Recent hands the standing order back", hopping.backend.sortBy + "|" + hopping.backend.sortDesc, "size|true")
+    check("and blanks the mode it left", hopping.recentMode + "|" + hopping.recentFrom + "|" + hopping.recentPaths.length, "||0")
+    // A pane outside Recent keeps its own order, so the helper guards on the mode.
+    var settled = pane("/home/gm/Work")
+    settled.backend.sortBy = "kind"
+    settled.backend.sortDesc = true
+    settled.recentSortBy = "size"
+    settled.recentSortDesc = true
+    RecentMode.leave(settled)
+    check("leaving outside Recent keeps its own order", settled.backend.sortBy + "|" + settled.backend.sortDesc, "kind|true")
+    // Sample input: openWithoutHistory calls RecentMode.leave(root) before Nav.openWithoutHistory(root.
+    var openBranch = Source.slice(paneSource, "function openWithoutHistory(newPath, options)", "Nav.openWithoutHistory(root, newPath, options)")
+    check("Pane.openWithoutHistory leaves Recent through the helper", openBranch.indexOf("RecentMode.leave(root)") >= 0, true)
+
+    // The menu reaches past key dispatch, so one helper refuses a paste in Recent for both routes.
+    var pasteBranch = Source.slice(paneSource, "function pasteLink(kind, paths)", "function setCursor(index, context)")
+    var focusSource = Source.source("ui/js/Focus.js")
+    var actBranch = Source.slice(focusSource, 'case "pasteLink":', 'case "cut":')
+    check("Pane.pasteLink guards first", firstCodeLine(pasteBranch, "function pasteLink(kind, paths) {"), "if (RecentMode.refusePaste(root)) return")
+    check("Focus.act guards first", firstCodeLine(actBranch, 'case "pasteHardLink":'), "if (RecentMode.refusePaste(root)) return")
+    // A missing marker names itself instead of scanning from inside the branch.
+    check("a missing marker names itself", firstCodeLine("a {\n  if (x) return\n}", 'case "nope":'), 'missing marker case "nope":')
+    check("the helper stands for both routes", typeof RecentMode.refusePaste, "function")
+    if (typeof RecentMode.refusePaste === "function") {
+        var history = { recentMode: "results", said: "" }
+        history.message = function (text) { history.said = text }
+        check("it refuses in Recent", RecentMode.refusePaste(history), true)
+        check("and says why", history.said, "This listing is a history, and cannot take a paste.")
+        var browsing = { recentMode: "", said: "" }
+        browsing.message = function (text) { browsing.said = text }
+        check("and stays silent off Recent", RecentMode.refusePaste(browsing), false)
+    } else {
+        check("it refuses in Recent", "missing", true)
+        check("and says why", "missing", "This listing is a history, and cannot take a paste.")
+        check("and stays silent off Recent", "missing", false)
+    }
 }

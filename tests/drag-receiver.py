@@ -3,7 +3,13 @@
 
 tests/drag.sh starts this beside Flea. It is not a file manager: it accepts the
 drop, writes the MIME types, the uri-list body and the action mask, and quits.
+
+Safety: the log path must be an absolute path inside a directory carrying the
+.flea-test-sandbox marker (the run's own sandbox root or directly inside one).
+Anything else is refused before GTK starts, so a bad argv cannot append to an
+operator file. The drop body is capped at 1 MiB. Only this process quits.
 """
+import os
 import sys
 
 import gi
@@ -12,7 +18,27 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, GLib, Gtk
 
-log_path = sys.argv[1]
+MARKER = ".flea-test-sandbox"
+MAX_BODY = 1024 * 1024
+
+
+def owned_log_path(argv):
+    if len(argv) != 2 or not argv[1]:
+        raise SystemExit("drag-receiver: one absolute log path is required")
+    raw = argv[1]
+    if not os.path.isabs(raw):
+        raise SystemExit("drag-receiver: log path is not absolute")
+    path = os.path.realpath(raw)
+    parent = os.path.dirname(path)
+    if not parent or not os.path.isdir(parent):
+        raise SystemExit("drag-receiver: log directory does not exist")
+    if not (os.path.isfile(os.path.join(parent, MARKER))
+            or os.path.isfile(os.path.join(os.path.dirname(parent), MARKER))):
+        raise SystemExit("drag-receiver: log path is outside a marked sandbox")
+    return path
+
+
+log_path = owned_log_path(sys.argv)
 
 
 def write(text):
@@ -58,11 +84,15 @@ class Receiver(Gtk.Application):
         try:
             stream, mime = drop.read_finish(result)
             chunks = []
+            total = 0
             while True:
                 piece = stream.read_bytes(65536, None)
                 data = piece.get_data()
                 if not data:
                     break
+                total += len(data)
+                if total > MAX_BODY:
+                    raise ValueError("drop body exceeds 1 MiB")
                 chunks.append(data)
             body = b"".join(chunks).decode("utf-8", "replace")
             write(f"mime={mime}")

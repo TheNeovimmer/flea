@@ -26,7 +26,7 @@ function verbs(backend) {
 }
 
 // A pane at rest over a folder row in listing held, its card the real one, its drag session and the folder row's drop target.
-function scene(held) {
+function scene(held, said) {
     var parent = Qt.createComponent("QtQuick", "Item").createObject(null)
     var backend = Qt.createQmlObject(BACKEND, parent, Qt.resolvedUrl("backend.qml"))
     backend.heldListing = held
@@ -38,7 +38,7 @@ function scene(held) {
     p.selectedIndices = function () { return [] }
     p.selectionCount = function () { return 0 }
     p.join = function (base, name) { return base + "/" + name }
-    p.message = function () {}
+    p.message = said ? function (text) { said.push(text) } : function () {}
     p.collide = built("CollideHost.qml", parent, { pane: p })
     var session = built("FileDrag.qml", parent, { pane: p })
     var target = built("RowDrag.qml", parent, { session: session, listingIndex: 2, row: folder[2] })

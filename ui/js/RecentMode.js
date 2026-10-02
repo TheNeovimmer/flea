@@ -18,6 +18,15 @@
 var OFF = ""
 var RESULTS = "results"
 
+// One refusal for both paste routes: the menu reaches past key dispatch, so it shares this.
+function refusePaste(pane) {
+    if (pane.recentMode.length > 0) {
+        pane.message("This listing is a history, and cannot take a paste.", false)
+        return true
+    }
+    return false
+}
+
 // Opening the rail row: the pane keeps where it stood, moves to the history's base, and asks
 // for its paths, after the jump's own bounded read. No fsinfo is asked: a history spans mounts,
 // so the bar beside the counts reads unknown the way the board draws it.
@@ -25,6 +34,11 @@ function run(pane, paths) {
     if (pane.listInFlight) {
         pane.message("A directory is already loading.", false)
         return
+    }
+    // The newest-first order is kept for the way back, so leaving restores it.
+    if (pane.recentMode.length === 0 && pane.backend) {
+        pane.recentSortBy = pane.backend.sortBy
+        pane.recentSortDesc = pane.backend.sortDesc === true
     }
     if (pane.recentFrom.length === 0) {
         pane.recentFrom = pane.path
@@ -67,7 +81,28 @@ function close(pane) {
     pane.recentMode = OFF
     pane.recentFrom = ""
     pane.recentPaths = []
+    restoreSort(pane)
     pane.openWithoutHistory(back)
+}
+
+// The order run() replaced, handed back before the folder re-lists.
+function restoreSort(pane) {
+    if (pane.backend && typeof pane.recentSortBy === "string" && pane.recentSortBy.length > 0) {
+        pane.backend.sortBy = pane.recentSortBy
+        pane.backend.sortDesc = pane.recentSortDesc === true
+    }
+    pane.recentSortBy = ""
+    pane.recentSortDesc = false
+}
+
+// A plain hop leaves Recent through one step, so every navigation restores the same order.
+function leave(pane) {
+    if (pane.recentMode.length > 0) {
+        restoreSort(pane)
+    }
+    pane.recentMode = OFF
+    pane.recentFrom = ""
+    pane.recentPaths = []
 }
 
 // An operation changed a file under the listing, so the history is read again rather than the
@@ -99,6 +134,7 @@ function dropOverlay(pane) {
     pane.recentMode = OFF
     pane.recentFrom = ""
     pane.recentPaths = []
+    restoreSort(pane)
     return true
 }
 

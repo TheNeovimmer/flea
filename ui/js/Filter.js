@@ -201,9 +201,7 @@ function prune(pane, list) {
     }
 }
 
-// The cursor is a listing row everywhere else in the app but it moves through what is drawn, so both
-// steps convert. ui/Pane.qml keeps the scroll itself, because ListView.Contain has no name here.
-// A click carries context 0 so the list never moves under the pointer; a keyboard move keeps 3.
+// Cursor is a listing row but moves through drawn rows, so both steps convert.
 function setCursor(pane, index, context) {
     setCursorView(pane, viewOf(pane.shown, index), context)
 }

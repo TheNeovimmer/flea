@@ -810,6 +810,20 @@ asks for a line count, `media` for a duration and sample rate, `archive` for the
 something, so none is inferred here. A file whose header parses as an image is never counted for
 lines whatever `text` says, because the newlines in a bitmap are a number nothing should be shown.
 
+### shebang
+
+`{"c":"shebang","path":"<string>","id":<uint>}`
+
+Example: `{"c":"shebang","path":"/home/gm/run.sh","id":3}`
+
+The cursor row's two-byte `#!` probe behind the Make executable menu row, for **one path the
+client named**, never a sweep: only a regular file without its owner execute bit is ever asked
+about. Answers one `shebang` line, `{"t":"shebang","path":"<string>","hasShebang":<bool>,"id":<uint>}`,
+on a thread, because an open on a hung mount never returns and the loop waits on nothing. The
+`id` echoes the request so a later answer never arms an earlier row: a client that asked twice
+keeps the newest `id` and drops any line naming an older one. A path that is not a regular file,
+or that cannot be read, answers `hasShebang` false rather than an error, so the row stays absent.
+
 ### undo
 
 `{"c":"undo"}`
@@ -1184,6 +1198,18 @@ column's mark can follow the target the way a listing row's does.
 its row does), resolved from `/etc/passwd` alone and never through `getpwuid`: that call goes through
 NSS and can wait on a network directory, and the meta thread must never hang the column on one. A uid
 no local account carries answers the empty string, never the number dressed as a name.
+
+### shebang
+
+`{"t":"shebang","path":"<string>","hasShebang":<bool>,"id":<uint>}`
+
+Example: `{"t":"shebang","path":"/home/gm/run.sh","hasShebang":true,"id":3}`
+
+The answer to one `shebang` request, carrying its `id` back. `hasShebang` is true only when the
+path opened as a regular file and its first two bytes were `#!`; anything else, a directory, a
+FIFO, a missing path or an unreadable file, answers false. The open is the backend's own
+regular-file open, so a FIFO is refused before any open and a row swapped for one inside that
+window is closed again, the same rule `meta` follows.
 
 ### collisions
 

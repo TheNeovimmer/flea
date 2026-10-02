@@ -147,7 +147,7 @@ function act(action, root, menuId, paths) {
     case "escape":
         if (root.filterTyping || root.filterQuery.length > 0) Filter.close(root)
         else if (root.searchMode.length > 0 && root.focusView === LIST) Search.cancel(root)
-        else if (root.recentMode.length > 0 && root.focusView === LIST) RecentMode.close(root)
+        else if (root.recentMode.length > 0 && root.focusView === LIST) { if (root.listInFlight) root.message("A directory is already loading.", false); else RecentMode.close(root) }
         else if (root.statusBar && root.statusBar.escapePressed()) return
         else if (escapeUp(root)) root.openParent()
         else root.escapePressed()
@@ -162,7 +162,7 @@ function act(action, root, menuId, paths) {
     // does: leaving it up would hide every result that did not happen to match it.
     case "search": Filter.close(root); Search.start(root); return
     case "filter": Filter.start(root); return
-    case "reveal": if (root.recentMode.length > 0) RecentMode.reveal(root); else Search.reveal(root); return
+    case "reveal": if (root.recentMode.length > 0) { if (root.listInFlight) root.message("A directory is already loading.", false); else RecentMode.reveal(root) } else Search.reveal(root); return
     // The write operations; every one of them is reversible with undo, so none of them confirms.
     case "duplicate": Ops.duplicate(root, menuId); return
     case "trash": Ops.trash(root, menuId); return
@@ -174,7 +174,9 @@ function act(action, root, menuId, paths) {
     // MenuAdditions040: c opens Copy as at the cursor, P opens Paste as, V
     // flips the selection, and Ctrl+Shift+C copies the paths at once.
     case "copyAs": root.openCopyAs(); return
-    case "pasteAs": root.openPasteAs(); return
+    case "pasteAs":
+        if (root.recentMode.length > 0) { root.message("This listing is a history, and cannot take a paste.", false); return }
+        root.openPasteAs(); return
     case "invertSelection": root.invertSelection(); return
     case "showOriginal": root.showOriginal(); return
     case "makeExecutable": root.makeExecutable(paths); return
@@ -183,9 +185,11 @@ function act(action, root, menuId, paths) {
     case "copyStem": Ops.copyAs(root, "stem", paths); return
     case "copyUri": Ops.copyAs(root, "uri", paths); return
     case "copyQuoted": Ops.copyAs(root, "quoted", paths); return
-    case "pasteLink": root.pasteLink("relative", paths); return
-    case "pasteAbsoluteLink": root.pasteLink("absolute", paths); return
-    case "pasteHardLink": root.pasteLink("hard", paths); return
+    case "pasteLink":
+    case "pasteAbsoluteLink":
+    case "pasteHardLink":
+        if (RecentMode.refusePaste(root)) return
+        root.pasteLink(action === "pasteAbsoluteLink" ? "absolute" : action === "pasteHardLink" ? "hard" : "relative", paths); return
     case "cut": Ops.clip(root, true, paths); return
     // Recent is a history, not a directory: pasting or creating there would land in the root it stands on.
     case "paste": if (root.recentMode.length > 0) { root.message("This listing is a history, and cannot take a paste.", false); return } Ops.paste(root); return
@@ -246,12 +250,19 @@ function act(action, root, menuId, paths) {
 }
 
 // Issue 29: Escape climbs to the parent while the setting is on, and only then: a filter,
-// a search, an open menu, the collision card, a selection or a listing out
+// a search, an open menu, the collision card, a deliberate selection or a listing out
 // all keep the key, because each of them is something Escape already unwinds or refuses behind.
 function escapeUp(root) {
     return root.escapeUp === true && root.searchMode.length === 0
         && root.filterQuery.length === 0 && !root.filterTyping && !root.menuVisible
-        && !(root.collide && root.collide.opened) && root.selectionCount() === 0 && !root.listInFlight
+        && !(root.collide && root.collide.opened) && !hasDeliberateMarks(root) && !root.listInFlight
+}
+
+// A lone following mark never counts as a selection, so Escape keeps climbing.
+function hasDeliberateMarks(root) {
+    if (root.selectionCount() === 0)
+        return false
+    return !(root.selection && root.selection.follows && root.selection.follows())
 }
 
 // Only a step from an end wraps; page overshoots and selection extensions retain their clamps.
@@ -292,6 +303,8 @@ function leavesLine(event) {
     return LEAVES_LINE.indexOf(Keymap.lookup(event.key, event.text, event.modifiers)) >= 0
 }
 
+// Only the second press of the same pair on the same selection fires.
+var ARMED_PAIRS = { copyArm: true, cutArm: true, pasteArm: true, cursorFirstArm: true }
 // Vim pairs are consecutive inputs on the same selection; pointer or navigation changes disarm them.
 function sequenceAction(action, root) {
     var pairs = { copyArm: "copy", cutArm: "cut", pasteArm: "paste", cursorFirstArm: "cursorFirst" }
@@ -336,6 +349,9 @@ function handleKey(event, root, sidebar) {
         return Filter.typeKey(event, root)
     }
     var action = lookup(event, root)
+    // Escape cancels an armed trash or vim pair first and stops.
+    var escapeCancelsArm = action === "escape"
+        && (root.trashArmedAt > 0 || ARMED_PAIRS[root.keySequence] === true)
     action = sequenceAction(action, root)
     // Anything that is not the second d of the pair disarms it, so an arm never outlives the key
     // after it; ui/js/Trash.js re-stamps on its own, which is why it reads the stamp before writing.
@@ -387,6 +403,14 @@ function handleKey(event, root, sidebar) {
     }
     if (root.focusView === RAIL && sidebar) {
         RailKeys.act(action, root, sidebar)
+        return true
+    }
+    // An armed pair keeps Escape to cancel the arm instead of climbing.
+    if (action === "escape" && escapeCancelsArm) {
+        root.trashArmedAt = 0
+        root.keySequence = ""
+        root.keySequenceIdentity = ""
+        root.message("", false)
         return true
     }
     // No key acts on a row while a listing is out, see AGENTS.md "The listing swap"; it says why instead.

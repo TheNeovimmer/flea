@@ -139,9 +139,7 @@ function run(check) {
     // editor over whatever file arrived at that row, and in the parent it was a directory.
     check("and forgets the open rename, whose row is about to be a different file",
           fresh.renamingIndex, -1)
-    // A re-list puts a different file at the tapped index, so the slow-click
-    // record goes with the rename: otherwise the next tap renames the file
-    // that arrived there. -2 is SlowClick.cancel's cleared value.
+    // A re-list puts a different file at the tapped index, so the slow-click record goes with the rename.
     check("and clears the slow-click tap record", fresh.slowClickIndex, -2)
     check("and stops its timer through the pane", fresh.cancelled, 1)
     // The direct reset PaneSwap.release runs on a re-read: same clearing by name.

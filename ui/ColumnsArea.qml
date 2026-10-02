@@ -360,6 +360,7 @@ Item {
                     if (root.showGreatGrandparent && root.greatGrandparentShown)
                         root.menuOnNeighbourBackground(root.greatGrandparentPath, eventPoint)
                 }
+                onTabRequested: function (row) { Tap.tappedTab(row, root.greatGrandparentPath, root.pane) }
             }
         }
 
@@ -384,6 +385,7 @@ Item {
                     if (root.showGrandparent && root.grandparentShown)
                         root.menuOnNeighbourBackground(root.grandparentPath, eventPoint)
                 }
+                onTabRequested: function (row) { Tap.tappedTab(row, root.grandparentPath, root.pane) }
             }
         }
 

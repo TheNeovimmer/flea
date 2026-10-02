@@ -5,13 +5,7 @@ import Quickshell
 import "flea" as Flea
 import "flea/js/Filter.js" as Filter
 
-// F7: List.showCursor's context-0 branch must work in the originY space, the way
-// the columns view does. A rename error expands row 0, scrolling to the bottom
-// and abandoning collapses it, which shifts Qt's originY; a click on a truly
-// whole row must then leave contentY unchanged. The row the probe clicks is
-// gated both ways first: naive-cut (the old code would move) and truly whole (the
-// new code must not), so the check cannot pass vacuously.
-// tests/clickedge-origin.sh drives this offscreen over the real ui/List.qml.
+// Context-0 click on a whole row leaves contentY unchanged under shifted originY; driven offscreen over real ui/List.qml.
 ShellRoot {
     id: root
 

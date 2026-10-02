@@ -119,6 +119,7 @@ ListView {
         // -1 is also what Filter.at answers for a stale delegate, so an idle list must never light one.
         dropTarget: dragSession.dropIndex >= 0 && listingIndex === dragSession.dropIndex
         dropCopying: dragSession.dragCopy
+        dropLinking: dragSession.dragLink
 
         onRenameCommitted: function (newName) { root.pane.commitRename(newName) }
         onRenameAbandoned: root.pane.renamingIndex = -1
@@ -296,15 +297,10 @@ ListView {
         onTriggered: root.requestIfDrifted()
     }
 
-    // The cursor keeps three rows of context above and below while scrolling, and still reaches
-    // the first and last rows; ui/Pane.qml routes every cursor move through here, never Contain.
-    // A click carries context 0 so the list never moves under the pointer.
+    // The cursor keeps three rows of context above and below while scrolling; every cursor move routes through here.
     function showCursor(view, context) {
         var rowH = Theme.fileRowHeight
-        // The pointer case answers in pixels in the originY space, the way the
-        // columns view does: Qt shifts originY when expanded delegates collapse,
-        // and row offsets start at that origin. A row cut by the edge moves just
-        // enough to show it whole, and a whole row moves nothing.
+        // The pointer case answers in pixels in the originY space, where rows start; a cut row moves just enough to show whole.
         if (context === 0) {
             var top = view * rowH
             var rel = ScrollOff.containY(top, rowH, root.contentY - root.originY, root.height)

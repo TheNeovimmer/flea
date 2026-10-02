@@ -6,6 +6,7 @@ import "js/Errors.js" as Errors
 import "js/Anchor.js" as Anchor
 import "js/Nav.js" as Nav
 import "js/Ops.js" as Ops
+import "js/Permissions.js" as Permissions
 import "js/Status.js" as Status
 import "js/Search.js" as Search
 import "js/Swap.js" as Swap
@@ -219,24 +220,23 @@ Item {
                 watchSettle.start()
         }
 
-        // A thumbed line for the previous listing is still in the pipe when open() clears the map.
-        // A cache-only miss on a generating class is a prefetch that found nothing cached:
-        // it returns to unasked so the viewport asks it again, while a cache-only class
-        // keeps the miss. Only a prefetch marks CACHE_ASKED on a generating class, since
-        // the column asks full there.
+        // A thumbed line for the previous listing is still in the pipe when open() clears the map, so it is dropped.
+        // A cache-only miss on a generating class returns to unasked so the viewport asks it again instead of keeping the miss.
         function onThumbed(row, file) {
             if (pane.listInFlight)
                 return
             if (file === "" && pane.thumbState.file[row] === Thumbs.CACHE_ASKED
                     && (!pane.storageKnown || !ExtThumbs.cacheOnly(pane.storageClass, ViewState.preview))) {
                 pane.thumbState = Thumbs.miss(pane.thumbState, row, true, pane.thumbCap)
-                // The row a prefetch asked and lost is visible work again: the settled
-                // view re-plans it in full, the way a class switch re-asks its misses.
+                // A lost prefetch is visible work again, so the settled view re-plans it in full, never as a prefetch.
                 // The re-plan never prefetches, so this cannot ask twice in one rest.
                 if (pane.listArea) pane.listArea.restartSettle()
             } else
                 pane.thumbState = Thumbs.remember(pane.thumbState, row, file, pane.thumbCap)
         }
+
+        // The Make executable row's own probe, answered off the loop; the pane keeps only its newest id.
+        function onShebang(path, hasShebang, id) { pane.noteShebang(path, hasShebang, id) }
 
         // A dirsized line for the previous listing is still in the pipe when open() clears the map.
         function onDirSized(row, bytes, partial) {
@@ -366,11 +366,9 @@ Item {
             pane.refresh("")
         }
 
-        // MenuAdditions040 callout 10: Make executable reuses the permissions batch for its one
-        // Mode step, so undo and redo already work. Only the pending id this pane sent is answered
-        // here; the dialog's own batches stay with the dialog.
+        // MenuAdditions040 callout 10: Make executable reuses permissions batch; only this pane's pending id is answered here.
         function onPermissionsResult(message) {
-            var pending = 1000000 + pane.makeExecPendingId
+            var pending = Permissions.MAKE_EXEC_ID + pane.makeExecPendingId
             if (!pane.makeExecPendingId || !message || message.id !== pending || message.op !== "applyMany") return
             pane.makeExecPendingId = 0
             if (message.ok === true) {

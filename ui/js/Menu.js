@@ -320,6 +320,15 @@ function pasteAsEntries() {
     ]
 }
 
+// A hidden row still opens its flyout, built from the action.
+function flyoutEntries(action) {
+    if (action === "copyAs")
+        return copyAsEntries()
+    if (action === "pasteAs")
+        return pasteAsEntries()
+    return []
+}
+
 
 // The Sort by flyout, built from ui/js/Sort.js's own ORDERS so it can only ever offer an order the
 // backend really produces; a fourth key would earn a refusal instead of a listing.
