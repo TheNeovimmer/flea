@@ -59,7 +59,7 @@ tests/js/settings.js 337
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 396
-tests/markdown-render.qml 493
+tests/markdown-render.qml 600
 tests/preview-settle-live.qml 450
 tests/preview-decode.qml 444
 tests/js/status.js 354

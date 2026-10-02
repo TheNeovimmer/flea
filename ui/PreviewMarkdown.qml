@@ -554,7 +554,9 @@ Item {
                                 Flea.MarkdownText {
                                     id: marker
                                     text: block.ordered ? (block.start + index) + "." : "•"
-                                    textFormat: Text.PlainText
+                                    // The marker shares the item's line box and first-line leading.
+                                    textFormat: Text.RichText
+                                    height: marker.box
                                     wrapMode: Text.NoWrap
                                 }
 

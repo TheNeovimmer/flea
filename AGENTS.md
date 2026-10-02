@@ -2034,7 +2034,10 @@ its own decisive axis (the toolchain) made the rest of that measurement moot. `u
 `tools/flea-file-budget` scans `src`, `ui` and `tests` for `.rs`, `.qml` and `.js`
 files. Rust and QML get a 250-line soft budget and a 400-line hard cap; JS gets 200
 soft and 300 hard. Going over the hard cap fails the tool; going over the soft budget
-only warns. The budget is a smell detector, not a target, and **it is not a reason to refactor a
+only warns. The md3 Markdown rhythm harness recorded `tests/markdown-render.qml` at 493 lines;
+its marker-baseline follow-up raises that one scoped ceiling to 600 for two-size painted-baseline
+and adjacent-item geometry checks, with the details beside the md3 paragraph below.
+The budget is a smell detector, not a target, and **it is not a reason to refactor a
 stable file**. Three files cross the hard cap purely as arithmetic of a clean merge for 0.1.4, with
 no conflict and no new code: `ui/ChromeBar.qml`, `ui/Sidebar.qml` and `ui/Row.qml`, the last by a
 single line. `ui/NetworkMounts.qml` was a
@@ -7156,3 +7159,14 @@ geometry checks, and `ui/js/MdBlocks.js` 356 to 367 for ATX headings as a block 
 in the foreground at 20/14 and 15/14 of `Theme.font.body` through `ui/MarkdownText.qml`'s 1.7 line box, which
 supersedes k2's Qt-sized headings above; setext headings keep Qt's sizes. The block gap, fence padding and document
 inset come from the existing row tokens rather than new literals.
+
+md3's marker-baseline follow-up keeps list markers on the item's line box through literal rich
+text instead of plain text; Markdown would parse an isolated ordered marker as its own list.
+Their explicit height is the font-derived 1.7 box, so rich text's extra implicit height cannot stretch a list row.
+`tests/markdown-render.qml` grows from 493 to 600 lines for grabs
+at the suite's body size and a larger supported stop, mapped baseline checks, quote-bar span,
+table header and body alignment, remote-placeholder centres and failed-figure padding. Qt's
+`baselineOffset` omits the Markdown fixed-height leading, so `tests/markdown-render.js` also
+compares first-line ink against a single-line reference that draws marker and item on one shared
+baseline, accounting for raised bullets and descenders without trusting fallback-font glyph bounds.
+Only this harness ceiling changes; the global caps and every existing assertion remain in force.

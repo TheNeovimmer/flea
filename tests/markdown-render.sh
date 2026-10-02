@@ -62,7 +62,7 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
 # Sample input, the verdict line: "  INFO qml: MARKDOWN_RENDER PASS chip, rules, bar and links all read"
 if [ "$(printf '%s\n' "$output" | grep -c 'MARKDOWN_RENDER PASS')" -ne 1 ] || printf '%s\n' "$output" | grep -q 'MARKDOWN_RENDER FAIL'; then
     printf 'FAIL the rendered preview missed a pixel fact\n'
-    printf '%s\n' "$output" | grep -aE 'MARKDOWN_RENDER|ERROR|error' | head -20
+    printf '%s\n' "$output" | grep -aE 'MARKDOWN_RENDER|ERROR|error'
     exit 1
 fi
 # The offscreen platform itself says it cannot mask a FloatingWindow; that one line is the platform's, never the probe's.
@@ -76,10 +76,13 @@ if [ -n "$warnings" ]; then
     printf '%s\n' "$warnings" | head -10
     exit 1
 fi
-shot=$(ls "$test_root/runtime"/markdown-render-*.png 2>/dev/null | head -1)
+shot=$(ls "$test_root/runtime"/markdown-render-*-base.png 2>/dev/null | head -1)
 if [ -n "${FLEA_CI_SUITE_LOGS:-}" ] && [ -n "$shot" ]; then
     mkdir -p "$FLEA_CI_SUITE_LOGS" || exit 1
     cp "$shot" "$FLEA_CI_SUITE_LOGS/markdown-render.png" || exit 1
+    large_shot=$(ls "$test_root/runtime"/markdown-render-*-large.png 2>/dev/null | head -1)
+    [ -n "$large_shot" ] || exit 1
+    cp "$large_shot" "$FLEA_CI_SUITE_LOGS/markdown-render-large.png" || exit 1
     printf 'shot %s\n' "$FLEA_CI_SUITE_LOGS/markdown-render.png"
 elif [ -n "$shot" ]; then
     printf 'shot %s\n' "$shot"

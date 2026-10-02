@@ -32,6 +32,137 @@ function markerOf(item) {
     return null;
 }
 
+// Compare first-line baselines in pane coordinates, including every row's position and text padding.
+function listBaselineError(item, pane, count, body, grab, inkAt, reference) {
+    if (!item)
+        return "no list block was instantiated";
+    var seen = 0;
+    var error = "";
+    for (var i = 0; i < item.children.length; i++) {
+        var column = item.children[i];
+        if (!column.visible)
+            continue;
+        for (var r = 0; r < column.children.length; r++) {
+            var row = column.children[r];
+            if (row.children.length < 2 || row.children[0].box === undefined)
+                continue;
+            var marker = row.children[0];
+            var text = row.children[1];
+            seen++;
+            if (marker.font.pixelSize !== body || text.font.pixelSize !== body)
+                error = "row " + seen + " did not draw at body " + body;
+            if (marker.height !== text.box)
+                error = "row " + seen + " marker height " + marker.height + " differs from first-line box " + text.box;
+            var markY = marker.mapToItem(pane, 0, marker.baselineOffset).y;
+            var textY = text.mapToItem(pane, 0, text.baselineOffset).y;
+            if (Math.abs(markY - textY) > 0.5)
+                error = "row " + seen + " marker baseline " + markY + " differs from item " + textY
+                    + " by " + (markY - textY) + " px";
+            var ref = reference(marker.text, text.text);
+            var markBottom = inkBottom(marker, grab, inkAt);
+            var textBottom = inkBottom(text, grab, inkAt);
+            var refMarkBottom = ref ? inkBottom(ref.item, grab, inkAt, 0, ref.split) : null;
+            var refTextBottom = ref ? inkBottom(ref.item, grab, inkAt, ref.split, ref.item.width) : null;
+            if (markBottom === null || textBottom === null || refMarkBottom === null || refTextBottom === null)
+                error = "row " + seen + " lost its first-line ink";
+            else {
+                var diff = (markBottom - textBottom) - (refMarkBottom - refTextBottom);
+                if (Math.abs(diff) > 0.5)
+                    error = "row " + seen + " painted baselines differ by " + diff + " px";
+            }
+        }
+    }
+    return seen !== count ? "read " + seen + " list rows, want " + count : error;
+}
+
+// A single reference line gives raised bullets and descenders their rendered offsets from one shared baseline.
+function inkBottom(text, grab, inkAt, from, to) {
+    var at = text.mapToItem(grab, 0, 0);
+    var bottom = null;
+    for (var y = Math.floor(at.y); y < Math.ceil(at.y + text.box); y++)
+        for (var x = Math.floor(at.x + (from || 0)); x < Math.ceil(at.x + (to === undefined ? Math.min(text.width, text.contentWidth) : to)); x++)
+            if (inkAt(x, y))
+                bottom = y;
+    return bottom;
+}
+
+function quoteBoxError(item, pane) {
+    if (item)
+        for (var i = 0; i < item.children.length; i++) {
+            var row = item.children[i];
+            var text = row.visible ? textOf(row) : null;
+            if (!text)
+                continue;
+            for (var j = 0; j < row.children.length; j++) {
+                var bar = row.children[j];
+                if (bar.color === undefined || bar.width !== 2)
+                    continue;
+                var diff = bar.mapToItem(pane, 0, 0).y - text.mapToItem(pane, 0, 0).y;
+                return Math.abs(diff) <= 0.5 && Math.abs(bar.height - text.height) <= 0.5 ? ""
+                    : "bar starts " + diff + " px from the text box and spans " + bar.height + "/" + text.height;
+            }
+        }
+    return "no quote text and bar arrived";
+}
+
+function tableBaselineError(item, pane, rows, columns) {
+    var seen = 0;
+    var error = "";
+    function visit(parent) {
+        var cells = [];
+        for (var i = 0; i < parent.children.length; i++) {
+            var kid = parent.children[i];
+            if (!kid.visible)
+                continue;
+            if (kid.box !== undefined)
+                cells.push(kid);
+            else
+                visit(kid);
+        }
+        if (cells.length === 0)
+            return;
+        seen++;
+        if (cells.length !== columns)
+            error = "row " + seen + " has " + cells.length + " cells, want " + columns;
+        var baseline = cells[0].mapToItem(pane, 0, cells[0].baselineOffset).y;
+        for (var c = 1; c < cells.length; c++)
+            if (Math.abs(cells[c].mapToItem(pane, 0, cells[c].baselineOffset).y - baseline) > 0.5
+                    || cells[c].topPadding !== cells[0].topPadding || cells[c].lineHeight !== cells[0].lineHeight)
+                error = "row " + seen + " cell " + c + " left its first-line baseline or box";
+    }
+    if (item)
+        visit(item);
+    return seen !== rows ? "read " + seen + " table rows, want " + rows : error;
+}
+
+function remoteLineError(item, pane) {
+    if (item)
+        for (var i = 0; i < item.children.length; i++) {
+            var box = item.children[i];
+            if (!box.visible)
+                continue;
+            for (var j = 0; j < box.children.length; j++) {
+                var row = box.children[j];
+                if (row.children.length !== 2 || row.children[0].name === undefined || row.children[1].text === undefined)
+                    continue;
+                var mark = row.children[0];
+                var text = row.children[1];
+                var diff = mark.mapToItem(pane, 0, mark.height / 2).y - text.mapToItem(pane, 0, text.height / 2).y;
+                return Math.abs(diff) <= 0.5 ? "" : "placeholder mark and text centres differ by " + diff + " px";
+            }
+        }
+    return "no remote placeholder line arrived";
+}
+
+function fallbackOf(figure) {
+    for (var i = 0; i < figure.children.length; i++) {
+        var kid = figure.children[i];
+        if (kid.color !== undefined && kid.children.length === 1 && kid.children[0].text !== undefined)
+            return kid;
+    }
+    return null;
+}
+
 function fenceOf(item) {
     for (var i = 0; i < item.children.length; i++)
         if (item.children[i].objectName === "fenceBox")

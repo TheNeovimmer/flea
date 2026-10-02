@@ -14,7 +14,8 @@ ShellRoot {
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
 
     property string fixture: Quickshell.env("FLEA_MARKDOWN_FIXTURE")
-    property string shotPath: Quickshell.env("XDG_RUNTIME_DIR") + "/markdown-render-" + Quickshell.processId + ".png"
+    property string shotPath: Quickshell.env("XDG_RUNTIME_DIR") + "/markdown-render-" + Quickshell.processId
+        + (shell.larger ? "-large.png" : "-base.png")
     property bool done: false
     // The Canvas paints on its own when it loads, so analysis runs only once armed behind a grab.
     property bool armed: false
@@ -23,6 +24,31 @@ ShellRoot {
     // fires offscreen. A resize alone does not trigger it.
     property int driveStep: 0
     property int failures: 0
+    property var savedState: ({})
+    property int suiteBody: 0
+    property bool larger: false
+
+    FontMetrics { id: listMetrics; font.family: Flea.Theme.font.family; font.pixelSize: Flea.Theme.font.body }
+
+    function listSamples() {
+        var samples = []
+        for (var i = 0; i < md.blockList.length; i++) {
+            var b = md.blockList[i]
+            if (b.type === "list")
+                for (var r = 0; r < b.items.length; r++)
+                    samples.push({ marker: b.ordered ? (b.start + r) + "." : String.fromCharCode(8226), text: b.items[r] })
+        }
+        return samples
+    }
+
+    function referenceLine(marker, text) {
+        for (var i = 0; i < references.count; i++) {
+            var item = references.itemAt(i)
+            if (item.sample.marker === marker && item.sample.text === text)
+                return { item: item, split: listMetrics.advanceWidth(marker + "  ") }
+        }
+        return null
+    }
 
     FloatingWindow {
         id: window
@@ -48,6 +74,23 @@ ShellRoot {
                 size: 1
                 view: "rendered"
             }
+
+            Column {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.leftMargin: md.insetX
+                Repeater {
+                    id: references
+                    model: shell.listSamples()
+                    delegate: Flea.MarkdownText {
+                        required property var modelData
+                        readonly property var sample: modelData
+                        textFormat: Text.RichText
+                        text: sample.marker + "&nbsp;&nbsp;&nbsp;&nbsp;" + sample.text
+                        wrapMode: Text.NoWrap
+                    }
+                }
+            }
         }
 
         // Loaders only: the grab reads md, so neither paints into it.
@@ -61,6 +104,14 @@ ShellRoot {
             path: shell.fixture
             size: 1
             view: "rendered"
+        }
+
+        Flea.MarkdownFigure {
+            id: fallbackProbe
+            width: 420
+            visible: false
+            askArmed: false
+            source: "first source line\nsecond source line"
         }
 
         Image { id: shot; width: 1; height: 1; opacity: 0 }
@@ -111,6 +162,17 @@ ShellRoot {
             shell.failures++
     }
 
+    // Both lists are measured at the suite's size and a larger supported text-size stop.
+    function listBaselines(inkAt) {
+        var body = Flea.Theme.font.body
+        for (var i = 0; i < md.blockList.length; i++) {
+            var block = md.blockList[i]
+            if (block.type === "list")
+                shell.check(Checks.listBaselineError(md.blockItem(i), md, block.items.length, body, grabRoot, inkAt, shell.referenceLine),
+                    (block.ordered ? "ordered" : "bullet") + " baselines at body " + body)
+        }
+    }
+
     // The board's geometry against the live tree: insets, rhythm, headings, line boxes, the code surface and the bar.
     function geometry() {
         var rects = []
@@ -137,6 +199,14 @@ ShellRoot {
         shell.check(Checks.rhythmError(rects, md.blockGap), "block rhythm")
         shell.check(Checks.headingError(h1, h2, para, body, ink), "heading sizes and ink")
         shell.check(Checks.lineBoxError(texts), "line boxes")
+        shell.check(Checks.quoteBoxError(md.blockItem(shell.blockIndex("quote")), md), "quote bar spans line box")
+        var tableIndex = shell.blockIndex("table")
+        var table = md.blockList[tableIndex]
+        shell.check(Checks.tableBaselineError(md.blockItem(tableIndex), md, table.rows.length + 1, table.cols),
+            "table header and body baselines")
+        shell.check(Checks.remoteLineError(md.blockItem(shell.blockIndex("remote")), md), "remote placeholder centres")
+        shell.check(Checks.fencePadError(Checks.fallbackOf(fallbackProbe), Flea.Theme.spacing.gap, Flea.Theme.spacing.gap),
+            "figure fallback padding")
         var fence = Checks.fenceOf(md.blockItem(shell.blockIndex("fence")))
         shell.check(Checks.surfaceError(fence, String(Flea.Theme.color.surface), String(Flea.Theme.color.background)), "column fence surface")
         shell.check(Checks.fencePadError(fence, md.fencePadX, md.fencePadY), "fence padding")
@@ -199,9 +269,20 @@ ShellRoot {
             else if (shell.driveStep === 2) md.view = "rendered"
             else {
                 driver.stop()
+                fallbackProbe.error = "fixture refusal"
                 shell.log("grabbing")
                 grabRoot.grabToImage(shell.grabbed)
             }
+        }
+    }
+
+    // The larger layout must settle before its second grab, while the base-size failures remain counted.
+    Timer {
+        id: largerSettle
+        interval: 350
+        onTriggered: {
+            fallbackProbe.error = "fixture refusal"
+            grabRoot.grabToImage(shell.grabbed)
         }
     }
 
@@ -237,6 +318,7 @@ ShellRoot {
     function analyze(ctx) {
         var w = 560
         var h = 1080
+        ctx.clearRect(0, 0, w, h)
         ctx.drawImage(shot, 0, 0)
         var pixels = ctx.getImageData(0, 0, w, h).data
         function at(x, y) {
@@ -253,6 +335,27 @@ ShellRoot {
         // The CI theme's foreground is its own gray, never the board's #c0caf5, so ink reads
         // off the component beside the border rather than off a hardcoded token.
         var fg = parse(String(md.inkHex).toLowerCase())
+        var ground = parse(String(window.color).toLowerCase())
+        function inkAt(x, y) {
+            if (x < 0 || x >= w || y < 0 || y >= h)
+                return false
+            var c = at(x, y)
+            var toInk = 0
+            var toGround = 0
+            for (var i = 0; i < 3; i++) {
+                toInk += Math.abs(c[i] - fg[i])
+                toGround += Math.abs(c[i] - ground[i])
+            }
+            return toInk < toGround
+        }
+        shell.listBaselines(inkAt)
+        if (shell.larger) {
+            shell.check(Flea.Theme.font.body > shell.suiteBody ? "" : "text size did not grow", "larger text size")
+            Flea.ViewState.state = shell.savedState
+            if (shell.failures > 0)
+                return shell.fail(shell.failures + " geometry checks failed")
+            return shell.pass("run, chip, markers at two sizes, rules, fence, box, bar and links all read")
+        }
 
         // The chrome chip behind the inline code, confined to its line, never full-bleed.
         var codeIdx = shell.blockIndex("run", "<code")
@@ -486,8 +589,12 @@ ShellRoot {
                 if (c[2] >= 200 && c[0] <= 110 && c[1] <= 170)
                     return shell.fail("a Qt default link blue survived at " + px + "," + py)
             }
-        if (shell.failures > 0)
-            return shell.fail(shell.failures + " geometry checks failed")
-        shell.pass("run, chip, markers, rules, fence, box, bar and links all read")
+        shell.savedState = Flea.ViewState.state
+        shell.suiteBody = Flea.Theme.font.body
+        shell.larger = true
+        Flea.ViewState.state = Object.assign({}, shell.savedState,
+            { display: { textSize: { mode: shell.suiteBody < 16 ? 16 : 20 } } })
+        shell.armed = false
+        largerSettle.start()
     }
 }
