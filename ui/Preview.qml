@@ -447,7 +447,7 @@ Item {
                 truncate: root.pane ? (root.pane.storageClass === "network" || root.pane.storageClass === "phone") : false
             }
 
-            // Load the Markdown bar and pane by file path only when a Markdown document is shown.
+            // A file-path Loader, never an inline Component, so a window that never shows Markdown never compiles it.
             Loader {
                 id: markdownLoader
                 anchors.fill: parent

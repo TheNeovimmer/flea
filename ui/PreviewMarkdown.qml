@@ -237,7 +237,7 @@ Item {
                         font.pixelSize: Theme.font.body
                     }
 
-                    // Structured tables hug cell widths with bold headers and horizontal rules, using Grid, Column and Row.
+                    // Tables hug their cells with Grid, Column and Row, never QtQuick.Layouts, so the preview never loads it.
                     Column {
                         id: tableGrid
                         visible: block.type === "table"

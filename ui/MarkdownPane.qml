@@ -2,7 +2,7 @@ import QtQuick
 import "." as Flea
 import "js/Icons.js" as Icons
 
-// Lazy Markdown bar and pane: mark, name, line count, 20 px Rendered/Source control and close, covered by a held picture.
+// The Markdown bar and pane, loaded only for a Markdown file; a held picture covers the whole item.
 Item {
     id: root
 
