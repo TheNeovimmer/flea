@@ -50,9 +50,7 @@ enum Control {
     Quit,
 }
 
-// st_mode file-type mask and the directory bits, for the DT_UNKNOWN correction below.
-const S_IFMT: u32 = 0o170000;
-const S_IFDIR: u32 = 0o040000;
+// No is_dir correction here: scan resolved every type before the order, so a flip would contradict it.
 
 // Errors are responses, so the loop never exits on a bad request.
 pub fn run() -> i32 {
@@ -123,7 +121,8 @@ pub fn run() -> i32 {
             // The open mount went away, so the pane leaves the volume for its nearest parent.
             Event::Unmounted(wd) => {
                 if watch.is_current(wd) {
-                    let parent = super::watch::nearest_parent(&st.base, |p| p.symlink_metadata().is_ok());
+                    let start = watch.unmount_start(&st.base);
+                    let parent = super::watch::nearest_parent(&start, |p| p.symlink_metadata().is_ok());
                     say(&mut out, &super::watch::unmounted_line(&st.base, &parent));
                     poller.clear();
                 }
@@ -473,13 +472,13 @@ pub(crate) fn drain(
 pub fn write_window(out: &mut impl Write, st: &mut State, start: usize, count: usize, tb: &Tables) {
     let (metas, ms) = stat_range(&st.base, &st.listing, start, count);
     let start = start.min(st.listing.len());
-    // Corrects an optimistic DT_UNKNOWN dir once its mode is known, viewport rows only.
+    // Sample window: start 0 with 3 metas keeps keys 0..3, so a scrolled-past window never grows the map.
     for (i, m) in metas.iter().enumerate() {
-        if m.mode != 0 {
-            st.listing.spans[start + i].is_dir = m.mode & S_IFMT == S_IFDIR;
-        }
         st.window_meta.insert(start + i, (m.mode, m.mtime, m.target_is_dir));
     }
+    // Viewport-sized only: scan resolved every type before the order, so no flip may contradict it.
+    let end = start.saturating_add(metas.len());
+    st.window_meta.retain(|&row, _| row >= start && row < end);
     let mut kinds = tb.kinds.borrow_mut();
     let line = rows_line(&st.listing, &metas, start, ms, &tb.mime, &tb.icons, &tb.aliases, &tb.thumbs, &mut kinds);
     writeln!(out, "{}", super::rowguard::stamped(line, st.generation)).ok();

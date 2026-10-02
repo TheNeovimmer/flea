@@ -2,7 +2,7 @@
 use super::{dirsize, events::Event};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, atomic::{AtomicU64, Ordering}, mpsc::{channel, Receiver, Sender}};
+use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}, mpsc::{channel, Receiver, Sender}};
 use std::time::{Duration, Instant};
 
 pub struct Done {
@@ -32,7 +32,8 @@ pub struct Worker {
     events: Sender<Event>,
     started: Option<Instant>,
     current: Arc<std::sync::Mutex<Option<PathBuf>>>,
-    stuck: HashMap<PathBuf, Instant>,
+    stuck: HashMap<PathBuf, (Instant, Arc<AtomicBool>)>,
+    abandoned: HashMap<u64, (PathBuf, usize, Arc<AtomicBool>)>,
 }
 
 // One thread per worker generation; a stuck thread is abandoned, never joined.
@@ -84,7 +85,7 @@ impl Worker {
         let generation = Arc::new(AtomicU64::new(0));
         let current = Arc::new(std::sync::Mutex::new(None));
         spawn_thread(rx, generation.clone(), events.clone(), walk, Arc::clone(&current));
-        Self { jobs, generation, active: None, events, started: None, current, stuck: HashMap::new() }
+        Self { jobs, generation, active: None, events, started: None, current, stuck: HashMap::new(), abandoned: HashMap::new() }
     }
 
     // Past the walk deadline with no answer, so the next batch replaces the thread.
@@ -99,14 +100,28 @@ impl Worker {
         })
     }
     fn prune_stuck(&mut self) {
-        self.stuck.retain(|_, t| t.elapsed() < Duration::from_secs(STUCK_TTL_SECS));
+        // A dead mount holds one thread: its mark stays until the abandoned walk returns, whatever the TTL says.
+        self.stuck.retain(|_, (t, done)| t.elapsed() < Duration::from_secs(STUCK_TTL_SECS) || !done.load(Ordering::Relaxed));
+    }
+    // Sample input: mark 61 s old with its thread still out stays, with its thread back goes.
+    fn stuck_skips(&self, path: &Path) -> bool {
+        match self.stuck.get(&mount_key(path)) {
+            Some((t, done)) => t.elapsed() < Duration::from_secs(STUCK_TTL_SECS) || !done.load(Ordering::Relaxed),
+            None => false,
+        }
     }
     pub fn start(&mut self, rows: Vec<(usize, PathBuf)>) {
         assert!(!self.busy());
         // A batch past its deadline abandons its thread, so sizes resume on a fresh worker.
         if self.active.is_some() {
             if let Some(held) = self.current.lock().unwrap_or_else(|p| p.into_inner()).clone() {
-                self.stuck.insert(mount_key(&held), Instant::now());
+                let mount = mount_key(&held);
+                let flag = Arc::new(AtomicBool::new(false));
+                let left = self.active.as_ref().map(|a| a.pending.len()).unwrap_or(0);
+                if let Some(active) = self.active.as_ref() {
+                    self.abandoned.insert(active.generation, (mount.clone(), left, Arc::clone(&flag)));
+                }
+                self.stuck.insert(mount, (Instant::now(), flag));
             }
             self.generation.fetch_add(1, Ordering::Relaxed);
             let (jobs, rx) = channel::<Job>();
@@ -123,7 +138,7 @@ impl Worker {
             if !pending.insert(row) {
                 continue;
             }
-            if self.stuck.get(&mount_key(&path)).is_some_and(|t| t.elapsed() < Duration::from_secs(STUCK_TTL_SECS)) {
+            if self.stuck_skips(&path) {
                 skipped.push(row);
             } else {
                 walk_rows.push((row, path));
@@ -144,14 +159,25 @@ impl Worker {
         }
     }
     pub fn cancel(&mut self) {
+        // The clock keeps running, so a walk wedged in a syscall after cancel still becomes stuck.
         self.generation.fetch_add(1, Ordering::Relaxed);
-        self.started = None;
     }
     // Even a cancelled completion releases the single slot, but cannot publish a stale row.
     pub fn accept(&mut self, done: &Done) -> bool {
+        let active_gen = match self.active.as_ref() {
+            Some(a) => a.generation,
+            None => {
+                self.note_abandoned(done);
+                return false;
+            }
+        };
+        if active_gen != done.generation {
+            self.note_abandoned(done);
+            return false;
+        }
         let (current, finished) = {
-            let Some(active) = self.active.as_mut() else { return false; };
-            if active.generation != done.generation || !active.pending.remove(&done.row) {
+            let active = self.active.as_mut().expect("checked above");
+            if !active.pending.remove(&done.row) {
                 return false;
             }
             let current = self.generation.load(Ordering::Relaxed) == done.generation;
@@ -160,8 +186,26 @@ impl Worker {
         if finished {
             self.active = None;
             self.started = None;
+        } else {
+            // One walk answered, so the next row gets its own deadline rather than the batch's.
+            self.started = Some(Instant::now());
         }
         current
+    }
+    // An abandoned walk's late row counts down its thread, so one dead mount holds at most one thread.
+    fn note_abandoned(&mut self, done: &Done) {
+        let finished = match self.abandoned.get_mut(&done.generation) {
+            Some((_, left, _)) => {
+                *left = left.saturating_sub(1);
+                *left == 0
+            }
+            None => return,
+        };
+        if finished {
+            if let Some((_, _, flag)) = self.abandoned.remove(&done.generation) {
+                flag.store(true, Ordering::Relaxed);
+            }
+        }
     }
 }
 
@@ -379,6 +423,72 @@ mod tests {
         assert_eq!(done.row, 1, "the fresh worker answers while the stuck thread is still held");
         assert!(worker.accept(&done));
         release.send(()).unwrap();
+    }
+
+    #[test]
+    fn a_healthy_batch_restarts_its_clock_per_row() {
+        // Sample input: batch start forced past the deadline, then one row lands, so stuck clears.
+        let (events, rx) = channel();
+        let (release, released) = channel();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = Arc::clone(&calls);
+        let mut worker = Worker::with_walk(events, move |_, _| {
+            if seen.fetch_add(1, Ordering::Relaxed) == 1 {
+                released.recv().unwrap();
+            }
+            dirsize::DirSize { bytes: 7, partial: false }
+        });
+        worker.start(vec![(0, PathBuf::from("first")), (1, PathBuf::from("second"))]);
+        let Event::DirSize(first) = rx.recv_timeout(Duration::from_secs(2)).unwrap() else { panic!() };
+        worker.force_past_deadline();
+        assert!(worker.stuck(), "a batch past its deadline counts as stuck");
+        assert!(worker.accept(&first), "the first row still publishes");
+        assert!(!worker.stuck(), "one answered row restarts the clock for the next walk");
+        assert!(worker.busy(), "the batch still holds the slot for its second row");
+        release.send(()).unwrap();
+        let Event::DirSize(second) = rx.recv_timeout(Duration::from_secs(2)).unwrap() else { panic!() };
+        assert!(worker.accept(&second));
+        assert!(!worker.busy());
+    }
+
+    #[test]
+    fn a_cancelled_batch_keeps_its_clock_so_a_wedge_still_times_out() {
+        // Sample input: cancel with a walk in flight keeps started, so the wedge becomes stuck.
+        let (events, _rx) = channel();
+        let (entered, entry) = channel();
+        let (release, released) = channel();
+        let mut worker = Worker::with_walk(events, move |_, _| {
+            entered.send(()).unwrap();
+            released.recv().unwrap();
+            dirsize::DirSize { bytes: 7, partial: false }
+        });
+        worker.start(vec![(0, PathBuf::from("wedged"))]);
+        entry.recv_timeout(Duration::from_secs(2)).unwrap();
+        worker.cancel();
+        assert!(worker.started.is_some(), "cancel leaves the clock running for the wedged walk");
+        assert!(!worker.stuck(), "a fresh cancel is not yet stuck");
+        worker.force_past_deadline();
+        assert!(worker.stuck(), "the cancelled wedge still becomes stuck and is replaced");
+        assert!(!worker.busy(), "so the slot releases for a fresh worker");
+        release.send(()).unwrap();
+    }
+
+    #[test]
+    fn a_dead_mount_holds_one_thread_until_its_walk_returns() {
+        // Sample input: mark 61 s old with its thread still out stays, with its thread back goes.
+        let (events, _rx) = channel();
+        let mut worker = Worker::with_walk(events, |_, _| dirsize::DirSize { bytes: 1, partial: false });
+        let probe = PathBuf::from("/media/stick");
+        let mount = mount_key(&probe);
+        let live = Arc::new(AtomicBool::new(false));
+        worker.stuck.insert(mount.clone(), (Instant::now() - Duration::from_secs(STUCK_TTL_SECS + 1), Arc::clone(&live)));
+        worker.prune_stuck();
+        assert!(worker.stuck.contains_key(&mount), "a thread still out keeps its mark past the TTL");
+        assert!(worker.stuck_skips(&probe), "so the dead mount is still skipped");
+        live.store(true, Ordering::Relaxed);
+        worker.prune_stuck();
+        assert!(!worker.stuck.contains_key(&mount), "a returned thread lets the TTL prune the mark");
+        assert!(!worker.stuck_skips(&probe), "so one walk tries the mount again");
     }
 
     #[test]

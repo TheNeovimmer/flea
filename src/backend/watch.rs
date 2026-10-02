@@ -20,7 +20,7 @@ const IN_MOVE_SELF: u32 = 0x0000_0800;
 const IN_DELETE_SELF: u32 = 0x0000_0400;
 // The mount went away: the pane leaves the volume instead of re-listing a vanished path.
 const IN_UNMOUNT: u32 = 0x0000_2000;
-// Never a listing change: dropped without a line, like the removed watch's own IN_IGNORED.
+// IN_IGNORED on the open watch re-lists; IN_Q_OVERFLOW arrives on wd -1 and is_current drops it.
 const IN_Q_OVERFLOW: u32 = 0x0000_4000;
 const IN_IGNORED: u32 = 0x0000_8000;
 const MASK: u32 = IN_ATTRIB
@@ -52,6 +52,14 @@ pub struct Watch {
     fd: c_int,
     wd: c_int,
     incoming: c_int,
+    mount: std::path::PathBuf,
+    incoming_mount: std::path::PathBuf,
+}
+
+// Sample mountinfo: "30 1 8:17 / /media/stick rw - vfat /dev/sdb1 rw" keys "/media/stick".
+fn live_mount_of(path: &Path) -> std::path::PathBuf {
+    let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+    super::mountinfo::mount_entry_in(path, &body).map(|e| e.mount).unwrap_or_else(|| path.to_path_buf())
 }
 
 impl Watch {
@@ -60,16 +68,17 @@ impl Watch {
         let fd = unsafe { inotify_init1(IN_CLOEXEC) };
         if fd < 0 {
             eprintln!("flea: the open folder will not follow outside changes, inotify is unavailable");
-            return Watch { fd: -1, wd: -1, incoming: -1 };
+            return Watch { fd: -1, wd: -1, incoming: -1, mount: std::path::PathBuf::new(), incoming_mount: std::path::PathBuf::new() };
         }
         thread::spawn(move || pump(fd, tx));
-        Watch { fd, wd: -1, incoming: -1 }
+        Watch { fd, wd: -1, incoming: -1, mount: std::path::PathBuf::new(), incoming_mount: std::path::PathBuf::new() }
     }
 
     // Armed beside the current watch, so a scan that fails costs the open folder nothing.
     pub fn begin(&mut self, path: &Path) {
         self.drop_one(self.incoming);
         self.incoming = self.add(path);
+        self.incoming_mount = live_mount_of(path);
     }
 
     // A re-list answers the descriptor the folder already had, so dropping it would unwatch it.
@@ -79,6 +88,9 @@ impl Watch {
         }
         self.wd = self.incoming;
         self.incoming = -1;
+        if !self.incoming_mount.as_os_str().is_empty() {
+            self.mount = std::mem::take(&mut self.incoming_mount);
+        }
     }
 
     // The scan failed, so the listing did not move and neither does its watch, aliased or not.
@@ -87,6 +99,7 @@ impl Watch {
             self.drop_one(self.incoming);
         }
         self.incoming = -1;
+        self.incoming_mount = std::path::PathBuf::new();
     }
 
     pub fn stop(&mut self) {
@@ -96,6 +109,18 @@ impl Watch {
         }
         self.wd = -1;
         self.incoming = -1;
+        self.mount = std::path::PathBuf::new();
+        self.incoming_mount = std::path::PathBuf::new();
+    }
+
+    // Sample input: open "/media/stick/photos" with mount "/media/stick" starts "/media".
+    pub fn unmount_start(&self, open: &Path) -> std::path::PathBuf {
+        if !self.mount.as_os_str().is_empty() && open.starts_with(&self.mount) {
+            if let Some(p) = self.mount.parent() {
+                return p.to_path_buf();
+            }
+        }
+        open.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("/"))
     }
 
     // A directory that cannot be watched is not an error the client can act on: it listed fine.
@@ -178,6 +203,8 @@ fn classify_burst(buf: &[u8]) -> (Vec<i32>, Vec<i32>) {
         // The condition above is the bound that keeps this indexing inside the slice.
         at += EVENT_HEADER + len;
     }
+    // A vanished path never answers changed: IN_IGNORED follows IN_UNMOUNT on the same wd.
+    changed.retain(|wd| !unmounted.contains(wd));
     (changed, unmounted)
 }
 
@@ -290,7 +317,7 @@ mod tests {
 
     #[test]
     fn nothing_is_current_before_a_directory_is_followed() {
-        let w = Watch { fd: -1, wd: -1, incoming: -1 };
+        let w = Watch { fd: -1, wd: -1, incoming: -1, mount: std::path::PathBuf::new(), incoming_mount: std::path::PathBuf::new() };
         assert!(!w.is_current(-1));
         assert!(!w.is_current(1));
     }
@@ -339,7 +366,7 @@ mod tests {
         let sandbox = crate::backend::testdir::TestDir::new("watch-abandon");
         let fd = unsafe { inotify_init1(IN_CLOEXEC | IN_NONBLOCK) };
         assert!(fd >= 0, "this box has no inotify to test with");
-        let mut w = Watch { fd, wd: -1, incoming: -1 };
+        let mut w = Watch { fd, wd: -1, incoming: -1, mount: std::path::PathBuf::new(), incoming_mount: std::path::PathBuf::new() };
         w.begin(sandbox.path());
         w.commit();
         let live = w.wd;
@@ -356,7 +383,7 @@ mod tests {
     // No descriptor in these two, so they pin the bookkeeping alone; the one above pins the syscall.
     #[test]
     fn an_abandoned_scan_leaves_the_current_watch_alone() {
-        let mut w = Watch { fd: -1, wd: 7, incoming: -1 };
+        let mut w = Watch { fd: -1, wd: 7, incoming: -1, mount: std::path::PathBuf::new(), incoming_mount: std::path::PathBuf::new() };
         w.begin(Path::new("/tmp"));
         w.abandon();
         assert!(w.is_current(7));
@@ -365,10 +392,43 @@ mod tests {
     // And one that succeeds hands the listing over to the descriptor the scan was armed with.
     #[test]
     fn a_committed_scan_takes_over_from_the_old_watch() {
-        let mut w = Watch { fd: -1, wd: 7, incoming: 9 };
+        let mut w = Watch { fd: -1, wd: 7, incoming: 9, mount: std::path::PathBuf::new(), incoming_mount: std::path::PathBuf::new() };
         w.commit();
         assert!(w.is_current(9));
         assert!(!w.is_current(7));
+    }
+
+    #[test]
+    fn an_unmount_burst_never_answers_changed_for_a_vanished_path() {
+        // Sample input: IN_UNMOUNT plus IN_IGNORED on wd 7 answers changed [] and unmounted [7].
+        fn burst(wd: i32, masks: &[u32]) -> Vec<u8> {
+            let mut out = Vec::new();
+            for mask in masks {
+                out.extend_from_slice(&wd.to_ne_bytes());
+                out.extend_from_slice(&mask.to_ne_bytes());
+                out.extend_from_slice(&0u32.to_ne_bytes());
+                out.extend_from_slice(&0u32.to_ne_bytes());
+            }
+            out
+        }
+        assert_eq!(classify_burst(&burst(7, &[IN_UNMOUNT, IN_IGNORED])), (Vec::new(), vec![7]));
+        assert_eq!(classify_burst(&burst(7, &[IN_CREATE, IN_UNMOUNT])), (Vec::new(), vec![7]));
+    }
+
+    #[test]
+    fn an_ejected_mountpoint_lands_outside_the_volume() {
+        // Sample input: open "/media/stick/photos" with mount "/media/stick" starts "/media".
+        use std::collections::HashSet;
+        let mut w = Watch { fd: -1, wd: 7, incoming: -1, mount: Path::new("/media/stick").to_path_buf(), incoming_mount: std::path::PathBuf::new() };
+        assert_eq!(w.unmount_start(Path::new("/media/stick/photos")), Path::new("/media"));
+        w.mount = Path::new("/media/stick").to_path_buf();
+        assert_eq!(w.unmount_start(Path::new("/media/stick")), Path::new("/media"));
+        let live: HashSet<&str> = ["/media", "/"].into_iter().collect();
+        let start = w.unmount_start(Path::new("/media/stick/photos"));
+        let at = nearest_parent(&start, |p| live.contains(p.to_str().unwrap_or("")));
+        assert_eq!(at, Path::new("/media"), "a surviving mountpoint is never the parent");
+        let bare = Watch { fd: -1, wd: 7, incoming: -1, mount: std::path::PathBuf::new(), incoming_mount: std::path::PathBuf::new() };
+        assert_eq!(bare.unmount_start(Path::new("/media/stick")), Path::new("/media"));
     }
 
     #[test]
