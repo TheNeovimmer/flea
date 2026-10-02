@@ -118,13 +118,13 @@ layout_vfat() {
   local loop
   loop=$(as_root losetup --find --show -P "$img")
   track_loops "$loop"
-  as_root mkfs.vfat -F 32 -n FLEA-VFAT "${loop}p1" >/dev/null
+  as_root mkfs.vfat -F 32 -n FLEA-VFAT "${loop}p1" >/dev/null || return 1
   mkdir -p "$ROOT/mnt-vfat"
-  as_root mount -o "uid=$(id -u),gid=$(id -g)" "${loop}p1" "$ROOT/mnt-vfat"
+  as_root mount -o "uid=$(id -u),gid=$(id -g)" "${loop}p1" "$ROOT/mnt-vfat" || return 1
   mounted_ok "$ROOT/mnt-vfat" || return 1
   note_mnt "$ROOT/mnt-vfat"
   seed_copy "$ROOT" "$ROOT/mnt-vfat" 1 || return 1
-  as_root umount "$ROOT/mnt-vfat"
+  as_root umount "$ROOT/mnt-vfat" || return 1
   emit vfat "$img" "$(qlist FLEA-VFAT)" "$(qlist FLEA-VFAT)" "baseline"
 }
 
@@ -142,13 +142,13 @@ layout_exfat() {
   local loop
   loop=$(as_root losetup --find --show -P "$img")
   track_loops "$loop"
-  as_root mkfs.exfat -L FLEA-EXFAT "${loop}p1" >/dev/null
+  as_root mkfs.exfat -L FLEA-EXFAT "${loop}p1" >/dev/null || return 1
   mkdir -p "$ROOT/mnt-exfat"
-  as_root mount -o "uid=$(id -u),gid=$(id -g)" "${loop}p1" "$ROOT/mnt-exfat"
+  as_root mount -o "uid=$(id -u),gid=$(id -g)" "${loop}p1" "$ROOT/mnt-exfat" || return 1
   mounted_ok "$ROOT/mnt-exfat" || return 1
   note_mnt "$ROOT/mnt-exfat"
   seed_copy "$ROOT" "$ROOT/mnt-exfat" 1 || return 1
-  as_root umount "$ROOT/mnt-exfat"
+  as_root umount "$ROOT/mnt-exfat" || return 1
   emit exfat "$img" "$(qlist FLEA-EXFAT)" "$(qlist FLEA-EXFAT)" "baseline"
 }
 
@@ -167,16 +167,17 @@ layout_ntfs3() {
   local loop
   loop=$(as_root losetup --find --show -P "$img")
   track_loops "$loop"
-  as_root mkntfs -F -L "System Reserved" "${loop}p1" >/dev/null 2>&1
-  as_root mkntfs -F -L "FLEA-NTFS" "${loop}p2" >/dev/null 2>&1
-  as_root mkntfs -F "${loop}p3" >/dev/null 2>&1
+  # mkntfs stderr stays visible, so a failed hidden-partition format names its cause.
+  as_root mkntfs -F -L "System Reserved" "${loop}p1" >/dev/null || return 1
+  as_root mkntfs -F -L "FLEA-NTFS" "${loop}p2" >/dev/null || return 1
+  as_root mkntfs -F "${loop}p3" >/dev/null || return 1
   mkdir -p "$ROOT/mnt-ntfs3"
-  as_root mount -t ntfs3 -o "uid=$(id -u),gid=$(id -g)" "${loop}p2" "$ROOT/mnt-ntfs3"
+  as_root mount -t ntfs3 -o "uid=$(id -u),gid=$(id -g)" "${loop}p2" "$ROOT/mnt-ntfs3" || return 1
   mounted_ok "$ROOT/mnt-ntfs3" || return 1
   note_mnt "$ROOT/mnt-ntfs3"
   as_root chown -R "$(id -u):$(id -g)" "$ROOT/mnt-ntfs3"
   seed_copy "$ROOT" "$ROOT/mnt-ntfs3" 0 || return 1
-  as_root umount "$ROOT/mnt-ntfs3"
+  as_root umount "$ROOT/mnt-ntfs3" || return 1
   emit ntfs3 "$img" "$(qlist FLEA-NTFS)" "$(qlist FLEA-NTFS)" "System Reserved and WinRE hidden"
 }
 
@@ -200,16 +201,16 @@ layout_espdata() {
   local loop
   loop=$(as_root losetup --find --show -P "$img")
   track_loops "$loop"
-  as_root mkfs.vfat -F 32 -n EFI "${loop}p1" >/dev/null
-  if command -v mkfs.hfsplus >/dev/null 2>&1; then as_root mkfs.hfsplus -v "$label" "${loop}p2" >/dev/null 2>&1;
-  else as_root mkfs.ext4 -q -L "$label" "${loop}p2" >/dev/null; fi
+  as_root mkfs.vfat -F 32 -n EFI "${loop}p1" >/dev/null || return 1
+  if command -v mkfs.hfsplus >/dev/null 2>&1; then as_root mkfs.hfsplus -v "$label" "${loop}p2" >/dev/null 2>&1 || return 1;
+  else as_root mkfs.ext4 -q -L "$label" "${loop}p2" >/dev/null || return 1; fi
   mkdir -p "$ROOT/mnt-espdata"
-  as_root mount "${loop}p2" "$ROOT/mnt-espdata"
+  as_root mount "${loop}p2" "$ROOT/mnt-espdata" || return 1
   mounted_ok "$ROOT/mnt-espdata" || return 1
   note_mnt "$ROOT/mnt-espdata"
   as_root chown -R "$(id -u):$(id -g)" "$ROOT/mnt-espdata" 2>/dev/null || true
   seed_copy "$ROOT" "$ROOT/mnt-espdata" 0 || return 1
-  as_root umount "$ROOT/mnt-espdata"
+  as_root umount "$ROOT/mnt-espdata" || return 1
   emit espdata "$img" "$(qlist "$label")" "$(qlist "$label")" "$note"
 }
 
@@ -231,16 +232,16 @@ layout_espmsrswap() {
   local loop
   loop=$(as_root losetup --find --show -P "$img")
   track_loops "$loop"
-  as_root mkfs.vfat -F 32 -n EFI "${loop}p1" >/dev/null
-  as_root mkswap "${loop}p3" >/dev/null
-  as_root mkfs.ext4 -q -L FLEA-EXT4 "${loop}p4" >/dev/null
+  as_root mkfs.vfat -F 32 -n EFI "${loop}p1" >/dev/null || return 1
+  as_root mkswap "${loop}p3" >/dev/null || return 1
+  as_root mkfs.ext4 -q -L FLEA-EXT4 "${loop}p4" >/dev/null || return 1
   mkdir -p "$ROOT/mnt-espmsrswap"
-  as_root mount "${loop}p4" "$ROOT/mnt-espmsrswap"
+  as_root mount "${loop}p4" "$ROOT/mnt-espmsrswap" || return 1
   mounted_ok "$ROOT/mnt-espmsrswap" || return 1
   note_mnt "$ROOT/mnt-espmsrswap"
   as_root chown -R "$(id -u):$(id -g)" "$ROOT/mnt-espmsrswap"
   seed_copy "$ROOT" "$ROOT/mnt-espmsrswap" 0 || return 1
-  as_root umount "$ROOT/mnt-espmsrswap"
+  as_root umount "$ROOT/mnt-espmsrswap" || return 1
   emit espmsrswap "$img" "$(qlist FLEA-EXT4)" "$(qlist FLEA-EXT4)" "ESP MSR swap hidden"
 }
 
@@ -248,7 +249,7 @@ layout_espmsrswap() {
 layout_isohybrid() {
   local img="$ROOT/stick-isohybrid.img" iso_sectors
   if [ "$DRY" = 1 ]; then
-    printf 'would build isohybrid: ISO9660 FLEA-ISO with MBR 0x0 plus 0xef ESP, seeded\n' >&2
+    printf 'would build isohybrid: ISO9660 FLEA-ISO with MBR 0x0 plus FAT 0xef ESP, seeded\n' >&2
     emit isohybrid "$img" "$(qlist FLEA-ISO)" "$(qlist FLEA-ISO)" "ISO row kept, ESP hidden"
     return
   fi
@@ -256,9 +257,10 @@ layout_isohybrid() {
   elif command -v genisoimage >/dev/null 2>&1; then iso_tool="genisoimage -J -R -V";
   else skip_line "isohybrid needs xorriso or genisoimage"; return; fi
   command -v sfdisk >/dev/null 2>&1 || { skip_line "isohybrid needs sfdisk"; return; }
+  command -v mkfs.vfat >/dev/null 2>&1 || { skip_line "isohybrid needs mkfs.vfat for the ESP"; return; }
   # Word-split here is the ISO tool argv the branch above chose, never user input.
   # shellcheck disable=SC2086
-  as_root $iso_tool FLEA-ISO -o "$img" "$ROOT/seed/tree" >/dev/null
+  as_root $iso_tool FLEA-ISO -o "$img" "$ROOT/seed/tree" >/dev/null || return 1
   # Sectors of 512 B: partition 1 spans the ISO, the ESP starts where the ISO ends.
   iso_sectors=$(($(stat -c %s "$img") / 512)) || return 1
   as_root truncate -s $(( (iso_sectors + MBR_ESP_SIZE) * 512 )) "$img"
@@ -275,6 +277,8 @@ with open(img, 'r+b') as f:
     f.seek(510)
     f.write(struct.pack('<H', 0xAA55))
 PY
+  # Real isohybrids carry a FAT ESP, so only the 0xef type can hide this region.
+  as_root mkfs.vfat --offset="$iso_sectors" "$img" >/dev/null || return 1
   emit isohybrid "$img" "$(qlist FLEA-ISO)" "$(qlist FLEA-ISO)" "ISO row kept, ESP hidden"
 }
 

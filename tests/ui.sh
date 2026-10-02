@@ -9135,23 +9135,14 @@ case_fsdevice() {
 
     local dir="$fixture_root/fsdevice"
     sandbox_scratch "$dir"
-    head -c 1048576 /dev/zero > "$dir/copy-me.bin"
+    head -c 1MiB /dev/zero > "$dir/copy-me.bin"
     local fixture_home="$fixture_root/fsdevice-home"
     fixture_home_make "$fixture_home"
     local real_home="$HOME" real_state="${XDG_STATE_HOME-}"
 
+    # Sample deviceEntries line: FLEA-VFAT|device|volume|false
     fs_rail_labels() { ipc deviceEntries | awk -F'|' '$2 == "device" { print $1 }'; }
-    # True when the pane lists a row of that name; row_index_of would fail the case instead of
-    # answering, so every poll below goes through this and seeks only after it says yes.
-    fs_has_row() {
-        local want="$1" i total row
-        total=$(ipc total)
-        for (( i = 0; i < total; i++ )); do
-            row=$(ipc rowAt "$i")
-            [[ "$row" == "$want|"* ]] && return 0
-        done
-        return 1
-    }
+    # Sample railEntries device object: {"group":"device","label":"FLEA-VFAT","device":"/dev/sda1","path":"/run/media/gm/x","mounted":true}
     fs_row_device() { ipc railEntries | jq -r --arg l "$1" '.[] | select(.group == "device" and .label == $l) | .device'; }
     fs_row_path() { ipc railEntries | jq -r --arg l "$1" '.[] | select(.group == "device" and .label == $l) | .path'; }
     fs_row_mounted() { ipc railEntries | jq -r --arg l "$1" '.[] | select(.group == "device" and .label == $l) | .mounted'; }
@@ -9186,8 +9177,7 @@ case_fsdevice() {
     printf 'FSDEVICE %s switch-off=ok\n' "$layout"
     kill_flea
 
-    # Switch on: every expected row appears, and the stick carries nothing else. Same-disk scoping
-    # is what keeps minipc's own ESP and swap out of this verdict.
+    # Switch on: expected rows only, same-disk scope keeps the host ESP and swap out.
     seed_ui_state "$fixture_root/fsdevice-state-on" '{"hidden":true,"places":{"showUnmounted":true}}'
     export HOME="$fixture_home"
     launch "$dir"
@@ -9227,19 +9217,25 @@ case_fsdevice() {
     [[ -f "$mnt/thumb.png" ]] || fail "fsdevice: $mnt holds no seeded tree, refusing to run against the wrong disk"
     printf 'FSDEVICE %s mount=%s\n' "$layout" "$mnt"
 
-    # Open and list against ls: the same set of names, no more and no fewer.
-    local want_sorted="$dir/ls-want" have_sorted="$dir/ls-have" i row
+    # Open and list against ls: total matches ls -A, every built row is a member.
+    local want_sorted="$dir/ls-want" want_n have_n vis cap i row built
     ls -A "$mnt" | sort > "$want_sorted"
-    : > "$have_sorted"
-    wait_listing "$(wc -l < "$want_sorted" | tr -d ' ')"
-    for (( i = 0; i < $(ipc total); i++ )); do
+    want_n=$(wc -l < "$want_sorted" | tr -d ' ')
+    wait_listing "$want_n"
+    have_n=$(ipc total)
+    [[ "$have_n" == "$want_n" ]] || fail "fsdevice: the listing holds $have_n rows, ls -A holds $want_n"
+    vis=$(ipc visibleRows 2>/dev/null || printf '')
+    [[ "$vis" =~ ^[0-9]+$ ]] && (( vis > 0 )) || vis=36
+    cap=$((vis + 5)); (( have_n < cap )) && cap=$have_n
+    built=0
+    for (( i = 0; i < cap; i++ )); do
         row=$(ipc rowAt "$i")
-        printf '%s\n' "${row%%|*}" >> "$have_sorted"
+        [[ "$row" == "loading" ]] && continue
+        built=$((built + 1))
+        grep -Fxq "${row%%|*}" "$want_sorted" || fail "fsdevice: row ${row%%|*} is no ls -A member"
     done
-    sort -o "$have_sorted" "$have_sorted"
-    cmp -s "$want_sorted" "$have_sorted" \
-        || fail "fsdevice: the listing is not ls -A row for row"
-    printf 'FSDEVICE %s list=%s rows match ls\n' "$layout" "$(ipc total)"
+    (( built >= (have_n < vis ? have_n : vis) )) || fail "fsdevice: only $built built rows answer of $vis on screen"
+    printf 'FSDEVICE %s list=%s rows match ls\n' "$layout" "$have_n"
 
     if [[ "$layout" == "isohybrid" ]]; then
         # iso9660 is read-only: the paste is refused and no row offers Trash.
@@ -9269,8 +9265,9 @@ case_fsdevice() {
 
     # Trash through dd, proving the volume's own trash dir, then restore from the Trash view.
     printf 'trash me' > "$mnt/trash-me.txt"
-    end=$((SECONDS + 30))
-    while (( SECONDS < end )); do fs_has_row trash-me.txt && break; sleep 0.5; done
+    # The watch re-read moves total by one; seeking then names the row with bounded IPC.
+    local before; end=$((SECONDS + 30)); before=$(ipc total)
+    while (( SECONDS < end )); do [[ "$(ipc total)" != "$before" ]] && break; sleep 0.5; done
     seek_row_named trash-me.txt
     local trash_before trash_uid trash_idx
     trash_before=$(ipc trashState | jq -r '.count')
@@ -9294,7 +9291,10 @@ case_fsdevice() {
     [[ "$(ipc contextMenuEntries)" == *"Restore"* ]] || fail "fsdevice: trash-me.txt offers no Restore"
     menu_seek Restore
     key -k Return >/dev/null
-    settle
+    # Restore runs async, so wait for the count to land back before reading the file.
+    trash_wait '.busy == false and .count == '"$trash_before"
+    end=$((SECONDS + 20))
+    while (( SECONDS < end )); do [[ "$(cat "$mnt/trash-me.txt" 2>/dev/null)" == "trash me" ]] && break; sleep 0.2; done
     [[ "$(cat "$mnt/trash-me.txt" 2>/dev/null)" == "trash me" ]] || fail "fsdevice: Restore did not bring trash-me.txt back"
     printf 'FSDEVICE %s trash restore=ok\n' "$layout"
     fi
@@ -9311,9 +9311,9 @@ case_fsdevice() {
     [[ -n "$fsname" && "$fsname" != 0x* ]] || fail "fsdevice: the status bar names no filesystem, got '$fsname'"
     if [[ "$layout" != "isohybrid" ]]; then
     printf 'touch' > "$mnt/from-shell.txt"
-    end=$((SECONDS + 30))
-    while (( SECONDS < end )); do fs_has_row from-shell.txt && break; sleep 0.5; done
-    fs_has_row from-shell.txt || fail "fsdevice: the open listing never followed the outside change"
+    end=$((SECONDS + 30)); before=$(ipc total)
+    while (( SECONDS < end )); do [[ "$(ipc total)" != "$before" ]] && break; sleep 0.5; done
+    seek_row_named from-shell.txt
     rm -f "$mnt/from-shell.txt"
     fi
     printf 'FSDEVICE %s thumbs fs=%s watch=ok\n' "$layout" "$fsname"

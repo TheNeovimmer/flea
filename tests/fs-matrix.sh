@@ -81,6 +81,8 @@ cleanup() {
   fi
 }
 trap cleanup EXIT HUP INT TERM
+# A dead backend must fail the next fifo write with EPIPE, never kill the shell with SIGPIPE.
+trap '' PIPE
 
 check() {
   if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf 'ok   %s\n' "$1";
@@ -157,7 +159,7 @@ fs_config() {
     xfs) printf 'mkfs.xfs|2048|mkfs.xfs -q -L FLEA-XFS|xfs|native' ;;
     f2fs) printf 'mkfs.f2fs|2048|mkfs.f2fs -f -l FLEA-F2FS|f2fs|native' ;;
     iso9660) printf 'xorrisofs|0|xorrisofs -J -R -V FLEA-ISO|iso9660|readonly' ;;
-    udf) printf 'mkudffs|1024|mkudffs --media-type=hd -b 512 --utf8 -l FLEA-UDF|udf|native' ;;
+    udf) printf 'mkudffs|2048|mkudffs --media-type=hd -b 512 --utf8 -l FLEA-UDF|udf|native' ;;
   esac
 }
 
@@ -343,6 +345,7 @@ c_links() {
   fresh
   send "{\"c\":\"link\",\"op\":\"relative\",\"paths\":[\"$mnt/lt.txt\"],\"dest\":\"$mnt/linkdest\"}"
   await '"t":"linked"' || { check "$mnt symlink answers" "linked" "timeout"; return; }
+  # Sample linked line: {"t":"linked","ok":2,"failed":0,"skipped":1}
   check "$mnt symlink ok count" "$want_ok" "$(tail -n "+$((FRESH_FROM + 1))" "$HARNESS/out" | grep '"t":"linked"' | tail -1 | grep -oE '"ok":[0-9]+' | cut -d: -f2)"
   if [ "$want_ok" = "1" ]; then
     check "$mnt symlink on disk" "yes" "$([ -L "$mnt/linkdest/lt.txt" ] && echo yes || echo no)"
@@ -377,6 +380,9 @@ c_perms() {
   mode=$(stat -c %a "$mnt/pm.txt")
   if tail -n "+$((FRESH_FROM + 1))" "$HARNESS/out" | grep -q '"t":"permissions","id":21,"op":"applyMany","ok":true'; then
     check "$mnt applied mode reads back" "600" "$mode"
+  elif [ "$class" = "native" ]; then
+    # Owned files on native filesystems must take the mode; refusal there is a FAIL.
+    check "$mnt native chmod must apply" "applied" "refused"
   else
     check "$mnt refused mode stays put" "$before" "$mode"
   fi
@@ -390,7 +396,7 @@ c_trash() {
   uid=$(id -u)
   trashdir="$mnt/.Trash-$uid"
   printf 'trash me' > "$mnt/doomed.txt"
-  export XDG_DATA_HOME="$HARNESS/xdg"
+  # XDG_DATA_HOME is exported once before the first round, so this backend already has it.
   mkdir -p "$XDG_DATA_HOME"
   # Sample trash line: {"t":"trashed","ok":1,"failed":0}
   fresh
@@ -424,32 +430,35 @@ round_fs() {
   if [ "$fs" = "iso9660" ]; then
     command -v xorrisofs >/dev/null 2>&1 || command -v genisoimage >/dev/null 2>&1 || { skip_line "$fs needs xorriso or genisoimage"; return; }
     seed_tree "$ROOT/seed-iso" 0
-    if command -v xorrisofs >/dev/null 2>&1; then as_root xorrisofs -J -R -V FLEA-ISO -o "$img" "$ROOT/seed-iso" >/dev/null;
-    else as_root genisoimage -J -R -V FLEA-ISO -o "$img" "$ROOT/seed-iso" >/dev/null; fi
-    loop=$(as_root losetup --find --show "$img")
+    if command -v xorrisofs >/dev/null 2>&1; then as_root xorrisofs -J -R -V FLEA-ISO -o "$img" "$ROOT/seed-iso" >/dev/null || { check "$fs iso tool failed" "iso built" "iso tool failed"; return; }
+    else as_root genisoimage -J -R -V FLEA-ISO -o "$img" "$ROOT/seed-iso" >/dev/null || { check "$fs iso tool failed" "iso built" "iso tool failed"; return; }; fi
+    loop=$(as_root losetup --find --show "$img") || { check "$fs losetup failed" "loop ready" "losetup failed"; return; }
+    [ -n "$loop" ] || { check "$fs losetup failed" "loop ready" "losetup failed"; return; }
     track_loops "$loop"
-    as_root mount -t iso9660 -o loop,ro "$loop" "$mnt"
+    as_root mount -t iso9660 -o loop,ro "$loop" "$mnt" || { check "$fs mount failed" "mounted" "mount failed"; return; }
   else
     truncate -s "${size}M" "$img"
     # Word-split here is the mkfs argv the table carries, one row per filesystem, never user input.
     # shellcheck disable=SC2086
-    as_root $mkfs "$img" >/dev/null
-    loop=$(as_root losetup --find --show "$img")
+    as_root $mkfs "$img" >/dev/null || { check "$fs mkfs failed" "formatted" "mkfs failed"; return; }
+    loop=$(as_root losetup --find --show "$img") || { check "$fs losetup failed" "loop ready" "losetup failed"; return; }
+    [ -n "$loop" ] || { check "$fs losetup failed" "loop ready" "losetup failed"; return; }
     track_loops "$loop"
     case "$fs" in
       vfat|exfat|ntfs3|udf) opts="uid=$(id -u),gid=$(id -g)" ;;
       ntfs-3g) opts="uid=$(id -u),gid=$(id -g)" ;;
       *) opts="" ;;
     esac
-    if [ "$fs" = "ntfs-3g" ]; then as_root ntfs-3g "$loop" "$mnt" -o "$opts";
-    elif [ -n "$opts" ]; then as_root mount -t "$fstype" -o "loop,$opts" "$loop" "$mnt";
-    else as_root mount -t "$fstype" -o loop "$loop" "$mnt"; fi
+    if [ "$fs" = "ntfs-3g" ]; then as_root ntfs-3g "$loop" "$mnt" -o "$opts" || { check "$fs mount failed" "mounted" "mount failed"; return; }
+    elif [ -n "$opts" ]; then as_root mount -t "$fstype" -o "loop,$opts" "$loop" "$mnt" || { check "$fs mount failed" "mounted" "mount failed"; return; }
+    else as_root mount -t "$fstype" -o loop "$loop" "$mnt" || { check "$fs mount failed" "mounted" "mount failed"; return; }; fi
     case "$fs" in ext4|btrfs|xfs|f2fs|udf) as_root chown -R "$(id -u):$(id -g)" "$mnt" ;; esac
     # The subvolume is seed_tree's own sub, so the root still lists SEED_TOP_LINK entries; only ext4 adds lost+found.
     [ "$fs" = "btrfs" ] && btrfs subvolume create "$mnt/sub" >/dev/null 2>&1 || true
     if [ "$class" != "readonly" ]; then case "$class" in vfatlike) seed_tree "$mnt" 0 ;; *) seed_tree "$mnt" 1 ;; esac; fi
   fi
-  mountpoint -q "$mnt" || { skip_line "$fs mounted nothing at $mnt"; return; }
+  # Tools are present past this point, so an unmounted dir is a failed mount, never a skip.
+  mountpoint -q "$mnt" || { check "$fs mounted nothing at $mnt" "mounted" "nothing"; return; }
   note_mnt "$mnt"
   start_backend
   want="$SEED_TOP_LINK"
@@ -493,7 +502,8 @@ round_nfs() {
   command -v exportfs >/dev/null 2>&1 || { skip_line "nfs needs exportfs (nfs-utils)"; return; }
   mkdir -p "$ROOT/nfsroot" "$ROOT/mnt-nfshard" "$ROOT/mnt-nfssoft" "$ROOT/nfslocal"
   seed_tree "$ROOT/nfsroot" 1
-  as_root exportfs -o "rw,sync,no_subtree_check,insecure" "127.0.0.1:$ROOT/nfsroot" || { skip_line "nfs export failed"; return; }
+  # no_root_squash keeps the uid 0 path (:31) writing as root like the sudo -n path does.
+  as_root exportfs -o "rw,sync,no_subtree_check,no_root_squash,insecure" "127.0.0.1:$ROOT/nfsroot" || { skip_line "nfs export failed"; return; }
   printf '%s\n' "127.0.0.1:$ROOT/nfsroot" >> "$ROOT/exports"
   as_root mount -t nfs -o "vers=4,hard" "127.0.0.1:$ROOT/nfsroot" "$ROOT/mnt-nfshard" || { skip_line "nfs hard mount failed"; return; }
   mountpoint -q "$ROOT/mnt-nfshard" || { skip_line "nfs hard mount landed nowhere"; return; }
@@ -606,6 +616,8 @@ make_scratch "flea-fs-matrix.XXXXXX"
 : > "$ROOT/.flea-test-sandbox"
 HARNESS="$ROOT/harness"
 mkdir -p "$HARNESS" "$HARNESS/xdev" "$HARNESS/xdg"
+# One private home for every backend and its gio children, exported before the first fork.
+export XDG_DATA_HOME="$HARNESS/xdg"
 for fs in $FSLIST; do round_fs "$fs"; done
 round_nfs
 printf 'fs-matrix: %s passed, %s failed, %s skipped\n' "$pass" "$fail" "$skip"
