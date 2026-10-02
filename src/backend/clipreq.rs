@@ -1,19 +1,46 @@
-// The backend's clipboard requests, each answering one {"t":"clip",...} line that ui/js/Messages.js reads.
+// Set, get and clear answer one clip line each; clipWatch answers nothing before its changed lines.
 use crate::backend::opsreq::OpMsg;
 use crate::clip::{control, own, reply, watch};
 use std::sync::mpsc::Sender;
 
 // Validated before any spawn: a bad op or path answers rather than owning.
 pub fn request_set(replies: Sender<OpMsg>, op: String, paths: Vec<String>) {
-    set_with(replies, move || own::spawn_owner(&op, &paths));
+    static SETS: std::sync::OnceLock<SetQueue> = std::sync::OnceLock::new();
+    SETS.get_or_init(SetQueue::new).start(replies, move || own::spawn_owner(&op, &paths));
 }
 
-// The owner's ready wait is up to 2 s, so the start answers beside the loop the way get does.
-fn set_with(replies: Sender<OpMsg>, start: impl FnOnce() -> Result<String, String> + Send + 'static) {
-    beside(replies, move || match start() {
-        Ok(token) => reply::reply_set(true, &token, ""),
-        Err(e) => reply::reply_set(false, "", &e),
-    });
+struct SetWork {
+    replies: Sender<OpMsg>,
+    start: Box<dyn FnOnce() -> Result<String, String> + Send>,
+}
+
+// One queue keeps owner starts and replies in request order without holding the backend loop.
+struct SetQueue {
+    sets: Sender<SetWork>,
+}
+
+impl SetQueue {
+    fn new() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel::<SetWork>();
+        std::thread::spawn(move || {
+            for work in rx {
+                let line = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work.start)) {
+                    Ok(Ok(token)) => reply::reply_set(true, &token, ""),
+                    Ok(Err(e)) => reply::reply_set(false, "", &e),
+                    Err(_) => reply::reply_set(false, "", "the clipboard owner start panicked"),
+                };
+                let _ = work.replies.send(OpMsg::Meta { line });
+            }
+        });
+        Self { sets: tx }
+    }
+
+    fn start(&self, replies: Sender<OpMsg>, start: impl FnOnce() -> Result<String, String> + Send + 'static) {
+        if let Err(error) = self.sets.send(SetWork { replies, start: Box::new(start) }) {
+            let line = reply::reply_set(false, "", "the clipboard set worker stopped");
+            let _ = error.0.replies.send(OpMsg::Meta { line });
+        }
+    }
 }
 
 // A read can block on a foreign source, so this answers beside the loop like jump does.
@@ -65,9 +92,10 @@ mod tests {
 
     #[test]
     fn a_bad_set_is_refused_before_any_owner_starts() {
+        let queue = SetQueue::new();
         for (op, path) in [("move", "/tmp/a"), ("copy", "relative/a")] {
             let (tx, rx) = std::sync::mpsc::channel();
-            request_set(tx, op.into(), vec![path.into()]);
+            queue.start(tx, move || own::spawn_owner(op, &[path.into()]));
             let line = match rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap() {
                 OpMsg::Meta { line } => line,
                 _ => panic!("a set reply"),

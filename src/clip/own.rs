@@ -17,7 +17,6 @@ extern "C" {
 }
 
 const SIGTERM: c_int = 15;
-#[cfg(test)]
 const WNOHANG: c_int = 1;
 
 // A mapped pid is alive or unreaped: the waiter removes it under this lock before reaping.
@@ -42,7 +41,10 @@ fn forget(token: &str, pid: u32) {
 pub fn withdraw(token: &str) -> bool {
     let mut owned = owners().lock().unwrap_or_else(|e| e.into_inner());
     let Some(&pid) = owned.get(token) else { return false; };
-    // Holding this lock prevents the waiter removing and reaping the pid before the signal.
+    // The lock keeps the pid unreaped while checking its exit and signalling only a live owner.
+    if !owner_live(pid) {
+        return false;
+    }
     if unsafe { kill(pid as c_int, SIGTERM) } != 0 {
         owned.remove(token);
         return false;
@@ -224,6 +226,20 @@ const WEXITED: c_int = 4;
 const WNOWAIT: c_int = 0x01000000;
 const EINTR: i32 = 4;
 const SIGINFO_WORDS: usize = 16;
+
+fn owner_live(pid: u32) -> bool {
+    loop {
+        let mut info = [0u64; SIGINFO_WORDS];
+        let result = unsafe { waitid(P_PID, pid, info.as_mut_ptr().cast(), WEXITED | WNOHANG | WNOWAIT) };
+        if result == 0 {
+            // Linux clears si_signo at the start of siginfo when no exit is available.
+            return info[0] == 0;
+        }
+        if std::io::Error::last_os_error().raw_os_error() != Some(EINTR) {
+            return false;
+        }
+    }
+}
 
 fn wait_for_exit(pid: u32) {
     let mut info = [0u64; SIGINFO_WORDS];

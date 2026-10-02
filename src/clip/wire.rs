@@ -182,7 +182,10 @@ impl Conn {
                 Fill::Eof if !self.buf.is_empty() => {
                     return Err("the compositor closed the connection mid-message".to_string());
                 }
-                Fill::Timeout | Fill::Eof => return Ok(None),
+                Fill::Timeout => {
+                    return Err(format!("the compositor timed out waiting for a message within {} ms", timeout_ms));
+                }
+                Fill::Eof => return Ok(None),
             }
         }
     }

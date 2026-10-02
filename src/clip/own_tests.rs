@@ -54,14 +54,19 @@ fn an_exited_owner_remains_unreaped_until_removed_from_the_map() {
     waiting.recv_timeout(TEST_WATCHDOG).unwrap();
     let recorded = owners().lock().unwrap().get(token).copied();
     let stat = std::fs::read_to_string(format!("/proc/{}/stat", pid));
+    // Sample input: 123 (true) Z 456 456, with state immediately after the final closing parenthesis.
     let zombie = stat.as_ref().ok().and_then(|s| s.rsplit_once(") "))
         .map(|(_, rest)| rest.starts_with("Z ")).unwrap_or(false);
     let signalled = withdraw(token);
+    let retained = owners().lock().unwrap().get(token).copied();
+    let still_unreaped = std::fs::read_to_string(format!("/proc/{}/stat", pid)).is_ok();
     release.send(()).unwrap();
     worker.join().unwrap();
     assert_eq!(recorded, Some(pid));
+    assert_eq!(retained, Some(pid), "withdraw leaves removal to reap_owner");
+    assert!(still_unreaped, "withdraw must not reap the exited owner");
     assert!(zombie, "a mapped exited owner must stay unreaped until the map lock removes it");
-    assert!(signalled, "withdraw may signal this unreaped owned pid while it is mapped");
+    assert!(!signalled, "withdraw must not signal an exited owner while it is mapped");
     assert!(!withdraw(token), "after removal withdraw cannot signal the pid");
 }
 
