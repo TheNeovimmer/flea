@@ -18,6 +18,8 @@ Crumb 1.0 Crumb.qml
 PreviewColumn 1.0 PreviewColumn.qml
 PreviewLines 1.0 PreviewLines.qml
 PreviewMarkdown 1.0 PreviewMarkdown.qml
+MarkdownFigure 1.0 MarkdownFigure.qml
+singleton FigureService 1.0 FigureService.qml
 PreviewPdf 1.0 PreviewPdf.qml
 PreviewSwap 1.0 PreviewSwap.qml
 PreviewImage 1.0 PreviewImage.qml

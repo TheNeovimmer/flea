@@ -104,7 +104,8 @@ ui/js/Drag.js 302
 ui/js/Ops.js 438
 ui/js/Picker.js 325
 ui/js/Settings.js 455
-ui/js/Tabs.js 390"
+ui/js/Tabs.js 390
+tests/markdown-figures.qml 495"
 
 status=0
 
@@ -118,6 +119,13 @@ budget_for() {
 }
 
 while IFS= read -r file; do
+  # Generated vendor output (pinned bundles plus the assembled classic
+  # workers) is versioned for audit, not authored: Keymap.js stays a recorded
+  # ceiling because it is generated into the tree it measures, while vendor
+  # output is excluded outright.
+  case "$file" in
+    ui/vendor/*) continue ;;
+  esac
   budgets=$(budget_for "$file")
   [ -z "$budgets" ] && continue
   soft=${budgets% *}
