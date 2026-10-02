@@ -130,6 +130,8 @@ Item {
             pane.rowsAt = Date.now()
         pane.applyPendingSelect()
         root.wire.anchor = Anchor.apply(pane, root.wire.anchor)
+        if (pane.preferenceAnchor)
+            pane.preferenceAnchor = Anchor.applyPreference(pane, pane.preferenceAnchor)
         // A manual reload's notice, said only when rows changed; every other listing owes none.
         Reload.landed(pane)
         Tabs.applyPending(pane)

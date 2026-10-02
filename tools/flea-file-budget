@@ -62,13 +62,14 @@ tests/js/previewswap.js 386
 tests/js/focus.js 728
 tests/js/mounts.js 262
 tests/js/menu.js 493
-tests/js/watch.js 309
 tests/js/nav.js 361
 tests/picker-grid.qml 448
 tests/js/network.js 306
 tests/js/ops.js 509
 tests/js/settings.js 337
 tests/js/tap.js 333
+tests/js/uistate.js 370
+tests/js/watch.js 354
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 396
@@ -94,7 +95,7 @@ ui/NetworkDialog.qml 445
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 849
 ui/OpenWithDialog.qml 607
-ui/Pane.qml 1009
+ui/Pane.qml 1013
 ui/PaneMenuActions.qml 464
 ui/PaneWire.qml 559
 ui/PermissionsDialog.qml 629
@@ -110,8 +111,8 @@ ui/Sidebar.qml 681
 ui/StatusBar.qml 460
 ui/Theme.qml 415
 ui/TrashView.qml 475
-ui/ViewState.qml 410
-ui/WindowBody.qml 581
+ui/ViewState.qml 538
+ui/WindowBody.qml 576
 ui/js/Devices.js 366
 ui/js/Filter.js 253
 ui/js/Focus.js 434
@@ -122,7 +123,8 @@ ui/js/Drag.js 316
 ui/js/Ops.js 439
 ui/js/Picker.js 328
 ui/js/Settings.js 455
-ui/js/Tabs.js 399"
+ui/js/Tabs.js 387
+ui/js/UiState.js 447"
 
 status=0
 

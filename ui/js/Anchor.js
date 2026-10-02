@@ -150,3 +150,64 @@ function landOn(pane, index, anchor) {
     else
         pane.setCursor(index, 0)
 }
+
+// A preference re-list keeps selection and cursor by name; a mark outside the held window has no name to keep, so a partial selection clears whole rather than keeping its subset.
+function preference(pane) {
+    var rowFor = pane.rowFor ? function (i) { return pane.rowFor(i) } : null
+    var cursorRow = rowFor ? rowFor(pane.cursorIndex) : null
+    var names = []
+    var indices = pane.selectedIndices ? pane.selectedIndices() : []
+    if (rowFor) {
+        for (var i = 0; i < indices.length; i++) {
+            var row = rowFor(indices[i])
+            if (!row) { names = []; break }
+            names.push(String(row.n))
+        }
+    } else if (indices.length > 0) {
+        names = []
+    }
+    return { name: cursorRow ? String(cursorRow.n) : "", index: pane.cursorIndex,
+             start: pane.held, path: pane.path, selected: names }
+}
+
+// Resolves only on the rows reply for the asked window; a scrolled reply or a moved cursor drops the anchor instead of yanking it.
+function applyPreference(pane, anchor) {
+    if (!anchor)
+        return null
+    if (pane.path !== anchor.path)
+        return null
+    if (pane.cursorIndex !== 0 && pane.cursorIndex !== anchor.index)
+        return null
+    if (pane.held !== anchor.start) {
+        if (anchor.start > 0 && pane.held === 0 && pane.total > anchor.start)
+            return anchor
+        if (!(anchor.start > 0 && pane.total <= anchor.start))
+            return null
+    }
+    var cursorAt = -1
+    for (var i = 0; i < pane.rows.length; i++) {
+        if (String(pane.rows[i].n) === anchor.name) {
+            cursorAt = pane.held + i
+            break
+        }
+    }
+    if (cursorAt < 0 && pane.total > 0)
+        cursorAt = Math.min(anchor.index, pane.total - 1)
+    var marks = []
+    for (var s = 0; s < anchor.selected.length; s++) {
+        for (var r = 0; r < pane.rows.length; r++) {
+            if (String(pane.rows[r].n) === anchor.selected[s]) {
+                marks.push(pane.held + r)
+                break
+            }
+        }
+    }
+    if (cursorAt >= 0)
+        pane.setCursor(cursorAt, 0)
+    pane.selection.clear()
+    for (var m = 0; m < marks.length; m++)
+        pane.selection.toggle(marks[m])
+    if (marks.length > 0 || cursorAt >= 0)
+        pane.selectionVersion++
+    return null
+}

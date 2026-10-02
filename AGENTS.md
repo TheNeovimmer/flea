@@ -264,7 +264,13 @@ that has changed names another file. Re-pointing a selection at other files is h
 wrong ones, so `PaneWire`'s `watchBusy`, decided by `ui/js/Anchor.js busy`, defers the re-read while
 a selection stands, and with it while a rename editor is open, the context menu is up, a filter is
 being typed, a search listing is showing, a list is already in flight or a transfer waits on the
-collision card. The debt is kept, not dropped: `onWatchBusyChanged` starts the 400 ms timer the moment
+collision card. A preference re-list is the one re-list that re-marks instead of clearing:
+a settings change to hidden, sort or grouping captures `Anchor.preference` before it re-lists and
+`ui/PaneSwap.qml` re-marks cursor and marks by name when the rows land, following each name to its
+new index. When any selected row lies outside the held window the preference re-list clears the whole
+selection instead of keeping its in-window subset, because a subset would silently drop files from a
+delete or move. The preference anchor resolves only on the rows reply for the window it asked for; a
+scroll elsewhere or a cursor move drops it, so a later unrelated reply never yanks the cursor. The debt is kept, not dropped: `onWatchBusyChanged` starts the 400 ms timer the moment
 the last of those clears, and `ui/CollideHost.qml decide` writes its transfer before it clears
 `pending`, so the transfer reaches the backend ahead of any re-read the card held back. A user holding a selection therefore sees the same stale
 listing 0.1.4 always showed, for as long as they hold it. **The debt does not travel**: leaving the
@@ -1806,11 +1812,16 @@ failure fails the check rather than passing it.
   `thumb` and `thumbcancel` out and `thumbed` in alongside `list`, `window` and `sort`.
 - `ui/ViewState.qml` reads `ui.json` once at startup with a blocking `FileView` and writes nothing
   itself: every change, the header menu's columns and all three settings sections alike, goes back
-  out through `flea --ui-state` as a patch naming that change alone, see "The state file".
+  out through `flea --ui-state` as a patch naming that change alone, see "The state file". It also
+  watches the file and applies another window's settled preferences live through
+  `UiState.applyExternal`, owning the apply/prune settler whose exit and collected text join the
+  landed/whole way before anything is parsed.
 - `ui/js/UiState.js` is `ViewState`'s writer bookkeeping and the two pure rebuilds every writer goes
   through: the newest patch a writer landed, what the running writer carries and what waits behind
   it, and the key and group rebuilds `ViewState` runs over both the state it draws and the patch it
-  owes. It imports no QML, so
+  owes. It also owns the refusal prune (`invalidKeys`, `dropInvalid`, `pruneRefused`,
+  `revertedState`) and the settle join and order (`landed`, `whole`, `pruneAsk`, `settleNext`).
+  It imports no QML, so
   `tests/js/uistate.js` can redden on a mutation of the rule that only a zero exit proves a save.
 - `ui/Theme.qml` owns the singleton palette, type and spacing tokens from the Omarchy
   theme plus the user override.
@@ -7221,3 +7232,5 @@ Advfix-scroll round 2 records two over-cap ceilings, each re-derived with `wc -l
 Advfix-scroll round 3 names the 400 px park once, re-derived with `wc -l`: `tests/touchpad.qml` 454 to 456 for `parkAbovePx` beside `rowCount` with its one-line comment, used at both parks, so no bare 400 remains.
 
 mg-stage3 records two over-cap ceilings, each re-derived with `wc -l`: `src/backend/undo.rs` at 601 for the shared journal (the pinned Mode with its birth time, the payload-free barrier with its codec helpers, and the manifest reattach) with its undo, redo and codec tests beside it, and `src/backend/undoshare_tests.rs` at 513 for the shared-journal pins (the two-window undo and redo, the barrier consume, the exact-integer round trip with the pinned birth time, and the oversized-entry trims), each over the hard cap and recorded rather than split.
+
+xw4r2 records four ceilings, each re-derived with `wc -l`: `ui/ViewState.qml` 495 to 529 for the joined settler halves, the queued prune with its settleNext order, the failure-arm pruneFailed and the per-load favourites sync; `ui/js/UiState.js` 432 to 442 for invalidKeys, dropInvalid and the settle join and order helpers; `tests/js/uistate.js` 329 to 363 for the two-key prune, the owed-differing and the settle-order pins; `tests/js/watch.js` 307 to 334 for the .dot-insertion reorder, the partial-selection clear and the anchor-resolution pins. `ui/Pane.qml` keeps 999 with no added line and `ui/js/Anchor.js` keeps 178 inside the soft budget; `tests/xwsettings.sh` stands at 467 lines of shell the budget scan does not read.

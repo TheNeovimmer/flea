@@ -18,6 +18,7 @@ import "js/RecentMode.js" as RecentMode
 import "js/Ops.js" as Ops
 import "js/Permissions.js" as Permissions
 import "js/Selection.js" as Selection
+import "js/Anchor.js" as Anchor
 import "js/SlowClick.js" as SlowClick
 import "js/Sort.js" as Sort
 import "js/Thumbs.js" as Thumbs
@@ -256,6 +257,9 @@ FocusScope {
     readonly property string listingPreferences: JSON.stringify([ViewState.state.hidden, ViewState.state.sort,
         ViewState.state.foldersFirst, ViewState.state.groupByKind, ViewState.state.hiddenLast, ViewState.state.rememberSort])
     property string appliedListingPreferences: ""
+    // A preference re-list keeps selection and cursor by name, Finder's rule; the watcher defers
+    // while a selection stands, this one preserves it instead. Cleared when its rows land.
+    property var preferenceAnchor: null
     onListingPreferencesChanged: {
         // A hidden dual pane retains its session sort when the single pane changes the saved default.
         if (root.backend && root.backend.preserveSort && !root.visible && root.appliedListingPreferences.length > 0) {
@@ -291,7 +295,10 @@ FocusScope {
             if (!root.visible || !root.path || root.listInFlight || root.searchMode.length > 0
                     || root.recentMode.length > 0
                     || root.appliedListingPreferences === root.listingPreferences) return
+            root.preferenceAnchor = Anchor.preference(root)
             root.openWithoutHistory(root.path)
+            if (root.preferenceAnchor && root.preferenceAnchor.start > 0)
+                root.backend.window(root.preferenceAnchor.start, root.windowSize)
         }
     }
     Connections {
