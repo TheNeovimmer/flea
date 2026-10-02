@@ -107,11 +107,19 @@ impl Replay {
                 Self::check(saved, destination(&saved.step).is_some_and(|path| vacated.contains(path)))?;
                 if let Step::Trashed(entry) = &saved.step { vacated.insert(entry.original.as_path()); }
             }
+            let mut skipped: Vec<String> = Vec::new();
             for (index, saved) in self.steps.iter().enumerate() {
                 if cancel.load(Ordering::Relaxed) { return Err(error(Path::new(""), "redo cancelled")); }
                 Self::check(saved, false)?;
                 let before = entry.steps.len();
-                apply(saved, id, index, cancel, tx, &mut entry.steps)?;
+                match apply(saved, id, index, cancel, tx, &mut entry.steps) {
+                    Ok(()) => {}
+                    Err(e) if matches!(saved.step, Step::Mode { .. }) => {
+                        skipped.push(format!("{}: {}", e.path, e.msg));
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                }
                 if let Some(step) = entry.steps.get(before) {
                     match (&saved.step, step) {
                         (Step::Copied { created: old, .. }, Step::Copied { created: new, .. }) => changes.push((old.clone(), new.clone())),
@@ -124,6 +132,9 @@ impl Replay {
                         _ => {}
                     }
                 }
+            }
+            if !skipped.is_empty() {
+                return Err(error(Path::new(""), &format!("{} path(s) left in place: {}", skipped.len(), skipped.join("; "))));
             }
             Ok(self.op.clone())
         })();
@@ -195,14 +206,9 @@ fn apply(saved: &ReplayStep, id: usize, index: usize, cancel: &AtomicBool, tx: &
                 kind: kind.clone(), identity: ItemIdentity::inspect(path)? });
             Ok(())
         }
-        Step::Mode { path, after, .. } => {
-            use std::os::unix::fs::PermissionsExt;
-            let meta = path.symlink_metadata().map_err(|e| from_io("redo", &path.to_string_lossy(), &e))?;
-            if meta.file_type().is_symlink() {
-                return Err(error(path, "the item is a link, so redo left its mode in place"));
-            }
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(*after))
-                .map_err(|e| from_io("redo", &path.to_string_lossy(), &e))?;
+        Step::Mode { path, before, after, dev, ino } => {
+            super::permissions::chmod_pinned(path, *dev, *ino, *before, *after)
+                .map_err(|msg| error(path, &msg))?;
             steps.push(saved.step.clone());
             Ok(())
         }
