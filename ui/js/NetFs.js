@@ -8,6 +8,7 @@ function isNetworkFstype(fstype) {
     case "ceph": case "davfs": case "fuse.sshfs": case "fuse.rclone": case "fuse.s3fs":
     case "fuse.gcsfuse": case "fuse.curlftpfs": case "fuse.juicefs": case "fuse.glusterfs":
     case "fuse.ceph-fuse": case "fuse.smbnetfs": case "fuse.davfs2": case "fuse.gvfsd-fuse":
+    case "fuse.protondrive":
         return true
     }
     return false

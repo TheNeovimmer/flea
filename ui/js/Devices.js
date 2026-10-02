@@ -90,8 +90,7 @@ function collectVolumes(nodes, model, unplugs, out, unmounted) {
     }
 }
 
-// A leaf udisks hides is no row in any branch: no filesystem, a non-filesystem type, a firmware or
-// system partition type, a vendor recovery label, or a mount only the system itself uses.
+// A leaf udisks hides is no row in any branch.
 function hidden(n) {
     if (mountOf(n).length === 0 && String(n.fstype || "").length === 0)
         return true // H1: a partition with no filesystem and nothing mounted.
@@ -109,8 +108,7 @@ function hidden(n) {
     return false
 }
 
-// GPT GUIDs and MBR numbers udisks hides (80-udisks2.rules); PARTTYPE is a lowercase GUID on GPT
-// and 0xNN on MBR, compared numerically because lsblk drops the leading zero.
+// GPT GUIDs and MBR numbers udisks hides; MBR compared numerically, lsblk drops the leading zero.
 function isFirmwarePart(n) {
     var raw = String(n.parttype || "")
     if (raw.length === 0)
@@ -192,26 +190,31 @@ function isSystemMountOnly(n) {
     return true
 }
 
-// Sample input: "/boot/efi" trues, "/run/media/gm/128GB" falses; glib system prefixes plus dot parts.
+// Sample input: "/boot" trues, "/home/gm/Data" falses; exact glib list, prefix only under /dev /proc /sys.
 function isSystemPath(p) {
     if (p === "/" || p.indexOf("/.") >= 0)
         return true
-    var roots = ["/boot", "/home", "/opt", "/srv", "/tmp", "/usr", "/var", "/dev", "/proc", "/sys"]
-    for (var i = 0; i < roots.length; i++)
-        if (p === roots[i] || p.indexOf(roots[i] + "/") === 0)
+    if (p === "/dev" || p === "/proc" || p === "/sys")
+        return true
+    if (p.indexOf("/dev/") === 0 || p.indexOf("/proc/") === 0 || p.indexOf("/sys/") === 0)
+        return true
+    var exact = ["/bin", "/boot", "/compat/linux/proc", "/compat/linux/sys", "/etc", "/home",
+        "/lib", "/lib64", "/libexec", "/live/cow", "/live/image", "/media", "/mnt", "/net",
+        "/opt", "/rescue", "/root", "/sbin", "/srv", "/tmp", "/usr", "/usr/X11R6", "/usr/local",
+        "/usr/obj", "/usr/ports", "/usr/src", "/usr/xobj", "/var", "/var/crash", "/var/local",
+        "/var/log", "/var/log/audit", "/var/mail", "/var/run", "/var/tmp"]
+    for (var i = 0; i < exact.length; i++)
+        if (p === exact[i])
             return true
     return false
 }
 
-// One row per device path and per filesystem UUID: an md repeat lists the same path twice and a
-// multi-device btrfs shares one UUID, so the first mounted row wins and any later copy goes.
+// One row per device path and per btrfs UUID: an md repeat lists one path twice, multi-device btrfs shares one.
 function dedupeVolumes(rows) {
-    if (rows.length === 0)
-        return rows
-    var head = [rows[0]]
+    var head = []
     var byUuid = {}
     var at = {}
-    for (var i = 1; i < rows.length; i++) {
+    for (var i = 0; i < rows.length; i++) {
         var r = rows[i]
         var dkey = String(r.device || "")
         var ukey = String(r.uuid || "")
@@ -235,8 +238,7 @@ function dedupeVolumes(rows) {
     return head
 }
 
-// RailAdditions rule 1's switch gate: a real filesystem to browse, kept for old lsblk bodies
-// without PARTTYPE; the hide rule above already answers the same for new bodies in every branch.
+// RailAdditions rule 1 gate: a real filesystem to browse, for old lsblk bodies without PARTTYPE.
 function browsable(n) {
     var fs = String(n.fstype || "").toLowerCase()
     if (fs.length === 0 || fs === "swap" || fs.indexOf("crypto_") === 0)
@@ -276,9 +278,10 @@ function devicePath(node) {
 function volumeRow(n, model, unplugs, unmounted) {
     var path = mountOf(n)
     var label = n.label ? String(n.label) : (model.length > 0 ? model : String(n.name))
+    var fs = String(n.fstype || "").toLowerCase()
     return { kind: "volume", label: label, device: devicePath(n), path: path, mounted: path.length > 0,
              removable: unplugs === true, size: deviceBytes(n.size), volumeMenu: unmounted === true,
-             uuid: n.uuid ? String(n.uuid) : "" }
+             uuid: fs === "btrfs" && n.uuid ? String(n.uuid) : "" }
 }
 
 // An unavailable or malformed capacity stays absent; only the delegate formats valid byte counts.

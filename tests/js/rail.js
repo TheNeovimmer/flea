@@ -84,7 +84,7 @@ function run(check) {
     check("an empty rom stays hidden through the same guard", labels(Devices.parseDevices(bootBox(romLeaf(null)), true)), "nvme0n1")
     check("an iso9660 rom is still a row", labels(Devices.parseDevices(bootBox(romLeaf("iso9660")), true)), "nvme0n1,MATSHITA DVD+/-RW UJ8FB")
 
-    // Every hidden class, each mirrored in tests/fake-lsblk.sh for the native battery.
+    // Every hidden class below hides on every setting.
     function hideLeaf(leaf) { return labels(Devices.parseDevices(bootBox(stickPart(leaf)), true)) }
     function hideLeafOff(leaf) { return labels(Devices.parseDevices(bootBox(stickPart(leaf)), false)) }
     var sysLeaf = '{"name":"sda1","path":"/dev/sda1","label":"System Reserved","mountpoints":[null],"rm":false,"tran":null,"size":52428800,"type":"part","model":null,"fstype":"ntfs","parttypename":null,"parttype":"0x7","pttype":"dos","partn":1,"uuid":"2222222222222222"}'
@@ -92,7 +92,7 @@ function run(check) {
     check("and it stays hidden with the switch off", hideLeafOff(sysLeaf), "nvme0n1")
     var winLeaf = '{"name":"sda2","path":"/dev/sda2","label":null,"mountpoints":[null],"rm":false,"tran":null,"size":524288000,"type":"part","model":null,"fstype":"ntfs","parttypename":null,"parttype":"0x27","pttype":"dos","partn":2,"uuid":"3333333333333333"}'
     check("a 0x27 WinRE partition hides", hideLeaf(winLeaf), "nvme0n1")
-    var msrLeaf = '{"name":"sda1","path":"/dev/sda1","label":null,"mountpoints":[null],"rm":false,"tran":null,"size":16777216,"type":"part","model":null,"fstype":null,"parttypename":null,"parttype":"e3c9e316-0b5c-4db8-817d-f92df00215ae","pttype":"gpt","partn":1,"uuid":null}'
+    var msrLeaf = '{"name":"sda1","path":"/dev/sda1","label":null,"mountpoints":[null],"rm":false,"tran":null,"size":16777216,"type":"part","model":null,"fstype":"ntfs","parttypename":null,"parttype":"e3c9e316-0b5c-4db8-817d-f92df00215ae","pttype":"gpt","partn":1,"uuid":null}'
     check("an MSR partition hides", hideLeaf(msrLeaf), "nvme0n1")
     var pvLeaf = '{"name":"sda1","path":"/dev/sda1","label":null,"mountpoints":[null],"rm":false,"tran":null,"size":1073741824,"type":"part","model":null,"fstype":"LVM2_member","parttypename":null,"parttype":"0x8e","pttype":"dos","partn":1,"uuid":"44444444-4444-4444-4444-444444444444"}'
     check("an LVM PV hides", hideLeaf(pvLeaf), "nvme0n1")
@@ -106,9 +106,24 @@ function run(check) {
     check("a partition with no filesystem hides", hideLeaf(nofsLeaf), "nvme0n1")
     var isoLeaf = '{"name":"sda1","path":"/dev/sda1","label":"FLEA-ISO","mountpoints":[null],"rm":true,"tran":null,"size":1073741824,"type":"part","model":null,"fstype":"iso9660","parttypename":null,"parttype":"0x0","pttype":"dos","partn":1,"uuid":"88888888-8888-8888-8888-888888888888"}'
     check("an isohybrid ISO partition stays a row", hideLeaf(isoLeaf), "nvme0n1,FLEA-ISO")
+    var dataLeaf = '{"name":"sda1","path":"/dev/sda1","label":"DATA","mountpoints":["/home/gm/Data"],"rm":true,"tran":null,"size":124656812032,"type":"part","model":null,"fstype":"vfat","parttypename":"W95 FAT32","parttype":"0xb","pttype":"dos","partn":1,"uuid":"A1B2-C3D4"}'
+    check("a user drive mounted under home stays a row", hideLeaf(dataLeaf), "nvme0n1,DATA")
     var dupBody = '{"blockdevices":[{"name":"nvme0n1","path":"/dev/nvme0n1","label":null,"mountpoints":[null],"rm":false,"size":256060514304,"type":"disk","model":"KBG40ZNS256G","fstype":null,"parttypename":null,"children":[{"name":"nvme0n1p1","path":"/dev/nvme0n1p1","label":null,"mountpoints":["/"],"rm":false,"size":256060514304,"type":"part","model":null}]},'
-        + '{"name":"sda","path":"/dev/sda","label":null,"mountpoints":[null],"rm":true,"tran":"usb","size":124656812032,"type":"disk","model":"Stick","fstype":null,"parttypename":null,"children":[{"name":"sda1","path":"/dev/sda1","label":"A","mountpoints":["/run/media/gm/A"],"rm":true,"size":1000,"type":"part","model":null,"fstype":"vfat","uuid":"9999"},{"name":"sda1","path":"/dev/sda1","label":"A","mountpoints":["/run/media/gm/A"],"rm":true,"size":1000,"type":"part","model":null,"fstype":"vfat","uuid":"9999"}]}]}'
+        + '{"name":"sda","path":"/dev/sda","label":null,"mountpoints":[null],"rm":true,"tran":"usb","size":124656812032,"type":"disk","model":"Stick","fstype":null,"parttypename":null,"children":[{"name":"sda1","path":"/dev/sda1","label":"A","mountpoints":["/run/media/gm/A"],"rm":true,"size":1000,"type":"part","model":null,"fstype":"vfat","uuid":"9998"},{"name":"sda1","path":"/dev/sda1","label":"A","mountpoints":["/run/media/gm/A"],"rm":true,"size":1000,"type":"part","model":null,"fstype":"vfat","uuid":"9997"}]}]}'
     check("a repeated PATH names one row, not two", Devices.parseDevices(dupBody, true).length, 2)
+    var isoBody = '{"blockdevices":[{"name":"nvme0n1","path":"/dev/nvme0n1","label":null,"mountpoints":[null],"rm":false,"size":256060514304,"type":"disk","model":"KBG40ZNS256G","fstype":null,"parttypename":null,"children":[{"name":"nvme0n1p1","path":"/dev/nvme0n1p1","label":null,"mountpoints":["/"],"rm":false,"size":256060514304,"type":"part","model":null}]},'
+        + '{"name":"sda","path":"/dev/sda","label":null,"mountpoints":[null],"rm":true,"tran":"usb","size":1000,"type":"disk","model":"StickA","fstype":null,"parttypename":null,"children":[{"name":"sda1","path":"/dev/sda1","label":"ISO-A","mountpoints":[null],"rm":true,"size":1000,"type":"part","model":null,"fstype":"iso9660","parttype":"0x0","pttype":"dos","partn":1,"uuid":"2026-09-01-10-00-00-00"}]},'
+        + '{"name":"sdb","path":"/dev/sdb","label":null,"mountpoints":[null],"rm":true,"tran":"usb","size":1000,"type":"disk","model":"StickB","fstype":null,"parttypename":null,"children":[{"name":"sdb1","path":"/dev/sdb1","label":"ISO-B","mountpoints":[null],"rm":true,"size":1000,"type":"part","model":null,"fstype":"iso9660","parttype":"0x0","pttype":"dos","partn":1,"uuid":"2026-09-01-10-00-00-00"}]}]}'
+    check("two sticks sharing one ISO image keep both rows", labels(Devices.parseDevices(isoBody, true)), "nvme0n1,ISO-A,ISO-B")
+    var btrfsBody = '{"blockdevices":[{"name":"nvme0n1","path":"/dev/nvme0n1","label":null,"mountpoints":[null],"rm":false,"size":256060514304,"type":"disk","model":"KBG40ZNS256G","fstype":null,"parttypename":null,"children":[{"name":"nvme0n1p1","path":"/dev/nvme0n1p1","label":null,"mountpoints":["/"],"rm":false,"size":256060514304,"type":"part","model":null}]},'
+        + '{"name":"sdb","path":"/dev/sdb","label":null,"mountpoints":[null],"rm":false,"size":1000,"type":"disk","model":null,"fstype":null,"parttypename":null,"children":[{"name":"sdb1","path":"/dev/sdb1","label":null,"mountpoints":["/mnt/a"],"rm":false,"size":1000,"type":"part","model":null,"fstype":"btrfs","uuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}]},'
+        + '{"name":"sdc","path":"/dev/sdc","label":null,"mountpoints":[null],"rm":false,"size":1000,"type":"disk","model":null,"fstype":null,"parttypename":null,"children":[{"name":"sdc1","path":"/dev/sdc1","label":null,"mountpoints":["/mnt/b"],"rm":false,"size":1000,"type":"part","model":null,"fstype":"btrfs","uuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}]}]}'
+    check("two btrfs paths sharing one UUID name one row", Devices.parseDevices(btrfsBody, true).length, 2)
+    var remountBody = '{"blockdevices":[{"name":"sda","path":"/dev/sda","label":null,"mountpoints":[null],"rm":true,"tran":"usb","size":1000,"type":"disk","model":"Stick","fstype":null,"parttypename":null,"children":['
+        + '{"name":"sda1","path":"/dev/sda1","label":"A","mountpoints":[null],"rm":true,"size":1000,"type":"part","model":null,"fstype":"vfat","uuid":"9998"},'
+        + '{"name":"sda1","path":"/dev/sda1","label":"A","mountpoints":["/run/media/gm/A"],"rm":true,"size":1000,"type":"part","model":null,"fstype":"vfat","uuid":"9997"}]}]}'
+    var remounted = Devices.parseDevices(remountBody, true)
+    check("a mounted copy replaces its unmounted first row", remounted.length === 1 && remounted[0].mounted === true && remounted[0].path === "/run/media/gm/A", true)
 
     // Rule 2's rows, which only a row from rule 1 carries.
     function solid(rows) { return rows.filter(function (r) { return r.separator !== true }) }

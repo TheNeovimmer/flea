@@ -389,8 +389,12 @@ fn a_check_still_inside_its_budget_is_slow_not_wedged_so_the_next_open_checks_ag
 fn a_remote_filesystem_is_keyed_by_its_mount_and_a_local_one_by_its_path() {
     let mounts = vec![(PathBuf::from("/"), "ext4".to_string()),
                       (PathBuf::from("/mnt/nas"), "cifs".to_string()),
+                      (PathBuf::from("/mnt/proton"), "fuse.protondrive".to_string()),
+                      (PathBuf::from("/mnt/merge"), "fuse.mergerfs".to_string()),
                       (PathBuf::from("/run/user/1000/gvfs"), "fuse.gvfsd-fuse".to_string())];
     assert_eq!(key_for("/mnt/nas/a/b", &mounts), "mount /mnt/nas");
+    assert_eq!(key_for("/mnt/proton/a/b", &mounts), "mount /mnt/proton");
+    assert_eq!(key_for("/mnt/merge/a/b", &mounts), "mount /mnt/merge");
     assert_eq!(key_for("/run/user/1000/gvfs/smb-share:server=nas,share=x/y", &mounts), "mount /run/user/1000/gvfs");
     assert_eq!(key_for("/home/gm/Work", &mounts), "/home/gm/Work");
     assert_eq!(key_for("/mnt/nasty", &mounts), "/mnt/nasty");
