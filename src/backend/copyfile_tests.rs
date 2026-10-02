@@ -587,3 +587,21 @@ fn a_batch_cross_device_move_keeps_its_source_when_syncfs_fails() {
     assert_eq!(crate::backend::durable::test_syncfs_count(), 0, "a failed syncfs never counts: {:?}", crate::backend::durable::test_order());
     crate::backend::durable::test_reset();
 }
+
+// A twin move through move_any keeps the stranded message, so a redo and a transfer item name the temp leaf.
+#[test]
+fn a_twin_move_through_move_any_names_its_temp() {
+    let d = TestDir::new("movetwinstranded");
+    let from = d.file("a.txt", "body");
+    let twin = d.join("A.txt");
+    std::fs::hard_link(&from, &twin).unwrap();
+    crate::backend::renamecompat::test_fail_twin_back();
+    let flag = AtomicBool::new(false);
+    let mut sink = |_: u64, _: u64| {};
+    let mut p = quiet(&flag, &mut sink);
+    let error = move_any(&from, &twin, &mut p).expect_err("a failed move-back strands the file");
+    assert_eq!(error.where_, "rename-stranded", "a stranded twin answers its own kind");
+    assert!(error.msg.starts_with("the file was left as .flea-case-"), "msg names temp leaf: {}", error.msg);
+    let leaf = error.msg.split(" as ").nth(1).unwrap().split(" in ").next().unwrap();
+    assert!(d.path().join(leaf).is_file(), "the temp holds the file");
+}

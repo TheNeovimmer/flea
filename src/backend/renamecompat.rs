@@ -185,7 +185,7 @@ pub(crate) fn case_twin_move(from: &Path, to: &Path) -> Result<(), FleaError> {
             }
             return Err(FleaError { where_: "rename".to_string(), path: from.to_string_lossy().to_string(), msg: "a file with that name is already here".to_string() });
         }
-        if let Err(error) = rename_inner(&temp, to) {
+        if let Err(error) = move_forward(&temp, to) {
             if let Err(back) = move_back(&temp, from) {
                 return Err(kept_temp(&temp, from, back));
             }
@@ -205,6 +205,15 @@ fn move_back(temp: &Path, from: &Path) -> Result<(), FleaError> {
     rename_inner(temp, from)
 }
 
+// The forward step a twin strands on, injectable in tests like the move-back beside it.
+fn move_forward(temp: &Path, to: &Path) -> Result<(), FleaError> {
+    #[cfg(test)]
+    if take_fail_twin_forward() {
+        return Err(from_io("rename", &to.to_string_lossy(), &std::io::Error::from_raw_os_error(5)));
+    }
+    rename_inner(temp, to)
+}
+
 #[cfg(test)]
 thread_local! {
     static FAIL_TWIN_BACK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -219,6 +228,22 @@ pub fn test_fail_twin_back() {
 #[cfg(test)]
 fn take_fail_twin_back() -> bool {
     FAIL_TWIN_BACK.with(|flag| flag.replace(false))
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAIL_TWIN_FORWARD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+// A test fails the next twin forward step, so the stranded forward arm needs no sick filesystem.
+#[cfg(test)]
+pub fn test_fail_twin_forward() {
+    FAIL_TWIN_FORWARD.with(|flag| flag.set(true));
+}
+
+#[cfg(test)]
+fn take_fail_twin_forward() -> bool {
+    FAIL_TWIN_FORWARD.with(|flag| flag.replace(false))
 }
 
 // A stranded twin answers its own kind with the source path, so the rename request closes and msg names the temp leaf.
@@ -703,6 +728,25 @@ mod tests {
         assert!(error.msg.ends_with("input/output failed"), "msg carries move-back cause: {}", error.msg);
         let leaf = error.msg.split(" as ").nth(1).unwrap().split(" in ").next().unwrap();
         assert!(d.path().join(leaf).is_file(), "the temp holds the file");
+    }
+    // Sample input: the source reached a second time as alias/a.txt through a directory symlink, so no twin survives the move to temp.
+    #[test]
+    fn a_failed_twin_forward_step_names_its_temp() {
+        let d = TestDir::new("casetwinforward");
+        let from = d.file("a.txt", "body");
+        let alias = d.path().join("alias");
+        std::os::unix::fs::symlink(d.path(), &alias).unwrap();
+        let to = alias.join("a.txt");
+        test_fail_twin_forward();
+        test_fail_twin_back();
+        let error = rename_path(&from, &to).expect_err("a failed forward step strands the file");
+        assert_eq!(error.where_, "rename-stranded", "a stranded twin answers its own kind");
+        assert_eq!(error.path, from.to_string_lossy(), "the stranded error names the source");
+        assert!(error.msg.starts_with("the file was left as .flea-case-"), "msg names temp leaf: {}", error.msg);
+        assert!(error.msg.ends_with("input/output failed"), "msg carries move-back cause: {}", error.msg);
+        let leaf = error.msg.split(" as ").nth(1).unwrap().split(" in ").next().unwrap();
+        assert!(d.path().join(leaf).is_file(), "the temp holds the file");
+        assert!(to.symlink_metadata().is_err(), "the alias names nothing once the source moved, so the forward arm ran");
     }
     // The FUSE arm reads the real mountinfo, so a unit test drives only the WebDAV arm; live mount batteries drive the other.
     #[test]

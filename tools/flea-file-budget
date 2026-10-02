@@ -12,12 +12,12 @@ shelf/Panel.qml 430
 shelf/ShelfCard.qml 443
 shelf/ShelfService.qml 481
 src/backend/copyfile.rs 696
-src/backend/copyfile_tests.rs 589
+src/backend/copyfile_tests.rs 607
 src/backend/durable.rs 662
 src/backend/durable_tests.rs 1248
 src/backend/fsinforeq.rs 407
 src/backend/jump_tests.rs 403
-src/backend/renamecompat.rs 718
+src/backend/renamecompat.rs 762
 src/backend/gvfslist.rs 549
 src/backend/imagesize.rs 475
 src/backend/localsend.rs 405
@@ -47,7 +47,7 @@ src/uischema.rs 500
 src/uistate.rs 659
 src/uistore.rs 540
 src/vulkan.rs 728
-tests/js/columns.js 618
+tests/js/columns.js 643
 tests/js/drag.js 301
 tests/js/previewswap.js 367
 tests/js/focus.js 522

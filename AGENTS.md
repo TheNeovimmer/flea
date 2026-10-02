@@ -5364,7 +5364,7 @@ the same kind, so the sentence names no direction, warns that the name the copy 
 incomplete, and leaves the refreshed listing to show which names are on disk. The journal spends its
 entry either way, because a failed reversal that stayed would block every older undo behind a step
 that keeps failing.
-A twin stranded by a failed move-back answers `rename-stranded` rather than `rename-kept`: the temp sibling holds the file under a hidden dot name, so `path` is the source, which closes the rename request, and `msg` names the temp leaf with the move-back cause ("the file was left as .flea-case-N-M in this folder: input/output failed"). `ui/js/Errors.js` capitalises it as it does a transfer, `ui/PaneWire.qml` treats it as `rename-kept` for the refresh, and the move path carries the same `msg` on its item error.
+A twin stranded by a failed move-back answers `rename-stranded` rather than `rename-kept`: the temp sibling holds the file under a hidden dot name, so `path` is the source, which closes the rename request, and `msg` names the temp leaf with the move-back cause ("the file was left as .flea-case-N-M in this folder: input/output failed"). `ui/js/Errors.js` capitalises it as it does a transfer, `ui/PaneWire.qml` treats it as `rename-kept` for the refresh, and a move through move_any (copyfile.rs:607) carries the same `msg`, on a `redo` error for a redo and on the transfer item error for a non-regular item.
 corner: the copy is not snapshot-isolated, so a source replaced after the copy completes is destroyed
 by the removal that follows, and a concurrent write into the operation-created partial target is lost
 with it; both are accepted rather than defended against.
