@@ -1,4 +1,5 @@
 .import "../../ui/js/SheetQuery.js" as SheetQuery
+.import "../../ui/js/Swap.js" as Swap
 .import "sourcefixture.js" as Source
 
 function run(check) {
@@ -80,10 +81,29 @@ function run(check) {
     } }
     SheetQuery.runMenu(holder, "trash")
     check("the sheet snapshots before it activates", calls.join(","), "snapshot,activate:trash:true")
-    // Enter in the sheet skips the key gate Focus.js owns, so an action while a listing is out is refused there too.
-    var keymapSheet = Source.source("ui/KeymapSheet.qml")
-    check("the sheet refuses an action while a listing is out",
-          Source.slice(keymapSheet, "function activateResult()", "// Directive 18").indexOf("Swap.swallows") >= 0, true)
-    check("through the Swap gate it imports",
-          keymapSheet.indexOf('import "js/Swap.js" as Swap') >= 0, true)
+    // The sheet action arm lives in SheetQuery.runAction, so a swapped gate stays red.
+    function stubHolder(inFlight) {
+        var calls = []
+        var holder = { listInFlight: inFlight, message: function (text, shown) { calls.push("message:" + text + ":" + shown) }, act: function (action) { calls.push("act:" + action) } }
+        function close() { calls.push("close") }
+        return { holder: holder, calls: calls, close: close }
+    }
+    check("SheetQuery.runAction exists", typeof SheetQuery.runAction, "function")
+    var swallowed = stubHolder(true)
+    if (typeof SheetQuery.runAction === "function") {
+        SheetQuery.runAction(swallowed.holder, "trash", swallowed.close)
+    }
+    check("a swallowed action says loading with no close and no act", swallowed.calls.join(",") || "missing", "message:" + Swap.LOADING + ":false")
+    var idle = stubHolder(false)
+    if (typeof SheetQuery.runAction === "function") {
+        SheetQuery.runAction(idle.holder, "trash", idle.close)
+    }
+    check("an idle action closes then acts", idle.calls.join(",") || "missing", "close,act:trash")
+    var letThrough = stubHolder(true)
+    if (typeof SheetQuery.runAction === "function") {
+        SheetQuery.runAction(letThrough.holder, "open", letThrough.close)
+    }
+    check("an action the gate lets through acts while in flight", letThrough.calls.join(",") || "missing", "close,act:open")
+    var sheetAction = Source.source("ui/KeymapSheet.qml")
+    check("activateResult runs through SheetQuery.runAction", Source.slice(sheetAction, "function activateResult()", "// Directive 18").indexOf("SheetQuery.runAction") >= 0, true)
 }

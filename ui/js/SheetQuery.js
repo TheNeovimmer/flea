@@ -1,6 +1,7 @@
 .pragma library
 
 .import "Recent.js" as Recent
+.import "Swap.js" as Swap
 
 // The sheet's four-section query filter; imports no QML, so tests drive it.
 
@@ -186,6 +187,16 @@ function dispatch(candidate) {
         return { kind: "recent", path: String(row.path) }
     }
     return { kind: "none" }
+}
+
+// Enter skips the key gate, so a listing started under the sheet is refused here too.
+function runAction(holder, action, close) {
+    if (Swap.swallows(holder.listInFlight, action)) {
+        holder.message(Swap.LOADING, false)
+        return
+    }
+    close()
+    holder.act(action)
 }
 
 // A sheet menu row snapshots first, so the activate meets the current selection.

@@ -26,8 +26,12 @@ function run(check) {
     check("every non-separator entry becomes a candidate", menus.length, 7)
     // The sheet keeps hidden rows findable by asking the menu with no hidden set.
     var sheet = Source.source("ui/KeymapSheet.qml")
-    check("the sheet asks with no hidden set",
-          Source.slice(sheet, "function menuModel()", "function railModel()").indexOf("hiddenActions: []") >= 0, true)
+    var menuSlice = Source.slice(sheet, "function menuModel()", "function railModel()")
+    var codeLines = menuSlice.split("\n").filter(function (line) { return line.trim().indexOf("//") !== 0 })
+    var codeSlice = codeLines.join("\n")
+    var hiddenCount = codeSlice.split("hiddenActions:").length - 1
+    check("the sheet asks with no hidden set once", hiddenCount, 1)
+    check("and it is the empty set", codeSlice.indexOf("hiddenActions: []") >= 0, true)
     check("a row with a key keeps its cap",
           menus.filter(function (row) { return row.label === "Delete permanently"; })[0].keys, "shift-delete")
     check("a keyless row draws no cap",
