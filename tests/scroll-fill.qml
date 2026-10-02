@@ -106,6 +106,7 @@ ShellRoot {
             property bool recent: false
             property bool folderMode: false
             property int windowSize: 35
+            property int coalesceMs: 16
             property bool backendUnavailable: true
             property int pendingListings: 0
             function rowFor(index) { return (index >= 0 && index < rows.length) ? rows[index] : null }

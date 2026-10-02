@@ -253,11 +253,13 @@ fn every_step_kind_round_trips_with_exact_integers() {
             Step::MadeFile { path: dir.join("i"), identity: id.clone() },
             Step::Trashed(crate::backend::trash::Entry { original: dir.join("j"), uri: "trash:///j".to_string() }),
             Step::Mode { path: dir.join("k"), before: 0o644, after: 0o600, dev: u64::MAX, ino: 1 << 60, born: Some((1 << 62, u32::MAX)) },
+            Step::Mode { path: dir.join("l"), before: 0o644, after: 0o600, dev: u64::MAX, ino: 1 << 60, born: None },
             Step::Barrier,
         ],
     };
     let doc = super::Doc { undo: vec![entry], redo: Vec::new(), push_gen: 0 };
     let text = crate::jsondoc::render(&crate::backend::undocodec::encode(&doc));
+    assert!(text.contains("\"born\": null"), "an unknown birth time is encoded as null");
     let back = crate::backend::undocodec::decode(&text).expect("the codec reads what it wrote");
     assert_eq!(crate::jsondoc::render(&crate::backend::undocodec::encode(&back)), text,
         "a second render is byte-identical, so every integer survived exactly");

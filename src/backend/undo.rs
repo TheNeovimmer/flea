@@ -304,8 +304,7 @@ impl Journal {
         self.entries.is_empty()
     }
 
-    // A failing step stops the rest; mode steps skip a replaced path with a note.
-    // Shared entries undo from the file with this backend's manifests reattached.
+    // A failing step stops the rest, mode steps skip replaced paths with a note, and shared entries reattach this backend's manifests.
     pub fn undo(&mut self) -> Result<String, FleaError> {
         if let Some(shared) = self.shared.clone() {
             let (mut entry, gen) = match super::undoshare::claim_undo(&shared) {
