@@ -23,15 +23,20 @@ QtObject {
     }
 
     function take(token) {
-        if (!root.tabBar || !root.view || !root.view.currentPane || !root.tabs)
+        root.traceTab("taken-call", "token=" + String(token) + " outToken=" + String(root.tabBar ? root.tabBar.outToken : "") + " outActive=" + String(root.tabBar ? root.tabBar.outActive : ""))
+        if (!root.tabBar || !root.view || !root.view.currentPane || !root.tabs) {
+            root.traceTab("taken-refused", "reason=missing-ref")
             return false
-        if (!root.tabs.takeToken(root.tabBar.outToken, token))
+        }
+        if (!root.tabs.ackCloses(root.tabBar.outToken, token, root.tabBar.ackLiftedAt, Date.now())) {
+            root.traceTab("taken-refused", "reason=" + (!root.tabs.takeToken(root.tabBar.outToken, token) ? "token-mismatch" : "expired"))
             return false
+        }
         var pane = root.view.currentPane
         var index = root.tabs.resolveMovedTab(pane, root.tabBar.outIndex, root.tabBar.outPath)
         var result = root.tabs.closeTabAfterMove(pane, index)
         root.traceTab("taken-recv", "token=" + String(token) + " result=" + result)
-        root.tabBar.outToken = ""
+        root.tabBar.clearAck()
         root.tabBar.outActive = false
         root.tabBar.dragFrom = -1
         root.tabBar.dropAt = -1

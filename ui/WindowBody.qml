@@ -233,6 +233,10 @@ Rectangle {
             var info = Tabs.parseTabMime(payload)
             if (!info || Tabs.isOwnTab(info))
                 return
+            // The take decision answers Move at once; the peek behind it may still refuse, and then no ack goes out.
+            if (Tabs.dropDecision(info, undefined, false, Tabs.canReceive(view.currentPane)) !== Tabs.DROP_TAKE)
+                return
+            drop.accept(Qt.MoveAction)
             tabBar.acceptTabDrop(payload, info, -1)
         }
     }

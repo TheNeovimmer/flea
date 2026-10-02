@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import "." as Flea
 import "js/DragOut.js" as DragOut
 import "js/Tabs.js" as Tabs
@@ -52,9 +53,27 @@ Item {
     property string outToken: ""
     property bool ownAccepted: false
     property var pendingTab: null
+    // The lift outlives the drag's own end, until the taken ack or this wait ends.
+    property int ackWaitMs: Tabs.ACK_WAIT_MS
+    property double ackLiftedAt: 0
+    property var takenQueue: []
     // Stage trace, on only with FLEA_TRACE_TABDRAG=1; read once, silent otherwise.
     readonly property bool tabTrace: Quickshell.env("FLEA_TRACE_TABDRAG") === "1"
     function traceTab(stage, detail) { if (root.tabTrace) console.log("TABDRAG " + stage + " pid=" + Quickshell.processId + " " + detail) }
+
+    Timer {
+        id: ackTimer
+        interval: root.ackWaitMs
+        onTriggered: root.clearAck()
+    }
+
+    Process {
+        id: takenAck
+        onExited: function (exitCode, exitStatus) {
+            root.traceTab("taken-exit", "code=" + exitCode)
+            root.pumpTaken()
+        }
+    }
 
     Drag.dragType: Drag.Automatic
     // Move only, and only the private tab type: a foreign app refuses it, so a tab
@@ -97,6 +116,9 @@ Item {
         root.outPath = info ? info.path : ""
         root.outPid = String(Quickshell.processId)
         root.outToken = Tabs.newToken()
+        // A new lift supersedes any ack still waited on.
+        ackTimer.stop()
+        root.ackLiftedAt = 0
         root.outMime = Tabs.tabDragMime(root.pane, index, root.outPid, root.outToken)
         root.outOutside = false
         root.outRefused = false
@@ -134,6 +156,20 @@ Item {
         root.dragFinished()
     }
 
+    // The lift survives the drag's end: the ack lands after the drop action whatever it
+    // reports, so clearing here would orphan it. An own-strip reorder consumed its lift.
+    function holdAck() {
+        root.ackLiftedAt = Date.now()
+        ackTimer.restart()
+    }
+    function clearAck() {
+        ackTimer.stop()
+        root.outToken = ""
+        root.outIndex = -1
+        root.outPath = ""
+        root.ackLiftedAt = 0
+    }
+
     // The drop action of a cross-process drag decides nothing: on Hyprland it is always
     // Ignore, which means do nothing. A move closes here only through the taken ack, a
     // tear-off only through the panel drop, and a cancel changes nothing. An own-strip
@@ -141,14 +177,19 @@ Item {
     // it cannot reorder twice. Every end path runs here, so the panels go with it.
     function outFinished(dropAction) {
         root.traceTab("drag-finished", "action=" + dropAction)
+        var consumed = root.ownAccepted
         root.dragFrom = -1
         root.dropAt = -1
         root.outActive = false
-        root.outToken = ""
         root.ownAccepted = false
+        if (consumed)
+            root.clearAck()
+        else if (root.outToken.length > 0)
+            root.holdAck()
     }
 
     // The panel's Escape: ends the gesture with no move and no tear-off, the tab stays.
+    // No drop follows, so no ack ever comes; the lift waits out the timer instead.
     function cancelOut() {
         if (!root.outActive)
             return
@@ -156,8 +197,9 @@ Item {
         root.dragFrom = -1
         root.dropAt = -1
         root.outActive = false
-        root.outToken = ""
         root.ownAccepted = false
+        if (root.outToken.length > 0)
+            root.holdAck()
     }
 
     // The tear-off catcher answers in this process, so it reports exactly: open the new
@@ -172,8 +214,8 @@ Item {
         root.dragFrom = -1
         root.dropAt = -1
         root.outActive = false
-        root.outToken = ""
         root.ownAccepted = false
+        root.clearAck()
     }
 
     // A tab from another Flea window lands at the drop position. Own drags reach here
@@ -200,7 +242,17 @@ Item {
     // never heard about sends nothing, so the source keeps its tab.
     function sendTaken(pid, token) {
         root.traceTab("taken-sent", "target=" + pid + " token=" + token)
-        Quickshell.execDetached(["qs", "ipc", "--pid", String(pid), "call", "fleatab", "taken", String(token)])
+        root.takenQueue = root.takenQueue.concat([{ pid: String(pid), token: String(token) }])
+        root.pumpTaken()
+    }
+    // One Process runs one call, so overlapping acks queue behind it instead of vanishing inside execDetached.
+    function pumpTaken() {
+        if (takenAck.running || root.takenQueue.length === 0)
+            return
+        var next = root.takenQueue[0]
+        root.takenQueue = root.takenQueue.slice(1)
+        takenAck.command = ["qs", "ipc", "--pid", next.pid, "call", "fleatab", "taken", next.token]
+        takenAck.running = true
     }
 
     Connections {
@@ -471,6 +523,10 @@ Item {
                 drop.accept(Qt.MoveAction)
                 return
             }
+            // The take decision answers Move at once; the peek behind it may still refuse, and then no ack goes out.
+            if (Tabs.dropDecision(info, undefined, root.outActive, root.pane ? Tabs.canReceive(root.pane) : false) !== Tabs.DROP_TAKE)
+                return
+            drop.accept(Qt.MoveAction)
             root.acceptTabDrop(payload, info, Tabs.dropIndexAt(drop.x, root.tabWidth, root.tabCount))
         }
     }

@@ -584,6 +584,29 @@ function takeToken(stored, token) {
     return !!stored && stored.length > 0 && stored === String(token || "")
 }
 
+// xw6 r5: the source holds its lift until the ack arrives or this wait ends, one network leg's own 15 s bound (ui/NetworkMounts.qml mountTimeout).
+var ACK_WAIT_MS = 15000
+
+// Whether an ack arriving at now may still close the lift begun at liftedAt.
+function ackCloses(stored, token, liftedAt, now) {
+    if (!takeToken(stored, token))
+        return false
+    if (liftedAt > 0 && now - liftedAt > ACK_WAIT_MS)
+        return false
+    return true
+}
+
+// B's synchronous take decision at drop time; the async peek may still refuse, and then no ack goes out.
+var DROP_TAKE = "move"
+var DROP_IGNORE = "ignore"
+function dropDecision(info, selfPid, outActive, canRecv) {
+    if (!info)
+        return DROP_IGNORE
+    if (isOwnTab(info, selfPid))
+        return outActive === true ? DROP_TAKE : DROP_IGNORE
+    return canRecv === true ? DROP_TAKE : DROP_IGNORE
+}
+
 // After an accepted drop the source closes the tab that left. A lone tab is never
 // lifted, so no move ever closes a window's only tab: that arm answers kept.
 function closeTabAfterMove(pane, index) {

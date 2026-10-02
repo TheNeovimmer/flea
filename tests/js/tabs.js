@@ -403,4 +403,47 @@ function run(check) {
     check("garbage payload refuses even with the format",
         Tabs.enterAccepts([Tabs.TAB_MIME], "not json", "111", true, false), false)
     Tabs.setOwnPid("")
+
+    // xw6 r5: the source honours an ack that arrives after its drag ended with IgnoreAction.
+    var liftAt = 1000000
+    check("an ack after an IgnoreAction finish still matches its lift",
+        Tabs.ackCloses("tok-1", "tok-1", liftAt, liftAt + 500), true)
+    check("an ack with the wrong token closes nothing",
+        Tabs.ackCloses("tok-1", "tok-9", liftAt, liftAt + 500), false)
+    check("an ack with no outstanding lift closes nothing",
+        Tabs.ackCloses("", "tok-1", liftAt, liftAt + 500), false)
+    check("an ack at the wait's end still closes",
+        Tabs.ackCloses("tok-1", "tok-1", liftAt, liftAt + Tabs.ACK_WAIT_MS), true)
+    check("an ack past the wait closes nothing",
+        Tabs.ackCloses("tok-1", "tok-1", liftAt, liftAt + Tabs.ACK_WAIT_MS + 1), false)
+    var acked = Fixture.pane("/tmp/one")
+    acked.tabs = { items: [{ path: "/tmp/one" }, { path: "/tmp/two", history: [], cursorIndex: 0,
+                           viewMode: "list", showHidden: false, selected: [],
+                           sortBy: "name", sortDesc: false }],
+                   index: 0, pendingCursor: -1, pendingSortBy: "", pendingSortDesc: false }
+    if (Tabs.ackCloses("tok-1", "tok-1", liftAt, liftAt + 500))
+        Tabs.closeTabAfterMove(acked, Tabs.resolveMovedTab(acked, 1, "/tmp/two"))
+    check("and the moved tab is gone", Tabs.count(acked), 1)
+    // Escape sends no ack, so the tab stands; a late ack after it still refuses.
+    var esc = Fixture.pane("/tmp/one")
+    esc.tabs = { items: [{ path: "/tmp/one" }, { path: "/tmp/two" }],
+                 index: 0, pendingCursor: -1, pendingSortBy: "", pendingSortDesc: false }
+    check("Escape with no ack keeps both tabs", Tabs.count(esc), 2)
+    check("and a late ack after it closes nothing",
+        Tabs.ackCloses("tok-1", "tok-1", liftAt, liftAt + Tabs.ACK_WAIT_MS + 1), false)
+    // B answers Move once it decided to take the tab.
+    Tabs.setOwnPid("111")
+    var foreignTake = Tabs.parseTabMime(JSON.stringify(["222", "tok-9", "/tmp/folder", "grid", ""]))
+    check("a receivable foreign drop takes with Move",
+        Tabs.dropDecision(foreignTake, undefined, false, true), Tabs.DROP_TAKE)
+    check("a foreign drop on a full strip is ignored",
+        Tabs.dropDecision(foreignTake, undefined, false, false), Tabs.DROP_IGNORE)
+    var ownLift = Tabs.parseTabMime(Tabs.tabPayload(tabbed, 0, "111", "tok-1"))
+    check("an own drag without a lift is ignored",
+        Tabs.dropDecision(ownLift, undefined, false, true), Tabs.DROP_IGNORE)
+    check("an own lift out and back takes with Move",
+        Tabs.dropDecision(ownLift, undefined, true, true), Tabs.DROP_TAKE)
+    check("no payload takes nothing",
+        Tabs.dropDecision(null, undefined, true, true), Tabs.DROP_IGNORE)
+    Tabs.setOwnPid("")
 }
