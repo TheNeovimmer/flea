@@ -6,7 +6,7 @@ repo=$PWD
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 source_file=${XW_HARNESS_SOURCE:-$repo/tests/ui.sh}
-for helper in case_xwwatch xw_click_background xw_cleanup owned_trash_monitors; do
+for helper in case_xwwatch xw_ipc xw_click_background xw_cleanup owned_trash_monitors; do
     eval "$(sed -n "/^$helper()/,/^}/p" "$source_file")" || exit 1
 done
 fail() {
@@ -40,48 +40,57 @@ omarchy-drive() {
     printf 'New Folder|New File|Paste\n' > "$tmp/menu"
     printf '%s\n' "$*" >> "$tmp/clicks"
 }
-xw_ipc() {
-    local boot="$1" query="$2"
-    shift 2
-    case "$query" in
-        listingBackgroundCentre)
-            [[ "$boot" == "$fixture_root/xwwatch-ui/boot" ]] || fail "background point read from B"
-            printf '300 %s\n' "${background_y:-400}"
-            ;;
-        fileRowHeight) printf '37\n' ;;
-        rowCentre) printf '300 74\n' ;;
-        total) printf '5\n' ;;
-        contextMenuEntries) cat "$tmp/menu" ;;
-        cursor)
-            if [[ "$boot" == "$flea_ui/boot" ]]; then
-                printf '3\n'
-            else
-                printf '%s\n' "${a_cursor:-0}"
-            fi
-            ;;
-        selectionCount)
-            if [[ -f "$tmp/deleted" ]]; then
-                printf '2\n'
-            else
-                printf '3\n'
-            fi
-            ;;
-        selectedIndices) printf '3,4\n' ;;
-        rowAt)
-            case "$1" in
-                1) printf 'renamed-later.txt|file\n' ;;
-                2) printf 'sel-one.txt|file\n' ;;
-                3) printf 'sel-two.txt|file\n' ;;
-                4) printf 'sel-three.txt|file\n' ;;
-                *) printf 'untouched.txt|file\n' ;;
-            esac
-            ;;
-        *) fail "unexpected IPC query: $query" ;;
-    esac
-}
-ipc() {
-    xw_ipc "$flea_ui/boot" "$@"
-}
+# Exercise the real xw_ipc timeout and argv against a per-process qs stub.
+mkdir -p "$tmp/bin"
+export XW_HARNESS_TMP="$tmp" a_cursor=0 background_y=400
+export PATH="$tmp/bin:$PATH"
+cat > "$tmp/bin/qs" <<'STUB'
+#!/bin/bash
+set -uo pipefail
+tmp=$XW_HARNESS_TMP
+printf '%q ' "$@" >> "$tmp/ipc-argv"
+printf '\n' >> "$tmp/ipc-argv"
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+[[ "$#" -ge 6 && "$1" == ipc && "$2" == --pid && "$4" == call && "$5" == flea ]] \
+    || fail "unexpected IPC route: $*"
+pid=$3
+[[ "$pid" == 111 || "$pid" == 222 ]] || fail "unexpected IPC pid: $pid"
+query=$6
+shift 6
+case "$query" in
+    listingBackgroundCentre | fileRowHeight | rowCentre | contextMenuEntries)
+        [[ "$pid" == 111 ]] || fail "A read $query carried B pid $pid"
+        ;;
+esac
+case "$query" in
+    listingBackgroundCentre) printf '300 %s\n' "$background_y" ;;
+    fileRowHeight) printf '37\n' ;;
+    rowCentre) printf '300 74\n' ;;
+    total) printf '5\n' ;;
+    contextMenuEntries) cat "$tmp/menu" ;;
+    cursor)
+        if [[ "$pid" == 222 ]]; then printf '3\n'; else printf '%s\n' "$a_cursor"; fi
+        ;;
+    selectionCount)
+        if [[ "$pid" == 111 ]]; then printf '0\n'
+        elif [[ -f "$tmp/deleted" ]]; then printf '2\n'
+        else printf '3\n'; fi
+        ;;
+    selectedIndices) printf '3,4\n' ;;
+    rowAt)
+        case "$1" in
+            1) printf 'renamed-later.txt|file\n' ;;
+            2) printf 'sel-one.txt|file\n' ;;
+            3) printf 'sel-two.txt|file\n' ;;
+            4) printf 'sel-three.txt|file\n' ;;
+            *) printf 'untouched.txt|file\n' ;;
+        esac
+        ;;
+    *) fail "unexpected IPC query: $query" ;;
+esac
+STUB
+chmod +x "$tmp/bin/qs"
+ipc() { fail 'plain IPC cannot address either window in this harness'; }
 sandbox_scratch() {
     mkdir -p "$1"
 }
@@ -156,7 +165,7 @@ kill_flea() {
 
 failures=0
 for mode in success failure; do
-    rm -f "$tmp/menu" "$tmp/deleted" "$tmp/clicks"
+    rm -f "$tmp/menu" "$tmp/deleted" "$tmp/clicks" "$tmp/ipc-argv"
     result=0
     ( case_xwwatch ) > "$tmp/$mode.log" 2>&1 || result=$?
     expected=0
@@ -165,6 +174,16 @@ for mode in success failure; do
         printf 'FAIL xwwatch %s returned %s, expected %s\n' "$mode" "$result" "$expected"
         cat "$tmp/$mode.log"
         failures=$((failures + 1))
+    fi
+    if [[ "$mode" == success ]]; then
+        if [[ ! -s "$tmp/ipc-argv" ]] \
+            || grep -vE '^ipc --pid (111|222) call flea ' "$tmp/ipc-argv" \
+            || ! grep -q '^ipc --pid 111 call flea listingBackgroundCentre ' "$tmp/ipc-argv" \
+            || ! grep -q '^ipc --pid 222 call flea selectedIndices ' "$tmp/ipc-argv" \
+            || [[ "$(cat "$tmp/clicks" 2>/dev/null)" != 'click 400 600 right' ]]; then
+            printf 'FAIL pid argv or A background target was not exercised\n'
+            failures=$((failures + 1))
+        fi
     fi
     if [[ "$mode" == failure ]] && ! grep -q 'injected editor failure' "$tmp/$mode.log"; then
         printf 'FAIL failure control did not reach the editor\n'
@@ -181,13 +200,30 @@ if declare -F xw_click_background >/dev/null; then
     result=0
     (
         background_y=74
-        xw_click_background "$addr_a" "$fixture_root/xwwatch-ui/boot"
+        xw_click_background "$addr_a" 111
     ) > "$tmp/row.log" 2>&1 || result=$?
-    if [[ "$result" == 0 ]]; then
+    if [[ "$result" == 0 ]] || ! grep -q "background point lands on row" "$tmp/row.log"; then
         printf 'FAIL a point on a listing row was accepted as empty space\n'
         failures=$((failures + 1))
     fi
 fi
+
+# Neither a B pid on an A-only observer nor the old config-path route may succeed.
+for route in wrong-pid boot-path; do
+    result=0
+    if [[ "$route" == wrong-pid ]]; then
+        xw_ipc 222 listingBackgroundCentre > "$tmp/route.out" 2> "$tmp/route.err" || result=$?
+        diagnostic='A read listingBackgroundCentre carried B pid 222'
+    else
+        xw_ipc "$fixture_root/xwwatch-ui/boot" listingBackgroundCentre \
+            > "$tmp/route.out" 2> "$tmp/route.err" || result=$?
+        diagnostic='unexpected IPC pid:'
+    fi
+    if [[ "$result" == 0 || -s "$tmp/route.out" ]] || ! grep -q "$diagnostic" "$tmp/route.err"; then
+        printf 'FAIL %s IPC route was not refused\n' "$route"
+        failures=$((failures + 1))
+    fi
+done
 
 # Drive the copied-window stopper against a real child carrying this run's ownership marker.
 eval "$(sed -n '/^xw_kill_second()/,/^}/p' "$source_file")" || exit 1
@@ -234,5 +270,5 @@ if [[ "$result" != 0 || -s "$tmp/monitors.out" || -s "$tmp/monitors.err" ]]; the
     cat "$tmp/monitors.err"
     failures=$((failures + 1))
 fi
-printf 'xw-harness: success cleanup, failure cleanup, A background target, row refusal, owned child stop, vanished monitor; %s failed\n' "$failures"
+printf 'xw-harness: 9 checks (success cleanup, failure cleanup, A background target, pid argv, row refusal, wrong pid, boot path, owned child stop, vanished monitor); %s failed\n' "$failures"
 [[ "$failures" == 0 ]]

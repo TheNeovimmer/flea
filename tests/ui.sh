@@ -3421,12 +3421,9 @@ case_watch() {
 # files. The driver is the shell plus A itself, so nothing here stubs gio or the backend: both
 # windows watch the same directory and B answers only its own inotify.
 #
-# The second window needs its own UI copy so qs ipc (-p) addresses exactly one of the two
-# processes; unit xw1's two-window helper is reconciled by the controller. Keys reach a window
-# by its Hyprland address, resolved from this run's own qs pid and never by title, because the
-# class and title are the same for both. B is read through "$flea_ui/boot" and A through the
-# copy's boot, which assumes qs ipc -p selects the instance serving that config path: if both
-# answer on either path the controller moves the reads behind a focus instead.
+# The UI copy identifies A's owned process for launch and cleanup. Both windows share ShellId
+# flea, so config paths cannot distinguish their IPC: every read names the window's qs pid.
+# Keys reach each window by its Hyprland address, resolved from the same owned pid.
 # A qs pid of this run whose cmdline carries the needle, or nothing; a foreign match never qualifies.
 xw_owned_pid_for_arg() {
     local needle="$1" pid pids
@@ -3510,14 +3507,14 @@ xw_key() {
 }
 
 xw_ipc() {
-    local boot="$1"
+    local pid="$1"
     shift
-    omarchy-drive ipc -p "$boot" flea "$@"
+    timeout --kill-after=1s 2s qs ipc --pid "$pid" call flea "$@"
 }
 
 # Aim at this address's own empty listing centre, then raise that window before the right click.
 xw_click_background() {
-    local addr="$1" boot="$2" clients geometry pid wx wy ww wh cx cy total row centre row_x row_y row_h
+    local addr="$1" pid="$2" clients geometry window_pid wx wy ww wh cx cy total row centre row_x row_y row_h
     clients=$(hyprctl clients -j) || fail "xwwatch: cannot read A's window geometry"
     # Sample clients: [{"address":"0xaaa","class":"com.thisisgm.flea","pid":111,"at":[100,200],"size":[880,620]}].
     geometry=$(jq -er --arg addr "$addr" --arg class "$flea_window_class" '
@@ -3526,17 +3523,18 @@ xw_click_background() {
         | select(all(.[]; type == "number" and . == floor))
         | select(.[0] > 0 and .[3] > 0 and .[4] > 0) | @tsv' <<< "$clients") \
         || fail "xwwatch: A has no single valid window geometry at $addr"
-    read -r pid wx wy ww wh <<< "$geometry"
+    read -r window_pid wx wy ww wh <<< "$geometry"
+    [[ "$window_pid" == "$pid" ]] || fail "xwwatch: A's address $addr belongs to pid $window_pid, not $pid"
     flea_process_owned "$pid" || fail "xwwatch: refusing background coordinates from unowned window $pid"
-    read -r cx cy <<< "$(xw_ipc "$boot" listingBackgroundCentre)"
+    read -r cx cy <<< "$(xw_ipc "$pid" listingBackgroundCentre)"
     [[ "$cx $cy" =~ ^[0-9]+\ [0-9]+$ ]] \
         && (( cx < ww && cy < wh )) || fail "xwwatch: A's listing centre is outside its window"
-    total=$(xw_ipc "$boot" total)
-    row_h=$(xw_ipc "$boot" fileRowHeight)
+    total=$(xw_ipc "$pid" total)
+    row_h=$(xw_ipc "$pid" fileRowHeight)
     [[ "$total $row_h" =~ ^[0-9]+\ [0-9]+$ ]] && (( row_h > 0 )) \
         || fail "xwwatch: A's listing bounds are unreadable"
     for (( row = 0; row < total; row++ )); do
-        centre=$(xw_ipc "$boot" rowCentre "$row")
+        centre=$(xw_ipc "$pid" rowCentre "$row")
         [[ -n "$centre" ]] || continue
         read -r row_x row_y <<< "$centre"
         [[ "$row_y" =~ ^[0-9]+$ ]] || fail "xwwatch: A's row $row has no valid centre"
@@ -3593,20 +3591,25 @@ xw_cleanup() {
 xw_hang_s=30
 
 xw_wait_total() {
-    local boot="$1" want="$2" step="$3"
-    omarchy-drive wait ipc -p "$boot" flea total "$want" --timeout "$xw_hang_s" >/dev/null \
-        || fail "xwwatch: $step left the window at $(xw_ipc "$boot" total), not $want"
-    printf 'XWWATCH %s ok\n' "$step"
+    local pid="$1" want="$2" step="$3" start=$SECONDS seen
+    while (( SECONDS - start < xw_hang_s )); do
+        if seen=$(xw_ipc "$pid" total) && [[ -n "$seen" && "$seen" == "$want" ]]; then
+            printf 'XWWATCH %s ok\n' "$step"
+            return 0
+        fi
+        sleep 0.2
+    done
+    fail "xwwatch: $step left pid $pid at ${seen:-unreadable}, not $want"
 }
 
 # A rename moves no count, so no total can wait on it: sweep the rows until the name appears.
 xw_wait_row() {
-    local boot="$1" want="$2" step="$3" start total row seen
+    local pid="$1" want="$2" step="$3" start total row seen
     start=$SECONDS
     while (( SECONDS - start < xw_hang_s )); do
-        total=$(xw_ipc "$boot" total 2>/dev/null || printf 0)
+        total=$(xw_ipc "$pid" total 2>/dev/null || printf 0)
         for ((row = 0; row < total; row++)); do
-            seen=$(xw_ipc "$boot" rowAt "$row" 2>/dev/null || true)
+            seen=$(xw_ipc "$pid" rowAt "$row" 2>/dev/null || true)
             if [[ "$seen" == "$want|"* ]]; then
                 printf 'XWWATCH %s ok\n' "$step"
                 return 0
@@ -3618,7 +3621,7 @@ xw_wait_row() {
 }
 
 xw_goto() {
-    local addr="$1" boot="$2" target="$3" n
+    local addr="$1" pid="$2" target="$3" n
     xw_key "$addr" g
     for ((n = 0; n < target; n++)); do
         xw_key "$addr" j
@@ -3627,8 +3630,8 @@ xw_goto() {
 }
 
 xw_menu_seek() {
-    local addr="$1" boot="$2" want="$3" entries target i cursor steps step label
-    entries=$(xw_ipc "$boot" contextMenuEntries)
+    local addr="$1" pid="$2" want="$3" entries target i cursor steps step label
+    entries=$(xw_ipc "$pid" contextMenuEntries)
     target=-1
     i=0
     local IFS='|'
@@ -3638,14 +3641,14 @@ xw_menu_seek() {
     done
     unset IFS
     [[ "$target" -ge 0 ]] || fail "xwwatch: no menu row labelled $want in $entries"
-    steps=$(xw_ipc "$boot" contextMenuModel | jq -er 'length') || fail "xwwatch: could not read menu inventory"
+    steps=$(xw_ipc "$pid" contextMenuModel | jq -er 'length') || fail "xwwatch: could not read menu inventory"
     for ((step = 0; step <= steps; step++)); do
-        cursor=$(xw_ipc "$boot" contextMenuCursor)
+        cursor=$(xw_ipc "$pid" contextMenuCursor)
         [[ "$cursor" == "$target" ]] && return 0
         xw_key "$addr" -k Down
         sleep "$settle_s"
     done
-    fail "xwwatch: could not reach $want, cursor stalled at $(xw_ipc "$boot" contextMenuCursor)"
+    fail "xwwatch: could not reach $want, cursor stalled at $(xw_ipc "$pid" contextMenuCursor)"
 }
 
 # Flea windows from an aborted earlier run never match flea_pids (their cmdline carries the
@@ -3665,9 +3668,9 @@ xw_sweep_stale() {
 # A total that matches while rows are still landing proves nothing, so the promptness waits above
 # are followed by this before any mark or cursor is read.
 xw_settled() {
-    local boot="$1" n
+    local pid="$1" n
     for ((n = 0; n < 100; n++)); do
-        [[ "$(xw_ipc "$boot" listInFlight 2>/dev/null)" == "false" ]] && return 0
+        [[ "$(xw_ipc "$pid" listInFlight 2>/dev/null)" == "false" ]] && return 0
         sleep 0.05
     done
     fail "xwwatch: the listing never settled"
@@ -3675,9 +3678,9 @@ xw_settled() {
 
 # The rename editor opens a round trip after its key, so typing starts on its focus, not on sleep.
 xw_wait_editor() {
-    local boot="$1" n
+    local pid="$1" n
     for ((n = 0; n < 100; n++)); do
-        if xw_ipc "$boot" renameState 2>/dev/null | jq -e '.index >= 0 and .focused' >/dev/null; then
+        if xw_ipc "$pid" renameState 2>/dev/null | jq -e '.index >= 0 and .focused' >/dev/null; then
             return 0
         fi
         sleep 0.05
@@ -3686,7 +3689,7 @@ xw_wait_editor() {
 }
 
 case_xwwatch() {
-    local dir="$fixture_root/xwwatch" ui_copy="$fixture_root/xwwatch-ui" addrB addrA bootA row pidB cleanup_command entries
+    local dir="$fixture_root/xwwatch" ui_copy="$fixture_root/xwwatch-ui" addrB addrA row pidA pidB cleanup_command entries marksA marksB
     printf -v cleanup_command 'xw_cleanup %q || exit 1' "$ui_copy"
     trap "$cleanup_command" EXIT
     trap 'exit 1' HUP INT TERM
@@ -3712,65 +3715,78 @@ case_xwwatch() {
     key j >/dev/null
     key v >/dev/null
     settle
-    [[ "$(ipc selectionCount)" == "3" ]] || fail "xwwatch: B selected $(ipc selectionCount), not 3"
-    [[ "$(ipc rowAt "$(ipc cursor)")" == sel-two.txt\|* ]] \
-        || fail "xwwatch: B cursor is on $(ipc rowAt "$(ipc cursor)"), not sel-two.txt"
+    [[ "$(xw_ipc "$pidB" selectionCount)" == "3" ]] || fail "xwwatch: B selected $(xw_ipc "$pidB" selectionCount), not 3"
+    [[ "$(xw_ipc "$pidB" rowAt "$(xw_ipc "$pidB" cursor)")" == sel-two.txt\|* ]] \
+        || fail "xwwatch: B cursor is on $(xw_ipc "$pidB" rowAt "$(xw_ipc "$pidB" cursor)"), not sel-two.txt"
 
     # A opens beside it on the same folder.
     addrA=$(xw_second_window "$dir" "$ui_copy") || fail "xwwatch: no A window address"
-    bootA="$ui_copy/boot"
     [[ -n "$addrA" ]] || fail "xwwatch: no A window address"
-    xw_wait_total "$bootA" 5 "second window listing"
-    xw_settled "$bootA"
+    pidA=$(hyprctl clients -j | jq -er --arg addr "$addrA" \
+        '[.[] | select(.address == $addr)] | select(length == 1) | .[0].pid
+         | select(type == "number" and . == floor and . > 0)') \
+        || fail "xwwatch: no single A pid at $addrA"
+    flea_process_owned "$pidA" || fail "xwwatch: A pid $pidA is not owned by this run"
+    [[ "$pidA" != "$pidB" ]] || fail "xwwatch: A and B share pid $pidA"
+    xw_wait_total "$pidA" 5 "second window listing"
+    xw_settled "$pidA"
+
+    # A has no marks; B holds three. Equal answers expose routes reaching the same instance.
+    marksA=$(xw_ipc "$pidA" selectionCount) || fail "xwwatch: A IPC route pid $pidA failed"
+    marksB=$(xw_ipc "$pidB" selectionCount) || fail "xwwatch: B IPC route pid $pidB failed"
+    [[ "$marksA" != "$marksB" ]] \
+        || fail "xwwatch: A IPC route pid $pidA and B IPC route pid $pidB both answered $marksA marks"
+    [[ "$marksA" == 0 ]] || fail "xwwatch: A IPC route pid $pidA answered $marksA marks, expected 0"
+    [[ "$marksB" == 3 ]] || fail "xwwatch: B IPC route pid $pidB answered $marksB marks, expected 3"
 
     # A creates a file through its own New File row; B shows it with the same three marked.
-    xw_click_background "$addrA" "$bootA"
+    xw_click_background "$addrA" "$pidA"
     sleep "$settle_s"
-    entries=$(xw_ipc "$bootA" contextMenuEntries)
+    entries=$(xw_ipc "$pidA" contextMenuEntries)
     [[ "$entries" == 'New Folder|New File'* ]] || fail "xwwatch: A did not open its background menu: $entries"
-    xw_menu_seek "$addrA" "$bootA" "New File"
+    xw_menu_seek "$addrA" "$pidA" "New File"
     xw_key "$addrA" -k Return
-    xw_wait_editor "$bootA"
+    xw_wait_editor "$pidA"
     xw_key "$addrA" -M ctrl -k a -m ctrl -k BackSpace
     xw_key "$addrA" created-by-a.txt
     xw_key "$addrA" -k Return
-    xw_wait_total "$flea_ui/boot" 6 "create"
-    xw_settled "$flea_ui/boot"
+    xw_wait_total "$pidB" 6 "create"
+    xw_settled "$pidB"
 
     # A renames a file B never marked; B follows the name with its marks untouched.
-    xw_goto "$addrA" "$bootA" 1
-    [[ "$(xw_ipc "$bootA" rowAt "$(xw_ipc "$bootA" cursor)")" == renamed-later.txt\|* ]] \
-        || fail "xwwatch: A cursor is on $(xw_ipc "$bootA" rowAt "$(xw_ipc "$bootA" cursor)"), not renamed-later.txt"
+    xw_goto "$addrA" "$pidA" 1
+    [[ "$(xw_ipc "$pidA" rowAt "$(xw_ipc "$pidA" cursor)")" == renamed-later.txt\|* ]] \
+        || fail "xwwatch: A cursor is on $(xw_ipc "$pidA" rowAt "$(xw_ipc "$pidA" cursor)"), not renamed-later.txt"
     xw_key "$addrA" -k F2
-    xw_wait_editor "$bootA"
+    xw_wait_editor "$pidA"
     xw_key "$addrA" -M ctrl -k a -m ctrl -k BackSpace
     xw_key "$addrA" renamed-by-a.txt
     xw_key "$addrA" -k Return
-    xw_wait_row "$flea_ui/boot" renamed-by-a.txt "rename"
-    xw_settled "$flea_ui/boot"
+    xw_wait_row "$pidB" renamed-by-a.txt "rename"
+    xw_settled "$pidB"
 
     # A deletes a file B holds marked; B drops that mark and keeps the other two.
     row=0
     local found=-1
     for ((row = 0; row < 6; row++)); do
-        if [[ "$(xw_ipc "$bootA" rowAt "$row")" == sel-one.txt\|* ]]; then found=$row; break; fi
+        if [[ "$(xw_ipc "$pidA" rowAt "$row")" == sel-one.txt\|* ]]; then found=$row; break; fi
     done
     [[ "$found" -ge 0 ]] || fail "xwwatch: A never listed sel-one.txt"
-    xw_goto "$addrA" "$bootA" "$found"
+    xw_goto "$addrA" "$pidA" "$found"
     xw_key "$addrA" -k Delete
-    xw_wait_total "$flea_ui/boot" 5 "delete"
-    xw_settled "$flea_ui/boot"
-    [[ "$(xw_ipc "$flea_ui/boot" selectionCount)" == "2" ]] \
-        || fail "xwwatch: B holds $(xw_ipc "$flea_ui/boot" selectionCount) marks, not the 2 survivors"
-    [[ "$(xw_ipc "$flea_ui/boot" rowAt "$(xw_ipc "$flea_ui/boot" cursor)")" == sel-two.txt\|* ]] \
-        || fail "xwwatch: B cursor is on $(xw_ipc "$flea_ui/boot" rowAt "$(xw_ipc "$flea_ui/boot" cursor)"), not sel-two.txt"
+    xw_wait_total "$pidB" 5 "delete"
+    xw_settled "$pidB"
+    [[ "$(xw_ipc "$pidB" selectionCount)" == "2" ]] \
+        || fail "xwwatch: B holds $(xw_ipc "$pidB" selectionCount) marks, not the 2 survivors"
+    [[ "$(xw_ipc "$pidB" rowAt "$(xw_ipc "$pidB" cursor)")" == sel-two.txt\|* ]] \
+        || fail "xwwatch: B cursor is on $(xw_ipc "$pidB" rowAt "$(xw_ipc "$pidB" cursor)"), not sel-two.txt"
     local survivor_rows
-    survivor_rows=$(xw_ipc "$flea_ui/boot" selectedIndices)
+    survivor_rows=$(xw_ipc "$pidB" selectedIndices)
     [[ -n "$survivor_rows" ]] || fail "xwwatch: B holds no readable marks"
     for row in ${survivor_rows//,/ }; do
-        case "$(xw_ipc "$flea_ui/boot" rowAt "$row")" in
+        case "$(xw_ipc "$pidB" rowAt "$row")" in
             sel-two.txt\|* | sel-three.txt\|*) ;;
-            *) fail "xwwatch: B mark on row $row is $(xw_ipc "$flea_ui/boot" rowAt "$row"), not a survivor" ;;
+            *) fail "xwwatch: B mark on row $row is $(xw_ipc "$pidB" rowAt "$row"), not a survivor" ;;
         esac
     done
     printf 'XWWATCH survivors ok\n'
