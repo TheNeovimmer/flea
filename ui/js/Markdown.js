@@ -9,14 +9,7 @@
 .import "MdLeaf.js" as Leaf
 .import "MdBlocks.js" as Blocks
 
-// Rendered Markdown's preprocessing: every image URL is resolved here, before
-// Qt's own Markdown renderer sees the text, so no remote request is possible.
-// Remote becomes the board's placeholder; only a file inside the document's
-// folder loads, as its file:// URL. Fenced blocks and inline code are literal,
-// and links carry no handler anywhere, so both stay ink. The pipeline is
-// MdUrl (targets), MdHtml (allowlist), MdInline (scanners), MdRun (driver),
-// MdRefs (definitions), MdLeaf (leaves) and MdBlocks (splitter); this file is
-// the stable API the previews and the suites read.
+// Markdown's stable API: remote images become a placeholder, only files inside the document folder load.
 
 var RENDERED = "rendered"
 var SOURCE = "source"
@@ -99,9 +92,7 @@ function definitions(source) {
     return Refs.collectDefs(String(source).split("\n")).defs
 }
 
-// One HTML escape pass: & < > and every ASCII punctuation character become
-// numeric entities, so emphasis, links and autolinks cannot form inside
-// converted spans and cells.
+// One HTML escape pass: & < > and every ASCII punctuation character become numeric entities.
 function htmlEscaped(text) {
     return Md.escapeHtmlText(text)
 }
@@ -112,67 +103,11 @@ function codeHtml(content, chrome, original) {
     return held === null ? original : held
 }
 
-// CommonMark code spans over plain text, held as tokens for a caller that
-// restores them styled. Unmatched runs stay literal. Linear: one run pairing.
-function codeSpansHold(text, codes, chrome) {
-    var body = String(text)
-    var spans = Md.spanIntervals(body)
-    var out = ""
-    var at = 0
-    for (var s = 0; s < spans.length; s++) {
-        if (spans[s].kind !== "")
-            continue
-        out += body.slice(at, spans[s].from)
-        var token = String.fromCharCode(57344) + codes.length + String.fromCharCode(57345)
-        codes.push({ token: token, html: codeHtml(spans[s].content, chrome,
-            body.slice(spans[s].from, spans[s].to)) })
-        out += token
-        at = spans[s].to
-    }
-    return out + body.slice(at)
-}
-
 function linkTarget(inner) {
     return targetOf(inner)
 }
 
-function linkHtml(label, inner, ink) {
-    return Md.linkHtml(label, inner, ink)
-}
-
-// Inline links as font-wrapped anchors. Single forward scan, linear.
-function rewriteLinks(text, ink) {
-    var body = String(text)
-    var out = ""
-    var i = 0
-    while (i < body.length) {
-        var open = body.indexOf("[", i)
-        if (open < 0 || (open > 0 && body.charAt(open - 1) === "!")) {
-            out += body.slice(i)
-            break
-        }
-        var close = Leaf.scanBalanced(body, open + 1)
-        if (close < 0 || body.charAt(close + 1) !== "(") {
-            out += body.slice(i, open + 1)
-            i = open + 1
-            continue
-        }
-        var target = Md.readInlineTarget(body, close + 1)
-        if (target === null) {
-            out += body.slice(i, open + 1)
-            i = open + 1
-            continue
-        }
-        var html = Md.linkHtml(body.slice(open + 1, close), target.url, ink)
-        out += body.slice(i, open)
-        out += html === null ? body.slice(open, target.end) : MdHtml.holdToken([], html)
-        i = target.end
-    }
-    return out
-}
-
-// A prose run through the single-pass driver; definition lines lose their
-// bracket so md4c never sees a reference this parser did not resolve.
+// A prose run through the single-pass driver, definition lines stripped first.
 function resolveRun(joined, dir, defs, chrome, ink) {
     var tokens = []
     var lines = String(joined).split("\n")
