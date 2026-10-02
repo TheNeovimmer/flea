@@ -81,6 +81,20 @@ mod tests {
     use super::*;
     use crate::backend::testdir::TestDir;
 
+    const FIRST_ROWS: usize = 10;
+    const NO_WATCH: i32 = -1;
+
+    // Supply the worker's precomputed rows to the production landing used by directory listings.
+    fn worker_listing(path: &str, listing: Listing) -> super::super::iomount::ListOut {
+        let base = std::path::Path::new(path);
+        let (first_metas, first_ms) = super::super::meta::stat_range(base, &listing, 0, FIRST_ROWS);
+        super::super::iomount::ListOut {
+            listing, read_ms: 0.0, sort_ms: 0.0, sized: Vec::new(),
+            dev: dev_of(base), writable: super::super::ops::dir_writable(base),
+            first_metas, first_ms, watch_wd: NO_WATCH,
+        }
+    }
+
     #[test]
     fn lists_the_paths_that_exist_in_the_order_they_were_given() {
         let d = TestDir::new("listpaths");
@@ -194,7 +208,7 @@ mod tests {
             new.push(name, false);
         }
         let mut out = Vec::new();
-        super::super::run::adopt(&mut out, &mut st, &pool, &tb, &path, new, (0.0, 0.0), &[], 10, true);
+        super::super::run::adopt_listed(&mut out, &mut st, &pool, &tb, &path, worker_listing(&path, new), true);
         let asked = String::from_utf8(out).unwrap();
         assert!(asked.lines().next().unwrap().contains("\"changed\":2"), "an asked re-list names the rename: {}", asked);
         let mut old = Listing::new();
@@ -208,7 +222,7 @@ mod tests {
             new.push(name, false);
         }
         let mut out = Vec::new();
-        super::super::run::adopt(&mut out, &mut st, &pool, &tb, &path, new, (0.0, 0.0), &[], 10, false);
+        super::super::run::adopt_listed(&mut out, &mut st, &pool, &tb, &path, worker_listing(&path, new), false);
         let silent = String::from_utf8(out).unwrap();
         assert!(!silent.lines().next().unwrap().contains("changed"), "an unasked re-read stays silent: {}", silent);
     }
@@ -233,7 +247,7 @@ mod tests {
             root.push(name, false);
         }
         let mut out = Vec::new();
-        super::super::run::adopt(&mut out, &mut st, &pool, &tb, "/", root, (0.0, 0.0), &[], 10, false);
+        super::super::run::adopt_listed(&mut out, &mut st, &pool, &tb, "/", worker_listing("/", root), false);
         let mut out = Vec::new();
         answer(&mut out, &mut st, &pool, &tb, &[astr], 10, "");
         let line = String::from_utf8(out).unwrap();
@@ -262,7 +276,8 @@ mod tests {
             root.push(name, false);
         }
         let mut out = Vec::new();
-        super::super::run::adopt(&mut out, &mut st, &pool, &tb, "/", root, (0.0, 0.0), &[], 10, true);
+        super::super::run::adopt_listed(&mut out, &mut st, &pool, &tb, "/", worker_listing("/", root), true);
+        assert_eq!(st.held, Held::List, "a directory landing replaces the held history kind");
         let line = String::from_utf8(out).unwrap();
         assert!(!line.lines().next().unwrap().contains("changed"), "a root list over a held history carries no count: {}", line);
     }

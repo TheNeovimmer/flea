@@ -66,10 +66,7 @@ pub enum OpMsg {
     // A slow remote write reporting late: the loop journals it exactly as the in-time path would.
     RenameDone { id: usize, result: Result<(PathBuf, Vec<Step>), FleaError> },
     MkdirDone { id: usize, result: Result<(PathBuf, Vec<Step>), FleaError> },
-    // A slow link's late answer; only the test-only slow path constructs it, the loop still lands it.
-    #[cfg_attr(not(test), allow(dead_code))]
-    LinkDone { id: usize, result: Result<LinkOutcome, FleaError> },    // Not an operation: meta rides this channel because a media probe is a subprocess and the loop
-    // must not wait on one. Nothing about it claims the one-at-a-time slot.
+    // Meta rides this channel because a media probe is a subprocess; it claims no operation slot.
     Meta { line: String },
 }
 
@@ -80,7 +77,6 @@ pub struct LinkOutcome {
     pub skipped: usize,
     pub steps: Vec<Step>,
     pub first_err: String,
-    pub dest: String,
     // Each stranded replace sentence, reported on the linked line ahead of the undo hint.
     pub note: String,
 }

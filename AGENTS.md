@@ -297,14 +297,15 @@ single call and `BULK_DEADLINE` of 15 s for a bulk pass, and past it the loop an
 "<mount> is not responding." A mount past its deadline is marked stuck for `STUCK_TTL` of 30 s, and
 a call on one answers at once without a worker until that passes, when the next request probes it
 again. A worker that dies before answering is this machine's fault and marks nothing: only a
-deadline still running marks the mount stuck. A remote write runs on its own worker with
-CALL_DEADLINE, as reads do, and the loop never waits on it longer than that: a local write stays
+deadline still running marks the mount stuck. A remote `rename` or `mkdir` runs on its own worker with
+CALL_DEADLINE, as reads do, and the loop never waits on it longer than that: a local one stays
 inline with no hop, an in-time remote write answers exactly as before, and past the deadline the loop
 answers a `slow` line and moves on, never marking the mount stuck for a write still running. The worker
 stays tracked and reports through the op channel when it lands, journalled exactly as the in-time path
-would, so one journal entry per request and one undo reverses it. A multi-item link that goes slow
-finishes its remaining items on the worker side, then answers one `linked` line and one journal entry
-when the batch lands. A worker that dies before answering is this machine's fault and marks nothing,
+would, so one journal entry per request and one undo reverses it. A `link` claims the one-operation slot
+through `start_link` and runs every item on a worker from the start, so the loop stays responsive with
+no `slow` line; one `linked` line and one journal entry land with the batch and release the slot.
+Only `rename` and `mkdir` answer `slow`. A worker that dies before answering marks nothing,
 like a dead read worker.
 
 What runs where: `list_dir` scans, sorts and stats the first window on the worker; `search` reads
@@ -2090,6 +2091,13 @@ the end of the file; run the tool rather than trusting these if the two disagree
 had gone stale by a whole plan and were re-derived from `wc -l` in Plan 5 Task 5a**, so when you
 touch a file here, re-derive its count from the artefact rather than adjusting the nearest
 number.
+
+mga round 1 records `src/backend/opsdispatch.rs` at 2204 and `src/backend/opsreq.rs` at 551
+after deleting the obsolete slow-link lifecycle and its duplicate landing. `src/backend/run.rs`
+is 662: its test-only `adopt` is gone, and the held-link regression now drives the production
+request dispatcher here, checking read responsiveness, the operation slot, completion and undo.
+Each ceiling is re-derived with `wc -l`; `src/backend/proto.rs` is 363, below the 400-line hard cap,
+so its unused recorded exception is removed. Global limits stay unchanged.
 
 `src/vulkan.rs` is 0.3.2's own exception, recorded rather than split. PR119's display-GPU pin took
 it from 472 to 604 lines, the growth being `icd_for_displays`, `display_pin` and the tests that
@@ -5384,9 +5392,9 @@ and they run alongside by design, tracked in the detached registry a quit cancel
 **A local `rename` or `mkdir` answers on the loop's thread; a remote one runs on a worker.** Both normally take one
 syscall, but neither compatibility path below is one: an rclone directory rename copies the whole
 tree and a GVFS WebDAV rename copies whatever the path is, file or tree, before removing the source,
-and the copied tree lands with new modification times, since the crate
-has no dependencies and the copy sets none, so a Date Modified column or sort shows when the copy
-ran rather than the file's own history. On a local mount that copy runs inline on the loop's thread, as it always has.
+and the copied tree keeps source file and directory modification times best effort through
+`copy_any`. Errors setting those timestamps are ignored, so a Date Modified column or sort retains
+the source history when preservation succeeds. On a local mount that copy runs inline on the loop's thread, as it always has.
 On a remote mount, rclone and WebDAV included, which "Mount workers" classifies without a syscall, the write runs on
 `slow_write_with`'s worker instead: past `CALL_DEADLINE` the loop answers a `slow` line and moves on, and the worker
 reports late through `Event::Op`, journalled exactly as the in-time answer would have been. The window no longer freezes,

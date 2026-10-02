@@ -7,10 +7,6 @@ use crate::backend::metareq::spawn as spawn_meta;
 use crate::backend::opsdispatch::{cancel_transfer, do_mkdir, do_newfile, do_permissions_batch, do_rename, do_undo, report_op, resolve_rows, start_duplicate, start_link, start_link_target, start_trash, start_transfer, start_menu_transfer, start_redo, Ops};
 use crate::backend::opsreq::OpMsg;
 use crate::backend::dirsizereq::{queue_dirsizes, seed_answered, start_next, report_done as report_dirsize};
-#[cfg(test)]
-use crate::backend::dirsize::DirSize;
-#[cfg(test)]
-use crate::backend::fsinfo::dev_of;
 use crate::backend::events::{spawn_forwarder, spawn_op_forwarder, spawn_reader, Event};
 use crate::backend::fsinfo::fsinfo_line;
 use crate::backend::fsinforeq::FsInfo;
@@ -152,14 +148,14 @@ pub fn run() -> i32 {
 }
 
 // One answer, written and flushed: the four read-only requests below differ only in what they say.
-fn say(out: &mut BufWriter<io::Stdout>, line: &str) {
+fn say(out: &mut impl Write, line: &str) {
     writeln!(out, "{}", line).ok();
     out.flush().ok();
 }
 
 fn handle_line(
     line: &str,
-    out: &mut BufWriter<io::Stdout>,
+    out: &mut impl Write,
     st: &mut State,
     tb: &Tables,
     pool: &Pool,
@@ -472,27 +468,6 @@ pub fn forget_rows(st: &mut State, pool: &Pool) {
     st.dirsize_worker.cancel();
 }
 
-// A list's scanned and ordered result becomes the listing and is answered: its listed line, then its first rows.
-// Production lists land through adopt_listed; the listpaths tests below are the only callers left.
-#[cfg(test)]
-pub(crate) fn adopt(out: &mut impl Write, st: &mut State, pool: &Pool, tb: &Tables, path: &str, l: Listing, (read_ms, sort_ms): (f64, f64), sized: &[Option<DirSize>], first: usize, want_changed: bool) {
-    // A same-path re-list names added plus removed rows, so a rename counts 2 against a net delta of 0.
-    let same = st.held == Held::List && Path::new(path) == st.base.as_path();
-    let changed = if same && want_changed { crate::backend::listing::changed_count(&st.listing, &l) } else { 0 };
-    // base and listing only move together, so a failed list cannot mix them.
-    st.base = PathBuf::from(path);
-    st.listing = l;
-    // A list holds a directory now, so only its own re-read counts.
-    st.held = Held::List;
-    forget_rows(st, pool);
-    // After forget_rows, which clears the very map this seeds.
-    seed_answered(st, sized);
-    let listed = listed_line(st.listing.len(), read_ms, sort_ms, dev_of(&st.base), &st.base.to_string_lossy(), crate::backend::ops::dir_writable(&st.base));
-    let listed = if same && want_changed { crate::backend::proto::with_changed(&listed, changed) } else { listed };
-    writeln!(out, "{}", listed).ok();
-    // Rides along unasked: asking costs a 60 ms round trip at first paint.
-    write_window(out, st, 0, first, tb);
-}
 // A worker-built listing lands without a syscall, carrying its own dev and writability.
 pub(crate) fn adopt_listed(out: &mut impl Write, st: &mut State, pool: &Pool, tb: &Tables, path: &str, done: super::iomount::ListOut, want_changed: bool) {
     // A same-path re-list names added plus removed rows, so a rename counts 2 against a net delta of 0.
@@ -594,6 +569,68 @@ pub(crate) fn window_metas(st: &State, start: usize, count: usize) -> Result<(Ve
 mod tests {
     use super::*;
     use crate::backend::testdir::TestDir;
+
+    const REPLY_DEADLINE: Duration = Duration::from_secs(5);
+    const THUMB_TEST_WORKERS: usize = 1;
+
+    #[test]
+    fn a_held_link_keeps_requests_responsive_and_holds_the_operation_slot() {
+        let d = TestDir::new("heldlink");
+        let src = d.dir("src");
+        let a = d.file("src/a.txt", "a");
+        let b = d.file("src/b.txt", "b");
+        let dest = d.dir("dest");
+        let (release, entered) = super::super::opsdispatch::test_hold_link(&dest);
+        let (answered, answers) = channel();
+        let dest_path = dest.clone();
+        let cache_root = d.join("cache");
+        let backend = std::thread::spawn(move || {
+            let tb = Tables::load();
+            let (events, _events_rx) = channel();
+            let mut st = State::new(super::super::dirsizeworker::Worker::new(events.clone()));
+            st.base = src;
+            st.listing.push("a.txt", false);
+            st.listing.push("b.txt", false);
+            let (results, _done) = channel();
+            let pool = Pool::new(THUMB_TEST_WORKERS, results, cache_root, Arc::clone(&tb.aliases), Arc::clone(&tb.thumbs));
+            let cache = Cache::new();
+            let (tx, rx) = channel();
+            let mut ops = Ops::new(tx);
+            let mut watch = Watch::start(events.clone());
+            let mut fsinfo = FsInfo::new(events.clone());
+            let poller = super::super::watchpoll::Poller::new(events.clone());
+            let link = format!(r#"{{"c":"link","rows":[0,1],"dest":"{}","op":"relative"}}"#, crate::json::escape(&dest_path.to_string_lossy()));
+            let mut out = Vec::new();
+            for line in [&link, r#"{"c":"paths","rows":[0,1]}"#, &link] {
+                assert!(handle_line(line, &mut out, &mut st, &tb, &pool, &cache, &mut ops,
+                    &mut watch, &mut fsinfo, &poller, &events) == Control::Continue);
+            }
+            answered.send((std::mem::take(&mut out), ops.live.running().is_some(), ops.journal.is_empty(), ops.pending.is_empty())).unwrap();
+            let landed = rx.recv_timeout(REPLY_DEADLINE).expect("the released link reports through the op channel");
+            assert!(matches!(landed, OpMsg::Linked { .. }), "the production link sends Linked");
+            report_op(&mut out, &mut ops, landed);
+            assert_eq!(String::from_utf8_lossy(&out).trim(), r#"{"t":"linked","ok":2,"failed":0,"skipped":0}"#);
+            assert_eq!(ops.journal.len(), 1, "one journal entry covers both links");
+            assert!(ops.live.running().is_none(), "Linked releases the operation slot");
+            super::super::opsdispatch::do_undo(&mut out, &mut ops);
+            assert!(String::from_utf8_lossy(&out).contains(r#"{"t":"undone","op":"link","ok":true}"#));
+        });
+        entered.recv_timeout(REPLY_DEADLINE).expect("run_link reached the handshake");
+        let responsive = answers.recv_timeout(REPLY_DEADLINE);
+        drop(release);
+        backend.join().expect("the backend finishes after releasing the held link");
+        let (out, running, unjournalled, no_pending) = responsive.expect("a held link must leave Request::Paths responsive");
+        let lines = String::from_utf8(out).unwrap();
+        let mut replies = lines.lines();
+        assert_eq!(replies.next(), Some(paths_line(&[a.to_string_lossy().to_string(), b.to_string_lossy().to_string()]).as_str()));
+        let refused = replies.next().expect("the second link is refused while the slot is held");
+        assert!(refused.contains(r#""t":"error""#) && refused.contains("an operation is already running"), "{refused}");
+        assert!(replies.next().is_none(), "a held link emits neither slow nor a premature linked line: {lines}");
+        assert!(running && unjournalled && no_pending, "the link holds the slot, with no slow claim or journal before completion");
+        assert!(std::fs::symlink_metadata(dest.join("a.txt")).is_err(), "undo removed the first link");
+        assert!(std::fs::symlink_metadata(dest.join("b.txt")).is_err(), "undo removed the second link");
+        assert!(a.exists() && b.exists(), "undo preserves both sources");
+    }
 
     // A local window stats inline: an O(directory) copy per scroll breaks load-bearing rule 1.
     #[test]

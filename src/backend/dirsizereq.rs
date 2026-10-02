@@ -2,10 +2,10 @@
 use crate::backend::dirsizeworker::Done;
 use crate::backend::proto::dirsized_line;
 use crate::backend::state::State;
-use std::io::{self, BufWriter, Write};
+use std::io::Write;
 
 // Answered rows are re-answered at once, matching thumb's own cache-hit shape; only a directory can be asked for.
-pub fn queue_dirsizes(out: &mut BufWriter<io::Stdout>, st: &mut State, rows: &[usize]) {
+pub fn queue_dirsizes(out: &mut impl Write, st: &mut State, rows: &[usize]) {
     for &row in rows {
         if row >= st.listing.len() || !st.listing.is_dir(row) {
             continue;
