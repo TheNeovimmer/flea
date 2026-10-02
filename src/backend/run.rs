@@ -15,7 +15,8 @@ use crate::backend::events::{spawn_forwarder, spawn_op_forwarder, spawn_reader, 
 use crate::backend::fsinfo::fsinfo_line;
 use crate::backend::fsinforeq::FsInfo;
 use crate::backend::listpaths;
-use crate::backend::proto::{error_line, error_line_with_mode, listed_line, listed_line_anchor, parse_request, paths_line, thumbed_line, Request};
+use crate::backend::proto::{error_line, error_line_with_mode, listed_line, parse_request, paths_line, thumbed_line, Request};
+use crate::backend::proto::with_anchor;
 use crate::backend::rows::rows_line;
 use crate::backend::sandbox;
 use crate::backend::listing::Listing;
@@ -318,11 +319,12 @@ fn handle_line(
                     seed_answered(st, &sized);
                     let line = match anchor.as_deref() {
                         // The listing is a snapshot, so only a path it never held answers -1.
-                        Some(anchor) => listed_line_anchor(
-                            st.listing.len(), pass_ms, sort_ms, dev,
-                            &st.base.to_string_lossy(), writable, anchor,
-                            st.listing.index_of(&st.base, Path::new(anchor)).map(|index| index as isize).unwrap_or(-1),
-                        ),
+                        Some(anchor) => {
+                            let base = listed_line(st.listing.len(), pass_ms, sort_ms, dev,
+                                &st.base.to_string_lossy(), writable);
+                            with_anchor(&base, anchor,
+                                st.listing.index_of(&st.base, Path::new(anchor)).map(|index| index as isize).unwrap_or(-1))
+                        }
                         None => listed_line(st.listing.len(), pass_ms, sort_ms, dev, &st.base.to_string_lossy(), writable),
                     };
                     writeln!(out, "{}", line).ok();

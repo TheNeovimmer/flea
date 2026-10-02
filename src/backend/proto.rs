@@ -256,11 +256,6 @@ pub(crate) fn say_listed(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &
     )
 }
 
-// The anchor's index in the new order, or -1; the fields ride last, so an unanchored reply is the line above exactly.
-pub fn listed_line_anchor(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str, writable: bool, anchor: &str, anchor_index: isize) -> String {
-    with_anchor(&listed_line(n, read_ms, sort_ms, dev, path, writable), anchor, anchor_index)
-}
-
 // A listed line with the anchor fields added before its closing brace.
 pub(crate) fn with_anchor(listed: &str, anchor: &str, anchor_index: isize) -> String {
     let body = listed.strip_suffix('}').unwrap_or(listed);
