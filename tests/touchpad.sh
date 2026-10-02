@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# tp1 touchpad: fake wheel objects with an injected clock into the real FastScrollHandler on a
-# real ui/List.qml over 3000 rows, offscreen with no display or lock.
+# tp1 touchpad plus tp2 elastic edges: fake wheel objects with an injected clock into the real
+# FastScrollHandler on a real ui/List.qml over 3000 rows, offscreen with no display or lock.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
@@ -30,13 +30,16 @@ output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     timeout 30 qs -p "$test_root/config" 2>&1)
 
 # Sample input, one probe line: "  INFO qml: TOUCHPAD PASS stroke=1200 lift=1290 rest=4272 tail=2982 objs=41 delegates=12"
+# plus tp2: "  INFO qml: TOUCHPAD EDGE PASS top=-42.6 bottom=... tailPeak=... rest=bound"
 pass_count=$(printf '%s\n' "$output" | grep -c 'TOUCHPAD PASS')
+edge_count=$(printf '%s\n' "$output" | grep -c 'TOUCHPAD EDGE PASS')
 fail_count=$(printf '%s\n' "$output" | grep -c 'TOUCHPAD FAIL')
-if [ "$pass_count" -ne 1 ] || [ "$fail_count" -ne 0 ]; then
-    printf 'FAIL a touchpad stroke, tail, stop, share or cost check went red\n'
+if [ "$pass_count" -ne 1 ] || [ "$edge_count" -ne 1 ] || [ "$fail_count" -ne 0 ]; then
+    printf 'FAIL a touchpad stroke, tail, stop, share, cost or edge check went red\n'
     printf '%s\n' "$output" | grep -a 'TOUCHPAD'
     printf '%s\n' "$output" | grep -aiE 'ERROR|error'
     printf '%s\n' "$output"
     exit 1
 fi
 printf '%s\n' "$output" | grep -o 'TOUCHPAD PASS.*'
+printf '%s\n' "$output" | grep -o 'TOUCHPAD EDGE PASS.*'
