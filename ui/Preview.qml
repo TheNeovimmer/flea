@@ -414,7 +414,7 @@ Item {
         opacity: root.active ? root.groundOpacity : 0
         Behavior on opacity {
             enabled: !Theme.reducedMotion
-            NumberAnimation { duration: root.active ? Motion.durMs.open : Motion.durMs.close }
+            NumberAnimation { duration: root.active ? Motion.durMs.open : Motion.durMs.close; easing.type: Easing.OutCubic }
         }
     }
 
@@ -436,15 +436,14 @@ Item {
 
         Behavior on anchors.verticalCenterOffset {
             enabled: root.active && !Theme.reducedMotion
-            NumberAnimation { duration: Motion.durMs.open; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.bezierCurve }
+            NumberAnimation { duration: Motion.durMs.open; easing.type: Easing.OutCubic }
         }
 
         Behavior on opacity {
             enabled: !Theme.reducedMotion
             NumberAnimation {
                 duration: root.active ? Motion.durMs.open : Motion.durMs.close
-                easing.type: Easing.BezierSpline
-                easing.bezierCurve: Motion.bezierCurve
+                easing.type: Easing.OutCubic
             }
         }
 

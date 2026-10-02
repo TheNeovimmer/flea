@@ -40,7 +40,7 @@ Item {
     Behavior on opacity {
         id: entranceOpacity
         enabled: root.animateEntrance && root.visible && !Theme.reducedMotion
-        NumberAnimation { duration: Motion.durMs.open; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.bezierCurve }
+        NumberAnimation { duration: Motion.durMs.open; easing.type: Easing.OutCubic }
     }
 
     Column {
@@ -52,7 +52,7 @@ Item {
         Behavior on anchors.verticalCenterOffset {
             id: entranceOffset
             enabled: root.animateEntrance && root.visible && !Theme.reducedMotion
-            NumberAnimation { duration: Motion.durMs.open; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.bezierCurve }
+            NumberAnimation { duration: Motion.durMs.open; easing.type: Easing.OutCubic }
         }
 
         FleaMark {

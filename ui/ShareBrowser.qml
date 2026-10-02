@@ -65,15 +65,14 @@ Item {
 
         Behavior on y {
             enabled: root.active && !Theme.reducedMotion
-            NumberAnimation { duration: Motion.durMs.open; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.bezierCurve }
+            NumberAnimation { duration: Motion.durMs.open; easing.type: Easing.OutCubic }
         }
 
         Behavior on opacity {
             enabled: !Theme.reducedMotion
             NumberAnimation {
                 duration: root.active ? Motion.durMs.open : Motion.durMs.close
-                easing.type: Easing.BezierSpline
-                easing.bezierCurve: Motion.bezierCurve
+                easing.type: Easing.OutCubic
             }
         }
 
