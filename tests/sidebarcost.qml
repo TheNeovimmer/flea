@@ -1,4 +1,4 @@
-//@ pragma ShellId flea-bootload-count-test
+//@ pragma ShellId flea-sidebarcost-count-test
 import QtQuick
 import Quickshell
 import "flea" as Flea
