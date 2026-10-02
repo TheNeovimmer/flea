@@ -50,12 +50,12 @@ fn dest_dir_of(file: &Path) -> &Path {
 pub fn create_relative(source: &Path, dest_file: &Path) -> Result<(), FleaError> {
     let target = relative_target(dest_dir_of(dest_file), source);
     std::os::unix::fs::symlink(&target, dest_file)
-        .map_err(|e| from_io("link", &dest_file.to_string_lossy(), &e))
+        .map_err(|e| link_err(dest_file, &e))
 }
 
 pub fn create_absolute(source: &Path, dest_file: &Path) -> Result<(), FleaError> {
     std::os::unix::fs::symlink(source, dest_file)
-        .map_err(|e| from_io("link", &dest_file.to_string_lossy(), &e))
+        .map_err(|e| link_err(dest_file, &e))
 }
 
 // A hard link to a directory is refused before the syscall, which would fail
@@ -80,7 +80,7 @@ pub fn create_hard(source: &Path, dest_file: &Path) -> Result<(), FleaError> {
                 ),
             }
         } else {
-            from_io("link", &dest_file.to_string_lossy(), &e)
+            link_err(dest_file, &e)
         }
     })
 }
@@ -90,60 +90,56 @@ fn libc_exdev() -> i32 {
     18
 }
 
-// The filesystem type of the deepest mount owning path, from mountinfo's own
-// field 9; "unknown" when the table cannot be read, never an error.
-fn fs_name(path: &Path) -> String {
-    let text = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
-    let mut best: Option<(usize, String)> = None;
-    for line in text.lines() {
-        let fields: Vec<&str> = line.split(' ').collect();
-        if fields.len() < 10 {
-            continue;
-        }
-        let mount_point = unescape(fields[4]);
-        let fs_type = fields[8].to_string();
-        if path.starts_with(&mount_point)
-            && best.as_ref().map(|(len, _)| mount_point.len() > *len).unwrap_or(true)
-        {
-            best = Some((mount_point.len(), fs_type));
+// EPERM from a link names the missing capability on filesystems that hold no links, and stays a
+// permission error everywhere else, so vfat reads as a capability gap rather than an access problem.
+fn link_err(dest_file: &Path, e: &std::io::Error) -> FleaError {
+    const EPERM: i32 = 1;
+    if e.raw_os_error() == Some(EPERM) {
+        let parent = dest_file.parent().unwrap_or(dest_file);
+        let magic = crate::backend::fsinfo::magic_of(parent);
+        if let Some(sentence) = no_links_sentence(magic) {
+            return FleaError { where_: "link".to_string(), path: dest_file.to_string_lossy().to_string(), msg: sentence.to_string() };
         }
     }
-    best.map(|(_, fs)| fs).unwrap_or_else(|| "unknown".to_string())
+    from_io("link", &dest_file.to_string_lossy(), e)
 }
 
-// Sample input: "/run/user/1000/gvfs/smb-share\\x3aserver=1\\x2cshare=d".
-fn unescape(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut bytes = text.as_bytes().iter().peekable();
-    while let Some(&b) = bytes.next() {
-        if b == b'\\' {
-            let mut code = 0u32;
-            let mut ok = true;
-            for _ in 0..3 {
-                match bytes.next() {
-                    Some(d) if d.is_ascii_digit() => code = code * 8 + u32::from(d - b'0'),
-                    _ => {
-                        ok = false;
-                        break;
-                    }
-                }
-            }
-            if ok {
-                out.push(char::from(code as u8));
-                continue;
-            }
-            out.push('\\');
-        } else {
-            out.push(b as char);
-        }
+// Sample input: Some(vfat) answers the sentence, Some(ext4) and None answer None.
+fn no_links_sentence(magic: Option<i64>) -> Option<&'static str> {
+    const VFAT_MAGIC: i64 = 0x4D44;
+    const EXFAT_MAGIC: i64 = 0x2011BAB0;
+    match magic {
+        Some(VFAT_MAGIC) | Some(EXFAT_MAGIC) => Some("this drive cannot hold links"),
+        _ => None,
     }
-    out
+}
+
+// The filesystem type of the deepest mount owning path, through the shared mountinfo parser;
+// "unknown" when the table cannot be read, never an error.
+fn fs_name(path: &Path) -> String {
+    let text = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+    crate::backend::mountinfo::mount_type_in(path, &text).unwrap_or_else(|| "unknown".to_string())
+}
+
+// Sample input: "/run/user/1000/gvfs/smb-share:server=1,share=d" is matched by prefix on the decoded mount.
+#[cfg(test)]
+fn fs_name_in(path: &Path, mountinfo: &str) -> String {
+    crate::backend::mountinfo::mount_type_in(path, mountinfo).unwrap_or_else(|| "unknown".to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::backend::testdir::TestDir;
+
+    #[test]
+    fn fat_link_failures_name_the_missing_capability() {
+        // Sample magics: vfat and exfat hold no links, ext4 and unknown do.
+        assert_eq!(no_links_sentence(Some(0x4D44)), Some("this drive cannot hold links"));
+        assert_eq!(no_links_sentence(Some(0x2011BAB0)), Some("this drive cannot hold links"));
+        assert_eq!(no_links_sentence(Some(0xEF53)), None);
+        assert_eq!(no_links_sentence(None), None);
+    }
 
     #[test]
     fn relative_link_points_inside_dest() {
@@ -181,8 +177,17 @@ mod tests {
     }
 
     #[test]
-    fn created_links_undo_by_removal() {
-        let d = TestDir::new("link-undo");
+    fn shared_parser_keeps_optional_fields_and_non_ascii_mountpoints() {
+        // Sample mountinfo: one optional field plus a UTF-8 mountpoint escaped as octal bytes.
+        let body = "1 0 8:1 / / rw - ext4 /dev/a rw\n\
+                    2 1 8:17 / /caf\\303\\251 rw shared:2 - vfat /dev/b rw\n";
+        assert_eq!(fs_name_in(Path::new("/café/photo.jpg"), body), "vfat");
+        assert_eq!(fs_name_in(Path::new("/elsewhere"), body), "ext4");
+        assert_eq!(fs_name_in(Path::new("/nowhere"), "junk\n"), "unknown");
+    }
+
+    #[test]
+    fn created_links_undo_by_removal() {        let d = TestDir::new("link-undo");
         d.dir("src");
         let src = d.file("src/a.txt", "a");
         let dest = d.dir("dest");

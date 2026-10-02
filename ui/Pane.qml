@@ -910,6 +910,10 @@ FocusScope {
             && Dropbox.contains(root.dropboxService.dropboxPath, root.join(root.path, root.cursorRow.n))
         // Issue 133: no GVFS mount, share or phone, has a trash of its own, so the row is not offered there.
         canTrash: Mounts.trashable(root.path)
+        // The listing's own w flag turns the menu's write rows off in a read-only folder.
+        dirWritable: root.backend ? root.backend.dirWritable !== false : true
+        // vfat and exfat hold no links, so the Paste as rows are not offered there either.
+        canLink: root.fsName !== "vfat" && root.fsName !== "exfat"
         // ExtThumbs: the class the background menu's thumbnail row is present for, "" locally.
         storageClass: root.storageClass
         // Issue 179: the Sort by flyout offers its forget row only where this folder has its own sort.

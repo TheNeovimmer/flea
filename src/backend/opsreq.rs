@@ -399,6 +399,8 @@ pub(crate) fn run_transfer_checked(
                 let _ = tx.send(OpMsg::Item { id, index, name, ok: false, err: e.msg });
             }
         }
+        // Links a folder copy skipped on a linkless filesystem join this item's skipped count.
+        skipped += crate::backend::copyfile::take_skipped_links();
     }
     // The end closes whatever the loop left staged; a cancel on the way out completes it as cancelled.
     if !batch.is_empty() {

@@ -1,6 +1,6 @@
 use super::*;
 use crate::backend::testdir::TestDir;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::sync::atomic::AtomicBool;
 
 fn quiet<'a>(flag: &'a AtomicBool, sink: &'a mut dyn FnMut(u64, u64)) -> Progress<'a> {
@@ -79,6 +79,58 @@ fn a_symlink_is_copied_as_a_symlink_and_never_followed() {
         std::fs::read_link(d.join("copied.txt")).unwrap(),
         std::path::PathBuf::from("target.txt")
     );
+}
+
+// A symlink onto a linkless filesystem skips with a count instead of failing the folder around it.
+#[test]
+fn a_linkless_destination_skips_symlinks_with_a_count() {
+    assert!(is_linkless_fs(Some(0x4D44)), "vfat holds no links");
+    assert!(is_linkless_fs(Some(0x2011BAB0)), "exfat holds no links");
+    assert!(!is_linkless_fs(Some(0xEF53)), "ext4 holds links");
+    assert!(!is_linkless_fs(None), "an unknown filesystem is not assumed linkless");
+    assert_eq!(take_skipped_links(), 0, "the count starts empty");
+    note_skipped_link();
+    note_skipped_link();
+    assert_eq!(take_skipped_links(), 2, "both skips are reported");
+    assert_eq!(take_skipped_links(), 0, "taking the count resets it");
+}
+
+// A copy keeps the source mtime, best effort, so a copied tree still sorts by the files' own history.
+#[test]
+fn a_copy_keeps_the_source_mtime() {
+    let d = TestDir::new("copymtime");
+    let src = d.file("src.bin", "0123456789");
+    let status = std::process::Command::new("touch").arg("-d").arg("2001-02-03 04:05:06").arg(&src).status().expect("touch sets the source mtime");
+    assert!(status.success(), "touch must run for this pin");
+    let flag = AtomicBool::new(false);
+    let mut sink = |_: u64, _: u64| {};
+    copy_any(&src, &d.join("dst.bin"), &mut quiet(&flag, &mut sink)).expect("copy");
+    let src_mtime = src.metadata().unwrap().mtime();
+    let dst_mtime = d.join("dst.bin").metadata().unwrap().mtime();
+    assert_eq!(dst_mtime, src_mtime, "the copy carries the source mtime, not the copy time");
+}
+
+// A source filesystem with no real modes lends no exec bits: exfat and ntfs take the umask default.
+#[test]
+fn a_modeless_source_takes_umask_modes() {
+    assert_eq!(mode_for_source(Some(0x2011BAB0), 0o755, false) & 0o111, 0, "an exfat file lends no exec bit");
+    assert_eq!(mode_for_source(Some(0x5346544E), 0o777, false) & 0o111, 0, "an ntfs file lends no exec bit");
+    assert_eq!(mode_for_source(Some(0x7366746e), 0o777, true) & 0o111, 0o111, "an ntfs3 dir still lists");
+    assert_ne!(mode_for_source(Some(0xEF53), 0o755, false) & 0o111, 0, "an ext4 file keeps its exec bit");
+    assert_ne!(mode_for_source(None, 0o755, false) & 0o111, 0, "an unknown filesystem keeps its exec bit");
+}
+
+// A 4 GiB file never starts onto vfat, and a file bigger than the free room never starts anywhere:
+// EFBIG after gigabytes leaves a partial, so both refuse up front with the cause named.
+#[test]
+fn a_copy_refuses_a_file_the_destination_cannot_hold() {
+    assert_eq!(refuse_for_size(Some(VFAT_MAGIC), u64::MAX, FOUR_GIB).unwrap(),
+        "files of 4 GiB or more do not fit on a vfat drive");
+    assert!(refuse_for_size(Some(VFAT_MAGIC), u64::MAX, FOUR_GIB - 1).is_none());
+    assert!(refuse_for_size(Some(0xEF53), u64::MAX, FOUR_GIB).is_none(), "ext4 has no 4 GiB file limit");
+    let short = refuse_for_size(None, 100, 101).unwrap();
+    assert!(short.contains("100") && short.contains("101"), "the room refusal names both numbers: {short}");
+    assert!(refuse_for_size(None, 101, 101).is_none(), "a file that exactly fits is let through");
 }
 
 // The Copying card sat still for a whole tree because a directory item reported nothing at all:

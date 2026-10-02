@@ -35,12 +35,23 @@ pub fn rename(path: &Path, to_name: &str) -> Result<(PathBuf, Vec<Step>), FleaEr
         return Err(named("rename", path, "a name cannot be empty, . or .. , or contain a separator"));
     }
     let parent = path.parent().unwrap_or(Path::new("/"));
+    // The destination's own rules refuse before the syscall, so vfat answers the character, not EINVAL.
+    if let Some(refusal) = crate::backend::fsname::refuse_in(parent, to_name) {
+        return Err(named("rename", path, &refusal));
+    }
     let to = parent.join(to_name);
     if to == path {
         // Renaming a file to its own name is not a failure and is not work, so it records nothing.
         return Ok((to, Vec::new()));
     }
     let before = ItemIdentity::inspect(path)?;
+    // A case-only rename on a case-insensitive filesystem stats as the source itself, so the
+    // no-clobber rename answers EEXIST for a collision that is not one; move via a temp sibling.
+    if let Ok(dest) = ItemIdentity::inspect(&to) {
+        if dest.same_item(&before) {
+            return case_only_rename(path, &to, before);
+        }
+    }
     renamecompat::rename_path(path, &to)?;
     {
         // A same-filesystem rename is atomic, so its folder confirmation stays best effort.
@@ -57,7 +68,37 @@ pub fn rename(path: &Path, to_name: &str) -> Result<(PathBuf, Vec<Step>), FleaEr
     Ok((to.clone(), vec![undo::moved(path, &to, before)?]))
 }
 
+// How many temp sibling names a case-only rename tries before giving up rather than looping forever.
+const CASE_TRIES: usize = 100;
+
+// A rename whose destination is the source itself under another spelling: two no-clobber steps
+// through a temp sibling, journalled as the one move the operator asked for.
+fn case_only_rename(path: &Path, to: &Path, before: ItemIdentity) -> Result<(PathBuf, Vec<Step>), FleaError> {
+    let parent = path.parent().unwrap_or(Path::new("/"));
+    for n in 0..CASE_TRIES {
+        let temp = parent.join(format!(".flea-case-{}-{}", std::process::id(), n));
+        if temp.symlink_metadata().is_ok() {
+            continue;
+        }
+        renamecompat::rename_path(path, &temp)?;
+        // A hardlink twin keeps the name after the first step, so the second step meets it;
+        // on a case-insensitive filesystem that name is gone already and this arm never runs.
+        if let Err(error) = renamecompat::rename_path(&temp, to) {
+            if error.msg == "already exists" && ItemIdentity::inspect(to).is_ok_and(|dest| dest.same_item(&before)) {
+                std::fs::remove_file(to).map_err(|e| from_io("rename", &to.to_string_lossy(), &e))?;
+                renamecompat::rename_path(&temp, to)?;
+            } else {
+                let _ = renamecompat::rename_path(&temp, path);
+                return Err(error);
+            }
+        }
+        return Ok((to.to_path_buf(), vec![undo::moved(path, to, before)?]));
+    }
+    Err(named("rename", path, "a file with that name is already here"))
+}
+
 // "backup.tar.zst" becomes "backup.tar copy.zst": Path's own stem and extension split the last dot only, and a dotfile keeps its whole name as the stem.
+// Convert passes "(converted)" as the word for the parenthesised form the canvas draws; duplicate passes "copy".
 // Convert passes "(converted)" as the word for the parenthesised form the canvas draws; duplicate passes "copy".
 pub fn copy_name(original: &Path, word: &str, n: usize) -> Option<String> {
     let name = original.file_name()?.to_str()?;
@@ -149,6 +190,9 @@ pub fn mkdir(parent: &Path, name: &str) -> Result<(PathBuf, Vec<Step>), FleaErro
             None => return Err(named("mkdir", parent, "every default folder name here is already taken")),
         }
     } else if valid_name(name) {
+        if let Some(refusal) = crate::backend::fsname::refuse_in(parent, name) {
+            return Err(named("mkdir", parent, &refusal));
+        }
         parent.join(name)
     } else {
         return Err(named("mkdir", parent, "a name cannot be . or .., or contain a separator"));
@@ -183,6 +227,22 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
+    fn illegal_names_are_refused_before_any_syscall() {
+        // Sample pair: "a:b" on vfat is EINVAL, while ntfs3 without windows_names accepts it.
+        use crate::backend::fsname::refuse_name;
+        assert_eq!(refuse_name("a:b", "vfat", false).unwrap(), "':' is not allowed in a name on this vfat drive");
+        assert_eq!(refuse_name("q?", "exfat", false).unwrap(), "'?' is not allowed in a name on this exfat drive");
+        assert_eq!(refuse_name("trail.", "vfat", false).unwrap(), "a name cannot end in a dot on this vfat drive");
+        assert_eq!(refuse_name("trail ", "vfat", false).unwrap(), "a name cannot end in a space on this vfat drive");
+        assert_eq!(refuse_name("CON", "vfat", false).unwrap(), "'CON' is reserved on this vfat drive");
+        assert_eq!(refuse_name("con.txt", "vfat", false).unwrap(), "'CON' is reserved on this vfat drive");
+        assert!(refuse_name("ordinary.txt", "vfat", false).is_none());
+        assert!(refuse_name("a:b", "ext4", false).is_none());
+        assert!(refuse_name("a:b", "ntfs3", false).is_none(), "ntfs3 without windows_names takes a colon");
+        assert!(refuse_name("a:b", "ntfs3", true).is_some(), "ntfs3 with windows_names refuses it");
+    }
+
+    #[test]
     fn a_name_with_a_separator_is_refused_before_any_syscall() {
         assert!(valid_name("ordinary.txt"));
         assert!(valid_name(".bashrc"));
@@ -208,8 +268,19 @@ mod tests {
     }
 
     #[test]
-    fn rename_refuses_to_overwrite_an_existing_file() {
-        let d = TestDir::new("clobber");
+    fn case_only_rename_moves_through_a_temp_sibling() {
+        // Sample pair: "a.txt" to "A.txt" on vfat answers EEXIST with both names on one inode.
+        let d = TestDir::new("caseonly");
+        let from = d.file("a.txt", "body");
+        std::fs::hard_link(&from, d.join("A.txt")).unwrap();
+        let (to, steps) = rename(&from, "A.txt").expect("a name on the same file is not a collision");
+        assert_eq!(to, d.join("A.txt"));
+        assert_eq!(std::fs::read_to_string(&to).unwrap(), "body");
+        assert_eq!(steps.len(), 1, "one move is journalled, not two");
+    }
+
+    #[test]
+    fn rename_refuses_to_overwrite_an_existing_file() {        let d = TestDir::new("clobber");
         let from = d.file("source.txt", "source body");
         d.file("target.txt", "target body");
         let err = rename(&from, "target.txt").expect_err("must refuse");

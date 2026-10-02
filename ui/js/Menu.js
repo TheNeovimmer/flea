@@ -145,6 +145,8 @@ function availableEntry(e, p, kind) {
     // MenuAdditions040: Paste as holds only the three link rows, and only
     // while the clipboard holds something, like Paste above it.
     if (e.action === "pasteAs") {
+        // A filesystem that holds no links offers no link rows at all.
+        if (p.canLink === false) return false
         e.disabled = p.clipboardAvailable !== true
         if (p.clipboardAvailable === true)
             e.submenu = pasteAsEntries()
@@ -178,6 +180,9 @@ function availableEntry(e, p, kind) {
     // Issue 133: a mount with no trash directory never offers the row, rather than offering one that
     // fails; ui/js/Mounts.js trashable is the one reader of what the path says about that.
     if (e.action === "trash" && p.canTrash === false) return false
+    // A read-only folder turns its write rows off; the listing's own w flag decides, never the mode.
+    if (p.dirWritable === false && ["newFolder", "newFile", "paste", "pasteAs", "duplicate",
+            "rename", "trash", "deletePermanently"].indexOf(e.action) >= 0) e.disabled = true
     if (e.action === "extract" && !Archive.extractEntry(e, p, count)) return false
     if (e.action === "convert" && !(p.rowIsImage && p.canConvert && count === 1)) return false
     // OpenWith.html: the desktop's current default is first and carries the muted caption "default"
