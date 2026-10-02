@@ -86,7 +86,8 @@ Item {
     // Instantiated delegates only: the lazy suite asserts this stays bounded.
     function delegateCount() { return body.contentItem.children.length }
     // One figure delegate's live state, for the figures suite: null while the
-    // block is further than the cache from the viewport, so no request left.
+    // block is further than the cache from the viewport. A live delegate with
+    // no answer and no ticket still sent nothing, so the far check reads those.
     function figureInfo(i) {
         var d = blockItem(i)
         if (!d)
@@ -105,7 +106,7 @@ Item {
                 fig = inner[m]
         if (!fig)
             return null
-        return { ready: fig.ready, failed: fig.failed, boxW: box.width,
+        return { ready: fig.ready, failed: fig.failed, working: fig.working, boxW: box.width,
             imgW: fig.fitWidth, imgH: fig.fitHeight }
     }
     readonly property real flickContentHeight: sourceFlick.visible
@@ -121,26 +122,39 @@ Item {
         onPathChanged: root.readFailed = false
     }
 
-    WorkerScript {
-        id: parser
-        source: "MarkdownWorker.js"
-        onMessage: function (messageObject) {
-            if (messageObject.seq !== root.parseSeq)
-                return
-            root.parsing = false
-            if (messageObject.error !== "") {
-                root.parseError = messageObject.error
-                return
-            }
-            root.parseError = ""
-            root.blockList = messageObject.blocks
-            root.appliedSeq = messageObject.seq
-            root.parsedOffThread = true
+    // A WorkerScript logs one connect warning on this Qt however it is written,
+    // so small files parse inline and never instantiate one; the worker serves
+    // only large files, where the parse must leave the UI thread. Activated
+    // imperatively in askParse: a binding lags the rawText change that fires it.
+    readonly property int workerThreshold: 65536
+    Loader {
+        id: parserLoader
+        active: false
+        sourceComponent: parserComponent
+    }
+    Component {
+        id: parserComponent
+        WorkerScript {
+            source: "MarkdownWorker.js"
+            onMessage: function (messageObject) { root.landed(messageObject) }
         }
     }
+    function landed(messageObject) {
+        if (messageObject.seq !== root.parseSeq)
+            return
+        root.parsing = false
+        if (messageObject.error !== "") {
+            root.parseError = messageObject.error
+            return
+        }
+        root.parseError = ""
+        root.blockList = messageObject.blocks
+        root.appliedSeq = messageObject.seq
+        root.parsedOffThread = true
+    }
 
-    // The worker owns the parse; this timer is the dead-worker fallback, never
-    // the path: it parses synchronously once rather than leaving no preview.
+    // The worker owns the large parse; this timer is the dead-worker fallback,
+    // never the path: it parses synchronously once rather than leaving no preview.
     Timer {
         id: parseFallback
         interval: 10000
@@ -163,9 +177,30 @@ Item {
         root.parseSeq++
         root.parsing = true
         root.parseError = ""
-        parseFallback.restart()
-        parser.sendMessage({ seq: root.parseSeq, source: root.rawText,
-            dir: Markdown.dirOf(root.path), chrome: root.chromeHex, ink: root.inkHex })
+        // Read off the live length: a binding on rawText still holds the
+        // previous file when this change fires it. Creation is synchronous.
+        var wantWorker = root.rawText.length > root.workerThreshold
+        parserLoader.active = wantWorker
+        var w = parserLoader.item
+        if (wantWorker && w) {
+            parseFallback.restart()
+            w.sendMessage({ seq: root.parseSeq, source: root.rawText,
+                dir: Markdown.dirOf(root.path), chrome: root.chromeHex, ink: root.inkHex })
+            return
+        }
+        parserLoader.active = false
+        parseFallback.stop()
+        try {
+            root.blockList = Markdown.blocks(root.rawText, Markdown.dirOf(root.path),
+                root.chromeHex, root.inkHex)
+        } catch (e) {
+            root.parseError = String(e)
+            root.parsing = false
+            return
+        }
+        root.parseError = ""
+        root.appliedSeq = root.parseSeq
+        root.parsing = false
     }
 
     onRawTextChanged: root.askParse()

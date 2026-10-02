@@ -2,8 +2,22 @@
 # list: it runs only by name. Opens a markdown fixture in Quick Look rendered, flips to
 # Source and back with r, closes, then shoots the preview column with the file under the
 # cursor. All fixtures and writes stay in its marked sandbox.
+# Figures render through the helper after the preview opens; shooting before they
+# settle captures a blank band and calls it a rendering. Prints the settled states.
+capmarkdown_wait_figures() {
+    local figs=""
+    for _attempt in $(seq 1 60); do
+        figs="$(ipc previewFigures)"
+        if [[ -n "$figs" && "$figs" != *working* && "$figs" != *idle* && "$figs" != *deferred* ]]; then
+            printf '%s\n' "$figs"
+            return 0
+        fi
+        sleep 0.2
+    done
+    fail "capmarkdown: figures never settled, last saw [$figs]"
+}
 case_cap_markdown() {
-    local dir="$fixture_root/capmarkdown"
+    local dir="$fixture_root/capmarkdown" figs=""
     sandbox_scratch "$dir"
     mkdir -p "$dir/listing"
     cat > "$dir/listing/notes.md" <<'EOF'
@@ -42,6 +56,10 @@ sequenceDiagram
 
 $$
 x^2
+$$
+
+```math
+\frac{a}{b}
 ```
 
 ```mermaid
@@ -61,12 +79,16 @@ EOF
     for _attempt in $(seq 1 40); do [[ "$(ipc previewOpen)" == "true" ]] && break; sleep 0.1; done
     [[ "$(ipc previewOpen)" == "true" ]] || fail "capmarkdown: Space did not open Quick Look on notes.md"
     settle
+    figs="$(capmarkdown_wait_figures)"
+    [[ "$(printf '%s' "$figs" | grep -o 'ready' | wc -l | tr -d ' ')" == "4" ]] || fail "capmarkdown: want 4 ready figures, saw [$figs]"
+    [[ "$(printf '%s' "$figs" | grep -o 'failed' | wc -l | tr -d ' ')" == "1" ]] || fail "capmarkdown: want 1 failed figure, saw [$figs]"
     shot "cap-markdown-rendered"
     key r >/dev/null
     settle
     shot "cap-markdown-source"
     key r >/dev/null
     settle
+    capmarkdown_wait_figures >/dev/null
     shot "cap-markdown-rendered-again"
     key -k Escape >/dev/null
     settle

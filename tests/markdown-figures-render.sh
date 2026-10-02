@@ -2,9 +2,11 @@
 # The real ui/PreviewMarkdown.qml over a figure fixture, grabbed offscreen: one
 # flowchart, one math fence and one $$ display block draw figures, a malformed
 # diagram draws the mono fallback, widths never exceed the text width, and no
-# figure request leaves for the far block past the filler. A stub `flea`
-# answers a canned 800x400 SVG (error for the malformed source), so this suite
-# needs no qjs: tests/markdown-figures.sh pins the real helper instead.
+# figure request leaves for the far block past the filler. With a qjs engine
+# and a built flea binary present the real `flea --figure-helper` answers
+# through the real FigureService (MODE=real, the class gate); otherwise a stub
+# `flea` answers a canned 800x400 SVG (MODE=stub). Each good figure's rect must
+# hold ink that is not the chrome surface.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
@@ -27,6 +29,31 @@ ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/markdown-figures-render.qml "$test_root/config/shell.qml" || exit 1
 
+# The class gate: with an engine and a built binary the real helper answers,
+# so CI runs the real path (FigureService Process, helper answer, svg to
+# Image); otherwise the stub below stands in and the mode is printed.
+resolve_qjs() {
+    if [ -n "${FLEA_QJS:-}" ] && [ "${FLEA_QJS#/}" != "${FLEA_QJS}" ] && [ -x "${FLEA_QJS}" ]; then
+        printf '%s\n' "${FLEA_QJS}"
+    elif command -v qjs >/dev/null 2>&1; then
+        command -v qjs
+    elif [ -x "$PWD/.superpowers/tools/qjs" ]; then
+        printf '%s\n' "$PWD/.superpowers/tools/qjs"
+    else
+        return 1
+    fi
+}
+fleabin=""
+for cand in "$PWD/target/debug/flea" "$PWD/target/release/flea"; do
+    if [ -x "$cand" ]; then fleabin="$cand"; break; fi
+done
+mode=stub
+if qjs=$(resolve_qjs) && [ -n "$fleabin" ]; then
+    mode=real
+fi
+printf 'MODE=%s\n' "$mode"
+
+if [ "$mode" = stub ]; then
 # Sample input: {"id":3,"kind":"math","source":"\\frac{a}{b}","display":true,"theme":{...}}.
 cat > "$test_root/stubbin/answer.py" <<'EOF'
 import json, os, sys, time
@@ -63,6 +90,7 @@ echo "stub flea: unexpected argv \$*" >&2
 exit 2
 EOF
 chmod +x "$test_root/stubbin/flea" || exit 1
+fi
 
 {
 echo '# Figures'
@@ -97,12 +125,21 @@ echo '```'
 } > "$test_root/notes.md"
 
 # The harness ends itself with a kill, so the subshell keeps bash's "Terminated" notice out of the report.
+if [ "$mode" = real ]; then
+output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIGURE_FIXTURE="$test_root/notes.md" \
+    FLEA_FIG_MODE=real FLEA_BIN="$fleabin" FLEA_QJS="$qjs" \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 120 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+else
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_BIN \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIGURE_FIXTURE="$test_root/notes.md" \
-    FLEA_FIG_REQ_LOG="$test_root/requests.log" PATH="$test_root/stubbin:$PATH" \
+    FLEA_FIG_MODE=stub FLEA_FIG_REQ_LOG="$test_root/requests.log" PATH="$test_root/stubbin:$PATH" \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 90 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+fi
 
 # Sample input, the verdict line: "  INFO qml: MARKDOWN_FIGRENDER PASS three figures, one mono fallback, widths fit, far figure unasked"
 if [ "$(printf '%s\n' "$output" | grep -c 'MARKDOWN_FIGRENDER PASS')" -ne 1 ] || printf '%s\n' "$output" | grep -q 'MARKDOWN_FIGRENDER FAIL'; then
@@ -111,11 +148,10 @@ if [ "$(printf '%s\n' "$output" | grep -c 'MARKDOWN_FIGRENDER PASS')" -ne 1 ] ||
     exit 1
 fi
 # The offscreen platform itself says it cannot mask a FloatingWindow; that one line is the platform's, never the probe's.
-# A bare WorkerScript with no source and no handler logs the connect line at
-# startup on this Qt, so instantiating one always warns and no usage avoids it.
+# The QJSEngine connect line is a failure here, never filtered: an invalid
+# nullptr connect at singleton creation would mean FigureService done never lands.
 platform_warning='This plugin does not support setting window masks'
-worker_warning='QObject::connect(QJSEngine, QtObject): invalid nullptr parameter'
-warnings=$(printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|WARN' | grep -vF "$platform_warning" | grep -vF "$worker_warning")
+warnings=$(printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|WARN|invalid nullptr parameter' | grep -vF "$platform_warning")
 if [ -n "$warnings" ]; then
     printf 'FAIL the figure render harness logged a warning\n'
     printf '%s\n' "$warnings" | head -10
@@ -129,9 +165,12 @@ if [ -n "${FLEA_CI_SUITE_LOGS:-}" ] && [ -n "$shot" ]; then
 elif [ -n "$shot" ]; then
     printf 'shot %s\n' "$shot"
 fi
-# No figure request leaves for the far block past the filler: the stub logs
-# every source it is asked for, so the far source must never appear there
-# while the near ones do.
+# No figure request leaves for the far block past the filler. In stub mode the
+# stub logs every source it is asked for, so the far source must never appear
+# there while the near ones do. In real mode the settled delegates prove the
+# near figures were asked and answered, and the missing far delegate proves it
+# was never asked, so there is no log to grep.
+if [ "$mode" = stub ]; then
 for want in "flowchart TD" "frac{a}{b}" "x^2" "not a diagram"; do
     grep -qF "$want" "$test_root/requests.log" 2>/dev/null \
         || { printf 'FAIL the helper was never asked for %s\n' "$want"; exit 1; }
@@ -144,5 +183,6 @@ if grep -qF "FAR" "$test_root/requests.log" 2>/dev/null; then
     printf -- '--- qs output ---\n'
     printf '%s\n' "$output" | grep -aE 'MARKDOWN_FIGRENDER' | head -30
     exit 1
+fi
 fi
 printf '%s\n' "$output" | grep -o 'MARKDOWN_FIGRENDER PASS.*'

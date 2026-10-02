@@ -407,6 +407,23 @@ QtObject {
         function previewOpen(): bool { return root.pane.preview.active }
         function previewKind(): string { return root.pane.preview.kind }
         function previewState(): string { return root.pane.preview.status }
+        // One entry per figure block: ready, failed, working, idle or deferred.
+        // Empty while the document is still loading; a case waits for no entry
+        // reading working, idle or deferred before it shoots.
+        function previewFigures(): string {
+            var m = root.pane.preview.markdownItem
+            if (!m || !m.contentReady)
+                return ""
+            var out = []
+            for (var i = 0; i < m.blockList.length; i++) {
+                if (m.blockList[i].type !== "figure")
+                    continue
+                var info = m.figureInfo(i)
+                out.push(i + "=" + (info === null ? "deferred"
+                    : info.failed ? "failed" : info.ready ? "ready" : info.working ? "working" : "idle"))
+            }
+            return out.join(",")
+        }
         function previewPosition(): int { return root.pane.preview.position } function previewDuration(): int { return root.pane.preview.duration }
         // Fix round 1: what the strip actually draws, not a re-derived guess at its visible: expression.
         function previewStrip(): string { return JSON.stringify({ visible: root.pane.preview.stripVisible, muted: root.pane.preview.muted, mute: root.fleaWindow.centreOf(root.pane.preview.muteMark) }) }

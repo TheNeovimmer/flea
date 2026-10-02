@@ -28,6 +28,8 @@ Item {
 
     property int seq: 0
     property int sends: 0
+    // True from the timeout kill until its exit lands, so that exit alone never fails a fresh ticket.
+    property bool killing: false
     property var waiting: ({})
     property var answerCache: ({})
     property var answerOrder: []
@@ -92,10 +94,21 @@ Item {
         }
 
         onExited: function (exitCode, exitStatus) {
+            var killed = root.killing;
+            root.killing = false;
             root.starting = false;
             if (exitCode === 127) {
                 root.refuse("figure engine did not start");
                 return;
+            }
+            // An unexpected death with tickets waiting answers them now, so a
+            // broken helper shows the fence at once instead of a blank band.
+            if (!killed && Object.keys(root.waiting).length > 0) {
+                console.log("FigureService: the figure engine stopped, figures show their fenced source");
+                for (var id in root.waiting) {
+                    root.done(Number(id), "", "figure engine stopped");
+                    delete root.waiting[id];
+                }
             }
             // A deliberate kill or idle stop leaves the waiting to their own
             // deadlines; the next ask starts a fresh helper.
@@ -139,8 +152,10 @@ Item {
     }
 
     function killHelper() {
-        if (helper.running)
+        if (helper.running) {
+            root.killing = true;
             helper.signal(9);
+        }
     }
 
     // Every waiting request fails the same way a render failure fails: the

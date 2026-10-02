@@ -6,10 +6,10 @@ import "flea" as Flea
 
 // tests/markdown-figures-render.sh's harness: the real ui/PreviewMarkdown.qml
 // over a fixture holding a flowchart, a math fence, a $$ display block, a
-// malformed diagram, an inline-$ paragraph and a far figure past filler. The
-// stub `flea --figure-helper` on PATH answers a canned 800x400 SVG (error for
-// the malformed source), so this suite needs no qjs: the real helper is pinned
-// by tests/markdown-figures.sh instead. Quits itself, pass or fail.
+// malformed diagram, an inline-$ paragraph and a far figure past filler. In
+// stub mode a stub `flea` answers a canned 800x400 SVG; in real mode the real
+// helper answers through the real FigureService, and each good figure's rect
+// must hold ink that is not the chrome surface. Quits itself, pass or fail.
 ShellRoot {
     id: shell
 
@@ -25,6 +25,9 @@ ShellRoot {
     property int farIndex: -1
     property int inlineIndex: -1
     property int sendsMark: 0
+    // Real when FLEA_FIG_MODE=real, else the canned stub: the geometry bound
+    // below is the only thing that differs, since a real formula is 15 px wide.
+    property string figMode: Quickshell.env("FLEA_FIG_MODE") === "real" ? "real" : "stub"
 
     FloatingWindow {
         id: window
@@ -140,12 +143,20 @@ ShellRoot {
                 var info = md.figureInfo(i)
                 if (info.boxW > md.width + 1)
                     return shell.fail("figure " + i + " runs past the text width")
-                if (!(info.imgW > 100 && info.imgW < 800 && info.imgH > 0))
+                // The stub draws 800 px wide scaled into the frame; a real
+                // formula is 15 px wide, so only the real bound is the floor.
+                if (shell.figMode === "real") {
+                    if (!(info.imgW > 0 && info.imgW <= 800 && info.imgH > 0))
+                        return shell.fail("figure " + i + " missed its scaled geometry")
+                } else if (!(info.imgW > 100 && info.imgW < 800 && info.imgH > 0)) {
                     return shell.fail("figure " + i + " missed its scaled geometry")
+                }
             }
+            // A live delegate past the cache still sent nothing while it holds
+            // no answer and no ticket; only a working, ready or failed far one did.
             var far = md.figureInfo(shell.farIndex)
-            if (far !== null)
-                return shell.fail("the far figure has a delegate while out of cache")
+            if (far !== null && (far.working || far.ready || far.failed))
+                return shell.fail("the far figure was asked for despite sitting past the cache")
             shell.sendsMark = Flea.FigureService.sends
             shell.log("near figures drawn, far figure unasked, sends=" + shell.sendsMark)
             md.view = "source"
@@ -170,8 +181,8 @@ ShellRoot {
             // here; the cache pin lives in tests/markdown-figures.qml instead.
             // What matters is the figures come back and the far one stays unasked.
             var farAgain = md.figureInfo(shell.farIndex)
-            if (farAgain !== null)
-                return shell.fail("the far figure gained a delegate on the return trip")
+            if (farAgain !== null && (farAgain.working || farAgain.ready || farAgain.failed))
+                return shell.fail("the far figure was asked for on the return trip")
             shell.log("rendered again, far figure still unasked")
             poll.stop()
             shell.log("grabbing")
@@ -199,8 +210,9 @@ ShellRoot {
         }
     }
 
-    // Pixel facts off the reloaded grab: the inline maths keeps its chrome chip
-    // and the malformed figure draws the fence look (fill, no border).
+    // Pixel facts off the reloaded grab: each good figure holds ink that is
+    // not the chrome surface, the inline maths keeps its chrome chip and the
+    // malformed figure draws the fence look (fill, no border).
     function analyze(ctx) {
         var w = 560
         var h = 1080
@@ -216,6 +228,23 @@ ShellRoot {
         }
         var border = parse(String(md.borderHex).toLowerCase())
         var chrome = parse(String(md.chromeHex).toLowerCase())
+        // Empty canvas reads as the window ground or transparent black, so
+        // neither counts as figure ink, only a drawn mark does.
+        function isInk(c) {
+            return !same(c, chrome) && !(c[0] === 16 && c[1] === 19 && c[2] === 21)
+                && !(c[0] === 0 && c[1] === 0 && c[2] === 0)
+        }
+        for (var f = 1; f <= 3; f++) {
+            var fr = shell.rectOf(f)
+            var ink = 0
+            for (var fy = fr.y; fy < fr.y + fr.h; fy++)
+                for (var fx = fr.x; fx < fr.x + fr.w; fx++)
+                    if (isInk(at(fx, fy)))
+                        ink++
+            shell.log("figure " + f + " ink px=" + ink)
+            if (ink < 40)
+                return shell.fail("figure " + f + " drew no ink in " + shell.figMode + " mode")
+        }
 
         var inline = shell.rectOf(shell.inlineIndex)
         var chip = 0
@@ -263,7 +292,7 @@ ShellRoot {
                     return shell.fail("a Qt default link blue survived at " + px + "," + py)
             }
         shell.done = true
-        shell.log("PASS three figures, one mono fallback, widths fit, far figure unasked")
+        shell.log("PASS (" + shell.figMode + ") three figures, one mono fallback, widths fit, far figure unasked")
         shell.quit()
     }
 }
