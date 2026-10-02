@@ -151,21 +151,27 @@ function run(check) {
     var paneSource = Source.source("ui/Pane.qml")
     check("Pane.qml declares recentSortBy", paneSource.indexOf("property string recentSortBy") >= 0, true)
     check("Pane.qml declares recentSortDesc", paneSource.indexOf("property bool recentSortDesc") >= 0, true)
-    // A plain hop out of Recent in a preserveSort pane hands the standing order back, the way close does.
+    // Leaving Recent goes through one helper, so a plain hop hands the standing order back.
     var hopping = pane("/home/gm/Work")
     hopping.backend.sortBy = "size"
     hopping.backend.sortDesc = true
     RecentMode.run(hopping, ["/home/gm/a.txt"])
     check("a hop into Recent takes the newest-first order", hopping.backend.sortBy + "|" + hopping.backend.sortDesc, "mtime|true")
     hopping.listInFlight = false
-    if (hopping.recentMode.length > 0) RecentMode.restoreSort(hopping)
-    hopping.recentMode = ""
-    hopping.recentFrom = ""
-    hopping.recentPaths = []
+    RecentMode.leave(hopping)
     check("a plain hop out of Recent hands the standing order back", hopping.backend.sortBy + "|" + hopping.backend.sortDesc, "size|true")
-    // Sample input: openWithoutHistory mirrors ui/Pane.qml:375-392, restoreSort before blanking the mode.
+    check("and blanks the mode it left", hopping.recentMode + "|" + hopping.recentFrom + "|" + hopping.recentPaths.length, "||0")
+    // A pane outside Recent keeps its own order, so the helper guards on the mode.
+    var settled = pane("/home/gm/Work")
+    settled.backend.sortBy = "kind"
+    settled.backend.sortDesc = true
+    settled.recentSortBy = "size"
+    settled.recentSortDesc = true
+    RecentMode.leave(settled)
+    check("leaving outside Recent keeps its own order", settled.backend.sortBy + "|" + settled.backend.sortDesc, "kind|true")
+    // Sample input: openWithoutHistory calls RecentMode.leave(root) before Nav.openWithoutHistory(root.
     var openBranch = Source.slice(paneSource, "function openWithoutHistory(newPath, options)", "Nav.openWithoutHistory(root, newPath, options)")
-    check("Pane.openWithoutHistory restores the sort Recent replaced", openBranch.indexOf("RecentMode.restoreSort(root)") >= 0, true)
+    check("Pane.openWithoutHistory leaves Recent through the helper", openBranch.indexOf("RecentMode.leave(root)") >= 0, true)
 
     // The menu reaches past key dispatch, so one helper refuses a paste in Recent for both routes.
     var pasteBranch = Source.slice(paneSource, "function pasteLink(kind, paths)", "function setCursor(index, context)")

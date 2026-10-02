@@ -252,7 +252,7 @@ function run(check) {
     check("openParent refuses before it closes", upLine.indexOf("root.listInFlight") >= 0, true)
     var relist = Source.slice(Source.source("ui/Pane.qml"), "function openWithoutHistory(newPath, options)", "function toggleHidden()")
     check("a re-list refuses before it clears",
-          relist.indexOf("if (root.listInFlight)") >= 0 && relist.indexOf("if (root.listInFlight)") < relist.indexOf('root.recentMode = ""'), true)
+          relist.indexOf("if (root.listInFlight)") >= 0 && relist.indexOf("if (root.listInFlight)") < relist.indexOf("RecentMode.leave(root)"), true)
 
     var activeStatus = escaper("needle", 0)
     var statusEscapes = 0

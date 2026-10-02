@@ -131,6 +131,7 @@ function run(check) {
     runNeighbourAsks(check)
     runColumnMenu(check)
     runFolderHold(check)
+    runTabWiring(check)
 }
 
 // ColumnsWidth board (#167, #69): the columns count follows the window width, 2 below 900 up to 5 from 2300, capped by the View limit shipping at 3.
@@ -332,6 +333,17 @@ function runFolderHold(check) {
     var capNext = capGuard >= 0 ? capBody.indexOf("if (!root.holding", capGuard) : -1
     check("structural: cap orders guard before fallback arm", capGuard >= 0 && capReturn > capGuard && capReturn < capNext, true)
     check("the folder guard runs under Qt in preview-swap", Source.source("tests/preview-swap.qml").indexOf('Quickshell.env("PREVIEW_SWAP_FOLDERGUARD")') >= 0, true)
+}
+
+// Middle click opens the drawn folder in a tab, so each column wires its own path.
+function runTabWiring(check) {
+    var area = Source.source("ui/ColumnsArea.qml")
+    check("great-grandparent opens its drawn folder in a tab", area.indexOf("Tap.tappedTab(row, root.greatGrandparentPath, root.pane)") >= 0, true)
+    check("grandparent opens its drawn folder in a tab", area.indexOf("Tap.tappedTab(row, root.grandparentPath, root.pane)") >= 0, true)
+    check("parent opens its drawn folder in a tab", area.indexOf("Tap.tappedTab(row, root.parentPath, root.pane)") >= 0, true)
+    check("current opens its drawn folder in a tab", area.indexOf("Tap.tappedTab(row, root.pane.path, root.pane)") >= 0, true)
+    check("child opens its drawn folder in a tab", area.indexOf("Tap.tappedTab(row, root.shownChildPath, root.pane)") >= 0, true)
+    check("each of the five columns answers a tab", area.split("onTabRequested").length - 1, 5)
 }
 
 // w8 colroot: at / no ancestor repeats the active column, so the slot stays blank and Left stays a no-op.

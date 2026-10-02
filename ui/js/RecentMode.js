@@ -95,6 +95,16 @@ function restoreSort(pane) {
     pane.recentSortDesc = false
 }
 
+// A plain hop leaves Recent through one step, so every navigation restores the same order.
+function leave(pane) {
+    if (pane.recentMode.length > 0) {
+        restoreSort(pane)
+    }
+    pane.recentMode = OFF
+    pane.recentFrom = ""
+    pane.recentPaths = []
+}
+
 // An operation changed a file under the listing, so the history is read again rather than the
 // base re-listed: re-listing "/" would draw the root over the place just left, and the backend
 // drops whatever the operation took, so the rows that return are the ones still there. With the
