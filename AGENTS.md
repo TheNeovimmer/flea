@@ -339,7 +339,7 @@ slow network folder alike, in two layers. `ui/PaneStates.qml` lays a `MouseArea`
 filter strip and the listing slot while a listing is out, which takes every press and wheel notch and
 says "A directory is already loading." on a press, and `ui/js/Focus.js handleKey` swallows every
 listing key but `Swap.ANSWERED_WHILE_LISTING` and says the same sentence: the navigations, which refuse
-themselves with it, escape, which touches no row, and the view, rail, new-window and preview-column
+themselves with it, escape, which touches no row, reload, which refuses itself with the same sentence (`ui/js/Reload.js:19-21`), and the view, rail, new-window and preview-column
 keys, which change the window rather than a file. The rail, the crumbs and the tab strip already
 refused a listing while one was out, a row drag already could not start, and the list and the grid
 now ask for no `window` while one is out, the rule
@@ -465,8 +465,8 @@ layer must call `scheduleUpdate()`. Clicks, hover and the wheel are blocked whil
 over the picture.
 
 The column holds with `burstEnds: true` on the key `path + "\n" + cursorIndex`. The hold starts on the
-move, the settle runs from the key through `armSettle` and is not pushed back one frame, and `clear`
-runs after the capture so `pending` makes `Facts.state(null, loading)` return LOADING. A folder shows
+move, an idle move loads at once through `PreviewSettle.plan` and only a move inside the 120 ms settle trails on the timer, and `clear`
+runs after the capture so `pending` makes `Facts.state(null, loading)` return LOADING. `armSettle` remains only the folder-to-file arm in `ColumnsArea.moveThird`, overridden by `settleFor` when idle; a held key's first repeat after the repeat delay counts as idle too. A folder shows
 through the deferred `shownIsDir` and `shownChildPath` and never holds a picture: a move onto a folder
 whose peek is outstanding keeps the old column by data, and the landed peek shows it with its rows in
 the same pass; a folder whose peek already answered lands at once with no hold. Only a move onto a folder
@@ -488,7 +488,8 @@ as it builds.
 `frameThumb` decodes itself, drawn or refused (Ready or Error), a video for its poster or none coming,
 a PDF for `shownPage >= 0` or failure, text and code for `PreviewLines.loading` false, an archive for
 its meta, and symlink, audio, unsupported and multi for the facts alone; a folder waits for
-`answered(shownChildPath)`. `lookReady` waits for `status` not loading, and a PDF also for
+`answered(shownChildPath)`. `lookReady` waits for `status` not loading, or for the interim cache
+thumbnail shown whole at the final rect (`interimShown`, from PreviewImage's `interimReady`), and a PDF also for
 `shownPage >= 0` or failure. `tests/js/previewswap.js` drives the moves, the cap, the frame kinds and
 every ready rule; mutating `columnReady` reddens it. `tests/preview-swap.sh` grabs the swap item
 headless over the file kinds and asserts 0 mid frames on those holds; its one folder step is a
@@ -2287,7 +2288,7 @@ visit on a 33 Mpx PNG and 2 to 4 MB of PSS over v0.3.4. As in v0.3.4 the frame d
 cache file, and decodes the original only when no cache file exists, now at the exact fit of the frame and
 EXIF-upright; a cache file is never enlarged past the original's own size. The sharp frame returns in
 0.3.6 from a disk-cached sharp file, GM's ruling. `tests/preview-decode.sh` pins it from outside the
-column: a key-repeat sweep opens no file at all, cache file or original, and a rest opens the cache file
+column: a key-repeat sweep loads its first row at once and then only its last, and a rest opens the cache file
 and no original. It also pins Quick Look's `ui/PreviewImage.qml`: a 3000x100 banner decodes at the exact
 fit (754x25, not the covering 14130x471), and an EXIF-turned photo decodes upright and draws at the exact
 fit, decoded whole when its stored size fits the box before the turn, because Qt weighs `sourceSize`
@@ -4986,7 +4987,9 @@ is the range rule itself**, the viewport in row indices clamped to the last row 
 it lives there rather than inline in `requestThumbs` so a mutation reddens `tests/js.sh`: dropping
 its clamp fails "a listing shorter than the screen clamps to its last row". **The request
 names visible rows and nothing else**, which is the client half of the rule the backend enforces:
-nothing prefetches, warms, or asks for the screen ahead.
+nothing prefetches, warms, or asks for the screen ahead, with one exception: Quick Look at rest asks
+for the next row's cache entry only (cacheOnly, never a decoder, never a meta, none for an off class
+or unknown storage), pinned by tests/thumbs-qlprefetch.qml, while nosweep still covers the listing.
 
 **`viewport` measures the window in pixels, because a `contentY` that is not row aligned straddles
 one more row than the window holds.** `first` is `floor(contentY / rowHeight)` and `last` is
@@ -5118,8 +5121,9 @@ against a 41 ms worst case that was measured at 40 ms twice in twenty runs.
 LINES, not rows, so an implementation that swept a whole directory in one `thumb` naming every row
 would score one request and satisfy every count assertion. `tests/ui.sh thumbs` therefore asserts
 what `~/.cache/thumbnails/large` grew by against a viewport-derived bound, the requests issued
-times `pane.visibleRows`, which the read-only seam reports as `visibleRows()`. Every request names
-a subset of one viewport, so the rows generated cannot exceed a screenful a request, and a clean
+times `pane.visibleRows`, which the read-only seam reports as `visibleRows()`. Every listing request
+names a subset of one viewport (Quick Look's cacheOnly next-row ask above never decodes, so it
+generates nothing this bound counts), so the rows generated cannot exceed a screenful a request, and a clean
 run sits exactly ON that bound rather than under it. The WINDOW's own height over the row pitch was
 tried first and rejected: it exceeds the list's by the header and the status bar, and one request
 can never generate more than `MAX_QUEUE` plus the worker count, 74 rows, however large the
@@ -5509,8 +5513,8 @@ test's own sandbox.
   decoding runs argv-direct under `bwrap` instead. The difference is consent and blast radius: a
   thumbnail sweep decodes files the user never chose, a preview decodes the one file the user
   pressed Space on, the same trust the user already extends by opening it in any other viewer.
-  The no-sweep rule is untouched: a preview reads exactly one path per open and issues no
-  thumbnail requests, which `tests/ui.sh nosweep` still covers unchanged.
+  The no-sweep rule is untouched: a preview reads exactly one path per open and, Quick Look's one
+  cache-only next-row ask aside, issues no thumbnail requests, which `tests/ui.sh nosweep` still covers unchanged.
 - `ui/Preview.qml`'s markdown kind is a name-suffix check (`.md`/`.markdown`/`.mkd`), not an icon
   check: `text/markdown`'s own `/usr/share/mime/generic-icons` entry is `x-office-document`, not
   `text-x-generic`, so the row's icon name alone cannot carry it. It is a display-mode choice

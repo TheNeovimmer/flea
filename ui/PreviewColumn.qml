@@ -107,9 +107,8 @@ Item {
     readonly property bool thumbShown: root.wantsThumb && root.thumbDrawn
     // For ui/Ipc.qml's columnFrameRect: the box a playing video's pixels must change inside.
     readonly property Item frameItem: frame
-    // For ui/Ipc.qml's columnPictureRect: the drawn picture itself, so a test can prove it fills the frame.
-    // The player's content rect while it plays, the poster otherwise: frameThumb is hidden under the
-    // player but keeps its geometry, so reading it then would measure a stale poster as the picture.
+    // For ui/Ipc.qml's columnPictureRect: the player's content rect while it plays, else the poster;
+    // frameThumb keeps its geometry hidden under the player, so reading it then measures a stale poster.
     readonly property Item pictureItem: playerLoader.visible && playerLoader.item ? playerLoader.item.contentItem : frameThumb
     readonly property Item linesItem: lines
     readonly property Item archiveItem: archivePane
@@ -456,9 +455,7 @@ Item {
     function playerLoaded() { return playerLoader.item !== null }
     // What the text, archive and failure surfaces actually draw, for ui/Ipc.qml: the lines, the member names, the sentence.
     function textLines() { return lines.tooLarge ? "too large" : lines.lines.join("|") }
-    // The rendered Markdown document as plain text, for ui/Ipc.qml: the heading
-    // markers are gone the way the rendered frame draws them, so a test reads
-    // "Notes" and not "# Notes". Source view keeps the raw bytes.
+    // Sample input: "# Notes\n###\ntext" reads "Notes\n\ntext"; source view returns the bytes.
     function markdownText() {
         if (!root.isMarkdownRow) return ""
         var body = markdown.rawText || ""
@@ -517,9 +514,7 @@ Item {
         return ""
     }
 
-    // One binding for the whole decode request, so the url and its ceiling change in one
-    // pass. Zero is unbounded to Qt, which is what the small cache PNG wants; only the
-    // fallback, which can be the whole camera file, takes the ceiling ui/PreviewImage.qml sets.
+    // One binding for the whole decode request: url and ceiling change in one pass, zero is Qt unbounded.
     readonly property var decodeTarget: ({
         url: root.frameSource(),
         w: root.thumb.length > 0 ? 0 : Math.max(1, Math.round(root.turned ? frameThumb.boxHeight : frameThumb.boxWidth)),
@@ -527,9 +522,8 @@ Item {
     })
     onDecodeTargetChanged: root.applyDecodeTarget()
 
-    // Blank first, then the ceiling, then the url: a ceiling change while a url stands
-    // re-requests that file, so the three never land in separate passes. A request that
-    // changed nothing is skipped, so a relayout over a cache file loads nothing at all.
+    // Blank first, then ceiling, then url, so the three never land in separate passes.
+    // A request that changed nothing is skipped, so a relayout over a cache file loads nothing.
     function applyDecodeTarget() {
         var t = root.decodeTarget
         if (String(frameThumb.source) === String(t.url)

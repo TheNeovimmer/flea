@@ -77,6 +77,7 @@ function run(check) {
     check("or once the document is refused", PreviewSwap.lookReady("This file could not be read.", true, false, true), true)
     check("anything else not loading is whole", PreviewSwap.lookReady("image", false, false, false), true)
     runInterimRect(check)
+    runInterimShown(check)
     runFolderDataHold(check)
     runPictureHoldLeak(check)
     runPreviewSettle(check)
@@ -112,6 +113,11 @@ function squashed(s) {
     return String(s).replace(/\s+/g, " ")
 }
 
+// Sample input: stripped("a // root.interimShown\nb") is "a \nb".
+function stripped(s) {
+    return String(s).replace(/\/\/[^\n]*/g, "")
+}
+
 function runShowCursorRow(check, area) {
     var show = squashed(bodyOf(area, "showCursorRow"))
     check("source: showCursorRow guards a stale show with the strict force-and-data-hold early return",
@@ -121,8 +127,7 @@ function runShowCursorRow(check, area) {
         retAt >= 0 && show.indexOf("shownHasRow") > retAt && show.indexOf("shownIsDir") > retAt && show.indexOf("shownChildPath") > retAt, true)
 }
 
-// e81f: the interim rect is the upright original aspect-fit of the surface, never
-// enlarged, sized from the original's pixels and never the cache file's rounded ones.
+// e81f: the interim rect is the original's upright aspect-fit, never enlarged, never the cache file's size.
 function rect(surfaceW, surfaceH, imageW, imageH, orient) {
     var r = PreviewSwap.interimRect(surfaceW, surfaceH, imageW, imageH, orient)
     return r === null ? "none" : r.x + "," + r.y + "," + r.w + "x" + r.h
@@ -140,6 +145,19 @@ function runInterimRect(check) {
     check("unknown pixels are no interim",
         rect(754, 471, 0, 0, 1) + "|" + rect(754, 471, 640, 0, 1) + "|" + rect(754, 471, 0, 480, 6),
         "none|none|none")
+}
+
+// Quick Look releases early only on the shown interim: each pin reads its binding's Source.slice with comments stripped.
+function runInterimShown(check) {
+    var readyScope = stripped(Source.slice(Source.source("ui/Preview.qml"), "readonly property bool lookReady:", "property string interimThumb"))
+    var shownScope = stripped(Source.slice(Source.source("ui/Preview.qml"), "readonly property bool interimShown:", "// The original's pixels"))
+    var imageScope = stripped(Source.slice(Source.source("ui/PreviewImage.qml"), "readonly property bool interimReady:", "// The same name the media"))
+    check("lookReady answers on the shown interim",
+        readyScope.indexOf("root.interimShown") >= 0, true)
+    check("interimShown releases only on the interim image Ready",
+        shownScope.indexOf("imageLoader.item.interimReady === true") >= 0, true)
+    check("that term is PreviewImage interimReady, never a local flag",
+        squashed(imageScope).trim() === "readonly property bool interimReady: interimPicture.status === Image.Ready", true)
 }
 
 // A folder peek in Columns holds by data: an unanswered folder keeps the old column, and the landed peek shows it with its rows in one pass.
@@ -214,12 +232,13 @@ function runPreviewSettle(check) {
     var settleAt = replaceArm.indexOf("root.settleFor(key)")
     check("a true duplicate returns before any clear or picture", dupAt >= 0 && holdAt > dupAt, true)
     check("a move takes the swap picture before scheduling", holdAt >= 0 && settleAt > holdAt, true)
-    check("the no-swap branch keeps its reset before scheduling",
-        replaceArm.indexOf("if (!root.canRead) { root.clear(); return }") >= 0
-        && replaceArm.indexOf("root.clear()", settleAt) > settleAt, true)
+    var canReadAt = replaceArm.indexOf('if (!root.canRead) { root.clear(); return }')
+    check("the no-swap branch keeps its reset before scheduling", canReadAt >= 0
+        && replaceArm.indexOf("root.clear() root.settleFor(key)", canReadAt) > settleAt, true)
     var schedArm = squashed(bodyOf(preview, "function settleFor"))
     check("a pending timer covers its own refresh", schedArm.indexOf("settle.running && root.settleKey === key") >= 0, true)
-    check("settleFor stamps only scheduled moves", schedArm.indexOf("root.lastMoveKey = key") > schedArm.indexOf("return"), true)
+    var sameAt = schedArm.indexOf('if (decision === "same") return')
+    check("settleFor stamps only scheduled moves", sameAt >= 0 && schedArm.indexOf("root.lastMoveKey = key") > sameAt && schedArm.indexOf("root.lastMoveAt = now") > sameAt, true)
     var fireArm = squashed(bodyOf(preview, "function fireSettle"))
     check("the timer and the fast path share one decision",
         fireArm.indexOf("ExtThumbs.manualHold(") >= 0 && preview.indexOf("onTriggered: root.fireSettle()") >= 0, true)

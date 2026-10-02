@@ -34,8 +34,7 @@ function pdfAction(action, viewer) {
     else if (action === "cursorDown" || action === "cursorUp") viewer.scrollPage(action === "cursorDown" ? 1 : -1)
 }
 
-// A directory has no preview kind of its own, so Space on one is a silent no-op rather than an error.
-// The cached thumbnail rides along in memory, so the overlay shows it at once with zero new file work.
+// Space on a folder is a silent no-op; a file carries its cached thumbnail so the overlay shows it at once.
 function open(root) {
     var row = root.rowFor(root.cursorIndex)
     if (row && !row.d)
@@ -78,8 +77,7 @@ function act(action, root) {
     case "expand": root.preview.toggleExpand(); return
     // MediaMute rule 5: the flag is the preview's to flip, and it silences without pausing.
     case "mute": root.preview.toggleMute(); return
-    // RenderedPreviews callout 1: r switches a Markdown Quick Look between Rendered and
-    // Source. The map binds the preview context only, so this guards the kind instead.
+    // RenderedPreviews callout 1: r switches Rendered/Source in the preview context, guarded on kind.
     case "markdownView":
         if (root.preview.isMarkdown) root.preview.toggleMarkdownView()
         return

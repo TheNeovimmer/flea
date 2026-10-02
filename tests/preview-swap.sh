@@ -98,7 +98,7 @@ judge() {
     else bad "$surface: $fallbacks hold(s) fell back on fast decodes"; fi
     if [ "$early" == 1 ]; then
         if [ "${earlyReleased:-0}" -eq "$wanted" ] && [ "${mid:-1}" -eq 0 ]; then
-            ok "$surface: all $wanted holds released early on the interim path with no half-built frame"
+            ok "$surface: all $wanted holds released early on the ready-at-start path with no half-built frame"
         else bad "$surface: early releases $earlyReleased of $wanted with $mid mid frame(s)"; fi
     fi
     [ -f "$out/settled.png" ] || bad "$surface: the settled grab never landed"

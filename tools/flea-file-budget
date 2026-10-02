@@ -48,7 +48,7 @@ src/uistore.rs 540
 src/vulkan.rs 728
 tests/js/columns.js 618
 tests/js/drag.js 301
-tests/js/previewswap.js 367
+tests/js/previewswap.js 387
 tests/js/focus.js 522
 tests/js/mounts.js 383
 tests/js/menu.js 335
@@ -60,7 +60,7 @@ tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 396
 tests/preview-settle-live.qml 457
-tests/preview-decode.qml 444
+tests/preview-decode.qml 499
 tests/js/status.js 354
 tests/rename-grid-bottom.qml 419
 tests/rename-grid-bottom.js 303
@@ -83,7 +83,7 @@ ui/PaneMenuActions.qml 458
 ui/PaneWire.qml 537
 ui/PermissionsDialog.qml 589
 ui/PickerWindow.qml 770
-ui/Preview.qml 717
+ui/Preview.qml 719
 ui/PreviewColumn.qml 571
 ui/PreviewMarkdown.qml 473
 ui/Row.qml 478
