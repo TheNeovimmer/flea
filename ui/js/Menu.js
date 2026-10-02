@@ -344,8 +344,8 @@ function loneChoice(action, id, forRail, forHeader, hasRow, openedIdentity, sele
     for (var i = 0; i < leaves.length; i++)
         if (leaves[i].separator !== true && leaves[i].id === id) known = true
     var moved = !forRail && !forHeader && hasRow && openedIdentity !== selectionIdentity
-    if (!known) return { kind: "unknown" }
     if (moved) return { kind: "moved" }
+    if (!known) return { kind: "unknown" }
     return { kind: "fire", fired: action + ":" + id }
 }
 

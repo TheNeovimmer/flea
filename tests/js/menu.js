@@ -366,6 +366,8 @@ function providerRefresh(check) {
     check("and names the fired action with its leaf", lonePick("copyAs", "copyPath", false, false, true, "a", "a").fired, "copyAs:copyPath")
     check("an unknown leaf refuses", lonePick("copyAs", "bogus", false, false, true, "a", "a").kind, "unknown")
     check("a moved selection refuses", lonePick("copyAs", "copyPath", false, false, true, "a", "b").kind, "moved")
+    // A moved selection outranks an unknown leaf, the order chooseSub carried.
+    check("a moved selection outranks an unknown leaf", lonePick("copyAs", "bogus", false, false, true, "a", "b").kind, "moved")
     check("a rail move never counts as moved", lonePick("copyAs", "copyPath", true, false, true, "a", "b").kind, "fire")
     // Pane root carries the cursor sequence Filter and Marks bump, so QML must declare it.
     var paneSrc = Source.source("ui/Pane.qml")
