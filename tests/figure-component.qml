@@ -87,7 +87,8 @@ Item {
         probe.wait(false);
     }
     function verifyQuiet() {
-        probe.check(FigureService.requests.length === 0, "setting created back requests=" + FigureService.requests.length + ", want 0");
+        probe.check(FigureService.requests.length === 0 && !figure.askPending,
+            "setting created back requests=" + FigureService.requests.length + " armed=" + figure.askPending + ", want 0 and not armed");
         // The control: the same kind of change on a created figure does ask, so the zeros above are the guard's.
         figure.bgHex = "#555555";
         probe.wait(true);

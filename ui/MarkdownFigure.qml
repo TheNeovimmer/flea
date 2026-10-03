@@ -58,7 +58,7 @@ Item {
     // The suite counts ask runs and reads the armed deferred ask, so it waits and asserts without timing.
     property int askRuns: 0
     readonly property bool askPending: askTimer.running
-    // Every trigger lands on the one deferred ask, so the changes of one burst send one request.
+    // Every property change lands on the one deferred ask, so the changes of one burst send one request.
     function schedule() {
         if (root.created)
             askTimer.restart();

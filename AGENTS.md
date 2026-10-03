@@ -7191,8 +7191,10 @@ The mdstack merge keeps md2's escaping, bulk escaper and linear span parser alon
 and baseline checks. The union of their structure tests, plus escaped-dollar, heading-footnote integration and
 final escaped table-pipe checks, records `tests/js/mdstructure.js` at 596 lines (`wc -l`, matching its budget row).
 
-The mx2 merge into the stack keeps one deferred ask in `ui/MarkdownFigure.qml`: every trigger restarts the 50 ms
-`askTimer` once the figure is `created`, so a burst sends one request and one equal to the last sent is dropped, and
+The mx2 merge into the stack keeps one deferred ask in `ui/MarkdownFigure.qml`: every property change restarts the 50 ms
+`askTimer` once the figure is `created` (entering the viewport is the one direct ask, for a placed figure that holds nothing), so a burst sends one request and one equal to the last sent is dropped, and
 the timer still outlasts ListView's placement so `inView` reads the placed position. The figure cache key and
 `FigureWorker.themeKey` carry every theme role the diagram paints (muted, line, surface, border), and the unexpected-exit
-log fires only when a figure fails its second strike. `ui/js/FigureWorker.mjs` records 509 lines, `ui/FigureService.qml` 298.
+log fires only when a figure fails its second strike. `ui/js/FigureWorker.mjs` records 509 lines, `ui/FigureService.qml` 298. The md2 merge
+leaves `tests/markdown-linearity.qml` at 543 lines, the merged `wc -l` where both sides added cases (399 on the stack,
+529 on md2), and its budget row is that number.
