@@ -17,6 +17,10 @@ fn stuck_table() -> &'static Mutex<HashMap<PathBuf, Instant>> {
 }
 // A mount marked stuck inside its transmission time answers at once without a worker.
 fn is_stuck(mount: &Path, ttl: Duration) -> bool {
+    #[cfg(test)]
+    if TEST_STUCK.with(|slot| slot.borrow().as_deref() == Some(mount)) {
+        return true;
+    }
     stuck_table().lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(mount).is_some_and(|marked| marked.elapsed() < ttl)
 }
 // A call past its deadline marks its mount, so later requests on it answer at once.
@@ -196,6 +200,25 @@ pub fn slow_write_with<T: Send + 'static>(
 #[cfg(test)]
 thread_local! {
     static CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+// One thread's refusal fixture is isolated from parallel tests that clear the production stuck table.
+#[cfg(test)]
+thread_local! {
+    static TEST_STUCK: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+// The guard restores the previous fixture even when a wire assertion panics.
+#[cfg(test)]
+pub(crate) struct StuckGuard(Option<PathBuf>);
+// Holds the real bound on its stuck-mount error path without a clock or remote filesystem.
+#[cfg(test)]
+pub(crate) fn test_hold_stuck(mount: PathBuf) -> StuckGuard {
+    StuckGuard(TEST_STUCK.with(|slot| slot.replace(Some(mount))))
+}
+#[cfg(test)]
+impl Drop for StuckGuard {
+    fn drop(&mut self) {
+        TEST_STUCK.with(|slot| *slot.borrow_mut() = self.0.take());
+    }
 }
 // Thread-local, so one suite mapping its sandbox onto a fake mount never leaks into the next.
 #[cfg(test)]

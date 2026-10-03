@@ -579,6 +579,11 @@ def stub_allowances():
         ('tests/js/watch.js', 'selectedAt'): 'Records indices requested through selectOnly.',
         ('tests/js/watch.js', 'sent'): 'Records backend requests emitted by stub methods.',
         ('tests/js/watch.js', 'want'): 'Supplies a fixture-only selection sequence read by the stub selectedIndices method.',
+        ('tests/js/xwrl4.js', 'cursorSetTo'): 'Records setCursor and selectOnly calls across the watched re-read.',
+        ('tests/js/xwrl4.js', 'sent'): 'Records backend requests emitted by stub methods.',
+        ('tests/js/xwwatch.js', 'cursorCtx'): 'Records the context argument passed to setCursor.',
+        ('tests/js/xwwatch.js', 'cursorSetTo'): 'Records setCursor and selectOnly calls across the watched re-read.',
+        ('tests/js/xwwatch.js', 'sent'): 'Records backend requests emitted by stub methods.',
     }
 
 
