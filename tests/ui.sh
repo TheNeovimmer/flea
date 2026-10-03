@@ -2347,7 +2347,7 @@ case_clickedge() {
     local bindir="$fixture_root/clickedge-bin"
     # The band block drives the pointer through tests/ui-marquee.sh, whose helpers read these; a fail must not leave the button down.
     local marquee_checks=0 marquee_button_down=false marquee_ctrl_down=false before_band after_band
-    local band_rows=4 end_polls=100 end_poll_s=0.05
+    local band_rows=4 end_polls=100 end_poll_s=0.05 band_tail_min=3 band_glide_px=0 band_tail
     export YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-$XDG_RUNTIME_DIR/.ydotool_socket}"
     [[ -S "$YDOTOOL_SOCKET" ]] || fail "clickedge: no ydotoold socket at $YDOTOOL_SOCKET"
     trap '( marquee_release ) >/dev/null 2>&1 || true' EXIT
@@ -2544,14 +2544,15 @@ case_clickedge() {
         read -r ax ay aw ah <<< "$(ipc listAreaRect)"
         read -r brx bry brw brh <<< "$(ipc rowRect "$band_last")"
         [[ "$ax $ay $aw $ah $brx $bry $brw $brh" =~ ^[0-9]+(\ [0-9]+){7}$ ]] || fail "clickedge: $mode band geometry unavailable"
-        (( brh > 0 && bry + brh < ay + ah )) || fail "clickedge: $mode no empty tail below row $band_last, row bottom $((bry + brh)) view bottom $((ay + ah))"
+        band_tail=$((ay + ah - (bry + brh)))
+        (( brh > 0 && band_tail >= band_tail_min )) || fail "clickedge: $mode the tail below row $band_last is $band_tail px, under the $band_tail_min an exact glide needs"
         read -r _ bry _ _ <<< "$(ipc rowRect "$band_top")"
         [[ "$bry" =~ ^[0-9]+$ ]] && (( bry >= ay )) || fail "clickedge: $mode band top row $band_top is not drawn whole, top [$bry] view top $ay"
         read -r band_cx band_cy <<< "$(ipc rowCentre "$band_top")"
         [[ "$band_cx $band_cy" =~ ^[0-9]+\ [0-9]+$ ]] || fail "clickedge: $mode row $band_top has no centre, got [$band_cx $band_cy]"
         band_want=$(seq -s, "$band_top" "$band_last")
         before_band=$(ipc viewContentY)
-        marquee_begin_below "$band_last"
+        marquee_begin_below "$band_last" false false "$band_glide_px"
         marquee_to "$band_cx" "$band_cy"
         marquee_state '.active and .tracking' "clickedge $mode has a live rubber band"
         marquee_expect selectedIndices "$band_want" "clickedge $mode band marks rows $band_top to $band_last while held"
@@ -2562,7 +2563,7 @@ case_clickedge() {
         marquee_expect selectedIndices "$band_want" "clickedge $mode release keeps the banded rows"
         marquee_expect cursor "$band_top" "clickedge $mode release moves the cursor to the row the band ended on"
         after_band=$(ipc viewContentY)
-        printf 'CLICKEDGE %s band from=%s to=%s before=%s after=%s selected=%s\n' "$mode" "$band_last" "$band_top" "$before_band" "$after_band" "$(ipc selectedIndices)"
+        printf 'CLICKEDGE %s band from=%s to=%s tail=%s before=%s after=%s selected=%s\n' "$mode" "$band_last" "$band_top" "$band_tail" "$before_band" "$after_band" "$(ipc selectedIndices)"
         [[ "$after_band" == "$before_band" ]] || fail "clickedge: $mode the band release scrolled $before_band to $after_band"
         # The next mode and the grid part assume the top of the listing with nothing marked and the cursor on row 0.
         key -k Escape >/dev/null || fail "clickedge: key Escape was rejected"
