@@ -14,7 +14,7 @@ case_settingscompact() {
     omarchy-drive window float flea >/dev/null
 
     for viewport in 1100x800 800x600 560x400 480x240; do
-        hypr_dispatch "hl.dsp.window.resize({ x = ${viewport%x*}, y = ${viewport#*x}, exact = true, window = \"address:$addr\" })" || fail "settingscompact: could not resize owned window"
+        hypr_window_resize "$addr" "${viewport%x*}" "${viewport#*x}" || fail "settingscompact: could not resize owned window"
         omarchy-drive window center flea >/dev/null
         settle
         read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"

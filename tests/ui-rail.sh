@@ -189,7 +189,7 @@ case_unmounted() (
 sidebar_resize() {
     local width="$1" height="${2:-800}" addr
     addr=$(xwdrag_addr "$(flea_pid)") || fail "sidebar: missing owned window"
-    hypr_dispatch "hl.dsp.window.resize({ x = $width, y = $height, exact = true, window = \"address:$addr\" })" \
+    hypr_window_resize "$addr" "$width" "$height" \
         || fail "sidebar: the window would not resize to $width"
     settle
     settle
@@ -246,7 +246,7 @@ case_sidebar() (
     launch "$dir"
     wait_listing 2
     addr=$(xwdrag_addr "$(flea_pid)") || fail "sidebar: missing owned window"
-    hypr_dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$addr\" })" || fail 'sidebar: the window would not float'
+    hypr_window_float "$addr" "on" || fail 'sidebar: the window would not float'
     settle
     sidebar_resize 1200
     [[ "$(sidebar_state .hidden)" == "false" ]] || fail "sidebar: a fresh home opened with the rail hidden, $(ipc railState)"
@@ -273,7 +273,7 @@ case_sidebar() (
 
     echo "-- directive 74: with auto-hide off a narrow window keeps the rail --"
     addr=$(xwdrag_addr "$(flea_pid)") || fail "sidebar: missing owned window"
-    hypr_dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$addr\" })" || fail 'sidebar: the window would not float'
+    hypr_window_float "$addr" "on" || fail 'sidebar: the window would not float'
     settle
     sidebar_resize 1200
     sidebar_wait false

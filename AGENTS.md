@@ -3692,6 +3692,17 @@ waits for its consumer.
   `--open` from an absent one.
 - `./tests/budget.sh` asserts `tools/flea-file-budget` itself rejects an oversized
   file and passes a clean tree.
+- `./tests/hyprdispatch.sh` keeps compositor command construction in `tests/lib/hypr-dispatch.sh`.
+  Its six typed entry points validate hexadecimal addresses, integer coordinates, nonnegative resize
+  dimensions and exact `on|off`, then require the compositor reply to be exactly `ok`. Window calls
+  always use `address:ADDR`; move and cursor coordinates may be negative for monitor origins.
+  The helper's program form serves Python callers and prints `ok` only after the same checks pass.
+  The static gate scans shell, Python, QML and JavaScript under `tests/`, excluding the helper and
+  lines beginning with `#` or `//` after whitespace. It refuses `hl.dsp.` or both `hyprctl` and
+  `dispatch`/`--batch` on a line. This is deliberately conservative: reword a refused read-only line.
+  The proof runs the real helper against a fake compositor, checks exact text and refusal paths,
+  and executes each shell harness's own helper source statement from its directory. It verifies
+  the resolved source path of every entry point; missing and foreign helper copies must fail.
 - `./tools/flea-acceptance` is the everything-works battery, and **its checklist is derived at run
   time, never written from memory**: every request in `docs/protocol.md`, every action in
   `keys.toml` (the `[digits]` range included, which binds nine keys no `action =` line names), every

@@ -66,7 +66,7 @@ permissions_viewport() {
     if ! jq -e '.floating' <<< "$client" >/dev/null; then
         omarchy-drive window float "$address" >/dev/null || fail "permissions: owned window could not float"
     fi
-    result=$(hypr_dispatch "hl.dsp.window.resize({ x = $target_width, y = $target_height, exact = true, window = \"address:$address\" })" 2>&1) \
+    result=$(hypr_window_resize "$address" "$target_width" "$target_height" 2>&1) \
         || fail "permissions: compositor refused resize: $result"
     omarchy-drive window center "$address" || fail "permissions: owned window could not center"
     while (( SECONDS < end )); do

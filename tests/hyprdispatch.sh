@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Selector lint and compositor-free regression proof share this headless suite.
+# Typed-call lint and compositor-free regression proof share this headless suite.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 failed=0

@@ -12,6 +12,8 @@ fail() {
 }
 
 . "$(dirname "$0")/lib/hypr-dispatch.sh"
+hypr_pointer_frame_offset=1
+hypr_center_divisor=2
 
 export PATH="$HOME/.local/bin:$PATH"
 eval "$(omarchy-drive env)"
@@ -1160,7 +1162,7 @@ case_scroll() {
     read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
     read -r cx cy <<< "$(ipc rowCentre 5)"
     # omarchy-drive scroll takes no point: warp there, then one uinput pixel so Qt sees a pointer frame.
-    hypr_dispatch "hl.dsp.cursor.move({x = $((wx + cx - 1)), y = $((wy + cy))})" || fail "scroll: pointer motion failed"
+    hypr_cursor_move "$((wx + cx - hypr_pointer_frame_offset))" "$((wy + cy))" || fail "scroll: pointer motion failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
     settle
     before=$(ipc listContentY)
@@ -1185,7 +1187,7 @@ touchpad_focus_row() {
     local wx wy ww wh cx cy
     read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
     read -r cx cy <<< "$(ipc rowCentre 5)"
-    hypr_dispatch "hl.dsp.cursor.move({x = $((wx + cx - 1)), y = $((wy + cy))})" || fail "touchpad: pointer motion failed"
+    hypr_cursor_move "$((wx + cx - hypr_pointer_frame_offset))" "$((wy + cy))" || fail "touchpad: pointer motion failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
     settle
 }
@@ -1311,7 +1313,7 @@ case_scrollbar() {
         || fail "scrollbar: no scrollbar rect, ipc answered [$sx $sy $sw $sh]"
     read -r wx wy ww wh < <(window_box) || fail "scrollbar: native window coordinates unavailable"
     # Finder's overlay scroller hides at rest: once the load settles, nothing is drawn with the pointer away.
-    hypr_dispatch "hl.dsp.cursor.move({x = $((wx + ww / 2)), y = $((wy + wh / 2))})" || fail "scrollbar: pointer motion out of the lane failed"
+    hypr_cursor_move "$((wx + ww / hypr_center_divisor))" "$((wy + wh / hypr_center_divisor))" || fail "scrollbar: pointer motion out of the lane failed"
     wait_scrollbar_shown false "the scroller stayed drawn at rest"
     omarchy-drive click "$((wx + sx + sw / 2))" "$((wy + sy + sh - 2))" left >/dev/null
     settle
@@ -1323,7 +1325,7 @@ case_scrollbar() {
     (( after > $(jq -r '.viewport * 2 | ceil' <<< "$state") )) || fail "scrollbar: a track press moved the list only to $after, a page at most"
     jq -e '.knob > 6' <<< "$state" >/dev/null || fail "scrollbar: the knob did not widen with the pointer in the lane: $state"
     # The warp alone sends Qt no motion (see hover_row), so the lane would never learn the pointer left.
-    hypr_dispatch "hl.dsp.cursor.move({x = $((wx + ww / 2)), y = $((wy + wh / 2))})" || fail "scrollbar: pointer motion out of the lane failed"
+    hypr_cursor_move "$((wx + ww / hypr_center_divisor))" "$((wy + wh / hypr_center_divisor))" || fail "scrollbar: pointer motion out of the lane failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1 \
         || fail "scrollbar: pointer motion out of the lane failed"
     wait_scrollbar_shown false "the scroller stayed drawn after the pointer left and the view stopped"
@@ -1334,7 +1336,7 @@ case_scrollbar() {
     state=$(ipc scrollbarState)
     handle=$(jq -r '.handle | floor' <<< "$state")
     travel=$(( (sh - handle) / 2 ))
-    hypr_dispatch "hl.dsp.cursor.move({x = $((wx + sx + sw / 2 - 1)), y = $((wy + sy + handle / 2))})" || fail "scrollbar: pointer motion to the handle failed"
+    hypr_cursor_move "$((wx + sx + sw / hypr_center_divisor - hypr_pointer_frame_offset))" "$((wy + sy + handle / hypr_center_divisor))" || fail "scrollbar: pointer motion to the handle failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
     # libinput accelerates relative motion about 2x, so halve the rest until it lands; hyprctl cursorpos prints e.g. `1214, 735`.
     local target_y cursor_y cursor_now step
@@ -6152,7 +6154,7 @@ case_tabs() {
 tabdrag_to() {
     local from_x="$1" from_y="$2" to_x="$3" to_y="$4" held="${5:-tabdrag-held}" wx wy ww wh
     read -r wx wy ww wh < <(window_box) || fail "tabdrag: native window coordinates unavailable"
-    hypr_dispatch "hl.dsp.cursor.move({x = $((wx + from_x)), y = $((wy + from_y))})" || fail "tabdrag: pointer drag failed"
+    hypr_cursor_move "$((wx + from_x))" "$((wy + from_y))" || fail "tabdrag: pointer drag failed"
     sleep 0.2
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 \
         || fail "tabdrag: pointer press failed"
@@ -9011,7 +9013,7 @@ EOS
     [[ -n "$centre" ]] || fail "hanginspect: no rail row has a centre"
     read -r cx cy <<< "$centre"
     read -r wx wy ww wh < <(window_box) || fail "hanginspect: native window coordinates unavailable"
-    hypr_dispatch "hl.dsp.cursor.move({x = $((wx + cx)), y = $((wy + cy))})" || fail "hanginspect: pointer motion failed"
+    hypr_cursor_move "$((wx + cx))" "$((wy + cy))" || fail "hanginspect: pointer motion failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
     settle
     omarchy-drive scroll down 2 >/dev/null
@@ -11847,13 +11849,13 @@ print(hits[0]["address"] if len(hits) == 1 else "")
 xwdrag_place() {
     local pid="$1" x="$2" y="$3" w="$4" h="$5" addr
     addr=$(xwdrag_addr "$pid") || fail "xwdrag: no window address for pid $pid"
-    hypr_dispatch "hl.dsp.focus({ window = \"address:$addr\" })" || fail "xwdrag: could not focus $pid"
+    hypr_window_focus "$addr" || fail "xwdrag: could not focus $pid"
     sleep 0.3
-    hypr_dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$addr\" })" || fail "xwdrag: could not float $pid"
+    hypr_window_float "$addr" "on" || fail "xwdrag: could not float $pid"
     sleep 0.3
-    hypr_dispatch "hl.dsp.window.resize({ x = $w, y = $h, exact = true, window = \"address:$addr\" })" || fail "xwdrag: could not resize $pid"
+    hypr_window_resize "$addr" "$w" "$h" || fail "xwdrag: could not resize $pid"
     sleep 0.3
-    hypr_dispatch "hl.dsp.window.move({ x = $x, y = $y, window = \"address:$addr\" })" || fail "xwdrag: could not move $pid"
+    hypr_window_move "$addr" "$x" "$y" || fail "xwdrag: could not move $pid"
     sleep 0.4
 }
 
@@ -11865,7 +11867,7 @@ xwdrag_focus() {
     deadline=$((now + focus_wait_ms)); next_focus=$now
     while (( now < deadline )); do
         if (( now >= next_focus )); then
-            hypr_dispatch "hl.dsp.focus({ window = \"address:$addr\" })" || fail "xwdrag: could not focus $pid"
+            hypr_window_focus "$addr" || fail "xwdrag: could not focus $pid"
             next_focus=$((now + focus_retry_ms))
         fi
         # Sample input: hyprctl activewindow -j prints {"pid": 111} for the focused window.

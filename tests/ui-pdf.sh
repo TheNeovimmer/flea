@@ -169,7 +169,8 @@ case_pdffocus() {
         addr=$(hyprctl -j clients | jq -er --argjson pid "$(flea_pid)" '.[] | select(.pid == $pid) | .address')
         [[ "$addr" =~ ^0x[0-9a-fA-F]+$ ]] || fail "PDF cannot identify owned window"
         omarchy-drive window float flea >/dev/null
-        hypr_dispatch "hl.dsp.window.resize({ x = 800, y = 480, exact = true, window = \"address:$addr\" })" || fail "PDF could not resize owned window"
+        local resize_width=800 resize_height=480
+        hypr_window_resize "$addr" "$resize_width" "$resize_height" || fail "PDF could not resize owned window"
         omarchy-drive window center flea >/dev/null
         settle
         read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"

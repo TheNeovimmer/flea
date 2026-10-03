@@ -1,220 +1,282 @@
 [
   {
     "name": "round3-no-window-field",
-    "dispatch": "hl.dsp.window.close()",
     "code": "hypr_dispatch 'hl.dsp.window.close()' || fail nope",
     "issues": [
       "hypr-window-selector"
-    ]
+    ],
+    "calls": 1
   },
   {
     "name": "round3-selector-in-unrelated-text",
-    "dispatch": "hl.dsp.focus({ note = \"address:0xabc\", window = \"0xabc\" })",
     "code": "hypr_dispatch 'hl.dsp.focus({ note = \"address:0xabc\", window = \"0xabc\" })' || fail nope",
     "issues": [
       "hypr-window-selector"
-    ]
+    ],
+    "calls": 1
   },
   {
     "name": "round3-valid-address-whitespace",
-    "dispatch": "hl.dsp.focus({ window\t =\t\"address:0xabc\" })",
     "code": "hypr_dispatch 'hl.dsp.focus({ window\t =\t\"address:0xabc\" })' || fail nope",
-    "issues": []
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
   },
   {
     "name": "round3-raw-doubled-spaces",
     "code": "hyprctl  dispatch anything",
     "issues": [
       "hypr-window-reply"
-    ]
+    ],
+    "calls": 0
   },
   {
     "name": "round3-raw-tab",
     "code": "hyprctl\tdispatch anything",
     "issues": [
       "hypr-window-reply"
-    ]
+    ],
+    "calls": 0
   },
   {
     "name": "round3-raw-json-flag",
     "code": "hyprctl -j dispatch anything",
     "issues": [
       "hypr-window-reply"
-    ]
+    ],
+    "calls": 0
   },
   {
     "name": "round3-raw-batch-flags",
     "code": "hyprctl -j\t--batch anything",
     "issues": [
       "hypr-window-reply"
-    ]
+    ],
+    "calls": 0
   },
   {
     "name": "round3-raw-instance-flag",
     "code": "hyprctl -i 0 -j dispatch anything",
     "issues": [
       "hypr-window-reply"
-    ]
+    ],
+    "calls": 0
   },
   {
     "name": "round3-raw-command-word-boundary",
     "code": "hyprctl -j dispatching anything",
-    "issues": []
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
   },
   {
     "name": "bare-focus",
     "code": "hypr_dispatch 'hl.dsp.focus({ window = \"0xabc\" })' || fail nope",
     "issues": [
       "hypr-window-selector"
-    ]
+    ],
+    "calls": 1
   },
   {
     "name": "scoped-focus",
     "code": "hypr_dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' || fail nope",
-    "issues": []
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
   },
   {
     "name": "bare-window.float",
     "code": "hypr_dispatch 'hl.dsp.window.float({ window = \"0xabc\" })' || fail nope",
     "issues": [
       "hypr-window-selector"
-    ]
+    ],
+    "calls": 1
   },
   {
     "name": "scoped-window.float",
     "code": "hypr_dispatch 'hl.dsp.window.float({ window = \"address:0xabc\" })' || fail nope",
-    "issues": []
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
   },
   {
     "name": "bare-window.resize",
     "code": "hypr_dispatch 'hl.dsp.window.resize({ window = \"0xabc\" })' || fail nope",
     "issues": [
       "hypr-window-selector"
-    ]
+    ],
+    "calls": 1
   },
   {
     "name": "scoped-window.resize",
     "code": "hypr_dispatch 'hl.dsp.window.resize({ window = \"address:0xabc\" })' || fail nope",
-    "issues": []
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
   },
   {
     "name": "bare-window.move",
     "code": "hypr_dispatch 'hl.dsp.window.move({ window = \"0xabc\" })' || fail nope",
     "issues": [
       "hypr-window-selector"
-    ]
+    ],
+    "calls": 1
   },
   {
     "name": "scoped-window.move",
     "code": "hypr_dispatch 'hl.dsp.window.move({ window = \"address:0xabc\" })' || fail nope",
-    "issues": []
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
   },
   {
     "name": "bare-window.close",
     "code": "hypr_dispatch 'hl.dsp.window.close({ window = \"0xabc\" })' || fail nope",
     "issues": [
       "hypr-window-selector"
-    ]
+    ],
+    "calls": 1
   },
   {
     "name": "scoped-window.close",
     "code": "hypr_dispatch 'hl.dsp.window.close({ window = \"address:0xabc\" })' || fail nope",
-    "issues": []
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
   },
   {
     "name": "implicit",
     "code": "hyprctl dispatch \"hl.dsp.window.float()\" >/dev/null || fail nope",
     "issues": [
-      "hypr-window-reply",
-      "hypr-window-selector"
-    ]
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
   },
   {
     "name": "discard-checked-status",
     "code": "hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' >/dev/null || fail nope",
     "issues": [
+      "hypr-window-selector",
       "hypr-window-reply"
-    ]
+    ],
+    "calls": 1
   },
   {
     "name": "discard-unchecked",
     "code": "hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' >/dev/null",
     "issues": [
+      "hypr-window-selector",
       "hypr-window-reply"
-    ]
+    ],
+    "calls": 1
   },
   {
     "name": "discard-spaced",
     "code": "hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' > /dev/null 2>&1 || fail nope",
     "issues": [
+      "hypr-window-selector",
       "hypr-window-reply"
-    ]
+    ],
+    "calls": 1
   },
   {
     "name": "captured",
     "code": "answer=$(hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })') || fail \"$answer\"",
     "issues": [
+      "hypr-window-selector",
       "hypr-window-reply"
-    ]
+    ],
+    "calls": 1
   },
   {
     "name": "class",
     "code": "hypr_dispatch 'hl.dsp.focus({ window = \"class:flea\" })' || fail nope",
-    "issues": []
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
   },
   {
     "name": "title-parenthesis-hash",
     "code": "hypr_dispatch 'hl.dsp.focus({ window = \"title:foo(bar)#baz\" })' || fail nope",
-    "issues": []
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
   },
   {
     "name": "comment-call",
     "code": "# hyprctl dispatch \"hl.dsp.window.float()\" >/dev/null || fail nope",
-    "issues": []
+    "issues": [],
+    "calls": 0
   },
   {
     "name": "cursor",
     "code": "hyprctl dispatch \"hl.dsp.cursor.move({x = 2, y = 3})\" >/dev/null",
     "issues": [
+      "hypr-window-selector",
       "hypr-window-reply"
-    ]
+    ],
+    "calls": 1
   },
   {
     "name": "escaped-shell-selector",
     "code": "hypr_dispatch \"hl.dsp.focus({ window = \\\"address:$addr\\\" })\" || fail nope",
-    "issues": []
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
   },
   {
     "name": "python-bare",
     "code": "answer = run([\"hyprctl\", \"dispatch\", f'hl.dsp.focus({{ window = \"{addr}\" }})'])",
     "issues": [
-      "hypr-window-selector"
-    ]
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
   },
   {
     "name": "python-address",
     "code": "answer = run([\"hyprctl\", \"dispatch\", f'hl.dsp.focus({{ window = \"address:{addr}\" }})'])",
-    "issues": []
+    "issues": [
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
   },
   {
     "name": "continued-discard",
     "code": "hyprctl dispatch \\\n 'hl.dsp.focus({ window = \"address:0xabc\" })' \\\n >/dev/null || fail nope",
     "issues": [
-      "hypr-window-reply"
-    ]
+      "hypr-window-reply",
+      "hypr-window-selector"
+    ],
+    "calls": 1
   },
   {
     "name": "discard-before-call",
     "code": "hyprctl dispatch >/dev/null 'hl.dsp.focus({ window = \"address:0xabc\" })' || fail nope",
     "issues": [
+      "hypr-window-selector",
       "hypr-window-reply"
-    ]
+    ],
+    "calls": 1
   },
   {
     "name": "literal-newline-discard",
     "code": "hyprctl dispatch '\nhl.dsp.focus({ window = \"address:0xabc\" })\n' >/dev/null || fail nope",
     "issues": [
-      "hypr-window-reply"
+      "hypr-window-reply",
+      "hypr-window-selector"
     ],
     "calls": 1
   },
@@ -230,6 +292,7 @@
     "name": "round2-nested-substitution",
     "code": "answer=\"$(hyprctl dispatch 'hl.dsp.focus({ window = \"title:foo;bar\" })' >/dev/null)\"",
     "issues": [
+      "hypr-window-selector",
       "hypr-window-reply"
     ],
     "calls": 1
@@ -238,6 +301,7 @@
     "name": "round2-pipeline",
     "code": "hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' | cat >/dev/null",
     "issues": [
+      "hypr-window-selector",
       "hypr-window-reply"
     ],
     "calls": 1
@@ -246,6 +310,7 @@
     "name": "round2-ansi-apostrophe",
     "code": "hyprctl dispatch $'hl.dsp.focus({ window = \"title:foo\\';bar\" })' >/dev/null",
     "issues": [
+      "hypr-window-selector",
       "hypr-window-reply"
     ],
     "calls": 1
@@ -255,39 +320,97 @@
     "code": "hyprctl --batch \"anything\"",
     "issues": [
       "hypr-window-reply"
-    ]
+    ],
+    "calls": 0
   },
   {
     "name": "split-selector",
     "code": "hypr_dispatch 'hl.dsp.focus({\n window = \"address:0xabc\" })' ",
     "issues": [
       "hypr-window-selector"
-    ]
+    ],
+    "calls": 1
   },
   {
     "name": "comment-batch",
     "code": "# hyprctl --batch \"anything\"",
-    "issues": []
+    "issues": [],
+    "calls": 0
   },
   {
     "name": "checked-helper-body",
     "code": "hypr_dispatch() {\n    answer=$(hyprctl dispatch \"$1\" 2>&1)\n}\n",
     "helper_file": true,
-    "issues": []
+    "issues": [],
+    "calls": 0
   },
   {
     "name": "raw-after-helper-body",
     "code": "hypr_dispatch() {\n    answer=$(hyprctl dispatch \"$1\" 2>&1)\n}\nhyprctl dispatch anything\n",
     "helper_file": true,
-    "issues": [
-      "hypr-window-reply"
-    ]
+    "issues": [],
+    "calls": 0
   },
   {
     "name": "helper-name-outside-shared-file",
     "code": "hypr_dispatch() {\n    answer=$(hyprctl dispatch \"$1\" 2>&1)\n}\n",
     "issues": [
       "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round4-readonly-pipeline-intentionally-refused",
+    "code": "hyprctl -j clients | grep dispatch",
+    "calls": 0,
+    "issues": [
+      "hypr-window-reply"
+    ]
+  },
+  {
+    "name": "round4-readonly-reworded-pipeline",
+    "code": "hyprctl -j clients | grep address",
+    "calls": 0,
+    "issues": []
+  },
+  {
+    "name": "round4-quoted-fake-selector",
+    "code": "hypr_dispatch \"hl.dsp.focus({ note = '{ window = \\\"address:0xabc\\\" }', window = \\\"0xabc\\\" })\"",
+    "calls": 1,
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "js-comment",
+    "code": "// hyprctl dispatch \"hl.dsp.window.close()\"",
+    "calls": 0,
+    "issues": []
+  },
+  {
+    "name": "indented-comments",
+    "code": "  # hyprctl --batch anything\n\t// hl.dsp.focus()",
+    "calls": 0,
+    "issues": []
+  },
+  {
+    "name": "typed-focus",
+    "code": "hypr_window_focus \"$addr\" || fail nope",
+    "calls": 0,
+    "issues": []
+  },
+  {
+    "name": "typed-program",
+    "code": "run([\"bash\", helper, \"window_resize\", addr, width, height])",
+    "calls": 0,
+    "issues": []
+  },
+  {
+    "name": "lua-in-js",
+    "code": "const command = \"hl.dsp.window.close()\";",
+    "calls": 1,
+    "issues": [
+      "hypr-window-selector"
     ]
   }
 ]

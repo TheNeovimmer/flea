@@ -990,17 +990,21 @@ r11_geometry() {
 }
 r11_addr=$(hyprctl clients -j | jq -er --argjson pid "$MYPID" '[.[] | select(.pid == $pid)] | if length == 1 then .[0].address else error("owned window missing or ambiguous") end') || die "R11 window address unavailable"
 [[ "$r11_addr" =~ ^0x[0-9a-fA-F]+$ ]] || die "R11 window address is invalid"
-hypr_dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$r11_addr\" })" || die "R11 could not float the window"
+r11_target_width=1200
+r11_target_height=800
+r11_target_x=400
+r11_target_y=300
+hypr_window_float "$r11_addr" "on" || die "R11 could not float the window"
 sleep 0.5
-hypr_dispatch "hl.dsp.window.resize({ x = 1200, y = 800, exact = true, window = \"address:$r11_addr\" })" || die "R11 could not resize the window"
+hypr_window_resize "$r11_addr" "$r11_target_width" "$r11_target_height" || die "R11 could not resize the window"
 sleep 0.4
-hypr_dispatch "hl.dsp.window.move({ x = 400, y = 300, window = \"address:$r11_addr\" })" || die "R11 could not move the window"
+hypr_window_move "$r11_addr" "$r11_target_x" "$r11_target_y" || die "R11 could not move the window"
 sleep 0.8
 # Captured and checked before it is split, because a here-string always hands read one line.
 geometry=$(r11_geometry) || die "R11 window geometry unavailable"
 [ -n "$geometry" ] || die "R11 window geometry is empty"
 read -r wx wy ww wh floating <<< "$geometry"
-check "the window is floating where this case put it" "$floating $wx $wy" "true 400 300"
+check "the window is floating where this case put it" "$floating $wx $wy" "true $r11_target_x $r11_target_y"
 point=$(ipc pathCentre) || die "R11 path area has no geometry"
 read -r cx cy <<< "$point"
 # Inside this window's own chrome, never the shell bar at the top of the screen: the press point is
@@ -1057,7 +1061,7 @@ expect_ipc pathBarOpen true
 native_key -k Escape
 expect_ipc pathBarOpen false
 
-hypr_dispatch "hl.dsp.window.float({ action = \"off\", window = \"address:$r11_addr\" })" || die "R11 could not tile the window"
+hypr_window_float "$r11_addr" "off" || die "R11 could not tile the window"
 sleep 0.5
 echo
 
@@ -1103,13 +1107,13 @@ if [ -z "$RECV_ADDR" ]; then
   note "receiver stderr: $(cat "$SB/receiver-err.log" 2>/dev/null)"
 else
   ok "the receiver window is up"
-  hypr_dispatch "hl.dsp.focus({ window = \"address:$RECV_ADDR\" })" || die "outbound could not focus the receiver"
+  hypr_window_focus "$RECV_ADDR" || die "outbound could not focus the receiver"
   sleep 0.3
-  hypr_dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$RECV_ADDR\" })" || die "outbound could not float the receiver"
+  hypr_window_float "$RECV_ADDR" "on" || die "outbound could not float the receiver"
   sleep 0.3
-  hypr_dispatch "hl.dsp.window.resize({ x = $recv_w, y = $recv_h, exact = true, window = \"address:$RECV_ADDR\" })" || die "outbound could not resize the receiver"
+  hypr_window_resize "$RECV_ADDR" "$recv_w" "$recv_h" || die "outbound could not resize the receiver"
   sleep 0.3
-  hypr_dispatch "hl.dsp.window.move({ x = $recv_x, y = $recv_y, window = \"address:$RECV_ADDR\" })" || die "outbound could not move the receiver"
+  hypr_window_move "$RECV_ADDR" "$recv_x" "$recv_y" || die "outbound could not move the receiver"
   sleep 0.4
   # Sample input, hyprctl clients -j: '[{"pid": 456, "address": "0xdef"}]'.
   FLEA_ADDR=$(hyprctl clients -j | python3 -c '
@@ -1119,13 +1123,13 @@ hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$MYPID")
   [[ "$FLEA_ADDR" =~ ^0x[0-9a-fA-F]+$ ]] || die "outbound Flea window address is invalid"
-  hypr_dispatch "hl.dsp.focus({ window = \"address:$FLEA_ADDR\" })" || die "outbound could not focus Flea"
+  hypr_window_focus "$FLEA_ADDR" || die "outbound could not focus Flea"
   sleep 0.4
-  hypr_dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$FLEA_ADDR\" })" || die "outbound could not float Flea"
+  hypr_window_float "$FLEA_ADDR" "on" || die "outbound could not float Flea"
   sleep 0.4
-  hypr_dispatch "hl.dsp.window.resize({ x = $flea_w, y = $flea_h, exact = true, window = \"address:$FLEA_ADDR\" })" || die "outbound could not resize Flea"
+  hypr_window_resize "$FLEA_ADDR" "$flea_w" "$flea_h" || die "outbound could not resize Flea"
   sleep 0.4
-  hypr_dispatch "hl.dsp.window.move({ x = $flea_x, y = $flea_y, window = \"address:$FLEA_ADDR\" })" || die "outbound could not move Flea"
+  hypr_window_move "$FLEA_ADDR" "$flea_x" "$flea_y" || die "outbound could not move Flea"
   sleep 0.6
   geometry=$(r11_geometry) || die "outbound window geometry unavailable"
   read -r WX WY WW WH _ <<< "$geometry"
@@ -1212,15 +1216,15 @@ print(hits[0]["address"] if len(hits) == 1 else "")
   if [ -z "$RECV_ADDR" ]; then
     bad "the Shift receiver is absent"
   else
-    hypr_dispatch "hl.dsp.focus({ window = \"address:$RECV_ADDR\" })" || die "outbound could not focus the Shift receiver"
+    hypr_window_focus "$RECV_ADDR" || die "outbound could not focus the Shift receiver"
     sleep 0.3
-    hypr_dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$RECV_ADDR\" })" || die "outbound could not float the Shift receiver"
+    hypr_window_float "$RECV_ADDR" "on" || die "outbound could not float the Shift receiver"
     sleep 0.3
-    hypr_dispatch "hl.dsp.window.resize({ x = $recv_w, y = $recv_h, exact = true, window = \"address:$RECV_ADDR\" })" || die "outbound could not resize the Shift receiver"
+    hypr_window_resize "$RECV_ADDR" "$recv_w" "$recv_h" || die "outbound could not resize the Shift receiver"
     sleep 0.3
-    hypr_dispatch "hl.dsp.window.move({ x = $recv_x, y = $recv_y, window = \"address:$RECV_ADDR\" })" || die "outbound could not move the Shift receiver"
+    hypr_window_move "$RECV_ADDR" "$recv_x" "$recv_y" || die "outbound could not move the Shift receiver"
     sleep 0.4
-    hypr_dispatch "hl.dsp.focus({ window = \"address:$FLEA_ADDR\" })" || die "outbound could not focus Flea after placing the Shift receiver"
+    hypr_window_focus "$FLEA_ADDR" || die "outbound could not focus Flea after placing the Shift receiver"
     sleep 0.4
     point=$(screen_centre outbound-shift.txt) || die "outbound-shift.txt is not visible"
     read -r sx sy <<< "$point"
