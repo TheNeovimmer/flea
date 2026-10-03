@@ -993,6 +993,7 @@ r11_geometry() {
     '[.[] | select(.pid == $pid)] | if length == 1 then .[0] else error("owned window missing or ambiguous") end
      | "\(.at[0]) \(.at[1]) \(.size[0]) \(.size[1]) \(.floating)"'
 }
+# Sample input: [{"pid":4242,"address":"0x55d0c0ffee00","floating":true}] answers 0x55d0c0ffee00 for pid 4242.
 r11_addr=$(hyprctl clients -j | jq -er --argjson pid "$MYPID" '[.[] | select(.pid == $pid)] | if length == 1 then .[0].address else error("owned window missing or ambiguous") end') || die "R11 window address unavailable"
 [[ "$r11_addr" =~ ^0x[0-9a-fA-F]+$ ]] || die "R11 window address is invalid"
 r11_target_width=1200
