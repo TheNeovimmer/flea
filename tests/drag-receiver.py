@@ -16,13 +16,14 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, GLib, Gtk
+from gi.repository import Gdk, Gio, GLib, Gtk
+
+from drag_read import DropReader, MIME_TYPES, RECEIVER_LIFETIME
 
 MARKER = ".flea-test-sandbox"
-MAX_BODY = 1024 * 1024
-READ_CHUNK = 65536
-RECEIVER_LIFETIME = 90
+# Sample input: FLEA_RECV_W="420" sets the receiver width to 420 pixels.
 RECEIVER_WIDTH = int(os.environ.get("FLEA_RECV_W", "420"))
+# Sample input: FLEA_RECV_H="320" sets the receiver height to 320 pixels.
 RECEIVER_HEIGHT = int(os.environ.get("FLEA_RECV_H", "320"))
 
 
@@ -66,7 +67,7 @@ class Receiver(Gtk.Application):
         label.set_vexpand(True)
         window.set_child(label)
         target = Gtk.DropTargetAsync.new(
-            Gdk.ContentFormats.new(["text/uri-list", "text/plain"]),
+            Gdk.ContentFormats.new(MIME_TYPES),
             Gdk.DragAction.COPY | Gdk.DragAction.MOVE,
         )
         target.connect("drop", self.on_drop)
@@ -85,37 +86,10 @@ class Receiver(Gtk.Application):
         self.finish_action = Gdk.DragAction.MOVE if actions & int(Gdk.DragAction.MOVE) else Gdk.DragAction.COPY
         write(f"actions={actions}")
         write(f"formats={formats.to_string() if formats is not None else ''}")
-        drop.read_async(
-            ["text/uri-list", "text/plain"],
-            GLib.PRIORITY_DEFAULT,
-            None,
-            self.on_read,
-        )
+        self.reader = DropReader(drop, self.finish_action, write, self.quit,
+                                 GLib, Gio.Cancellable())
+        self.reader.start()
         return True
-
-    def on_read(self, drop, result):
-        try:
-            stream, mime = drop.read_finish(result)
-            chunks = []
-            total = 0
-            while True:
-                piece = stream.read_bytes(READ_CHUNK, None)
-                data = piece.get_data()
-                if not data:
-                    break
-                total += len(data)
-                if total > MAX_BODY:
-                    raise ValueError("drop body exceeds 1 MiB")
-                chunks.append(data)
-            body = b"".join(chunks).decode("utf-8", "replace")
-            write(f"mime={mime}")
-            write("body<<")
-            write(body)
-            write(">>")
-        except Exception as error:
-            write(f"read-error={error}")
-        drop.finish(self.finish_action)
-        self.quit()
 
 
 def main():

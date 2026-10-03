@@ -3489,13 +3489,18 @@ waits for its consumer.
   the rest with what each needs, so this paragraph carries neither a count nor a membership for
   either list to outgrow. A suite in neither list fails the runner's own audit, so one cannot go
   uninvoked a second time.
-- **`./tests/drag.sh` is the internal drag's characterisation suite, 9 checks**, and it has to
+- **`./tests/drag.sh` is the internal drag's characterisation suite**, and it has to
   be run by hand: no runner invokes it. It was written against the drag's behaviour BEFORE the
   platform-drag rewrite, so it is the net that catches what the rewrite changes, and it earned
   that immediately: the first cut of the rewrite failed R3, `expected [kept] got [GONE]`,
   because `Drag.active = true` runs a nested event loop in which **the window receives no key
   events at all**, so the `Keys.onPressed` handler carrying ctrl never fired and every
-  ctrl-copy silently became a move. The file still arrived, so nothing looked wrong.
+  ctrl-copy silently became a move. The file still arrived, so nothing looked wrong. R7 stops the
+  suite's own backend to prove a drop on the current tab refuses while its listing is out,
+  stays refused after the listing lands, and a second drag then copies across devices.
+  A row's or tab's screen centre is awaited through `centre_into` and `tab_centre_into`, never read from a
+  bare substitution: a listing mid-swap answers no centre, and the helper ends the suite on a
+  `DRAG_CENTRE_FAIL` evidence line and a `die` naming the row, which `dragwire.sh` proves against doubles.
 - **Copy versus move versus link is one function, and the modifiers are read at the lift.**
   Same device moves, another device copies, Ctrl forces a copy, Shift forces a move, Ctrl with
   Shift links. A link needs no device and no deletable source. A device
@@ -3514,7 +3519,7 @@ waits for its consumer.
   `w` field, and a drag from it copies unless Shift is held. Qt's platform drag runs a nested
   loop in which the window receives no keys, so Ctrl
   or Shift pressed after the drag starts cannot change the verb. The status line says
-  `ctrl copies and shift moves, read at lift` rather than claiming the key still works
+  `ctrl at lift copies` rather than claiming the key still works
   mid-drag, and a Ctrl with Shift lift links, its Link line naming the verb outright. `drag.sh` proves a same-device move and a Ctrl copy but needs the display and a
   real pointer, so `dragwire.sh` carries the offer into the headless battery: a leaving drag
   must offer copy alone and `text/uri-list`, a link lift must offer `Qt.LinkAction`,
