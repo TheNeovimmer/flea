@@ -11183,16 +11183,24 @@ xwtab_own_poll=0.1 # Match the catcher wait's trace polling interval.
 xwtab_own_trace_tail=10 # Keep the last source receipts in a timeout diagnostic.
 # An own return may enter the catcher or re-enter the source strip while the button is held.
 xwtab_wait_own_enter() {
-    local attempt lines
+    local attempt lines source_lines
+    local -a return_marks=("$@")
     for attempt in $(seq 1 "$xwtab_own_attempts"); do
-        lines=$(xwtab_trace_lines | grep -aE "TABDRAG .* pid=$xwtab_source( |$)" || true)
-        grep -aq 'TABDRAG drag-finished' <<< "$lines" && fail "xwtab: source $xwtab_source ended before catcher-enter or own enter-strip ok=true"
+        source_lines=$(xwtab_trace_lines | grep -aE "TABDRAG .* pid=$xwtab_source( |$)" || true)
+        lines=$source_lines
+        if (( ${#return_marks[@]} )); then
+            lines=$(
+                xwtab_marks=("${return_marks[@]}")
+                xwtab_trace_lines | grep -aE "TABDRAG .* pid=$xwtab_source( |$)" || true
+            )
+        fi
+        grep -aq 'TABDRAG drag-finished' <<< "$source_lines"$'\n'"$lines" && fail "xwtab: source $xwtab_source ended before catcher-enter or own enter-strip ok=true"
         if grep -aq 'TABDRAG catcher-enter' <<< "$lines" \
             || grep -aqE 'TABDRAG enter-strip .* ok=true( |$)' <<< "$lines"; then return 0; fi
         sleep "$xwtab_own_poll"
     done
-    printf '%s\n' "${lines:-(no TABDRAG lines for source $xwtab_source since press)}" | tail -n "$xwtab_own_trace_tail" >&2
-    fail "xwtab: source $xwtab_source reached neither TABDRAG catcher-enter nor TABDRAG enter-strip ok=true after platform start within $xwtab_own_attempts polls"
+    printf '%s\n' "${lines:-(no TABDRAG lines for source $xwtab_source since return)}" | tail -n "$xwtab_own_trace_tail" >&2
+    fail "xwtab: source $xwtab_source reached neither TABDRAG catcher-enter nor TABDRAG enter-strip ok=true after return motion within $xwtab_own_attempts polls"
 }
 xwtab_wait_outcome() {
     local outcome="$1" i
@@ -11215,7 +11223,8 @@ xwtab_wait_own_return() {
 
 # Start beyond the source edge before any target motion; Hyprland retargets only on motion.
 xwtab_drag_to_window() {
-    local sx="$1" sy="$2" dx="$3" dy="$4" apid="$5" bpid="$6" mode="$7" wx wy ww wh
+    local sx="$1" sy="$2" dx="$3" dy="$4" apid="$5" bpid="$6" mode="$7" wx wy ww wh i
+    local -a own_marks=()
     xwtab_source=$apid
     xwtab_target=$bpid
     xwtab_gesture="press=$sx,$sy target=$dx,$dy"
@@ -11227,13 +11236,19 @@ xwtab_drag_to_window() {
     xwtab_gesture+=" outside=$((wx + xwtab_outside_x)),$((wy + wh + xwtab_outside_y))"
     xwdrag_glide "$((wx + xwtab_outside_x))" "$((wy + wh + xwtab_outside_y))"
     xwtab_wait_start
+    # Keep press marks for finishes; only receipts after this turn can prove an own return.
+    if [[ "$mode" == own ]]; then
+        for i in "${!xwtab_logs[@]}"; do
+            own_marks[i]=$(wc -l 2>/dev/null < "${xwtab_logs[i]}" || printf 0)
+        done
+    fi
     xwdrag_glide "$dx" "$dy"
     xwdrag_glide "$((dx + xwtab_target_nudge))" "$dy"
     xwdrag_glide "$dx" "$dy"
     if [[ "$mode" == catcher ]]; then
         xwtab_wait_catcher
     elif [[ "$mode" == own ]]; then
-        xwtab_wait_own_enter
+        xwtab_wait_own_enter "${own_marks[@]}"
     elif [[ "$mode" == refused ]]; then
         xwtab_wait_refused "$bpid" held
     else

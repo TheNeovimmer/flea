@@ -330,6 +330,8 @@ function run(check) {
     distantCursor.backend.send = function (request) { locateRequests.push(request) }
     Tabs.receiveTab(distantCursor, JSON.stringify(["222", "distant", "/tmp/distant", "list", "last.txt"]), -1)
     Tabs.applyPending(distantCursor)
+    check("a moved cursor beyond the held rows sends the locate command",
+        locateRequests.length ? locateRequests[0].c : "", "locate")
     check("a moved cursor beyond the held rows asks locate by filename",
         locateRequests.length ? locateRequests[0].path : "", "/tmp/distant/last.txt")
     if (typeof Tabs.locatedCursor === "function")

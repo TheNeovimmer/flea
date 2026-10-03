@@ -45,6 +45,14 @@ def shell(code):
     return subprocess.run(['bash', '-c', code], cwd=ROOT, capture_output=True, text=True, timeout=10)
 
 
+def cache_snapshot(path):
+    return path.exists(), {
+        entry.relative_to(path).as_posix(): (entry.is_dir(), entry.stat().st_mtime_ns,
+                                            entry.read_bytes() if entry.is_file() else None)
+        for entry in path.rglob('*')
+    }
+
+
 with tempfile.TemporaryDirectory() as temporary:
     scratch = pathlib.Path(temporary)
     git = ['git', '-C', str(ROOT)]
@@ -62,10 +70,29 @@ with tempfile.TemporaryDirectory() as temporary:
     scan = (ROOT / 'tests/xwtab-scan.sh').read_text()
     start = scan.rfind('\n', 0, scan.index("<<'PYSHAPES'")) + 1
     end = scan.index('\nfi', start) + len('\nfi')
+    cache = ROOT / 'tests/__pycache__'
+    cache_before = cache_snapshot(cache)
     result = shell('repo=' + shlex.quote(str(ROOT)) + '\nok() { :; }\nbad() { exit 1; }\n' + scan[start:end])
     check('scan import succeeds', result.returncode == 0, result.stdout + result.stderr)
-    check('scan leaves no tests/__pycache__', not (ROOT / 'tests/__pycache__').exists(),
+    check('scan adds nothing to tests/__pycache__', cache_snapshot(cache) == cache_before,
           result.stdout + result.stderr)
+    fixture_root = scratch / 'cache-fixture'
+    fixture_tests = fixture_root / 'tests'
+    fixture_tests.mkdir(parents=True)
+    (fixture_tests / 'xwtab_free_point.py').write_text((ROOT / 'tests/xwtab_free_point.py').read_text())
+    fixture_cache = fixture_tests / '__pycache__'
+    for existing in (False, True):
+        if existing:
+            fixture_cache.mkdir()
+            (fixture_cache / 'preexisting.pyc').write_bytes(b'preexisting cache')
+        before = cache_snapshot(fixture_cache)
+        result = shell('repo=' + shlex.quote(str(fixture_root)) + '\nok() { :; }\nbad() { exit 1; }\n' + scan[start:end])
+        check('scan import preserves cache with existing=' + str(existing),
+              result.returncode == 0 and cache_snapshot(fixture_cache) == before,
+              result.stdout + result.stderr)
+    (fixture_cache / 'added.pyc').write_bytes(b'new bytecode')
+    check('cache snapshot detects bytecode added beside a preexisting entry',
+          cache_snapshot(fixture_cache) != before)
     log = scratch / 'calls'
     receiver_start = UI.index('    [[ -n "$recv_addr" ]] || fail')
     receiver_end = UI.index('    read -r rcx rcy', receiver_start)
@@ -337,11 +364,14 @@ sleep() {{ printf '%s\\n' "$1" >> '{log}'; }}
             ('refuses drag-finished', finished_receipt, False),
             ('refuses drag-finished after catcher-enter', catcher_receipt + finished_receipt, False),
             ('refuses drag-finished after enter-strip', strip_receipt + finished_receipt, False),
+            ('refuses drag-finished before return mark', finished_receipt + catcher_receipt, False),
             ('refuses receipts before the press mark', '', False)):
         source_log.write_text(stale_receipt + trace)
         target_log.write_text('')
         log.write_text('')
-        result = shell(own_constants + own_helpers + own_double + '\nxwtab_wait_own_enter\n')
+        marked_trace = stale_receipt + (finished_receipt if name == 'refuses drag-finished before return mark' else '')
+        return_mark = len(marked_trace.splitlines())
+        result = shell(own_constants + own_helpers + own_double + f'\nxwtab_wait_own_enter {return_mark} 0\n')
         detail = result.stdout + result.stderr
         polls = log.read_text().splitlines()
         if succeeds:
@@ -356,6 +386,23 @@ sleep() {{ printf '%s\\n' "$1" >> '{log}'; }}
         if 'ok=false' in trace:
             check('own held timeout prints the last source trace', trace.rstrip('\n') in result.stderr, detail)
 
+    log.write_text('')
+    press_mark = len(stale_receipt.splitlines())
+    return_mark = len((stale_receipt + catcher_receipt).splitlines())
+    result = shell(own_constants + function(UI, 'xwtab_wait_own_enter') + own_double + f'''
+xwtab_trace_lines() {{
+    if [[ "${{xwtab_marks[0]}}" == {press_mark} ]]; then
+        printf 'TABDRAG drag-start pid=%s index=1\\n' "$xwtab_source"
+    else
+        printf '%s' {shlex.quote(catcher_receipt + finished_receipt)}
+    fi
+}}
+xwtab_wait_own_enter {return_mark} 0
+''')
+    check('own held wait refuses a finish arriving between the press and return reads',
+          result.returncode != 0 and 'ended before' in result.stdout and not log.read_text(),
+          result.stdout + result.stderr)
+
     own_leg = UI[UI.index('    # Out and back onto the own strip reorders'):UI.index('    # A drop on B\'s listing is refused')]
     own_gesture = next(line for line in own_leg.splitlines() if line.strip().startswith('xwtab_drag_to_window '))
     check('own-return leg uses own held wait', own_gesture.endswith('"$apid" "$apid" own'), own_gesture)
@@ -365,7 +412,11 @@ sleep() {{ printf '%s\\n' "$1" >> '{log}'; }}
                                ('xwtab_mark_logs', 'xwtab_wait_start', 'xwtab_wait_catcher',
                                 'xwtab_drag_to_window', 'xwtab_release'))
     gesture_constants = UI[UI.index('xwtab_outside_x='):UI.index('xwtab_mark_logs()')]
-    for name, receipt in (('catcher-enter', catcher_receipt), ('source enter-strip ok=true', strip_receipt)):
+    for name, receipt, succeeds in (
+            ('catcher-enter', catcher_receipt, True),
+            ('source enter-strip ok=true', strip_receipt, True),
+            ('stale outbound catcher then refused return', strip_receipt.replace('ok=true', 'ok=false'), False),
+            ('stale outbound catcher without return receipt', '', False)):
         source_log.write_text(stale_receipt)
         target_log.write_text('')
         log.write_text('')
@@ -374,10 +425,18 @@ apid=$xwtab_source
 sx=501; sy=106; ox=401; oy=106
 fixture_source_rect='40 80 1000 720'
 fixture_receipt={shlex.quote(receipt)}
+fixture_outbound_receipt={shlex.quote(catcher_receipt)}
+# Sample input: 40 80 1000 720.
+read -r fixture_wx fixture_wy fixture_ww fixture_wh <<< "$fixture_source_rect"
+fixture_outside_x=$((fixture_wx + xwtab_outside_x))
+fixture_outside_y=$((fixture_wy + fixture_wh + xwtab_outside_y))
 xwtab_button_down=false
 xwdrag_geometry() {{ printf '%s\\n' "$fixture_source_rect"; }}
 xwdrag_glide() {{
-    if [[ "$xwtab_button_down" == true && "$1 $2" == "$ox $oy" ]]; then
+    [[ "$xwtab_button_down" == true ]] || return 0
+    if [[ "$1 $2" == "$fixture_outside_x $fixture_outside_y" ]]; then
+        printf '%s' "$fixture_outbound_receipt" >> '{source_log}'
+    elif [[ "$1 $2" == "$ox $oy" ]]; then
         printf '%s' "$fixture_receipt" >> '{source_log}'
     fi
 }}
@@ -389,9 +448,13 @@ ydotool() {{
     fi
 }}
 ''' + own_gesture + '\n[[ "$xwtab_button_down" == false ]]\n')
-        check('own-return gesture accepts ' + name + ' before release',
-              result.returncode == 0 and log.read_text().splitlines() == ['release'],
-              result.stdout + result.stderr + log.read_text())
+        calls = log.read_text().splitlines()
+        if succeeds:
+            condition = result.returncode == 0 and calls == ['release']
+        else:
+            condition = result.returncode != 0 and len(calls) == own_test_attempts and 'neither' in result.stdout
+        check('own-return gesture ' + ('accepts ' if succeeds else 'refuses ') + name + ' before release',
+              condition, result.stdout + result.stderr + log.read_text())
 
     listing_leg = UI[UI.index('    # A drop on B\'s listing is refused'):UI.index('    # A drop onto a foreign receiver is refused')]
     check('listing refusal requires cursor and refusal proof', '"$apid" "$bpid" refused' in listing_leg)

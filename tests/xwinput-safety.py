@@ -45,7 +45,7 @@ check('key extraction ignores an earlier hotkey declaration',
 
 # Sample input: if key -k Escape; then :; fi, or omarchy-drive key -k Escape.
 def ambiguous_input(body):
-    prefix = r'(?:^|&&|\|\||;|\||\$\(|[({`])\s*(?:(?:if|then|elif|else|while|until|do|!)\s+)*'
+    prefix = r'(?:^|&&|\|\||;|\||\$\(|[(){`])\s*(?:(?:if|then|elif|else|while|until|do|!)\s+)*'
     pattern = (prefix + r'(?:key|hotkey)\s|--window\s+flea\b|'
                + prefix + r'omarchy-drive\s+(?:key|hotkey)\b(?![^;&|\n]*--window(?:\s|=))')
     # Sample input: key -k Escape >/dev/null, or omarchy-drive key --window flea /fixture.
@@ -54,7 +54,8 @@ def ambiguous_input(body):
 
 for prefix in ('', 'xwdrag_focus "$bid" && ', 'xwdrag_focus "$bid" || ', 'true; ',
                'echo input | ', '(', '{ ', '`', '$(', 'if ', 'then ', 'elif ', 'else ',
-               'while ', 'until ', 'do ', '! ', 'if true; then ', 'while ! '):
+               'while ', 'until ', 'do ', '! ', 'if true; then ', 'while ! ',
+               'case "$mode" in own) '):
     for helper in ('key', 'hotkey', 'omarchy-drive key', 'omarchy-drive hotkey'):
         fixture = prefix + helper + ' -k Escape'
         check('ambiguity guard refuses ' + fixture, ambiguous_input(fixture) is not None)

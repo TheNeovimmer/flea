@@ -146,6 +146,7 @@ var LEGACY_MARKER_FIELDS = 5
 var DELETABLE_MARKER_FIELDS = 6
 
 // Five- and six-field legacy markers have raw paths; current markers percent-encode the path field.
+// Sample input: "foreign\n2\nmove\n%2Ftmp%2Fsource\n56\n1\n1".
 function markerFields(payload) {
     var fields = String(payload).split("\n")
     if ([LEGACY_MARKER_FIELDS, DELETABLE_MARKER_FIELDS, MARKER_FIELDS].indexOf(fields.length) < 0)
