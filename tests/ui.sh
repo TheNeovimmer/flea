@@ -2828,8 +2828,7 @@ case_placemenu() {
     : > "$dir/plain.txt"
     local state="$fixture_root/placemenu-state"
     # The switch on, and one favourite to open the menu over. Everything else is the shipped set.
-    # The switch on, and Open in terminal and Copy as on too, because a row switched off in Settings
-    # is off on this menu as well: with the shipped set those two are absent and the menu is shorter.
+    # Open in terminal and Copy path (the Copy as switch) are on too: a row switched off in Settings is off on this menu as well.
     seed_ui_state "$state" "$(printf '{"menu":{"hidden":["delete","moveto","copyto","properties","permissions","runScript","pasteAs","invertSelection","extThumbs"]},"places":{"favourites":[{"label":"Work","path":"%s/Work"}]}}' "$dir")"
 
     launch "$dir"
@@ -2843,7 +2842,7 @@ case_placemenu() {
     click_rail_row "$favourite_index" right
     settle
     [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "placemenu: the favourite's right click opened no menu"
-    [[ "$(ipc contextMenuEntries)" == "Open|New tab|-|Open in terminal|Copy as|Remove from Favorites" ]] \
+    [[ "$(ipc contextMenuEntries)" == "Open|New tab|-|Open in terminal|Copy path|Remove from Favorites" ]] \
         || fail "placemenu: the favourite offers $(ipc contextMenuEntries)"
     key -k Escape >/dev/null
     for _attempt in $(seq 1 20); do
@@ -2860,7 +2859,7 @@ case_placemenu() {
     # Read visible before entries: the menu keeps its last rows, so a row that opens nothing would
     # otherwise answer with the menu before it, which is exactly how this case first read green.
     [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "placemenu: the Home row's right click opened no menu"
-    [[ "$(ipc contextMenuEntries)" == "Open|New tab|-|Open in terminal|Copy as|Add to Favorites" ]] \
+    [[ "$(ipc contextMenuEntries)" == "Open|New tab|-|Open in terminal|Copy path|Add to Favorites" ]] \
         || fail "placemenu: the Home row offers $(ipc contextMenuEntries)"
 
     echo "-- and a row acts on its own path, not on the listing's cursor --"

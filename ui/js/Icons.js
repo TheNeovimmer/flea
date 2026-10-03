@@ -180,7 +180,19 @@ var PATHS = {
     // The Keys section's rail mark: the key caps are the same zero-length-line dots the list mark uses.
     "keyboard": "M2 6h20v12H2z M6 10L6.01 10 M10 10L10.01 10 M14 10L14.01 10 M18 10L18.01 10 M8 14h8",
     // Invert selection's mark, lucide's contrast, its outer ring kept a true curve.
-    "contrast": "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20 M12 18a6 6 0 0 0 0-12v12z"
+    "contrast": "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20 M12 18a6 6 0 0 0 0-12v12z",
+    // Settings > Click and refresh's Open items with mark: the arrow head and its tail, as Icons040 cuts it.
+    "pointer": "M4 4l16 6.5-7 2-2 7z M13 13l6 6"
+}
+
+// The sub-paths a mark fills as well as strokes, by name; ui/Glyph.qml draws them in the mark's own ink.
+var FILLED = {
+    // MenuAdditions040: Invert selection's right half disc is solid, lucide's contrast.
+    "contrast": "M12 18a6 6 0 0 0 0-12v12z"
+}
+
+function filledPathFor(name) {
+    return FILLED[name] || ""
 }
 
 function pathFor(name) {

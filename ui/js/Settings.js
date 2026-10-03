@@ -354,9 +354,9 @@ function viewRows(state) {
                ["Current folder", "Home", "Start folder"], data.newTab || "current"),
         // ClickAndRefresh: one tap opens in single mode and selects with a modifier, so the
         // slow-click rename below has nothing to answer and greys in place, the way hiddenLast does.
-        choice("openMode", "Open items with", undefined, ["double", "single"],
+        choice("openMode", "Open items with", "pointer", ["double", "single"],
                ["Double click", "Single click"], data.openMode || "double"),
-        { kind: "check", id: "clickRename", label: "Click a selected name to rename", glyph: "rename",
+        { kind: "check", id: "clickRename", label: "Click a selected name to rename",
           on: data.clickRename !== false, available: data.openMode !== "single" },
         { kind: "hint", footer: true, label: state.saveStatus || "Saved · applied in this process",
           role: (state.saveStatus || "").indexOf("Could not") === 0 ? "error" : "accent" }

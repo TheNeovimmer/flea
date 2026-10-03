@@ -266,6 +266,11 @@ function hintFor(action) {
 // columns of a 300 unit card, so a cap past this elides and the wording beside it has nowhere to go.
 var SHEET_CAP_BUDGET = 16
 
+// Actions that answer each other show a second spelling on both members or on neither (width alone gave "]" beside "[ / ctrl-pageup").
+var SHEET_MIRRORS = [["cursorDown", "cursorUp"], ["cursorFirst", "cursorLast"], ["pageDown", "pageUp"],
+    ["historyBack", "historyForward"], ["tabNext", "tabPrevious"], ["tabMoveLeft", "tabMoveRight"],
+    ["zoomIn", "zoomOut"], ["textSizeUp", "textSizeDown"], ["extendDown", "extendUp"]]
+
 // An action id is not wording. A row the base sheet does not name printed its own identifier, so the
 // pane advertised "pageDown" and "textSizeReset" beside sentences like "hidden files".
 function spelledOut(action) {
@@ -301,6 +306,7 @@ function sheetFor(name, frontend, dual) {
         var spellings = result[g].spellings.slice()
         spellings.sort(function (left, right) { return capRank(left, name) - capRank(right, name) })
         var keys = spellings.length ? spellings[0].keys : ""
+        result[g].alone = keys
         for (var k = 1; k < spellings.length; k++) {
             var both = keys + " / " + spellings[k].keys
             if (spellings[k].keys === keys || both.length > SHEET_CAP_BUDGET) continue
@@ -308,7 +314,18 @@ function sheetFor(name, frontend, dual) {
             break
         }
         result[g].keys = keys
-        delete result[g].spellings
+    }
+    // A pair shows a second spelling only when both members have one that fits.
+    for (var m = 0; m < SHEET_MIRRORS.length; m++) {
+        var first = groups[SHEET_MIRRORS[m][0]], second = groups[SHEET_MIRRORS[m][1]]
+        if (!first || !second) continue
+        if ((first.keys !== first.alone) === (second.keys !== second.alone)) continue
+        first.keys = first.alone
+        second.keys = second.alone
+    }
+    for (var d = 0; d < result.length; d++) {
+        delete result[d].spellings
+        delete result[d].alone
     }
     if (dual && groups.focusNext) {
         groups.focusNext.keys = "tab"

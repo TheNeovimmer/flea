@@ -268,4 +268,29 @@ function run(check) {
     var openTabSheet = Keymap.sheetFor("default", "gui").filter(function (row) { return row.action === "openTab" })[0] || {}
     check("and the sheet draws it as open in new tab", openTabSheet.label, "open in new tab")
     check("and the sheet caps it as the ctrl enter chord", openTabSheet.keys, "ctrl-enter")
+
+    // A mirrored pair draws the same number of spellings: width alone gave next tab "]" beside prev tab "[ / ctrl-pageup".
+    function spellings(sheet, action) {
+        var row = sheet.filter(function (r) { return r.action === action })[0]
+        return row ? row.keys.split(" / ").length : 0
+    }
+    var named = [["tabNext", "tabPrevious"], ["pageDown", "pageUp"]]
+    var pairs = named.concat((Keymap.SHEET_MIRRORS || []).filter(function (pair) {
+        return !named.some(function (known) { return known.join() === pair.join() })
+    }))
+    var lopsided = []
+    for (var mp = 0; mp < Keymap.PRESETS.length; mp++) {
+        for (var mf = 0; mf < 2; mf++) {
+            var pairSheet = Keymap.sheetFor(Keymap.PRESETS[mp], ["gui", "tui"][mf])
+            for (var pi = 0; pi < pairs.length; pi++)
+                if (spellings(pairSheet, pairs[pi][0]) !== spellings(pairSheet, pairs[pi][1]))
+                    lopsided.push(Keymap.PRESETS[mp] + ":" + ["gui", "tui"][mf] + ":" + pairs[pi].join("/"))
+        }
+    }
+    check("no mirrored pair of the generated sheet is lopsided in any preset or frontend", lopsided.join(" "), "")
+    var tabsDefault = Keymap.sheetFor("default", "gui")
+    check("next and prev tab draw one spelling each on Default",
+          tabsDefault.filter(function (r) { return r.action === "tabNext" })[0].keys + "|"
+          + tabsDefault.filter(function (r) { return r.action === "tabPrevious" })[0].keys, "]|[")
+    check("the generator names the pairs it evens", (Keymap.SHEET_MIRRORS || []).length > 0, true)
 }

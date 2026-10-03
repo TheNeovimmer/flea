@@ -44,7 +44,22 @@ for index, line in enumerate(lines):
 palette = tomllib.loads((root / "tests/fixtures/cool-dawn/colors.toml").read_text())
 assert palette == {"accent": "#A9C6B7", "selection": "#46594F", "background": "#26302D", "foreground": "#DFE8E0", "muted": "#B0C3B7"}
 ast.parse((root / "tests/ui-captures-sweep-picker.py").read_text())
-print(f"CAPSWEEP_CHECK cases=2 sourced-libraries={len(sources)} IPC-readers={len(used)} palette=5 Python=parse-ok")
+# Sample input:     shot cap-menus2-makeexec
+board = (root / "tests/ui-captures.sh").read_text()
+board_shots = re.findall(r'^\s+shot (cap-[\w-]+)$', board, re.M)
+assert len(board_shots) == len(set(board_shots)), "a board capture name repeats, and shot refuses an existing file"
+board_required = {
+    "cap-tabs-opening-last-folder", "cap-tabs-opening-last-folder-tail",
+    "cap-menus-file-copyas", "cap-menus-file-pasteas", "cap-menus-symlink", "cap-menus-background", "cap-menus-settings",
+    "cap-menus2-makeexec", "cap-menus2-two-files", "cap-menus2-copyas-nohints", "cap-menus2-pasteas-nohints",
+    "cap-menus2-settings-tail", "cap-menus2-place-only", "cap-menus2-place-copypath",
+}
+assert board_required <= set(board_shots), f"board captures missing: {sorted(board_required - set(board_shots))}"
+board_lines = board.splitlines()
+for index, line in enumerate(board_lines):
+    if line.startswith("case_cap"):
+        assert board_lines[index - 1].startswith("# "), f"board case lacks surface comment: {line}"
+print(f"CAPSWEEP_CHECK cases=2 sourced-libraries={len(sources)} IPC-readers={len(used)} palette=5 Python=parse-ok board-shots={len(board_shots)}")
 PY
 . "$repo/tests/ui-captures-sweep.sh"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }

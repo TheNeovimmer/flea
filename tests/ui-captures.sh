@@ -24,7 +24,8 @@ cap_resize() {
 
 # Tabs040: three tabs with one held mid-drag, then Settings View Opening on Last folder.
 # Board specimens: the 900x541 tab-drag window, and the Opening excerpt with the Last
-# folder hint, New tabs open in, Open items with and Click a selected name to rename.
+# folder hint, New tabs open in, Open items with and Click a selected name to rename;
+# the tail shot scrolls that excerpt, hint included, into frame.
 case_cap_tabs() {
     local dir="$fixture_root/cap-tabs"
     sandbox_scratch "$dir"
@@ -76,6 +77,10 @@ case_cap_tabs() {
     [[ "$(ipc settingsRows)" == *"Click a selected name to rename"* ]] \
         || fail "cap_tabs: Opening drew no click-rename row, got $(ipc settingsRows)"
     shot cap-tabs-opening-last-folder
+    # The shot above stops above the hint; the last control in the group scrolls the whole Opening card into frame.
+    settings_focus_row clickRename
+    settle
+    shot cap-tabs-opening-last-folder-tail
     key -k Escape >/dev/null
     settle
     printf 'CAP_TABS drag=held labels=%s hint=shown\n' "$(ipc tabLabels)"
@@ -248,6 +253,128 @@ case_cap_menus() {
     key -k Escape >/dev/null
     settle
     printf 'CAP_MENUS copyas=ok pasteas=ok symlink=ok background=ok settings=ok\n'
+    kill_flea
+}
+
+# MenuAdditions040 and SettingsMenus, the states the first set leaves out: Make executable on a 0644 script and the
+# two-file menu at defaults, the Copy as and Paste as flyouts with key hints off, Settings > Menus at its tail, and the
+# Places row menu with only the place menu on, then with Copy path on beside it.
+case_cap_menus2() {
+    local dir="$fixture_root/cap-menus2" attempt favourite_index
+    local makeexec_polls=40 menu_hidden_file menu_hidden_place
+    sandbox_scratch "$dir"
+    mkdir -p "$dir/Work"
+    printf '#!/bin/sh\necho flea\n' > "$dir/run.sh"
+    chmod 0644 "$dir/run.sh" || fail "cap_menus2: the 0644 script fixture mode failed"
+    printf 'one\n' > "$dir/one.txt"
+    printf 'two\n' > "$dir/two.txt"
+    menu_hidden_file='"delete","openTerminal","moveto","copyto","properties","permissions","invertSelection"'
+    seed_ui_state "$fixture_root/cap-menus2-defaults-state" '{"keys":"default","view":"list"}'
+    launch "$dir"
+    wait_listing 4
+    click_row "$(row_index_of run.sh)" right
+    settle
+    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_menus2: the script's menu never opened"
+    for attempt in $(seq 1 "$makeexec_polls"); do
+        [[ "|$(ipc contextMenuEntries)|" == *"|Make executable|"* ]] && break
+        sleep 0.25
+    done
+    [[ "|$(ipc contextMenuEntries)|" == *"|Make executable|"* ]] \
+        || fail "cap_menus2: a 0644 script at defaults offers no Make executable, got $(ipc contextMenuEntries)"
+    shot cap-menus2-makeexec
+    key -k Escape >/dev/null
+    settle
+    click_row "$(row_index_of one.txt)" left
+    settle
+    click_row "$(row_index_of two.txt)" left --mods ctrl
+    settle
+    [[ "$(ipc selectionCount)" == "2" ]] || fail "cap_menus2: a ctrl click selected $(ipc selectionCount) rows, not 2"
+    click_row "$(row_index_of one.txt)" right
+    settle
+    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_menus2: the two-file menu never opened"
+    shot cap-menus2-two-files
+    key -k Escape >/dev/null
+    settle
+    kill_flea
+    seed_ui_state "$fixture_root/cap-menus2-nohints-state" "$(printf '{"keys":"default","view":"list","keyHints":false,"menu":{"hidden":[%s]}}' "$menu_hidden_file")"
+    launch "$dir"
+    wait_listing 4
+    click_row "$(row_index_of one.txt)" right
+    settle
+    menu_seek "Copy as"
+    key -k Right >/dev/null
+    settle
+    [[ "$(ipc contextMenuSubmenuEntries)" == *"Path"* ]] \
+        || fail "cap_menus2: the Copy as flyout offers $(ipc contextMenuSubmenuEntries)"
+    shot cap-menus2-copyas-nohints
+    key -k Escape >/dev/null
+    settle
+    key -k Escape >/dev/null
+    settle
+    click_row "$(row_index_of one.txt)" left
+    settle
+    key y >/dev/null
+    settle
+    [[ "$(ipc keyDeliveryState | jq -er '.clipboard.paths | length')" == "1" ]] \
+        || fail "cap_menus2: y put no file on the clipboard"
+    click_row "$(row_index_of one.txt)" right
+    settle
+    menu_seek "Paste as"
+    key -k Right >/dev/null
+    settle
+    [[ "$(ipc contextMenuSubmenuEntries)" == *"Link"* ]] \
+        || fail "cap_menus2: the Paste as flyout offers $(ipc contextMenuSubmenuEntries)"
+    shot cap-menus2-pasteas-nohints
+    key -k Escape >/dev/null
+    settle
+    key -k Escape >/dev/null
+    settle
+    kill_flea
+    seed_ui_state "$fixture_root/cap-menus2-settings-state" '{"keys":"default","view":"list"}'
+    launch "$dir"
+    wait_listing 4
+    settings_open_key
+    settle
+    settings_section menus
+    [[ "$(ipc settingsRows)" == *"Paste as"* ]] || fail "cap_menus2: Menus lists no Paste as"
+    settings_focus_row invertSelection
+    settle
+    [[ "$(ipc settingsRows)" == *"Invert selection"* ]] || fail "cap_menus2: Menus lists no Invert selection"
+    shot cap-menus2-settings-tail
+    key -k Escape >/dev/null
+    settle
+    kill_flea
+    menu_hidden_place='"delete","openTerminal","runScript","moveto","copyto","properties","permissions","copyAs","pasteAs","invertSelection","extThumbs"'
+    seed_ui_state "$fixture_root/cap-menus2-place-state" "$(printf '{"keys":"default","view":"list","menu":{"hidden":[%s]},"places":{"favourites":[{"label":"Work","path":"%s/Work"}]}}' "$menu_hidden_place" "$dir")"
+    launch "$dir"
+    wait_listing 4
+    favourite_index=$(ipc railEntries | jq -r 'map(.label) | index("Work")')
+    [[ -n "$favourite_index" && "$favourite_index" != "null" ]] \
+        || fail "cap_menus2: the seeded favourite is not on the rail, which carries $(ipc railEntries)"
+    click_rail_row "$favourite_index" right
+    settle
+    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_menus2: the favourite's menu never opened"
+    [[ "|$(ipc contextMenuEntries)|" == *"|New tab|"* && "|$(ipc contextMenuEntries)|" != *"|Copy path|"* ]] \
+        || fail "cap_menus2: the place-menu-only specimen drew $(ipc contextMenuEntries)"
+    shot cap-menus2-place-only
+    key -k Escape >/dev/null
+    settle
+    kill_flea
+    seed_ui_state "$fixture_root/cap-menus2-place-copypath-state" "$(printf '{"keys":"default","view":"list","menu":{"hidden":["delete","runScript","moveto","copyto","properties","permissions","pasteAs","invertSelection","extThumbs"]},"places":{"favourites":[{"label":"Work","path":"%s/Work"}]}}' "$dir")"
+    launch "$dir"
+    wait_listing 4
+    favourite_index=$(ipc railEntries | jq -r 'map(.label) | index("Work")')
+    [[ -n "$favourite_index" && "$favourite_index" != "null" ]] \
+        || fail "cap_menus2: the seeded favourite is not on the rail, which carries $(ipc railEntries)"
+    click_rail_row "$favourite_index" right
+    settle
+    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_menus2: the favourite's menu never opened with Copy path on"
+    [[ "|$(ipc contextMenuEntries)|" == *"|Copy path|"* && "|$(ipc contextMenuEntries)|" != *"|Copy as|"* ]] \
+        || fail "cap_menus2: the Copy path specimen drew $(ipc contextMenuEntries)"
+    shot cap-menus2-place-copypath
+    key -k Escape >/dev/null
+    settle
+    printf 'CAP_MENUS2 makeexec=ok two-files=ok nohints=ok settings-tail=ok place=ok\n'
     kill_flea
 }
 

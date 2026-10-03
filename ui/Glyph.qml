@@ -19,6 +19,16 @@ Item {
     // Its own name: "scale" would shadow Item.scale, which qmllint flagged.
     readonly property real gridScale: root.markSize / root.grid
     property real strokeWidth: Theme.strokeWidth
+    // The solid part of the mark (Icons.js FILLED), empty for every mark but the few that have one.
+    readonly property string filledPath: Icons.filledPathFor(root.name)
+    // Built the first time a mark names a solid part: a plain glyph owns no object for it, which tests/rowcost.qml counts.
+    property Item solid: null
+    function syncSolid() {
+        if (root.solid === null && root.filledPath.length > 0)
+            root.solid = Qt.createComponent("GlyphSolid.qml").createObject(root, { glyph: root })
+    }
+    onFilledPathChanged: root.syncSolid()
+    Component.onCompleted: root.syncSolid()
 
     // The Shape is sized in grid units pre-transform; Scale's origin defaults to (0,0), so this
     // offset is what re-centers the scaled-down box in root's slot instead of pinning it top-left.

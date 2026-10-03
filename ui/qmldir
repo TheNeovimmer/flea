@@ -59,6 +59,7 @@ FitMetrics 1.0 FitMetrics.qml
 RowDrag 1.0 RowDrag.qml
 WindowDrag 1.0 WindowDrag.qml
 Glyph 1.0 Glyph.qml
+GlyphSolid 1.0 GlyphSolid.qml
 GvfsBridge 1.0 GvfsBridge.qml
 GridTile 1.0 GridTile.qml
 GridArea 1.0 GridArea.qml
