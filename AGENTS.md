@@ -2040,9 +2040,9 @@ tear-off starts: `src/tearoff.rs` drops them from the terminal and opened-progra
 drops them from the new-window launch.
 The `wc -l` ceilings are `ui/TabBar.qml` 607, `ui/js/Tabs.js` 723, `ui/Pane.qml` 993,
 `ui/WindowBody.qml` 635 and `ui/boot/fleatab.qml` 50, with merge-base comments kept verbatim with their original
-line breaks. `tests/js/tabs.js` is 683: the hunt cursor-name checks join the existing
-no-such-tab, navigation acknowledgment and captured tear-off token checks, and the new-window check and the
-two geometry hook orders add to them.
+line breaks. `tests/js/tabs.js` is 686: the hunt cursor-name checks join the existing
+no-such-tab, navigation acknowledgment and captured tear-off token checks, and the new-window check, the
+two geometry hook orders and the hand-off name comparison add to them.
 The cursor handoff uses held rows or the existing name-only locate request, then fetches
 only its destination window; desktop tear-off carries the filename through the launch
 environment. `ui/PaneWire.qml` is 539, `ui/js/Drag.js` 372 and `tests/js/drag.js`

@@ -582,6 +582,9 @@ function run(check) {
     check("tearoff passes captured token", stubToken !== "" && stubBar.spawns[0].indexOf("FLEA_TAB_TOKEN=" + stubToken) >= 0, true)
 
     check("tearoff passes captured cursor filename", stubBar.spawns[0].indexOf("FLEA_TAB_CURSOR=tear-4") >= 0, true)
+    // Sample input: "FLEA_TAB_TOKEN=abc" in the launch gives FLEA_TAB_TOKEN.
+    var setByBar = stubBar.spawns[0].filter(function (word) { return /^FLEA_TAB_[A-Z_]+=/.test(word) }).map(function (word) { return word.split("=")[0] })
+    check("tearoff sets exactly the names a fresh launch drops", setByBar.join(" "), Tabs.TEAR_OFF_ENV.join(" "))
     var launchCursor = Fixture.pane("/tmp/tear")
     launchCursor.rowFor = function (i) { return { n: "tear-" + i } }
     if (typeof Tabs.prepareCursor === "function") Tabs.prepareCursor(launchCursor, "tear-7")
@@ -594,7 +597,7 @@ function run(check) {
     BarFixture.method(BarFixture.source("../../ui/Pane.qml"), "newWindow", { path: "/tmp/elsewhere" }, windowShell)()
     var windowArgv = windowSpawns[0] || []
     check("a new window still opens the folder it was asked for", windowArgv.slice(-2).join(" "), "/stub/flea /tmp/elsewhere")
-    var handOff = ["FLEA_TAB_SOURCE_PID", "FLEA_TAB_CURSOR", "FLEA_TAB_TOKEN"]
+    var handOff = Tabs.TEAR_OFF_ENV
     for (var h = 0; h < handOff.length; h++)
         check("a new window drops " + handOff[h], windowArgv[0] === "env" && windowArgv[windowArgv.indexOf(handOff[h]) - 1] === "-u", true)
 

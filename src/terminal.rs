@@ -67,17 +67,14 @@ mod tests {
     use super::*;
     use std::ffi::OsStr;
 
-    // The tear-off hand-off ui/TabBar.qml gives its one new window, which a terminal must never inherit.
-    const TEAR_OFF_ENV: [&str; 3] = ["FLEA_TAB_SOURCE_PID", "FLEA_TAB_CURSOR", "FLEA_TAB_TOKEN"];
-
     #[test]
     fn a_detached_child_loses_every_tear_off_variable() {
         let mut child = Command::new(std::env::current_exe().unwrap());
-        for name in TEAR_OFF_ENV {
+        for name in tearoff::ENV {
             child.env(name, "stale");
         }
         detach(&mut child);
-        for name in TEAR_OFF_ENV {
+        for name in tearoff::ENV {
             let entry = child.get_envs().find(|(key, _)| *key == OsStr::new(name));
             assert_eq!(entry, Some((OsStr::new(name), None)), "{name} survived detach");
         }
