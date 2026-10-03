@@ -447,7 +447,8 @@ ShellRoot {
                     win.pendingListings = 0
                     win.listingFailed = true
                 }
-                win.listingState = "empty"
+                // A worker lost over held rows keeps them and the footer error; only a listing that holds nothing reads as empty.
+                if (win.total === 0) win.listingState = "empty"
                 win.say(msg, true)
             }
             onChanged: function (path) {
@@ -575,6 +576,7 @@ ShellRoot {
 
             // The same empty hero the browser window draws, over the list area alone.
             Flea.EmptyState {
+                id: hero
                 x: list.x
                 y: list.y
                 width: list.width
@@ -735,7 +737,7 @@ ShellRoot {
             function snapshot(): string {
                 return JSON.stringify({path: win.path, total: win.total, held: win.held, rows: win.rows,
                     cursor: win.cursorIndex, cursorName: win.rowFor(win.cursorIndex) ? win.rowFor(win.cursorIndex).n : "",
-                    marks: win.marks, state: win.listingState, listingFailed: win.listingFailed, sortBy: backend.sortBy, sortDesc: backend.sortDesc, sortable: win.sortable, filter: win.filterIndex, history: win.history,
+                    marks: win.marks, state: win.listingState, emptyHero: hero.visible, listingFailed: win.listingFailed, sortBy: backend.sortBy, sortDesc: backend.sortDesc, sortable: win.sortable, filter: win.filterIndex, history: win.history,
                     view: win.viewMode, thumbPending: Object.keys(win.thumbState.file).filter(function(index) { return win.thumbState.file[index] === null || win.thumbState.file[index] === "cache-asked" }).length,
                     marksBusy: win.markRequest > 0, saveBusy: win.saveRequest > 0, submitting: win.submitting, backendUnavailable: win.backendUnavailable,
                     canAccept: win.canAccept, saveReady: win.saveReady, collision: win.saveCollision,

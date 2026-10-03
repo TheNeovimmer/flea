@@ -3,11 +3,13 @@
 import json
 import os
 from pathlib import Path
+import stat
 import sys
 import time
 
 # Let native key events move focus or cancel while the check is outstanding.
 SUBMISSION_DELAY_SECONDS = 0.15
+REGULAR_FILE_MODE = stat.S_IFREG | 0o644
 
 if "--ui-state" in sys.argv:
     print("{}", flush=True)
@@ -19,7 +21,7 @@ refusal_log = Path(os.environ["FLEA_PICKER_HUNT_REFUSAL_LOG"])
 folder = json.loads(os.environ["FLEA_PICKER"])["folder"]
 path = str(Path(folder) / "a.txt")
 mark = {"path": path, "uri": Path(path).as_uri(), "bytes": 1}
-rows = [{"n": "a.txt", "d": False, "s": 1, "m": 1, "p": 33188, "i": "text-x-generic", "t": False, "k": 0}]
+rows = [{"n": "a.txt", "d": False, "s": 1, "m": 1, "p": REGULAR_FILE_MODE, "i": "text-x-generic", "t": False, "k": 0}]
 refused_operation = {"refuse-mark": "mark", "refuse-validate": "validate", "refuse-review": "review"}.get(scenario, "mark")
 attempts = {operation: 0 for operation in ("mark", "validate", "review")}
 

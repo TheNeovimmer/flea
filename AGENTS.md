@@ -3302,7 +3302,7 @@ waits for its consumer.
 
 ## Testing
 
-- `tests/picker-040.sh` is 0.3.10's Picker040 acceptance suite for path entry and collision review, expected red until then and excluded from run-all.
+- `tests/picker-040.sh` is 0.3.10's Picker040 acceptance suite for path entry and collision review, expected red until then and named in run-all's not-run list.
 
 - **The warning gate covers `#[cfg(test)]`, which is the point of it.** `cargo build` cannot see
   anything inside a test module, so a build-only gate hides every unused import and dead helper

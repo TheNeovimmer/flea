@@ -21,7 +21,7 @@ ShellRoot {
     readonly property int deadlineMs: 8000
     readonly property int refusalWaitMs: 400
     readonly property int settleWaitMs: 1000
-    readonly property real dimmedOpacity: 0.55
+    readonly property real dimmedOpacity: Flea.Theme.disabledOpacity
     // Sample input: FLEA_PICKER_HUNT_BASE_FILES=12, FLEA_PICKER_HUNT_EXTRA_FILES=200.
     readonly property int baseFixtureFiles: Number(Quickshell.env("FLEA_PICKER_HUNT_BASE_FILES"))
     readonly property int wideExtraFiles: Number(Quickshell.env("FLEA_PICKER_HUNT_EXTRA_FILES"))
@@ -32,6 +32,8 @@ ShellRoot {
     readonly property int rangeClickRowStep: 2
     readonly property int rangeClickCount: rangeClickRowStep + 1
     readonly property string folderSuffix: "/z-folder"
+    readonly property int overlongNameFactor: 2
+    readonly property int killSignal: 9
     property bool chromeChecked: false
     property var initiatingFocus: null
     property var movedFocus: null
@@ -89,6 +91,57 @@ ShellRoot {
         keys.mouseClick(button, button.width / 2, button.height / 2, Qt.LeftButton, Qt.NoModifier, -1)
     }
     function press(key, modifiers) { keys.keyClick(key, modifiers || Qt.NoModifier, -1) }
+    // A scratch Text in the status line's font and wrap mode, measured by its lines and the widest one.
+    function wrapped(line, mode, text, width) {
+        var probe = Qt.createQmlObject("import QtQuick; Text { textFormat: Text.PlainText }", line.parent)
+        probe.font = line.font
+        probe.wrapMode = mode
+        probe.text = text
+        probe.width = width
+        probe.forceLayout()
+        var measured = {lines: probe.lineCount, width: probe.contentWidth}
+        probe.destroy()
+        return measured
+    }
+    function heroItem() {
+        return descendants(win.contentItem).filter(function(item) { return item.markItem !== undefined && item.captionItem !== undefined })[0]
+    }
+    // The listing worker dying over held rows keeps the rows and the footer error, and never draws the empty hero.
+    function lostListing() {
+        if (stage === 0) {
+            if (!win || win.listingState !== "ready" || !win.rows.length) return
+            check("a listed folder draws no hero", heroItem().visible, false)
+            var listing = descendants(win.contentItem).filter(function(item) { return item.current !== undefined && typeof item.clear === "function" })[0]
+            check("the picker owns a listing worker", !!listing && !!listing.current, true)
+            if (!listing || !listing.current) {
+                finish()
+                return
+            }
+            listing.current.signal(root.killSignal)
+            stage = 1
+        } else if (win.listingFailed) {
+            check("a lost listing worker is reported", win.message.indexOf("The listing backend exited with code") === 0 && win.messageError, true)
+            check("a lost listing worker keeps its rows", win.rows.length > 0 && win.total === win.rows.length, true)
+            check("a lost listing worker draws no empty hero", heroItem().visible, false)
+            finish()
+        }
+    }
+    function checkCollisionWrap() {
+        var form = descendants(win.contentItem).filter(function(item) { return item.statusItem !== undefined })[0]
+        check("save form exposes its status line", !!form, true)
+        if (!form) return
+        var line = form.statusItem
+        check("collision line is shown", line.visible && line.text.indexOf(win.saveName) === 0, true)
+        // One pixel under the sentence's own width pushes only the last word onto a second line.
+        var narrow = Math.floor(wrapped(line, Text.NoWrap, line.text, line.width).width) - 1
+        var reference = wrapped(line, Text.WordWrap, line.text, narrow)
+        check("collision sentence wraps onto two lines", reference.lines, 2)
+        check("collision sentence breaks between words", wrapped(line, line.wrapMode, line.text, narrow), reference)
+        var name = "x".repeat(Math.ceil(root.overlongNameFactor * line.width))
+        var overlong = wrapped(line, line.wrapMode, name + line.text.slice(win.saveName.length), line.width)
+        check("one unbroken name stays inside the card", overlong.width <= line.width, true)
+        check("one unbroken name breaks inside itself", overlong.lines > 1, true)
+    }
     // Enters at doubleActivate; delegate tap capture: native SP02 (tests/picker-native.py:401-406); Picker.sameTap: tests/js/picker.js:164-167.
     function doubleActivateCursor() {
         var row = win.rowFor(win.cursorIndex)
@@ -109,11 +162,18 @@ ShellRoot {
             win.cursorIndex = 0
             win.focusView()
             if (!win.viewItem().activeFocus) return
+            if (scenario === "refuse-validate") {
+                // Space marks the cursor file in a multiple request, the only way a user reaches a selection to validate.
+                if (win.marks.length === 0) {
+                    if (!win.markRequest) press(Qt.Key_Space)
+                    return
+                }
+                check("refuse-validate request takes several files", win.req.multiple, true)
+                check("Space marked the cursor file", win.marks.map(function(mark) { return mark.path }), [win.path + "/a.txt"])
+            }
             var types = descendants(win.contentItem).filter(function(item) { return typeof item.reveal === "function" && item.flickableDirection === Flickable.HorizontalFlick })[0]
             var viewButton = descendants(win.contentItem).filter(function(item) { return item.name === "List view" })[0]
             check("filter strip keeps gap before view controls", Math.round(viewButton.mapToItem(win.contentItem, 0, 0).x - types.mapToItem(win.contentItem, types.width, 0).x), Flea.Theme.spacing.gap)
-            if (scenario === "refuse-validate")
-                win.marks = [{path: win.path + "/a.txt", uri: "file://" + win.path + "/a.txt", bytes: 1}]
             if (win.saving) {
                 var form = descendants(win.contentItem).filter(function(item) { return item.fieldItem !== undefined && item.askedName !== undefined })[0]
                 form.fieldItem.forceActiveFocus()
@@ -127,6 +187,7 @@ ShellRoot {
                 check("collision Enter focuses Cancel", win.contentItem.Window.window.activeFocusItem.label, "Cancel")
                 check("collision does not start submission", win.submitting, false)
                 check("collision keeps request open", win.answered, false)
+                checkCollisionWrap()
                 finish()
                 return
             }
@@ -208,8 +269,13 @@ ShellRoot {
                 root.chromeChecked = true
             }
             if (scenario.indexOf("refuse-") === 0) { root.focusRefusal(); return }
+            if (scenario === "lost-listing") {
+                root.lostListing()
+                return
+            }
             if (win && scenario === "empty" && win.listingState === "empty") {
                 root.check("empty listing disables Open", win.canAccept, false)
+                root.check("empty listing draws the hero", root.heroItem().visible, true)
                 var emptyButton = root.descendants(win.contentItem).filter(function(item) { return item.name === "Open" && item.available !== undefined })[0]
                 root.check("empty Open opacity", emptyButton.opacity, root.dimmedOpacity)
                 root.finish()

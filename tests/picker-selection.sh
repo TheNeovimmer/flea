@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# Exercise retained picker identities and batch selection in the suite's isolated test sandbox.
+# Runs the picker lock, settle and runner checks, the backend picker tests and the selection probe in a guarded scratch root.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 python3 tests/picker-native-lock-check.py
+python3 tests/picker-native-settle-check.py
 python3 tests/picker-runner-check.py
 cargo test --locked backend::picker::tests -- --test-threads=1
 
-scratch=$(mktemp -d)
-trap 'rm -rf -- "$scratch"' EXIT
+. "$PWD/tools/flea-sandbox-guard"
+sandbox_root_ok
+scratch=$(mktemp -d "$SANDBOX_ROOT/flea-picker-selection.XXXXXXXX") || exit 1
+: > "$scratch/$SANDBOX_MARKER"
+trap 'sandbox_remove "$scratch"' EXIT
 mkdir -p "$scratch/selection/js"
 cp ui/PickerSelection.qml "$scratch/selection/"
 cp ui/js/*.js "$scratch/selection/js/"

@@ -2,6 +2,7 @@
 """Exercise the native runner's lock path without loading GI or starting a display."""
 import ast
 import contextlib
+import copy
 import io
 import fcntl
 import os
@@ -42,6 +43,26 @@ else:
     print("inherited")
 '''
 
+def assert_closed(result, runner):
+    assert result == "closed", runner + " child inherited display lock fd"
+
+
+class KeepDescriptors(ast.NodeTransformer):
+    # Sample input: close_fds=True in run() and start() becomes close_fds=False.
+    def visit_keyword(self, node):
+        if node.arg == "close_fds":
+            node.value = ast.Constant(False)
+        return node
+
+
+def keeping_launchers(base):
+    # The production launchers with their descriptor-closing keyword flipped, so the probe can see a leak.
+    keeping = KeepDescriptors().visit(ast.Module(body=copy.deepcopy(launchers), type_ignores=[]))
+    leaking = dict(base)
+    exec(compile(ast.fix_missing_locations(keeping), "picker-native.py", "exec"), leaking)
+    return leaking
+
+
 def check(label, action):
     global checks, failures
     checks += 1
@@ -76,8 +97,7 @@ with tempfile.TemporaryDirectory(prefix="picker-native-lock-") as runtime:
         check("inherited lock stays owned", inherited)
         arguments = [sys.executable, "-c", FD_PROBE, str(owned.fileno())]
         def run_child():
-            result = namespace["run"](arguments)
-            assert result == "closed", "run() child inherited display lock fd"
+            assert_closed(namespace["run"](arguments), "run()")
         check("production run() closes inherited lock fd", run_child)
         def start_child():
             child = namespace["start"](arguments, "lock-child", dict(os.environ))
@@ -85,12 +105,33 @@ with tempfile.TemporaryDirectory(prefix="picker-native-lock-") as runtime:
                 status = child.wait(timeout=CHILD_TIMEOUT_SECONDS)
                 result = (Path(runtime) / "lock-child.log").read_text().strip()
                 assert status == 0, "start() probe failed: " + result
-                assert result == "closed", "start() child inherited display lock fd"
+                assert_closed(result, "start()")
             finally:
                 if child.poll() is None:
                     child.kill()
                     child.wait(timeout=CHILD_TIMEOUT_SECONDS)
         check("production start() closes inherited lock fd", start_child)
+        leaking = keeping_launchers(namespace)
+        def control(label, observe):
+            # The probe must see the descriptor through a runner that keeps it, and the shared assertion must refuse it.
+            observed = observe()
+            try:
+                assert_closed(observed, label)
+            except AssertionError:
+                assert observed == "inherited", "control " + label + " failed for another reason: " + repr(observed)
+                return
+            raise AssertionError("control " + label + " kept the descriptor and the check still passed")
+        check("control run() keeping descriptors fails the closed check", lambda: control("run()", lambda: leaking["run"](arguments)))
+        def keeping_start():
+            child = leaking["start"](arguments, "leak-child", dict(os.environ))
+            try:
+                assert child.wait(timeout=CHILD_TIMEOUT_SECONDS) == 0, "control start() probe did not finish"
+                return (Path(runtime) / "leak-child.log").read_text().strip()
+            finally:
+                if child.poll() is None:
+                    child.kill()
+                    child.wait(timeout=CHILD_TIMEOUT_SECONDS)
+        check("control start() keeping descriptors fails the closed check", lambda: control("start()", keeping_start))
         def unrelated():
             other = Path(runtime) / "unrelated-open-file"
             expected = Path(runtime) / "flea-display.lock"

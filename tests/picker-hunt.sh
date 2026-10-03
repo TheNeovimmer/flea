@@ -46,7 +46,7 @@ phases=0
 burst_extra_files=64
 for preset in default mac vim windows; do
 for view in list grid; do
-    for scenario in control marked-open marked-enter remember cursor-open cursor-enter cursor-multi cursor-button double-mark all all-wide range range-up range-click range-burst range-shrink save-marks single-marks folder empty refuse-mark refuse-button refuse-validate refuse-review refuse-moved refuse-returned refuse-cancel refuse-collision; do
+    for scenario in control marked-open marked-enter remember cursor-open cursor-enter cursor-multi cursor-button double-mark all all-wide range range-up range-click range-burst range-shrink save-marks single-marks folder empty refuse-mark refuse-button refuse-validate refuse-review refuse-moved refuse-returned refuse-cancel refuse-collision lost-listing; do
         if [[ "$scenario" = refuse-* && "$preset" != default ]]; then continue; fi
         if [ "$preset" = vim ] || [ "$preset" = windows ]; then
             case "$scenario" in cursor-open|cursor-enter|marked-open|marked-enter) ;; *) continue ;; esac
@@ -59,6 +59,7 @@ for view in list grid; do
         case "$scenario" in cursor-open|cursor-enter|cursor-button|single-marks) multiple=false ;; esac
         case "$scenario" in save-marks) mode=save; multiple=false ;; esac
         case "$scenario" in refuse-*) multiple=false ;; esac
+        case "$scenario" in refuse-validate) multiple=true ;; esac
         case "$scenario" in refuse-review|refuse-collision) mode=save ;; esac
         backend="$PWD/target/debug/flea"
         case "$scenario" in refuse-*) backend="$test_root/focus-backend" ;; esac
@@ -114,6 +115,7 @@ PY
         elif [[ "$scenario" = cursor-* || "$scenario" = marked-* || "$scenario" = refuse-* && "$scenario" != refuse-collision ]]; then
             if ! python3 - "$phase/reply.json" "$fixture" "$scenario" <<'PY'
 import json,sys
+# Sample input: {"response": 0, "uris": ["file:///tmp/fixture/a.txt"]}
 try:r=json.load(open(sys.argv[1]))
 except (OSError,ValueError):sys.exit(1)
 from pathlib import Path
@@ -160,6 +162,7 @@ PY
             [ "$view" = grid ] && wanted=list
             if ! python3 - "$phase/state/flea/ui.json" "$wanted" <<'PY'
 import json,sys
+# Sample input: {"pickerView": "grid", "keys": "default"}
 try:r=json.load(open(sys.argv[1]))
 except (OSError,ValueError):sys.exit(1)
 sys.exit(0 if r.get('pickerView')==sys.argv[2] else 1)

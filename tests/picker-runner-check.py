@@ -2,6 +2,9 @@
 """Fault injection into picker phase classification and selection output capture."""
 from pathlib import Path
 import os
+import re
+import signal
+import stat
 import subprocess
 import tempfile
 
@@ -14,6 +17,7 @@ STUB_EXECUTABLE_MODE = 0o755
 QML_SUCCESS_EXIT = 0
 QML_ASSERTION_EXIT = 1
 QML_TIMEOUT_EXIT = 124
+CRASH_EXIT = 128 + signal.SIGSEGV
 ROW_PROBE_TIMEOUT_SECONDS = 5
 ROW_PROBE_GRACE_SECONDS = 1
 HELD_ROW_OFFSET = 60
@@ -36,7 +40,7 @@ for name in ["picker-hunt", "picker-040"]:
             if fault == "timeout":
                 command = ["timeout", TIMEOUT_SECONDS, "python3", "-c", "import time; " + producer + "; time.sleep(" + str(PRODUCER_SLEEP_SECONDS) + ")"]
             elif fault == "crash":
-                command = ["python3", "-c", producer + "; raise SystemExit(139)"]
+                command = ["python3", "-c", producer + "; raise SystemExit(" + str(CRASH_EXIT) + ")"]
             else:
                 prefix = "PICKER_HUNT DONE 1 checks, 0 failed\n"
                 if fault == "sigpipe":
@@ -93,6 +97,9 @@ with tempfile.TemporaryDirectory(prefix="picker-selection-runner-check-") as scr
     qml.write_text('''#!/bin/sh
 printf '%s\\n' 'selection runner sentinel' >&2
 printf '%s\\n' 'picker-selection QML: 1 checks, 0 failed'
+scratch=$(dirname "$1")
+if [ -f "$scratch/.flea-test-sandbox" ]; then marked=marked; else marked=unmarked; fi
+printf 'selection scratch %s %s\\n' "$marked" "$scratch"
 exit "$PICKER_QML_STATUS"
 ''')
     qml.chmod(STUB_EXECUTABLE_MODE)
@@ -106,6 +113,13 @@ exit "$PICKER_QML_STATUS"
         failures += not ok
         print(("PASS " if ok else "FAIL ") + "picker-selection preserves output and exit=" + str(status)
               + " observed=" + str(result.returncode) + " printed=" + str(bool(result.stdout)))
+        # Sample input: selection scratch marked /home/flea-sandbox/flea-picker-selection.AbC123
+        scratch_line = re.search(r"selection scratch (marked|unmarked) (\S+)", result.stdout)
+        checks += 1
+        ok = bool(scratch_line) and scratch_line.group(1) == "marked" and not Path(scratch_line.group(2)).exists()
+        failures += not ok
+        print(("PASS " if ok else "FAIL ") + "F49 picker-selection scratch is marked and removed, exit=" + str(status)
+              + " saw=" + (" ".join(scratch_line.groups()) if scratch_line else "none"))
 
 with tempfile.TemporaryDirectory(prefix="picker-missing-helper-") as scratch:
     probe = Path(scratch)
@@ -210,6 +224,60 @@ LOCATE
         print(("PASS " if ok else "FAIL ") + name + " missing row fails before held offset")
         if not ok:
             print(result.stderr.strip())
+
+# Sample input: ui/PickerChrome.qml:72 `opacity: available ? 1 : 0.55` names no token for the dim.
+bare = []
+for path in sorted((REPO / "ui").glob("Picker*.qml")):
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        if re.search(r"\bopacity:.*\d*\.\d", line):
+            bare.append(path.name + ":" + str(number))
+chrome = (REPO / "ui/PickerChrome.qml").read_text()
+checks += 1
+ok = not bare and "opacity: available ? 1 : Theme.disabledOpacity" in chrome
+failures += not ok
+print(("PASS " if ok else "FAIL ") + "F39 picker dims an unavailable control through Theme.disabledOpacity"
+      + (": bare opacity literal at " + ", ".join(bare) if bare else ""))
+
+# Sample input: a rows fixture `"p": <mode digits>` or a `SystemExit(<status digits>)` with no named constant.
+for name, value, what in (("picker-focus-helper.py", stat.S_IFREG | 0o644, "regular-file mode"),
+                          ("picker-runner-check.py", 128 + signal.SIGSEGV, "crash status")):
+    lines = (REPO / "tests" / name).read_text().splitlines()
+    bare = [str(number) for number, line in enumerate(lines, 1)
+            if re.search(r"(?<![\w.])" + str(value) + r"(?![\w.])", line) and not re.match(r"[A-Z_]+ = ", line)]
+    checks += 1
+    failures += bool(bare)
+    print(("FAIL " if bare else "PASS ") + "F47 " + name + " names its " + what
+          + (": bare literal at line " + ", ".join(bare) if bare else ""))
+
+# Sample input: `try:r=json.load(open(sys.argv[1]))` directly under `# Sample input: {"response": 0}`.
+lines = (REPO / "tests/picker-hunt.sh").read_text().splitlines()
+bare = [str(number) for number, line in enumerate(lines, 1)
+        if "json.load(" in line and not re.match(r"\s*#\s*Sample input:", lines[number - 2])]
+checks += 1
+failures += bool(bare)
+print(("FAIL " if bare else "PASS ") + "F48 every picker-hunt inline JSON parser has a sample-input comment above it"
+      + (": missing above line " + ", ".join(bare) if bare else ""))
+
+# Sample input: `case "$name" in picker-040) continue ;; esac` exempts a suite that neither list names.
+run_all = (REPO / "tests/run-all.sh").read_text()
+listed = re.search(r'^headless=".*\bpicker-040\b', run_all, re.M) or re.search(r"^picker-040\|", run_all, re.M)
+exempt = re.search(r'case "\$name" in[^\n]*picker-040', run_all)
+checks += 1
+ok = bool(listed) and not exempt
+failures += not ok
+print(("PASS " if ok else "FAIL ") + "F45 run-all names picker-040 in a list and exempts nothing"
+      + ("" if listed else ": in neither list") + (": a case clause exempts it" if exempt else ""))
+
+# Sample input: `win.marks = [{path: ...}]` hands the picker a selection that a one-file request never lets a user make.
+hunt_qml = (REPO / "tests/picker-hunt.qml").read_text()
+assigned = [str(number) for number, line in enumerate(hunt_qml.splitlines(), 1) if re.search(r"\bwin\.marks\s*=[^=]", line)]
+multiple_validate = re.search(r"refuse-validate\) multiple=true", (REPO / "tests/picker-hunt.sh").read_text())
+checks += 1
+ok = not assigned and bool(multiple_validate)
+failures += not ok
+print(("PASS " if ok else "FAIL ") + "F46 refuse-validate marks through Space in a multiple request"
+      + (": win.marks assigned at line " + ", ".join(assigned) if assigned else "")
+      + ("" if multiple_validate else ": the request is not multiple"))
 
 print(f"picker-runner-check: {checks} checks, {failures} failed")
 raise SystemExit(bool(failures))

@@ -69,7 +69,7 @@ Item {
         property bool available: true
         // A mark that is live but not the one in force, like the picker's inactive view mark.
         property bool dimmed: false
-        opacity: available ? 1 : 0.55
+        opacity: available ? 1 : Theme.disabledOpacity
         enabled: available
         activeFocusOnTab: available
         Keys.onTabPressed: function(event) { root.picker.stepFocus(control, (event.modifiers & Qt.ShiftModifier) !== 0) }
@@ -95,7 +95,7 @@ Item {
             NumberAnimation { duration: 150; easing.type: Easing.OutQuad }
         }
 
-        // A disabled primary keeps its frame and wash under the control's 0.55 opacity.
+        // A disabled primary keeps its frame and wash under the control's disabled opacity.
         readonly property color frame: control.primary
             ? Theme.color.accentFrame : Theme.color.muted
 

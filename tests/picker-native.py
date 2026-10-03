@@ -25,6 +25,10 @@ OBJECT = "/org/freedesktop/portal/desktop"
 DEADLINE = 20
 # A refused sort draws nothing to wait for, and a key that lands later still changes the order the next Back checks.
 NO_EVENT_WAIT_S = 0.5
+# Hyprland reports a window's goal geometry while it still animates there, so a capture shoots until two shots in a row match.
+SETTLE_SHOT_INTERVAL_S = 0.1
+# A caret flips every 500 ms and a flip splits one pair, so nine pairs hold a matching one unless shots sit half a period apart.
+SETTLE_MAX_SHOTS = 10
 checks = 0
 processes = []
 current = None
@@ -154,6 +158,17 @@ def wait(label, predicate):
 
 def drive(*args):
     return run(["omarchy-drive", *args], drive_env)
+
+
+def settled_picture(name, shoot, sleep=time.sleep):
+    previous = None
+    for _ in range(SETTLE_MAX_SHOTS):
+        picture = shoot()
+        if picture == previous:
+            return picture
+        previous = picture
+        sleep(SETTLE_SHOT_INTERVAL_S)
+    raise AssertionError(f"{name}: the picture kept changing across {SETTLE_MAX_SHOTS} shots")
 
 
 def windows():
@@ -346,7 +361,13 @@ class Request:
         output = guard(root / f"{self.name}-{label}.png")
         if output.exists():
             raise AssertionError(f"screenshot would reuse {output}")
-        drive("shot", output, self.title)
+        scratch = guard(root / f"{self.name}-{label}.settling.png")
+        def shoot():
+            scratch.unlink(missing_ok=True)
+            drive("shot", scratch, self.title)
+            return scratch.read_bytes()
+        settled_picture(f"{self.name}-{label}", shoot)
+        move(scratch, output)
         check(f"{self.name}: fresh native screenshot", output.is_file() and output.stat().st_size > 0, str(output))
         write(root / f"{self.name}-{label}.json", json.dumps(self.state()))
 
@@ -566,6 +587,8 @@ def test_failure():
         check("backend loss advertises only cancellation", after["hints"] == "Esc cancel", after["hints"])
         check("backend loss keeps enabled Cancel focused", any(
             control["name"] == "Cancel" and control["focused"] and control["enabled"] for control in after["controls"]), after["controls"])
+        held = lost.until("a lost listing worker keeps the rows and draws no empty hero", lambda state: state["listingFailed"] and state["total"] > 0 and not state["emptyHero"])
+        check("backend loss draws no empty hero over retained rows", held["rows"] and not held["emptyHero"], held["emptyHero"])
         lost.capture("unavailable")
         if mode == "open": lost.key("-k", "Escape")
         else: lost.click("Cancel")

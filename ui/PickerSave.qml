@@ -14,6 +14,7 @@ Item {
     readonly property alias fieldItem: field
     readonly property alias scrollItem: body
     readonly property alias uriItem: outputUri
+    readonly property alias statusItem: statusLine
     readonly property string outPath: Picker.join(root.picker.path, root.picker.saveName)
     readonly property string uri: Format.fileUri(root.outPath)
     readonly property string askedName: root.picker.saveName || root.picker.req.name
@@ -123,12 +124,13 @@ Item {
                 }
             }
             Text {
+                id: statusLine
                 width: parent.width
                 visible: text.length > 0
                 text: root.refused ? "Refused · " + root.askedName + " · " + Picker.NAME_REFUSED
                     : root.picker.saveError || (root.picker.saveCollision ? root.picker.saveName + " already exists here · review before continuing" : "")
                 textFormat: Text.PlainText
-                wrapMode: Text.WrapAnywhere
+                wrapMode: Text.Wrap
                 color: Theme.color.error
                 font { family: Theme.font.family; pixelSize: Theme.font.caption }
             }
