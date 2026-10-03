@@ -23,6 +23,8 @@ PROCESS_POLL_SECONDS = 0.1
 PICKER_TIMEOUT_STATUS = 124
 PR_SET_CHILD_SUBREAPER = 36
 PR_GET_CHILD_SUBREAPER = 37
+# tests/ui.sh makes the suite's run root here whatever TMPDIR says, so the runtime controls use the same short parent.
+RUN_ROOT_PARENT = "/tmp"
 
 temporary_scratch = None
 if len(sys.argv) == 1:
@@ -532,7 +534,7 @@ def socket_depth_case():
     room = namespace["SOCKET_PATH_MAX_BYTES"] - len(tail)
     assert fits("/" + "r" * (room - 1)), "a socket path of exactly the limit was refused"
     assert not fits("/" + "r" * room), "a socket path one byte over the limit was accepted"
-    with tempfile.TemporaryDirectory(prefix="capsweep-rt-") as parent:
+    with tempfile.TemporaryDirectory(prefix="capsweep-rt-", dir=RUN_ROOT_PARENT) as parent:
         first = namespace["private_runtime"](parent)
         second = namespace["private_runtime"](parent)
         assert first != second and first.is_dir() and second.is_dir(), "two picker runs shared one runtime dir"
