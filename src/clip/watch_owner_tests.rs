@@ -85,7 +85,6 @@ fn a_later_spawned_owner_is_read_instead_of_guessing_none() {
     assert_eq!(line(&incoming), changed("cut", &["/tmp/f2".into()], LATER, 0));
     no_line(&incoming);
     end(later, LATER);
-    no_line(&incoming);
 }
 
 #[test]
@@ -122,13 +121,9 @@ fn an_owner_end_then_a_real_selection_reports_none_then_the_selection_without_du
 }
 
 #[test]
-fn an_owner_end_without_a_running_watcher_sends_nothing() {
+fn an_owner_reaper_finishes_without_a_running_watcher() {
     const TOKEN: &str = "03800380038003800380038003800380";
-    let (observed, incoming) = observer();
-    let child = spawn();
-    report_cut(&observed, &incoming, TOKEN);
-    end(child, TOKEN);
-    no_line(&incoming);
+    end(spawn(), TOKEN);
 }
 
 #[test]

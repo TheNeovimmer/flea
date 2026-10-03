@@ -106,6 +106,21 @@ fn flea_owner_pids_are_optional_and_do_not_change_the_token() {
 }
 
 #[test]
+fn parse_flea_has_adjacent_samples_for_both_payload_forms() {
+    const SAMPLE_TOKEN: &str = "ab12cd34ab12cd34ab12cd34ab12cd34";
+    const SAMPLE_PID: u32 = 1234;
+    let old_payload = format!("copy {}", SAMPLE_TOKEN);
+    let payload = format!("{} {}", old_payload, SAMPLE_PID);
+    let source = include_str!("format.rs");
+    let (before, _) = source.split_once("pub fn parse_flea").unwrap();
+    let sample = format!("// Sample inputs \"{}\" and \"{}\" yield the same operation and token.", old_payload, payload);
+    assert_eq!(before.lines().last(), Some(sample.as_str()), "parse_flea needs both samples directly above the parser");
+    let expected = Some(("copy".to_string(), SAMPLE_TOKEN.to_string()));
+    assert_eq!(parse_flea(old_payload.as_bytes()), expected);
+    assert_eq!(parse_flea(payload.as_bytes()), expected);
+}
+
+#[test]
 fn flea_pid_has_an_adjacent_sample_payload() {
     const SAMPLE_TOKEN: &str = "ab12cd34ab12cd34ab12cd34ab12cd34";
     const SAMPLE_PID: u32 = 1234;

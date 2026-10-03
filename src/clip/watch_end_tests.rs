@@ -6,6 +6,15 @@ const TOKEN: &str = "038a038a038a038a038a038a038a038a";
 const CHILD_TEST: &str = "clip::watch::tests::end::stand_in_owner";
 const OWNER_WATCHDOG: Duration = Duration::from_secs(15);
 const SIGKILL: i32 = 9;
+const INITIAL_OFFER: u32 = 20;
+const SENTINEL_OFFER: u32 = INITIAL_OFFER + 2;
+const FOREIGN_OFFER: u32 = INITIAL_OFFER + 1;
+const LIVE_OWNER_OFFER: u32 = SENTINEL_OFFER + 1;
+const WARMUP_OFFER: u32 = INITIAL_OFFER - 1;
+const NEXT_OWNER_OFFER: u32 = INITIAL_OFFER + 1;
+const SELECTION_COUNT: u32 = 100;
+const FLEA_RECEIVES: usize = 2;
+const ONE_RECEIVE: usize = 1;
 
 struct Child(std::process::Child);
 
@@ -126,7 +135,7 @@ impl Watching {
         ]);
         let conn = self.conn.as_mut().unwrap();
         offer(conn, id, &[format::FLEA, format::GNOME]);
-        serve_n(conn, &answers, 2);
+        serve_n(conn, &answers, FLEA_RECEIVES);
         assert_eq!(field_str(&changed(&self.incoming), "token").as_deref(), Some(token));
     }
 
@@ -139,7 +148,7 @@ impl Watching {
         let conn = self.conn.as_mut().unwrap();
         offer(conn, id, &[format::GNOME]);
         let answers = HashMap::from([(format::GNOME.into(), format::build_gnome("copy", &["/tmp/new".into()]))]);
-        serve_n(conn, &answers, 1);
+        serve_n(conn, &answers, ONE_RECEIVE);
         let line = changed(&self.incoming);
         assert_eq!(field_str(&line, "clip").as_deref(), Some("copy"), "{}", line);
         assert_eq!(field_str_array(&line, "paths"), vec!["/tmp/new"]);
@@ -176,20 +185,20 @@ fn t1_a_reserved_selection_never_reports_none() {
     if isolated("t1_a_reserved_selection_never_reports_none") { return; }
     let mut owner = child();
     let mut watching = Watching::new();
-    watching.report(10, TOKEN, Some(owner.0.id()));
+    watching.report(INITIAL_OFFER, TOKEN, Some(owner.0.id()));
     owner.0.kill().unwrap();
     let mut fresh = watching.fresh();
     let callback = read_start(&mut fresh);
-    offer(&mut fresh, 10, &[format::FLEA, format::GNOME]);
+    offer(&mut fresh, INITIAL_OFFER, &[format::FLEA, format::GNOME]);
     fresh.send(callback, CALLBACK_DONE, &[], &[]).unwrap();
     let answers = HashMap::from([
         (format::FLEA.into(), format!("cut {} {}", TOKEN, owner.0.id()).into_bytes()),
         (format::GNOME.into(), format::build_gnome("cut", &["/tmp/a".into()])),
     ]);
-    serve_n(&mut fresh, &answers, 2);
+    serve_n(&mut fresh, &answers, FLEA_RECEIVES);
     assert!(fresh.next_raw(MS).unwrap().is_none(), "the reread completes without another request");
     assert!(watching.incoming.try_recv().is_err(), "the completed reread must not guess none");
-    watching.sentinel(11);
+    watching.sentinel(SENTINEL_OFFER);
     assert!(watching.incoming.try_recv().is_err(), "same token emits nothing");
 }
 
@@ -198,7 +207,7 @@ fn t2_an_unrelated_window_reports_one_empty_read() {
     if isolated("t2_an_unrelated_window_reports_one_empty_read") { return; }
     let mut owner = child();
     let mut windows = [Watching::new(), Watching::new()];
-    for window in &mut windows { window.report(10, TOKEN, Some(owner.0.id())); }
+    for window in &mut windows { window.report(INITIAL_OFFER, TOKEN, Some(owner.0.id())); }
     owner.0.kill().unwrap();
     for window in &mut windows {
         let mut fresh = window.fresh();
@@ -206,7 +215,7 @@ fn t2_an_unrelated_window_reports_one_empty_read() {
         empty(&mut fresh, callback);
         assert_eq!(field_str(&changed(&window.incoming), "clip").as_deref(), Some("none"));
         window.conn.as_mut().unwrap().send(READER_DEVICE, DEVICE_SELECTION, &0u32.to_ne_bytes(), &[]).unwrap();
-        window.sentinel(11);
+        window.sentinel(SENTINEL_OFFER);
         assert!(window.incoming.try_recv().is_err(), "exactly one none");
     }
 }
@@ -217,16 +226,16 @@ fn t3_a_new_report_wins_in_both_reply_orders() {
     for watcher_first in [true, false] {
         let mut owner = child();
         let mut watching = Watching::new();
-        watching.report(10, TOKEN, Some(owner.0.id()));
+        watching.report(INITIAL_OFFER, TOKEN, Some(owner.0.id()));
         owner.0.kill().unwrap();
         let mut fresh = watching.fresh();
         let callback = read_start(&mut fresh);
-        if watcher_first { watching.sentinel(11); }
+        if watcher_first { watching.sentinel(SENTINEL_OFFER); }
         empty(&mut fresh, callback);
         assert!(fresh.next_raw(MS).unwrap().is_none());
         if !watcher_first {
             assert_eq!(field_str(&changed(&watching.incoming), "clip").as_deref(), Some("none"));
-            watching.sentinel(11);
+            watching.sentinel(SENTINEL_OFFER);
         }
         watching.finish();
         assert!(watching.incoming.try_recv().is_err(), "a late read cannot erase the newer report");
@@ -247,13 +256,13 @@ fn t4_old_and_foreign_pids_never_trigger_a_read() {
     if isolated("t4_old_and_foreign_pids_never_trigger_a_read") { return; }
     let mut owner = child();
     let mut watching = Watching::new();
-    for (id, pid) in [(10, None), (12, Some(std::process::id()))] {
+    for (id, pid) in [(INITIAL_OFFER, None), (FOREIGN_OFFER, Some(std::process::id()))] {
         let token = format!("{:032x}", id);
         watching.report(id, &token, pid);
         assert_eq!(counts().1, 0, "an invalid pid holds no exit trigger");
     }
-    watching.sentinel(13);
-    watching.report(14, TOKEN, Some(owner.0.id()));
+    watching.sentinel(SENTINEL_OFFER);
+    watching.report(LIVE_OWNER_OFFER, TOKEN, Some(owner.0.id()));
     assert!(counts().1 > 0, "a live Flea owner arms the positive control");
     owner.0.kill().unwrap();
     let mut fresh = watching.fresh();
@@ -272,7 +281,7 @@ fn t5_a_hundred_selections_leave_no_waiter_or_fd_leak() {
     let before = counts();
     let mut watching = Watching::new();
     // A completed exit read proves the reusable waiter has started before its thread is counted.
-    watching.report(9, TOKEN, Some(first.0.id()));
+    watching.report(WARMUP_OFFER, TOKEN, Some(first.0.id()));
     first.0.kill().unwrap();
     let mut fresh = watching.fresh();
     let callback = read_start(&mut fresh);
@@ -280,7 +289,7 @@ fn t5_a_hundred_selections_leave_no_waiter_or_fd_leak() {
     assert_eq!(field_str(&changed(&watching.incoming), "clip").as_deref(), Some("none"));
     assert!(fresh.next_raw(MS).unwrap().is_none());
     drop(fresh);
-    for id in 10..110 {
+    for id in INITIAL_OFFER..INITIAL_OFFER + SELECTION_COUNT {
         watching.report(id, &format!("{:032x}", id), Some(owner.0.id()));
         let (waiters, pidfds, _) = counts();
         assert_eq!(waiters, 1, "only one owner-exit waiter across copies");
@@ -298,13 +307,13 @@ fn a_failed_exit_read_reports_nothing_and_never_retries() {
     if isolated("a_failed_exit_read_reports_nothing_and_never_retries") { return; }
     let mut owner = child();
     let mut watching = Watching::new();
-    watching.report(10, TOKEN, Some(owner.0.id()));
+    watching.report(INITIAL_OFFER, TOKEN, Some(owner.0.id()));
     owner.0.kill().unwrap();
     let mut fresh = watching.fresh();
     hello(&mut fresh);
     let _ = expect(&mut fresh, DISPLAY, DISPLAY_SYNC);
     drop(fresh);
-    watching.sentinel(11);
+    watching.sentinel(SENTINEL_OFFER);
     watching.finish();
     assert!(watching.incoming.try_recv().is_err(), "a failed read says nothing");
     watching.listener.set_nonblocking(true).unwrap();
@@ -318,21 +327,21 @@ fn an_exit_read_of_a_new_flea_selection_arms_that_owners_exit() {
     let mut old = child();
     let mut next = child();
     let mut watching = Watching::new();
-    watching.report(10, TOKEN, Some(old.0.id()));
+    watching.report(INITIAL_OFFER, TOKEN, Some(old.0.id()));
     old.0.kill().unwrap();
     let mut fresh = watching.fresh();
     let callback = read_start(&mut fresh);
-    offer(&mut fresh, 10, &[format::FLEA, format::GNOME]);
+    offer(&mut fresh, INITIAL_OFFER, &[format::FLEA, format::GNOME]);
     fresh.send(callback, CALLBACK_DONE, &[], &[]).unwrap();
     let answers = HashMap::from([
         (format::FLEA.into(), format!("cut {} {}", NEXT, next.0.id()).into_bytes()),
         (format::GNOME.into(), format::build_gnome("cut", &["/tmp/a".into()])),
     ]);
-    serve_n(&mut fresh, &answers, 2);
+    serve_n(&mut fresh, &answers, FLEA_RECEIVES);
     assert_eq!(field_str(&changed(&watching.incoming), "token").as_deref(), Some(NEXT));
     let conn = watching.conn.as_mut().unwrap();
-    offer(conn, 11, &[format::FLEA, format::GNOME]);
-    serve_n(conn, &answers, 2);
+    offer(conn, NEXT_OWNER_OFFER, &[format::FLEA, format::GNOME]);
+    serve_n(conn, &answers, FLEA_RECEIVES);
     next.0.kill().unwrap();
     let mut fresh = watching.fresh();
     let callback = read_start(&mut fresh);
