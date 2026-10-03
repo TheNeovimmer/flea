@@ -18,6 +18,12 @@ function isLinkTarget(url) {
     return scheme === "http:" || scheme === "https:" || scheme === "mailto:"
 }
 
+// Sample input: "https://a.example" and "mailto:a@b.example" are external; "./x.md", "#top" and "ftp://h/f" are not.
+function isExternalLink(url) {
+    var seen = MdHtml.normalizedTarget(MdUrl.canonicalUrl(url))
+    return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(seen) && isLinkTarget(url)
+}
+
 // Resolve one bracket pair into text, a -1-i token reference or null; raw is its label and target its destination.
 function resolvePair(raw, target, bang, dir, ink, tokens) {
     // A backslash before punctuation is consumed by the backslash: the alt and the label display the punctuation, never the escape.

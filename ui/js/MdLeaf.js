@@ -119,18 +119,71 @@ function splitRow(line) {
     return cells
 }
 
+// Rows per table chunk and items per list chunk: a longer container is emitted as consecutive blocks the outer ListView draws lazily.
+var TABLE_CHUNK_ROWS = 24
+var LIST_CHUNK_ITEMS = 32
+
+// Sample input: '<a href="https://x.example/long"><font color="#eeeeee">a</font></a>' draws 1 character, "**bo**ld&#33;" draws 5.
+function renderedLength(cell) {
+    // Raw markers are markup (a literal one arrives as an entity), so they go before entities decode.
+    var plain = String(cell).replace(/<[^>"]*("[^"]*"[^>"]*)*>/g, "").replace(/[*_~`]/g, "")
+    return plain.replace(/&#(\d+);/g, function (m, n) {
+        return String.fromCharCode(parseInt(n, 10))
+    }).replace(/&(amp|lt|gt|quot);/g, "?").length
+}
+
+// Sample input: ["a", "b&#33;&#33;"] measures "b&#33;&#33;" (3 characters drawn) over "a" (1).
+function longestCell(cells) {
+    var best = ""
+    var bestLength = 0
+    for (var i = 0; i < cells.length; i++) {
+        var drawn = renderedLength(cells[i])
+        if (drawn > bestLength) {
+            best = cells[i]
+            bestLength = drawn
+        }
+    }
+    return best
+}
+
 // The board's table as data for ui/PreviewMarkdown.qml: Qt's Markdown importer drops style attributes.
+// measure holds each column's widest cell over the whole table, so chunks of one table share their column widths.
 function tableBlock(head, aligns, rows, inlineOf) {
     var cols = head.length
     for (var i = 0; i < rows.length; i++)
         cols = Math.max(cols, rows[i].length)
-    return {
-        type: "table",
-        head: head.map(inlineOf),
-        aligns: aligns,
-        rows: rows.map(function (cells) { return cells.map(inlineOf) }),
-        cols: cols
+    var shownHead = head.map(inlineOf)
+    var shownRows = rows.map(function (cells) { return cells.map(inlineOf) })
+    var measure = []
+    for (var c = 0; c < cols; c++) {
+        var column = [c < shownHead.length ? shownHead[c] : ""]
+        for (var r = 0; r < shownRows.length; r++)
+            column.push(c < shownRows[r].length ? shownRows[r][c] : "")
+        measure.push(longestCell(column))
     }
+    return { type: "table", head: shownHead, aligns: aligns, rows: shownRows, cols: cols, measure: measure }
+}
+
+// Splits a long table into consecutive blocks: the header stays on the first, the rest are marked joined.
+function chunkTable(table) {
+    if (table.rows.length <= TABLE_CHUNK_ROWS)
+        return [table]
+    var chunks = []
+    for (var at = 0; at < table.rows.length; at += TABLE_CHUNK_ROWS)
+        chunks.push({ type: "table", head: at === 0 ? table.head : [], aligns: table.aligns,
+            rows: table.rows.slice(at, at + TABLE_CHUNK_ROWS), cols: table.cols, measure: table.measure, joined: at > 0 })
+    return chunks
+}
+
+// Splits a long list into consecutive blocks: numbering continues through start, and last keeps one marker column width.
+function chunkList(list) {
+    if (list.items.length <= LIST_CHUNK_ITEMS)
+        return [list]
+    var chunks = []
+    for (var at = 0; at < list.items.length; at += LIST_CHUNK_ITEMS)
+        chunks.push({ type: "list", ordered: list.ordered, start: list.start + at,
+            items: list.items.slice(at, at + LIST_CHUNK_ITEMS), last: list.start + list.items.length - 1, joined: at > 0 })
+    return chunks
 }
 
 // Sample input: "![alt](a.png)", "![alt][ref]" or one raw <img> tag; balanced brackets nest, backslashes skip.

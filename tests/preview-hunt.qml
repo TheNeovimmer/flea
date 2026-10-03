@@ -18,7 +18,7 @@ ShellRoot {
     property bool scrollFramePending: false
     readonly property int fileAScrollY: 120
     readonly property int fileBScrollY: 240
-    readonly property bool overlayCase: scenario === "scroll" || scenario === "source-key"
+    readonly property bool overlayCase: scenario === "scroll" || scenario === "source-key" || scenario === "size-key"
 
     function check(label, actual, expected) {
         checks++
@@ -116,9 +116,15 @@ ShellRoot {
                 root.finish()
                 return
             }
-            if (scenario === "source-key") {
+            if (scenario === "source-key" || scenario === "size-key") {
                 if (stage === 0) {
                     nativePane = paneComponent.createObject(quick.parent)
+                    // The same size signal connection WindowBody.qml installs, with a listing-key positive control.
+                    nativePane.textSizeRequested.connect(function (direction) {
+                        if (direction === 0) Flea.ViewState.followTextSize()
+                        else Flea.ViewState.stepTextSize(direction)
+                    })
+                    if (scenario === "size-key") Flea.ViewState.setTextSize({ mode: 14 })
                     quick.pane = nativePane
                     nativePane.open(root.fixture)
                     nativeKeys = Qt.createQmlObject("import QtTest; TestEvent {}", nativePane.listArea)
@@ -127,6 +133,12 @@ ShellRoot {
                     return
                 }
                 if (stage === 1 && !nativePane.listInFlight && nativePane.total > 0) {
+                    if (scenario === "size-key") {
+                        nativePane.listArea.forceActiveFocus()
+                        nativeKeys.keyClick(Qt.Key_Plus, Qt.ControlModifier | Qt.ShiftModifier, -1)
+                        root.check("text-size chord works in listing control", Flea.ViewState.textSize.mode, 16)
+                        Flea.ViewState.setTextSize({ mode: 14 })
+                    }
                     quick.open(root.fixture + "/a.md", "text-x-generic", 2000, "Markdown document", "")
                     nativePane.listArea.forceActiveFocus()
                     root.stage = 2
@@ -134,6 +146,15 @@ ShellRoot {
                     return
                 }
                 if (stage === 2 && quick.status === "ready" && Date.now() - root.stamp > 300) {
+                    if (scenario === "size-key") {
+                        root.check("Markdown starts at pinned text size", Flea.ViewState.textSize.mode, 14)
+                        nativeKeys.keyClick(Qt.Key_Plus, Qt.ControlModifier | Qt.ShiftModifier, -1)
+                        // 0.3.7 behaviour (ruled): preview context refuses the listing size chord, so the size stays 14.
+                        root.check("text-size chord is refused while Markdown Quick Look is shown", Flea.ViewState.textSize.mode, 14)
+                        root.stage = 3
+                        root.stamp = Date.now()
+                        return
+                    }
                     root.check("Quick Look starts rendered", Flea.ViewState.markdownView, "rendered")
                     nativeKeys.keyClickChar("r", Qt.NoModifier, -1)
                     root.check("real r key switches Quick Look to Source", Flea.ViewState.markdownView, "source")

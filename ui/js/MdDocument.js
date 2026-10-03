@@ -34,6 +34,10 @@ function writer(state, dir, chrome, ink) {
         if (text.trim().length > 0)
             out.push({ type: "run", text: text })
     }
+    function pushAll(blocks) {
+        for (var b = 0; b < blocks.length; b++)
+            out.push(blocks[b])
+    }
     function flushRun() {
         var plain = []
         for (var i = 0; i < run.length; i++) {
@@ -69,8 +73,8 @@ function writer(state, dir, chrome, ink) {
             if (event.text.length > 0)
                 out.push({ type: "heading", level: event.level, text: inlineOf(Leaf.headingSafe(event.text)) })
         } else if (event.type === "table") {
-            out.push(Leaf.tableBlock(event.head, event.aligns, event.rows,
-                function (text) { return inlineOf(text, true, true) }))
+            pushAll(Leaf.chunkTable(Leaf.tableBlock(event.head, event.aligns, event.rows,
+                function (text) { return inlineOf(text, true, true) })))
         } else if (event.type === "quote") {
             var quote = visibleLines(event.lines, state)
             if (quote.join("\n").trim().length === 0)
@@ -88,7 +92,7 @@ function writer(state, dir, chrome, ink) {
                 items.push(inlineOf(item.join("\n")))
             }
             if (items.length > 0)
-                out.push({ type: "list", ordered: event.ordered, start: event.start, items: items })
+                pushAll(Leaf.chunkList({ type: "list", ordered: event.ordered, start: event.start, items: items }))
         } else {
             out.push(event)
         }
