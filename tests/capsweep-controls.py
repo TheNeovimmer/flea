@@ -512,13 +512,17 @@ while True:
 theme_home = scratch / "theme-home"
 theme_path = theme_home / ".local/state/omarchy/current/theme/colors.toml"
 theme_path.parent.mkdir(parents=True)
-def socket_depth_case():
+def picker_functions(names, namespace):
     nodes = [node for node in picker_tree.body
-             if (isinstance(node, ast.FunctionDef) and node.name == "socket_fits")
+             if (isinstance(node, ast.FunctionDef) and node.name in names)
              or (isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
                  and all(isinstance(target, ast.Name) and target.id.isupper() for target in node.targets))]
-    namespace = {"os": os}
     exec(compiled(nodes), namespace)
+    return namespace
+
+
+def socket_depth_case():
+    namespace = picker_functions(("socket_fits", "private_runtime"), {"os": os, "Path": Path, "tempfile": tempfile})
     fits = namespace["socket_fits"]
     # Sample input: the runtime dir of native-sweep038r4n, where Quickshell failed to start its IPC server.
     deep = "/home/flea-sandbox/sweep038r4n.p23fAc3R/fixture/flea-ui-fixtures-2459770/capsweep-current/picker/run"
@@ -528,7 +532,45 @@ def socket_depth_case():
     room = namespace["SOCKET_PATH_MAX_BYTES"] - len(tail)
     assert fits("/" + "r" * (room - 1)), "a socket path of exactly the limit was refused"
     assert not fits("/" + "r" * room), "a socket path one byte over the limit was accepted"
-    print("CAPSWEEP_CONTROLS F16 refused=2 accepted=2")
+    with tempfile.TemporaryDirectory(prefix="capsweep-rt-") as parent:
+        first = namespace["private_runtime"](parent)
+        second = namespace["private_runtime"](parent)
+        assert first != second and first.is_dir() and second.is_dir(), "two picker runs shared one runtime dir"
+        assert (first.stat().st_mode & 0o777) == 0o700, "the runtime dir is not private"
+        deep = Path(parent) / ("d" * room)
+        deep.mkdir()
+        try:
+            namespace["private_runtime"](deep)
+        except AssertionError as refusal:
+            assert "too deep for an IPC socket" in str(refusal), refusal
+        else:
+            raise AssertionError("a runtime dir was made where its socket cannot bind")
+    reply_owner_case()
+    print("CAPSWEEP_CONTROLS F16 refused=4 accepted=4")
+
+
+def reply_owner_case():
+    # A child with a crafted environment stands in for the picker: owned_window reads /proc/<pid>/environ.
+    with tempfile.TemporaryDirectory(prefix="capsweep-reply-") as base:
+        runtime, home, binary = Path(base) / "runtime", Path(base) / "home", Path(base) / "flea"
+        for directory in (runtime, home, Path(base) / "elsewhere"):
+            directory.mkdir()
+        for label, reply, refused in (("inside", runtime / "reply", False), ("outside", Path(base) / "elsewhere/reply", True)):
+            environment = {"HOME": str(home), "FLEA_PICKER_REPLY": str(reply), "FLEA_BIN": str(binary)}
+            child = subprocess.Popen(["sleep", str(CONTROL_TIMEOUT_SECONDS)], env=environment)
+            try:
+                namespace = picker_functions(("owned_window",), {
+                    "os": os, "Path": Path, "title": "Owned test picker", "picker_pid": child.pid,
+                    "runtime": runtime, "theme_home": home, "picker_env": {"FLEA_BIN": str(binary)},
+                    "windows": lambda: [{"title": "Owned test picker", "pid": child.pid, "address": "0xabc"}]})
+                try:
+                    namespace["owned_window"]()
+                    assert not refused, "a picker replying outside its runtime dir was accepted"
+                except AssertionError as refusal:
+                    assert refused and "foreign reply" in str(refusal), f"{label}: {refusal}"
+            finally:
+                child.kill()
+                child.wait(timeout=PROCESS_WAIT_SECONDS)
 
 
 theme_path.write_bytes((repo / "tests/fixtures/cool-dawn/colors.toml").read_bytes())

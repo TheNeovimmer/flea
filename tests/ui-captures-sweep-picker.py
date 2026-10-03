@@ -53,10 +53,15 @@ def socket_fits(runtime):
     return len(os.fsencode(socket)) <= SOCKET_PATH_MAX_BYTES
 
 
-# The fixture root sits too deep for a socket path, so each picker run takes a private dir in the suite's run root.
-runtime = Path(tempfile.mkdtemp(prefix="picker-run-", dir=run_root))
-if not socket_fits(runtime):
-    raise AssertionError(f"picker runtime dir is too deep for an IPC socket: {runtime}")
+def private_runtime(parent):
+    # The fixture root sits too deep for a socket path, so each picker run takes a private dir in the suite's run root.
+    made = Path(tempfile.mkdtemp(prefix="picker-run-", dir=parent))
+    if not socket_fits(made):
+        raise AssertionError(f"picker runtime dir is too deep for an IPC socket: {made}")
+    return made
+
+
+runtime = private_runtime(run_root)
 picker_env["XDG_RUNTIME_DIR"] = str(runtime)
 picker_env["HOME"] = str(theme_home)
 picker_env["WAYLAND_DISPLAY"] = str(Path(drive_env["XDG_RUNTIME_DIR"]) / drive_env["WAYLAND_DISPLAY"])
