@@ -3408,6 +3408,7 @@ waits for its consumer.
 ## Testing
 
 - `tests/picker-040.sh` is 0.3.10's Picker040 acceptance suite for path entry and collision review, expected red until then and named in run-all's not-run list.
+- `tests/xwstate.sh` is a headless run-all suite: it drives two shipped windows offscreen through `tests/xwstate-control.qml`, a test-only IPC seam copied into a sandbox. It proves the received tab keeps its cursor, settings and Favorites reach the idle window, a cut in one window stays there with one "Copied in this window only" notice and never reaches the other, a window pasting its own cut moves the file and empties its clipboard, and undo crosses windows. Offscreen there is no compositor, so sharing a clipboard between two windows is the native `clipboard` case of `tests/ui.sh`, not this suite's.
 
 - **The warning gate covers `#[cfg(test)]`, which is the point of it.** `cargo build` cannot see
   anything inside a test module, so a build-only gate hides every unused import and dead helper
