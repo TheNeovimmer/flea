@@ -358,13 +358,24 @@ class StaticGateTests(unittest.TestCase):
             self.assertEqual(gates.qmlcachegen_binary(), sys.executable)
         with mock.patch.dict(os.environ, {'FLEA_QMLCACHEGEN': str(self.root / 'missing')}):
             with mock.patch.object(gates, 'QMLCACHEGEN_PATHS', (sys.executable,)):
+                with self.assertRaisesRegex(ValueError, 'FLEA_QMLCACHEGEN is not an executable file: ' + str(self.root / 'missing')):
+                    gates.qmlcachegen_binary()
+        self.write('ui/plain.txt', 'not a compiler\n')
+        with mock.patch.dict(os.environ, {'FLEA_QMLCACHEGEN': str(self.root / 'ui/plain.txt')}):
+            with mock.patch.object(gates, 'QMLCACHEGEN_PATHS', (sys.executable,)):
+                with self.assertRaisesRegex(ValueError, 'not an executable file'):
+                    gates.qmlcachegen_binary()
+        env = {k: v for k, v in os.environ.items() if k != 'FLEA_QMLCACHEGEN'}
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch.object(gates, 'QMLCACHEGEN_PATHS', (str(self.root / 'absent'), sys.executable)):
                 self.assertEqual(gates.qmlcachegen_binary(), sys.executable)
 
     def test_duplicate_member_missing_qmlcachegen_is_loud(self):
         override = str(self.root / 'override')
         fallback = str(self.root / 'fallback')
-        with mock.patch.dict(os.environ, {'FLEA_QMLCACHEGEN': override}):
-            with mock.patch.object(gates, 'QMLCACHEGEN_PATHS', (fallback,)):
+        env = {k: v for k, v in os.environ.items() if k != 'FLEA_QMLCACHEGEN'}
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch.object(gates, 'QMLCACHEGEN_PATHS', (override, fallback)):
                 with self.assertRaisesRegex(ValueError, 'qmlcachegen unavailable; tried: ' + override + ', ' + fallback):
                     gates.compile_qml(self.root, ['ui/A.qml'])
         self.assertEqual(gates.compile_qml(self.root, []), [])

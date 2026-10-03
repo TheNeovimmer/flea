@@ -675,12 +675,16 @@ def qml_undeclared_read(root, files, sample=False):
 
 
 def qmlcachegen_binary():
-    paths = [os.environ['FLEA_QMLCACHEGEN']] if os.environ.get('FLEA_QMLCACHEGEN') else []
-    paths.extend(QMLCACHEGEN_PATHS)
-    for binary in paths:
+    override = os.environ.get('FLEA_QMLCACHEGEN')
+    # An explicit override is used or refused, never skipped for a system binary.
+    if override:
+        if Path(override).is_file() and os.access(override, os.X_OK):
+            return override
+        raise ValueError('FLEA_QMLCACHEGEN is not an executable file: ' + override)
+    for binary in QMLCACHEGEN_PATHS:
         if Path(binary).is_file() and os.access(binary, os.X_OK):
             return binary
-    raise ValueError('qmlcachegen unavailable; tried: ' + ', '.join(paths))
+    raise ValueError('qmlcachegen unavailable; tried: ' + ', '.join(QMLCACHEGEN_PATHS))
 
 
 # Sample input: Item { property int wire: 0; property int wire: 1 }
