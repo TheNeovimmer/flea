@@ -3,6 +3,7 @@ import QtTest
 import Quickshell
 import "flea" as Flea
 import "flea/js/Keymap.js" as Keymap
+import "flea/js/Picker.js" as Picker
 
 // Drive the real picker and its real backend, with native Qt key events.
 ShellRoot {
@@ -46,6 +47,18 @@ ShellRoot {
         keys.mouseClick(button, button.width / 2, button.height / 2, Qt.LeftButton, Qt.NoModifier, -1)
     }
     function press(key, modifiers) { keys.keyClick(key, modifiers || Qt.NoModifier, -1) }
+    function doubleActivateCursor() {
+        var row = win.rowFor(win.cursorIndex)
+        check("double activation sees real row", !!row, true)
+        if (!row) return
+        var path = Picker.rowPath(win.path, row.n)
+        win.doubleActivate(win.cursorIndex, path, path)
+        check("double activation checks mark with backend", win.markRequest > 0, true)
+        var sent = win.nextCheck
+        win.doubleActivate(win.cursorIndex, path, path)
+        check("busy double activation sends no second check", win.nextCheck, sent)
+        check("busy double activation keeps Space refusal", win.message, "Selection is still being checked.")
+    }
 
     Component.onCompleted: {
         var comp = Qt.createComponent("flea/PickerWindow.qml")
@@ -125,6 +138,8 @@ ShellRoot {
                     root.press(Qt.Key_A, Qt.ControlModifier)
                 } else if (scenario === "remember") {
                     win.setView(win.viewMode === "grid" ? "list" : "grid")
+                } else if (scenario === "double-mark") {
+                    root.press(Qt.Key_Space)
                 } else if (scenario === "control" || (scenario === "marked-open" || scenario === "marked-enter")) {
                     root.press(win.viewMode === "grid" ? Qt.Key_Right : Qt.Key_Down)
                     root.check("arrow moves the real cursor", win.rowFor(win.cursorIndex).n, "b.txt")
@@ -164,6 +179,14 @@ ShellRoot {
                     root.check("save or single-file rows have no boxes", cells.every(function(cell) { return cell.markable === false }), true)
                 } else if (scenario === "remember") {
                     root.check("view switch updates remembered state", Flea.ViewState.pickerView, win.viewMode)
+                } else if (scenario === "double-mark") {
+                    root.check("Space retains first mark", win.marks.map(function(mark) { return mark.path }), [win.path + "/a.txt"])
+                    root.press(win.viewMode === "grid" ? Qt.Key_Right : Qt.Key_Down)
+                    root.check("double click targets unmarked b.txt", win.rowFor(win.cursorIndex).n, "b.txt")
+                    root.doubleActivateCursor()
+                    root.stage = 2
+                    root.stamp = Date.now()
+                    return
                 } else if (scenario === "control" || (scenario === "marked-open" || scenario === "marked-enter")) {
                     root.check("Space marks one real file", win.marks.length, 1)
                     if ((scenario === "marked-open" || scenario === "marked-enter")) {
@@ -181,8 +204,23 @@ ShellRoot {
                 root.finish()
             }
             if (stage === 2 && Date.now() - root.stamp > 1000) {
-                if (scenario === "range-shrink") root.check("range shrink keeps only anchor", win.marks.length, 1)
+                if (scenario === "double-mark") {
+                    if (win.markRequest) return
+                    root.check("double click adds b.txt and retains a.txt", win.marks.map(function(mark) { return mark.path }), [win.path + "/a.txt", win.path + "/b.txt"])
+                    root.check("marking double click leaves request open", win.answered, false)
+                    root.check("marking double click never starts submission", win.submitting, false)
+                    root.doubleActivateCursor()
+                    root.stage = 3
+                    root.stamp = Date.now()
+                    return
+                } else if (scenario === "range-shrink") root.check("range shrink keeps only anchor", win.marks.length, 1)
                 else root.check("marked Return or Enter writes portal answer", win.answered, true)
+                root.finish()
+            }
+            if (stage === 3 && Date.now() - root.stamp > 1000 && !win.markRequest) {
+                root.check("second double click unmarks only b.txt", win.marks.map(function(mark) { return mark.path }), [win.path + "/a.txt"])
+                root.check("unmarking double click leaves request open", win.answered, false)
+                root.check("unmarking double click never starts submission", win.submitting, false)
                 root.finish()
             }
         }

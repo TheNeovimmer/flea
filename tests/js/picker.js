@@ -131,18 +131,21 @@ function run(check) {
     check("S reverses an inherited kind order rather than refusing it",
           order(Sort.reverseOrder("kind", true)), "kind asc")
 
-    // A file double click marks the row when unmarked, then accepts; a multiple accept sends every mark.
+    // One-file double clicks accept; several-file double clicks toggle the file's mark.
     var single = Picker.request('{"mode":"open","multiple":false}')
     var multi = Picker.request('{"mode":"open","multiple":true}')
     var file = {d: false, p: 0, s: 1, m: 1, i: "text"}
     var folder = {d: true, p: 0, s: 0, m: 1, i: "folder"}
     check("a double click on an unmarked file marks then sends it", Picker.doubleAction(single, file, "/a/b.txt", "/a/b.txt", []), "markAccept")
     check("a double click on a marked file sends it", Picker.doubleAction(single, file, "/a/b.txt", "/a/b.txt", [{path: "/a/b.txt", bytes: 3}]), "accept")
-    check("a multiple double click on an unmarked file marks then sends", Picker.doubleAction(multi, file, "/a/c.txt", "/a/c.txt", [{path: "/a/b.txt", bytes: 3}]), "markAccept")
-    check("a multiple double click on a marked file sends the marks", Picker.doubleAction(multi, file, "/a/b.txt", "/a/b.txt", [{path: "/a/b.txt", bytes: 3}]), "accept")
+    check("a multiple double click on an unmarked file toggles its mark", Picker.doubleAction(multi, file, "/a/c.txt", "/a/c.txt", [{path: "/a/b.txt", bytes: 3}]), "mark")
+    check("a multiple double click on a marked file toggles its mark", Picker.doubleAction(multi, file, "/a/b.txt", "/a/b.txt", [{path: "/a/b.txt", bytes: 3}]), "mark")
     check("a double click on a folder still opens it", Picker.doubleAction(single, folder, "/a/sub", "/a/sub", []), "open")
+    check("a multiple double click on a folder still opens it", Picker.doubleAction(multi, folder, "/a/sub", "/a/sub", []), "open")
+    check("a multiple second tap on another path changes nothing", Picker.doubleAction(multi, file, "/a/b.txt", "/a/c.txt", []), "none")
     check("a folder request never sends on double click", Picker.doubleAction(Picker.request('{"directory":true}'), file, "/a/b.txt", "/a/b.txt", []), "none")
     check("save mode never sends on double click", Picker.doubleAction(Picker.request('{"mode":"save"}'), file, "/a/b.txt", "/a/b.txt", []), "none")
+    check("savefiles mode never sends on double click", Picker.doubleAction(Picker.request('{"mode":"savefiles","multiple":true}'), file, "/a/b.txt", "/a/b.txt", []), "none")
     check("a second tap on another row sends nothing", Picker.doubleAction(single, file, "/a/b.txt", "/a/c.txt", []), "none")
     check("a double click with no first tap sends nothing", Picker.doubleAction(single, file, "/a/b.txt", "", []), "none")
     check("a double click on no row sends nothing", Picker.doubleAction(single, null, "/a/b.txt", "/a/b.txt", []), "none")

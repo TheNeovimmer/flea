@@ -259,12 +259,16 @@ ShellRoot {
             win.accept()
         }
 
-        // A file double click marks the row when unmarked, then accepts; a multiple accept sends every mark.
+        // File double clicks toggle marks in several-file requests; one-file requests mark when needed, then accept.
         function doubleActivate(index, rowPath, firstPath) {
             var row = win.rowFor(index)
             var choice = Picker.doubleAction(win.req, row, rowPath, firstPath, win.marks)
             if (choice === Picker.DOUBLE_OPEN) {
                 win.open(Picker.rowPath(win.path, row.n))
+                return
+            }
+            if (choice === Picker.DOUBLE_MARK) {
+                win.toggleMark(index)
                 return
             }
             if (choice !== Picker.DOUBLE_ACCEPT && choice !== Picker.DOUBLE_MARK_ACCEPT) {

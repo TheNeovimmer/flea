@@ -31,7 +31,7 @@ phases=0
 burst_extra_files=64
 for preset in default mac vim windows; do
 for view in list grid; do
-    for scenario in control marked-open marked-enter remember cursor-open cursor-enter cursor-multi cursor-button all all-wide range range-up range-click range-burst range-shrink save-marks single-marks folder empty; do
+    for scenario in control marked-open marked-enter remember cursor-open cursor-enter cursor-multi cursor-button double-mark all all-wide range range-up range-click range-burst range-shrink save-marks single-marks folder empty; do
         if [ "$preset" = vim ] || [ "$preset" = windows ]; then
             case "$scenario" in cursor-open|cursor-enter|marked-open|marked-enter) ;; *) continue ;; esac
         fi
@@ -100,6 +100,10 @@ PY
         elif ! grep -q 'PICKER_HUNT DONE.*0 failed' <<< "$output"; then
             echo 'FAIL picker hunt did not reach a clean verdict'
             printf '%s\n' "$output" | tail -8
+            failures=$((failures+1))
+        fi
+        if [ "$scenario" = double-mark ] && [ -e "$phase/reply.json" ]; then
+            echo 'FAIL marking double clicks wrote a portal reply'
             failures=$((failures+1))
         fi
         if [ "$scenario" = remember ]; then

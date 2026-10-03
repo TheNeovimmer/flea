@@ -120,7 +120,7 @@ ListView {
         TapHandler {
             id: tap
             acceptedButtons: Qt.LeftButton
-            // One tap moves the cursor, a second tap on the same path opens or sends, a box tap toggles.
+            // One tap moves the cursor; a same-path double tap opens, accepts or marks by mode; a box tap toggles.
             onTapped: function (eventPoint, button) {
                 var was = root.picker.cursorIndex
                 var extending = (tap.point.modifiers & Qt.ShiftModifier) !== 0 && root.picker.marksAllowed
