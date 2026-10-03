@@ -4,8 +4,6 @@ use std::sync::mpsc::{channel, RecvTimeoutError};
 
 // A hang bound for a handshake that must arrive, never a duration the code under test is held to.
 const TEST_WATCHDOG: Duration = Duration::from_secs(5);
-// Outlives the test so only the withdraw signal can end the stand-in owner.
-const TEST_OWNER_LIFETIME_SECS: &str = "30";
 const ECHILD: i32 = 10;
 
 #[test]
@@ -146,22 +144,46 @@ fn withdraw_kills_only_what_this_process_owns() {
 fn a_live_owner_clear_withdraws_without_verifying_the_selection() {
     use std::os::unix::process::ExitStatusExt;
     const TOKEN: &str = "cb1bcb1bcb1bcb1bcb1bcb1bcb1bcb1b";
-    let mut child = std::process::Command::new("/bin/sleep")
-        .arg(TEST_OWNER_LIFETIME_SECS)
+    const SIGKILL: c_int = 9;
+    struct StandIn(std::process::Child);
+    impl Drop for StandIn {
+        fn drop(&mut self) {
+            forget(TOKEN, self.0.id());
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let mut child = StandIn(std::process::Command::new("/bin/sleep")
+        .arg("infinity")
         .spawn()
-        .unwrap();
-    let pid = child.id();
+        .unwrap());
+    let pid = child.0.id();
     remember(TOKEN, pid);
     let called = std::cell::Cell::new(false);
     let line = crate::backend::clipreq::clear_token_line(TOKEN, |_| {
         called.set(true);
         Ok(false)
     });
-    if called.get() {
-        child.kill().unwrap();
+    let (done, ended) = channel();
+    let waiter = std::thread::spawn(move || {
+        wait_for_exit(pid);
+        forget(TOKEN, pid);
+        let _ = done.send(child.0.wait());
+    });
+    let status = ended.recv_timeout(TEST_WATCHDOG);
+    if status.is_err() {
+        // The map lock keeps this pid unreaped while the watchdog signals it.
+        let owned = owners().lock().unwrap_or_else(|e| e.into_inner());
+        if owned.get(TOKEN) == Some(&pid) {
+            unsafe { kill(pid as c_int, SIGKILL); }
+        }
     }
-    forget(TOKEN, pid);
-    let status = child.wait().unwrap();
+    waiter.join().unwrap();
+    let status = match status {
+        Ok(status) => status.unwrap(),
+        Err(RecvTimeoutError::Timeout) => panic!("the withdraw signal never ended the owner"),
+        Err(RecvTimeoutError::Disconnected) => panic!("the owner waiter ended without an exit status"),
+    };
     assert!(!called.get(), "a live owner must be withdrawn without the verified clear");
     assert_eq!(status.signal(), Some(SIGTERM));
     assert_eq!(line, r#"{"t":"clip","op":"clear","ok":true,"cleared":true}"#);
