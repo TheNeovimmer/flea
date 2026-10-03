@@ -70,7 +70,7 @@ tests/js/settings.js 337
 tests/js/tap.js 333
 tests/js/uistate.js 370
 tests/js/watch.js 354
-tests/js/xwwatch.js 312
+tests/js/xwwatch.js 310
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 399
@@ -99,7 +99,7 @@ ui/NetworkMounts.qml 849
 ui/OpenWithDialog.qml 608
 ui/Pane.qml 1018
 ui/PaneMenuActions.qml 464
-ui/PaneWire.qml 577
+ui/PaneWire.qml 575
 ui/PermissionsDialog.qml 629
 ui/PickerWindow.qml 781
 ui/Preview.qml 723
@@ -115,7 +115,7 @@ ui/Theme.qml 414
 ui/TrashView.qml 475
 ui/ViewState.qml 538
 ui/WindowBody.qml 571
-ui/js/Anchor.js 393
+ui/js/Anchor.js 405
 ui/js/Devices.js 366
 ui/js/Filter.js 257
 ui/js/Focus.js 435

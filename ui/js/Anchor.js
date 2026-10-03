@@ -2,11 +2,17 @@
 
 .import "AnchorHold.js" as Hold
 
+// Anchor locate IDs sit above QML's signed-int menu IDs, keeping the reply askers disjoint.
+var LOCATE_ID_FLOOR = 2147483648
+var locateSeq = LOCATE_ID_FLOOR
+
 // Re-reading the open listing without moving the user off it, for a foreign change and Flea's own delete.
 
 // A re-read renumbers every row, so it waits while an interaction owns the rows, while any paths asker resolves, or while unheld marks have no resolver.
-function busy(pane) {
+function busy(pane, anchor) {
     if (!pane)
+        return true
+    if (anchor && anchor.path === pane.path)
         return true
     if (pane.menuActions && (pane.menuActions.pendingAction || pane.menuActions.pendingActivation === true))
         return true
@@ -176,12 +182,12 @@ function failAnchor(pane, anchor, rowH) {
     return null
 }
 
-// PaneWire's located guard: a reply for another directory belongs to nobody here, a refused one ends the anchor.
-// Sample input: takeLocated(pane, anchor, { directory: "/d", ok: true, matches: [{ path: "/d/a", index: 3 }] }).
+// PaneWire's located guard consumes only this anchor's request; a refused own reply ends the anchor.
+// Sample input: { directory: "/d", id: 2147483649, transferId: 0, ok: true, matches: [{ path: "/d/a", index: 3 }] }.
 function takeLocated(pane, anchor, message, rowH) {
     if (!anchor || !anchor.locateSent || anchor.locateDone)
         return { handled: false, anchor: anchor }
-    if (!message || message.directory !== pane.path)
+    if (!message || message.directory !== pane.path || message.id !== anchor.locateId || message.transferId !== 0)
         return { handled: false, anchor: anchor }
     if (message.ok === false)
         return { handled: true, anchor: failAnchor(pane, anchor, rowH) }
@@ -272,9 +278,15 @@ function apply(pane, anchor, rowH) {
         }
         if (paths.length > 0 && !anchor.locateSent) {
             var sent = false
+            anchor.locateId = ++locateSeq
             try {
-                if (pane.backend && pane.backend.send) { pane.backend.send({ c: "locate", paths: paths }); sent = true }
-                else if (pane.backend && pane.backend.askLocate) { pane.backend.askLocate(paths); sent = true }
+                if (pane.backend && pane.backend.send) {
+                    pane.backend.send({ c: "locate", paths: paths, id: anchor.locateId })
+                    sent = true
+                } else if (pane.backend && pane.backend.askLocate) {
+                    pane.backend.askLocate(paths, anchor.locateId)
+                    sent = true
+                }
             } catch (e) { console.warn("flea: anchor locate ask failed, landing on the clamped index") }
             if (!sent)
                 return failAnchor(pane, anchor, rowH)

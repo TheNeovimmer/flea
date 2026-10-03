@@ -2,10 +2,7 @@
 .import "../../ui/js/Nav.js" as Nav
 .import "../../ui/js/Selection.js" as Selection
 
-// xw5: another window's change shows at once with the marks kept on the same files. The watched
-// re-read no longer waits for a bare selection; it carries the marks across by file identity and
-// the cursor back by name, with no scroll. Its own suite because tests/js/watch.js sits at the
-// 300-line hard cap, and because this is one behaviour rather than another navigation.
+// xw5: watched re-reads keep marks by file identity and cursor by name without waiting for a bare selection or scrolling.
 
 function pane() {
     var p = {
@@ -274,10 +271,11 @@ function run(check) {
     var locatedPane = staged(["a", "b"], 0, [])
     var locatedAnchor = Anchor.watched(locatedPane)
     locatedAnchor.locateSent = true
+    locatedAnchor.locateId = Anchor.LOCATE_ID_FLOOR + 1
     var wrong = Anchor.takeLocated(locatedPane, locatedAnchor, { directory: "/other", matches: [] })
     check("a locate reply for another directory keeps the anchor standing",
           wrong.handled === false && wrong.anchor === locatedAnchor, true)
-    var refused = Anchor.takeLocated(locatedPane, locatedAnchor, { directory: "/d", ok: false, matches: [] })
+    var refused = Anchor.takeLocated(locatedPane, locatedAnchor, { directory: "/d", id: locatedAnchor.locateId, transferId: 0, ok: false, matches: [] })
     check("a refused locate ends the anchor", refused.handled === true && refused.anchor === null, true)
 
     // F18: a navigation while the anchor waits for its paths reply drops the anchor.

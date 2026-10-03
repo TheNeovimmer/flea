@@ -79,6 +79,8 @@ drain_wait_s=30
 run_root=$(mktemp -d /tmp/flea-ui-run.XXXXXXXX) || fail "cannot create native evidence sandbox"
 printf 'flea native evidence\n' > "$run_root/.flea-test-sandbox"
 export FLEA_TEST_RUN_ROOT="$run_root"
+# A surviving copied-UI window can prove abandonment only after this runner has gone.
+printf '%s\n' "$$" > "$run_root/runner.pid" || fail "cannot record the native evidence runner"
 evidence_dir="$run_root/evidence"
 # Quickshell truncates nothing, so each case gets a fresh log and every log lands in the run log.
 flea_log="$run_root/flea.log"
@@ -3923,13 +3925,13 @@ xw_second_window() {
     FLEA_UI="$ui_copy" FLEA_BIN="$flea_bin" \
         setsid nohup "$flea_bin" --gui "$start_path" >>"$run_root/flea.A.log" 2>&1 </dev/null &
     pid=""
-    for _attempt in $(seq 1 300); do
+    for _attempt in $(seq 1 "$xw_window_poll_tries"); do
         pid=$(xw_owned_pid_for_arg "$ui_copy") && [[ -n "$pid" ]] && break || pid=""
-        sleep 0.05
+        sleep "$xw_ui_poll_s"
     done
     [[ -n "$pid" ]] || fail "xwwatch: the second window's process never appeared"
     addr=""
-    for _attempt in $(seq 1 300); do
+    for _attempt in $(seq 1 "$xw_window_poll_tries"); do
         addr=$(xw_window_addr_now "$pid")
         status=$?
         if [[ $status -ne 0 ]]; then
@@ -3939,7 +3941,7 @@ xw_second_window() {
             break
         fi
         addr=""
-        sleep 0.05
+        sleep "$xw_ui_poll_s"
     done
     [[ -n "$addr" ]] || fail "xwwatch: pid $pid never showed a window"
     printf '%s\n' "$addr"
@@ -4040,6 +4042,8 @@ xw_poll_s=0.2
 xw_ui_poll_s=0.05
 # Keep dialog and editor waits bounded to five seconds of sleep plus their IPC round trips.
 xw_ui_poll_tries=100
+# Allow each second-window startup stage fifteen seconds of polling plus its IPC round trips.
+xw_window_poll_tries=300
 
 xw_wait_total() {
     local pid="$1" want="$2" step="$3" start=$SECONDS seen
@@ -4066,7 +4070,7 @@ xw_wait_row() {
                 return 0
             fi
         done
-        sleep 0.2
+        sleep "$xw_poll_s"
     done
     fail "xwwatch: $step never showed $want"
 }
@@ -4102,27 +4106,47 @@ xw_menu_seek() {
     fail "xwwatch: could not reach $want, cursor stalled at $(xw_ipc "$pid" contextMenuCursor)"
 }
 
-# Flea windows from an aborted earlier run never match flea_pids (their cmdline carries the
-# UI copy, not "$flea_ui"), so a case that aborts past its teardown would leak one into every
-# later case's assert_window. Sweep them here, before anything owned is running: an operator's
-# own window never carries FIXTURE_ROOT in its cmdline.
+# Sample environ: FLEA_TEST_RUN_ROOT=/tmp/flea-ui-run.ABCDEFGH, an exact assignment identifying one run.
+xw_process_abandoned() {
+    local process environment candidate_root="" line runner runner_process
+    process=$(flea_process_dir "$1") || return 1
+    environment=$(tr '\0' '\n' 2>/dev/null < "$process/environ") || return 1
+    while IFS= read -r line; do
+        [[ "$line" == FLEA_TEST_RUN_ROOT=* ]] || continue
+        [[ -z "$candidate_root" ]] || return 1
+        candidate_root=${line#FLEA_TEST_RUN_ROOT=}
+    done <<< "$environment"
+    [[ "$candidate_root" == /* ]] || return 1
+    local run_root="$candidate_root"
+    flea_process_owned "$1" || return 1
+    [[ -e "$run_root" ]] || return 0
+    [[ -d "$run_root" && -O "$run_root" && -f "$run_root/.flea-test-sandbox" ]] || return 1
+    runner=$(cat "$run_root/runner.pid" 2>/dev/null) || return 1
+    # Sample runner.pid: 12345; a missing or malformed runner record proves no abandonment.
+    [[ "$runner" =~ ^[1-9][0-9]*$ ]] || return 1
+    runner_process=$(flea_process_dir "$runner") || return 1
+    [[ ! -d "$runner_process" ]]
+}
+
+# Copied-UI windows qualify only when their exact run marker proves that the runner or its root is gone.
 xw_sweep_stale() {
-    local pid pids
+    local pid pids process
     pids=$(pgrep -x qs) || return 0
     for pid in $pids; do
-        if tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq -- "$FIXTURE_ROOT"; then
-            kill "$pid" || [[ ! -d "/proc/$pid" ]] || fail "xwwatch: could not stop stale test window $pid"
+        process=$(flea_process_dir "$pid") || return 1
+        if tr '\0' ' ' 2>/dev/null < "$process/cmdline" | grep -Fq -- "$FIXTURE_ROOT"; then
+            xw_process_abandoned "$pid" || continue
+            kill "$pid" || [[ ! -d "$process" ]] || fail "xwwatch: could not stop stale test window $pid"
         fi
     done
 }
 
-# A total that matches while rows are still landing proves nothing, so the promptness waits above
-# are followed by this before any mark or cursor is read.
+# Matching totals require settled rows before any mark or cursor is read.
 xw_settled() {
     local pid="$1" n
-    for ((n = 0; n < 100; n++)); do
+    for ((n = 0; n < xw_ui_poll_tries; n++)); do
         [[ "$(xw_ipc "$pid" listInFlight 2>/dev/null)" == "false" ]] && return 0
-        sleep 0.05
+        sleep "$xw_ui_poll_s"
     done
     fail "xwwatch: the listing never settled"
 }

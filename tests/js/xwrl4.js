@@ -111,7 +111,7 @@ function run(check) {
         var wrongDir = Anchor.takeLocated(big, bigAnchor, { directory: "/other", matches: matches })
         check("F2 a locate reply for another directory keeps the anchor standing",
               wrongDir.handled === false && wrongDir.anchor === bigAnchor, true)
-        var taken = Anchor.takeLocated(big, bigAnchor, { directory: "/d", ok: true, matches: matches })
+        var taken = Anchor.takeLocated(big, bigAnchor, { directory: "/d", id: bigAnchor.locateId, transferId: 0, ok: true, matches: matches })
         check("F2 the locate reply for this directory resolves the anchor",
               taken.handled === true && taken.anchor === null, true)
     }

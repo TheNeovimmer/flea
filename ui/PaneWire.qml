@@ -56,10 +56,8 @@ Item {
     // One burst of writes is one re-read: the timer absorbs later notifications instead of being
     // restarted by them, so a directory under continuous change settles rather than never firing.
     readonly property int watchMs: 400
-    // What holds the owed re-read back, decided in ui/js/Anchor.js busy() so tests/js/collide.js can redden on it.
-    // A bare selection is not among them: xw5 re-anchors the marks by file identity, so the change
-    // applies at once with the same files marked instead of waiting for the selection to clear.
-    readonly property bool watchBusy: Anchor.busy(pane)
+    // Interactions and unfinished anchors hold the re-read; bare selections carry across by file identity.
+    readonly property bool watchBusy: Anchor.busy(pane, root.anchor)
     // ui/Pane.qml reaches the three through these: openCursor takes the opener, the menu reads the
     // Taildrop peers, and the two share actions call the other two.
     readonly property alias opener: opener

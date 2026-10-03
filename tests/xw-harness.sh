@@ -6,8 +6,8 @@ repo=$PWD
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 source_file=${XW_HARNESS_SOURCE:-$repo/tests/ui.sh}
-# Sample source assignments: ipc_call_timeout=2s, ipc_call_kill_after=1s, xw_hang_s=30, xw_poll_s=0.2, xw_ui_poll_s=0.05, xw_ui_poll_tries=100.
-eval "$(sed -nE '/^(ipc_call_timeout|ipc_call_kill_after|xw_hang_s|xw_poll_s|xw_ui_poll_s|xw_ui_poll_tries)=/p' "$source_file")" || exit 1
+# Sample source assignments: ipc_call_timeout=2s, xw_hang_s=30, xw_poll_s=0.2, xw_ui_poll_s=0.05, xw_ui_poll_tries=100, xw_window_poll_tries=300.
+eval "$(sed -nE '/^(ipc_call_timeout|ipc_call_kill_after|xw_hang_s|xw_poll_s|xw_ui_poll_s|xw_ui_poll_tries|xw_window_poll_tries)=/p' "$source_file")" || exit 1
 for helper in case_xwwatch xw_ipc xw_click_background xw_cleanup owned_trash_monitors xw_editor_diagnostics xw_wait_dialog; do
     eval "$(sed -n "/^$helper()/,/^}/p" "$source_file")" || exit 1
 done
@@ -228,11 +228,38 @@ if [[ "$result" != 0 || "$poll" != "$probe_poll_s" ]]; then
     failures=$((failures + 1))
 fi
 
+# A row wait must use the same interval as the count wait, with one failed read before success.
+result=0
+(
+    eval "$(sed -n '/^xw_wait_row()/,/^}/p' "$source_file")" || exit 1
+    xw_poll_s=$probe_poll_s
+    ready=0
+    xw_ipc() {
+        if [[ "$2" == total ]]; then
+            printf '1\n'
+        elif (( ready )); then
+            printf 'wanted|file\n'
+        else
+            printf 'other|file\n'
+        fi
+    }
+    sleep() {
+        printf '%s\n' "$1" > "$tmp/row-poll"
+        ready=1
+    }
+    xw_wait_row "$pidA" wanted 'named row poll'
+) > "$tmp/row-poll.log" 2>&1 || result=$?
+poll=$(cat "$tmp/row-poll" 2>/dev/null)
+if [[ "$result" != 0 || "$poll" != "$probe_poll_s" ]]; then
+    printf 'FAIL xw_wait_row ignored named poll interval: %s\n' "$poll"
+    failures=$((failures + 1))
+fi
+
 # A nondefault interval must reach each UI helper's sleep without waiting in real time.
 probe_ui_poll_s=0.03
 # Three failed attempts distinguish the named cap from the original hundred polls.
 probe_ui_poll_tries=3
-for helper in xw_wait_editor xw_wait_dialog; do
+for helper in xw_wait_editor xw_wait_dialog xw_settled; do
     : > "$tmp/$helper-polls"
     result=0
     (
@@ -251,8 +278,10 @@ for helper in xw_wait_editor xw_wait_dialog; do
         }
         if [[ "$helper" == xw_wait_editor ]]; then
             xw_wait_editor "$pidA" 'named UI poll'
-        else
+        elif [[ "$helper" == xw_wait_dialog ]]; then
             xw_wait_dialog "$pidA" open 'named UI poll'
+        else
+            xw_settled "$pidA"
         fi
     ) > "$tmp/$helper-poll.log" 2>&1 || result=$?
     poll=$(sort -u "$tmp/$helper-polls")
@@ -266,6 +295,105 @@ for helper in xw_wait_editor xw_wait_dialog; do
         failures=$((failures + 1))
     fi
 done
+
+# Both second-window stages must obey one named attempt cap and the shared UI interval.
+probe_window_tries=2
+for stage in process address; do
+    result=0
+    : > "$tmp/window-polls"
+    : > "$tmp/window-attempts"
+    (
+        eval "$(sed -n '/^xw_second_window()/,/^}/p' "$source_file")" || exit 1
+        xw_window_poll_tries=$probe_window_tries
+        xw_ui_poll_s=$probe_ui_poll_s
+        mkdir() { :; }
+        cp() { :; }
+        setsid() { :; }
+        sleep() { printf '%s\n' "$1" >> "$tmp/window-polls"; }
+        xw_owned_pid_for_arg() {
+            if [[ "$stage" == process ]]; then
+                printf 'process\n' >> "$tmp/window-attempts"
+            else
+                printf '111\n'
+            fi
+        }
+        xw_window_addr_now() {
+            printf 'address\n' >> "$tmp/window-attempts"
+        }
+        xw_second_window /d "$tmp/ui-copy"
+    ) > "$tmp/window-$stage.log" 2>&1 || result=$?
+    poll=$(sort -u "$tmp/window-polls")
+    attempts=$(wc -l < "$tmp/window-attempts")
+    if [[ "$result" != 1 || "$poll" != "$probe_ui_poll_s" ]]; then
+        printf 'FAIL second-window %s ignored named interval: %s\n' "$stage" "$poll"
+        failures=$((failures + 1))
+    fi
+    if [[ "$result" != 1 ]] || (( attempts != probe_window_tries )); then
+        printf 'FAIL second-window %s ignored named attempts: %s\n' "$stage" "$attempts"
+        failures=$((failures + 1))
+    fi
+done
+
+# Stale sweep probes replace every process read and signal with a private fake /proc tree.
+result=0
+(
+    for helper in flea_process_owned xw_process_abandoned xw_sweep_stale; do
+        eval "$(sed -n "/^$helper()/,/^}/p" "$source_file" | sed 's|/proc/\$pid|$process_root/$pid|g')" || exit 1
+    done
+    process_root="$tmp/proc"
+    mkdir -p "$process_root"
+    FIXTURE_ROOT="$fixture_root"
+    pgrep() { printf '111\n'; }
+    flea_process_dir() { printf '%s/%s\n' "$process_root" "$1"; }
+    kill() { printf '%s\n' "$*" >> "$tmp/sweep-signals"; }
+    sleep() { :; }
+    checks=0
+    sweep_failures=0
+    for sample in live-peer current-root dead-runner gone-root untagged suffix-marker duplicate-marker unreadable-runner unknown-runner other-command; do
+        rm -rf "$process_root"
+        mkdir -p "$process_root/111"
+        peer_root="$tmp/run-$sample"
+        mkdir -p "$peer_root"
+        : > "$peer_root/.flea-test-sandbox"
+        printf '222\n' > "$peer_root/runner.pid"
+        printf 'qs\0-p\0%s/xwwatch-ui\0' "$FIXTURE_ROOT" > "$process_root/111/cmdline"
+        printf 'FLEA_TEST_RUN_ROOT=%s\0' "$peer_root" > "$process_root/111/environ"
+        expected=0
+        case "$sample" in
+            live-peer) mkdir -p "$process_root/222" ;;
+            current-root)
+                printf 'FLEA_TEST_RUN_ROOT=%s\0' "$run_root" > "$process_root/111/environ"
+                printf '222\n' > "$run_root/runner.pid"
+                mkdir -p "$process_root/222"
+                ;;
+            dead-runner) expected=1 ;;
+            gone-root)
+                rm -rf "$peer_root"
+                expected=1
+                ;;
+            untagged) printf 'USER=gm\0' > "$process_root/111/environ" ;;
+            suffix-marker) printf 'OTHER_FLEA_TEST_RUN_ROOT=%s\0' "$peer_root" > "$process_root/111/environ" ;;
+            duplicate-marker) printf 'FLEA_TEST_RUN_ROOT=%s\0' "$run_root" >> "$process_root/111/environ" ;;
+            unreadable-runner) rm "$peer_root/runner.pid" ;;
+            unknown-runner) printf 'unknown\n' > "$peer_root/runner.pid" ;;
+            other-command) printf 'qs\0-p\0/operator/ui\0' > "$process_root/111/cmdline" ;;
+        esac
+        : > "$tmp/sweep-signals"
+        xw_sweep_stale || exit 1
+        signals=$(wc -l < "$tmp/sweep-signals")
+        checks=$((checks + 1))
+        if (( signals != expected )); then
+            printf 'FAIL stale sweep %s: %s signals, expected %s\n' "$sample" "$signals" "$expected"
+            sweep_failures=$((sweep_failures + 1))
+        fi
+    done
+    printf 'xw-stale: %s checks, %s failed\n' "$checks" "$sweep_failures"
+    (( sweep_failures == 0 ))
+) > "$tmp/stale.log" 2>&1 || result=$?
+cat "$tmp/stale.log"
+if [[ "$result" != 0 ]]; then
+    failures=$((failures + 1))
+fi
 
 for mode in success failure wrong-mark; do
     export mode
@@ -462,5 +590,5 @@ for sample in focused wrong-action unfocused completed missing-file still-open u
         failures=$((failures + 1))
     fi
 done
-printf 'xw-harness: 27 checks (success cleanup, failure cleanup, A background target, pid argv, row refusal, A pid forwarding, B pid forwarding, owned child stop, vanished monitor, New File snapshot, F2 snapshot, both create listings, mark identity, dialog completion snapshot, seven dialog conditions, named IPC bounds, named total poll, editor poll interval and attempts, dialog poll interval and attempts); %s failed\n' "$failures"
+printf 'xw-harness: 35 checks (27 existing checks, named row poll, settled interval and attempts, second-window process and address interval and attempts, stale-sweep group); %s failed\n' "$failures"
 [[ "$failures" == 0 ]]

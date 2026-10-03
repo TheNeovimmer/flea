@@ -3201,15 +3201,21 @@ The sg1 merge into int re-derives three ceilings with `wc -l`: `src/backend/undo
 The xw5r2 merge into int re-derives every exception ceiling with `wc -l`, one row per file. The
 joined watch keeps marks by identity, the failed paths and locate anchors still list and end, and
 the reload requests changed-row counts only when asked. `ui/Pane.qml` is 1018 lines for the writable
-`dragHolding` and awaiting-paths holds beside the existing readonly live-view `dragActive`;
+`dragHolding` and awaiting-paths holds beside the readonly `dragActive`, true while a drag is held or the live view reports one;
 `ui/PaneWire.qml` is 577 for tagged anchor replies and the count-free watch caller.
 `tests/js/drag.js` is 405 with both sides' drag pins, and `tests/js/xwwatch.js` is 312 with every
-cross-window case. `ui/js/Anchor.js` is recorded at 392, over the 300 hard cap, because the joined
+cross-window case. `ui/js/Anchor.js` is recorded at 393, over the 300 hard cap, because the joined
 file owns the watched, delete and preference anchor contracts together; `ui/js/AnchorHold.js` is
 119, keeping the count request and reload notice across deferred paths resolution.
 `tests/js/xwrl4.js` is 263, over soft and under hard, with the row-height, clamp, grid and delayed
 counted-reload pins. `ui/PaneSwap.qml` is 186, applying the watched anchor with row height before
-the preference anchor. `tests/xwsettings-tabs.qml` is 409 for the native immediate-reload, kept-file and selection-clear pins, preserving the two-window watch coverage under xw5. Global limits and checks remain unchanged.
+the preference anchor. `tests/xwsettings-tabs.qml` is 416 for the native immediate-reload, kept-file and selection-clear pins, preserving the two-window watch coverage under xw5. Global limits and checks remain unchanged.
+
+The x5m round 3 fixes re-derive the touched ceilings with `wc -l`: `ui/js/Anchor.js` is 405 for
+request-scoped locate IDs, separate send statements and the unfinished-anchor hold;
+`ui/PaneWire.qml` is 575 and `tests/js/xwwatch.js` is 310 after folding the cited comment blocks
+and updating the locate reply fixture. The new `tests/js/xwanchor-races.js` is 129 lines and
+needs no exception. `tests/xwsettings-tabs.qml` remains 416. Global limits and all checks remain intact.
 
 ## The key table is generated
 
