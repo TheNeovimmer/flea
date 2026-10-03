@@ -381,10 +381,10 @@ sweep_settings() {
     sweep_wait settingsOpen false
     key '?' >/dev/null
     sweep_wait keymapSheetOpen true
-    key tag >/dev/null
-    sweep_wait keymapQuery tag
-    [[ "$(ipc keymapSheetRows)" == *tag* ]] || fail 'capsweep: keymap query lists no tag action'
-    sweep_shot keymap-query-tag
+    key copy >/dev/null
+    sweep_wait keymapQuery copy
+    [[ "$(ipc keymapSheetRows)" == *Copy* ]] || fail 'capsweep: keymap query lists no copy action'
+    sweep_shot keymap-query-copy
     key -k Escape >/dev/null
     sweep_wait keymapSheetOpen false
     kill_flea
