@@ -1894,8 +1894,8 @@ label = "pageForward"
 frontend = "all"
 context = "preview,pdf,media"
 
-# RenderedPreviews callout 1: r switches Rendered and Source while a Markdown Quick Look is
-# open. The listing's r stays rename: the shared text row binds the listing context only, and
+# GM 2026-10-03: r flips the open Markdown Quick Look between rendered and source, and closing
+# it forgets the flip. The listing's r stays rename: the shared text row binds the listing context only, and
 # this row binds the preview context only, so neither reaches the other's surface.
 [[preset]]
 name = "all"

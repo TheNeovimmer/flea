@@ -32,8 +32,14 @@ ShellRoot {
     property bool toggled: false
     property bool preludeDone: false
     property string expectedPath: ""
-    readonly property bool columnHost: scenario < 4
-    readonly property string view: scenario % 2 === 0 ? "rendered" : "source"
+    // Scenarios 0 and 1 are the column at two widths, which only renders; 2 to 5 are Quick Look, rendered then flipped to Source.
+    readonly property int columnScenarios: 2
+    readonly property int lastScenario: 5
+    readonly property int quickScenarioFirst: 2
+    readonly property int quickScenarioLarge: 4
+    readonly property bool columnHost: scenario < columnScenarios
+    // Before the first scenario the prelude flips a standalone pane to Source, and that cell reads the same view.
+    readonly property string view: scenario < 0 || (!columnHost && scenario % 2 === 1) ? "source" : "rendered"
 
     function log(line) { console.log("PREVIEW_LAYOUT " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
@@ -149,16 +155,17 @@ ShellRoot {
     function showCount(n) { shell.count = n; shell.show("edge-" + n + ".md", "text-plain") }
     function begin() {
         shell.scenario++
-        if (shell.scenario === 8) {
+        if (shell.scenario > shell.lastScenario) {
             shell.nextSibling()
             return
         }
         look.close()
         column.row = null
-        column.width = shell.scenario < 2 ? 380 : 760
-        lookHost.width = shell.scenario < 6 ? 500 : 1000
-        lookHost.height = shell.scenario < 6 ? 400 : 800
-        Flea.ViewState.changeLeaf("preview", { markdownView: shell.view })
+        column.width = shell.scenario < 1 ? 380 : 760
+        lookHost.width = shell.scenario < shell.quickScenarioLarge ? 500 : 1000
+        lookHost.height = shell.scenario < shell.quickScenarioLarge ? 400 : 800
+        // The flip lives in the open Quick Look, so the host sets it after the close that forgot the last one.
+        look.markdownSource = shell.view === "source"
         shell.low = 1
         shell.high = 96
         shell.below = 0
@@ -256,7 +263,7 @@ ShellRoot {
     }
     function nextSibling() {
         shell.sibling++
-        shell.scenario = shell.sibling < 4 ? 0 : 4
+        shell.scenario = shell.sibling < 4 ? 0 : shell.quickScenarioFirst
         look.close()
         column.row = null
         column.width = 380

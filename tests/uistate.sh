@@ -216,12 +216,27 @@ out=$(flea_ui '{"preview":{"thumbSize":"huge"}}' 2>&1); rc=$?
 check "a huge thumbnail patch exits 0" "0" "$rc"
 out=$(flea_ui '{"preview":{"thumbSize":"largest"}}' 2>&1); rc=$?
 check "a largest thumbnail patch exits 0" "0" "$rc"
-out=$(flea_ui '{"preview":{"markdownView":"source"}}' 2>&1); rc=$?
-check "a source markdown patch exits 0" "0" "$rc"
-check "the source markdown view landed" "1" "$(grep -c '"markdownView": "source"' "$UI")"
-out=$(flea_ui '{"preview":{"markdownView":"html"}}' 2>&1); rc=$?
-check "a html markdown patch exits 2" "2" "$rc"
-check "and names the key it refused: markdownView" "1" "$(echo "$out" | grep -c "markdownView")"
+# The Markdown view is not a stored choice (GM 2026-10-03): a fresh read holds no leaf and a patch for it is refused.
+fresh
+out=$(flea_ui 2>&1)
+check "a fresh read holds no markdownView" "0" "$(echo "$out" | grep -c 'markdownView')"
+for view in source rendered html; do
+  out=$(flea_ui "{\"preview\":{\"markdownView\":\"$view\"}}" 2>&1); rc=$?
+  check "a $view markdown patch exits 2" "2" "$rc"
+  check "and names the key it refused: markdownView ($view)" "1" "$(echo "$out" | grep -c "markdownView")"
+  check "and writes no state file: markdownView ($view)" "0" "$([ -e "$UI" ] && echo 1 || echo 0)"
+done
+# A state file that still carries the leaf loads, and its other keys stand: the key is an unknown one, kept as read.
+mkdir -p "$STATE/flea"
+printf '{"preview":{"markdownView":"source","thumbSize":"large"},"view":"columns"}\n' > "$UI"
+out=$(flea_ui 2>&1); rc=$?
+check "a state file holding the retired leaf reads exit 0" "0" "$rc"
+check "and prints no error" "0" "$(echo "$out" | grep -ci 'error\|refus')"
+check "and keeps its other preview key" "1" "$(echo "$out" | grep -c '"thumbSize": "large"')"
+check "and keeps its view" "1" "$(echo "$out" | grep -c '"view": "columns"')"
+out=$(flea_ui '{"density":"tight"}' 2>&1); rc=$?
+check "a write over the retired leaf exits 0" "0" "$rc"
+check "and lands" "1" "$(grep -c '"density": "tight"' "$UI")"
 
 # G1: two folder patches both survive, a null forgets one, and two widths behave per key.
 fresh

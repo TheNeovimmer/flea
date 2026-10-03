@@ -198,13 +198,13 @@ QtObject {
         var probe = Qt.createQmlObject('import QtQuick\nQtObject {\n'
             + 'id: item\nproperty var root: ({ path: "/remote/A.md", row: { s: ' + remoteRowBytes + ' }, visible: true, '
             + 'manualHold: false, rowState: "text", isMarkdownRow: true, textLimit: ' + remoteLimitBytes + ', truncateText: true })\n'
-            + 'property var facts: ({ TEXT: "text" })\nproperty var viewState: ({ markdownView: "rendered" })\n'
+            + 'property var facts: ({ TEXT: "text" })\n'
             + 'property bool active: false\nproperty string path: ""\nproperty int size: 0\n'
-            + 'property int maxBytes: ' + defaultReaderLimitBytes + '\nproperty string view: ""\nproperty bool truncate: false\n'
+            + 'property int maxBytes: ' + defaultReaderLimitBytes + '\nproperty bool truncate: false\n'
             + 'property var seen: []\nreadonly property bool tooLarge:' + tooLarge + '\n'
             + 'readonly property string readerPath:' + readerPath + '\n'
             + 'onReaderPathChanged: seen.push(readerPath)\n'
-            + 'function apply() {' + callback.replace(/Facts\./g, "facts.").replace(/ViewState\./g, "viewState.")
+            + 'function apply() {' + callback.replace(/Facts\./g, "facts.")
             + '} }', gate.sandbox)
         // Evaluate the observer before installing bindings so intermediate reader paths are recorded.
         var initialPath = probe.readerPath
@@ -224,6 +224,10 @@ QtObject {
         var column = readSource("../ui/PreviewColumn.qml")
         var shipped = readerGate(source, column)
         check(shipped.guarded, "F47 oversized remote row never exposes FileView path")
+        // GM 2026-10-03: the column never draws Source, so its wiring names no view and reads no stored choice.
+        var wiring = body(column.slice(column.indexOf("id: markdownLoader")), "onLoaded:")
+        check(wiring.indexOf("item.view") < 0 && wiring.indexOf("markdownView") < 0 && wiring.indexOf("ViewState") < 0,
+            "F51 the column Markdown wiring sets no view and reads no stored choice")
         check(shipped.allowed, "F47 allowed row exposes reader path")
         var unguardedPath = source.replace("(root.active && !root.tooLarge) ? root.path", "root.active ? root.path")
         check(unguardedPath !== source && !readerGate(unguardedPath, column).guarded,

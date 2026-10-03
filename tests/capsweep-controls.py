@@ -303,17 +303,18 @@ def release_case():
 
 def second_toggle_case():
     capture = (repo / "tests/ui-captures-sweep.sh").read_text()
-    # Sample input: sweep_wait previewOpen false, then the Markdown if that reopens Quick Look and presses r.
+    # Sample input: sweep_wait previewOpen false, then the Markdown if that checks the column and reopens Quick Look.
     marker = '        sweep_wait previewOpen false\n        if [[ "$tag" == markdown ]]; then\n'
     assert capture.count(marker) == 1, "the second Markdown toggle moved"
     branch = capture.split(marker, 1)[1].split("\n        fi", 1)[0]
     stubs = r"""
 overlay_open=false
 overlay_mode=source
+column_view=rendered
+[[ "$fault" != column ]] || column_view=source
 key() {
     case "$*" in
-        '-k Space') overlay_open=true ;;
-        r) [[ "$good" != true ]] || overlay_mode=rendered ;;
+        '-k Space') overlay_open=true; [[ "$fault" == quicklook ]] || overlay_mode=rendered ;;
         '-k Escape')
             printf 'escape\n' >> "$sweep_root/escapes"
             overlay_open=false
@@ -326,23 +327,27 @@ ipc() {
         bodyPx) printf '14\n' ;;
         previewOpen) printf '%s\n' "$overlay_open" ;;
         previewMarkdownView) printf '%s\n' "$overlay_mode" ;;
-        columnMarkdownText) cat "$sweep_root/previews/notes.md" ;;
+        columnMarkdownView) printf '%s\n' "$column_view" ;;
+        columnMarkdownText) printf 'Release notes\n' ;;
         *) fail "unexpected reader: $1" ;;
     esac
 }
 """
-    for accepted in (False, True):
-        root = shell_root(f"F13-{'good' if accepted else 'bad'}")
-        result = shell_run(root, SHELL_PRELUDE + stubs + branch + "\n", accepted)
+    # The flip lived in the closed Quick Look: the column must render and the next Quick Look must open rendered.
+    for fault, message in (("none", ""), ("quicklook", "capsweep: previewMarkdownView expected 'rendered', saw 'source'"),
+                           ("column", "capsweep: columnMarkdownView expected 'rendered', saw 'source'")):
+        root = shell_root(f"F13-{fault}")
+        result = shell_run(root, SHELL_PRELUDE + f"fault={fault}\n" + stubs + branch + "\n", fault == "none")
         escapes = root / "escapes"
-        if accepted:
+        if fault == "none":
             assert result.returncode == 0, result.stdout + result.stderr
             assert escapes.read_text() == "escape\n", "Escape did not close the Quick Look once"
+            assert (root / "evidence/manifest.tsv").read_text() == "sweep-column-markdown-rendered-after-flip\t1040x760\n"
         else:
-            assert result.returncode != 0, f"a view that never reads rendered was accepted: {result.stdout}"
-            assert "capsweep: previewMarkdownView expected 'rendered', saw 'source'" in result.stderr, result.stderr
+            assert result.returncode != 0, f"a {fault} that still shows source was accepted: {result.stdout}"
+            assert message in result.stderr, result.stderr
             assert not escapes.exists(), "Escape was pressed before the view read rendered"
-    print("CAPSWEEP_CONTROLS F13 refused=1 accepted=1")
+    print("CAPSWEEP_CONTROLS F13 refused=2 accepted=1")
 
 
 def keymap_order_case():

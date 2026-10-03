@@ -83,6 +83,9 @@ function run(check) {
     check("r does nothing to a non-Markdown preview", photo.switched, 0)
     check("r maps to markdownView in the preview context",
         Keymap.lookupFor("default", 0, "r", Qt.NoModifier, "preview", "gui"), "markdownView")
+    var quickSrc = Source.source("ui/Preview.qml")
+    check("the Quick Look flip is a local property and stores no choice",
+        quickSrc.indexOf("root.markdownSource = !root.markdownSource") >= 0 && quickSrc.indexOf("markdownView:") < 0, true)
     check("r stays rename in the listing",
         Keymap.lookupFor("default", 0, "r", Qt.NoModifier, "listing", "gui"), "rename")
     runThumbThreading(check)

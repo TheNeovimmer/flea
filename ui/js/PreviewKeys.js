@@ -77,7 +77,7 @@ function act(action, root) {
     case "expand": root.preview.toggleExpand(); return
     // MediaMute rule 5: the flag is the preview's to flip, and it silences without pausing.
     case "mute": root.preview.toggleMute(); return
-    // RenderedPreviews callout 1: r switches Rendered/Source in the preview context, guarded on kind.
+    // GM 2026-10-03: r flips the open Markdown Quick Look between rendered and source, guarded on kind.
     case "markdownView":
         if (root.preview.isMarkdown) root.preview.toggleMarkdownView()
         return

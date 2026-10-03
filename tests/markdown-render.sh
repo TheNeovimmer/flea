@@ -69,7 +69,7 @@ chmod 700 "$test_root/runtime" || exit 1
 ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
-cp tests/markdown-render.js "$test_root/config/" || exit 1
+cp tests/markdown-render.js tests/markdown-bar.js "$test_root/config/" || exit 1
 cp tests/markdown-render.qml "$test_root/config/shell.qml" || exit 1
 
 cat > "$test_root/notes.md" <<'EOF'
@@ -102,11 +102,15 @@ EOF
 : > "$test_root/notes.md.empty.md"
 printf '# Identical\n' > "$test_root/notes.md.first.md" || exit 1
 cp "$test_root/notes.md.first.md" "$test_root/notes.md.second.md" || exit 1
+# A name far past any bar width, so the bar must elide it and the room it may take is measured.
+long_name_digits=200
+long_fixture="$test_root/long-$(printf "%0${long_name_digits}d" 0).md"
+cp "$test_root/notes.md" "$long_fixture" || exit 1
 
 # The harness ends itself with a kill, so the subshell keeps bash's "Terminated" notice out of the report.
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
-    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIXTURE="$test_root/notes.md" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIXTURE="$test_root/notes.md" FLEA_MARKDOWN_LONG="$long_fixture" \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 

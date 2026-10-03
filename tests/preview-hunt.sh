@@ -99,13 +99,15 @@ for scenario in "${scenarios[@]}"; do
     warnings=$(printf '%s\n' "$output" | grep -E 'TypeError|ReferenceError|Unable to assign' || true)
     if [ -n "$warnings" ]; then printf 'FAIL preview binding warning: %s\n' "$warnings"; failures=$((failures+1)); fi
     if [ "$scenario" = source-key ]; then
+        # A state file the flip never wrote is fine; one that exists must not hold the retired leaf.
         if ! python3 - "$phase/state/flea/ui.json" <<'PY'
 import json,sys
 try:r=json.load(open(sys.argv[1]))
-except (OSError,ValueError):sys.exit(1)
-sys.exit(0 if r.get('preview',{}).get('markdownView')=='source' else 1)
+except OSError:sys.exit(0)
+except ValueError:sys.exit(1)
+sys.exit(1 if 'markdownView' in r.get('preview',{}) else 0)
 PY
-        then echo 'FAIL Source choice was not persisted for restart'; failures=$((failures+1)); fi
+        then echo 'FAIL the Quick Look flip was written to the state file'; failures=$((failures+1)); fi
     fi
 done
 printf 'preview-hunt: %s phases, %s failed\n' "${#scenarios[@]}" "$failures"

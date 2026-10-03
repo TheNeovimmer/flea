@@ -33,7 +33,7 @@ Item {
     // The render suite reads the bar's order off these rects, the way PdfViewer.buttonFor opens its buttons.
     function barGeometry() {
         return { mark: barMark, markName: barMark.name, name: barName, nameEnd: barName.x + Math.min(barName.width, barName.implicitWidth),
-            lines: barLines, segment: barSegment, close: barClose, height: bar.height, ready: root.contentReady }
+            lines: barLines, close: barClose, bar: bar, height: bar.height, ready: root.contentReady }
     }
 
     // No fill of its own: Quick Look's surface is already the chrome colour and rounds the corners this bar sits under.
@@ -43,7 +43,6 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         height: Theme.chromeHeight
-        readonly property int segmentHeight: 20
         readonly property real ruleOpacity: 0.12
 
         Rectangle {
@@ -73,8 +72,8 @@ Item {
             anchors.left: barMark.right
             anchors.leftMargin: Theme.spacing.gap
             anchors.verticalCenter: parent.verticalCenter
-            width: Math.min(implicitWidth, Math.max(0, barSegment.x - x - 2 * Theme.spacing.gap
-                - (barLines.visible ? barLines.implicitWidth : 0)))
+            width: Math.min(implicitWidth, Math.max(0, barClose.x - x - 2 * Theme.spacing.gap
+                - (root.contentReady ? barLines.implicitWidth : 0)))
             text: root.path.substring(root.path.lastIndexOf("/") + 1)
             color: Theme.color.foreground
             font.family: Theme.font.family
@@ -94,19 +93,6 @@ Item {
             font.family: Theme.font.family
             font.pixelSize: Theme.font.caption
             textFormat: Text.PlainText
-        }
-
-        Flea.SettingsSegment {
-            id: barSegment
-            anchors.right: barClose.left
-            anchors.rightMargin: Theme.spacing.gap
-            anchors.verticalCenter: parent.verticalCenter
-            options: ["Rendered", "Source"]
-            value: ViewState.markdownView === "source" ? "Source" : "Rendered"
-            controlHeight: bar.segmentHeight
-            onPicked: function (index) {
-                ViewState.changeLeaf("preview", { markdownView: index === 0 ? "rendered" : "source" })
-            }
         }
 
         Flea.ChromeButton {

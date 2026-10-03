@@ -45,7 +45,7 @@ pub const DEFAULTS: &str = r#"{
     "column": true, "loadOn": "automatic",
     "thumbnails": "media", "thumbSize": "medium",
     "thumbNetwork": false, "thumbPhone": false, "thumbUsb": true,
-    "ctrlZoom": true, "markdownView": "rendered"
+    "ctrlZoom": true
   },
   "keys": "default",
   "display": { "textSize": { "mode": "system" }, "hyprlandIcons": false },
@@ -148,9 +148,6 @@ pub const PREVIEW: &[(&str, Rule)] = &[
     ("thumbPhone", Rule::Bool),
     ("thumbUsb", Rule::Bool),
     ("ctrlZoom", Rule::Bool),
-    // RenderedPreviews callout 1: Quick Look's Rendered|Source choice, remembered per kind
-    // (Markdown first) and carried over to the preview column. Rendered is the default.
-    ("markdownView", Rule::Word(&["rendered", "source"])),
 ];
 
 // mode is "system" or one stop, so there is nowhere to put a free number; see the handoff's Display row.
@@ -339,7 +336,8 @@ mod tests {
         assert_eq!(d.get("preview").and_then(|p| p.get("thumbNetwork")).and_then(Json::as_bool), Some(false));
         assert_eq!(d.get("preview").and_then(|p| p.get("thumbPhone")).and_then(Json::as_bool), Some(false));
         assert_eq!(d.get("preview").and_then(|p| p.get("thumbUsb")).and_then(Json::as_bool), Some(true));
-        assert_eq!(d.get("preview").and_then(|p| p.get("markdownView")).and_then(Json::as_str), Some("rendered"));
+        // GM 2026-10-03: the Markdown view is not a stored choice, so no leaf for it ships.
+        assert!(d.get("preview").and_then(|p| p.get("markdownView")).is_none());
         assert_eq!(d.get("display").and_then(|p| p.get("textSize")).and_then(|t| t.get("mode")).and_then(Json::as_str), Some("system"));
         let display: Vec<&str> = d.get("display").and_then(Json::as_object).expect("display").iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(display, ["textSize", "hyprlandIcons"], "the compositor owns opacity, icons and shadows");

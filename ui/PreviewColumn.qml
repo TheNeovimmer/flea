@@ -240,7 +240,7 @@ Item {
                 truncate: root.truncateText
                 numbered: root.previewState === Facts.CODE
             }
-            // RenderedPreviews: the Markdown document rendered or verbatim, flowing tall with the remembered view and no toggle; a file-path Loader compiles it only when needed.
+            // RenderedPreviews: the Markdown document rendered, flowing tall with no toggle; a file-path Loader compiles it only when needed.
             Loader {
                 id: markdownLoader
                 anchors.fill: parent
@@ -255,9 +255,6 @@ Item {
                     item.active = Qt.binding(function () {
                         return root.visible && !root.manualHold
                             && root.rowState === Facts.TEXT && root.isMarkdownRow
-                    })
-                    item.view = Qt.binding(function () {
-                        return ViewState.markdownView === "source" ? "source" : "rendered"
                     })
                     item.truncate = Qt.binding(function () { return root.truncateText })
                 }

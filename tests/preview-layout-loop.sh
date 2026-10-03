@@ -79,11 +79,11 @@ for theme in dark light; do
         exit 1
     fi
     if [ "$status" -ne 143 ] || [ "$(printf '%s\n' "$output" | grep -c 'PREVIEW_LAYOUT DONE')" -ne 1 ] \
-        || [ "$(printf '%s\n' "$output" | grep -c 'PREVIEW_LAYOUT CASE')" -ne 33 ] \
+        || [ "$(printf '%s\n' "$output" | grep -c 'PREVIEW_LAYOUT CASE')" -ne 27 ] \
         || printf '%s\n' "$output" | grep -aqE 'PREVIEW_LAYOUT FAIL|ERROR|TypeError|ReferenceError'; then
         echo "FAIL $theme preview probe did not complete, qs exit=$status"
         printf '%s\n' "$output"
         exit 1
     fi
 done
-printf 'preview-layout-loop: 66 cases, 0 binding loops\n'
+printf 'preview-layout-loop: 54 cases, 0 binding loops\n'

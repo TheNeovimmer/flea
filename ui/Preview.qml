@@ -31,6 +31,8 @@ Item {
     readonly property bool isArchive: root.kind === "archive"
     // RenderedPreviews: a Markdown file keeps the text kind and draws its own bar and pane.
     readonly property bool isMarkdown: root.kind === "text" && Kinds.isMarkdown(root.path)
+    // r flips the open Markdown Quick Look to Source; close() forgets it, and a move to another file keeps it.
+    property bool markdownSource: false
     // The backend's meta answer for the open archive, null until it lands; archiveRow is the row it was asked for.
     property var archiveMeta: null
     property int archiveRow: -1
@@ -175,11 +177,9 @@ Item {
         root.load(newPath, newIcon, newSize, newKind, newThumb, root.pane ? root.pane.cursorIndex : -1)
     }
 
-    // RenderedPreviews callout 1: r switches Rendered and Source, remembered per kind.
-    // ViewState.markdownView is already normalised, so this toggles from what is drawn.
+    // GM 2026-10-03: a Markdown Quick Look opens rendered, and r flips only the open one (no stored choice).
     function toggleMarkdownView() {
-        if (root.isMarkdown)
-            ViewState.changeLeaf("preview", { markdownView: ViewState.markdownView === "rendered" ? "source" : "rendered" })
+        if (root.isMarkdown) root.markdownSource = !root.markdownSource
     }
 
     // The picture is taken now, so the settled load below changes the panes under it.
@@ -234,6 +234,7 @@ Item {
         stripHideTimer.stop()
         root.active = false
         root.kind = ""
+        root.markdownSource = false
         mediaLoader.source = ""
         pdfLoader.source = ""
         imageLoader.source = ""
@@ -477,9 +478,7 @@ Item {
                 onLoaded: {
                     item.path = Qt.binding(function () { return root.path })
                     item.size = Qt.binding(function () { return root.size })
-                    item.view = Qt.binding(function () {
-                        return ViewState.markdownView === "source" ? "source" : "rendered"
-                    })
+                    item.view = Qt.binding(function () { return root.markdownSource ? "source" : "rendered" })
                     item.maxBytes = Qt.binding(function () {
                         return ExtThumbs.textLimit(root.pane ? root.pane.storageClass : "")
                     })
