@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import "flea" as Flea
 import "flea/js/Format.js" as Format
+import "sidebar-flows-extra.js" as Extra
 
 // The real pane owns every tested property. TestEvent delivers keys to its real focused item.
 ShellRoot {
@@ -51,7 +52,7 @@ ShellRoot {
         var row = pane.visibleItemFor(root.indexOf(name))
         if (!row) throw new Error("No visible row " + name)
         var label = row.captionItem || row.nameItem()
-        root.click(label, Math.min(10, label.width / 2), label.height / 2)
+        root.click(label, row.captionItem ? label.width / 2 : Math.min(10, label.width / 2), Math.min(label.implicitHeight, label.height) / 2)
     }
     function find(item, type) {
         if (String(item).indexOf(type + "_") === 0) return item
@@ -328,7 +329,7 @@ ShellRoot {
             check("single-click: one grid tap opens its folder", pane.path, fixture + "/sub")
             return true
         }
-    ]
+    ].concat(Extra.steps(root, pane, Flea.ViewState, Flea.Theme))
     function reloadChecks(mode) {
         if (pane.viewMode !== mode || !ready(fixture)) return false
         if (root.reloadStage === 0) {

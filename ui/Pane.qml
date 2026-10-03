@@ -91,7 +91,7 @@ FocusScope {
     property string keySequenceIdentity: ""
     // "" off, "typing" while the query line has the keyboard, "results" once a walk was asked for; ui/js/Search.js owns every transition.
     property string searchMode: ""
-    // Where the search was started from, which a home-wide walk leaves behind; see ui/js/Search.js.
+    // Search origin survives a home-wide walk.
     property string searchFrom: ""
     property string searchQuery: ""
     // Issue 30: which scope the next walk takes, flipped by tab on the query line; see ui/js/Search.js.
@@ -104,11 +104,11 @@ FocusScope {
     property string recentFrom: ""
     // The history paths the listing stands on, so a refresh with the rail hidden re-asks them.
     property var recentPaths: []
+    property var recentVisits: ({})
     // The sort Recent replaced, handed back on leaving; ui/js/RecentMode.js run and restoreSort write it.
     property string recentSortBy: ""
     property bool recentSortDesc: false
-    // The query narrowing the listing in place, and whether its line still has the keyboard;
-    // ui/js/Filter.js owns every transition, the way ui/js/Search.js owns the walk's.
+    // Filter.js owns the standing query and its typing state.
     property string filterQuery: ""
     property bool filterTyping: false
     property int searchScanned: 0
@@ -678,7 +678,7 @@ FocusScope {
     function restoreRecentSort() { RecentMode.restoreSort(root) }
     // The rail's Recent row answers with the history's paths, read bounded the way the
     // path jump reads them; a second open while one lands replaces it, the way a navigation does.
-    function openRecent(paths) { RecentMode.run(root, paths) }
+    function openRecent(paths, visits) { RecentMode.run(root, paths, visits) }
     function closeRecent() { RecentMode.close(root) }
 
     function join(base, name) {

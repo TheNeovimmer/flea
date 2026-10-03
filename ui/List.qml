@@ -147,7 +147,8 @@ ListView {
                     Tap.tapped(listingIndex, tap.tapCount, tap.point.modifiers, root.pane)
                     // The slow click renames on the pane's timer; a double click opens through tapped() above instead.
                     if (tap.tapCount === 2) root.pane.cancelSlowClick()
-                    else if (tap.tapCount === 1) root.pane.armSlowClick(listingIndex, tap.point.modifiers, dragSession.Drag.active, wasSole)
+                    else if (tap.tapCount === 1 && Tap.onName(cell.nameItem(), cell, eventPoint.position, false)) root.pane.armSlowClick(listingIndex, tap.point.modifiers, dragSession.Drag.active, wasSole)
+                    else root.pane.cancelSlowClick()
                 }
             }
         }
@@ -158,8 +159,6 @@ ListView {
             row: cell.row
         }
     }
-
-
     // The listing keeps one row of bare ground at its end. SearchFilter rule 1 took the filter's
     // sentence off this slot, and the ground under it is not the sentence: it is where a band starts
     // and where the background menu is raised, and a listing whose last row sits flush on the bottom

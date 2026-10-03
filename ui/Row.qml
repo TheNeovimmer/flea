@@ -11,6 +11,7 @@ Item {
     id: root
 
     property var row: null
+    readonly property var dateStamp: root.row ? (root.row.used === undefined ? root.row.m : root.row.used) : null
     property bool cursor: false
     property bool paneFocused: true
     property bool dualMode: false
@@ -103,7 +104,7 @@ Item {
     Accessible.role: Accessible.ListItem
     Accessible.name: root.displayName
     // The compact form drops the clock, so the picker's rows carry the whole stamp here instead; this tree has no tooltip.
-    Accessible.description: root.compactDate && root.row && root.row.m !== null ? Format.date(root.row.m) : ""
+    Accessible.description: root.compactDate && root.dateStamp !== null ? Format.date(root.dateStamp) : ""
 
     Rectangle {
         width: root.paintWidth > 0 ? root.paintWidth : parent.width
@@ -337,7 +338,7 @@ Item {
         width: root.dateShown ? root.dateWidth : 0
         text: root.dateShown ? root.dateText() : ""
         // Short-circuit on the switch first, so with the switch off no row enters the library.
-        color: (ViewState.highlightToday && Format.isRecent(root.row ? root.row.m : null, ViewState.todayStart)) ? root.dimmed(Theme.color.foreground) : root.cellInk
+        color: (ViewState.highlightToday && Format.isRecent(root.dateStamp, ViewState.todayStart)) ? root.dimmed(Theme.color.foreground) : root.cellInk
         font.family: Theme.font.family
         font.pixelSize: Theme.font.caption
         horizontalAlignment: Text.AlignRight
@@ -407,10 +408,10 @@ Item {
             return ""
         }
         // null marks a row with no real mtime yet (ui/ShareBrowser.qml's share rows).
-        if (root.row.m === null) {
+        if (root.dateStamp === null) {
             return "--"
         }
-        return root.compactDate ? Format.compactDate(root.row.m) : Format.date(root.row.m)
+        return root.compactDate ? Format.compactDate(root.dateStamp) : Format.date(root.dateStamp)
     }
 
     // row.k indexes root.kindNames; an index past its bounds (a row held over from an older listing) reads as empty, never a crash.

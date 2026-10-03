@@ -12,6 +12,9 @@ probe=$(mktemp -d "$SANDBOX_ROOT/flea-sidebar-flows.XXXXXX") || exit 1
 cleanup() { chmod u+w "$probe/home/readonly"; sandbox_remove "$probe"; }
 trap cleanup EXIT
 mkdir -p "$probe"/{home,config,state,data,cache,runtime} "$probe/home"/{fixture,readonly,Downloads} || exit 1
+mkdir -p "$probe/data/Trash"/{files,info}
+printf 'discarded\n' > "$probe/data/Trash/files/discarded.txt"
+printf '[Trash Info]\nPath=%s\nDeletionDate=2026-09-23T10:00:00\n' "$probe/home/discarded.txt" > "$probe/data/Trash/info/discarded.txt.trashinfo"
 chmod 700 "$probe/runtime"
 printf 'a\n' > "$probe/home/fixture/a.txt"
 printf 'b\n' > "$probe/home/fixture/b.txt"
@@ -32,6 +35,7 @@ ln -s "$PWD/ui" "$probe/config/flea"
 ln -s "$(readlink -f ui/boot/Commons)" "$probe/config/Commons"
 ln -s "$(readlink -f ui/boot/Ui)" "$probe/config/Ui"
 cp tests/sidebar-flows.qml "$probe/config/shell.qml"
+cp tests/sidebar-flows-extra.js "$probe/config/sidebar-flows-extra.js"
 output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
     HOME="$probe/home" XDG_STATE_HOME="$probe/state" XDG_CONFIG_HOME="$probe/config" \
     XDG_DATA_HOME="$probe/data" XDG_CACHE_HOME="$probe/cache" XDG_RUNTIME_DIR="$probe/runtime" \

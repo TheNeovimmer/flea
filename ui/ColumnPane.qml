@@ -46,7 +46,7 @@ Item {
     // isDir says which of the two things a neighbour column's row is: a directory the pane opens as
     // its own listing, or a file it hands to the opener. See keys.toml's [[pointer]] table.
     signal activated(string name, bool isDir)
-    signal picked(int index, int tapCount, int modifiers)
+    signal picked(int index, int tapCount, int modifiers, bool onName)
     // A row press, so the columns view can stop the slow-click timer before a
     // hold past the interval fires while the button is still down.
     signal rowPressed(int index)
@@ -282,7 +282,7 @@ Item {
                         else if (button === Qt.RightButton)
                             root.menuRequested(cell.listingIndex, eventPoint)
                         else
-                            root.picked(cell.listingIndex, tap.tapCount, tap.point.modifiers)
+                            root.picked(cell.listingIndex, tap.tapCount, tap.point.modifiers, Tap.onName(cell.nameItem(), cell, eventPoint.position, false))
                         return
                     }
                     if (button === Qt.RightButton && root.rows[index]) {

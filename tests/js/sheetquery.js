@@ -169,6 +169,16 @@ function run(check) {
         SheetQuery.runAction(letThrough.holder, "open", letThrough.close)
     }
     check("an action the gate lets through acts while in flight", letThrough.calls.join(",") || "missing", "close,act:open")
+    // Query actions reach the same window signals as physical keys.
+    var window = stubHolder(false)
+    window.holder.pathBarRequested = function () { window.calls.push("window:path") }
+    window.holder.textSizeRequested = function (direction) { window.calls.push("window:size:" + direction) }
+    SheetQuery.runAction(window.holder, "pathBar", window.close)
+    SheetQuery.runAction(window.holder, "textSizeUp", window.close)
+    check("query Path and Larger reach the window dispatcher", window.calls.join(","), "close,window:path,close,window:size:1")
+    var trashCalls = []
+    SheetQuery.runMenu({ sheetMenuAction: function (action) { trashCalls.push(action) } }, "deletePermanently", function () { trashCalls.push("close") })
+    check("Trash menu rows keep their host's confirmation path", trashCalls.join(","), "close,deletePermanently")
     var sheetAction = Source.source("ui/KeymapSheet.qml")
     check("activateResult runs through SheetQuery.runAction", Source.slice(sheetAction, "function activateResult()", "// Directive 18").indexOf("SheetQuery.runAction") >= 0, true)
 }

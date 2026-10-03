@@ -3,7 +3,8 @@ import qs.Commons
 import "." as Flea
 import "js/Keymap.js" as Keymap
 import "js/Menu.js" as Menu
-import "js/Mounts.js" as Mounts
+import "js/Places.js" as Places
+import "js/RailKeys.js" as RailKeys
 import "js/SheetQuery.js" as SheetQuery
 
 // The keymap sheet ? opens, drawn as the Keys panel on Operations.dc.html draws it. Every row comes
@@ -13,6 +14,7 @@ Item {
 
     property bool opened: false
     property Item focusHolder: null
+    readonly property var pane: root.focusHolder ? (root.focusHolder.sheetPane || root.focusHolder) : null
     // The query field appears on the first typed key, never as a permanent field: the sheet at
     // rest stays the generated sheet it always was. An exact place name ranks first, above actions.
     property string query: ""
@@ -24,7 +26,7 @@ Item {
     property int resultCursor: 0
     onQueryChanged: root.resultCursor = 0
     readonly property var sheet: {
-        var rows = Keymap.sheetFor(ViewState.keysPreset, "gui", root.focusHolder ? root.focusHolder.dualMode : false)
+        var rows = root.actionRows()
         if (root.query.length === 0)
             return rows
         return SheetQuery.rank(SheetQuery.actionCandidates(rows), root.query).map(function (c) { return c })
@@ -33,53 +35,31 @@ Item {
     readonly property var queryResults: {
         if (root.query.length === 0 || !root.focusHolder)
             return []
-        var holder = root.focusHolder
-        var rows = Keymap.sheetFor(ViewState.keysPreset, "gui", holder.dualMode)
+        var rows = root.actionRows()
         var actions = SheetQuery.actionCandidates(rows)
         var menus = SheetQuery.menuCandidates(root.menuModel(), function (a) { return Keymap.hintFor(a) })
         var places = SheetQuery.placeCandidates(root.railModel())
-        var recents = SheetQuery.recentCandidates(root.recentPaths, holder.home)
+        var recents = SheetQuery.recentCandidates(root.recentPaths, root.pane.home)
         return SheetQuery.rank(actions.concat(menus, places, recents), root.query)
     }
     // The cursor row's menu rows from the menu's own model, hidden rows included, so the sheet
     // still finds a row Settings Menus hides. Disabled state rides along and never runs.
+    function actionRows() {
+        var rows = Keymap.sheetFor(ViewState.keysPreset, "gui", root.pane ? root.pane.dualMode : false)
+        return root.focusHolder && root.focusHolder.sheetActionRows ? root.focusHolder.sheetActionRows(rows) : rows
+    }
     function menuModel() {
         var holder = root.focusHolder
-        if (!holder || !holder.cursorRow)
-            return []
-        var m = holder.contextMenu ? holder.contextMenu() : null
-        var p = {
-            showHidden: holder.showHidden, hasRow: true,
-            rowInDropbox: m ? m.rowInDropbox : false, dropboxPath: m ? m.dropboxPath : "",
-            dropboxInstalled: m ? m.dropboxInstalled : false, dropboxReason: m ? m.dropboxReason : "",
-            taildropPeers: [], taildropInstalled: false, taildropReason: "",
-            taildropRefreshing: false, dropboxRefreshing: false,
-            archiveFormats: m ? m.archiveFormats : [], rowIsArchive: m ? m.rowIsArchive : false,
-            rowIsImage: m ? m.rowIsImage : false, canConvert: m ? m.canConvert : false,
-            canExtract: m ? m.canExtract : false,
-            clipboardAvailable: holder.clipboard && holder.clipboard.paths.length > 0,
-            canTrash: Mounts.trashable(holder.path, holder.backend ? holder.backend.dirWritable !== false : true),
-            openWithApps: [], openWithLoaded: false,
-            rowMode: 0, selectionCount: 1, scripts: [], localSendInstalled: false,
-            localSendPeers: [], localSendChecking: false, hiddenActions: [],
-            storageClass: m ? m.storageClass : "", thumbPreview: ViewState.preview,
-            updateVersion: "", hasFolderSort: m ? m.hasFolderSort : false,
-            // MenuAdditions040 callout 10: the sheet lists the cursor row's menu rows the way the
-            // menu does, so it reads the same two-byte shebang flag the menu's own open read.
-            hasShebang: holder.rowHasShebang === true,
-            cursorIsTarget: false,
-        }
-        var sel = holder.permissionSelection()
-        if (sel)
-            p.rowMode = sel.p
-        p.selectionCount = holder.selectionCount()
-        p.cursorIsTarget = holder.isSingleCursorTarget() === true
-        return Menu.listingEntries(p)
+        if (holder && holder.sheetMenuModel) return holder.sheetMenuModel()
+        if (!holder || !holder.cursorRow) return []
+        var context = holder.contextMenu().listingContext()
+        context.hasRow = true
+        context.hiddenActions = []
+        return Menu.listingEntries(context)
     }
     function railModel() {
-        var holder = root.focusHolder
-        var bar = holder ? holder.sidebar : null
-        return bar ? bar.entries : []
+        var bar = root.pane ? root.pane.sidebar : null
+        return Flea.RailPlaces.entries.concat(bar ? bar.networkEntries.concat(bar.deviceEntries) : [])
     }
     function ensureRecent() {
         if (root.recentAsked)
@@ -105,15 +85,23 @@ Item {
             return
         }
         if (decided.kind === "place") {
-            var at = SheetQuery.placeIndex(holder.sidebar ? holder.sidebar.entries : [], decided)
+            var entries = root.railModel()
+            var at = SheetQuery.placeIndex(entries, decided)
             root.close()
-            if (at >= 0)
-                holder.sidebar.activate(at)
+            if (at < 0) return
+            var pane = root.pane, entry = entries[at]
+            if (pane.sidebar && entry.group !== "home" && entry.kind !== "favourite" && entry.kind !== "trash") {
+                var railAt = SheetQuery.placeIndex(pane.sidebar.entries, decided)
+                if (railAt >= 0) pane.sidebar.activate(railAt)
+            } else Places.openEntry(entry, { pane: pane,
+                opened: function (path) { RailKeys.openFrom(pane, path, pane.sidebar) },
+                networkHost: function () { return pane.ensureNetworkService() },
+                trash: function () { pane.trash.open() }, message: pane.message })
             return
         }
         if (decided.kind === "recent") {
             root.close()
-            holder.openFile(decided.path)
+            root.pane.openFile(decided.path)
             return
         }
     }
@@ -232,7 +220,7 @@ Item {
         root.resultCursor = 0
         recentLoader.active = false
         // MenuAdditions040 callout 10: one two-byte read for the cursor row, so Make executable reads as the menu shows.
-        holder.checkShebang()
+        if (!holder.sheetPane) holder.checkShebang()
         root.opened = true
         keys.forceActiveFocus()
     }
@@ -251,8 +239,10 @@ Item {
         if (!root.opened)
             return
         root.opened = false
-        if (root.focusHolder)
-            root.focusHolder.forceActiveFocus()
+        if (root.focusHolder) {
+            if (root.focusHolder.sheetFocus) root.focusHolder.sheetFocus()
+            else root.focusHolder.forceActiveFocus()
+        }
     }
 
     // What a test reads instead of running OCR over the panel, the same idiom ui/Pane.qml's

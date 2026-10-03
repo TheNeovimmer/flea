@@ -10,8 +10,7 @@ import "js/GridGeometry.js" as GridGeometry
 import "js/Tap.js" as Tap
 import "js/Thumbs.js" as Thumbs
 
-// The grid view. Same rows, same marks, same thumbnails as the list; only the geometry differs, so
-// the viewport maths is the list's own with a tile row standing in for a text row.
+// Grid shares the list's rows, marks, thumbnails and viewport plan, scaled to tile rows.
 GridView {
     id: root
 
@@ -187,7 +186,8 @@ GridView {
                     Tap.tapped(cell.listingIndex, tap.tapCount, tap.point.modifiers, root.pane)
                     // The slow click renames on the pane's timer; a double click opens through tapped() above instead.
                     if (tap.tapCount === 2) root.pane.cancelSlowClick()
-                    else if (tap.tapCount === 1) root.pane.armSlowClick(cell.listingIndex, tap.point.modifiers, dragSession.Drag.active, wasSole)
+                    else if (tap.tapCount === 1 && Tap.onName(cell.captionItem, cell, eventPoint.position, true)) root.pane.armSlowClick(cell.listingIndex, tap.point.modifiers, dragSession.Drag.active, wasSole)
+                    else root.pane.cancelSlowClick()
                 }
             }
         }

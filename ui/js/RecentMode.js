@@ -18,7 +18,7 @@ function refusePaste(pane) {
 }
 
 // Open keeps where the pane stood and asks the history's paths after the bounded jump; spanning mounts leaves fsinfo unknown.
-function run(pane, paths) {
+function run(pane, paths, visits) {
     if (pane.listInFlight) {
         pane.message("A directory is already loading.", false)
         return
@@ -43,6 +43,7 @@ function run(pane, paths) {
     pane.searchScanned = 0
     // The paths this listing stands on, so a refresh with the rail hidden still re-asks them.
     pane.recentPaths = paths || []
+    pane.recentVisits = visits || ({})
     pane.listInFlight = true
     pane.listedSeen = false
     pane.path = "/"
@@ -71,6 +72,7 @@ function close(pane) {
     pane.recentMode = OFF
     pane.recentFrom = ""
     pane.recentPaths = []
+    pane.recentVisits = ({})
     restoreSort(pane)
     pane.openWithoutHistory(back)
 }
@@ -93,6 +95,7 @@ function leave(pane) {
     pane.recentMode = OFF
     pane.recentFrom = ""
     pane.recentPaths = []
+    pane.recentVisits = ({})
 }
 
 // Refresh re-reads history after an operation, never re-listing "/" over it; an unloaded sidebar re-asks the standing paths.
@@ -103,7 +106,16 @@ function refresh(pane, selectPath) {
         pane.sidebar.readRecent(pane)
         return
     }
-    run(pane, pane.recentPaths || [])
+    run(pane, pane.recentPaths || [], pane.recentVisits)
+}
+
+// Only the held viewport rows gain a Used stamp; filesystem metadata remains intact.
+function stampRows(pane, rows) {
+    if (pane.recentMode !== RESULTS) return rows
+    return rows.map(function (row) {
+        var visit = (pane.recentVisits || {})[pane.join(pane.path, row.n)]
+        return Object.assign({}, row, { used: visit === undefined ? null : visit })
+    })
 }
 
 // The folder a tab records on a history, "" elsewhere, so it lands where it stood.
@@ -119,6 +131,7 @@ function dropOverlay(pane) {
     pane.recentMode = OFF
     pane.recentFrom = ""
     pane.recentPaths = []
+    pane.recentVisits = ({})
     restoreSort(pane)
     return true
 }
@@ -142,6 +155,7 @@ function reveal(pane) {
     pane.recentMode = OFF
     pane.recentFrom = ""
     pane.recentPaths = []
+    pane.recentVisits = ({})
     restoreSort(pane)
     pane.pendingSelect = full
     pane.openWithoutHistory(dir)

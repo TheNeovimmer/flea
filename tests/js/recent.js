@@ -150,5 +150,5 @@ function run(check) {
         reading.indexOf("Recent.joinRequesters(root.recentRequesters, requester)") >= 0, true)
     var refreshed = Source.slice(sidebar, "function onRefreshed()", "readonly property bool dropboxReady")
     check("onRefreshed answers every asker",
-        refreshed.indexOf("root.recentRequested(root.recentPaths, askers[i])") >= 0, true)
+        refreshed.indexOf("root.recentRequested(root.recentPaths, askers[i], root.recentVisits)") >= 0, true)
 }
