@@ -31,8 +31,7 @@ cardsize_rect() {
 
 cardsize_dispatch() {
     local result
-    result=$(hyprctl dispatch "$1" 2>&1) || fail "cardsizes: compositor dispatch failed: $result"
-    [[ "$result" == ok* ]] || fail "cardsizes: compositor refused dispatch: $result"
+    result=$(hypr_dispatch "$1" 2>&1) || fail "cardsizes: compositor dispatch failed: $result"
 }
 
 cardsize_network() {

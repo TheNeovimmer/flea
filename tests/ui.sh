@@ -11,14 +11,7 @@ fail() {
     exit 1
 }
 
-hypr_dispatch() {
-    local answer
-    if answer=$(hyprctl dispatch "$1" 2>&1) && [[ "$answer" == ok ]]; then
-        return 0
-    fi
-    printf '%s\n' "$answer" >&2
-    return 1
-}
+. "$(dirname "$0")/lib/hypr-dispatch.sh"
 
 export PATH="$HOME/.local/bin:$PATH"
 eval "$(omarchy-drive env)"
@@ -1167,7 +1160,7 @@ case_scroll() {
     read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
     read -r cx cy <<< "$(ipc rowCentre 5)"
     # omarchy-drive scroll takes no point: warp there, then one uinput pixel so Qt sees a pointer frame.
-    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + cx - 1)), y = $((wy + cy))})" >/dev/null
+    hypr_dispatch "hl.dsp.cursor.move({x = $((wx + cx - 1)), y = $((wy + cy))})" || fail "scroll: pointer motion failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
     settle
     before=$(ipc listContentY)
@@ -1192,7 +1185,7 @@ touchpad_focus_row() {
     local wx wy ww wh cx cy
     read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
     read -r cx cy <<< "$(ipc rowCentre 5)"
-    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + cx - 1)), y = $((wy + cy))})" >/dev/null
+    hypr_dispatch "hl.dsp.cursor.move({x = $((wx + cx - 1)), y = $((wy + cy))})" || fail "touchpad: pointer motion failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
     settle
 }
@@ -1318,7 +1311,7 @@ case_scrollbar() {
         || fail "scrollbar: no scrollbar rect, ipc answered [$sx $sy $sw $sh]"
     read -r wx wy ww wh < <(window_box) || fail "scrollbar: native window coordinates unavailable"
     # Finder's overlay scroller hides at rest: once the load settles, nothing is drawn with the pointer away.
-    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + ww / 2)), y = $((wy + wh / 2))})" >/dev/null
+    hypr_dispatch "hl.dsp.cursor.move({x = $((wx + ww / 2)), y = $((wy + wh / 2))})" || fail "scrollbar: pointer motion out of the lane failed"
     wait_scrollbar_shown false "the scroller stayed drawn at rest"
     omarchy-drive click "$((wx + sx + sw / 2))" "$((wy + sy + sh - 2))" left >/dev/null
     settle
@@ -1330,7 +1323,7 @@ case_scrollbar() {
     (( after > $(jq -r '.viewport * 2 | ceil' <<< "$state") )) || fail "scrollbar: a track press moved the list only to $after, a page at most"
     jq -e '.knob > 6' <<< "$state" >/dev/null || fail "scrollbar: the knob did not widen with the pointer in the lane: $state"
     # The warp alone sends Qt no motion (see hover_row), so the lane would never learn the pointer left.
-    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + ww / 2)), y = $((wy + wh / 2))})" >/dev/null
+    hypr_dispatch "hl.dsp.cursor.move({x = $((wx + ww / 2)), y = $((wy + wh / 2))})" || fail "scrollbar: pointer motion out of the lane failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1 \
         || fail "scrollbar: pointer motion out of the lane failed"
     wait_scrollbar_shown false "the scroller stayed drawn after the pointer left and the view stopped"
@@ -1341,7 +1334,7 @@ case_scrollbar() {
     state=$(ipc scrollbarState)
     handle=$(jq -r '.handle | floor' <<< "$state")
     travel=$(( (sh - handle) / 2 ))
-    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + sx + sw / 2 - 1)), y = $((wy + sy + handle / 2))})" >/dev/null
+    hypr_dispatch "hl.dsp.cursor.move({x = $((wx + sx + sw / 2 - 1)), y = $((wy + sy + handle / 2))})" || fail "scrollbar: pointer motion to the handle failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
     # libinput accelerates relative motion about 2x, so halve the rest until it lands; hyprctl cursorpos prints e.g. `1214, 735`.
     local target_y cursor_y cursor_now step
@@ -6159,7 +6152,7 @@ case_tabs() {
 tabdrag_to() {
     local from_x="$1" from_y="$2" to_x="$3" to_y="$4" held="${5:-tabdrag-held}" wx wy ww wh
     read -r wx wy ww wh < <(window_box) || fail "tabdrag: native window coordinates unavailable"
-    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + from_x)), y = $((wy + from_y))})" >/dev/null
+    hypr_dispatch "hl.dsp.cursor.move({x = $((wx + from_x)), y = $((wy + from_y))})" || fail "tabdrag: pointer drag failed"
     sleep 0.2
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 \
         || fail "tabdrag: pointer press failed"
@@ -9018,7 +9011,7 @@ EOS
     [[ -n "$centre" ]] || fail "hanginspect: no rail row has a centre"
     read -r cx cy <<< "$centre"
     read -r wx wy ww wh < <(window_box) || fail "hanginspect: native window coordinates unavailable"
-    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + cx)), y = $((wy + cy))})" >/dev/null
+    hypr_dispatch "hl.dsp.cursor.move({x = $((wx + cx)), y = $((wy + cy))})" || fail "hanginspect: pointer motion failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
     settle
     omarchy-drive scroll down 2 >/dev/null

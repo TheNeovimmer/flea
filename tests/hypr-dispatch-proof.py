@@ -10,7 +10,10 @@ import tempfile
 from pathlib import Path
 
 WARNING = "warning: =[C]:-1: hl.focus: window not found"
+REFUSAL = "Refused unscoped compositor dispatch: "
 PARSER_SAMPLE_PREFIX = "# Sample input: "
+HELPER_TIMEOUT_SECONDS = 10
+PLACEMENT_FIRST_WINDOW_CALL = 2
 FAKE = r'''#!/usr/bin/env bash
 set -u
 case "$1" in
@@ -18,7 +21,7 @@ case "$1" in
     activewindow) cat "$HYPR_FAKE_ACTIVE" ;;
     dispatch)
         printf '%s\n' "$2" >> "$HYPR_FAKE_LOG"
-        if [[ "$2" != *address:* || ( -n "${HYPR_FAKE_FAIL_ACTION:-}" && "$2" == *"$HYPR_FAKE_FAIL_ACTION"* ) ]]; then
+        if [[ -n "${HYPR_FAKE_FAIL_ACTION:-}" && "$2" == *"$HYPR_FAKE_FAIL_ACTION"* ]]; then
             printf '%s\n' 'warning: =[C]:-1: hl.focus: window not found'
         else
             if [[ "$2" == *hl.dsp.focus* ]]; then
@@ -28,7 +31,10 @@ case "$1" in
         fi
         exit "${HYPR_FAKE_STATUS:-0}"
         ;;
-    *) printf 'fake hyprctl refused unexpected command: %s\n' "$*" >&2; exit 2 ;;
+    *)
+        printf 'fake hyprctl refused unexpected command: %s\n' "$*" >&2
+        exit 2
+        ;;
 esac
 '''
 
@@ -44,8 +50,11 @@ def main():
     root = Path(__file__).resolve().parent.parent
     source = Path(sys.argv[1]) if len(sys.argv) > 1 else root / "tests/ui.sh"
     text = source.read_text()
-    helpers = functions(text, ["hypr_dispatch", "fail", "xwdrag_addr", "xwdrag_focus", "xwdrag_assert_focus", "xwdrag_place"])
-    drag_helper = functions((root / "tests/drag.sh").read_text(), ["hypr_dispatch"])
+    shared_helper = functions((root / "tests/lib/hypr-dispatch.sh").read_text(), ["hypr_dispatch"])
+    ui_helper = functions(text, ["hypr_dispatch"]) or shared_helper
+    helpers = ui_helper + "\n" + functions(text, ["fail", "xwdrag_addr", "xwdrag_focus", "xwdrag_assert_focus", "xwdrag_place"])
+    drag_text = (root / "tests/drag.sh").read_text()
+    drag_helper = functions(drag_text, ["hypr_dispatch"]) or shared_helper
     failures, checks = [], 0
     with tempfile.TemporaryDirectory(prefix="hypr-proof-", dir=os.environ.get("TMPDIR")) as directory:
         scratch = Path(directory)
@@ -63,7 +72,7 @@ def main():
             (scratch / "active.json").write_text('{"pid":999}\n')
             script = "set -uo pipefail\n" + code + "\nsleep() { :; }\n" + command
             result = subprocess.run(["bash", "-c", script], env=dict(environment, **overrides), text=True,
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=HELPER_TIMEOUT_SECONDS)
             calls = (scratch / "dispatch.log").read_text().splitlines()
             return result.returncode, result.stdout, calls
 
@@ -74,7 +83,10 @@ def main():
                 failures.append(name)
                 print(f"FAIL hypr-dispatch-proof {name}: {output.strip()}")
 
-        for relative, names in (("tests/hyprdispatch.py", ("without_comments", "scan")),
+        for owner, harness in (("ui", text), ("drag", drag_text)):
+            check(owner + " sources the shared dispatch helper", "lib/hypr-dispatch.sh\"" in harness, owner)
+
+        for relative, names in (("tests/hyprdispatch.py", ("scan",)),
                                 ("tests/hypr-dispatch-proof.py", ("functions",))):
             parser_source = (root / relative).read_text()
             source_lines = parser_source.splitlines()
@@ -98,10 +110,10 @@ def main():
         bare_helpers = helpers.replace("address:$addr", "$addr")
         for helper, arguments in (("xwdrag_focus", "111"), ("xwdrag_place", "111 40 80 1000 720")):
             rc, output, calls = run(f"{helper} {arguments}", code=bare_helpers)
-            check(helper + " rejects a bare selector immediately with its answer", rc == 1 and WARNING in output and "could not focus 111" in output and len(calls) == 1, output)
+            check(helper + " rejects a bare selector before dispatch", rc == 1 and REFUSAL in output and "could not focus 111" in output and not calls, output)
             print(f"{helper} bare control: exit={rc}, dispatches={len(calls)}, answer={output.strip()!r}")
 
-        for index, action in enumerate(("window.float", "window.resize", "window.move"), start=2):
+        for index, action in enumerate(("window.float", "window.resize", "window.move"), start=PLACEMENT_FIRST_WINDOW_CALL):
             rc, output, calls = run("xwdrag_place 111 40 80 1000 720", HYPR_FAKE_FAIL_ACTION=action)
             check(action + " stops placement on an exit-zero warning", rc == 1 and WARNING in output and len(calls) == index, output)
 
@@ -111,6 +123,17 @@ def main():
 
         expression = 'hl.dsp.focus({ window = "address:0xabc" })'
         for owner, code in (("ui", helpers), ("drag", drag_helper)):
+            for selector in ("address:0xabc", "class:flea", "title:owned"):
+                dispatch = expression.replace("address:0xabc", selector)
+                rc, output, calls = run("hypr_dispatch " + shlex.quote(dispatch), code=code)
+                check(owner + " accepts " + selector, rc == 0 and not output and calls == [dispatch], output)
+            for bare in ("0xabc", ""):
+                dispatch = expression.replace("address:0xabc", bare)
+                rc, output, calls = run("hypr_dispatch " + shlex.quote(dispatch), code=code)
+                check(owner + " refuses a bare selector before calling the compositor", rc == 1 and output == REFUSAL + dispatch + "\n" and not calls, output)
+            dispatch = "hl.dsp.cursor.move({x = 2, y = 3})"
+            rc, output, calls = run("hypr_dispatch " + shlex.quote(dispatch), code=code)
+            check(owner + " accepts a cursor move", rc == 0 and not output and calls == [dispatch], output)
             command = "hypr_dispatch " + shlex.quote(expression)
             rc, output, _ = run(command, code=code)
             check(owner + " accepts exactly ok", rc == 0 and not output, output)

@@ -35,14 +35,7 @@ note() { printf '     %s\n' "$*"; }
 check() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1"; note "expected [$3]"; note "got      [$2]"; fi; }
 die() { bad "$*"; exit 1; }
 
-hypr_dispatch() {
-    local answer
-    if answer=$(hyprctl dispatch "$1" 2>&1) && [[ "$answer" == ok ]]; then
-        return 0
-    fi
-    printf '%s\n' "$answer" >&2
-    return 1
-}
+. "$repo/tests/lib/hypr-dispatch.sh"
 
 stop_owned_processes() {
   [[ -n "${FLEA_PID:-}" ]] || return 0
