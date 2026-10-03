@@ -336,6 +336,7 @@ function tightenVertical(svg) {
 }
 
 // QtSvg's polyline end tangent uses last-to-last; a path uses its actual final segment at any angle.
+// Sample input: <polyline points="10,10 40,40 40,40" marker-end="url(#tip)"/>.
 function markerPaths(svg) {
     return svg.replace(/<polyline\b[^<>]*\/>/g, function (tag) {
         if (!/\smarker-(?:start|mid|end)=/.test(tag))

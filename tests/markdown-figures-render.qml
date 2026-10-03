@@ -5,12 +5,7 @@ import Quickshell
 import "flea" as Flea
 import "markdown-figures-render.js" as Checks
 
-// tests/markdown-figures-render.sh's harness: the real ui/PreviewMarkdown.qml
-// over a fixture holding a flowchart, a math fence, a $$ display block, a
-// malformed diagram, an inline-$ paragraph and a far figure past filler. In
-// stub mode a stub `flea` answers a canned 800x400 SVG; in real mode the real
-// helper answers through the real FigureService, and each good figure's rect
-// must hold ink that is not the chrome surface. Quits itself, pass or fail.
+// Render figure fixtures through PreviewMarkdown, checking live geometry, captured ink and every sent source.
 ShellRoot {
     id: shell
 
@@ -26,13 +21,20 @@ ShellRoot {
     property int farIndex: -1
     property int inlineIndex: -1
     property int sendsMark: 0
+    property var requestHistory: []
     property int failures: 0
     property int padding: 0
     property real paragraphHeight: 0
     Component.onCompleted: Flea.ViewState.setTextSize({ mode: 14 })
-    // Real when FLEA_FIG_MODE=real, else the canned stub: the geometry bound
-    // below is the only thing that differs, since a real formula is 15 px wide.
+    // The real helper and injected stubs share the width-fit and request-history checks.
     property string figMode: Quickshell.env("FLEA_FIG_MODE") === "real" ? "real" : "stub"
+
+    Connections {
+        target: Flea.FigureService
+        function onSent(ticket, source) {
+            shell.requestHistory.push({ id: ticket, source: source })
+        }
+    }
 
     FloatingWindow {
         id: window
@@ -151,6 +153,15 @@ ShellRoot {
         return true
     }
 
+    function checkHistory() {
+        var error = Checks.farRequestError(shell.requestHistory, md.blockList[shell.farIndex].source, Flea.FigureService.sends)
+        if (error !== "") {
+            shell.fail(error)
+            return false
+        }
+        return true
+    }
+
     function drive() {
         if (shell.step === 0) {
             if (shell.fixture.length === 0)
@@ -203,10 +214,9 @@ ShellRoot {
             }
             for (var i = 1; i <= 3; i++) {
                 var info = md.figureInfo(i)
-                if (info.boxW > md.width + 1)
-                    return shell.fail("figure " + i + " runs past the text width")
-                // The stub draws 800 px wide scaled into the frame; a real
-                // formula is 15 px wide, so only the real bound is the floor.
+                if (info.imgW > info.boxW || info.boxW > md.width)
+                    return shell.fail("figure " + i + " drawn width " + info.imgW + " exceeds box " + info.boxW + " or preview " + md.width)
+                // The stub's wide image and the real helper's small formula keep their existing size bounds.
                 if (shell.figMode === "real") {
                     if (!(info.imgW > 0 && info.imgW <= 800 && info.imgH > 0))
                         return shell.fail("figure " + i + " missed its scaled geometry")
@@ -225,11 +235,12 @@ ShellRoot {
                 shell.check(Checks.paletteError(svg, [md.hexOf(Flea.Theme.color.background), md.inkHex,
                     md.accentHex, md.borderHex, md.chromeHex]), "Mermaid theme edges and nodes")
             }
-            // A live delegate past the cache still sent nothing while it holds
-            // no answer and no ticket; only a working, ready or failed far one did.
+            // Current state and complete send history must both leave the far figure unasked.
             var far = md.figureInfo(shell.farIndex)
             if (far !== null && (far.working || far.ready || far.failed))
                 return shell.fail("the far figure was asked for despite sitting past the cache")
+            if (!shell.checkHistory())
+                return
             shell.sendsMark = Flea.FigureService.sends
             shell.log("near figures drawn, far figure unasked, sends=" + shell.sendsMark)
             md.view = "source"
@@ -250,14 +261,14 @@ ShellRoot {
                     return shell.fail("the figures never came back after Source")
                 return
             }
-            // The error answer is never cached, so the malformed figure re-sends
-            // here; the cache pin lives in tests/markdown-figures.qml instead.
-            // What matters is the figures come back and the far one stays unasked.
+            // Failed figures re-send after Source; complete history must still leave the far figure unasked.
             if (!shell.checkFar("return"))
                 return
             var farAgain = md.figureInfo(shell.farIndex)
             if (farAgain !== null && (farAgain.working || farAgain.ready || farAgain.failed))
                 return shell.fail("the far figure was asked for on the return trip")
+            if (!shell.checkHistory())
+                return
             shell.log("rendered again, far figure still unasked")
             poll.stop()
             shell.log("grabbing")
@@ -285,9 +296,7 @@ ShellRoot {
         }
     }
 
-    // Pixel facts off the reloaded grab: each good figure holds ink that is
-    // not the chrome surface, the inline maths keeps its chrome chip and the
-    // malformed figure draws the fence look (fill, no border).
+    // The grab checks figure ink, the inline maths chip, fenced fallback and links.
     function analyze(ctx) {
         var w = 560
         var h = 1080
@@ -303,8 +312,7 @@ ShellRoot {
         }
         var border = parse(String(md.borderHex).toLowerCase())
         var chrome = parse(String(md.chromeHex).toLowerCase())
-        // Empty canvas reads as the window ground or transparent black, so
-        // neither counts as figure ink, only a drawn mark does.
+        // Window ground and transparent black do not count as figure ink.
         function isInk(c) {
             return !same(c, chrome) && !(c[0] === 16 && c[1] === 19 && c[2] === 21)
                 && !(c[0] === 0 && c[1] === 0 && c[2] === 0)
@@ -373,14 +381,18 @@ ShellRoot {
         if (edgeFill < 100)
             return shell.fail("the fallback lost its fill")
 
+        var ground = parse(String(window.color))
+        var accent = parse(String(md.accentHex))
         for (var py = 0; py < h; py++)
             for (var px = 0; px < w; px++) {
                 var c = at(px, py)
-                if (c[2] >= 200 && c[0] <= 110 && c[1] <= 170)
+                if (Checks.defaultLinkBlue(c, ground, accent))
                     return shell.fail("a Qt default link blue survived at " + px + "," + py)
             }
         if (shell.failures > 0)
             return shell.fail(shell.failures + " visual checks failed")
+        if (!shell.checkHistory())
+            return
         shell.done = true
         shell.log("PASS (" + shell.figMode + ") three figures, one mono fallback, widths fit, far figure unasked")
         shell.quit()

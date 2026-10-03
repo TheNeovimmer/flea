@@ -12,6 +12,7 @@ Item {
     id: root
 
     signal done(int ticket, string svg, string error)
+    signal sent(int ticket, string source)
 
     // Writable so the suite shrinks them; production never writes either.
     property int renderMs: 2000
@@ -217,6 +218,7 @@ Item {
         var line = JSON.stringify({ id: id, kind: w.kind, source: w.source, display: w.display, theme: w.theme }) + "\n";
         root.sends++;
         helper.write(line);
+        root.sent(id, w.source);
     }
 
     function ask(kind, source, display, theme) {

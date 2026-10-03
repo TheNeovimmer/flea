@@ -5,7 +5,6 @@ import "js/Icons.js" as Icons
 import "js/Markdown.js" as Markdown
 
 // Active-file Markdown preview: Rendered blocks and verbatim Source share the board's document inset.
-// Resolve images before Qt sees text: remote images become placeholders; only files beside the document load.
 Item {
     id: root
 
@@ -184,6 +183,7 @@ Item {
         }
     }
 
+    // Resolve images before Qt sees text: remote images become placeholders; only files beside the document load.
     function askParse() {
         root.parseSeq++
         if (!root.active || root.tooLarge || !file.loaded) {

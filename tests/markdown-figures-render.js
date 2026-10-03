@@ -1,4 +1,10 @@
 // Shared figure assertions read the live tree and its painted pixels.
+var ACCENT_BLEND_TOLERANCE = 3;
+var RGBA_CHANNELS = 4;
+var LINK_BLUE_MIN = 200;
+var LINK_RED_MAX = 110;
+var LINK_GREEN_MAX = 170;
+
 function figure(md, index) {
     var block = md.blockItem(index);
     if (!block)
@@ -23,6 +29,7 @@ function bodyFont(md) {
     return null;
 }
 
+// Sample input: <text font-size="14" font-family="monospace" fill="#c0caf5">A</text>.
 function labelError(svg, font, foreground) {
     var labels = svg.match(/<(?:text|tspan)(?:\s[^<>]*?)?>/g) || [];
     if (labels.length === 0)
@@ -40,6 +47,7 @@ function labelError(svg, font, foreground) {
     return "";
 }
 
+// Sample input: <path fill="#101315" stroke="#7aa2f7"/>.
 function paletteError(svg, roles) {
     var paints = svg.match(/(?:fill|stroke)="[^"]*"/g) || [];
     for (var i = 0; i < paints.length; i++) {
@@ -80,11 +88,16 @@ function farTop(md, count, paragraphHeight) {
 }
 
 function inkBounds(pixels, width, rect, ground, chrome) {
+    var height = pixels.length / (width * RGBA_CHANNELS);
+    if (!(width > 0) || !Number.isInteger(width) || !Number.isInteger(height)
+            || !Number.isInteger(rect.x) || !Number.isInteger(rect.y) || rect.x < 0 || rect.y < 0
+            || !(rect.w > 0 && rect.h > 0) || rect.x + rect.w > width || rect.y + rect.h > height)
+        throw new Error("ink rect " + JSON.stringify(rect) + " outside buffer " + width + "x" + height);
     var top = -1;
     var bottom = -1;
     for (var y = rect.y; y < rect.y + rect.h; y++) {
         for (var x = rect.x; x < rect.x + rect.w; x++) {
-            var at = (y * width + x) * 4;
+            var at = (y * width + x) * RGBA_CHANNELS;
             var r = pixels[at], g = pixels[at + 1], b = pixels[at + 2];
             if ((r === ground[0] && g === ground[1] && b === ground[2])
                     || (r === chrome[0] && g === chrome[1] && b === chrome[2])
@@ -97,6 +110,39 @@ function inkBounds(pixels, width, rect, ground, chrome) {
         }
     }
     return { top: top, bottom: bottom, height: top < 0 ? 0 : bottom - top + 1 };
+}
+
+// Keep every sent source even after its delegate or ticket disappears.
+function farRequestError(history, source, sends) {
+    if (history.length !== sends)
+        return "request history recorded " + history.length + " of " + sends + " sends";
+    for (var i = 0; i < history.length; i++)
+        if (history[i].source === source)
+            return "far figure request " + history[i].id + " was sent despite sitting past the cache";
+    return "";
+}
+
+// Antialiasing places themed accent pixels along the ground-to-accent RGB segment.
+function accentBlend(pixel, ground, accent) {
+    var dot = 0;
+    var lengthSquared = 0;
+    for (var i = 0; i < ground.length; i++) {
+        var delta = accent[i] - ground[i];
+        dot += (pixel[i] - ground[i]) * delta;
+        lengthSquared += delta * delta;
+    }
+    var coverage = lengthSquared > 0 ? Math.max(0, Math.min(1, dot / lengthSquared)) : 0;
+    var distanceSquared = 0;
+    for (var c = 0; c < ground.length; c++) {
+        var residual = pixel[c] - ground[c] - coverage * (accent[c] - ground[c]);
+        distanceSquared += residual * residual;
+    }
+    return distanceSquared <= ACCENT_BLEND_TOLERANCE * ACCENT_BLEND_TOLERANCE;
+}
+
+function defaultLinkBlue(pixel, ground, accent) {
+    return pixel[2] >= LINK_BLUE_MIN && pixel[0] <= LINK_RED_MAX && pixel[1] <= LINK_GREEN_MAX
+        && !accentBlend(pixel, ground, accent);
 }
 
 function mathError(rows, bodyPx) {

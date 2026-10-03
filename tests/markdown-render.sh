@@ -45,6 +45,8 @@ if ! command -v qs >/dev/null; then
     exit 1
 fi
 
+python3 tests/markdown-gates.py || exit 1
+
 test_root="$FIXTURE_ROOT/flea-markdown-render-$$"
 sandbox_make "$test_root"
 cleanup() { sandbox_remove "$test_root"; }
@@ -121,7 +123,8 @@ source_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNAT
     timeout 20 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$source_output" | grep -oE 'MARKDOWN_SOURCE .*'
 check_warnings "$source_output" 0 || exit 1
-printf '%s\n' "$source_output" | grep -qE 'MARKDOWN_SOURCE [0-9]+ checks, 0 failed' || exit 1
+expected_source_checks=15
+printf '%s\n' "$source_output" | grep -qF "MARKDOWN_SOURCE $expected_source_checks checks, 0 failed" || exit 1
 if [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then
     cp "$test_root/runtime/markdown-source.png" "$FLEA_CI_SUITE_LOGS/markdown-source.png" || exit 1
 fi

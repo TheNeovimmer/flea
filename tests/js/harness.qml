@@ -35,6 +35,7 @@ import "localsend.js" as LocalSendSuite
 import "markdown.js" as MarkdownSuite
 import "mdstructure.js" as MdStructureSuite
 import "mdhtml.js" as MdHtmlSuite
+import "mdgates.js" as MdGatesSuite
 import "listbudget.js" as ListBudgetSuite
 import "marks.js" as MarksSuite
 import "match.js" as MatchSuite
@@ -146,6 +147,7 @@ Item {
             ["selection", SelectionSuite], ["shiftranges", ShiftRangesSuite], ["sheetquery", SheetQuerySuite], ["sheetcandidates", SheetCandidatesSuite], ["reload", ReloadSuite], ["slowclick", SlowClickSuite], ["settings", SettingsSuite], ["settingsmenus", SettingsMenusSuite], ["settingsshelf", SettingsShelfSuite], ["settingsabout", SettingsAboutSuite],
             ["sort", SortSuite], ["swap", SwapSuite], ["startup", StartupSuite], ["trashdates", TrashDatesSuite], ["permissions", PermissionsSuite], ["status", StatusSuite], ["statusfix", StatusFixSuite], ["taildrop", TaildropSuite], ["textsize", TextSizeSuite],
             ["trash", TrashSuite], ["tap", TapSuite], ["marquee", MarqueeSuite], ["tabs", TabsSuite], ["tabs-switch", TabsSwitchSuite], ["tabmove", TabMoveSuite], ["tabrestore", TabRestoreSuite], ["shelfmodel", ShelfModelSuite],
+            ["mdgates", MdGatesSuite],
             ["themes", ThemesSuite], ["thumbs", ThumbsSuite], ["extthumbs", ExtThumbsSuite], ["transfer", TransferSuite], ["uistate", UiStateSuite], ["update", UpdateSuite],
             ["watch", WatchSuite], ["gvfsbridge", GvfsBridgeSuite]
         ]

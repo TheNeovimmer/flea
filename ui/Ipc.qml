@@ -405,6 +405,12 @@ QtObject {
         function railRenameEditorText(): string { var e = root.pane.sidebar.renameEditor(); return e ? e.editorText : "" }
         function railRenameFieldShown(): bool { var e = root.pane.sidebar.renameEditor(); return e ? e.editorShown : false }
         function previewOpen(): bool { return root.pane.preview.active }
+        // Read the column's mounted Markdown view, empty until its document is ready.
+        function columnMarkdownView(): string {
+            var column = root.pane.previewColumnItem
+            var markdown = column ? column.markdown : null
+            return column && column.visible && markdown && markdown.active && markdown.contentReady ? markdown.view : ""
+        }
         function previewKind(): string { return root.pane.preview.kind }
         function previewState(): string { return root.pane.preview.status }
         // One entry per figure block; "" while no Markdown body is mounted, so a case keeps polling.

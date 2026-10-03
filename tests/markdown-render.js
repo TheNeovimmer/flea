@@ -1,5 +1,4 @@
 // Geometry assertions for the rendered Markdown pane against RenderedPreviews, read off the live tree.
-// Each answers "" when it holds and the measured difference when it does not.
 
 // md_rendered at body 14: padding 16 20, headings 20 and 15, a 1.7 line box. The mapping may not drift off them.
 var BOARD_BODY = 14;
@@ -32,7 +31,7 @@ function markerOf(item) {
     return null;
 }
 
-// Compare first-line baselines in pane coordinates, including every row's position and text padding.
+// Compare first-line baselines in pane coordinates with row positions and padding; answer "" when they hold, otherwise the measured difference.
 function listBaselineError(item, pane, count, body, grab, inkAt, reference) {
     if (!item)
         return "no list block was instantiated";
@@ -187,7 +186,7 @@ function insetError(rects, frameW, insetX, insetY, body) {
     return "";
 }
 
-// A 6 px gap above every block after the first, resolved as one token.
+// Every drawn gap equals Theme.spacing.rowPaddingY independently of the renderer's blockGap.
 function rhythmError(rects, gap) {
     if (!(gap > 0))
         return "the pane declares no block gap";
@@ -215,13 +214,16 @@ function headingError(h1, h2, para, body, foreground) {
     return "";
 }
 
-// Every line is one 1.7 box: the block is a whole number of boxes, whichever number it wraps to.
-function lineBoxError(items) {
+// Every line uses MarkdownText's font-derived box and each block spans whole boxes.
+function lineBoxError(items, boxRatio) {
     if (items.length === 0)
         return "no run or heading drew its text on a line box";
     for (var i = 0; i < items.length; i++) {
         var t = items[i].text;
         var h = items[i].h;
+        var expected = Math.round(boxRatio * t.font.pixelSize);
+        if (t.box !== expected)
+            return items[i].name + " has a " + t.box + " px box, want " + expected + " px at font " + t.font.pixelSize;
         if (!(t.box > 0) || t.lineHeight !== t.box || h < t.box || h % t.box !== 0)
             return items[i].name + " is " + h + " px tall on a " + t.lineHeight + " px line, want a whole number of " + t.box + " px boxes";
     }

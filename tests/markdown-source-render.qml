@@ -73,12 +73,15 @@ ShellRoot {
         check(parts.flick.contentHeight === Math.max(parts.flick.height, parts.text.implicitHeight + 2 * sourcePane.insetY),
             "source bottom inset remains scrollable" + label)
         check(parts.text.textFormat === Text.PlainText && parts.text.text === sourcePane.rawText, "source remains verbatim" + label)
+        var scrollbars = 0
         for (var i = 0; i < parts.flick.children.length; i++) {
             var bar = parts.flick.children[i]
-            if (bar.flickable !== parts.flick || bar.width <= 0)
+            if (bar.knobItem === undefined || bar.flickable !== parts.flick || bar.width <= 0)
                 continue
+            scrollbars++
             check(bar.mapToItem(sourcePane, bar.width, 0).x === sourcePane.width, "source scrollbar stays on frame edge" + label)
         }
+        check(scrollbars === 1, "exactly one Source scrollbar belongs to flickable with positive width" + label)
     }
     Timer {
         interval: 600
