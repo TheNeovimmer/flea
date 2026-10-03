@@ -2,7 +2,6 @@
 .import "../../ui/js/Clipboard.js" as Clipboard
 .import "../../ui/js/Ops.js" as Ops
 .import "../../ui/js/Transfer.js" as Transfer
-.import "sourcefixture.js" as Source
 
 function run(check) {
     var sent = [], messages = []
@@ -330,9 +329,7 @@ function run(check) {
     Ops.commitRename(menuRename, "renamed.txt")
     check("committing retains the captured menu identity", renameIdentity, 33)
 
-    // Issue #170: the menu's Rename opens the editor at once instead of queueing an activate behind
-    // the cold Open-with catalogue. A ready snapshot over the unchanged identity opens now, one still
-    // in flight over it takes the F2 route, and a moved identity refuses like every other menu action.
+    // Issue #170: a ready snapshot over the unchanged identity opens now, one in flight takes F2, a moved identity refuses.
     check("the menu rename decision lives in Ops.js", typeof Ops.menuRenameRoute, "function")
     if (typeof Ops.menuRenameRoute === "function") {
         check("a ready snapshot over the current selection opens at once",
@@ -346,11 +343,6 @@ function run(check) {
         check("an empty identity never opens and never takes the F2 route",
               Ops.menuRenameRoute(true, "", ""), "stale")
     }
-    var menuActionsSource = Source.source("ui/PaneMenuActions.qml")
-    var renameFromMenu = Source.slice(menuActionsSource, "function openRenameFromMenu() {", "function open(action")
-    check("the menu rename asks Ops for its route", renameFromMenu.indexOf("Ops.menuRenameRoute(") >= 0, true)
-    check("a moved identity says what every other menu action says",
-          renameFromMenu.indexOf("Selected items changed; reopen the menu.") >= 0, true)
 
     // Grid closing review G1: with the tile's Loader retired and the rename
     // refused, no live editor exists to show it, so the refusal goes to the

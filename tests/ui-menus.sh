@@ -7,14 +7,16 @@ menus_guard() {
     [[ "$canonical" == "$menu_box/"* && "$canonical" != "$menu_box" ]] || fail "menus: target outside owned sandbox: $target"
 }
 
-# What a failed check leaves behind: the menu, the rename editor, the status slot, the focused window and one capture.
+# What a failed check leaves behind: the menu, the rename editor, the status slot, the focused window and one capture; it never changes the verdict.
 menus_evidence() {
     local png="$evidence_dir/menus-failure-$$.png"
     printf 'MENUS_EVIDENCE menu=%s\n' "$(ipc menuState 2>&1 | jq -c '{opened, hasRow, snapshotReady, snapshotId}' 2>&1)"
     printf 'MENUS_EVIDENCE rename=%s error=%s primary=%q detail=%q last=%q path=%q\n' "$(ipc renameEditorLive 2>&1)" \
         "$(ipc statusError 2>&1)" "$(ipc statusPrimary 2>&1)" "$(ipc statusDetail 2>&1)" "$(ipc lastMessage 2>&1)" "$(ipc path 2>&1)"
     printf 'MENUS_EVIDENCE active=%s\n' "$(hyprctl activewindow -j 2>&1 | jq -c '{class, address, title}' 2>&1)"
-    mkdir -p "$evidence_dir" && omarchy-drive shot "$png" flea >/dev/null 2>&1 && printf 'MENUS_EVIDENCE shot=%s\n' "$png"
+    if mkdir -p "$evidence_dir" 2>/dev/null && omarchy-drive shot "$png" flea >/dev/null 2>&1; then printf 'MENUS_EVIDENCE shot=%s\n' "$png"
+    else printf 'MENUS_EVIDENCE shot=failed\n'; fi
+    return 0
 }
 
 menus_expect() {
@@ -468,12 +470,7 @@ menus_replace() {
     [[ "$(stat -c '%d:%i' "$original")" != "$inode" ]] || fail "menus: replacement reused the captured identity"
 }
 
-# Which path each action takes at activation with the identity unchanged (the open menu holds the re-read back):
-# open, cut, copy, duplicate and trash go through PaneMenuActions.activate, which sends the backend the snapshot id,
-# and the backend refuses the replaced source with "Selected item changed; reopen the menu." (a moved identity would
-# answer "Selected items changed; reopen the menu." from activate itself, the one text this suite does not expect);
-# rename goes through openRenameFromMenu (issue #170): a ready snapshot over the same identity opens the editor at
-# once, and the replaced source is refused at commit (backend.rename with renameMenuId), inside the editor.
+# The open menu holds the re-read back, so the identity it captured is still current at activation (routes in AGENTS.md).
 menus_rename_after_replacement() {
     local directory="$1"
     menus_expect renameState '.index >= 0 and .index == .cursor and .cursorName == "target.txt" and .focused and (.pending | not)' 'rename opens the editor over target.txt at menu activation'

@@ -242,6 +242,18 @@ function run(check) {
     SlowClick.arm(shiftOnly, 4, none, 1500, 400)
     Focus.handleKey({ key: Qt.Key_Shift, text: "", modifiers: Qt.ShiftModifier }, shiftOnly, shiftOnly.sidebar)
     check("a bare modifier press leaves the slow click armed", SlowClick.fire(shiftOnly), true)
+    var editorHolders = ["pane", "sidebar"]
+    for (var h = 0; h < editorHolders.length; h++) {
+        var editing = keyed()
+        SlowClick.arm(editing, 4, none, 1000, 400)
+        SlowClick.arm(editing, 4, none, 1500, 400)
+        if (editorHolders[h] === "pane") editing.renameEditor = function () { return {} }
+        else editing.sidebar = { renameEditor: function () { return {} } }
+        var consumed = Focus.handleKey({ key: Qt.Key_Return, text: "\r", modifiers: none }, editing, editing.sidebar)
+        check("a live " + editorHolders[h] + " rename editor owns the key", consumed, true)
+        check("and an action key it holds reaches no dispatch for the " + editorHolders[h], editing.did.length, 0)
+        check("nor does it disarm the pending slow click for the " + editorHolders[h], editing.cancelled === 0 && SlowClick.fire(editing), true)
+    }
 
     // wasSoleSelection reads O(1) facts, never the whole index array a select-all would build.
     var calls = 0
