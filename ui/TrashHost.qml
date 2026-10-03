@@ -15,7 +15,7 @@ Loader {
     readonly property bool confirming: item !== null && item.confirming
     readonly property int total: item ? item.total : 0
     readonly property int selectedCount: item ? item.selectedCount : 0
-    readonly property var sheetPane: root.pane
+    readonly property alias sheetPane: root.pane
 
     // The 30 day sweep, GM's ruling of 2026-09-11. It runs the same three requests the window runs,
     // in the same order, so prepare still reviews every item against the identity the listing

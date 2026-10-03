@@ -3,7 +3,6 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "js/Icons.js" as Icons
-import "js/Picker.js" as Picker
 import "js/Places.js" as Places
 
 // Place data outlives the visible rail, so hiding it cannot remove query destinations.
@@ -18,11 +17,13 @@ QtObject {
         return entry
     })
     readonly property var recentEntries: root.settings.showRecent === true
-        ? [{ label: Picker.RECENT_LABEL, path: Picker.RECENT, group: "recent", kind: "recent", glyph: "history" }] : []
+        ? [{ label: "Recent", path: "flea:recent", group: "recent", kind: "recent", glyph: "history" }] : []
     readonly property var trashEntries: root.settings.showTrash === false ? []
         : [{ label: "Trash", path: "trash:///", group: "trash", kind: "trash", glyph: "trash" }]
-    readonly property var entries: root.homeEntries.slice(0, 1).concat(root.recentEntries,
-        root.homeEntries.slice(1), root.trashEntries, root.favouriteEntries)
+    function entries() {
+        return root.homeEntries.slice(0, 1).concat(root.recentEntries,
+            root.homeEntries.slice(1), root.trashEntries, root.favouriteEntries)
+    }
     property FileView userDirs: FileView {
         id: dirs
         path: Quickshell.env("HOME") + "/.config/user-dirs.dirs"

@@ -59,7 +59,7 @@ Item {
     }
     function railModel() {
         var bar = root.pane ? root.pane.sidebar : null
-        return Flea.RailPlaces.entries.concat(bar ? bar.networkEntries.concat(bar.deviceEntries) : [])
+        return Flea.RailPlaces.entries().concat(bar ? bar.networkEntries.concat(bar.deviceEntries) : [])
     }
     function ensureRecent() {
         if (root.recentAsked)

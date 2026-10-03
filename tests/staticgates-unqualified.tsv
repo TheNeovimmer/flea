@@ -844,13 +844,13 @@ ui/ShelfPins.qml	13	Quickshell	Quickshell import exports this runtime singleton 
 ui/ShelfPins.qml	23	reload	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
 ui/ShelfPins.qml	24	text	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
 ui/ShelfPins.qml	98	Quickshell	Quickshell import exports this runtime singleton or enum.
-ui/RailPlaces.qml	16	Quickshell	Quickshell import exports this runtime singleton or enum.
-ui/RailPlaces.qml	28	Quickshell	Quickshell import exports this runtime singleton or enum.
-ui/RailPlaces.qml	31	reload	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
+ui/RailPlaces.qml	15	Quickshell	Quickshell import exports this runtime singleton or enum.
+ui/RailPlaces.qml	29	Quickshell	Quickshell import exports this runtime singleton or enum.
+ui/RailPlaces.qml	32	reload	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
 ui/Sidebar.qml	116	Quickshell	Quickshell import exports this runtime singleton or enum.
 ui/Sidebar.qml	119	reload	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
-ui/RailPlaces.qml	32	root	Declared QML id; moved Home data updates the singleton from its FileView.
-ui/RailPlaces.qml	33	root	Declared QML id; the moved FileView clears its singleton Home data on read failure.
+ui/RailPlaces.qml	33	root	Declared QML id; moved Home data updates the singleton from its FileView.
+ui/RailPlaces.qml	34	root	Declared QML id; the moved FileView clears its singleton Home data on read failure.
 ui/Sidebar.qml	273	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/Sidebar.qml	417	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/Sidebar.qml	428	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.

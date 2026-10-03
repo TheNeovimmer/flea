@@ -71,7 +71,7 @@ function run(check) {
     // The source spells the switch-first ternary; the drawn colors are pinned in tests/rowcost.qml.
     var dateColor = dateBlock(row)
     check("the off path never enters the library",
-        dateColor.indexOf("(ViewState.highlightToday && Format.isRecent(") >= 0, true)
+        dateColor.indexOf("(root.dateShown && ViewState.highlightToday && Format.isRecent(") >= 0, true)
     check("no inverted switch survives", dateColor.indexOf("!ViewState.highlightToday") < 0, true)
     check("no negated recency survives", dateColor.indexOf("!Format.isRecent") < 0, true)
     check("today lifts to foreground, not the reverse",
