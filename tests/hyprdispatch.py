@@ -2,6 +2,7 @@
 """Reject unscoped window dispatches and discarded compositor replies."""
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -9,19 +10,28 @@ WINDOW_CALL = re.compile(r"\bhl\.dsp\.(?:focus|window\.\w+)\s*\(")
 SELECTOR = re.compile(r"\bwindow\s*=\s*[\"'](?:address|class|title):[^\"']+")
 DISPATCH = re.compile(r"\bhyprctl\s+dispatch\b")
 DISCARD = re.compile(r">\s*/dev/null\b")
+FIXTURE_SCAN_TIMEOUT_SECONDS = 3
+COMMAND_SEPARATORS = ("&&", "||", ";", "|", "\n")
 
 
-def without_comments(text):
-    # Keep newlines and offsets intact, including hashes inside quoted selectors.
-    chars, quote, escaped, comment = list(text), None, False, False
-    for index, char in enumerate(text):
-        if comment:
-            if char == "\n":
-                comment = False
-            else:
-                chars[index] = " "
-        elif escaped:
+# Sample input: addr=${addr#address:}; hyprctl dispatch 'hl.dsp.focus()' # checked
+def shell_commands(text):
+    chars, spans = list(text), []
+    quote, escaped, comment = None, False, False
+    word_start = True
+    parameter_depth = 0
+    start, index = 0, 0
+    while index < len(text):
+        char = text[index]
+        if comment and char != "\n":
+            chars[index] = " "
+            index += 1
+            continue
+        comment = False
+        if escaped:
             escaped = False
+            if char != "\n":
+                word_start = False
         elif char == "\\" and quote != "'":
             escaped = True
         elif quote:
@@ -29,13 +39,37 @@ def without_comments(text):
                 quote = None
         elif char in "\"'":
             quote = char
-        elif char == "#":
-            chars[index], comment = " ", True
-    return "".join(chars)
+            word_start = False
+        elif text.startswith("${", index):
+            parameter_depth += 1
+            word_start = False
+        elif parameter_depth:
+            if char == "}":
+                parameter_depth -= 1
+        elif char == "#" and word_start:
+            chars[index] = " "
+            comment = True
+        else:
+            separator = next((token for token in COMMAND_SEPARATORS if text.startswith(token, index)), None)
+            if separator:
+                spans.append((start, index))
+                index += len(separator)
+                start = index
+                word_start = True
+                continue
+            word_start = char.isspace() or char in "(&"
+        index += 1
+    spans.append((start, len(text)))
+    return "".join(chars), spans
 
 
+# Sample input: echo address#part # hyprctl dispatch 'hl.dsp.focus()'
+def without_comments(text):
+    return shell_commands(text)[0]
+
+
+# Sample input: focus({ window = "title:foo(bar)" })
 def call_end(text, start):
-    # Sample input: focus({ window = "title:foo(bar)" }) closes after the table.
     depth, quote, escaped = 0, None, False
     for index in range(start, len(text)):
         char = text[index]
@@ -57,28 +91,25 @@ def call_end(text, start):
     return len(text)
 
 
+# Sample input: hyprctl dispatch 'hl.dsp.focus({ window = "address:0xabc" })' >/dev/null
 def scan(text):
-    code = without_comments(text).replace('\\"', '"').replace("\\'", "'")
+    code, spans = shell_commands(text)
     issues, count = [], 0
-    for match in WINDOW_CALL.finditer(code):
-        count += 1
-        end = call_end(code, match.end() - 1)
-        line = code.count("\n", 0, match.start()) + 1
-        if not SELECTOR.search(code[match.end():end]):
-            issues.append((line, "hypr-window-selector"))
-        start = code.rfind("\n", 0, match.start()) + 1
-        while start > 0 and code[:start - 1].rstrip(" \t").endswith("\\"):
-            start = code.rfind("\n", 0, start - 1) + 1
-        stop = code.find("\n", end)
-        if stop < 0:
-            stop = len(code)
-        while code[end:stop].rstrip(" \t").endswith("\\"):
-            following = code.find("\n", stop + 1)
-            stop = len(code) if following < 0 else following
-        dispatches = list(DISPATCH.finditer(code[start:match.start()]))
-        outside_call = code[start + dispatches[-1].end():match.start()] + code[end:stop] if dispatches else ""
-        if dispatches and DISCARD.search(outside_call):
-            issues.append((line, "hypr-window-reply"))
+    first_line, previous_start = 1, 0
+    for start, stop in spans:
+        first_line += code.count("\n", previous_start, start)
+        previous_start = start
+        command = code[start:stop].replace('\\"', '"').replace("\\'", "'")
+        for match in WINDOW_CALL.finditer(command):
+            count += 1
+            end = call_end(command, match.end() - 1)
+            line = first_line + command.count("\n", 0, match.start())
+            if not SELECTOR.search(command[match.end():end]):
+                issues.append((line, "hypr-window-selector"))
+            dispatches = list(DISPATCH.finditer(command[:match.start()]))
+            outside_call = command[dispatches[-1].end():match.start()] + command[end:] if dispatches else ""
+            if dispatches and DISCARD.search(outside_call):
+                issues.append((line, "hypr-window-reply"))
     return count, issues
 
 
@@ -92,7 +123,18 @@ def main():
         calls += count
         problems.extend(f"{path.relative_to(root)}:{line}: {rule}" for line, rule in issues)
     for fixture in fixtures:
-        _, issues = scan(fixture["code"])
+        if fixture.get("bounded"):
+            try:
+                result = subprocess.run([sys.executable, __file__, "--scan-fixture"], input=fixture["code"],
+                                        text=True, capture_output=True, check=True, timeout=FIXTURE_SCAN_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                problems.append(f"fixture {fixture['name']}: scan exceeded {FIXTURE_SCAN_TIMEOUT_SECONDS}s bound")
+                continue
+            count, issues = json.loads(result.stdout)
+        else:
+            count, issues = scan(fixture["code"])
+        if "calls" in fixture and count != fixture["calls"]:
+            problems.append(f"fixture {fixture['name']}: expected {fixture['calls']} call(s), got {count}")
         actual = [rule for _, rule in issues]
         if actual != fixture["issues"]:
             problems.append(f"fixture {fixture['name']}: expected {fixture['issues']}, got {actual}")
@@ -105,4 +147,7 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    if sys.argv[1:] == ["--scan-fixture"]:
+        print(json.dumps(scan(sys.stdin.read())))
+    else:
+        sys.exit(main())

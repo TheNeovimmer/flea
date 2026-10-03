@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run the real harness helpers against a shell fake, without a compositor."""
+import ast
 import os
 import re
 import shlex
@@ -9,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 WARNING = "warning: =[C]:-1: hl.focus: window not found"
+PARSER_SAMPLE_PREFIX = "# Sample input: "
 FAKE = r'''#!/usr/bin/env bash
 set -u
 case "$1" in
@@ -31,6 +33,7 @@ esac
 '''
 
 
+# Sample input: "hypr_dispatch() {\n    echo ok\n}" with names=["hypr_dispatch"].
 def functions(text, names):
     # Keep all definitions in source order so the baseline's later duplicate really wins.
     pattern = r"(?ms)^(?:" + "|".join(names) + r")\(\) \{\n.*?^\}"
@@ -70,6 +73,19 @@ def main():
             if not holds:
                 failures.append(name)
                 print(f"FAIL hypr-dispatch-proof {name}: {output.strip()}")
+
+        for relative, names in (("tests/hyprdispatch.py", ("without_comments", "scan")),
+                                ("tests/hypr-dispatch-proof.py", ("functions",))):
+            parser_source = (root / relative).read_text()
+            source_lines = parser_source.splitlines()
+            definitions = {node.name: node for node in ast.walk(ast.parse(parser_source))
+                           if isinstance(node, ast.FunctionDef)}
+            for name in names:
+                definition = definitions.get(name)
+                documented = definition is not None and definition.lineno > 1
+                if documented:
+                    documented = source_lines[definition.lineno - 2].strip().startswith(PARSER_SAMPLE_PREFIX)
+                check("sample input directly above " + name, documented, relative)
 
         rc, output, calls = run("xwdrag_focus 111")
         check("addressed focus reaches the wanted PID", rc == 0 and len(calls) == 1 and "address:0xabc" in calls[0], output)

@@ -186,5 +186,54 @@
     "name": "selector-with-redirection-text",
     "code": "answer=$(hyprctl dispatch 'hl.dsp.focus({ window = \"title:foo >/dev/null\" })')",
     "issues": []
+  },
+  {
+    "name": "eof-backslash",
+    "code": "hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' \\",
+    "issues": [],
+    "calls": 1,
+    "bounded": true
+  },
+  {
+    "name": "later-echo-captured-checked-stderr",
+    "code": "answer=$(hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' 2>&1); [[ \"$answer\" == ok ]] || fail \"$answer\"; echo ready >/dev/null",
+    "issues": [],
+    "calls": 1
+  },
+  {
+    "name": "later-echo-captured",
+    "code": "answer=$(hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })'); echo ready >/dev/null",
+    "issues": [],
+    "calls": 1
+  },
+  {
+    "name": "later-echo-captured-checked",
+    "code": "answer=$(hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })'); [[ \"$answer\" == ok ]] || fail \"$answer\"; echo ready >/dev/null",
+    "issues": [],
+    "calls": 1
+  },
+  {
+    "name": "literal-newline-discard",
+    "code": "hyprctl dispatch '\nhl.dsp.focus({ window = \"address:0xabc\" })\n' >/dev/null || fail nope",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "parameter-hash",
+    "code": "addr=${addr#address:}; hypr_dispatch 'hl.dsp.focus({ window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "word-hash",
+    "code": "addr=address#part; hypr_dispatch 'hl.dsp.focus({ window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
   }
 ]
