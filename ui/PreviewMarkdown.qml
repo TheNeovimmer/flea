@@ -272,20 +272,21 @@ Item {
 
     // The synchronous parse of one request, landed like a worker reply: the small-file path and the worker's recovery both end here.
     function parseNow(text, dir, chrome, ink) {
-        // Taken before the model reset, like the worker landing: the reader may have moved since the reload was asked.
-        root.rememberScroll()
+        var blocks
         try {
-            root.settingBlocks = true
-            root.blockList = Markdown.blocks(text, dir, chrome, ink)
+            blocks = Markdown.blocks(text, dir, chrome, ink)
         } catch (e) {
             root.parseError = String(e.message || e)
             root.appliedSeq = root.parseSeq
             root.parsing = false
             root.askedAny = false
             return
-        } finally {
-            root.settingBlocks = false
         }
+        // Taken once the parse is good and before the model reset, like the worker landing: a parse that throws takes no place.
+        root.rememberScroll()
+        root.settingBlocks = true
+        root.blockList = blocks
+        root.settingBlocks = false
         root.parseError = ""
         root.appliedSeq = root.parseSeq
         root.parsing = false

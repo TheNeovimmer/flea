@@ -162,6 +162,13 @@ QtObject {
         check(worker.list.contentY === holdReaderPx && !worker.root.keepScroll && isNaN(worker.root.heldY)
             && worker.root.blocksSet === 1, "F49 a worker landing after a released hold lands at the reader's place (got "
             + worker.list.contentY + ")")
+
+        // A parse that throws replaces no model, so it must take no place: nothing would land to release it.
+        var failing = holdStub(source)
+        failing.list.contentY = holdReaderPx
+        parse(failing.root, { blocks: function () { throw new Error("probe parse fault") } }, "text", "/doc", "chrome", "ink")
+        check(!failing.root.keepScroll && failing.root.blocksSet === 0 && !failing.root.settingBlocks
+            && failing.root.parseError === "probe parse fault", "F50 a parse that throws takes no place and replaces no model")
     }
 
     function lazyChecks() {
