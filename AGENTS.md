@@ -2034,9 +2034,10 @@ captures a stable tab identity and its source pane until acknowledgment or the e
 closures wait for a held strip reorder to finish; pending receiver drops are refused without acknowledgment. A desktop
 tear-off uses the same acknowledgment after its initial folder lists. The geometry query
 restarts for the latest overlapping lift.
-Restoring merge-base comments and their original line breaks raises the `wc -l` ceilings to
-`ui/TabBar.qml` 605, `ui/js/Tabs.js` 664 and `ui/WindowBody.qml` 631; `ui/boot/fleatab.qml`
-stays at 50 and `tests/js/tabs.js` at 597.
+The `wc -l` ceilings are `ui/TabBar.qml` 605, `ui/js/Tabs.js` 664, `ui/WindowBody.qml` 631
+and `ui/boot/fleatab.qml` 50, with merge-base comments kept verbatim with their original
+line breaks. `tests/js/tabs.js` is 600: the three added lines pin the no-such-tab count,
+the navigation acknowledgment count and the captured tear-off token.
 The test fixture loads shipped QML function bodies so cancel,
 completion and acknowledgment assertions exercise the actual transitions.
 

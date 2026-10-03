@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Run shipped shell helpers against owned-window, receiver, and trace doubles.
 import pathlib
+import shlex
 import subprocess
 import tempfile
 
@@ -46,6 +47,25 @@ def shell(code):
 
 with tempfile.TemporaryDirectory() as temporary:
     scratch = pathlib.Path(temporary)
+    git = ['git', '-C', str(ROOT)]
+    # The verified CI archive has no Git metadata, so index its files in private scratch.
+    if not (ROOT / '.git').exists():
+        metadata = scratch / 'git'
+        subprocess.run(['git', 'init', '-q', str(metadata)], check=True, capture_output=True, timeout=10)
+        git = ['git', '--git-dir=' + str(metadata / '.git'), '--work-tree=' + str(ROOT)]
+        subprocess.run(git + ['add', '-A', '-f', '--', '.', ':(exclude)target', ':(exclude).superpowers'],
+                       cwd=ROOT, check=True, capture_output=True, timeout=10)
+    tracked = subprocess.run(git + ['ls-files', '-z'], cwd=ROOT, capture_output=True, text=True, timeout=10)
+    bytecode = [path for path in tracked.stdout.split('\0') if path.endswith('.pyc')]
+    check('no tracked Python bytecode', tracked.returncode == 0 and not bytecode,
+          tracked.stderr + repr(bytecode))
+    scan = (ROOT / 'tests/xwtab-scan.sh').read_text()
+    start = scan.rfind('\n', 0, scan.index("<<'PYSHAPES'")) + 1
+    end = scan.index('\nfi', start) + len('\nfi')
+    result = shell('repo=' + shlex.quote(str(ROOT)) + '\nok() { :; }\nbad() { exit 1; }\n' + scan[start:end])
+    check('scan import succeeds', result.returncode == 0, result.stdout + result.stderr)
+    check('scan leaves no tests/__pycache__', not (ROOT / 'tests/__pycache__').exists(),
+          result.stdout + result.stderr)
     log = scratch / 'calls'
     receiver_start = UI.index('    [[ -n "$recv_addr" ]] || fail')
     receiver_end = UI.index('    read -r rcx rcy', receiver_start)
@@ -462,12 +482,13 @@ move_to {target}
         check('valid integer cursor read reaches target ' + target,
               result.returncode == 0 and not result.stdout, result.stdout + result.stderr)
 
-    header = probe[:probe.index('set -u')].splitlines()
-    for marker, proof in (('LAYERDROP PASS', 'panel'),
-                          ('LAYERDROP CATCHER-TEAROFF', 'folder'),
-                          ('LAYERDROP FAIL <why>', 'failure')):
-        check('probe header documents ' + marker + ' and its proof',
-              any(marker in line and proof in line.lower() for line in header))
+    for marker, proof, output in (('LAYERDROP PASS', 'panel', '    out "PASS"'),
+                                  ('LAYERDROP CATCHER-TEAROFF', 'folder', '    out "CATCHER-TEAROFF"'),
+                                  ('LAYERDROP FAIL <why>', 'failure', '    out "FAIL $*"')):
+        lines = probe.splitlines()
+        previous = lines[lines.index(output) - 1] if output in lines else ''
+        check('probe output documents ' + marker + ' and its proof',
+              previous.lstrip().startswith('# ') and marker in previous and proof in previous.lower())
 
     comments = {
         'tests/bootload.sh': ('# A declarative Loader', '# A note is'),
@@ -485,8 +506,8 @@ move_to {target}
         lines = (ROOT / relative).read_text().splitlines()[1:]
         comments = lines[:next(index for index, line in enumerate(lines)
                                if not line.startswith('#'))]
-        check(relative + ' header has complete one-line comments',
-              all(line.endswith('.') for line in comments), repr(comments))
+        check(relative + ' header has exactly one complete comment line',
+              len(comments) == 1 and comments[0].endswith('.'), repr(comments))
 
     for suffix, value in (('outside_x', '200'), ('outside_y', '60'), ('target_nudge', '6')):
         name = 'xwtab_' + suffix

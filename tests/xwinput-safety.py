@@ -45,17 +45,24 @@ check('key extraction ignores an earlier hotkey declaration',
 
 # Sample input: if key -k Escape; then :; fi, or omarchy-drive key -k Escape.
 def ambiguous_input(body):
-    prefix = r'(?:^|&&|\|\||;)\s*(?:(?:if|then)\s+)*'
+    prefix = r'(?:^|&&|\|\||;|\||\$\(|[({`])\s*(?:(?:if|then|elif|else|while|until|do|!)\s+)*'
     pattern = (prefix + r'(?:key|hotkey)\s|--window\s+flea\b|'
-               + prefix + r'omarchy-drive\s+key\b(?![^;&|\n]*--window(?:\s|=))')
+               + prefix + r'omarchy-drive\s+(?:key|hotkey)\b(?![^;&|\n]*--window(?:\s|=))')
     # Sample input: key -k Escape >/dev/null, or omarchy-drive key --window flea /fixture.
     return re.search(pattern, body, re.M)
 
 
-for prefix in ('xwdrag_focus "$bid" && ', 'xwdrag_focus "$bid" || ', 'if ', 'if true; then '):
-    for helper in ('key', 'hotkey'):
+for prefix in ('', 'xwdrag_focus "$bid" && ', 'xwdrag_focus "$bid" || ', 'true; ',
+               'echo input | ', '(', '{ ', '`', '$(', 'if ', 'then ', 'elif ', 'else ',
+               'while ', 'until ', 'do ', '! ', 'if true; then ', 'while ! '):
+    for helper in ('key', 'hotkey', 'omarchy-drive key', 'omarchy-drive hotkey'):
         fixture = prefix + helper + ' -k Escape'
         check('ambiguity guard refuses ' + fixture, ambiguous_input(fixture) is not None)
+    for helper in ('key', 'hotkey'):
+        fixture = prefix + 'omarchy-drive ' + helper + ' --window "$addr" -k Escape'
+        check('ambiguity guard accepts ' + fixture, ambiguous_input(fixture) is None)
+for fixture in ('echo key -k Escape', 'printf hotkey', 'hotkey() { :; }', 'key() { :; }'):
+    check('ambiguity guard accepts argument or declaration ' + fixture, ambiguous_input(fixture) is None)
 check('ambiguity guard refuses driver key without window',
       ambiguous_input('omarchy-drive key -k Escape') is not None)
 check('ambiguity guard accepts addressed driver key',

@@ -11324,7 +11324,7 @@ $bpid $baddr $bx $by $bw $bh $bfloating"
     done
     local point
     # Free point counts only what can take the drop, see tests/xwtab_free_point.py.
-    point=$(python3 "$repo/tests/xwtab_free_point.py" "$mx" "$my" "$mw" "$mh" "$mon_name" <(hyprctl clients -j 2>/dev/null) <(hyprctl layers -j 2>/dev/null) <(printf '%s' "$mon_json") || true)
+    point=$(python3 -B "$repo/tests/xwtab_free_point.py" "$mx" "$my" "$mw" "$mh" "$mon_name" <(hyprctl clients -j 2>/dev/null) <(hyprctl layers -j 2>/dev/null) <(printf '%s' "$mon_json") || true)
     [[ -n "$point" ]] || fail "xwtab: no empty desktop point on the focused monitor"
     xwtab_point="$point"
 }

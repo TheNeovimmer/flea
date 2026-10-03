@@ -508,7 +508,7 @@ function enterAccepts(formats, payload, selfPid, canRecv, outActive) {
     return canRecv === true
 }
 
-// Off-strip drops append the tab.
+// Return the on-strip slot under x; off-strip drops never reach this helper, and the caller passes -1.
 function dropIndexAt(x, tabWidth, tabCount) {
     return TabMove.insertionAt(x, tabWidth, tabCount)
 }

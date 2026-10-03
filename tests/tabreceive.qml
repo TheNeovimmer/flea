@@ -106,6 +106,10 @@ Item {
         test.check("pane switch visibly refuses on active pane", second.said.join("|"), "That tab could not be received.")
         test.check("pane switch sends no acknowledgment", switched.acks.length, 0)
         test.check("pane switch stops deadline", !switched.deadline || !switched.deadline.running, true)
+        test.answer(first, "/tmp/old", false)
+        test.check("original backend late reply opens no tab", Tabs.count(first) + Tabs.count(second), 2)
+        test.check("original backend late reply sends no acknowledgment", switched.acks.length, 0)
+        test.check("original backend late reply adds no refusal", second.said.join("|"), "That tab could not be received.")
         test.answer(second, "/tmp/old", false)
         test.check("active backend late reply opens no tab", Tabs.count(first) + Tabs.count(second), 2)
         test.check("active backend late reply sends no acknowledgment", switched.acks.length, 0)
@@ -116,6 +120,22 @@ Item {
         test.check("new pane receives next drop", second.path, "/tmp/new")
         test.check("only received drop is acknowledged", switched.acks.join("|"), "new")
         test.check("received drop stops deadline", !switched.deadline || !switched.deadline.running, true)
+
+        // A new drop for the same path must not consume the previous pane's late reply.
+        var oldPane = test.pane("/tmp/old-pane")
+        var activePane = test.pane("/tmp/active-pane")
+        var repeated = test.receiver(oldPane)
+        test.offer(repeated, "previous", "/tmp/old")
+        repeated.pane = activePane
+        test.offer(repeated, "current", "/tmp/old")
+        test.answer(oldPane, "/tmp/old", false)
+        test.check("original backend cannot receive same-path pending drop", Tabs.count(oldPane) + Tabs.count(activePane), 2)
+        test.check("original backend cannot acknowledge same-path pending drop", repeated.acks.length, 0)
+        test.check("original backend adds no same-path refusal", activePane.said.join("|"), "That tab could not be received.")
+        test.check("original backend leaves active drop pending", repeated.pendingTab ? repeated.pendingTab.token : "", "current")
+        test.answer(activePane, "/tmp/old", false)
+        test.check("active backend receives same-path pending drop", activePane.path, "/tmp/old")
+        test.check("active backend acknowledges same-path pending drop", repeated.acks.join("|"), "current")
 
         var lostPane = test.pane("/tmp/lost")
         var lost = test.receiver(lostPane)
@@ -136,6 +156,7 @@ Item {
         test.answer(lostPane, "/tmp/retry", false)
         test.check("retry receives its own folder", lostPane.path, "/tmp/retry")
         test.check("retry acknowledges once", lost.acks.join("|"), "retry")
+        test.check("retry receipt stops deadline", !lost.deadline || !lost.deadline.running, true)
         test.expire(lost)
         test.check("stopped deadline reports no second refusal", lostPane.said.length, 1)
 

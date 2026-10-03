@@ -1,6 +1,5 @@
 #!/bin/bash
-# Headless check for the xwtab free-desktop scan, same code the case runs.
-# Fabricated monitors, clients and layers prove level 0 and other workspaces are skipped while levels 1 to 3 on the focused monitor block.
+# Proves the shipped xwtab free-desktop scan skips level 0 and other workspaces while levels 1 to 3 on the focused monitor block.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 repo=$PWD
@@ -23,7 +22,7 @@ EOF
 cat > "$scratch/clients.json" <<'EOF'
 [{"address":"0xa","mapped":true,"hidden":false,"at":[0,1000],"size":[2560,440],"workspace":{"id":1,"name":"1"},"floating":true,"monitor":1,"class":"x","title":"t","pid":1000},{"address":"0xb","mapped":true,"hidden":false,"at":[0,0],"size":[2560,1440],"workspace":{"id":2,"name":"2"},"floating":false,"monitor":1,"class":"x","title":"t","pid":1001},{"address":"0xc","mapped":true,"hidden":true,"at":[0,0],"size":[2560,1440],"workspace":{"id":1,"name":"1"},"floating":false,"monitor":1,"class":"x","title":"t","pid":1002},{"address":"0xd","mapped":false,"hidden":false,"at":[0,0],"size":[2560,1440],"workspace":{"id":1,"name":"1"},"floating":false,"monitor":1,"class":"x","title":"t","pid":1003}]
 EOF
-got=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients.json" "$scratch/layers.json" "$scratch/monitors.json" || true)
+got=$(python3 -B "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients.json" "$scratch/layers.json" "$scratch/monitors.json" || true)
 # Bottom cover ends at y 1000, so the bottom-up 24 px grid first frees at 976.
 if [ "$got" = "8 976" ]; then
 ok "level 0 plus other workspace skipped, active bottom kept: $got"
@@ -32,7 +31,7 @@ bad "level 0 plus other workspace skipped, want '8 976', got '$got'"
 fi
 # Old scan at fb5d999e counted every layer and every client, so the same three
 # files leave it no point at all and the caller fails on the empty answer.
-old=$(python3 -c '
+old=$(python3 -B -c '
 import json,sys
 mx,my,mw,mh=[int(v) for v in sys.argv[1:5]]
 clients=json.load(open(sys.argv[5]))
@@ -71,13 +70,13 @@ fi
 cat > "$scratch/layers-nobg.json" <<'EOF'
 {"DP-2":{"levels":{"0":[],"1":[],"2":[{"address":"0x3","x":0,"y":0,"w":2560,"h":30,"namespace":"omarchy-bar","pid":300}],"3":[]}}}
 EOF
-got2=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients.json" "$scratch/layers-nobg.json" "$scratch/monitors.json" || true)
+got2=$(python3 -B "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients.json" "$scratch/layers-nobg.json" "$scratch/monitors.json" || true)
 if [ "$got2" = "8 976" ]; then
 ok "other workspace alone is skipped: $got2"
 else
 bad "other workspace alone is skipped, want '8 976', got '$got2'"
 fi
-old2=$(python3 -c '
+old2=$(python3 -B -c '
 import json,sys
 mx,my,mw,mh=[int(v) for v in sys.argv[1:5]]
 clients=json.load(open(sys.argv[5]))
@@ -118,7 +117,7 @@ EOF
 cat > "$scratch/clients-empty.json" <<'EOF'
 []
 EOF
-got3=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-empty.json" "$scratch/layers-foreign.json" "$scratch/monitors.json" || true)
+got3=$(python3 -B "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-empty.json" "$scratch/layers-foreign.json" "$scratch/monitors.json" || true)
 if [ "$got3" = "8 1432" ]; then
 ok "foreign monitor layer is skipped: $got3"
 else
@@ -128,14 +127,14 @@ fi
 cat > "$scratch/clients-fullbelow.json" <<'EOF'
 [{"address":"0xe","mapped":true,"hidden":false,"at":[0,30],"size":[2560,1410],"workspace":{"id":1,"name":"1"},"floating":false,"monitor":1,"class":"x","title":"t","pid":1004}]
 EOF
-got4=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-empty.json" "$scratch/layers.json" "$scratch/monitors.json" || true)
+got4=$(python3 -B "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-empty.json" "$scratch/layers.json" "$scratch/monitors.json" || true)
 # No client, only bar plus ignored background and qs, so bottom stays free.
 if [ "$got4" = "8 1432" ]; then
 ok "bar alone leaves the bottom free: $got4"
 else
 bad "bar alone leaves the bottom free, want '8 1432', got '$got4'"
 fi
-got5=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-fullbelow.json" "$scratch/layers-nobg.json" "$scratch/monitors.json" || true)
+got5=$(python3 -B "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-fullbelow.json" "$scratch/layers-nobg.json" "$scratch/monitors.json" || true)
 if [ -z "$got5" ]; then
 ok "bar plus a full-below cover reports empty"
 else
@@ -148,13 +147,13 @@ EOF
 cat > "$scratch/clients-special.json" <<'EOF'
 [{"address":"0xf","mapped":true,"hidden":false,"at":[0,1000],"size":[2560,440],"workspace":{"id":99,"name":"special"},"floating":false,"monitor":1,"class":"x","title":"t","pid":1005}]
 EOF
-got6=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-special.json" "$scratch/layers-nobg.json" "$scratch/monitors-special.json" || true)
+got6=$(python3 -B "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-special.json" "$scratch/layers-nobg.json" "$scratch/monitors-special.json" || true)
 if [ "$got6" = "8 976" ]; then
 ok "open special workspace covers: $got6"
 else
 bad "open special workspace covers, want '8 976', got '$got6'"
 fi
-got7=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-special.json" "$scratch/layers-nobg.json" "$scratch/monitors.json" || true)
+got7=$(python3 -B "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-special.json" "$scratch/layers-nobg.json" "$scratch/monitors.json" || true)
 if [ "$got7" = "8 1432" ]; then
 ok "closed special workspace is skipped: $got7"
 else
@@ -358,7 +357,7 @@ bad "layer probe geometry selected another client"
 fi
 # Malformed snapshots must never produce automation coordinates.
 for kind in clients-object layers-list levels-object level-object monitors-empty client-missing client-text client-mapped-missing client-mapped-text client-mapped-number client-mapped-null layer-missing layer-text monitor-missing monitor-text; do
-    python3 - "$scratch" "$kind" <<'PYFIX'
+    python3 -B - "$scratch" "$kind" <<'PYFIX'
 import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 kind = sys.argv[2]
@@ -383,7 +382,7 @@ if kind == "monitor-text": monitors[0]["width"] = "wide"
 for name, value in (("bad-clients", clients), ("bad-layers", layers), ("bad-monitors", monitors)):
     (root / (name + ".json")).write_text(json.dumps(value))
 PYFIX
-    python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/bad-clients.json" "$scratch/bad-layers.json" "$scratch/bad-monitors.json" > "$scratch/bad.out" 2> "$scratch/bad.err"
+    python3 -B "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/bad-clients.json" "$scratch/bad-layers.json" "$scratch/bad-monitors.json" > "$scratch/bad.out" 2> "$scratch/bad.err"
     status=$?
     if [[ "$status" == 2 && ! -s "$scratch/bad.out" && -s "$scratch/bad.err" ]]; then
         ok "$kind snapshot refused without a coordinate"
@@ -395,7 +394,7 @@ done
 for layer in '1 desktop-widget' '3 overlay-widget' '3 qs-launcher' '1 qs-launcher'; do
     read -r level namespace <<< "$layer"
     printf '{"DP-2":{"levels":{"%s":[{"x":0,"y":0,"w":2560,"h":1440,"namespace":"%s"}]}}}\n' "$level" "$namespace" > "$scratch/blocker.json"
-    blocked=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-empty.json" "$scratch/blocker.json" "$scratch/monitors.json")
+    blocked=$(python3 -B "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-empty.json" "$scratch/blocker.json" "$scratch/monitors.json")
     status=$?
     if [[ "$status" != 0 ]]; then
         bad "level $level $namespace scan failed (status=$status)"
@@ -406,11 +405,12 @@ for layer in '1 desktop-widget' '3 overlay-widget' '3 qs-launcher' '1 qs-launche
     fi
 done
 # Keep the live shell helpers under the same deterministic regression gate.
-if python3 - "$repo" <<'PYSHAPES'
+if python3 -B - "$repo" <<'PYSHAPES'
 import importlib.util
 import pathlib
 import sys
 
+sys.dont_write_bytecode = True
 path = pathlib.Path(sys.argv[1]) / 'tests/xwtab_free_point.py'
 spec = importlib.util.spec_from_file_location('free_point', path)
 scan = importlib.util.module_from_spec(spec)
@@ -445,13 +445,13 @@ then
 else
     bad "retained snapshot shapes"
 fi
-if python3 "$repo/tests/xwtab-safety.py"; then ok "live shell safety regressions"; else bad "live shell safety regressions"; fi
-if python3 "$repo/tests/layerdrop-receipts.py"; then
+if python3 -B "$repo/tests/xwtab-safety.py"; then ok "live shell safety regressions"; else bad "live shell safety regressions"; fi
+if python3 -B "$repo/tests/layerdrop-receipts.py"; then
     ok "layer receiver receipts"
 else
     bad "layer receiver receipts"
 fi
-if python3 "$repo/tests/xwinput-safety.py"; then
+if python3 -B "$repo/tests/xwinput-safety.py"; then
     ok "cross-window input routing"
 else
     bad "cross-window input routing"

@@ -1,14 +1,13 @@
 #!/bin/bash
-# Probe: a drop on empty desktop reaches a Bottom-layer panel (xw6 item 3).
-# Run on minipc under Hyprland with FLEA_BIN set to the release binary; FLEA_UI defaults to this checkout ui directory.
-# tests/ui.sh supplies the same variables, omarchy-drive on PATH and QT_QPA_PLATFORMTHEME; every wait is bounded.
-# Exactly one stdout marker is emitted; diagnostics go to stderr.
-# LAYERDROP PASS proves the fixture Bottom panel recorded PANEL-DROP.
-# LAYERDROP CATCHER-TEAROFF proves a new Flea window opened on the lifted folder through the catcher.
-# LAYERDROP FAIL <why> reports a setup, input or unobserved-drop failure and exits unsuccessfully.
+# Proves an empty-desktop drop reaches a Bottom-layer receiver and prints exactly one LAYERDROP line on stdout, with diagnostics on stderr.
 set -u
 out() { printf 'LAYERDROP %s\n' "$*"; }
-refuse() { declare -F layerdrop_diagnostics >/dev/null && layerdrop_diagnostics; out "FAIL $*"; exit 1; }
+refuse() {
+    declare -F layerdrop_diagnostics >/dev/null && layerdrop_diagnostics
+    # LAYERDROP FAIL <why> reports a setup, input or unobserved-drop failure and exits unsuccessfully.
+    out "FAIL $*"
+    exit 1
+}
 need() { command -v "$1" >/dev/null 2>&1 || refuse "missing $1"; }
 need qs; need hyprctl; need ydotool; need omarchy-drive
 [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || refuse "no Hyprland session"
@@ -231,7 +230,7 @@ for entry in (d.values() if isinstance(d, dict) else []):
 print(json.dumps(d))
 ' > "$work/layers.json" || refuse "no layers to scan"
 printf '%s' "$mon_json" > "$work/monitors.json"
-point=$(python3 "$probe_py" "$mx" "$my" "$mw" "$mh" "$mon_name" "$work/clients.json" "$work/layers.json" "$work/monitors.json" || true)
+point=$(python3 -B "$probe_py" "$mx" "$my" "$mw" "$mh" "$mon_name" "$work/clients.json" "$work/layers.json" "$work/monitors.json" || true)
 [ -n "$point" ] || refuse "no empty desktop point on the focused monitor"
 read -r dx dy <<< "$point"
 # The Bottom panel must still be mapped at release, or the drop has no receiver.
@@ -328,6 +327,7 @@ print(hits[0]["id"] if len(hits) == 1 else "")
     return 1
 }
 if layerdrop_panel_hit "$log"; then
+    # LAYERDROP PASS proves the fixture Bottom panel recorded PANEL-DROP.
     out "PASS"
     exit 0
 fi
@@ -336,6 +336,7 @@ after_flea=$(pgrep -x qs | while read -r pid; do tr '\0' ' ' 2>/dev/null < "/pro
 torn=$(layerdrop_torn_pids "$before_flea" "$after_flea")
 paths_tsv=""
 if layerdrop_catcher_hit "$torn" "$lifted_path"; then
+    # LAYERDROP CATCHER-TEAROFF proves a new Flea window opened on the lifted folder through the catcher.
     out "CATCHER-TEAROFF"
     exit 0
 fi
