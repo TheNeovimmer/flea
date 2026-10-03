@@ -864,8 +864,8 @@ check "the tmpfs root is another filesystem than the fixture" \
 r7_payload_listed() {
   local attempt flight=unread total
   for ((attempt=1; attempt<=r7_poll_attempts; attempt++)); do
-    # rowidx reads a failed observer as an absent row, so the row count is read here first and its failure ends the suite by name.
-    total=$(ipc total) || die "R7 row count unavailable: $total"
+    # rowidx reads a failed observer as an absent row, so the row count is read here first: a failed read or a reply that is no count ends the suite by name.
+    total=$(ipc total) && [[ "$total" =~ ^[0-9]+$ ]] || die "R7 row count unavailable: $total"
     if rowidx r7.txt >/dev/null; then
       flight=$(ipc listInFlight) || die "R7 listing state unavailable"
       if [[ "$flight" == false ]]; then ok "R7 the payload is listed and no listing is out"; return; fi

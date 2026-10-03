@@ -338,7 +338,8 @@ r7_gate=$( (
         polls=$(cat "$centre_tmp/polls")
         case "$1" in
             total) polls=$((polls + 1)); printf '%s\n' "$polls" > "$centre_tmp/polls"
-                if [ "$r7_mode" = dead ]; then printf 'no such target\n'; return 1; fi; printf '2\n' ;;
+                if [ "$r7_mode" = dead ]; then printf 'no such target\n'; return 1; fi
+                if [ "$r7_mode" = garbled ]; then printf 'no such target\n'; return 0; fi; printf '2\n' ;;
             visibleRowName) if [ "$2" = 1 ] && [ "$r7_mode" = listed ] && [ "$polls" -gt 4 ]; then printf 'r7.txt\n'; else printf 'aaa\n'; fi ;;
             listInFlight) if [ "$polls" -le 8 ]; then printf 'true\n'; else printf 'false\n'; fi ;;
         esac
@@ -348,6 +349,8 @@ r7_gate=$( (
     r7_mode=never; (r7_payload_listed; printf 'reached\n'); printf 'RC %s\n' "$?"
     printf '0\n' > "$centre_tmp/polls"
     r7_mode=dead; (r7_payload_listed; printf 'reached\n'); printf 'DEAD %s after %s\n' "$?" "$(cat "$centre_tmp/polls")"
+    printf '0\n' > "$centre_tmp/polls"
+    r7_mode=garbled; (r7_payload_listed; printf 'reached\n'); printf 'GARBLED %s after %s\n' "$?" "$(cat "$centre_tmp/polls")"
 ) 2>&1 )
 if printf '%s\n' "$r7_gate" | grep -q '^POLLS 10$' && printf '%s\n' "$r7_gate" | grep -q '^OK R7 the payload is listed and no listing is out$'; then
     ok "R7's gate passes only once the payload's row is listed and its listing has landed (poll 5, not the row alone at poll 3)"
@@ -360,8 +363,9 @@ if printf '%s\n' "$r7_gate" | grep -q '^RC 1$' && printf '%s\n' "$r7_gate" | gre
 else
     bad "R7's gate must die with its evidence when the payload never lists, got: $r7_gate"
 fi
-if printf '%s\n' "$r7_gate" | grep -q '^DEAD 1 after 1$' && printf '%s\n' "$r7_gate" | grep -q 'R7 row count unavailable: no such target$'; then
-    ok "and a failed observer ends the suite on its first read, by name, not as an absent row"
+if printf '%s\n' "$r7_gate" | grep -q '^DEAD 1 after 1$' && printf '%s\n' "$r7_gate" | grep -q '^GARBLED 1 after 1$' \
+    && [ "$(printf '%s\n' "$r7_gate" | grep -c 'R7 row count unavailable: no such target$')" -eq 2 ]; then
+    ok "and a failed observer ends the suite on its first read, by name, whether it exits nonzero or answers an error with status 0"
 else
     bad "R7's gate must die on the first failed row count, got: $r7_gate"
 fi
