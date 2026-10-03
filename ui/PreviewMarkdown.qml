@@ -4,12 +4,7 @@ import "." as Flea
 import "js/Icons.js" as Icons
 import "js/Markdown.js" as Markdown
 
-// A Markdown file under the cursor, read once and on demand like every other text preview.
-// Rendered draws ui/js/Markdown.js's blocks: ordinary runs through Qt's own Markdown support,
-// fenced code verbatim on the chrome surface, quotes behind a muted bar, remote images as the
-// board's box and same-folder images as the image. Source is the file verbatim. Every image
-// URL is resolved before Qt sees any text, so a remote image is a box and only a file beside
-// the document loads; links carry no handler and never leave.
+// Read Markdown on demand: render parsed blocks or verbatim source, resolve image URLs before Qt sees them, box remote images, load only beside the document, and leave links inert.
 Item {
     id: root
 
@@ -19,8 +14,7 @@ Item {
     // "rendered" or "source"; anything else reads as rendered, the board's default.
     property string view: Markdown.RENDERED
 
-    // FileView reads the whole file into memory, so this is the largest read a preview will start.
-    // Remote storage keeps the smaller 256 KiB gate through maxBytes, and refuses past it too.
+    // FileView reads whole files, so refuse above maxBytes, with remote storage keeping its smaller 256 KiB gate.
     property int maxBytes: 1048576
     // Retained for its callers; over-limit rows are refused, never truncated, so it reads nothing.
     property bool truncate: false
@@ -45,10 +39,13 @@ Item {
     property int parseSeq: 0
     property int appliedSeq: 0
     property bool parsing: false
-    // True once a worker reply landed for this file; the lazy suite asserts it,
-    // proving the WorkerScript path was taken and the parse never blocked input.
+    // A worker reply landed for this file; the lazy suite asserts the parse left the UI thread.
     property bool parsedOffThread: false
     property string parseError: ""
+    // Give the worker ten seconds to answer before the synchronous recovery parse.
+    readonly property int parseFallbackMs: 10000
+    // Keep this many pixels of blocks warm beyond the visible ListView window.
+    readonly property int blockCachePixels: 600
     readonly property bool blocksReady: root.appliedSeq === root.parseSeq && !root.parsing
     readonly property bool loading: root.active && !root.readFailed && !root.tooLarge
         && (!file.loaded || !root.blocksReady)
@@ -66,8 +63,7 @@ Item {
         || (root.active && !root.readFailed && file.loaded && root.rawText.length === 0)
 
     readonly property Item bodyItem: body
-    // The render suite reads delegate geometry off the live tree, the way ColumnsArea does.
-    // Only visible blocks plus the cache exist, so this answers null off screen.
+    // The render suite reads live delegate geometry; only visible blocks plus the cache exist, so offscreen blocks answer null.
     function blockItem(i) {
         var kids = body.contentItem.children
         for (var k = 0; k < kids.length; k++) {
@@ -87,6 +83,7 @@ Item {
         id: file
         path: (root.active && !root.tooLarge) ? root.path : ""
         printErrors: false
+        onLoaded: root.askParse()
         onLoadFailed: root.readFailed = true
         onPathChanged: root.readFailed = false
     }
@@ -113,7 +110,7 @@ Item {
     // the path: it parses synchronously once rather than leaving no preview.
     Timer {
         id: parseFallback
-        interval: 10000
+        interval: root.parseFallbackMs
         repeat: false
         onTriggered: {
             if (!root.parsing)
@@ -147,10 +144,7 @@ Item {
         root.askParse()
     }
 
-    // Both panes keep their heights warm across the Rendered/Source flip, so no
-    // contentHeight binding forces a hidden pane's first layout from inside its
-    // own evaluation, which Qt reports as a binding loop. A handler runs
-    // outside any binding evaluation, so warming here settles nothing mid-read.
+    // Warm both heights outside binding evaluation on a Rendered/Source flip, preventing hidden-pane layout from causing a contentHeight binding loop.
     onViewChanged: {
         body.contentHeight
         sourceText.implicitHeight
@@ -197,7 +191,7 @@ Item {
             && root.view !== Markdown.SOURCE
         model: root.blockList
         spacing: Theme.spacing.gap
-        cacheBuffer: 600
+        cacheBuffer: root.blockCachePixels
         focus: false
 
         FastScrollHandler {
@@ -324,9 +318,7 @@ Item {
                             var rows = block.type === "table" ? block.rows : []
                             return r < rows.length && c < rows[r].length ? rows[r][c] : ""
                         }
-                        // The decoded longest cell of a column, drawn invisibly beside the grid
-                        // so the column starts where its widest cell ends. Entities decode to one
-                        // character each, which is what the delegate draws.
+                        // Invisibly measure each column's decoded longest cell beside the grid, so the next column starts after its widest rendered cell.
                         function longestIn(col) {
                             var best = ""
                             if (block.type !== "table")
@@ -346,8 +338,7 @@ Item {
                         function colWidth(col) {
                             if (block.type !== "table")
                                 return 0
-                            // Count and implicitWidth both notify, so a column settles once its
-                            // measurer arrives and lays out; itemAt alone notifies nothing.
+                            // Count and implicitWidth notify when a measurer arrives and lays out; itemAt alone notifies nothing.
                             if (measurers.count <= col)
                                 return 0
                             var measured = measurers.itemAt(col)
@@ -363,8 +354,7 @@ Item {
                         }
                     }
 
-                    // Invisible measurers, one per column, carrying the longest cell each, so the
-                    // grid columns size to content. Excluded from the grid's own layout by visibility.
+                    // Invisible measurers carry each column's longest cell to size columns to content without entering the grid's layout.
                     Repeater {
                         id: measurers
                         model: block.type === "table" ? tableGrid.columns : 0
@@ -422,9 +412,7 @@ Item {
                         }
                     }
 
-                    // A top-level list draws its markers at the text's left edge, bullets and
-                    // ordered alike, with the item text after each marker. Plain Column/Row,
-                    // never QtQuick.Layouts, so the preview never loads the Layouts module.
+                    // Draw top-level list markers at the text edge with text after each marker using plain Column/Row, keeping QtQuick.Layouts unloaded.
                     Column {
                         id: listGrid
                         visible: block.type === "list"
@@ -460,8 +448,7 @@ Item {
                         }
                     }
 
-                    // The board's placeholder: one dashed muted rectangle across the content width,
-                    // the image glyph and the sentence on one line inside it, left-aligned, muted.
+                    // The board's placeholder spans the content with a dashed muted box around a left-aligned muted image glyph and sentence on one line.
                     Item {
                         id: remoteBox
                         visible: block.type === "remote"

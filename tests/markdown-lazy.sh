@@ -21,32 +21,21 @@ ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/markdown-lazy.qml "$test_root/config/shell.qml" || exit 1
 
-# 2500 sections contain five source blocks each; the suite prints the parser's actual emitted count.
-python3 - "$test_root/notes.md" <<'EOF'
-import sys
-dest = sys.argv[1]
-lines = []
-for s in range(2500):
-    lines.append(f"## Section {s}")
-    lines.append("")
-    lines.append(f"Paragraph {s} carries enough words to wrap a couple of lines in the frame.")
-    lines.append("")
-    lines.append(f"- item {s} alpha")
-    lines.append(f"- item {s} beta")
-    lines.append("")
-    lines.append("| Kind | Asks for |")
-    lines.append("| :--- | :--- |")
-    lines.append(f"| rows {s} | the cursor |")
-    lines.append("")
-    lines.append("```js")
-    lines.append(f"var section{s} = true;")
-    lines.append("```")
-    lines.append("")
-with open(dest, "w") as f:
-    f.write("\n".join(lines) + "\n")
-print("readme bytes:", sum(len(l) + 1 for l in lines))
-EOF
+# Each section has five source blocks; the suite prints the parser's actual emitted count.
+fixture_sections=2500
+for ((section = 0; section < fixture_sections; section++)); do
+    printf '## Section %s\n\nParagraph %s carries enough words to wrap a couple of lines in the frame.\n\n- item %s alpha\n- item %s beta\n\n| Kind | Asks for |\n| :--- | :--- |\n| rows %s | the cursor |\n\n```js\nvar section%s = true;\n```\n\n' \
+        "$section" "$section" "$section" "$section" "$section" "$section"
+done > "$test_root/notes.md" || exit 1
+printf 'readme bytes: %s\n' "$(stat -c %s "$test_root/notes.md")"
+# Require more than half a MiB so the fixture exercises a substantial document.
 minimum_fixture_bytes=524288
+# Reject a fixture too small to establish viewport-bounded rendering.
+minimum_blocks=800
+# Bound live delegates independently of the document's total block count.
+maximum_delegates=150
+# Require fewer than one quarter of the document's blocks to have live delegates.
+delegate_fraction_divisor=4
 [ "$(stat -c %s "$test_root/notes.md")" -gt "$minimum_fixture_bytes" ] || { echo "FAIL the README fixture is too small"; exit 1; }
 
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
@@ -60,6 +49,7 @@ if printf '%s\n' "$output" | grep -q 'MARKDOWN_LAZY FAIL'; then
     printf '%s\n' "$output" | grep -aE 'MARKDOWN_LAZY|ERROR' | head -10
     exit 1
 fi
+# Sample input: MARKDOWN_LAZY blocks=12500 delegates=12 offthread=true.
 line=$(printf '%s\n' "$output" | grep -aE 'MARKDOWN_LAZY blocks=' | head -1)
 if [ -z "$line" ]; then
     printf 'FAIL the lazy harness never reported (no live preview ran)\n'
@@ -70,7 +60,16 @@ blocks=$(printf '%s\n' "$line" | grep -aoE 'blocks=[0-9]+' | grep -aoE '[0-9]+')
 delegates=$(printf '%s\n' "$line" | grep -aoE 'delegates=[0-9]+' | grep -aoE '[0-9]+')
 offthread=$(printf '%s\n' "$line" | grep -aoE 'offthread=[a-z]+' | cut -d= -f2)
 [ "$offthread" = "true" ] || { echo "FAIL the parse never left the UI thread"; exit 1; }
-[ "$blocks" -ge 800 ] || { echo "FAIL only $blocks blocks, the fixture is no test"; exit 1; }
-[ "$delegates" -le 150 ] || { echo "FAIL $delegates delegates for $blocks blocks, nothing is lazy"; exit 1; }
-[ "$delegates" -lt "$((blocks / 4))" ] || { echo "FAIL $delegates delegates approach $blocks blocks"; exit 1; }
+[ "$blocks" -ge "$minimum_blocks" ] || {
+    echo "FAIL only $blocks blocks, the fixture is no test"
+    exit 1
+}
+[ "$delegates" -le "$maximum_delegates" ] || {
+    echo "FAIL $delegates delegates for $blocks blocks, nothing is lazy"
+    exit 1
+}
+[ "$delegates" -lt "$((blocks / delegate_fraction_divisor))" ] || {
+    echo "FAIL $delegates delegates approach $blocks blocks"
+    exit 1
+}
 printf 'PASS %s blocks draw through %s delegates, parsed off thread\n' "$blocks" "$delegates"

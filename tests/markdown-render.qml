@@ -21,6 +21,16 @@ ShellRoot {
     // below replays both flips before the grab, or the contentHeight loop never
     // fires offscreen. A resize alone does not trigger it.
     property int driveStep: 0
+    // Exercise FileView load completion even when the new path leaves its text unchanged.
+    property var loadCases: [
+        { suffix: ".empty.md", text: "", name: "empty Markdown" },
+        { suffix: ".first.md", text: "# Identical\n", name: "first identical Markdown" },
+        { suffix: ".second.md", text: "# Identical\n", name: "second identical Markdown" }
+    ]
+    property int loadStep: 0
+    property var loadFailures: []
+    // Match the existing render settle allowance for each native FileView load.
+    readonly property int settleMs: 1200
 
     FloatingWindow {
         id: window
@@ -42,7 +52,7 @@ ShellRoot {
                 anchors.right: parent.right
                 height: 1060
                 active: true
-                path: shell.fixture
+                path: shell.fixture + shell.loadCases[0].suffix
                 size: 1
                 view: "rendered"
             }
@@ -101,10 +111,28 @@ ShellRoot {
 
     Timer {
         id: settle
-        interval: 1200
+        interval: shell.settleMs
         repeat: false
         running: true
         onTriggered: {
+            if (shell.loadStep < shell.loadCases.length) {
+                var test = shell.loadCases[shell.loadStep]
+                var ready = md.contentReady && md.rawText === test.text
+                shell.log((ready ? "ok " : "FAIL ") + test.name + " contentReady=" + md.contentReady
+                    + " status=" + md.status + " parseSeq=" + md.parseSeq + " appliedSeq=" + md.appliedSeq)
+                if (!ready)
+                    shell.loadFailures.push(test.name)
+                shell.loadStep++
+                if (shell.loadStep < shell.loadCases.length)
+                    md.path = shell.fixture + shell.loadCases[shell.loadStep].suffix
+                else if (shell.loadFailures.length > 0) {
+                    shell.fail("load completion missed " + shell.loadFailures.join(", "))
+                    return
+                } else
+                    md.path = shell.fixture
+                settle.restart()
+                return
+            }
             if (shell.fixture.length === 0)
                 shell.fail("no fixture arrived in FLEA_MARKDOWN_FIXTURE")
             else if (!md.contentReady)
@@ -417,6 +445,6 @@ ShellRoot {
                 if (c[2] >= 200 && c[0] <= 110 && c[1] <= 170)
                     return shell.fail("a Qt default link blue survived at " + px + "," + py)
             }
-        shell.pass("run, chip, markers, rules, fence, box, bar and links all read")
+        shell.pass("three load completions, run, chip, markers, rules, fence, box, bar and links all read")
     }
 }

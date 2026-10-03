@@ -241,9 +241,7 @@ Item {
                 truncate: root.truncateText
                 numbered: root.previewState === Facts.CODE
             }
-            // RenderedPreviews: the Markdown document rendered, or verbatim as source, flowing
-            // tall instead of the first-lines frame above. No toggle: the remembered choice rules.
-            // A file path, not an inline Component, so a column that never shows one never compiles it.
+            // RenderedPreviews: the Markdown document rendered or verbatim, flowing tall with the remembered view and no toggle; a file-path Loader compiles it only when needed.
             Loader {
                 id: markdownLoader
                 anchors.fill: parent

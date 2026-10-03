@@ -1,6 +1,18 @@
 .import "../../ui/js/Markdown.js" as Markdown
+.import "sourcefixture.js" as Source
 
 function run(check) {
+    var quickLook = Source.slice(Source.source("ui/Preview.qml"), "id: markdownLoader", "item.closeRequested.connect")
+    var activeAt = quickLook.indexOf("item.active =")
+    check("Quick Look Markdown activation exists", activeAt >= 0, true)
+    var readerInputs = ["path", "size", "maxBytes", "truncate"]
+    for (var inputIndex = 0; inputIndex < readerInputs.length; inputIndex++) {
+        var input = readerInputs[inputIndex]
+        var bindingAt = quickLook.indexOf("item." + input + " =")
+        check("Quick Look Markdown binds " + input + " before activation",
+            bindingAt >= 0 && bindingAt < activeAt, true)
+    }
+
     check("rendered and source are the only views", Markdown.isView("rendered") && Markdown.isView("source"), true)
     check("a hand edit is not a view", Markdown.isView("html"), false)
     check("an empty stored value is not a view", Markdown.isView(""), false)
