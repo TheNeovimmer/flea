@@ -234,6 +234,12 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
             i++
             continue
         }
+        // A table cell's only pipe is an unescaped "\|", so it stays cell text like the bulk escaper writes it.
+        if (c === "|" && literalPlain) {
+            out.push("&#124;")
+            i++
+            continue
+        }
         out.push(c)
         i++
     }

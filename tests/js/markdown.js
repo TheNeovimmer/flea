@@ -189,7 +189,8 @@ function run(check) {
     check("GFM 200 header unescapes pipe", escapedTable.head[0], "f&#124;oo")
     check("GFM 200 code span unescapes pipe", escapedTable.rows[0][0],
         'b <code style="background-color:#181825">&#124;</code> az')
-    check("GFM 200 strong row unescapes pipe", escapedTable.rows[1][0], "b **|** im")
+    check("GFM 200 strong row unescapes pipe", escapedTable.rows[1][0], "b **&#124;** im")
+    check("a pipe outside a table stays prose", Markdown.prepare("b **|** im", dir), "b **|** im")
     check("table splitting keeps other backslash pairs", Leaf.splitRow("| \\*literal\\* | \\`code\\` |").join("|"),
         "\\*literal\\*|\\`code\\`")
     var missingInlineRejected = false

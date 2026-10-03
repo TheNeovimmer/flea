@@ -160,10 +160,11 @@ if ! printf '%s\n' "$mathgap_output" | grep -qE "(^|: )MARKDOWN_MATHGAP $expecte
     exit 1
 fi
 
-paths_output=$("$qjs" tests/markdown-figures-render-paths.mjs 2>&1)
+# The parsed positions read stdout alone; stderr goes to a file and prints on failure.
+paths_output=$("$qjs" tests/markdown-figures-render-paths.mjs 2>"$test_root/paths-stderr.log")
 paths_status=$?
 if [ "$paths_status" -ne 0 ]; then
-    printf 'FAIL markdown-figures-render: paths expected generated arrow cases; helper exited %s; arrived [%s]\n' "$paths_status" "${paths_output:-<empty>}" >&2
+    printf 'FAIL markdown-figures-render: paths expected generated arrow cases; helper exited %s; arrived [%s] stderr [%s]\n' "$paths_status" "${paths_output:-<empty>}" "$(cat "$test_root/paths-stderr.log")" >&2
     exit 1
 fi
 printf '%s\n' "$paths_output" | head -1

@@ -156,7 +156,7 @@ Item {
         root.parsedOffThread = true
     }
 
-    // The worker owns parsing; this timer recovers synchronously only if its reply never settles the request.
+    // The worker parses only above workerThreshold; this timer recovers a worker request whose reply never settles.
     Timer {
         id: parseFallback
         interval: root.parseFallbackMs
