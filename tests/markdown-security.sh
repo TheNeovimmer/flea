@@ -134,6 +134,9 @@ forms = [
     ("inputimg", lambda p: f'<input type="image" src="{H}/{p}/x.png">'),
     ("videoposter", lambda p: f'<video poster="{H}/{p}/x.png"></video>'),
     ("svgimage", lambda p: f'<svg><image href="{H}/{p}/x.png"/></svg>'),
+    ("script-unquoted-slash", lambda p: f'<script a=b/>![x]({H}/{p}/x.png)</script>'),
+    ("style-unquoted-slash", lambda p: f'<style a=b/>![x]({H}/{p}/x.png)</style>'),
+    ("svg-unquoted-slash", lambda p: f'<svg a=b/>![x]({H}/{p}/x.png)</svg>'),
     ("bodybg", lambda p: f'<body background="{H}/{p}/x.png">hi</body>'),
     ("dataimg", lambda p: "![pic](data:image/png;base64,iVBORw0KGgo=)"),
 ]

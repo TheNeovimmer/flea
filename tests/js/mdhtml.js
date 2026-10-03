@@ -3,6 +3,7 @@
 .import "../../ui/js/MdResolve.js" as Resolve
 .import "../../ui/js/MdBlocks.js" as Blocks
 .import "../../ui/js/MdRun.js" as Run
+.import "../../ui/js/MdRefs.js" as Refs
 
 function run(check) {
     var dir = "/home/u/docs"
@@ -39,6 +40,41 @@ function run(check) {
     check("R2 bare host slash retained", tag('<a href=https://x.com/>'), '<a href="https://x.com/">')
     check("R2 separated slash closes", tag('<a href=https://x.com/p/ />'), '<a href="https://x.com/p/" />')
     check("R2 quoted slash closes", tag('<a href="https://x.com/p/"/>'), '<a href="https://x.com/p/" />')
+    var slashForms = [
+        { tail: " a=b/", selfClose: false },
+        { tail: ' a="b"/', selfClose: true },
+        { tail: " a='b'/", selfClose: true },
+        { tail: " a /", selfClose: true },
+        { tail: " a/", selfClose: true },
+        { tail: "/", selfClose: true },
+        { tail: " a=b/ ", selfClose: false },
+        { tail: " a=b /", selfClose: true },
+        { tail: " a / ", selfClose: false }
+    ]
+    var dropNames = ["script", "style", "svg"]
+    for (var n = 0; n < dropNames.length; n++) {
+        var name = dropNames[n]
+        for (var s = 0; s < slashForms.length; s++) {
+            var form = slashForms[s]
+            var opening = "<" + name + form.tail + ">"
+            var closing = "</" + name + ">"
+            var label = "R8 " + opening
+            check(label + " tokenizer flag", Html.tagHead(opening).selfClose, form.selfClose)
+            check(label + " drop guard", Html.sanitizeTag(opening, dir, []).drop, form.selfClose ? null : name)
+            check(label + " body", inline("before " + opening + "hidden" + closing + " tail", ink),
+                form.selfClose ? "before hidden tail" : "before  tail")
+            check(label + " block body", JSON.stringify(Markdown.blocks("before " + opening + "hidden" + closing + " tail", dir,
+                "#181825", ink)), JSON.stringify([{ type: "run", text: form.selfClose ? "before hidden tail" : "before  tail" }]))
+            var nested = opening + "hidden" + closing + (form.selfClose ? "" : "hidden" + closing) + " tail"
+            check(label + " skip depth", Refs.skipDropContent(nested, 0, name, { tagDead: -1 }),
+                nested.indexOf(" tail"))
+        }
+    }
+    for (var dropped in Html.DROP_CONTENT)
+        check("R8 every drop name " + dropped, inline("before <" + dropped + " a=b/>hidden</" + dropped + "> tail", ink),
+            "before  tail")
+    check("R8 shared scanner retains unquoted slash", tag('<a title=b/ >'), '<a title="b/">')
+    check("R8 slash before attributes is not final", tag('<a / title="b">'), '<a title="b">')
     check("R3 thematic break ends a reference paragraph",
         Markdown.definitions("Text\n\n***\n[img]: pic.png").img, "pic.png")
     check("R3 quoted thematic break ends a reference paragraph",

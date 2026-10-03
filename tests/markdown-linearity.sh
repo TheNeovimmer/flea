@@ -24,7 +24,7 @@ sample=0
 [ ! -f "$LINEARITY_COUNTER" ] || read -r sample < "$LINEARITY_COUNTER"
 sample=$((sample + 1))
 echo "$sample" > "$LINEARITY_COUNTER"
-for name in codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun tagCost linkFrames blankList blankIndent; do
+for name in codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun tagCost tagAttrs linkFrames blankList blankIndent; do
     [ "$LINEARITY_CASE" != missing ] || [ "$name" != listDeep ] || continue
     [ "$LINEARITY_CASE" != short ] || [ "$sample" != 2 ] || [ "$name" != listDeep ] || continue
     large=8
@@ -78,7 +78,7 @@ run_once() {
     printf '%s\n' "$output" | sed -n 's/^qml: WORK //p'
 }
 
-expected=(codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun tagCost linkFrames blankList blankIndent)
+expected=(codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun tagCost tagAttrs linkFrames blankList blankIndent)
 repetitions=3
 size_ratio=8
 margin_numerator=3

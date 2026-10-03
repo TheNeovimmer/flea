@@ -32,7 +32,8 @@ QtObject {
         { source: "![x](caf%C3%A9.png)\n\n![x](file:///doc/100%25.png)\n\n![x](file:///doc/%2541.png)", dir: "/doc" },
         { source: "![x](foo&#65583;bar.png)", dir: "/doc" },
         { source: '<img src="pic.png"><span title="\uE0020\uE003">tail</span>', dir: "/doc" },
-        { source: "before <svg/> rest\n\nbefore <svg><svg/></svg> tail", dir: "/doc" }
+        { source: "before <svg/> rest\n\nbefore <svg><svg/></svg> tail", dir: "/doc" },
+        { source: 'before <svg a=b/>hidden</svg> tail\n\nbefore <svg><svg a=b/>hidden</svg>hidden</svg> tail', dir: "/doc" }
     ]
     property int workerReplies: 0
     readonly property int workerDeadlineMs: 10000
@@ -264,6 +265,10 @@ QtObject {
                 var unit = "<b>x</b>";
                 return unit.repeat(Math.floor(n / unit.length));
             },
+            tagAttrs: function (n) {
+                var unit = '<svg a=b/>hidden</svg><svg><svg a=b/>hidden</svg>hidden</svg><b title="b"/>x</b>';
+                return unit.repeat(Math.floor(n / unit.length));
+            },
             linkFrames: function (n) {
                 var opener = "![";
                 var link = "[x](https://x)";
@@ -286,7 +291,7 @@ QtObject {
             }
         };
         var names = ["codeDense", "codeOnly", "bangOpen", "bracketOpen", "angleOpen",
-            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "linkFrames", "blankList", "blankIndent"];
+            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent"];
         var work = 0;
         var methods = ["charAt", "charCodeAt", "indexOf", "slice", "match", "replace", "split", "search"];
         var originals = {};
