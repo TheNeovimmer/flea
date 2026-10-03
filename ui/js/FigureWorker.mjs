@@ -15,6 +15,15 @@ var EX_BODY_FRACTION = 0.5;
 var PX_ROUNDING_FACTOR = 100;
 // CSS color-mix stops express each share as a percentage.
 const PERCENT_SCALE = 100;
+// Token lengths for slicing a var( or color-mix( call, and the radix and byte arithmetic of #rrggbb.
+const VAR_NAME_LENGTH = "var".length;
+const VAR_OPEN_LENGTH = "var(".length;
+const MIX_NAME_LENGTH = "color-mix".length;
+const MIX_OPEN_LENGTH = "color-mix(".length;
+const HEX_RADIX = 16;
+const RED_SHIFT = 16;
+const GREEN_SHIFT = 8;
+const BYTE_MASK = 255;
 
 export function themeKey(t) {
     return [t.bg, t.fg, t.accent || "", t.muted || "", t.line || "", t.surface || "",
@@ -25,6 +34,7 @@ export function cacheKey(kind, source, t, display) {
     return kind + "\n" + themeKey(t) + "\n" + !!display + "\n" + source;
 }
 
+// Sample input: #abc or #aabbcc answers [r, g, b] bytes, anything else answers null.
 function hexRGB(h) {
     h = String(h).trim();
     if (h.charAt(0) !== "#")
@@ -34,15 +44,15 @@ function hexRGB(h) {
         h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
     if (h.length !== 6)
         return null;
-    var n = parseInt(h, 16);
+    var n = parseInt(h, HEX_RADIX);
     if (isNaN(n))
         return null;
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    return [(n >> RED_SHIFT) & BYTE_MASK, (n >> GREEN_SHIFT) & BYTE_MASK, n & BYTE_MASK];
 }
 
 function toHex(c) {
     function b(v) {
-        var s = Math.max(0, Math.min(255, Math.round(v))).toString(16);
+        var s = Math.max(0, Math.min(BYTE_MASK, Math.round(v))).toString(HEX_RADIX);
         return s.length < 2 ? "0" + s : s;
     }
     return "#" + b(c[0]) + b(c[1]) + b(c[2]);
@@ -73,7 +83,7 @@ function baseVars(t) {
     return v;
 }
 
-// Find the matching close paren for the open paren at i; -1 if unbalanced.
+// Sample input: closeParen("var(--a, #fff)", 3) answers 13, the matching close paren; -1 if unbalanced.
 function closeParen(s, i) {
     var depth = 0;
     for (var k = i; k < s.length; k++) {
@@ -88,6 +98,7 @@ function closeParen(s, i) {
     return -1;
 }
 
+// Sample input: splitTop("in srgb, var(--a, #fff) 25%, #000", ",") answers three parts, none cut inside parens.
 function splitTop(s, sep) {
     var parts = [];
     var depth = 0;
@@ -145,10 +156,10 @@ function resolveValue(s, table, depth, trail) {
         again = false;
         var i = out.indexOf("var(");
         if (i >= 0) {
-            var j = closeParen(out, i + 3);
+            var j = closeParen(out, i + VAR_NAME_LENGTH);
             if (j < 0)
                 return out;
-            var inner = out.slice(i + 4, j);
+            var inner = out.slice(i + VAR_OPEN_LENGTH, j);
             var parts = splitTop(inner, ",");
             var name = parts[0].trim().replace(/^--/, "");
             var val;
@@ -166,10 +177,10 @@ function resolveValue(s, table, depth, trail) {
         }
         var m = out.indexOf("color-mix(");
         if (m >= 0) {
-            var e = closeParen(out, m + 9);
+            var e = closeParen(out, m + MIX_NAME_LENGTH);
             if (e < 0)
                 return out;
-            var got = parseMix(out.slice(m + 10, e), table, depth, trail);
+            var got = parseMix(out.slice(m + MIX_OPEN_LENGTH, e), table, depth, trail);
             if (got === null)
                 return out;
             out = out.slice(0, m) + got + out.slice(e + 1);
@@ -179,7 +190,7 @@ function resolveValue(s, table, depth, trail) {
     return out;
 }
 
-// Null when clean, else a short reason; xmlns is a namespace and exempt from the http check.
+// Sample input: <svg xmlns="http://www.w3.org/2000/svg"><use href="#a"/></svg> answers null; a remote reference answers its reason, and xmlns is exempt.
 export function checkSafe(svg) {
     var s = svg.replace(/xmlns(?::\w+)?="[^"]*"/g, "");
     if (s.indexOf("@import") >= 0)
@@ -194,6 +205,7 @@ export function checkSafe(svg) {
         return "remote reference";
     if (/url\((?!\s*#)/.test(s))
         return "non-local url";
+    // Sample input: href="#glyph" or xlink:href="https://example.com/icon.svg".
     var href = s.match(/(?:href|xlink:href)\s*=\s*"([^"]*)"/g) || [];
     for (var k = 0; k < href.length; k++) {
         var v = href[k].replace(/^[^"]*"/, "").replace(/"$/, "");
@@ -266,7 +278,7 @@ function inlineClasses(svg) {
             Object.keys(r.decls).forEach(function (p) {
                 if (new RegExp("\\s" + p + "\\s*=").test(attrs) || new RegExp("\\s" + p + "\\s*=").test(add.join(" ")))
                     return;
-                add.push(p + "=\"" + r.decls[p] + "\"");
+                add.push(p + "=\"" + escAttr(r.decls[p]) + "\"");
             });
         });
         if (add.length === 0)
@@ -278,7 +290,7 @@ function inlineClasses(svg) {
 function forceFont(svg, family) {
     var f = escAttr(family);
     return svg.replace(/<text(\s[^<>]*?)?>/g, function (tag) {
-        var t = tag.replace(/\sfont-family="[^"]*"/, "");
+        var t = tag.replace(/\sfont-family\s*=\s*(?:"[^"]*"|'[^']*')/g, "");
         return t.replace(/>$/, " font-family=\"" + f + "\">");
     });
 }

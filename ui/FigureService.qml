@@ -32,6 +32,10 @@ Item {
     property bool stopping: false
     property int generation: 0
     readonly property int killSignal: 9
+    // The launcher's refusal status, REFUSED in src/figurehelper.rs.
+    readonly property int refusalExit: 127
+    // An unexpected exit strikes the head ticket, and its second strike fails it.
+    readonly property int exitStrikeLimit: 2
     readonly property int deadlinePollMs: 250
     // The suite reads this to prove the idle exit stopped the helper.
     readonly property bool helperRunning: helper.running
@@ -108,12 +112,17 @@ Item {
         onExited: function (exitCode, exitStatus) {
             root.helperExits++;
             root.starting = false;
+            var unexpected = !root.stopping;
             root.stopping = true;
             var error = "figure engine exited " + exitCode + " (status " + exitStatus + ")";
-            if (exitCode === 127)
+            if (exitCode === root.refusalExit)
                 root.refuse(error);
-            else
-                root.failGeneration(root.generation, error);
+            else if (unexpected) {
+                var failed = root.strikeHead();
+                root.requeueWritten();
+                if (failed !== undefined)
+                    root.done(failed, "", error);
+            }
             root.stopping = false;
             if (root.pending.length > 0)
                 root.ensureHelper();
@@ -155,30 +164,31 @@ Item {
             idleTimer.restart();
     }
 
-    function failGeneration(generation, error) {
-        var failed = [];
-        for (var id in root.waiting) {
-            if (root.waiting[id].generation === generation) {
-                failed.push(Number(id));
-                delete root.waiting[id];
-            }
-        }
-        root.pending = root.pending.filter(function (id) { return failed.indexOf(id) < 0; });
-        root.written = root.written.filter(function (id) { return failed.indexOf(id) < 0; });
-        for (var i = 0; i < failed.length; i++)
-            root.done(failed[i], "", error);
+    // The head is the ticket the helper was working on, so only it can have caused the exit; undefined until its second strike.
+    function strikeHead() {
+        var head = root.written[0];
+        if (head === undefined || ++root.waiting[head].strikes < root.exitStrikeLimit)
+            return undefined;
+        root.written.shift();
+        delete root.waiting[head];
+        return head;
     }
 
-    function killHelper(id) {
-        root.stopping = true;
-        delete root.waiting[id];
-        var retry = root.written.filter(function (ticket) { return ticket !== id; });
+    function requeueWritten() {
+        var retry = root.written;
         root.written = [];
         for (var i = 0; i < retry.length; i++) {
             root.waiting[retry[i]].generation = 0;
             root.waiting[retry[i]].deadline = 0;
         }
         root.pending = retry.concat(root.pending);
+    }
+
+    function killHelper(id) {
+        root.stopping = true;
+        delete root.waiting[id];
+        root.written = root.written.filter(function (ticket) { return ticket !== id; });
+        root.requeueWritten();
         root.done(id, "", "render timed out");
         if (helper.running)
             helper.signal(root.killSignal);
@@ -270,7 +280,7 @@ Item {
             return id;
         }
         root.waiting[id] = { kind: kind, source: source, display: display,
-            theme: theme, generation: 0, deadline: 0 };
+            theme: theme, generation: 0, deadline: 0, strikes: 0 };
         idleTimer.stop();
         deadlineTimer.start();
         if (helper.running && !root.starting && !root.stopping) {

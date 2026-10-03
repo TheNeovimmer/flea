@@ -144,7 +144,7 @@ if not fails:
 print("DONE failures=%d" % len(fails))
 sys.exit(1 if fails else 0)
 EOF
-if ! python3 "$test_root/drive.py" "${engine[@]}" "$test_root"; then
+if ! FLEA_QJS="$qjs" python3 "$test_root/drive.py" "${engine[@]}" "$test_root"; then
     echo "markdown-figures.sh: the helper run failed"
     exit 1
 fi
@@ -152,7 +152,10 @@ fi
 # A missing engine refuses exactly, with both sandbox tools present on a controlled PATH.
 mkdir -p "$test_root/sandbox-tools" "$test_root/no-sandbox" || exit 1
 for tool in bwrap prlimit; do
-    tool_path=$(command -v "$tool") || exit 1
+    tool_path=$(command -v "$tool") || {
+        echo "markdown-figures.sh: FAIL missing required tool $tool"
+        exit 1
+    }
     ln -sf "$tool_path" "$test_root/sandbox-tools/$tool" || exit 1
 done
 PATH="$test_root/sandbox-tools" FLEA_QJS="$test_root/no-such-qjs" "$fleabin" --figure-helper < /dev/null > "$test_root/missing-qjs.stdout" 2> "$test_root/missing-qjs.stderr"
@@ -225,11 +228,10 @@ else
     echo "markdown-figures.sh: SKIP node is absent, so the byte-identity check did not run"
 fi
 
-# FigureService drives the same selected engine for cache, idle exit, timeout restart, the 127 latch and the fence; qs absence skips loudly.
+# FigureService drives the same selected engine for cache, idle exit, timeout restart, the 127 latch and the fence; a missing qs refuses the suite.
 if ! command -v qs >/dev/null; then
-    echo "markdown-figures.sh: SKIP qs is absent, so the FigureService suite did not run"
-    echo "MARKDOWN_FIGURES DONE failures=0"
-    exit 0
+    echo "markdown-figures.sh: FAIL missing required tool qs"
+    exit 1
 fi
 mkdir -p "$test_root/qsconfig" || exit 1
 ln -s "$PWD/ui" "$test_root/qsconfig/flea" || exit 1
@@ -282,6 +284,8 @@ if [ -f "$test_root/hang.pid" ]; then
     printf 'PASS hanging fixture pid=%s reaped (pgrep exit=1)\n' "$(cat "$test_root/hang.pid")"
 else
     echo "markdown-figures.sh: FAIL no hanging fixture pid receipt"
+    printf 'markdown-figures.sh: qs exited %s\n' "$qs_status"
+    printf '%s\n' "$output" | grep -aE 'MARKDOWN_FIGURES FAIL|TypeError|ReferenceError|RangeError|ERROR' | head -10
     exit 1
 fi
 pass_count=$(printf '%s\n' "$output" | grep -c 'MARKDOWN_FIGURES PASS')

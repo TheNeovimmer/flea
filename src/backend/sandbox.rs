@@ -8,6 +8,10 @@ const PRLIMIT: &str = "prlimit";
 pub(crate) const CPU_SECONDS: u32 = 30;
 // Issue #17 reports glycin exhausting 1 GiB of address space on a large ICC-tagged JPEG and aborting, which this box does not reproduce, so the cap is 2 GiB: the smallest value the ticket records as working, still finite, and virtual rather than resident. What actually consumed it is the arena reservation capped above, not the image.
 pub(crate) const ADDRESS_SPACE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+// wrap_readonly_extra leads with prlimit, its CPU flag, its address-space flag and bwrap.
+const READONLY_PREFIX_ARGS: usize = 4;
+// One read-only bind takes three arguments: the flag, the source and the destination.
+const READONLY_BIND_ARGS: usize = 3;
 
 // /bin, /sbin, /lib and /lib64 are all symlinks into usr on this box, so binding /usr covers them.
 const BWRAP_FLAGS: &[&str] = &[
@@ -123,7 +127,7 @@ pub fn wrap_readonly(inner: &[String], input: &Path) -> Vec<String> {
 
 // The same boundary with caller-chosen read-only binds and nothing writable, including a figure vendor tree or engine outside /usr.
 pub fn wrap_readonly_extra(inner: &[String], ro_binds: &[&Path]) -> Vec<String> {
-    let head_and_binds = 4 + ro_binds.len() * 3;
+    let head_and_binds = READONLY_PREFIX_ARGS + ro_binds.len() * READONLY_BIND_ARGS;
     let mut a: Vec<String> = Vec::with_capacity(inner.len() + BWRAP_FLAGS.len() + head_and_binds);
     a.push(PRLIMIT.to_string());
     a.push(format!("--cpu={}", CPU_SECONDS));
@@ -216,6 +220,15 @@ print("over=" + reserve(OVER_MIB))
     // The brief's "no argument contains sh" is false against a correct argv, because --unshare-all does.
     fn is_a_shell(a: &str) -> bool {
         a == "sh" || a == "bash" || a == "-c" || a.ends_with("/sh") || a.ends_with("/bash")
+    }
+
+    // The capacity arithmetic must name the argv's real shape, or the named counts could drift from what the function pushes.
+    #[test]
+    fn the_readonly_argv_length_matches_its_named_counts() {
+        let binds = [Path::new("/in/a.mp4"), Path::new("/in/b.mp4")];
+        let got = wrap_readonly_extra(&inner(), &binds);
+        let named = READONLY_PREFIX_ARGS + BWRAP_FLAGS.len() + binds.len() * READONLY_BIND_ARGS + inner().len();
+        assert_eq!(got.len(), named);
     }
 
     #[test]

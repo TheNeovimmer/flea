@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 
 tree = pathlib.Path(__file__).resolve().parents[1]
 script = (tree / "tests/markdown-figures.sh").read_text()
@@ -16,6 +17,7 @@ checks = 0
 failures = 0
 # Every isolated shell fragment and fixture engine has a short termination bound.
 FRAGMENT_BOUND_SECONDS = 10
+HEADER_COMMENT_MAX_CHARS = 140
 
 
 def check(passed, label):
@@ -184,9 +186,13 @@ print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDERR_TAIL", file=sys.stder
         anonymous = [memory_before_kb] * 4
         anonymous[index] = over_limit_kb
         result = memory_samples(memory_before_kb, memory_before_kb, memory_before_kb,
-                                anonymous=anonymous)
+                                anonymous=anonymous, rss=anonymous)
         check(result.returncode != 0 and f"FAIL {phase} Rss exceeds before" in result.stdout,
-              f"G7 flat PSS with {phase} Anonymous growth past 10240 kB fails")
+              f"G7 flat PSS with explicit {phase} Rss growth past 10240 kB fails")
+        result = memory_samples(memory_before_kb, memory_before_kb, memory_before_kb,
+                                anonymous=anonymous, rss=(memory_before_kb,) * 4)
+        check(result.returncode == 0,
+              f"mx2b F25 {phase} Anonymous growth with flat Rss passes")
     result = memory_samples(memory_before_kb, memory_before_kb, memory_before_kb,
                             anonymous=(memory_before_kb, "", memory_before_kb, memory_before_kb))
     check(result.returncode != 0 and "FAIL no FIGPSS formulas Anonymous value" in result.stdout,
@@ -197,17 +203,36 @@ print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDERR_TAIL", file=sys.stder
           "G1 a missing Rss value fails")
 
     refusal = section("# A missing engine", "# Byte identity")
+    prerequisites = run('for tool in bwrap prlimit mkdir ln cmp wc; do\n    command -v "$tool" || exit 1\ndone',
+                        PATH=str(tools))
+    check(prerequisites.returncode == 0 and binary.is_file() and os.access(binary, os.X_OK),
+          "mx2b F31 missing-engine controls have every prerequisite")
     for mode in ("silent", "wrong"):
-        result = run(refusal, mode)
-        check(result.returncode != 0, "F1 rejects " + mode + " missing-engine refusal")
+        result = run(refusal, mode, PATH=str(tools))
+        check(prerequisites.returncode == 0 and result.returncode == 1
+              and "FAIL missing qjs did not print the exact refusal on stderr" in result.stdout,
+              "F1 rejects " + mode + " missing-engine refusal")
     result = run(refusal, PATH=str(tools))
     check(result.returncode == 0 and "quickjs-ng" in result.stdout and "bwrap and prlimit" in result.stdout,
           "F2 independently exercises engine and sandbox refusal branches")
+    (tools / "prlimit").unlink()
+    result = run(refusal, PATH=str(tools))
+    check(result.returncode == 1 and "FAIL missing required tool prlimit" in result.stdout,
+          "mx2b F32 refusal setup names the missing sandbox tool")
+    (tools / "prlimit").write_text("#!/bin/sh\nexit 0\n")
+    (tools / "prlimit").chmod(0o755)
 
     probe = f"PROBE_BOUND_SECONDS={FRAGMENT_BOUND_SECONDS}\nprobe_out=" + section("probe_out=", "# One python driver")
+    prerequisites = run('for tool in timeout python3 grep cat; do\n    command -v "$tool" || exit 1\ndone')
+    check(prerequisites.returncode == 0 and os.access(binary, os.X_OK),
+          "mx2b F31 jailed-probe controls have every prerequisite")
     for mode in ("broken", "empty"):
         result = run(probe, mode)
-        check(result.returncode != 0, "F3 rejects " + mode + " jail probe")
+        expected_status = 1 if mode == "broken" else 0
+        check(prerequisites.returncode == 0 and result.returncode == 1
+              and f"FAIL jailed probe exited {expected_status} without a valid answer" in result.stdout
+              and (mode != "broken" or "figure renderer exploded" in result.stdout),
+              "F3 rejects " + mode + " jail probe")
     result = run(probe, "namespace")
     check(result.returncode == 0 and "user namespaces" in result.stdout,
           "F3 names the detected user-namespace exception")
@@ -216,6 +241,81 @@ print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDERR_TAIL", file=sys.stder
     result = run(probe, "good")
     check(result.returncode == 0 and "driving the jailed helper" in result.stdout,
           "F3 keeps the jail for a successful probe")
+
+    missing_qs = 'if ! command -v qs' + section('if ! command -v qs', '\nmkdir -p "$test_root/qsconfig"')
+    result = run(missing_qs, PATH=str(box / "empty-path"))
+    check(result.returncode == 1 and "qs" in result.stdout and "FAIL" in result.stdout
+          and "DONE" not in result.stdout and len(result.stdout.splitlines()) == 1,
+          "mx2b F26 absent qs refuses once without a success receipt")
+    receipt_check = 'if [ -f "$test_root/hang.pid" ]; then' + section(
+        'if [ -f "$test_root/hang.pid" ]; then', '\npass_count=')
+    (box / "hang.pid").unlink(missing_ok=True)
+    result = run(receipt_check, qs_status="1",
+                 output="MARKDOWN_FIGURES FAIL QML load failed\nERROR Type TestRoot unavailable")
+    check(result.returncode == 1 and "FAIL QML load failed" in result.stdout
+          and "ERROR Type TestRoot unavailable" in result.stdout and "qs exited 1" in result.stdout,
+          "mx2b F27 missing pid receipt reports captured launch errors and qs status")
+    driver_call = 'if ! ' + section('\nif ! ', '\n# A missing engine')
+    (box / "drive.py").write_text('import os\nprint(os.environ.get("FLEA_QJS", "unset"))\n')
+    result = run('engine=("$fleabin" --figure-helper)\n' + driver_call, FLEA_QJS="")
+    check(result.returncode == 0 and result.stdout.strip() == str(qjs),
+          "mx2b F33 the jailed driver inherits the resolved development engine")
+
+    if shutil.which("qml6"):
+        component = box / "component"
+        component.mkdir()
+        shutil.copyfile(tree / "ui/MarkdownFigure.qml", component / "MarkdownFigure.qml")
+        (component / "qmldir").write_text("singleton Theme 1.0 Theme.qml\nsingleton FigureService 1.0 FigureService.qml\n")
+        (component / "Theme.qml").write_text('''pragma Singleton
+import QtQuick
+QtObject {
+    property var font: ({family: "monospace", body: 14})
+    property var spacing: ({gap: 8})
+    property var color: ({surface: "#202020", foreground: "#eeeeee"})
+}
+''')
+        (component / "FigureService.qml").write_text('''pragma Singleton
+import QtQuick
+QtObject {
+    property var requests: []
+    property int sequence: 0
+    signal done(int ticket, string svg, string error)
+    function ask(kind, source, display, theme) {
+        requests.push(JSON.parse(JSON.stringify(theme)));
+        return ++sequence;
+    }
+}
+''')
+        shutil.copyfile(tree / "tests/figure-component.qml", component / "probe.qml")
+        result = subprocess.run(["qml6", str(component / "probe.qml")],
+                                env=dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_FORCE_STDERR_LOGGING="1",
+                                         XDG_CACHE_HOME=str(box / "qml-cache")),
+                                capture_output=True, text=True, timeout=FRAGMENT_BOUND_SECONDS)
+        component_output = result.stdout + result.stderr
+        component_ok = result.returncode == 0 and "figure-component: 3 check(s), 0 failed" in component_output
+        check(component_ok, "mx2a F31/F32 one final-theme request and a nonzero failed-inline fence"
+              + ("" if component_ok else ": " + component_output.strip()))
+    else:
+        check(False, "mx2a F31/F32 require qml6 for the real component probe")
+
+    if shutil.which("node"):
+        worker_uri = (tree / "ui/js/FigureWorker.mjs").as_uri()
+        quoted_svg = '''<svg xmlns="http://www.w3.org/2000/svg"><style>text.label { font-family: "Inter", sans-serif; font-weight: "bold"; }</style><text class="label">hello</text><text font-family='"Inter", sans-serif'>single quotes</text></svg>'''
+        result = subprocess.run(["node", "--input-type=module", "-e",
+                                 f'import {{ postMermaid }} from {json.dumps(worker_uri)};\n'
+                                 + f'console.log(postMermaid({json.dumps(quoted_svg)}, {{bg:"#000000", fg:"#ffffff", font:"monospace"}}));'],
+                                capture_output=True, text=True, timeout=FRAGMENT_BOUND_SECONDS)
+        try:
+            svg = ET.fromstring(result.stdout)
+            text_nodes = [node for node in svg.iter() if node.tag.endswith("text")]
+            valid = all(node.attrib.get("font-family") == "monospace" for node in text_nodes)
+            valid = valid and text_nodes[0].attrib.get("font-weight") == '"bold"'
+        except (ET.ParseError, IndexError):
+            valid = False
+        check(result.returncode == 0 and valid,
+              "mx2b F30 quoted class declarations yield well-formed XML and one forced font")
+    else:
+        print("figure-harness: SKIP node is absent, so the mx2b F30 quoted-family check did not run")
 
     stub = 'cat > "$test_root/stubbin/flea"' + section('cat > "$test_root/stubbin/flea"', 'chmod +x "$test_root/stubbin/flea"')
     (box / "stubbin").mkdir()
@@ -353,6 +453,61 @@ check("timeout=HELPER_EXIT_BOUND_SECONDS" in start_test
       and "# A helper that never exits fails the check instead of hanging the suite.\nHELPER_EXIT_BOUND_SECONDS = 5" in start_test,
       "mx2a F16 / mx2b F15 helper startup has a named termination bound")
 build = (tree / "tools/vendor-js/build.sh").read_text()
+check(not re.search(r"(?m)^#[^\n]*\n#", build[build.index("\n") + 1:]),
+      "mx2b F24 build.sh comment paragraphs occupy one line")
+# Sample input: cmp math-bundle.mjs ../../ui/vendor/math.mjs || {.
+targets = re.findall(r"(?m)^cmp \S+ (\S+)", build)
+check(len(targets) == 2, "mx2b F22 build compares both tracked bundles")
+for target in targets:
+    resolved = (tree / "tools/vendor-js" / target).resolve()
+    vendor_targets = {tree / "ui/vendor/math.mjs", tree / "ui/vendor/mermaid.mjs"}
+    check(resolved.is_file() and resolved in vendor_targets,
+          f"mx2b F22 comparison resolves to the shipped bundle: {target}")
+    if (tree / ".git").exists():
+        relative = str(resolved.relative_to(tree))
+        tracked = subprocess.run(["git", "ls-files", "--error-unmatch", relative], cwd=tree,
+                                 capture_output=True, text=True, timeout=FRAGMENT_BOUND_SECONDS)
+        check(tracked.returncode == 0, f"mx2b F22 comparison target is tracked: {target}")
+# The real build.sh runs beside stub npm and npx in a throwaway layout, so its refusal and its comparison both execute.
+with tempfile.TemporaryDirectory(prefix="flea-vendor-targets-") as scratch:
+    layout = pathlib.Path(scratch)
+    build_dir = layout / "tools/vendor-js"
+    vendor = layout / "ui/vendor"
+    stubs = layout / "stubs"
+    for directory in (build_dir, vendor, stubs):
+        directory.mkdir(parents=True)
+    shutil.copyfile(tree / "tools/vendor-js/build.sh", build_dir / "build.sh")
+    (build_dir / "package.json").write_text("{}\n")
+    npm_receipt = layout / "npm.ran"
+    (stubs / "npm").write_text(f'#!/bin/sh\n: > "{npm_receipt}"\n')
+    # Sample input: npx esbuild math-entry.mjs --bundle --minify --outfile=math-bundle.mjs.
+    (stubs / "npx").write_text('#!/bin/sh\nfor arg in "$@"; do\n    case "$arg" in\n'
+                               '        --outfile=*) printf "same bytes\\n" > "${arg#--outfile=}" ;;\n    esac\ndone\n')
+    for stub in ("npm", "npx"):
+        (stubs / stub).chmod(0o755)
+
+    def rebuild():
+        npm_receipt.unlink(missing_ok=True)
+        return subprocess.run(["/bin/bash", str(build_dir / "build.sh")], capture_output=True, text=True,
+                              env=dict(os.environ, PATH=f"{stubs}:{os.environ['PATH']}"),
+                              timeout=FRAGMENT_BOUND_SECONDS)
+
+    for name in ("math", "mermaid"):
+        (vendor / f"{name}.mjs").write_text("same bytes\n")
+    result = rebuild()
+    check(result.returncode == 0 and "both bundles reproduce byte for byte" in result.stdout,
+          "mx2b F22 a rebuild identical to ui/vendor passes")
+    for name in ("math", "mermaid"):
+        target = vendor / f"{name}.mjs"
+        target.write_text("other bytes\n")
+        result = rebuild()
+        check(result.returncode == 1 and f"vendor-js: {name}.mjs differs" in result.stdout,
+              f"mx2b F22 a changed {name} bundle fails the byte comparison")
+        target.unlink()
+        result = rebuild()
+        check(result.returncode == 1 and f"missing tracked target ../../ui/vendor/{name}.mjs" in result.stdout
+              and not npm_receipt.exists(), f"mx2b F22 an absent {name} target refuses by name before npm runs")
+        target.write_text("same bytes\n")
 agents = (tree / "AGENTS.md").read_text()
 # Sample input: `src/figurehelper.rs` at 210 in the mx2 file-budget paragraph.
 budget_paragraph = next(line for line in agents.splitlines() if line.startswith("mx2 renders Markdown maths"))
@@ -361,10 +516,30 @@ for path in ("src/figurehelper.rs", "ui/FigureService.qml"):
     actual = len((tree / path).read_text().splitlines())
     check(recorded is not None and int(recorded[1]) == actual,
           f"F24 mx2 records the final {path} line count ({actual})")
+# Sample input: `src/backend/sandbox.rs` 365 to 385 or `ui/vendor/figure-helper.mjs` at 66 in the same paragraph.
+for path in ("ui/vendor/figure-helper.mjs", "src/backend/sandbox.rs", "ui/js/FigureWorker.mjs", "src/main.rs",
+             "tests/markdown-figures.qml", "tools/vendor-js/build.sh"):
+    recorded = re.search(re.escape(f"`{path}`") + r"(?: at |\s\d+ to )(\d+)", budget_paragraph)
+    actual = len((tree / path).read_text().splitlines())
+    check(recorded is not None and int(recorded[1]) == actual,
+          f"mx2a F29 mx2 records the final {path} line count ({actual})")
+sandbox = (tree / "src/backend/sandbox.rs").read_text()
+check("const READONLY_PREFIX_ARGS: usize = 4;" in sandbox
+      and "const READONLY_BIND_ARGS: usize = 3;" in sandbox
+      and "READONLY_PREFIX_ARGS + ro_binds.len() * READONLY_BIND_ARGS" in sandbox,
+      "mx2a F30 read-only sandbox prefix and bind argument counts are named")
+service_source = (tree / "ui/FigureService.qml").read_text()
+check("readonly property int refusalExit: 127" in service_source
+      and "REFUSED in src/figurehelper.rs" in service_source
+      and "exitCode === root.refusalExit" in service_source,
+      "mx2a F35 the refusal comparison uses the Rust REFUSED status by name")
 helper_source = (tree / "ui/vendor/figure-helper.mjs").read_text()
 check(not re.search(r"(?m)^[ \t]*//[^\n]*\n[ \t]*//", helper_source),
       "F26 helper comments keep each constraint on one line")
 figure_source = (tree / "ui/MarkdownFigure.qml").read_text()
+header = figure_source.splitlines()[2]
+check(header.startswith("// One rendered figure:") and len(header) <= HEADER_COMMENT_MAX_CHARS,
+      "mx2a F36 the figure header states its purpose in one short line")
 fallback = figure_source.split("readonly property string fallbackBody:", 1)[1].split("    Rectangle", 1)[0]
 check("readonly property int fallbackChars: 2000" in figure_source
       and fallback.count("root.fallbackChars") == 3 and "2000" not in fallback,
@@ -379,9 +554,15 @@ check(len(constraint) == 1 and len(constraint[0]) <= 140
       "mx2b F7 bundle constraint fits one comment line")
 check("const PERCENT_SCALE = 100;" in worker and "parseFloat(m[2]) / PERCENT_SCALE" in worker,
       "mx2b F12 color-mix percentage conversion uses its named scale")
+check(all(expression not in worker for expression in
+          ("i + 3", "i + 4", "m + 9", "m + 10", "parseInt(h, 16)", "(n >> 16) & 255", "(n >> 8) & 255"))
+      and all(name in worker for name in ("VAR_NAME_LENGTH", "VAR_OPEN_LENGTH", "MIX_NAME_LENGTH",
+                                          "MIX_OPEN_LENGTH", "HEX_RADIX", "RED_SHIFT", "GREEN_SHIFT", "BYTE_MASK")),
+      "mx2b F34 CSS token lengths, hex radix, byte shifts and mask have names")
 check("shell.t0 < 5000" not in qml and "shell.maxGap < 2000" not in qml,
       "F12 idle-exit and tick-gap bounds have names")
-for marker in ("function parseMix", "function resolveValue", "function inlineClasses", "    svg.replace(/<style>"):
+for marker in ("function parseMix", "function resolveValue", "function inlineClasses", "    svg.replace(/<style>",
+               "function hexRGB", "function closeParen", "function splitTop", "export function checkSafe", "    var href ="):
     before = worker.split(marker, 1)[0].splitlines()[-1]
     check("Sample input:" in before, "F13 parser has sample input: " + marker.strip())
 print(f"figure-harness: {checks} check(s), {failures} failed")

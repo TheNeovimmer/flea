@@ -1,6 +1,6 @@
 import QtQuick
 
-// One rendered figure: a maths formula or a Mermaid diagram, drawn from the SVG the shared figure worker answers. Block mode sizes to the natural size, scales down to fit the width and never up; a display formula centres, a diagram sits left like a fenced block. Inline mode sizes to the line height for $...$ beside text. Pending reserves no height and draws nothing; an error draws the source as the board's fenced block, so a figure is never worse than the code it came from.
+// One rendered figure: the helper's SVG, or fenced source when rendering fails.
 Item {
     id: root
 
@@ -39,9 +39,10 @@ Item {
     onKindChanged: root.ask()
     onSourceChanged: root.ask()
     onDisplayChanged: root.ask()
-    onBgHexChanged: root.ask()
-    onFgHexChanged: root.ask()
-    onAccentHexChanged: root.ask()
+    // A theme change flips the three colours one after another, so one deferred ask carries the final set.
+    onBgHexChanged: Qt.callLater(root.ask)
+    onFgHexChanged: Qt.callLater(root.ask)
+    onAccentHexChanged: Qt.callLater(root.ask)
     onFontFamilyChanged: root.ask()
     onBodyPxChanged: root.ask()
     Component.onCompleted: root.ask()
@@ -128,7 +129,7 @@ Item {
     readonly property real inlineWidth: root.inline && inlineFigure.implicitHeight > 0
         ? Math.round(inlineFigure.implicitWidth * (root.bodyPx / inlineFigure.implicitHeight)) : 0
 
-    implicitWidth: root.inline ? root.inlineWidth : root.width
+    implicitWidth: root.inline ? (root.failed ? fallbackItem.implicitWidth + 2 * Theme.spacing.gap : root.inlineWidth) : root.width
     // A failed inline still draws its fence, so it sizes to the fence rather than the line it never became.
     implicitHeight: root.inline ? (root.failed ? fallback.height : root.bodyPx)
         : root.failed ? fallback.height : root.fitHeight

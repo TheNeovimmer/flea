@@ -1,4 +1,5 @@
 .import "sourcefixture.js" as Source
+.import "figureserviceexit.js" as ExitSuite
 
 // Sample input: function ask(kind, source, display, theme) { ... } or onExited: function (...) { ... }.
 function block(source, marker) {
@@ -54,6 +55,11 @@ function service() {
     var idleTimer = timer()
     var Qt = { callLater: function (callback) { fake.deferred.push(callback) } }
     var Date = { now: function () { return fake.now } }
+    // Sample input: readonly property int killSignal: 9.
+    var constants = /readonly property int (\w+): (\d+)/g
+    var constant
+    while ((constant = constants.exec(source)) !== null)
+        root[constant[1]] = Number(constant[2])
     function compile(args, body) {
         return new Function("root", "helper", "deadlineTimer", "idleTimer", "Qt", "Date",
             "return function (" + args + ") {" + body + "}")(root, helper, deadlineTimer, idleTimer, Qt, Date)
@@ -124,6 +130,7 @@ function run(check) {
     }
     function exitProbe(deadlines, exits) {
         var shell = { ticket: 1, step: 14, renderDeadlineMark: 0, helperExitsMark: 0,
+            crashingHelperExitCount: 2,
             exitAskedAt: 0, exitAnswerBoundMs: 2000, results: [],
             check: function (passed) { this.results.push(passed) },
             writePhase: function () {} }
@@ -136,9 +143,11 @@ function run(check) {
     var exitChecks = exitProbe(1, 0)
     check("exit harness rejects a deadline event even when the clock reads zero", exitChecks[1], false)
     check("exit harness rejects an answer without the helper exit event", exitChecks[2], false)
-    exitChecks = exitProbe(0, 1)
+    exitChecks = exitProbe(0, 2)
     check("exit harness accepts an answer before the deadline event", exitChecks[1], true)
     check("exit harness accepts the observed helper exit", exitChecks[2], true)
+    check("exit harness rejects one exit before the failed head's answer", exitProbe(0, 1)[2], false)
+    check("exit harness rejects a third exit before the failed head's answer", exitProbe(0, 3)[2], false)
 
     var deadlineMs = 1000
     var staggerMs = 100
@@ -189,19 +198,7 @@ function run(check) {
     }), true)
     check("LRU revisit writes no helper line", fake.writes.length - writesBeforeRevisit, 0)
 
-    var exitCodes = [0, 1, 42, 127]
-    for (var i = 0; i < exitCodes.length; i++) {
-        fake = service()
-        fake.ask("exit first", true)
-        fake.start()
-        fake.ask("exit second", true)
-        fake.exit(exitCodes[i])
-        check("exit " + exitCodes[i] + " fails every ticket immediately", fake.answers.length, 2)
-        check("exit " + exitCodes[i] + " clears waiting", Object.keys(fake.root.waiting).length, 0)
-        check("exit " + exitCodes[i] + " names its status", fake.answers.length > 0
-            && fake.answers[0].error.indexOf(String(exitCodes[i])) >= 0, true)
-        check("only 127 latches unavailable", fake.root.available, exitCodes[i] !== 127)
-    }
+    ExitSuite.run(check, service)
 
     fake = service()
     var a = fake.ask("A", true)

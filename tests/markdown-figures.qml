@@ -43,6 +43,8 @@ ShellRoot {
     readonly property int tickIntervalMs: 50
     // Pump callbacks prove liveness before the test makes the hanging ticket overdue.
     readonly property int requiredPendingPumpCallbacks: 2
+    // A ticket that crashes the helper is its head at two exits, so its answer follows two exit events.
+    readonly property int crashingHelperExitCount: 2
     readonly property int expiredTicketDeadline: 0
     readonly property int recoveredRenderMs: 5000
     readonly property int watchdogMs: 150000
@@ -221,7 +223,7 @@ ShellRoot {
         } else if (shell.step === 14) {
             shell.check(svg === "" && error.indexOf("exited 42") >= 0, "a helper exit names its code");
             shell.check(Flea.FigureService.deadlineExpirations === shell.renderDeadlineMark, "a helper exit answers before the render deadline event");
-            shell.check(Flea.FigureService.helperExits > shell.helperExitsMark, "the helper exit event precedes its answer");
+            shell.check(Flea.FigureService.helperExits === shell.helperExitsMark + shell.crashingHelperExitCount, "exactly two helper exit events precede the failed head's answer");
             shell.check(Flea.FigureService.available, "an ordinary exit leaves a fresh helper available");
             shell.step = 10;
             shell.writePhase("refused", function () {
