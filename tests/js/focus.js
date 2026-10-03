@@ -255,7 +255,7 @@ function run(check) {
     // Pane.qml's own Back, Up and re-list entries refuse the same hop before touching the mode.
     var backLine = Source.slice(Source.source("ui/Pane.qml"), "function goBack()", "function goForward()")
     check("goBack refuses before it closes", backLine.indexOf("root.listInFlight") >= 0, true)
-    var upLine = Source.slice(Source.source("ui/Pane.qml"), "function openParent()", "function openRecent(paths)")
+    var upLine = Source.slice(Source.source("ui/Pane.qml"), "function openParent()", "function openRecent(paths, visits)")
     check("openParent refuses before it closes", upLine.indexOf("root.listInFlight") >= 0, true)
     var relist = Source.slice(Source.source("ui/Pane.qml"), "function openWithoutHistory(newPath, options)", "function toggleHidden()")
     check("a re-list refuses before it clears",

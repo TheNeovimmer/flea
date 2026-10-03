@@ -46,7 +46,7 @@ ShellRoot {
             id: sidebar
             width: 220
             height: 700
-            onRecentRequested: function(paths, requester) { shell.replies.push({paths: paths, requester: requester}) }
+            onRecentRequested: function(paths, requester, visits) { shell.replies.push({paths: paths, requester: requester, visits: visits}) }
         }
         Flea.Backend { id: probeBackend }
         Flea.Pane {
@@ -110,6 +110,8 @@ ShellRoot {
             pane.cursorIndex += 1
             check("closed menu stays unevaluated after cursor move", calls.modes + calls.selection, before)
             check("no Recent parse at settle", sidebar.recentReads, 0)
+            check("Recent rail row ships off", sidebar.recentEntries.length, 0)
+            check("hidden rail query also keeps Recent off", Flea.RailPlaces.recentEntries.length, 0)
             var next = Object.assign({}, Flea.ViewState.state)
             next.places = Object.assign({}, next.places, {showRecent:true})
             Flea.ViewState.state = next
@@ -129,9 +131,14 @@ ShellRoot {
             check("Recent paths from lazy reader", JSON.stringify(sidebar.recentPaths), JSON.stringify([Quickshell.env("HOME") + "/a/example.txt"]))
             check("first Recent asker preserved", replies[0].requester === pane, true)
             check("rail Recent asker preserved", replies[1].requester, null)
+            var recentFile = Quickshell.env("HOME") + "/a/example.txt"
+            var visited = Date.parse("2026-09-30T12:00:00Z") / 1000
+            check("pane Recent reply preserves visit time", replies[0].visits[recentFile], visited)
+            check("rail Recent reply preserves visit time", replies[1].visits[recentFile], visited)
             sidebar.readRecent(pane)
             check("Recent cache answers without a parse", sidebar.recentReads, 1)
             check("cached Recent asker answered", replies.length, 3)
+            check("cached Recent reply preserves visit time", replies[2].visits[recentFile], visited)
             console.log("BOOTLOAD DONE " + checks + " checks, " + failures + " failed")
             Qt.quit()
         }

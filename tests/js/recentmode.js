@@ -86,6 +86,18 @@ function firstCodeLine(branch, marker) {
 }
 
 function run(check) {
+    // Used stamps accompany only the held rows and preserve filesystem metadata.
+    var visitedPane = { recentMode: "results", path: "/", recentVisits: { "/a.txt": 1700000000 },
+        join: function (base, name) { return base + name } }
+    var metadata = [{ n: "a.txt", m: 42 }, { n: "b.txt", m: 43 }]
+    var stamped = RecentMode.stampRows(visitedPane, metadata)
+    check("Recent Used reads the visit", stamped[0].used, 1700000000)
+    check("filesystem mtime survives", stamped[0].m, 42)
+    check("absent visit never displays mtime", stamped[1].used, null)
+    check("source rows remain untouched", metadata[0].used, undefined)
+    visitedPane.recentMode = ""
+    check("directory rows retain their original objects", RecentMode.stampRows(visitedPane, metadata) === metadata, true)
+
     // The pane declares the sort Recent hands back, so run writes a member Qt accepts.
     var declared = Source.source("ui/Pane.qml")
     check("the pane declares the sort Recent hands back",

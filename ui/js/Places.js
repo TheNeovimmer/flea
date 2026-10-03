@@ -169,6 +169,20 @@ function homeEntries(home, dirsText, glyphFor) {
     })
 }
 
+// The rail and query use the same validation, URI decoding and mount-first open.
+function openEntry(entry, ports) {
+    if (!entry) return
+    if (entry.kind === "trash") { ports.trash(); return }
+    var error = entry.kind === "favourite" ? recordError(entry.original) : ""
+    if (error) { ports.message("Could not open " + entry.label + " · " + error, true); return }
+    if (entry.path.indexOf("://") >= 0 && entry.path.indexOf("file://") !== 0) {
+        var host = ports.networkHost()
+        if (host) host.openChildShare(entry.path, entry.label, ports.pane)
+    } else {
+        ports.opened(entry.path.indexOf("file://") === 0 ? Mounts.decodePath(entry.path.substring(7)) : entry.path)
+    }
+}
+
 function railIdentity(entry) {
     if (!entry) return ""
     if (entry.kind === "favourite") return JSON.stringify([entry.kind, entry.original])
