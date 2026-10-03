@@ -386,6 +386,10 @@ sweep_settings() {
     sweep_shot keymap-query-copy
     sheet_rows=$(ipc keymapSheetRows)
     [[ "$sheet_rows" == *"copy as"* ]] || fail "capsweep: keymap query lists no copy action: ${sheet_rows//$'\n'/ | }"
+    # The first Escape clears the query (SheetQuery.sheetKey), the second closes the sheet.
+    key -k Escape >/dev/null
+    sweep_wait keymapQuery ""
+    sweep_wait keymapSheetOpen true
     key -k Escape >/dev/null
     sweep_wait keymapSheetOpen false
     kill_flea

@@ -12719,6 +12719,9 @@ vaapi_warning="VAAPITextureConverter: No rhi or non openGL based RHI"
 # case_formats and case_previewviews open a file with no permission bits on purpose; Qt names it, and this run's fixture path is the whole match.
 unreadable_warning="$fixture_root/formats/shut.jpg"
 unreadable_warning2="$fixture_root/previewviews/shut.jpg"
+# Both capture sweeps preview the same unreadable file in their own fixture roots.
+unreadable_warning3="$fixture_root/capsweep-current/previews/shut.jpg"
+unreadable_warning4="$fixture_root/capsweep-cool-dawn/previews/shut.jpg"
 # case_settings and case_networkauth chmod 000 a fixture ui.json on purpose, so Quickshell reports
 # that it cannot watch it. How many times it says so is the watch's business, not this suite's.
 unreadable_state_warning="/flea/ui.json) failed: (Permission denied)"
@@ -12731,7 +12734,7 @@ while read -r want warning; do
     fi
 done < <(sort "$expected_warnings" | uniq -c)
 if grep -F -v -e "$expected_warning" -e "$vaapi_warning" -e "$unreadable_warning" -e "$unreadable_warning2" \
-    -e "$unreadable_state_warning" "$run_log" \
+    -e "$unreadable_warning3" -e "$unreadable_warning4" -e "$unreadable_state_warning" "$run_log" \
     | grep -F -v -f "$expected_warnings" | grep -E 'WARN|ERROR|TypeError|ReferenceError|Cannot open'; then
     printf 'FAIL log\n'
     failures=$((failures + 1))
