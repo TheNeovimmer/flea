@@ -20,6 +20,7 @@ Item {
     property bool picked: false
 
     signal activated()
+    readonly property bool pressed: tap.pressed
     // The parent owns the cursor, so a pointer that moves onto the row asks for it; a menu opened under a resting pointer asks nothing, or Enter would fire the pointer's row (0d626ed).
     signal pointerMoved()
     // For a parent that lights the pointer's row without moving its own cursor, as ui/ShareBrowser.qml does.
@@ -298,6 +299,7 @@ Item {
     }
 
     TapHandler {
+        id: tap
         enabled: !root.isSeparator && root.available
         acceptedButtons: Qt.LeftButton
         gesturePolicy: TapHandler.ReleaseWithinBounds

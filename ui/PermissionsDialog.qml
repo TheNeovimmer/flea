@@ -45,10 +45,13 @@ FocusScope {
     readonly property int controlHeight: Math.max(Theme.rowHeight, Math.ceil(Theme.font.body * Theme.lineBoxRatio) + 2 * Theme.spacing.rowPaddingY)
     readonly property real bodyInset: 16 * Theme.font.bodySmall / 13 + Theme.spacing.hairline
     readonly property int headingHeight: Math.round(26 * Theme.font.bodySmall / 13)
+    // Permissions040, several items: the surface's one 8 px gap, and the 6 px its button row adds above itself.
+    readonly property int multiGap: Theme.spacing.rowPaddingY + Theme.spacing.hairline
+    readonly property real buttonLead: Theme.settings.railPaddingY / 2 + Theme.spacing.hairline
     readonly property var cardItem: card
     readonly property var bodyItem: body
     readonly property string displayedError: errorLabel.text
-    readonly property string displayedSummary: changeSummary.text + "\n" + scopeLabel.text
+    readonly property string displayedSummary: (isMulti ? "" : changeSummary.text + "\n") + scopeLabel.text
     function controls() {
         var result = [{name: "Close", item: closeMark, enabled: !applying}, {name: "Octal", item: octal, enabled: editable},
             {name: "Cancel", item: cancelFocus, enabled: !applying}, {name: "Apply", item: applyFocus, enabled: editable && modeValue >= 0}]
@@ -388,7 +391,7 @@ FocusScope {
                     Text { id: nameLabel; width: parent.width - Theme.markSize - kindLabel.width - 2 * parent.spacing; anchors.verticalCenter: parent.verticalCenter; text: root.path.split("/").pop(); elide: Text.ElideMiddle; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
                     Text { id: kindLabel; anchors.verticalCenter: parent.verticalCenter; text: root.facts.ok ? (root.facts.directory ? "directory" : "file") : ""; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.caption } }
                 }
-                Rectangle { visible: !root.isMulti; width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4 }
+                Rectangle { width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4; visible: !root.isMulti }
                 Row {
                     width: parent.width
                     height: root.headingHeight
@@ -451,8 +454,8 @@ FocusScope {
                 }
                 Item {
                     width: parent.width
-                    visible: !root.isMulti
                     height: Theme.spacing.rowPaddingY + Theme.settings.railPaddingY / 2 + Theme.spacing.hairline
+                    visible: !root.isMulti
                     Rectangle { y: Theme.settings.railPaddingY / 2; width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4 }
                 }
                 Row {
@@ -549,13 +552,12 @@ FocusScope {
                 }
                 Item {
                     width: parent.width
-                    visible: !root.isMulti
-                    height: Theme.settings.railPaddingY + Theme.spacing.gap + Theme.spacing.hairline
-                    Rectangle { y: Theme.settings.railPaddingY; width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4 }
+                    height: root.isMulti ? root.multiGap : Theme.settings.railPaddingY + Theme.spacing.gap + Theme.spacing.hairline
+                    Rectangle { y: Theme.settings.railPaddingY; width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4; visible: !root.isMulti }
                 }
                 Text {
-                    visible: !root.isMulti
                     text: "WILL CHANGE"
+                    visible: !root.isMulti
                     bottomPadding: Theme.spacing.rowPaddingY / 2
                     textFormat: Text.PlainText
                     color: Theme.color.foreground
@@ -585,7 +587,7 @@ FocusScope {
                     color: Theme.color.foreground
                     font { family: Theme.font.family; pixelSize: Theme.font.caption }
                 }
-                Item { width: parent.width; height: Theme.settings.railPaddingY + Theme.spacing.hairline }
+                Item { width: parent.width; height: root.isMulti ? root.multiGap + root.buttonLead : Theme.settings.railPaddingY + Theme.spacing.hairline }
                 Row {
                     anchors.right: parent.right
                     spacing: Theme.spacing.gap

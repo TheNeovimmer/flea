@@ -88,10 +88,10 @@ tests/xwsettings-tabs.qml 416
 ui/Backend.qml 469
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 479
-ui/ContextMenu.qml 691
+ui/ContextMenu.qml 703
 ui/ConvertDialog.qml 433
 ui/GridArea.qml 412
-ui/Ipc.qml 844
+ui/Ipc.qml 861
 ui/KeymapSheet.qml 523
 ui/List.qml 437
 tests/touchpad-edge.qml 438
@@ -103,7 +103,7 @@ ui/OpenWithDialog.qml 608
 ui/Pane.qml 1022
 ui/PaneMenuActions.qml 464
 ui/PaneWire.qml 584
-ui/PermissionsDialog.qml 632
+ui/PermissionsDialog.qml 634
 ui/PickerWindow.qml 781
 ui/Preview.qml 723
 ui/PreviewColumn.qml 574
@@ -123,6 +123,7 @@ ui/js/Devices.js 366
 ui/js/Filter.js 257
 ui/js/Focus.js 433
 ui/js/Keymap.js 338
+ui/js/Nav.js 308
 ui/js/Markdown.js 527
 ui/js/Menu.js 454
 ui/js/Drag.js 342

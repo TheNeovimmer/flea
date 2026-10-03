@@ -3174,6 +3174,7 @@ comment cuts then left every one of those files under its ceiling, and kb1d took
 to 1000 for the two sort declarations Recent hands back. This round takes `ui/Pane.qml` 1000 to
 1003 for the hop restore in openWithoutHistory and its pane route, and `ui/Sidebar.qml` 675 to 677
 for the asker list a history read answers one by one.
+The held-row guard records `ui/ContextMenu.qml` at 693 lines after restoring the original submenu glyph function and comment, with live main and flyout press checks and an owed-refresh flag instead of the stale counter; the batch Permissions read-only IPC fields take `ui/Ipc.qml` from 842 to 854 lines. The flyout-close hook takes `ui/ContextMenu.qml` to 694, the held-window ask for a search takes `ui/js/Nav.js` from 303 to 308, and the Permissions040 distances for several items take `ui/PermissionsDialog.qml` from 629 to 634.
 
 Advfix-picker records `ui/PickerWindow.qml` 706 to 778, each re-derived with `wc -l`: the grid view
 with its thumbnail plan and the persisted `pickerView` (706 to 770), the scroll-ask follow-up that

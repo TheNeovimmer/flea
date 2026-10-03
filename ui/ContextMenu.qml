@@ -25,6 +25,7 @@ Item {
     property var localSend: ({ installed: false, peers: [], checking: false })
     property string taildropReason: ""
     property bool providersRefreshing: false
+    property bool refreshOwed: false
     property var lastProviderAnswer: null
     // The archive formats this box actually probed, and whether a converter is installed at all.
     property var archiveFormats: []
@@ -110,6 +111,7 @@ Item {
     // A hidden row still opens its flyout from the action.
     property string loneFlyoutAction: ""
     readonly property bool submenuOpen: root.openSubmenuRow >= 0 || root.loneFlyoutAction.length > 0
+    onSubmenuOpenChanged: if (!root.submenuOpen) MenuRefresh.pressChanged(root, false)
     // The glyph every open flyout row draws, read back so a test can name it without OCR.
     function submenuGlyphs() {
         if (!root.submenuOpen)
@@ -296,6 +298,7 @@ Item {
     }
 
     function place(scenePoint) {
+        root.refreshOwed = false
         root.preparing = true
         if (!root.opened)
             root.focusHolder = root.Window.window ? root.Window.window.activeFocusItem : null
@@ -327,6 +330,7 @@ Item {
 
     // Every wheel scroll calls this, so a shut menu costs nothing and never touches focus.
     function close() {
+        root.refreshOwed = false
         if (!root.opened)
             return
         root.opened = false
@@ -415,6 +419,12 @@ Item {
     // Fresh capabilities use the normal inventory; selection stays on its action and placement uses the existing clamp.
     function refreshProviderRows() {
         if (!root.opened || root.forRail || root.forHeader || root.forLocked) return
+        // Replacing a pressed delegate destroys its grab before release can activate it.
+        if (MenuRefresh.anyPressed(menuRows, subRows)) {
+            root.refreshOwed = true
+            return
+        }
+        root.refreshOwed = false
         var next = root.buildEntries()
         // An answer that changed nothing drawn leaves every row standing: no model reset, no cursor move.
         if (MenuRefresh.unchanged(root.entries, next)) return
@@ -522,6 +532,7 @@ Item {
                     required property int index
                     width: rows.width
                     entry: row.modelData
+                    onPressedChanged: MenuRefresh.pressChanged(root, row.pressed)
                     current: !root.submenuOpen && root.cursor === row.index
                     lastPointerGlobal: root.pointerGlobal
                     onPointerSeen: function (at) { root.pointerGlobal = at }
@@ -607,6 +618,7 @@ Item {
                                    : Menu.submenuGlyph(root.loneFlyoutAction.length > 0
                                        ? root.loneFlyoutAction : root.entries[root.openSubmenuRow].action) })
                     current: root.submenuCursor === subRow.index
+                    onPressedChanged: MenuRefresh.pressChanged(root, subRow.pressed)
                     // A flyout opened by key can land under the resting pointer too, so it reads the same point.
                     lastPointerGlobal: root.pointerGlobal
                     onPointerSeen: function (at) { root.pointerGlobal = at }

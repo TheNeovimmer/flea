@@ -43,6 +43,12 @@ function viewRow(pane) {
 function startList(pane, anchor) {
     if (!anchor || pane.path !== anchor.path)
         return null
+    if (pane.recentMode && pane.recentMode.length > 0) {
+        // Recent may deliver cached history synchronously, so its run must already see the anchor.
+        pane.wire.anchor = anchor
+        pane.refresh("")
+        return anchor
+    }
     pane.openWithoutHistory(anchor.path, { keptQuery: pane.filterQuery, wantChanged: anchor.wantChanged === true })
     if (anchor.wantChanged) {
         pane.reloadFrom = anchor.reloadFrom
@@ -58,7 +64,8 @@ function fillPaths(pane, anchor, list) {
         return anchor
     var need = anchor.needPaths
     for (var i = 0; i < need.length && i < list.length; i++) {
-        var nm = holdLeaf(String(list[i] || ""))
+        var path = String(list[i] || "")
+        var nm = pane.recentMode && pane.recentMode.length > 0 ? path.substring(1) : holdLeaf(path)
         for (var m = 0; m < anchor.marks.length; m++) {
             if (anchor.marks[m].index === need[i])
                 anchor.marks[m].name = nm

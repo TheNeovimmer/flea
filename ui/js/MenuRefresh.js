@@ -32,6 +32,25 @@ function unchanged(previous, next) {
     return JSON.stringify(previous) === JSON.stringify(next)
 }
 
+// Release or flyout close schedules the rebuild after tapped dispatch, so the original handler can finish choosing.
+function pressChanged(menu, pressed) {
+    if (!pressed && menu.refreshOwed)
+        Qt.callLater(function() { if (menu.refreshOwed) menu.refreshProviderRows() })
+}
+
+// Only live delegates can hold a refresh; a destroyed pressed row leaves no state behind.
+function anyPressed(main, flyout) {
+    var repeaters = [main, flyout]
+    for (var group = 0; group < repeaters.length; group++) {
+        var rows = repeaters[group]
+        for (var i = 0; i < rows.count; i++) {
+            var row = rows.itemAt(i)
+            if (row && row.pressed) return true
+        }
+    }
+    return false
+}
+
 // Preserve action and peer identity when refreshed capabilities change the inventory beneath the keyboard cursor.
 function refreshedCursor(previous, next, cursor, submenuRow, submenuCursor) {
     var action = previous[cursor] ? previous[cursor].action : ""

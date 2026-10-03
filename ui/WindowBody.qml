@@ -410,14 +410,14 @@ Rectangle {
         source: "PermissionsDialog.qml"
         readonly property bool opened: item !== null && item.opened
         property var owner: null
-        function open(path, holder) { owner = holder; active = true; item.open(path, holder) }
-        function openMany(paths, holder) { owner = holder; active = true; item.openMany(paths, holder) }
+        function open(path, holder) { owner = holder; active = true; item.open(path, holder.listArea) }
+        function openMany(paths, holder) { owner = holder; active = true; item.openMany(paths, holder.listArea) }
     }
     Connections {
         target: permissionsDialog.item
         function onRequested(message) { permissionsDialog.owner.backend.send(message) }
-        function onChanged(note) { permissionsDialog.owner.refresh(); bar.say(note && note.length > 0 ? note : "Permissions changed.", false) }
-        function onRefreshNeeded() { permissionsDialog.owner.refresh() }
+        function onChanged(note) { permissionsDialog.owner.refresh("", true); bar.say(note && note.length > 0 ? note : "Permissions changed.", false) }
+        function onRefreshNeeded() { permissionsDialog.owner.refresh("", true) }
     }
     Connections {
         target: permissionsDialog.owner ? permissionsDialog.owner.backend : null

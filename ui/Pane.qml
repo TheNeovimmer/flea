@@ -395,11 +395,11 @@ FocusScope {
 
     function applyPendingSelect() { Nav.applyPendingSelect(root); Nav.applyPendingBackground(root) }
     function openBackgroundMenu(at) { menu.openBackground(at) }
-    function refresh(selectPath) {
+    function refresh(selectPath, keepSelection) {
         // Recent re-reads the history rather than re-listing its base, which is the root: see
         // ui/js/RecentMode.js refresh, and Nav.refresh for every other listing.
-        if (root.recentMode.length > 0) RecentMode.refresh(root, selectPath)
-        else Nav.refresh(root, selectPath)
+        if (root.recentMode.length > 0 && keepSelection !== true) RecentMode.refresh(root, selectPath)
+        else Nav.refresh(root, selectPath, keepSelection)
     }
 
     function open(newPath) {

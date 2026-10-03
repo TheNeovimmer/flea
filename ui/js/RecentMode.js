@@ -58,6 +58,10 @@ function run(pane, paths, visits) {
     }
     pane.appliedListingPreferences = pane.listingPreferences
     pane.backend.listPaths(pane.recentPaths, pane.windowSize)
+    // A deep anchored refresh asks its window only after the history's listpaths request.
+    var anchor = pane.wire ? pane.wire.anchor : null
+    if (anchor && anchor.path === pane.path && anchor.start > 0)
+        pane.backend.window(anchor.start, pane.windowSize)
     pane.backend.sortBy = "mtime"
     pane.backend.sortDesc = true
 }
