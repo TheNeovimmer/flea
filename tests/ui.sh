@@ -7713,22 +7713,6 @@ case_network() {
             || fail "network: $1 fixture was no longer waiting at its release barrier"
     }
 
-    # The kernel network mounts Flea lists from mountinfo: ui/js/NetFs.js:5-15 types, ui/js/Cloud.js:62 and :76-86 path rule (HOME is the empty fixture, so no home exemption). Sample: "31 1 0:45 / /mnt/nas rw - nfs nas:/share rw" prints "/mnt/nas nfs".
-    network_kernel_mounts() {
-        awk '{ for (i = 1; i <= NF && $i != "-"; i++); t = tolower($(i + 1)); m = $5
-            if (t ~ /^(nfs|nfs4|cifs|smb3|smbfs|9p|afs|ceph|davfs|fuse\.(sshfs|rclone|s3fs|gcsfuse|curlftpfs|juicefs|glusterfs|ceph-fuse|smbnetfs|davfs2|gvfsd-fuse|protondrive))$/ \
-                && m != "/" && m !~ /^\/(proc|sys|dev)(\/|$)/ && m !~ /^\/run\//) print m " " t }' /proc/self/mountinfo
-    }
-    # The listed mounts, at most network_mounts_named of them, and how many were cut.
-    local network_mounts_named=20
-    network_name_kernel_mounts() {
-        local all total
-        all=$(network_kernel_mounts)
-        total=$(printf '%s' "$all" | grep -c . || true)
-        if (( total == 0 )); then printf 'none'; return; fi
-        printf '%s' "$all" | head -n "$network_mounts_named" | tr '\n' ';'
-        (( total <= network_mounts_named )) || printf ' and %d more cut' "$((total - network_mounts_named))"
-    }
     # One ipc read into network_ipc_out; a failed read fails by name, so it is never mistaken for an empty answer.
     local network_ipc_out=""
     network_ipc() {
@@ -7751,7 +7735,7 @@ case_network() {
         local what="$1"
         network_ipc networkEntries
         [[ -z "$network_ipc_out" ]] \
-            || fail "network: $what: the Network group shows [$network_ipc_out], not empty; kernel network mounts Flea lists from /proc/self/mountinfo: $(network_name_kernel_mounts)"
+            || fail "network: $what: the Network group shows [$network_ipc_out], not empty (the gio double isolates the gio mount table only; a kernel network mount Flea lists from /proc/self/mountinfo shows as its own row)"
     }
 
     # This case proves form/bookmark behavior, not a network route; a bounded local gio double keeps
