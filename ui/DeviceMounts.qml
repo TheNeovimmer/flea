@@ -87,13 +87,14 @@ Item {
         onLoadFailed: root.rebuild()
     }
 
-    // The ejecting disk's write counter, re-read every poll; growth restarts the deadline.
-    FileView {
+    // The write counter is built by the first power-off and retained for later chains.
+    Loader {
         id: powerSectorsFile
-        path: "/sys/block/" + Devices.sysBase(root._powerOffDisk) + "/stat"
-        printErrors: false
-        onLoaded: root.notePowerSectors(String(text || ""))
+        active: false
+        source: "PowerSectorsReader.qml"
+        onLoaded: item.owner = root
     }
+    on_PowerOffDiskChanged: if (_powerOffDisk.length > 0) powerSectorsFile.active = true
 
     Timer {
         interval: root.pollMs
@@ -111,9 +112,8 @@ Item {
         root._listingsStarted += 1
         listProcess.running = true
         listTimeout.restart()
-        // A flushing disk answers here, so a leg still writing restarts the deadline below.
         if (root._powerOffDisk.length > 0)
-            powerSectorsFile.reload()
+            powerSectorsFile.item.reload()
     }
 
     Timer {
