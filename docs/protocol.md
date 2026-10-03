@@ -929,6 +929,9 @@ most once a second, at most 5 times.
 Flea's private `application/x-flea-clip` payload is `copy|cut TOKEN PID`, where TOKEN
 is 32 hex characters and PID is the detached owner's process id. The older
 `copy|cut TOKEN` payload remains readable but supplies no owner-exit trigger.
+A Flea older than 0.3.8 rejects the three-field payload and reads the selection
+through the GNOME fallback, so the paths and cut operation still arrive and only
+the token is lost.
 Every watching backend, including windows that did not start the owner, holds a
 pidfd for a reported Flea selection's live owner. A pid already gone at report time
 (pidfd open returns ESRCH or the pidfd is already readable) triggers the same single

@@ -46,8 +46,6 @@ pub struct State {
     pub generation: u64,
     // The clipboard watcher runs once per backend; a second clipWatch is a no-op.
     pub clip_watching: bool,
-    // The watcher and owner-end waiter (src/clip/end.rs) serialize selections and replies here; the reaper only reaps.
-    pub clip_watch: crate::clip::watch::Shared,
 }
 
 impl Tables {
@@ -67,7 +65,6 @@ impl State {
             dirsizes: HashMap::new(), dirsize_queue: Vec::new(), dirsize_worker,
             search: None, search_reported: Instant::now(), generation: FIRST_LISTING - 1,
             clip_watching: false,
-            clip_watch: crate::clip::watch::shared(),
         }
     }
 }

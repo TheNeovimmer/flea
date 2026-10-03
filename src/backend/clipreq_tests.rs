@@ -117,14 +117,28 @@ fn a_hung_compositor_gets_a_refusal_once_it_lets_go() {
 
 #[test]
 fn a_watch_starts_once_and_the_second_is_silent() {
+    use crate::backend::{dirsizeworker::Worker, listing::Listing, state::State};
     // No display, so the thread ends after one honest error line and the channel closes with it.
     let _env = DisplayEnv::set(None);
     let (tx, rx) = channel();
-    let mut watching = false;
-    let state = watch::shared();
-    request_watch(tx.clone(), &mut watching, state.clone());
-    assert!(watching);
-    request_watch(tx, &mut watching, state);
+    let (events, _events) = channel();
+    // Exhaustive construction pins that the backend retains no clipboard report state.
+    let mut state = State {
+        listing: Listing::new(),
+        base: Default::default(),
+        asked: Vec::new(),
+        outstanding: 0,
+        dirsizes: Default::default(),
+        dirsize_queue: Vec::new(),
+        dirsize_worker: Worker::new(events),
+        search: None,
+        search_reported: std::time::Instant::now(),
+        generation: 0,
+        clip_watching: false,
+    };
+    request_watch(tx.clone(), &mut state.clip_watching);
+    assert!(state.clip_watching);
+    request_watch(tx, &mut state.clip_watching);
     let mut lines = 0;
     for m in rx.iter() {
         let line = clip_line(m);

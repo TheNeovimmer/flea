@@ -109,12 +109,12 @@ fn beside(replies: Sender<OpMsg>, work: impl FnOnce() -> String + Send + 'static
 }
 
 // Idempotent: the first starts the watcher's one thread, later ones answer nothing.
-pub fn request_watch(replies: Sender<OpMsg>, watching: &mut bool, state: watch::Shared) {
+pub fn request_watch(replies: Sender<OpMsg>, watching: &mut bool) {
     if *watching {
         return;
     }
     *watching = true;
-    watch::request_watch(replies, state);
+    watch::start(replies);
 }
 
 #[cfg(test)]
