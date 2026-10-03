@@ -34,10 +34,21 @@ function unchanged(previous, next) {
 
 // Release schedules the rebuild after tapped dispatch, so the original handler can finish choosing.
 function pressChanged(menu, pressed) {
-    var held = menu.pressedRows > 0
-    menu.pressedRows = Math.max(0, menu.pressedRows + (pressed ? 1 : -1))
-    if (held && menu.pressedRows === 0)
-        Qt.callLater(menu.refreshProviderRows)
+    if (!pressed && menu.refreshOwed)
+        Qt.callLater(function() { if (menu.refreshOwed) menu.refreshProviderRows() })
+}
+
+// Only live delegates can hold a refresh; a destroyed pressed row leaves no state behind.
+function anyPressed(main, flyout) {
+    var repeaters = [main, flyout]
+    for (var group = 0; group < repeaters.length; group++) {
+        var rows = repeaters[group]
+        for (var i = 0; i < rows.count; i++) {
+            var row = rows.itemAt(i)
+            if (row && row.pressed) return true
+        }
+    }
+    return false
 }
 
 // Preserve action and peer identity when refreshed capabilities change the inventory beneath the keyboard cursor.

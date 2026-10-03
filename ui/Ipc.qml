@@ -36,6 +36,15 @@ QtObject {
             rect: root.fleaWindow.rectOf(item.cardItem), cancel: root.controlState("Cancel", item.cancelItem),
             danger: root.controlState("Delete", item.dangerItem)} : {opened: false}
     }
+    function firstVisibleText(item) {
+        if (!item || !item.visible) return ""
+        if (typeof item.text === "string" && item.text.length > 0) return item.text
+        for (var i = 0; i < item.children.length; i++) {
+            var text = root.firstVisibleText(item.children[i])
+            if (text.length > 0) return text
+        }
+        return ""
+    }
 
     // The wrapper holds the references because an IpcHandler marshals every property it owns.
     property IpcHandler seam: IpcHandler {
@@ -212,12 +221,15 @@ QtObject {
             var probe = root, dialog = probe.permissionsDialog, inputReady = probe.pane.listArea.activeFocus && !probe.pane.listInFlight
             if (!dialog) return JSON.stringify({opened: false, inputReady: inputReady})
             return JSON.stringify({opened: dialog.opened, inputReady: !dialog.opened && !dialog.visible && inputReady, facts: dialog.facts, path: dialog.path, mode: dialog.modeText,
+                title: root.firstVisibleText(dialog.cardItem), paths: dialog.multiPaths,
                 displayedError: dialog.displayedError, displayedSummary: dialog.displayedSummary,
                 bodyRect: root.fleaWindow.rectOf(dialog.bodyItem),
                 editable: dialog.editable, busy: dialog.busy, error: dialog.errorText, rect: root.fleaWindow.rectOf(dialog.cardItem),
                 controls: dialog.controls().map(function(control) {
+                    var box = control.item.children.find(function(child) { return typeof child.value === "string" })
                     return Object.assign(root.controlState(control.name, control.item), {checked: control.checked, bit: control.bit,
-                        enabled: control.enabled === undefined ? control.item.enabled : control.enabled})
+                        value: box ? box.value : undefined,
+                        enabled: dialog.isMulti || control.enabled === undefined ? control.item.enabled : control.enabled})
                 })})
         }
         function trashState(): string {

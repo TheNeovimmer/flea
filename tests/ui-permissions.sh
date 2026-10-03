@@ -421,7 +421,9 @@ permissions_keys() {
 }
 
 permissions_eligibility() {
-    local first second index before
+    local first second index before dismissal note_before other_before quoted_paths
+    local notes_mode=0644 other_mode=0755 notes_applied=740 other_applied=751
+    local mixed_bit=64 uniform_bit=4 batch_count=2 untouched_group_bit=8 untouched_everyone_bit=1
     settings_open_key
     permissions_expect settingsOpen true
     settings_section menus
@@ -452,23 +454,81 @@ permissions_eligibility() {
     key -k Escape >/dev/null
     permissions_wait '(.opened == false)' 'restored menu preference reaches native dialog'
 
+    permissions_guard "$permissions_listing/notes.md"
+    permissions_guard "$permissions_listing/other.txt"
+    chmod "$notes_mode" "$permissions_listing/notes.md" || fail "permissions: first batch fixture mode failed"
+    chmod "$other_mode" "$permissions_listing/other.txt" || fail "permissions: second batch fixture mode failed"
+    note_before=$(stat -c '%d:%i:%u:%g:%a:%s' "$permissions_listing/notes.md")
+    other_before=$(stat -c '%d:%i:%u:%g:%a:%s' "$permissions_listing/other.txt")
+    quoted_paths=$(jq -cn --arg first "$permissions_listing/notes.md" --arg second "$permissions_listing/other.txt" '[$first, $second] | sort')
+    permissions_wait '(.opened == false) and .inputReady' 'listing accepts batch selection'
     first=$(row_index_of notes.md)
     second=$(row_index_of other.txt)
     click_row "$first" left
     permissions_expect selectedIndices "$first"
     permissions_expect selectionCount 1
     click_row "$second" left --mods ctrl
-    permissions_expect selectionCount 2
+    permissions_expect selectionCount "$batch_count"
+    for dismissal in Cancel Escape Apply; do
+        permissions_wait '(.opened == false) and .inputReady' 'listing accepts the next batch menu gesture'
+        if [[ "$dismissal" == Escape ]]; then key m >/dev/null
+        else click_row "$first" right; fi
+        permissions_expect contextMenuVisible true
+        ipc contextMenuModel | jq -e 'any(.[]; .action == "permissions" and .disabled != true and .errored != true)' >/dev/null \
+            || fail "permissions: regular-file selection has no enabled Permissions row"
+        index=$(menu_row_index Permissions) || fail "permissions: no batch Permissions row"
+        if [[ "$dismissal" == Escape ]]; then menu_seek Permissions; key -k Return >/dev/null
+        else permissions_point "$(ipc contextMenuRowCentre "$index")"; fi
+        permissions_wait ".opened and (.busy == false) and .editable and .title == \"Permissions for $batch_count items\" and (.paths | sort) == $quoted_paths" 'batch card reviews both files with the exact title'
+        permissions_wait 'any(.controls[]; .name == "Cancel" and .focused and .enabled)' 'batch opens with keyboard on Cancel'
+        permissions_wait '[.controls[] | select(.bit != null) | .value] == ["on","on","some","on","off","some","on","off","some"]' 'batch grid shows all uniform and mixed boxes for 0644 and 0755'
+        permissions_wait '.displayedSummary | endswith("Mixed boxes keep each file\u0027s own bit unless you change them.")' 'batch displays the exact mixed-box note'
+        permissions_wait 'all(.controls[] | select(.name == "Octal"); .visible == false) and any(.controls[]; .name == "Apply" and .visible and .enabled)' 'batch shows the grid without Octal and offers Apply'
+        if [[ "$dismissal" == Cancel ]]; then shot "permissions-$permissions_group-multiselection"; fi
+        permissions_control "Owner execute"
+        permissions_wait "any(.controls[]; .bit == $mixed_bit and .value == \"on\" and .focused)" 'mixed owner-execute box becomes an explicit set'
+        permissions_control "Everyone read"
+        permissions_wait "any(.controls[]; .bit == $uniform_bit and .value == \"off\" and .focused)" 'uniform everyone-read box becomes an explicit clear'
+        permissions_wait "[.controls[] | select(.value == \"some\") | .bit] == [$untouched_group_bit,$untouched_everyone_bit]" 'untouched group and everyone execute boxes remain mixed'
+        case "$dismissal" in
+            Cancel) permissions_control Cancel ;;
+            Escape) key -k Escape >/dev/null ;;
+            Apply) permissions_control Apply ;;
+        esac
+        permissions_wait '(.opened == false) and .inputReady' "$dismissal returns listing input after the batch dialog"
+        permissions_expect focusView list
+        if [[ "$dismissal" == Apply ]]; then
+            [[ "$(stat -c '%a' "$permissions_listing/notes.md")" == "$notes_applied" \
+                && "$(stat -c '%a' "$permissions_listing/other.txt")" == "$other_applied" ]] \
+                || fail "permissions: batch Apply did not preserve each untouched mixed bit"
+            permissions_checks=$((permissions_checks + 1))
+            printf 'PERMISSIONS_PASS batch filesystem modes notes=%s other=%s\n' "$notes_applied" "$other_applied"
+        else
+            [[ "$(stat -c '%d:%i:%u:%g:%a:%s' "$permissions_listing/notes.md")" == "$note_before" \
+                && "$(stat -c '%d:%i:%u:%g:%a:%s' "$permissions_listing/other.txt")" == "$other_before" ]] \
+                || fail "permissions: batch $dismissal changed a file"
+            permissions_checks=$((permissions_checks + 1))
+            printf 'PERMISSIONS_PASS batch %s preserves both files\n' "$dismissal"
+        fi
+        permissions_expect selectionCount "$batch_count"
+    done
+
+    click_row "$first" left
+    permissions_expect selectionCount 1
+    click_row "$(row_index_of link)" left --mods ctrl
+    permissions_expect selectionCount "$batch_count"
     click_row "$first" right
     permissions_expect contextMenuVisible true
     ipc contextMenuModel | jq -e 'any(.[]; .action == "permissions" and .disabled and .errored and .hint == null)' >/dev/null \
-        || fail "permissions: multi-selection does not read red with no sentence"
-    shot "permissions-$permissions_group-multiselection"
-    index=$(menu_row_index Permissions)
+        || fail "permissions: file-plus-symlink selection does not read red with no sentence"
+    index=$(menu_row_index Permissions) || fail "permissions: no refused batch Permissions row"
     permissions_point "$(ipc contextMenuRowCentre "$index")"
-    permissions_wait '(.opened == false)' 'multi-selection pointer activation cannot open Permissions'
-    permissions_expect selectionCount 2
+    permissions_wait '(.opened == false)' 'file-plus-symlink pointer activation cannot open Permissions'
+    permissions_expect selectionCount "$batch_count"
     key -k Escape >/dev/null
+    permissions_wait '(.opened == false) and .inputReady' 'listing accepts the single-symlink gesture'
+    click_row "$first" left
+    permissions_expect selectionCount 1
     before=$(stat -c '%d:%i:%u:%g:%a:%s' "$permissions_listing/notes.md")
     click_row "$(row_index_of link)" right
     permissions_expect contextMenuVisible true

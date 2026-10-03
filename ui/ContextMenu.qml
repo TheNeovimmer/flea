@@ -25,7 +25,7 @@ Item {
     property var localSend: ({ installed: false, peers: [], checking: false })
     property string taildropReason: ""
     property bool providersRefreshing: false
-    property int pressedRows: 0
+    property bool refreshOwed: false
     property var lastProviderAnswer: null
     // The archive formats this box actually probed, and whether a converter is installed at all.
     property var archiveFormats: []
@@ -112,14 +112,19 @@ Item {
     readonly property bool submenuOpen: root.openSubmenuRow >= 0 || root.loneFlyoutAction.length > 0
     // The glyph every open flyout row draws, read back so a test can name it without OCR.
     function submenuGlyphs() {
-        if (!root.submenuOpen) return ""
-        var action = root.loneFlyoutAction || root.entries[root.openSubmenuRow].action
-        var mark = Menu.submenuGlyph(action)
-        // Report each row's actual icon or glyph, including Open with's application icons.
-        return root.submenuEntries.map(function(row) {
-            return row.separator === true ? "" : row.icon ? "icon"
-                   : row.glyph !== undefined ? row.glyph : mark
-        }).join("|")
+        if (!root.submenuOpen)
+            return ""
+        var mark = Menu.submenuGlyph(root.loneFlyoutAction.length > 0
+            ? root.loneFlyoutAction : root.entries[root.openSubmenuRow].action)
+        var out = []
+        for (var i = 0; i < root.submenuEntries.length; i++) {
+            // What the row draws, not what the flyout defaults to: an Open with row carries its own
+            // glyph or an application icon, and reporting the default made a check measure nothing.
+            var row = root.submenuEntries[i]
+            out.push(row.separator === true ? "" : row.icon ? "icon"
+                   : row.glyph !== undefined ? row.glyph : mark)
+        }
+        return out.join("|")
     }
 
     // The open flyout draws the row's entries, or the lone action's leaves.
@@ -290,6 +295,7 @@ Item {
     }
 
     function place(scenePoint) {
+        root.refreshOwed = false
         root.preparing = true
         if (!root.opened)
             root.focusHolder = root.Window.window ? root.Window.window.activeFocusItem : null
@@ -321,6 +327,7 @@ Item {
 
     // Every wheel scroll calls this, so a shut menu costs nothing and never touches focus.
     function close() {
+        root.refreshOwed = false
         if (!root.opened)
             return
         root.opened = false
@@ -407,7 +414,11 @@ Item {
     function refreshProviderRows() {
         if (!root.opened || root.forRail || root.forHeader || root.forLocked) return
         // Replacing a pressed delegate destroys its grab before release can activate it.
-        if (root.pressedRows > 0) return
+        if (MenuRefresh.anyPressed(menuRows, subRows)) {
+            root.refreshOwed = true
+            return
+        }
+        root.refreshOwed = false
         var next = root.buildEntries()
         // An answer that changed nothing drawn leaves every row standing: no model reset, no cursor move.
         if (MenuRefresh.unchanged(root.entries, next)) return

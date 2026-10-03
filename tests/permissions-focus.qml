@@ -20,7 +20,7 @@ ShellRoot {
         {dismiss: "Apply", input: "Down"}, {dismiss: "Apply", input: "Right"}
     ]
     property int caseIndex: 0
-    property string stage: "ready"
+    property string stage: "guardReady"
     property int checks: 0
     property int failures: 0
     property int oldCursor: 0
@@ -30,6 +30,10 @@ ShellRoot {
     property var observedRow: null
     property var observedTap: null
     property int rowActivations: 0
+    property point heldPoint: Qt.point(0, 0)
+    property var heldEntries: null
+    readonly property string reopenedApp: "Reopened provider"
+    readonly property string flyoutApp: "Held flyout provider"
     readonly property var current: cases[caseIndex]
 
     function label() { return current.dismiss + "/" + current.input }
@@ -53,6 +57,26 @@ ShellRoot {
         throw new Error("Permissions has no " + name)
     }
     function press(key) { driver.keyClick(key, Qt.NoModifier, -1) }
+    function applications(label) {
+        pane.backend.menuResult({op: "applications", id: pane.menuActions.requestId,
+            applications: [{id: "permfocus.desktop", label: label, icon: "", default: true}]})
+    }
+    function hasApplication(menu, label) {
+        return menu.entries.some(function(entry) {
+            return entry.action === "openWith" && entry.submenu.some(function(app) { return app.label === label })
+        })
+    }
+    function settledRow(menu, action) {
+        if (menu.pointerSettling || menu.providersRefreshing || !menu.openWithLoaded || menu.localSend.checking) return null
+        var at = menu.entries.findIndex(function(entry) { return entry.action === action })
+        var expectedY = 0
+        for (var i = 0; i <= at; i++) {
+            var row = menu.itemFor(i)
+            if (!row || row.y !== expectedY || row.width <= 0 || row.height <= 0) return null
+            expectedY += row.height
+        }
+        return at >= 0 ? menu.itemFor(at) : null
+    }
     function trace(event) {
         var menu = pane.contextMenu()
         var at = menu.entries.findIndex(function(entry) { return entry.action === "permissions" })
@@ -102,7 +126,74 @@ ShellRoot {
             finish()
             return
         }
-        if (stage === "ready") {
+        if (stage === "guardReady") {
+            if (pane.listInFlight || pane.path !== fixture || pane.total !== fixtureRows || !pane.visibleItemFor(1)) return
+            pane.setCursor(1)
+            pane.listArea.forceActiveFocus()
+            driver.keyClickChar("m", Qt.NoModifier, -1)
+            next("guardMenu")
+        } else if (stage === "guardMenu") {
+            var closingMenu = pane.contextMenu()
+            if (!settledRow(closingMenu, "permissions")) return
+            applications("Before close")
+            closingMenu.openSubmenu(closingMenu.entries.findIndex(function(entry) { return entry.action === "openWith" }))
+            next("guardClose")
+        } else if (stage === "guardClose") {
+            var closingMenu = pane.contextMenu()
+            var closingRow = closingMenu.submenuItemFor(0)
+            if (!closingRow || closingRow.width <= 0 || closingRow.height <= 0 || closingRow.y !== 0) return
+            heldPoint = body.mapFromItem(closingRow, closingRow.width / 2, closingRow.height / 2)
+            driver.mousePress(body, heldPoint.x, heldPoint.y, Qt.LeftButton, Qt.NoModifier, pointerEventMs)
+            check("closing menu row is pressed", closingRow.pressed, true)
+            applications("Reply before close")
+            press(Qt.Key_Escape)
+            press(Qt.Key_Escape)
+            check("Escape closes menu before release", closingMenu.opened, false)
+            driver.keyClickChar("m", Qt.NoModifier, -1)
+            check("new menu opens before old release", closingMenu.opened, true)
+            next("guardReopened")
+        } else if (stage === "guardReopened") {
+            var reopenedMenu = pane.contextMenu()
+            if (!settledRow(reopenedMenu, "permissions")) return
+            applications(reopenedApp)
+            check("new menu accepts provider reply after held row destruction", hasApplication(reopenedMenu, reopenedApp), true)
+            driver.mouseRelease(body, heldPoint.x, heldPoint.y, Qt.LeftButton, Qt.NoModifier, pointerEventMs)
+            reopenedMenu.close()
+            driver.keyClickChar("m", Qt.NoModifier, -1)
+            next("flyoutMenu")
+        } else if (stage === "flyoutMenu") {
+            var flyoutMenu = pane.contextMenu()
+            if (!settledRow(flyoutMenu, "permissions")) return
+            applications(reopenedApp)
+            var parentAt = flyoutMenu.entries.findIndex(function(entry) { return entry.action === "openWith" })
+            flyoutMenu.cursor = parentAt
+            flyoutMenu.openSubmenu(parentAt)
+            next("flyoutPress")
+        } else if (stage === "flyoutPress") {
+            var heldMenu = pane.contextMenu()
+            var flyoutRow = heldMenu.submenuItemFor(0)
+            if (!flyoutRow || flyoutRow.width <= 0 || flyoutRow.height <= 0 || flyoutRow.y !== 0) return
+            heldPoint = body.mapFromItem(flyoutRow, flyoutRow.width / 2, flyoutRow.height / 2)
+            driver.mousePress(body, heldPoint.x, heldPoint.y, Qt.LeftButton, Qt.NoModifier, pointerEventMs)
+            check("flyout row receives press", flyoutRow.pressed, true)
+            heldEntries = heldMenu.entries
+            applications(flyoutApp)
+            check("provider reply keeps inventory while flyout held", heldMenu.entries === heldEntries, true)
+            check("provider reply keeps pressed flyout delegate", heldMenu.submenuItemFor(0) === flyoutRow, true)
+            next("flyoutHeld")
+        } else if (stage === "flyoutHeld") {
+            var releasingMenu = pane.contextMenu()
+            check("deferred refresh still waits for flyout release", releasingMenu.entries === heldEntries, true)
+            // Release outside the row leaves the menu open so the owed refresh can be observed.
+            driver.mouseRelease(body, 0, 0, Qt.LeftButton, Qt.NoModifier, pointerEventMs)
+            next("flyoutReleased")
+        } else if (stage === "flyoutReleased") {
+            var refreshedMenu = pane.contextMenu()
+            if (!hasApplication(refreshedMenu, flyoutApp)) return
+            check("flyout release runs owed provider refresh", hasApplication(refreshedMenu, flyoutApp), true)
+            refreshedMenu.close()
+            next("ready")
+        } else if (stage === "ready") {
             if (pane.listInFlight || pane.path !== fixture || pane.total !== fixtureRows || !pane.visibleItemFor(1)) return
             pane.clearSelection()
             observedRow = null

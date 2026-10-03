@@ -84,10 +84,10 @@ tests/xwsettings-tabs.qml 403
 ui/Backend.qml 466
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 480
-ui/ContextMenu.qml 682
+ui/ContextMenu.qml 693
 ui/ConvertDialog.qml 433
 ui/GridArea.qml 412
-ui/Ipc.qml 842
+ui/Ipc.qml 854
 ui/KeymapSheet.qml 533
 ui/List.qml 437
 tests/touchpad-edge.qml 438
