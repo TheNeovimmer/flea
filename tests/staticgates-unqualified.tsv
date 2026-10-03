@@ -98,7 +98,6 @@ ui/ConvertDialog.qml	264	root	Declared QML id; component context access is valid
 ui/DefaultClaim.qml	11	Quickshell	Quickshell import exports this runtime singleton or enum.
 ui/DefaultClaim.qml	95	root	Declared QML id; component context access is valid at runtime.
 ui/DefaultClaim.qml	112	root	Declared QML id; component context access is valid at runtime.
-ui/PowerSectorsReader.qml	9	text	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
 ui/DeviceMounts.qml	392	text	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
 ui/DropboxMark.qml	49	anchors	Inherited QtQuick Item property in the enclosing item scope.
 ui/DropboxMark.qml	49	parent	Inherited QtQuick Item property in the enclosing item scope.
@@ -698,6 +697,7 @@ ui/PickerWindow.qml	389	Quickshell	Quickshell import exports this runtime single
 ui/PickerWindow.qml	689	win	Declared QML id; component context access is valid at runtime.
 ui/PickerWindow.qml	690	places	Declared QML id; component context access is valid at runtime.
 ui/PickerWindow.qml	691	places	Declared QML id; component context access is valid at runtime.
+ui/PowerSectorsReader.qml	9	text	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
 ui/Preview.qml	433	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/PreviewArchive.qml	29	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewArchive.qml	30	root	Declared QML id; component context access is valid at runtime.
