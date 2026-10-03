@@ -729,8 +729,9 @@ mod tests {
         assert!(later.exists());
         assert!(!d.join("info/item.trashinfo").exists());
     }
+    // corner: runs as a plain user, where a directory without its write bit refuses the claim.
     #[test]
-    fn a_locked_directory_fails_with_the_file_named_and_the_reason_spelled_by_io_message() {
+    fn a_locked_directory_fails_with_the_reason_spelled_by_io_message() {
         use std::os::unix::fs::PermissionsExt;
         let d = TestDir::new("trash-delete-locked");
         d.dir("files");
@@ -746,7 +747,7 @@ mod tests {
         reviewed.snapshot(&mut Manifest::new(d.path()).unwrap(), d.path(), &Cancellation::default()).unwrap();
         let refused = reviewed.delete(d.path());
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        // The listing's failure line is "<name> failed: <this>", so the reason is the sentence io_message gives EACCES.
+        // ui/TrashView.qml puts "<name> failed: " before this, so the name is the view's and the reason is io_message's for EACCES.
         assert_eq!(refused, Err("Could not claim Trash item: permission denied".to_string()));
         assert_eq!(std::fs::read_to_string(path.join("child.txt")).unwrap(), "survive");
     }

@@ -25,13 +25,12 @@ ShellRoot {
     readonly property int noDelay: 0
     // Quiet ticks (the press scale unchanged) before a state is read; a count of frames, never time.
     readonly property int settleTicks: 4
-    // A run may take half of what the .sh's outer timeout holds, in elapsed time from here (not ticks, whose length varies under load).
-    // So its "did not finish" branch fires first whenever qs starts in under that half; a slower start meets the outer timeout instead.
     readonly property int tickMs: 16
     readonly property int outerTimeoutS: Number(Quickshell.env("BUTTONSYS_TIMEOUT_S")) || 60
     readonly property int capShare: 2
     readonly property int msPerSecond: 1000
     readonly property double startedAt: Date.now()
+    // Elapsed time, not ticks: half the .sh's outer timeout, so "did not finish" fires first whenever qs starts inside that half.
     readonly property int capMs: shell.outerTimeoutS * shell.msPerSecond / shell.capShare
     readonly property int chainCap: 200
     readonly property int trashRows: 3

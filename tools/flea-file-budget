@@ -46,7 +46,7 @@ src/backend/collide_replace_tests.rs 487
 src/backend/proto.rs 378
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 779
-src/backend/trashdelete.rs 937
+src/backend/trashdelete.rs 938
 src/gui.rs 501
 src/tui/actions.rs 1067
 src/tui/input.rs 449
