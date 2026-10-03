@@ -34,6 +34,14 @@ Item {
     // held, dropAt the insertion point (0..tabCount) its pointer names.
     property int dragFrom: -1
     property int dropAt: -1
+    readonly property int dragTo: root.dropAt > root.dragFrom ? root.dropAt - 1 : root.dropAt
+    readonly property var layoutOrder: {
+        var order = []
+        for (var i = 0; i < root.tabCount; i++) order.push(i)
+        if (root.dragFrom >= 0 && root.dropAt >= 0)
+            TabMove.reorder(order, root.dragFrom, root.dragTo, root.currentIndex)
+        return order
+    }
 
     function dragStarted(index) {
         root.dragFrom = index
@@ -75,13 +83,13 @@ Item {
         opacity: 0.12
     }
 
-    Row {
+    Item {
         id: strip
         anchors.left: parent.left
         anchors.leftMargin: Theme.spacing.rowPaddingX
         anchors.top: parent.top
         anchors.bottom: parent.bottom
-        spacing: 0
+        width: root.tabCount * root.tabWidth + Theme.hitMin
 
         Repeater {
             id: repeater
@@ -89,6 +97,8 @@ Item {
             delegate: Item {
                 id: tab
                 required property int index
+                readonly property int slot: root.layoutOrder.indexOf(tab.index)
+                x: tab.slot * root.tabWidth
                 width: root.tabWidth
                 height: strip.height
                 // The tab under the pointer draws ghosted while its drag runs.
@@ -159,7 +169,7 @@ Item {
                     height: parent.height * 0.45
                     color: Theme.color.foreground
                     opacity: 0.12
-                    visible: tab.index < root.tabCount - 1 && !tab.current
+                    visible: tab.slot < root.tabCount - 1 && !tab.current
                 }
 
                 Text {
@@ -218,24 +228,34 @@ Item {
                 DragHandler {
                     acceptedButtons: Qt.LeftButton
                     target: null
-                    onActiveChanged: {
-                        if (active)
-                            root.dragStarted(tab.index)
-                        else
-                            root.dragFinished()
+                    function updateDrop() {
+                        // Scene coordinates stay fixed while the preview moves the delegate beneath the pointer.
+                        var pos = strip.mapFromItem(null, centroid.scenePosition.x, centroid.scenePosition.y)
+                        root.dragMoved(pos.x)
                     }
-                    onCentroidChanged: {
+                    onActiveChanged: {
+                        // The threshold move precedes activation, so its centroid must be sampled here.
                         if (active) {
-                            var pos = tab.mapToItem(strip, centroid.position.x, centroid.position.y)
-                            root.dragMoved(pos.x)
+                            root.dragStarted(tab.index)
+                            updateDrop()
                         }
                     }
+                    onCentroidChanged: if (active) updateDrop()
+                    onGrabChanged: function (transition, point) {
+                        if (transition !== PointerDevice.UngrabExclusive) return
+                        // Qt deactivates before updating the centroid on release; the event point holds the release position.
+                        var pos = strip.mapFromItem(null, point.scenePosition.x, point.scenePosition.y)
+                        root.dragMoved(pos.x)
+                        root.dragFinished()
+                    }
+                    onCanceled: { root.dragFrom = -1; root.dropAt = -1 }
                 }
             }
         }
 
         Item {
             id: addButton
+            x: root.tabCount * root.tabWidth
             width: Theme.hitMin
             height: strip.height
             Accessible.role: Accessible.Button
@@ -258,12 +278,11 @@ Item {
         }
     }
 
-    // Tabs040 callout 1: the accent bar where the held tab would land, flush
-    // through the strip's height the way the current tab's own edge is.
+    // Tabs040 callout 1: the accent bar borders the ghost's leading edge through the strip's height.
     Rectangle {
         visible: root.dragFrom >= 0 && root.dropAt >= 0
-        x: Theme.spacing.rowPaddingX + root.dropAt * root.tabWidth - 1
-        width: 2
+        x: strip.x + root.dragTo * root.tabWidth - Theme.spacing.hairline
+        width: 2 * Theme.spacing.hairline
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         color: Theme.color.accent

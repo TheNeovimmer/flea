@@ -101,11 +101,10 @@ function currentIndex(pane) {
     return pane.tabs ? pane.tabs.index : 0
 }
 
-// Issue 93, nixfred: says whether it dropped a walk's results, which are not the directory's rows.
-// One shared step for the search; see ui/js/Search.js leaveWalk.
-// A Recent listing is dropped the same way; see ui/js/RecentMode.js dropOverlay.
+// Search and Recent replace the listing; Trash only covers it, so closing Trash alone needs no re-list.
 function dropOverlay(pane) {
     var dropped = pane.searchMode === "results" || RecentMode.dropOverlay(pane)
+    if (pane.trash) pane.trash.close()
     Search.leaveWalk(pane)
     Filter.close(pane)
     return dropped

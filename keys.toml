@@ -1049,7 +1049,7 @@ keys = "ctrl-n"
 action = "windowNew"
 label = "new window"
 frontend = "gui"
-context = "listing"
+context = "listing,rail"
 
 [[preset]]
 name = "vim"
@@ -1059,7 +1059,7 @@ keys = "ctrl-n"
 action = "windowNew"
 label = "new window"
 frontend = "gui"
-context = "listing"
+context = "listing,rail"
 
 [[preset]]
 name = "windows"
@@ -1069,7 +1069,7 @@ keys = "ctrl-n"
 action = "windowNew"
 label = "new window"
 frontend = "gui"
-context = "listing"
+context = "listing,rail"
 
 [[preset]]
 name = "mac"
@@ -1079,7 +1079,7 @@ keys = "ctrl-t"
 action = "tabNew"
 label = "new tab"
 frontend = "all"
-context = "listing"
+context = "listing,rail"
 
 [[preset]]
 name = "windows"
@@ -1089,7 +1089,7 @@ keys = "ctrl-t"
 action = "tabNew"
 label = "new tab"
 frontend = "all"
-context = "listing"
+context = "listing,rail"
 
 # Every preset, #182: Shift+Delete is permanent delete in Finder, Explorer, Nautilus and Dolphin alike,
 # and it still goes through the same confirmation the menu row does.
@@ -1131,7 +1131,7 @@ keys = "ctrl-w"
 action = "tabClose"
 label = "close tab"
 frontend = "all"
-context = "listing"
+context = "listing,rail"
 
 [[preset]]
 name = "all"
@@ -1141,7 +1141,7 @@ keys = "ctrl-pagedown"
 action = "tabNext"
 label = "next tab"
 frontend = "all"
-context = "listing"
+context = "listing,rail"
 
 [[preset]]
 name = "all"
@@ -1151,7 +1151,7 @@ keys = "ctrl-pageup"
 action = "tabPrevious"
 label = "prev tab"
 frontend = "all"
-context = "listing"
+context = "listing,rail"
 
 [[preset]]
 name = "all"
@@ -1434,7 +1434,7 @@ keys = "super-n"
 action = "windowNew"
 label = "new window"
 frontend = "gui"
-context = "listing"
+context = "listing,rail"
 
 [[preset]]
 name = "mac"

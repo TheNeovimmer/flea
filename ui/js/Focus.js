@@ -400,7 +400,7 @@ function handleKey(event, root, sidebar) {
         return true
     }
     // These answer from the rail as well as the list, so they are taken before the rail's own keys.
-    if (action === "sidebar" || action === "openTerminal" || action === "settings" || action === "copydirpath") {
+    if (action === "windowNew" || action === "reload" || action === "sidebar" || action === "openTerminal" || action === "settings" || action === "copydirpath") {
         root.act(action)
         return true
     }
