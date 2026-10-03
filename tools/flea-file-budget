@@ -20,7 +20,7 @@ src/backend/jump_tests.rs 406
 src/backend/renamecompat.rs 762
 src/backend/gvfslist.rs 549
 src/backend/imagesize.rs 473
-src/backend/iomount.rs 549
+src/backend/iomount.rs 572
 src/backend/localsend.rs 405
 src/backend/menu_actions.rs 560
 src/backend/menu_registry.rs 563
@@ -32,7 +32,7 @@ src/backend/opsdispatch.rs 2204
 src/backend/opsreq.rs 551
 src/backend/opsreq/tests.rs 471
 src/backend/permissions.rs 719
-src/backend/run.rs 662
+src/backend/run.rs 715
 src/backend/ops.rs 427
 src/backend/thumbs.rs 460
 src/backend/dirsizeworker.rs 574
