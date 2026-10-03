@@ -287,11 +287,11 @@ sleep() { :; }
 xwtab_trace_lines() { echo 'TABDRAG drag-finished pid=101 action=0'; }
 ''' + 'xwtab_wait_cancel')
     check('cancel receipt while held satisfies Escape wait', result.returncode == 0, result.stdout + result.stderr)
-    listing_leg = UI[UI.index('    # B\'s window DropArea is off'):UI.index('    # A foreign receiver takes uri-list')]
+    listing_leg = UI[UI.index('    # A drop on B\'s listing is refused'):UI.index('    # A drop onto a foreign receiver is refused')]
     check('listing refusal requires cursor and refusal proof', '"$apid" "$bpid" refused' in listing_leg)
     move_leg = UI[UI.index('    # B has one tab'):UI.index('    # B\'s new tab torn off')]
     check('one-tab move requires target enter', '"$apid" "$bpid" require' in move_leg)
-    check('foreign refusal requires target delivery', '"$apid" "$recv_pid" require' in UI[UI.index('# A foreign receiver takes uri-list'):UI.index("printf 'XWTAB foreign-refused")])
+    check('foreign refusal requires target delivery', '"$apid" "$recv_pid" require' in UI[UI.index('# A drop onto a foreign receiver is refused'):UI.index("printf 'XWTAB foreign-refused")])
 
     refusal_helpers = UI[UI.index('xwtab_logs='):UI.index('# The addr and rect')]
     refusal_helpers += '\n' + function(UI, 'xwtab_rect_of')
