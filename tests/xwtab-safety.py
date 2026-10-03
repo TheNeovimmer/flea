@@ -57,6 +57,14 @@ BARE_TIMER_INTERVAL = re.compile(r'interval:\s*\d')
 
 
 # Sample input: "# one\n# two\ncode\n# three" has the comment runs [(1, 2)], and a lone comment is no run.
+# Sample input: `    if [[ "$mode" == catcher ]]; then` ... `    else\n        xwtab_wait_enter "$bpid" "$mode"\n    fi`, one ladder.
+def routes_modes(body):
+    return re.search(r'\n    if \[\[ "\$mode" == catcher \]\]; then\n        xwtab_wait_catcher\n'
+                     r'    elif \[\[ "\$mode" == own \]\]; then\n        xwtab_wait_own_enter [^\n]*\n'
+                     r'    elif \[\[ "\$mode" == refused \]\]; then\n        xwtab_wait_refused "\$bpid" held\n'
+                     r'    else\n        xwtab_wait_enter "\$bpid" "\$mode"\n    fi\n', body) is not None
+
+
 def comment_runs(text):
     runs = []
     start = length = 0
@@ -506,6 +514,13 @@ xwtab_wait_enter 202 {mode}
     callers = [line.split()[-1] for line in UI.splitlines() if line.startswith('    xwtab_drag_to_window "')]
     check('every drag gesture passes a known mode', callers and set(callers) <= {'require', 'catcher', 'own', 'refused'},
           repr(callers))
+    drag_start = UI.index('xwtab_drag_to_window() {')
+    drag_body = UI[drag_start:UI.index('\n}\n', drag_start)]
+    check('the drag helper sends catcher, own and refused to their own waits and only the rest to the enter wait',
+          routes_modes(drag_body) and len(re.findall(r'^\s+xwtab_wait_enter ', UI, re.M)) == 1, drag_body[-700:])
+    unrouted = drag_body.replace('    elif [[ "$mode" == refused ]]; then\n        xwtab_wait_refused "$bpid" held\n', '')
+    check('routing control refuses a refused gesture that falls through to the enter wait',
+          unrouted != drag_body and not routes_modes(unrouted), unrouted[-700:])
 
     own_test_attempts = 2
     own_source_pid = 101
