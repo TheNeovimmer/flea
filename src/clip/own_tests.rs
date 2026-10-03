@@ -4,6 +4,8 @@ use std::sync::mpsc::{channel, RecvTimeoutError};
 
 // A hang bound for a handshake that must arrive, never a duration the code under test is held to.
 const TEST_WATCHDOG: Duration = Duration::from_secs(5);
+// Outlives the test so only the withdraw signal can end the stand-in owner.
+const TEST_OWNER_LIFETIME_SECS: &str = "30";
 const ECHILD: i32 = 10;
 
 #[test]
@@ -138,4 +140,48 @@ fn withdraw_kills_only_what_this_process_owns() {
     assert!(withdraw("test-token"));
     waiter.join().unwrap();
     assert!(!withdraw("test-token"), "a reaped owner leaves the map");
+}
+
+#[test]
+fn a_live_owner_clear_withdraws_without_verifying_the_selection() {
+    use std::os::unix::process::ExitStatusExt;
+    const TOKEN: &str = "cb1bcb1bcb1bcb1bcb1bcb1bcb1bcb1b";
+    let mut child = std::process::Command::new("/bin/sleep")
+        .arg(TEST_OWNER_LIFETIME_SECS)
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    remember(TOKEN, pid);
+    let called = std::cell::Cell::new(false);
+    let line = crate::backend::clipreq::clear_token_line(TOKEN, |_| {
+        called.set(true);
+        Ok(false)
+    });
+    if called.get() {
+        child.kill().unwrap();
+    }
+    forget(TOKEN, pid);
+    let status = child.wait().unwrap();
+    assert!(!called.get(), "a live owner must be withdrawn without the verified clear");
+    assert_eq!(status.signal(), Some(SIGTERM));
+    assert_eq!(line, r#"{"t":"clip","op":"clear","ok":true,"cleared":true}"#);
+}
+
+#[test]
+fn an_exited_owner_clear_uses_the_verified_selection_result() {
+    const TOKEN: &str = "cb1ccb1ccb1ccb1ccb1ccb1ccb1ccb1c";
+    let mut child = std::process::Command::new("/bin/true").spawn().unwrap();
+    let pid = child.id();
+    remember(TOKEN, pid);
+    wait_for_exit(pid);
+    let called = std::cell::Cell::new(false);
+    let line = crate::backend::clipreq::clear_token_line(TOKEN, |token| {
+        assert_eq!(token, TOKEN);
+        called.set(true);
+        Ok(true)
+    });
+    forget(TOKEN, pid);
+    assert!(child.wait().unwrap().success());
+    assert!(called.get(), "an exited owner must fall through to the verified clear");
+    assert_eq!(line, r#"{"t":"clip","op":"clear","ok":true,"cleared":true}"#);
 }

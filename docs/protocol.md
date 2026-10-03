@@ -896,15 +896,22 @@ one `clip` line with `op` of `get`; see `clip` below.
 `{"c":"clipClear","token":<string>}` or `{"c":"clipClear","cut":[<string>,...]}`
 
 Clears the selection only while it still carries that token, the one `clipSet`
-answered with. The `cut` form is a spent cut from another application, which
+answered with or `clipGet` read from another Flea process. A live owner started by
+this backend is withdrawn first. Otherwise, including when that owner has exited,
+the token form uses the same token check, queued-selection drain and null selection
+as `flea --clip clear`, so it can clear a selection another Flea process owns.
+`cleared:true` means a live owner was signalled or the verified clear sent the null
+selection. Both clear forms run on the clipboard mutation queue, off the request
+thread. The `cut` form is a spent cut from another application, which
 Nautilus and Thunar clear after pasting: it clears only when the current selection is
 still a cut whose path list equals the given one exactly, same order, and never
-clears a copy. The `cut` form and `flea --clip clear` check the selection, then drain
-what the compositor queued behind it with one more round trip, and send the null
-selection only while the checked offer is still the current one; a newer copy answers
-`cleared:false`. The protocol has no compare-and-clear request, so a copy made after
-that last round trip and before the null selection lands can still be wiped. Answers
-one `clip` line with `op` of `clear`, saying whether it cleared; see `clip` below.
+clears a copy. The verified token clear, `cut` form and `flea --clip clear` check the
+selection, then drain what the compositor queued behind it with one more round trip,
+and send the null selection only while the checked offer is still the current one;
+a newer copy answers `cleared:false`. The protocol has no compare-and-clear request,
+so a copy made after that last round trip and before the null selection lands can
+still be wiped. Answers one `clip` line with `op` of `clear`, saying whether it
+cleared; see `clip` below.
 
 ### clipWatch
 

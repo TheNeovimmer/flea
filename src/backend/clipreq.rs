@@ -87,7 +87,17 @@ fn clear_line(token: &str, cut: &[String]) -> String {
     } else if token.is_empty() {
         reply::reply_clear(false, false, "the token names the copy to clear")
     } else {
-        reply::reply_clear(true, own::withdraw(token), "")
+        clear_token_line(token, control::clear)
+    }
+}
+
+pub(crate) fn clear_token_line(token: &str, clear: impl FnOnce(&str) -> Result<bool, String>) -> String {
+    if own::withdraw(token) {
+        return reply::reply_clear(true, true, "");
+    }
+    match clear(token) {
+        Ok(cleared) => reply::reply_clear(true, cleared, ""),
+        Err(e) => reply::reply_clear(false, false, &e),
     }
 }
 
@@ -150,6 +160,25 @@ mod tests {
         };
         assert!(line.contains(r#""ok":false"#));
         assert_eq!(field_str(&line, "op").as_deref(), Some("clear"));
+    }
+
+    #[test]
+    fn a_foreign_token_uses_the_verified_clear_result() {
+        const TOKEN: &str = "cb1acb1acb1acb1acb1acb1acb1acb1a";
+        for (result, expected) in [
+            (Ok(true), r#"{"t":"clip","op":"clear","ok":true,"cleared":true}"#),
+            (Ok(false), r#"{"t":"clip","op":"clear","ok":true,"cleared":false}"#),
+            (Err("foreign owner refused".to_string()), r#"{"t":"clip","op":"clear","ok":false,"error":"foreign owner refused"}"#),
+        ] {
+            let called = std::cell::Cell::new(false);
+            let line = clear_token_line(TOKEN, |token| {
+                assert_eq!(token, TOKEN);
+                called.set(true);
+                result
+            });
+            assert!(called.get(), "an unowned token must reach the verified selection clear");
+            assert_eq!(line, expected);
+        }
     }
 
     #[test]
