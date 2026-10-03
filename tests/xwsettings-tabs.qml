@@ -26,6 +26,10 @@ ShellRoot {
     property int secondLists: 0
     property var selectedNames: []
     property bool previewGrabbed: false
+    // The list requests sent and listings landed when a phase started its re-list; the phase after proves both rose by one.
+    property int listsBefore: 0
+    property int landings: 0
+    property int landingsBefore: 0
     readonly property int dragInset: 10
     readonly property int pointerMoveMs: 20
     readonly property int pointerEventMs: 1
@@ -86,6 +90,10 @@ ShellRoot {
             onActiveChanged: if (active) setSource("file://" + Quickshell.env("PROBE_BODY"), { host: watchWin })
             Component.onCompleted: if (active) setSource("file://" + Quickshell.env("PROBE_BODY"), { host: watchWin })
         }
+    }
+    Connections {
+        target: root.pane
+        function onOpened(path) { root.landings++ }
     }
     Process { id: outsideCreate; command: ["touch", root.here + "/000-watch-new.txt"] }
     FileView {
@@ -339,12 +347,21 @@ ShellRoot {
             } else if (phase === 11) {
                 if (pane.listInFlight) return
                 check("Trash is open before the covered folder is re-listed in place", pane.trash.opened, true)
+                root.listsBefore = pane.backend.listRequests; root.landingsBefore = root.landings
                 pane.refresh(""); next()
             } else if (phase === 12) {
-                check("a refresh of the covered folder leaves Trash open", pane.trash.opened, true)
                 if (pane.listInFlight) return
+                check("a refresh of the covered folder sent one list request", pane.backend.listRequests - root.listsBefore, 1)
+                check("that listing landed", root.landings - root.landingsBefore, 1)
+                check("a refresh of the covered folder leaves Trash open", pane.trash.opened, true)
+                // Keep the next assertion independent even when the refresh above left Trash closed.
+                pane.trash.close(); pane.trash.open()
+                root.listsBefore = pane.backend.listRequests; root.landingsBefore = root.landings
                 pane.wire.stale = true; pane.wire.reread(); next()
             } else if (phase === 13) {
+                if (pane.listInFlight) return
+                check("a watcher re-read of the covered folder sent one list request", pane.backend.listRequests - root.listsBefore, 1)
+                check("that re-read paid the owed debt and landed", [pane.wire.stale, root.landings - root.landingsBefore], [false, 1])
                 check("a watcher re-read of the covered folder leaves Trash open", pane.trash.opened, true)
                 finish()
             }

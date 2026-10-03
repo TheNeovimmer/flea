@@ -4,6 +4,7 @@ import QtQuick
 import QtTest
 import Quickshell
 import "flea" as Flea
+import "flea/js/Recent.js" as Recent
 import "flea/js/TextSize.js" as TextSize
 
 // tests/button-system.sh's harness: the real TrashView strip's Empty Trash and a destructive Flea.DialogButton draw one ladder in five states.
@@ -24,11 +25,14 @@ ShellRoot {
     readonly property int noDelay: 0
     // Quiet ticks (the press scale unchanged) before a state is read; a count of frames, never time.
     readonly property int settleTicks: 4
-    // The most ticks a run may take: half of what the .sh's outer timeout holds at one tick per tickMs, so this cap always fires first.
+    // A run may take half of what the .sh's outer timeout holds, in elapsed time from here (not ticks, whose length varies under load).
+    // So its "did not finish" branch fires first whenever qs starts in under that half; a slower start meets the outer timeout instead.
     readonly property int tickMs: 16
     readonly property int outerTimeoutS: Number(Quickshell.env("BUTTONSYS_TIMEOUT_S")) || 60
     readonly property int capShare: 2
-    readonly property int tickCap: Math.floor(shell.outerTimeoutS * 1000 / shell.tickMs / shell.capShare)
+    readonly property int msPerSecond: 1000
+    readonly property double startedAt: Date.now()
+    readonly property int capMs: shell.outerTimeoutS * shell.msPerSecond / shell.capShare
     readonly property int chainCap: 200
     readonly property int trashRows: 3
     // GM's text size, where the strip is 27 and its control 20 (ButtonSystem040).
@@ -42,7 +46,6 @@ ShellRoot {
     property var readings: ({ strip: ({}), dialog: ({}) })
     property int activations: 0
     property int step: 0
-    property int ticks: 0
     property int quiet: 0
     property real lastScaleA: -1
     property real lastScaleB: -1
@@ -292,6 +295,17 @@ ShellRoot {
         shell.check("strip: Tab reaches it in the focus chain", [shell.strip.activeFocusOnTab, seen], [true, true])
     }
 
+    // open() leaves the keyboard on the view, trashFocusEmpty gives it to the strip button, and restore() is trashFocusListing's body in ui/Ipc.qml (the .sh pins the two together).
+    function restore() { view.emptyItem.focus = false; view.forceActiveFocus() }
+    function handback() {
+        view.forceActiveFocus()
+        shell.check("open() leaves the keyboard on the Trash view, not on the button", [view.activeFocus, view.emptyItem.activeFocus], [true, false])
+        view.emptyItem.forceActiveFocus(Qt.TabFocusReason)
+        shell.check("trashFocusEmpty gives the keyboard to the strip button", view.emptyItem.activeFocus, true)
+        shell.restore()
+        shell.check("trashFocusListing takes the keyboard back from the strip button", [view.activeFocus, view.emptyItem.activeFocus], [true, false])
+    }
+
     Timer {
         interval: shell.tickMs
         repeat: true
@@ -303,17 +317,23 @@ ShellRoot {
     function underRoot(path) {
         return shell.sandboxRoot.length > 0 && path.indexOf(shell.sandboxRoot + "/") === 0 && path.split("/").indexOf("..") < 0
     }
+    // Sample input: "/root/data/recently-used.xbel" gives "/root/data", the data home the product resolved.
+    function productDataHome() {
+        var file = Recent.historyPath(Quickshell.env("XDG_DATA_HOME"), Quickshell.env("HOME"))
+        return file.slice(0, file.length - Recent.HISTORY_LEAF.length - 1)
+    }
+    // The first five rows are the environment this run was given, the rest paths the product resolved from it; gio's Trash is the product's data home plus /Trash.
     function pinned() {
         var home = Quickshell.env("HOME") || ""
-        var data = Quickshell.env("XDG_DATA_HOME") || home + "/.local/share"
         var paths = [
             ["HOME", home],
-            ["XDG_DATA_HOME", data],
+            ["XDG_DATA_HOME", Quickshell.env("XDG_DATA_HOME") || home + "/.local/share"],
             ["XDG_CONFIG_HOME", Quickshell.env("XDG_CONFIG_HOME") || home + "/.config"],
             ["XDG_STATE_HOME", Quickshell.env("XDG_STATE_HOME") || home + "/.local/state"],
             ["XDG_CACHE_HOME", Quickshell.env("XDG_CACHE_HOME") || home + "/.cache"],
-            ["the Trash directory", data + "/Trash"],
+            ["the Trash directory under the product's data home", shell.productDataHome() + "/Trash"],
             ["the view's home", view.home],
+            ["the scripts directory", Flea.Scripts.directory],
             ["the state file ViewState reads", Flea.ViewState.store.path]
         ]
         var ok = true
@@ -325,10 +345,10 @@ ShellRoot {
         return ok
     }
 
-    Component.onCompleted: Flea.ViewState.state = { display: { textSize: { mode: TextSize.nearest(shell.pinnedSize) } } }
-
     function buildScript() {
-        var steps = shell.seriesFor("strip").concat(shell.seriesFor("dialog"))
+        // First, while the strip button has never held the keyboard, as it has not when open() runs on a fresh view.
+        var steps = [{ name: "handback", act: function () {}, record: shell.handback }]
+        steps = steps.concat(shell.seriesFor("strip"), shell.seriesFor("dialog"))
         steps.push({ name: "compare", act: function () {}, record: function () {
             shell.check("strip: the harness drove an available control", view.emptyItem.available, true)
             shell.check("the harness draws at GM's text size", Flea.Theme.baseSize, shell.pinnedSize)
@@ -344,8 +364,7 @@ ShellRoot {
     }
 
     function advance() {
-        shell.ticks += 1
-        if (shell.ticks > shell.tickCap) {
+        if (Date.now() - shell.startedAt > shell.capMs) {
             shell.failures.push("the harness did not finish")
             shell.log("FAIL the harness did not finish at step " + shell.step)
             shell.finish()
@@ -354,6 +373,8 @@ ShellRoot {
         if (shell.step > shell.script.length) return
         if (shell.script.length === 0) {
             if (!shell.pinned()) { shell.finish(); return }
+            // Assigned only once every path is proved under the root, because the store may write on assignment.
+            Flea.ViewState.state = { display: { textSize: { mode: TextSize.nearest(shell.pinnedSize) } } }
             shell.buildScript()
             return
         }

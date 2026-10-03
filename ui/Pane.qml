@@ -422,14 +422,13 @@ FocusScope {
     }
 
     // options.keepHidden is the tab restore's alone: it just put back this tab's own dotfile answer, which the standing preference would overwrite.
-    // options.inPlace is a re-list of the same folder (refresh, watcher, preferences), which leaves a Trash overlay up.
     // A refused hop clears nothing: Nav refuses while a listing is out, and Recent's rows must survive it.
     function openWithoutHistory(newPath, options) {
         if (root.listInFlight) {
             root.message("A directory is already loading.", false)
             return
         }
-        // Every real navigation leaves Recent and Trash, restoring the folder beneath each overlay.
+        // Every real navigation leaves Recent and Trash, restoring the folder beneath each; options.inPlace, a re-list of this folder, leaves Trash up.
         if (!options || options.inPlace !== true) trashHost.close()
         RecentMode.leave(root)
         if (!root.listInFlight) {

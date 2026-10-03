@@ -3668,7 +3668,7 @@ case_reload() {
         [[ "$after" =~ ^[0-9]+$ && "$before" =~ ^[0-9]+$ ]] || fail "reload: $chord returned invalid listRequests ($before to $after)"
         (( after == before + 1 )) || fail "reload: no single re-list after $chord, listRequests $before to $after"
         wait_listing 1
-        [[ "$(ipc path)" == "$dir" ]] || fail "reload: $chord left the listing path"
+        [[ "$(ipc path)" == "$dir" ]] || fail "reload: $chord left the listing path; observed [$(ipc path)], expected [$dir]"
         message=$(ipc lastMessage)
         [[ "$message" != *Reloaded* ]] || fail "reload: $chord announced unchanged rows: $message"
         printf 'RELOAD key=%s lists=%s-to-%s unchanged=quiet log=clean\n' "$chord" "$before" "$after"
@@ -3677,11 +3677,11 @@ case_reload() {
     # A selection holds watcher debt, so only the manual reload can first see this added row.
     key v >/dev/null
     settle
-    [[ "$(ipc selectionCount)" == 1 ]] || fail "reload: v did not hold the watcher with a selection"
+    [[ "$(ipc selectionCount)" == 1 ]] || fail "reload: v did not hold the watcher with a selection; observed count [$(ipc selectionCount)]"
     before=$(ipc listRequests)
     : > "$dir/b.txt"
     sleep 1
-    [[ "$(ipc total)" == 1 && "$(ipc listRequests)" == "$before" ]] || fail "reload: the watcher re-listed while a selection stood"
+    [[ "$(ipc total)" == 1 && "$(ipc listRequests)" == "$before" ]] || fail "reload: the watcher re-listed while a selection stood; observed total [$(ipc total)], listRequests [$(ipc listRequests)], expected [$before]"
     key -k F5 >/dev/null
     settle
     errors=$(grep -E 'TypeError|ReferenceError' "$flea_log" | grep -E 'Reload\.js|Focus\.js|Pane\.qml' || true)
@@ -3692,8 +3692,8 @@ case_reload() {
     wait_listing 2
     message=$(ipc lastMessage)
     [[ "$message" == "Reloaded · 1 row changed" ]] || fail "reload: changed-row F5 said '$message', expected 'Reloaded · 1 row changed'"
-    [[ "$(ipc path)" == "$dir" ]] || fail "reload: changed-row F5 left the listing path"
-    [[ "$(ipc rowAt 1)" == b.txt\|* ]] || fail "reload: changed-row F5 did not draw b.txt"
+    [[ "$(ipc path)" == "$dir" ]] || fail "reload: changed-row F5 left the listing path; observed [$(ipc path)], expected [$dir]"
+    [[ "$(ipc rowAt 1)" == b.txt\|* ]] || fail "reload: changed-row F5 did not draw b.txt; observed [$(ipc rowAt 1)]"
     printf 'RELOAD changed-row F5=ok notice=%s log=clean\n' "$message"
     kill_flea
 }

@@ -2087,11 +2087,16 @@ the marks, and the two deferred members PickerChrome's `Framed` and NetworkForm'
 fails its completeness check, and a hand-built button that spells neither is not seen by it. The retired
 second recipe is searched for across the whole tree bar the changelog. The harness is destructive-capable (it drives the
 real TrashView and activates Empty Trash), so the suite pins every XDG root under its marked `mktemp -d` root, the QML
-proves each resolved path (the Trash directory and the state file included) lies under it before anything is
-activated, and no backend answers, so a `prepare` request is dropped, the confirmation card never opens and a
-`delete` or `restore` request fails the run. Its in-QML tick cap is half the outer `timeout`, passed down so the
-"harness did not finish" branch fires first. In `tests/ui-trash.sh` each Empty Trash shot waits on `ipc trashEmptyState`
-(`hovered|focused|pressed|available`), and the case hands the pointer and the keyboard back afterwards.
+proves the environment it was given and the paths the product resolved from it (the view's home, the scripts directory,
+the state file, and the data home of `Recent.historyPath` with gio's `/Trash` under it, which is the one row the QML
+only derives, because the backend that resolves the Trash never starts here) lie under it before anything is activated,
+and assigns the view state only after that passed. No backend answers, so a `prepare` request is dropped, the
+confirmation card never opens and a `delete` or `restore` request fails the run. Its in-QML cap is elapsed time, half
+the outer `timeout` passed down, so the "harness did not finish" branch fires first whenever `qs` starts in under that
+half; a slower start meets the outer `timeout` instead. In `tests/ui-trash.sh` each Empty Trash shot waits on
+`ipc trashEmptyState` (`hovered|focused|pressed|available`), and the case hands the pointer and the keyboard back
+afterwards: `ipc trashFocusListing` releases the strip button before forcing the view, because a focus scope forced alone
+returns to its last child, and `tests/button-system.qml` drives that same body headless.
 
 ## How the list renders
 

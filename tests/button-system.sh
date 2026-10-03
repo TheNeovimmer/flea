@@ -20,6 +20,8 @@ done
 # A set's current member takes a foreground frame and foreground text and the rest muted ones: SettingsSegment.qml:38 ships it and ProtocolChip follows.
 grep -q 'border.color: segment.current ? Theme.color.foreground : Theme.color.muted' ui/SettingsSegment.qml || fail 'ui/SettingsSegment.qml: the set member recipe moved'
 grep -q 'border.color: root.picked || root.focused ? Theme.color.foreground : Theme.color.muted' ui/ProtocolChip.qml || fail 'ui/ProtocolChip.qml: the set member recipe moved'
+# The QML handback test drives the ipc's own body: a focus scope forced alone returns to its last child, so the button is released first.
+grep -q 'view\.emptyItem\.focus = false; view\.forceActiveFocus()' ui/Ipc.qml || fail 'ui/Ipc.qml: trashFocusListing no longer releases the strip button before forcing the view'
 # Deferred by name (AGENTS.md): PickerChrome.Framed waits for Picker040 (v0.3.10), NetworkForm's TLS box has no board, and the marks carry no label.
 grep -q 'component Framed: Item' ui/PickerChrome.qml || fail 'ui/PickerChrome.qml: Framed moved, update this table'
 # Completeness: a ui/ file declaring the Button accessible role and drawing a border.width is in this list or it is a new hand-built button.
@@ -62,9 +64,9 @@ ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/button-system.qml "$test_root/config/shell.qml" || exit 1
 
-# The harness drops every backend request and ends itself with a kill, so the subshell keeps bash's "Terminated" notice out of the report.
-# Every XDG root is pinned under the marked root, and the harness proves it before it activates anything (BUTTONSYS_ROOT); the outer cap is passed down so the harness's own cap lands inside it.
+# The outer cap, passed to the harness as BUTTONSYS_TIMEOUT_S so its own cap, half of it, lands first.
 run_timeout_s=60
+# Every XDG root is pinned under the marked root and no backend answers; the subshell keeps bash's "Terminated" notice out of the report.
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_DATA_HOME="$test_root/data" XDG_CONFIG_HOME="$test_root/home/.config" \
@@ -73,8 +75,8 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     timeout "$run_timeout_s" qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
 # Every check a full green run makes, read off that run's own DONE line; a leg that stops running makes fewer and fails here.
-expected_checks=106
-# Sample input: "  INFO qml: BUTTONSYS ok rest: ..." once per check, and "  INFO qml: BUTTONSYS DONE checks=106 failed=0" once.
+expected_checks=110
+# Sample input: "  INFO qml: BUTTONSYS ok rest: ..." once per check, and "  INFO qml: BUTTONSYS DONE checks=110 failed=0" once.
 passed=$(printf '%s\n' "$output" | grep -c 'BUTTONSYS ok ')
 failed=$(printf '%s\n' "$output" | grep -c 'BUTTONSYS FAIL')
 if [ "$failed" -ne 0 ]; then
