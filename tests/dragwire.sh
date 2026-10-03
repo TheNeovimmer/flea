@@ -221,10 +221,17 @@ else
     bad "the after-drop line is not one complete JSON line: $after"
 fi
 # Sample input: expect_ipc's body, whose two die calls (observer failure, mismatch) each follow the evidence call.
-if sed -n '/^expect_ipc()/,/^}/p' tests/drag.sh | awk '
-        /die "/ { dies++; if (previous !~ /expect_evidence/ && $0 !~ /expect_evidence/) unprinted++ }
-        { previous = $0 }
-        END { exit !(dies == 2 && unprinted == 0) }'; then
+dies=0
+unprinted=0
+previous=
+while IFS= read -r body_line; do
+    if [[ "$body_line" == *'die "'* ]]; then
+        dies=$((dies + 1))
+        [[ "$previous" == *expect_evidence* || "$body_line" == *expect_evidence* ]] || unprinted=$((unprinted + 1))
+    fi
+    previous=$body_line
+done < <(sed -n '/^expect_ipc()/,/^}/p' tests/drag.sh)
+if [ "$dies" -eq 2 ] && [ "$unprinted" -eq 0 ]; then
     ok "expect_ipc prints the evidence line before each of its two failures"
 else
     bad "expect_ipc must call expect_evidence before each die"
