@@ -22,6 +22,8 @@ button_down=false
 control_down=false
 shift_held=false
 RECV_PID=""
+RECV_PIDS=()
+declare -A RECV_REAPED=()
 pointer_tolerance=4
 
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
@@ -41,6 +43,106 @@ outbound_evidence() {
 }
 check() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1"; note "expected [$3]"; note "got      [$2]"; fi; }
 die() { bad "$*"; exit 1; }
+
+receiver_processes() {
+  python3 -B - "$1" "$repo/tests/drag-receiver.py" "$SB/receiver.log" "${@:2}" <<'PY'
+import os, select, signal, sys
+from pathlib import Path
+
+mode, script, log, *pids = sys.argv[1:]
+term_seconds, kill_seconds = 3, 2
+
+def owned(pid):
+    try:
+        arguments = Path("/proc", str(pid), "cmdline").read_bytes().split(b"\0")
+        return os.fsencode(script) in arguments and os.fsencode(log) in arguments
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+
+for raw_pid in pids:
+    pid = int(raw_pid)
+    if not owned(pid):
+        continue
+    if mode == "assert":
+        print(f"receiver pid={pid} is still running")
+        raise SystemExit(1)
+    try:
+        descriptor = os.pidfd_open(pid)
+        try:
+            # The descriptor pins the PID; recheck this run's exact argv before sending a signal.
+            if not owned(pid):
+                continue
+            signal.pidfd_send_signal(descriptor, signal.SIGTERM)
+            forced = not select.select([descriptor], [], [], term_seconds)[0]
+            if forced:
+                signal.pidfd_send_signal(descriptor, signal.SIGKILL)
+                if not select.select([descriptor], [], [], kill_seconds)[0]:
+                    print(f"receiver pid={pid} survived SIGKILL")
+                    raise SystemExit(1)
+            print(f"DRAG_RECEIVER_DRAIN pid={pid} forced_kill={str(forced).lower()}")
+        finally:
+            os.close(descriptor)
+    except ProcessLookupError:
+        pass
+PY
+}
+
+receiver_dialogs_gone() {
+  local receiver_pid=$1 dialogs dialog_pid
+  dialogs=$(python3 -B - <<'PY'
+import os
+from pathlib import Path
+
+dialog_name = "hyprland-dialog"
+application_id = b"com.thisisgm.FleaDragReceiver"
+for process in Path("/proc").iterdir():
+    if not process.name.isdigit():
+        continue
+    try:
+        if process.stat().st_uid != os.getuid():
+            continue
+        if (process / "comm").read_text().strip() != dialog_name:
+            continue
+        if application_id in (process / "cmdline").read_bytes():
+            print(process.name)
+    except (FileNotFoundError, ProcessLookupError):
+        continue
+PY
+  ) || { bad "could not check receiver $receiver_pid compositor dialogs"; return 1; }
+  if [ -n "$dialogs" ]; then
+    while IFS= read -r dialog_pid; do
+      bad "receiver $receiver_pid left hyprland-dialog pid=$dialog_pid"
+    done <<< "$dialogs"
+    return 1
+  fi
+  ok "receiver $receiver_pid left no compositor dialog"
+}
+
+stop_receiver() {
+  local pid=$1
+  [ "${RECV_REAPED[$pid]:-false}" = true ] && return 0
+  receiver_processes stop "$pid" || { bad "receiver pid=$pid could not be stopped"; return 1; }
+  wait "$pid" 2>/dev/null || true
+  RECV_REAPED[$pid]=true
+  receiver_dialogs_gone "$pid"
+}
+
+stop_receivers() {
+  local pid status=0
+  for pid in "${RECV_PIDS[@]}"; do
+    stop_receiver "$pid" || status=1
+  done
+  return "$status"
+}
+
+assert_receivers_gone() {
+  if receiver_processes assert "${RECV_PIDS[@]}"; then
+    ok "no receiver from this run remains"
+  else
+    bad "a receiver from this run remains"
+    return 1
+  fi
+}
 
 stop_owned_processes() {
   [[ -n "${FLEA_PID:-}" ]] || return 0
@@ -122,6 +224,8 @@ cleanup() {
   if [ "$button_down" = true ]; then
     ydotool key 1:1 1:0 >/dev/null 2>&1 || { bad "cleanup could not cancel the held drag"; status=1; }
   fi
+  stop_receivers || { status=1; drained=false; }
+  assert_receivers_gone || { status=1; drained=false; }
   stop_owned_processes || { status=1; drained=false; }
   # Teardown is bounded even when the owned application cannot drain; failed teardown retains its fixtures.
   if [ "$button_down" = true ]; then
@@ -132,10 +236,6 @@ cleanup() {
   fi
   if [ "$shift_held" = true ]; then
     ydotool key 42:0 >/dev/null 2>&1 || { bad "cleanup could not release Shift"; status=1; }
-  fi
-  if [ -n "$RECV_PID" ]; then
-    kill "$RECV_PID" 2>/dev/null || true
-    wait "$RECV_PID" 2>/dev/null || true
   fi
   if [ -f "$SB/flea.log" ]; then
     note "native stderr from $SB/flea.log"
@@ -1203,15 +1303,16 @@ recv_w=420; recv_h=320
 recv_x=1100; recv_y=80
 flea_x=40; flea_y=80; flea_w=1000; flea_h=720
 want_actions=1
-FLEA_RECV_W=$recv_w FLEA_RECV_H=$recv_h setsid python3 "$repo/tests/drag-receiver.py" "$RECV_LOG" >"$SB/receiver-err.log" 2>&1 &
+FLEA_RECV_W=$recv_w FLEA_RECV_H=$recv_h setsid python3 -B "$repo/tests/drag-receiver.py" "$RECV_LOG" >"$SB/receiver-err.log" 2>&1 &
 RECV_PID=$!
+RECV_PIDS+=("$RECV_PID")
 RECV_ADDR=""
 # Sample input, hyprctl clients -j: '[{"pid": 123, "address": "0xabc", "title": "flea-drag-receiver"}]'.
 for i in $(seq 1 40); do
   RECV_ADDR=$(hyprctl clients -j | python3 -c '
 import json, sys
 pid = int(sys.argv[1])
-hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid or w.get("title") == "flea-drag-receiver"]
+hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$RECV_PID") || true
   [ -n "$RECV_ADDR" ] && break
@@ -1311,17 +1412,17 @@ print("received" if needle in body and name in body else "missing")
   : > "$RECV_LOG"
   want_actions=2
   # End the first receiver so the Shift lookup can match only its own.
-  kill "$RECV_PID" 2>/dev/null || true
-  wait "$RECV_PID" 2>/dev/null || true
-  FLEA_RECV_W=$recv_w FLEA_RECV_H=$recv_h setsid python3 "$repo/tests/drag-receiver.py" "$RECV_LOG" >"$SB/receiver-shift-err.log" 2>&1 &
+  stop_receiver "$RECV_PID" || die "plain receiver teardown failed"
+  FLEA_RECV_W=$recv_w FLEA_RECV_H=$recv_h setsid python3 -B "$repo/tests/drag-receiver.py" "$RECV_LOG" >"$SB/receiver-shift-err.log" 2>&1 &
   RECV_PID=$!
+  RECV_PIDS+=("$RECV_PID")
   RECV_ADDR=""
   # Sample input, hyprctl clients -j: '[{"pid": 123, "address": "0xabc", "title": "flea-drag-receiver"}]'.
   for i in $(seq 1 40); do
     RECV_ADDR=$(hyprctl clients -j | python3 -c '
 import json, sys
 pid = int(sys.argv[1])
-hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid or w.get("title") == "flea-drag-receiver"]
+hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$RECV_PID") || true
     [ -n "$RECV_ADDR" ] && break
@@ -1399,6 +1500,8 @@ print("received" if needle in body and name in body else "missing")
   fi
 fi
 
+stop_receivers || die "outbound receiver teardown failed"
+assert_receivers_gone || die "outbound receiver drain failed"
 printf 'DRAG_SHARED routes=List-Grid,Grid-activeColumns,dual-left-right,dual-right-left real_relative_input=ok index_only=not_exercised transfer_preemption=not_exercised\n'
 echo "$((pass + fail)) checks, $fail failed"
 [ "$fail" = 0 ] || exit 1

@@ -154,5 +154,11 @@ else
     bad "a failing total call must wait and answer 1, got rc=$wait_rc calls=$poll_calls"
 fi
 
+if python3 -B tests/drag-read-check.py; then
+    ok "the receiver's asynchronous reads pass the headless self-check"
+else
+    bad "the receiver's asynchronous read self-check failed"
+fi
+
 printf 'dragwire: %s check(s), %s failed\n' "$((pass + fail))" "$fail"
 [ "$fail" -eq 0 ]
