@@ -4525,6 +4525,10 @@ warm 0 to 2.5 ms per formula and 0.9 ms per diagram; the helper peaks at 41380 t
 with both bundles loaded. The GUI side is taken offscreen on minipc, five samples each, every
 number a range: PSS before any figure, after the ten formulas and after the six diagrams, which
 must stay within 10 MB of the before value, and PSS 5 s after the idle exit with the helper gone.
+Five native runs of the suite on minipc at `9b661b2e` (2026-10-03), every read a fresh `/proc`
+read: GUI PSS 52838 to 52974 kB before, 52387 to 53232 kB after the formulas, 52415 to 53260 kB
+after the diagrams and 52452 to 53300 kB 5 s after the idle exit; idle minus before is -394 to
++338 kB within a run, and the helper peaks at 41132 to 41200 kB RSS there.
 
 ## Thumbnail pool
 

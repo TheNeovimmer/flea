@@ -3,12 +3,16 @@ import Quickshell.Io
 FileView {
     id: memory
     printErrors: false
+    // Each stamp belongs to a completed reload, including the write/read check.
+    property int readSequence: 0
 
     function readText(path) {
         memory.path = path;
         memory.reload();
         memory.waitForJob();
-        return memory.text();
+        var contents = memory.text();
+        memory.readSequence++;
+        return contents;
     }
 
     // Sample inputs: "Pss: 45120 kB" in smaps_rollup, "VmHWM: 41380 kB" in a process status file.
@@ -25,6 +29,7 @@ FileView {
     // The pid belongs to bwrap, so find qjs's peak below it in the process tree.
     function treePeak(pid) {
         var best = memory.memField("/proc/" + pid + "/status", "VmHWM");
+        // Sample input: "1234 5678 " from /proc/<pid>/task/<pid>/children.
         var kids = memory.readText("/proc/" + pid + "/task/" + pid + "/children").trim().split(/\s+/);
         for (var i = 0; i < kids.length; i++) {
             if (kids[i].length > 0)

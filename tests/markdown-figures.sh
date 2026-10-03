@@ -237,8 +237,6 @@ ln -s "$(readlink -f ui/boot/Commons)" "$test_root/qsconfig/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/qsconfig/Ui" || exit 1
 cp tests/markdown-figures.qml "$test_root/qsconfig/shell.qml" || exit 1
 cp -R tests/figure-memory "$test_root/qsconfig/figure-memory" || exit 1
-# The hang must outlive the service render deadline without becoming unbounded.
-HANG_SECONDS=30
 mkdir -p "$test_root/stubbin" || exit 1
 printf 'answer\n' > "$test_root/phase" || exit 1
 # With FLEA_BIN unset the service's stub hangs, refuses or execs the selected engine according to the phase file.
@@ -248,7 +246,13 @@ cat > "$test_root/stubbin/flea" <<EOF
 if [ "\$1" = "--figure-helper" ]; then
     phase=\$(cat "$test_root/phase" 2>/dev/null)
     case "\$phase" in
-        hang) sleep $HANG_SECONDS ;;
+        hang)
+            mkfifo "$test_root/hang.pipe" || exit 1
+            exec {hang_fd}<>"$test_root/hang.pipe"
+            printf '%s\n' "\$\$" > "$test_root/hang.pid"
+            printf 'FIGHANG pid=%s\n' "\$\$"
+            read -r unused <&\$hang_fd
+            ;;
         exit42) exit 42 ;;
         refused)
             echo "flea: stub has no engine" >&2
@@ -268,6 +272,18 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u 
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
     timeout 150 qs -p "$test_root/qsconfig" 2>&1 ) 2>/dev/null )
 qs_status=$?
+if [ -f "$test_root/hang.pid" ]; then
+    pgrep -F "$test_root/hang.pid" > /dev/null
+    fixture_status=$?
+    if [ "$fixture_status" -ne 1 ]; then
+        echo "markdown-figures.sh: FAIL hanging fixture pid check exited $fixture_status, want 1 after reaping"
+        exit 1
+    fi
+    printf 'PASS hanging fixture pid=%s reaped (pgrep exit=1)\n' "$(cat "$test_root/hang.pid")"
+else
+    echo "markdown-figures.sh: FAIL no hanging fixture pid receipt"
+    exit 1
+fi
 pass_count=$(printf '%s\n' "$output" | grep -c 'MARKDOWN_FIGURES PASS')
 fail_count=$(printf '%s\n' "$output" | grep -c 'MARKDOWN_FIGURES FAIL')
 done_count=$(printf '%s\n' "$output" | grep -c 'MARKDOWN_FIGURES DONE')
@@ -305,25 +321,35 @@ FIG_PSS_BUDGET_KB=10240
 fig_pss=$(printf '%s\n' "$output" | grep -a 'MARKDOWN_FIGURES FIGPSS')
 fig_peak=$(printf '%s\n' "$output" | grep -a 'MARKDOWN_FIGURES FIGHELPER')
 printf '%s\n' "$fig_pss" "$fig_peak"
-# Sample input: MARKDOWN_FIGURES FIGPSS phase=before pss_kb=45120.
+# Sample input: MARKDOWN_FIGURES FIGPSS phase=before pss_kb=45120 read_seq=3.
 fig_val() {
     printf '%s\n' "$fig_pss" | sed -n "s/.*phase=$1 pss_kb=\([0-9][0-9]*\).*/\1/p"
 }
+# Sample input: MARKDOWN_FIGURES FIGPSS phase=before pss_kb=45120 read_seq=3.
+fig_stamp() {
+    printf '%s\n' "$fig_pss" | sed -n "s/.*phase=$1 pss_kb=[0-9][0-9]* read_seq=\([0-9][0-9]*\).*/\1/p"
+}
+previous_stamp=0
 for phase in before formulas diagrams idle; do
     [ -n "$(fig_val "$phase")" ] || {
     echo "markdown-figures.sh: FAIL no FIGPSS $phase line"
     verdict=1
 }
+    stamp=$(fig_stamp "$phase")
+    if [ -z "$stamp" ]; then
+        echo "markdown-figures.sh: FAIL no FIGPSS $phase read stamp"
+        verdict=1
+    elif [ "$stamp" -le "$previous_stamp" ]; then
+        echo "markdown-figures.sh: FAIL FIGPSS $phase read stamp is stale"
+        verdict=1
+    else
+        previous_stamp=$stamp
+    fi
 done
 printf '%s\n' "$fig_peak" | grep -q 'rss_peak_kb=[0-9]' || {
     echo "markdown-figures.sh: FAIL no FIGHELPER peak line"
     verdict=1
 }
-if [ -n "$(fig_val before)" ] && [ "$(fig_val before)" = "$(fig_val formulas)" ] \
-    && [ "$(fig_val before)" = "$(fig_val diagrams)" ]; then
-    echo "markdown-figures.sh: FAIL the PSS reader is stale: before, formulas and diagrams are equal to the kB"
-    verdict=1
-fi
 if [ -n "$(fig_val before)" ] && [ -n "$(fig_val formulas)" ]; then
     [ "$(fig_val formulas)" -le "$(( $(fig_val before) + FIG_PSS_BUDGET_KB ))" ] || {
     echo "markdown-figures.sh: FAIL formulas PSS exceeds before by more than $FIG_PSS_BUDGET_KB kB"

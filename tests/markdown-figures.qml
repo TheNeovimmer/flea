@@ -39,6 +39,10 @@ ShellRoot {
     property int ticket: 0
     property int ticks: 0
     property int pendingTicksMark: 0
+    readonly property int hangingRenderMs: 400
+    readonly property int tickIntervalMs: 50
+    readonly property int tickCoverageDivisor: 2
+    readonly property int pendingTickMinimum: Math.floor(hangingRenderMs / tickIntervalMs / tickCoverageDivisor)
     // A source to ask once the current helper has stopped: the phase file
     // only affects the next spawned helper, never the running one.
     property string awaitSource: ""
@@ -71,9 +75,11 @@ ShellRoot {
         shell.check(Flea.FigureService.deadlineRunning === false, "the deadline timer is stopped before the first ask");
         shell.writePhase("Pss: " + shell.readerFirstPssKb + " kB", function () {
             var first = memory.memField(shell.phaseFile, "Pss");
+            var firstSequence = memory.readSequence;
             shell.writePhase("Pss: " + shell.readerSecondPssKb + " kB", function () {
                 var second = memory.memField(shell.phaseFile, "Pss");
-                shell.check(first === shell.readerFirstPssKb && second === shell.readerSecondPssKb,
+                shell.check(first === shell.readerFirstPssKb && second === shell.readerSecondPssKb
+                    && memory.readSequence > firstSequence,
                     "memory reader reloads the same path after its contents change");
                 shell.writePhase("answer", function () {
                     shell.logPss("before");
@@ -93,7 +99,8 @@ ShellRoot {
     }
 
     function logPss(phase) {
-        shell.log("FIGPSS phase=" + phase + " pss_kb=" + memory.memField("/proc/self/smaps_rollup", "Pss"));
+        var pss = memory.memField("/proc/self/smaps_rollup", "Pss");
+        shell.log("FIGPSS phase=" + phase + " pss_kb=" + pss + " read_seq=" + memory.readSequence);
     }
 
     function logHelperPeak() {
@@ -193,7 +200,7 @@ ShellRoot {
         } else if (shell.step === 5) {
             shell.check(svg !== "" && error === "", "a request after the idle exit restarts the helper");
             shell.step = 6;
-            Flea.FigureService.renderMs = 400;
+            Flea.FigureService.renderMs = shell.hangingRenderMs;
             shell.writePhase("hang", function () {
                 shell.awaitSource = "\\int_0^1 x^2\\,dx";
                 shell.afterAwait = 7;
@@ -202,7 +209,9 @@ ShellRoot {
         } else if (shell.step === 7) {
             shell.check(svg === "" && error === "render timed out", "a helper that never answers times out");
             shell.check(Flea.FigureService.deadlineExpirations > shell.renderDeadlineMark, "the hanging helper answers from the deadline event");
-            shell.check(shell.ticks > shell.pendingTicksMark, "the event loop ticks while the helper waits");
+            shell.check(shell.ticks - shell.pendingTicksMark >= shell.pendingTickMinimum,
+                "the event loop ticks while the helper waits (" + (shell.ticks - shell.pendingTicksMark)
+                + "/" + shell.pendingTickMinimum + " events)");
             Flea.FigureService.renderMs = 5000;
             shell.writePhase("answer", function () {
                 shell.awaitSource = "\\sum_{n=1}^{\\infty}\\frac{1}{n^2}";
@@ -275,7 +284,7 @@ ShellRoot {
 
     Timer {
         id: pump
-        interval: 50
+        interval: shell.tickIntervalMs
         repeat: true
         running: true
         onTriggered: {

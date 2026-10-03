@@ -3,6 +3,8 @@ import json
 import os
 import pathlib
 import re
+import selectors
+import signal
 import shutil
 import subprocess
 import sys
@@ -90,15 +92,17 @@ exit 127
 
     start_binary = box / "start-flea"
     captured_ui = box / "captured-ui"
+    start_pid = box / "start.pid"
     # Larger than the startup check's bounded diagnostic excerpt.
     DIAGNOSTIC_FIXTURE_CHARS = 8192
     start_binary.write_text(f'''#!{sys.executable}
-import os, pathlib, sys, time
+import os, pathlib, signal, sys
 pathlib.Path({str(captured_ui)!r}).write_text(os.environ.get("FLEA_UI", ""))
 print("helper stdout cause", flush=True)
 print("helper stderr cause", file=sys.stderr, flush=True)
 if os.environ.get("FIG_START_MODE") == "hang":
-    time.sleep({FRAGMENT_BOUND_SECONDS})
+    pathlib.Path({str(start_pid)!r}).write_text(str(os.getpid()))
+    signal.pause()
 print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDOUT_TAIL")
 print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDERR_TAIL", file=sys.stderr)
 ''')
@@ -127,17 +131,31 @@ print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDERR_TAIL", file=sys.stder
     check(result.returncode != 0 and "FAIL helper did not exit within" in result.stdout
           and "helper stdout cause" in result.stdout and "helper stderr cause" in result.stdout,
           "PSS fix startup timeout reports its bound and both captured streams")
+    result = subprocess.run(["pgrep", "-F", str(start_pid)], capture_output=True, text=True,
+                            timeout=FRAGMENT_BOUND_SECONDS)
+    check(result.returncode == 1 and not result.stdout,
+          f"r3 startup fixture pid={start_pid.read_text()} reaped (pgrep exit={result.returncode})")
 
     pss_checks = '# The GUI memory claim:' + section('# The GUI memory claim:', '\nprintf \'MARKDOWN_FIGURES %s')
-    def memory_samples(before, formulas, diagrams):
+    def memory_samples(before, formulas, diagrams, stamps=(1, 2, 3, 4)):
+        phases = (("before", before), ("formulas", formulas), ("diagrams", diagrams), ("idle", before))
         output = "\n".join(f"MARKDOWN_FIGURES FIGPSS phase={phase} pss_kb={value}"
-                           for phase, value in (("before", before), ("formulas", formulas),
-                                                ("diagrams", diagrams), ("idle", before)))
+                           + (f" read_seq={stamp}" if stamp is not None else "")
+                           for (phase, value), stamp in zip(phases, stamps))
         output += "\nMARKDOWN_FIGURES FIGHELPER rss_peak_kb=41140"
         return run(pss_checks, output=output, verdict="0")
     result = memory_samples(52877, 52877, 52877)
-    check(result.returncode != 0 and "reader is stale" in result.stdout,
-          "PSS fix identical render-phase samples fail as a stale reader")
+    check(result.returncode == 0, "r3 equal PSS samples with fresh read stamps pass")
+    for index, phase in enumerate(("before", "formulas", "diagrams", "idle")):
+        stamps = [1, 2, 3, 4]
+        stamps[index] = None
+        result = memory_samples(52877, 52878, 52879, stamps)
+        check(result.returncode != 0 and f"FAIL no FIGPSS {phase} read stamp" in result.stdout,
+              f"r3 a missing {phase} read stamp fails")
+    for stamps in ((1, 1, 3, 4), (1, 2, 1, 4), (1, 2, 3, 3)):
+        result = memory_samples(52877, 52878, 52879, stamps)
+        check(result.returncode != 0 and "read stamp is stale" in result.stdout,
+              f"r3 cached or backward read stamps {stamps} fail")
     result = memory_samples(52877, 52878, 52879)
     check(result.returncode == 0, "PSS fix fresh render-phase samples within budget pass")
     result = memory_samples(52877, 63118, 52879)
@@ -171,11 +189,33 @@ print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDERR_TAIL", file=sys.stder
     stub = 'cat > "$test_root/stubbin/flea"' + section('cat > "$test_root/stubbin/flea"', 'chmod +x "$test_root/stubbin/flea"')
     (box / "stubbin").mkdir()
     (box / "phase").write_text("answer\n")
-    prefix = f'HANG_SECONDS={FRAGMENT_BOUND_SECONDS}\nengine=("$qjs" "helper.mjs")\nprintf -v engine_exec \'%q \' "${{engine[@]}}"\n'
+    prefix = 'engine=("$qjs" "helper.mjs")\nprintf -v engine_exec \'%q \' "${engine[@]}"\n'
     result = run(prefix + stub + '\n/bin/bash "$test_root/stubbin/flea" --figure-helper')
     check(result.returncode == 0 and "selected direct engine" in result.stdout,
           "F3 QML stub executes the same selected engine")
     check("FLEA_FIG_REAL" not in script, "F3 removes the unread engine export")
+    (box / "phase").write_text("hang\n")
+    fixture = subprocess.Popen(["/bin/bash", str(box / "stubbin/flea"), "--figure-helper"],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        with selectors.DefaultSelector() as ready:
+            ready.register(fixture.stdout, selectors.EVENT_READ)
+            signaled = bool(ready.select(FRAGMENT_BOUND_SECONDS))
+        receipt = fixture.stdout.readline().strip() if signaled else ""
+        check(receipt == f"FIGHANG pid={fixture.pid}" and fixture.poll() is None,
+              "r3 the shell hang fixture blocks in its own process")
+        result = subprocess.run(["pgrep", "-F", str(box / "hang.pid")], capture_output=True,
+                                text=True, timeout=FRAGMENT_BOUND_SECONDS)
+        check(result.returncode == 0 and result.stdout.strip() == str(fixture.pid),
+              f"r3 hanging shell fixture pid={fixture.pid} present (pgrep exit={result.returncode})")
+    finally:
+        if fixture.poll() is None:
+            fixture.kill()
+        fixture.communicate(timeout=FRAGMENT_BOUND_SECONDS)
+    result = subprocess.run(["pgrep", "-F", str(box / "hang.pid")], capture_output=True,
+                            text=True, timeout=FRAGMENT_BOUND_SECONDS)
+    check(fixture.returncode == -signal.SIGKILL and result.returncode == 1 and not result.stdout,
+          f"r3 shell fixture pid={fixture.pid} killed and reaped (pgrep exit={result.returncode})")
 
     # Sample input: the drive.py heredoc between <<'EOF' and the next standalone EOF.
     driver = section('cat > "$test_root/drive.py" <<\'EOF\'\n', "\nEOF")
@@ -246,6 +286,18 @@ check(not re.search(r"(?m)^#[^\n]*\n#", script[script.index("\n") + 1:]), "F7 sh
 check("depth > 12" not in worker and "/ 2;" not in worker and "* 100) / 100" not in worker,
       "F12 resolver and ex conversion policy numbers have names")
 qml = (tree / "tests/markdown-figures.qml").read_text()
+check("pendingTickMinimum" in qml and "shell.ticks - shell.pendingTicksMark >= shell.pendingTickMinimum" in qml,
+      "r3 the hanging wait requires multiple tick events")
+# Sample input: "    time.sleep(10)" in a generated Python hang fixture.
+check(not re.search(r"(?m)^    time[.]sleep[(]", pathlib.Path(__file__).read_text()) and "hang) sleep" not in script,
+      "r3 hang fixtures block without wall-clock sleeps")
+reader = (tree / "tests/figure-memory/FigureMemory.qml").read_text()
+# Sample input: var kids = memory.readText("/proc/1234/task/1234/children").trim().split(/\s+/);
+children_line = next(line for line in reader.splitlines() if '"/children"' in line)
+check("Sample input:" in reader.split(children_line, 1)[0].splitlines()[-1],
+      "r3 the children parser has a sample-input comment directly above it")
+check("Sample input" in reader.split("    function memField", 1)[0].splitlines()[-1],
+      "r3 the memory-field parser has a sample-input comment")
 check("Date.now()" not in qml and "maxGap" not in qml,
       "mx2a F13 / mx2b F4 QML verdicts use events instead of elapsed time")
 service_test = (tree / "tests/js/figureservice.js").read_text()
