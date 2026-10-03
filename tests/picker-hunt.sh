@@ -2,6 +2,7 @@
 # Release hunt: board behavior through real picker keys and backend responses.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
+python3 -B tests/picker-focus-helper-check.py || exit 1
 . "$PWD/tools/flea-sandbox-guard"
 sandbox_root_ok
 test_root=$(mktemp -d "$SANDBOX_ROOT/flea-picker-hunt.XXXXXXXX") || exit 1
@@ -97,6 +98,7 @@ PY
             XDG_CACHE_HOME="$phase/cache" XDG_DATA_HOME="$phase/data" XDG_RUNTIME_DIR="$phase/runtime" TMPDIR="$phase/tmp" \
             FLEA_BIN="$backend" FLEA_PICKER="$request" FLEA_PICKER_REPLY="$phase/reply.json" \
             FLEA_PICKER_HUNT_BASE_FILES="$base_fixture_files" FLEA_PICKER_HUNT_EXTRA_FILES="$wide_extra_files" \
+            FLEA_PICKER_HUNT_REFUSAL_LOG="$phase/refused-operations" \
             FLEA_PICKER_HUNT_CASE="$scenario" FLEA_PICKER_HUNT_PRESET="$preset" QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
             QT_FORCE_STDERR_LOGGING=1 timeout "$probe_timeout_seconds" qs -p "$test_root/config" 2>&1)
         code=$?
@@ -135,6 +137,22 @@ PY
         if [[ "$scenario" = refuse-* && "$scenario" != refuse-cancel && "$scenario" != refuse-collision ]] && ! grep -Fq 'PICKER_HUNT RETRY Enter after refusal' <<< "$output"; then
             echo 'FAIL focus refusal probe did not retry after refusal'
             failures=$((failures+1))
+        fi
+        if [[ "$scenario" = refuse-* && "$scenario" != refuse-cancel && "$scenario" != refuse-collision ]]; then
+            refused_operation=mark
+            case "$scenario" in
+                refuse-validate) refused_operation=validate ;;
+                refuse-review) refused_operation=review ;;
+            esac
+            # Sample owned phase log: validate, followed by a newline.
+            logged_operations=""
+            if [ -f "$phase/refused-operations" ]; then
+                logged_operations=$(cat "$phase/refused-operations")
+            fi
+            if [ "$logged_operations" != "$refused_operation" ]; then
+                printf 'FAIL %s refused operation got=%s expected=%s\n' "$scenario" "$logged_operations" "$refused_operation"
+                failures=$((failures+1))
+            fi
         fi
         if [ "$scenario" = remember ]; then
             wanted=grid

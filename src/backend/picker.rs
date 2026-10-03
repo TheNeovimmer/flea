@@ -16,8 +16,6 @@ use std::sync::mpsc::{sync_channel, Sender, SyncSender, TrySendError};
 #[path = "picker_limits.rs"]
 mod limits;
 
-pub fn raise_file_limit() { limits::raise_soft_to_hard(); }
-
 const O_PATH: i32 = 0o10000000;
 const FNM_CASEFOLD: i32 = 1 << 4;
 extern "C" {
@@ -238,6 +236,7 @@ impl State {
         self.valid_marks(cancel).map(|marks| format!(r#"{},"skipped":[{}]"#, marks, skipped.join(",")))
     }
     fn check_budget(&self, paths: &[PathBuf], directory: bool) -> Result<(), String> {
+        limits::raise_soft_to_hard();
         let soft = limits::soft_limit()?;
         let budget = soft.saturating_sub(limits::DESCRIPTOR_RESERVE);
         let mut descriptors: usize = self.marks.iter().map(|held| if held.target.is_some() { limits::SYMLINK_DESCRIPTORS } else { 1 }).sum();

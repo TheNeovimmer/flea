@@ -15,6 +15,7 @@ cp tests/picker-040.qml "$test_root/config/shell.qml"
 for name in {a..l}; do printf '%s\n' "$name" > "$test_root/fixture/$name.txt"; done
 failures=0
 phases=0
+probe_timeout_seconds=15
 for view in list grid; do
     for scenario in path collision; do
         phase="$test_root/$view-$scenario"
@@ -38,7 +39,7 @@ PY
             XDG_CACHE_HOME="$phase/cache" XDG_DATA_HOME="$phase/data" XDG_RUNTIME_DIR="$phase/runtime" TMPDIR="$phase/tmp" \
             FLEA_BIN="$PWD/target/debug/flea" FLEA_PICKER="$request" FLEA_PICKER_REPLY="$phase/reply.json" \
             FLEA_PICKER_HUNT_CASE="$scenario" QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-            QT_FORCE_STDERR_LOGGING=1 timeout 15 qs -p "$test_root/config" 2>&1)
+            QT_FORCE_STDERR_LOGGING=1 timeout "$probe_timeout_seconds" qs -p "$test_root/config" 2>&1)
         code=$?
         phases=$((phases+1))
         printf 'PICKER_HUNT CASE %s %s exit=%s\n' "$view" "$scenario" "$code"

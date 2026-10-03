@@ -28,6 +28,10 @@ ShellRoot {
     readonly property int pickerWidthPx: 800
     readonly property int pickerHeightPx: 410
     readonly property real chromeCenterTolerancePx: 1
+    readonly property real rangeClickInsetPx: 5
+    readonly property int rangeClickRowStep: 2
+    readonly property int rangeClickCount: rangeClickRowStep + 1
+    readonly property string folderSuffix: "/z-folder"
     property bool chromeChecked: false
     property var initiatingFocus: null
     property var movedFocus: null
@@ -251,8 +255,8 @@ ShellRoot {
                         win.cursorIndex = index + (win.viewMode === "grid" ? win.viewItem().columns : 1)
                         root.press(Qt.Key_Up, Qt.ShiftModifier)
                     } else {
-                        var cell = win.viewItem().itemAtIndex(index + 2)
-                        keys.mouseClick(cell, cell.width - 5, cell.height / 2, Qt.LeftButton, Qt.ShiftModifier, -1)
+                        var cell = win.viewItem().itemAtIndex(index + root.rangeClickRowStep)
+                        keys.mouseClick(cell, cell.width - root.rangeClickInsetPx, cell.height / 2, Qt.LeftButton, Qt.ShiftModifier, -1)
                     }
                 } else if (scenario === "range-burst") {
                     for (var burst = 0; burst < root.burstSteps; burst++) root.press(Qt.Key_Down, Qt.ShiftModifier)
@@ -284,10 +288,10 @@ ShellRoot {
                     root.check("Ctrl+A marks shown files", win.marks.length, scenario === "all-wide" ? root.baseFixtureFiles + root.wideExtraFiles : root.baseFixtureFiles)
                     if (scenario === "all-wide") root.check("select-all reaches beyond held window", win.rows.length < win.marks.length, true)
                 } else if (scenario === "range-up" || scenario === "range-click") {
-                    var wanted = scenario === "range-click" ? 3 : win.viewMode === "grid" ? win.viewItem().columns + 1 : 2
+                    var wanted = scenario === "range-click" ? root.rangeClickCount : win.viewMode === "grid" ? win.viewItem().columns + 1 : 2
                     root.check("Shift+Up or click marks range", win.marks.length, wanted)
                 } else if (scenario === "folder") {
-                    root.check("Enter walks into cursor folder", win.path.slice(-9), "/z-folder")
+                    root.check("Enter walks into cursor folder", win.path.endsWith(root.folderSuffix), true)
                     root.check("folder navigation does not answer", win.answered, false)
                 } else if (scenario === "range" || scenario === "range-burst" || scenario === "range-shrink") {
                     var stride = win.viewMode === "grid" ? win.viewItem().columns : 1
