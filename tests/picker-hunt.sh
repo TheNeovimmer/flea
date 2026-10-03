@@ -109,6 +109,7 @@ PY
             printf 'FAIL picker phase %s %s %s exit=%s\n' "${preset:-default}" "$view" "$scenario" "$code"
             failures=$((failures+1))
         elif grep -q 'PICKER_HUNT FAIL' <<< "$output"; then
+            printf 'FAIL picker phase %s %s %s reported failed checks\n' "$preset" "$view" "$scenario"
             failures=$((failures+1))
         elif [[ "$scenario" = cursor-* || "$scenario" = marked-* || "$scenario" = refuse-* && "$scenario" != refuse-collision ]]; then
             if ! python3 - "$phase/reply.json" "$fixture" "$scenario" <<'PY'

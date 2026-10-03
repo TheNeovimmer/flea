@@ -7,6 +7,9 @@ Item {
     property int checks: 0
     property int failures: 0
     readonly property int regularFileMode: 33188
+    readonly property int testPathsDeadlineMs: 1
+    readonly property int deadlineObservationMs: 50
+    property int expiredPathsRequest: 0
     property var requests: []
     property var indices: []
     function check(label, got, want) {
@@ -19,7 +22,11 @@ Item {
     function reply(names, removed) {
         selection.received({ok: true, marks: paths(names).map(function(path) { return {path: path, bytes: 1} }), removed: removed || 0})
     }
-    function deliver(names) { backend.paths(paths(names)) }
+    function deliverPaths(values, request) {
+        backend.paths(values)
+        listing.pathsResolved(values, request === undefined ? listing.pathRequest : request)
+    }
+    function deliver(names) { deliverPaths(paths(names)) }
     function settleQueued() {
         check("queued selection reaches paths reply", picker.markRequest, -1)
         if (picker.markRequest !== -1) return []
@@ -45,6 +52,9 @@ Item {
         picker.markRequest = 0
         picker.marks = []
         picker.marksDirty = false
+        picker.acceptMarks = false
+        picker.message = ""
+        picker.messageError = false
         requests = []
     }
     QtObject {
@@ -62,17 +72,24 @@ Item {
         property string path: "/virtual"
         property int shownTotal: 5
         property string message: ""
+        property bool messageError: false
         function rowFor(index) { return {n: String.fromCharCode(65 + index), mode: root.regularFileMode} }
         function check(request) { root.requests = root.requests.concat([request]); return root.requests.length }
-        function say(text) { message = text }
+        function say(text, error) {
+            message = text
+            messageError = error === true
+        }
         function finish() { root.check("validation removal never accepts", true, false) }
     }
     QtObject {
         id: listing
         property bool running: true
-        function paths(indices) {
+        property int pathRequest: 0
+        signal pathsResolved(var paths, int request)
+        function paths(indices, request) {
             if (!running) return false
             root.indices = indices
+            pathRequest = request || 0
             return true
         }
     }
@@ -169,16 +186,84 @@ Item {
         picker.path = "/b"
         picker.shownTotal = 2
         selection.all()
-        backend.paths(["/b/first", "/b/second"])
+        deliverPaths(["/b/first", "/b/second"])
         var desired = ["/a/held", "/b/first", "/b/second"]
         check("F24 Ctrl+A in b preserves marks from a", requests[0].paths, desired)
         selection.received({ok: true, marks: requests[0].paths.map(function(path) { return {path: path, bytes: 1} })})
         selection.all()
-        backend.paths(["/b/first", "/b/second"])
+        deliverPaths(["/b/first", "/b/second"])
         check("F24 repeated Ctrl+A sends unchanged desired set", requests[1].paths, desired)
         selection.received({ok: true, marks: requests[1].paths.map(function(path) { return {path: path, bytes: 1} })})
         check("F24 repeated Ctrl+A keeps unchanged marks", picker.marks.map(function(mark) { return mark.path }), desired)
-        console.log("picker-selection QML: " + checks + " checks, " + failures + " failed")
-        Qt.exit(failures ? 1 : 0)
+
+        reset()
+        picker.marks = [{path: "/a/stale", bytes: 1}]
+        selection.all()
+        deliverPaths(["/b/first", "/b/second"])
+        check("F34 refused select includes retained identity", requests[0].paths, ["/a/stale", "/b/first", "/b/second"])
+        var refusal = "Selected item changed; select it again."
+        selection.received({op: "select", ok: false, error: refusal})
+        check("F34 refused select asks exactly one validation", requests.length, 2)
+        check("F34 refused select asks validation of retained marks", requests.length > 1 ? requests[1].op : "", "validate")
+        check("F34 refused select keeps standing message", picker.message, refusal)
+        if (requests.length > 1) {
+            selection.received({op: "validate", ok: true, marks: [], removed: 1})
+            check("F34 validation removes stale identity", picker.marks, [])
+            check("F34 validation preserves refusal message", picker.message, refusal)
+            check("F34 validation does not ask again", requests.length, 2)
+            selection.all()
+            deliverPaths(["/b/first", "/b/second"])
+            check("F34 retry selects without stale identity", requests[2].paths, ["/b/first", "/b/second"])
+            selection.received({op: "select", ok: true, marks: [{path: "/b/first", bytes: 1}, {path: "/b/second", bytes: 1}]})
+            check("F34 retry leaves requested marks", picker.marks.map(function(mark) { return mark.path }), ["/b/first", "/b/second"])
+        }
+
+        reset()
+        picker.marks = [{path: "/a/stale", bytes: 1}]
+        selection.all()
+        deliverPaths(["/b/first"])
+        selection.received({op: "select", ok: false, error: refusal})
+        var validations = requests.length
+        selection.received({op: "validate", ok: false, error: "The picker check stopped; reopen this request."})
+        check("F34 refused validation never asks again", requests.length, validations)
+        check("F34 refused validation clears guard", picker.markRequest, 0)
+
+        reset()
+        var timers = selection.data.filter(function(child) { return child.objectName === "selectionPathsDeadline" })
+        if (timers.length) timers[0].interval = testPathsDeadlineMs
+        selection.all()
+        expiredPathsRequest = listing.pathRequest
+        selection.range(0, 1)
+        check("F33 stalled paths queues later selection", selection.queued.length, 1)
+        deadlineObservation.start()
+    }
+    Timer {
+        id: deadlineObservation
+        interval: root.deadlineObservationMs
+        onTriggered: {
+            root.check("F33 stalled paths resets sentinel", picker.markRequest, 0)
+            root.check("F33 stalled paths clears pending", selection.pending, null)
+            root.check("F33 stalled paths clears queue", selection.queued, [])
+            var refusal = "The listing backend did not answer the selection request; try again."
+            root.check("F33 stalled paths names visible refusal", picker.message, refusal)
+            root.check("F33 stalled paths keeps error visible", picker.messageError, true)
+            root.deliverPaths(["/b/late"], root.expiredPathsRequest)
+            root.check("F33 late reply sends no check", root.requests.length, 0)
+            root.check("F33 late reply leaves marks", picker.marks, [])
+            root.check("F33 late reply leaves message", picker.message, refusal)
+
+            root.reset()
+            selection.all()
+            root.deliverPaths(["/b/late"], root.expiredPathsRequest)
+            root.check("F33 expired reply cannot complete retry", picker.markRequest, -1)
+            root.check("F33 expired reply during retry sends no check", root.requests.length, 0)
+            root.deliverPaths(["/b/fresh"])
+            root.check("F33 fresh reply starts one check", root.requests.length, 1)
+            root.check("F33 fresh reply selects requested path", root.requests.length ? root.requests[0].paths : [], ["/b/fresh"])
+            selection.received({op: "select", ok: true, marks: [{path: "/b/fresh", bytes: 1}]})
+            root.check("F33 fresh reply completes retry", picker.markRequest, 0)
+            console.log("picker-selection QML: " + root.checks + " checks, " + root.failures + " failed")
+            Qt.exit(root.failures ? 1 : 0)
+        }
     }
 }

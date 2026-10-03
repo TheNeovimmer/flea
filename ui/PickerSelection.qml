@@ -13,6 +13,9 @@ Item {
     property int last: -1
     property var pending: null
     property var queued: []
+    property bool recoveringSelect: false
+    property int nextPathsRequest: 0
+    readonly property int pathsDeadlineMs: 5000
 
     function endRange() { rangeState = null }
     function reset() {
@@ -56,9 +59,9 @@ Item {
             queued = queued.concat([{indices: indices, range: range}])
             return
         }
-        pending = {range: range}
+        pending = {range: range, request: ++nextPathsRequest}
         picker.markRequest = -1
-        if (!listing.paths(indices)) {
+        if (!listing.paths(indices, pending.request)) {
             reset()
             picker.say("The listing backend is not running; reopen this folder.", true)
         }
@@ -73,10 +76,16 @@ Item {
         picker.markRequest = 0
         var accepting = picker.acceptMarks
         picker.acceptMarks = false
+        var recovering = recoveringSelect
+        recoveringSelect = false
         if (!message.ok) {
             endRange()
             queued = []
             picker.say(message.error, true)
+            if (message.op === "select") {
+                validate(false)
+                recoveringSelect = picker.markRequest > 0
+            }
             return
         }
         picker.marks = Picker.reviewedMarks(picker.marks, message.marks)
@@ -89,7 +98,7 @@ Item {
                     range.base = range.base.filter(function(path) { return surviving.indexOf(path) >= 0 })
             }
         }
-        if (message.removed) picker.say(message.removed === 1
+        if (message.removed && !recovering) picker.say(message.removed === 1
             ? "1 selected item moved or changed; select it again."
             : message.removed + " selected items moved or changed; select them again.", true)
         else if (message.skipped && message.skipped.length) {
@@ -107,10 +116,19 @@ Item {
         }
         if (picker.marksDirty) { picker.marksDirty = false; validate(false) }
     }
+    Timer {
+        objectName: "selectionPathsDeadline"
+        interval: root.pathsDeadlineMs
+        running: root.pending !== null && root.picker.markRequest === -1
+        onTriggered: {
+            root.reset()
+            root.picker.say("The listing backend did not answer the selection request; try again.", true)
+        }
+    }
     Connections {
-        target: root.backend
-        function onPaths(paths) {
-            if (root.pending === null || root.picker.markRequest !== -1) return
+        target: root.listing
+        function onPathsResolved(paths, request) {
+            if (root.pending === null || root.picker.markRequest !== -1 || request !== root.pending.request) return
             var range = root.pending.range
             if (range && range.base === null) range.base = Picker.paths(root.picker.marks)
             var desired = (range ? range.base : Picker.paths(root.picker.marks)).concat(paths)

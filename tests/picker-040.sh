@@ -48,6 +48,7 @@ PY
             printf 'FAIL picker phase %s %s %s exit=%s\n' "${preset:-default}" "$view" "$scenario" "$code"
             failures=$((failures+1))
         elif grep -q 'PICKER_HUNT FAIL' <<< "$output"; then
+            printf 'FAIL picker phase %s %s %s reported failed checks\n' "$preset" "$view" "$scenario"
             failures=$((failures+1))
         elif ! grep -q 'PICKER_HUNT DONE.*0 failed' <<< "$output"; then
             echo 'FAIL picker hunt did not reach a clean verdict'

@@ -226,4 +226,37 @@ function run(check) {
         winSrc.indexOf("Picker.windowSize(list.visibleRows, grid.visibleTileRows, grid.columns)") >= 0, true)
     check("a view switch reshows the grid", winSrc.indexOf('if (next === "grid") grid.reshow(') >= 0, true)
     check("and the list", winSrc.indexOf("else list.reshow(") >= 0, true)
+
+    // Sample input: function paths(rows, request) queues local tokens before writing protocol requests.
+    var listingSrc = Source.source("ui/PickerListing.qml")
+    var pathsSrc = Source.slice(listingSrc, "    function paths(rows", "    // Storage class")
+    var requestPaths = new Function("current", "quitting", "rows", "request",
+        pathsSrc.slice(pathsSrc.indexOf("{") + 1, pathsSrc.lastIndexOf("}")))
+    var worker = {running: true, obsolete: false, pathRequests: [], writes: [],
+        write: function(line) { this.writes.push(JSON.parse(line)) }}
+    check("F33 first paths request starts", requestPaths(worker, false, [0], 1), true)
+    check("F33 retry paths request starts", requestPaths(worker, false, [1], 2), true)
+    check("F33 worker retains reply tokens in order", JSON.stringify(worker.pathRequests), "[1,2]")
+    check("F33 local tokens do not change backend protocol", JSON.stringify(worker.writes),
+        '[{"c":"paths","rows":[0]},{"c":"paths","rows":[1]}]')
+    // Sample input: onRead receives {"t":"paths","paths":["/b/late"]} before the retry's paths reply.
+    var parserMarker = "                onRead: function(line) {"
+    var parserSrc = Source.slice(listingSrc, parserMarker, "                }\n            }\n            onExited:")
+    var readReply = new Function("root", "process", "line", parserSrc.slice(parserMarker.length))
+    var listing = {current: worker, quitting: false, replies: [], messages: [],
+        pathsResolved: function(paths, request) { this.replies.push([request, paths]) },
+        message: function(message) { this.messages.push(message) },
+        failed: function(reason) { throw new Error(reason) }}
+    readReply(listing, worker, '{"t":"paths","paths":["/b/late"]}')
+    readReply(listing, worker, '{"t":"paths","paths":["/b/fresh"]}')
+    check("F33 late and fresh replies keep their own tokens", JSON.stringify(listing.replies),
+        '[[1,["/b/late"]],[2,["/b/fresh"]]]')
+    readReply(listing, worker, '{"t":"paths","paths":["/b/unsolicited"]}')
+    check("F33 unsolicited reply gets no selection token", listing.replies.length, 2)
+    readReply(listing, worker, '{"t":"listed","n":2}')
+    check("F33 other listing messages still forward", JSON.stringify(listing.messages), '[{"t":"listed","n":2}]')
+    worker.obsolete = true
+    readReply(listing, worker, '{"t":"paths","paths":["/b/obsolete"]}')
+    check("F33 obsolete worker forwards nothing", listing.replies.length, 2)
+    check("F33 obsolete worker accepts no paths request", requestPaths(worker, false, [0], 3), false)
 }

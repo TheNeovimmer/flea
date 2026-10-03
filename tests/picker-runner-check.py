@@ -31,14 +31,18 @@ for name in ["picker-hunt", "picker-040"]:
     with tempfile.TemporaryDirectory(prefix="picker-runner-check-") as scratch:
         phase = Path(scratch)
         (phase / "reply.json").write_text('{"response":0,"uris":["file://' + scratch + '/a.txt"]}')
-        for fault in ["timeout", "crash", "sigpipe", "clean-noisy"]:
+        for fault in ["timeout", "crash", "sigpipe", "missing-done", "clean-noisy"]:
             producer = "print('PICKER_HUNT DONE 1 checks, 0 failed', flush=True)"
             if fault == "timeout":
                 command = ["timeout", TIMEOUT_SECONDS, "python3", "-c", "import time; " + producer + "; time.sleep(" + str(PRODUCER_SLEEP_SECONDS) + ")"]
             elif fault == "crash":
                 command = ["python3", "-c", producer + "; raise SystemExit(139)"]
             else:
-                prefix = "PICKER_HUNT FAIL injected\n" if fault == "sigpipe" else "PICKER_HUNT DONE 1 checks, 0 failed\n"
+                prefix = "PICKER_HUNT DONE 1 checks, 0 failed\n"
+                if fault == "sigpipe":
+                    prefix = "PICKER_HUNT FAIL injected\n" + prefix
+                elif fault == "missing-done":
+                    prefix = ""
                 command = ["python3", "-c", "import sys; sys.stdout.write(" + repr(prefix) + " + 'x' * " + str(NOISY_LOG_BYTES) + ")"]
             result = subprocess.run(command, capture_output=True, text=True, check=False)
             (phase / "output").write_text(result.stdout)
@@ -56,6 +60,8 @@ output=$(cat "$phase/output")
 [ "$failures" -eq 0 ]
 '''
             scenarios = ["cursor-open", "all"] if name == "picker-hunt" and fault == "clean-noisy" else ["cursor-open" if name == "picker-hunt" else "path"]
+            if name == "picker-hunt" and fault in ["sigpipe", "missing-done"]:
+                scenarios = ["all"]
             for scenario in scenarios:
                 verdict = subprocess.run(["bash", "-c", script, "check", scratch,
                                           scenario, str(result.returncode), name],
@@ -63,6 +69,10 @@ output=$(cat "$phase/output")
                 rejected = verdict.returncode != 0
                 wanted = fault != "clean-noisy"
                 status_line = fault not in ["timeout", "crash"] or ("FAIL " in verdict.stdout and "exit=" + str(result.returncode) in verdict.stdout)
+                if fault == "sigpipe":
+                    status_line = "FAIL picker phase default list " + scenario + " reported failed checks" in verdict.stdout
+                elif fault == "missing-done":
+                    status_line = "FAIL picker hunt did not reach a clean verdict" in verdict.stdout
                 checks += 1
                 ok = rejected == wanted and status_line
                 failures += not ok
