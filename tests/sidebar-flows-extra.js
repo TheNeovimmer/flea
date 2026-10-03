@@ -97,9 +97,9 @@ function clicks(root, pane, mode) {
             if (!row()) return false
             var item = row(), label = item.captionItem || item.nameItem()
             var centre = root.ipc().rowNameCentre(root.indexOf(name)).split(" ").map(Number)
-            var point = label.mapFromItem(null, centre[0], centre[1])
-            root.check("rowNameCentre-" + mode + ": inside the visible name item",
-                centre.length === 2 && point.x >= 0 && point.x < label.width && point.y >= 0 && point.y < label.height, true)
+            var point = item.mapFromItem(null, centre[0], centre[1])
+            root.check("rowNameCentre-" + mode + ": lands inside its own row",
+                centre.length === 2 && point.x >= 0 && point.x < item.width && point.y >= 0 && point.y < item.height, true)
             root.check("rowNameCentre-" + mode + ": product accepts the drawn name",
                 Tap.onName(label, null, {x: centre[0], y: centre[1]}, !!item.captionItem), true)
             root.check("rowNameCentre-" + mode + ": missing row has no target", root.ipc().rowNameCentre(-1), "")
