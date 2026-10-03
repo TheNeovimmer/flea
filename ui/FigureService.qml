@@ -38,6 +38,9 @@ Item {
     readonly property var helperPid: helper.processId
     // The deadline timer stops between tickets so an idle session wakes for nothing.
     readonly property bool deadlineRunning: deadlineTimer.running
+    // The suite observes actual exit and deadline events without timing their answers.
+    property int helperExits: 0
+    property int deadlineExpirations: 0
 
     // Mirrors FigureWorker.cacheKey, including the display mode that changes formula layout.
     function cacheKeyOf(kind, source, t, display) {
@@ -95,6 +98,7 @@ Item {
         }
 
         onExited: function (exitCode, exitStatus) {
+            root.helperExits++;
             root.starting = false;
             root.stopping = true;
             var error = "figure engine exited " + exitCode + " (status " + exitStatus + ")";
@@ -118,6 +122,7 @@ Item {
             for (var id in root.waiting) {
                 var asked = root.waiting[id];
                 if (asked !== undefined && now > asked.deadline) {
+                    root.deadlineExpirations++;
                     if (asked.generation === 0) {
                         delete root.waiting[id];
                         root.pending = root.pending.filter(function (ticket) { return ticket !== Number(id); });

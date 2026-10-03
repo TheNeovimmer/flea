@@ -3,6 +3,7 @@
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
+export FLEA_UI="${FLEA_UI:-$PWD/ui}"
 
 fleabin="$PWD/target/debug/flea"
 [ -x "$fleabin" ] || {
@@ -209,13 +210,16 @@ node "$test_root/identity.mjs" "$test_root/node-theme.json" "$test_root/node-act
     echo "markdown-figures.sh: FAIL node could not render"
     exit 1
 }
-python3 - "$test_root/node-expected.json" "$test_root/node-actual.json" <<'EOF'
+python3 - "$test_root/node-expected.json" "$test_root/node-actual.json" <<'EOF' || {
 import json, sys
 want = json.load(open(sys.argv[1]))
 got = json.load(open(sys.argv[2]))
 assert want == got, "qjs and node disagree on rendered bytes"
 print("PASS qjs renders the bundles byte-identical to node")
 EOF
+    echo "markdown-figures.sh: FAIL qjs and node disagree on rendered bytes"
+    exit 1
+}
 
 else
     echo "markdown-figures.sh: SKIP node is absent, so the byte-identity check did not run"
@@ -232,6 +236,7 @@ ln -s "$PWD/ui" "$test_root/qsconfig/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/qsconfig/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/qsconfig/Ui" || exit 1
 cp tests/markdown-figures.qml "$test_root/qsconfig/shell.qml" || exit 1
+cp -R tests/figure-memory "$test_root/qsconfig/figure-memory" || exit 1
 # The hang must outlive the service render deadline without becoming unbounded.
 HANG_SECONDS=30
 mkdir -p "$test_root/stubbin" || exit 1
@@ -314,6 +319,11 @@ printf '%s\n' "$fig_peak" | grep -q 'rss_peak_kb=[0-9]' || {
     echo "markdown-figures.sh: FAIL no FIGHELPER peak line"
     verdict=1
 }
+if [ -n "$(fig_val before)" ] && [ "$(fig_val before)" = "$(fig_val formulas)" ] \
+    && [ "$(fig_val before)" = "$(fig_val diagrams)" ]; then
+    echo "markdown-figures.sh: FAIL the PSS reader is stale: before, formulas and diagrams are equal to the kB"
+    verdict=1
+fi
 if [ -n "$(fig_val before)" ] && [ -n "$(fig_val formulas)" ]; then
     [ "$(fig_val formulas)" -le "$(( $(fig_val before) + FIG_PSS_BUDGET_KB ))" ] || {
     echo "markdown-figures.sh: FAIL formulas PSS exceeds before by more than $FIG_PSS_BUDGET_KB kB"

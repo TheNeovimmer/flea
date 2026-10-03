@@ -8,11 +8,7 @@ cd "$(dirname "$0")" || exit 1
 [ -f package.json ] || { echo "vendor-js: no package.json beside this script"; exit 1; }
 npm ci || exit 1
 
-# One exact command per bundle. Flags: --bundle (single file), --format=esm
-# (the helper imports it), --platform=neutral (no node shims; the helper
-# runs under quickjs-ng, not node), --target=es2017 (the pinned build target),
-# --minify (the shipped files are minified). Entry files name the export
-# surface: texToSvg(source, display) and mermaidToSvg(source, bg, fg).
+# Bundles use one exact command each: minified ES modules for quickjs-ng, neutral platform, es2017.
 npx esbuild math-entry.mjs --bundle --format=esm --platform=neutral --target=es2017 --minify --outfile=math-bundle.mjs || exit 1
 npx esbuild mermaid-entry.mjs --bundle --format=esm --platform=neutral --target=es2017 --minify --outfile=mermaid-bundle.mjs || exit 1
 

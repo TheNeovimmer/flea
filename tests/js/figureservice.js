@@ -39,6 +39,7 @@ function service() {
     var source = Source.source("ui/FigureService.qml")
     var fake = { now: 0, deferred: [], answers: [], writes: [], kills: [], starts: 0 }
     var root = { available: true, starting: false, stopping: false, generation: 0,
+        helperExits: 0, deadlineExpirations: 0,
         seq: 0, sends: 0, workerAnswers: 0, cacheMax: 64, renderMs: 1000,
         waiting: {}, answerCache: {}, answerOrder: [], pending: [] }
     root.done = function (id, svg, error) { fake.answers.push({ id: id, svg: svg, error: error }) }
@@ -57,6 +58,7 @@ function service() {
         return new Function("root", "helper", "deadlineTimer", "idleTimer", "Qt", "Date",
             "return function (" + args + ") {" + body + "}")(root, helper, deadlineTimer, idleTimer, Qt, Date)
     }
+    // Sample input: function cacheKeyOf(kind, source, t, display) {
     var functions = /\bfunction (\w+)\(([^)]*)\)\s*\{/g
     var match
     while ((match = functions.exec(source)) !== null)
@@ -92,25 +94,51 @@ function theme() {
 
 function run(check) {
     var harness = Source.source("tests/markdown-figures.qml")
-    function idleProbe(running) {
-        var shell = { awaitSource: "fresh", afterAwait: 5, step: 4, t0: 0,
+    function idleProbe(running, exits) {
+        var shell = { awaitSource: "fresh", afterAwait: 5, step: 4, helperExitsMark: 0,
             idleExitWaitStart: 0, idleExitBoundMs: 5000, awaitTimerStop: false,
+            idleExitWait: { stop: function () {} },
             results: [], asked: [], finished: [],
             check: function (passed) { this.results.push(passed) },
             askFresh: function (source) { this.asked.push(source) },
             finish: function (status) { this.finished.push(status) } }
-        var Flea = { FigureService: { helperRunning: running } }
-        var Date = { now: function () { return shell.idleExitBoundMs + 1 } }
+        var Flea = { FigureService: { helperRunning: running, helperExits: exits } }
+        var Date = { now: function () { return 0 } }
         new Function("shell", "Flea", "Date", block(harness, "function drive()"))(shell, Flea, Date)
         return shell
     }
-    var idle = idleProbe(false)
-    check("idle harness observes the helper exit before judging elapsed time", idle.results[0], true)
+    var idle = idleProbe(false, 1)
+    check("idle harness observes the helper exit event", idle.results[0], true)
     check("observed idle exit allows the next ask", idle.asked.length, 1)
-    idle = idleProbe(true)
-    check("idle harness fails a helper still running past its wait bound", idle.results[0], false)
-    check("idle wait failure ends the harness immediately", idle.finished.length, 1)
-    check("idle wait failure sends no new request", idle.asked.length, 0)
+    idle = idleProbe(false, 0)
+    check("running false without an exit event does not advance the idle phase", idle.asked.length, 0)
+    var hasWaitEvent = harness.indexOf("function idleWaitExpired()") >= 0
+    check("idle wait failure is driven by its timer event", hasWaitEvent, true)
+    if (hasWaitEvent) {
+        idle = idleProbe(true, 0)
+        var Flea = { FigureService: { helperRunning: true, helperExits: 0 } }
+        new Function("shell", "Flea", block(harness, "function idleWaitExpired()"))(idle, Flea)
+        check("idle wait event fails a helper with no observed exit", idle.results[0], false)
+        check("idle wait failure ends the harness immediately", idle.finished.length, 1)
+        check("idle wait failure sends no new request", idle.asked.length, 0)
+    }
+    function exitProbe(deadlines, exits) {
+        var shell = { ticket: 1, step: 14, renderDeadlineMark: 0, helperExitsMark: 0,
+            exitAskedAt: 0, exitAnswerBoundMs: 2000, results: [],
+            check: function (passed) { this.results.push(passed) },
+            writePhase: function () {} }
+        var Flea = { FigureService: { available: true, deadlineExpirations: deadlines, helperExits: exits } }
+        var Date = { now: function () { return 0 } }
+        new Function("shell", "Flea", "Date", "ticket", "svg", "error", block(harness, "else if (shell.step === 14)"))(
+            shell, Flea, Date, 1, "", "figure engine exited 42 (status 0)")
+        return shell.results
+    }
+    var exitChecks = exitProbe(1, 0)
+    check("exit harness rejects a deadline event even when the clock reads zero", exitChecks[1], false)
+    check("exit harness rejects an answer without the helper exit event", exitChecks[2], false)
+    exitChecks = exitProbe(0, 1)
+    check("exit harness accepts an answer before the deadline event", exitChecks[1], true)
+    check("exit harness accepts the observed helper exit", exitChecks[2], true)
 
     var deadlineMs = 1000
     var staggerMs = 100

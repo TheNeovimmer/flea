@@ -13,6 +13,8 @@ var DEFAULT_BODY_PX = 16;
 var EX_BODY_FRACTION = 0.5;
 // Keep converted SVG dimensions to two decimal places.
 var PX_ROUNDING_FACTOR = 100;
+// CSS color-mix stops express each share as a percentage.
+const PERCENT_SCALE = 100;
 
 export function themeKey(t) {
     return [t.bg, t.fg, t.accent || "", t.muted || "", t.line || "", t.surface || "",
@@ -115,7 +117,7 @@ function parseMix(inner, table, depth, trail) {
     var stops = args.slice(1).map(function (a) {
         var m = a.match(/^(.*?)\s+([\d.]+)%\s*$/);
         if (m)
-            return [resolveValue(m[1].trim(), table, depth + 1, trail), parseFloat(m[2]) / 100];
+            return [resolveValue(m[1].trim(), table, depth + 1, trail), parseFloat(m[2]) / PERCENT_SCALE];
         return [resolveValue(a, table, depth + 1, trail), -1];
     });
     var named = stops.filter(function (s) { return s[1] >= 0; });

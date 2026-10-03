@@ -78,6 +78,75 @@ exit 127
         return subprocess.run(["/bin/bash", "-uc", body], cwd=tree, env=env,
                               capture_output=True, text=True, timeout=FRAGMENT_BOUND_SECONDS)
 
+    ui_setup = section('cd "$(dirname "$0")/.." || exit 1\n', '\nfleabin=')
+    exported_ui = '\n/bin/sh -c \'printf "%s\\n" "$FLEA_UI"\''
+    result = run(ui_setup + exported_ui, FLEA_UI="")
+    check(result.returncode == 0 and result.stdout.strip() == str(tree / "ui"),
+          "PSS fix suite exports the candidate UI by default")
+    chosen_ui = str(box / "caller-ui")
+    result = run(ui_setup + exported_ui, FLEA_UI=chosen_ui)
+    check(result.returncode == 0 and result.stdout.strip() == chosen_ui,
+          "PSS fix suite preserves the caller's UI override")
+
+    start_binary = box / "start-flea"
+    captured_ui = box / "captured-ui"
+    # Larger than the startup check's bounded diagnostic excerpt.
+    DIAGNOSTIC_FIXTURE_CHARS = 8192
+    start_binary.write_text(f'''#!{sys.executable}
+import os, pathlib, sys, time
+pathlib.Path({str(captured_ui)!r}).write_text(os.environ.get("FLEA_UI", ""))
+print("helper stdout cause", flush=True)
+print("helper stderr cause", file=sys.stderr, flush=True)
+if os.environ.get("FIG_START_MODE") == "hang":
+    time.sleep({FRAGMENT_BOUND_SECONDS})
+print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDOUT_TAIL")
+print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDERR_TAIL", file=sys.stderr)
+''')
+    start_binary.chmod(0o755)
+    def startup(ui=None, mode="failed"):
+        env = dict(os.environ, FIG_START_MODE=mode)
+        if ui is None:
+            env.pop("FLEA_UI", None)
+        else:
+            env["FLEA_UI"] = ui
+        return subprocess.run([sys.executable, str(tree / "tests/figure-helper-start.py"), str(start_binary)],
+                              cwd=tree, env=env, capture_output=True,
+                              text=True, timeout=FRAGMENT_BOUND_SECONDS)
+    result = startup()
+    check(captured_ui.read_text() == str(tree / "ui"),
+          "PSS fix helper startup exports the candidate UI by default")
+    check(result.returncode != 0 and "helper stdout cause" in result.stdout
+          and "helper stderr cause" in result.stdout,
+          "PSS fix failed startup prints captured stdout and stderr")
+    check("UNBOUNDED_STDOUT_TAIL" not in result.stdout and "UNBOUNDED_STDERR_TAIL" not in result.stdout,
+          "PSS fix startup diagnostic excerpts stay bounded")
+    startup(chosen_ui)
+    check(captured_ui.read_text() == chosen_ui,
+          "PSS fix helper startup preserves the caller's UI override")
+    result = startup(mode="hang")
+    check(result.returncode != 0 and "FAIL helper did not exit within" in result.stdout
+          and "helper stdout cause" in result.stdout and "helper stderr cause" in result.stdout,
+          "PSS fix startup timeout reports its bound and both captured streams")
+
+    pss_checks = '# The GUI memory claim:' + section('# The GUI memory claim:', '\nprintf \'MARKDOWN_FIGURES %s')
+    def memory_samples(before, formulas, diagrams):
+        output = "\n".join(f"MARKDOWN_FIGURES FIGPSS phase={phase} pss_kb={value}"
+                           for phase, value in (("before", before), ("formulas", formulas),
+                                                ("diagrams", diagrams), ("idle", before)))
+        output += "\nMARKDOWN_FIGURES FIGHELPER rss_peak_kb=41140"
+        return run(pss_checks, output=output, verdict="0")
+    result = memory_samples(52877, 52877, 52877)
+    check(result.returncode != 0 and "reader is stale" in result.stdout,
+          "PSS fix identical render-phase samples fail as a stale reader")
+    result = memory_samples(52877, 52878, 52879)
+    check(result.returncode == 0, "PSS fix fresh render-phase samples within budget pass")
+    result = memory_samples(52877, 63118, 52879)
+    check(result.returncode != 0 and "FAIL formulas PSS exceeds before" in result.stdout,
+          "PSS fix fresh formula samples still enforce the existing budget")
+    result = memory_samples(52877, 52878, 63118)
+    check(result.returncode != 0 and "FAIL diagrams PSS exceeds before" in result.stdout,
+          "PSS fix fresh diagram samples still enforce the existing budget")
+
     refusal = section("# A missing engine", "# Byte identity")
     for mode in ("silent", "wrong"):
         result = run(refusal, mode)
@@ -139,6 +208,21 @@ for line in sys.stdin:
           "F5 rejects a duplicate reply alongside all expected ids")
 
     byte_phase = section("# Byte identity", "# FigureService")
+    identity_check = 'python3 - "$test_root/node-expected.json"' + section(
+        'python3 - "$test_root/node-expected.json"', "\nelse\n")
+    expected = box / "node-expected.json"
+    actual = box / "node-actual.json"
+    expected.write_text('{"frac":"<svg/>"}')
+    actual.write_text('{"frac":"<svg!>"}')
+    result = run(identity_check + '\nprintf "later suite verdict reached\\n"\n')
+    check(result.returncode != 0 and "later suite verdict reached" not in result.stdout,
+          "mx2a F12 one changed rendered byte fails the suite")
+    check("markdown-figures.sh: FAIL qjs and node disagree on rendered bytes" in result.stdout,
+          "mx2a F12 byte mismatch names the failed comparison")
+    actual.write_text(expected.read_text())
+    result = run(identity_check)
+    check(result.returncode == 0 and "PASS qjs renders" in result.stdout,
+          "mx2a F12 identical rendered bytes pass")
     result = run(byte_phase + '\nprintf "service phase reached\\n"\n', PATH=str(tools))
     check(result.returncode == 0 and "SKIP node is absent" in result.stdout and "service phase reached" in result.stdout,
           "F11 no-node skip continues to the service and PSS phase")
@@ -162,6 +246,29 @@ check(not re.search(r"(?m)^#[^\n]*\n#", script[script.index("\n") + 1:]), "F7 sh
 check("depth > 12" not in worker and "/ 2;" not in worker and "* 100) / 100" not in worker,
       "F12 resolver and ex conversion policy numbers have names")
 qml = (tree / "tests/markdown-figures.qml").read_text()
+check("Date.now()" not in qml and "maxGap" not in qml,
+      "mx2a F13 / mx2b F4 QML verdicts use events instead of elapsed time")
+service_test = (tree / "tests/js/figureservice.js").read_text()
+declaration = "function cacheKeyOf(kind, source, t, display) {"
+regex_before = service_test.split("    var functions =", 1)[0].splitlines()[-1]
+check("Sample input:" in regex_before and declaration in regex_before,
+      "mx2a F14 declaration parser quotes a real service declaration")
+start_test = (tree / "tests/figure-helper-start.py").read_text()
+check("timeout=HELPER_EXIT_BOUND_SECONDS" in start_test
+      and "# A helper that never exits fails the check instead of hanging the suite.\nHELPER_EXIT_BOUND_SECONDS = 5" in start_test,
+      "mx2a F16 / mx2b F15 helper startup has a named termination bound")
+build = (tree / "tools/vendor-js/build.sh").read_text()
+agents = (tree / "AGENTS.md").read_text()
+headless_contract = agents.split("The suites that drive the debug binary", 1)[1].split("Its own `headless=`", 1)[0]
+check("needs nothing but a shell" not in headless_contract
+      and all(word in headless_contract for word in ("no display, session or hardware", "python3", "Qt", "Quickshell", "quickjs-ng", "refuse loudly", "naming")),
+      "mx2b F8 headless contract names its tools and missing-tool refusal")
+constraint = build.split("npx esbuild", 1)[0].split("npm ci || exit 1", 1)[1].strip().splitlines()
+check(len(constraint) == 1 and len(constraint[0]) <= 140
+      and all(word in constraint[0] for word in ("quickjs-ng", "ES modules", "neutral", "es2017", "minified", "exact command")),
+      "mx2b F7 bundle constraint fits one comment line")
+check("const PERCENT_SCALE = 100;" in worker and "parseFloat(m[2]) / PERCENT_SCALE" in worker,
+      "mx2b F12 color-mix percentage conversion uses its named scale")
 check("shell.t0 < 5000" not in qml and "shell.maxGap < 2000" not in qml,
       "F12 idle-exit and tick-gap bounds have names")
 for marker in ("function parseMix", "function resolveValue", "function inlineClasses", "    svg.replace(/<style>"):

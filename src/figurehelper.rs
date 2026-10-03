@@ -70,8 +70,13 @@ pub fn resolve_with(sandbox_ok: bool, qjs: &Path, ui: Option<&Path>) -> Result<V
         return Err(String::from("the figure helper is missing from the UI tree"));
     };
     let vendor = root.join("vendor");
-    if !vendor.join(HELPER_NAME).is_file() || !root.join("js").join(WORKER_NAME).is_file() {
-        return Err(String::from("the figure helper is missing from the UI tree"));
+    let helper = vendor.join(HELPER_NAME);
+    if !helper.is_file() {
+        return Err(format!("the figure helper is missing at {}", helper.display()));
+    }
+    let worker = root.join("js").join(WORKER_NAME);
+    if !worker.is_file() {
+        return Err(format!("the figure worker module is missing at {}", worker.display()));
     }
     Ok(figure_argv(qjs, &vendor))
 }
@@ -148,7 +153,7 @@ mod tests {
         std::fs::write(dir.path().join("qjs"), "#!/bin/sh\n").expect("test engine file");
         let err = resolve_with(true, &dir.path().join("qjs"), Some(dir.path()))
             .expect_err("a missing helper file must refuse");
-        assert!(err.contains("UI tree"), "a missing helper must be named: {err}");
+        assert_eq!(err, format!("the figure helper is missing at {}", dir.path().join("vendor").join(HELPER_NAME).display()));
     }
 
     #[test]
@@ -156,7 +161,7 @@ mod tests {
         let dir = ui_tree("figure-worker-missing", true);
         let err = resolve_with(true, Path::new("/bin/true"), Some(dir.path()))
             .expect_err("a missing worker file must refuse");
-        assert!(err.contains("UI tree"), "a missing worker must be named: {err}");
+        assert_eq!(err, format!("the figure worker module is missing at {}", dir.path().join("js").join(WORKER_NAME).display()));
     }
 
     #[test]

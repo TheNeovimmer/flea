@@ -3240,7 +3240,10 @@ waits for its consumer.
   commit's binary"**, which is the defect `39e1737` and `8eec5fc` were both written to close, so the
   unconditional build is the contract and the per-suite `-x` guards exist only for a suite invoked
   directly. The suites that drive the debug binary use `target/debug/flea` and `thumbs.sh` the release one. It runs every suite that
-  needs nothing but a shell, and reads each suite's OWN exit code, never a pipeline's.
+  needs no display, session or hardware, and reads each suite's OWN exit code, never a pipeline's.
+  Those suites need a shell, python3, the Qt and Quickshell runtimes, and quickjs-ng for the figure
+  suites; the package build and check dependency closure must supply those tools. A missing required
+  tool must make its suite refuse loudly, naming the executable or paths it looked for.
   Its own `headless=` list is the inventory of those and its own `not_run` list is the inventory of
   the rest with what each needs, so this paragraph carries neither a count nor a membership for
   either list to outgrow. A suite in neither list fails the runner's own audit, so one cannot go

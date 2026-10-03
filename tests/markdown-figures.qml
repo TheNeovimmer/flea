@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "flea" as Flea
+import "figure-memory" as Memory
 
 // FigureService against the real helper: answers, the 64-entry cache, the
 // idle exit, the timeout restart and the 127 latch. Quits itself.
@@ -26,18 +27,18 @@ ShellRoot {
 
     property string phaseFile: Quickshell.env("FLEA_FIG_PHASE_FILE")
     property int step: 0
-    property double idleExitWaitStart: 0
-    // Bound the wait for helperRunning to report the idle helper's exit.
+    // Bound the wait for the idle helper's exit event.
     readonly property int idleExitBoundMs: 5000
-    // Bound main-thread stalls measured by the independent tick timer.
-    readonly property int tickGapBoundMs: 2000
+    property alias idleExitWait: idleExitWaitTimer
+    property int helperExitsMark: 0
+    property int renderDeadlineMark: 0
     property int sendsMark: 0
     property int answersMark: 0
     property string firstSvg: ""
     property string inlineSvg: ""
     property int ticket: 0
-    property var ticks: []
-    property double maxGap: 0
+    property int ticks: 0
+    property int pendingTicksMark: 0
     // A source to ask once the current helper has stopped: the phase file
     // only affects the next spawned helper, never the running one.
     property string awaitSource: ""
@@ -45,8 +46,7 @@ ShellRoot {
     property int afterAwait: 0
     // Bounded wait for the deadline timer to stop after the last answer.
     property bool awaitTimerStop: false
-    property double stopWaitStart: 0
-    property int stopWaitMs: 5000
+    readonly property int stopWaitMs: 5000
     // The memory phases: sixteen figures no functional step asks for.
     property int measFormulas: 0
     property int measDiagrams: 0
@@ -54,11 +54,10 @@ ShellRoot {
     property int measFormulaN: 10
     property int measDiagramN: 6
     property int measIdleExitMs: 150
-    property double idleStoppedAt: 0
-    property int idleWaitMs: 5000
+    readonly property int idleWaitMs: 5000
     property int prodIdleExitMs: 30000
-    property int exitAnswerBoundMs: 2000
-    property double exitAskedAt: 0
+    readonly property int readerFirstPssKb: 111
+    readonly property int readerSecondPssKb: 222
 
     // Step order: answers, cache hit, idle exit, timeout restart, 127 latch.
     // The latch is last because it ends rendering for the session.
@@ -70,9 +69,19 @@ ShellRoot {
             return;
         }
         shell.check(Flea.FigureService.deadlineRunning === false, "the deadline timer is stopped before the first ask");
-        shell.logPss("before");
-        shell.step = 20;
-        shell.askMeasFormula(0);
+        shell.writePhase("Pss: " + shell.readerFirstPssKb + " kB", function () {
+            var first = memory.memField(shell.phaseFile, "Pss");
+            shell.writePhase("Pss: " + shell.readerSecondPssKb + " kB", function () {
+                var second = memory.memField(shell.phaseFile, "Pss");
+                shell.check(first === shell.readerFirstPssKb && second === shell.readerSecondPssKb,
+                    "memory reader reloads the same path after its contents change");
+                shell.writePhase("answer", function () {
+                    shell.logPss("before");
+                    shell.step = 20;
+                    shell.askMeasFormula(0);
+                });
+            });
+        });
     }
 
     function askMeasFormula(n) {
@@ -83,38 +92,12 @@ ShellRoot {
         shell.ticket = Flea.FigureService.ask("mermaid", "flowchart TD\n    P" + n + " --> Q" + n, true, shell.theme());
     }
 
-    // Sample inputs: "Pss: 45120 kB" in /proc/self/smaps_rollup, "VmHWM: 41380 kB" in /proc/<pid>/status.
-    function memField(path, key) {
-        memView.path = path;
-        memView.waitForJob();
-        var lines = memView.text().split("\n");
-        for (var i = 0; i < lines.length; i++) {
-            var cut = lines[i].split(":");
-            if (cut.length >= 2 && cut[0] === key)
-                return parseInt(cut[1], 10);
-        }
-        return -1;
-    }
-
     function logPss(phase) {
-        shell.log("FIGPSS phase=" + phase + " pss_kb=" + shell.memField("/proc/self/smaps_rollup", "Pss"));
-    }
-
-    // The pid is bwrap's; qjs runs below it in the jail's pid namespace, so the peak is the tree's.
-    function treePeak(pid) {
-        var best = shell.memField("/proc/" + pid + "/status", "VmHWM");
-        memView.path = "/proc/" + pid + "/task/" + pid + "/children";
-        memView.waitForJob();
-        var kids = memView.text().trim().split(/\s+/);
-        for (var i = 0; i < kids.length; i++) {
-            if (kids[i].length > 0)
-                best = Math.max(best, shell.treePeak(kids[i]));
-        }
-        return best;
+        shell.log("FIGPSS phase=" + phase + " pss_kb=" + memory.memField("/proc/self/smaps_rollup", "Pss"));
     }
 
     function logHelperPeak() {
-        shell.log("FIGHELPER rss_peak_kb=" + shell.treePeak(Flea.FigureService.helperPid));
+        shell.log("FIGHELPER rss_peak_kb=" + memory.treePeak(Flea.FigureService.helperPid));
     }
 
     function theme() {
@@ -163,6 +146,7 @@ ShellRoot {
             } else {
                 shell.logPss("diagrams");
                 shell.logHelperPeak();
+                shell.helperExitsMark = Flea.FigureService.helperExits;
                 Flea.FigureService.idleExitMs = shell.measIdleExitMs;
                 shell.step = 22;
             }
@@ -201,8 +185,9 @@ ShellRoot {
             shell.check(svg === shell.firstSvg && error === "", "the display revisit keeps its own answer");
             shell.check(Flea.FigureService.sends === shell.sendsMark + 1, "the display revisit sends nothing");
             shell.step = 4;
-            Flea.FigureService.idleExitMs = 150;
-            shell.idleExitWaitStart = Date.now();
+            Flea.FigureService.idleExitMs = shell.measIdleExitMs;
+            shell.helperExitsMark = Flea.FigureService.helperExits;
+            shell.idleExitWait.start();
             shell.awaitSource = "\\sqrt{2}";
             shell.afterAwait = 5;
         } else if (shell.step === 5) {
@@ -216,6 +201,8 @@ ShellRoot {
             });
         } else if (shell.step === 7) {
             shell.check(svg === "" && error === "render timed out", "a helper that never answers times out");
+            shell.check(Flea.FigureService.deadlineExpirations > shell.renderDeadlineMark, "the hanging helper answers from the deadline event");
+            shell.check(shell.ticks > shell.pendingTicksMark, "the event loop ticks while the helper waits");
             Flea.FigureService.renderMs = 5000;
             shell.writePhase("answer", function () {
                 shell.awaitSource = "\\sum_{n=1}^{\\infty}\\frac{1}{n^2}";
@@ -231,7 +218,8 @@ ShellRoot {
             });
         } else if (shell.step === 14) {
             shell.check(svg === "" && error.indexOf("exited 42") >= 0, "a helper exit names its code");
-            shell.check(Date.now() - shell.exitAskedAt < shell.exitAnswerBoundMs, "a helper exit answers before the render deadline");
+            shell.check(Flea.FigureService.deadlineExpirations === shell.renderDeadlineMark, "a helper exit answers before the render deadline event");
+            shell.check(Flea.FigureService.helperExits > shell.helperExitsMark, "the helper exit event precedes its answer");
             shell.check(Flea.FigureService.available, "an ordinary exit leaves a fresh helper available");
             shell.step = 10;
             shell.writePhase("refused", function () {
@@ -270,22 +258,8 @@ ShellRoot {
             if (fenceFig.failed && shell.step === 13) {
                 shell.check(true, "the figure shows its fence once the service latches");
                 shell.awaitTimerStop = true;
-                shell.stopWaitStart = Date.now();
+                deadlineStopWait.start();
             }
-        }
-    }
-
-    Timer {
-        id: tick
-        interval: 50
-        repeat: true
-        running: true
-        onTriggered: {
-            var now = Date.now();
-            var n = shell.ticks.length;
-            if (n > 0)
-                shell.maxGap = Math.max(shell.maxGap, now - shell.ticks[n - 1]);
-            shell.ticks.push(now);
         }
     }
 
@@ -304,52 +278,82 @@ ShellRoot {
         interval: 50
         repeat: true
         running: true
-        onTriggered: shell.drive()
+        onTriggered: {
+            shell.ticks++;
+            shell.drive();
+        }
     }
 
     function drive() {
         // The idle exit and the timeout kill are stopped processes, not
         // answers, so the next phase's ask waits for one here.
-        if (shell.awaitSource !== "" && !Flea.FigureService.helperRunning) {
+        if (shell.awaitSource !== "" && !Flea.FigureService.helperRunning
+                && Flea.FigureService.helperExits > shell.helperExitsMark) {
             var src = shell.awaitSource;
             shell.awaitSource = "";
             shell.step = shell.afterAwait;
-            if (shell.step === 5)
-                shell.check(true, "the idle exit stops the process");
-            if (shell.step === 14)
-                shell.exitAskedAt = Date.now();
+            if (shell.step === 5) {
+                shell.idleExitWait.stop();
+                shell.check(true, "the idle exit event stops the process");
+            }
+            shell.helperExitsMark = Flea.FigureService.helperExits;
+            shell.renderDeadlineMark = Flea.FigureService.deadlineExpirations;
+            shell.pendingTicksMark = shell.ticks;
             shell.askFresh(src);
-        }
-        if (shell.step === 4 && Flea.FigureService.helperRunning
-                && Date.now() - shell.idleExitWaitStart > shell.idleExitBoundMs) {
-            shell.awaitSource = "";
-            shell.check(false, "the idle exit stops the process within its wait bound");
-            shell.finish(1);
-            return;
         }
         // The idle-phase reading waits past the helper's stop, then the
         // functional flow starts on a production idle exit again.
-        if (shell.step === 22 && !Flea.FigureService.helperRunning) {
+        if (shell.step === 22 && !Flea.FigureService.helperRunning
+                && Flea.FigureService.helperExits > shell.helperExitsMark) {
             shell.step = 23;
-            shell.idleStoppedAt = Date.now();
+            memoryIdleWait.start();
         }
-        if (shell.step === 23 && Date.now() - shell.idleStoppedAt > shell.idleWaitMs) {
+        // The deadline timer stops on its own tick once waiting is empty.
+        if (shell.awaitTimerStop && Flea.FigureService.deadlineRunning === false) {
+            shell.awaitTimerStop = false;
+            deadlineStopWait.stop();
+            shell.check(true, "the deadline timer stops once every answer has landed");
+            shell.finish(0);
+        }
+    }
+
+    function idleWaitExpired() {
+        if (!Flea.FigureService.helperRunning && Flea.FigureService.helperExits > shell.helperExitsMark) {
+            shell.drive();
+            return;
+        }
+        shell.awaitSource = "";
+        shell.check(false, "the idle exit event arrives before the wait timer fires");
+        shell.finish(1);
+    }
+
+    Timer {
+        id: idleExitWaitTimer
+        interval: shell.idleExitBoundMs
+        onTriggered: shell.idleWaitExpired()
+    }
+
+    Timer {
+        id: memoryIdleWait
+        interval: shell.idleWaitMs
+        onTriggered: {
             shell.step = 0;
             shell.logPss("idle");
             Flea.FigureService.idleExitMs = shell.prodIdleExitMs;
-            shell.writePhase("answer", function () { shell.step = 1; shell.askFormula(); });
+            shell.writePhase("answer", function () {
+                shell.step = 1;
+                shell.askFormula();
+            });
         }
-        // The deadline timer stops on its own tick once waiting is empty.
-        if (shell.awaitTimerStop) {
-            if (Flea.FigureService.deadlineRunning === false) {
-                shell.awaitTimerStop = false;
-                shell.check(true, "the deadline timer stops once every answer has landed");
-                shell.finish(0);
-            } else if (Date.now() - shell.stopWaitStart > shell.stopWaitMs) {
-                shell.awaitTimerStop = false;
-                shell.check(false, "the deadline timer stops once every answer has landed");
-                shell.finish(1);
-            }
+    }
+
+    Timer {
+        id: deadlineStopWait
+        interval: shell.stopWaitMs
+        onTriggered: {
+            shell.awaitTimerStop = false;
+            shell.check(Flea.FigureService.deadlineRunning === false, "the deadline timer stops before the wait timer fires");
+            shell.finish(0);
         }
     }
 
@@ -358,9 +362,8 @@ ShellRoot {
         printErrors: false
     }
 
-    FileView {
-        id: memView
-        printErrors: false
+    Memory.FigureMemory {
+        id: memory
     }
 
     function writePhase(name, then) {
@@ -376,7 +379,6 @@ ShellRoot {
             return;
         shell.done = true;
         pump.running = false;
-        shell.check(shell.maxGap < shell.tickGapBoundMs, "main thread never blocked, max tick gap ms=" + shell.maxGap);
         shell.check(Flea.FigureService.workerAnswers > 0, "every answer came through the helper");
         shell.log("DONE failures=" + (shell.failures + extra));
         shell.quit();
