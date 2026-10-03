@@ -25,10 +25,11 @@ OBJECT = "/org/freedesktop/portal/desktop"
 DEADLINE = 20
 # A refused sort draws nothing to wait for, and a key that lands later still changes the order the next Back checks.
 NO_EVENT_WAIT_S = 0.5
-# Hyprland reports a window's goal geometry while it still animates there, so a capture shoots until two shots in a row match.
+# Hyprland reports a window's goal geometry while it still animates there, so a capture shoots until a shot repeats.
 SETTLE_SHOT_INTERVAL_S = 0.1
-# A caret flips every 500 ms and a flip splits one pair, so nine pairs hold a matching one unless shots sit half a period apart.
 SETTLE_MAX_SHOTS = 10
+# A moving window never repeats a shot and a caret only alternates two, so a still window matches by its third shot whatever a shot costs.
+SETTLE_MEMORY_SHOTS = 2
 checks = 0
 processes = []
 current = None
@@ -161,12 +162,12 @@ def drive(*args):
 
 
 def settled_picture(name, shoot, sleep=time.sleep):
-    previous = None
+    recent = []
     for _ in range(SETTLE_MAX_SHOTS):
         picture = shoot()
-        if picture == previous:
+        if picture in recent:
             return picture
-        previous = picture
+        recent = (recent + [picture])[-SETTLE_MEMORY_SHOTS:]
         sleep(SETTLE_SHOT_INTERVAL_S)
     raise AssertionError(f"{name}: the picture kept changing across {SETTLE_MAX_SHOTS} shots")
 

@@ -5,12 +5,12 @@ from pathlib import Path
 import time
 
 source = ast.parse(Path(__file__).with_name("picker-native.py").read_text())
-CONSTANTS = {"SETTLE_SHOT_INTERVAL_S", "SETTLE_MAX_SHOTS"}
+CONSTANTS = {"SETTLE_SHOT_INTERVAL_S", "SETTLE_MAX_SHOTS", "SETTLE_MEMORY_SHOTS"}
 constants = [node for node in source.body if isinstance(node, ast.Assign)
              and any(isinstance(target, ast.Name) and target.id in CONSTANTS for target in node.targets)]
 helper = next((node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == "settled_picture"), None)
 if helper is None or len(constants) != len(CONSTANTS):
-    raise SystemExit("FAIL picker-native-settle-check: missing settled_picture helper or its two constants in picker-native.py")
+    raise SystemExit("FAIL picker-native-settle-check: missing settled_picture helper or its three constants in picker-native.py")
 namespace = dict(time=time)
 exec(compile(ast.Module(body=[*constants, helper], type_ignores=[]), "picker-native.py", "exec"), namespace)
 settled_picture = namespace["settled_picture"]
@@ -35,9 +35,9 @@ def check(label, action):
 def drive(pictures):
     # Returns what the helper kept, how many shots it took and every wait it asked for; the fake sleeps nothing.
     shots, waits = [], []
-    sequence = iter(pictures)
     def shoot():
-        shots.append(next(sequence))
+        assert len(shots) < len(pictures), f"the helper asked for shot {len(shots) + 1} of a scene that settles in {len(pictures)}"
+        shots.append(pictures[len(shots)])
         return shots[-1]
     return settled_picture("SP-fake-state", shoot, sleep=waits.append), len(shots), waits
 
@@ -53,10 +53,20 @@ def retries_while_changing():
 
 
 def caret_blinking_every_shot():
-    # A caret that flips between every shot until the last pair, the worst blink the bound has to cover.
-    flipping = [b"caret-on" if shot % 2 == 0 else b"caret-off" for shot in range(limit - 1)]
-    kept, shots, waits = drive(flipping + [flipping[-1]])
-    assert kept == flipping[-1] and shots == limit, (kept, shots, limit)
+    # A caret that flips between every pair of shots: no two in a row match, the third repeats the first.
+    kept, shots, waits = drive([b"caret-on", b"caret-off", b"caret-on"])
+    assert (kept, shots, waits) == (b"caret-on", 3, [interval] * 2), (kept, shots, waits)
+
+
+def caret_blinking_while_sliding():
+    kept, shots, waits = drive([b"sliding-on", b"nearer-off", b"parked-on", b"parked-off", b"parked-on"])
+    assert (kept, shots, waits) == (b"parked-on", 5, [interval] * 4), (kept, shots, waits)
+
+
+def older_shots_are_forgotten():
+    # The first picture comes back three shots later, outside the two the helper keeps, so only the fifth shot settles.
+    kept, shots, waits = drive([b"first", b"second", b"third", b"first", b"first"])
+    assert (kept, shots, waits) == (b"first", 5, [interval] * 4), (kept, shots, waits)
 
 
 def never_settles():
@@ -85,7 +95,9 @@ def capture_uses_the_helper():
 
 check("two equal shots in a row settle at once", two_equal_shots)
 check("a sliding window is shot again until it stops", retries_while_changing)
-check("a caret flipping on every shot still settles inside the bound", caret_blinking_every_shot)
+check("a caret flipping on every shot settles on the third", caret_blinking_every_shot)
+check("a caret flipping over a sliding window settles once the window stops", caret_blinking_while_sliding)
+check("a shot settles only against the two before it", older_shots_are_forgotten)
 check("a picture that never settles fails at the bound naming its state", never_settles)
 check("Request.capture waits through the helper", capture_uses_the_helper)
 print(f"picker-native-settle-check: {checks} checks, {failures} failed")

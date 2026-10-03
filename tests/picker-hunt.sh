@@ -46,7 +46,7 @@ phases=0
 burst_extra_files=64
 for preset in default mac vim windows; do
 for view in list grid; do
-    for scenario in control marked-open marked-enter remember cursor-open cursor-enter cursor-multi cursor-button double-mark all all-wide range range-up range-click range-burst range-shrink save-marks single-marks folder empty refuse-mark refuse-button refuse-validate refuse-review refuse-moved refuse-returned refuse-cancel refuse-collision lost-listing; do
+    for scenario in control marked-open marked-enter remember cursor-open cursor-enter cursor-multi cursor-button double-mark all all-wide range range-up range-click range-burst range-shrink save-marks single-marks folder empty refuse-mark refuse-button refuse-validate refuse-review refuse-moved refuse-returned refuse-cancel refuse-collision lost-listing failed-open; do
         if [[ "$scenario" = refuse-* && "$preset" != default ]]; then continue; fi
         if [ "$preset" = vim ] || [ "$preset" = windows ]; then
             case "$scenario" in cursor-open|cursor-enter|marked-open|marked-enter) ;; *) continue ;; esac

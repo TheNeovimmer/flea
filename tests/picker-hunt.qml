@@ -21,7 +21,9 @@ ShellRoot {
     readonly property int deadlineMs: 8000
     readonly property int refusalWaitMs: 400
     readonly property int settleWaitMs: 1000
-    readonly property real dimmedOpacity: Flea.Theme.disabledOpacity
+    // The picker board's unavailable control, as a number of its own so a changed product token turns the check red.
+    readonly property real dimmedOpacity: 0.55
+    readonly property string missingFolder: "no-such-folder"
     // Sample input: FLEA_PICKER_HUNT_BASE_FILES=12, FLEA_PICKER_HUNT_EXTRA_FILES=200.
     readonly property int baseFixtureFiles: Number(Quickshell.env("FLEA_PICKER_HUNT_BASE_FILES"))
     readonly property int wideExtraFiles: Number(Quickshell.env("FLEA_PICKER_HUNT_EXTRA_FILES"))
@@ -123,6 +125,20 @@ ShellRoot {
             check("a lost listing worker is reported", win.message.indexOf("The listing backend exited with code") === 0 && win.messageError, true)
             check("a lost listing worker keeps its rows", win.rows.length > 0 && win.total === win.rows.length, true)
             check("a lost listing worker draws no empty hero", heroItem().visible, false)
+            finish()
+        }
+    }
+    // A listing that fails while it loads holds no rows, so it reads as empty with the hero and the error, never as loading.
+    function failedOpen() {
+        if (stage === 0) {
+            if (!win || win.listingState !== "ready" || !win.rows.length) return
+            win.open(win.path + "/" + root.missingFolder)
+            stage = 1
+        } else if (win.listingFailed) {
+            check("a failed open holds no rows", win.total, 0)
+            check("a failed open reads as empty", win.listingState, "empty")
+            check("a failed open draws the hero", heroItem().visible, true)
+            check("a failed open reports its error", win.messageError && win.message.length > 0, true)
             finish()
         }
     }
@@ -271,6 +287,10 @@ ShellRoot {
             if (scenario.indexOf("refuse-") === 0) { root.focusRefusal(); return }
             if (scenario === "lost-listing") {
                 root.lostListing()
+                return
+            }
+            if (scenario === "failed-open") {
+                root.failedOpen()
                 return
             }
             if (win && scenario === "empty" && win.listingState === "empty") {

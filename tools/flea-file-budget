@@ -63,7 +63,7 @@ tests/js/mounts.js 262
 tests/js/menu.js 493
 tests/js/nav.js 361
 tests/picker-grid.qml 450
-tests/picker-hunt.qml 425
+tests/picker-hunt.qml 445
 tests/js/network.js 306
 tests/js/ops.js 509
 tests/js/settings.js 337
