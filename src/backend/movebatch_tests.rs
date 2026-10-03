@@ -561,8 +561,9 @@ fn a_sixty_four_batch_on_a_block_vfat_stick_skips_file_fsyncs() {
     let syncfs_at = order.iter().position(|s| s == "syncfs").expect("one syncfs in the order");
     let dir_at = order.iter().position(|s| s == "dir").expect("one folder fsync in the order");
     let first_remove = order.iter().position(|s| s == "remove").expect("removals are logged");
-    assert!(order.iter().take(syncfs_at).filter(|s| *s == "release").count() == 64, "64 releases first: {:?}", order);
-    assert!(syncfs_at < dir_at && dir_at < first_remove, "release, syncfs, folder, first removal: {:?}", order);
+    let release_at = order.iter().position(|s| s == "release").expect("held files close");
+    assert_eq!(order.iter().skip(release_at).filter(|s| *s == "release").count(), 64, "64 releases together: {:?}", order);
+    assert!(syncfs_at < release_at && release_at < dir_at && dir_at < first_remove, "syncfs, releases, folder, first removal: {:?}", order);
     assert_eq!(durability.held_len(), 0, "nothing stays held past the confirm");
     drop(tx);
     let lines = items(rx);
@@ -595,9 +596,9 @@ fn a_failed_syncfs_keeps_every_source_and_journals_partials() {
         std::fs::write(&src, "body").unwrap();
         staged(1, &mut batch, &mut durability, &flag, &tx, &settled, &mut steps, n, &src, &out.join(format!("f{n}.txt")));
     }
-    durable::test_set_fail_syncfs(true);
+    durable::test_set_syncfs_errno(durable::EIO);
     let (counts, retry) = close_normal(&mut batch, 1, &tx, &mut steps, &mut durability);
-    durable::test_set_fail_syncfs(false);
+    durable::test_set_syncfs_errno(0);
     assert_eq!((counts.ok, counts.failed), (0, 4));
     assert_eq!(retry.len(), 4, "every unconfirmed source is offered again");
     assert!(matches!(&steps[..], [Step::Copied { .. }, Step::Copied { .. }, Step::Copied { .. }, Step::Copied { .. }]), "partials, as a failed confirm journals");
@@ -730,11 +731,11 @@ fn a_failed_cap_syncfs_keeps_all_sixty_four_sources_and_journals_partials() {
         staged(1, &mut batch, &mut durability, &flag, &tx, &settled, &mut steps, n, &src, &out.join(format!("f{n}.txt")));
     }
     // Only the cap settle fails; the 64th copy still lands, then every confirm must fail sticky.
-    durable::test_set_fail_syncfs(true);
+    durable::test_set_syncfs_errno(durable::EIO);
     let src = srcdir.join("f63.txt");
     std::fs::write(&src, "body").unwrap();
     staged(1, &mut batch, &mut durability, &flag, &tx, &settled, &mut steps, 63, &src, &out.join("f63.txt"));
-    durable::test_set_fail_syncfs(false);
+    durable::test_set_syncfs_errno(0);
     let (counts, retry) = close_normal(&mut batch, 1, &tx, &mut steps, &mut durability);
     assert_eq!((counts.ok, counts.failed), (0, 64), "every source stays when the cap syncfs failed");
     assert_eq!(retry.len(), 64, "every unconfirmed source is offered again");

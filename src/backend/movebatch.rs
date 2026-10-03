@@ -133,6 +133,10 @@ pub(crate) struct CloseCounts {
 #[path = "movebatch_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "usbrca_tests.rs"]
+mod usbrca_tests;
+
 impl MoveBatch {
     pub(crate) fn new() -> Self {
         MoveBatch { pending: Vec::new() }

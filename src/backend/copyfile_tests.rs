@@ -557,8 +557,8 @@ fn a_batch_cross_device_move_settles_before_removing_its_source() {
     let order = crate::backend::durable::test_order();
     let syncfs_at = order.iter().position(|s| s == "syncfs").expect("one syncfs in the order");
     let dir_at = order.iter().position(|s| s == "dir").expect("one folder fsync in the order");
-    assert!(order.iter().take(syncfs_at).any(|s| s == "release"), "release first: {:?}", order);
-    assert!(syncfs_at < dir_at, "release, syncfs, folder fsync, then the source removal: {:?}", order);
+    let release_at = order.iter().position(|s| s == "release").expect("held file closes");
+    assert!(syncfs_at < release_at && release_at < dir_at, "syncfs, release, folder fsync, then source removal: {:?}", order);
     assert!(!src.exists(), "the source goes only after the confirm");
     assert_eq!(std::fs::read_to_string(&dst).unwrap(), "body");
     crate::backend::durable::test_reset();
@@ -577,9 +577,9 @@ fn a_batch_cross_device_move_keeps_its_source_when_syncfs_fails() {
     let mut durability = crate::backend::durable::Durability::begin(&dst);
     durability.batch_syncfs = true;
     let mut p = Progress { cancel: &flag, on_bytes: &mut sink, partial: None, tree: None, manifest: None, durability: Some(&mut durability), for_move: false };
-    crate::backend::durable::test_set_fail_syncfs(true);
+    crate::backend::durable::test_set_syncfs_errno(crate::backend::durable::EIO);
     let error = move_cross_device(&src, &dst, &mut p).expect_err("an unconfirmed batch move keeps its source");
-    crate::backend::durable::test_set_fail_syncfs(false);
+    crate::backend::durable::test_set_syncfs_errno(0);
     assert_eq!(error.msg, crate::backend::durable::DIR_UNCONFIRMED);
     assert!(src.exists(), "the source stays: {:?}", error.msg);
     assert!(dst.exists(), "the landed copy stays beside it");

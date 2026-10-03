@@ -26,9 +26,9 @@ fn sticky_with_five_held(name: &str) -> (TestDir, std::path::PathBuf, Durability
     let mut p = quiet(&flag, &mut sink, &mut durability);
     crate::backend::copyfile::copy_any(&first, &out.join("first.txt"), &mut p).expect("copy");
     drop(p);
-    test_set_fail_syncfs(true);
+    test_set_syncfs_errno(EIO);
     assert!(durability.flush_dirs().is_err(), "the failed syncfs sets the sticky flag");
-    test_set_fail_syncfs(false);
+    test_set_syncfs_errno(0);
     for n in 0..5 {
         let src = srcdir.join(format!("h{n}.txt"));
         std::fs::write(&src, "body").unwrap();
@@ -434,7 +434,7 @@ fn a_copy_onto_rclone_says_it_uploads_in_the_background_and_never_claims_the_dri
     let d = TestDir::new("durable-rclone-note");
     let out = d.dir("out");
     let mut durability = Durability { durable: false, rclone: true, file_failed: false, batch_syncfs: false, unsettled: false,
-        held: Vec::new(), touched: std::collections::HashSet::new(), last: None };
+        held: Vec::new(), wave: Wave::default(), touched: std::collections::HashSet::new(), last: None };
     let (tx, rx) = channel();
     let done = finish(9, &tx, &mut durability, &out, 1);
     assert!(!done.ok, "an rclone copy never claims the drive confirmed it");
@@ -481,7 +481,7 @@ fn finish_with_nothing_landed_on_rclone_says_nothing() {
     let d = TestDir::new("durable-rclone-empty");
     let out = d.dir("out");
     let mut durability = Durability { durable: false, rclone: true, file_failed: false, batch_syncfs: false, unsettled: false,
-        held: Vec::new(), touched: std::collections::HashSet::new(), last: None };
+        held: Vec::new(), wave: Wave::default(), touched: std::collections::HashSet::new(), last: None };
     let (tx, rx) = channel();
     let done = finish(12, &tx, &mut durability, &out, 0);
     assert!(!done.ok, "nothing landed, so nothing is durable");
@@ -949,8 +949,8 @@ fn flush_dirs_settles_held_before_its_folder_fsync() {
     let order = test_order();
     let syncfs_at = order.iter().position(|s| s == "syncfs").expect("one syncfs in the order");
     let dir_at = order.iter().position(|s| s == "dir").expect("one folder fsync in the order");
-    assert!(order.iter().take(syncfs_at).any(|s| s == "release"), "release first: {:?}", order);
-    assert!(syncfs_at < dir_at, "release, syncfs, folder fsync: {:?}", order);
+    let release_at = order.iter().position(|s| s == "release").expect("held file closes");
+    assert!(syncfs_at < release_at && release_at < dir_at, "syncfs, release, folder fsync: {:?}", order);
     assert_eq!(durability.held_len(), 0, "nothing stays held past the confirm");
     test_reset();
 }
@@ -961,11 +961,11 @@ fn a_failed_syncfs_counts_nothing_and_logs_nothing() {
     test_reset();
     let d = TestDir::new("durable-syncfs-fail-count");
     let out = d.dir("out");
-    test_set_fail_syncfs(true);
+    test_set_syncfs_errno(EIO);
     let err = super::syncfs_dir(&out).expect_err("a failed syncfs is a failed confirm");
     assert_eq!(test_syncfs_count(), 0, "a failed syncfs never counts");
     assert!(!test_order().contains(&"syncfs".to_string()), "a failed syncfs never logs: {:?}", test_order());
-    test_set_fail_syncfs(false);
+    test_set_syncfs_errno(0);
     super::syncfs_dir(&out).expect("a good syncfs confirms");
     assert_eq!(test_syncfs_count(), 1, "one syncfs after the failure: {:?}", err);
     test_reset();
@@ -985,8 +985,8 @@ fn copy_then_remove_on_a_batch_target_settles_before_removing_its_source() {
     let order = test_order();
     let syncfs_at = order.iter().position(|s| s == "syncfs").expect("one syncfs in the order");
     let dir_at = order.iter().position(|s| s == "dir").expect("one folder fsync in the order");
-    assert!(order.iter().take(syncfs_at).any(|s| s == "release"), "release first: {:?}", order);
-    assert!(syncfs_at < dir_at, "release, syncfs, folder fsync, then the source removal: {:?}", order);
+    let release_at = order.iter().position(|s| s == "release").expect("held file closes");
+    assert!(syncfs_at < release_at && release_at < dir_at, "syncfs, release, folder fsync, then source removal: {:?}", order);
     assert!(!from.exists(), "the source goes only after the confirm");
     assert_eq!(std::fs::read_to_string(&to).unwrap(), "body");
     test_reset();
@@ -1001,9 +1001,9 @@ fn copy_then_remove_on_a_batch_target_keeps_its_source_when_syncfs_fails() {
     let to = d.join("target.txt");
     test_mark_durable(d.path());
     super::test_set_fake_mountinfo(Some(&vfat_body_for(d.path())));
-    test_set_fail_syncfs(true);
+    test_set_syncfs_errno(EIO);
     let err = crate::backend::renamecompat::copy_then_remove(&from, &to).expect_err("an unconfirmed rename keeps its source");
-    test_set_fail_syncfs(false);
+    test_set_syncfs_errno(0);
     super::test_set_fake_mountinfo(None);
     assert!(from.exists(), "the source stays: {:?}", err.msg);
     assert!(!to.exists(), "the unconfirmed copy goes back");
@@ -1033,7 +1033,7 @@ fn redo_of_a_copy_on_a_batch_target_settles_before_it_confirms() {
     let order = test_order();
     let syncfs_at = order.iter().position(|s| s == "syncfs").expect("one syncfs in the order");
     let dir_at = order.iter().position(|s| s == "dir").expect("one folder fsync in the order");
-    assert!(syncfs_at < dir_at, "release, syncfs, folder fsync: {:?}", order);
+    assert!(syncfs_at < dir_at, "syncfs, folder fsync: {:?}", order);
     assert!(copy.exists(), "redo put the copy back");
     test_reset();
 }
@@ -1058,13 +1058,13 @@ fn finish_after_a_failed_cap_settle_reports_unconfirmed() {
         crate::backend::copyfile::copy_any(&src, &out.join(format!("f{n}.txt")), &mut p).expect("copy");
         drop(p);
     }
-    test_set_fail_syncfs(true);
+    test_set_syncfs_errno(EIO);
     let src = srcdir.join("f63.txt");
     std::fs::write(&src, "body").unwrap();
     let mut p = quiet(&flag, &mut sink, &mut durability);
     crate::backend::copyfile::copy_any(&src, &out.join("f63.txt"), &mut p).expect("the 64th copy still lands");
     drop(p);
-    test_set_fail_syncfs(false);
+    test_set_syncfs_errno(0);
     let (tx, _rx) = channel();
     let done = finish(31, &tx, &mut durability, &out, 64);
     assert!(!done.ok, "an unconfirmed batch never claims the drive");
@@ -1105,9 +1105,9 @@ fn a_sticky_unsettled_still_drains_later_holds() {
     let mut p = quiet(&flag, &mut sink, &mut durability);
     crate::backend::copyfile::copy_any(&src, &out.join("first.txt"), &mut p).expect("copy");
     drop(p);
-    test_set_fail_syncfs(true);
+    test_set_syncfs_errno(EIO);
     assert!(durability.flush_dirs().is_err(), "the failed syncfs sets the sticky flag");
-    test_set_fail_syncfs(false);
+    test_set_syncfs_errno(0);
     for n in 0..64 {
         let src = srcdir.join(format!("g{n}.txt"));
         std::fs::write(&src, "body").unwrap();
@@ -1148,9 +1148,10 @@ fn clone_of_first_held_file_confirms_batch_then_drops() {
     let syncfs_at = order.iter().position(|s| s == "syncfs").expect("one syncfs in the order");
     let drop_at = order.iter().position(|s| s == "clone-drop").expect("clone drops after syncfs");
     let dir_at = order.iter().position(|s| s == "dir").expect("one folder fsync in the order");
-    assert_eq!(clone_at, 0, "clone first, sharing the pre-write description: {:?}", order);
-    assert!(order.iter().take(syncfs_at).filter(|s| *s == "release").count() == 2, "both closes land before syncfs: {:?}", order);
-    assert!(syncfs_at < drop_at && drop_at <= dir_at, "syncfs, clone drop, folder fsync: {:?}", order);
+    let release_at = order.iter().position(|s| s == "release").expect("held files close");
+    assert!(clone_at < syncfs_at, "clone preserves the pre-write description before confirm: {:?}", order);
+    assert_eq!(order.iter().skip(release_at).filter(|s| *s == "release").count(), 2, "both originals close together: {:?}", order);
+    assert!(syncfs_at < drop_at && drop_at < release_at && release_at < dir_at, "syncfs, nonfinal clone drop, releases, folder fsync: {:?}", order);
     test_reset();
 }
 
@@ -1231,9 +1232,9 @@ fn clone_syncfs_failure_keeps_every_batch_source() {
             crate::backend::movebatch::MoveOutcome::Done(r) => panic!("staging copies, got {:?}", r.map(|_| "ok")),
         }
     }
-    test_set_fail_syncfs(true);
+    test_set_syncfs_errno(EIO);
     let (counts, retry) = crate::backend::movebatch::close_normal(&mut batch, 1, &tx, &mut steps, &mut durability);
-    test_set_fail_syncfs(false);
+    test_set_syncfs_errno(0);
     assert_eq!((counts.ok, counts.failed), (0, 2), "a refused syncfs confirms nothing");
     assert_eq!(retry.len(), 2, "every unconfirmed source is offered again");
     assert_eq!(test_syncfs_count(), 0, "a failed syncfs never counts: {:?}", test_order());
@@ -1244,5 +1245,61 @@ fn clone_syncfs_failure_keeps_every_batch_source() {
     for n in 0..2 {
         assert!(srcdir.join(format!("f{n}.txt")).exists(), "the source stays whole");
     }
+    test_reset();
+}
+
+// A wave held open behind its gate, then an operation that ends: no descriptor stays open when its call returns.
+#[test]
+fn a_duplicate_on_a_batch_target_leaves_nothing_open_when_it_returns() {
+    test_reset();
+    let d = TestDir::new("durable-end-duplicate");
+    let src = d.file("a.txt", "body");
+    test_mark_durable(d.path());
+    test_set_fake_mountinfo(Some(&vfat_body_for(d.path())));
+    test_hold_waves(true);
+    let (outcome, _) = crate::backend::ops::duplicate(&src);
+    test_set_fake_mountinfo(None);
+    outcome.expect("duplicate");
+    assert_eq!(test_releases(), 1, "the copy's file went to a wave");
+    assert_eq!(test_open_under(d.path()), 0, "no descriptor is left on the drive");
+    test_reset();
+}
+
+#[test]
+fn a_fallback_rename_on_a_batch_target_leaves_nothing_open_when_it_returns() {
+    test_reset();
+    let d = TestDir::new("durable-end-rename");
+    let from = d.file("source.txt", "body");
+    let to = d.join("target.txt");
+    test_mark_durable(d.path());
+    test_set_fake_mountinfo(Some(&vfat_body_for(d.path())));
+    test_hold_waves(true);
+    crate::backend::renamecompat::copy_then_remove(&from, &to).expect("rename by exclusive copy");
+    test_set_fake_mountinfo(None);
+    assert_eq!(test_releases(), 1, "the copy's file went to a wave");
+    assert_eq!(test_open_under(d.path()), 0, "no descriptor is left on the drive");
+    test_reset();
+}
+
+#[test]
+fn a_redo_on_a_batch_target_leaves_nothing_open_when_it_returns() {
+    use crate::backend::undo::{Entry, Journal};
+    test_reset();
+    let d = TestDir::new("durable-end-redo");
+    let src = d.file("a.txt", "body");
+    test_mark_durable(d.path());
+    let (outcome, steps) = crate::backend::ops::duplicate(&src);
+    outcome.expect("duplicate");
+    let mut journal = Journal::new();
+    journal.push(Entry { op: "copy".into(), steps });
+    journal.undo().expect("undo removes the copy");
+    test_reset_counts();
+    test_set_fake_mountinfo(Some(&vfat_body_for(d.path())));
+    test_hold_waves(true);
+    let (tx, _rx) = std::sync::mpsc::channel();
+    journal.redo(1, &std::sync::atomic::AtomicBool::new(false), &tx).expect("redo");
+    test_set_fake_mountinfo(None);
+    assert_eq!(test_releases(), 1, "the redone copy's file went to a wave");
+    assert_eq!(test_open_under(d.path()), 0, "no descriptor is left on the drive");
     test_reset();
 }
