@@ -12,7 +12,7 @@ var countFrameStep = function () {}
 
 // The driver: held spans first, then one forward scan. defs maps normalised labels to targets; numbers maps footnote ids to numbers.
 function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited) {
-    var body = String(text)
+    var body = MdHtml.documentText(text)
     // Plain prose without syntax triggers returns directly after one native scan.
     if (!/[`$[\]<>\\!]|https?:\/\/|www\./.test(body))
         return body
@@ -42,6 +42,10 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited) {
             var spanTo = spans[sp + 1]
             var spanLen = spans[sp + 2]
             var spanKind = spans[sp + 3] === 1 ? "math" : ""
+            if (!chromeOk && spanKind === "math") {
+                sp += Md.INTERVAL_STRIDE
+                continue
+            }
             var held = null
             if (chromeOk) {
                 var innerStart = i + spanLen
@@ -245,4 +249,3 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited) {
     }
     return parts.join("")
 }
-

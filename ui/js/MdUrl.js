@@ -4,6 +4,7 @@
 .import "Format.js" as Format
 
 var MAX_UNICODE_SCALAR = 1114111
+var PERCENT_ESCAPE_LENGTH = 3
 
 // An http(s) URL, or a protocol-relative one (which inherits https), loads from the network.
 function isRemoteUrl(url) {
@@ -33,7 +34,7 @@ function placeholder(host) {
     return "Remote image not loaded \u00b7 " + host
 }
 
-// Decode one numeric character reference starting at i (after &#); answers the character and the index past the semicolon, or null when it is not one.
+// Sample input: "65583;" at index 0 (after "&#") yields U+1002F and the index after ";".
 function numericRef(text, i) {
     var j = i
     var base = 10
@@ -56,10 +57,10 @@ function numericRef(text, i) {
     var code = parseInt(text.slice(start, j), base)
     if (!(code > 0) || code > MAX_UNICODE_SCALAR)
         return null
-    return { ch: String.fromCharCode(code), end: j + 1 }
+    return { ch: String.fromCodePoint(code), end: j + 1 }
 }
 
-// A URL as the loader reads it: numeric references decoded, percent escapes decoded, ASCII whitespace and controls stripped. One pass, linear.
+// Sample input: "caf%C3%A9&#46;png" decodes to "café.png"; malformed UTF-8 percent runs stay literal.
 function canonicalUrl(raw) {
     var text = String(raw === undefined || raw === null ? "" : raw)
     var out = ""
@@ -77,8 +78,16 @@ function canonicalUrl(raw) {
             i++
         } else if (c === "%" && i + 2 < text.length
                 && /[0-9a-fA-F]/.test(text.charAt(i + 1)) && /[0-9a-fA-F]/.test(text.charAt(i + 2))) {
-            out += String.fromCharCode(parseInt(text.slice(i + 1, i + 3), 16))
-            i += 3
+            var begin = i
+            do {
+                i += PERCENT_ESCAPE_LENGTH
+            } while (text.charAt(i) === "%" && /^[0-9a-fA-F]{2}$/.test(text.slice(i + 1, i + PERCENT_ESCAPE_LENGTH)))
+            var run = text.slice(begin, i)
+            try {
+                out += decodeURIComponent(run)
+            } catch (e) {
+                out += run
+            }
         } else {
             var code = text.charCodeAt(i)
             // Spaces survive: angle destinations may legally contain them. Tabs, newlines and other controls never do.
@@ -129,11 +138,6 @@ function classifyImage(raw, dir) {
     if (scheme !== null) {
         if (/^file:/i.test(seen)) {
             var fp = seen.replace(/^file:\/\//i, "").replace(/^file:/i, "")
-            try {
-                fp = decodeURIComponent(fp)
-            } catch (e) {
-                return { kind: "dropped" }
-            }
             return localAbsolute(fp, dir)
         }
         return { kind: "dropped" }

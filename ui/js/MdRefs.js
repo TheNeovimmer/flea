@@ -39,6 +39,7 @@ function killDefinition(line) {
     return line.slice(0, at) + "\\[" + line.slice(at + 1)
 }
 
+// Sample input: "[^note]" at its "[" yields id "note" and the index after "]".
 function readFootnoteRef(text, i) {
     var j = i + 2
     while (j < text.length && text.charAt(j) !== "]" && text.charAt(j) !== "\n")
@@ -65,7 +66,7 @@ function skipDropContent(body, i, name, dead) {
         if (head.name === name) {
             if (head.closing)
                 depth--
-            else
+            else if (!head.selfClose)
                 depth++
         }
         i = inner.end

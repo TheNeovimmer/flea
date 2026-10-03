@@ -18,8 +18,10 @@ function isPunct(c) {
     return Esc.isAsciiPunct(c.charCodeAt(0))
 }
 
-// Sample input: `` ` `` and `x`, or $x+1$ and $$x^2$$, each as [from, to, run length, kind] tuples.
-// Code spans pair first (kind 0), then math (kind 1) pairs around them, never across one.
+// Interval tuple: [from, to, run length, kind].
+var INTERVAL_STRIDE = 4
+
+// Sample input: `` ` `` and `x`, or $x+1$ and $$x^2$$; code (kind 0) pairs before math (kind 1), never across it.
 function spanIntervals(text) {
     var hasCode = text.indexOf("`") >= 0
     if (!hasCode && text.indexOf("$") < 0)
@@ -41,8 +43,8 @@ function codeIntervals(text) {
         var len = j - i
         var open = openByLen[len]
         if (open !== undefined && open !== null) {
-            while (out.length > 0 && out[out.length - 4] > open)
-                out.length -= 4
+            while (out.length > 0 && out[out.length - INTERVAL_STRIDE] > open)
+                out.length -= INTERVAL_STRIDE
             out.push(open, j, len, 0)
             var covered = 0
             do {
@@ -69,7 +71,7 @@ function mathIntervals(text, code) {
     while (i >= 0) {
         while (codeAt < code.length && code[codeAt + 1] <= i) {
             open = code[codeAt] > open ? -1 : open
-            codeAt += 4
+            codeAt += INTERVAL_STRIDE
         }
         if (codeAt < code.length && code[codeAt] < i) {
             open = -1
@@ -106,8 +108,8 @@ function mergeIntervals(a, b) {
         var src = fromA ? a : b
         var at = fromA ? ai : bi
         out.push(src[at], src[at + 1], src[at + 2], src[at + 3])
-        ai += fromA ? 4 : 0
-        bi += fromA ? 0 : 4
+        ai += fromA ? INTERVAL_STRIDE : 0
+        bi += fromA ? 0 : INTERVAL_STRIDE
     }
     return out
 }
@@ -146,14 +148,18 @@ function readInlineTarget(text, i) {
     var j = i + 1
     while (j < text.length && j < cap && (text.charAt(j) === " " || text.charAt(j) === "\t"))
         j++
-    if (j < text.length && text.charAt(j) === "\n")
+    if (text.charAt(j) === "\n" || text.charAt(j) === "\r")
         return null
     var url = ""
     if (text.charAt(j) === "<") {
         j++
         var start = j
-        while (j < text.length && j < cap && text.charAt(j) !== ">" && text.charAt(j) !== "\n")
+        while (j < text.length && j < cap) {
+            var angleChar = text.charAt(j)
+            if (angleChar === ">" || angleChar === "\n" || angleChar === "\r")
+                break
             j++
+        }
         if (j >= text.length || j >= cap || text.charAt(j) !== ">")
             return null
         url = text.slice(start, j)
@@ -163,9 +169,11 @@ function readInlineTarget(text, i) {
         var begin = j
         while (j < text.length && j < cap) {
             var c = text.charAt(j)
-            if (c === "\n" || ((c === " " || c === "\t") && depth === 0))
+            if (c === "\n" || c === "\r" || ((c === " " || c === "\t") && depth === 0))
                 break
             if (c === "\\") {
+                if (text.charAt(j + 1) === "\n" || text.charAt(j + 1) === "\r")
+                    return null
                 j += 2
                 continue
             }
@@ -188,9 +196,15 @@ function readInlineTarget(text, i) {
         var q = text.charAt(j)
         var qclose = q === "(" ? ")" : q
         j++
-        while (j < text.length && j < cap && text.charAt(j) !== qclose && text.charAt(j) !== "\n") {
-            if (text.charAt(j) === "\\")
+        while (j < text.length && j < cap) {
+            var titleChar = text.charAt(j)
+            if (titleChar === qclose || titleChar === "\n" || titleChar === "\r")
+                break
+            if (titleChar === "\\") {
+                if (text.charAt(j + 1) === "\n" || text.charAt(j + 1) === "\r")
+                    return null
                 j++
+            }
             j++
         }
         if (j >= text.length || j >= cap || text.charAt(j) !== qclose)
@@ -232,6 +246,7 @@ function readLabelRef(text, i) {
     return { label: text.slice(i + 1, j), end: j + 1 }
 }
 
+// Sample input: "  My\tLabel  " normalizes to "my label" for reference lookup.
 function normalizeLabel(label) {
     return String(label).replace(/[\t\n ]+/g, " ").replace(/^ | $/g, "").toLowerCase()
 }

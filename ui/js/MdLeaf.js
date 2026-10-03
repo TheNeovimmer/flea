@@ -6,7 +6,7 @@
 .import "MdInline.js" as Md
 .import "MdRun.js" as Run
 
-// GFM task items draw their box, checked or not; anything else passes through.
+// Sample input: "[x] done" draws a checked GFM task box; "[ ] pending" draws an empty one.
 function taskText(text) {
     var m = /^\[([ xX])\] (.*)$/.exec(String(text))
     if (m === null)
@@ -21,6 +21,7 @@ function indentOf(line) {
     return n
 }
 
+// Sample input: "  * * *" is a thematic break.
 function isThematic(line) {
     return /^ {0,3}([*_-])(?:[ \t]*\1){2,}[ \t]*$/.test(String(line))
 }
@@ -30,13 +31,17 @@ function isSetext(line) {
     return /^ {0,3}(?:=+|-+)[ \t]*$/.test(String(line))
 }
 
+// Sample input: "```js" opens a backtick fence with info "js".
 function fenceOpen(line) {
     var m = /^ {0,3}(```+|~~~+) *(.*)$/.exec(String(line))
     if (m === null)
         return null
+    if (m[1].charAt(0) === "`" && m[2].indexOf("`") >= 0)
+        return null
     return { tick: m[1].charAt(0), len: m[1].length, info: m[2].replace(/\s+$/, "") }
 }
 
+// Sample input: "```" closes a backtick fence opened with length 3.
 function fenceClose(line, tick, len) {
     var m = /^ {0,3}(```+|~~~+) *$/.exec(String(line))
     return m !== null && m[1].charAt(0) === tick && m[1].length >= len
@@ -174,6 +179,7 @@ function imageBlock(alt, target, dir) {
     return null
 }
 
+// Sample input: "[!NOTE] Remember this" names a GFM alert and its trailing text.
 function alertTitle(line) {
     var m = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i.exec(String(line))
     if (m === null)

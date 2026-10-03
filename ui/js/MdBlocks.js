@@ -5,6 +5,7 @@
 .import "MdRefs.js" as Refs
 .import "MdContainer.js" as Container
 .import "MdDocument.js" as Document
+.import "MdHtml.js" as Html
 
 var CODE_INDENT = 4
 var MIN_RULE_MARKS = 3
@@ -276,12 +277,12 @@ function blockPass(lines, state, emit, collect) {
 
 function collectReferences(source) {
     var state = referenceState()
-    blockPass(String(source).split("\n"), state, undefined, true)
+    blockPass(Html.documentText(source).split("\n"), state, undefined, true)
     return state
 }
 
 function blocks(source, dir, chrome, ink) {
-    var lines = String(source).split("\n")
+    var lines = Html.documentText(source).split("\n")
     var state = referenceState()
     blockPass(lines, state, undefined, true)
     var writer = Document.writer(state, dir, chrome, ink)
@@ -290,7 +291,7 @@ function blocks(source, dir, chrome, ink) {
 }
 
 function prepare(source, dir, defs, chrome, ink) {
-    var lines = String(source).split("\n")
+    var lines = Html.documentText(source).split("\n")
     var state = referenceState()
     blockPass(lines, state, undefined, true)
     blockPass(lines, state, undefined, false)

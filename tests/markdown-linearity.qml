@@ -26,7 +26,13 @@ QtObject {
         { source: "5. [img]: pic.png\n6. next", dir: "/doc" },
         { source: "1.\n2. shown", dir: "/doc" },
         { source: "- [img]:\npic.png\n  visible", dir: "/doc" },
-        { source: "[^a]: first\n    second  \n    third\n\nsee[^a]", dir: "/doc" }
+        { source: "[^a]: first\n    second  \n    third\n\nsee[^a]", dir: "/doc" },
+        { source: "```foo``` is inline code\nfollowing prose", dir: "/doc" },
+        { source: "a < b > c\nI <3 you > them", dir: "/doc" },
+        { source: "![x](caf%C3%A9.png)\n\n![x](file:///doc/100%25.png)\n\n![x](file:///doc/%2541.png)", dir: "/doc" },
+        { source: "![x](foo&#65583;bar.png)", dir: "/doc" },
+        { source: '<img src="pic.png"><span title="\uE0020\uE003">tail</span>', dir: "/doc" },
+        { source: "before <svg/> rest\n\nbefore <svg><svg/></svg> tail", dir: "/doc" }
     ]
     property int workerReplies: 0
     readonly property int workerDeadlineMs: 10000

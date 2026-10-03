@@ -8,6 +8,11 @@ var TOKEN_OPEN = 57346
 var TOKEN_CLOSE = 57347
 var MAX_TAG_LENGTH = 4096
 
+// Sample input: "\uE0020\uE003" becomes "\uFFFD0\uFFFD" before document parsing reserves its token markers.
+function documentText(text) {
+    return String(text).replace(/[\uE002\uE003]/g, "\uFFFD")
+}
+
 // Held spans use private-use delimiters and one shared token table, restored after escaping.
 function openToken() {
     return String.fromCharCode(TOKEN_OPEN)
@@ -80,7 +85,7 @@ function readTag(text, i, dead) {
     return { tag: candidate, end: gt + 1 }
 }
 
-// Split a raw tag into its name, closing flag and raw attribute body.
+// Sample input: '<img src="pic.png"/>' yields name "img", its attributes and a self-closing flag.
 function tagHead(tag) {
     var i = 1
     var closing = false
@@ -89,11 +94,15 @@ function tagHead(tag) {
         i++
     }
     var name = ""
-    while (i < tag.length && isNameChar(tag.charAt(i))) {
+    while (i < tag.length && (isNameChar(tag.charAt(i)) || tag.charAt(i) === "-")) {
         name += tag.charAt(i).toLowerCase()
         i++
     }
-    return { name: name, closing: closing, rest: tag.slice(i, tag.length - 1) }
+    var rest = tag.slice(i, tag.length - 1)
+    if (!/^[a-z]/.test(name) || (rest !== "" && !/^[\s/]/.test(rest))
+            || (closing && !/^\s*$/.test(rest)) || (rest.charAt(0) === "/" && !/^\/\s*$/.test(rest)))
+        name = ""
+    return { name: name, closing: closing, rest: rest, selfClose: /\/\s*$/.test(rest) }
 }
 
 // One attribute value with entities decoded for the safety checks below.
@@ -151,7 +160,7 @@ function sanitizeTag(tag, dir, tokens) {
     if (name.length === 0)
         return { emit: "&#60;", drop: null }
     if (DROP_CONTENT.hasOwnProperty(name))
-        return { emit: "", drop: head.closing ? null : name }
+        return { emit: "", drop: head.closing || head.selfClose ? null : name }
     if (!ALLOWED.hasOwnProperty(name))
         return { emit: "", drop: null }
     // details shows its body; summary draws bold through the markdown parser.
@@ -188,6 +197,8 @@ function sanitizeTag(tag, dir, tokens) {
             i++
             continue
         }
+        if (!/^[A-Za-z_:][-A-Za-z0-9_.:]*$/.test(aname))
+            return { emit: "", drop: null }
         while (i < rest.length && /\s/.test(rest.charAt(i)))
             i++
         var value = null

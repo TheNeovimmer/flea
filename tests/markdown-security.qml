@@ -177,6 +177,16 @@ ShellRoot {
                     text: Run.parseInline('!<!--gap-->[x](' + shell.counter + '/empty-comment.png)',
                         Url.dirOf(shell.fixture), {}, {}, '#181825', '', [])
                 }
+                Repeater {
+                    model: ["", "red"]
+                    delegate: Text {
+                        required property string modelData
+                        required property int index
+                        textFormat: Text.MarkdownText
+                        text: Run.parseInline('$![x](' + shell.counter + '/math-chrome-' + index + '.png)$',
+                            Url.dirOf(shell.fixture), {}, {}, modelData, '#c0caf5', [])
+                    }
+                }
                 anchors.top: md.bottom
                 width: 540
                 Repeater {
