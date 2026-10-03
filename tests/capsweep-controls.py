@@ -19,6 +19,8 @@ from types import SimpleNamespace
 CONTROL_TIMEOUT_SECONDS = 10
 PROCESS_WAIT_SECONDS = 5
 PROCESS_POLL_SECONDS = 0.1
+# timeout(1) exits with this status when it kills the command.
+PICKER_TIMEOUT_STATUS = 124
 PR_SET_CHILD_SUBREAPER = 36
 PR_GET_CHILD_SUBREAPER = 37
 
@@ -29,7 +31,7 @@ if len(sys.argv) == 1:
     repo = Path(__file__).resolve().parent.parent
 else:
     scratch, repo = map(Path, sys.argv[1:3])
-groups = sys.argv[3:] or ["G1", "G2", "G3", "G4", "G7"]
+groups = sys.argv[3:] or ["G1", "G2", "G3", "G4", "G7", "F10", "F11", "F12", "F13", "F14", "F15"]
 picker_file = repo / "tests/ui-captures-sweep-picker.py"
 # Sample input: def wait(label, predicate): in the picker capture script.
 picker_tree = ast.parse(picker_file.read_text())
@@ -112,14 +114,7 @@ def picker_controls(group):
     print(f"CAPSWEEP_CONTROLS {group} refused={len(patches) * 2} accepted=1")
 
 
-def shell_case(group, accepted):
-    root = scratch / f"{group}-{'good' if accepted else 'bad'}"
-    for directory in ("views", "previews", "evidence", "run"):
-        (root / directory).mkdir(parents=True, exist_ok=True)
-    (root / "views/a.txt").write_text("source\n")
-    (root / "previews/notes.md").write_text("# Release notes\n\nBody\n")
-    (root / "run/flea-second.log").touch()
-    prelude = r'''set -euo pipefail
+SHELL_PRELUDE = r'''set -euo pipefail
 repo=$1
 sweep_root=$2
 good=$3
@@ -137,11 +132,26 @@ magick() { printf '1040x760'; }
 shot() { printf 'synthetic PNG\n' > "$evidence_dir/$1.png"; }
 omarchy-drive() { [[ "$1" == shot ]] || fail 'unexpected drive call'; printf 'synthetic PNG\n' > "$2"; }
 '''
-    if group == "G3":
-        driver = (repo / "tests/ui.sh").read_text()
-        # Sample input: xwdrag_glide() { followed by xwdrag_drag() { in tests/ui.sh.
-        glide = driver.split("xwdrag_glide() {", 1)[1].split("\nxwdrag_drag() {", 1)[0]
-        stubs = r'''
+
+
+def shell_root(label):
+    root = scratch / label
+    for directory in ("views", "previews", "evidence", "run"):
+        (root / directory).mkdir(parents=True, exist_ok=True)
+    (root / "views/a.txt").write_text("source\n")
+    (root / "previews/notes.md").write_text("# Release notes\n\nBody\n")
+    (root / "run/flea-second.log").touch()
+    return root
+
+
+def shell_run(root, script, argument):
+    script_file = root / "probe.sh"
+    script_file.write_text(script)
+    return subprocess.run(["bash", str(script_file), str(repo), str(root), str(argument).lower()],
+                          capture_output=True, text=True, timeout=CONTROL_TIMEOUT_SECONDS)
+
+
+WINDOWS_STUBS = r'''
 sweep_launch() { :; }
 flea_pid() { printf '101\n'; }
 xwdrag_qsid() { printf '%s\n' "$1"; }
@@ -184,13 +194,31 @@ ydotool() {
         printf '%s %s\n' "$((cursor_x + $3))" "$((cursor_y + $5))" > "$sweep_root/pointer"
     elif [[ "$1" == click ]]; then
         printf '%s\n' "$2" >> "$sweep_root/buttons"
+        [[ "$2" != 0x80 || "${release_fails:-false}" != true ]] || return 1
     else
         fail "unexpected ydotool: $1"
     fi
 }
 printf '0 0\n' > "$sweep_root/pointer"
 '''
-        script = prelude + stubs + "\nxwdrag_glide() {" + glide + "\nsweep_windows\n"
+
+
+# ui.sh runs every case as an if condition, where errexit is ignored even after set -e.
+RUN_AS_CASE = "if ( set -e; {name} ); then :; else exit 1; fi\n"
+
+
+def windows_script(release_fails):
+    driver = (repo / "tests/ui.sh").read_text()
+    # Sample input: xwdrag_glide() { followed by xwdrag_drag() { in tests/ui.sh.
+    glide = driver.split("xwdrag_glide() {", 1)[1].split("\nxwdrag_drag() {", 1)[0]
+    return (SHELL_PRELUDE + WINDOWS_STUBS + f"release_fails={str(release_fails).lower()}\nxwdrag_glide() {{" + glide
+            + "\n" + RUN_AS_CASE.format(name="sweep_windows"))
+
+
+def shell_case(group, accepted):
+    root = shell_root(f"{group}-{'good' if accepted else 'bad'}")
+    if group == "G3":
+        script = windows_script(False)
         name = "windows-drag-held"
     else:
         capture = (repo / "tests/ui-captures-sweep.sh").read_text()
@@ -209,12 +237,9 @@ ipc() {
     esac
 }
 '''
-        script = prelude + stubs + branch + "\n"
+        script = SHELL_PRELUDE + stubs + branch + "\n"
         name = "quicklook-markdown-source"
-    script_file = root / "probe.sh"
-    script_file.write_text(script)
-    result = subprocess.run(["bash", str(script_file), str(repo), str(root), str(accepted).lower()],
-                            capture_output=True, text=True, timeout=CONTROL_TIMEOUT_SECONDS)
+    result = shell_run(root, script, accepted)
     manifest = root / "evidence/manifest.tsv"
     if accepted:
         assert result.returncode == 0, result.stdout + result.stderr
@@ -225,6 +250,166 @@ ipc() {
         assert not manifest.exists() and not (root / f"evidence/sweep-{name}.png").exists()
     if group == "G3":
         assert (root / "buttons").read_text().splitlines() == ["0x40", "0x80"], "held button not released"
+
+
+PICKER_STUBS = r"""
+fixture_root="$sweep_root"
+flea_bin=/nonexistent/flea
+flea_ui=/nonexistent/ui
+sandbox_make() { mkdir -p "$1"; }
+fixture_home_make() { mkdir -p "$1"; }
+sweep_views() { :; }
+sweep_previews() { :; }
+sweep_menus() { :; }
+sweep_dialogs() { :; }
+sweep_settings() { :; }
+sweep_windows() { printf 'sweep-windows-drag-held\t1920x1080\n' >> "$evidence_dir/manifest.tsv"; }
+timeout() {
+    printf 'synthetic picker backend log\n' > "$evidence_dir/picker-backend.log"
+    return "$picker_status"
+}
+"""
+
+
+def picker_status_case():
+    for status in (1, PICKER_TIMEOUT_STATUS, 0):
+        root = shell_root(f"F10-{status}")
+        script = SHELL_PRELUDE + PICKER_STUBS + f"picker_status={status}\n" + RUN_AS_CASE.format(name="case_capsweep")
+        result = shell_run(root, script, True)
+        if status == 0:
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert "SWEEP_TOTAL current 1 shots" in result.stdout, result.stdout
+        else:
+            assert result.returncode != 0, f"picker status {status} accepted: {result.stdout}"
+            assert f"capsweep: picker sweep failed, status {status}" in result.stderr, result.stderr
+    print("CAPSWEEP_CONTROLS F10 refused=2 accepted=1")
+
+
+def release_case():
+    root = shell_root("F12-bad")
+    result = shell_run(root, windows_script(True), True)
+    assert result.returncode != 0, f"failed release accepted: {result.stdout}"
+    assert "capsweep: pointer release failed" in result.stderr, result.stderr
+    assert (root / "buttons").read_text().splitlines() == ["0x40", "0x80"], "the release was not attempted once"
+    print("CAPSWEEP_CONTROLS F12 refused=1")
+
+
+def second_toggle_case():
+    capture = (repo / "tests/ui-captures-sweep.sh").read_text()
+    # Sample input: sweep_wait previewOpen false, then the Markdown if that reopens Quick Look and presses r.
+    marker = '        sweep_wait previewOpen false\n        if [[ "$tag" == markdown ]]; then\n'
+    assert capture.count(marker) == 1, "the second Markdown toggle moved"
+    branch = capture.split(marker, 1)[1].split("\n        fi", 1)[0]
+    stubs = r"""
+overlay_open=false
+overlay_mode=source
+key() {
+    case "$*" in
+        '-k Space') overlay_open=true ;;
+        r) [[ "$good" != true ]] || overlay_mode=rendered ;;
+        '-k Escape')
+            printf 'escape\n' >> "$sweep_root/escapes"
+            overlay_open=false
+            ;;
+        *) fail "unexpected key: $*" ;;
+    esac
+}
+ipc() {
+    case "$1" in
+        bodyPx) printf '14\n' ;;
+        previewOpen) printf '%s\n' "$overlay_open" ;;
+        previewMarkdownView) printf '%s\n' "$overlay_mode" ;;
+        columnMarkdownText) cat "$sweep_root/previews/notes.md" ;;
+        *) fail "unexpected reader: $1" ;;
+    esac
+}
+"""
+    for accepted in (False, True):
+        root = shell_root(f"F13-{'good' if accepted else 'bad'}")
+        result = shell_run(root, SHELL_PRELUDE + stubs + branch + "\n", accepted)
+        escapes = root / "escapes"
+        if accepted:
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert escapes.read_text() == "escape\n", "Escape did not close the Quick Look once"
+        else:
+            assert result.returncode != 0, f"a view that never reads rendered was accepted: {result.stdout}"
+            assert "capsweep: previewMarkdownView expected 'rendered', saw 'source'" in result.stderr, result.stderr
+            assert not escapes.exists(), "Escape was pressed before the view read rendered"
+    print("CAPSWEEP_CONTROLS F13 refused=1 accepted=1")
+
+
+def keymap_order_case():
+    capture = (repo / "tests/ui-captures-sweep.sh").read_text()
+    # Sample input: sweep_wait keymapQuery copy, then the shot and the keymapSheetRows assertion.
+    marker = "    sweep_wait keymapQuery copy\n"
+    assert capture.count(marker) == 1, "the keymap query wait moved"
+    body = capture.split(marker, 1)[1].split("    # The first Escape", 1)[0]
+    stubs = r"""
+ipc() {
+    case "$1" in
+        bodyPx) printf '14\n' ;;
+        keymapSheetRows) if [[ "$good" == true ]]; then printf 'copy as\nmove to\n'; else printf 'delete\nmove to\n'; fi ;;
+        *) fail "unexpected reader: $1" ;;
+    esac
+}
+"""
+    for accepted in (False, True):
+        root = shell_root(f"F14-{'good' if accepted else 'bad'}")
+        result = shell_run(root, SHELL_PRELUDE + stubs + body + "\n", accepted)
+        manifest = root / "evidence/manifest.tsv"
+        if accepted:
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert manifest.read_text() == "sweep-keymap-query-copy\t1040x760\n"
+        else:
+            assert result.returncode != 0, f"a sheet with no copy row was accepted: {result.stdout}"
+            assert "capsweep: keymap query lists no copy action" in result.stderr, result.stderr
+            assert not manifest.exists(), "a shot of the wrong sheet reached the manifest"
+            assert not (root / "evidence/sweep-keymap-query-copy.png").exists(), "a shot of the wrong sheet was taken"
+    print("CAPSWEEP_CONTROLS F14 refused=1 accepted=1")
+
+
+def scan_check(label, sweep_text):
+    check = (repo / "tests/capsweep-check.sh").read_text()
+    # Sample input: python3 - <<'PY', the scan source, then a line holding only PY.
+    scan = check.split("python3 - <<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+    # Sample input: . "$repo/tests/ui-captures-sweep.sh"
+    sources = re.findall(r'^\. "\$repo/(tests/ui-[^"]+\.sh)"$', (repo / "tests/ui.sh").read_text(), re.M)
+    tree = scratch / label
+    shared = {"tests/ui.sh", "ui/Ipc.qml", "tests/fixtures/cool-dawn/colors.toml",
+              "tests/ui-captures-sweep-picker.py", *sources} - {"tests/ui-captures-sweep.sh"}
+    for relative in shared:
+        (tree / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tree / relative).symlink_to(repo / relative)
+    (tree / "tests/ui-captures-sweep.sh").write_text(sweep_text)
+    return subprocess.run([sys.executable, "-B", "-"], input=scan, cwd=tree, capture_output=True,
+                          text=True, timeout=CONTROL_TIMEOUT_SECONDS)
+
+
+def reader_scan_case():
+    capture = (repo / "tests/ui-captures-sweep.sh").read_text()
+    # Sample input: xwdrag_qs "$(xwdrag_qsid "$pid")" themeForeground
+    reader_form = 'xwdrag_qs "$(xwdrag_qsid "$pid")" themeForeground'
+    assert capture.count(reader_form) == 1, "the window reader form moved"
+    result = scan_check("F11-good", capture)
+    assert result.returncode == 0, result.stdout + result.stderr
+    result = scan_check("F11-bad", capture.replace(reader_form, reader_form.replace("themeForeground", "themeForegrund")))
+    assert result.returncode != 0, f"a misspelt reader in the window form was accepted: {result.stdout}"
+    assert "themeForegrund" in result.stderr, result.stderr
+    print("CAPSWEEP_CONTROLS F11 refused=1 accepted=1")
+
+
+def bare_bound_case():
+    capture = (repo / "tests/ui-captures-sweep.sh").read_text()
+    result = scan_check("F15-good", capture)
+    assert result.returncode == 0, result.stdout + result.stderr
+    # Sample input: a bare button code, a bare wall-clock bound and a bare timeout, each added to the sweep file.
+    bare = (("ydotool click 0x40", "ydotool click 0x40"), ("end=$((SECONDS + 7))", "SECONDS + 7"),
+            ("timeout 9 true", "timeout 9"))
+    for index, (line, matched) in enumerate(bare):
+        result = scan_check(f"F15-bad-{index}", capture + f"\nsweep_bare_probe() {{ {line}; }}\n")
+        assert result.returncode != 0, f"a bare literal was accepted: {line}"
+        assert matched in result.stderr, result.stderr
+    print(f"CAPSWEEP_CONTROLS F15 refused={len(bare)} accepted=1")
 
 
 def cleanup_controls():
@@ -337,6 +522,18 @@ for group in groups:
             picker_controls(group)
         elif group == "G4":
             cleanup_controls()
+        elif group == "F10":
+            picker_status_case()
+        elif group == "F11":
+            reader_scan_case()
+        elif group == "F12":
+            release_case()
+        elif group == "F13":
+            second_toggle_case()
+        elif group == "F14":
+            keymap_order_case()
+        elif group == "F15":
+            bare_bound_case()
         else:
             shell_case(group, False)
             shell_case(group, True)

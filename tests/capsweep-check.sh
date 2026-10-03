@@ -30,7 +30,12 @@ readers = set(re.findall(r'function (\w+)\(', (root / "ui/Ipc.qml").read_text())
 used = set(re.findall(r'\b(?:ipc|sweep_wait|sweep_text|menus_expect)\s+(\w+)', capture))
 # Sample input: xwdrag_qs "$bid" listingDropActive
 used.update(re.findall(r'\bxwdrag_qs "\$[ab]id" (\w+)', capture))
+# Sample input: xwdrag_qs "$(xwdrag_qsid "$pid")" themeLoaded
+used.update(re.findall(r'\bxwdrag_qs "\$\(xwdrag_qsid "\$\w+"\)" (\w+)', capture))
 assert not used - readers, f"missing read-only IPC readers: {used - readers}"
+# Sample input: SECONDS + 30 in end=$((SECONDS + 30)), timeout 180 python3, ydotool click 0x40: a bound or code with no name.
+bare = re.findall(r'SECONDS \+ \d+|\btimeout \d+|\bydotool click 0x\w+', capture)
+assert not bare, f"unnamed bounds or button codes in the sweep: {bare}"
 lines = capture.splitlines()
 for index, line in enumerate(lines):
     if line.startswith("case_cap"):

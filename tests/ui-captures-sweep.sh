@@ -1,5 +1,8 @@
 # Sourced by ui.sh; native ui:capsweep and ui:capsweeplow keep separate evidence directories.
 
+# Seconds one IPC poll waits for its state, used by the two polling helpers below.
+sweep_wait_seconds=30
+
 # Every capture asserts the effective text size, parsed theme and fresh PNG dimensions.
 sweep_shot() {
     local name="sweep-$1" size dimensions
@@ -17,7 +20,7 @@ sweep_shot() {
 
 # Poll scalar IPC with a wall-clock bound, including delayed preview decodes.
 sweep_wait() {
-    local reader="$1" want="$2" seen='' end=$((SECONDS + 30))
+    local reader="$1" want="$2" seen='' end=$((SECONDS + sweep_wait_seconds))
     shift 2
     while (( SECONDS < end )); do
         seen=$(ipc "$reader" "$@") || fail "capsweep: $reader unavailable"
@@ -29,7 +32,7 @@ sweep_wait() {
 
 # Text IPC is unquoted text, so compare a fragment directly instead of feeding it to jq.
 sweep_text() {
-    local reader="$1" fragment="$2" seen='' end=$((SECONDS + 30))
+    local reader="$1" fragment="$2" seen='' end=$((SECONDS + sweep_wait_seconds))
     shift 2
     while (( SECONDS < end )); do
         seen=$(ipc "$reader" "$@") || fail "capsweep: $reader unavailable"
@@ -226,6 +229,7 @@ sweep_previews() {
             key -k Space >/dev/null
             sweep_wait previewOpen true
             key r >/dev/null
+            sweep_wait previewMarkdownView rendered
             key -k Escape >/dev/null
             sweep_wait previewOpen false
         fi
@@ -398,9 +402,9 @@ sweep_settings() {
     sweep_wait keymapSheetOpen true
     key copy >/dev/null
     sweep_wait keymapQuery copy
-    sweep_shot keymap-query-copy
     sheet_rows=$(ipc keymapSheetRows)
     [[ "$sheet_rows" == *"copy as"* ]] || fail "capsweep: keymap query lists no copy action: ${sheet_rows//$'\n'/ | }"
+    sweep_shot keymap-query-copy
     # The first Escape clears the query (SheetQuery.sheetKey), the second closes the sheet.
     key -k Escape >/dev/null
     sweep_wait keymapQuery ""
@@ -413,7 +417,7 @@ sweep_settings() {
 # Two owned windows fill equal monitor halves, with a selected file held in flight over B.
 sweep_windows() {
     local apid aid bpid bid ax ay bx by width height sx sy dx dy result client address pid x end
-    local drag_wait_seconds=10 drag_poll_seconds=0.1 drag_seen=false mouse_release=0x80
+    local drag_wait_seconds=10 drag_poll_seconds=0.1 placement_wait_seconds=20 drag_seen=false mouse_press=0x40 mouse_release=0x80
     sweep_launch "$sweep_root/views"
     apid=$(flea_pid)
     aid=$(xwdrag_qsid "$apid")
@@ -442,7 +446,7 @@ sweep_windows() {
         [[ "$result" == ok* ]] || fail "capsweep: half-screen resize refused: $result"
         result=$(hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $ay, exact = true, window = \"address:$address\" })")
         [[ "$result" == ok* ]] || fail "capsweep: half-screen placement refused: $result"
-        end=$((SECONDS + 20))
+        end=$((SECONDS + placement_wait_seconds))
         while (( SECONDS < end )); do
             # Sample input: 0 0 960 1080, the owned window's logical x, y, width and height.
             read -r bx by sx sy < <(xwdrag_geometry "$pid")
@@ -465,7 +469,7 @@ sweep_windows() {
     # Sample input: 1100 800, the destination floor's desktop centre.
     read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail 'capsweep: B drop floor unavailable'
     xwdrag_glide "$sx" "$sy"
-    ydotool click 0x40 >/dev/null 2>&1
+    ydotool click "$mouse_press" >/dev/null 2>&1
     sleep 0.3
     xwdrag_glide "$dx" "$dy"
     settle
@@ -481,7 +485,7 @@ sweep_windows() {
     fi
     [[ -f "$sweep_root/views/a.txt" ]] || fail 'capsweep: source moved before button release'
     sweep_desktop_shot windows-drag-held
-    ydotool click "$mouse_release" >/dev/null 2>&1
+    ydotool click "$mouse_release" >/dev/null 2>&1 || fail 'capsweep: pointer release failed'
     xwdrag_kill_second "$bpid"
     cat "$run_root/flea-second.log" >> "$run_log"
     kill_flea
@@ -504,7 +508,7 @@ sweep_desktop_shot() {
 # Current palette or Cool Dawn runs through the same cases and an isolated child HOME.
 sweep_run() {
     local sweep_theme="$1" sweep_root="$fixture_root/capsweep-$1" sweep_real_bin="$flea_bin" sweep_home
-    local real_foreground="$real_foreground" flea_bin="$flea_bin" evidence_dir="$evidence_dir/$1" menus_checks=0
+    local real_foreground="$real_foreground" flea_bin="$flea_bin" evidence_dir="$evidence_dir/$1" menus_checks=0 picker_wait_seconds=180
     local -a sweep_sections
     sandbox_make "$sweep_root"
     sweep_home="$sweep_root/home"
@@ -528,7 +532,8 @@ sweep_run() {
     sweep_dialogs
     sweep_settings
     sweep_windows
-    FLEA_BIN="$sweep_real_bin" FLEA_UI="$flea_ui" timeout 180 python3 "$repo/tests/ui-captures-sweep-picker.py" "$sweep_root/picker" "$sweep_home" "$evidence_dir"
+    FLEA_BIN="$sweep_real_bin" FLEA_UI="$flea_ui" timeout "$picker_wait_seconds" python3 "$repo/tests/ui-captures-sweep-picker.py" "$sweep_root/picker" "$sweep_home" "$evidence_dir" \
+        || fail "capsweep: picker sweep failed, status $?"
     cat "$evidence_dir/picker-backend.log" >> "$run_log"
     printf 'SWEEP_TOTAL %s %s shots\n' "$sweep_theme" "$(wc -l < "$evidence_dir/manifest.tsv")"
 }
