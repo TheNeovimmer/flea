@@ -31,7 +31,7 @@ if len(sys.argv) == 1:
     repo = Path(__file__).resolve().parent.parent
 else:
     scratch, repo = map(Path, sys.argv[1:3])
-groups = sys.argv[3:] or ["G1", "G2", "G3", "G4", "G7", "F10", "F11", "F12", "F13", "F14", "F15"]
+groups = sys.argv[3:] or ["G1", "G2", "G3", "G4", "G7", "F10", "F11", "F12", "F13", "F14", "F15", "F16"]
 picker_file = repo / "tests/ui-captures-sweep-picker.py"
 # Sample input: def wait(label, predicate): in the picker capture script.
 picker_tree = ast.parse(picker_file.read_text())
@@ -512,6 +512,25 @@ while True:
 theme_home = scratch / "theme-home"
 theme_path = theme_home / ".local/state/omarchy/current/theme/colors.toml"
 theme_path.parent.mkdir(parents=True)
+def socket_depth_case():
+    nodes = [node for node in picker_tree.body
+             if (isinstance(node, ast.FunctionDef) and node.name == "socket_fits")
+             or (isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
+                 and all(isinstance(target, ast.Name) and target.id.isupper() for target in node.targets))]
+    namespace = {"os": os}
+    exec(compiled(nodes), namespace)
+    fits = namespace["socket_fits"]
+    # Sample input: the runtime dir of native-sweep038r4n, where Quickshell failed to start its IPC server.
+    deep = "/home/flea-sandbox/sweep038r4n.p23fAc3R/fixture/flea-ui-fixtures-2459770/capsweep-current/picker/run"
+    assert not fits(deep), "a runtime dir too deep for an IPC socket was accepted"
+    assert fits("/tmp/flea-ui-run.myJunPPO/picker-run-abcd1234"), "the suite's run root was refused"
+    tail = f"/quickshell/by-id/{'x' * namespace['QS_INSTANCE_ID_CHARS']}/ipc.sock"
+    room = namespace["SOCKET_PATH_MAX_BYTES"] - len(tail)
+    assert fits("/" + "r" * (room - 1)), "a socket path of exactly the limit was refused"
+    assert not fits("/" + "r" * room), "a socket path one byte over the limit was accepted"
+    print("CAPSWEEP_CONTROLS F16 refused=2 accepted=2")
+
+
 theme_path.write_bytes((repo / "tests/fixtures/cool-dawn/colors.toml").read_bytes())
 # Sample input: foreground = "#DFE8E0" in the installed colors.toml.
 palette = tomllib.loads(theme_path.read_text())
@@ -534,6 +553,8 @@ for group in groups:
             keymap_order_case()
         elif group == "F15":
             bare_bound_case()
+        elif group == "F16":
+            socket_depth_case()
         else:
             shell_case(group, False)
             shell_case(group, True)

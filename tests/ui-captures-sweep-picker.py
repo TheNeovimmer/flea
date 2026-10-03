@@ -7,6 +7,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 
@@ -23,8 +24,8 @@ POLL_SECONDS = 0.1
 CAPTURE_SETTLE_SECONDS = 0.4
 CAPTURE_BODY_PX = 14
 PROCESS_WAIT_SECONDS = 5
-# Sample input: "<runtime>/quickshell/by-id/hwkh1d5nbmt/ipc.sock", the socket Quickshell binds for qs ipc.
-QS_IPC_SOCKET_TAIL = "/quickshell/by-id/" + "x" * 11 + "/ipc.sock"
+# Sample input: "hwkh1d5nbmt", the instance id Quickshell names its runtime directory by.
+QS_INSTANCE_ID_CHARS = 11
 # sockaddr_un.sun_path holds 108 bytes with its terminator.
 SOCKET_PATH_MAX_BYTES = 107
 root, theme_home, evidence = map(lambda value: Path(value).resolve(), sys.argv[1:])
@@ -44,11 +45,18 @@ for key, directory in [("XDG_CONFIG_HOME", "config"), ("XDG_DATA_HOME", "data"),
                        ("XDG_STATE_HOME", "state"), ("XDG_CACHE_HOME", "cache")]:
     (root / directory).mkdir(mode=0o700)
     picker_env[key] = str(root / directory)
-# The fixture root sits too deep for a socket path, so the picker's runtime dir lives in the suite's run root.
-runtime = run_root / "picker-run"
-if len(os.fsencode(str(runtime) + QS_IPC_SOCKET_TAIL)) > SOCKET_PATH_MAX_BYTES:
+
+
+def socket_fits(runtime):
+    # Sample input: "<runtime>/quickshell/by-id/hwkh1d5nbmt/ipc.sock", the socket Quickshell binds for qs ipc.
+    socket = f"{runtime}/quickshell/by-id/{'x' * QS_INSTANCE_ID_CHARS}/ipc.sock"
+    return len(os.fsencode(socket)) <= SOCKET_PATH_MAX_BYTES
+
+
+# The fixture root sits too deep for a socket path, so each picker run takes a private dir in the suite's run root.
+runtime = Path(tempfile.mkdtemp(prefix="picker-run-", dir=run_root))
+if not socket_fits(runtime):
     raise AssertionError(f"picker runtime dir is too deep for an IPC socket: {runtime}")
-runtime.mkdir(mode=0o700)
 picker_env["XDG_RUNTIME_DIR"] = str(runtime)
 picker_env["HOME"] = str(theme_home)
 picker_env["WAYLAND_DISPLAY"] = str(Path(drive_env["XDG_RUNTIME_DIR"]) / drive_env["WAYLAND_DISPLAY"])
