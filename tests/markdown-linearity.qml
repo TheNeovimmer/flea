@@ -33,7 +33,8 @@ QtObject {
         { source: "![x](foo&#65583;bar.png)", dir: "/doc" },
         { source: '<img src="pic.png"><span title="\uE0020\uE003">tail</span>', dir: "/doc" },
         { source: "before <svg/> rest\n\nbefore <svg><svg/></svg> tail", dir: "/doc" },
-        { source: 'before <svg a=b/>hidden</svg> tail\n\nbefore <svg><svg a=b/>hidden</svg>hidden</svg> tail', dir: "/doc" }
+        { source: 'before <svg a=b/>hidden</svg> tail\n\nbefore <svg><svg a=b/>hidden</svg>hidden</svg> tail', dir: "/doc" },
+        { source: '<svg a=b\u00A0/>hidden</svg> tail\n\n<svg\u2003a=b/>hidden</svg> tail\n\n<svg ==/>hidden</svg> tail\n\n<svg =a/>hidden</svg> tail', dir: "/doc" }
     ]
     property int workerReplies: 0
     readonly property int workerDeadlineMs: 10000
@@ -266,7 +267,10 @@ QtObject {
                 return unit.repeat(Math.floor(n / unit.length));
             },
             tagAttrs: function (n) {
-                var unit = '<svg a=b/>hidden</svg><svg><svg a=b/>hidden</svg>hidden</svg><b title="b"/>x</b>';
+                var unit = '<svg a=b/>hidden</svg><svg><svg a=b/>hidden</svg>hidden</svg><b title="b"/>x</b>'
+                    + '<svg a=b\u00A0/>hidden</svg><svg a=b\u000B/>hidden</svg><svg a=b\u2003/>hidden</svg><svg a=b\uFEFF/>hidden</svg>'
+                    + '<svg\u00A0a=b/>hidden</svg><svg\u000Ba=b/>hidden</svg><svg\u2003a=b/>hidden</svg><svg\uFEFFa=b/>hidden</svg>'
+                    + '<svg ==/>hidden</svg><svg =a/>hidden</svg><svg a=b\t/>kept</svg>';
                 return unit.repeat(Math.floor(n / unit.length));
             },
             linkFrames: function (n) {

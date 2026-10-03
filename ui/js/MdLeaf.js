@@ -134,15 +134,22 @@ function standaloneImage(line, dir, defs) {
         var tag = MdHtml.readTag(text, 0)
         if (tag === null)
             return null
-        var src = (/src\s*=\s*"([^"]*)"/i.exec(text) || /src\s*=\s*'([^']*)'/i.exec(text)
-            || /src\s*=\s*([^\s>]+)/i.exec(text) || [])[1] || ""
+        var head = MdHtml.tagHead(tag.tag)
+        if (head.name !== "img" || head.closing || !head.validAttrs)
+            return null
+        var src = "", alt = ""
+        for (var a = 0; a < head.attributes.length; a++) {
+            var attr = head.attributes[a]
+            if (attr.name === "src")
+                src = attr.value === null ? "" : attr.value
+            if (attr.name === "alt")
+                alt = attr.value === null ? "" : attr.value
+        }
         var cls = MdUrl.classifyImage(src, dir)
         if (cls.kind === "remote")
             return { type: "remote", host: cls.host }
-        if (cls.kind === "local") {
-            var name = (/alt\s*=\s*"([^"]*)"/i.exec(text) || /alt\s*=\s*'([^']*)'/i.exec(text) || [])[1] || ""
-            return { type: "image", url: cls.url, alt: name }
-        }
+        if (cls.kind === "local")
+            return { type: "image", url: cls.url, alt: alt }
         return null
     }
     return null

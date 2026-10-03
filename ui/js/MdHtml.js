@@ -51,6 +51,10 @@ function isNameChar(c) {
     return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9")
 }
 
+function isHtmlWhitespace(c) {
+    return c === "\t" || c === "\n" || c === "\f" || c === "\r" || c === " "
+}
+
 // Sample: <img src="pic.png" alt="picture">. Quote-check only the candidate; a failed native search marks later openers dead, and oversized tags stay literal.
 function readTag(text, i, dead) {
     if (dead !== undefined && dead !== null && i < dead.tagDead)
@@ -85,14 +89,14 @@ function readTag(text, i, dead) {
     return { tag: candidate, end: gt + 1 }
 }
 
-// Sample input: ' a=b/' keeps the slash in b/; ' a="b"/' sets the self-closing flag only at the end.
+// Sample input: ' a=b/' keeps the slash in b/; ' ==/' names '=' with value '/'; ' a="b"/' sets the self-closing flag.
 function scanAttributes(rest) {
     var i = 0
     var attributes = []
     var valid = true
     var selfClose = false
     while (i < rest.length) {
-        while (i < rest.length && /\s/.test(rest.charAt(i)))
+        while (i < rest.length && isHtmlWhitespace(rest.charAt(i)))
             i++
         if (i >= rest.length)
             break
@@ -101,23 +105,22 @@ function scanAttributes(rest) {
             i++
             continue
         }
-        var aname = ""
-        while (i < rest.length && /[^\s=/>]/.test(rest.charAt(i))) {
+        // Before an attribute name, even '=' starts the name; only a later '=' starts its value.
+        var aname = rest.charAt(i).toLowerCase()
+        i++
+        while (i < rest.length && !isHtmlWhitespace(rest.charAt(i))
+                && rest.charAt(i) !== "=" && rest.charAt(i) !== "/" && rest.charAt(i) !== ">") {
             aname += rest.charAt(i).toLowerCase()
             i++
         }
-        if (aname.length === 0) {
-            i++
-            continue
-        }
         if (!/^[A-Za-z_:][-A-Za-z0-9_.:]*$/.test(aname))
             valid = false
-        while (i < rest.length && /\s/.test(rest.charAt(i)))
+        while (i < rest.length && isHtmlWhitespace(rest.charAt(i)))
             i++
         var value = null
         if (rest.charAt(i) === "=") {
             i++
-            while (i < rest.length && /\s/.test(rest.charAt(i)))
+            while (i < rest.length && isHtmlWhitespace(rest.charAt(i)))
                 i++
             var q = rest.charAt(i)
             if (q === '"' || q === "'") {
@@ -129,7 +132,7 @@ function scanAttributes(rest) {
                 i++
             } else {
                 var begin = i
-                while (i < rest.length && !/[\s>]/.test(rest.charAt(i)))
+                while (i < rest.length && !isHtmlWhitespace(rest.charAt(i)) && rest.charAt(i) !== ">")
                     i++
                 value = rest.slice(begin, i)
             }
@@ -153,11 +156,19 @@ function tagHead(tag) {
         i++
     }
     var rest = tag.slice(i, tag.length - 1)
-    if (!/^[a-z]/.test(name) || (rest !== "" && !/^[\s/]/.test(rest))
-            || (closing && !/^\s*$/.test(rest)) || (rest.charAt(0) === "/" && !/^\/\s*$/.test(rest)))
+    var slashFirst = rest.charAt(0) === "/"
+    var whitespaceEnd = slashFirst ? 1 : 0
+    while (whitespaceEnd < rest.length && isHtmlWhitespace(rest.charAt(whitespaceEnd)))
+        whitespaceEnd++
+    var validHead = /^[a-z]/.test(name)
+        && (rest === "" || isHtmlWhitespace(rest.charAt(0)) || slashFirst)
+        && (!closing || (!slashFirst && whitespaceEnd === rest.length))
+        && (!slashFirst || whitespaceEnd === rest.length)
+    // Malformed dropped openers still suppress their bodies; malformed closers cannot end a dropped body.
+    if (!validHead && (closing || !DROP_CONTENT.hasOwnProperty(name)))
         name = ""
     var attrs = scanAttributes(rest)
-    return { name: name, closing: closing, rest: rest, selfClose: attrs.selfClose,
+    return { name: name, closing: closing, rest: rest, selfClose: validHead && attrs.valid && attrs.selfClose,
         attributes: attrs.attributes, validAttrs: attrs.valid }
 }
 

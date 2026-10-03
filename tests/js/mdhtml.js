@@ -4,6 +4,7 @@
 .import "../../ui/js/MdBlocks.js" as Blocks
 .import "../../ui/js/MdRun.js" as Run
 .import "../../ui/js/MdRefs.js" as Refs
+.import "../../ui/js/MdLeaf.js" as Leaf
 
 function run(check) {
     var dir = "/home/u/docs"
@@ -75,6 +76,56 @@ function run(check) {
             "before  tail")
     check("R8 shared scanner retains unquoted slash", tag('<a title=b/ >'), '<a title="b/">')
     check("R8 slash before attributes is not final", tag('<a / title="b">'), '<a title="b">')
+    var nonHtmlWhitespace = ["\u00A0", "\u000B", "\u2003", "\uFEFF"]
+    var htmlWhitespace = ["\t", "\n", "\f", "\r", " "]
+    var htmlForms = [{ tail: " ==/", selfClose: false }, { tail: " =a/", selfClose: false }]
+    for (var w = 0; w < nonHtmlWhitespace.length; w++) {
+        htmlForms.push({ tail: " a=b" + nonHtmlWhitespace[w] + "/", selfClose: false })
+        htmlForms.push({ tail: nonHtmlWhitespace[w] + "a=b/", selfClose: false })
+        check("R9 unquoted value retains non-HTML whitespace " + w,
+            Html.scanAttributes(" a=b" + nonHtmlWhitespace[w] + "/").attributes[0].value,
+            "b" + nonHtmlWhitespace[w] + "/")
+        check("R9 non-HTML delimiter refuses allowed tag " + w,
+            Html.tagHead("<b" + nonHtmlWhitespace[w] + "a=b/>").name, "")
+        check("R9 standalone image rejects non-HTML attribute whitespace " + w,
+            Leaf.standaloneImage('<img src' + nonHtmlWhitespace[w] + '="pic.png">', dir, {}), null)
+    }
+    for (var h = 0; h < htmlWhitespace.length; h++) {
+        htmlForms.push({ tail: " a=b" + htmlWhitespace[h] + "/", selfClose: true })
+        htmlForms.push({ tail: htmlWhitespace[h] + "a=b /", selfClose: true })
+    }
+    check("R9 initial equals starts attribute name", JSON.stringify(Html.scanAttributes(" ==/").attributes),
+        JSON.stringify([{ name: "=", value: "/" }]))
+    check("R9 equals stays in attribute name", JSON.stringify(Html.scanAttributes(" =a/").attributes),
+        JSON.stringify([{ name: "=a", value: null }]))
+    check("R9 invalid attribute name still records HTML slash syntax", Html.scanAttributes(" =a/").selfClose, true)
+    check("R9 standalone image does not read data-src",
+        Leaf.standaloneImage('<img data-src="pic.png">', dir, {}), null)
+    check("R9 standalone image normalizes unquoted slash",
+        Leaf.standaloneImage('<img src=pic.png/>', dir, {}).url, "file://" + dir + "/pic.png")
+    for (var dropName in Html.DROP_CONTENT) {
+        for (var nw = 0; nw < nonHtmlWhitespace.length; nw++)
+            check("R9 malformed closer cannot end " + dropName + " body " + nw,
+                inline("before <" + dropName + ">hidden</" + dropName + nonHtmlWhitespace[nw]
+                    + ">hidden</" + dropName + "> tail", ink), "before  tail")
+        for (var hf = 0; hf < htmlForms.length; hf++) {
+            var htmlForm = htmlForms[hf]
+            var open = "<" + dropName + htmlForm.tail + ">"
+            var endTag = "</" + dropName + ">"
+            var input = "before " + open + "hidden" + endTag + " tail"
+            var expected = htmlForm.selfClose ? "before hidden tail" : "before  tail"
+            var htmlLabel = "R9 " + dropName + " form " + hf
+            check(htmlLabel + " tokenizer flag", Html.tagHead(open).selfClose, htmlForm.selfClose)
+            check(htmlLabel + " drop guard", Html.sanitizeTag(open, dir, []).drop,
+                htmlForm.selfClose ? null : dropName)
+            check(htmlLabel + " body and tail", inline(input, ink), expected)
+            check(htmlLabel + " block body and tail", JSON.stringify(Markdown.blocks(input, dir, "#181825", ink)),
+                JSON.stringify([{ type: "run", text: expected }]))
+            var nestedInput = open + "hidden" + endTag + (htmlForm.selfClose ? "" : "hidden" + endTag) + " tail"
+            check(htmlLabel + " nested drop depth", Refs.skipDropContent(nestedInput, 0, dropName, { tagDead: -1 }),
+                nestedInput.indexOf(" tail"))
+        }
+    }
     check("R3 thematic break ends a reference paragraph",
         Markdown.definitions("Text\n\n***\n[img]: pic.png").img, "pic.png")
     check("R3 quoted thematic break ends a reference paragraph",

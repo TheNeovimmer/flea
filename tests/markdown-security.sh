@@ -140,6 +140,21 @@ forms = [
     ("bodybg", lambda p: f'<body background="{H}/{p}/x.png">hi</body>'),
     ("dataimg", lambda p: "![pic](data:image/png;base64,iVBORw0KGgo=)"),
 ]
+DROP_CONTENT_NAMES = ("script", "style", "iframe", "object", "embed", "template", "noscript", "svg", "math")
+NON_HTML_WHITESPACE = ("\u00a0", "\u000b", "\u2003", "\ufeff")
+HTML_WHITESPACE = ("\t", "\n", "\f", "\r", " ")
+tag_forms = [("initial-equals", " ==/", False), ("equals-name", " =a/", False)]
+for index, char in enumerate(NON_HTML_WHITESPACE):
+    tag_forms.extend([(f"value-non-html-{index}", f" a=b{char}/", False),
+        (f"head-non-html-{index}", f"{char}a=b/", False)])
+for index, char in enumerate(HTML_WHITESPACE):
+    tag_forms.extend([(f"value-html-{index}", f" a=b{char}/", True),
+        (f"head-html-{index}", f"{char}a=b /", True)])
+for tag_name in DROP_CONTENT_NAMES:
+    for label, tail, self_close in tag_forms:
+        sentinel = "R9_KEEP_BODY" if self_close else "R9_DROP_BODY"
+        forms.append((f"drop-{tag_name}-{label}", lambda p, tag_name=tag_name, tail=tail, sentinel=sentinel:
+            f"<{tag_name}{tail}>{sentinel} ![x]({H}/{p}/x.png)</{tag_name}> R9_TAIL"))
 defs = []
 lines = ["# Security corpus", ""]
 for fi, (name, make) in enumerate(forms):
