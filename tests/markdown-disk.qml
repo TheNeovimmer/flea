@@ -18,8 +18,14 @@ ShellRoot {
     property bool editDone: false
     property string fullText: ""
     property string partialText: ""
-    // The furthest the list has rested past the end of its content since the edit; contentY changes are all it is sampled on.
+    // The furthest the list has rested past the end of its content since the edit, sampled on every contentY and contentHeight change.
     property real overshoot: 0
+    // The worker phase: counters read before the edit, the watcher events one save raised, and whether the parse was still pending a turn after it was asked.
+    property int loadsBefore: 0
+    property int parseRunsBefore: 0
+    property int saveEvents: 0
+    property bool parsingAfterAsk: false
+    property int waited: 0
     property real scrolledY: 0
     property real scrolledColumnY: 0
     readonly property bool failCase: scenario === "disk-fail"
@@ -31,12 +37,17 @@ ShellRoot {
     readonly property int tallScreens: 3
     // Ticks of the probe timer a finished save stays quiet for before the place is read; counted, never timed.
     readonly property int settleTicks: 15
+    // Ticks the probe waits for one event to land before it fails that event by name; counted, never timed.
+    readonly property int landPollLimit: 300
+    // The worker phase's save truncates, waits this long, then writes: two watcher events, as the kernel merges two that arrive unread together.
+    readonly property int saveGapMs: 10
     // A shortened document that still fills the viewport yet ends far above scrollTargetY.
     readonly property int shortParagraphs: 40
     readonly property string unlinkScript: "import os, sys; os.unlink(sys.argv[1])"
     readonly property string truncateScript: "import sys; open(sys.argv[1], 'w').close()"
     readonly property string writeScript: "from pathlib import Path; import sys; Path(sys.argv[1]).write_text(sys.argv[2])"
     readonly property string shortScript: "from pathlib import Path; import sys; Path(sys.argv[1]).write_text('\\n\\n'.join('short paragraph %d.' % i for i in range(int(sys.argv[2]))) + '\\n')"
+    readonly property string splitSaveScript: "from pathlib import Path; import sys, time; p = Path(sys.argv[1]); t = p.read_text().replace('scroll paragraph 0.', 'edited paragraph 0.'); f = open(p, 'w'); f.flush(); time.sleep(" + root.saveGapMs / 1000 + "); f.write(t); f.close()"
     readonly property string replaceScript: "from pathlib import Path; import sys; p = Path(sys.argv[1]); p.write_text(p.read_text().replace('scroll paragraph 0.', 'edited paragraph 0.'))"
 
     function check(label, actual, expected) {
@@ -109,11 +120,30 @@ ShellRoot {
             kindName: "Markdown document"
         }
     }
+    // One sampler for both: a content that shrinks under an unchanged contentY is seen as well as a view that moves.
+    function sampleList() {
+        var list = md.bodyItem
+        if (root.stage < 1 || list.contentHeight <= 0)
+            return
+        root.overshoot = Math.max(root.overshoot, list.contentY - root.highest(list))
+    }
     Connections {
         target: md.bodyItem
-        function onContentYChanged() {
-            if (root.stage >= 1 && md.bodyItem.contentHeight > 0)
-                root.overshoot = Math.max(root.overshoot, md.bodyItem.contentY - root.highest(md.bodyItem))
+        function onContentYChanged() { root.sampleList() }
+        function onContentHeightChanged() { root.sampleList() }
+    }
+    // The shown file's watcher events and the preview's reloads, counted where they happen.
+    Connections {
+        id: watcher
+        target: null
+        function onFileChanged() { root.saveEvents++ }
+    }
+    Connections {
+        target: md
+        // A synchronous parse is over before the next turn, a worker's reply is not.
+        function onParseRunsChanged() {
+            if (root.stage === 1)
+                Qt.callLater(function () { root.parsingAfterAsk = md.parsing })
         }
     }
     // The file switches in the turn the save's event starts the coalescing window, so the reload is still pending.
@@ -137,6 +167,25 @@ ShellRoot {
     }
     // Counted ticks, not a duration: the reparse lands and the list lays out over a few turns.
     function quiet() { return ++root.settle > root.settleTicks }
+    // True once an event has landed; a count of polls that never sees it fails the event by name.
+    function landedWithin(name, ready) {
+        if (ready) {
+            root.waited = 0
+            return true
+        }
+        if (++root.waited > root.landPollLimit) {
+            root.check(name + " lands within " + root.landPollLimit + " polls", "gave up", "landed")
+            root.finish()
+        }
+        return false
+    }
+    // The preview's FileView, found among its non-visual children by the watcher it carries.
+    function fileView() {
+        var parts = md.resources
+        for (var i = 0; i < parts.length; i++)
+            if (parts[i].watchChanges === true && parts[i].loaded !== undefined) return parts[i]
+        return null
+    }
     function tall(item) { return item && item.contentReady && item.flickContentHeight > item.height * root.tallScreens }
 
     // Quick Look and the column each read the removed file as a failure, then the recreated one as text with the place kept.
@@ -253,17 +302,32 @@ ShellRoot {
             md.bodyItem.contentY = root.scrollTargetY
             root.scrolledY = md.bodyItem.contentY
             root.check("scrolled into the document", root.scrolledY, root.scrollTargetY)
-            root.edit(root.replaceScript)
+            watcher.target = root.fileView()
+            root.check("the file view is found", watcher.target !== null, true)
+            root.loadsBefore = md.loadRuns
+            root.parseRunsBefore = md.parseRuns
+            root.saveEvents = 0
+            root.parsingAfterAsk = false
+            root.edit(root.splitSaveScript)
             root.stage = 1
             return
         }
-        if (root.stage === 1 && root.editDone && md.rawText.indexOf("edited paragraph 0.") === 0 && md.contentReady) {
+        // The edit's own parse: asked once, still pending a turn after it was asked, and landed with the list in step.
+        if (root.stage === 1 && root.editDone && root.landedWithin("the edit's parse", md.parseRuns > root.parseRunsBefore
+                && md.rawText.indexOf("edited paragraph 0.") === 0 && md.contentReady)) {
             root.stage = 2
             root.settle = 0
             return
         }
         if (root.stage === 2 && root.quiet()) {
+            root.check("the edit asked one parse", md.parseRuns - root.parseRunsBefore, 1)
+            root.check("the edit's parse landed", [md.parsing, md.appliedSeq === md.parseSeq], [false, true])
+            root.check("the worker landed the edit, not a synchronous parse", root.parsingAfterAsk, true)
             root.check("the worker parsed the edit", md.parsedOffThread, true)
+            // The save is a truncate and a write, and each raises its own watcher event: both land in one load.
+            console.log("PREVIEW_HUNT INFO the save raised " + root.saveEvents + " watcher events")
+            root.check("the save raised more than one watcher event", root.saveEvents > 1, true)
+            root.check("one save is one load", md.loadRuns - root.loadsBefore, 1)
             root.check("edited text is drawn", md.rawText.indexOf("edited paragraph 0.") === 0, true)
             root.check("a worker parse keeps the scroll position", md.bodyItem.contentY, root.scrolledY)
             root.finish()

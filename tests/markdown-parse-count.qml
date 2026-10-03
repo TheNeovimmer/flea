@@ -3,8 +3,7 @@ import Quickshell
 import Quickshell.Io
 import "flea" as Flea
 
-// One event, one parse: count the parses a shown Markdown file really runs for each event, in Quick Look and in the column.
-// The parse-fallback phase runs on a scratch ui (see tests/preview-hunt.sh) whose worker never replies and whose parser throws on one marker.
+// One event, one parse, in Quick Look and in the column; parse-fallback runs on tests/preview-hunt.sh's scratch ui (a silent worker, a parser that throws).
 ShellRoot {
     id: root
     property string scenario: Quickshell.env("FLEA_PREVIEW_HUNT_CASE")

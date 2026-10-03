@@ -43,8 +43,10 @@ png+=chunk(b'IDAT',zlib.compress((b'\0'+b'\x40\x80\xc0'*1200)*600))+chunk(b'IEND
 # The theme file's first block holds the link; the rest gives the view somewhere to scroll to.
 (root/'theme.md').write_text('[guide](https://example.invalid/guide)\n\n'+'\n\n'.join(f'theme paragraph {i}.' for i in range(300))+'\n')
 # The place-keeping files: 300 paragraphs, and one past the 65536 character worker threshold (3200 lines of about 21).
-for name in ('disk-scroll','disk-fail','disk-partial','disk-shrink','disk-switch'):
+for name in ('disk-scroll','disk-fail','disk-partial','disk-shrink','disk-switch','disk-stream','disk-regrow'):
  (root/(name+'.md')).write_text('\n\n'.join(f'scroll paragraph {i}.' for i in range(300))+'\n')
+# The uneven file: 60 one line paragraphs, then 60 fenced code blocks of 25 lines, so block heights differ by an order of magnitude.
+(root/'disk-uneven.md').write_text('\n\n'.join(f'uneven paragraph {i}.' for i in range(60))+'\n\n'+'\n\n'.join('```\n'+'\n'.join(f'code {b} line {n}' for n in range(25))+'\n```' for b in range(60))+'\n')
 (root/'disk-switch-b.md').write_text('\n\n'.join(f'other paragraph {i}.' for i in range(300))+'\n')
 (root/'disk-worker.md').write_text('\n\n'.join(f'scroll paragraph {i}.' for i in range(3200))+'\n')
 (root/'pc-fb.md').write_text('\n'.join(f'- fallback item {i} with enough plain text to force the worker parse path.' for i in range(1500))+'\n')
@@ -62,12 +64,13 @@ printf '%s\n' 'WorkerScript.onMessage = function (msg) {};' > "$fallback_ui/Mark
 sed -i 's/^function blocks(source, dir, chrome, ink) {$/&\n    if (String(source).indexOf("FLEA-SCRATCH-THROW") >= 0) throw new Error("scratch parse failure")/' "$fallback_ui/js/Markdown.js"
 grep -q 'FLEA-SCRATCH-THROW' "$fallback_ui/js/Markdown.js" || { echo 'FAIL scratch ui: parser not patched'; exit 1; }
 failures=0
-scenarios=(control tasks reference table scroll source-key size-key theme links disk disk-rename disk-scroll disk-stale local-image long-list long-table disk-fail disk-partial disk-shrink disk-switch disk-worker parse-quick parse-column parse-worker parse-fallback)
+scenarios=(control tasks reference table scroll source-key size-key theme links disk disk-rename disk-scroll disk-stale local-image long-list long-table disk-fail disk-partial disk-shrink disk-switch disk-worker disk-stream disk-regrow disk-uneven parse-quick parse-column parse-worker parse-fallback)
 for scenario in "${scenarios[@]}"; do
     link_preload=""
     case "$scenario" in
         theme|links|disk|disk-rename|disk-scroll|disk-stale|local-image|long-list|long-table) cp tests/markdown-hunt.qml "$test_root/config/shell.qml" ;;
         disk-fail|disk-partial|disk-shrink|disk-switch|disk-worker) cp tests/markdown-disk.qml "$test_root/config/shell.qml" ;;
+        disk-stream|disk-regrow|disk-uneven) cp tests/markdown-disk-reader.qml "$test_root/config/shell.qml" ;;
         parse-*) cp tests/markdown-parse-count.qml "$test_root/config/shell.qml" ;;
         *) cp tests/preview-hunt.qml "$test_root/config/shell.qml" ;;
     esac

@@ -129,7 +129,8 @@ Item {
         printErrors: false
         // The one watcher is on the shown file; a path change re-points it, so an old file never reloads here.
         watchChanges: true
-        onFileChanged: reloadCoalesce.restart()
+        // The first event opens the window and the rest land inside it: a restart would starve a file written without pause.
+        onFileChanged: if (!reloadCoalesce.running) reloadCoalesce.start()
         onLoaded: {
             root.loadRuns++
             // A save that unlinks and recreates the file can fail one reload; the next good load clears it.
@@ -159,12 +160,22 @@ Item {
     property real heldY: NaN
     // Two positions this close are the same place: the list stores contentY as a float.
     readonly property real samePlacePx: 1
-    // A place kept for taller content stays unless the reader has moved since the short model was laid out.
+    // True while the model is replaced: the list moves itself to its top then, and restoreScroll puts the view back.
+    property bool settingBlocks: false
+    // A place waiting for taller content ends the moment the reader moves the view away from it.
+    function releaseHeldPlace() {
+        if (root.settingBlocks || isNaN(root.heldY) || Math.abs(body.contentY - root.heldY) < root.samePlacePx)
+            return
+        root.keepScroll = false
+        root.heldY = NaN
+    }
+    // A place still waiting (a reload in flight, or taller content to come) is kept; otherwise the reader's present place is saved.
     function rememberScroll() {
-        if (root.keepScroll && (isNaN(root.heldY) || Math.abs(body.contentY - root.heldY) < root.samePlacePx))
+        if (root.keepScroll)
             return
         root.savedY = body.contentY
         root.keepScroll = true
+        // A path change or a failed load ends a hold without clearing its place, so a new place starts with none.
         root.heldY = NaN
     }
     // The view rests between the list's own resting top and the end of the new content, and a model too short for the place keeps it.
@@ -174,13 +185,12 @@ Item {
         var top = body.originY - body.topMargin
         var end = Math.max(top, body.originY + body.contentHeight - body.height + body.bottomMargin)
         var at = Math.max(top, Math.min(root.savedY, end))
+        var settled = root.savedY <= end
+        // The hold is recorded before the move, so the move itself reads as the same place.
+        root.heldY = settled ? NaN : at
         body.contentY = at
-        if (root.savedY <= end) {
+        if (settled)
             root.keepScroll = false
-            root.heldY = NaN
-        } else {
-            root.heldY = at
-        }
     }
     function reloadFromDisk() {
         if (!root.active || root.tooLarge)
@@ -224,7 +234,9 @@ Item {
             return
         }
         root.parseError = ""
+        root.settingBlocks = true
         root.blockList = messageObject.blocks
+        root.settingBlocks = false
         // A reply that changed nothing the list sees raises no model change, so the saved place is released here.
         root.restoreScroll()
         root.parsedOffThread = true
@@ -261,6 +273,7 @@ Item {
     // The synchronous parse of one request, landed like a worker reply: the small-file path and the worker's recovery both end here.
     function parseNow(text, dir, chrome, ink) {
         try {
+            root.settingBlocks = true
             root.blockList = Markdown.blocks(text, dir, chrome, ink)
         } catch (e) {
             root.parseError = String(e.message || e)
@@ -268,6 +281,8 @@ Item {
             root.parsing = false
             root.askedAny = false
             return
+        } finally {
+            root.settingBlocks = false
         }
         root.parseError = ""
         root.appliedSeq = root.parseSeq
@@ -381,6 +396,7 @@ Item {
         model: root.blockList
         // A new model resets the view to its origin, so the saved place is restored once that reset is done.
         onModelChanged: root.restoreScroll()
+        onContentYChanged: root.releaseHeldPlace()
         spacing: root.blockGap
         topMargin: root.insetY
         bottomMargin: root.insetY

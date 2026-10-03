@@ -105,6 +105,12 @@ QtObject {
         }
         check(!escaped && root.parseError === "probe parse fault" && root.appliedSeq === root.parseSeq
             && !root.loading && root.status === "This file could not be read.", "F42 throwing fallback settles error")
+
+        // A path change or a failed load drops keepScroll and leaves heldY, so the next place taken must clear it.
+        var remember = new Function("root", "body", body(source, "function rememberScroll()"))
+        var held = { keepScroll: false, heldY: 40, savedY: 0 }
+        remember(held, { contentY: 300 })
+        check(held.keepScroll && held.savedY === 300 && isNaN(held.heldY), "F43 a new place starts with no hold waiting")
     }
 
     function lazyChecks() {

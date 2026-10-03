@@ -7197,7 +7197,22 @@ the timer still outlasts ListView's placement so `inView` reads the placed posit
 `FigureWorker.themeKey` carry every theme role the diagram paints (muted, line, surface, border), and the unexpected-exit
 log fires only when a figure fails its second strike. `ui/js/FigureWorker.mjs` records 513 lines, `ui/FigureService.qml` 298. The md2 merge
 leaves `tests/markdown-linearity.qml` at 543 lines, the merged `wc -l` where both sides added cases (399 on the stack,
-529 on md2), and its budget row is that number.
+529 on md2), and its budget row was that number at that merge.
+
+mdhunt round 2 closes the three gaps in how round 1 keeps the reader's place, and `ui/PreviewMarkdown.qml` is 782 lines (`wc -l`, its budget row). The coalescing window is not
+restarted: `onFileChanged` starts `reloadCoalesce` only when it is not running, the same rule as the directory watcher's 400 ms timer, because `restart()` pushed the 50 ms window back on every
+event and a file written every 20 ms never reloaded until its writer stopped (`disk-stream` appends 40 times, 20 ms apart, and requires reloads to land while the writer runs, fewer than
+the writes, and the final text after it stops). A held place ends the moment the reader moves: the list's `onContentYChanged` calls `releaseHeldPlace`, which drops `keepScroll` and `heldY`
+once the view is `samePlacePx` or more from `heldY`, `restoreScroll` records `heldY` before it moves the view so its own move reads as the same place, and `settingBlocks` brackets each
+`blockList` assignment (in `landed` and `parseNow`) because a model reset moves the list to its top before `restoreScroll` runs and that is the list, not the reader. `rememberScroll` then keeps a
+place only while one still waits, where round 1 compared `contentY` with `heldY` at the next reload and so read a reader who scrolled away and back as not having moved (`disk-regrow` moves the
+view up 200 px and back, writes the full text, and requires the view to stay; `disk-partial` still returns to the deep place). `disk-uneven` (60 one line paragraphs then 60 code blocks of 25
+lines, the reader past three quarters of the real height, a same-length edit of the first paragraph) found no estimated bound to fix: in the turn the model is replaced `contentHeight` is still the
+previous layout's exact 27261, equal to the real height the phase measures by walking the document, and it never reported a smaller one while reloading, so `restoreScroll` keeps its form and
+the phase stays as the guard. The new phases live in `tests/markdown-disk-reader.qml` (`tests/markdown-disk.qml` stays under its 400 line cap), `overshoot` is sampled on every `contentY` and
+`contentHeight` change, `disk-worker` records `parseRuns` and proves the worker landed the edit (a Qt.callLater probe sees `parsing` still true a turn after the ask) and that one save, a truncate
+and a write 10 ms apart that raise two watcher events, is one load. `tests/preview-hunt.sh` runs 28 phases. `rememberScroll` clears `heldY` when it takes a new place, because a path change and a failed load drop `keepScroll` and leave `heldY` set, and a stale one would let the reader's next
+move end a place taken for a reload still in flight (F43 in `tests/markdown-preview-state.qml` runs the shipped body on such a state).
 
 md3u closing round 4 hardens the Markdown parser's edges. A multi-line `$$` display block closes on the first later line holding `$$`
 only inside its own paragraph: the search stops at the first blank line, so a stray opener stays text instead of swallowing the
@@ -7226,14 +7241,14 @@ lazily. List chunks carry `start` (numbering continues) and `last` (one marker c
 the widest cell per column over the whole table chosen by its drawn text length (tags, emphasis markers and entities do not
 count), so chunks share column widths, and only the first keeps the header. A chunk after the first is `joined`: its grid
 sits `blockGap` higher and its delegate is that much shorter, so chunks read as one container. A short list or table is one
-block as before. `ui/PreviewMarkdown.qml` is 766 lines (`wc -l`, matching its budget row), and `ui/js/Markdown.js` 155. One event is one parse: `askParse` skips a request equal in text, folder, chrome and ink to the last one that parsed, a path change only voids the old result (the new file's load asks), a theme switch asks once through `Qt.callLater`, a landed parse releases the saved scroll even when the list saw no model change, and `parseRuns` counts the parses that ran so the `parse-quick`, `parse-column` and `parse-worker` phases of `tests/preview-hunt.sh` (`tests/markdown-parse-count.qml`) pin one parse per open, disk edit, rename-over save and theme switch, and none for a save that changes nothing.
+block as before. `ui/PreviewMarkdown.qml` is 782 lines (`wc -l`, matching its budget row), and `ui/js/Markdown.js` 155. One event is one parse: `askParse` skips a request equal in text, folder, chrome and ink to the last one that parsed, a path change only voids the old result (the new file's load asks), a theme switch asks once through `Qt.callLater`, a landed parse releases the saved scroll even when the list saw no model change, and `parseRuns` counts the parses that ran so the `parse-quick`, `parse-column` and `parse-worker` phases of `tests/preview-hunt.sh` (`tests/markdown-parse-count.qml`) pin one parse per open, disk edit, rename-over save and theme switch, and none for a save that changes nothing.
 
-mdhunt round 1 keeps the reader's place and the error state honest across a save, and `ui/PreviewMarkdown.qml` is 766 lines (`wc -l`, its budget row). A good load clears
+mdhunt round 1 keeps the reader's place and the error state honest across a save, and `ui/PreviewMarkdown.qml` was 766 lines then (`wc -l`). A good load clears
 `readFailed` (a save that unlinks and recreates the file can fail one reload, and the old code kept "This file could not be read." after the file was back). The watcher's
 events go through one `reloadCoalesce` timer of 50 ms (`reloadCoalesceMs`: an editor's truncate, write and rename land within a few milliseconds, and 50 ms is well under what a
 reader notices), and a place the saved scroll cannot yet reach is kept: `restoreScroll` bounds the view between the list's resting top (`originY - topMargin`) and the end of the new
 content, releases the place only once the content is tall enough to hold it, and otherwise records where it left the view (`heldY`) so the next reload restores the same place
-unless the reader has moved since. A path change still clears it, and stops a reload still waiting in the coalescing window: that reload belongs to the old file, and
+until the reader moves (round 2). A path change still clears it, and stops a reload still waiting in the coalescing window: that reload belongs to the old file, and
 left alone it read the new file a second time (`disk-switch` switches files in the turn the timer starts and requires one load). `parseNow` is the one synchronous landing, used by `askParse` and by the `parseFallback` timer, which now parses
 the request that was sent (`askedText` and its folder, chrome and ink, never `rawText`), releases a remembered scroll, and on a throw voids the memo so the next equal request
 parses again; `askParse` clears `parseError` only when it goes on to parse. `loadRuns` counts the loads that landed. `tests/markdown-disk.qml` holds the `disk-fail`,
