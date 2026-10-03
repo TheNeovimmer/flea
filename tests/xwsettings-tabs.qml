@@ -335,6 +335,17 @@ ShellRoot {
                 pane.openWithoutHistory(root.other); next()
             } else if (phase === 10) {
                 check("opening a folder without history drops Trash", [pane.path, pane.trash.opened], [root.other, false])
+                pane.trash.open(); next()
+            } else if (phase === 11) {
+                if (pane.listInFlight) return
+                check("Trash is open before the covered folder is re-listed in place", pane.trash.opened, true)
+                pane.refresh(""); next()
+            } else if (phase === 12) {
+                check("a refresh of the covered folder leaves Trash open", pane.trash.opened, true)
+                if (pane.listInFlight) return
+                pane.wire.stale = true; pane.wire.reread(); next()
+            } else if (phase === 13) {
+                check("a watcher re-read of the covered folder leaves Trash open", pane.trash.opened, true)
                 finish()
             }
         } else if (root.mode === "tabview") {

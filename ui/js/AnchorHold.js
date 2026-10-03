@@ -49,7 +49,7 @@ function startList(pane, anchor) {
         pane.refresh("")
         return anchor
     }
-    pane.openWithoutHistory(anchor.path, { keptQuery: pane.filterQuery, wantChanged: anchor.wantChanged === true })
+    pane.openWithoutHistory(anchor.path, { keptQuery: pane.filterQuery, wantChanged: anchor.wantChanged === true, inPlace: true })
     if (anchor.wantChanged) {
         pane.reloadFrom = anchor.reloadFrom
         pane.reloadChanged = -1

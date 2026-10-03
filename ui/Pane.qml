@@ -313,7 +313,7 @@ FocusScope {
                     || root.recentMode.length > 0
                     || root.appliedListingPreferences === root.listingPreferences) return
             root.preferenceAnchor = Anchor.preference(root)
-            root.openWithoutHistory(root.path)
+            root.openWithoutHistory(root.path, { inPlace: true })
             if (root.preferenceAnchor && root.preferenceAnchor.start > 0)
                 root.backend.window(root.preferenceAnchor.start, root.windowSize)
         }
@@ -422,6 +422,7 @@ FocusScope {
     }
 
     // options.keepHidden is the tab restore's alone: it just put back this tab's own dotfile answer, which the standing preference would overwrite.
+    // options.inPlace is a re-list of the same folder (refresh, watcher, preferences), which leaves a Trash overlay up.
     // A refused hop clears nothing: Nav refuses while a listing is out, and Recent's rows must survive it.
     function openWithoutHistory(newPath, options) {
         if (root.listInFlight) {
@@ -429,7 +430,7 @@ FocusScope {
             return
         }
         // Every real navigation leaves Recent and Trash, restoring the folder beneath each overlay.
-        trashHost.close()
+        if (!options || options.inPlace !== true) trashHost.close()
         RecentMode.leave(root)
         if (!root.listInFlight) {
             var applied = root.appliedListingPreferences ? JSON.parse(root.appliedListingPreferences) : []
