@@ -164,6 +164,9 @@ fn one_batched_rebase_equals_one_rebase_per_pair() {
     }
 }
 
+// A journal one version above this reader, empty: what a newer writer leaves.
+const NEWER_JOURNAL: &str = "{\"v\":3,\"undo\":[],\"redo\":[]}";
+
 // A journal the reader ignores (here a symlink) still answers newer when its target is, as it did before the single read.
 #[test]
 fn an_ignored_journal_that_a_newer_writer_owns_is_still_refused() {
@@ -171,7 +174,7 @@ fn an_ignored_journal_that_a_newer_writer_owns_is_still_refused() {
     let dir = sandbox.path().join("runtime");
     let shared = super::undoshare::Shared::at(dir.clone()).unwrap();
     let target = sandbox.path().join("newer.json");
-    std::fs::write(&target, "{\"v\":3,\"undo\":[],\"redo\":[]}").unwrap();
+    std::fs::write(&target, NEWER_JOURNAL).unwrap();
     std::os::unix::fs::symlink(&target, dir.join(super::undoshare::JOURNAL_FILE)).unwrap();
     let entry = Entry { op: "op".to_string(), steps: vec![Step::Created { path: path("/a") }] };
     assert!(super::undoshare::push_entry(&shared, &entry).is_err(), "a newer file is never rewritten");
@@ -179,4 +182,5 @@ fn an_ignored_journal_that_a_newer_writer_owns_is_still_refused() {
     let journal = dir.join(super::undoshare::JOURNAL_FILE);
     assert!(journal.symlink_metadata().unwrap().file_type().is_symlink(), "the journal path is still the link");
     assert_eq!(std::fs::read_link(&journal).unwrap(), target, "the link still points at the newer file");
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), NEWER_JOURNAL, "the newer file keeps its bytes");
 }
