@@ -2,7 +2,7 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 
-// The actual Markdown delegates, task boxes and Quick Look document starts through its public trigger.
+// Probe real Markdown delegates and task boxes; open Quick Look documents through its public trigger.
 ShellRoot {
     id: root
     property string scenario: Quickshell.env("FLEA_PREVIEW_HUNT_CASE")
@@ -36,7 +36,9 @@ ShellRoot {
         }
         return out
     }
-    function parsed(text) {
+    function parsed(text, format) {
+        reader.textFormat = format === undefined ? TextEdit.MarkdownText
+            : format === Text.StyledText ? TextEdit.RichText : format
         reader.text = text
         return reader.getText(0, reader.length).replace(/[\u2028\u2029]/g, "\n").trim()
     }
@@ -44,7 +46,23 @@ ShellRoot {
         return descendants(item).filter(function(node) {
             return node.visible && node.textFormat !== undefined && typeof node.text === "string"
                 && node.text.length > 0 && node.text !== "•"
-        }).map(function(node) { return root.parsed(node.text) }).join("\n")
+        }).map(function(node) {
+            return node.textFormat === Text.PlainText ? node.text : root.parsed(node.text, node.textFormat)
+        }).join("\n")
+    }
+    function drawnBold(node) {
+        if (!node) return false
+        // Reset the reader's insertion font so a previous bold selection cannot style plain text.
+        reader.text = ""
+        reader.deselect()
+        reader.font = node.font
+        reader.cursorSelection.font = node.font
+        if (root.parsed(node.text, node.textFormat) !== "bold") return false
+        for (var i = 0; i < reader.length; i++) {
+            reader.select(i, i + 1)
+            if (reader.cursorSelection.font.weight < Font.Bold) return false
+        }
+        return true
     }
     function flickOf(item) {
         var handlers = descendants(item).filter(function(node) { return node.objectName === "fleaScroll" })
@@ -141,8 +159,13 @@ ShellRoot {
                     root.check("native Qt resolves reference across fence", reference, "Read guide.")
                     root.check("rendered reference link survives block split", root.drawnText(md.blockItem(0)), reference)
                 } else if (scenario === "table") {
-                    var cell = md.blockList[0].rows[0][0]
-                    root.check("rendered table cell keeps emphasis markup", root.parsed(cell), root.parsed("**bold**"))
+                    var bodyRows = root.descendants(md.blockItem(0)).filter(function(node) { return node.row === 0 })
+                    var cells = bodyRows.length ? root.descendants(bodyRows[0]).filter(function(node) {
+                        return node.visible && node.cellPad !== undefined && node.textFormat !== undefined
+                    }) : []
+                    var cell = cells.length ? cells[0] : null
+                    root.check("rendered table cell draws text without literal markup", cell ? root.drawnText(cell) : null, "bold")
+                    root.check("rendered table cell draws the bold run", root.drawnBold(cell), true)
                 } else if (scenario === "control") {
                     root.check("plain Markdown paragraph renders", root.drawnText(md.blockItem(0)), "Hello preview.")
                 }
