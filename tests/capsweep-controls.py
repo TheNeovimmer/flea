@@ -1,20 +1,34 @@
 """Drive the real capture branches with bad and good state, without native effects."""
 import ast
 import contextlib
+import ctypes
 import io
 import json
+import os
 from pathlib import Path
 import re
+import select
 import signal
 import subprocess
 import sys
+import tempfile
+import time
 import tomllib
 from types import SimpleNamespace
 
 CONTROL_TIMEOUT_SECONDS = 10
 PROCESS_WAIT_SECONDS = 5
+PROCESS_POLL_SECONDS = 0.1
+PR_SET_CHILD_SUBREAPER = 36
+PR_GET_CHILD_SUBREAPER = 37
 
-scratch, repo = map(Path, sys.argv[1:3])
+temporary_scratch = None
+if len(sys.argv) == 1:
+    temporary_scratch = tempfile.TemporaryDirectory(prefix="capsweep-controls-")
+    scratch = Path(temporary_scratch.name)
+    repo = Path(__file__).resolve().parent.parent
+else:
+    scratch, repo = map(Path, sys.argv[1:3])
 groups = sys.argv[3:] or ["G1", "G2", "G3", "G4", "G7"]
 picker_file = repo / "tests/ui-captures-sweep-picker.py"
 # Sample input: def wait(label, predicate): in the picker capture script.
@@ -214,21 +228,100 @@ ipc() {
 
 
 def cleanup_controls():
-    for gone in (False, True):
-        calls = []
+    cleanup = next(node for node in picker_try.finalbody if isinstance(node, ast.For))
+    namespace = {"signal": signal, "subprocess": subprocess, "time": time,
+                 "PROCESS_WAIT_SECONDS": PROCESS_WAIT_SECONDS, "POLL_SECONDS": PROCESS_POLL_SECONDS}
+    leader_script = '''
+import os
+import signal
+import sys
 
-        def killpg(pid, sig):
-            calls.append((pid, sig))
-            if gone:
-                raise ProcessLookupError()
+ready_read, ready_write = os.pipe()
+child = os.fork()
+if child == 0:
+    os.close(ready_read)
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    os.write(ready_write, b"ready")
+    os.close(ready_write)
+    while True:
+        signal.pause()
+os.close(ready_write)
+# Sample input: b"ready", sent after the child installs its SIGTERM handler.
+os.read(ready_read, len(b"ready"))
+os.close(ready_read)
+if sys.argv[1] == "timeout":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+print(child, flush=True)
+if sys.argv[1] == "exited":
+    sys.exit(0)
+while True:
+    signal.pause()
+'''
+    libc = ctypes.CDLL(None, use_errno=True)
+    previous = ctypes.c_int()
+    assert libc.prctl(PR_GET_CHILD_SUBREAPER, ctypes.byref(previous), 0, 0, 0) == 0
+    assert libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0
+    try:
+        for mode in ("exits", "exited", "timeout"):
+            process = subprocess.Popen([sys.executable, "-c", leader_script, mode],
+                                       stdout=subprocess.PIPE, text=True, start_new_session=True)
+            child_pid = None
+            child_fd = None
+            calls = []
+            try:
+                assert select.select([process.stdout], [], [], CONTROL_TIMEOUT_SECONDS)[0], "leader did not start"
+                # Sample input: "12345\n", the real SIGTERM-resistant child's PID.
+                child_pid = int(process.stdout.readline())
+                child_fd = os.pidfd_open(child_pid)
+                if mode == "exited":
+                    os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT)
 
-        process = SimpleNamespace(pid=101, poll=lambda: 0, wait=lambda **kwargs: 0)
-        cleanup = next(node for node in picker_try.finalbody if isinstance(node, ast.For))
-        namespace = {"processes": [process], "os": SimpleNamespace(killpg=killpg),
-                     "signal": signal, "subprocess": subprocess, "PROCESS_WAIT_SECONDS": PROCESS_WAIT_SECONDS}
-        exec(compiled([cleanup]), namespace)
-        assert calls == [(process.pid, signal.SIGTERM)], calls
-    print("CAPSWEEP_CONTROLS G4 exited-leader=1 gone-group=1")
+                def killpg(pid, sig):
+                    assert pid == process.pid, "cleanup signalled a foreign group"
+                    if sig == signal.SIGKILL:
+                        assert process.returncode is None, "leader was reaped before SIGKILL; PID may be recycled"
+                        os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                    calls.append(sig)
+                    os.killpg(pid, sig)
+
+                namespace["processes"] = [process]
+                namespace["os"] = SimpleNamespace(**{**vars(os), "killpg": killpg})
+                exec(compiled([cleanup]), namespace)
+                assert select.select([child_fd], [], [], PROCESS_WAIT_SECONDS)[0], "SIGTERM-resistant child survived leader exit"
+                assert calls == [signal.SIGTERM, signal.SIGKILL], calls
+                reaped_pid, status = os.waitpid(child_pid, 0)
+                assert reaped_pid == child_pid and os.WIFSIGNALED(status) and os.WTERMSIG(status) == signal.SIGKILL
+            finally:
+                if child_fd is not None:
+                    try:
+                        signal.pidfd_send_signal(child_fd, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    os.close(child_fd)
+                process.kill()
+                process.wait(timeout=CONTROL_TIMEOUT_SECONDS)
+                process.stdout.close()
+                if child_pid is not None:
+                    try:
+                        os.waitpid(child_pid, 0)
+                    except ChildProcessError:
+                        pass
+    finally:
+        assert libc.prctl(PR_SET_CHILD_SUBREAPER, previous.value, 0, 0, 0) == 0
+    calls = []
+
+    def gone_group(pid, sig):
+        calls.append(sig)
+        raise ProcessLookupError()
+
+    def reaped(**kwargs):
+        calls.append("reaped")
+
+    namespace["processes"] = [SimpleNamespace(pid=101, wait=reaped)]
+    namespace["os"] = SimpleNamespace(**{**vars(os), "killpg": gone_group, "waitid": lambda *args: object()})
+    exec(compiled([cleanup]), namespace)
+    assert calls == [signal.SIGTERM, signal.SIGKILL, "reaped"], calls
+    print("CAPSWEEP_CONTROLS G4 exiting-leader=1 exited-leader=1 timeout=1 gone-group=1 reserved-pid=3")
 
 
 theme_home = scratch / "theme-home"
@@ -252,4 +345,6 @@ for group in groups:
         failures.append(group)
         print(f"FAIL: {group}: {error}")
 print(f"CAPSWEEP_CONTROLS groups={len(groups)} failed={len(failures)}")
+if temporary_scratch is not None:
+    temporary_scratch.cleanup()
 sys.exit(bool(failures))

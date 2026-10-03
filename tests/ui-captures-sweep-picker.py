@@ -241,15 +241,19 @@ finally:
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
-            continue
+            pass
+        # Observe exit without reaping so the leader's PID stays reserved through SIGKILL.
+        deadline = time.monotonic() + PROCESS_WAIT_SECONDS
+        while os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(POLL_SECONDS, remaining))
         try:
-            process.wait(timeout=PROCESS_WAIT_SECONDS)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.wait(timeout=PROCESS_WAIT_SECONDS)
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=PROCESS_WAIT_SECONDS)
     for log in logs:
         log.close()
     for path in root.glob("*.log"):
