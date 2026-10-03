@@ -194,9 +194,10 @@ function newFolder(pane) {
     pane.backend.mkdir(pane.path)
 }
 
-// A ready snapshot opens the editor at once; anything else takes the F2 route.
-function menuRenameNow(ready, identity, currentIdentity) {
-    return ready === true && (identity || "") !== "" && identity === currentIdentity
+// A ready snapshot over the unchanged identity opens at once, one still in flight takes the F2 route, a moved identity is stale.
+function menuRenameRoute(ready, identity, currentIdentity) {
+    if ((identity || "") === "" || identity !== currentIdentity) return "stale"
+    return ready === true ? "now" : "f2"
 }
 
 // No live editor sends the refusal to the status bar and closes the edit.

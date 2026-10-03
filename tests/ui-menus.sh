@@ -7,6 +7,18 @@ menus_guard() {
     [[ "$canonical" == "$menu_box/"* && "$canonical" != "$menu_box" ]] || fail "menus: target outside owned sandbox: $target"
 }
 
+# What a failed check leaves behind: the menu, the rename editor, the status slot, the focused window and one capture; it never changes the verdict.
+menus_evidence() {
+    local png="$evidence_dir/menus-failure-$$.png"
+    printf 'MENUS_EVIDENCE menu=%s\n' "$(ipc menuState 2>&1 | jq -c '{opened, hasRow, snapshotReady, snapshotId}' 2>&1)"
+    printf 'MENUS_EVIDENCE rename=%s error=%s primary=%q detail=%q last=%q path=%q\n' "$(ipc renameEditorLive 2>&1)" \
+        "$(ipc statusError 2>&1)" "$(ipc statusPrimary 2>&1)" "$(ipc statusDetail 2>&1)" "$(ipc lastMessage 2>&1)" "$(ipc path 2>&1)"
+    printf 'MENUS_EVIDENCE active=%s\n' "$(hyprctl activewindow -j 2>&1 | jq -c '{class, address, title}' 2>&1)"
+    if mkdir -p "$evidence_dir" 2>/dev/null && omarchy-drive shot "$png" flea >/dev/null 2>&1; then printf 'MENUS_EVIDENCE shot=%s\n' "$png"
+    else printf 'MENUS_EVIDENCE shot=failed\n'; fi
+    return 0
+}
+
 menus_expect() {
     local observer="$1" expression="$2" label="$3" observed deadline=$((SECONDS + 15))
     while (( SECONDS < deadline )); do
@@ -18,6 +30,7 @@ menus_expect() {
         fi
         sleep 0.05
     done
+    menus_evidence
     fail "menus: $label: $observed"
 }
 
@@ -39,6 +52,7 @@ menus_error() {
         fi
         sleep 0.05
     done
+    menus_evidence
     fail "menus: $label did not report $text: $observed"
 }
 
@@ -55,6 +69,7 @@ menus_said() {
         fi
         sleep 0.05
     done
+    menus_evidence
     fail "menus: $label did not say $text: $observed"
 }
 
@@ -69,6 +84,7 @@ menus_message() {
         fi
         sleep 0.05
     done
+    menus_evidence
     fail "menus: $label did not report $text: $observed"
 }
 
@@ -152,7 +168,8 @@ menus_open_with_dialog() {
 menus_file_menu() {
     local name="$1" input="${2:-pointer}" index
     index=$(row_index_of "$name")
-    click_row "$index" left
+    # A left click on the sole selected row under the cursor is a slow click, which opens the rename editor after the double-click interval and takes the menu key.
+    ipc dualState | jq -e --argjson row "$index" '.panes[.focused] | .selected == [$row] and .cursor == $row' >/dev/null || click_row "$index" left
     if [[ "$input" == key ]]; then key -M shift -k F10 -m shift >/dev/null
     elif [[ "$input" == menu-key ]]; then key -k Menu >/dev/null
     elif [[ "$input" == menu-letter ]]; then key m >/dev/null
@@ -453,8 +470,20 @@ menus_replace() {
     [[ "$(stat -c '%d:%i' "$original")" != "$inode" ]] || fail "menus: replacement reused the captured identity"
 }
 
+# The open menu holds the re-read back, so the identity it captured is still current at activation (routes in AGENTS.md).
+menus_rename_after_replacement() {
+    local directory="$1"
+    menus_expect renameState '.index >= 0 and .index == .cursor and .cursorName == "target.txt" and .focused and (.pending | not)' 'rename opens the editor over target.txt at menu activation'
+    menus_guard "$directory/renamed.txt"
+    key -M ctrl -k a -m ctrl renamed.txt -k Return >/dev/null
+    menus_expect renameState '.focused and (.pending | not) and .text == "renamed.txt" and (.error | contains("Selected item changed"))' 'rename refuses the replaced source at commit, in the editor'
+    [[ ! -e "$directory/renamed.txt" ]] || fail "menus: rename committed the replacement"
+    key -k Escape >/dev/null
+    menus_expect renameEditorLive '. == false' 'Escape closes the editor that refused the replaced source'
+}
+
 menus_stale_actions() {
-    local action directory retained token open_count trash_count
+    local action directory retained token open_count trash_count requests
     printf 'MENUS_SHARED_PROOF preset=default; all presets separately exercise native menu delivery and the same ContextMenu.chosen/PaneMenuActions.activate path.\n'
     for action in open cut copy duplicate trash rename; do
         directory="$menu_box/stale-$action"
@@ -476,13 +505,21 @@ menus_stale_actions() {
         token=$(ipc menuState | jq -r .snapshotId)
         open_count=$(wc -l < "$menu_box/gio-open.log")
         trash_count=$(wc -l < "$menu_box/gio-trash.log")
+        requests=$(ipc listRequests)
         menus_replace "$directory/target.txt" "$retained"
         menus_expect menuState ".opened and .snapshotReady and .snapshotId == $token" "$action retains the originally opened snapshot"
+        # Anchor.busy holds the watcher's re-read while the menu is open, so the identity the menu captured is still current at Return.
+        menus_expect dualState '.panes[.focused] | .loading | not' "$action finds no listing in flight before activation"
+        menus_equal "$action replacement is not re-listed behind the open menu" "$requests" "$(ipc listRequests)"
         trash_guard_store "$menus_trashed"
         key -k Return >/dev/null
-        menus_error 'Selected item changed' "$action refuses replacement at native menu activation"
-        menus_expect menuState '.opened | not' "$action refusal closes the menu"
-        menus_expect renameEditorLive '. == false' "$action refusal does not open Rename"
+        if [[ "$action" == rename ]]; then
+            menus_rename_after_replacement "$directory"
+        else
+            menus_error 'Selected item changed' "$action refuses replacement at native menu activation"
+            menus_expect renameEditorLive '. == false' "$action refusal does not open Rename"
+        fi
+        menus_expect menuState '.opened | not' "$action activation closes the menu"
         menus_equal "$action refusal preserves replacement" replacement "$(cat "$directory/target.txt")"
         menus_equal "$action refusal preserves captured original" originalone "$(cat "$retained")"
         menus_equal "$action refusal preserves navigation" "$directory" "$(ipc path)"
@@ -505,8 +542,14 @@ menus_stale_actions() {
     menus_visit "$menu_dir" 4
 }
 
+# The re-read a closed editor or menu releases: its request count rose past the one taken before the change, and the listing settled.
+menus_relisted() {
+    local before="$1" label="$2"
+    menus_expect dualState ".panes[.focused] | (.listRequests > $before) and (.loading | not)" "$label"
+}
+
 menus_stale_rename_commit() {
-    local directory="$menu_box/stale-rename-commit" retained="$menu_box/retained-rename-commit.txt"
+    local directory="$menu_box/stale-rename-commit" retained="$menu_box/retained-rename-commit.txt" requests
     menus_guard "$directory"
     mkdir "$directory" || fail "menus: cannot create Rename commit fixture"
     menus_guard "$directory/target.txt"
@@ -515,6 +558,7 @@ menus_stale_rename_commit() {
     menus_file_menu target.txt
     menus_choose rename
     menus_expect renameEditorLive '. == true' 'Rename captures identity before editing'
+    requests=$(ipc listRequests)
     menus_replace "$directory/target.txt" "$retained"
     menus_guard "$directory/renamed.txt"
     key -M ctrl -k a -m ctrl renamed.txt -k Return >/dev/null
@@ -524,6 +568,8 @@ menus_stale_rename_commit() {
     menus_equal 'Rename refusal preserves captured original' originalone "$(cat "$retained")"
     key -k Escape >/dev/null
     menus_expect renameEditorLive '. == false' 'Escape dismisses retained Rename refusal'
+    # The open editor held the watcher's re-read back, so it runs now; a menu opened mid-read would snapshot a listing about to change.
+    menus_relisted "$requests" 'the replacement is re-listed once the editor closes'
     menus_file_menu target.txt menu-key
     menus_choose rename
     menus_expect renameEditorLive '. == true' 'a fresh Rename recaptures the replacement'

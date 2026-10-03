@@ -41,6 +41,7 @@ qs_status=$?
 pass_count=$(printf '%s\n' "$output" | grep -c 'SNAPRETIRE PASS')
 fail_count=$(printf '%s\n' "$output" | grep -c 'SNAPRETIRE FAIL')
 done_count=$(printf '%s\n' "$output" | grep -c 'SNAPRETIRE DONE')
+expected_passes=11
 verdict=0
 if [ "$qs_status" -ne 143 ]; then
     printf 'FAIL qs exited %s, want the owned self-kill 143 after DONE\n' "$qs_status"
@@ -50,7 +51,7 @@ if [ "$done_count" -ne 1 ]; then
     printf 'FAIL completion receipts %s, want exactly 1 DONE beside the PASS\n' "$done_count"
     verdict=1
 fi
-if [ "$pass_count" -ne 5 ] || [ "$fail_count" -ne 0 ]; then
+if [ "$pass_count" -ne "$expected_passes" ] || [ "$fail_count" -ne 0 ]; then
     printf 'FAIL a dismissed snapshot reported, or an open one stayed silent\n'
     printf '%s\n' "$output" | grep -aE 'SNAPRETIRE|ERROR|error'
     verdict=1

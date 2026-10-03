@@ -484,6 +484,8 @@ FocusScope {
 
     // Lifted to Focus.act, see ui/js/Focus.js, which routes "settings" here from the list and the rail alike.
     function act(action, menuId, paths, context) {
+        // Every dispatched action ends a pending slow click; its own rename runs after the timer cleared the record.
+        cancelSlowClick()
         if (trashHost.confirming) return
         if (action === "openTrash" || action === "emptyTrash" || action === "restoreAll") { trashHost.action(action); return }
         if (action === "settings") { root.settingsPanel.open(root); return }

@@ -329,19 +329,19 @@ function run(check) {
     Ops.commitRename(menuRename, "renamed.txt")
     check("committing retains the captured menu identity", renameIdentity, 33)
 
-    // Issue #170: the menu's Rename opens the editor at once instead of queueing
-    // an activate behind the cold Open-with catalogue. With a ready snapshot over
-    // the current selection the editor can open now; otherwise it takes the F2 route.
-    check("the menu rename decision lives in Ops.js", typeof Ops.menuRenameNow, "function")
-    if (typeof Ops.menuRenameNow === "function") {
+    // Issue #170: a ready snapshot over the unchanged identity opens now, one in flight takes F2, a moved identity refuses.
+    check("the menu rename decision lives in Ops.js", typeof Ops.menuRenameRoute, "function")
+    if (typeof Ops.menuRenameRoute === "function") {
         check("a ready snapshot over the current selection opens at once",
-              Ops.menuRenameNow(true, "sel-3", "sel-3"), true)
-        check("a snapshot still in flight takes the F2 route",
-              Ops.menuRenameNow(false, "sel-3", "sel-3"), false)
-        check("a selection that moved takes the F2 route, never the stale snapshot",
-              Ops.menuRenameNow(true, "sel-3", "sel-4"), false)
-        check("an empty identity never opens at once",
-              Ops.menuRenameNow(true, "", ""), false)
+              Ops.menuRenameRoute(true, "sel-3", "sel-3"), "now")
+        check("a snapshot still in flight over it takes the F2 route",
+              Ops.menuRenameRoute(false, "sel-3", "sel-3"), "f2")
+        check("a ready snapshot over a moved selection refuses",
+              Ops.menuRenameRoute(true, "sel-3", "sel-4"), "stale")
+        check("a snapshot still in flight over a moved selection refuses too",
+              Ops.menuRenameRoute(false, "sel-3", "sel-4"), "stale")
+        check("an empty identity never opens and never takes the F2 route",
+              Ops.menuRenameRoute(true, "", ""), "stale")
     }
 
     // Grid closing review G1: with the tile's Loader retired and the rename

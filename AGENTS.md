@@ -295,6 +295,24 @@ full re-list of the folder being opened. `ui/Backend.qml`'s `listRequests` count
 that assertable, the same idiom as `thumbRequests` and `dirSizeRequests`: `tests/ui.sh watch` counts
 from before the navigation and requires exactly one listing for it.
 
+**A slow click ends with any key or action.** `ui/js/SlowClick.js` arms the pane's timer on a second tap after
+the double-click interval, and its `fire` opens the rename editor. Every key that means an action
+(`ui/js/Focus.js handleKey`, after the lookup; a bare modifier means none) and every action the pane
+dispatches (`ui/Pane.qml act`, first line) calls `cancelSlowClick`, so Enter, Space, Delete or the menu key
+pressed after the click gets its own result and never a rename editor behind it. The slow click's own rename
+passes through `act` after `fire` cleared the record, so it is not cancelled by itself. A harness that needs a
+row selected must not click one that is already the sole selection under the cursor, since that click is a
+slow click (`tests/ui-menus.sh menus_file_menu` reads `dualState` first).
+
+**The menu's Rename has three routes.** `Ops.menuRenameRoute` (called by `ui/PaneMenuActions.qml
+openRenameFromMenu`) answers `now` for a ready snapshot over the unchanged `menuSelectionIdentity` (issue #170: the
+editor opens at once and the replaced source is refused at commit, `backend.rename` with `renameMenuId`), `f2` for
+a snapshot still in flight over the unchanged identity (the F2 route, a fresh snapshot of the cursor row), and
+`stale` once the identity moved, which says "Selected items changed; reopen the menu." and opens nothing, as
+`activate` does for every other action. The F2 key itself never asks. While the menu is open `Anchor.busy` holds
+the watcher's re-read, so a source replaced under an open menu leaves the identity unchanged: the other five
+actions are then refused by the backend ("Selected item changed; reopen the menu.") and Rename opens its editor.
+
 **// corner: this is the local kernel's view of one directory.** A change another machine makes to an
 NFS or SMB share raises no inotify event here, so a network mount is exactly as live as it was
 before. So is a box whose inotify instance limit is exhausted, which says so once on stderr and then
@@ -3221,6 +3239,8 @@ permissions-batch operations, their undo steps and their tests (540 at the lk1 m
 e80 optional preview candidate records `ui/Preview.qml` at 490 with its existing scoped ceiling, `ui/SelectionPreview.qml` at 302, `ui/js/PreviewSettle.js` at 14 and `tests/js/previewswap.js` at 267, each re-derived with `wc -l`. The exact `tests/preview-settle-live.qml` ceiling is 450, the file at 450 lines against its recorded cap of 450, for the real Window parent, production-shaped meta and selection signals, runner-provided readable images, gate diagnostics and fresh close/reopen checks. It preserves 38 automatic and 3 seeded manual checks, the 120ms timer and <200ms duplicate bound, storage and no-swap gates, identity refresh, visibility restoration and the exact picture-capture queue order. Its runner generates a tiny JPEG with the existing ffmpeg dependency and copies it into eight names inside each fresh marked sandbox and requires exit 143, one clean DONE, exact PASS counts, no FAIL and no warnings. Native acceptance remains with the controller.
 
 The drag verbs and the slow-click rename move nine recorded ceilings, each re-derived with `wc -l` at the commit that recorded it. `0c77b1bf` (Finder verbs between Flea windows) takes `ui/js/Drag.js` 302 to 346 for the verb, offer and modifier decisions and `tests/js/drag.js` 301 to 363 for their pins, with `ui/GridArea.qml` 410 to 411, `ui/List.qml` 435 to 436 and `ui/Row.qml` 478 to 479 for the one drag wire each. `86343a01` (offer copy out, keep refused rows dark) takes `tests/js/drag.js` 363 to 398 for the copy-out offer and the refused-row pins. `5cec3768` (a slow-click rename keeps the scroll still) takes `tests/js/ops.js` 430 to 448 for the context pins, `ui/PaneMenuActions.qml` 458 to 468 for the context-carrying rename route and `ui/js/Ops.js` 438 to 439 for the context argument. `aab6ba79` (the round 1 harness settle) takes `ui/Ipc.qml` 832 to 833 for the one reader it added. `tests/js/drag.js` and `ui/js/Drag.js` sit over the 300-line JS hard cap and are recorded rather than split: the verbs and their pins are one subject.
+
+The menus lane (a slow click ends with any key or action, and the menu's Rename refuses a moved selection) moves four recorded ceilings, each the real `wc -l`: `ui/Pane.qml` 1022 to 1024 and `ui/js/Focus.js` 433 to 435 for the one cancel each, and `ui/PaneMenuActions.qml` 464 to 465 and `ui/js/Ops.js` 425 to 426 for the three-route rename decision (`tests/js/ops.js` stays at 511: its two source-text pins gave way to the driven `tests/menu-snapshot-retire.qml` checks). `tests/js/slowclick.js` passes the 300-line JS cap at 308 for the live-editor pins and takes a recorded row, the real `wc -l`, rather than a compressed body.
 
 The stage2 merge of fs1 and fs5 records `ui/js/Devices.js` at 366, fs1's udisks hide rules beside fs5's
 `mediaRemovable` for the USB power-off chain, and `tests/js/devices.js` at 303 for both units' pins, each over the
