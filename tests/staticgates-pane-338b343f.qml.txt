@@ -1,0 +1,18 @@
+// Excerpt of git show 338b343f:ui/Pane.qml (lines 1-3, 26-28, 173-177, 690-694): the repeated wire alias that kept int from loading.
+import QtQuick
+import Quickshell
+import "." as Flea
+FocusScope {
+    id: root
+    focus: true
+    readonly property alias retrySelectionText: wire.retrySelectionText
+    readonly property alias wire: wire
+    // The listing swap, ui/PaneSwap.qml: ui/js/Nav.js starts a hold through it and the views read holding.
+    readonly property alias swap: wire.swap
+    readonly property alias wire: wire
+
+    Flea.PaneWire {
+        id: wire
+        pane: root
+    }
+}

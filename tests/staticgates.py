@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-# Source-level checks use only the standard library and qmllint's JSON diagnostic IDs.
+# Source-level checks use the standard library and Qt's compiler and diagnostic IDs.
 import argparse
 import collections
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -11,7 +12,7 @@ import sys
 import tempfile
 import tarfile
 
-GATES = ('conflict-marker', 'fused-line', 'paneprops', 'del-printable', 'qml-undeclared-read')
+GATES = ('conflict-marker', 'fused-line', 'paneprops', 'del-printable', 'qml-undeclared-read', 'qml-duplicate-member')
 SUFFIXES = {'.rs', '.qml', '.js', '.sh'}
 # Bound alias propagation so pathological chains cannot keep a source gate running.
 ALIAS_FIXPOINT_CAP = 8
@@ -19,6 +20,10 @@ ALIAS_FIXPOINT_CAP = 8
 QMLLINT_TIMEOUT_SECONDS = 120
 # Keep a missing-JSON diagnostic readable even when qmllint emits a long error.
 STDERR_EXCERPT_LENGTH = 200
+# Limit simultaneous Qt compilers and bound each source file's compilation.
+QMLCACHEGEN_POOL_SIZE = 4
+QMLCACHEGEN_TIMEOUT_SECONDS = 15
+QMLCACHEGEN_PATHS = ('/usr/lib/qt6/qmlcachegen', '/usr/lib/qt6/libexec/qmlcachegen')
 
 
 def inventory(root, tracked=False):
@@ -42,6 +47,7 @@ def inventory(root, tracked=False):
     return sorted(paths)
 
 
+# Sample input: var text = "quoted"; /* comment */ run()
 def masked(source, suffix):
     # Keep offsets and newlines so diagnostics always point at the original source.
     out = list(source)
@@ -91,7 +97,8 @@ def masked(source, suffix):
                     break
                 else:
                     i += 1
-        elif source[i] == '/' and suffix in ('.js', '.qml') and re.search(r'(?:^|[=(,:!\[{};?]|\breturn)\s*$', source[:i]):
+        elif (source[i] == '/' and suffix in ('.js', '.qml')
+              and re.search(r'(?:^|[=(,:!\[{};?]|\breturn)\s*$', source[:i])):
             # A regex literal is data, including its character classes and escaped slashes.
             i += 1
             bracket = False
@@ -667,7 +674,67 @@ def qml_undeclared_read(root, files, sample=False):
         return len(qml), errors
 
 
-CHECKS = dict(zip(GATES, (conflict_marker, fused_line, paneprops, del_printable, qml_undeclared_read)))
+def qmlcachegen_binary():
+    override = os.environ.get('FLEA_QMLCACHEGEN')
+    # An explicit override is used or refused, never skipped for a system binary.
+    if override:
+        if Path(override).is_file() and os.access(override, os.X_OK):
+            return override
+        raise ValueError('FLEA_QMLCACHEGEN is not an executable file: ' + override)
+    for binary in QMLCACHEGEN_PATHS:
+        if Path(binary).is_file() and os.access(binary, os.X_OK):
+            return binary
+    raise ValueError('qmlcachegen unavailable; tried: ' + ', '.join(QMLCACHEGEN_PATHS))
+
+
+# Sample input: Item { property int wire: 0; property int wire: 1 }
+def compile_qml(root, files):
+    if not files:
+        return []
+    binary = qmlcachegen_binary()
+    with tempfile.TemporaryDirectory(prefix='staticgates-qmlcachegen-') as scratch:
+        def compile_file(file):
+            out = Path(scratch) / (file + 'c')
+            out.parent.mkdir(parents=True, exist_ok=True)
+            result = subprocess.run([binary, '--only-bytecode', '--resource-path', '/' + file,
+                                     file, '-o', str(out)], cwd=root, capture_output=True,
+                                    text=True, timeout=QMLCACHEGEN_TIMEOUT_SECONDS)
+            if result.returncode:
+                diagnostic = (result.stderr or result.stdout).strip().removeprefix('Error compiling qml file: ')
+                # Sample input: A.qml:4:18: error: Duplicate property name\nA.qml:6:18: error: Duplicate property name
+                lines = [line for line in diagnostic.splitlines() if line.strip()]
+                return lines or [f'{file}: qmlcachegen exited {result.returncode} without diagnostics']
+            if not out.is_file() or not out.stat().st_size:
+                return [f'{file}: qmlcachegen returned success without bytecode']
+            return []
+
+        with ThreadPoolExecutor(max_workers=QMLCACHEGEN_POOL_SIZE) as pool:
+            return [error for errors in pool.map(compile_file, files) for error in errors]
+
+
+def qml_duplicate_member(root, files):
+    qml = [file for file in files if file.startswith(('ui/', 'tests/'))
+           and file.endswith('.qml') and (root / file).is_file()]
+    js = [file for file in files if file.startswith('ui/')
+          and file.endswith('.js') and (root / file).is_file()]
+    errors = compile_qml(root, qml)
+    for file in js:
+        members = {}
+        for line, source in enumerate((root / file).read_text().splitlines(), 1):
+            # This check relies on the column-0 house style for top-level JS declarations.
+            # Sample input: function wire() {} or var wire = null, starting at column 0.
+            match = re.match(r'(?:function[ \t]+([A-Za-z_$][\w$]*)[ \t]*\(|(?:var|const|let)[ \t]+([A-Za-z_$][\w$]*)(?![\w$]))', source)
+            if not match:
+                continue
+            name = match[1] or match[2]
+            if name in members:
+                errors.append(f'{file}:{line}: {name} declared again (first at {members[name]})')
+            else:
+                members[name] = line
+    return len(qml) + len(js), errors
+
+
+CHECKS = dict(zip(GATES, (conflict_marker, fused_line, paneprops, del_printable, qml_undeclared_read, qml_duplicate_member)))
 
 
 def negative_controls(root):
@@ -677,12 +744,17 @@ def negative_controls(root):
         'paneprops': ('ui/js/Sample.js', 'function broken(pane) { pane.removedProperty = true }\n'),
         'del-printable': ('ui/js/Sample.js', 'function key(event) { return event.text.length === 1 && event.text >= " " }\n'),
         'qml-undeclared-read': ('ui/Sample.qml', 'import QtQuick\nItem { function readRecent() { return asker } }\n'),
+        'qml-duplicate-member': ('ui/Pane.qml', 'import QtQuick\nFocusScope {\n'
+                                 '    readonly property alias wire: wire\n'
+                                 '    readonly property alias wire: wire\n}\n'),
     }
     errors = []
     script = root / 'tests/staticgates.py'
     with tempfile.TemporaryDirectory(prefix='staticgates-controls-') as scratch:
-        for gate, (file, text) in samples.items():
-            sample = Path(scratch) / gate
+        cases = list(samples.items()) + [('qml-duplicate-member', ('ui/js/Sample.js',
+                                         '.pragma library\nfunction wire() {}\nfunction wire() {}\n'))]
+        for gate, (file, text) in cases:
+            sample = Path(scratch) / gate / Path(file).stem
             path = sample / file
             path.parent.mkdir(parents=True)
             path.write_text(text)
@@ -692,11 +764,14 @@ def negative_controls(root):
             diagnostic = next((line for line in result.stdout.splitlines() if line.startswith(f'STATICGATE {gate} FAIL ')), '')
             expected = {'conflict-marker': 'unresolved conflict marker', 'fused-line': 'fused code gap',
                         'paneprops': 'pane.removedProperty absent', 'del-printable': 'printable event.text decision',
-                        'qml-undeclared-read': 'new unqualified read asker'}[gate]
-            if result.returncode != 1 or expected not in diagnostic or 'STATICGATES FAIL gates=1' not in result.stdout:
+                        'qml-undeclared-read': 'new unqualified read asker',
+                        'qml-duplicate-member': ('wire declared again (first at 2)' if file.endswith('.js') else 'Duplicate alias name')}[gate]
+            if (result.returncode != 1 or expected not in diagnostic or file + ':' not in diagnostic
+                    or 'STATICGATES FAIL gates=1' not in result.stdout):
                 errors.append(f'{gate}: planted defect was not rejected: {result.stdout} {result.stderr}')
             else:
-                print(f'STATICGATE {gate} RED exit=1 diagnostic={diagnostic}')
+                # The planted defect's verdict word is dropped, so a passing run prints no FAIL token for CI.
+                print(f'STATICGATE {gate} RED exit=1 rejected={diagnostic.split(" FAIL ", 1)[-1]}')
     return errors
 
 
@@ -711,14 +786,14 @@ def main():
         files = sorted(str(p.relative_to(root)) for p in root.rglob('*') if p.is_file()) if args.sample else inventory(root)
     except (OSError, ValueError, tarfile.TarError) as error:
         print(f'STATICGATE inventory FAIL {error}')
-        print('STATICGATES FAIL gates=5')
+        print(f'STATICGATES FAIL gates={1 if args.gate else len(GATES)}')
         return 1
     controls = [] if args.gate or args.sample else negative_controls(root)
     for error in controls:
         print(f'STATICGATE negative-control FAIL {error}')
     failed = len(controls)
     for name in ((args.gate,) if args.gate else GATES):
-        selected = inventory(root, tracked=True) if name == 'conflict-marker' and not args.sample else files
+        selected = inventory(root, tracked=True) if name in ('conflict-marker', 'qml-duplicate-member') and not args.sample else files
         try:
             kwargs = {'sample': True} if args.sample and name in ('paneprops', 'qml-undeclared-read') else {}
             count, errors = CHECKS[name](root, selected, **kwargs)
