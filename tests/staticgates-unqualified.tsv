@@ -120,6 +120,9 @@ ui/FleaMark.qml	51	ShapePath	Imported Qt module supplies this type or attached p
 ui/Glyph.qml	40	Shape	Imported Qt module supplies this type or attached property.
 ui/Glyph.qml	48	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/Glyph.qml	49	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/GlyphSolid.qml	14	Shape	Imported Qt module supplies this type or attached property.
+ui/GlyphSolid.qml	15	root	Declared QML id; component context access is valid at runtime.
+ui/GlyphSolid.qml	15	root	Declared QML id; component context access is valid at runtime.
 ui/GridArea.qml	148	root	Declared QML id; component context access is valid at runtime.
 ui/GridArea.qml	149	root	Declared QML id; component context access is valid at runtime.
 ui/GridArea.qml	150	root	Declared QML id; component context access is valid at runtime.
