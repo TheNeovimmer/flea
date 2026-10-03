@@ -17,13 +17,14 @@ chmod 700 "$probe/runtime" || exit 1
 for name in a-special.txt b.txt c.txt d.txt; do printf 'permission focus fixture\n' > "$probe/home/fixture/$name"; done
 chmod 4644 "$probe/home/fixture/a-special.txt" || exit 1
 env HOME="$probe/home" XDG_STATE_HOME="$probe/state" "$bin" --ui-state \
-    '{"view":"list","keys":"default","menu":{"hidden":[]},"preview":{"column":false,"thumbnails":"off"},"updates":{"autoCheck":false}}' >/dev/null || exit 1
+    '{"view":"list","keys":"default","menu":{"hidden":[]},"preview":{"column":false,"thumbnails":"off"},"updates":{"autoCheck":false},"display":{"textSize":{"mode":14}}}' >/dev/null || exit 1
 ln -s "$PWD/ui" "$probe/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$probe/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$probe/config/Ui" || exit 1
 cp tests/permissions-focus.qml "$probe/config/shell.qml" || exit 1
+cp tests/permissions-layout.js "$probe/config/permissions-layout.js" || exit 1
 log="$probe/qs.log"
-readonly runLimitSeconds=60 expectedChecks=115 expectedQsStatus=143
+readonly runLimitSeconds=60 expectedChecks=195 expectedQsStatus=143
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
     HOME="$probe/home" XDG_STATE_HOME="$probe/state" XDG_CONFIG_HOME="$probe/config" \
     XDG_DATA_HOME="$probe/data" XDG_CACHE_HOME="$probe/cache" XDG_RUNTIME_DIR="$probe/runtime" \

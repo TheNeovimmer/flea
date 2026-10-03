@@ -5,6 +5,7 @@
 .import "../../ui/js/Ops.js" as Ops
 .import "xwwatch.js" as Fixture
 .import "sourcefixture.js" as Source
+.import "permissions-refresh-guards.js" as Guards
 
 var CURSOR = 3
 var MARKS = [1, 3]
@@ -89,6 +90,7 @@ function undo(p, op, redo) {
 }
 
 function run(check) {
+    Guards.run(check, body, pane, apply)
     var modes = ["list", "grid", "columns", "dual"]
     var kinds = ["single", "batch", "partial", "undo", "redo"]
     for (var m = 0; m < modes.length; m++) {
@@ -98,8 +100,9 @@ function run(check) {
             var marks = p.selectedIndices().join(","), cursor = p.cursorIndex, y = p.listArea.contentY
             if (kinds[k] === "undo" || kinds[k] === "redo") undo(p, "permissions", kinds[k] === "redo")
             else apply(p, kinds[k])
-            land(p, ["a", "b", "c", "d", "e"])
             var label = modes[m] + " " + kinds[k]
+            check(label + " dispatches its reread", p.sent[0], "list /d")
+            land(p, ["a", "b", "c", "d", "e"])
             check(label + " reread keeps marks", p.selectedIndices().join(","), marks)
             check(label + " reread keeps cursor", p.cursorIndex, cursor)
             check(label + " reread keeps viewport", p.listArea.contentY, y)

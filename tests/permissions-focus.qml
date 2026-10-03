@@ -3,6 +3,7 @@ import QtQuick
 import QtTest
 import Quickshell
 import "flea" as Flea
+import "permissions-layout.js" as Layout
 
 // Real menu dispatch, Permissions and row input, with no focus repair before the tested input.
 ShellRoot {
@@ -30,6 +31,13 @@ ShellRoot {
     property string keptMarks: ""
     property int keptCursor: 0
     property int beforeLists: 0
+    property int undoReplies: 0
+    property int beforeUndoReplies: 0
+    property bool undoInspectSent: false
+    property var undoPaths: []
+    property var expectedModes: []
+    property var undoModes: []
+    readonly property int undoInspectBase: 1000000
     property string stage: "guardReady"
     property int checks: 0
     property int failures: 0
@@ -248,6 +256,7 @@ ShellRoot {
         } else if (stage === "dialog") {
             var card = dialog()
             if (!card || !card.opened || card.busy) return
+            Layout.checkLayout(root, card, Flea.Theme)
             check("menu closes before dialog", pane.contextMenu().opened, false)
             check("fixture editability", card.editable, current.dismiss !== "Cancel")
             check("open dialog refuses input readiness", JSON.parse(ipcObject().seam.permissionsState()).inputReady, false)
@@ -298,6 +307,10 @@ ShellRoot {
         } else if (stage === "refreshDialog") {
             if (!dialog() || !dialog().opened || dialog().busy) return
             check("dialog takes both marked files", dialog().multiPaths.length, markedRows.length)
+            Layout.checkLayout(root, dialog(), Flea.Theme)
+            if (refreshIndex === 0) Layout.checkStatuses(root, dialog(), Flea.Theme)
+            undoPaths = dialog().multiPaths.slice()
+            expectedModes = dialog().multiModes.slice()
             dialog().multiToggle(ownerExecuteBit)
             beforeLists = pane.backend.listRequests
             click(control("Apply"), Qt.LeftButton)
@@ -306,14 +319,45 @@ ShellRoot {
             if (dialog().opened || pane.listInFlight || pane.wire.anchor || pane.backend.listRequests <= beforeLists) return
             checkSelection("batch Apply")
             beforeLists = pane.backend.listRequests
+            beforeUndoReplies = undoReplies
+            undoInspectSent = false
+            undoModes = []
             pane.backend.send({c: "undo"})
             next("refreshUndone")
         } else if (stage === "refreshUndone") {
-            if (pane.listInFlight || pane.wire.anchor || pane.backend.listRequests <= beforeLists) return
+            if (undoReplies <= beforeUndoReplies || pane.listInFlight || pane.wire.anchor || pane.wire.stale || pane.backend.listRequests <= beforeLists) return
+            if (!undoInspectSent) {
+                undoInspectSent = true
+                for (var inspected = 0; inspected < undoPaths.length; inspected++)
+                    pane.backend.send({c: "permissions", op: "inspect", id: undoInspectBase + refreshIndex * markedRows.length + inspected, path: undoPaths[inspected]})
+                return
+            }
+            if (undoModes.length !== expectedModes.length || expectedModes.some(function (mode, i) { return undoModes[i] === undefined })) return
+            for (var restored = 0; restored < expectedModes.length; restored++) {
+                check("Undo restores on-disk mode " + restored, undoModes[restored], expectedModes[restored])
+                if (undoModes[restored] !== expectedModes[restored]) {
+                    finish()
+                    return
+                }
+            }
             checkSelection("Permissions Undo")
             refreshIndex += 1
             if (refreshIndex === refreshCases.length) finish()
             else next("refreshView")
+        }
+    }
+
+    Connections {
+        target: root.pane.backend
+        function onUndone(op, ok) {
+            if (root.stage === "refreshUndone" && op === "permissions" && ok) root.undoReplies += 1
+        }
+        // Sample input: {op: "inspect", id: 1000000, ok: true, mode: "0644"}.
+        function onPermissionsResult(message) {
+            var offset = message.id - root.undoInspectBase - root.refreshIndex * root.markedRows.length
+            if (root.stage !== "refreshUndone" || message.op !== "inspect" || offset < 0 || offset >= root.undoPaths.length) return
+            root.undoModes[offset] = message.ok ? message.mode : "Inspection failed"
+            root.pane.backend.send({c: "permissions", op: "close", id: message.id})
         }
     }
 

@@ -156,6 +156,11 @@ function refresh(pane, selectPath, keepSelection) {
     pane.pendingSelect = selectPath ? selectPath : ""
     pane.pendingMenu = false
     clearPendingBackground(pane)
+    // A search keeps its rows and numbering, so one window ask re-stats the held rows; marks and cursor stay.
+    if (keepSelection === true && pane.searchMode === Search.RESULTS) {
+        pane.backend.window(pane.held, pane.windowSize)
+        return
+    }
     if (keepSelection === true) {
         // Metadata-only writes use the watcher's identity anchor and interaction debt.
         pane.wire.stale = true

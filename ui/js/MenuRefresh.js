@@ -32,7 +32,7 @@ function unchanged(previous, next) {
     return JSON.stringify(previous) === JSON.stringify(next)
 }
 
-// Release schedules the rebuild after tapped dispatch, so the original handler can finish choosing.
+// Release or flyout close schedules the rebuild after tapped dispatch, so the original handler can finish choosing.
 function pressChanged(menu, pressed) {
     if (!pressed && menu.refreshOwed)
         Qt.callLater(function() { if (menu.refreshOwed) menu.refreshProviderRows() })

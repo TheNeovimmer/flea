@@ -11,9 +11,9 @@ permissions_guard() {
 }
 
 permissions_wait() {
-    local expression="$1" label="${2:-$1}" state end=$((SECONDS + 20))
+    local expression="$1" label="${2:-$1}" reader="${3:-permissionsState}" state end=$((SECONDS + 20))
     while (( SECONDS < end )); do
-        state=$(ipc permissionsState) || fail "permissions: read-only state unavailable"
+        state=$(ipc "$reader") || fail "permissions: read-only state unavailable"
         if jq -e "$expression" <<< "$state" >/dev/null; then
             permissions_checks=$((permissions_checks + 1))
             printf 'PERMISSIONS_PASS %s expected=%q observed=%s\n' "$label" "$expression" "$state"
@@ -542,6 +542,52 @@ permissions_eligibility() {
     key -k Escape >/dev/null
 }
 
+permissions_search() {
+    local first second marks cursor scroll quoted_paths index applied=744
+    local settled='.searchMode == "results" and .searchQuery == "txt" and (.searchRunning | not)'
+    permissions_guard "$permissions_listing/other.txt"
+    permissions_guard "$permissions_listing/special.txt"
+    chmod 0644 "$permissions_listing/other.txt" "$permissions_listing/special.txt" || fail "permissions: search fixture modes failed"
+    quoted_paths=$(jq -cn --arg first "$permissions_listing/other.txt" --arg second "$permissions_listing/special.txt" '[$first, $second] | sort')
+    permissions_wait '(.opened == false) and .inputReady' 'listing accepts the Search gesture'
+    # Tab flips the scope to the pane's own directory, so the walk never leaves the fixture.
+    key -M ctrl -k f -m ctrl -k Tab txt -k Return >/dev/null || fail "permissions: native Search failed"
+    permissions_wait "$settled" 'Search settles over the fixture directory' keyDeliveryState
+    first=$(row_index_of other.txt)
+    second=$(row_index_of special.txt)
+    # A plain click on a result reveals it and leaves the search, so the marks take ctrl.
+    click_row "$first" left --mods ctrl
+    click_row "$second" left --mods ctrl
+    marks=$(printf '%s\n' "$first" "$second" | sort -n | paste -sd, -)
+    permissions_expect selectedIndices "$marks"
+    click_row "$first" right
+    permissions_expect contextMenuVisible true
+    index=$(menu_row_index Permissions) || fail "permissions: no Permissions row on the Search results"
+    permissions_point "$(ipc contextMenuRowCentre "$index")"
+    permissions_wait ".opened and (.busy == false) and .editable and .title == \"Permissions for 2 items\" and (.paths | sort) == $quoted_paths" 'Search results open the batch card with both marked files'
+    cursor=$(ipc cursor)
+    scroll=$(ipc listContentY)
+    permissions_expect selectedIndices "$marks"
+    permissions_control "Owner execute"
+    permissions_wait 'any(.controls[]; .bit == 64 and .value == "on" and .focused)' 'owner-execute box becomes an explicit set on the Search results'
+    permissions_control Apply
+    permissions_wait '(.opened == false) and .inputReady' 'Apply closes Permissions over the Search results'
+    [[ "$(stat -c '%a' "$permissions_listing/other.txt")" == "$applied" \
+        && "$(stat -c '%a' "$permissions_listing/special.txt")" == "$applied" ]] \
+        || fail "permissions: Search Apply did not set both files to $applied"
+    permissions_checks=$((permissions_checks + 1))
+    printf 'PERMISSIONS_PASS Search filesystem modes other=%s special=%s\n' "$applied" "$applied"
+    # The refresh asks one window of the held rows: the search stays, its marks, cursor and scroll stay.
+    permissions_wait "$settled" 'Apply keeps the completed Search in place' keyDeliveryState
+    permissions_expect selectedIndices "$marks"
+    permissions_expect cursor "$cursor"
+    permissions_expect listContentY "$scroll"
+    shot "permissions-$permissions_group-search-applied"
+    key -k Escape >/dev/null || fail "permissions: Search dismissal failed"
+    permissions_wait '.searchMode == ""' 'Escape closes the Search after Apply' keyDeliveryState
+    wait_listing 6
+}
+
 permissions_overlay() {
     local i row parked before wx wy ww wh cx cy rx ry rw rh left top width height name
     for i in $(seq -w 1 80); do
@@ -866,10 +912,11 @@ case_permissions() {
         stale) permissions_stale ;;
         keys) permissions_keys ;;
         eligibility) permissions_eligibility ;;
+        search) permissions_search ;;
         overlay) permissions_overlay ;;
         failure) permissions_failure ;;
         backenddeath) permissions_backenddeath ;;
-        full) permissions_directory; permissions_readonly; permissions_keys; permissions_eligibility; permissions_failure; permissions_backenddeath; permissions_stale; permissions_overlay ;;
+        full) permissions_directory; permissions_readonly; permissions_keys; permissions_eligibility; permissions_search; permissions_failure; permissions_backenddeath; permissions_stale; permissions_overlay ;;
         *) fail "permissions: unknown focused group $permissions_group" ;;
     esac
     printf 'PERMISSIONS_NATIVE group=%s checks=%s root=%s; screenshots require separate inspection.\n' "$permissions_group" "$permissions_checks" "$permissions_box"

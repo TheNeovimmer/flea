@@ -110,6 +110,7 @@ Item {
     // A hidden row still opens its flyout from the action.
     property string loneFlyoutAction: ""
     readonly property bool submenuOpen: root.openSubmenuRow >= 0 || root.loneFlyoutAction.length > 0
+    onSubmenuOpenChanged: if (!root.submenuOpen) MenuRefresh.pressChanged(root, false)
     // The glyph every open flyout row draws, read back so a test can name it without OCR.
     function submenuGlyphs() {
         if (!root.submenuOpen)
