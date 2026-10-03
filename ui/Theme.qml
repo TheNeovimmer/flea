@@ -253,11 +253,6 @@ Singleton {
     }
     function columns(width, hidden, dateWidth, recent, dual) { return recent ? Columns.recentSet(width, root.columnSet(dateWidth, dual), hidden, dual) : Columns.set(width, root.columnSet(dateWidth), hidden); }
 
-    // The same set as one string, which is what the seam in ui/Ipc.qml compares across the two.
-    function columnNames(width, hidden, dateWidth, recent) {
-        return Columns.names(root.columns(width, hidden, dateWidth, recent));
-    }
-
     // Five callers plus the grid and settings tokens above: ConvertDialog, KeymapSheet, NetworkDialog, NetworkForm, TransferCard; every other spacing token is direct.
     function space(px) {
         return Math.round(Style.space(px) * root.sizeRatio);

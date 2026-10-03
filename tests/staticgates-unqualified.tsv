@@ -991,14 +991,14 @@ ui/Theme.qml	88	Style	qs.Commons exports this singleton; qmllint cannot resolve 
 ui/Theme.qml	94	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/Theme.qml	135	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/Theme.qml	147	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	263	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	271	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	374	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	375	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	388	reload	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
-ui/Theme.qml	405	root	Declared QML id; component context access is valid at runtime.
-ui/Theme.qml	414	Quickshell	Quickshell import exports this runtime singleton or enum.
-ui/Theme.qml	418	root	Declared QML id; component context access is valid at runtime.
+ui/Theme.qml	258	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	266	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	369	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	370	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	383	reload	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
+ui/Theme.qml	400	root	Declared QML id; component context access is valid at runtime.
+ui/Theme.qml	409	Quickshell	Quickshell import exports this runtime singleton or enum.
+ui/Theme.qml	413	root	Declared QML id; component context access is valid at runtime.
 ui/TransferCard.qml	107	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/TrashConfirm.qml	66	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/TrashMonitor.qml	26	Quickshell	Quickshell import exports this runtime singleton or enum.
@@ -2210,21 +2210,21 @@ ui/Theme.qml	88	Style	qs.Commons exports this singleton; qmllint cannot resolve 
 ui/Theme.qml	94	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/Theme.qml	135	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/Theme.qml	147	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	263	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	271	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	297	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	258	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	266	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	292	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	313	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	317	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/Theme.qml	318	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	322	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	323	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	329	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	329	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	329	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	331	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	331	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	331	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	374	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	375	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Theme.qml	392	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	324	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	324	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	324	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	326	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	326	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	326	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	369	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	370	Color	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Theme.qml	387	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/TransferCard.qml	107	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/TrashConfirm.qml	66	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/TrashView.qml	437	root	Declared QML id; component context access is valid at runtime.

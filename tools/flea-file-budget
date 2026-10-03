@@ -110,7 +110,7 @@ ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
 ui/Sidebar.qml 681
 ui/StatusBar.qml 460
-ui/Theme.qml 421
+ui/Theme.qml 416
 ui/TrashView.qml 475
 ui/ViewState.qml 538
 ui/WindowBody.qml 576
