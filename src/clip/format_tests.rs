@@ -106,6 +106,18 @@ fn flea_owner_pids_are_optional_and_do_not_change_the_token() {
 }
 
 #[test]
+fn flea_pid_has_an_adjacent_sample_payload() {
+    const SAMPLE_TOKEN: &str = "ab12cd34ab12cd34ab12cd34ab12cd34";
+    const SAMPLE_PID: u32 = 1234;
+    let payload = format!("copy {} {}", SAMPLE_TOKEN, SAMPLE_PID);
+    let source = include_str!("format.rs");
+    let (before, _) = source.split_once("pub(crate) fn flea_pid").unwrap();
+    let sample = format!("// Sample input \"{}\" yields Some({}).", payload, SAMPLE_PID);
+    assert_eq!(before.lines().last(), Some(sample.as_str()), "flea_pid needs its sample directly above the parser");
+    assert_eq!(flea_pid(payload.as_bytes()), Some(SAMPLE_PID));
+}
+
+#[test]
 fn clip_paths_are_absolute_without_nul_or_parent_climbs() {
     assert!(validate_clip_paths(&["/a/b".to_string()]).is_ok());
     assert!(validate_clip_paths(&["relative".to_string()]).is_err());

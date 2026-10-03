@@ -89,6 +89,10 @@ struct Watching {
 
 impl Watching {
     fn new() -> Self {
+        Self::with_state(shared(), false)
+    }
+
+    fn with_state(state: Shared, reconnect: bool) -> Self {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!("flea-test-clip-end-{}-{}", std::process::id(),
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
@@ -98,7 +102,11 @@ impl Watching {
         let (replies, incoming) = channel();
         let (done, finished) = channel();
         let worker = std::thread::spawn(move || {
-            let _ = connect_and_watch(&replies, &shared(), &Some(path));
+            if reconnect {
+                watch_loop(replies, state, Some(path), NO_RETRY_WAIT);
+            } else {
+                let _ = connect_and_watch(&replies, &state, &Some(path));
+            }
             let _ = done.send(());
         });
         let mut conn = over(crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap());
@@ -335,3 +343,6 @@ fn an_exit_read_of_a_new_flea_selection_arms_that_owners_exit() {
 
 #[path = "watch_end_race_tests.rs"]
 mod races;
+
+#[path = "watch_end_sequence_tests.rs"]
+mod sequence;

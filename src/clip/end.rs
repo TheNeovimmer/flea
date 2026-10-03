@@ -39,6 +39,7 @@ struct Job {
 struct Mail {
     pending: Option<Option<Job>>,
     active: Option<Arc<AtomicBool>>,
+    tracked_token: Option<String>,
     stopped: bool,
 }
 
@@ -54,6 +55,10 @@ pub(super) struct OwnerEnd {
 impl OwnerEnd {
     pub fn new(replies: Sender<OpMsg>, state: watch::Shared, socket: Option<PathBuf>) -> Self {
         Self { mail: Arc::new(Mutex::new(Mail::default())), wake: None, worker: None, replies, state, socket }
+    }
+
+    pub fn tracks(&self, token: &str) -> bool {
+        self.mail.lock().unwrap_or_else(|e| e.into_inner()).tracked_token.as_deref() == Some(token)
     }
 
     pub fn track(&mut self, pid: Option<u32>, token: &str) {
@@ -108,6 +113,8 @@ fn replace(mail: &Mutex<Mail>, wake: &OwnedFd, owner: Option<OwnerFd>, token: &s
         let fd = match owner { OwnerFd::Live(fd) => Some(fd), OwnerFd::Ended => None };
         Job { fd, token: token.to_string(), cancelled }
     });
+    // Keep the token after its one exit read, and update it when that read arms another owner.
+    mail.tracked_token = job.as_ref().map(|job| job.token.clone());
     mail.pending = Some(job);
     signal(wake);
 }

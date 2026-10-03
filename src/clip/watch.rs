@@ -20,6 +20,7 @@ type Key = (String, String, Vec<String>);
 pub(crate) struct Reported {
     last: Option<Key>,
     generation: u64,
+    event_sequence: u64,
 }
 
 pub(crate) type Shared = Arc<Mutex<Reported>>;
@@ -108,6 +109,11 @@ fn connect_and_watch(replies: &Sender<OpMsg>, state: &Shared, socket: &Option<Pa
                 offers.insert(id, Vec::new());
             }
         } else if event.sender == READER_DEVICE && event.opcode == DEVICE_SELECTION {
+            let generation = {
+                let mut reported = state.lock().unwrap_or_else(|e| e.into_inner());
+                reported.event_sequence += 1;
+                reported.generation
+            };
             let mut at = 0;
             let current = match wire::get_u32(&event.body, &mut at) {
                 Some(id) if id != 0 => Some(id),
@@ -116,15 +122,20 @@ fn connect_and_watch(replies: &Sender<OpMsg>, state: &Shared, socket: &Option<Pa
             // Every highlight would otherwise leak one entry per window for its lifetime.
             retire_offers(&mut conn, &mut offers, current);
             match current {
-                None => { ended.track(None, ""); emit(replies, state, "none", &[], "", 0); },
+                None => {
+                    ended.track(None, "");
+                    emit(replies, state, "none", &[], "", 0);
+                },
                 Some(id) => match offers.get(&id) {
                     // An offer the selection names before its types is out of order, read as nothing.
-                    None => { ended.track(None, ""); emit(replies, state, "none", &[], "", 0); },
+                    None => {
+                        ended.track(None, "");
+                        emit(replies, state, "none", &[], "", 0);
+                    },
                     Some(types) => {
-                        let generation = state.lock().unwrap_or_else(|e| e.into_inner()).generation;
                         let read = read_offer(&mut conn, id, types);
                         let mut reported = state.lock().unwrap_or_else(|e| e.into_inner());
-                        // An exit read that reported during receipt wins over these delayed bytes.
+                        // Only an exit read begun after this event can report and invalidate its bytes.
                         if reported.generation != generation { continue; }
                         match read {
                             // An over-cap selection is refused out loud, never broadcast to every window.
@@ -133,11 +144,10 @@ fn connect_and_watch(replies: &Sender<OpMsg>, state: &Shared, socket: &Option<Pa
                                 emit_error_locked(replies, &mut reported, &e);
                             }
                             Ok(read) => {
-                                let key = (read.op.clone(), read.token.clone(), read.paths.clone());
-                                if reported.last.as_ref() != Some(&key) {
+                                if !ended.tracks(&read.token) {
                                     ended.track(read.owner_pid, &read.token);
-                                    emit_locked(replies, &mut reported, &read.op, &read.paths, &read.token, read.skipped);
                                 }
+                                emit_locked(replies, &mut reported, &read.op, &read.paths, &read.token, read.skipped);
                             }
                         }
                     },
@@ -161,18 +171,19 @@ fn connect_and_watch(replies: &Sender<OpMsg>, state: &Shared, socket: &Option<Pa
     }
 }
 
-// Both guards run under the emitter lock, so a newer watcher report always wins over an exit read.
+// Token and event guards share the emitter lock, so newer selections win before their bytes arrive.
 pub(super) fn reread(replies: &Sender<OpMsg>, state: &Shared, token: &str,
     read: impl FnOnce() -> Result<super::control::OfferFiles, String>,
     cancelled: impl Fn() -> bool, track: impl FnOnce(&super::control::OfferFiles)) -> bool {
     let current = |state: &Reported| state.last.as_ref().map(|key| key.1.as_str()) == Some(token);
-    {
+    let event_sequence = {
         let state = state.lock().unwrap_or_else(|e| e.into_inner());
         if cancelled() || !current(&state) { return false; }
-    }
+        state.event_sequence
+    };
     let Ok(read) = read() else { return false; };
     let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
-    if cancelled() || !current(&state) { return false; }
+    if cancelled() || !current(&state) || state.event_sequence != event_sequence { return false; }
     if read.token == token { return true; }
     let key = (read.op.clone(), read.token.clone(), read.paths.clone());
     if state.last.as_ref() != Some(&key) {

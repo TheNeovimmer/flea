@@ -943,10 +943,10 @@ An owner's exit triggers a fresh connection and the same selection-reading path
 as `clipGet`. It is never evidence that the clipboard is empty: a clipboard manager
 may still be re-serving that owner's token. The reading shares the watcher's
 deduping emitter and is applied only if that owner's token is still the last
-reported token when the reading returns. A newer watcher report wins in either
-reply order. A watcher offer read captures the report generation before receiving
-bytes and is discarded if an exit read reports while those bytes are pending,
-so a delayed offer cannot restore an ended token.
+reported token and no newer selection event has arrived when the reading returns.
+A watcher offer read captures the report generation when its selection event arrives
+and is discarded if an exit read begun after that event reports while its bytes are
+pending, so a delayed offer cannot restore an ended token.
 Reading the same token emits nothing; a failed reading emits nothing
 and is not retried. The spawning backend's reaper only reaps, with no separate
 clipboard notification hook.
@@ -1296,6 +1296,7 @@ counts the offered URIs that were refused (bad escapes, NUL, relative paths, `.`
 a later `clipClear` hands back; a foreign selection answers an empty one. `changed`
 is the watcher's line and carries no `ok`: it reports the selection as files, with the
 same fields as `get`, and a failed watch reports `none` with an `error` sentence.
+A selection event supersedes any exit read begun before it, while an exit read begun after that event invalidates its pending watcher bytes only if it reports, with both guards ordered by sequences under the emitter lock.
 
 ### transferprogress
 

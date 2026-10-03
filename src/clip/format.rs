@@ -145,7 +145,7 @@ pub fn parse_flea(bytes: &[u8]) -> Option<(String, String)> {
     Some((op.to_string(), token.to_string()))
 }
 
-// Old owners omit the pid; an invalid pid never turns a readable token into an empty selection.
+// Sample input "copy ab12cd34ab12cd34ab12cd34ab12cd34 1234" yields Some(1234).
 pub(crate) fn flea_pid(bytes: &[u8]) -> Option<u32> {
     parse_flea(bytes)?;
     let s = std::str::from_utf8(bytes).ok()?.trim_matches(|c: char| c == '\0' || c.is_whitespace());
