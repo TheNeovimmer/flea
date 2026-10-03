@@ -505,7 +505,7 @@ Item {
                     claim.deliver(null, claim)
                     if (!listingEnded) return
                 } else if (claim) pane.pathsPending = null
-                else { pane.clipPending = null; pane.clipQueue = [] }
+                else Ops.clipFailed(pane)
             }
             if (!listingEnded) {
                 pane.message(text, true)

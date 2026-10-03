@@ -44,6 +44,8 @@ def files(action, source, destination):
                     raise ValueError(name + " does not resolve to the selected source")
         elif not dest.is_file() or dest.is_symlink():
             raise ValueError(name + " is not a destination file")
+        if action == "copy" and not (src.exists() or src.is_symlink()):
+            raise ValueError(name + " is missing from the Copy source")
         if action == "cut" and (src.exists() or src.is_symlink()):
             raise ValueError(name + " remains at the Cut source")
 

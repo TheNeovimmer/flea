@@ -3,6 +3,7 @@
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
+python3 tests/menu-clipboard-checks-test.py || exit 1
 command -v qs >/dev/null || { echo 'FAIL qs is unavailable'; exit 1; }
 sandbox_root_ok
 test_root=$(mktemp -d "$SANDBOX_ROOT/flea-menu-clipboard-hunt.XXXXXX") || exit 1

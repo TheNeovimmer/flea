@@ -217,9 +217,12 @@ case_cap_menus() {
     seed_ui_state "$fixture_root/cap-menus-background-state" '{"keys":"default","view":"list","keyHints":true,"menu":{"hidden":["delete","openTerminal","placeMenu","runScript","moveto","copyto","properties","permissions","copyAs","pasteAs","extThumbs"]}}'
     launch "$dir"
     wait_listing 2
-    click_row "$(row_index_of target.txt)" left --mods ctrl
+    click_row "$(row_index_of target.txt)" left
     settle
-    [[ "$(ipc selectionCount)" == "1" ]] || fail "cap_menus: background specimen needs one selected row"
+    local background_selection_count
+    background_selection_count=$(ipc selectionCount)
+    [[ "$background_selection_count" == "1" ]] \
+        || fail "cap_menus: background specimen needs one selected row, got $background_selection_count"
     key y >/dev/null
     settle
     click_background

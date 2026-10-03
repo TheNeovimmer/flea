@@ -273,6 +273,10 @@ function clipResolved(pane, list) {
     ClipSelection.resolved(pane, list, copied)
 }
 
+function clipFailed(pane) {
+    ClipSelection.failed(pane)
+}
+
 // MenuAdditions040: Copy as names absolute paths, because like the clipboard
 // a copy happens in a different directory from the listing it was started
 // from. With paths the text goes out at once; without, the backend resolves

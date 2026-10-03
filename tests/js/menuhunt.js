@@ -1,5 +1,8 @@
 .import "../../ui/js/Menu.js" as Menu
 .import "../../ui/js/Ops.js" as Ops
+.import "../../ui/js/Errors.js" as Errors
+.import "../../ui/js/Messages.js" as Messages
+.import "../../ui/js/Swap.js" as Swap
 .import "sourcefixture.js" as Source
 
 function executable(check, state, entry, actions) {
@@ -118,4 +121,53 @@ function clipboard(check, pathsPane) {
     Ops.pathsResolved(stale, ["/d/f0"])
     check("hunt: deferred row numbers cannot follow a re-list", staleSent.length, 1)
     check("hunt: stale deferred selection never publishes the older Copy", stale.clipboard, null)
+    failedClipboard(check, pathsPane)
+}
+
+function failedClipboard(check, pathsPane) {
+    // Sample input: function onFailed(where, input, message, mode) { ... } precedes the state connection.
+    var handler = Source.slice(Source.source("ui/PaneWire.qml"),
+        "function onFailed(where, input, message, mode) {", "\n    }\n\n    // flea --ui-state")
+    var failedFor = eval("(function (pane, root) {\n" + handler + "\nreturn onFailed\n})")
+    var sent = []
+    var pane = pathsPane(sent)
+    var initialListing = 1
+    var currentListing = 2
+    var selectedAt = 0
+    var cutRow = 1
+    pane.clipboard = {paths: ["/d/previous"], moving: false}
+    pane.backend.heldListing = initialListing
+    pane.backend.askPaths = function (rows) {
+        sent.push({c: "paths", rows: rows, listing: pane.backend.heldListing})
+    }
+    pane.selectedIndices = function () { return [selectedAt] }
+    var backend = {
+        failed: failedFor(pane, {}),
+        paths: function (paths) { Ops.pathsResolved(pane, paths) },
+        rows: function (start, rows, ms, kinds, listing) { pane.backend.heldListing = listing }
+    }
+    Ops.clip(pane, false)
+    Messages.route(backend, {t: "rows", start: 0, rows: [], ms: 0, listing: currentListing})
+    selectedAt = cutRow
+    Ops.clip(pane, true)
+    check("r2: Cut B waits behind Copy A from the previous numbering", sent.length, 1)
+    Messages.route(backend, {t: "error", where: "stale", path: "paths", msg: "rows out of date"})
+    check("r2: stale Copy A error sends queued Cut B with current numbering", JSON.stringify(sent[1]),
+        JSON.stringify({c: "paths", rows: [cutRow], listing: currentListing}))
+    check("r2: stale Copy A error preserves the previous clipboard while Cut B waits",
+        JSON.stringify(pane.clipboard), JSON.stringify({paths: ["/d/previous"], moving: false}))
+    Messages.route(backend, {t: "paths", paths: ["/d/B"]})
+    Ops.paste(pane)
+    check("r2: Paste moves B after stale Copy A and queued Cut B", JSON.stringify(pane.asked[0]),
+        JSON.stringify({c: "transfer", op: "move", paths: ["/d/B"], dest: "/d"}))
+    check("r2: successful queued Cut leaves no pending request", pane.clipPending, null)
+    check("r2: successful queued Cut drains its queue", pane.clipQueue.length, 0)
+    Ops.clip(pane, false)
+    var sentBeforeFailure = sent.length
+    Messages.route(backend, {t: "error", where: "stale", path: "paths", msg: "rows out of date"})
+    check("r2: failed latest Copy is never sent again", sent.length, sentBeforeFailure)
+    check("r2: failed latest Copy keeps the last published Cut",
+        JSON.stringify(pane.clipboard), JSON.stringify({paths: ["/d/B"], moving: true}))
+    check("r2: failed latest Copy releases its pending request", pane.clipPending, null)
+    check("r2: failed latest Copy removes only its finished request", pane.clipQueue.length, 0)
 }

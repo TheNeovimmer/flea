@@ -53,3 +53,13 @@ function resolved(pane, list, copied) {
     pane.clipPending = null
     drain(pane)
 }
+
+function failed(pane) {
+    if (pane.clipPending === null) return
+    var sequence = pane.clipPending.sequence
+    pane.clipQueue = (pane.clipQueue || []).filter(function (request) {
+        return request.sequence !== sequence
+    })
+    pane.clipPending = null
+    drain(pane)
+}
