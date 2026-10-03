@@ -243,6 +243,40 @@ trash_shot() {
     printf 'TRASH_SHOT path=%s viewport=%q\n' "$path" "$(window_box)"
 }
 
+# Moves the pointer onto a native control and nudges it, because a warp alone sends Qt no motion (see hover_row).
+trash_hover() {
+    local cx cy wx wy nudge
+    read -r cx cy <<< "$(ipc trashControlCentre "$1")"
+    [[ "$cx" =~ ^[0-9]+$ && "$cy" =~ ^[0-9]+$ ]] || fail "trash: missing native control centre"
+    read -r wx wy _width _height < <(window_box) || fail "native window coordinates unavailable"
+    omarchy-drive move "$((wx + cx))" "$((wy + cy))" >/dev/null || fail "trash: native pointer move failed"
+    nudge=$(YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 2>&1) \
+        || fail "trash: the 1 px pointer nudge to $1 failed, so Qt saw no motion: $nudge"
+}
+
+# Waits until the strip's Empty Trash reads the wanted "hovered|focused|pressed|available" (a glob), so no shot lands before the state is drawn.
+trash_empty_wait() {
+    local want="$1" end=$((SECONDS + 20)) state
+    while (( SECONDS < end )); do
+        state=$(ipc trashEmptyState) || fail "trash: the Empty Trash state reader failed"
+        # shellcheck disable=SC2053
+        if [[ "$state" == $want ]]; then
+            trash_checks=$((trash_checks + 1))
+            printf 'TRASH_PASS Empty Trash reads %s observed=%s\n' "$want" "$state"
+            return
+        fi
+        sleep 0.05
+    done
+    fail "trash: the strip's Empty Trash never read $want; last state: $state"
+}
+
+# Parks the pointer where it was, hands the keyboard back to the Trash listing the way open() does, and proves the button let go.
+trash_restore_input() {
+    omarchy-drive move "$1" "$2" >/dev/null || fail "trash: could not park the pointer back at $1,$2"
+    [[ "$(ipc trashFocusListing)" == true ]] || fail "trash: the keyboard did not return to the Trash listing"
+    trash_empty_wait '*|false|*|*'
+}
+
 trash_empty_strip() {
     trash_rail right
     menu_seek "Empty Trash"
@@ -708,7 +742,7 @@ trash_sweep_case() {
 }
 
 case_trash() {
-    local trash_box payload row uri backing root trash_checks=0
+    local trash_box payload row uri backing root trash_checks=0 pointer_x pointer_y
     local trash_case_label="${1:-full}"
     local trash_parent_bus_id="" trash_private_bus_id="" trash_bus_address="" trash_bus_pid="" trash_provider_pid=""
     [[ "$(realpath -e "$(command -v gio)")" == /usr/bin/gio ]] || fail "trash: product gio resolves to a stub"
@@ -807,6 +841,20 @@ case_trash() {
     chmod 0555 "$locked_backing"
     trash_rail
     trash_wait '.total == 2 and (.busy == false)'
+    # Taken before the destructive tail, so a later failure cannot hide them: the strip's Empty Trash at ButtonSystem040's rest, hover and keyboard cells, the pointer parked clear of it between them.
+    read -r pointer_x pointer_y < <(hyprctl cursorpos | tr -d ',')
+    [[ "$pointer_x" =~ ^[0-9]+$ && "$pointer_y" =~ ^[0-9]+$ ]] || fail "trash: no pointer position from hyprctl cursorpos"
+    trash_hover back
+    trash_empty_wait 'false|false|false|true'
+    trash_shot trash-empty-action-rest
+    trash_hover empty
+    trash_empty_wait 'true|false|false|true'
+    trash_shot trash-empty-action-hover
+    trash_hover back
+    [[ "$(ipc trashFocusEmpty)" == true ]] || fail "trash: the strip's Empty Trash did not take the keyboard"
+    trash_empty_wait 'false|true|false|true'
+    trash_shot trash-empty-action-focus
+    trash_restore_input "$pointer_x" "$pointer_y"
     key -M ctrl -k a -m ctrl >/dev/null || fail "trash: Ctrl+A delivery failed"
     trash_wait '.selectedCount == 2 and (.busy == false)'
     trash_guard_store 2
@@ -818,9 +866,10 @@ case_trash() {
     key -k Return >/dev/null
     trash_wait '.total == 1 and .selectedCount == 1 and (.busy == false)'
     [[ "$(ipc statusPrimary)" == 'Deleted 1 of 2 items · 1 failed' && "$(ipc statusError)" == true ]] \
-        || fail "trash: partial deletion did not retain the named primary failure"
-    [[ "$(ipc statusDetail)" == *locked* && "$(ipc statusDetail)" == *'Permission denied'* ]] \
-        || fail "trash: partial deletion has no file-specific failure detail"
+        || fail "trash: partial deletion did not retain the named primary failure; observed primary [$(ipc statusPrimary)] error [$(ipc statusError)]"
+    # The locked directory cannot be moved into the quarantine, so src/backend/trashdelete.rs answers "Could not claim Trash item: <io_message>", and ui/TrashView.qml names the file before it.
+    [[ "$(ipc statusDetail)" == 'locked failed: Could not claim Trash item: permission denied' ]] \
+        || fail "trash: partial deletion has no file-specific failure detail; observed [$(ipc statusDetail)]"
     trash_guard_store 1
     trash_shot trash-partial-failure
     uri=$(/usr/bin/gio trash --list | cut -f1)

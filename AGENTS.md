@@ -2081,6 +2081,29 @@ load-bearing tree-wide (Theme, NetworkDialog, SidebarRow, ContextMenu and Previe
 for Style and Color), so an `omarchy update` reshaping it is a standing, tracked risk rather
 than a rule any one file breaks.
 
+The Trash strip's Empty Trash is the one button, not a second recipe (GM 2026-10-03, after seeing two Empty Trash
+buttons that drew differently). `ui/TrashView.qml` instantiates `Flea.DialogButton` with `destructive: true` and
+`inStrip: true`: the host's height (`Theme.chromeHeight` for the press area, `Theme.chromeControlHeight` for the frame,
+centred in the strip less its rule) at caption size, a muted frame that never changes, the error label, hover 8% and
+press 14% of the ink with the 0.96 press, a 2 px foreground ring outside the frame, 0.55 when disabled, and Tab in the
+focus chain. The strip's former own control, whose frame rose to the ink and whose focus was a wash, is deleted.
+`tests/button-system.sh` pins the ladder in five states against a destructive dialog button, plus the sweep table of
+the `ui/` files that declare the Button accessible role and draw a `border.width` (the control, the ruled set members,
+the marks, and the two deferred members PickerChrome's `Framed` and NetworkForm's TLS box); a new file of that shape
+fails its completeness check, and a hand-built button that spells neither is not seen by it. The retired
+second recipe is searched for across the whole tree bar the changelog. The harness is destructive-capable (it drives the
+real TrashView and activates Empty Trash), so the suite pins every XDG root under its marked `mktemp -d` root, the QML
+proves the environment it was given and the paths the product resolved from it (the view's home, the scripts directory,
+the state file, and the data home of `Recent.historyPath` with gio's `/Trash` under it, which is the one row the QML
+only derives, because the backend that resolves the Trash never starts here) lie under it before anything is activated,
+and assigns the view state only after that passed. No backend answers, so a `prepare` request is dropped, the
+confirmation card never opens and a `delete` or `restore` request fails the run. Its in-QML cap is elapsed time, half
+the outer `timeout` passed down, so the "harness did not finish" branch fires first whenever `qs` starts in under that
+half; a slower start meets the outer `timeout` instead. In `tests/ui-trash.sh` each Empty Trash shot waits on
+`ipc trashEmptyState` (`hovered|focused|pressed|available`), and the case hands the pointer and the keyboard back
+afterwards: `ipc trashFocusListing` releases the strip button before forcing the view, because a focus scope forced alone
+returns to its last child, and `tests/button-system.qml` drives that same body headless.
+
 ## How the list renders
 
 `ui/Pane.qml`'s `ListView` sets `clip: true` because the top row of a wheel-scrolled viewport is

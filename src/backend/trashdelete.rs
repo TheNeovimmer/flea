@@ -729,6 +729,28 @@ mod tests {
         assert!(later.exists());
         assert!(!d.join("info/item.trashinfo").exists());
     }
+    // corner: runs as a plain user, where a directory without its write bit refuses the claim.
+    #[test]
+    fn a_locked_directory_fails_with_the_reason_spelled_by_io_message() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = TestDir::new("trash-delete-locked");
+        d.dir("files");
+        d.dir("info");
+        let path = d.dir("files/locked");
+        d.file("files/locked/child.txt", "survive");
+        d.file("info/locked.trashinfo", "[Trash Info]\nPath=/original/locked\n");
+        guard(&d, &path);
+        // Locked before the review, as the ui case locks the backing before it opens the confirmation, because the mode is part of the identity.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let meta = path.symlink_metadata().unwrap();
+        let mut reviewed = Reviewed::inspect(path.clone(), &format!("l{}:{}", meta.dev(), meta.ino())).unwrap();
+        reviewed.snapshot(&mut Manifest::new(d.path()).unwrap(), d.path(), &Cancellation::default()).unwrap();
+        let refused = reviewed.delete(d.path());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // ui/TrashView.qml puts "<name> failed: " before this, so the name is the view's and the reason is io_message's for EACCES.
+        assert_eq!(refused, Err("Could not claim Trash item: permission denied".to_string()));
+        assert_eq!(std::fs::read_to_string(path.join("child.txt")).unwrap(), "survive");
+    }
     #[test]
     fn changed_identity_or_size_is_never_deleted() {
         let d = TestDir::new("trash-delete-change");

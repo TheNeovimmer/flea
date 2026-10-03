@@ -313,7 +313,7 @@ FocusScope {
                     || root.recentMode.length > 0
                     || root.appliedListingPreferences === root.listingPreferences) return
             root.preferenceAnchor = Anchor.preference(root)
-            root.openWithoutHistory(root.path)
+            root.openWithoutHistory(root.path, { inPlace: true })
             if (root.preferenceAnchor && root.preferenceAnchor.start > 0)
                 root.backend.window(root.preferenceAnchor.start, root.windowSize)
         }
@@ -428,8 +428,8 @@ FocusScope {
             root.message("A directory is already loading.", false)
             return
         }
-        // Every real navigation leaves Recent and Trash, restoring the folder beneath each overlay.
-        trashHost.close()
+        // Every real navigation leaves Recent and Trash, restoring the folder beneath each; options.inPlace, a re-list of this folder, leaves Trash up.
+        if (!options || options.inPlace !== true) trashHost.close()
         RecentMode.leave(root)
         if (!root.listInFlight) {
             var applied = root.appliedListingPreferences ? JSON.parse(root.appliedListingPreferences) : []

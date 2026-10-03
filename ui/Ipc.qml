@@ -262,7 +262,7 @@ QtObject {
         function trashControlCentre(name: string): string {
             var view = root.pane.trash.item
             if (!view) return ""
-            var item = ({back: view.backItem, up: view.upItem, cancel: view.confirmationItem.cancelItem, danger: view.confirmationItem.dangerItem})[name]
+            var item = ({back: view.backItem, up: view.upItem, empty: view.emptyItem, cancel: view.confirmationItem.cancelItem, danger: view.confirmationItem.dangerItem})[name]
             return item ? root.fleaWindow.centreOf(item) : ""
         }
 
@@ -850,6 +850,11 @@ QtObject {
             }
             return out.join("\n")
         }
+        function trashFocusEmpty(): bool { var view = root.pane.trash.item; if (!view) return false; view.emptyItem.forceActiveFocus(Qt.TabFocusReason); return view.emptyItem.activeFocus }
+        // open() leaves the keyboard on the view itself; forcing a focus scope alone returns it to its last child, so the button lets go first.
+        function trashFocusListing(): bool { var view = root.pane.trash.item; if (!view) return false; view.emptyItem.focus = false; view.forceActiveFocus(); return view.activeFocus && !view.emptyItem.activeFocus }
+        // "hovered|focused|pressed|available" read from the strip button's own handlers and properties, one word each.
+        function trashEmptyState(): string { var view = root.pane.trash.item; if (!view) return ""; var item = view.emptyItem; var hover = item.data.find(function(o) { return o.hovered !== undefined }); var tap = item.data.find(function(o) { return o.pressed !== undefined }); return [hover.hovered, item.focused, tap.pressed, item.available].join("|") }
     }
     function rowNameItem(i) {
         var item = root.pane.rowFor(i) ? root.pane.visibleItemFor(i) : null

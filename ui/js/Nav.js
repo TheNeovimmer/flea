@@ -167,7 +167,7 @@ function refresh(pane, selectPath, keepSelection) {
         pane.wire.reread()
         return
     }
-    pane.openWithoutHistory(pane.path)
+    pane.openWithoutHistory(pane.path, { inPlace: true })
 }
 
 // Only the first rows response looks for the target, then it is forgotten either way, so a later

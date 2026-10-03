@@ -46,7 +46,7 @@ src/backend/collide_replace_tests.rs 487
 src/backend/proto.rs 378
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 779
-src/backend/trashdelete.rs 916
+src/backend/trashdelete.rs 938
 src/gui.rs 501
 src/tui/actions.rs 1067
 src/tui/input.rs 449
@@ -88,14 +88,14 @@ tests/rename-grid-bottom.qml 424
 tests/rename-grid-bottom.js 305
 tests/rename-lifecycle-check.js 356
 tests/touchpad.qml 747
-tests/xwsettings-tabs.qml 416
+tests/xwsettings-tabs.qml 444
 ui/Backend.qml 469
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 479
 ui/ContextMenu.qml 709
 ui/ConvertDialog.qml 433
 ui/GridArea.qml 412
-ui/Ipc.qml 859
+ui/Ipc.qml 864
 ui/KeymapSheet.qml 523
 ui/List.qml 437
 tests/touchpad-edge.qml 438
@@ -119,7 +119,7 @@ ui/SettingsRow.qml 410
 ui/Sidebar.qml 668
 ui/StatusBar.qml 456
 ui/Theme.qml 416
-ui/TrashView.qml 475
+ui/TrashView.qml 479
 ui/ViewState.qml 536
 ui/WindowBody.qml 631
 ui/js/Anchor.js 405

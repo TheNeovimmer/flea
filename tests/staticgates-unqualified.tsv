@@ -446,6 +446,9 @@ ui/Ipc.qml	837	root	Declared QML id; component context access is valid at runtim
 ui/Ipc.qml	839	root	Declared QML id; component context access is valid at runtime.
 ui/Ipc.qml	842	root	Declared QML id; component context access is valid at runtime.
 ui/Ipc.qml	846	root	Declared QML id; component context access is valid at runtime.
+ui/Ipc.qml	853	root	Declared QML id; component context access is valid at runtime.
+ui/Ipc.qml	855	root	Declared QML id; component context access is valid at runtime.
+ui/Ipc.qml	857	root	Declared QML id; component context access is valid at runtime.
 ui/JumpPath.qml	33	root	Declared QML id; component context access is valid at runtime.
 ui/KeymapSheet.qml	285	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/KeymapSheet.qml	354	root	Declared QML id; component context access is valid at runtime.
@@ -564,7 +567,6 @@ ui/PaneRail.qml	98	root	Declared QML id; component context access is valid at ru
 ui/PaneRail.qml	99	root	Declared QML id; component context access is valid at runtime.
 ui/PaneRail.qml	100	root	Declared QML id; component context access is valid at runtime.
 ui/PaneRail.qml	101	root	Declared QML id; component context access is valid at runtime.
-ui/PaneRail.qml	103	root	Declared QML id; component context access is valid at runtime.
 ui/PaneRail.qml	103	root	Declared QML id; component context access is valid at runtime.
 ui/PaneRail.qml	165	root	Declared QML id; component context access is valid at runtime.
 ui/PaneRail.qml	167	root	Declared QML id; component context access is valid at runtime.
@@ -1046,16 +1048,16 @@ ui/TransferCard.qml	107	Style	qs.Commons exports this singleton; qmllint cannot 
 ui/TrashConfirm.qml	66	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/TrashMonitor.qml	26	Quickshell	Quickshell import exports this runtime singleton or enum.
 ui/TrashMonitor.qml	84	text	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
-ui/TrashView.qml	60	Quickshell	Quickshell import exports this runtime singleton or enum.
-ui/TrashView.qml	437	root	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	438	root	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	439	listing	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	442	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/TrashView.qml	451	locationTitle	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	452	deletedTitle	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	458	root	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	459	root	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	460	root	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	62	Quickshell	Quickshell import exports this runtime singleton or enum.
+ui/TrashView.qml	441	root	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	442	root	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	443	listing	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	446	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/TrashView.qml	455	locationTitle	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	456	deletedTitle	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	462	root	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	463	root	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	464	root	Declared QML id; component context access is valid at runtime.
 ui/UpdateCheck.qml	11	Quickshell	Quickshell import exports this runtime singleton or enum.
 ui/ViewState.qml	62	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/ViewState.qml	456	Quickshell	Quickshell import exports this runtime singleton or enum.
@@ -2349,19 +2351,19 @@ ui/Theme.qml	370	Color	qs.Commons exports this singleton; qmllint cannot resolve
 ui/Theme.qml	387	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/TransferCard.qml	107	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/TrashConfirm.qml	66	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/TrashView.qml	437	root	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	438	root	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	439	listing	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	442	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/TrashView.qml	442	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/TrashView.qml	451	locationTitle	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	451	root	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	452	deletedTitle	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	458	root	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	459	root	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	460	root	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	460	root	Declared QML id; component context access is valid at runtime.
-ui/TrashView.qml	460	root	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	441	root	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	442	root	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	443	listing	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	446	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/TrashView.qml	446	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/TrashView.qml	455	locationTitle	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	455	root	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	456	deletedTitle	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	462	root	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	463	root	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	464	root	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	464	root	Declared QML id; component context access is valid at runtime.
+ui/TrashView.qml	464	root	Declared QML id; component context access is valid at runtime.
 ui/ViewState.qml	62	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/ViewportScrollBar.qml	134	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/WindowBody.qml	294	view	Declared QML id; component context access is valid at runtime.
