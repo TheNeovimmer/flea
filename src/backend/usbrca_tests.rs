@@ -1,0 +1,216 @@
+use super::*;
+use crate::backend::{copyfile, durable, opsreq, testdir::TestDir};
+use std::sync::{mpsc::channel, Arc};
+
+const FILES: usize = 1_000;
+const FILE_BYTES: usize = 4_096;
+const EIO: i32 = 5;
+const ENODEV: i32 = 19;
+const ENOSPC: i32 = 28;
+const EROFS: i32 = 30;
+const PARTIAL_DIVISOR: usize = 2;
+
+struct Fixture {
+    _dir: TestDir,
+    src: PathBuf,
+    out: PathBuf,
+    durability: Durability,
+    batch: MoveBatch,
+    cancel: AtomicBool,
+    settled: AtomicU64,
+    tx: Sender<OpMsg>,
+    steps: Vec<Step>,
+}
+
+impl Fixture {
+    fn new() -> Self {
+        durable::test_reset();
+        let dir = TestDir::new("usbrca");
+        let src = dir.dir("src");
+        let out = dir.dir("out");
+        durable::test_mark_durable(&out);
+        let body = format!("21 1 8:1 / {} rw,flush - vfat /dev/test rw,flush\n", out.display());
+        durable::test_set_fake_mountinfo(Some(&body));
+        let durability = Durability::begin(&out);
+        durable::test_set_fake_mountinfo(None);
+        assert!(durability.batch_syncfs);
+        let (tx, _) = channel();
+        Self { _dir: dir, src, out, durability, batch: MoveBatch::new(), cancel: AtomicBool::new(false),
+            settled: AtomicU64::new(0), tx, steps: Vec::new() }
+    }
+
+    fn source(&self, n: usize) -> PathBuf {
+        self.src.join(format!("f{n}"))
+    }
+
+    fn destination(&self, n: usize) -> PathBuf {
+        self.out.join(format!("f{n}"))
+    }
+
+    fn stage(&mut self, n: usize) -> MoveOutcome {
+        let src = self.source(n);
+        std::fs::write(&src, vec![b'x'; FILE_BYTES]).unwrap();
+        let source = ItemIdentity::inspect(&src).unwrap();
+        stage_copy(1, n, &format!("f{n}"), &src, &self.destination(n), source, &self.cancel,
+            &self.tx, &self.settled, &mut self.steps, &mut self.durability, &mut self.batch)
+    }
+
+    fn land(&mut self, n: usize) {
+        assert!(matches!(self.stage(n), MoveOutcome::Deferred));
+    }
+
+    fn close(&mut self) -> CloseCounts {
+        close_normal(&mut self.batch, 1, &self.tx, &mut self.steps, &mut self.durability).0
+    }
+
+    fn source_survives(&self, n: usize) {
+        assert_eq!(std::fs::read(self.source(n)).unwrap(), vec![b'x'; FILE_BYTES]);
+    }
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        copyfile::test_fail_write(None);
+        durable::test_reset();
+    }
+}
+
+// Run the transfer path, pin every counted call and forbid dirty closes or a separate final clone close.
+#[test]
+fn usb_thousand_file_call_counts_and_confirm_before_close() {
+    let fixture = Fixture::new();
+    let paths: Vec<String> = (0..FILES).map(|n| {
+        let path = fixture.source(n);
+        std::fs::write(&path, vec![b'x'; FILE_BYTES]).unwrap();
+        path.to_string_lossy().into_owned()
+    }).collect();
+    let _force = ForceCopyGuard::hold();
+    let (tx, rx) = channel();
+    let body = format!("21 1 8:1 / {} rw,flush - vfat /dev/test rw,flush\n", fixture.out.display());
+    durable::test_set_fake_mountinfo(Some(&body));
+    opsreq::run_transfer(1, true, paths, fixture.out.clone(), Arc::new(AtomicBool::new(false)), tx);
+    durable::test_set_fake_mountinfo(None);
+    let done = rx.iter().find_map(|m| match m {
+        OpMsg::TransferDone { ok, failed, skipped, durable, entry, .. } => Some((ok, failed, skipped, durable, entry)),
+        _ => None,
+    }).unwrap();
+    assert_eq!((done.0, done.1, done.2, done.3), (FILES, 0, 0, true));
+    assert_eq!(done.4.steps.len(), FILES);
+    let confirms = FILES.div_ceil(BATCH_ITEMS);
+    assert_eq!(durable::test_counts(), (0, confirms + 2));
+    assert_eq!(durable::test_syncfs_count(), confirms);
+    assert_eq!(durable::test_releases(), FILES);
+    let order = durable::test_order();
+    let count = |step: &str| order.iter().filter(|s| s.as_str() == step).count();
+    assert_eq!((count("open-dest"), count("write-dest"), count("remove")), (FILES, FILES, FILES));
+    assert_eq!(count("mtime-dest"), FILES);
+    assert!(durable::test_range_log().is_empty(), "small files make no range sync or file fsync calls");
+    assert_eq!((count("clone"), count("clone-drop")), (confirms, confirms));
+    println!("USB_COUNTS files={FILES} open={} write={} file_fsync=0 dir_fsync={} syncfs={} close={} clone={} unlink={}",
+        count("open-dest"), count("write-dest"), confirms + 2, confirms, FILES + confirms, confirms, count("remove"));
+    let mut dirty = false;
+    let mut clone_live = false;
+    let mut dirty_closes = 0;
+    let mut originals_closed_before_clone_drop = 0;
+    for step in &order {
+        match step.as_str() {
+            "write-dest" => dirty = true,
+            "clone" => clone_live = true,
+            "syncfs" => dirty = false,
+            "clone-drop" => clone_live = false,
+            "release" => {
+                dirty_closes += usize::from(dirty);
+                originals_closed_before_clone_drop += usize::from(clone_live);
+            }
+            "remove" => assert!(!dirty, "no source goes before its covering confirm"),
+            _ => {}
+        }
+    }
+    assert_eq!(dirty_closes, 0, "all 1,000 writable closes follow their covering syncfs");
+    assert_eq!(originals_closed_before_clone_drop, 0, "clone drops while its original remains open, never in a separate final-close wave");
+    for n in 0..FILES {
+        assert!(!fixture.source(n).exists());
+        assert_eq!(std::fs::read(fixture.destination(n)).unwrap(), vec![b'x'; FILE_BYTES]);
+    }
+}
+
+// Dropping the clone before all originals keeps its close nonfinal, avoiding one serial vfat sleep per batch.
+#[test]
+fn usb_clone_drop_does_not_serialize_a_final_writable_close() {
+    let mut f = Fixture::new();
+    f.land(0);
+    f.land(1);
+    let closed = f.close();
+    assert_eq!((closed.ok, closed.failed), (2, 0));
+    let order = durable::test_order();
+    let clone_drop = order.iter().position(|s| s == "clone-drop").unwrap();
+    let first_release = order.iter().position(|s| s == "release").unwrap();
+    assert!(clone_drop < first_release, "clone must close while its original still holds the description");
+}
+
+fn failed_confirm(errno: i32) {
+    let mut f = Fixture::new();
+    for n in 0..BATCH_ITEMS { f.land(n); }
+    assert_eq!(f.durability.held_len(), 0, "the cap has already confirmed and drained");
+    f.land(BATCH_ITEMS);
+    durable::test_set_syncfs_errno(errno);
+    let closed = f.close();
+    durable::test_set_syncfs_errno(0);
+    assert_eq!((closed.ok, closed.failed), (0, BATCH_ITEMS + 1));
+    assert_eq!(f.durability.held_len(), 0);
+    assert!(f.durability.flush_dirs().is_err(), "a failed late confirm stays sticky");
+    assert!(f.steps.iter().all(|s| matches!(s, Step::Copied { .. })));
+    for n in 0..=BATCH_ITEMS { f.source_survives(n); }
+}
+
+#[test]
+fn usb_eio_confirm_keeps_sources_after_an_earlier_cap_confirm() { failed_confirm(EIO); }
+
+#[test]
+fn usb_enospc_confirm_keeps_sources_after_an_earlier_cap_confirm() { failed_confirm(ENOSPC); }
+
+#[test]
+fn usb_unplug_confirm_keeps_sources_after_an_earlier_cap_confirm() { failed_confirm(ENODEV); }
+
+#[test]
+fn usb_read_only_confirm_keeps_sources_after_an_earlier_cap_confirm() { failed_confirm(EROFS); }
+
+fn short_copy(errno: i32) {
+    let mut f = Fixture::new();
+    f.land(0);
+    copyfile::test_fail_write(Some((0, errno)));
+    assert!(matches!(f.stage(1), MoveOutcome::Done(Err(_))));
+    copyfile::test_fail_write(None);
+    f.source_survives(0);
+    f.source_survives(1);
+    assert_eq!(std::fs::metadata(f.destination(1)).unwrap().len(), (FILE_BYTES / PARTIAL_DIVISOR) as u64);
+    let closed = f.close();
+    assert_eq!((closed.ok, closed.failed), (1, 0));
+    assert!(!f.source(0).exists(), "the landed copy still finishes after confirmation");
+    f.source_survives(1);
+    assert_eq!(f.durability.held_len(), 0);
+    assert!(matches!(&f.steps[..], [Step::Copied { .. }, Step::Moved { .. }]));
+}
+
+#[test]
+fn usb_short_write_keeps_its_source() { short_copy(0); }
+
+#[test]
+fn usb_enospc_write_keeps_its_source() { short_copy(ENOSPC); }
+
+#[test]
+fn usb_eio_write_keeps_its_source() { short_copy(EIO); }
+
+#[test]
+fn usb_cancel_keeps_unfinished_source_and_confirms_landed_files() {
+    let mut f = Fixture::new();
+    f.land(0);
+    f.cancel.store(true, Ordering::Relaxed);
+    assert!(matches!(f.stage(1), MoveOutcome::Done(Err(_))));
+    assert!(!f.destination(1).exists(), "cancel removes only the unfinished destination");
+    let closed = close_cancelled(&mut f.batch, 1, &f.tx, &mut f.steps, &mut f.durability).0;
+    assert_eq!((closed.ok, closed.failed, closed.cancelled), (1, 0, true));
+    assert!(!f.source(0).exists());
+    f.source_survives(1);
+    assert_eq!(f.durability.held_len(), 0);
+}

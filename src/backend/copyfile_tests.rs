@@ -557,8 +557,8 @@ fn a_batch_cross_device_move_settles_before_removing_its_source() {
     let order = crate::backend::durable::test_order();
     let syncfs_at = order.iter().position(|s| s == "syncfs").expect("one syncfs in the order");
     let dir_at = order.iter().position(|s| s == "dir").expect("one folder fsync in the order");
-    assert!(order.iter().take(syncfs_at).any(|s| s == "release"), "release first: {:?}", order);
-    assert!(syncfs_at < dir_at, "release, syncfs, folder fsync, then the source removal: {:?}", order);
+    let release_at = order.iter().position(|s| s == "release").expect("held file closes");
+    assert!(syncfs_at < release_at && release_at < dir_at, "syncfs, release, folder fsync, then source removal: {:?}", order);
     assert!(!src.exists(), "the source goes only after the confirm");
     assert_eq!(std::fs::read_to_string(&dst).unwrap(), "body");
     crate::backend::durable::test_reset();

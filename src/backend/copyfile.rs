@@ -95,6 +95,8 @@ fn copy_file_at(src: At, dst: At, total: u64, p: &mut Progress) -> Result<(), Fl
         .mode(mode)
         .open(dst.at)
         .map_err(|e| from_io("copy", &dst.named.to_string_lossy(), &e))?;
+    #[cfg(test)]
+    super::durable::test_log("open-dest");
     // From here the destination exists, and every failure below leaves it for the caller to journal.
     let durable = p.durability.as_ref().is_some_and(|c| c.durable);
     let mut buf = vec![0u8; CHUNK];
@@ -118,9 +120,11 @@ fn copy_file_at(src: At, dst: At, total: u64, p: &mut Progress) -> Result<(), Fl
         if n == 0 {
             break;
         }
-        if let Err(e) = w.write_all(&buf[..n]) {
+        if let Err(e) = write_chunk(&mut w, &buf[..n]) {
             return Err(left_half_written(p, dst, &w, from_io("copy", &dst.named.to_string_lossy(), &e)));
         }
+        #[cfg(test)]
+        super::durable::test_log("write-dest");
         done += n as u64;
         if !durable {
             let (reported, against) = match p.tree {
@@ -225,6 +229,36 @@ fn copy_file_at(src: At, dst: At, total: u64, p: &mut Progress) -> Result<(), Fl
     }
     record_open(p, dst.named, &w);
     Ok(())
+}
+
+// Production writes every byte; tests can refuse after a partial write without a sick drive.
+fn write_chunk(file: &mut std::fs::File, bytes: &[u8]) -> std::io::Result<()> {
+    #[cfg(test)]
+    if let Some(errno) = TEST_WRITE_FAILURE.with(|v| {
+        let mut fault = v.borrow_mut();
+        match fault.as_mut() {
+            Some((remaining, errno)) if *remaining == 0 => Some(*errno),
+            Some((remaining, _)) => { *remaining -= 1; None }
+            None => None,
+        }
+    }) {
+        const PARTIAL_DIVISOR: usize = 2;
+        file.write_all(&bytes[..bytes.len() / PARTIAL_DIVISOR])?;
+        return Err(if errno == 0 { std::io::ErrorKind::WriteZero.into() }
+            else { std::io::Error::from_raw_os_error(errno) });
+    }
+    file.write_all(bytes)
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_WRITE_FAILURE: std::cell::RefCell<Option<(usize, i32)>> = const { std::cell::RefCell::new(None) };
+}
+
+// Some((1, ENOSPC)) refuses the second write after writing half its bytes; None restores real writes.
+#[cfg(test)]
+pub(crate) fn test_fail_write(fault: Option<(usize, i32)>) {
+    TEST_WRITE_FAILURE.with(|v| *v.borrow_mut() = fault);
 }
 
 // A file the destination cannot hold is refused before a byte is written, so EFBIG never leaves a partial file.
@@ -341,6 +375,8 @@ fn keep_mtime(w: &std::fs::File, src_meta: &std::fs::Metadata) {
         UNIX_EPOCH.checked_sub(Duration::new(src_meta.mtime().unsigned_abs(), 0))
     };
     if let Some(time) = time {
+        #[cfg(test)]
+        super::durable::test_log("mtime-dest");
         let _ = w.set_modified(time);
     }
 }

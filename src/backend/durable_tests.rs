@@ -949,8 +949,8 @@ fn flush_dirs_settles_held_before_its_folder_fsync() {
     let order = test_order();
     let syncfs_at = order.iter().position(|s| s == "syncfs").expect("one syncfs in the order");
     let dir_at = order.iter().position(|s| s == "dir").expect("one folder fsync in the order");
-    assert!(order.iter().take(syncfs_at).any(|s| s == "release"), "release first: {:?}", order);
-    assert!(syncfs_at < dir_at, "release, syncfs, folder fsync: {:?}", order);
+    let release_at = order.iter().position(|s| s == "release").expect("held file closes");
+    assert!(syncfs_at < release_at && release_at < dir_at, "syncfs, release, folder fsync: {:?}", order);
     assert_eq!(durability.held_len(), 0, "nothing stays held past the confirm");
     test_reset();
 }
@@ -985,8 +985,8 @@ fn copy_then_remove_on_a_batch_target_settles_before_removing_its_source() {
     let order = test_order();
     let syncfs_at = order.iter().position(|s| s == "syncfs").expect("one syncfs in the order");
     let dir_at = order.iter().position(|s| s == "dir").expect("one folder fsync in the order");
-    assert!(order.iter().take(syncfs_at).any(|s| s == "release"), "release first: {:?}", order);
-    assert!(syncfs_at < dir_at, "release, syncfs, folder fsync, then the source removal: {:?}", order);
+    let release_at = order.iter().position(|s| s == "release").expect("held file closes");
+    assert!(syncfs_at < release_at && release_at < dir_at, "syncfs, release, folder fsync, then source removal: {:?}", order);
     assert!(!from.exists(), "the source goes only after the confirm");
     assert_eq!(std::fs::read_to_string(&to).unwrap(), "body");
     test_reset();
@@ -1148,9 +1148,10 @@ fn clone_of_first_held_file_confirms_batch_then_drops() {
     let syncfs_at = order.iter().position(|s| s == "syncfs").expect("one syncfs in the order");
     let drop_at = order.iter().position(|s| s == "clone-drop").expect("clone drops after syncfs");
     let dir_at = order.iter().position(|s| s == "dir").expect("one folder fsync in the order");
-    assert_eq!(clone_at, 0, "clone first, sharing the pre-write description: {:?}", order);
-    assert!(order.iter().take(syncfs_at).filter(|s| *s == "release").count() == 2, "both closes land before syncfs: {:?}", order);
-    assert!(syncfs_at < drop_at && drop_at <= dir_at, "syncfs, clone drop, folder fsync: {:?}", order);
+    let release_at = order.iter().position(|s| s == "release").expect("held files close");
+    assert!(clone_at < syncfs_at, "clone preserves the pre-write description before confirm: {:?}", order);
+    assert_eq!(order.iter().skip(release_at).filter(|s| *s == "release").count(), 2, "both originals close together: {:?}", order);
+    assert!(syncfs_at < drop_at && drop_at < release_at && release_at < dir_at, "syncfs, nonfinal clone drop, releases, folder fsync: {:?}", order);
     test_reset();
 }
 

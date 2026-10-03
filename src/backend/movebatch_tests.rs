@@ -561,8 +561,9 @@ fn a_sixty_four_batch_on_a_block_vfat_stick_skips_file_fsyncs() {
     let syncfs_at = order.iter().position(|s| s == "syncfs").expect("one syncfs in the order");
     let dir_at = order.iter().position(|s| s == "dir").expect("one folder fsync in the order");
     let first_remove = order.iter().position(|s| s == "remove").expect("removals are logged");
-    assert!(order.iter().take(syncfs_at).filter(|s| *s == "release").count() == 64, "64 releases first: {:?}", order);
-    assert!(syncfs_at < dir_at && dir_at < first_remove, "release, syncfs, folder, first removal: {:?}", order);
+    let release_at = order.iter().position(|s| s == "release").expect("held files close");
+    assert_eq!(order.iter().skip(release_at).filter(|s| *s == "release").count(), 64, "64 releases together: {:?}", order);
+    assert!(syncfs_at < release_at && release_at < dir_at && dir_at < first_remove, "syncfs, releases, folder, first removal: {:?}", order);
     assert_eq!(durability.held_len(), 0, "nothing stays held past the confirm");
     drop(tx);
     let lines = items(rx);

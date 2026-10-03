@@ -24,6 +24,7 @@ thread_local! {
     static RANGE_LOG: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     // The syncfs leg answering failure, so a batch confirm keeps every source.
     static FAIL_SYNCFS: Cell<bool> = const { Cell::new(false) };
+    static FAIL_SYNCFS_ERRNO: Cell<i32> = const { Cell::new(0) };
     // The clone leg answering failure, so a batch confirm keeps every source after draining.
     static FAIL_CLONE: Cell<bool> = const { Cell::new(false) };
     // Completed syncfs calls, so a batch pins one per confirm.
@@ -190,7 +191,7 @@ impl Durability {
         }
     }
 
-    // A confirm clones the first held file before any close, so syncfs keeps its pre-write baseline.
+    // Confirm while every original is open, preserving the earliest file's pre-write error baseline.
     fn settle_held(&mut self) -> std::io::Result<()> {
         let had = !self.held.is_empty();
         if !had {
@@ -207,7 +208,7 @@ impl Durability {
             self.release_held();
             return Ok(());
         }
-        // One clone shares the first file's pre-write description; its last close waits for syncfs.
+        // The clone shares the first file's baseline and drops before its original's final close.
         #[cfg(test)]
         if FAIL_CLONE.with(|v| v.get()) {
             self.release_held();
@@ -224,12 +225,12 @@ impl Durability {
         };
         #[cfg(test)]
         ORDER_LOG.with(|v| v.borrow_mut().push("clone".to_string()));
-        self.release_held();
         let result = syncfs_fd(&clone);
         drop(clone);
         #[cfg(test)]
         ORDER_LOG.with(|v| v.borrow_mut().push("clone-drop".to_string()));
-        // Held files are already released, so only the sticky flag stops the next confirm.
+        self.release_held();
+        // A failed confirm still drains descriptors and stays sticky for every later source.
         if result.is_err() {
             self.unsettled = true;
         }
@@ -429,8 +430,15 @@ pub fn fsync_dir(path: &Path) -> std::io::Result<()> {
     std::fs::File::open(path)?.sync_all()
 }
 
-// One filesystem-wide confirm on the pre-write fd, so vfat's per-close flush never runs.
+// One filesystem-wide confirm on the pre-write fd, before vfat's final writable closes.
 fn syncfs_fd(file: &std::fs::File) -> std::io::Result<()> {
+    #[cfg(test)]
+    {
+        let errno = FAIL_SYNCFS_ERRNO.with(|v| v.get());
+        if errno != 0 {
+            return Err(std::io::Error::from_raw_os_error(errno));
+        }
+    }
     // Refused before counting, so a failed confirm never reads as confirmed.
     #[cfg(test)]
     if FAIL_SYNCFS.with(|v| v.get()) {
@@ -544,6 +552,7 @@ pub fn test_reset() {
     RANGE_WAITS.with(|v| v.set(0));
     RANGE_LOG.with(|v| v.borrow_mut().clear());
     FAIL_SYNCFS.with(|v| v.set(false));
+    FAIL_SYNCFS_ERRNO.with(|v| v.set(0));
     FAIL_CLONE.with(|v| v.set(false));
     SYNCFS_FLUSHES.with(|v| v.set(0));
     RELEASES.with(|v| v.set(0));
@@ -561,6 +570,7 @@ pub fn test_reset_counts() {
     RANGE_WAITS.with(|v| v.set(0));
     RANGE_LOG.with(|v| v.borrow_mut().clear());
     FAIL_SYNCFS.with(|v| v.set(false));
+    FAIL_SYNCFS_ERRNO.with(|v| v.set(0));
     FAIL_CLONE.with(|v| v.set(false));
     SYNCFS_FLUSHES.with(|v| v.set(0));
     RELEASES.with(|v| v.set(0));
@@ -638,6 +648,12 @@ pub fn test_set_fail_files(fail: bool) {
 #[cfg(test)]
 pub fn test_set_fail_syncfs(fail: bool) {
     FAIL_SYNCFS.with(|v| v.set(fail));
+}
+
+// Inject the confirm's actual errno, including an unplug or a read-only remount.
+#[cfg(test)]
+pub(crate) fn test_set_syncfs_errno(errno: i32) {
+    FAIL_SYNCFS_ERRNO.with(|v| v.set(errno));
 }
 
 // The clone leg answers failure, so a batch keeps every source after draining.
