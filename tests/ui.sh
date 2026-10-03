@@ -12987,6 +12987,7 @@ case_clipboard() {
     clipboard_press "$bpid" -k m
     clipboard_menu_wait "$bid" true
     state=$(clipboard_ipc "$bid" menuState) || fail "clipboard: no menu model"
+    # Sample input: {"entries":[{"action":"paste","disabled":true}]}
     jq -e 'any(.entries[]; .action == "paste" and .disabled == true)' <<< "$state" >/dev/null \
         || fail "clipboard: Paste present and disabled"
     clipboard_press "$bpid" -k Escape
@@ -13029,6 +13030,7 @@ clipboard_text_no_paste() {
     local deadline=$((SECONDS + observe_timeout_s))
     while (( SECONDS <= deadline )); do
         state=$(clipboard_ipc "$id" collideState) || fail "clipboard: no collision state"
+        # Sample input: {"opened":false}
         jq -e '.opened == false' <<< "$state" >/dev/null || fail "clipboard: plain text opened a collision card"
         after=$(find "$dest" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort) || fail "clipboard: cannot list text destination"
         [[ "$before" == "$after" && ! -e "$dest/hello" ]] || fail "clipboard: plain text pasted a file"
