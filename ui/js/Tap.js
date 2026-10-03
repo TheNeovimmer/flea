@@ -1,7 +1,16 @@
 .pragma library
-
 .import "Search.js" as Search
 .import "Tabs.js" as Tabs
+
+// Hit the drawn label instead of the whole name slot, including centered grid captions.
+function onName(label, owner, point, centered) {
+    if (!label || !label.visible) return false
+    var at = label.mapFromItem(owner, point.x, point.y)
+    var width = Math.min(label.width, label.contentWidth === undefined ? label.implicitWidth : label.contentWidth)
+    var height = Math.min(label.height, label.contentHeight === undefined ? label.implicitHeight : label.contentHeight)
+    var left = centered ? (label.width - width) / 2 : 0
+    return at.x >= left && at.x < left + width && at.y >= 0 && at.y < height
+}
 
 // The pointer contract, declared in keys.toml's [[pointer]] table and decided here and nowhere
 // else. tests/js/tap.js drives every row of Keymap.POINTER through the three functions below, so a

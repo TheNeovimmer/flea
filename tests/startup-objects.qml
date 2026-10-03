@@ -4,7 +4,7 @@ import Quickshell
 
 ShellRoot {
     id: root
-    readonly property int startupObjectLimit: 706
+    readonly property int startupObjectLimit: 702
     readonly property int sectorsWrittenField: 6
     readonly property int deadlineProbeMs: 1200
     readonly property int sectorChangeDelayMs: 600
@@ -137,6 +137,16 @@ ShellRoot {
                 console.log("STARTUP_OBJECTS TYPE " + names[i] + " " + sample.counts[names[i]])
             if (sample.total > root.startupObjectLimit)
                 return root.finish(false, "total=" + sample.total + " limit=" + root.startupObjectLimit)
+            var rows = sample.objects.filter(function (object) {
+                return String(object).indexOf("Row_") === 0
+            })
+            if (rows.length !== pane.total)
+                return root.finish(false, "row count mismatch: rows.length=" + rows.length + " pane.total=" + pane.total)
+            for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+                if (typeof rows[rowIndex].dateStamp !== "function")
+                    return root.finish(false, "date stamp is not deferred: rows[" + rowIndex + "]="
+                        + String(rows[rowIndex]) + " dateStamp type=" + typeof rows[rowIndex].dateStamp)
+            }
             var devices = sample.objects.filter(function (object) {
                 return String(object).indexOf("DeviceMounts_") === 0
             })

@@ -35,12 +35,13 @@ esac
 SH
 chmod +x "$test_root/bin/gio" || exit 1
 log="$test_root/startup.log"
-( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u QML_DISABLE_DISK_CACHE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$PWD/target/debug/flea" \
     FLEA_PATH="$test_root/fixture" STARTUP_OBJECTS_UI="$PWD/ui" STARTUP_OBJECTS_DISK="$power_disk" \
     PATH="$test_root/bin:$PATH" STARTUP_OBJECTS_LEG_TIMEOUT_SECONDS="$leg_timeout_seconds" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 QML_IMPORT_TRACE=1 \
+    QT_LOGGING_RULES='qt.qml.diskcache*=true' \
     timeout "$probe_timeout_seconds" qs -p "$test_root/config" > "$log" 2>&1 ) 2>/dev/null
 status=$?
 grep -a 'STARTUP_OBJECTS' "$log" || true
@@ -52,6 +53,30 @@ fi
 warnings=$(grep -aE 'TypeError|ReferenceError|ERROR|WARN' "$log" | grep -vF 'This plugin does not support setting window masks' || true)
 if [ -n "$warnings" ]; then
     printf 'FAIL startup-objects: engine warnings\n%s\n' "$warnings"
+    exit 1
+fi
+trace_control=ui/js/Startup.js
+# A silent trace cannot prove that the picker library stayed cold.
+if ! grep -aFq "$trace_control" "$log"; then
+    printf 'FAIL startup-objects: log %s has no loaded JS control %s\n' "$log" "$trace_control"
+    exit 1
+fi
+if grep -aFq 'ui/js/Picker.js' "$log"; then
+    printf 'FAIL startup-objects: the unused picker library loaded at startup\n'
+    exit 1
+fi
+for static_input in ui/RailPlaces.qml ui/TrashHost.qml; do
+    if [ ! -f "$static_input" ] || [ ! -r "$static_input" ]; then
+        printf 'FAIL startup-objects: cannot read %s\n' "$static_input"
+        exit 1
+    fi
+done
+if grep -qE '^[[:space:]]*(readonly[[:space:]]+)?property .* entries:' ui/RailPlaces.qml; then
+    printf 'FAIL startup-objects: the keymap-only places aggregate is eager\n'
+    exit 1
+fi
+if grep -qE '^[[:space:]]*(readonly[[:space:]]+)?property var sheetPane:' ui/TrashHost.qml; then
+    printf 'FAIL startup-objects: the keymap-only Trash pane uses a binding\n'
     exit 1
 fi
 if [ "$(grep -ac 'STARTUP_OBJECTS PASS' "$log")" -ne 1 ] \

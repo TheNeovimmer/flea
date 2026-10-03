@@ -1,4 +1,5 @@
 import QtQuick
+import "js/RecentMode.js" as RecentMode
 import "js/Anchor.js" as Anchor
 import "js/DirSizes.js" as DirSizes
 import "js/Nav.js" as Nav
@@ -63,7 +64,7 @@ Item {
             return
         }
         root.pane.held = start
-        root.pane.rows = items
+        root.pane.rows = RecentMode.stampRows(root.pane, items)
         root.pane.kindNames = kinds
         root.rowsLanded()
     }
@@ -77,7 +78,7 @@ Item {
             root.phase = Swap.landed(root.phase)
         // The rows go in before the count, so each delegate the count builds is built on its own row.
         root.pane.held = start
-        root.pane.rows = items
+        root.pane.rows = RecentMode.stampRows(root.pane, items)
         root.pane.kindNames = kinds
         root.applyListed(reply.total, reply.readMs, reply.sortMs, reply.path, reply.changed)
         root.rowsLanded()

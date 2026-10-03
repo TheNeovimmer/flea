@@ -109,6 +109,16 @@ function paths(bookmarks) {
     return entries(bookmarks).map(function (entry) { return entry.path })
 }
 
+// One bounded lookup accompanies the paths; no file stat or extra history read.
+function visits(entries) {
+    var out = {}
+    for (var i = 0; i < entries.length; i++) {
+        var seconds = Date.parse(entries[i].stamp) / 1000
+        out[entries[i].path] = isFinite(seconds) ? seconds : null
+    }
+    return out
+}
+
 // Each asker waits once, and null, the rail pane itself, joins like any other.
 function joinRequesters(current, requester) {
     var asker = requester || null

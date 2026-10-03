@@ -3,7 +3,6 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import "." as Flea
-import "js/Icons.js" as Icons
 import "js/Eject.js" as Eject
 import "js/Mounts.js" as Mounts
 import "js/Places.js" as Places
@@ -27,16 +26,12 @@ Item {
     property int cursorIndex: 0
     property var cursorEntries: []
     readonly property var placesState: ViewState.state.places || ({})
-    readonly property var userFavouriteEntries: Places.storedEntries(Favourites.records, Quickshell.env("HOME")).map(function (entry) {
-        entry.error = entry.error || Favourites.statuses[entry.favouriteIndex] || ""
-        return entry
-    })
-    property var homeEntries: []
-    // Recent sits under Home, ships off, and carries the location token, not a path.
+    readonly property var userFavouriteEntries: RailPlaces.favouriteEntries
+    readonly property var homeEntries: RailPlaces.homeEntries
+    // Recent sits under Home and carries a location token.
     readonly property var homeLead: root.homeEntries.slice(0, 1)
     readonly property var homeRest: root.homeEntries.slice(1)
-    readonly property var recentEntries: root.placesState.showRecent === true
-        ? [{ label: "Recent", path: "flea:recent", group: "recent", kind: "recent", glyph: "history" }] : []
+    readonly property var recentEntries: RailPlaces.recentEntries
     readonly property var placesEntries: root.homeLead.concat(root.recentEntries, root.homeRest, root.trashEntries, root.userFavouriteEntries)
     readonly property int trashCount: trashMonitor.count
     signal trashChanged()
@@ -49,8 +44,9 @@ Item {
         // read for the rail Trash menu even with the badge off, so only a shown count reports it.
         onFailed: function(text) { if (root.trashActive || root.placesState.trashCount === true) root.message(text, true) }
     }
-    readonly property var trashEntries: root.placesState.showTrash === false ? []
-        : [{ label: "Trash", path: "trash:///", group: "trash", kind: "trash", glyph: "trash", count: root.trashCount }]
+    readonly property var trashEntries: RailPlaces.trashEntries.map(function (entry) {
+        return Object.assign({}, entry, { count: root.trashCount })
+    })
     signal trashRequested()
 
     // The saved place an Edit is rewriting, "" when none is; ui/js/RailMenu.js editPlace sets it.
@@ -91,7 +87,7 @@ Item {
 
     signal opened(string path)
     // Recent answers bounded newest-first history paths, which the pane opens through listpaths.
-    signal recentRequested(var paths, var requester)
+    signal recentRequested(var paths, var requester, var visits)
     signal addRequested()
     // The rail's Edit row asks the window to open the dialog over the saved place.
     signal editRequested(string uri, string label, string password, string reason, bool failedConnect, var origin)
@@ -116,23 +112,13 @@ Item {
     }
 
     FileView {
-        id: userDirsFile
-        path: Quickshell.env("HOME") + "/.config/user-dirs.dirs"
-        watchChanges: true
-        printErrors: false
-        onFileChanged: reload()
-        onLoaded: root.rebuild()
-        onLoadFailed: root.rebuild()
-    }
-
-    FileView {
         id: bookmarksFile
         path: Quickshell.env("HOME") + "/.config/gtk-3.0/bookmarks"
         watchChanges: true
         printErrors: false
         onFileChanged: reload()
-        onLoaded: { root.bookmarksReady = true; root.rebuild(); root.pushBookmarks() }
-        onLoadFailed: { root.bookmarksReady = true; root.rebuild(); root.pushBookmarks() }
+        onLoaded: { root.bookmarksReady = true; root.pushBookmarks() }
+        onLoadFailed: { root.bookmarksReady = true; root.pushBookmarks() }
     }
 
     // The host keeps its own copy of this text: it outlives this rail, so a rail unload
@@ -155,6 +141,7 @@ Item {
 
     // The desktop's own history, read and never written, kept across opens.
     property var recentPaths: []
+    property var recentVisits: ({})
     property bool recentKept: false
     property bool recentReading: false
     property int recentChanges: 0
@@ -170,7 +157,7 @@ Item {
             return
         }
         if (root.recentKept && root.recentReadAt === root.recentChanges) {
-            root.recentRequested(root.recentPaths, requester || null)
+            root.recentRequested(root.recentPaths, requester || null, root.recentVisits)
             return
         }
         // Build the helper with the reader, only after an uncached Recent action.
@@ -198,6 +185,7 @@ Item {
         target: recentReader.item
         function onRefreshed() {
             root.recentPaths = recentReader.item.paths
+            root.recentVisits = recentReader.item.visits
             root.recentKept = true
             root.recentReading = false
             root.recentReads += 1
@@ -205,7 +193,7 @@ Item {
             Qt.callLater(function () { if (!root.recentReading) recentReader.active = false })
             var askers = root.recentRequesters
             root.recentRequesters = []
-            for (var i = 0; i < askers.length; i++) root.recentRequested(root.recentPaths, askers[i])
+            for (var i = 0; i < askers.length; i++) root.recentRequested(root.recentPaths, askers[i], root.recentVisits)
         }
     }
 
@@ -238,15 +226,9 @@ Item {
     // connections rather than through this rail.
 
     // Home is in neither file, so it is prepended; the merge and its first-position-wins rule are Places.favorites'.
-    onPlacesStateChanged: root.rebuild()
     Connections {
         target: Favourites
         function onFailed(message) { root.message(message, true) }
-    }
-
-    function rebuild() {
-        var home = Quickshell.env("HOME")
-        root.homeEntries = root.placesState.showHome === false ? [] : Places.homeEntries(home, userDirsFile.text(), Icons.sidebarGlyphFor)
     }
 
     // NetworkDialog's saved() drives this reload because a watch set up before its parent directory existed never fires, and it blocks because "forget" derives its body from this text: measured here, an asynchronous reload put a removed line back.
@@ -322,16 +304,10 @@ Item {
     }
     // A favourite's path is already real and opens directly; a share or a volume may need its Service.
     function openFavourite(index) {
-        var entry = root.userFavouriteEntries[index]
-        if (!entry) return
-        var error = Places.recordError(entry.original)
-        if (error) { root.message("Could not open " + entry.label + " · " + error, true); return }
-        if (entry.path.indexOf("://") >= 0 && entry.path.indexOf("file://") !== 0) {
-            var host = root.networkHost()
-            if (host) host.openChildShare(entry.path, entry.label, root.navigationPane)
-        } else {
-            root.opened(entry.path.indexOf("file://") === 0 ? Mounts.decodePath(entry.path.substring(7)) : entry.path)
-        }
+        Places.openEntry(root.userFavouriteEntries[index], {
+            pane: root.navigationPane, opened: root.opened, message: root.message,
+            networkHost: root.networkHost, trash: root.trashRequested
+        })
     }
 
     function activate(index) {
