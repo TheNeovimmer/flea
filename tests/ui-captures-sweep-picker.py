@@ -23,6 +23,10 @@ POLL_SECONDS = 0.1
 CAPTURE_SETTLE_SECONDS = 0.4
 CAPTURE_BODY_PX = 14
 PROCESS_WAIT_SECONDS = 5
+# Sample input: "<runtime>/quickshell/by-id/hwkh1d5nbmt/ipc.sock", the socket Quickshell binds for qs ipc.
+QS_IPC_SOCKET_TAIL = "/quickshell/by-id/" + "x" * 11 + "/ipc.sock"
+# sockaddr_un.sun_path holds 108 bytes with its terminator.
+SOCKET_PATH_MAX_BYTES = 107
 root, theme_home, evidence = map(lambda value: Path(value).resolve(), sys.argv[1:])
 run_root = Path(os.environ["FLEA_TEST_RUN_ROOT"]).resolve()
 fixture_root = root.parent.parent
@@ -37,9 +41,15 @@ root.mkdir()
 drive_env = dict(os.environ)
 picker_env = dict(drive_env)
 for key, directory in [("XDG_CONFIG_HOME", "config"), ("XDG_DATA_HOME", "data"),
-                       ("XDG_STATE_HOME", "state"), ("XDG_CACHE_HOME", "cache"), ("XDG_RUNTIME_DIR", "run")]:
+                       ("XDG_STATE_HOME", "state"), ("XDG_CACHE_HOME", "cache")]:
     (root / directory).mkdir(mode=0o700)
     picker_env[key] = str(root / directory)
+# The fixture root sits too deep for a socket path, so the picker's runtime dir lives in the suite's run root.
+runtime = run_root / "picker-run"
+if len(os.fsencode(str(runtime) + QS_IPC_SOCKET_TAIL)) > SOCKET_PATH_MAX_BYTES:
+    raise AssertionError(f"picker runtime dir is too deep for an IPC socket: {runtime}")
+runtime.mkdir(mode=0o700)
+picker_env["XDG_RUNTIME_DIR"] = str(runtime)
 picker_env["HOME"] = str(theme_home)
 picker_env["WAYLAND_DISPLAY"] = str(Path(drive_env["XDG_RUNTIME_DIR"]) / drive_env["WAYLAND_DISPLAY"])
 picker_env["FLEA_BIN"] = str(Path(os.environ["FLEA_BIN"]).resolve(strict=True))
@@ -105,7 +115,7 @@ def owned_window():
     # Sample input: b"HOME=/fixture/home\0FLEA_PICKER_REPLY=/fixture/run/reply\0".
     environment = dict(row.split(b"=", 1) for row in Path(f"/proc/{picker_pid}/environ").read_bytes().split(b"\0") if b"=" in row)
     reply = Path(os.fsdecode(environment.get(b"FLEA_PICKER_REPLY", b""))).resolve()
-    if not reply.is_relative_to(root / "run") or environment.get(b"HOME") != os.fsencode(theme_home):
+    if not reply.is_relative_to(runtime) or environment.get(b"HOME") != os.fsencode(theme_home):
         raise AssertionError("picker window has foreign reply or theme inputs")
     if environment.get(b"FLEA_BIN") != os.fsencode(picker_env["FLEA_BIN"]):
         raise AssertionError("picker window is not using the candidate binary")
