@@ -20,7 +20,7 @@ src/backend/jump_tests.rs 408
 src/backend/renamecompat.rs 762
 src/backend/gvfslist.rs 549
 src/backend/imagesize.rs 473
-src/backend/iomount.rs 572
+src/backend/iomount.rs 606
 src/backend/localsend.rs 405
 src/backend/menu_actions.rs 560
 src/backend/menu_registry.rs 563

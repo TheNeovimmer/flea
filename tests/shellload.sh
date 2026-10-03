@@ -16,6 +16,8 @@ if ! command -v qs >/dev/null; then
     exit 1
 fi
 
+command -v dbus-run-session >/dev/null || { echo "shellload.sh: dbus-run-session is required, the shell's Trash monitor must not touch the inherited bus"; exit 1; }
+
 . "$PWD/tools/flea-sandbox-guard"
 sandbox_forbidden /tmp && sandbox_refuse "shellload: /tmp is inside a forbidden test target"
 shellload_root=$(mktemp -d /tmp/flea-shellload.XXXXXXXX) || exit 1
@@ -51,24 +53,30 @@ shellload_bin=${FLEA_BIN:-$PWD/target/debug/flea}
 [ -x "$shellload_bin" ] || { echo "shellload.sh: build the candidate backend first: $shellload_bin"; exit 1; }
 log="$shellload_root/shell.log"
 sandbox_require "$log"
+bus_log="$shellload_root/bus.log"
+sandbox_require "$bus_log"
+# A bus runner that fails before qs starts must still leave a log for the scans below.
+: > "$log" || exit 1
 
 # Offscreen and with no compositor, so this needs neither the display nor the display lock. A shell
 # does not exit on its own, so the timeout expiring is the success path and 124 is not a failure.
 # Seconds: generous enough for a cold QML compile on a loaded box, short enough for the battery.
 load_seconds=25
+# The shell starts the GVfs trash daemon, so it runs on its own bus, whose daemons log to bus.log and stay out of the scanned shell.log.
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
     HOME="$shellload_work/home" XDG_CONFIG_HOME="$shellload_work/config" \
     XDG_STATE_HOME="$shellload_work/state" XDG_DATA_HOME="$shellload_work/data" \
     XDG_CACHE_HOME="$shellload_work/cache" XDG_RUNTIME_DIR="$shellload_work/runtime" TMPDIR="$shellload_work/tmp" \
     FLEA_PATH="$shellload_work/fixture" FLEA_BIN="$shellload_bin" \
     QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
-    timeout "$load_seconds" qs -p "$PWD/ui/boot" >"$log" 2>&1
+    dbus-run-session -- bash -c 'exec timeout "$1" qs -p "$2" > "$3" 2>&1' _ "$load_seconds" "$PWD/ui/boot" "$log" > "$bus_log" 2>&1
 status=$?
 
 if [ "$status" -eq 124 ]; then
     ok "the loaded shell stayed alive until the existing timeout"
 else
     bad "qs exited before the load window completed (exit $status)"
+    head -5 "$bus_log" | sed 's/^/     bus: /'
 fi
 
 # Sample input, one Quickshell log line: '  INFO: Configuration Loaded'

@@ -4,6 +4,11 @@ set -u
 # Hard rule 9's guard, which owns FIXTURE_ROOT and every create and delete below.
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
+# The probes start the GVfs trash daemon, so the run gets its own bus; on the inherited one a later suite's first trash goes unlisted.
+if [ "${FLEA_XWSETTINGS_BUS:-}" != 1 ]; then
+  command -v dbus-run-session >/dev/null || { echo 'xwsettings.sh: dbus-run-session is required' >&2; exit 1; }
+  exec dbus-run-session -- env FLEA_XWSETTINGS_BUS=1 bash "tests/$(basename "$0")" "$@"
+fi
 
 BIN=$PWD/target/debug/flea
 SANDBOX=$FIXTURE_ROOT/xwsettings-$$

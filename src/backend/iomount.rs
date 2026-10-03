@@ -255,10 +255,9 @@ pub fn call_bulk<T: Send + 'static>(
 ) -> Result<T, FleaError> {
     call_with(path, body, where_, BULK_DEADLINE, STUCK_TTL, f)
 }
-// Tests clear the stuck table, so one hung mount never leaks into the next test.
+// Resets this thread's call count; the stuck table is shared by parallel tests, each keying its marks by its own mount, so a clear would land inside another test.
 #[cfg(test)]
 pub fn test_reset() {
-    stuck_table().lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clear();
     CALLS.with(|calls| calls.set(0));
 }
 // One listing's syscalls, computed on a worker with the listing, never on the loop.
@@ -339,17 +338,46 @@ mod tests {
     const TEST_SLOW_MARGIN: Duration = Duration::from_secs(2);
     // A stuck mark answers at once, far inside any deadline, so this pins the fast path.
     const TEST_FAST_BOUND: Duration = Duration::from_millis(100);
-    // Sample body: root ext4, a hung nfs mount and a second healthy nfs mount side by side.
-    const BODY: &str = "1 0 8:1 / / rw - ext4 /dev/a rw\n30 1 0:45 / /hung rw - nfs n:/s rw\n31 1 0:46 / /hung2 rw - nfs n:/t rw\n";
+    // One test's own pair of nfs mounts, named for it, so parallel tests never share a stuck mark through a mount name.
+    // Sample body: "1 0 8:1 / / rw - ext4 /dev/a rw\n30 1 0:45 / /hung-<tag> rw - nfs n:/s rw\n31 1 0:46 / /hung2-<tag> rw - nfs n:/t rw\n".
+    struct Mounts {
+        body: String,
+        hung: PathBuf,
+        neighbour: PathBuf,
+    }
+    impl Mounts {
+        fn new(tag: &str) -> Mounts {
+            let hung = PathBuf::from(format!("/hung-{tag}"));
+            let neighbour = PathBuf::from(format!("/hung2-{tag}"));
+            let body = format!("1 0 8:1 / / rw - ext4 /dev/a rw\n30 1 0:45 / {} rw - nfs n:/s rw\n31 1 0:46 / {} rw - nfs n:/t rw\n", hung.display(), neighbour.display());
+            Mounts { body, hung, neighbour }
+        }
+        fn hung_dir(&self) -> PathBuf {
+            self.hung.join("dir")
+        }
+        fn neighbour_dir(&self) -> PathBuf {
+            self.neighbour.join("dir")
+        }
+    }
+    // Parallel tests share the stuck table, so a reset in one must never erase a mark another is relying on.
+    #[test]
+    fn a_reset_leaves_another_tests_stuck_mark_alone() {
+        let mount = PathBuf::from("/hung-resetkeeps");
+        mark_stuck(&mount);
+        test_reset();
+        assert!(is_stuck(&mount, TEST_TTL), "a reset never clears a mark it did not make");
+        clear_stuck(&mount);
+    }
     #[test]
     fn a_hung_mount_answers_not_responding_while_a_healthy_mount_still_answers() {
         test_reset();
-        assert!(is_remote(Path::new("/hung2/dir"), BODY), "the neighbour is a second remote mount with its own worker");
+        let m = Mounts::new("hungmount");
+        assert!(is_remote(&m.neighbour_dir(), &m.body), "the neighbour is a second remote mount with its own worker");
         let (tx_hung, rx_hung) = channel::<()>();
         let hung_done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let hung_flag = std::sync::Arc::clone(&hung_done);
-        let hung_path = PathBuf::from("/hung/dir");
-        let hung_body = BODY.to_string();
+        let hung_path = m.hung_dir();
+        let hung_body = m.body.clone();
         let (tx_res, rx_res) = channel();
         std::thread::spawn(move || {
             let out = call_with(
@@ -372,7 +400,7 @@ mod tests {
         assert_eq!(err.where_, "scan");
         let neighbour_ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let neighbour_flag = std::sync::Arc::clone(&neighbour_ran);
-        let healthy = call_with(Path::new("/hung2/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, move || {
+        let healthy = call_with(&m.neighbour_dir(), &m.body, "scan", TEST_DEADLINE, TEST_TTL, move || {
             neighbour_flag.store(true, std::sync::atomic::Ordering::SeqCst);
             7
         });
@@ -382,7 +410,7 @@ mod tests {
         let stuck_ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let stuck_flag = std::sync::Arc::clone(&stuck_ran);
         let t = std::time::Instant::now();
-        let again = call_with(Path::new("/hung/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, move || {
+        let again = call_with(&m.hung_dir(), &m.body, "scan", TEST_DEADLINE, TEST_TTL, move || {
             stuck_flag.store(true, std::sync::atomic::Ordering::SeqCst);
             42
         });
@@ -397,27 +425,30 @@ mod tests {
     #[test]
     fn a_worker_that_dies_marks_nothing_stuck_and_says_so() {
         test_reset();
+        let m = Mounts::new("deadworker");
         // The closure panics, so tx drops and recv_timeout answers Disconnected.
         let hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
-        let dead = call_with(Path::new("/hung/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, || -> i32 {
+        let dead = call_with(&m.hung_dir(), &m.body, "scan", TEST_DEADLINE, TEST_TTL, || -> i32 {
             panic!("a decoder died");
         });
         std::panic::set_hook(hook);
         let err = dead.expect_err("a dead worker answers with an error, never a value");
         assert!(!err.msg.contains("not responding"), "a dead worker is not a stuck mount: {}", err.msg);
         assert!(err.msg.contains("without answering"), "the sentence names the dead worker: {}", err.msg);
-        let live = call_with(Path::new("/hung/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, || 7);
+        let live = call_with(&m.hung_dir(), &m.body, "scan", TEST_DEADLINE, TEST_TTL, || 7);
         assert_eq!(live.unwrap(), 7, "a dead worker never marks its mount stuck");
         test_reset();
     }
     #[test]
     fn a_slow_write_answers_slow_within_its_deadline_while_a_second_mount_answers() {
         test_reset();
+        let m = Mounts::new("slowwrite");
         let (release, wait) = channel::<()>();
         let (tx_slow, rx_slow) = channel();
+        let (slow_dir, slow_body) = (m.hung_dir(), m.body.clone());
         std::thread::spawn(move || {
-            let out = slow_write_with(Path::new("/hung/dir"), BODY, "rename", TEST_DEADLINE, move || {
+            let out = slow_write_with(&slow_dir, &slow_body, "rename", TEST_DEADLINE, move || {
                 let _ = wait.recv();
                 Ok::<i32, FleaError>(42)
             });
@@ -429,9 +460,9 @@ mod tests {
             SlowWrite::Slow { mount, rx } => (mount, rx),
             SlowWrite::Ready(_) => panic!("a write still running answers Slow, never Ready"),
         };
-        assert_eq!(mount, PathBuf::from("/hung"), "the slow answer names the mount, not the file");
+        assert_eq!(mount, m.hung, "the slow answer names the mount, not the file");
         // While the first mount is held, a second mount answers on its own worker.
-        let neighbour = slow_write_with(Path::new("/hung2/dir"), BODY, "scan", TEST_DEADLINE, || Ok::<i32, FleaError>(7));
+        let neighbour = slow_write_with(&m.neighbour_dir(), &m.body, "scan", TEST_DEADLINE, || Ok::<i32, FleaError>(7));
         match neighbour {
             SlowWrite::Ready(Ok(7)) => {}
             _ => panic!("a held mount never blocks its neighbour"),
@@ -442,7 +473,7 @@ mod tests {
         // A slow write never marks its mount stuck: a read right after still runs its closure.
         let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let flag = std::sync::Arc::clone(&ran);
-        let live = call_with(Path::new("/hung/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, move || {
+        let live = call_with(&m.hung_dir(), &m.body, "scan", TEST_DEADLINE, TEST_TTL, move || {
             flag.store(true, std::sync::atomic::Ordering::SeqCst);
             7
         });
@@ -453,13 +484,14 @@ mod tests {
     #[test]
     fn a_write_that_answers_in_time_reports_ready_with_no_slow() {
         test_reset();
-        let fast = slow_write_with(Path::new("/hung/dir"), BODY, "rename", TEST_DEADLINE, || Ok::<i32, FleaError>(7));
+        let m = Mounts::new("readyfast");
+        let fast = slow_write_with(&m.hung_dir(), &m.body, "rename", TEST_DEADLINE, || Ok::<i32, FleaError>(7));
         match fast {
             SlowWrite::Ready(Ok(7)) => {}
             _ => panic!("a fast write answers Ready, never Slow"),
         }
         // A local mount runs inline with no hop, so its write never waits on a worker.
-        let local = slow_write_with(Path::new("/elsewhere/dir"), BODY, "rename", TEST_DEADLINE, || Ok::<i32, FleaError>(7));
+        let local = slow_write_with(Path::new("/elsewhere/dir"), &m.body, "rename", TEST_DEADLINE, || Ok::<i32, FleaError>(7));
         match local {
             SlowWrite::Ready(Ok(7)) => {}
             _ => panic!("a local write answers inline"),
@@ -469,10 +501,11 @@ mod tests {
     #[test]
     fn a_slow_worker_that_dies_marks_nothing_stuck_and_says_so() {
         test_reset();
+        let m = Mounts::new("slowdead");
         // The closure panics, so tx drops and the slow wait answers Disconnected.
         let hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
-        let dead = slow_write_with(Path::new("/hung/dir"), BODY, "rename", TEST_DEADLINE, || -> Result<i32, FleaError> {
+        let dead = slow_write_with(&m.hung_dir(), &m.body, "rename", TEST_DEADLINE, || -> Result<i32, FleaError> {
             panic!("a decoder died");
         });
         std::panic::set_hook(hook);
@@ -480,7 +513,7 @@ mod tests {
             SlowWrite::Ready(Err(err)) => assert!(err.msg.contains("without answering"), "a dead worker is not a stuck mount: {}", err.msg),
             _ => panic!("a dead worker answers Ready with its failure, never Slow"),
         }
-        let live = call_with(Path::new("/hung/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, || 7);
+        let live = call_with(&m.hung_dir(), &m.body, "scan", TEST_DEADLINE, TEST_TTL, || 7);
         assert_eq!(live.unwrap(), 7, "a dead worker never marks its mount stuck");
         test_reset();
     }
@@ -505,11 +538,12 @@ mod tests {
     #[test]
     fn a_timed_out_call_hands_its_late_value_back() {
         test_reset();
+        let m = Mounts::new("latevalue");
         let (release, wait) = channel::<()>();
         let (late_tx, late_rx) = channel::<i32>();
         let (tx_res, rx_res) = channel();
         std::thread::spawn(move || {
-            let out = call_with_flag(Path::new("/hung/dir"), BODY, "scan", TEST_DEADLINE, TEST_TTL, move |value: i32| {
+            let out = call_with_flag(&m.hung_dir(), &m.body, "scan", TEST_DEADLINE, TEST_TTL, move |value: i32| {
                 let _ = late_tx.send(value);
             }, move || {
                 let _ = wait.recv();
