@@ -59,6 +59,8 @@ Item {
     property bool parsing: false
     // Parses that really ran (worker message or synchronous), so a suite counts one per event.
     property int parseRuns: 0
+    // Loads of the shown file that landed, so a suite can tell a save the watcher read from one it never saw.
+    property int loadRuns: 0
     // A worker reply landed for this file; the lazy suite asserts the parse left the UI thread.
     property bool parsedOffThread: false
     property string parseError: ""
@@ -127,8 +129,13 @@ Item {
         printErrors: false
         // The one watcher is on the shown file; a path change re-points it, so an old file never reloads here.
         watchChanges: true
-        onFileChanged: root.reloadFromDisk()
-        onLoaded: root.askParse()
+        onFileChanged: reloadCoalesce.restart()
+        onLoaded: {
+            root.loadRuns++
+            // A save that unlinks and recreates the file can fail one reload; the next good load clears it.
+            root.readFailed = false
+            root.askParse()
+        }
         onLoadFailed: {
             root.keepScroll = false
             root.readFailed = true
@@ -136,20 +143,44 @@ Item {
         onPathChanged: root.readFailed = false
     }
 
+    // One reload per save: an editor's truncate, write and rename raise events within a few ms, and 50 ms is under what a reader notices.
+    readonly property int reloadCoalesceMs: 50
+    Timer {
+        id: reloadCoalesce
+        interval: root.reloadCoalesceMs
+        repeat: false
+        onTriggered: root.reloadFromDisk()
+    }
+
     // A reparse of the shown file (disk edit, theme change) puts the reader back where they were.
     property real savedY: 0
     property bool keepScroll: false
+    // Where a restore left the view when the content was too short for the saved place, NaN when none waits.
+    property real heldY: NaN
+    // Two positions this close are the same place: the list stores contentY as a float.
+    readonly property real samePlacePx: 1
+    // A place kept for taller content stays unless the reader has moved since the short model was laid out.
     function rememberScroll() {
-        if (root.keepScroll)
+        if (root.keepScroll && (isNaN(root.heldY) || Math.abs(body.contentY - root.heldY) < root.samePlacePx))
             return
         root.savedY = body.contentY
         root.keepScroll = true
+        root.heldY = NaN
     }
+    // The view rests between the list's own resting top and the end of the new content, and a model too short for the place keeps it.
     function restoreScroll() {
         if (!root.keepScroll)
             return
-        root.keepScroll = false
-        body.contentY = Math.max(body.originY, root.savedY)
+        var top = body.originY - body.topMargin
+        var end = Math.max(top, body.originY + body.contentHeight - body.height + body.bottomMargin)
+        var at = Math.max(top, Math.min(root.savedY, end))
+        body.contentY = at
+        if (root.savedY <= end) {
+            root.keepScroll = false
+            root.heldY = NaN
+        } else {
+            root.heldY = at
+        }
     }
     function reloadFromDisk() {
         if (!root.active || root.tooLarge)
@@ -207,16 +238,9 @@ Item {
         onTriggered: {
             if (!root.parsing)
                 return
+            // A late worker reply for the request being recovered is voided by the new number.
             root.parseSeq++
-            root.parsing = false
-            try {
-                root.blockList = Markdown.blocks(root.rawText, Markdown.dirOf(root.path),
-                    root.chromeHex, root.inkHex)
-                root.parseError = ""
-            } catch (error) {
-                root.parseError = String(error.message || error)
-            }
-            root.appliedSeq = root.parseSeq
+            root.parseNow(root.askedText, root.askedDir, root.askedChrome, root.askedInk)
         }
     }
 
@@ -234,10 +258,27 @@ Item {
         root.askedText = ""
     }
 
+    // The synchronous parse of one request, landed like a worker reply: the small-file path and the worker's recovery both end here.
+    function parseNow(text, dir, chrome, ink) {
+        try {
+            root.blockList = Markdown.blocks(text, dir, chrome, ink)
+        } catch (e) {
+            root.parseError = String(e.message || e)
+            root.appliedSeq = root.parseSeq
+            root.parsing = false
+            root.askedAny = false
+            return
+        }
+        root.parseError = ""
+        root.appliedSeq = root.parseSeq
+        root.parsing = false
+        root.restoreScroll()
+    }
+
     // Resolve images before Qt sees text: remote images become placeholders; only files beside the document load.
     function askParse() {
-        root.parseError = ""
         if (!root.active || root.tooLarge || !file.loaded) {
+            root.parseError = ""
             root.dropParse()
             return
         }
@@ -246,11 +287,13 @@ Item {
         var dir = Markdown.dirOf(root.path)
         if (root.askedAny && text === root.askedText && dir === root.askedDir
                 && root.chromeHex === root.askedChrome && root.inkHex === root.askedInk) {
-            // Nothing new will land to release a remembered scroll, unless a worker reply is still due.
-            if (!root.parsing)
+            // Nothing new will land to release a remembered scroll, unless a worker reply is still due or the place waits for taller content.
+            if (!root.parsing && isNaN(root.heldY))
                 root.keepScroll = false
             return
         }
+        // Only a request that goes on to parse clears an error; a skipped one has nothing to replace it with.
+        root.parseError = ""
         root.askedAny = true
         root.askedText = text
         root.askedDir = dir
@@ -270,23 +313,14 @@ Item {
         }
         parserLoader.active = false
         parseFallback.stop()
-        try {
-            root.blockList = Markdown.blocks(text, dir, root.chromeHex, root.inkHex)
-        } catch (e) {
-            root.parseError = String(e)
-            root.parsing = false
-            root.askedAny = false
-            return
-        }
-        root.parseError = ""
-        root.appliedSeq = root.parseSeq
-        root.parsing = false
-        root.restoreScroll()
+        root.parseNow(text, dir, root.chromeHex, root.inkHex)
     }
 
     onRawTextChanged: root.askParse()
     onActiveChanged: root.askParse()
     onPathChanged: {
+        // A save's pending reload belongs to the old file.
+        reloadCoalesce.stop()
         root.keepScroll = false
         root.parseError = ""
         root.blockList = []

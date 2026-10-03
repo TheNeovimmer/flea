@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "flea" as Flea
+import "flea/js/MdLeaf.js" as Leaf
 
 // Exercise live preview objects, native link clicks and a real file rewrite without changing product code.
 ShellRoot {
@@ -21,6 +22,22 @@ ShellRoot {
     property bool rewritten: false
     // About 2 x 50 text items fit the viewport and its cache, plus the chunks at both ends; a delegate per item would be 3000.
     readonly property int liveTextBound: 400
+    // The lazy suite caps live block delegates at 150; one chunk needs the same bound.
+    readonly property int chunkDelegateBound: 150
+    // The probe's own bounds: its give-up, the layout warm-up before a check, and how long the disk phase waits for a reload.
+    readonly property int probeGiveUpMs: 8000
+    readonly property int warmupMs: 350
+    readonly property int diskReloadWaitMs: 1600
+    // A place deep inside the 300 paragraph disk-scroll file, past the first screen.
+    readonly property int scrollTargetY: 1200
+    // Viewports of content that mean a file really scrolls, and that a long container exceeds.
+    readonly property int scrollableScreens: 3
+    readonly property int containerScreens: 10
+    // The fixtures' own sizes, written by tests/preview-hunt.sh.
+    readonly property int listItemsTotal: 1500
+    readonly property int tableRowsTotal: 1200
+    // Ticks of the probe timer a theme switch stays quiet for before its place is read; counted, never timed.
+    readonly property int themeSettleTicks: 15
 
     function check(label, actual, expected) {
         checks++
@@ -146,7 +163,7 @@ ShellRoot {
         running: true
         repeat: true
         onTriggered: {
-            if (Date.now() - root.stamp > 8000) {
+            if (Date.now() - root.stamp > root.probeGiveUpMs) {
                 root.check("probe completes", "timeout stage " + stage, "complete")
                 root.finish()
                 return
@@ -160,7 +177,7 @@ ShellRoot {
                     root.stage = 1
                     return
                 }
-                if (stage === 1 && rewritten && Date.now() - stamp > 1600) {
+                if (stage === 1 && rewritten && Date.now() - stamp > root.diskReloadWaitMs) {
                     root.check("watched control sees disk edit", watchedControl.text(), "After disk edit.\n")
                     root.check("Quick Look follows document changed on disk", quick.textShown(), "After disk edit.\n")
                     root.check("column follows document changed on disk", column.markdown.rawText, "After disk edit.\n")
@@ -183,10 +200,10 @@ ShellRoot {
                 return
             }
             if (scenario === "disk-scroll") {
-                if (stage === 0 && md.contentReady && md.flickContentHeight > md.height * 3) {
-                    md.bodyItem.contentY = 1200
+                if (stage === 0 && md.contentReady && md.flickContentHeight > md.height * root.scrollableScreens) {
+                    md.bodyItem.contentY = root.scrollTargetY
                     root.scrolledY = md.bodyItem.contentY
-                    root.check("scrolled into the document", root.scrolledY, 1200)
+                    root.check("scrolled into the document", root.scrolledY, root.scrollTargetY)
                     rewrite.running = true
                     root.stage = 1
                     return
@@ -234,7 +251,7 @@ ShellRoot {
                 }
                 return
             }
-            if (!md.contentReady || Date.now() - root.stamp < 350) return
+            if (!md.contentReady || Date.now() - root.stamp < root.warmupMs) return
             if (scenario === "local-image") {
                 var block = md.blockItem(0)
                 var images = descendants(block).filter(function (node) {
@@ -257,18 +274,24 @@ ShellRoot {
                 var first = md.blockItem(0)
                 var firstNodes = liveText(first)
                 // The parser splits a long container into chunk blocks, so completeness is the sum over the chunks.
-                root.check("long container parsed completely", total, isList ? 1500 : 1200)
-                root.check("long container exceeds visible frame", md.flickContentHeight > md.height * 10, true)
-                // The existing lazy suite caps live block delegates at 150; a chunk needs the same bound.
-                root.check("viewport bounds live " + scenario + " text delegates", firstNodes.length <= 150, true)
+                root.check("long container parsed completely", total, isList ? root.listItemsTotal : root.tableRowsTotal)
+                root.check("long container exceeds visible frame", md.flickContentHeight > md.height * root.containerScreens, true)
+                root.check("viewport bounds live " + scenario + " text delegates", firstNodes.length <= root.chunkDelegateBound, true)
                 var live = liveText(md.bodyItem.contentItem)
                 // Beside the first chunk, every chunk the list keeps alive for the viewport and its cache counts.
                 root.check("viewport bounds all live " + scenario + " text delegates", live.length <= liveTextBound, true)
                 // Rows across a chunk boundary keep the pitch of rows inside a chunk, so the chunks read as one container.
                 var rowPrefix = isList ? "Item " : "Row "
                 var at = function (n) { return textY(rowPrefix + n, isList) }
-                var edge = isList ? 32 : 24
-                root.check("chunk boundary keeps the row pitch", at(edge) - at(edge - 1), at(1) - at(0))
+                // The first row of the second chunk, from the parser's own chunk size.
+                var edge = isList ? Leaf.LIST_CHUNK_ITEMS : Leaf.TABLE_CHUNK_ROWS
+                // A row that is not alive answers null, and null - null is 0 on both sides, so every row must be found first.
+                var rowsAt = [0, 1, edge - 1, edge]
+                for (var r = 0; r < rowsAt.length; r++)
+                    root.check(scenario + " row " + rowsAt[r] + " is alive", at(rowsAt[r]) !== null, true)
+                var pitch = at(1) - at(0)
+                root.check(scenario + " rows inside a chunk are a positive pitch apart", pitch > 0, true)
+                root.check("chunk boundary keeps the row pitch", at(edge) - at(edge - 1), pitch)
                 console.log("PREVIEW_HUNT CONTAINER " + scenario + " blocks=" + md.blockList.length
                     + " textDelegates=" + live.length + " height=" + md.flickContentHeight + " viewport=" + md.height)
                 root.finish()
@@ -278,13 +301,20 @@ ShellRoot {
                 if (stage === 0) {
                     root.initialInk = md.inkHex
                     root.check("native link initially uses theme ink", nativeLinkInk(textOf(md.blockItem(0))), initialInk)
+                    root.check("the theme file scrolls", md.flickContentHeight > md.height * root.scrollableScreens, true)
+                    md.bodyItem.contentY = root.scrollTargetY
+                    root.scrolledY = md.bodyItem.contentY
+                    root.check("scrolled into the document", root.scrolledY, root.scrollTargetY)
                     Flea.Theme.applyColors('background = "#ffffff"\nforeground = "#202020"')
                     root.stage = 1
                     root.stamp = Date.now()
                     return
                 }
+                // The reparse lands and the list lays out over a few turns; count them rather than time them.
+                if (++root.settleTicks <= root.themeSettleTicks) return
                 root.check("theme flip changed live palette", md.inkHex !== initialInk, true)
                 root.check("shown link follows new theme ink", nativeLinkInk(textOf(md.blockItem(0))), md.inkHex)
+                root.check("a theme switch keeps the scroll position", md.bodyItem.contentY, root.scrolledY)
                 root.finish()
                 return
             }

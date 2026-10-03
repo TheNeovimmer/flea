@@ -73,9 +73,17 @@ QtObject {
         var parserLoader = { active: false, item: { sendMessage: function () {} } }
         var ask = new Function("root", "file", "Markdown", "parseFallback", "parserLoader",
             body(source, "function askParse()"))
+        // The shipped dropParse, parseNow and restoreScroll bodies, bound to the stub root over an empty stub list.
+        var drop = new Function("root", body(source, "function dropParse()"))
+        var landing = new Function("root", "Markdown", "text", "dir", "chrome", "ink", body(source, "function parseNow("))
+        var restore = new Function("root", "body", body(source, "function restoreScroll()"))
+        var list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: 0, height: 0, contentY: 0 }
+        root.dropParse = function () { drop(root) }
+        root.parseNow = function (text, dir, chrome, ink) { landing(root, markdown, text, dir, chrome, ink) }
+        root.restoreScroll = function () { restore(root, list) }
         root.askParse = function () {}
         root.path = "/doc/B.md"
-        new Function("root", body(source, "    onPathChanged: {"))(root)
+        new Function("root", "reloadCoalesce", body(source, "    onPathChanged: {"))(root, { stop: function () {} })
         check(root.parseError === "" && root.status === "loading", "F41 unloaded path clears previous error")
         root.askParse = function () { ask(root, file, markdown, timer, parserLoader) }
         root.parseError = "probe previous fault"
@@ -87,6 +95,8 @@ QtObject {
         markdown.blocks = function () { throw new Error("probe parse fault") }
         var fallbackSource = source.slice(source.indexOf("id: parseFallback"))
         var fallback = new Function("root", "Markdown", body(fallbackSource, "onTriggered:"))
+        root.askedText = "doc"
+        root.askedDir = "/doc"
         var escaped = false
         try {
             fallback(root, markdown)
@@ -179,7 +189,8 @@ QtObject {
     function geometryChecks(source) {
         var marker = "                    Column {\n                        id: listGrid"
         var column = "Column {" + body(source, marker) + "}"
-        column = column.replace(/Theme\./g, "theme.")
+        // The pane's Markdown module is not imported by the probe, so its link gate reads as a closed one.
+        column = column.replace(/Theme\./g, "theme.").replace(/Markdown\.isExternalLink/g, "(function () { return false })")
         // The runner supplies the shipped text component beside a local Theme for pure qml6.
         var textModule = Qt.resolvedUrl(Qt.application.arguments[Qt.application.arguments.length - 1])
         var probe = Qt.createQmlObject('import QtQuick\nimport "' + textModule + '" as Flea\nItem {\nwidth: ' + geometryWidth + '\n'

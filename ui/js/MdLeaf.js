@@ -154,8 +154,7 @@ function longestCell(cells) {
     return best
 }
 
-// The board's table as data for ui/PreviewMarkdown.qml: Qt's Markdown importer drops style attributes.
-// measure holds each column's widest cell over the whole table, so chunks of one table share their column widths.
+// The board's table as data (Qt's importer drops style attributes); measure is each column's widest cell, so chunks share widths.
 function tableBlock(head, aligns, rows, inlineOf) {
     var cols = head.length
     for (var i = 0; i < rows.length; i++)

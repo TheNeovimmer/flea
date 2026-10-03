@@ -98,27 +98,37 @@ QtObject {
         const parserLoader = { active: false, item: { sendMessage() {} } };
         const ask = new Function('root', 'file', 'Markdown', 'parseFallback', 'parserLoader', body('function askParse()'));
         const reply = new Function('root', 'messageObject', body('function landed(messageObject)'));
-        const fallbackHandler = 'onTriggered:';
-        const fallbackMarker = source.indexOf(fallbackHandler, source.indexOf('id: parseFallback'));
-        const fallback = new Function('root', 'Markdown', body(source.slice(fallbackMarker, fallbackMarker + fallbackHandler.length)));
+        // The product's own dropParse, parseNow and restoreScroll bodies, bound to each stub root; the list is an empty stub.
+        const drop = new Function('root', body('function dropParse()'));
+        const landing = new Function('root', 'Markdown', 'text', 'dir', 'chrome', 'ink', body('function parseNow('));
+        const restore = new Function('root', 'body', body('function restoreScroll()'));
+        const list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: 0, height: 0, contentY: 0 };
+        function wired(r) {
+            r.dropParse = () => drop(r);
+            r.parseNow = (text, dir, chrome, ink) => landing(r, Markdown, text, dir, chrome, ink);
+            r.restoreScroll = () => restore(r, list);
+            return r;
+        }
+        // The fallback timer's handler, searched from its own id so an earlier Timer's handler is never the one found.
+        const fallback = new Function('root', 'Markdown', body('onTriggered:', source.slice(source.indexOf('id: parseFallback'))));
         let failures = 0;
         function check(ok, name) {
             console.log((ok ? 'ok ' : 'FAIL ') + name);
             if (!ok)
                 failures++;
         }
-        root = { active: true, tooLarge: false, parseSeq: 5, parsing: true, blockList: [], path: '/doc/B.md' };
-        file = { loaded: false };
+        root = wired({ active: true, tooLarge: false, parseSeq: 5, parsing: true, blockList: [], path: '/doc/B.md' });
+        file = { loaded: false, text: () => root.rawText };
         root.askParse = () => ask(root, file, Markdown, parseFallback, parserLoader);
-        new Function('root', body('    onPathChanged: {'))(root);
+        new Function('root', 'reloadCoalesce', body('    onPathChanged: {'))(root, { stop() {} });
         reply(root, { seq: 5, blocks: ['A'], error: '' });
         check(root.blockList.length === 0, 'F11 unloaded B rejects A worker reply');
-        root = { parseSeq: 5, parsing: true, rawText: 'B', path: '/doc/B.md', blockList: [] };
+        root = wired({ parseSeq: 5, parsing: true, askedText: 'B', askedDir: '/doc', path: '/doc/B.md', blockList: [] });
         fallback(root, Markdown);
         reply(root, { seq: 5, blocks: ['late'], error: '' });
         check(root.blockList[0] === 'fallback', 'F10 fallback rejects late worker reply');
-        root = { active: true, tooLarge: false, parseSeq: 5, rawText: 'small', workerThreshold: 65536,
-            path: '/doc/small.md', blockList: [] };
+        root = wired({ active: true, tooLarge: false, parseSeq: 5, rawText: 'small', workerThreshold: 65536,
+            path: '/doc/small.md', blockList: [] });
         file.loaded = true;
         ask(root, file, Markdown, parseFallback, parserLoader);
         reply(root, { seq: 5, blocks: ['late'], error: '' });

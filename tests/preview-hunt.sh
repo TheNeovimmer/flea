@@ -16,7 +16,6 @@ printf 'Hello preview.\n' > "$test_root/fixture/control.md"
 printf '%s\n' '- [ ] todo' '- [x] done' > "$test_root/fixture/tasks.md"
 printf '%s\n' 'Read [guide][g].' '' '```' 'code' '```' '' '[g]: https://example.com/guide' > "$test_root/fixture/reference.md"
 printf '%s\n' '| Name |' '| --- |' '| **bold** |' > "$test_root/fixture/table.md"
-printf '%s\n' '[guide](https://example.invalid/guide)' > "$test_root/fixture/theme.md"
 printf '%s\n' '[http](http://example.invalid/http)' '' '[https](https://example.invalid/https)' '' '[mail](mailto:test@example.invalid)' '' '[relative](./other.md)' '' '[anchor](#heading)' > "$test_root/fixture/links.md"
 printf 'Before disk edit.\n' > "$test_root/fixture/disk.md"
 printf 'Before disk edit.\n' > "$test_root/fixture/disk-rename.md"
@@ -41,20 +40,38 @@ def chunk(tag, body):
  return struct.pack('>I',len(body))+tag+body+struct.pack('>I',zlib.crc32(tag+body)&0xffffffff)
 png=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',1200,600,8,2,0,0,0))
 png+=chunk(b'IDAT',zlib.compress((b'\0'+b'\x40\x80\xc0'*1200)*600))+chunk(b'IEND',b'')
-(root/'disk-scroll.md').write_text('\n\n'.join(f'scroll paragraph {i}.' for i in range(300))+'\n')
+# The theme file's first block holds the link; the rest gives the view somewhere to scroll to.
+(root/'theme.md').write_text('[guide](https://example.invalid/guide)\n\n'+'\n\n'.join(f'theme paragraph {i}.' for i in range(300))+'\n')
+# The place-keeping files: 300 paragraphs, and one past the 65536 character worker threshold (3200 lines of about 21).
+for name in ('disk-scroll','disk-fail','disk-partial','disk-shrink','disk-switch'):
+ (root/(name+'.md')).write_text('\n\n'.join(f'scroll paragraph {i}.' for i in range(300))+'\n')
+(root/'disk-switch-b.md').write_text('\n\n'.join(f'other paragraph {i}.' for i in range(300))+'\n')
+(root/'disk-worker.md').write_text('\n\n'.join(f'scroll paragraph {i}.' for i in range(3200))+'\n')
+(root/'pc-fb.md').write_text('\n'.join(f'- fallback item {i} with enough plain text to force the worker parse path.' for i in range(1500))+'\n')
 (root/'wide.png').write_bytes(png)
 for name in ('alpha','beta'):
  (root/('pc-big-'+name[0]+'.md')).write_text('\n'.join(f'- {name} item {i} with enough plain text to force the worker parse path.' for i in range(1500))+'\n')
 PY
+# The fallback phase runs on a scratch copy of ui: a worker that never replies, a 200 ms wait, and a parser that throws on one marker.
+fallback_ui="$test_root/ui-fallback"
+cp -a ui "$fallback_ui" || exit 1
+fallback_wait_ms=200
+sed -i "s/^\(    readonly property int parseFallbackMs: \)10000\$/\1$fallback_wait_ms/" "$fallback_ui/PreviewMarkdown.qml"
+grep -q "parseFallbackMs: $fallback_wait_ms\$" "$fallback_ui/PreviewMarkdown.qml" || { echo 'FAIL scratch ui: parseFallbackMs not patched'; exit 1; }
+printf '%s\n' 'WorkerScript.onMessage = function (msg) {};' > "$fallback_ui/MarkdownWorker.js"
+sed -i 's/^function blocks(source, dir, chrome, ink) {$/&\n    if (String(source).indexOf("FLEA-SCRATCH-THROW") >= 0) throw new Error("scratch parse failure")/' "$fallback_ui/js/Markdown.js"
+grep -q 'FLEA-SCRATCH-THROW' "$fallback_ui/js/Markdown.js" || { echo 'FAIL scratch ui: parser not patched'; exit 1; }
 failures=0
-scenarios=(control tasks reference table scroll source-key size-key theme links disk disk-rename disk-scroll disk-stale local-image long-list long-table parse-quick parse-column parse-worker)
+scenarios=(control tasks reference table scroll source-key size-key theme links disk disk-rename disk-scroll disk-stale local-image long-list long-table disk-fail disk-partial disk-shrink disk-switch disk-worker parse-quick parse-column parse-worker parse-fallback)
 for scenario in "${scenarios[@]}"; do
     link_preload=""
     case "$scenario" in
         theme|links|disk|disk-rename|disk-scroll|disk-stale|local-image|long-list|long-table) cp tests/markdown-hunt.qml "$test_root/config/shell.qml" ;;
+        disk-fail|disk-partial|disk-shrink|disk-switch|disk-worker) cp tests/markdown-disk.qml "$test_root/config/shell.qml" ;;
         parse-*) cp tests/markdown-parse-count.qml "$test_root/config/shell.qml" ;;
         *) cp tests/preview-hunt.qml "$test_root/config/shell.qml" ;;
     esac
+    [ "$scenario" != parse-fallback ] || ln -sfn "$fallback_ui" "$test_root/config/flea"
     [ "$scenario" != links ] || link_preload="$test_root/link-spy.so"
     phase="$test_root/$scenario"
     mkdir -p "$phase"/{home,state,cache,data,runtime,tmp}
