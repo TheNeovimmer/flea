@@ -350,8 +350,13 @@
   {
     "name": "round7-uncontinued-lines-stay-separate",
     "code": "hyprctl -j clients\necho dispatch",
-    "issues": [],
-    "calls": 0
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0,
+    "issue_lines": [
+      1
+    ]
   },
   {
     "name": "round8-hash-comment-before-raw-call",
@@ -408,14 +413,24 @@
   {
     "name": "round8-shell-function-lines-stay-separate",
     "code": "probe() {\n    hyprctl clients\n    printf '%s\\n' dispatch\n}",
-    "issues": [],
-    "calls": 0
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0,
+    "issue_lines": [
+      2
+    ]
   },
   {
     "name": "round8-quoted-brackets-stay-separate",
     "code": "hyprctl clients | grep '(clients['\nprintf '%s\\n' dispatch",
-    "issues": [],
-    "calls": 0
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0,
+    "issue_lines": [
+      1
+    ]
   },
   {
     "name": "round8-comment-inside-list-before-raw-call",
@@ -664,17 +679,25 @@
   {
     "name": "round9-clean-monitors-then-log",
     "code": "(\n    hyprctl monitors -j\n    printf '%s\\n' 'dispatch completed'\n)",
-    "raw_rule": "neither A nor B",
-    "issues": [],
-    "issue_lines": [],
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
     "calls": 0
   },
   {
     "name": "round9-clean-shell-function-distant-dispatch",
     "code": "probe() {\n    (\n        hyprctl clients\n        printf '%s\\n' intermediate\n        printf '%s\\n' another\n        printf '%s\\n' dispatch\n    )\n}",
-    "raw_rule": "neither A nor B",
-    "issues": [],
-    "issue_lines": [],
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      3
+    ],
     "calls": 0
   },
   {
@@ -837,7 +860,8 @@
     "name": "round10-complete-queries-with-prose",
     "code": "hyprctl -j clients\nhyprctl -j cursorpos\nhyprctl -j activewindow\nhyprctl -j monitors\nhyprctl -j getoption\nhyprctl -j activeworkspace\nhyprctl -j binds\nhyprctl -j configerrors\nprintf \"queries completed\"",
     "issues": [],
-    "calls": 0
+    "calls": 0,
+    "issue_lines": []
   },
   {
     "name": "round10-tool-name-list",
@@ -866,7 +890,82 @@
   {
     "name": "round10-complete-queries-with-raw-prose",
     "code": "run([\"hyprctl\", \"-j\", \"clients\"])\nrun([\"hyprctl\", \"-j\", \"cursorpos\"])\nrun([\"hyprctl\", \"-j\", \"activewindow\"])\nrun([\"hyprctl\", \"-j\", \"monitors\"])\nrun([\"hyprctl\", \"-j\", \"getoption\"])\nrun([\"hyprctl\", \"-j\", \"activeworkspace\"])\nrun([\"hyprctl\", \"-j\", \"binds\"])\nrun([\"hyprctl\", \"-j\", \"configerrors\"])\nprintf \"dispatch completed\"",
+    "issues": [
+      "hypr-window-reply",
+      "hypr-window-reply",
+      "hypr-window-reply",
+      "hypr-window-reply",
+      "hypr-window-reply",
+      "hypr-window-reply",
+      "hypr-window-reply",
+      "hypr-window-reply"
+    ],
+    "calls": 0,
+    "issue_lines": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  {
+    "name": "round11-query-word-as-instance-operand",
+    "code": "run([\"hyprctl\", \"-i\", \"clients\",\n    \"dispatch\", \"x\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round11-query-identifier-names-raw-command",
+    "code": "clients = \"dispatch\"\nrun([\"hyprctl\", clients])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round11-raw-words-without-tool",
+    "code": "args=(dispatch x)\nprintf \"%s\\n\" --batch",
     "issues": [],
+    "issue_lines": [],
+    "calls": 0
+  },
+  {
+    "name": "round11-tool-identifier-is-not-whole-word",
+    "code": "real_hyprctl clients\necho dispatch",
+    "issues": [],
+    "issue_lines": [],
+    "calls": 0
+  },
+  {
+    "name": "round11-full-line-raw-comments-stay-clean",
+    "code": "  # dispatch\nhyprctl clients\n\t// --batch\nhyprctl monitors",
+    "issues": [],
+    "issue_lines": [],
+    "calls": 0
+  },
+  {
+    "name": "round11-rule-a-before-b-each-line-once",
+    "code": "run([\"hyprctl\", \"dispatch\", \"hyprctl\"])\nrun([\"hyprctl\", \"clients\"])\nraw = \"--batch\"",
+    "issues": [
+      "hypr-window-reply",
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1,
+      2
+    ],
     "calls": 0
   }
 ]

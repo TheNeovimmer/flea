@@ -15,23 +15,13 @@ EXEMPT_FILES = (
 SOURCE_SUFFIXES = (".sh", ".py", ".qml", ".js")
 COMMENT_PREFIXES = ("#", "//")
 FIRST_LINE = 1
-SEPARATORS = r"[\s'\",\\\[\]()]"
-DASH_FLAG = r"(?!--batch(?![\w-]))--?[\w-]+"
-QUERY_WORDS = ("clients", "cursorpos", "activewindow", "monitors", "getoption", "activeworkspace", "binds", "configerrors")
-RAW_REFUSAL_ADVICE = ": make the call a complete query, or reword the prose that names dispatch/--batch"
+RAW_REFUSAL_ADVICE = ": use the typed helper, or reword prose that names dispatch/--batch"
 
 # Sample input: 'args=(dispatch x)' names a raw word, but 'dispatch_x --batch-size' does not.
 RAW_WORD = re.compile(r"(?<![\w-])(?:dispatch|--batch)(?![\w-])")
 
 # Sample input: 'command -v hyprctl' names the tool, but 'real_hyprctl' does not.
 HYPRCTL_WORD = re.compile(r"(?<![\w-])hyprctl(?![\w-])")
-
-# Sample input: 'run(["hyprctl", "-j", "clients"])' is a complete query on one physical line.
-COMPLETE_QUERY = re.compile(
-    rf"hyprctl{SEPARATORS}+"
-    rf"(?:{DASH_FLAG}{SEPARATORS}+)*"
-    rf"(?:{'|'.join(QUERY_WORDS)})(?![\w-])"
-)
 
 # Sample input: "hl.\\\ndsp.focus()" retains the split-prefix verdict without quote or bracket state.
 CONTINUED_LUA_PREFIX = re.compile(r"(?:\\\r?\n)*".join(re.escape(character) for character in LUA_PREFIX))
@@ -57,11 +47,10 @@ def scan(text, helper_file=False):
         if "hyprctl" in line and any(word in line for word in RAW_WORDS):
             issues.append((number, "hypr-window-reply"))
             raw_lines.add(number)
-        # Rule B refuses each non-query tool mention in a file naming a whole raw word.
-        if has_raw_word and number not in raw_lines:
-            if any(COMPLETE_QUERY.match(line, match.start()) is None for match in HYPRCTL_WORD.finditer(line)):
-                issues.append((number, "hypr-window-reply"))
-                raw_lines.add(number)
+        # Rule B refuses each whole-word tool line in a file naming a whole raw word.
+        if has_raw_word and number not in raw_lines and HYPRCTL_WORD.search(line):
+            issues.append((number, "hypr-window-reply"))
+            raw_lines.add(number)
     for match in CONTINUED_LUA_PREFIX.finditer(comment_free_text):
         if "\n" not in match.group():
             continue

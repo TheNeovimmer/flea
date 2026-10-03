@@ -3698,11 +3698,11 @@ waits for its consumer.
   always use `address:ADDR`; move and cursor coordinates may be negative for monitor origins.
   The helper's program form serves Python callers and prints `ok` only after the same checks pass.
   The static gate scans shell, Python, QML and JavaScript under `tests/`, removes only full-line `#`/`//`
-  comments after whitespace, and refuses `hl.dsp.` (including a backslash-split prefix): rule A refuses a
-  physical line containing both `hyprctl` and `dispatch`/`--batch`, while rule B, in a file naming a whole
-  `dispatch`/`--batch` word, refuses every `hyprctl` that is not followed on its own physical line by
-  separators and optional dash flags other than `--batch`, then a closed read-only query word from
-  `QUERY_WORDS`, reporting each tool line once.
+  comments after whitespace, and outside the exempt files refuses `hl.dsp.` (including a backslash-split
+  prefix) and applies rule A first to any physical line containing both `hyprctl` and `dispatch`/`--batch`.
+  Rule B requires a file naming `hyprctl` as a whole word to name no whole raw word (`dispatch`, `--batch`)
+  anywhere in the comment-stripped file, and reports every `hyprctl` line once, keeping rule A's first report
+  for a line.
   The exempt files are `tests/lib/hypr-dispatch.sh` (which keeps its call count),
   `tests/hypr-dispatch-proof.py` and `tests/hyprdispatch.py`.
   A raw word built at run time or taken from another file is outside this static contract.

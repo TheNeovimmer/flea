@@ -31,7 +31,7 @@ cardsize_rect() {
 
 cardsize_resize() {
     local result
-    result=$(hypr_window_resize "$@" 2>&1) || fail "cardsizes: compositor dispatch failed: $result"
+    result=$(hypr_window_resize "$@" 2>&1) || fail "cardsizes: compositor resize failed: $result"
 }
 
 cardsize_network() {
