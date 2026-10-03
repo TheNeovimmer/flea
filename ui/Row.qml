@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import qs.Commons
 import "js/Columns.js" as Columns
 import "js/Drag.js" as DragOps
@@ -58,7 +59,7 @@ Item {
     readonly property string linkMark: root.row && root.row.l ? " -> " + root.row.l : ""
     // The name, then a link's target; a folder carries no slash, its glyph and the folders-first order already say it.
     readonly property string decoratedName: root.displayName + root.linkMark
-    readonly property string locationText: root.locating && root.row ? (root.recenting ? Recent.locationOf(root.row.n) : Match.location(root.row.n)) : ""
+    readonly property string locationText: root.locating && root.row ? (root.recenting ? Recent.locationUnder(root.row.n, Quickshell.env("HOME") || "") : Match.location(root.row.n)) : ""
     readonly property var nameRun: Match.run(root.displayName, root.searchQuery)
     // Assigned by List.qml's shared budgets; -2 keeps the local geometry default for PickerList and drop-target rows.
     property int assignedNameBudget: -2

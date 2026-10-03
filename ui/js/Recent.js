@@ -1,4 +1,5 @@
 .pragma library
+.import "Format.js" as Format
 
 // The desktop's own history, read and never written; every bookmark is untrusted input.
 
@@ -102,6 +103,15 @@ function locationOf(path) {
     }
     var parent = text.substring(0, cut)
     return parent.charAt(0) === "/" ? parent : "/" + parent
+}
+
+// Sample input: "home/gm/Documents/claude/a.md" under "/home/gm" is "Documents/claude", a file in home "~", outside it absolute.
+function locationUnder(path, home) {
+    var shown = Format.tilde(locationOf(path), String(home || ""))
+    if (shown.indexOf("~/") === 0) {
+        return shown.substring(2)
+    }
+    return shown
 }
 
 // The rail's rows, newest first; a path seen twice keeps its first, newest position.

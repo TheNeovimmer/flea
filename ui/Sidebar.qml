@@ -616,13 +616,14 @@ Item {
                 }
             }
         }
-        // One full-width boundary follows favourite rows inside the clipped scroll content.
+        // Sidebar040 specimen 1: the bar lies over the boundary, one hairline in the row above and the rest under it.
         Rectangle {
             readonly property var row: favRepeater.itemAt(Math.min(root.reorderLine, favRepeater.count - 1))
+            readonly property real boundary: row ? row.y + (root.reorderLine === favRepeater.count ? row.height : 0) : 0
             visible: root.reorderLine >= 0 && root.reorderLine <= favRepeater.count && row !== null
             width: rail.width
             height: Theme.accentEdge * Theme.spacing.hairline
-            y: row ? row.y + (root.reorderLine === favRepeater.count ? row.height - height : 0) + rail.y : 0
+            y: boundary - Theme.spacing.hairline + rail.y
             color: Theme.color.accent
             z: 1
         }

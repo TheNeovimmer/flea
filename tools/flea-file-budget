@@ -70,7 +70,7 @@ tests/picker-hunt.qml 445
 tests/js/network.js 306
 tests/js/ops.js 511
 tests/js/slowclick.js 308
-tests/js/settings.js 342
+tests/js/settings.js 352
 tests/js/tap.js 333
 tests/js/uistate.js 370
 tests/js/watch.js 354
@@ -113,10 +113,10 @@ ui/Preview.qml 646
 ui/PreviewColumn.qml 585
 ui/DeviceMounts.qml 496
 ui/PreviewMarkdown.qml 784
-ui/Row.qml 482
+ui/Row.qml 483
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
-ui/Sidebar.qml 657
+ui/Sidebar.qml 658
 ui/StatusBar.qml 456
 ui/Theme.qml 416
 ui/TrashView.qml 475
@@ -135,7 +135,7 @@ ui/js/Menu.js 454
 ui/js/Drag.js 342
 ui/js/Ops.js 426
 ui/js/Picker.js 328
-ui/js/Settings.js 455
+ui/js/Settings.js 456
 ui/js/Tabs.js 719
 ui/js/UiState.js 447
 ui/TabBar.qml 632

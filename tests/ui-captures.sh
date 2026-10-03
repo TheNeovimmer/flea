@@ -421,29 +421,74 @@ case_cap_permissions() {
     kill_flea
 }
 
-# Sidebar040: the rail with Recent switched on, Settings Places showing it, and a
-# favourites reorder held mid-drag. The rail drag reuses tabdrag_to's uinput motion:
-# press on one favourite centre, move to the other, shot while held, then release.
+# Sidebar040: Settings Places at defaults with two favourites, Recent switched on and listed as the current place, then a favourites reorder held mid-drag; the Flea home and its recently-used.xbel are the fixture's own, so paths read home-relative as the board writes them.
 case_cap_sidebar() {
-    local dir="$fixture_root/cap-sidebar"
-    sandbox_scratch "$dir"
-    mkdir -p "$dir/alpha" "$dir/beta"
-    : > "$dir/note.txt"
-    seed_ui_state "$fixture_root/cap-sidebar-state" "$(printf '{"keys":"default","view":"list","places":{"showRecent":true,"favourites":[{"label":"Alpha","path":"%s/alpha"},{"label":"Beta","path":"%s/beta"}]}}' "$dir" "$dir")"
+    local home="$fixture_root/cap-sidebar-home"
+    local dir="$home/Documents/claude" downloads="$home/Downloads" name
+    fixture_home_make "$home"
+    mkdir -p "$dir/alpha" "$dir/beta" "$downloads" "$home/Music" "$home/Pictures" "$home/Videos" "$home/.local/share"
+    for name in field-bench-notes.md screenshot-2026-08-30.png panel-demo.mp4 mix.flac backup.tar.zst; do
+        printf 'x\n' > "$dir/$name"
+    done
+    printf 'x\n' > "$downloads/receipt.pdf"
+    # Newest visited first, the order and the stamps Sidebar040's Recent specimen lists.
+    cat > "$home/.local/share/recently-used.xbel" <<EOS
+<?xml version="1.0" encoding="UTF-8"?>
+<xbel version="1.0">
+  <bookmark href="file://$dir/field-bench-notes.md" visited="2026-09-23T10:47:00Z"/>
+  <bookmark href="file://$dir/screenshot-2026-08-30.png" visited="2026-09-23T09:12:00Z"/>
+  <bookmark href="file://$dir/panel-demo.mp4" visited="2026-09-22T19:27:00Z"/>
+  <bookmark href="file://$downloads/receipt.pdf" visited="2026-09-22T08:15:00Z"/>
+  <bookmark href="file://$dir/mix.flac" visited="2026-09-21T12:02:00Z"/>
+  <bookmark href="file://$dir/backup.tar.zst" visited="2026-09-18T21:05:00Z"/>
+</xbel>
+EOS
+    seed_ui_state "$fixture_root/cap-sidebar-state" "$(printf '{"keys":"default","view":"list","places":{"favourites":[{"label":"Alpha","path":"%s/alpha"},{"label":"Beta","path":"%s/beta"}]}}' "$dir" "$dir")"
+    local real_home="$HOME" real_data="${XDG_DATA_HOME-}"
+    # An earlier case may have exported its own data home, which would hide this case's history.
+    export HOME="$home" XDG_DATA_HOME="$home/.local/share"
     launch "$dir"
-    wait_listing 3
+    export HOME="$real_home"
+    if [[ -n "$real_data" ]]; then export XDG_DATA_HOME="$real_data"; else unset XDG_DATA_HOME; fi
+    wait_listing 7
     cap_resize 1120 543
-    wait_rail_label "Recent"
-    [[ "$(ipc railEntries | jq -er 'any(.[]; .label == "Recent")')" == "true" ]] \
-        || fail "cap_sidebar: the rail carries no Recent row"
-    shot cap-sidebar-recent
+    # cap_resize returns once the size is right while the centring may still be moving the window, so the box must hold still across two reads before anything is shot.
+    local box previous="" end=$((SECONDS + 20))
+    while (( SECONDS < end )); do
+        box=$(window_box) || fail "cap_sidebar: native window coordinates unavailable"
+        [[ "$box" == "$previous" ]] && break
+        previous="$box"
+        sleep 0.2
+    done
+    [[ "$box" == "$previous" && "$box" == *" 1120 543" ]] || fail "cap_sidebar: the window never held still at 1120x543, last box [$box]"
+    wait_rail_label "Alpha"
+    wait_rail_label "Beta"
+    ipc railEntries | jq -e 'all(.[]; .group != "recent")' >/dev/null \
+        || fail "cap_sidebar: Recent is on at defaults"
     settings_open_key
     settle
     settings_section places
     [[ "$(ipc settingsRows)" == *"Recent"* ]] || fail "cap_sidebar: Places lists no Recent row"
+    [[ "$(ipc settingsRows)" == *"$dir/alpha"* ]] || fail "cap_sidebar: Places lists no Alpha favourite, got $(ipc settingsRows)"
     shot cap-sidebar-places
+    settings_click_control "places.showRecent"
+    settings_wait_value ".places.showRecent == true"
     key -k Escape >/dev/null
     settle
+    wait_rail_label "Recent"
+    click_rail_row "$(rail_row_of "Recent")" left
+    local mode="" total=""
+    for _attempt in $(seq 1 200); do
+        mode=$(ipc recentMode 2>/dev/null || printf unavailable)
+        total=$(ipc total 2>/dev/null || printf unavailable)
+        [[ "$mode" == "results" && "$total" == "6" && "$(ipc listInFlight 2>/dev/null)" == "false" ]] && break
+        sleep 0.05
+    done
+    [[ "$mode" == "results" && "$total" == "6" ]] || fail "cap_sidebar: clicking Recent listed mode [$mode] total [$total], not results and 6"
+    [[ "$(ipc headerTitles)" == "Name|Location|Size|Used" ]] \
+        || fail "cap_sidebar: the Recent header reads $(ipc headerTitles)"
+    [[ "$(ipc railCursor)" == "$(rail_row_of "Recent")" ]] || fail "cap_sidebar: Recent is not the lit rail row"
+    shot cap-sidebar-recent
     local alpha_index beta_index ax ay bx by before_alpha before_beta after_alpha after_beta
     alpha_index=$(rail_row_of "Alpha")
     beta_index=$(rail_row_of "Beta")
@@ -458,7 +503,7 @@ case_cap_sidebar() {
     after_alpha="$alpha_index"
     after_beta="$beta_index"
     (( after_beta < after_alpha )) || fail "cap_sidebar: the held drag never reordered, Alpha at $after_alpha Beta at $after_beta (was $before_alpha)"
-    printf 'CAP_SIDEBAR recent=on drag=held reorder=ok\n'
+    printf 'CAP_SIDEBAR places=defaults recent=current drag=held reorder=ok\n'
     kill_flea
 }
 
