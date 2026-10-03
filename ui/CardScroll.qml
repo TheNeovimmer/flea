@@ -14,8 +14,7 @@ Flickable {
     property bool highlightSteps: false
     property real stepRowHeight: 0
     property var stepBy: null
-    // Room kept inside the clip on every side, for a 2 px focus ring drawn outside a full-width field; callers
-    // grow their own margins by the same, so the content stays where it was on screen.
+    // Room kept inside the clip on every side for a button's 2 px ring; callers grow their margins by the same, so nothing moves.
     property int bleed: 0
     // The two axes apart, for a body whose rows already run to the card's side edges.
     property int bleedX: bleed

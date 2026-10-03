@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import "." as Flea
-import "js/Buttons.js" as Buttons
 import "js/Format.js" as Format
 import "js/Picker.js" as Picker
 
@@ -50,16 +49,10 @@ Item {
                     implicitHeight: Math.max(Theme.hitMin, field.implicitHeight + 2 * Theme.spacing.rowPaddingY)
                     color: Theme.color.background
                     border.width: Theme.spacing.hairline
-                    // Focus is a ring outside the unchanged frame, never an accent frame.
-                    border.color: Theme.color.muted
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.margins: -Buttons.RING
-                        color: "transparent"
-                        border.width: Buttons.RING
-                        border.color: Theme.color.foreground
-                        visible: field.activeFocus
-                    }
+                    // Muted at rest, accent on focus: what DialogField, MenuActionDialog, OpenWithDialog
+                    // and PermissionsDialog all draw. This was the last control in the product still
+                    // framed in the divider's own ink.
+                    border.color: field.activeFocus ? Theme.color.accent : Theme.color.muted
                     TextInput {
                         id: field
                         anchors.fill: parent

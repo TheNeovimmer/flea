@@ -73,4 +73,21 @@ function run(check) {
     // The height lives in ui/DialogButton.qml as Theme.rowHeight minus its padding, so no constant here can drift from it.
     check("buttons draw the theme height, not a constant",
         Source.source("ui/DialogButton.qml").indexOf("implicitHeight: Theme.rowHeight - Theme.spacing.rowPaddingY") >= 0, true)
+
+    // GM 2026-10-03: a field's focus is its own hairline frame in the accent, as 0.3.6 drew it; the 2 px ring is the buttons' alone.
+    var accentFrame = "border.color: field.activeFocus ? Theme.color.accent : Theme.color.muted"
+    var fields = {
+        "ui/DialogField.qml": accentFrame,
+        "ui/MenuActionDialog.qml": accentFrame,
+        "ui/OpenWithDialog.qml": accentFrame,
+        "ui/PickerSave.qml": accentFrame,
+        "ui/PermissionsDialog.qml": "border.color: octal.activeFocus ? Theme.color.accent : Theme.color.muted",
+        "ui/RenameField.qml": "border.color: root.errorText.length > 0 ? Theme.color.error : Theme.color.accent",
+        "ui/ChromeBar.qml": "border.color: Theme.color.accent"
+    }
+    for (var file in fields) {
+        var text = Source.source(file)
+        check(file + " frames a focused field in the accent", text.indexOf(fields[file]) >= 0, true)
+        check(file + " draws no button ring around a field", text.indexOf("Buttons.RING") < 0, true)
+    }
 }

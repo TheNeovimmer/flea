@@ -717,7 +717,7 @@ QtObject {
         function pathBarOpen(): bool { return root.chrome.editing }
         function pathBarText(): string { return String(root.chrome.editText) }
         function pathCentre(): string { return root.fleaWindow.centreOf(root.chrome.pathArea) }
-        // The open path field's frame, "x y width height", which its 2 px focus ring is drawn around.
+        // The open path field's frame, "x y width height", the accent hairline a native capture is read against.
         function pathFrameRect(): string { return root.fleaWindow.rectOf(root.chrome.pathFrame) }
         // The elision marker, or "" while the whole path fits: the one spot the crumbs slide under.
         function elisionCentre(): string {

@@ -370,8 +370,7 @@ Item {
         height: Theme.fileRowHeight
         z: 2
         sourceComponent: Flea.RenameField {
-            // The view clips at its first and last row, so the frame keeps its ring's room inside the row.
-            anchors { fill: parent; topMargin: Theme.ringClearance; bottomMargin: Theme.ringClearance }
+            anchors.fill: parent
             pane: root.pane
             name: root.pane && root.pane.rowFor(root.pane.renamingIndex)
                   ? String(root.pane.rowFor(root.pane.renamingIndex).n).split("/").pop() : ""

@@ -1,7 +1,6 @@
 import QtQuick
 import qs.Commons
 import "." as Flea
-import "js/Buttons.js" as Buttons
 import "js/Permissions.js" as Permissions
 
 // One item, one mode; the backend owns its reviewed descriptor for this dialog's lifetime.
@@ -470,15 +469,7 @@ FocusScope {
                         width: body.holderWidth - root.labelWidth - parent.spacing
                         height: parent.height
                         color: Theme.color.background
-                        border.color: Theme.color.muted
-                        Rectangle {
-                            anchors.fill: parent
-                            anchors.margins: -Buttons.RING
-                            color: "transparent"
-                            border.width: Buttons.RING
-                            border.color: Theme.color.foreground
-                            visible: octal.activeFocus
-                        }
+                        border.color: octal.activeFocus ? Theme.color.accent : Theme.color.muted
                         TextInput {
                             id: octal
                             anchors.fill: parent

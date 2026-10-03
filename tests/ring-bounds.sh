@@ -63,6 +63,7 @@ ln -s "$(readlink -f ui/boot/Ui)" "$probe/config/Ui"
 # The window loads its tab catcher from the shell directory, so the probe ships it as the product does.
 ln -s "$PWD/ui/boot/fleatab.qml" "$probe/config/fleatab.qml"
 cp tests/ring-bounds.qml "$probe/config/shell.qml"
+cp tests/ring-bounds.js "$probe/config/ring-bounds.js"
 log="$probe/qs.log"
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
     HOME="$probe/home" XDG_STATE_HOME="$probe/state" XDG_CONFIG_HOME="$probe/config" \

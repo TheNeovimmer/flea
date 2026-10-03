@@ -1922,15 +1922,22 @@ failure fails the check rather than passing it.
 - `ui/TabBar.qml` is the window's tab strip, hidden with no height until a second tab exists.
 - `ui/ChromeBar.qml` renders the top chrome, and owns the path bar: the same strip typed into
   rather than drawn, opened by `:`, `Ctrl+L` or a double click on the path.
-  A field hosted in the 27 px strip keeps the host's control height (ButtonSystem040 A), so its 2 px focus
-  ring lies inside the strip: `Theme.chromeFieldInset` leaves `Theme.ringClearance` (the ring plus one
-  hairline) above and below the frame, clear of the window's top edge and of the strip's rule. The same
-  rule holds wherever a ring meets a clip: a `CardScroll` carries `bleed`, room inside its clip that the
-  caller's margins give back, and the column rename editor keeps `ringClearance` inside its row.
-  `tests/ring-bounds.sh` pins all of it from the real window at every text stop, and `tests/ui.sh`
-  `case_click` reads the ring's four sides from the native chrome capture. Open limit, Tight density only:
-  a column row is 20 px at text size 12, so the column rename frame (row less `ringClearance` each side) is
-  shorter than the 16 px glyph line, and `ring-bounds` exempts that one combination from its glyph check.
+  GM 2026-10-03, shown one focused dialog field drawn three ways (0.3.6, 0.3.7's ring, the 0.3.8 stage's cut ring):
+  "in this screenshot, the top one is the only one correct btw", the top being 0.3.6's. **Fields, an accent
+  hairline frame as 0.3.6 drew it; buttons, the ring.** Every text field's focus is its own one hairline frame
+  in `Theme.color.accent` (the error role in `ui/RenameField.qml` while the pane holds an error), the frame is
+  `Theme.color.muted` while it does not hold the caret (`ui/DialogField.qml`, the dialogs' own fields, the
+  picker's save name), and no field draws a ring. This replaces DESIGN-040's "A focused field keeps its muted
+  frame and a foreground caret". The 2 px foreground ring (`Buttons.RING`, button system A, GM's pick
+  2026-09-24) belongs to `ui/DialogButton.qml` and to nothing that takes text. The path field keeps the strip
+  geometry 0.3.6 and 0.3.7 drew (two hairlines above, one below, the flush Jump dropdown), a list row keeps
+  `Theme.fileRowHeight` while its editor is open, and the rename editor's muted extension patch lies a hairline
+  inside the frame so all four sides are whole. A button's ring is never cut: `CardScroll` carries `bleed`,
+  room inside its clip that the caller's margins give back, on every dialog that holds a `Flea.DialogButton`
+  or `Flea.CheckBox` (all of them: Collide, Trash, menu action, open with, convert, permissions, network and
+  the save picker). `tests/ring-bounds.sh` pins all of it from the real window at every text stop, with the
+  content positions 13506d08 drew in `tests/ring-bounds.js`, and `tests/ui.sh` `case_click` reads the open
+  path field's accent frame, its four sides and the rows a ring would reach from the native chrome capture.
 - `ui/PathJump.qml` is the path bar's folder jump, the Jump board: a name typed into the bar lists
   matching folders from Flea's favourites, zoxide's ranking and `recently-used.xbel` in one ranked
   dropdown under the field, and Enter opens the cursor row. `ui/JumpPath.qml` draws one row's path.
@@ -2966,10 +2973,11 @@ On the 0.3.7 branch, today dates join the clipboard marks in `ui/Row.qml`, which
 Density040 and GridStops move one recorded ceiling, re-derived with `wc -l`: `ui/js/Settings.js` 427 to 428 for the Tight density row with its hint and the Huge and Largest thumbnail stops. The maths went to the new `ui/js/Density.js`, 46 lines inside both budgets, rather than into `Theme.qml`, which stands at 400 at the hard cap; `ui/js/GridGeometry.js` takes the cell height at 22, `ui/GridTile.qml` at 203, `ui/GridArea.qml` at 277, `ui/ViewState.qml` at 395 and `src/uischema.rs` keeps its recorded 408 rather than any soft budget. Later work leaves `ui/js/Density.js` at 44, `ui/js/GridGeometry.js` at 21, `ui/GridArea.qml` at 279 and `ui/ViewState.qml` at 398, each re-derived with `wc -l`.
 
 Buttons040 variant A moves four recorded ceilings, each re-derived with `wc -l` at the commit that
-recorded it. `ui/OpenWithDialog.qml` 588 to 592 for the fixed Open primary, the search field's focus
-ring and the rule-14 checkbox. `ui/PermissionsDialog.qml` 426 to 432 for the fixed Apply primary and
-the octal field's ring. `ui/TrashView.qml` 467 to 474 for the dead Up at 0.55 and the Back press.
-`ui/ChromeBar.qml` 438 to 448 for the path field's ring. The control itself went to the reworked
+recorded it. `ui/OpenWithDialog.qml` 588 to 592 for the fixed Open primary, the rule-14 checkbox and a
+search field ring that went again on GM's 2026-10-03 ruling. `ui/PermissionsDialog.qml` 426 to 432 for the
+fixed Apply primary and an octal field ring that went the same way. `ui/TrashView.qml` 467 to 474 for the dead Up
+at 0.55 and the Back press. `ui/ChromeBar.qml` 438 to 448 for a path field ring that went with the others, the field
+being the accent frame again. The control itself went to the reworked
 `ui/DialogButton.qml` at 111 lines, its decisions to the new `ui/js/Buttons.js` at 45 lines and its
 suite to `tests/js/buttons.js` at 41 lines, each inside both budgets, rather than into any dialog;
 later work leaves them at 107, 52 and 54, each re-derived with `wc -l`.

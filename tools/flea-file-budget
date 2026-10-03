@@ -87,10 +87,11 @@ tests/js/status.js 354
 tests/rename-grid-bottom.qml 424
 tests/rename-grid-bottom.js 305
 tests/rename-lifecycle-check.js 356
+tests/ring-bounds.qml 486
 tests/touchpad.qml 747
 tests/xwsettings-tabs.qml 416
 ui/Backend.qml 469
-ui/ChromeBar.qml 483
+ui/ChromeBar.qml 473
 ui/ColumnsArea.qml 479
 ui/ContextMenu.qml 703
 ui/ConvertDialog.qml 434
@@ -103,11 +104,11 @@ ui/FastScrollHandler.qml 529
 ui/NetworkDialog.qml 446
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 849
-ui/OpenWithDialog.qml 609
+ui/OpenWithDialog.qml 598
 ui/Pane.qml 1024
 ui/PaneMenuActions.qml 465
 ui/PaneWire.qml 584
-ui/PermissionsDialog.qml 635
+ui/PermissionsDialog.qml 626
 ui/PickerWindow.qml 779
 ui/Preview.qml 646
 ui/PreviewColumn.qml 585
@@ -118,7 +119,7 @@ ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
 ui/Sidebar.qml 657
 ui/StatusBar.qml 456
-ui/Theme.qml 422
+ui/Theme.qml 419
 ui/TrashView.qml 475
 ui/ViewState.qml 538
 ui/WindowBody.qml 631

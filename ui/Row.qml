@@ -96,8 +96,8 @@ Item {
     // and the decode, and a row whose Image failed to load has to be marked by its kind instead.
     readonly property bool thumbDrawn: root.thumb.length > 0 && thumbImage.status !== Image.Error
 
-    implicitHeight: root.renaming && renameLoader.item
-                    ? Math.max(Theme.fileRowHeight, renameLoader.item.implicitHeight + 2 * Theme.spacing.rowPaddingY) : Theme.fileRowHeight
+    // The editor sits inside the row's own height at every density; only an error line below it adds to it.
+    implicitHeight: root.renaming && renameLoader.item ? Theme.fileRowHeight + renameLoader.item.errorHeight : Theme.fileRowHeight
     implicitWidth: parent ? parent.width : 0
 
     Accessible.role: Accessible.ListItem

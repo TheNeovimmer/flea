@@ -139,9 +139,10 @@ ipc_call_kill_after=1s
 chrome_band_inset=2
 # Wide enough to hold the elided head's opaque fill and the hairline either side of it; that gap measured at x 80 to 86.
 chrome_edge_sample_width=200
-# The focus ring's width in px, ui/js/Buttons.js RING.
+# The open field's frame is one hairline, and ui/js/Buttons.js RING is the button ring's width, which a field never draws.
+chrome_hairline=1
 chrome_ring_width=2
-# Sample input: chrome_ink click-chrome-band-2 1x2+300+3 c8ccd0 prints how many of the crop's pixels carry that hex.
+# Sample input: chrome_ink click-chrome-band-2 1x1+300+3 c8ccd0 prints how many of the crop's pixels carry that hex.
 chrome_ink() { magick "$evidence_dir/$1.png" -crop "$2" +repage txt:- | grep -ci "$3" || true; }
 # The rule is the house hairline, foreground at 12 percent, so a crumb glyph under it shows through: measured 2 of 255 on this box, against 23 for the surface an opaque fill would expose in its place.
 chrome_edge_max_spread=8
@@ -430,6 +431,9 @@ real_user_shell_toml="$HOME/.config/omarchy/shell.toml"
 # foreground        = "#c8ccd0"   # content ink
 real_foreground=$(grep -E '^foreground' "$real_state_dir/theme/colors.toml" | grep -oE '#[0-9A-Fa-f]{6}')
 [[ -n "$real_foreground" ]] || fail "no foreground in $real_state_dir/theme/colors.toml, so no shot could be checked against the live palette"
+# Sample input, one line of the live colors.toml: accent = "#d4a017"
+real_accent=$(grep -E '^accent' "$real_state_dir/theme/colors.toml" | grep -oE '#[0-9A-Fa-f]{6}')
+[[ -n "$real_accent" ]] || fail "no accent in $real_state_dir/theme/colors.toml, so no focused field could be checked against the live palette"
 
 # Theme.stateDir is built from $HOME, so a window under a fixture HOME paints Theme's own fallback
 # palette rather than the live theme, which is how two README shots shipped Catppuccin colours.
@@ -2227,24 +2231,34 @@ case_click() {
         [[ "$(ipc pathBarOpen)" == "true" ]] \
             || fail "click: a double click at y $band of the ${chrome_h}px strip did not open the path bar"
         [[ "$(ipc path)" == "$deep" ]] || fail "click: the double click at y $band navigated to $(ipc path)"
-        # Sample input: "74 3 592 20", the open field's frame; its ring is the foreground ink one ring width outside it.
-        local fx fy fw fh span ink
+        # Sample input: "74 3 592 20", the open field's frame, one hairline in the accent with no ring around it.
+        local fx fy fw fh span ink accent
         read -r fx fy fw fh <<< "$(ipc pathFrameRect)"
         span=$(( fw + 2 * chrome_ring_width ))
         ink=${real_foreground#\#}
-        # The window's first row above the field and the strip's rule row hold no ring ink, and the ring's four sides are each two ink pixels.
-        [[ "$(chrome_ink "click-chrome-band-$band" "${span}x1+$(( fx - chrome_ring_width ))+0" "$ink")" == 0 ]] \
-            || fail "click: the open path field's ring reaches the window's first row (band y $band)"
-        [[ "$(chrome_ink "click-chrome-band-$band" "${span}x1+$(( fx - chrome_ring_width ))+$(( chrome_h - 1 ))" "$ink")" == 0 ]] \
-            || fail "click: the open path field's ring reaches the strip's rule row (band y $band)"
-        # Each side is sampled at its middle, where the corner radius cannot soften the ink: a 1 x 2 or 2 x 1 crop, both pixels ink.
-        local cx cy side sides
+        accent=${real_accent#\#}
+        # Neither the accent nor the foreground (a ring's ink) lies on the window's first row or on the strip's rule row.
+        local edge_row edge_ink
+        for edge_row in 0 $(( chrome_h - 1 )); do
+            for edge_ink in "$accent" "$ink"; do
+                [[ "$(chrome_ink "click-chrome-band-$band" "${span}x1+$(( fx - chrome_ring_width ))+$edge_row" "$edge_ink")" == 0 ]] \
+                    || fail "click: ink $edge_ink lies on row $edge_row of the strip beside the open path field (band y $band)"
+            done
+        done
+        # Each side is one accent pixel at its middle, where the corner radius cannot soften it, with none just outside or inside it.
+        local cx cy side sides sx sy ox oy ix iy
         cx=$(( fx + fw / 2 )); cy=$(( fy + fh / 2 ))
-        sides=("1x${chrome_ring_width}+$cx+$(( fy - chrome_ring_width ))" "1x${chrome_ring_width}+$cx+$(( fy + fh ))"
-               "${chrome_ring_width}x1+$(( fx - chrome_ring_width ))+$cy" "${chrome_ring_width}x1+$(( fx + fw ))+$cy")
+        # Sample input: "300 3 0 -1 0 1", the top side's pixel, then the step outward and the step inward.
+        sides=("$cx $fy 0 -1 0 1" "$cx $(( fy + fh - chrome_hairline )) 0 1 0 -1"
+               "$fx $cy -1 0 1 0" "$(( fx + fw - chrome_hairline )) $cy 1 0 -1 0")
         for side in "${sides[@]}"; do
-            [[ "$(chrome_ink "click-chrome-band-$band" "$side" "$ink")" == "$chrome_ring_width" ]] \
-                || fail "click: the open path field's ring is missing a side at crop $side (band y $band)"
+            read -r sx sy ox oy ix iy <<< "$side"
+            [[ "$(chrome_ink "click-chrome-band-$band" "1x1+$sx+$sy" "$accent")" == 1 ]] \
+                || fail "click: the open path field's frame is not the accent at $sx,$sy (band y $band)"
+            [[ "$(chrome_ink "click-chrome-band-$band" "1x1+$(( sx + ox ))+$(( sy + oy ))" "$accent")" == 0 ]] \
+                || fail "click: the open path field's accent is wider than one hairline outside $sx,$sy (band y $band)"
+            [[ "$(chrome_ink "click-chrome-band-$band" "1x1+$(( sx + ix ))+$(( sy + iy ))" "$accent")" == 0 ]] \
+                || fail "click: the open path field's accent is wider than one hairline inside $sx,$sy (band y $band)"
         done
         key -k Escape >/dev/null
         settle
