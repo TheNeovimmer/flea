@@ -9,7 +9,7 @@
 
 function pane() {
     var p = { path: "/dest", clipboard: Clipboard.empty(), clipboardState: Clipboard.state(),
-        clipPending: null, sent: [], said: [], asked: [], listInFlight: false, recentMode: "" }
+        clipboardWatchFailed: false, clipPending: null, sent: [], said: [], asked: [], listInFlight: false, recentMode: "" }
     p.backend = { send: function (m) {
         p.sent.push(m)
         p.localAtSend = p.clipboard
@@ -44,8 +44,10 @@ function run(check) {
     check("foreign cut updates marks", ClipMarks.markFor("/other/cut", p.clipboard), "scissors")
     changed(p, "none")
     check("none empties files and token", JSON.stringify(p.clipboard), JSON.stringify(Clipboard.empty()))
-    check("empty clipboard hides both paste rows", Menu.listingEntries({hasRow: true, hiddenActions: [], clipboardAvailable: false})
-          .some(function (r) { return r.action === "paste" || r.action === "pasteAs" }), false)
+    var emptyRows = Menu.listingEntries({hasRow: true, hiddenActions: [], clipboardAvailable: false})
+        .filter(function (r) { return r.action === "paste" || r.action === "pasteAs" })
+    check("empty clipboard retains both disabled paste rows", emptyRows.length === 2 && emptyRows.every(function (r) { return r.disabled === true }), true)
+    check("empty Paste as has no chevron", emptyRows.some(function (r) { return r.action === "pasteAs" && Menu.hasSubmenu(r) }), false)
     check("file clipboard offers both paste rows", Menu.listingEntries({hasRow: true, hiddenActions: [], clipboardAvailable: true})
           .filter(function (r) { return r.action === "paste" || r.action === "pasteAs" }).length, 2)
     check("none releases marks", ClipMarks.markFor("/other/cut", p.clipboard), "")
@@ -54,6 +56,23 @@ function run(check) {
     check("text-only clipboard pastes nothing", p.asked.length, 0)
     Ops.pasteLink(p, "relative", ["/selected/row"])
     check("selected row cannot turn plain text into a link paste", p.asked.length, 0)
+
+    p = pane()
+    watchError(p)
+    check("failed watcher publishes menu state", p.clipboardWatchFailed, true)
+    var failedRows = Menu.listingEntries({hasRow: false, hiddenActions: [], clipboardAvailable: false, clipboardWatchFailed: true})
+        .filter(function (r) { return r.action === "paste" || r.action === "pasteAs" })
+    check("failed watcher keeps fallback Paste live", failedRows.some(function (r) { return r.action === "paste" && r.disabled === false }), true)
+    check("failed watcher keeps empty Paste as disabled without chevron", failedRows.some(function (r) { return r.action === "pasteAs" && r.disabled === true && !Menu.hasSubmenu(r) }), true)
+    Ops.paste(p)
+    check("empty failed cache activates system read", p.sent[0].c, "clipGet")
+    check("empty failed cache waits before transfer", p.asked.length, 0)
+    Clipboard.receive(p, {op: "get", ok: true, clip: "copy", paths: ["/fallback/file"]})
+    check("fallback Paste uses foreign files", p.asked[0][0].paths.join(","), "/fallback/file")
+    changed(p, "none")
+    check("watch recovery clears menu failure state", p.clipboardWatchFailed, false)
+    var readOnlyRows = Menu.listingEntries({hasRow: false, clipboardAvailable: false, clipboardWatchFailed: true, dirWritable: false})
+    check("failed watcher cannot enable Paste into read-only folder", readOnlyRows.some(function (r) { return r.action === "paste" && r.disabled === true }), true)
 
     p = pane()
     p.clipPending = true
@@ -149,6 +168,13 @@ function run(check) {
     check("each writable backend watches once at start", backend.indexOf('if (!root.pickerOnly) root.send({ c: "clipWatch" })') >= 0, true)
     check("PaneWire routes clipboard replies", Source.source("ui/PaneWire.qml").indexOf("Clipboard.receive(pane, message)") >= 0, true)
     check("dual panes share clipboard session", Source.source("ui/WindowBody.qml").indexOf("clipboardState: primaryPane.clipboardState") >= 0, true)
+    var paneSource = Source.source("ui/Pane.qml")
+    check("Pane declares reactive watcher failure", paneSource.indexOf("property bool clipboardWatchFailed: false") >= 0, true)
+    check("Pane passes its watcher failure to menu", paneSource.indexOf("clipboardWatchFailed: root.clipboardWatchFailed") >= 0, true)
+    check("ContextMenu passes watcher failure to entries", Source.source("ui/ContextMenu.qml").indexOf("clipboardWatchFailed: root.clipboardWatchFailed") >= 0, true)
+    var rowSource = Source.source("ui/MenuRow.qml")
+    check("disabled menu rows retain board opacity", rowSource.indexOf("opacity: root.available ? 1 : 0.55") >= 0, true)
+    check("submenu presence controls chevron visibility", rowSource.indexOf("visible: root.isSubmenu") >= 0, true)
 
     p = pane()
     var other = pane()

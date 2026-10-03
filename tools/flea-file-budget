@@ -83,7 +83,7 @@ tests/touchpad.qml 747
 ui/Backend.qml 469
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 477
-ui/ContextMenu.qml 682
+ui/ContextMenu.qml 684
 ui/ConvertDialog.qml 433
 ui/GridArea.qml 411
 ui/Ipc.qml 837

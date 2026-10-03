@@ -37,12 +37,17 @@ function replace(pane, message) {
 
 function pendingEcho(s, message) {
     if (!message.token) return false
+    var paths = message.paths || []
     for (var i = 0; i < s.sets.length; i++) {
         var clip = s.sets[i].clip
-        if (clip.moving !== (message.clip === "cut") || clip.paths.length !== message.paths.length) continue
+        if (clip.moving !== (message.clip === "cut") || clip.paths.length !== paths.length) continue
         var equal = true
-        for (var j = 0; j < clip.paths.length; j++)
-            if (clip.paths[j] !== message.paths[j]) { equal = false; break }
+        for (var j = 0; j < clip.paths.length; j++) {
+            if (clip.paths[j] !== paths[j]) {
+                equal = false
+                break
+            }
+        }
         if (equal) return true
     }
     return false
@@ -79,6 +84,7 @@ function receive(pane, message) {
         }
     } else if (message.op === "changed") {
         var index = s.failed.indexOf(pane.backend)
+        pane.clipboardWatchFailed = !!message.error
         if (message.error) {
             if (index < 0) s.failed.push(pane.backend)
             return

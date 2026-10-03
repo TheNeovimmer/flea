@@ -228,6 +228,7 @@ FocusScope {
     // The cut or copied paths, absolute because a paste lands in a different directory; see ui/js/Ops.js.
     property var clipboard: Ops.emptyClipboard()
     property var clipboardState: Clipboard.state()
+    property bool clipboardWatchFailed: false
     // The mode of an askPaths round trip in flight, or null; nothing reaches the clipboard until it answers.
     property var clipPending: null
     // Which asker a pending paths reply belongs to, null meaning the clipboard, which is what every
@@ -901,6 +902,7 @@ FocusScope {
         openWithLoaded: menuActions.openWithLoaded
         selectionIdentity: root.menuSelectionIdentity
         clipboardAvailable: root.clipboard.paths.length > 0
+        clipboardWatchFailed: root.clipboardWatchFailed
         // MenuAdditions rule 2: the scripts directory is read when a menu opens and never watched.
         // Directive 71: and the devices are asked for then too, the way Taildrop asks for its peers.
         onSnapshotRequested: { menuActions.snapshot(); Flea.Scripts.refresh(); menuActions.localSend.refresh(menu.localSend.installed); root.checkShebang() }

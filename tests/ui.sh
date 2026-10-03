@@ -12889,17 +12889,16 @@ case_previewviews() {
 . "$repo/tests/ui-railpointer.sh"
 . "$repo/tests/ui-openwith-design.sh"
 . "$repo/tests/ui-providers.sh"
-# Two owned Flea windows share the compositor's file clipboard. Fixtures and every removal live
-# under this case's marked root. The detached clipboard owner must survive closing its source
-# window, foreign GTK files must paste, and plain text must leave Paste absent. The native runner
-# on minipc supplies Wayland and wl-clipboard; this case never runs in the headless battery.
+# Native minipc checks two owned windows, surviving owners, GTK files and disabled text-only Paste inside a marked root.
 case_clipboard() {
     command -v wl-copy >/dev/null || fail "clipboard: wl-copy is missing"
     command -v wl-paste >/dev/null || fail "clipboard: wl-paste is missing"
-    local dir="$fixture_root/clipboard" adir bdir apid aid bpid bid types offer start_ns elapsed_ns state
+    local dir="$fixture_root/clipboard" adir bdir textdir apid aid bpid bid types offer start_ns elapsed_ns state
     local cut_clear_deadline_ns=1000000000 offer_read_timeout_s=3
     sandbox_scratch "$dir"
-    adir="$dir/a"; bdir="$dir/b"
+    adir="$dir/a"
+    bdir="$dir/b"
+    textdir="$dir/text-only"
     mkdir -p "$adir" "$bdir"
     printf 'first\n' > "$adir/f1"
     printf 'second\n' > "$adir/f2"
@@ -12912,7 +12911,8 @@ case_clipboard() {
     apid=$(flea_pid) || fail "clipboard: no owned first window"
     aid=$(xwdrag_qsid "$apid") || fail "clipboard: no first instance id"
     xwdrag_launch_second "$bdir"
-    bpid=$XW_SECOND_PID; bid=$XW_SECOND_ID
+    bpid=$XW_SECOND_PID
+    bid=$XW_SECOND_ID
 
     clipboard_press "$apid" -k y
     clipboard_wait "$bid" copy "$adir/f1"
@@ -12927,9 +12927,10 @@ case_clipboard() {
     cmp "$adir/f1" "$bdir/f1" || fail "clipboard: copy differs or removed its source"
     xwdrag_row_point "$bid" "$bpid" f1 >/dev/null || fail "clipboard: copied row never appeared"
     clipboard_press "$bpid" -k m
-    [[ "$(clipboard_ipc "$bid" contextMenuVisible)" == true ]] || fail "clipboard: file menu did not open"
+    clipboard_menu_wait "$bid" true
     [[ "|$(clipboard_ipc "$bid" contextMenuEntries)|" == *"|Paste|"* ]] || fail "clipboard: file copy has no Paste row"
     clipboard_press "$bpid" -k Escape
+    clipboard_menu_wait "$bid" false
     printf 'CLIPBOARD copy ok\n'
 
     clipboard_press "$apid" -k j -k x
@@ -12970,26 +12971,27 @@ case_clipboard() {
     cmp "$adir/f3" "$bdir/f3" || fail "clipboard: surviving copy differs"
     printf 'CLIPBOARD owner-close ok\n'
 
-    printf 'copy\nfile://%s' "$dir/gtk" | timeout 3 wl-copy -t x-special/gnome-copied-files
+    printf 'copy\nfile://%s' "$dir/gtk" | timeout "$offer_read_timeout_s" wl-copy -t x-special/gnome-copied-files \
+        || fail "clipboard: GTK ownership failed"
     clipboard_wait "$bid" copy "$dir/gtk"
     clipboard_press "$bpid" -k p
     xwdrag_wait_path "$bdir/gtk" present || fail "clipboard: GTK copy never arrived"
     cmp "$dir/gtk" "$bdir/gtk" || fail "clipboard: GTK copy differs"
     printf 'CLIPBOARD GTK ok\n'
 
-    timeout 3 wl-copy hello || fail "clipboard: text ownership failed"
+    mkdir -p "$textdir"
+    printf 'unchanged\n' > "$textdir/sentinel"
+    xwdrag_navigate_second "$textdir"
+    timeout "$offer_read_timeout_s" wl-copy hello || fail "clipboard: text ownership failed"
     clipboard_wait "$bid" none ""
     clipboard_press "$bpid" -k m
-    [[ "$(clipboard_ipc "$bid" contextMenuVisible)" == true ]] || fail "clipboard: text-only menu did not open"
-    state=$(clipboard_ipc "$bid" contextMenuEntries) || fail "clipboard: no menu model"
-    [[ "|$state|" != *"|Paste|"* ]] || fail "clipboard: Paste remains for plain text"
+    clipboard_menu_wait "$bid" true
+    state=$(clipboard_ipc "$bid" menuState) || fail "clipboard: no menu model"
+    jq -e 'any(.entries[]; .action == "paste" and .disabled == true)' <<< "$state" >/dev/null \
+        || fail "clipboard: Paste present and disabled"
     clipboard_press "$bpid" -k Escape
-    local before after
-    before=$(find "$bdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-    clipboard_press "$bpid" -k p
-    sleep 0.3
-    after=$(find "$bdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-    [[ "$before" == "$after" && ! -e "$bdir/hello" ]] || fail "clipboard: plain text pasted a file"
+    clipboard_menu_wait "$bid" false
+    clipboard_text_no_paste "$bid" "$bpid" "$textdir"
     printf 'CLIPBOARD text-only ok\n'
     xwdrag_kill_second "$bpid"
     XW_SECOND_PID=""
@@ -13007,6 +13009,31 @@ clipboard_press() {
     addr=$(xwdrag_addr "$pid") || fail "clipboard: no address for $pid"
     [[ -n "$addr" ]] || fail "clipboard: empty address for $pid"
     xwdrag_key "$addr" "$@" >/dev/null || fail "clipboard: key failed for $pid"
+}
+clipboard_menu_wait() {
+    local id="$1" visible="$2" state
+    local menu_wait_timeout_s=5 menu_poll_interval_s=0.05
+    local deadline=$((SECONDS + menu_wait_timeout_s))
+    while (( SECONDS <= deadline )); do
+        state=$(clipboard_ipc "$id" contextMenuVisible) || fail "clipboard: no menu visibility"
+        [[ "$state" == "$visible" ]] && return
+        sleep "$menu_poll_interval_s"
+    done
+    fail "clipboard: menu never became $visible"
+}
+clipboard_text_no_paste() {
+    local id="$1" pid="$2" dest="$3" before after state
+    local observe_timeout_s=2 observe_poll_interval_s=0.05
+    before=$(find "$dest" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort) || fail "clipboard: cannot list text destination"
+    clipboard_press "$pid" -k p
+    local deadline=$((SECONDS + observe_timeout_s))
+    while (( SECONDS <= deadline )); do
+        state=$(clipboard_ipc "$id" collideState) || fail "clipboard: no collision state"
+        jq -e '.opened == false' <<< "$state" >/dev/null || fail "clipboard: plain text opened a collision card"
+        after=$(find "$dest" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort) || fail "clipboard: cannot list text destination"
+        [[ "$before" == "$after" && ! -e "$dest/hello" ]] || fail "clipboard: plain text pasted a file"
+        sleep "$observe_poll_interval_s"
+    done
 }
 clipboard_wait() {
     local id="$1" kind="$2" path="$3" deadline=$((SECONDS + 5)) state

@@ -32,6 +32,7 @@ Item {
     property bool canConvert: false
     property bool canExtract: false
     property bool clipboardAvailable: false
+    property bool clipboardWatchFailed: false
     // Whether the cursor row is a file, an archive, an image; all decided client-side. Only a file row takes send peers.
     property bool rowIsFile: false
     property bool rowIsArchive: false
@@ -174,6 +175,7 @@ Item {
             canConvert: root.canConvert,
             canExtract: root.canExtract,
             clipboardAvailable: root.clipboardAvailable,
+            clipboardWatchFailed: root.clipboardWatchFailed,
             canTrash: root.canTrash,
             canLink: root.canLink,
             dirWritable: root.dirWritable,

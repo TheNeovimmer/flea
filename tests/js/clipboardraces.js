@@ -21,6 +21,19 @@ function mirror(first, second) {
 
 function run(check, pane, changed, watchError) {
     var p = pane()
+    Ops.clip(p, false, ["/missing-paths/local"])
+    var selectionError = ""
+    try {
+        Clipboard.receive(p, {op: "changed", clip: "none", token: "foreign-text"})
+    } catch (error) {
+        selectionError = String(error)
+    }
+    check("token-without-paths: pending copy accepts text selection", selectionError, "")
+    check("token-without-paths: text selection clears local files", p.clipboard.paths.length, 0)
+    acknowledge(p, "local-files")
+    check("token-without-paths: acknowledgement cannot revive files", p.clipboard.paths.length, 0)
+
+    p = pane()
     Ops.clip(p, false, ["/delayed/a"])
     acknowledge(p, "owned-a")
     Ops.clip(p, true, ["/delayed/b"])
