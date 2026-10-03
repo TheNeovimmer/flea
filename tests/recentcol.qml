@@ -22,12 +22,13 @@ Item {
     Flea.Row { id: search; width: recent.width; row: root.file; searchQuery: "notes"; hiddenCols: [] }
     Flea.Row { id: plain; width: recent.width; row: root.file; hiddenCols: [] }
 
-    // Find drawn text by value and type, without relying on a new production seam.
+    // Count built Location texts independently of their value and visibility; look up drawn texts separately.
     function texts(row, walk) {
-        var out = {name: null, location: null}
+        var out = {name: null, location: null, locations: 0}
         walk(row, function (o) {
             if (String(o).indexOf("MatchText") === 0 && o.visible && o.text === row.decoratedName) out.name = o
-            if (o.elide !== undefined && o.text === row.locationText && row.locationText.length > 0) out.location = o
+            if (o.elide === Text.ElideLeft) out.locations += 1
+            if (o.visible && o.elide !== undefined && o.text === row.locationText && row.locationText.length > 0) out.location = o
         })
         return out
     }
@@ -42,6 +43,7 @@ Item {
         check("Recent header names its drawn columns", header.columnSet(), "name,location,size,date")
         check("Recent row names its drawn columns", recent.columnSet(), header.columnSet())
         check("Recent exposes its Location header", h !== null, true)
+        check("Location header is visible with non-zero width", h !== null && h.visible && h.width > 0, true)
         check("Recent builds its name and location", r.name !== null && r.location !== null, true)
         if (r.name && r.location) {
             var locationX = r.location.mapToItem(recent, 0, 0).x
@@ -76,6 +78,7 @@ Item {
         check("Narrow Recent header and row agree", narrow.columnSet(), narrowHeader.columnSet())
         check("Narrow Recent titles omit Location", narrowHeader.titles(), "Name|Size|Used")
         check("Narrow Recent draws no location", n.location ? n.location.visible && n.location.width > 0 : false, false)
+        check("Narrow Recent draws its name", n.name !== null && n.name.visible, true)
         if (n.name) check("Narrow Recent name fills the available slot", n.name.width, narrow.cell("size").x - n.name.mapToItem(narrow, 0, 0).x - Flea.Theme.spacing.gap)
         check("Search builds both path texts", s.name !== null && s.location !== null, true)
         if (s.name && s.location) {
@@ -83,7 +86,7 @@ Item {
             check("Search location follows its name", s.location.x, s.name.width + Flea.Theme.spacing.gap)
             check("Search location keeps head elision", s.location.elide, Text.ElideLeft)
         }
-        check("Ordinary row builds no location text", root.texts(plain, walk).location, null)
+        check("Ordinary row builds no location text", root.texts(plain, walk).locations, 0)
         console.log("RECENTCOL floor=" + root.locationFloor + " row-width; pane-floor=" + (root.locationFloor + Flea.Theme.spacing.rowPaddingX))
     }
 }
