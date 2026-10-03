@@ -3709,7 +3709,8 @@ case_reload() {
     held_pid=${held_pid# }
     [[ "$held_pid" =~ ^[0-9]+$ ]] || fail "reload: expected one flea --backend child of qs $qs_pid to hold, found '$held_pid'"
     before=$(ipc listRequests)
-    trap 'kill -CONT "$held_pid" 2>/dev/null || true' EXIT
+    # The pid is expanded here because the trap runs after this function's locals are gone.
+    trap "kill -CONT $held_pid 2>/dev/null || true" EXIT
     kill -STOP "$held_pid" || fail "reload: could not stop backend $held_pid, so the watcher would report the change first"
     : > "$dir/b.txt"
     key -k F5 >/dev/null
@@ -3717,6 +3718,7 @@ case_reload() {
     held_requests=$(ipc listRequests)
     held_inflight=$(ipc listInFlight)
     kill -CONT "$held_pid" || fail "reload: could not resume backend $held_pid"
+    trap - EXIT
     [[ "$held_requests" == "$((before + 1))" && "$held_inflight" == true ]] \
         || fail "reload: with the backend held F5 sent $before to $held_requests list requests, in flight $held_inflight, want one unanswered request"
     settle
