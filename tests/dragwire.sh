@@ -170,5 +170,84 @@ else
     bad "the receiver's asynchronous read self-check failed"
 fi
 
+# The failed-read evidence line and the after-drop line of tests/drag.sh, read against stub observers (that suite itself needs the display).
+evidence_pid=4242
+# Sample input: tests/drag.sh function bodies, each from its name line to the closing brace on a line of its own.
+eval "$(sed -n '/^evidence_json()/,/^}/p;/^expect_evidence()/,/^}/p;/^after_drop_line()/,/^}/p' tests/drag.sh)"
+MYPID=$evidence_pid
+# Sample input, ipc statusActivityState: {"activities":[{"id":0,"text":"Copy 2 items to a","running":false}],"errors":0,"notice":""}
+ipc() {
+    case "$1" in
+        statusActivityState) printf '%s\n' '{"activities":[{"id":0,"text":"Copy 2 items to a","running":false}],"errors":0,"notice":"","undoAvailable":false}' ;;
+        dualState) printf '%s\n' '{"active":false,"focused":0,"panes":[{"path":"/home/p"}]}' ;;
+        path) printf '%s\n' /home/p ;;
+        tabCount) printf '%s\n' 2 ;;
+        tabIndex) printf '%s\n' 1 ;;
+        collideState) return 3 ;;
+        *) printf '\n' ;;
+    esac
+}
+# Sample input, hyprctl clients -j: [{"pid": 4242, "address": "0xabc", "at": [12, 42], "size": [2536, 1386], "floating": false, "focusHistoryID": 0}]
+hyprctl() {
+    case "$1" in
+        clients) printf '%s\n' '[{"pid":4242,"address":"0xabc","at":[12,42],"size":[2536,1386],"floating":false,"focusHistoryID":0},{"pid":7,"address":"0xdef"}]' ;;
+        activewindow) printf '%s\n' '{"address":"0xabc","class":"flea","title":"x"}' ;;
+    esac
+}
+evidence=$(expect_evidence lastMessage 'Copied 2 items · z undoes' '')
+# Sample input: 'DRAG_EXPECT_FAIL {"reader":"lastMessage",...}', one line, JSON after the prefix.
+if [ "$(printf '%s\n' "$evidence" | wc -l)" -eq 1 ] && [ "${evidence%% *}" = DRAG_EXPECT_FAIL ] \
+    && printf '%s\n' "${evidence#DRAG_EXPECT_FAIL }" | jq -e '
+        .reader == "lastMessage" and .observed == ""
+        and .statusActivityState.notice == "" and .statusActivityState.errors == 0
+        and (.statusActivityState.activities | length) == 1
+        and .path == "/home/p" and .tabCount == 2 and .tabIndex == 1 and .dualState.focused == 0
+        and (.collideState | test("observer exit 3"))
+        and (.clients | length) == 1 and .clients[0].address == "0xabc" and .clients[0].floating == false
+        and .clients[0].focus == 0 and .clients[0].at == [12, 42] and .clients[0].size == [2536, 1386]
+        and .activeWindow.class == "flea"' >/dev/null; then
+    ok "a failed read prints one JSON line with the transfer, status, tab, pane and window facts"
+else
+    bad "the failed-read evidence is not one complete JSON line: $evidence"
+fi
+after=$(after_drop_line)
+# Sample input: 'DRAG_R9_AFTER_DROP {"notice":"","errors":0,"running":[false],"currentPane":0,...}'.
+if [ "$(printf '%s\n' "$after" | wc -l)" -eq 1 ] && [ "${after%% *}" = DRAG_R9_AFTER_DROP ] \
+    && printf '%s\n' "${after#DRAG_R9_AFTER_DROP }" | jq -e '
+        .notice == "" and .errors == 0 and .running == [false] and .currentPane == 0
+        and .path == "/home/p" and .tabIndex == "1"' >/dev/null; then
+    ok "the after-drop line carries the notice and the current pane"
+else
+    bad "the after-drop line is not one complete JSON line: $after"
+fi
+# Sample input: expect_ipc's body, whose two die calls (observer failure, mismatch) each follow the evidence call.
+if sed -n '/^expect_ipc()/,/^}/p' tests/drag.sh | awk '
+        /die "/ { dies++; if (previous !~ /expect_evidence/ && $0 !~ /expect_evidence/) unprinted++ }
+        { previous = $0 }
+        END { exit !(dies == 2 && unprinted == 0) }'; then
+    ok "expect_ipc prints the evidence line before each of its two failures"
+else
+    bad "expect_ipc must call expect_evidence before each die"
+fi
+# Sample input: the lines around the call in cross_view_pair, release then the line then the file wait.
+around=$(sed -n '/^cross_view_pair()/,/^}/p' tests/drag.sh | grep -B1 -A1 -x '[[:space:]]*after_drop_line' | sed 's/^[[:space:]]*//')
+if [ "$around" = $'release; ctrl_up\nafter_drop_line\npair_result "$source" "$drop" "$name" Copy' ]; then
+    ok "the after-drop line is read right after the release and before the file wait"
+else
+    bad "after_drop_line must sit between the commit release and its pair_result, got: $around"
+fi
+
+# Sample input, tests/drag.sh: cleanup_drop_events='wl_data_(device|source)#[0-9]+\.(drop|...)'.
+eval "$(grep '^cleanup_drop_events=' tests/drag.sh)"
+# Sample input, WAYLAND_DEBUG: '[06:32:03.100000] {Default Queue} wl_data_source#80.dnd_finished()' and the request 'wl_data_device#6.start_drag(...)'.
+drop_events=$(printf '%s\n' '[1.0] {Default Queue} wl_data_device#6.drop()' '[1.1] {Default Queue} wl_data_source#80.dnd_finished()' \
+    '[1.2] {Default Queue} wl_data_source#80.cancelled()' '[1.3] {Default Queue}  -> wl_data_device#6.start_drag(wl_data_source#80)' \
+    | grep -c -E "${cleanup_drop_events:-unset}")
+if [ "$drop_events" -eq 3 ]; then
+    ok "the teardown keeps the compositor's drop, finished and cancelled events and not the lift request"
+else
+    bad "cleanup_drop_events must match drop, dnd_finished and cancelled only, matched $drop_events of 3"
+fi
+
 printf 'dragwire: %s check(s), %s failed\n' "$((pass + fail))" "$fail"
 [ "$fail" -eq 0 ]

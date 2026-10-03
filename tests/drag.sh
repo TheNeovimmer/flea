@@ -25,10 +25,17 @@ RECV_PID=""
 RECV_PIDS=()
 declare -A RECV_REAPED=()
 pointer_tolerance=4
+hyprland_instance_lines=1
+receiver_stderr_lines=5
+outbound_data_device_lines=25
+cleanup_stderr_lines=80
+cleanup_drop_event_lines=40
+# Whether the compositor delivered the drop and the source heard dnd_finished or a cancel.
+cleanup_drop_events='wl_data_(device|source)#[0-9]+\.(drop|dnd_drop_performed|dnd_finished|cancelled)'
 
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
 export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-1}
-export HYPRLAND_INSTANCE_SIGNATURE=$(ls -t "$XDG_RUNTIME_DIR"/hypr/ | head -1)
+export HYPRLAND_INSTANCE_SIGNATURE=$(ls -t "$XDG_RUNTIME_DIR"/hypr/ | head -n "$hyprland_instance_lines")
 export YDOTOOL_SOCKET=$XDG_RUNTIME_DIR/.ydotool_socket
 
 ok()   { printf 'ok   %s\n' "$*"; pass=$((pass+1)); }
@@ -38,8 +45,10 @@ note() { printf '     %s\n' "$*"; }
 outbound_evidence() {
   grep -q 'body<<' "$RECV_LOG" && return 0
   note "receiver log: $(tr '\n' '|' < "$RECV_LOG")"
-  note "receiver stderr: $(tail -5 "$1" 2>/dev/null | tr '\n' '|')"
-  grep -E 'wl_data_(source|offer|device)' "$SB/flea.log" | tail -25 | while IFS= read -r line; do note "$line"; done
+  note "receiver stderr: $(tail -n "$receiver_stderr_lines" "$1" 2>/dev/null | tr '\n' '|')"
+  grep -E 'wl_data_(source|offer|device)' "$SB/flea.log" | tail -n "$outbound_data_device_lines" | while IFS= read -r line; do
+    note "$line"
+  done
 }
 check() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1"; note "expected [$3]"; note "got      [$2]"; fi; }
 die() { bad "$*"; exit 1; }
@@ -246,7 +255,8 @@ cleanup() {
     # WAYLAND_DEBUG traces every request. Keep the drag facts and the application's own lines.
     if grep -q '^\[' "$SB/flea.log"; then
       grep -E 'origin window|start_drag' "$SB/flea.log" || true
-      grep -v -E '^\[' "$SB/flea.log" | tail -80
+      grep -E "$cleanup_drop_events" "$SB/flea.log" | tail -n "$cleanup_drop_event_lines" || true
+      grep -v -E '^\[' "$SB/flea.log" | tail -n "$cleanup_stderr_lines"
     else
       cat -- "$SB/flea.log"
     fi
@@ -319,13 +329,48 @@ native_key() {
   omarchy-drive key --window flea "$@" || result=$?
   (( result == 0 )) || die "native key delivery failed with status $result: $*"
 }
+# Sample input: '{"notice":""}' stays JSON; '/home/x' or an observer error becomes one JSON string.
+evidence_json() {
+  if [[ -n "$1" ]] && jq -e type >/dev/null 2>&1 <<< "$1"; then printf '%s' "$1"; else jq -Rn --arg text "$1" '$text'; fi
+}
+
+# Sample output: DRAG_EXPECT_FAIL {"reader":"lastMessage","expected":"Copied 2 items · z undoes","observed":"","statusActivityState":{"notice":""},...}
+# One line of every transfer, status bar, tab and window fact the seam can read, printed only when a read fails and never fatal.
+expect_evidence() {
+  local reader value clients active args=()
+  for reader in statusActivityState statusFooterState collideState dualState keyDeliveryState path tabCount tabIndex \
+                lastMessage stickyMessage statusPrimary statusError; do
+    value=$(ipc "$reader") || value="observer exit $?: $value"
+    args+=(--argjson "$reader" "$(evidence_json "$value")")
+  done
+  clients=$(hyprctl clients -j 2>&1 | jq -c --argjson pid "${MYPID:-0}" \
+    '[.[] | select(.pid == $pid) | {address, at, size, floating, focus: .focusHistoryID}]' 2>&1) || clients="hyprctl clients failed: $clients"
+  active=$(hyprctl activewindow -j 2>&1 | jq -c '{address, class}' 2>&1) || active="hyprctl activewindow failed: $active"
+  args+=(--argjson clients "$(evidence_json "$clients")" --argjson activeWindow "$(evidence_json "$active")")
+  printf 'DRAG_EXPECT_FAIL %s\n' "$(jq -nc --arg reader "$1" --arg expected "$2" --arg observed "$3" '$ARGS.named' "${args[@]}" 2>&1)"
+}
+
+# One line straight after a release: a notice that came and went reads differently from one never said.
+after_drop_line() {
+  local state dual path tab
+  state=$(ipc statusActivityState) || state="observer exit $?: $state"
+  dual=$(ipc dualState) || dual="observer exit $?: $dual"
+  path=$(ipc path) || path="observer exit $?: $path"
+  tab=$(ipc tabIndex) || tab="observer exit $?: $tab"
+  printf 'DRAG_R9_AFTER_DROP %s\n' "$(jq -nc --argjson state "$(evidence_json "$state")" --argjson dual "$(evidence_json "$dual")" \
+    --arg path "$path" --arg tab "$tab" \
+    '{notice: ($state.notice? // null), errors: ($state.errors? // null), running: [$state | try .activities[].running catch empty],
+      currentPane: ($dual.focused? // null), path: $path, tabIndex: $tab}' 2>&1)"
+}
+
 expect_ipc() {
   local reader="$1" expected="$2" observed attempt
   for ((attempt=1; attempt<=40; attempt++)); do
-    observed=$(ipc "$reader") || die "native observer failed: $reader"
+    observed=$(ipc "$reader") || { expect_evidence "$reader" "$expected" "$observed"; die "native observer failed: $reader"; }
     if [[ "$observed" == "$expected" ]]; then ok "$reader = $expected"; return; fi
     sleep 0.25
   done
+  expect_evidence "$reader" "$expected" "$observed"
   die "$reader expected [$expected], observed [$observed]"
 }
 
@@ -1159,6 +1204,7 @@ cross_view_pair() {
       fi
       owned_path "$source/$name-a.txt"; owned_path "$source/$name-b.txt"; owned_path "$drop"
       release; ctrl_up
+      after_drop_line
       pair_result "$source" "$drop" "$name" Copy
       expect_feedback "" ""
     fi
