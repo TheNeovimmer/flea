@@ -271,6 +271,8 @@ Item {
 
     TapHandler {
         acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+        // Overlay taps take the grab so the covered listing cannot select the same click.
+        gesturePolicy: ViewState.railAutoHide ? TapHandler.ReleaseWithinBounds : TapHandler.DragThreshold
         onTapped: function (eventPoint, button) {
             // The field owns clicks inside itself while editing; this only covers the rest of the row.
             if (root.renaming)

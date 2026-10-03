@@ -77,7 +77,8 @@ function steps(root, pane, state, theme) {
 
 function clicks(root, pane, mode) {
     var at = 0
-    function row() { return pane.visibleItemFor(root.indexOf("a.txt")) }
+    var name = "renamed.txt"
+    function row() { return pane.visibleItemFor(root.indexOf(name)) }
     function settled() { return Date.now() - at > Qt.styleHints.mouseDoubleClickInterval + 100 }
     function blank() {
         var item = row(), label = item.captionItem || item.nameItem()
@@ -93,14 +94,14 @@ function clicks(root, pane, mode) {
         },
         function () {
             if (!row()) return false
-            root.clickName("a.txt")
+            root.clickName(name)
             at = Date.now()
             return true
         },
-        function () { if (!settled()) return false; root.clickName("a.txt"); at = Date.now(); return true },
+        function () { if (!settled()) return false; root.clickName(name); at = Date.now(); return true },
         function () {
             if (!settled()) return false
-            root.check("slow-click-" + mode + ": second name click renames", pane.renamingIndex, root.indexOf("a.txt"))
+            root.check("slow-click-" + mode + ": second name click renames", pane.renamingIndex, root.indexOf(name))
             pane.renamingIndex = -1
             pane.cancelSlowClick()
             return true

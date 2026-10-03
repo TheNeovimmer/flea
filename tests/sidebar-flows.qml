@@ -219,7 +219,9 @@ ShellRoot {
         function () {
             var rail = root.find(pane, "PaneRail")
             if (!rail) throw new Error("No real PaneRail")
-            driver.mouseMove(pane, 1, 80, Qt.NoButton, Qt.NoModifier, 1)
+            // mouseMove takes delay before buttons and modifiers.
+            check("autohide-click: six-argument mouseMove reaches the real pane",
+                  driver.mouseMove(pane, 1, 80, 1, Qt.NoButton, Qt.NoModifier), true)
             return true
         },
         function () {
