@@ -374,11 +374,12 @@ expect_ipc() {
   die "$reader expected [$expected], observed [$observed]"
 }
 
-r5_state() {
-  local phase="$1" reader value
-  for reader in tabCount tabIndex tabLabels path keyDeliveryState pathBarOpen; do
-    value=$(ipc "$reader") || die "R5 $phase observer failed: $reader: $value"
-    printf 'DRAG_R5 phase=%s reader=%s value=%q\n' "$phase" "$reader" "$value"
+# Sample output: DRAG_R7 phase=before-Return reader=pathBarText value=/dev/shm/flea-drag-xdev-AbCdEf/big
+walk_state() {
+  local leg="$1" phase="$2" reader value
+  for reader in tabCount tabIndex tabLabels path keyDeliveryState pathBarOpen pathBarText lastMessage statusError; do
+    value=$(ipc "$reader") || die "$leg $phase observer failed: $reader: $value"
+    printf 'DRAG_%s phase=%s reader=%s value=%q\n' "$leg" "$phase" "$reader" "$value"
   done
 }
 
@@ -733,26 +734,26 @@ r5_floor_point=""
 # on the empty floor under the rows. The marker resolves the drop by path, because after the switch
 # the row indices name bbb's own rows; a same-filesystem move is what a plain drag means.
 export PATH="$HOME/.local/bin:$PATH"
-r5_state before-t
+walk_state R5 before-t
 expect_ipc tabCount 1
 expect_ipc tabIndex 0
 native_key t
-r5_state after-t
+walk_state R5 after-t
 expect_ipc tabCount 2
 expect_ipc tabIndex 1
 native_key :
 expect_ipc pathBarOpen true
 native_key "$HOMEDIR/bbb"
-r5_state before-Return
+walk_state R5 before-Return
 native_key -k Return
-r5_state after-Return
+walk_state R5 after-Return
 expect_ipc pathBarOpen false
 expect_ipc path "$HOMEDIR/bbb"
 expect_ipc listInFlight false
 check "the second tab shows bbb" "$(ipc path)" "$HOMEDIR/bbb"
-r5_state before-tab-click
+walk_state R5 before-tab-click
 native_tab 0
-r5_state after-tab-click
+walk_state R5 after-tab-click
 expect_ipc tabIndex 0
 expect_ipc path "$HOMEDIR"
 expect_ipc listInFlight false
@@ -865,7 +866,9 @@ check "the third tab is current" "$(ipc tabIndex)" "$r7_tmpfs_tab"
 native_key :
 expect_ipc pathBarOpen true
 native_key "$XDEV/big"
+walk_state R7 before-Return
 native_key -k Return
+walk_state R7 after-Return
 expect_ipc pathBarOpen false
 expect_ipc path "$XDEV/big"
 expect_ipc listInFlight false
