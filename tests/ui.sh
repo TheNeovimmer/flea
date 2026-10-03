@@ -10205,7 +10205,7 @@ EOS
         || fail "recent: the newest visited bookmark is not first: $(ipc rowAt 0)"
     [[ "$(ipc rowAt 1)" == *"/beta.txt|file|"* ]] \
         || fail "recent: the older visited bookmark is not second: $(ipc rowAt 1)"
-    [[ "$(ipc rowAt 2)" == *"$deep/gamma.txt|file|"* ]] \
+    [[ "$(ipc rowAt 2)" == *"${deep#/}/gamma.txt|file|"* ]] \
         || fail "recent: the oldest visited bookmark with a deep location is not third: $(ipc rowAt 2)"
     shot recent-listing
 
