@@ -37,6 +37,7 @@ done
 python3 - "$box" "$repo" <<'PY'
 import pathlib
 import re
+import shlex
 import sys
 
 root = pathlib.Path(sys.argv[1])
@@ -70,23 +71,68 @@ for package in ("root", "flea", "flea-git", "flea-bin"):
             if not valid:
                 failures += 1
                 print(f"FAIL {package}: {module.relative_to(ui)} imports missing {relative}")
-# Sample inputs: `  install -Dm644 ui/js/*.js ui/js/*.mjs -t "$pkgdir/usr/share/flea/ui/js"` in package(); `"$repo"/ui/js/*.mjs` in the tarball script.
+# Sample input: `install -Dm644 "$repo"/ui/js/*.js "$repo"/ui/js/*.mjs -t "$root/ui/js"` gives (["$repo/ui/js/*.js", "$repo/ui/js/*.mjs"], "$root/ui/js", True).
+def install_statements(text):
+    statements = []
+    for line in re.sub(r"\\\n\s*", " ", text).splitlines():
+        if line.split()[:1] != ["install"]:
+            continue
+        words = shlex.split(line, comments=True)
+        sources, destination, directory, args = [], None, False, words[1:]
+        while args:
+            word = args.pop(0)
+            if word == "-t":
+                destination, directory = args.pop(0), True
+            elif not word.startswith("-"):
+                sources.append(word)
+        if destination is None:
+            destination = sources.pop()
+        statements.append((sources, destination, directory))
+    return statements
+
+# A path the tarball script stages, relative to its $root: the -t directory plus the source's basename pattern, or the file named last.
+def staged_paths(text):
+    staged = set()
+    for sources, destination, directory in install_statements(text):
+        if destination != "$root" and not destination.startswith("$root/"):
+            continue
+        relative = destination.removeprefix("$root").strip("/")
+        if not directory:
+            staged.add(relative)
+        else:
+            staged.update(f"{relative}/{source.rsplit('/', 1)[1]}".lstrip("/") for source in sources if source.startswith("$repo/"))
+    return staged
+
 repo = pathlib.Path(sys.argv[2])
 body = re.search(r'^package\(\) \{\n(.*?)^\}', (repo / "packaging/flea-bin/PKGBUILD").read_text(), re.S | re.M).group(1)
-installed = [token for line in body.splitlines() if line.split()[:1] == ["install"]
-             for token in line.split()[1:] if not token.startswith(("-", '"$pkgdir'))]
-staged = {token.replace('"', "").removeprefix("$repo/")
-          for token in (repo / "packaging/flea-bin-tarball").read_text().split() if token.startswith('"$repo')}
+required = [source for sources, _, _ in install_statements(body) for source in sources]
+tarball = (repo / "packaging/flea-bin-tarball").read_text()
 checks += 1
-if "ui/qmldir" not in installed:
+if "ui/qmldir" not in required:
     failures += 1
     print("FAIL flea-bin: no install path could be read from package()")
-# The binary is the one path the tarball script stages from its own first argument.
-for source in (path for path in installed if path != "flea"):
+staged = staged_paths(tarball)
+# The binary is staged from the script's first argument to $root/flea, so package()'s flea is asserted like any other path.
+for source in required:
     checks += 1
     if source not in staged:
         failures += 1
-        print(f"FAIL flea-bin: package() installs {source}, which packaging/flea-bin-tarball does not stage")
+        print(f"FAIL flea-bin: package() installs {source}, which packaging/flea-bin-tarball does not stage there")
+# Red controls: a doctored copy of the script text must report exactly the path it broke, and nothing else.
+vendor = 'install -Dm644 "$repo"/ui/vendor/*.mjs -t "$root/ui/vendor"'
+controls = [
+    ("vendor modules staged in ui/js", tarball.replace(vendor, vendor.replace("$root/ui/vendor", "$root/ui/js")), "ui/vendor/*.mjs"),
+    ("ui/js/*.mjs token deleted", tarball.replace(' "$repo"/ui/js/*.mjs', "", 1), "ui/js/*.mjs"),
+    ("vendor install turned into a comment", tarball.replace(vendor, "# " + vendor), "ui/vendor/*.mjs"),
+]
+for label, doctored, expected in controls:
+    checks += 1
+    reported = [source for source in required if source not in staged_paths(doctored)]
+    if doctored == tarball or reported != [expected]:
+        failures += 1
+        print(f"FAIL control {label}: reported {reported}, want only {expected}")
+    else:
+        print(f"control {label}: reported only {expected}, as a broken script must")
 checks += 1
 if (root / "root.licenses").read_text() != (root / "flea.licenses").read_text():
     failures += 1

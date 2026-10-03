@@ -88,7 +88,7 @@ package() {
   install -Dm644 ui/js/*.js ui/js/*.mjs -t "$pkgdir/usr/share/flea/ui/js"
   install -Dm644 ui/vendor/*.mjs -t "$pkgdir/usr/share/flea/ui/vendor"
   install -Dm644 ui/vendor/LICENSES/* -t "$pkgdir/usr/share/flea/ui/vendor/LICENSES"
-  # The two Quickshell entries, in their own directory so ui/qmldir's singletons stay off the startup path.
+  # The shell, the picker and the two tab tear-off windows, in their own directory so ui/qmldir's singletons stay off the startup path.
   install -Dm644 ui/boot/shell.qml ui/boot/picker.qml ui/boot/fleatab.qml ui/boot/tabtearoff.qml -t "$pkgdir/usr/share/flea/ui/boot"
   # B1: the bar plugin ships as data too, and Flea's own Enable shelf switch copies it from here into
   # the user's plugin directory. The folder is flat, which is what src/shelfplugin.rs installs.
