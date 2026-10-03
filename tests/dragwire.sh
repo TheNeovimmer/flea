@@ -1,10 +1,5 @@
 #!/bin/bash
-# Guards what an external application sees when Flea drags out. tests/drag.sh proves the
-# gesture but needs the display and a real pointer, so it never runs in the headless battery.
-# A plain file lift offers copy alone until the browser-upload work settles the offer: a browser
-# uploader refuses a move offer. Ctrl offers copy alone, Shift move alone, Ctrl with Shift link
-# alone, so a receiver that takes whatever is offered still takes the lift's verb. The shelf drag
-# stays copy only. A tab drag offers Move alone with only the private tab type, so a foreign app refuses it.
+# Headless guard for what an external drop target sees, unlike tests/drag.sh which needs a display: plain offers copy alone since a browser uploader refuses a move, Ctrl copy, Shift move, Ctrl with Shift link, shelf copy only, a tab drag Move alone with only the private tab type.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 

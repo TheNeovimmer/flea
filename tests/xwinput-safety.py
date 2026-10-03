@@ -3,6 +3,7 @@
 import os
 import pathlib
 import re
+import shlex
 import subprocess
 import tempfile
 
@@ -103,7 +104,7 @@ fi
     driver.chmod(0o700)
     environment = dict(os.environ, PATH=str(scratch) + os.pathsep + os.environ['PATH'],
                        DRIVER_CALLS=str(calls), DRIVER_REFUSE_ADDRESS='false')
-    doubles = r'''
+    doubles = '. ' + shlex.quote(str(ROOT / 'tests/lib/hypr-dispatch.sh')) + '\n' + r'''
 apid=101
 bpid=202
 bid=second
@@ -115,6 +116,7 @@ fail() {
     exit 1
 }
 assert_focus() { :; }
+xwdrag_assert_focus() { printf 'assert-focus %s\n' "$1" >> "$DRIVER_CALLS"; }
 sleep() { :; }
 xwtab_tab_point() { printf '348 121\n'; }
 xwdrag_geometry() { printf '40 80 1000 720\n'; }
@@ -126,8 +128,9 @@ hyprctl() {
     if [[ "$1" == clients ]]; then
         [[ "$xwtab_button_down" != true ]] || fail "address lookup while button held"
         printf '%s\n' '[{"pid":101,"address":"0xa"},{"pid":202,"address":"0xb"}]'
-    elif [[ "$1" == dispatch ]]; then
+    else
         [[ "$xwtab_button_down" != true ]] || fail "focus changed while button held"
+        printf 'ok\n'
     fi
 }
 xwdrag_wait_focus() { :; }
@@ -146,9 +149,10 @@ xwdrag_qs() {
     for name, body, invocation, expected in (
             ('held Escape', escape, 'escape_case', ['key --window 0xa -k Escape']),
             ('second-window navigation', navigation, 'xwdrag_navigate_second "$want"',
-             ['key --window 0xb -M ctrl -k l -m ctrl', 'key --window 0xb /fixture',
-              'key --window 0xb -k Return']),
-            ('second-window undo', undo, 'undo_case', ['key --window 0xb -M ctrl -k z -m ctrl'])):
+             ['key --window 0xb -M ctrl -k l -m ctrl', 'assert-focus 202', 'key --window 0xb /fixture',
+              'assert-focus 202', 'key --window 0xb -k Return', 'assert-focus 202']),
+            ('second-window undo', undo, 'undo_case',
+             ['key --window 0xb -M ctrl -k z -m ctrl', 'assert-focus 202'])):
         for refuse_address in ('false', 'true'):
             calls.write_text('')
             environment['DRIVER_REFUSE_ADDRESS'] = refuse_address
@@ -163,6 +167,25 @@ xwdrag_qs() {
             else:
                 check(name + ' fails loudly on delivery refusal',
                       result.returncode != 0 and 'FAIL' in result.stdout and actual == expected[:1], detail)
+
+    # A compositor that answers an exit-zero warning must stop the key before it reaches a window.
+    calls.write_text('')
+    environment['DRIVER_REFUSE_ADDRESS'] = 'false'
+    refused_focus = doubles + '\n' + helpers + r'''
+hyprctl() {
+    if [[ "$1" == clients ]]; then
+        printf '%s\n' '[{"pid":202,"address":"0xb"}]'
+    else
+        printf 'warning: =[C]:-1: hl.focus: window not found\n'
+    fi
+}
+xwtab_key 202 -k Return
+'''
+    result = subprocess.run(['bash', '-uc', refused_focus], cwd=ROOT, capture_output=True,
+                            text=True, env=environment, timeout=SHELL_TIMEOUT_SECONDS)
+    check('key helper refuses a focus the compositor answered with a warning',
+          result.returncode != 0 and 'FAIL xwtab: could not focus 202' in result.stdout
+          and calls.read_text() == '', result.stdout + result.stderr)
 
     # Scan only multi-window bodies; opentab and tabdrag keep one window throughout.
     bodies = {'xwtab after second launch': function('case_xwtab').split('    xwdrag_launch_second', 1)[1],

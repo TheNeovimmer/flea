@@ -15,7 +15,10 @@ flea_bin="${FLEA_BIN:-$(command -v flea || true)}"
 [ -n "$flea_bin" ] || refuse "no flea binary (set FLEA_BIN)"
 flea_ui="${FLEA_UI:-$(cd "$(dirname "$0")/../../ui" && pwd)}"
 [ -f "$flea_ui/boot/shell.qml" ] || refuse "no Flea ui at $flea_ui (set FLEA_UI)"
-probe_py="$(cd "$(dirname "$0")/.." && pwd)/xwtab_free_point.py"
+repo="$(cd "$(dirname "$0")/../.." && pwd)"
+[ -f "$repo/tests/lib/hypr-dispatch.sh" ] || refuse "no typed Hyprland helper at $repo/tests/lib/hypr-dispatch.sh"
+. "$repo/tests/lib/hypr-dispatch.sh"
+probe_py="$repo/tests/xwtab_free_point.py"
 [ -f "$probe_py" ] || refuse "no free-point helper at $probe_py"
 verdict_sh="$(dirname "$0")/layer-drop-verdict.sh"
 [ -f "$verdict_sh" ] || refuse "no verdict helper at $verdict_sh"
@@ -143,7 +146,7 @@ print(c["at"][0], c["at"][1], c["size"][0], c["size"][1], str(bool(c.get("floati
 
 layerdrop_focus() {
     local i active
-    hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null || refuse "could not focus probe window"
+    hypr_window_focus "$addr" || refuse "could not focus probe window"
     for i in $(seq 1 "$layerdrop_settle_attempts"); do
         # Sample input: {"address":"0xa","pid":101,"class":"flea"} from hyprctl activewindow -j.
         active=$(hyprctl activewindow -j 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("address", ""))' || true)
@@ -157,7 +160,7 @@ layerdrop_focus
 source_rect=$(layerdrop_rect) || refuse "no initial probe geometry"
 read -r wx wy ww wh floating <<< "$source_rect"
 if [ "$floating" != True ]; then
-    hyprctl dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$addr\" })" >/dev/null || refuse "could not float probe window"
+    hypr_window_float "$addr" on || refuse "could not float probe window"
 fi
 floated=""
 for _ in $(seq 1 "$layerdrop_settle_attempts"); do
@@ -167,8 +170,8 @@ for _ in $(seq 1 "$layerdrop_settle_attempts"); do
     sleep "$layerdrop_settle_poll"
 done
 [ -n "$floated" ] || refuse "probe window never floated"
-hyprctl dispatch "hl.dsp.window.resize({ x = $layerdrop_park_w, y = $layerdrop_park_h, relative = false, window = \"address:$addr\" })" >/dev/null || refuse "could not resize probe window"
-hyprctl dispatch "hl.dsp.window.move({ x = $layerdrop_park_x, y = $layerdrop_park_y, relative = false, window = \"address:$addr\" })" >/dev/null || refuse "could not park probe window"
+hypr_window_resize_absolute "$addr" "$layerdrop_park_w" "$layerdrop_park_h" || refuse "could not resize probe window"
+hypr_window_move_absolute "$addr" "$layerdrop_park_x" "$layerdrop_park_y" || refuse "could not park probe window"
 parked=""
 for _ in $(seq 1 "$layerdrop_park_attempts"); do
     source_rect=$(layerdrop_rect || true)

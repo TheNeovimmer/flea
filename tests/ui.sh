@@ -12375,6 +12375,7 @@ case_xwdrag() {
     [[ -e "$adir/link.txt" ]] || fail "xwdrag: link drag deleted its source"
     printf 'XWDRAG link ok\n'
     xwtab_key "$bpid" -M ctrl -k z -m ctrl
+    xwdrag_assert_focus "$bpid"
     for i in $(seq 1 40); do [[ ! -L "$bdir/link.txt" ]] && break; sleep 0.25; done
     [[ ! -L "$bdir/link.txt" ]] || fail "xwdrag: undo left the link in place"
     printf 'XWDRAG undo ok\n'
@@ -12657,16 +12658,19 @@ hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$pid") || fail "xwtab: no window for pid $pid"
     [[ -n "$addr" ]] || fail "xwtab: no address for pid $pid"
-    hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null || fail "xwtab: could not focus $pid"
+    hypr_window_focus "$addr" || fail "xwtab: could not focus $pid"
     xwdrag_wait_focus "$pid" "$addr"
     omarchy-drive key --window "$addr" "$@" >/dev/null || fail "xwtab: key did not reach $pid"
 }
 xwdrag_navigate_second() {
     local want="$1"
     xwtab_key "$bpid" -M ctrl -k l -m ctrl
+    xwdrag_assert_focus "$bpid"
     for _attempt in $(seq 1 100); do [[ "$(xwdrag_qs "$bid" pathBarOpen 2>/dev/null)" == true ]] && break; sleep 0.05; done
     xwtab_key "$bpid" "$want"
+    xwdrag_assert_focus "$bpid"
     xwtab_key "$bpid" -k Return
+    xwdrag_assert_focus "$bpid"
     for _attempt in $(seq 1 100); do
         [[ "$(xwdrag_qs "$bid" path 2>/dev/null)" == "$want" && "$(xwdrag_qs "$bid" listInFlight 2>/dev/null)" == false ]] && return 0
         sleep 0.05
@@ -12979,10 +12983,10 @@ xwtab_restore_place() {
         action=off
         [[ "$floating" != True ]] || action=on
         failed=0
-        hyprctl dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$addr\" })" >/dev/null 2>&1 || failed=1
-        hyprctl dispatch "hl.dsp.window.resize({ x = $w, y = $h, relative = false, window = \"address:$addr\" })" >/dev/null 2>&1 || failed=1
-        hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"address:$addr\" })" >/dev/null 2>&1 || failed=1
-        hyprctl dispatch "hl.dsp.window.float({ action = \"$action\", window = \"address:$addr\" })" >/dev/null 2>&1 || failed=1
+        hypr_window_float "$addr" on || failed=1
+        hypr_window_resize_absolute "$addr" "$w" "$h" || failed=1
+        hypr_window_move_absolute "$addr" "$x" "$y" || failed=1
+        hypr_window_float "$addr" "$action" || failed=1
         xwtab_wait_place "$pid" "$addr" "$x" "$y" "$w" "$h" "$floating" || failed=1
         if [[ "$failed" != 0 ]]; then
             printf 'XWTAB restore failed pid=%s address=%s\n' "$pid" "$addr" >&2
@@ -13042,9 +13046,9 @@ $bpid $baddr $bx $by $bw $bh $bfloating"
             addr=$baddr
             px=$((mx + 2 * park_inset + pw))
         fi
-        hyprctl dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$addr\" })" >/dev/null || fail "xwtab: could not float $pid"
-        hyprctl dispatch "hl.dsp.window.resize({ x = $pw, y = $ph, relative = false, window = \"address:$addr\" })" >/dev/null || fail "xwtab: could not size $pid"
-        hyprctl dispatch "hl.dsp.window.move({ x = $px, y = $((my + park_inset)), relative = false, window = \"address:$addr\" })" >/dev/null || fail "xwtab: could not park $pid"
+        hypr_window_float "$addr" on || fail "xwtab: could not float $pid"
+        hypr_window_resize_absolute "$addr" "$pw" "$ph" || fail "xwtab: could not size $pid"
+        hypr_window_move_absolute "$addr" "$px" "$((my + park_inset))" || fail "xwtab: could not park $pid"
         xwtab_wait_place "$pid" "$addr" "$px" "$((my + park_inset))" "$pw" "$ph" True || fail "xwtab: owned window $pid never reached its parked rectangle"
     done
     local point

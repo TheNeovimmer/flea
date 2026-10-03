@@ -17,7 +17,7 @@ FAKE_EXECUTABLE_MODE = 0o755
 FAILED_COMMAND_STATUS = 7
 PLACEMENT_FIRST_WINDOW_CALL = 2
 PLACEMENT_CALL_COUNT = 4
-STANDALONE_HARNESS_COUNT = 3
+STANDALONE_HARNESS_COUNT = 4
 PLACEMENT_FLOAT_INDEX = 1
 PLACEMENT_RESIZE_INDEX = 2
 TEST_PID = 111
@@ -27,7 +27,8 @@ PLACEMENT_Y = 80
 PLACEMENT_WIDTH = 1000
 PLACEMENT_HEIGHT = 720
 SHARED_HELPER_FILE = "tests/lib/hypr-dispatch.sh"
-OPERATIONS = ("window_focus", "window_float", "window_resize", "window_move", "cursor_move")
+OPERATIONS = ("window_focus", "window_float", "window_resize", "window_move", "window_resize_absolute",
+              "window_move_absolute", "cursor_move")
 ENTRY_POINTS = tuple("hypr_" + operation for operation in OPERATIONS)
 LUA_PREFIX = "hl." + "dsp."
 FAKE = r'''#!/usr/bin/env bash
@@ -240,11 +241,11 @@ def main():
                 invalid.extend([bad, *arguments[1:]] for bad in
                                ("flea", "abc", '0xab"c', "0xab}c", "address:0xabc", "", "0Xabc", "0x"))
             integer_start = 0 if operation == "cursor_move" else 1
-            if operation in ("window_resize", "window_move", "cursor_move"):
+            if operation in ("window_resize", "window_move", "window_resize_absolute", "window_move_absolute", "cursor_move"):
                 for index in range(integer_start, len(arguments)):
                     for bad in ("1.5", "one", "1;exit", "1}", "+1", ""):
                         invalid.append(arguments[:index] + [bad] + arguments[index + 1:])
-                    if operation == "window_resize":
+                    if operation in ("window_resize", "window_resize_absolute"):
                         invalid.append(arguments[:index] + ["-1"] + arguments[index + 1:])
             if operation == "window_float":
                 invalid.extend([arguments[0], bad] for bad in ("ON", "toggle", 'on"', ""))
