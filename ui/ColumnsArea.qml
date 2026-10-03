@@ -183,9 +183,9 @@ Item {
     // The one column whose rows are the pane's own, for ui/Ipc.qml: a neighbour column's background navigates to its drawn directory first, so no peek lands a background right click at once.
     function activeColumn() { return active }
     readonly property var scrollBar: active.scrollBar
-    readonly property bool dragging: active.dragging || parentColumn.dragging || childColumn.dragging
-        || !!(grandparentLoader.item && grandparentLoader.item.dragging)
-        || !!(greatGrandparentLoader.item && greatGrandparentLoader.item.dragging)
+    readonly property bool fileDragActive: active.fileDragActive || parentColumn.fileDragActive || childColumn.fileDragActive
+        || !!(grandparentLoader.item && grandparentLoader.item.fileDragActive)
+        || !!(greatGrandparentLoader.item && greatGrandparentLoader.item.fileDragActive)
     // All active views accept a view position; the pane maps filtered listing indices before calling.
     function itemAtIndex(index) { return active.itemAtIndex(index) }
     function activeContentY() { return active.contentY() }
@@ -430,7 +430,7 @@ Item {
                 Tap.tappedMiddle(index, tapCount, modifiers, root.pane)
                 // The slow click renames on the pane's timer; a double click opens through tappedMiddle() above instead.
                 if (tapCount === 2) root.pane.cancelSlowClick()
-                else if (tapCount === 1) root.pane.armSlowClick(index, modifiers, active.dragging, wasSole)
+                else if (tapCount === 1) root.pane.armSlowClick(index, modifiers, active.fileDragActive, wasSole)
             }
             onMenuRequested: function (index, eventPoint) { Tap.tappedMenu(index, eventPoint, root.pane, root.menu) }
             onRowPressed: root.pane.pressSlowClick()

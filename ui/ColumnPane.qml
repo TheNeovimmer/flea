@@ -71,7 +71,7 @@ Item {
     function itemAtIndex(index) { return view.itemAtIndex(index) }
     function contentY() { return view.contentY }
     // A platform drag in flight, so a slow click never renames off one; ui/ColumnsArea.qml reads it.
-    readonly property bool dragging: dragSession.Drag.active
+    readonly property bool fileDragActive: dragSession.Drag.active
     // Cursor keeps three rows context above and below; wheel path follows viewport margin-free; click context 0 never moves list.
     function showCursor(viewIndex, context) {
         var rowH = Theme.fileRowHeight

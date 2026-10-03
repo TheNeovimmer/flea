@@ -14,7 +14,7 @@ ListView {
     id: root
 
     property var pane: null
-    readonly property bool dragging: dragSession.Drag.active
+    readonly property bool fileDragActive: dragSession.Drag.active
     property var menu: null
 
     // Shared once, read plainly per row, so no delegate builds its own width or array.

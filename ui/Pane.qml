@@ -755,7 +755,7 @@ FocusScope {
     // How far a cursor step down moves: one row in the list, one row of tiles in the grid.
     // The columns view's own preview, exposed so a test can assert its facts without OCR; null until built.
     readonly property var columnsArea: columnsLoader.item
-    readonly property bool dragActive: root.listArea && root.listArea.dragging === true
+    readonly property bool dragActive: root.listArea && root.listArea.fileDragActive === true
     // Where the view sits, for an anchor: a Loader's item is no sibling of anything here, its Loader is.
     readonly property Item listSlot: root.viewMode === "grid" ? gridLoader : root.viewMode === "columns" ? columnsLoader : list
     readonly property int cursorStride: root.viewMode === "grid" && gridLoader.item ? gridLoader.item.columns : 1

@@ -133,6 +133,20 @@ class StaticGateTests(unittest.TestCase):
                 self.assertEqual(result, 1)
                 self.assertIn('tests/staticgates-unqualified.tsv:2:', output.getvalue())
 
+    def test_watch_mark_observer_is_scoped_and_must_be_used(self):
+        self.write('tests/js/watch.js', 'function pane() { var p = {cursorIndex: 0}; p.marked = []; return p }\n')
+        self.write('ui/js/Live.js', 'function run(pane) { pane.marked = [] }\n')
+        key = ('tests/js/watch.js', 'marked')
+        with (mock.patch.object(gates, 'pane_members', return_value={'cursorIndex'}),
+              mock.patch.object(gates, 'stub_allowances', return_value={key: gates.stub_allowances()[key]})):
+            self.assertEqual(gates.paneprops(self.root, ['tests/js/watch.js']), (1, []))
+            count, errors = gates.paneprops(self.root, ['tests/js/watch.js', 'ui/js/Live.js'])
+            self.assertEqual(count, 2)
+            self.assertEqual(errors, ['ui/js/Live.js:1: pane.marked absent from Pane/FocusScope'])
+            self.write('tests/js/watch.js', 'function pane() { return {cursorIndex: 0} }\n')
+            self.assertEqual(gates.paneprops(self.root, ['tests/js/watch.js']),
+                             (1, ['tests/js/watch.js: stale stub instrumentation allowance marked']))
+
     def test_F11_pane_flow_skips_missing_inventory_entry(self):
         self.write('ui/js/Live.js', 'function run(pane) { pane.cursorIndex = 0 }\n')
         sources, _ = gates.pane_flow(self.root, ['ui/js/Old.js', 'ui/js/Live.js'], {'cursorIndex'})

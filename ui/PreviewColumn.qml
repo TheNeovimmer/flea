@@ -7,6 +7,7 @@ import "js/Icons.js" as Icons
 import "js/Kinds.js" as Kinds
 import "js/PreviewKeys.js" as PreviewKeys
 import "js/Thumbs.js" as Thumbs
+import "js/ExtThumbs.js" as ExtThumbs
 
 // The columns view's last pane when a file is picked. One anatomy for all twelve states the canvas
 // draws: a frame, an optional transport, the name, and a caption-type table of facts under it.
@@ -277,7 +278,7 @@ Item {
                         item.active = true
                         // A document on a hangable class loads from the backend's fetched copy.
                         item.backend = Qt.binding(function () { return root.pane ? root.pane.backend : null })
-                        item.fetchFirst = Qt.binding(function () { return root.pane ? root.pane.storageClass.length > 0 : false })
+                        item.fetchFirst = Qt.binding(function () { return root.pane ? ExtThumbs.present(root.pane.storageClass) : false })
                         item.viewerSlot = "column"
                     }
                 }

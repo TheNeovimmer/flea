@@ -605,7 +605,7 @@ Item {
                     item.active = true
                     // A document on a hangable class loads from the backend's fetched copy.
                     item.backend = Qt.binding(function () { return root.pane ? root.pane.backend : null })
-                    item.fetchFirst = Qt.binding(function () { return root.pane ? root.pane.storageClass.length > 0 : false })
+                    item.fetchFirst = Qt.binding(function () { return root.pane ? ExtThumbs.present(root.pane.storageClass) : false })
                     item.viewerSlot = "quicklook"
                     item.forceActiveFocus()
                 }

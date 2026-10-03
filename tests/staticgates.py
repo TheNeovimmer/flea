@@ -567,6 +567,7 @@ def stub_allowances():
         ('tests/js/watch.js', 'cleared'): 'Records clearSelection calls through stub methods.',
         ('tests/js/watch.js', 'contexts'): 'Records showRow or pointer dispatch context arguments.',
         ('tests/js/watch.js', 'cursorSetTo'): 'Records setCursor calls.',
+        ('tests/js/watch.js', 'marked'): 'Records selection.clear and selection.toggle calls during preference re-anchoring.',
         ('tests/js/watch.js', 'said'): 'Records messages emitted by the stub message signal.',
         ('tests/js/watch.js', 'selectedAt'): 'Records indices requested through selectOnly.',
         ('tests/js/watch.js', 'sent'): 'Records backend requests emitted by stub methods.',
