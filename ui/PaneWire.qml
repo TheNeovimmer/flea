@@ -390,7 +390,7 @@ Item {
         function onUndone(op, ok) {
             pane.sticky("")
             pane.message(Ops.undone(op), false)
-            pane.refresh("")
+            pane.refresh("", op === "permissions")
         }
 
         // MenuAdditions040 callout 10: Make executable reuses permissions batch; only this pane's pending id is answered here.
@@ -416,7 +416,7 @@ Item {
             pane.transfer = Ops.emptyTransfer()
             pane.sticky("")
             pane.message("Redid the " + op + Status.UNDO_HINT, false)
-            pane.refresh("")
+            pane.refresh("", op === "permissions")
         }
 
         // A success nobody could check must not read as one that was checked, so the unverified

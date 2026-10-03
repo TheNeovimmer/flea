@@ -14,12 +14,22 @@ ShellRoot {
     readonly property int pollMs: 20
     readonly property int stageLimitMs: 5000
     readonly property int pointerEventMs: 1
+    readonly property int ownerExecuteBit: 0o100
+    readonly property var markedRows: [1, 3]
+    readonly property var refreshCases: [
+        {view: "list", side: 0}, {view: "grid", side: 0}, {view: "columns", side: 0},
+        {view: "dual", side: 0}, {view: "dual", side: 1}
+    ]
     readonly property var cases: [
         {dismiss: "Escape", input: "Down"}, {dismiss: "Cancel", input: "Down"},
         {dismiss: "Escape", input: "Right"}, {dismiss: "Cancel", input: "Right"},
         {dismiss: "Apply", input: "Down"}, {dismiss: "Apply", input: "Right"}
     ]
     property int caseIndex: 0
+    property int refreshIndex: 0
+    property string keptMarks: ""
+    property int keptCursor: 0
+    property int beforeLists: 0
     property string stage: "guardReady"
     property int checks: 0
     property int failures: 0
@@ -36,7 +46,12 @@ ShellRoot {
     readonly property string flyoutApp: "Held flyout provider"
     readonly property var current: cases[caseIndex]
 
-    function label() { return current.dismiss + "/" + current.input }
+    function label() { return caseIndex < cases.length ? current.dismiss + "/" + current.input : "batch/" + refreshCases[refreshIndex].view + "/" + refreshCases[refreshIndex].side }
+    function rememberSelection() { keptMarks = pane.selectedIndices().join(","); keptCursor = pane.cursorIndex }
+    function checkSelection(action) {
+        check(action + " keeps marked rows", pane.selectedIndices().join(","), keptMarks)
+        check(action + " keeps cursor row", pane.cursorIndex, keptCursor)
+    }
     function check(name, actual, expected) {
         checks += 1
         var equal = actual === expected
@@ -242,7 +257,10 @@ ShellRoot {
                 for (var digit = 0; digit < draftMode.length; digit++)
                     driver.keyClickChar(draftMode.charAt(digit), Qt.NoModifier, -1)
                 press(Qt.Key_Escape)
-            } else click(control(current.dismiss), Qt.LeftButton)
+            } else {
+                if (current.dismiss === "Apply") rememberSelection()
+                click(control(current.dismiss), Qt.LeftButton)
+            }
             next("dismissed")
         } else if (stage === "dismissed") {
             if (dialog().opened || pane.listInFlight) return
@@ -250,6 +268,7 @@ ShellRoot {
             console.log("PERMFOCUS focus " + label() + " " + ipcObject().seam.keyDeliveryState())
             check("listing owns keyboard", pane.listArea.activeFocus, true)
             check("dismissal reports actual input readiness", JSON.parse(ipcObject().seam.permissionsState()).inputReady, true)
+            if (current.dismiss === "Apply") checkSelection("single Apply")
             oldCursor = pane.cursorIndex
             if (current.input === "Down") press(Qt.Key_Down)
             else click(pane.visibleItemFor(oldCursor), Qt.RightButton)
@@ -259,8 +278,42 @@ ShellRoot {
             else check("first right press/release opens menu", pane.contextMenu().opened, true)
             pane.contextMenu().close()
             caseIndex += 1
-            if (caseIndex === cases.length) finish()
+            if (caseIndex === cases.length) next("refreshView")
             else next("ready")
+        } else if (stage === "refreshView") {
+            Flea.ViewState.changeKey("view", refreshCases[refreshIndex].view)
+            next("refreshPane")
+        } else if (stage === "refreshPane") {
+            body.focusPane(refreshCases[refreshIndex].side)
+            if (pane.listInFlight || pane.listingState === "loading") return
+            if (pane.path !== fixture) { pane.open(fixture); return }
+            if (pane.total !== fixtureRows || pane.wire.anchor) return
+            pane.selectOnly(markedRows[0])
+            for (var mark = 1; mark < markedRows.length; mark++) pane.toggleSelectAt(markedRows[mark])
+            pane.setCursor(markedRows[markedRows.length - 1])
+            rememberSelection()
+            check("batch marks are nonadjacent", keptMarks, markedRows.join(","))
+            pane.openPermissions()
+            next("refreshDialog")
+        } else if (stage === "refreshDialog") {
+            if (!dialog() || !dialog().opened || dialog().busy) return
+            check("dialog takes both marked files", dialog().multiPaths.length, markedRows.length)
+            dialog().multiToggle(ownerExecuteBit)
+            beforeLists = pane.backend.listRequests
+            click(control("Apply"), Qt.LeftButton)
+            next("refreshApplied")
+        } else if (stage === "refreshApplied") {
+            if (dialog().opened || pane.listInFlight || pane.wire.anchor || pane.backend.listRequests <= beforeLists) return
+            checkSelection("batch Apply")
+            beforeLists = pane.backend.listRequests
+            pane.backend.send({c: "undo"})
+            next("refreshUndone")
+        } else if (stage === "refreshUndone") {
+            if (pane.listInFlight || pane.wire.anchor || pane.backend.listRequests <= beforeLists) return
+            checkSelection("Permissions Undo")
+            refreshIndex += 1
+            if (refreshIndex === refreshCases.length) finish()
+            else next("refreshView")
         }
     }
 

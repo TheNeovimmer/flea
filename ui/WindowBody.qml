@@ -362,8 +362,8 @@ Rectangle {
     Connections {
         target: permissionsDialog.item
         function onRequested(message) { permissionsDialog.owner.backend.send(message) }
-        function onChanged(note) { permissionsDialog.owner.refresh(); bar.say(note && note.length > 0 ? note : "Permissions changed.", false) }
-        function onRefreshNeeded() { permissionsDialog.owner.refresh() }
+        function onChanged(note) { permissionsDialog.owner.refresh("", true); bar.say(note && note.length > 0 ? note : "Permissions changed.", false) }
+        function onRefreshNeeded() { permissionsDialog.owner.refresh("", true) }
     }
     Connections {
         target: permissionsDialog.owner ? permissionsDialog.owner.backend : null

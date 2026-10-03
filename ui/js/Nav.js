@@ -152,10 +152,16 @@ function renameRefreshTarget(pane, path) {
 // An operation changed the directory under the listing, so it is read again. Passing the path the
 // operation produced re-selects that row through pendingSelect instead of dropping the cursor to the
 // top. It is not a navigation, so it never touches the history.
-function refresh(pane, selectPath) {
+function refresh(pane, selectPath, keepSelection) {
     pane.pendingSelect = selectPath ? selectPath : ""
     pane.pendingMenu = false
     clearPendingBackground(pane)
+    if (keepSelection === true) {
+        // Metadata-only writes use the watcher's identity anchor and interaction debt.
+        pane.wire.stale = true
+        pane.wire.reread()
+        return
+    }
     pane.openWithoutHistory(pane.path)
 }
 

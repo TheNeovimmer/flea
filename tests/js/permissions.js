@@ -2,6 +2,7 @@
 .import "../../ui/js/Ops.js" as Ops
 .import "../../ui/js/Menu.js" as Menu
 .import "sourcefixture.js" as Source
+.import "permissions-refresh.js" as RefreshSuite
 // Sample input: blockAfter("function f() { if (x) { y = 1 } }", "function f") answers the outer braces.
 function blockAfter(src, marker) {
     var at = src.indexOf(marker)
@@ -36,6 +37,7 @@ function countedPermissions(counter) {
     return load(counter)
 }
 function run(check) {
+    RefreshSuite.run(check)
     check("ordinary mode", Permissions.parse("644"), 420)
     check("leading zero", Permissions.parse("0644"), 420)
     check("invalid remains rejected", Permissions.parse("0688"), -1)
