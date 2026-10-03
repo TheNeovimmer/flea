@@ -8,11 +8,136 @@ var CONSTANT_TIME_METHODS = ["push", "pop", "hasOwnProperty"]
 var CONSTANT_TIME_CALLS = ["Math.max", "Math.min", "String.fromCharCode", "String.fromCodePoint"]
 // This local writer method runs parser functions whose internal operations are instrumented.
 var PARSER_OBJECT_CALLS = ["writer.finish"]
+var COMMENT_PREFIX_LENGTH = "//".length
+var SPREAD_LENGTH = "...".length
+var LINE_BREAK_PATTERN = /[\n\r\u2028\u2029]/
 var work = 0
+
+function coverageError(code, name, offset, reason) {
+    var line = code.slice(0, offset).split(/\r\n|[\n\r\u2028\u2029]/).length
+    return new Error("unsupported " + reason + " in parser coverage " + name + ":" + line)
+}
+
+// Sample input: (/["/*]/, text.slice(0) / scale, text.untrackedScan()).
+function stripLiterals(code, name) {
+    var out = []
+    var kept = 0
+    var i = 0
+    var canRegex = true
+    var token = ""
+    var tokenEnd = 0
+    var statementEnd = ""
+    var controlParens = []
+    while (i < code.length) {
+        var c = code.charAt(i)
+        var next = code.charAt(i + 1)
+        if (/\s/.test(c)) {
+            i++
+            continue
+        }
+        var start = i
+        var comment = c === "/" && (next === "/" || next === "*")
+        if (c === "/" && !comment) {
+            if (token === "}")
+                throw coverageError(code, name, start, "slash after closing brace")
+            if (statementEnd !== "")
+                throw coverageError(code, name, start, "slash after " + statementEnd)
+            if (token === "of")
+                throw coverageError(code, name, start, "slash after contextual keyword " + token)
+        }
+        var literal = c === '"' || c === "'" || (c === "/" && canRegex && !comment)
+        if (comment || literal) {
+            if (comment) {
+                var end = i + COMMENT_PREFIX_LENGTH
+                if (next === "/") {
+                    while (end < code.length && !LINE_BREAK_PATTERN.test(code.charAt(end)))
+                        end++
+                    i = end
+                } else {
+                    end = code.indexOf("*/", end)
+                    i = end < 0 ? code.length : end + "*/".length
+                }
+            } else {
+                var inClass = false
+                i++
+                while (i < code.length) {
+                    var ch = code.charAt(i)
+                    i++
+                    if (ch === "\\") {
+                        i++
+                        continue
+                    }
+                    if (c === "/" && ch === "[")
+                        inClass = true
+                    else if (c === "/" && ch === "]")
+                        inClass = false
+                    else if (ch === c && !inClass)
+                        break
+                }
+                if (c === "/") {
+                    while (/[A-Za-z]/.test(code.charAt(i)) && i < code.length)
+                        i++
+                }
+                canRegex = false
+                token = ""
+                tokenEnd = i
+            }
+            out.push(code.slice(kept, start))
+            out.push(" ")
+            kept = i
+            continue
+        }
+        if (c === "`")
+            throw coverageError(code, name, start, "template literal")
+        if (/[A-Za-z0-9_$]/.test(c)) {
+            var propertyName = token === "."
+            i++
+            while (/[A-Za-z0-9_$]/.test(code.charAt(i)) && i < code.length)
+                i++
+            token = propertyName ? "" : code.slice(start, i)
+            tokenEnd = i
+            if (/^(await|async|yield)$/.test(token))
+                throw coverageError(code, name, start, "contextual keyword " + token)
+            // Retain statement-ending keywords through an optional break or continue label.
+            if (/^(break|continue|debugger)$/.test(token))
+                statementEnd = token
+            canRegex = /^(return|throw|case|delete|void|typeof|new|in|instanceof|else|do|extends|default)$/.test(token)
+            continue
+        }
+        if ("()[]{}.;,:?~!%^&*+=|<>/-".indexOf(c) < 0)
+            throw coverageError(code, name, start, "token")
+        statementEnd = ""
+        if (c === "." && code.slice(i, i + SPREAD_LENGTH) === "...") {
+            canRegex = true
+            token = ""
+            i += SPREAD_LENGTH
+            tokenEnd = i
+            continue
+        }
+        if (c === "(")
+            controlParens.push(/^(if|while|for|with|switch|catch)$/.test(token))
+        if (c === ")")
+            canRegex = controlParens.pop() === true
+        else if (c === "]" || c === "}" || c === ".")
+            canRegex = false
+        else if ((c === "+" || c === "-") && next === c) {
+            // Trivia containing a line break makes an increment or decrement unsafe to classify.
+            if (LINE_BREAK_PATTERN.test(code.slice(tokenEnd, start)))
+                throw coverageError(code, name, start, "increment or decrement after line break")
+            i++
+        } else
+            canRegex = true
+        token = c
+        i++
+        tokenEnd = i
+    }
+    out.push(code.slice(kept))
+    return out.join("")
+}
 
 // Sample input: text.substring(i).lastIndexOf("z"), or Leaf.tableBlock(...).
 function checkMethods(code, aliases, name) {
-    code = code.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, "")
+    code = stripLiterals(code, name)
     var calls = /([A-Za-z_$][\w$]*)?\.\s*([A-Za-z_$][\w$]*)\s*\(/g
     var match
     while ((match = calls.exec(code)) !== null) {

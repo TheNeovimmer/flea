@@ -107,30 +107,64 @@ QtObject {
         check(shell.failed, "F39 zero delegates fail after forceLayout")
     }
 
-    function bindingChecks() {
-        var source = readSource("../ui/PreviewColumn.qml")
-        var callback = body(source.slice(source.indexOf("id: markdownLoader")), "onLoaded:")
+    // Sample input: readonly property bool tooLarge: root.size > root.maxBytes, answering " item.size > item.maxBytes".
+    function expression(source, pattern) {
+        var found = source.match(pattern)
+        if (!found)
+            throw new Error("missing shipped expression " + pattern)
+        return found[1].replace(/\broot\./g, "item.")
+    }
+
+    // The reader gate: PreviewColumn's onLoaded wiring driving the shipped tooLarge and FileView path expressions.
+    function readerGate(markdownSource, columnSource) {
+        var callback = body(columnSource.slice(columnSource.indexOf("id: markdownLoader")), "onLoaded:")
+        var tooLarge = expression(markdownSource, /readonly property bool tooLarge:([^\n]*)/)
+        // Sample input: FileView { id: file, then path: (root.active && !root.tooLarge) ? root.path : "" on its own line.
+        var readerPath = expression(body(markdownSource, "FileView {"), /\n\s*path:([^\n]*)/)
         var probe = Qt.createQmlObject('import QtQuick\nQtObject {\n'
             + 'id: item\nproperty var root: ({ path: "/remote/A.md", row: { s: ' + remoteRowBytes + ' }, visible: true, '
             + 'manualHold: false, rowState: "text", isMarkdownRow: true, textLimit: ' + remoteLimitBytes + ', truncateText: true })\n'
             + 'property var facts: ({ TEXT: "text" })\nproperty var viewState: ({ markdownView: "rendered" })\n'
             + 'property bool active: false\nproperty string path: ""\nproperty int size: 0\n'
             + 'property int maxBytes: ' + defaultReaderLimitBytes + '\nproperty string view: ""\nproperty bool truncate: false\n'
-            + 'property var seen: []\nreadonly property string readerPath: active && size <= maxBytes ? path : ""\n'
-            + 'onReaderPathChanged: seen.push({ path: readerPath, size: size, limit: maxBytes })\n'
+            + 'property var seen: []\nreadonly property bool tooLarge:' + tooLarge + '\n'
+            + 'readonly property string readerPath:' + readerPath + '\n'
+            + 'onReaderPathChanged: seen.push(readerPath)\n'
             + 'function apply() {' + callback.replace(/Facts\./g, "facts.").replace(/ViewState\./g, "viewState.")
             + '} }', gate.sandbox)
         // Evaluate the observer before installing bindings so intermediate reader paths are recorded.
         var initialPath = probe.readerPath
         probe.apply()
-        var safe = probe.seen.every(function (value) {
-            return value.path === "" || value.size <= gate.remoteLimitBytes
-        })
-        check(initialPath === "" && safe && probe.active && probe.size === remoteRowBytes && probe.maxBytes === remoteLimitBytes
-            && probe.readerPath === "", "F47 oversized remote row never exposes FileView path")
+        // The row is over the limit from the start, so any path the reader saw on the way is an exposure.
+        var safe = probe.seen.every(function (path) { return path === "" })
+        var sized = probe.size === remoteRowBytes
+        var guarded = initialPath === "" && safe && probe.active && sized
+            && probe.maxBytes === remoteLimitBytes && probe.readerPath === ""
         probe.size = remoteLimitBytes
-        check(probe.readerPath === probe.root.path && probe.seen.length > 0, "F47 allowed row exposes reader path")
+        var allowed = probe.readerPath === probe.root.path && probe.seen.length > 0
         probe.destroy()
+        return { guarded: guarded, allowed: allowed, sized: sized, exposed: !safe }
+    }
+
+    function bindingChecks(source) {
+        var column = readSource("../ui/PreviewColumn.qml")
+        var shipped = readerGate(source, column)
+        check(shipped.guarded, "F47 oversized remote row never exposes FileView path")
+        check(shipped.allowed, "F47 allowed row exposes reader path")
+        var unguardedPath = source.replace("(root.active && !root.tooLarge) ? root.path", "root.active ? root.path")
+        check(unguardedPath !== source && !readerGate(unguardedPath, column).guarded,
+            "F47 control: a reader path without the tooLarge guard is caught")
+        var blindLimit = source.replace("readonly property bool tooLarge: root.size > root.maxBytes",
+            "readonly property bool tooLarge: false")
+        check(blindLimit !== source && !readerGate(blindLimit, column).guarded,
+            "F47 control: a tooLarge without its comparison is caught")
+        var sizeLine = "item.size = Qt.binding(function () { return root.row ? root.row.s : 0 })"
+        var lastLine = "item.truncate = Qt.binding(function () { return root.truncateText })"
+        var lateSize = column.replace(sizeLine, "").replace(lastLine, lastLine + "\n" + sizeLine)
+        var late = readerGate(source, lateSize)
+        // The moved binding still ran, so the row reached its size and only the path seen on the way fails the gate.
+        check(lateSize.indexOf(sizeLine) > lateSize.indexOf(lastLine) && late.sized && late.exposed && !late.guarded,
+            "F47 control: a size bound after active is caught")
     }
 
     function commentChecks(source) {
@@ -173,7 +207,7 @@ QtObject {
         var source = readSource("../ui/PreviewMarkdown.qml")
         stateChecks(source)
         lazyChecks()
-        bindingChecks()
+        bindingChecks(source)
         commentChecks(source)
         geometryChecks(source)
     }
