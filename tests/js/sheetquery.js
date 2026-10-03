@@ -1,4 +1,5 @@
 .import "../../ui/js/SheetQuery.js" as SheetQuery
+.import "../../ui/js/Keymap.js" as Keymap
 .import "../../ui/js/Swap.js" as Swap
 .import "sourcefixture.js" as Source
 
@@ -40,6 +41,14 @@ function run(check) {
     // A query matching nothing lists nothing rather than the whole sheet.
     check("no match is an empty sheet", SheetQuery.rank(rows, "zzz").length, 0)
     check("a keys-only miss is empty too", SheetQuery.rank(rows, "Open ^z").length, 0)
+    // The native capture must query a board specimen supported by the shipped key table.
+    var capture = Source.slice(Source.source("tests/ui-captures.sh"), "case_cap_sheet() {", "\nmatrix_check() {")
+    // Sample input: key p >/dev/null
+    var typed = capture.match(/^\s*key [a-z] >\/dev\/null$/gm) || []
+    var captureQuery = typed.map(function (line) { return line.trim().split(/\s+/)[1] }).join("")
+    var captureRows = SheetQuery.rank(SheetQuery.actionCandidates(Keymap.sheetFor("default", "gui", false)), captureQuery)
+    check("the capture query finds its shipped board row",
+          captureRows.map(function (row) { return row.keys + " " + row.label }).join("\n"), "shift-delete delete permanently")
     // An exact NAME match ranks first, above an exact action label.
     var trashRows = [
         { label: "trash", keys: "dd", section: 0, where: "", action: "trash" },

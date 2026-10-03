@@ -60,6 +60,7 @@ GridTile 1.0 GridTile.qml
 GridArea 1.0 GridArea.qml
 Header 1.0 Header.qml
 Ipc 1.0 Ipc.qml
+IpcMenuState 1.0 IpcMenuState.qml
 List 1.0 List.qml
 MatchText 1.0 MatchText.qml
 PathJump 1.0 PathJump.qml

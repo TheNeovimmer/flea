@@ -319,9 +319,11 @@ case_cap_sidebar() {
     kill_flea
 }
 
-# CommandPalette: the keymap sheet at rest, then with a query typed.
+# CommandPalette: rest, then the shipped perm specimen; tag belongs to 0.3.9.
 case_cap_sheet() {
     local dir="$fixture_root/cap-sheet"
+    local sheet_rows query="perm" end
+    local clear_wait_s=10
     sandbox_scratch "$dir"
     : > "$dir/a.txt"
     : > "$dir/b.txt"
@@ -329,20 +331,31 @@ case_cap_sheet() {
     launch "$dir"
     wait_listing 2
     key '?' >/dev/null
-    settle
+    omarchy-drive wait ipc -p "$flea_ui/boot" flea keymapSheetOpen true --timeout 10 >/dev/null \
+        || fail "cap_sheet: ? opened no keymap sheet"
     [[ "$(ipc keymapSheetOpen)" == "true" ]] || fail "cap_sheet: ? opened no keymap sheet"
     [[ "$(ipc keymapQuery)" == "" ]] || fail "cap_sheet: the resting sheet carries query '$(ipc keymapQuery)'"
     shot cap-sheet-rest
-    key t >/dev/null
-    key a >/dev/null
-    key g >/dev/null
-    settle
-    [[ "$(ipc keymapQuery)" == "tag" ]] || fail "cap_sheet: the query is '$(ipc keymapQuery)', not tag"
-    [[ "$(ipc keymapSheetRows)" == *"tag"* ]] || fail "cap_sheet: the tag query lists no tag row"
+    key p >/dev/null
+    key e >/dev/null
+    key r >/dev/null
+    key m >/dev/null
+    omarchy-drive wait ipc -p "$flea_ui/boot" flea keymapQuery perm --timeout 10 >/dev/null \
+        || fail "cap_sheet: the query never reached perm, it is '$(ipc keymapQuery)'"
+    [[ "$(ipc keymapQuery)" == "perm" ]] || fail "cap_sheet: the query is '$(ipc keymapQuery)', not perm"
+    sheet_rows=$(ipc keymapSheetRows)
+    grep -Fxq 'shift-delete delete permanently' <<< "$sheet_rows" \
+        || fail "cap_sheet: the perm query lists no delete permanently row"
     shot cap-sheet-query
     key -k Escape >/dev/null
-    settle
-    printf 'CAP_SHEET rest=ok query=tag\n'
+    end=$((SECONDS + clear_wait_s))
+    while (( SECONDS < end )); do
+        query=$(ipc keymapQuery) || fail "cap_sheet: keymapQuery failed after Escape"
+        [[ "$query" == "" ]] && break
+        settle
+    done
+    [[ "$query" == "" ]] || fail "cap_sheet: Escape did not clear the query, last value '$query'"
+    printf 'CAP_SHEET rest=ok query=perm\n'
     kill_flea
 }
 
