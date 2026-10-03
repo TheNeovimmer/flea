@@ -79,6 +79,7 @@ tests/rename-grid-bottom.qml 424
 tests/rename-grid-bottom.js 305
 tests/rename-lifecycle-check.js 356
 tests/touchpad.qml 747
+tests/xwsettings-tabs.qml 403
 ui/Backend.qml 466
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 477

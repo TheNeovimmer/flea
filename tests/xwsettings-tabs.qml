@@ -108,11 +108,15 @@ ShellRoot {
                 if (otherPane.total === initialTotal && Date.now() - phaseAt < 2000) return
                 check("the other window refreshes the watched folder", otherPane.total, initialTotal + 1)
                 check("a selected window defers its own watched reread", pane.total, initialTotal)
-                pane.clearSelection(); next()
+                check("a selected window sends no watched reread", pane.backend.listRequests, root.firstLists)
+                root.firstLists = pane.backend.listRequests
+                pane.clearSelection()
+                next()
             } else if (phase === 2) {
                 if (pane.total === initialTotal && Date.now() - phaseAt < 2000) return
                 check("clearing selection pays the first window's watch debt", pane.total, initialTotal + 1)
-                check("each window requested its own watched reread", [pane.backend.listRequests > firstLists, otherPane.backend.listRequests > secondLists], [true, true])
+                check("clearing selection sends the deferred watched reread", pane.backend.listRequests > root.firstLists, true)
+                check("the other window requested its own watched reread", otherPane.backend.listRequests > root.secondLists, true)
                 finish()
             }
         } else if (root.mode === "restore") {
