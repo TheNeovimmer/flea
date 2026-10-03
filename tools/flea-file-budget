@@ -80,7 +80,7 @@ tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 399
 tests/markdown-render.qml 628
-tests/markdown-linearity.qml 553
+tests/markdown-linearity.qml 555
 tests/preview-settle-live.qml 457
 tests/preview-decode.qml 507
 tests/js/status.js 354

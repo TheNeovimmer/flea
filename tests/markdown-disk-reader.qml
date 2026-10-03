@@ -25,6 +25,8 @@ ShellRoot {
     // The uneven phase: the document's real height, the height the list reported in the turn its model was replaced, and the smallest it reported after.
     property int loadsBefore: 0
     property real realHeight: 0
+    // The walk's content height on the tick before: the walk ends once the view rests at the end and this stops growing.
+    property real walkHeight: -1
     property real heightAtReset: 0
     property real smallestHeight: Infinity
     property bool measuring: false
@@ -41,6 +43,8 @@ ShellRoot {
     // The stream phase: a writer appends this many times, this many ms apart, so the run spans several coalescing windows.
     readonly property int streamWrites: 40
     readonly property int streamGapMs: 20
+    // The burst spans 16 coalescing windows of 50 ms, so a window that reloads on its own start lands at least this many while the writer runs.
+    readonly property int streamMinReloads: 3
     // A shortened document that still fills the viewport yet ends far above scrollTargetY.
     readonly property int shortParagraphs: 40
     // The regrow phase: how far the reader moves the view up from where a short file left it.
@@ -150,7 +154,8 @@ ShellRoot {
             return
         }
         if (root.stage === 1 && root.writerDone) {
-            root.check("the file reloads while the writer is still running", root.reloadsWhileRunning > 0, true)
+            root.check("the file reloads at least " + root.streamMinReloads + " times while the writer is still running",
+                root.reloadsWhileRunning >= root.streamMinReloads, true)
             root.check("a burst is absorbed, not reloaded per write", root.reloadsWhileRunning < root.streamWrites, true)
             root.stage = 2
             return
@@ -189,6 +194,8 @@ ShellRoot {
             var list = md.bodyItem
             root.check("the saved place lies past the shortened content", root.scrolledY > root.highest(list), true)
             root.readerY = root.highest(list)
+            root.check("a hold waits at the resting end before the reader moves",
+                [md.keepScroll, Math.abs(md.heldY - root.readerY) < md.samePlacePx], [true, true])
             list.contentY = root.readerY - root.readerMovePx
             root.check("moving the view releases the held place", [md.keepScroll, isNaN(md.heldY)], [false, true])
             list.contentY = root.readerY
@@ -219,7 +226,10 @@ ShellRoot {
         // Walk the whole document top to bottom so every block has been laid out and the height is the real one.
         if (root.stage === 1) {
             list.contentY = Math.min(list.contentY + list.height * root.walkScreens, root.highest(list))
-            if (list.indexAt(list.width / 2, list.contentY + list.height - 1) === list.count - 1) {
+            var atEnd = Math.abs(list.contentY - root.highest(list)) < md.samePlacePx
+            var steady = list.contentHeight === root.walkHeight
+            root.walkHeight = list.contentHeight
+            if (atEnd && steady) {
                 root.realHeight = list.contentHeight
                 root.stage = 2
             }

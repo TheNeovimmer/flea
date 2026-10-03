@@ -169,7 +169,7 @@ Item {
         root.keepScroll = false
         root.heldY = NaN
     }
-    // A place still waiting (a reload in flight, or taller content to come) is kept; otherwise the reader's present place is saved.
+    // A place waiting for taller content is kept; otherwise the reader's present place is saved (each landing asks first).
     function rememberScroll() {
         if (root.keepScroll)
             return
@@ -195,14 +195,12 @@ Item {
     function reloadFromDisk() {
         if (!root.active || root.tooLarge)
             return
-        root.rememberScroll()
         file.reload()
     }
     // Link ink and code chrome are parsed into the runs, so a theme change reparses the loaded file.
     function reparseForTheme() {
         if (!root.active || !file.loaded)
             return
-        root.rememberScroll()
         root.askParse()
     }
     // A theme switch moves ink and chrome in one turn, so both ask through one callLater and the parse sees both.
@@ -234,6 +232,8 @@ Item {
             return
         }
         root.parseError = ""
+        // The reader's present place is taken before the model reset moves the list to its top; a place that waits is kept.
+        root.rememberScroll()
         root.settingBlocks = true
         root.blockList = messageObject.blocks
         root.settingBlocks = false
@@ -272,18 +272,21 @@ Item {
 
     // The synchronous parse of one request, landed like a worker reply: the small-file path and the worker's recovery both end here.
     function parseNow(text, dir, chrome, ink) {
+        var blocks
         try {
-            root.settingBlocks = true
-            root.blockList = Markdown.blocks(text, dir, chrome, ink)
+            blocks = Markdown.blocks(text, dir, chrome, ink)
         } catch (e) {
             root.parseError = String(e.message || e)
             root.appliedSeq = root.parseSeq
             root.parsing = false
             root.askedAny = false
             return
-        } finally {
-            root.settingBlocks = false
         }
+        // Taken once the parse is good and before the model reset, like the worker landing: a parse that throws takes no place.
+        root.rememberScroll()
+        root.settingBlocks = true
+        root.blockList = blocks
+        root.settingBlocks = false
         root.parseError = ""
         root.appliedSeq = root.parseSeq
         root.parsing = false
@@ -302,9 +305,6 @@ Item {
         var dir = Markdown.dirOf(root.path)
         if (root.askedAny && text === root.askedText && dir === root.askedDir
                 && root.chromeHex === root.askedChrome && root.inkHex === root.askedInk) {
-            // Nothing new will land to release a remembered scroll, unless a worker reply is still due or the place waits for taller content.
-            if (!root.parsing && isNaN(root.heldY))
-                root.keepScroll = false
             return
         }
         // Only a request that goes on to parse clears an error; a skipped one has nothing to replace it with.

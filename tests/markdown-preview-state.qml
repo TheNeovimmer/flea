@@ -12,6 +12,12 @@ QtObject {
     readonly property int geometryWidth: 400
     readonly property int geometryGap: 8
     readonly property int geometryFontPixels: 16
+    // The hold checks: a list of holdContentPx in a view of holdViewPx, a hold waiting at holdAtPx for a place at holdSavedPx, a reader who moves to holdReaderPx.
+    readonly property int holdContentPx: 5000
+    readonly property int holdViewPx: 500
+    readonly property int holdAtPx: 100
+    readonly property int holdSavedPx: 300
+    readonly property int holdReaderPx: 40
 
     function readSource(path) {
         var request = new XMLHttpRequest()
@@ -77,10 +83,12 @@ QtObject {
         var drop = new Function("root", body(source, "function dropParse()"))
         var landing = new Function("root", "Markdown", "text", "dir", "chrome", "ink", body(source, "function parseNow("))
         var restore = new Function("root", "body", body(source, "function restoreScroll()"))
+        var remember = new Function("root", "body", body(source, "function rememberScroll()"))
         var list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: 0, height: 0, contentY: 0 }
         root.dropParse = function () { drop(root) }
         root.parseNow = function (text, dir, chrome, ink) { landing(root, markdown, text, dir, chrome, ink) }
         root.restoreScroll = function () { restore(root, list) }
+        root.rememberScroll = function () { remember(root, list) }
         root.askParse = function () {}
         root.path = "/doc/B.md"
         new Function("root", "reloadCoalesce", body(source, "    onPathChanged: {"))(root, { stop: function () {} })
@@ -107,10 +115,60 @@ QtObject {
             && !root.loading && root.status === "This file could not be read.", "F42 throwing fallback settles error")
 
         // A path change or a failed load drops keepScroll and leaves heldY, so the next place taken must clear it.
-        var remember = new Function("root", "body", body(source, "function rememberScroll()"))
         var held = { keepScroll: false, heldY: 40, savedY: 0 }
         remember(held, { contentY: 300 })
         check(held.keepScroll && held.savedY === 300 && isNaN(held.heldY), "F43 a new place starts with no hold waiting")
+    }
+
+    // A stub root and list running the shipped place functions; assigning blockList resets the list to its top, as the real model does.
+    function holdStub(source) {
+        var list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: holdContentPx, height: holdViewPx, contentY: 0 }
+        var root = { keepScroll: false, heldY: NaN, savedY: 0, settingBlocks: false, samePlacePx: 1, parseSeq: 3,
+            appliedSeq: 2, parsing: true, parseError: "", parsedOffThread: false, askedAny: true, blocksSet: 0 }
+        var blocks = []
+        Object.defineProperty(root, "blockList", { get: function () { return blocks },
+            set: function (value) { blocks = value; root.blocksSet++; list.contentY = 0 } })
+        var release = new Function("root", "body", body(source, "function releaseHeldPlace()"))
+        var remember = new Function("root", "body", body(source, "function rememberScroll()"))
+        var restore = new Function("root", "body", body(source, "function restoreScroll()"))
+        root.releaseHeldPlace = function () { release(root, list) }
+        root.rememberScroll = function () { remember(root, list) }
+        root.restoreScroll = function () { restore(root, list) }
+        return { root: root, list: list }
+    }
+
+    // A hold waits at holdAtPx for a place at holdSavedPx; the reader then moves to holdReaderPx and the hold is released.
+    function holdChecks(source) {
+        var parse = new Function("root", "Markdown", "text", "dir", "chrome", "ink", body(source, "function parseNow("))
+        var markdown = { blocks: function () { return ["parsed"] } }
+        var sync = holdStub(source)
+        sync.root.keepScroll = true
+        sync.root.savedY = holdSavedPx
+        sync.root.heldY = holdAtPx
+        sync.list.contentY = holdReaderPx
+        sync.root.releaseHeldPlace()
+        parse(sync.root, markdown, "text", "/doc", "chrome", "ink")
+        check(sync.list.contentY === holdReaderPx && !sync.root.keepScroll && isNaN(sync.root.heldY),
+            "F48 a hold released in flight lands at the reader's place (got " + sync.list.contentY + ")")
+
+        var worker = holdStub(source)
+        var landed = new Function("root", "messageObject", body(source, "function landed(messageObject)"))
+        worker.root.keepScroll = true
+        worker.root.savedY = holdSavedPx
+        worker.root.heldY = holdAtPx
+        worker.list.contentY = holdReaderPx
+        worker.root.releaseHeldPlace()
+        landed(worker.root, { seq: worker.root.parseSeq, error: "", blocks: ["parsed"] })
+        check(worker.list.contentY === holdReaderPx && !worker.root.keepScroll && isNaN(worker.root.heldY)
+            && worker.root.blocksSet === 1, "F49 a worker landing after a released hold lands at the reader's place (got "
+            + worker.list.contentY + ")")
+
+        // A parse that throws replaces no model, so it must take no place: nothing would land to release it.
+        var failing = holdStub(source)
+        failing.list.contentY = holdReaderPx
+        parse(failing.root, { blocks: function () { throw new Error("probe parse fault") } }, "text", "/doc", "chrome", "ink")
+        check(!failing.root.keepScroll && failing.root.blocksSet === 0 && !failing.root.settingBlocks
+            && failing.root.parseError === "probe parse fault", "F50 a parse that throws takes no place and replaces no model")
     }
 
     function lazyChecks() {
@@ -223,6 +281,7 @@ QtObject {
     function run() {
         var source = readSource("../ui/PreviewMarkdown.qml")
         stateChecks(source)
+        holdChecks(source)
         lazyChecks()
         bindingChecks(source)
         commentChecks(source)
