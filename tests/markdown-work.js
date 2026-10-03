@@ -9,15 +9,22 @@ var CONSTANT_TIME_CALLS = ["Math.max", "Math.min", "String.fromCharCode", "Strin
 // This local writer method runs parser functions whose internal operations are instrumented.
 var PARSER_OBJECT_CALLS = ["writer.finish"]
 var COMMENT_PREFIX_LENGTH = "//".length
+var SPREAD_LENGTH = "...".length
 var work = 0
 
+function coverageError(code, name, offset, reason) {
+    var line = code.slice(0, offset).split(/\r\n|[\n\r\u2028\u2029]/).length
+    return new Error("unsupported " + reason + " in parser coverage " + name + ":" + line)
+}
+
 // Sample input: (/["/*]/, text.slice(0) / scale, text.untrackedScan()).
-function stripLiterals(code) {
+function stripLiterals(code, name) {
     var out = []
     var kept = 0
     var i = 0
     var canRegex = true
     var token = ""
+    var statementEnd = ""
     var controlParens = []
     while (i < code.length) {
         var c = code.charAt(i)
@@ -28,6 +35,14 @@ function stripLiterals(code) {
         }
         var start = i
         var comment = c === "/" && (next === "/" || next === "*")
+        if (c === "/" && !comment) {
+            if (token === "}")
+                throw coverageError(code, name, start, "slash after closing brace")
+            if (statementEnd !== "")
+                throw coverageError(code, name, start, "slash after " + statementEnd)
+            if (/^(await|yield|of)$/.test(token))
+                throw coverageError(code, name, start, "slash after contextual keyword " + token)
+        }
         var literal = c === '"' || c === "'" || (c === "/" && canRegex && !comment)
         if (comment || literal) {
             if (comment) {
@@ -64,13 +79,26 @@ function stripLiterals(code) {
             continue
         }
         if (c === "`")
-            throw new Error("unsupported template literal in parser coverage")
+            throw coverageError(code, name, start, "template literal")
         if (/[A-Za-z0-9_$]/.test(c)) {
+            var propertyName = token === "."
             i++
             while (/[A-Za-z0-9_$]/.test(code.charAt(i)) && i < code.length)
                 i++
-            token = code.slice(start, i)
-            canRegex = /^(return|throw|case|delete|void|typeof|new|in|instanceof|yield|await|else|do)$/.test(token)
+            token = propertyName ? "" : code.slice(start, i)
+            // Retain statement-ending keywords through an optional break or continue label.
+            if (/^(break|continue|debugger)$/.test(token))
+                statementEnd = token
+            canRegex = /^(return|throw|case|delete|void|typeof|new|in|instanceof|else|do|extends|default)$/.test(token)
+            continue
+        }
+        if ("()[]{}.;,:?~!%^&*+=|<>/-".indexOf(c) < 0)
+            throw coverageError(code, name, start, "token")
+        statementEnd = ""
+        if (c === "." && code.slice(i, i + SPREAD_LENGTH) === "...") {
+            canRegex = true
+            token = ""
+            i += SPREAD_LENGTH
             continue
         }
         if (c === "(")
@@ -83,7 +111,7 @@ function stripLiterals(code) {
             i++
         else
             canRegex = true
-        token = ""
+        token = c
         i++
     }
     out.push(code.slice(kept))
@@ -92,7 +120,7 @@ function stripLiterals(code) {
 
 // Sample input: text.substring(i).lastIndexOf("z"), or Leaf.tableBlock(...).
 function checkMethods(code, aliases, name) {
-    code = stripLiterals(code)
+    code = stripLiterals(code, name)
     var calls = /([A-Za-z_$][\w$]*)?\.\s*([A-Za-z_$][\w$]*)\s*\(/g
     var match
     while ((match = calls.exec(code)) !== null) {

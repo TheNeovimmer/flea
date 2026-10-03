@@ -205,23 +205,67 @@ QtObject {
     }
 
     function coverageChecks() {
+        var coverageName = "MdCoverageProbe.js";
+        var firstSourceLine = 1;
+        var blockRegexLine = 2;
+        var commentRegexLine = 3;
+        var lexicalError = " in parser coverage " + coverageName + ":";
+        var braceError = "unsupported slash after closing brace in parser coverage " + coverageName + ":";
         var probes = [
             { name: "plain", source: "source.untrackedScan()" },
             { name: "regex quote", source: '(/[\"]/, source.untrackedScan("payload"))' },
             { name: "regex line comment", source: "(/[//]/, source.untrackedScan())" },
             { name: "regex block comment", source: "(/[/*]/, source.untrackedScan()) /* closed */" },
             { name: "division after call", source: "source.slice(0) / source.untrackedScan() / divisor" },
-            { name: "division after number", source: "10 / source.untrackedScan() / divisor" }
+            { name: "division after number", source: "10 / source.untrackedScan() / divisor" },
+            { name: "division after identifier", source: "count / source.untrackedScan() / divisor" },
+            { name: "regex quote after block", source: 'if (ready) {}\n/[\"]/.test(source); source.untrackedScan("payload")',
+                error: braceError + blockRegexLine },
+            { name: "regex line comment after block", source: "if (ready) {}\n/[//]/.test(source); source.untrackedScan()",
+                error: braceError + blockRegexLine },
+            { name: "regex after block comments", source: "if (ready) {} /* comment\n*/ // comment\n/[//]/.test(source)",
+                error: braceError + commentRegexLine },
+            { name: "division after object", source: "var ratio = {} / divisor", error: braceError + firstSourceLine },
+            { name: "line comment after block", source: "if (ready) {} // comment\nsource.untrackedScan()" },
+            { name: "block comment after block", source: "if (ready) {} /* comment */ source.untrackedScan()" },
+            { name: "keyword property", source: "source.return / source.untrackedScan() / divisor" },
+            { name: "keyword property call", source: "Leaf.if(ready) / source.untrackedScan() / divisor", aliases: ["Leaf"] },
+            { name: "spread operator", source: "fn(.../[//]/.source); source.untrackedScan()" },
+            { name: "extends keyword", source: "class Child extends /[//]/.constructor {} source.untrackedScan()" },
+            { name: "default keyword", source: "export default /[//]/; source.untrackedScan()" },
+            { name: "break statement", source: "while (ready) { break\n/[//]/.test(source); source.untrackedScan() }",
+                error: "unsupported slash after break" + lexicalError + blockRegexLine },
+            { name: "labelled break", source: "outer: while (ready) { break outer\n/[//]/.test(source); source.untrackedScan() }",
+                error: "unsupported slash after break" + lexicalError + blockRegexLine },
+            { name: "continue statement", source: "while (ready) { continue\n/[//]/.test(source); source.untrackedScan() }",
+                error: "unsupported slash after continue" + lexicalError + blockRegexLine },
+            { name: "debugger statement", source: "debugger\n/[//]/.test(source); source.untrackedScan()",
+                error: "unsupported slash after debugger" + lexicalError + blockRegexLine },
+            { name: "await identifier", source: "await / source.untrackedScan() / divisor",
+                error: "unsupported slash after contextual keyword await" + lexicalError + firstSourceLine },
+            { name: "yield identifier", source: "yield / source.untrackedScan() / divisor",
+                error: "unsupported slash after contextual keyword yield" + lexicalError + firstSourceLine },
+            { name: "of keyword", source: "for (var part of /[//]/.source) source.untrackedScan()",
+                error: "unsupported slash after contextual keyword of" + lexicalError + firstSourceLine },
+            { name: "Unicode identifier", source: "caf\u00e9 / source.untrackedScan() / divisor",
+                error: "unsupported token" + lexicalError + firstSourceLine },
+            { name: "escaped identifier", source: "caf\\u00e9 / source.untrackedScan() / divisor",
+                error: "unsupported token" + lexicalError + firstSourceLine },
+            { name: "template literal", source: "`source.untrackedScan()`",
+                error: "unsupported template literal" + lexicalError + firstSourceLine },
+            { name: "division after bracket", source: "source[0] / source.untrackedScan() / divisor" },
+            { name: "division after postfix", source: "count++ / source.untrackedScan() / divisor" }
         ];
         var failures = 0;
         for (var p = 0; p < probes.length; p++) {
             var refused = false;
             try {
-                Work.checkMethods(probes[p].source, [], "coverage probe");
+                Work.checkMethods(probes[p].source, probes[p].aliases || [], coverageName);
             } catch (error) {
-                refused = String(error).indexOf("uncounted parser method") >= 0;
+                var expected = probes[p].error || "uncounted parser method " + coverageName + ": untrackedScan";
+                refused = String(error) === "Error: " + expected;
             }
-            console.log((refused ? "ok " : "FAIL ") + "coverage " + probes[p].name + " refuses unknown method");
+            console.log((refused ? "ok " : "FAIL ") + "coverage " + probes[p].name + " refuses unsafe scan");
             if (!refused)
                 failures++;
         }
@@ -230,6 +274,11 @@ QtObject {
             Work.checkMethods('if (ready) /[//]\\.untrackedScan\\(\\)/.test(source)', [], "control regex probe");
             Work.checkMethods('return /[/*]\\.untrackedScan\\(\\)/.test(source)', [], "return regex probe");
             Work.checkMethods('"source.untrackedScan()" /* source.untrackedScan() */', [], "literal probe");
+            Work.checkMethods('if (ready) {} // source.untrackedScan()\nsource.slice(0)', [], "block line comment probe");
+            Work.checkMethods('if (ready) {} /* source.untrackedScan() */ source.slice(0)', [], "block comment probe");
+            Work.checkMethods('source.slice(0) / divisor; count / divisor', [], "division probe");
+            Work.checkMethods('(count) / divisor; source[0] / divisor; count++ / divisor; count-- / divisor', [], "operand probe");
+            Work.checkMethods('source.return / divisor; Leaf.if(ready) / divisor', ["Leaf"], "keyword property probe");
             console.log("ok coverage ignores methods inside literals and comments");
         } catch (error) {
             console.log("FAIL coverage literal contents: " + error);
