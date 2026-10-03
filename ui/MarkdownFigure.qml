@@ -55,6 +55,8 @@ Item {
         root.lastRequest = request;
         root.ticket = FigureService.ask(root.kind, root.source, root.display, theme);
     }
+    // The wait, in ms, that lets the list lay the delegate out before the one ask reads its place.
+    readonly property int askSettleMs: 50
     // The suite counts ask runs and reads the armed deferred ask, so it waits and asserts without timing.
     property int askRuns: 0
     readonly property bool askPending: askTimer.running
@@ -85,7 +87,7 @@ Item {
     // ListView places the delegate after it completes, so the one ask waits out layout and inView reads the placed position.
     Timer {
         id: askTimer
-        interval: 50
+        interval: root.askSettleMs
         onTriggered: root.ask()
     }
 

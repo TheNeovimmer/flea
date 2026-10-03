@@ -39,7 +39,6 @@ Item {
     readonly property string accentHex: hexOf(Theme.color.accent)
     readonly property string mutedHex: hexOf(Theme.color.muted)
     readonly property string surfaceHex: hexOf(Theme.color.surface)
-    // Only the active file in Rendered view may request figures.
     readonly property int insetX: Theme.spacing.rowPaddingX + Theme.spacing.rowPaddingY - Theme.spacing.hairline
     readonly property int insetY: Theme.spacing.gap + Theme.spacing.rowPaddingY
     // The 6 px gap above every block after the first is rowPaddingY (7), and the fence's 8 12 padding is gap (9) and rowPaddingX (14).
@@ -51,12 +50,15 @@ Item {
     function headingPx(level) {
         return Math.round(Theme.font.body * (level >= 1 && level <= root.headingRatio.length ? root.headingRatio[level - 1] : 1))
     }
+    // Only the active file in Rendered view may request figures.
     readonly property bool figuresArmed: root.active && root.view !== Markdown.SOURCE
     // Parse sequence numbers reject replies for an older file.
     property var blockList: []
     property int parseSeq: 0
     property int appliedSeq: 0
     property bool parsing: false
+    // Parses that really ran (worker message or synchronous), so a suite counts one per event.
+    property int parseRuns: 0
     // A worker reply landed for this file; the lazy suite asserts the parse left the UI thread.
     property bool parsedOffThread: false
     property string parseError: ""
@@ -162,8 +164,9 @@ Item {
         root.rememberScroll()
         root.askParse()
     }
-    onInkHexChanged: root.reparseForTheme()
-    onChromeHexChanged: root.reparseForTheme()
+    // A theme switch moves ink and chrome in one turn, so both ask through one callLater and the parse sees both.
+    onInkHexChanged: Qt.callLater(root.reparseForTheme)
+    onChromeHexChanged: Qt.callLater(root.reparseForTheme)
 
     // Large files require synchronous worker activation before their parse request.
     readonly property int workerThreshold: 65536
@@ -186,10 +189,13 @@ Item {
         root.appliedSeq = messageObject.seq
         if (messageObject.error !== "") {
             root.parseError = messageObject.error
+            root.askedAny = false
             return
         }
         root.parseError = ""
         root.blockList = messageObject.blocks
+        // A reply that changed nothing the list sees raises no model change, so the saved place is released here.
+        root.restoreScroll()
         root.parsedOffThread = true
     }
 
@@ -214,38 +220,68 @@ Item {
         }
     }
 
+    // The last parsed request's text, folder, chrome and ink; a reload's second trigger (onRawTextChanged after onLoaded) is skipped.
+    property string askedText: ""
+    property string askedDir: ""
+    property string askedChrome: ""
+    property string askedInk: ""
+    property bool askedAny: false
+    // Forget the last request and void any worker reply in flight, so the next ask always parses.
+    function dropParse() {
+        root.parseSeq++
+        root.parsing = false
+        root.askedAny = false
+        root.askedText = ""
+    }
+
     // Resolve images before Qt sees text: remote images become placeholders; only files beside the document load.
     function askParse() {
-        root.parseSeq++
         root.parseError = ""
         if (!root.active || root.tooLarge || !file.loaded) {
-            root.parsing = false
+            root.dropParse()
             return
         }
+        // Read the file's own text: onLoaded can run before the rawText binding has caught up.
+        var text = file.text()
+        var dir = Markdown.dirOf(root.path)
+        if (root.askedAny && text === root.askedText && dir === root.askedDir
+                && root.chromeHex === root.askedChrome && root.inkHex === root.askedInk) {
+            // Nothing new will land to release a remembered scroll, unless a worker reply is still due.
+            if (!root.parsing)
+                root.keepScroll = false
+            return
+        }
+        root.askedAny = true
+        root.askedText = text
+        root.askedDir = dir
+        root.askedChrome = root.chromeHex
+        root.askedInk = root.inkHex
+        root.parseSeq++
+        root.parseRuns++
         root.parsing = true
         // The live text length determines worker activation before bindings update.
-        var wantWorker = root.rawText.length > root.workerThreshold
+        var wantWorker = text.length > root.workerThreshold
         parserLoader.active = wantWorker
         var w = parserLoader.item
         if (wantWorker && w) {
             parseFallback.restart()
-            w.sendMessage({ seq: root.parseSeq, source: root.rawText,
-                dir: Markdown.dirOf(root.path), chrome: root.chromeHex, ink: root.inkHex })
+            w.sendMessage({ seq: root.parseSeq, source: text, dir: dir, chrome: root.chromeHex, ink: root.inkHex })
             return
         }
         parserLoader.active = false
         parseFallback.stop()
         try {
-            root.blockList = Markdown.blocks(root.rawText, Markdown.dirOf(root.path),
-                root.chromeHex, root.inkHex)
+            root.blockList = Markdown.blocks(text, dir, root.chromeHex, root.inkHex)
         } catch (e) {
             root.parseError = String(e)
             root.parsing = false
+            root.askedAny = false
             return
         }
         root.parseError = ""
         root.appliedSeq = root.parseSeq
         root.parsing = false
+        root.restoreScroll()
     }
 
     onRawTextChanged: root.askParse()
@@ -255,7 +291,8 @@ Item {
         root.parseError = ""
         root.blockList = []
         root.parsedOffThread = false
-        root.askParse()
+        // The new file's load asks; asking now would parse the old file's text under the new path.
+        root.dropParse()
     }
 
     // Warming both view heights prevents a contentHeight binding loop on Rendered/Source changes.

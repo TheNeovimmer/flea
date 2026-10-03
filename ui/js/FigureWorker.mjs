@@ -281,6 +281,10 @@ function inlineClasses(svg) {
 }
 
 const MERMAID_BODY_PX = 13;
+// A diagram scales to the theme's body size; this size in px stands in when the request carries none.
+const MERMAID_FALLBACK_BODY_PX = 14;
+// The padding in px the diagram library lays round the drawing; tightenVertical re-fits the canvas after it.
+const MERMAID_PADDING = 1;
 const CANVAS_MARGIN = 1;
 const BOUNDS_PRECISION = 10;
 const TEXT_DESCENT_RATIO = 0.3;
@@ -391,7 +395,7 @@ function tightenVertical(svg) {
             var font = number(tag, "font-size", NaN);
             var baseline = number(tag, "y", NaN);
             var dy = tag.match(/\sdy="(-?[\d.]+)(em|%)?"/);
-            baseline += dy ? Number(dy[1]) * (dy[2] === "em" ? font : dy[2] === "%" ? font / 100 : 1) : 0;
+            baseline += dy ? Number(dy[1]) * (dy[2] === "em" ? font : dy[2] === "%" ? font / PERCENT_SCALE : 1) : 0;
             include(baseline - font, baseline + TEXT_DESCENT_RATIO * font, pad);
         }
         return tag;
@@ -469,7 +473,7 @@ export function postMermaid(svg, t) {
     out = out.replace(/<svg([^<>]*?)\sstyle="[^"]*"/, "<svg$1");
     // A click directive unwraps to its content; the link never ships.
     out = out.replace(/<a\s[^<>]*>/g, "").replace(/<\/a>/g, "");
-    out = scaleCanvas(tightenVertical(forceText(out, t.font || "sans-serif", t.fg)), t.bodyPx || 14);
+    out = scaleCanvas(tightenVertical(forceText(out, t.font || "sans-serif", t.fg)), t.bodyPx || MERMAID_FALLBACK_BODY_PX);
     out = markerPaths(out);
     var bad = checkSafe(out);
     if (bad)
@@ -505,5 +509,5 @@ export function renderFigure(kind, source, display, theme, apis) {
         throw new Error("diagram over 32 KiB");
     if (kind === "math")
         return postMath(apis.texToSvg(source, !!display), theme, !!display);
-    return postMermaid(apis.mermaidToSvg(source, theme.bg, theme.fg, { font: theme.font, padding: 1 }), theme);
+    return postMermaid(apis.mermaidToSvg(source, theme.bg, theme.fg, { font: theme.font, padding: MERMAID_PADDING }), theme);
 }

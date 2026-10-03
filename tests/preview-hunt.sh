@@ -22,6 +22,10 @@ printf 'Before disk edit.\n' > "$test_root/fixture/disk.md"
 printf 'Before disk edit.\n' > "$test_root/fixture/disk-rename.md"
 printf 'Before disk edit.\n' > "$test_root/fixture/disk-stale.md"
 printf 'Other file.\n' > "$test_root/fixture/disk-stale-b.md"
+# The parse-count fixtures: two files of different text, one of the second's text, and two past the worker threshold.
+printf 'Alpha text.\n' > "$test_root/fixture/pc-a.md"
+printf 'Beta text.\n' > "$test_root/fixture/pc-b.md"
+printf 'Beta text.\n' > "$test_root/fixture/pc-c.md"
 printf '![local](wide.png)\n' > "$test_root/fixture/local-image.md"
 # Offscreen Qt has no platform URL service. Interpose only that native dispatch, with a positive control.
 cc -shared -fPIC tests/markdown-link-spy.c -o "$test_root/link-spy.so" || exit 1
@@ -39,13 +43,16 @@ png=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',1200,600,8,2,0,0,0
 png+=chunk(b'IDAT',zlib.compress((b'\0'+b'\x40\x80\xc0'*1200)*600))+chunk(b'IEND',b'')
 (root/'disk-scroll.md').write_text('\n\n'.join(f'scroll paragraph {i}.' for i in range(300))+'\n')
 (root/'wide.png').write_bytes(png)
+for name in ('alpha','beta'):
+ (root/('pc-big-'+name[0]+'.md')).write_text('\n'.join(f'- {name} item {i} with enough plain text to force the worker parse path.' for i in range(1500))+'\n')
 PY
 failures=0
-scenarios=(control tasks reference table scroll source-key size-key theme links disk disk-rename disk-scroll disk-stale local-image long-list long-table)
+scenarios=(control tasks reference table scroll source-key size-key theme links disk disk-rename disk-scroll disk-stale local-image long-list long-table parse-quick parse-column parse-worker)
 for scenario in "${scenarios[@]}"; do
     link_preload=""
     case "$scenario" in
         theme|links|disk|disk-rename|disk-scroll|disk-stale|local-image|long-list|long-table) cp tests/markdown-hunt.qml "$test_root/config/shell.qml" ;;
+        parse-*) cp tests/markdown-parse-count.qml "$test_root/config/shell.qml" ;;
         *) cp tests/preview-hunt.qml "$test_root/config/shell.qml" ;;
     esac
     [ "$scenario" != links ] || link_preload="$test_root/link-spy.so"
