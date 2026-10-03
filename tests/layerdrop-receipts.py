@@ -82,6 +82,7 @@ with tempfile.TemporaryDirectory() as temporary:
     # Sample input: Quickshell.execDetached(["sh", "-c", "printf 'PANEL-ENTER\\n' >> '/fixture/panel.log'"])
     command = re.search(r'Quickshell\.execDetached\((\[.*\])\)', handler.group(1)) if handler else None
     if command:
+        # Sample input: ["sh", "-c", "printf 'PANEL-ENTER\\n' >> '/fixture/panel.log'"]
         result = subprocess.run(json.loads(command.group(1)), capture_output=True, text=True,
                                 timeout=SHELL_TIMEOUT_SECONDS)
     check('generated panel enter command writes the exact hover receipt',
