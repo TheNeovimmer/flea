@@ -26,16 +26,13 @@ function blockOf(text, marker) {
     }
     throw new Error("buttons: the block holding " + marker + " never closes")
 }
-// The right-hand side of every `name:` line in a block, so a check reads the expression and not a grep over the file.
-// Sample input: valuesOf("{ border.width: 1\n border.color: Theme.color.accent\n }", "border.color") answers ["Theme.color.accent"].
+// Sample input: valuesOf("A { border.width: 1; border.color: Theme.color.accent }", "border.color") answers ["Theme.color.accent"]; it reads every `name:` in the text, at a line's start or after a `;` or `{`, so a one-line item cannot hide one.
 function valuesOf(block, name) {
     var out = []
-    var lines = block.split("\n")
-    for (var i = 0; i < lines.length; i++) {
-        var line = lines[i].trim()
-        if (line.indexOf(name + ":") === 0)
-            out.push(line.substring(name.length + 1).trim())
-    }
+    var pattern = new RegExp("(?:^|[\\s;{])" + name.replace(/\./g, "\\.") + "\\s*:\\s*([^;\\n}]+)", "g")
+    var hit
+    while ((hit = pattern.exec(block)) !== null)
+        out.push(hit[1].trim())
     return out
 }
 
@@ -134,5 +131,7 @@ function run(check) {
     check("the path frame draws no ring or ring clearance", /Buttons\.RING|ringClearance|margins:\s*-/.test(edit), false)
     check("the strip draws no border but hairlines", valuesOf(chrome, "border.width").join("|"), "Theme.spacing.hairline")
     check("the strip never reads a ring width or ring clearance", /Buttons\.RING|ringClearance/.test(chrome), false)
+    check("the strip groups no border properties, where a width would hide from the reader", /\bborder\s*\{/.test(chrome), false)
+    check("the reader sees a border width inside a one-line item", valuesOf("Rectangle { border.width: 2; color: x }", "border.width").join("|"), "2")
     check("the block reader finds a nested block whole", blockOf("A { id: x; B { y: 1 } } C { z: 2 }", "id: x"), "{ id: x; B { y: 1 } }")
 }
