@@ -7427,10 +7427,11 @@ PYEOF
 # launch() so omarchy-drive itself is unaffected. Two rows, not one, in the fixture directory:
 # setCursor clamps cursorDown to the single valid index on a one-row listing, which reads exactly
 # like dead keyboard input and cost real time to tell apart from it while this case was written.
-# gio's own mount table is per-user, not per-HOME, so a real share left mounted from other work
-# would leak into networkEntries and fail the empty check no matter what fixture HOME says; this
-# gates the empty check on "gio mount -l" itself carrying no Mount() line, and fails loud with
-# that listing rather than guessing, since this case cannot unmount another task's own work.
+# gio's own mount table is per-user, not per-HOME, but Flea reads it only through "gio mount -li",
+# and the case's gio double answers that with nothing, so the operator's gio mounts never reach the
+# rail. The double does not cover /proc/self/mountinfo, which Flea also lists kernel NFS and CIFS
+# mounts from: such a mount outside home still shows, and case_network then fails naming it rather
+# than refusing. It waits for the rail to build from a listing and asserts the group is empty.
 # Issue 21, TomFaulkner: a saved network place can be edited from the rail, and the address that
 # finally mounts is written back over that place's own line rather than saved beside it.
 case_editplace() {
@@ -7754,10 +7755,30 @@ case_network() {
             || fail "network: $1 fixture was no longer waiting at its release barrier"
     }
 
-    local live_mounts
-    live_mounts=$(gio mount -l 2>/dev/null | grep -c '^Mount(') || true
-    [[ "$live_mounts" -eq 0 ]] \
-        || fail "network: $live_mounts real gio mount(s) already present, cannot assert an empty rail against ambient state: $(gio mount -l 2>/dev/null)"
+    # One ipc read into network_ipc_out; a failed read fails by name, so it is never mistaken for an empty answer.
+    local network_ipc_out=""
+    network_ipc() {
+        local status=0
+        network_ipc_out=$(ipc "$@" 2>&1) || status=$?
+        (( status == 0 )) || fail "network: ipc $1 failed with status $status: $network_ipc_out"
+    }
+    # networkBuilt (ui/Ipc.qml) is true only after the rail rebuilt from a gio listing and a mountinfo read, and an empty group is also what the unbuilt rail shows.
+    local network_built_attempts=400
+    network_wait_built() {
+        local attempt
+        for attempt in $(seq 1 "$network_built_attempts"); do
+            network_ipc networkBuilt
+            [[ "$network_ipc_out" == true ]] && return
+            sleep 0.05
+        done
+        fail "network: the rail never built its Network group from a mount listing (networkBuilt is $network_ipc_out)"
+    }
+    network_assert_empty() {
+        local what="$1"
+        network_ipc networkEntries
+        [[ -z "$network_ipc_out" ]] \
+            || fail "network: $what: the Network group shows [$network_ipc_out], not empty (the gio double isolates the gio mount table only; a kernel network mount Flea lists from /proc/self/mountinfo shows as its own row)"
+    }
 
     # This case proves form/bookmark behavior, not a network route; a bounded local gio double keeps
     # the newly functional Save action from dialing TEST-NET-2 or reopening on its later timeout.
@@ -7815,7 +7836,8 @@ EOS
     launch "$dir"
     export HOME="$real_home"
     wait_listing 3
-    [[ -z "$(ipc networkEntries)" ]] || fail "network: the group is not empty with no bookmarks, gio mounts or Dropbox"
+    network_wait_built
+    network_assert_empty "no bookmarks, no listed mounts and no Dropbox"
     shot network-empty
 
     # The current keymap binds "a" to add network from both listing and rail contexts.
