@@ -91,11 +91,12 @@ ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
 ui/Sidebar.qml 675
 ui/StatusBar.qml 460
-ui/TabBar.qml 592
+ui/TabBar.qml 605
 ui/Theme.qml 415
 ui/TrashView.qml 475
 ui/ViewState.qml 410
-ui/WindowBody.qml 590
+ui/WindowBody.qml 631
+ui/boot/fleatab.qml 50
 ui/js/Filter.js 253
 ui/js/Focus.js 408
 ui/js/Keymap.js 338
@@ -105,7 +106,7 @@ ui/js/Drag.js 346
 ui/js/Ops.js 438
 ui/js/Picker.js 325
 ui/js/Settings.js 455
-ui/js/Tabs.js 641"
+ui/js/Tabs.js 664"
 
 status=0
 

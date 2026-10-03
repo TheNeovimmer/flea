@@ -2033,10 +2033,10 @@ captures a stable tab identity and its source pane until acknowledgment or the e
 15-second deadline. Accepted lifts wait for pane settlement beyond that deadline, and source
 closures wait for a held strip reorder to finish; pending receiver drops are refused without acknowledgment. A desktop
 tear-off uses the same acknowledgment after its initial folder lists. The geometry query
-restarts for the latest overlapping lift. File ceilings are re-derived with `wc -l` for the
-added identity lifecycle and regression coverage: `ui/TabBar.qml` 592, `ui/js/Tabs.js` 641,
-`ui/WindowBody.qml` 590 for both destination pane signals, and `tests/js/tabs.js` 597; the three
-fell when their comments folded to one line each.
+restarts for the latest overlapping lift.
+Restoring merge-base comments and their original line breaks raises the `wc -l` ceilings to
+`ui/TabBar.qml` 605, `ui/js/Tabs.js` 664 and `ui/WindowBody.qml` 631; `ui/boot/fleatab.qml`
+stays at 50 and `tests/js/tabs.js` at 597.
 The test fixture loads shipped QML function bodies so cancel,
 completion and acknowledgment assertions exercise the actual transitions.
 

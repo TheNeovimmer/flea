@@ -2,7 +2,7 @@ import QtQml
 import Quickshell
 import Quickshell.Io
 
-// Only a validated tab's matching lift acknowledgment closes its source; the window supplies Tabs because qs: cannot reach ui/js.
+// Only a validated tab's matching lift acknowledgment closes its source.
 QtObject {
     id: root
 
