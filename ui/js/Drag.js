@@ -117,28 +117,50 @@ function listingDeletable(pane) {
 
 // One marker, not two mime types, carrying sender, rows and lift bits (fields: 0 sender, 1 rows, 2 ctrl, 3 source, 4 device, 5 deletable, 6 shift).
 function markerPayload(rows, copy, source, dev, deletable, shift) {
-    return INSTANCE + "\n" + rows.join(",") + "\n" + (copy ? "copy" : "move") + "\n" + String(source || "") + "\n" + String(dev || 0) + "\n" + (deletable === false ? "0" : "1") + "\n" + (shift === true ? "1" : "0")
+    return INSTANCE + "\n" + rows.join(",") + "\n" + (copy ? "copy" : "move") + "\n" + encodeURIComponent(String(source || "")) + "\n" + String(dev || 0) + "\n" + (deletable === false ? "0" : "1") + "\n" + (shift === true ? "1" : "0")
+}
+
+var MARKER_FIELDS = 7
+var LEGACY_MARKER_FIELDS = 5
+var DELETABLE_MARKER_FIELDS = 6
+
+// Five- and six-field legacy markers have raw paths; current markers percent-encode the path field.
+// Sample input: "foreign\n2\nmove\n%2Ftmp%2Fsource\n56\n1\n1".
+function markerFields(payload) {
+    var fields = String(payload).split("\n")
+    if ([LEGACY_MARKER_FIELDS, DELETABLE_MARKER_FIELDS, MARKER_FIELDS].indexOf(fields.length) < 0)
+        return null
+    if (!/^-?[0-9]+$/.test(fields[4]) || (fields[2] !== "copy" && fields[2] !== "move")) return null
+    if (fields.length >= DELETABLE_MARKER_FIELDS && fields[5] !== "0" && fields[5] !== "1") return null
+    if (fields.length === MARKER_FIELDS) {
+        if (fields[6] !== "0" && fields[6] !== "1") return null
+        try { decodeURIComponent(fields[3]) } catch (error) { return null }
+    }
+    return fields
 }
 
 // The directory the rows were lifted from, and its filesystem, both baked at the lift: a drop that
 // lands after the listing changed under the drag, which hovering a tab now does, cannot use the row
 // indices any more and resolves by path against these instead.
 function markerSource(payload) {
-    return String(payload).split("\n")[3] || ""
+    var fields = markerFields(payload)
+    return fields ? (fields.length === MARKER_FIELDS ? decodeURIComponent(fields[3]) : fields[3]) : ""
 }
 
 function markerDev(payload) {
-    return Number(String(payload).split("\n")[4]) || 0
+    var fields = markerFields(payload)
+    return fields ? Number(fields[4]) || 0 : 0
 }
 
 function markerShift(payload) {
-    return String(payload).split("\n")[6] === "1"
+    var fields = markerFields(payload)
+    return !!fields && fields[6] === "1"
 }
 
 // Missing means the source can be deleted. Only an explicit 0 copies a same-device drag.
 function markerDeletable(payload) {
-    var field = String(payload).split("\n")[5]
-    return field !== "0"
+    var fields = markerFields(payload)
+    return !!fields && fields[5] !== "0"
 }
 
 // Whether the listing under the drop is still the one the rows were lifted from, which is the only
@@ -160,13 +182,15 @@ function canDropByIndex(marker, path, rows, index) {
 
 // Whether the marked drag was lifted with ctrl down. No marker answers false.
 function markerCopying(payload) {
-    return String(payload).split("\n")[2] === "copy"
+    var fields = markerFields(payload)
+    return !!fields && fields[2] === "copy"
 }
 
 // Whether a marked drag began in this very window. An unmarked drag has no payload and answers false,
 // which is the right answer: something that is not Flea is not this Flea.
 function isOwnDrag(payload) {
-    return String(payload).split("\n")[0] === INSTANCE
+    var fields = markerFields(payload)
+    return !!fields && fields[0] === INSTANCE
 }
 
 // A path as a file:// URI. Each component is encoded on its own: encodeURIComponent would escape the
@@ -212,6 +236,7 @@ function mimeFor(pane, rows, copy, shift) {
 
 // A path drop lands on another directory only, and only with paths to send; same-directory and pathless drops refuse.
 function canDropInto(marker, urls, dest, plain) {
+    if (marker && !markerFields(marker)) return false
     // No destination is no drop: a tab with no path for its row and the history's base, which
     // names no folder of its own, both refuse rather than landing wherever "" resolves.
     if (!dest) return false
@@ -224,6 +249,7 @@ function canDropInto(marker, urls, dest, plain) {
 function dropInto(pane, marker, urls, dest, destDev, shelf, plain, proposed) {
     // No destination is no drop, even for a shelf drag whose token would otherwise redeem.
     if (!dest) return false
+    if (marker && !markerFields(marker)) return false
     var paths = DragOut.sources(urls, plain, marker, shelf)
     if (!canDropInto(marker, urls, dest, plain) && shelfToken(shelf).length === 0) return false
     // Rule 4: a shelf drag is redeemed rather than re-read as a list of URIs, because a fallback to
@@ -278,7 +304,7 @@ function reachNote(canLeave) {
 
 // Sample marker "<instance>\n1,3\nmove\n/source\n42\n1\n0"; feedback never becomes destination row indices.
 function feedbackFor(marker, urls, shelf, proposed) {
-    var fields = String(marker).split("\n")
+    var fields = markerFields(marker) || []
     var own = fields[0] === INSTANCE
     var paths = pathsFromUrls(urls)
     if (shelfToken(shelf).length > 0) {

@@ -105,6 +105,7 @@ TailscaleMark 1.0 TailscaleMark.qml
 StatusBar 1.0 StatusBar.qml
 SelectionBand 1.0 SelectionBand.qml
 TabBar 1.0 TabBar.qml
+TabDragGeometry 1.0 TabDragGeometry.qml
 TransferCard 1.0 TransferCard.qml
 Taildrop 1.0 Taildrop.qml
 LocalSend 1.0 LocalSend.qml

@@ -371,6 +371,9 @@ last_arg="$D/last-arg"
   printf 'printf "THEME %%s\\n" "${QT_QPA_PLATFORMTHEME-unset}"\n'
   printf 'printf "ICON_THEME %%s\\n" "${QS_ICON_THEME-unset}"\n'
   printf 'printf "THEME_MARKER %%s\\n" "${FLEA_QT_THEME-unset}"\n'
+  printf 'printf "TAB_PID %%s\\n" "${FLEA_TAB_SOURCE_PID-unset}"\n'
+  printf 'printf "TAB_CURSOR %%s\\n" "${FLEA_TAB_CURSOR-unset}"\n'
+  printf 'printf "TAB_TOKEN %%s\\n" "${FLEA_TAB_TOKEN-unset}"\n'
   printf 'printf "ARGV %%s\\n" "$*"\n'
   printf 'shift $(($# - 1)); printf "%%s" "$1" > %q\n' "$last_arg"
   printf 'P=$(cut -d" " -f5 /proc/self/stat)\n'
@@ -463,6 +466,17 @@ out=$(cat "$opened")
 check "an opened program gets the traded platform theme back" "THEME gtk3" "$(echo "$out" | grep '^THEME ')"
 check "and not the icon theme Flea named for Quickshell" "ICON_THEME unset" "$(echo "$out" | grep '^ICON_THEME ')"
 check "and not the marker that said so" "THEME_MARKER unset" "$(echo "$out" | grep '^THEME_MARKER ')"
+
+: > "$opened"
+# The tear-off hand-off belongs to the one window ui/TabBar.qml starts, so nothing this window launches replays it.
+FLEA_TAB_SOURCE_PID=111 FLEA_TAB_CURSOR=same.txt FLEA_TAB_TOKEN=old-lift \
+  PATH="$D/bin:/usr/bin:/bin" $BIN --open "$D/file.txt" 2>&1 | cat >/dev/null
+check "the tear-off open returned success" "0" "${PIPESTATUS[0]}"
+wait_for_line "$opened" '^THP_enabled'
+out=$(cat "$opened")
+check "an opened program does not inherit the tab source pid" "TAB_PID unset" "$(echo "$out" | grep '^TAB_PID ')"
+check "and not the tab cursor name" "TAB_CURSOR unset" "$(echo "$out" | grep '^TAB_CURSOR ')"
+check "and not the tab lift token" "TAB_TOKEN unset" "$(echo "$out" | grep '^TAB_TOKEN ')"
 
 : > "$opened"
 # No marker is no trade, so an operator's own platform theme reaches the program they opened.
@@ -594,6 +608,9 @@ ran="$D/ran.log"
   printf 'printf "THEME %%s\\n" "${QT_QPA_PLATFORMTHEME-unset}"\n'
   printf 'printf "ICON_THEME %%s\\n" "${QS_ICON_THEME-unset}"\n'
   printf 'printf "THEME_MARKER %%s\\n" "${FLEA_QT_THEME-unset}"\n'
+  printf 'printf "TAB_PID %%s\\n" "${FLEA_TAB_SOURCE_PID-unset}"\n'
+  printf 'printf "TAB_CURSOR %%s\\n" "${FLEA_TAB_CURSOR-unset}"\n'
+  printf 'printf "TAB_TOKEN %%s\\n" "${FLEA_TAB_TOKEN-unset}"\n'
   printf 'printf "ARGV %%s\\n" "$*"\n'
   printf 'P=$(cut -d" " -f5 /proc/self/stat)\n'
   printf '[ "$$" = "$P" ] && printf "PGID MATCH pid=%%s pgid=%%s\\n" "$$" "$P" || printf "PGID MISMATCH pid=%%s pgid=%%s\\n" "$$" "$P"\n'
@@ -662,6 +679,17 @@ out=$(cat "$ran")
 check "a terminal gets the traded platform theme back" "THEME gtk3" "$(echo "$out" | grep '^THEME ')"
 check "and not the icon theme Flea named for Quickshell" "ICON_THEME unset" "$(echo "$out" | grep '^ICON_THEME ')"
 check "and not the marker that said so" "THEME_MARKER unset" "$(echo "$out" | grep '^THEME_MARKER ')"
+
+: > "$ran"
+# The terminal path takes the same refusal: a tab lift replayed in a shell Flea started would move a cursor it never asked for.
+FLEA_TAB_SOURCE_PID=111 FLEA_TAB_CURSOR=same.txt FLEA_TAB_TOKEN=old-lift \
+  PATH="$D/bin:/usr/bin:/bin" $BIN --terminal "$D/dir" 2>&1 | cat >/dev/null
+check "the tear-off terminal returned success" "0" "${PIPESTATUS[0]}"
+wait_for_line "$ran" '^THP_enabled'
+out=$(cat "$ran")
+check "a terminal does not inherit the tab source pid" "TAB_PID unset" "$(echo "$out" | grep '^TAB_PID ')"
+check "and not the tab cursor name" "TAB_CURSOR unset" "$(echo "$out" | grep '^TAB_CURSOR ')"
+check "and not the tab lift token" "TAB_TOKEN unset" "$(echo "$out" | grep '^TAB_TOKEN ')"
 
 : > "$ran"
 # No marker is no trade here either, and an exported empty one is absent.

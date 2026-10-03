@@ -9,6 +9,7 @@ import "js/ScrollOff.js" as ScrollOff
 import "js/Tap.js" as Tap
 import "js/Thumbs.js" as Thumbs
 import "js/DirSizes.js" as DirSizes
+import "js/DragOut.js" as DragOut
 
 // One Miller column: a scrolling list of ColumnRows over either a peeked directory or the pane's
 // own listing window. It owns no state; the area above it decides which row is which.
@@ -190,7 +191,8 @@ Item {
         anchors.fill: parent
         enabled: root.pane !== null && !root.pane.trash.opened && root.pane.searchMode === ""
         pane: root.pane
-        dest: root.pane ? root.pane.path : ""
+        dest: root.pane ? root.pane.dropPath : ""
+        refuseLoading: DragOut.refuseLoading(root.pane && root.pane.listInFlight, false, false)
         destDev: root.pane && root.pane.backend && !root.pane.listInFlight ? root.pane.backend.dirDev : 0
     }
 

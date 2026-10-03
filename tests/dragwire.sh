@@ -1,5 +1,10 @@
 #!/bin/bash
-# Headless guard for what an external drop target sees, unlike tests/drag.sh which needs a display: plain offers copy alone since a browser uploader refuses a move, Ctrl copy, Shift move, Ctrl with Shift link, shelf copy only.
+# Guards what an external application sees when Flea drags out. tests/drag.sh proves the
+# gesture but needs the display and a real pointer, so it never runs in the headless battery.
+# A plain file lift offers copy alone until the browser-upload work settles the offer: a browser
+# uploader refuses a move offer. Ctrl offers copy alone, Shift move alone, Ctrl with Shift link
+# alone, so a receiver that takes whatever is offered still takes the lift's verb. The shelf drag
+# stays copy only. A tab drag offers Move alone with only the private tab type, so a foreign app refuses it.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
@@ -8,17 +13,29 @@ fail=0
 ok()  { printf 'ok   %s\n' "$*"; pass=$((pass+1)); }
 bad() { printf 'FAIL %s\n' "$*"; fail=$((fail+1)); }
 
-# Comments may name an action, so every check reads code only. Sample input, code_of('a // note') strips to 'a'.
+# Comments may name an action, so every check reads code only. Sample input: Drag.supportedActions: Qt.MoveAction // explanatory comment, which is ignored.
 code_of() { sed -e 's://.*::' "$1"; }
 
 # Sample input, ui/FileDrag.qml:27: '    Drag.supportedActions: root.dragLink ? Qt.LinkAction : ...'
-advertised=$(for f in ui/*.qml; do code_of "$f" | grep -H --label="$f" -n 'Drag\.supportedActions'; done)
-count=$(printf '%s' "$advertised" | grep -c . )
-if [ "$count" -eq 1 ]; then
-    ok "exactly one view advertises a drag: $(printf '%s' "$advertised" | cut -d: -f1)"
+advertised=$(while IFS= read -r f; do
+    code_of "$f" | grep -H --label="$f" -n 'Drag\.supportedActions'
+done < <(find ui -type f -name '*.qml'))
+
+advertiser_files=$(printf '%s\n' "$advertised" | cut -d: -f1 | sort -u)
+expected_advertisers=$(printf '%s\n' ui/FileDrag.qml ui/TabBar.qml | sort -u)
+if [[ "$advertiser_files" == "$expected_advertisers" ]]; then
+    ok "only ui/FileDrag.qml and ui/TabBar.qml advertise drag actions: one view per drag kind"
 else
-    bad "expected exactly 1 Drag.supportedActions in ui/, found $count"
-    printf '%s\n' "$advertised" | sed 's/^/     /'
+    bad "unexpected Drag.supportedActions files: $advertiser_files"
+fi
+
+# Each advertiser holds exactly one line, so a second offer in either file cannot hide behind the set check above.
+file_lines=$(printf '%s\n' "$advertised" | grep -c '^ui/FileDrag.qml:')
+tab_lines=$(printf '%s\n' "$advertised" | grep -c '^ui/TabBar.qml:')
+if [ "$file_lines" -eq 1 ] && [ "$tab_lines" -eq 1 ]; then
+    ok "exactly one Drag.supportedActions line in each of ui/FileDrag.qml and ui/TabBar.qml"
+else
+    bad "expected one Drag.supportedActions line in each advertiser, found FileDrag=$file_lines TabBar=$tab_lines"
 fi
 
 # Comparing the whole normalized offer pins every ternary arm and rejects a trailing token.
@@ -39,14 +56,72 @@ if [ "$offer_seq" = "$expected_seq" ]; then
 else
     bad "the offer must read $expected_seq, got: $offer_seq"
 fi
-if printf '%s' "$advertised" | grep -q 'Qt\.LinkAction'; then
-    ok "a link lift offers a link"
+
+# FileDrag and Drag.js offer uri-list; DropInto and RowDrag consume it, with no other ui users.
+uri_files=$(while IFS= read -r f; do
+    code_of "$f" | grep -H --label="$f" 'text/uri-list'
+done < <(find ui -type f \( -name '*.qml' -o -name '*.js' \)) | cut -d: -f1 | sort -u)
+expected_uri_files=$(printf '%s\n' ui/DropInto.qml ui/FileDrag.qml ui/RowDrag.qml ui/js/Drag.js | sort -u)
+if [[ "$uri_files" == "$expected_uri_files" ]]; then
+    ok "uri-list is confined to the file payload producers and their two receivers"
 else
-    bad "a link lift must offer Qt.LinkAction, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
+    bad "unexpected text/uri-list files: $uri_files"
+fi
+
+# Exactly one file-drag advertiser of copy, the file lift, plus the tab drag's own Move.
+copy_files=$(printf '%s' "$advertised" | grep 'CopyAction' | cut -d: -f1 | sort -u)
+if [ "$(printf '%s' "$copy_files" | grep -c .)" -eq 1 ] && [ "$copy_files" = "ui/FileDrag.qml" ]; then
+    ok "exactly one file-drag advertiser of copy: ui/FileDrag.qml"
+else
+    bad "expected the one copy advertiser to be ui/FileDrag.qml alone, found: $(printf '%s' "$copy_files" | tr '\n' ' ')"
+fi
+move_line=$(printf '%s' "$advertised" | grep '^ui/TabBar.qml' | cut -d: -f3-)
+if printf '%s' "$move_line" | grep -q 'Drag\.supportedActions:[[:space:]]*Qt\.MoveAction[[:space:]]*$'; then
+    ok "the tab drag advertises Move alone"
+else
+    bad "the tab drag must advertise Qt.MoveAction alone, got: $move_line"
+fi
+
+# Qt hands effectAllowed from this expression; combined Copy and Move violates the plain offer.
+scratch=$(mktemp -d) || exit 1
+trap 'rm -rf "$scratch"' EXIT
+# Load the exact component outside ui's qmldir, which eagerly imports unrelated Quickshell singletons.
+cp ui/FileDrag.qml "$scratch/FileDrag.qml" || exit 1
+ln -s "$PWD/ui/js" "$scratch/js" || exit 1
+offer_timeout_seconds=15
+file_offer=$(env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 timeout "$offer_timeout_seconds" qml6 tests/dragwire-offer.qml -- "$scratch/FileDrag.qml" 2>&1)
+offer_status=$?
+if [[ "$offer_status" == 0 ]] && grep -q 'file offers: 5 checks, 0 failed' <<< "$file_offer"; then
+    ok "file lift offers copy for plain, ctrl and ctrl plus shift without link; shift offers move and link takes priority"
+else
+    bad "file lift offers failed (status=$offer_status): $file_offer"
+fi
+
+# Exercise the shipped floor bindings and handler while a listing is held and after it settles.
+floor_probe_seconds=15
+floor_output=$(env QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    timeout "$floor_probe_seconds" qml6 tests/dragwire-floor.qml 2>&1)
+floor_status=$?
+if [[ "$floor_status" == 0 ]] && grep -q 'floor drops: 21 checks, 0 failed' <<< "$floor_output"; then
+    ok "list, grid and columns floors refuse held listings and target the shown directory after settlement"
+else
+    bad "floor drops failed (status=$floor_status): $floor_output"
+fi
+
+# The Move-alone advertiser is the tab drag: it carries the private type alone, since Files moves a folder whenever Move is offered.
+if grep -q 'text/uri-list' ui/TabBar.qml; then
+    bad "the tab drag must not offer text/uri-list with Move"
+else
+    ok "no tab drag offers text/uri-list with Move"
+fi
+if code_of ui/js/Tabs.js | grep -q 'text/uri-list'; then
+    bad "the tab payload must not offer text/uri-list"
+else
+    ok "the tab payload carries only the private tab type"
 fi
 
 if grep -q 'text/uri-list' ui/js/Drag.js; then
-    ok "a leaving drag still offers text/uri-list"
+    ok "a leaving file drag still offers text/uri-list"
 else
     bad "text/uri-list is gone from ui/js/Drag.js"
 fi
@@ -152,6 +227,21 @@ if [ "$wait_rc" -eq 1 ] && [ "$poll_calls" -ge "$min_poll_calls" ]; then
     ok "a failing total call keeps waiting and answers 1 at the bound"
 else
     bad "a failing total call must wait and answer 1, got rc=$wait_rc calls=$poll_calls"
+fi
+
+# The catcher must never steal focus and release the platform drag's held button.
+if code_of ui/boot/tabtearoff.qml | grep -q 'WlrLayershell.keyboardFocus: WlrKeyboardFocus.None' \
+    && ! code_of ui/boot/tabtearoff.qml | grep -Eq 'focus:|Keys\.|forceActiveFocus|WlrKeyboardFocus\.(OnDemand|Exclusive)'; then
+    ok "tear-off catcher never requests keyboard focus"
+else
+    bad "tear-off catcher must use None without a focused Escape item"
+fi
+# A sibling source bypasses QQuickDropArea's ancestor rejection (QTBUG-64128).
+if code_of ui/TabBar.qml | grep -q 'Drag.source: dragOrigin' \
+    && code_of ui/TabBar.qml | grep -q 'Item { id: dragOrigin; width: 0; height: 0; visible: false }'; then
+    ok "tab drag source is an invisible sibling of the strip DropArea"
+else
+    bad "tab drag source must not be the strip DropArea's ancestor"
 fi
 
 printf 'dragwire: %s check(s), %s failed\n' "$((pass + fail))" "$fail"

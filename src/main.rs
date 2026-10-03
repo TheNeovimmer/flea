@@ -15,6 +15,7 @@ mod open;
 mod paths;
 mod prefetch;
 mod qsregistry;
+mod tearoff;
 mod terminal;
 mod tui;
 mod thp;

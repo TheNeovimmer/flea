@@ -101,7 +101,7 @@ class StaticGateTests(unittest.TestCase):
         program = ('import json, sys; from pathlib import Path; '
                    'sys.path.insert(0, sys.argv[1]); from staticgates import inventory; '
                    'print(json.dumps(inventory(Path(sys.argv[2]))))')
-        result = subprocess.run([sys.executable, '-c', program, str(Path(gates.__file__).parent), str(self.root)],
+        result = subprocess.run([sys.executable, '-B', '-c', program, str(Path(gates.__file__).parent), str(self.root)],
                                 env={**os.environ, 'PATH': str(empty_path), 'FLEA_SOURCE_ARCHIVE': str(archive)},
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)

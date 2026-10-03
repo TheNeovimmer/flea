@@ -117,7 +117,7 @@ fn a_hung_compositor_gets_a_refusal_once_it_lets_go() {
 
 #[test]
 fn a_watch_starts_once_and_the_second_is_silent() {
-    use crate::backend::{dirsizeworker::Worker, listing::Listing, state::State};
+    use crate::backend::{dirsizeworker::Worker, listing::Listing, state::{Held, State}};
     // No display, so the thread ends after one honest error line and the channel closes with it.
     let _env = DisplayEnv::set(None);
     let (tx, rx) = channel();
@@ -128,12 +128,14 @@ fn a_watch_starts_once_and_the_second_is_silent() {
         base: Default::default(),
         asked: Vec::new(),
         outstanding: 0,
+        window_meta: Default::default(),
         dirsizes: Default::default(),
         dirsize_queue: Vec::new(),
         dirsize_worker: Worker::new(events),
         search: None,
         search_reported: std::time::Instant::now(),
         generation: 0,
+        held: Held::List,
         clip_watching: false,
     };
     request_watch(tx.clone(), &mut state.clip_watching);

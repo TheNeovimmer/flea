@@ -43,6 +43,9 @@ Rectangle {
     }
     // Strip changes coalesce; an in-flight navigation waits for its path and rows to land before saving.
     property bool tabStripQueued: false
+    // Stage trace, on only with FLEA_TRACE_TABDRAG=1; read once, silent otherwise.
+    readonly property bool tabTrace: Quickshell.env("FLEA_TRACE_TABDRAG") === "1"
+    function traceTab(stage, detail) { if (view.tabTrace) console.log("TABDRAG " + stage + " pid=" + Quickshell.processId + " " + detail) }
     function queueTabStrip() {
         if (view.tabStripQueued)
             return
@@ -188,6 +191,54 @@ Rectangle {
         pane: view.currentPane
     }
 
+    // Load the acknowledgment handler from the boot URL to preserve startup without ui/qmldir.
+    Loader {
+        id: tabAck
+        active: true
+        source: "file://" + Quickshell.shellDir + "/fleatab.qml"
+        onLoaded: {
+            item.tabBar = tabBar
+            item.view = view
+            item.tabs = Tabs
+            item.panes = Qt.binding(function () { return [primaryPane, secondPane.item ? secondPane.item.pane : null] })
+        }
+    }
+
+    // A hidden lone-tab strip still needs a pointer-transparent receiver with the strip's validation.
+    DropArea {
+        anchors.fill: parent
+        keys: [Tabs.TAB_MIME]
+        enabled: !view.dualMode && !(view.currentPane.tabs && view.currentPane.tabs.items
+            && view.currentPane.tabs.items.length > 1)
+        onEntered: function (drag) {
+            var ok = Tabs.enterAccepts(drag.formats, drag.getDataAsString(Tabs.TAB_MIME), undefined, Tabs.canReceive(view.currentPane), false)
+            view.traceTab("enter-window", "formats=" + String(drag.formats) + " ok=" + ok)
+            if (!ok)
+                drag.accepted = false
+        }
+        onExited: view.traceTab("leave-window", "")
+        onDropped: function (drop) {
+            var payload = drop.getDataAsString(Tabs.TAB_MIME)
+            view.traceTab("drop-window", "empty=" + (payload.length === 0) + " len=" + payload.length)
+            var info = Tabs.parseTabMime(payload)
+            if (!info) {
+                view.traceTab("drop-skip", "reason=window-bad-payload")
+                return
+            }
+            if (Tabs.isOwnTab(info)) {
+                view.traceTab("drop-skip", "reason=window-own-tab")
+                return
+            }
+            // The take decision answers Move at once; the peek behind it may still refuse, and then no ack goes out.
+            if (Tabs.dropDecision(info, undefined, false, Tabs.canReceive(view.currentPane)) !== Tabs.DROP_TAKE) {
+                view.traceTab("drop-skip", "reason=window-decision-ignore canReceive=" + Tabs.canReceive(view.currentPane))
+                return
+            }
+            drop.accept(Qt.MoveAction)
+            tabBar.acceptTabDrop(payload, info, -1)
+        }
+    }
+
     Flea.Pane {
         id: primaryPane
         anchors.left: parent.left
@@ -280,8 +331,10 @@ Rectangle {
             var named = view.initialized ? "" : (Quickshell.env("FLEA_PATH") || "")
             var pair = Startup.dualPaths(ViewState.state.dual, primaryPane.path || primaryPane.home, named)
             item.pane.clipboard = primaryPane.clipboard
-            if (pair.launchSide === 1)
+            if (pair.launchSide === 1) {
                 item.pane.pendingSelect = Quickshell.env("FLEA_SELECT") || ""
+                Tabs.prepareCursor(item.pane, named ? Quickshell.env("FLEA_TAB_CURSOR") : "")
+            }
             item.pane.open(pair.paths[1])
             if (view.initialized && view.dualMode) view.focusPane(view.focusSide)
         }
@@ -531,8 +584,10 @@ Rectangle {
         var start = Startup.startPath(ViewState.state, home, named)
         var pair = Startup.dualPaths(ViewState.state.dual, start, named)
         // Read once, and only on the side that took the named folder; Pane.applyPendingSelect() forgets it after the first rows.
-        if (!view.dualMode || pair.launchSide !== 1)
+        if (!view.dualMode || pair.launchSide !== 1) {
             primaryPane.pendingSelect = Quickshell.env("FLEA_SELECT") || ""
+            Tabs.prepareCursor(primaryPane, named ? Quickshell.env("FLEA_TAB_CURSOR") : "")
+        }
         // Tabs040 callout 2: Last folder reopens every remembered tab in order at its folder.
         // Dual startup keeps its own pair, and a named path outranks the strip either way.
         var plan = view.dualMode ? null : Tabs.restorePlan(ViewState.state, named)

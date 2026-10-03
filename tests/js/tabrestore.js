@@ -54,8 +54,10 @@ function run(check) {
     fresh.backend.sortDesc = true
     var restored = Tabs.restoreItems(fresh, ["/here"])
     Tabs.openNew(fresh)
-    check("a restored snapshot equals a freshly opened tab's snapshot",
-          JSON.stringify(restored[0]), JSON.stringify(fresh.tabs.items[1]))
+    var stateOnly = function (key, value) { return key === "tabIdentity" ? undefined : value }
+    check("restored and fresh tabs have distinct identities", restored[0].tabIdentity !== fresh.tabs.items[1].tabIdentity, true)
+    check("a restored snapshot equals a freshly opened tab's state",
+          JSON.stringify(restored[0], stateOnly), JSON.stringify(fresh.tabs.items[1], stateOnly))
     check("and the fresh tab is the new current one", Tabs.currentIndex(fresh), 1)
 
     // A restored tab lists its folder on first visit, like any background tab's first visit.

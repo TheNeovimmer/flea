@@ -1,4 +1,5 @@
 use crate::gui;
+use crate::tearoff;
 use crate::thp;
 use crate::vulkan;
 use std::os::unix::process::CommandExt;
@@ -35,6 +36,8 @@ pub fn open(path: &str) -> i32 {
     vulkan::drop_display_pin(&mut launcher);
     // The platform theme Flea traded for its own startup is Qt's alone too, and is handed back here.
     gui::restore_platform_theme(&mut launcher);
+    // The tear-off hand-off belongs to the one window a tear-off starts, never to a program it opens.
+    tearoff::drop_env(&mut launcher);
     let finished = launcher
         .arg("open")
         .arg(&target)

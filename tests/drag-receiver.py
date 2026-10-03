@@ -71,6 +71,10 @@ class Receiver(Gtk.Application):
         )
         target.connect("drop", self.on_drop)
         label.add_controller(target)
+        motion = Gtk.DropControllerMotion.new()
+        motion.connect("enter", lambda _motion, _x, _y: write(f"TABDRAG enter-window pid={os.getpid()}"))
+        motion.connect("leave", lambda _motion: write(f"TABDRAG leave-window pid={os.getpid()}"))
+        label.add_controller(motion)
         window.present()
         write("ready")
 

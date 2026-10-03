@@ -22,16 +22,26 @@ function restingPath(pane) {
     return RecentMode.restingPath(pane) || pane.path
 }
 
-function snapshot(pane, path) {
+var nextTabIdentity = 0
+
+// Only the held cursor row can name a file; a search's row never belongs to its resting folder.
+function cursorFile(pane) {
+    var row = pane.rowFor && pane.cursorIndex >= 0 ? pane.rowFor(pane.cursorIndex) : null
+    return row && typeof row.n === "string" ? row.n : ""
+}
+
+function snapshot(pane, path, identity) {
     var where = path === undefined ? restingPath(pane) : path
     // A cursor and a selection read off a search's own listing name nothing in the directory the
     // tab records, so a tab stepping back out of a search starts at its first row with none.
     var elsewhere = where !== pane.path
     return {
+        tabIdentity: identity || ++nextTabIdentity,
         path: where,
         history: pane.history.slice(),
         forwardHistory: (pane.forwardHistory || []).slice(),
         cursorIndex: elsewhere ? 0 : pane.cursorIndex,
+        cursorName: elsewhere ? "" : cursorFile(pane),
         viewMode: pane.viewMode,
         showHidden: pane.showHidden,
         selected: elsewhere ? [] : pane.selectedIndices().slice(),
@@ -51,6 +61,8 @@ function pack(items, index) {
         items: items,
         index: index,
         pendingCursor: -1,
+        pendingCursorName: null,
+        pendingLocatePath: "",
         pendingSortBy: "",
         pendingSortDesc: false
     }
@@ -145,9 +157,10 @@ function restoreSelection(pane, selected, follows) {
         pane.selectionVersion++
 }
 
-function apply(pane, item, dropped) {
+function apply(pane, item, dropped, cursor) {
     // Issue 93: a search dropped onto the scope it walked leaves rows that are not that directory's.
-    var same = pane.path === item.path && pane.showHidden === item.showHidden && dropped !== true
+    var same = pane.path === item.path && pane.showHidden === item.showHidden && dropped !== true && cursor === undefined
+    if (pane.tabs) pane.tabs.pendingCursorName = cursor === undefined ? null : cursor
     var viewChanged = pane.viewMode !== item.viewMode
     pane.history = item.history.slice()
     pane.forwardHistory = (item.forwardHistory || []).slice()
@@ -169,7 +182,7 @@ function apply(pane, item, dropped) {
         pane.clearSelection()
         return
     }
-    pane.tabs.pendingCursor = item.cursorIndex
+    pane.tabs.pendingCursor = cursor === undefined ? item.cursorIndex : 0
     pane.tabs.pendingSortBy = item.sortBy
     pane.tabs.pendingSortDesc = item.sortDesc
     // The tab's own dotfile answer is restored above, so the listing keeps it rather than taking the
@@ -194,11 +207,53 @@ function applyPending(pane) {
             return
         }
     }
+    if (t.pendingCursorName) {
+        var name = t.pendingCursorName
+        t.pendingCursorName = null
+        var first = pane.held || 0
+        var end = Math.min(pane.total, first + (pane.rows ? pane.rows.length : pane.windowSize))
+        var found = false
+        for (var i = first; i < end; i++) {
+            var row = pane.rowFor(i)
+            if (row && row.n === name) {
+                t.pendingCursor = i
+                found = true
+                break
+            }
+        }
+        if (!found && pane.total > 0 && pane.backend && pane.backend.send) {
+            t.pendingLocatePath = (pane.path === "/" ? "/" : pane.path + "/") + name
+            t.pendingCursor = -1
+            pane.backend.send({ c: "locate", path: t.pendingLocatePath })
+            return
+        }
+    }
     if (t.pendingCursor >= 0) {
         var last = pane.total > 0 ? pane.total - 1 : 0
         pane.setCursor(Math.min(t.pendingCursor, last))
         t.pendingCursor = -1
     }
+}
+
+// A fresh receiver index comes from its own name-only listing, never from the source window.
+function locatedCursor(pane, message) {
+    var t = pane.tabs
+    if (!t || !t.pendingLocatePath || message.path !== t.pendingLocatePath || message.directory !== pane.path)
+        return
+    t.pendingLocatePath = ""
+    if (pane.listInFlight) return
+    var index = message.index >= 0 && message.index < pane.total ? message.index : 0
+    pane.setCursor(index)
+    if (pane.total > 0 && !pane.rowFor(index)) pane.backend.window(index, pane.windowSize)
+}
+
+// The desktop launch carries the same filename through the existing environment seam.
+function prepareCursor(pane, cursor) {
+    if (!cursor) return
+    if (!pane.tabs) pane.tabs = pack([snapshot(pane)], 0)
+    pane.tabs.pendingCursor = 0
+    pane.tabs.pendingCursorName = cursor
+    pane.tabs.pendingLocatePath = ""
 }
 
 function currentItems(pane, here) {
@@ -225,7 +280,7 @@ function openNew(pane, where) {
     var target = where || Startup.newTabPath(pane.uiState, here, pane.home)
     var items = currentItems(pane, here)
     var index = currentIndex(pane)
-    items[index] = snapshot(pane, here)
+    items[index] = snapshot(pane, here, items[index].tabIdentity)
     items.push(snapshot(pane, target))
     pane.tabs = pack(items, items.length - 1)
     // dropOverlay clears the search but leaves the pane on the scope it walked and its rows on that
@@ -260,7 +315,7 @@ function selectAt(pane, i) {
         return
     closePreview(pane)
     var dropped = dropOverlay(pane)
-    items[index] = snapshot(pane, here)
+    items[index] = snapshot(pane, here, items[index].tabIdentity)
     pane.tabs = pack(items, i)
     apply(pane, items[i], dropped)
 }
@@ -301,7 +356,7 @@ function move(pane, from, to) {
     if (items.length < 2)
         return
     var index = currentIndex(pane)
-    items[index] = snapshot(pane, restingPath(pane))
+    items[index] = snapshot(pane, restingPath(pane), items[index].tabIdentity)
     pane.tabs = pack(items, TabMove.reorder(items, from, to, index))
 }
 
@@ -383,4 +438,282 @@ function restoreItems(pane, paths) {
     for (var i = 0; i < paths.length; i++)
         out.push(snapshot(pane, String(paths[i])))
     return out
+}
+
+// A lift offers only private tab MIME; JSON preserves folder paths and cursor names verbatim.
+var TAB_MIME = "application/x-flea-tab"
+
+var TAB_VIEWS = ["list", "grid", "columns"]
+
+// An unset process id never owns a tab drag.
+var ownPid = ""
+
+function setOwnPid(pid) {
+    ownPid = String(pid || "")
+}
+
+// One lift's token: the pid names the window, the token names the lift inside it.
+var TOKEN_RANDOM_RANGE = 1000000000 // Spread simultaneous lifts across a billion random suffixes.
+function newToken() {
+    return String(Date.now()) + "-" + String(Math.floor(Math.random() * TOKEN_RANDOM_RANGE))
+}
+
+// The hand-off a tear-off gives the one window it starts; src/tearoff.rs drops the same names for Rust launches.
+var TEAR_OFF_ENV = ["FLEA_TAB_SOURCE_PID", "FLEA_TAB_CURSOR", "FLEA_TAB_TOKEN"]
+
+// Sample input: ["flea", "/tmp"] gives ["env", "-u", "FLEA_TAB_SOURCE_PID", "-u", "FLEA_TAB_CURSOR", "-u", "FLEA_TAB_TOKEN", "flea", "/tmp"].
+function freshLaunch(argv) {
+    var unset = ["env"]
+    for (var i = 0; i < TEAR_OFF_ENV.length; i++)
+        unset.push("-u", TEAR_OFF_ENV[i])
+    return unset.concat(argv)
+}
+
+// A lift names the live current tab or stored hidden tab, with the cursor name when available; null if absent.
+function tabInfo(pane, index) {
+    if (!pane)
+        return null
+    var total = count(pane)
+    if (index < 0 || index >= total)
+        return null
+    var here = restingPath(pane)
+    var current = currentIndex(pane)
+    var path, view, cursor
+    cursor = ""
+    if (index === current) {
+        path = here
+        view = pane.viewMode
+        if (here === pane.path) cursor = cursorFile(pane)
+    } else {
+        var items = currentItems(pane, here)
+        var item = items[index] || {}
+        path = String(item.path || "")
+        view = String(item.viewMode || "")
+        if (typeof item.cursorName === "string")
+            cursor = item.cursorName
+    }
+    if (!path || path.charAt(0) !== "/")
+        return null
+    return { path: path, view: view, cursor: cursor }
+}
+
+// JSON carries every path byte, including CR and LF.
+function tabPayload(pane, index, pid, token) {
+    var info = tabInfo(pane, index)
+    if (!info)
+        return ""
+    var who = pid === undefined ? ownPid : pid
+    var lift = token === undefined ? "" : token
+    return JSON.stringify([String(who), String(lift), String(info.path), String(info.view), String(info.cursor)])
+}
+
+// A tab drag offers only the private tab MIME.
+function tabDragMime(pane, index, pid, token) {
+    var payload = tabPayload(pane, index, pid, token)
+    if (!payload)
+        return {}
+    var mime = {}
+    mime[TAB_MIME] = payload
+    return mime
+}
+
+// Sample input: ["111","lift-1","/tmp/folder","list","note.txt"].
+function parseTabMime(payload) {
+    var fields = null
+    try {
+        fields = JSON.parse(String(payload))
+    } catch (error) {
+        return null
+    }
+    if (!Array.isArray(fields) || fields.length !== 5)
+        return null
+    var pid = String(fields[0] || "")
+    var token = String(fields[1] || "")
+    var path = String(fields[2] || "")
+    if (!/^[0-9]+$/.test(pid))
+        return null
+    if (token.length === 0 || /[\x00-\x1f\x7f]/.test(token))
+        return null
+    if (path.length === 0 || path.charAt(0) !== "/" || path.indexOf("\u0000") >= 0)
+        return null
+    return { pid: pid, token: token, path: path,
+             view: String(fields[3] || ""), cursor: String(fields[4] || "") }
+}
+
+// An own-window drag belongs to reorder and must not duplicate its tab.
+function isOwnTab(info, pid) {
+    var self = pid === undefined ? ownPid : String(pid)
+    return !!info && self.length > 0 && info.pid === self
+}
+
+function hasTabFormat(formats) {
+    return !!formats && formats.indexOf(TAB_MIME) >= 0
+}
+
+function enterAccepts(formats, payload, selfPid, canRecv, outActive) {
+    var text = String(payload || "")
+    if (text.length === 0)
+        return hasTabFormat(formats) && canRecv === true
+    var info = parseTabMime(text)
+    if (!info)
+        return false
+    var self = selfPid === undefined ? ownPid : String(selfPid)
+    if (self.length > 0 && info.pid === self)
+        return outActive === true
+    return canRecv === true
+}
+
+// Return the on-strip slot under x; off-strip drops never reach this helper, and the caller passes -1.
+function dropIndexAt(x, tabWidth, tabCount) {
+    return TabMove.insertionAt(x, tabWidth, tabCount)
+}
+
+// A catcher must compare the drop's global coordinates with the source window before tearing off.
+function catcherOutcome(rect, strip, x, y, tabWidth, tabCount) {
+    if (!rect || !(rect.width > 0) || !(rect.height > 0) || !isFinite(x) || !isFinite(y))
+        return { outcome: "cancel", at: -1 }
+    var localX = x - rect.x, localY = y - rect.y
+    if (localX < 0 || localY < 0 || localX >= rect.width || localY >= rect.height)
+        return { outcome: "tearoff", at: -1 }
+    if (strip && localX >= strip.x && localX < strip.x + strip.width
+            && localY >= strip.y && localY < strip.y + strip.height)
+        return { outcome: "return", at: dropIndexAt(localX - strip.x, tabWidth, tabCount) }
+    return { outcome: "cancel", at: -1 }
+}
+
+// A listing in flight or a full strip refuses incoming tabs.
+function canReceive(pane) {
+    if (!pane || pane.listInFlight)
+        return false
+    return count(pane) < MAX
+}
+
+// A received foreign tab opens at the requested drop position.
+function receiveTab(pane, payload, at) {
+    if (!pane)
+        return false
+    var info = parseTabMime(payload)
+    if (!info || isOwnTab(info))
+        return false
+    if (busy(pane))
+        return false
+    if (count(pane) >= MAX) {
+        pane.message("Nine tabs is the most.", false)
+        return false
+    }
+    closePreview(pane)
+    var dropped = dropOverlay(pane)
+    var here = restingPath(pane)
+    var items = currentItems(pane, here)
+    var index = currentIndex(pane)
+    items[index] = snapshot(pane, here, items[index].tabIdentity)
+    var snap = snapshot(pane, info.path)
+    if (TAB_VIEWS.indexOf(info.view) >= 0)
+        snap.viewMode = info.view
+    if (info.cursor.length > 0)
+        snap.cursorName = info.cursor
+    var place = at >= 0 && at <= items.length ? at : items.length
+    items.splice(place, 0, snap)
+    pane.tabs = pack(items, place)
+    apply(pane, snap, dropped, info.cursor)
+    return true
+}
+
+// A window's lone tab cannot be lifted out of its hidden strip.
+function canLift(pane) {
+    return count(pane) >= 2
+}
+
+// Only the outstanding lift's token may acknowledge that lift.
+function takeToken(stored, token) {
+    return !!stored && stored.length > 0 && stored === String(token || "")
+}
+
+// An unacknowledged lift expires after one network leg's 15 s bound (ui/NetworkMounts.qml mountTimeout).
+var ACK_WAIT_MS = 15000
+
+function ackCloses(stored, token, liftedAt, now) {
+    if (!takeToken(stored, token))
+        return false
+    if (liftedAt > 0 && now - liftedAt > ACK_WAIT_MS)
+        return false
+    return true
+}
+
+// B's synchronous take decision at drop time; the async peek may still refuse, and then no ack goes out.
+var DROP_TAKE = "move"
+var DROP_IGNORE = "ignore"
+function dropDecision(info, selfPid, outActive, canRecv) {
+    if (!info)
+        return DROP_IGNORE
+    if (isOwnTab(info, selfPid))
+        return outActive === true ? DROP_TAKE : DROP_IGNORE
+    return canRecv === true ? DROP_TAKE : DROP_IGNORE
+}
+
+// Moving a tab must never close the window's only remaining tab.
+function closeTabAfterMove(pane, index) {
+    if (!pane)
+        return "kept"
+    var total = count(pane)
+    if (index < 0 || index >= total)
+        return "kept"
+    if (busy(pane))
+        return "kept"
+    if (total <= 1)
+        return "kept"
+    closeAt(pane, index)
+    return "closed"
+}
+
+// A rename editor prevents its tab from leaving the window.
+function tearRefusal(pane) {
+    if (!pane)
+        return ""
+    if (pane.listInFlight)
+        return "A directory is already loading."
+    if (pane.renamePending === true)
+        return "Finish the rename before dragging a tab out."
+    if (typeof pane.renameEditor === "function" && pane.renameEditor())
+        return "Finish the rename before dragging a tab out."
+    return ""
+}
+
+// Tab lookup uses the live path for the current tab and stored paths for hidden tabs.
+function indexOfPath(pane, path) {
+    if (!pane || !path)
+        return -1
+    var here = restingPath(pane)
+    var items = currentItems(pane, here)
+    var current = currentIndex(pane)
+    for (var i = 0; i < items.length; i++) {
+        var named = i === current ? here : String((items[i] || {}).path || "")
+        if (named === path)
+            return i
+    }
+    return -1
+}
+
+// A lift captures pane and identity; indices and paths may change while its ack travels.
+function captureLift(pane, index, token, now) {
+    var items = currentItems(pane)
+    if (index < 0 || index >= items.length) return null
+    for (var i = 0; i < items.length; i++)
+        if (!items[i].tabIdentity) items[i].tabIdentity = ++nextTabIdentity
+    if (!pane.tabs) pane.tabs = pack(items, 0)
+    return { token: token, pane: pane, identity: items[index].tabIdentity, liftedAt: now, taken: false }
+}
+
+function resolveMovedTab(pane, identity) {
+    if (!pane || !pane.tabs || !identity) return -1
+    var items = pane.tabs.items
+    for (var i = 0; i < items.length; i++)
+        if (items[i].tabIdentity === identity) return i
+    return -1
+}
+
+function liftFor(lifts, token) {
+    for (var i = 0; i < lifts.length; i++)
+        if (takeToken(lifts[i].token, token)) return lifts[i]
+    return null
 }

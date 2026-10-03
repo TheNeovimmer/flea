@@ -57,7 +57,7 @@ src/uistate.rs 659
 src/uistore.rs 540
 src/vulkan.rs 728
 tests/js/columns.js 666
-tests/js/drag.js 405
+tests/js/drag.js 469
 tests/js/devices.js 303
 tests/js/previewswap.js 386
 tests/js/focus.js 745
@@ -72,6 +72,7 @@ tests/js/tap.js 333
 tests/js/uistate.js 370
 tests/js/watch.js 354
 tests/js/xwwatch.js 310
+tests/js/tabs.js 686
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 399
@@ -98,9 +99,9 @@ ui/NetworkDialog.qml 445
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 849
 ui/OpenWithDialog.qml 608
-ui/Pane.qml 1021
+ui/Pane.qml 1022
 ui/PaneMenuActions.qml 464
-ui/PaneWire.qml 582
+ui/PaneWire.qml 584
 ui/PermissionsDialog.qml 632
 ui/PickerWindow.qml 781
 ui/Preview.qml 723
@@ -115,7 +116,7 @@ ui/StatusBar.qml 456
 ui/Theme.qml 416
 ui/TrashView.qml 475
 ui/ViewState.qml 538
-ui/WindowBody.qml 576
+ui/WindowBody.qml 631
 ui/js/Anchor.js 405
 ui/js/Devices.js 366
 ui/js/Filter.js 257
@@ -123,12 +124,14 @@ ui/js/Focus.js 433
 ui/js/Keymap.js 338
 ui/js/Markdown.js 527
 ui/js/Menu.js 454
-ui/js/Drag.js 316
+ui/js/Drag.js 342
 ui/js/Ops.js 425
 ui/js/Picker.js 328
 ui/js/Settings.js 455
-ui/js/Tabs.js 386
-ui/js/UiState.js 447"
+ui/js/Tabs.js 719
+ui/js/UiState.js 447
+ui/TabBar.qml 632
+ui/boot/fleatab.qml 50"
 
 status=0
 

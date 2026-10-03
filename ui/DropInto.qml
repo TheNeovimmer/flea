@@ -2,6 +2,7 @@ import QtQuick
 import "." as Flea
 import "js/Drag.js" as DragOps
 import "js/DragOut.js" as DragOut
+import "js/Tabs.js" as Tabs
 
 // A directory as a drop target, named by path: the listing's floor in ui/PaneWire.qml and each tab in
 // ui/TabBar.qml. The rows keep their own DropAreas above the floor, so only what a row refuses lands
@@ -45,6 +46,12 @@ DropArea {
     onDestDevChanged: root.updateFeedback()
 
     onEntered: function (drag) {
+        // xw6: a tab drag carries only the private tab type and is never a file drop:
+        // the strip catcher owns it, and the hover switch must not fire for it either.
+        if (drag.getDataAsString(Tabs.TAB_MIME) !== "") {
+            drag.accepted = false
+            return
+        }
         var marker = drag.getDataAsString(DragOps.ROWS_MIME)
         var shelf = drag.getDataAsString(DragOps.SHELF_MIME)
         var plain = drag.getDataAsString("text/plain")
@@ -67,6 +74,10 @@ DropArea {
     onPositionChanged: root.updateFeedback()
     onExited: root.leaveFeedback()
     onDropped: function (drop) {
+        if (drop.getDataAsString(Tabs.TAB_MIME) !== "") {
+            root.leaveFeedback()
+            return
+        }
         if (root.refuseLoading) {
             if (root.pane) root.pane.message("A directory is already loading.", false)
             root.leaveFeedback()

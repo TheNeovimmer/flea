@@ -53,7 +53,7 @@ package() {
   install -Dm644 ui/qmldir ui/*.qml -t "$pkgdir/usr/share/flea/ui"
   install -Dm644 ui/js/*.js -t "$pkgdir/usr/share/flea/ui/js"
   # The two Quickshell entries, in their own directory so ui/qmldir's singletons stay off the startup path.
-  install -Dm644 ui/boot/shell.qml ui/boot/picker.qml -t "$pkgdir/usr/share/flea/ui/boot"
+  install -Dm644 ui/boot/shell.qml ui/boot/picker.qml ui/boot/fleatab.qml ui/boot/tabtearoff.qml -t "$pkgdir/usr/share/flea/ui/boot"
   # The bar plugin ships as data, flat, for the Enable shelf switch to copy into the user's plugin directory.
   install -Dm644 shelf/manifest.json shelf/README.md shelf/*.qml shelf/*.js -t "$pkgdir/usr/share/flea/shelf"
   # Omarchy's own Commons and Ui, reached as qs.Commons, linked into both config roots the entries use.
