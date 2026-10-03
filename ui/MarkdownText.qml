@@ -13,6 +13,14 @@ Text {
     // Rows of a table add their own cell padding on top of the box.
     property int cellPad: 0
 
+    // The host supplies the scheme gate (Markdown.isExternalLink), as no import of the parser fits the standalone probe copy.
+    property var linkGate: null
+    // One handler for every Markdown text: a link the gate passes opens in the default application, all else opens nothing.
+    onLinkActivated: function (link) {
+        if (root.linkGate !== null && root.linkGate(link))
+            Qt.openUrlExternally(link)
+    }
+
     textFormat: Text.MarkdownText
     wrapMode: Text.Wrap
     color: Theme.color.foreground

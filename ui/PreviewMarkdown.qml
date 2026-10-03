@@ -123,10 +123,47 @@ Item {
         id: file
         path: (root.active && !root.tooLarge) ? root.path : ""
         printErrors: false
+        // The one watcher is on the shown file; a path change re-points it, so an old file never reloads here.
+        watchChanges: true
+        onFileChanged: root.reloadFromDisk()
         onLoaded: root.askParse()
-        onLoadFailed: root.readFailed = true
+        onLoadFailed: {
+            root.keepScroll = false
+            root.readFailed = true
+        }
         onPathChanged: root.readFailed = false
     }
+
+    // A reparse of the shown file (disk edit, theme change) puts the reader back where they were.
+    property real savedY: 0
+    property bool keepScroll: false
+    function rememberScroll() {
+        if (root.keepScroll)
+            return
+        root.savedY = body.contentY
+        root.keepScroll = true
+    }
+    function restoreScroll() {
+        if (!root.keepScroll)
+            return
+        root.keepScroll = false
+        body.contentY = Math.max(body.originY, root.savedY)
+    }
+    function reloadFromDisk() {
+        if (!root.active || root.tooLarge)
+            return
+        root.rememberScroll()
+        file.reload()
+    }
+    // Link ink and code chrome are parsed into the runs, so a theme change reparses the loaded file.
+    function reparseForTheme() {
+        if (!root.active || !file.loaded)
+            return
+        root.rememberScroll()
+        root.askParse()
+    }
+    onInkHexChanged: root.reparseForTheme()
+    onChromeHexChanged: root.reparseForTheme()
 
     // Large files require synchronous worker activation before their parse request.
     readonly property int workerThreshold: 65536
@@ -214,6 +251,7 @@ Item {
     onRawTextChanged: root.askParse()
     onActiveChanged: root.askParse()
     onPathChanged: {
+        root.keepScroll = false
         root.parseError = ""
         root.blockList = []
         root.parsedOffThread = false
@@ -270,6 +308,8 @@ Item {
         visible: (!root.tooLarge && !root.readFailed && root.parseError === "")
             && root.view !== Markdown.SOURCE
         model: root.blockList
+        // A new model resets the view to its origin, so the saved place is restored once that reset is done.
+        onModelChanged: root.restoreScroll()
         spacing: root.blockGap
         topMargin: root.insetY
         bottomMargin: root.insetY
@@ -307,12 +347,13 @@ Item {
                 : block.type === "figure" ? figureBox.height
                 : block.type === "quote" ? quoteRow.height
                 : block.type === "remote" ? remoteBox.height
-                : block.type === "list" ? listGrid.height
-                : block.type === "table" ? tableGrid.height : localImage.height
+                : block.type === "list" ? listGrid.height + listGrid.y
+                : block.type === "table" ? tableGrid.height + tableGrid.y : localImage.height
 
                     // Headings use the prescribed bold text size and line box.
                     Flea.MarkdownText {
                         id: runText
+                        linkGate: Markdown.isExternalLink
                         visible: block.type === "run" || block.type === "heading"
                         width: parent.width
                         text: block.type === "run" || block.type === "heading" ? block.text : ""
@@ -324,6 +365,8 @@ Item {
                     Column {
                         id: tableGrid
                         visible: block.type === "table"
+                        // A chunk after the first sits flush under its predecessor, across the gap the list puts between blocks.
+                        y: block.joined === true ? -root.blockGap : 0
                         width: tableGrid.tableWidth()
                         spacing: 0
 
@@ -334,6 +377,7 @@ Item {
                             Repeater {
                                 model: block.type === "table" ? block.head.length : 0
                                 delegate: Flea.MarkdownText {
+                                    linkGate: Markdown.isExternalLink
                                     width: tableGrid.colWidth(index)
                                     cellPad: 2
                                     text: block.head[index]
@@ -344,6 +388,7 @@ Item {
                         }
 
                         Rectangle {
+                            visible: block.type === "table" && block.head.length > 0
                             width: tableGrid.tableWidth()
                             height: Theme.spacing.hairline
                             color: Theme.color.muted
@@ -362,6 +407,7 @@ Item {
                                     Repeater {
                                         model: tableGrid.columns
                                         delegate: Flea.MarkdownText {
+                                            linkGate: Markdown.isExternalLink
                                             width: tableGrid.colWidth(index)
                                             cellPad: 2
                                             text: tableGrid.cellAt(row, index)
@@ -393,26 +439,6 @@ Item {
                             var rows = block.type === "table" ? block.rows : []
                             return r < rows.length && c < rows[r].length ? rows[r][c] : ""
                         }
-                        // Invisibly measure each column's decoded longest cell beside the grid, so the next column starts after its widest rendered cell.
-                        function longestIn(col) {
-                            var best = ""
-                            var bestLength = 0
-                            if (block.type !== "table")
-                                return best
-                            var cells = [block.head].concat(block.rows)
-                            for (var r = 0; r < cells.length; r++) {
-                                var row = cells[r]
-                                var raw = col < row.length ? row[col] : ""
-                                var decoded = String(raw).replace(/&#(\d+);/g, function (m, n) {
-                                    return String.fromCharCode(parseInt(n, 10))
-                                })
-                                if (decoded.length > bestLength) {
-                                    best = raw
-                                    bestLength = decoded.length
-                                }
-                            }
-                            return best
-                        }
                         function colWidth(col) {
                             if (block.type !== "table")
                                 return 0
@@ -432,13 +458,13 @@ Item {
                         }
                     }
 
-                    // Invisible measurers carry each column's longest cell to size columns to content without entering the grid's layout.
+                    // Invisible measurers carry each column's longest cell, measured by the parser over the whole table, so chunks of one table share widths.
                     Repeater {
                         id: measurers
                         model: block.type === "table" ? tableGrid.columns : 0
                         delegate: Text {
                             visible: false
-                            text: tableGrid.longestIn(index)
+                            text: block.type === "table" && index < block.measure.length ? block.measure[index] : ""
                             textFormat: Text.MarkdownText
                             font.family: Theme.font.family
                             font.pixelSize: Theme.font.body
@@ -514,6 +540,7 @@ Item {
 
                         Flea.MarkdownText {
                             id: quoteText
+                            linkGate: Markdown.isExternalLink
                             width: parent.width - 2 - parent.spacing
                             text: block.type === "quote" ? block.text : ""
                         }
@@ -523,13 +550,15 @@ Item {
                     Column {
                         id: listGrid
                         visible: block.type === "list"
+                        // A chunk after the first sits flush under its predecessor, across the gap the list puts between blocks.
+                        y: block.joined === true ? -root.blockGap : 0
                         width: parent.width
                         spacing: 0
 
                         TextMetrics {
                             id: listMarkerMetrics
                             text: block.type !== "list" ? "" : block.ordered
-                                ? (block.start + block.items.length - 1) + "." : "•"
+                                ? (block.last !== undefined ? block.last : block.start + block.items.length - 1) + "." : "•"
                             font.family: Theme.font.family
                             font.pixelSize: Theme.font.body
                         }
@@ -551,6 +580,7 @@ Item {
                                 }
 
                                 Flea.MarkdownText {
+                                    linkGate: Markdown.isExternalLink
                                     width: parent.width - marker.width - parent.spacing
                                     text: block.items[index]
                                 }

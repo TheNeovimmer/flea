@@ -7210,3 +7210,20 @@ reference the document wrote while the folder may hold one (`containedLocal` kee
 `prepare()` has no caller in `ui/`: the preview draws `blocks()`, whose front matter and `$$` lines are a `PlainText` fence or a
 figure, and `tests/markdown-security.sh` now carries both placements and a Source-view instance with zero requests required.
 `tests/js/mdround4.js` holds the parser pins. The file budget row of `ui/js/MdBlocks.js` moves to its real `wc -l`, 361.
+
+The mdhunt fixes change four Markdown preview behaviours, with `tests/preview-hunt.sh` phases `links`, `theme`, `disk`,
+`disk-rename`, `disk-scroll`, `disk-stale`, `long-list` and `long-table` pinning them (`size-key` keeps 0.3.7: preview
+context refuses the listing size chord). Links: `ui/MarkdownText.qml` has the one `onLinkActivated`, and only a link its
+`linkGate` passes reaches `Qt.openUrlExternally`; `PreviewMarkdown.qml` sets the gate to `Markdown.isExternalLink` (`http`,
+`https`, `mailto` after the parser's own normalisation) on each text, because `markdown-linearity` loads the component
+alone, with no `js/` beside it. A relative link, an anchor and any other scheme open nothing. Theme: the link ink and code chrome are parsed into the
+runs (the importer hardcodes its link blue over `linkColor`), so `PreviewMarkdown.qml` reparses when `inkHex` or `chromeHex`
+changes. Disk: the one `FileView` on the shown file has `watchChanges`, reloads on a change or an editor's rename-over save,
+and `savedY` puts the ListView back where it was once the new model has reset it; a path change re-points the watcher and
+clears the saved place, so an old file never reloads into the new one. Long containers: `MdLeaf.chunkList` and `chunkTable`
+split a list of more than 32 items or a table of more than 24 rows into consecutive blocks the outer ListView already draws
+lazily. List chunks carry `start` (numbering continues) and `last` (one marker column width); table chunks carry `measure`,
+the widest cell per column over the whole table chosen by its drawn text length (tags, emphasis markers and entities do not
+count), so chunks share column widths, and only the first keeps the header. A chunk after the first is `joined`: its grid
+sits `blockGap` higher and its delegate is that much shorter, so chunks read as one container. A short list or table is one
+block as before. `ui/PreviewMarkdown.qml` is 695 lines (`wc -l`, matching its budget row), and `ui/js/Markdown.js` 155.

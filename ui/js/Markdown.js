@@ -5,6 +5,7 @@
 .import "MdHtml.js" as MdHtml
 .import "MdInline.js" as Md
 .import "MdRun.js" as Run
+.import "MdResolve.js" as Resolve
 .import "MdRefs.js" as Refs
 .import "MdLeaf.js" as Leaf
 .import "MdBlocks.js" as Blocks
@@ -24,6 +25,11 @@ function toggled(value) {
 
 function isRemoteUrl(url) {
     return MdUrl.isRemoteUrl(url)
+}
+
+// Only these three schemes open in the default application; relative links, anchors and every other scheme open nothing.
+function isExternalLink(url) {
+    return Resolve.isExternalLink(url)
 }
 
 function hostOf(url) {

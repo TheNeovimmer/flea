@@ -206,6 +206,22 @@ function run(check) {
     check("unused public tableBlock wrapper is absent", typeof Markdown.tableBlock, "undefined")
     var callbackTable = Leaf.tableBlock(["head"], ["left"], [["cell"]], function (text) { return "inline:" + text })
     check("table callback renders header and body", callbackTable.head[0] + "|" + callbackTable.rows[0][0], "inline:head|inline:cell")
+    // The column is sized for the widest cell as drawn, so a link's long URL never outweighs a wider plain cell.
+    var linkBeside = Markdown.blocks("| h |\n| --- |\n| [a](https://a-very-long-url.example/path) |\n| wider plain cell |\n", dir, chrome, "#c0caf5")[0]
+    check("a link cell does not win the column by its source length", linkBeside.measure.join(), "wider plain cell")
+    var markBeside = Markdown.blocks("| h |\n| --- |\n| **bo** |\n| abcd |\n", dir, chrome, "#c0caf5")[0]
+    check("emphasis markers do not count toward the drawn width", markBeside.measure.join(), "abcd")
+    var longList = Markdown.blocks(Array.apply(null, Array(70)).map(function (x, i) { return "- item " + i }).join("\n") + "\n", dir, chrome, "#c0caf5")
+    check("a long list becomes chunks that cover every item once", longList.map(function (b) { return b.items.length }).join(","), "32,32,6")
+    check("list chunks continue the numbering", Markdown.blocks(Array.apply(null, Array(40)).map(function (x, i) { return (i + 5) + ". x" }).join("\n") + "\n", dir, chrome, "#c0caf5")
+        .map(function (b) { return b.start + "/" + b.last + "/" + (b.joined === true) }).join(","), "5/44/false,37/44/true")
+    var rows = Array.apply(null, Array(50)).map(function (x, i) { return "| r" + i + " |" }).join("\n")
+    var longTable = Markdown.blocks("| h |\n| --- |\n" + rows + "\n", dir, chrome, "#c0caf5")
+    check("a long table becomes chunks with one header and shared widths", longTable.map(function (b) { return b.head.length + ":" + b.rows.length + ":" + b.measure[0] }).join(","), "1:24:r10,0:24:r10,0:2:r10")
+    check("short list and table stay one block with no chunk fields", [Markdown.blocks("- a\n- b\n", dir, chrome, "#c0caf5")[0].joined,
+        Markdown.blocks("| h |\n| --- |\n| a |\n", dir, chrome, "#c0caf5")[0].joined].map(String).join(), "undefined,undefined")
+    check("only http, https and mailto count as external links", ["https://a.example", "HTTP://a.example", "mailto:a@b.example", "./x.md", "#top",
+        "ftp://h/f", "javascript:alert(1)", "java\tscript:alert(1)", "file:///etc/passwd", "//a.example", ""].map(function (u) { return Markdown.isExternalLink(u) }).join(), "true,true,true,false,false,false,false,false,false,false,false")
 
     var cellSources = ["**bold**", "*emphasis*", "`a & <b>`", "[guide](https://example.com/?a=1&b=2)",
         "\\*literal\\*", "a \\| b", "\\`literal\\`", "\\[literal\\]", "<script>secret</script>safe",
