@@ -495,11 +495,46 @@ screen_tab_centre() {
   printf '%s %s\n' "$((WX + x))" "$((WY + y))"
 }
 
+# Seconds a row or tab centre may take to answer after a swap (50 polls of 0.1 s), and the poll gap.
+centre_poll_attempts=50
+centre_poll_seconds=0.1
+# centre_fail_line <reader> <name> : one DRAG_CENTRE_FAIL line with what the row lookup, the centre read and the window said.
+centre_fail_line() {
+  local idx="" centre="" listing=""
+  if [[ "$1" = screen_centre ]]; then
+    idx=$(rowidx "$2" 2>&1) || idx="none: $idx"
+    [[ "$idx" =~ ^[0-9]+$ ]] && centre=$(ipc rowCentre "$idx" 2>&1)
+  else
+    centre=$(ipc tabCentre "$2" 2>&1)
+  fi
+  listing=$(jq -nc --arg inFlight "$(ipc listInFlight 2>&1)" --arg total "$(ipc total 2>&1)" --arg view "$(ipc viewMode 2>&1)" \
+    --arg path "$(ipc path 2>&1)" '$ARGS.named')
+  printf 'DRAG_CENTRE_FAIL %s\n' "$(jq -nc --arg reader "$1" --arg name "$2" --arg rowidx "$idx" --arg centre "$centre" \
+    --argjson window "$(jq -nc --argjson w "${WW:-0}" --argjson h "${WH:-0}" '{width: $w, height: $h}')" \
+    --argjson listing "$listing" '$ARGS.named')"
+}
+# await_centre <xvar> <yvar> <reader> <name> : polls until a visible centre answers, then sets both variables in this shell, and ends the suite otherwise.
+await_centre() {
+  local await_x=$1 await_y=$2 await_reader=$3 await_name=$4 await_point await_try await_kind
+  for (( await_try = 0; await_try < centre_poll_attempts; await_try++ )); do
+    if await_point=$("$await_reader" "$await_name"); then
+      read -r "$await_x" "$await_y" <<< "$await_point"
+      return 0
+    fi
+    sleep "$centre_poll_seconds"
+  done
+  centre_fail_line "$await_reader" "$await_name"
+  [[ "$await_reader" = screen_tab_centre ]] && await_kind=tab || await_kind=row
+  die "the $await_kind $await_name has no visible screen centre"
+}
+# centre_into <xvar> <yvar> <row name> and tab_centre_into <xvar> <yvar> <tab index> : a failure is a die in the caller, never an unbound $1.
+centre_into() { await_centre "$1" "$2" screen_centre "$3"; }
+tab_centre_into() { await_centre "$1" "$2" screen_tab_centre "$3"; }
+
 native_tab() {
-  local index="$1" point x y
+  local index="$1" x y
   expect_ipc listInFlight false
-  point=$(screen_tab_centre "$index") || die "tab $index has no visible native target"
-  read -r x y <<< "$point"
+  tab_centre_into x y "$index"
   warp "$x" "$y"
   press
   release
@@ -578,10 +613,8 @@ r0_before=$(ipc total)
 aaa_before_r0=$(ls -A "$HOMEDIR/aaa" | tr '\n' ' ')
 printf 's1 payload\n' > "$HOMEDIR/s1.txt"
 expect_ipc total $((r0_before + 1))
-set -- $(screen_centre s1.txt); s1x=$1; s1y=$2
-# Sample input: R0's aaa screen centre is "300 220".
-set -- $(screen_centre aaa)
-a1x=$1; a1y=$2
+centre_into s1x s1y s1.txt
+centre_into a1x a1y aaa
 native_key -M ctrl -k comma -m ctrl
 expect_ipc settingsOpen true
 warp "$s1x" "$s1y"; sleep 0.4
@@ -608,13 +641,9 @@ echo "== R2: the drop lands where the pointer is, not one frame stale =="
 # ui/List.qml positions the ghost by assignment and never by a binding, because Drag moves are posted
 # and Drag.drop() flushes the pending one first. A stale ghost drops into a folder the drag merely
 # crossed, so this drag crosses aaa deliberately and finishes on bbb.
-set -- $(screen_centre r2.txt); sx=$1; sy=$2
-# Sample input: R2's aaa screen centre is "300 220".
-set -- $(screen_centre aaa)
-ax=$1; ay=$2
-# Sample input: R2's bbb screen centre is "300 260".
-set -- $(screen_centre bbb)
-bx=$1; by=$2
+centre_into sx sy r2.txt
+centre_into ax ay aaa
+centre_into bx by bbb
 warp "$sx" "$sy"; sleep 0.4
 press; sleep 0.3
 glide_to "$ax" "$ay"; sleep 0.4
@@ -632,10 +661,8 @@ check "a plain drag is a move, so the source is gone" \
 echo
 echo "== R3: ctrl decides copy versus move, and the lift is where it is read =="
 # Lift reads Ctrl here, so the copy-alone offer drops a copy while Drag.active ignores later keys.
-set -- $(screen_centre r3.txt); sx=$1; sy=$2
-# Sample input: R3's aaa screen centre is "300 220".
-set -- $(screen_centre aaa)
-ax=$1; ay=$2
+centre_into sx sy r3.txt
+centre_into ax ay aaa
 warp "$sx" "$sy"; sleep 0.4
 ctrl_down; sleep 0.3
 press; sleep 0.3
@@ -654,10 +681,8 @@ echo "== R4: the status line names the folder under the pointer =="
 # sayDrag looks the row up directly rather than through a bound property, because a binding on
 # dropIndex is not refreshed yet inside onDropIndexChanged and the line read "to a folder" over a
 # folder whose frame was already up.
-set -- $(screen_centre r4.txt); sx=$1; sy=$2
-# Sample input: R4's bbb screen centre is "300 260".
-set -- $(screen_centre bbb)
-bx=$1; by=$2
+centre_into sx sy r4.txt
+centre_into bx by bbb
 warp "$sx" "$sy"; sleep 0.4
 press; sleep 0.3
 glide_to "$bx" "$by"; sleep 0.8
@@ -671,8 +696,8 @@ echo "== R1: only a release over a valid folder may transfer =="
 # ui/List.qml reads the grab transition and not active, because a release and a grab another item
 # stole flip active the same way and only a release may drop. A synthetic pointer cannot steal a
 # grab, so what is asserted here is the invariant that rule exists to protect, not the steal itself.
-set -- $(screen_centre r1a.txt); sx=$1; sy=$2
-set -- $(screen_centre r1b.txt); fx=$1; fy=$2
+centre_into sx sy r1a.txt
+centre_into fx fy r1b.txt
 warp "$sx" "$sy"; sleep 0.4
 press; sleep 0.3
 glide_to "$fx" "$fy"; sleep 0.5
@@ -681,7 +706,7 @@ check "a release over a file row transfers nothing" \
       "$([ -e "$HOMEDIR/r1a.txt" ] && echo kept || echo GONE)" "kept"
 check "and the gesture leaves no status line behind" "$(ipc stickyMessage)" ""
 
-set -- $(screen_centre r1b.txt); sx=$1; sy=$2
+centre_into sx sy r1b.txt
 warp "$sx" "$sy"; sleep 0.4
 press; sleep 0.3
 point=$(floor_centre) || die "R1 has no measured empty listing floor"
@@ -732,10 +757,8 @@ expect_ipc tabIndex 0
 expect_ipc path "$HOMEDIR"
 expect_ipc listInFlight false
 check "and the first tab is the home listing again" "$(ipc path)" "$HOMEDIR"
-point=$(screen_centre r1a.txt) || die "R5 source r1a.txt is not visible"
-read -r sx sy <<< "$point"
-point=$(screen_tab_centre "$r5_target_tab") || die "R5 destination tab is not visible"
-read -r tx ty <<< "$point"
+centre_into sx sy r1a.txt
+tab_centre_into tx ty "$r5_target_tab"
 warp "$sx" "$sy"; sleep "$r5_pointer_settle_seconds"
 press; sleep "$r5_press_settle_seconds"
 # The rest outlives the switch by a second: the pressed row's delegate is released by the re-list
@@ -797,17 +820,14 @@ expect_ipc listInFlight false
 expect_ipc showHidden true
 printf 'GUI_TAB_KEYS preset=default context=listing next=wrap,forward previous=backward,wrap retained-hidden=true\n'
 # aaa's centre is read here, on the tab the drop lands on, under whatever dotdirs sort ahead of it.
-point=$(screen_centre aaa) || die "R6 destination aaa is not visible"
-read -r fx fy <<< "$point"
+centre_into fx fy aaa
 native_tab 0
 check "and the home tab does not" "$(rowidx .r0hidden || echo none)" "none"
 # Escape drops the restored selection; aaa already holds R3's copy, so the drop is judged by its delta.
 native_key -k Escape; sleep 0.3
 aaa_before=$(ls -A "$HOMEDIR/aaa" | tr '\n' ' ')
-point=$(screen_centre r1b.txt) || die "R6 source r1b.txt is not visible"
-read -r sx sy <<< "$point"
-point=$(screen_tab_centre 2) || die "R6 destination tab is not visible"
-read -r tx ty <<< "$point"
+centre_into sx sy r1b.txt
+tab_centre_into tx ty 2
 warp "$sx" "$sy"; sleep 0.4
 press; sleep 0.3
 glide_to "$tx" "$ty"; sleep 1.2
@@ -860,10 +880,8 @@ for p in $(pgrep -P "$MYPID"); do
 done
 check "the suite found the one backend it owns" "$([ -n "$BACKEND_PID" ] && echo found || echo none)" "found"
 [[ -n "$BACKEND_PID" ]] || die "R7 cannot hold the listing without its owned backend"
-point=$(screen_centre r7.txt) || die "R7 source r7.txt is not visible"
-read -r sx sy <<< "$point"
-point=$(screen_tab_centre "$r7_tmpfs_tab") || die "R7 destination tab is not visible"
-read -r tx ty <<< "$point"
+centre_into sx sy r7.txt
+tab_centre_into tx ty "$r7_tmpfs_tab"
 warp "$sx" "$sy"; sleep "$r7_pointer_settle_seconds"
 press; sleep "$r7_press_settle_seconds"
 kill -STOP "$BACKEND_PID" || die "R7 could not stop its owned backend"
@@ -898,12 +916,8 @@ printf 'r7 second payload\n' > "$HOMEDIR/r7-second.txt" || die "R7 could not wri
 native_tab "$r7_home_tab"
 check "the second drag starts from the home listing" "$(ipc path)" "$HOMEDIR"
 for i in $(seq 1 "$r7_poll_attempts"); do rowidx r7-second.txt >/dev/null 2>&1 && break; sleep "$r7_row_poll_seconds"; done
-point=$(screen_centre r7-second.txt) || die "R7 source r7-second.txt is not visible"
-# Sample input: R7's second source screen centre is "300 300".
-read -r sx sy <<< "$point"
-point=$(screen_tab_centre "$r7_tmpfs_tab") || die "R7 destination tab is not visible for the second drag"
-# Sample input: R7's second destination tab screen centre is "500 100".
-read -r tx ty <<< "$point"
+centre_into sx sy r7-second.txt
+tab_centre_into tx ty "$r7_tmpfs_tab"
 warp "$sx" "$sy"; sleep "$r7_pointer_settle_seconds"
 press; sleep "$r7_press_settle_seconds"
 glide_to "$tx" "$ty"
@@ -932,17 +946,14 @@ printf 'r8 payload\n' > "$HOMEDIR/r8.txt"
 native_tab 0
 check "the home tab is current" "$(ipc path)" "$HOMEDIR"
 for i in $(seq 1 40); do rowidx r8.txt >/dev/null 2>&1 && break; sleep 0.25; done
-point=$(screen_centre r8.txt) || die "R8 source r8.txt is not visible"
-read -r sx sy <<< "$point"
-point=$(screen_tab_centre 2) || die "R8 destination tab is not visible"
-read -r tx ty <<< "$point"
+centre_into sx sy r8.txt
+tab_centre_into tx ty 2
 warp "$sx" "$sy"; sleep 0.4
 press; sleep 0.3
 glide_to "$tx" "$ty"
 for i in $(seq 1 40); do [ "$(ipc path)" = "$XDEV/big" ] && [ "$(ipc listInFlight)" = false ] && rowidx dest >/dev/null 2>&1 && break; sleep 0.1; done
 check "resting on the tmpfs tab listed it in full" "$(ipc path)" "$XDEV/big"
-point=$(screen_centre dest) || die "R8 destination folder is not visible"
-read -r fx fy <<< "$point"
+centre_into fx fy dest
 glide_to "$fx" "$fy"; sleep 0.6
 check "the line over the folder says copy" "$(ipc stickyMessage)" "Copy 1 item to dest"
 release; sleep 0.6
@@ -1004,15 +1015,13 @@ make_pair() {
 }
 
 mark_pair() {
-  local name="$1" first second point px py expected
+  local name="$1" first second px py expected
   first=$(rowidx "$name-a.txt") || die "first pair identity is not listed"
   second=$(rowidx "$name-b.txt") || die "second pair identity is not listed"
-  point=$(screen_centre "$name-a.txt") || die "first pair identity is not visible"
-  read -r px py <<< "$point"
+  centre_into px py "$name-a.txt"
   omarchy-drive click "$px" "$py" left >/dev/null || die "native plain selection failed"
   expect_ipc selectedIndices "$first"
-  point=$(screen_centre "$name-b.txt") || die "second pair identity is not visible"
-  read -r px py <<< "$point"
+  centre_into px py "$name-b.txt"
   omarchy-drive click "$px" "$py" left --mods ctrl >/dev/null || die "native additive selection failed"
   expected=$(jq -nr --argjson first "$first" --argjson second "$second" '[$first,$second] | sort | map(tostring) | join(",")')
   expect_ipc selectedIndices "$expected"
@@ -1020,10 +1029,9 @@ mark_pair() {
 }
 
 begin_pair() {
-  local name="$1" verb="$2" point px py
+  local name="$1" verb="$2" px py
   mark_pair "$name"
-  point=$(screen_centre "$name-a.txt") || die "marked drag source is not visible"
-  read -r px py <<< "$point"
+  centre_into px py "$name-a.txt"
   glide_to "$px" "$py"
   [[ "$verb" != Copy ]] || ctrl_down
   press
@@ -1031,8 +1039,7 @@ begin_pair() {
 
 target_points() {
   local point x y
-  point=$(screen_centre folder) || die "target folder is not visible: row=$(rowidx folder 2>&1) centre=$(ipc rowCentre "$(rowidx folder 2>/dev/null)" 2>&1) window=${WW}x${WH} view=$(ipc viewMode 2>&1) total=$(ipc total 2>&1) row0=$(ipc visibleRowName 0 2>&1)"
-  read -r folder_x folder_y <<< "$point"
+  centre_into folder_x folder_y folder
   point=$(floor_centre) || die "target has no measured empty listing floor"
   read -r floor_x floor_y <<< "$point"
   point=$(ipc chromeButtonCentre sliders) || die "neutral chrome target is unavailable"
@@ -1179,9 +1186,7 @@ cross_view_pair() {
   for phase in cancel commit; do
     native_tab 0
     expect_ipc path "$source"; expect_ipc viewMode "$source_mode"; expect_ipc listInFlight false
-    point=$(ipc tabCentre 1) || die "destination tab is unavailable"
-    [[ "$point" =~ ^[0-9]+\ [0-9]+$ ]] || die "destination tab has no valid geometry"
-    read -r tx ty <<< "$point"; tx=$((WX + tx)); ty=$((WY + ty))
+    tab_centre_into tx ty 1
     begin_pair "$name" Copy
     glide_to "$tx" "$ty"
     expect_ipc tabIndex 1
@@ -1413,12 +1418,8 @@ print(hits[0]["address"] if len(hits) == 1 else "")
   read -r WX WY WW WH _ <<< "$geometry"
 
   # Edge: a release that stays inside Flea must not be a drop on the receiver, and it still moves.
-  point=$(screen_centre inner.txt) || die "inner.txt is not visible"
-  # Sample input: the in-window source centre is "300 300".
-  read -r sx sy <<< "$point"
-  point=$(screen_centre aaa) || die "aaa is not visible"
-  # Sample input: the in-window target folder centre is "300 220".
-  read -r ax ay <<< "$point"
+  centre_into sx sy inner.txt
+  centre_into ax ay aaa
   warp "$sx" "$sy"; sleep 0.4
   press; sleep 0.3
   glide_to "$ax" "$ay"; sleep 0.5
@@ -1429,9 +1430,7 @@ print(hits[0]["address"] if len(hits) == 1 else "")
   check "and the other process logged nothing" \
         "$(grep -c 'body<<' "$RECV_LOG" || true)" "0"
 
-  point=$(screen_centre outbound.txt) || die "outbound.txt is not visible"
-  # Sample input: the plain outbound source centre is "300 340".
-  read -r sx sy <<< "$point"
+  centre_into sx sy outbound.txt
   # Sample input, hyprctl clients -j: '{"address": "0xabc", "at": [1100, 80], "size": [420, 320]}'.
   set -- $(hyprctl clients -j | python3 -c '
 import json, sys
@@ -1512,9 +1511,7 @@ print(hits[0]["address"] if len(hits) == 1 else "")
     sleep 0.4
     hyprctl dispatch "hl.dsp.focus({ window = \"$FLEA_ADDR\" })" >/dev/null
     sleep 0.4
-    point=$(screen_centre outbound-shift.txt) || die "outbound-shift.txt is not visible"
-    # Sample input: the Shift outbound source centre is "300 380".
-    read -r sx sy <<< "$point"
+    centre_into sx sy outbound-shift.txt
     # Sample input, hyprctl clients -j: '{"address": "0xabc", "at": [1100, 80], "size": [420, 320]}'.
     set -- $(hyprctl clients -j | python3 -c '
 import json, sys

@@ -249,5 +249,75 @@ else
     bad "cleanup_drop_events must match drop, dnd_finished and cancelled only, matched $drop_events of 3"
 fi
 
+# A row or tab centre is awaited through one helper, and a bare substitution of it is the unbound $1 that ended R3 silently.
+bare=$(grep -n -E 'set -- \$\(screen_(tab_)?centre|point=\$\(screen_(tab_)?centre' tests/drag.sh)
+if [ -z "$bare" ]; then
+    ok "no pointer position is read from a bare screen_centre or screen_tab_centre substitution"
+else
+    bad "a pointer position bypasses centre_into and tab_centre_into:"
+    printf '%s\n' "$bare" | sed 's/^/     /'
+fi
+
+# The centre helper of tests/drag.sh against doubles whose rowCentre answers late, or never (that suite needs the display).
+centre_tmp=$(mktemp -d)
+[ -n "$centre_tmp" ] && [ "${centre_tmp#/}" != "$centre_tmp" ] || { bad "no scratch root for the centre doubles"; exit 1; }
+printf 'marker\n' > "$centre_tmp/marker"
+# Sample input: tests/drag.sh function bodies, each from its name line to the closing brace on a line of its own, and one-line wrappers.
+eval "$(sed -n '/^rowidx()/,/^}/p;/^screen_centre()/,/^}/p;/^screen_tab_centre()/,/^}/p;/^centre_fail_line()/,/^}/p;/^await_centre()/,/^}/p;/^centre_into()/p;/^tab_centre_into()/p;/^die()/p' tests/drag.sh)"
+# The poll bound is shrunk and its gap removed so the never-answering case ends at once.
+centre_poll_attempts=4
+centre_poll_seconds=0
+WX=12; WY=42; WW=2560; WH=1440
+centre_mode=late
+printf '0\n' > "$centre_tmp/calls"
+# Sample input, ipc rowCentre 1: "300 220", the row's centre inside the window; an empty answer is a listing mid-swap.
+ipc() {
+    local calls
+    case "$1" in
+        total) printf '%s\n' 3 ;;
+        visibleRowName) case "$2" in 0) printf '%s\n' aaa ;; 1) printf '%s\n' r3.txt ;; *) printf '%s\n' zzz ;; esac ;;
+        rowCentre)
+            calls=$(( $(cat "$centre_tmp/calls") + 1 )); printf '%s\n' "$calls" > "$centre_tmp/calls"
+            if [ "$centre_mode" = late ] && [ "$calls" -gt 2 ]; then printf '%s\n' '300 220'; else printf '\n'; fi ;;
+        tabCentre) printf '\n' ;;
+        listInFlight) printf '%s\n' true ;;
+        viewMode) printf '%s\n' list ;;
+        path) printf '%s\n' /home/p ;;
+    esac
+}
+late=$( { centre_into sx sy r3.txt; printf 'got=%s,%s calls=%s\n' "${sx:-unset}" "${sy:-unset}" "$(cat "$centre_tmp/calls")"; } 2>&1 )
+if [ "$late" = 'got=312,262 calls=3' ]; then
+    ok "a centre that answers nothing twice and then a point is returned into the caller's variables"
+else
+    bad "the late centre must be returned after 3 reads, got: $late"
+fi
+centre_mode=never
+never=$( (centre_into sx sy r3.txt; printf 'reached\n') 2>&1 ); never_rc=$?
+# Sample input: 'DRAG_CENTRE_FAIL {"reader":"screen_centre","name":"r3.txt","rowidx":"1","centre":"",...}', one line.
+evidence=$(printf '%s\n' "$never" | grep '^DRAG_CENTRE_FAIL ')
+if [ "$never_rc" -eq 1 ] && [ "$(printf '%s\n' "$evidence" | wc -l)" -eq 1 ] \
+    && printf '%s\n' "${evidence#DRAG_CENTRE_FAIL }" | jq -e '
+        .reader == "screen_centre" and .name == "r3.txt" and .rowidx == "1" and .centre == ""
+        and .window == {"width": 2560, "height": 1440}
+        and .listing == {"inFlight": "true", "total": "3", "view": "list", "path": "/home/p"}' >/dev/null; then
+    ok "a centre that never answers prints one DRAG_CENTRE_FAIL line with the lookup, read, window and listing"
+else
+    bad "the never-answering centre must exit 1 after one DRAG_CENTRE_FAIL line, got rc=$never_rc: $never"
+fi
+if printf '%s\n' "$never" | grep -q '^FAIL the row r3.txt has no visible screen centre$' \
+    && ! printf '%s\n' "$never" | grep -q -e 'unbound variable' -e '^reached$'; then
+    ok "and the suite ends on a die that names the row, not on an unbound variable"
+else
+    bad "the never-answering centre must die naming r3.txt, got: $never"
+fi
+tab=$( (tab_centre_into tx ty 2; printf 'reached\n') 2>&1 ); tab_rc=$?
+if [ "$tab_rc" -eq 1 ] && printf '%s\n' "$tab" | grep -q '^FAIL the tab 2 has no visible screen centre$' \
+    && printf '%s\n' "$tab" | grep -q '^DRAG_CENTRE_FAIL .*"reader":"screen_tab_centre"' && ! printf '%s\n' "$tab" | grep -q '^reached$'; then
+    ok "a tab centre that never answers ends the suite the same way"
+else
+    bad "the never-answering tab centre must die naming tab 2, got rc=$tab_rc: $tab"
+fi
+[ -f "$centre_tmp/marker" ] && [ -n "$centre_tmp" ] && [ "${centre_tmp#/}" != "$centre_tmp" ] && rm -rf -- "$centre_tmp"
+
 printf 'dragwire: %s check(s), %s failed\n' "$((pass + fail))" "$fail"
 [ "$fail" -eq 0 ]

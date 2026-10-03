@@ -3371,6 +3371,9 @@ waits for its consumer.
   ctrl-copy silently became a move. The file still arrived, so nothing looked wrong. R7 stops the
   suite's own backend to prove a drop on the current tab refuses while its listing is out,
   stays refused after the listing lands, and a second drag then copies across devices.
+  A row's or tab's screen centre is awaited through `centre_into` and `tab_centre_into`, never read from a
+  bare substitution: a listing mid-swap answers no centre, and the helper ends the suite on a
+  `DRAG_CENTRE_FAIL` evidence line and a `die` naming the row, which `dragwire.sh` proves against doubles.
 - **Copy versus move versus link is one function, and the modifiers are read at the lift.**
   Same device moves, another device copies, Ctrl forces a copy, Shift forces a move, Ctrl with
   Shift links. A link needs no device and no deletable source. A device
