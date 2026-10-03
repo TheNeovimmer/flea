@@ -443,8 +443,9 @@ ui/Ipc.qml	817	root	Declared QML id; component context access is valid at runtim
 ui/Ipc.qml	819	root	Declared QML id; component context access is valid at runtime.
 ui/Ipc.qml	830	root	Declared QML id; component context access is valid at runtime.
 ui/Ipc.qml	837	root	Declared QML id; component context access is valid at runtime.
-ui/Ipc.qml	840	root	Declared QML id; component context access is valid at runtime.
-ui/Ipc.qml	844	root	Declared QML id; component context access is valid at runtime.
+ui/Ipc.qml	839	root	Declared QML id; component context access is valid at runtime.
+ui/Ipc.qml	842	root	Declared QML id; component context access is valid at runtime.
+ui/Ipc.qml	846	root	Declared QML id; component context access is valid at runtime.
 ui/JumpPath.qml	33	root	Declared QML id; component context access is valid at runtime.
 ui/KeymapSheet.qml	285	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/KeymapSheet.qml	354	root	Declared QML id; component context access is valid at runtime.
