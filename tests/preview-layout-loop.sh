@@ -39,12 +39,15 @@ cat > "$test_root/local.svg" <<'SVG'
 <svg xmlns="http://www.w3.org/2000/svg" width="180" height="120"><rect width="180" height="120" fill="#708090"/></svg>
 SVG
 # Hard-break lines yield adjacent documents on each side of the host's actual viewport height.
-for n in $(seq 1 96); do
+edge_documents=96
+overflow_lines=96
+wrap_repeats=8
+for n in $(seq 1 "$edge_documents"); do
     { printf 'edge %d\n' "$n"; printf 'viewport edge  \n%.0s' $(seq 1 "$n"); } > "$test_root/edge-$n.md"
 done
-{ printf 'A long text line that wraps in the preview. %.0s' $(seq 1 8); printf '\n'; printf 'plain text\n%.0s' $(seq 1 96); } \
+{ printf 'A long text line that wraps in the preview. %.0s' $(seq 1 "$wrap_repeats"); printf '\n'; printf 'plain text\n%.0s' $(seq 1 "$overflow_lines"); } \
     > "$test_root/plain.txt"
-printf 'let long_line = "a long code line that wraps in Quick Look";\n%.0s' $(seq 1 96) > "$test_root/code.rs"
+printf 'let long_line = "a long code line that wraps in Quick Look";\n%.0s' $(seq 1 "$overflow_lines") > "$test_root/code.rs"
 magick -size 400x560 xc:white -fill black -font Liberation-Sans -pointsize 30 \
     -annotate +40+80 'LAYOUT' "$test_root/page.pdf" || exit 1
 for theme in dark light; do

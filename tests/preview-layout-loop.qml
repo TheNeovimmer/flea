@@ -118,6 +118,12 @@ ShellRoot {
         shell.scrolling = false
         shell.showCount(48)
     }
+    // The flag is set before the wheel goes out: the event's delay runs the event loop, and a tick must not send a second notch.
+    function wheelDown(f) {
+        shell.scrolling = true
+        driver.mouseWheel(f, f.width * shell.wheelCenter, f.height * shell.wheelCenter,
+            Qt.NoButton, Qt.NoModifier, shell.wheelHorizontalUnits, shell.wheelAngleUnits, shell.wheelDelayMs)
+    }
     function cell(label, md) {
         var f = shell.flick(md)
         var h = shell.extent(md)
@@ -165,9 +171,7 @@ ShellRoot {
             if (shell.done) return
             var f = shell.flick(md)
             if (!shell.check(f.contentY === shell.scrollTop, "overflow scroll did not start at the top")) return
-            driver.mouseWheel(f, f.width * shell.wheelCenter, f.height * shell.wheelCenter,
-                Qt.NoButton, Qt.NoModifier, shell.wheelHorizontalUnits, shell.wheelAngleUnits, shell.wheelDelayMs)
-            shell.scrolling = true
+            shell.wheelDown(f)
         } else if (shell.stage === 2) {
             var f = shell.flick(md)
             if (f.moving) return
@@ -221,8 +225,15 @@ ShellRoot {
                 var f = shell.flick(text)
                 if (!shell.check(text.bodyItem.width === f.width && f.contentHeight > f.height,
                     "text/code overflow is absent")) return
-                f.contentY = f.contentHeight - f.height
-                if (!shell.check(f.contentY > 0, "text/code did not scroll")) return
+                if (!shell.scrolling) {
+                    if (!shell.check(f.contentY === shell.scrollTop, "text/code scroll did not start at the top")) return
+                    shell.wheelDown(f)
+                    return
+                }
+                if (f.moving) return
+                if (!shell.check(f.contentY > shell.scrollTop, "text/code did not scroll")) return
+                if (!shell.check(f.contentY <= f.contentHeight - f.height, "text/code scrolled past its content bounds")) return
+                shell.scrolling = false
             }
         } else if (kind === 2) {
             var pdf = shell.find(host, "PreviewPdf")
