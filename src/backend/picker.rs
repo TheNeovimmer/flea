@@ -13,6 +13,11 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{sync_channel, Sender, SyncSender, TrySendError};
 
+#[path = "picker_limits.rs"]
+mod limits;
+
+pub fn raise_file_limit() { limits::raise_soft_to_hard(); }
+
 const O_PATH: i32 = 0o10000000;
 const FNM_CASEFOLD: i32 = 1 << 4;
 extern "C" {
@@ -94,6 +99,17 @@ fn target_is_dir(target: &File, path: &Path) -> Result<bool, String> {
     target.metadata().map(|metadata| metadata.is_dir())
         .map_err(|error| format!("Could not inspect {}: {}", path.display(), io_message(&error)))
 }
+fn inspect_added_path(path: &Path, mut open: impl FnMut(&Path, bool) -> Result<Held, String>) -> Result<(Held, bool), String> {
+    let mut held = open(path, false)?;
+    if held.current()?.file_type().is_symlink() {
+        held.target = Some(open(path, true)?.file);
+    }
+    let is_dir = match &held.target {
+        Some(target) => target_is_dir(target, path)?,
+        None => held.current()?.is_dir(),
+    };
+    Ok((held, is_dir))
+}
 struct SaveReview {
     id: usize,
     folder: Held,
@@ -134,35 +150,7 @@ impl State {
             Some("select") => {
                 let paths: Vec<PathBuf> = field_str_array(line, "paths").into_iter().map(PathBuf::from).collect();
                 let directory = field_bool(line, "directory");
-                let mut wanted: HashSet<_> = paths.iter().collect();
-                for held in &self.marks {
-                    if !wanted.contains(&held.path) { continue; }
-                    let metadata = held.current()?;
-                    let is_dir = match &held.target {
-                        Some(target) => target_is_dir(target, &held.path)?,
-                        None => metadata.is_dir(),
-                    };
-                    if is_dir != directory { wanted.remove(&held.path); }
-                }
-                let mut seen: HashSet<_> = self.marks.iter().map(|held| held.path.clone()).collect();
-                let mut added = Vec::new();
-                for path in &paths {
-                    cancel.check()?;
-                    if !seen.insert(path.clone()) { continue; }
-                    let mut held = Held::open(path, false)?;
-                    if held.current()?.file_type().is_symlink() {
-                        held.target = Some(Held::open(path, true)?.file);
-                    }
-                    let is_dir = match &held.target {
-                        Some(target) => target.metadata().map_err(|error| io_message(&error))?.is_dir(),
-                        None => held.current()?.is_dir(),
-                    };
-                    if is_dir == directory { added.push(held); }
-                }
-                cancel.check()?;
-                self.marks.retain(|held| wanted.contains(&held.path));
-                self.marks.extend(added);
-                self.valid_marks(cancel)
+                self.select(&paths, directory, cancel, Held::open)
             }
             Some("validate") => self.valid_marks(cancel),
             Some("save") => {
@@ -212,6 +200,64 @@ impl State {
             }
             _ => Err("Unknown picker check.".into()),
         }
+    }
+    fn select(&mut self, paths: &[PathBuf], directory: bool, cancel: &Cancellation,
+        mut open: impl FnMut(&Path, bool) -> Result<Held, String>) -> Result<String, String> {
+        if paths.iter().any(|path| !path.is_absolute()) { return Err("Picker paths must be absolute.".into()); }
+        self.check_budget(paths, directory)?;
+        let mut wanted: HashSet<_> = paths.iter().collect();
+        for held in &self.marks {
+            if !wanted.contains(&held.path) { continue; }
+            let metadata = held.current()?;
+            let is_dir = match &held.target {
+                Some(target) => target_is_dir(target, &held.path)?,
+                None => metadata.is_dir(),
+            };
+            if is_dir != directory { wanted.remove(&held.path); }
+        }
+        let mut seen: HashSet<_> = self.marks.iter().map(|held| held.path.clone()).collect();
+        let mut added = Vec::new();
+        let mut skipped = Vec::new();
+        for path in paths {
+            cancel.check()?;
+            if !seen.insert(path.clone()) { continue; }
+            let (held, is_dir) = match inspect_added_path(path, &mut open) {
+                Ok(inspected) => inspected,
+                Err(error) => {
+                    let prefix = format!("Could not inspect {}: ", path.display());
+                    let why = error.strip_prefix(&prefix).unwrap_or(&error);
+                    skipped.push(format!(r#"{{"path":"{}","why":"{}"}}"#, escape(&path.to_string_lossy()), escape(why)));
+                    continue;
+                }
+            };
+            if is_dir == directory { added.push(held); }
+        }
+        cancel.check()?;
+        self.marks.retain(|held| wanted.contains(&held.path));
+        self.marks.extend(added);
+        self.valid_marks(cancel).map(|marks| format!(r#"{},"skipped":[{}]"#, marks, skipped.join(",")))
+    }
+    fn check_budget(&self, paths: &[PathBuf], directory: bool) -> Result<(), String> {
+        let soft = limits::soft_limit()?;
+        let budget = soft.saturating_sub(limits::DESCRIPTOR_RESERVE);
+        let mut descriptors: usize = self.marks.iter().map(|held| if held.target.is_some() { limits::SYMLINK_DESCRIPTORS } else { 1 }).sum();
+        let mut seen: HashSet<_> = self.marks.iter().map(|held| &held.path).collect();
+        for path in paths {
+            if !seen.insert(path) { continue; }
+            if let Ok(metadata) = path.symlink_metadata() {
+                if metadata.file_type().is_symlink() {
+                    descriptors = descriptors.saturating_add(limits::SYMLINK_DESCRIPTORS);
+                } else if metadata.is_dir() == directory {
+                    descriptors = descriptors.saturating_add(1);
+                }
+            }
+        }
+        if descriptors > budget {
+            let count = paths.iter().collect::<HashSet<_>>().len();
+            return Err(format!("Cannot select {} items: {} descriptors exceed the selection limit of {} (open-file limit {}, {} reserved).",
+                count, descriptors, budget, soft, limits::DESCRIPTOR_RESERVE));
+        }
+        Ok(())
     }
     fn valid_marks(&mut self, cancel: &Cancellation) -> Result<String, String> {
         let mut rows = Vec::new();

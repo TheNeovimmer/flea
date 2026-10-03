@@ -50,6 +50,7 @@ enum Control {
 
 // Errors are responses, so the loop never exits on a bad request.
 pub fn run() -> i32 {
+    super::picker::raise_file_limit();
     // Before the first listing, because a threshold glibc has already ratcheted strands the next arena on the heap.
     heap::pin_mmap_threshold();
     // Recorded when the first rows go out, the next launch's prefetch list; see src/prefetch.rs.

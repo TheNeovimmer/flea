@@ -43,8 +43,9 @@ Item {
     }
     // Resolve names without asking metadata for rows outside the held window.
     function paths(rows) {
-        if (current && current.running && !current.obsolete && !quitting)
-            current.write(JSON.stringify({c: "paths", rows: rows}) + "\n")
+        if (!current || !current.running || current.obsolete || quitting) return false
+        current.write(JSON.stringify({c: "paths", rows: rows}) + "\n")
+        return true
     }
     // Storage class for the grid planner, asked after the listing lands.
     function fsinfo() {

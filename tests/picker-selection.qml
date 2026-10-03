@@ -67,7 +67,15 @@ Item {
         function say(text) { message = text }
         function finish() { root.check("validation removal never accepts", true, false) }
     }
-    QtObject { id: listing; function paths(indices) { root.indices = indices } }
+    QtObject {
+        id: listing
+        property bool running: true
+        function paths(indices) {
+            if (!running) return false
+            root.indices = indices
+            return true
+        }
+    }
     QtObject { id: backend; signal paths(var paths) }
     Selection.PickerSelection { id: selection; picker: picker; listing: listing; backend: backend }
     Component.onCompleted: {
@@ -135,6 +143,41 @@ Item {
         check("later range dispatches after Select All", indices, [2, 3])
         var rangeMarks = settleQueued()
         check("Select All then range produces A to E", rangeMarks, paths(["A", "B", "C", "D", "E"]))
+
+        reset()
+        picker.message = ""
+        selection.received({ok: true, marks: [{path: "/virtual/A", bytes: 1}], skipped: [
+            {path: "/virtual/broken", why: "file or folder not found"},
+            {path: "/virtual/locked", why: "permission denied"}
+        ]})
+        check("F20 partial selection names first skipped path and remaining count", picker.message,
+            "Selected 1 of 3; 2 left alone: /virtual/broken: file or folder not found; and 1 more")
+        check("F20 partial selection keeps valid mark", picker.marks.map(function(mark) { return mark.path }), ["/virtual/A"])
+
+        reset()
+        picker.message = ""
+        listing.running = false
+        selection.all()
+        check("F23 unavailable listing clears pending", selection.pending, null)
+        check("F23 unavailable listing clears mark request", picker.markRequest, 0)
+        check("F23 unavailable listing names failure", picker.message, "The listing backend is not running; reopen this folder.")
+        check("F23 unavailable listing sends no selection check", requests.length, 0)
+        listing.running = true
+
+        reset()
+        picker.marks = [{path: "/a/held", bytes: 1}]
+        picker.path = "/b"
+        picker.shownTotal = 2
+        selection.all()
+        backend.paths(["/b/first", "/b/second"])
+        var desired = ["/a/held", "/b/first", "/b/second"]
+        check("F24 Ctrl+A in b preserves marks from a", requests[0].paths, desired)
+        selection.received({ok: true, marks: requests[0].paths.map(function(path) { return {path: path, bytes: 1} })})
+        selection.all()
+        backend.paths(["/b/first", "/b/second"])
+        check("F24 repeated Ctrl+A sends unchanged desired set", requests[1].paths, desired)
+        selection.received({ok: true, marks: requests[1].paths.map(function(path) { return {path: path, bytes: 1} })})
+        check("F24 repeated Ctrl+A keeps unchanged marks", picker.marks.map(function(mark) { return mark.path }), desired)
         console.log("picker-selection QML: " + checks + " checks, " + failures + " failed")
         Qt.exit(failures ? 1 : 0)
     }

@@ -6,13 +6,17 @@ import io
 import fcntl
 import os
 from pathlib import Path
-import re
 import subprocess
 import sys
 import tempfile
 
 source = ast.parse(Path(__file__).with_name("picker-native.py").read_text())
-namespace = dict(os=os, fcntl=fcntl, Path=Path, re=re, subprocess=subprocess, processes=[])
+namespace = dict(processes=[])
+# Execute the production standard-library imports without loading GI or starting its session.
+imports = [node for node in source.body if
+           isinstance(node, ast.Import) and all(alias.name.split(".")[0] in sys.stdlib_module_names for alias in node.names)
+           or isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] in sys.stdlib_module_names]
+exec(compile(ast.Module(body=imports, type_ignores=[]), "picker-native.py", "exec"), namespace)
 # Sample input: def start(...): child = subprocess.Popen(..., close_fds=True).
 launchers = [node for node in source.body if isinstance(node, ast.FunctionDef) and node.name in {"run", "start", "guard"}]
 exec(compile(ast.Module(body=launchers, type_ignores=[]), "picker-native.py", "exec"), namespace)
@@ -87,6 +91,22 @@ with tempfile.TemporaryDirectory(prefix="picker-native-lock-") as runtime:
                     child.kill()
                     child.wait(timeout=CHILD_TIMEOUT_SECONDS)
         check("production start() closes inherited lock fd", start_child)
+        def unrelated():
+            other = Path(runtime) / "unrelated-open-file"
+            expected = Path(runtime) / "flea-display.lock"
+            with open(other, "a") as wrong:
+                os.environ["FLEA_DISPLAY_LOCK_FD"] = str(wrong.fileno())
+                try:
+                    with contextlib.redirect_stdout(io.StringIO()) as output:
+                        held = take_lock(runtime)
+                except AssertionError as error:
+                    assert str(other) in str(error), "refusal did not name inherited file"
+                    assert str(expected) in str(error), "refusal did not name expected lock file"
+                    assert output.getvalue().startswith("FAIL "), "refusal did not fail loud"
+                    return
+                held.close()
+                raise AssertionError("F31 unrelated open file accepted as display lock")
+        check("unrelated inherited file refuses and names both paths", unrelated)
         for value in ["", "9x", "-1", "999999", "9" * 100]:
             os.environ["FLEA_DISPLAY_LOCK_FD"] = value
             def invalid():

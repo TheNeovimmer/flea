@@ -803,21 +803,28 @@ def test_sorting():
 # Sample input: FLEA_DISPLAY_LOCK_FD=9 names the runner's already locked open descriptor.
 def take_display_lock(runtime_dir):
     raw = os.environ.get("FLEA_DISPLAY_LOCK_FD")
+    expected = Path(runtime_dir) / "flea-display.lock"
     try:
         if raw is None:
-            held = open(Path(runtime_dir) / "flea-display.lock", "a")
+            held = open(expected, "a")
         else:
             if re.fullmatch(r"[0-9]+", raw) is None:
                 raise ValueError("expected a decimal open fd")
             held = os.fdopen(os.dup(int(raw)), "a")
         try:
+            if raw is not None:
+                inherited = os.fstat(held.fileno())
+                runtime = expected.stat()
+                if (inherited.st_dev, inherited.st_ino) != (runtime.st_dev, runtime.st_ino):
+                    actual = os.readlink("/proc/self/fd/" + str(held.fileno()))
+                    raise ValueError("inherited descriptor " + raw + " (" + actual + ") is not " + str(expected))
             fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except Exception:
             held.close()
             raise
         return held
     except (OSError, ValueError, OverflowError) as error:
-        message = "FAIL display lock FLEA_DISPLAY_LOCK_FD=" + repr(raw) + ": " + str(error)
+        message = "FAIL display lock FLEA_DISPLAY_LOCK_FD=" + repr(raw) + " expected " + str(expected) + ": " + str(error)
         print(message, flush=True)
         raise AssertionError(message) from error
 

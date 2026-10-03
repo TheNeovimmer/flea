@@ -27,7 +27,19 @@ ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui"
 cp tests/picker-hunt.qml "$test_root/config/shell.qml"
 cp tests/picker-focus-helper.py "$test_root/focus-backend"
 chmod +x "$test_root/focus-backend"
-for name in {a..l}; do printf '%s\n' "$name" > "$test_root/fixture/$name.txt"; done
+base_fixture_files=12
+wide_extra_files=200
+probe_timeout_seconds=15
+python3 - "$test_root/fixture" "$base_fixture_files" <<'PY'
+from pathlib import Path
+import sys
+# Sample input: /tmp/fixture 12 names the fixture root and base file count.
+fixture = Path(sys.argv[1])
+for index in range(int(sys.argv[2])):
+    name = chr(ord("a") + index)
+    (fixture / (name + ".txt")).write_text(name + "\n")
+PY
+[ "$?" -eq 0 ] || exit 1
 failures=0
 phases=0
 burst_extra_files=64
@@ -62,7 +74,7 @@ for view in list grid; do
                 fixture="$phase/fixture"
                 mkdir -p "$fixture/folder"
                 cp "$test_root/fixture/"*.txt "$fixture/"
-                for i in $(seq 0 199); do printf '%s\n' "$i" > "$fixture/extra-$i.txt"; done
+                for i in $(seq 0 "$((wide_extra_files - 1))"); do printf '%s\n' "$i" > "$fixture/extra-$i.txt"; done
                 printf 'hidden\n' > "$fixture/.hidden.txt"
                 printf 'filtered\n' > "$fixture/excluded.png"
                 ;;
@@ -84,8 +96,9 @@ PY
             HOME="$phase/home" XDG_STATE_HOME="$phase/state" XDG_CONFIG_HOME="$phase/home/.config" \
             XDG_CACHE_HOME="$phase/cache" XDG_DATA_HOME="$phase/data" XDG_RUNTIME_DIR="$phase/runtime" TMPDIR="$phase/tmp" \
             FLEA_BIN="$backend" FLEA_PICKER="$request" FLEA_PICKER_REPLY="$phase/reply.json" \
+            FLEA_PICKER_HUNT_BASE_FILES="$base_fixture_files" FLEA_PICKER_HUNT_EXTRA_FILES="$wide_extra_files" \
             FLEA_PICKER_HUNT_CASE="$scenario" FLEA_PICKER_HUNT_PRESET="$preset" QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-            QT_FORCE_STDERR_LOGGING=1 timeout 15 qs -p "$test_root/config" 2>&1)
+            QT_FORCE_STDERR_LOGGING=1 timeout "$probe_timeout_seconds" qs -p "$test_root/config" 2>&1)
         code=$?
         phases=$((phases+1))
         printf 'PICKER_HUNT CASE %s %s %s exit=%s\n' "$preset" "$view" "$scenario" "$code"

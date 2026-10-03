@@ -17,6 +17,8 @@ QML_TIMEOUT_EXIT = 124
 ROW_PROBE_TIMEOUT_SECONDS = 5
 ROW_PROBE_GRACE_SECONDS = 1
 HELD_ROW_OFFSET = 60
+CHANGED_BASE_FIXTURE_FILES = 13
+CHANGED_WIDE_EXTRA_FILES = 201
 checks = 0
 failures = 0
 
@@ -53,21 +55,23 @@ output=$(cat "$phase/output")
 ''' + classify + '''printf '%s: %s phases, %s failed\n' "$4" "$phases" "$failures"
 [ "$failures" -eq 0 ]
 '''
-            verdict = subprocess.run(["bash", "-c", script, "check", scratch,
-                                      "cursor-open" if name == "picker-hunt" else "path", str(result.returncode), name],
-                                     capture_output=True, text=True, check=False)
-            rejected = verdict.returncode != 0
-            wanted = fault != "clean-noisy"
-            status_line = fault not in ["timeout", "crash"] or ("FAIL " in verdict.stdout and "exit=" + str(result.returncode) in verdict.stdout)
-            checks += 1
-            ok = rejected == wanted and status_line
-            failures += not ok
-            print(("PASS " if ok else "FAIL ") + name + " " + fault + " producer=" + str(result.returncode)
-                  + " classifier=" + str(verdict.returncode))
-            if not ok:
-                for line in verdict.stdout.splitlines():
-                    if not line.startswith("x"):
-                        print(line[:300])
+            scenarios = ["cursor-open", "all"] if name == "picker-hunt" and fault == "clean-noisy" else ["cursor-open" if name == "picker-hunt" else "path"]
+            for scenario in scenarios:
+                verdict = subprocess.run(["bash", "-c", script, "check", scratch,
+                                          scenario, str(result.returncode), name],
+                                         capture_output=True, text=True, check=False)
+                rejected = verdict.returncode != 0
+                wanted = fault != "clean-noisy"
+                status_line = fault not in ["timeout", "crash"] or ("FAIL " in verdict.stdout and "exit=" + str(result.returncode) in verdict.stdout)
+                checks += 1
+                ok = rejected == wanted and status_line
+                failures += not ok
+                print(("PASS " if ok else "FAIL ") + name + " " + fault + " scenario=" + scenario + " producer=" + str(result.returncode)
+                      + " classifier=" + str(verdict.returncode))
+                if not ok:
+                    for line in verdict.stdout.splitlines():
+                        if not line.startswith("x"):
+                            print(line[:300])
 with tempfile.TemporaryDirectory(prefix="picker-selection-runner-check-") as scratch:
     commands = Path(scratch) / "bin"
     commands.mkdir()
@@ -106,11 +110,54 @@ with tempfile.TemporaryDirectory(prefix="picker-missing-helper-") as scratch:
     failures += not ok
     print(("PASS " if ok else "FAIL ") + "missing native lock helper fails with its name")
 
+with tempfile.TemporaryDirectory(prefix="picker-missing-import-") as scratch:
+    probe = Path(scratch)
+    (probe / "picker-native-lock-check.py").write_text((REPO / "tests/picker-native-lock-check.py").read_text())
+    # Sample input: import re supplies decimal-fd validation in the production native runner.
+    native = (REPO / "tests/picker-native.py").read_text().replace("import re\n", "")
+    (probe / "picker-native.py").write_text(native)
+    result = subprocess.run(["python3", str(probe / "picker-native-lock-check.py")],
+                            capture_output=True, text=True, check=False, timeout=ROW_PROBE_TIMEOUT_SECONDS)
+    checks += 1
+    ok = result.returncode != 0 and "name 're' is not defined" in result.stdout + result.stderr
+    failures += not ok
+    print(("PASS " if ok else "FAIL ") + "F27 missing production re import fails native lock checker")
+
 source = (REPO / "tests/picker-040.sh").read_text()
 checks += 1
 unused = [scenario for scenario in ["cursor-open", "marked-open", "save-marks", "remember"] if scenario in source]
 failures += bool(unused)
 print(("FAIL " if unused else "PASS ") + "picker-040 contains only reachable scenarios" + (": " + ", ".join(unused) if unused else ""))
+
+source = (REPO / "tests/picker-hunt.qml").read_text()
+# Sample input: root.check("Ctrl+A marks shown files", win.marks.length, scenario === "all-wide" ? root.baseFixtureFiles + root.wideExtraFiles : root.baseFixtureFiles).
+count_line = next(line for line in source.splitlines() if 'root.check("Ctrl+A marks ' in line)
+expectation = count_line.split("win.marks.length, ", 1)[1].rsplit(")", 1)[0]
+for scenario in ["all", "all-wide"]:
+    with tempfile.TemporaryDirectory(prefix="picker-fixture-count-") as scratch:
+        probe = Path(scratch) / "fixture-count.qml"
+        probe.write_text('''import QtQuick
+Item {
+    Component.onCompleted: {
+        var root = {baseFixtureFiles: BASE_FILES, wideExtraFiles: EXTRA_FILES}
+        var scenario = "SCENARIO"
+        var got = EXPECTATION
+        var want = root.baseFixtureFiles + (scenario === "all-wide" ? root.wideExtraFiles : 0)
+        console.log((got === want ? "PASS " : "FAIL ") + "F30 fixture count " + scenario + " got=" + got + " expected=" + want)
+        Qt.exit(got === want ? 0 : 1)
+    }
+}
+'''.replace("BASE_FILES", str(CHANGED_BASE_FIXTURE_FILES)).replace("EXTRA_FILES", str(CHANGED_WIDE_EXTRA_FILES))
+            .replace("SCENARIO", scenario).replace("EXPECTATION", expectation))
+        result = subprocess.run(["timeout", str(ROW_PROBE_TIMEOUT_SECONDS), "qml6", str(probe)],
+                                env=dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_FORCE_STDERR_LOGGING="1"),
+                                capture_output=True, text=True, check=False, timeout=ROW_PROBE_TIMEOUT_SECONDS + ROW_PROBE_GRACE_SECONDS)
+        checks += 1
+        ok = result.returncode == 0 and "PASS F30 fixture count" in result.stderr
+        failures += not ok
+        print(("PASS " if ok else "FAIL ") + "F30 " + scenario + " expectation follows changed fixture counts")
+        if not ok:
+            print(result.stderr.strip())
 
 for name in ["picker-hunt", "picker-040"]:
     source = (REPO / "tests" / (name + ".qml")).read_text()

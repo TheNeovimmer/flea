@@ -58,7 +58,10 @@ Item {
         }
         pending = {range: range}
         picker.markRequest = -1
-        listing.paths(indices)
+        if (!listing.paths(indices)) {
+            reset()
+            picker.say("The listing backend is not running; reopen this folder.", true)
+        }
     }
     function validate(accepting) {
         if (picker.backendUnavailable || (!picker.marks.length && !picker.markRequest)) return
@@ -89,6 +92,13 @@ Item {
         if (message.removed) picker.say(message.removed === 1
             ? "1 selected item moved or changed; select it again."
             : message.removed + " selected items moved or changed; select them again.", true)
+        else if (message.skipped && message.skipped.length) {
+            var skipped = message.skipped
+            var first = skipped[0]
+            var tail = skipped.length > 1 ? "; and " + (skipped.length - 1) + " more" : ""
+            picker.say("Selected " + picker.marks.length + " of " + (picker.marks.length + skipped.length)
+                + "; " + skipped.length + " left alone: " + first.path + ": " + first.why + tail, true)
+        }
         else if (accepting && picker.marks.length) { picker.finish(Picker.RESPONSE_OK, picker.marks); return }
         if (queued.length) {
             var next = queued[0]
@@ -103,7 +113,13 @@ Item {
             if (root.pending === null || root.picker.markRequest !== -1) return
             var range = root.pending.range
             if (range && range.base === null) range.base = Picker.paths(root.picker.marks)
-            var desired = (range ? range.base : []).concat(paths)
+            var desired = (range ? range.base : Picker.paths(root.picker.marks)).concat(paths)
+            var seen = new Set()
+            desired = desired.filter(function(path) {
+                if (seen.has(path)) return false
+                seen.add(path)
+                return true
+            })
             root.pending = null
             root.picker.markRequest = root.picker.check({op: "select", paths: desired, directory: root.picker.folderMode})
         }

@@ -2,6 +2,99 @@ use super::*;
 use crate::backend::testdir::TestDir;
 
 #[test]
+fn batch_selection_skips_a_dangling_link_and_keeps_valid_files() {
+    let dir = TestDir::new("picker-batch-skip");
+    let file = dir.file("valid", "one");
+    let link = dir.join("broken");
+    std::os::unix::fs::symlink(dir.join("missing"), &link).unwrap();
+    let mut state = State::default();
+    let cancel = Cancellation::default();
+    let line = format!(r#"{{"op":"select","id":1,"paths":["{}","{}"]}}"#,
+        escape(&file.to_string_lossy()), escape(&link.to_string_lossy()));
+    let result = state.handle(&line, &cancel);
+    assert!(result.is_ok(), "F20 batch refused instead of marking valid file: {:?}", result);
+    assert_eq!(state.marks.len(), 1);
+    assert_eq!(state.marks[0].path, file);
+    assert!(result.unwrap().contains(&format!(r#""skipped":[{{"path":"{}","why":"file or folder not found"}}]"#,
+        escape(&link.to_string_lossy()))));
+    let single = format!(r#"{{"op":"mark","id":2,"path":"{}"}}"#, escape(&link.to_string_lossy()));
+    assert!(state.handle(&single, &cancel).unwrap_err().contains("Could not inspect"));
+    assert_eq!(state.marks.len(), 1);
+}
+
+#[test]
+fn batch_selection_budget_refuses_before_opening_in_a_low_limit_child() {
+    use std::process::Command;
+    const CHILD_ENV: &str = "FLEA_PICKER_BUDGET_TEST_CHILD";
+    const CHILD_LIMIT: u64 = 80;
+    const DESCRIPTOR_RESERVE: u64 = 64;
+    const SYMLINK_MARKS: usize = 8;
+    const RLIMIT_NOFILE: i32 = 7;
+    #[repr(C)]
+    struct Limit { soft: u64, hard: u64 }
+    #[allow(clashing_extern_declarations)]
+    extern "C" { fn setrlimit(resource: i32, limit: *const Limit) -> i32; }
+    if std::env::var_os(CHILD_ENV).is_none() {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "backend::picker::tests::batch_selection_budget_refuses_before_opening_in_a_low_limit_child", "--nocapture"])
+            .env(CHILD_ENV, "1").output().unwrap();
+        let report = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(output.status.success(), "F21 low-limit child: {}", report);
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"), "F21 child must execute its test");
+        return;
+    }
+    let dir = TestDir::new("picker-budget-child");
+    let file = dir.file("valid", "one");
+    let mut state = State::default();
+    let cancel = Cancellation::default();
+    let mark = format!(r#"{{"op":"mark","id":1,"path":"{}","multiple":true}}"#, escape(&file.to_string_lossy()));
+    state.handle(&mark, &cancel).unwrap();
+    let mut paths = vec![file.clone()];
+    for index in 0..SYMLINK_MARKS {
+        let link = dir.join(&format!("link-{}", index));
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        paths.push(link);
+    }
+    let limit = Limit { soft: CHILD_LIMIT, hard: CHILD_LIMIT };
+    assert_eq!(unsafe { setrlimit(RLIMIT_NOFILE, &limit) }, 0);
+    let line = format!(r#"{{"op":"select","id":2,"paths":[{}]}}"#,
+        paths.iter().map(|path| format!(r#""{}""#, escape(&path.to_string_lossy()))).collect::<Vec<_>>().join(","));
+    let result = state.handle(&line, &cancel);
+    assert!(result.is_err(), "F21 selection exceeding soft limit minus reserve was accepted");
+    let error = result.unwrap_err();
+    assert!(error.contains(&format!("{} items", paths.len())), "{}", error);
+    assert!(error.contains(&format!("limit of {}", CHILD_LIMIT - DESCRIPTOR_RESERVE)), "{}", error);
+    assert_eq!(state.marks.len(), 1, "F21 refused batch must preserve held marks");
+    let mut opened = 0;
+    let result = state.select(&paths, false, &cancel, |path, follow| {
+        opened += 1;
+        Held::open(path, follow)
+    });
+    assert!(result.is_err());
+    assert_eq!(opened, 0, "F21 over-budget batch must refuse before its first open");
+}
+
+#[test]
+fn added_target_metadata_error_names_the_path() {
+    use std::process::{Command, Stdio};
+    let dir = TestDir::new("picker-added-target");
+    let folder = dir.dir("folder");
+    let link = dir.join("link");
+    std::os::unix::fs::symlink(folder, &link).unwrap();
+    let mut child = Command::new("cat").stdin(Stdio::piped()).stdout(Stdio::null()).spawn().unwrap();
+    let disappearing = PathBuf::from(format!("/proc/{}/fd", child.id()));
+    let result = inspect_added_path(&link, |path, follow| {
+        if !follow { return Held::open(path, false); }
+        let target = Held::open(&disappearing, true).unwrap();
+        drop(child.stdin.take());
+        assert!(child.wait().unwrap().success());
+        Ok(target)
+    });
+    let error = result.err().expect("F25 added target fstat must fail after child exits");
+    assert_eq!(error, format!("Could not inspect {}: file or folder not found", link.display()), "F25 added branch lost path");
+}
+
+#[test]
 fn retained_target_metadata_error_names_the_path() {
     use std::process::{Command, Stdio};
     let mut child = Command::new("cat").stdin(Stdio::piped()).stdout(Stdio::null()).spawn().unwrap();

@@ -15,6 +15,9 @@ ShellRoot {
     property double stamp: Date.now()
     property int failures: 0
     property int checks: 0
+    readonly property int pollIntervalMs: 20
+    readonly property int deadlineMs: 8000
+    readonly property int settleWaitMs: 1000
 
     function check(label, got, want) {
         checks++
@@ -50,11 +53,11 @@ ShellRoot {
     }
 
     Timer {
-        interval: 20
+        interval: root.pollIntervalMs
         running: true
         repeat: true
         onTriggered: {
-            if (Date.now() - root.stamp > 8000) {
+            if (Date.now() - root.stamp > root.deadlineMs) {
                 root.check("probe completes", "timeout stage " + stage, "complete")
                 root.finish()
                 return
@@ -82,7 +85,7 @@ ShellRoot {
                 root.stamp = Date.now()
                 return
             }
-            if (stage === 1 && Date.now() - root.stamp > 1000 && !win.markRequest) {
+            if (stage === 1 && Date.now() - root.stamp > root.settleWaitMs && !win.markRequest) {
                 if (scenario === "path") {
                     var fields = root.descendants(win.contentItem).filter(function(item) {
                         return item.activeFocus && typeof item.selectAll === "function"

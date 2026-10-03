@@ -17,6 +17,14 @@ ShellRoot {
     property int failures: 0
     property int checks: 0
     readonly property int burstSteps: 3
+    readonly property int pollIntervalMs: 20
+    readonly property int deadlineMs: 8000
+    readonly property int refusalWaitMs: 400
+    readonly property int settleWaitMs: 1000
+    readonly property real dimmedOpacity: 0.55
+    // Sample input: FLEA_PICKER_HUNT_BASE_FILES=12, FLEA_PICKER_HUNT_EXTRA_FILES=200.
+    readonly property int baseFixtureFiles: Number(Quickshell.env("FLEA_PICKER_HUNT_BASE_FILES"))
+    readonly property int wideExtraFiles: Number(Quickshell.env("FLEA_PICKER_HUNT_EXTRA_FILES"))
     readonly property int pickerWidthPx: 800
     readonly property int pickerHeightPx: 410
     readonly property real chromeCenterTolerancePx: 1
@@ -77,6 +85,7 @@ ShellRoot {
         keys.mouseClick(button, button.width / 2, button.height / 2, Qt.LeftButton, Qt.NoModifier, -1)
     }
     function press(key, modifiers) { keys.keyClick(key, modifiers || Qt.NoModifier, -1) }
+    // Enters at doubleActivate; delegate tap capture: native SP02 (tests/picker-native.py:401-406); Picker.sameTap: tests/js/picker.js:164-167.
     function doubleActivateCursor() {
         var row = win.rowFor(win.cursorIndex)
         check("double activation sees real row", !!row, true)
@@ -134,7 +143,7 @@ ShellRoot {
             }
             stage = 1
             stamp = Date.now()
-        } else if (stage === 1 && Date.now() - stamp > 400 && !win.submitting && !win.markRequest) {
+        } else if (stage === 1 && Date.now() - stamp > root.refusalWaitMs && !win.submitting && !win.markRequest) {
             check("refused submission keeps request open", win.answered, false)
             check("refused submission keeps permission message", win.message, "Could not inspect " + win.path + "/a.txt: permission denied")
             check("refused submission keeps error styling", win.messageError, true)
@@ -180,11 +189,11 @@ ShellRoot {
     }
 
     Timer {
-        interval: 20
+        interval: root.pollIntervalMs
         running: true
         repeat: true
         onTriggered: {
-            if (Date.now() - root.stamp > 8000) {
+            if (Date.now() - root.stamp > root.deadlineMs) {
                 root.check("probe completes", "timeout stage " + stage, "complete")
                 root.finish()
                 return
@@ -198,7 +207,7 @@ ShellRoot {
             if (win && scenario === "empty" && win.listingState === "empty") {
                 root.check("empty listing disables Open", win.canAccept, false)
                 var emptyButton = root.descendants(win.contentItem).filter(function(item) { return item.name === "Open" && item.available !== undefined })[0]
-                root.check("empty Open opacity", emptyButton.opacity, 0.55)
+                root.check("empty Open opacity", emptyButton.opacity, root.dimmedOpacity)
                 root.finish()
                 return
             }
@@ -211,7 +220,7 @@ ShellRoot {
                     win.focusView()
                     root.check("folder disables Open", win.canAccept, false)
                     var folderButton = root.descendants(win.contentItem).filter(function(item) { return item.name === "Open" && item.available !== undefined })[0]
-                    root.check("folder Open opacity", folderButton.opacity, 0.55)
+                    root.check("folder Open opacity", folderButton.opacity, root.dimmedOpacity)
                     root.press(Qt.Key_Return)
                     root.stage = 1
                     root.stamp = Date.now()
@@ -267,12 +276,12 @@ ShellRoot {
                 root.stamp = Date.now()
                 return
             }
-            if (stage === 1 && Date.now() - root.stamp > 1000 && !win.markRequest) {
+            if (stage === 1 && Date.now() - root.stamp > root.settleWaitMs && !win.markRequest) {
                 if (scenario.indexOf("cursor-") === 0) {
                     root.check("Return answers cursor file", win.answered, true)
                     console.log("PICKER_HUNT MESSAGE " + win.message)
                 } else if ((scenario === "all" || scenario === "all-wide")) {
-                    root.check("Ctrl+A marks all twelve files", win.marks.length, scenario === "all-wide" ? 212 : 12)
+                    root.check("Ctrl+A marks shown files", win.marks.length, scenario === "all-wide" ? root.baseFixtureFiles + root.wideExtraFiles : root.baseFixtureFiles)
                     if (scenario === "all-wide") root.check("select-all reaches beyond held window", win.rows.length < win.marks.length, true)
                 } else if (scenario === "range-up" || scenario === "range-click") {
                     var wanted = scenario === "range-click" ? 3 : win.viewMode === "grid" ? win.viewItem().columns + 1 : 2
@@ -321,7 +330,7 @@ ShellRoot {
                 }
                 root.finish()
             }
-            if (stage === 2 && Date.now() - root.stamp > 1000) {
+            if (stage === 2 && Date.now() - root.stamp > root.settleWaitMs) {
                 if (scenario === "double-mark") {
                     if (win.markRequest) return
                     root.check("double click adds b.txt and retains a.txt", win.marks.map(function(mark) { return mark.path }), [win.path + "/a.txt", win.path + "/b.txt"])
@@ -335,7 +344,7 @@ ShellRoot {
                 else root.check("marked Return or Enter writes portal answer", win.answered, true)
                 root.finish()
             }
-            if (stage === 3 && Date.now() - root.stamp > 1000 && !win.markRequest) {
+            if (stage === 3 && Date.now() - root.stamp > root.settleWaitMs && !win.markRequest) {
                 root.check("second double click unmarks only b.txt", win.marks.map(function(mark) { return mark.path }), [win.path + "/a.txt"])
                 root.check("unmarking double click leaves request open", win.answered, false)
                 root.check("unmarking double click never starts submission", win.submitting, false)
