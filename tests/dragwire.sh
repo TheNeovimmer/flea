@@ -324,6 +324,39 @@ if [ "$tab_rc" -eq 1 ] && printf '%s\n' "$tab" | grep -q '^FAIL the tab 2 has no
 else
     bad "the never-answering tab centre must die naming tab 2, got rc=$tab_rc: $tab"
 fi
+
+# R7's gate against a double: the re-read is asked two polls in and lands two polls later, or is never asked.
+r7_gate=$( (
+    eval "$(sed -n '/^r7_reread_landed()/,/^}/p' tests/drag.sh)"
+    ok() { printf 'OK %s\n' "$*"; }
+    walk_state() { printf 'WALK %s\n' "$*"; }
+    r7_poll_attempts=6; r7_poll_seconds=0; r7_requests_before=18
+    printf '0\n' > "$centre_tmp/polls"
+    # Sample input, ipc listRequests: "19", the count of list requests sent; ipc listInFlight: "true" while one is out.
+    ipc() {
+        local polls
+        polls=$(cat "$centre_tmp/polls")
+        case "$1" in
+            listRequests) polls=$((polls + 1)); printf '%s\n' "$polls" > "$centre_tmp/polls"
+                if [ "$r7_mode" = asked ] && [ "$polls" -gt 2 ]; then printf '19\n'; else printf '18\n'; fi ;;
+            listInFlight) if [ "$r7_mode" = asked ] && [ "$polls" -gt 2 ] && [ "$polls" -le 4 ]; then printf 'true\n'; else printf 'false\n'; fi ;;
+        esac
+    }
+    r7_mode=asked; r7_reread_landed; printf 'POLLS %s\n' "$(cat "$centre_tmp/polls")"
+    printf '0\n' > "$centre_tmp/polls"
+    r7_mode=never; (r7_reread_landed; printf 'reached\n'); printf 'RC %s\n' "$?"
+) 2>&1 )
+if printf '%s\n' "$r7_gate" | grep -q '^POLLS 5$' && printf '%s\n' "$r7_gate" | grep -q '^OK R7 the payload.s re-read landed (list requests 18 to 19)$'; then
+    ok "R7's gate passes only once the re-read was asked and has landed (poll 5, not the idle polls before it)"
+else
+    bad "R7's gate must wait for the asked and landed re-read, got: $r7_gate"
+fi
+if printf '%s\n' "$r7_gate" | grep -q '^RC 1$' && printf '%s\n' "$r7_gate" | grep -q '^WALK R7 unsettled$' \
+    && printf '%s\n' "$r7_gate" | grep -q 're-read never landed: list requests 18 to 18, in flight false$' && ! printf '%s\n' "$r7_gate" | grep -q '^reached$'; then
+    ok "and a re-read never asked ends the suite with the walk state and the counts"
+else
+    bad "R7's gate must die with its evidence when the re-read is never asked, got: $r7_gate"
+fi
 [ -f "$centre_tmp/marker" ] && [ -n "$centre_tmp" ] && [ "${centre_tmp#/}" != "$centre_tmp" ] && rm -rf -- "$centre_tmp"
 
 printf 'dragwire: %s check(s), %s failed\n' "$((pass + fail))" "$fail"

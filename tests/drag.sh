@@ -860,16 +860,33 @@ XDEV=$(mktemp -d /dev/shm/flea-drag-xdev-XXXXXX)
 mkdir -p "$XDEV/big"
 check "the tmpfs root is another filesystem than the fixture" \
       "$([ "$(stat -c %d "$XDEV")" != "$(stat -c %d "$HOMEDIR")" ] && echo other || echo same)" "other"
-printf 'r7 payload\n' > "$HOMEDIR/r7.txt"
-# R6 left the third tab current; it is walked into the tmpfs directory through the path bar, as R5 walked into bbb.
+# Passes once the watcher's re-read of the payload was asked and has landed: the request count rose and nothing is out.
+r7_reread_landed() {
+  local attempt requests flight
+  for ((attempt=1; attempt<=r7_poll_attempts; attempt++)); do
+    requests=$(ipc listRequests) || die "R7 list request count unavailable"
+    flight=$(ipc listInFlight) || die "R7 listing state unavailable"
+    if (( requests > r7_requests_before )) && [[ "$flight" == false ]]; then
+      ok "R7 the payload's re-read landed (list requests $r7_requests_before to $requests)"
+      return
+    fi
+    sleep "$r7_poll_seconds"
+  done
+  walk_state R7 unsettled
+  die "R7 the payload's re-read never landed: list requests $r7_requests_before to $requests, in flight $flight"
+}
+# R6 left the third tab current on this folder, so its watcher re-reads the payload; nothing else lists in between.
 check "the third tab is current" "$(ipc tabIndex)" "$r7_tmpfs_tab"
+r7_requests_before=$(ipc listRequests) || die "R7 list request count unavailable"
+[[ "$r7_requests_before" =~ ^[0-9]+$ ]] || die "R7 list request count is not a number: $r7_requests_before"
+printf 'r7 payload\n' > "$HOMEDIR/r7.txt"
+# A path entered while a listing is out is refused, so the re-read lands before the path bar opens.
+r7_reread_landed
+# The tab is walked into the tmpfs directory through the path bar, as R5 walked into bbb.
 native_key :
 expect_ipc pathBarOpen true
 native_key "$XDEV/big"
 walk_state R7 before-Return
-# The payload written above is re-read by the watcher, and a path entered while a listing is out is refused.
-expect_ipc listInFlight false
-walk_state R7 settled
 native_key -k Return
 walk_state R7 after-Return
 expect_ipc pathBarOpen false
