@@ -24,6 +24,9 @@ ShellRoot {
     property bool draining: false
     property bool started: false
     readonly property int drainPollMs: 16
+    // Drain polls the Source view may take to load the corpus; past them the run fails under its own name.
+    readonly property int sourceLoadPolls: 600
+    property int sourcePolls: 0
     readonly property int watchdogMs: 30000
     readonly property int referenceFormCount: 7
     readonly property int referenceContextCount: 9
@@ -135,13 +138,36 @@ ShellRoot {
         })
     }
 
+    // Sample: the Source view's Flickable holds one visible Text whose text is the whole file.
+    function sourceTextItem(item) {
+        if (item.textFormat !== undefined && item.visible && String(item.text) === sourceView.rawText)
+            return item
+        var children = item.children || []
+        for (var i = 0; i < children.length; i++) {
+            var found = sourceTextItem(children[i])
+            if (found)
+                return found
+        }
+        return null
+    }
+
     function finishDrain() {
-        if (done || draining || !probesBuilt || !imagesSettled(root) || sourceView.rawText.length === 0)
+        if (done || draining || !probesBuilt || !imagesSettled(root))
             return
+        if (sourceView.rawText.length === 0) {
+            if (++sourcePolls > sourceLoadPolls)
+                fail("Source view never loaded the corpus")
+            return
+        }
         draining = true
-        // The Source view has the corpus by now, so its zero requests are counted over text it really drew.
-        if (sourceView.view !== "source" || sourceView.rawText.indexOf("![front](") < 0 || sourceView.rawText.indexOf("![math](") < 0)
-            validationFailures.push("Source view did not draw the corpus with its front matter and display math")
+        // The zero requests count only over text the Source view shows, and plain text is what keeps it from asking.
+        var drawn = sourceTextItem(sourceView)
+        if (sourceView.view !== "source" || !drawn)
+            validationFailures.push("Source view shows no Text holding the corpus")
+        else if (drawn.textFormat !== Text.PlainText)
+            validationFailures.push("Source view Text is not plain text")
+        else if (String(drawn.text).indexOf("![front](") < 0 || String(drawn.text).indexOf("![math](") < 0)
+            validationFailures.push("Source view Text lacks the front matter and display math placements")
         control.text = "![control](" + counter + "/control.png)"
         var request = new XMLHttpRequest()
         request.onreadystatechange = function () {

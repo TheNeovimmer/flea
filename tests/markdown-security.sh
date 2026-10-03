@@ -203,6 +203,14 @@ with open(dest, "w") as f:
 print(f"corpus forms={len(forms)} contexts={len(contexts)}")
 EOF
 
+# A Source view failure is reported under its own name, before any drain or fixture verdict can claim it.
+source_view_verdict() {
+    local line
+    line=$(printf '%s\n' "$1" | grep -a -m1 'MARKDOWN_SECURITY FAIL Source view') || return 0
+    printf 'FAIL %s\n' "${line#*MARKDOWN_SECURITY FAIL }"
+    exit 1
+}
+
 # The delayed negative control must finish before the control and still fail the zero-hit check.
 delayed_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
@@ -211,6 +219,7 @@ delayed_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNA
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
+source_view_verdict "$delayed_output"
 if ! printf '%s\n' "$delayed_output" | grep -q 'MARKDOWN_SECURITY reference forms resolved'; then
     echo 'FAIL reference forms did not resolve before the delayed network check'
     printf '%s\n' "$delayed_output"
@@ -240,6 +249,7 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
+source_view_verdict "$output"
 # The preview must have lived through its drain; without this line an empty qs output and a dead counter read as a pass.
 if ! printf '%s\n' "$output" | grep -q 'MARKDOWN_SECURITY drained'; then
     printf 'FAIL the render harness never drained (no live preview ran)\n'
