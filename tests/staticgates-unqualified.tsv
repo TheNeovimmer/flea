@@ -633,11 +633,11 @@ ui/PermissionsDialog.qml	510	root	Declared QML id; component context access is v
 ui/PermissionsDialog.qml	511	body	Declared QML id; component context access is valid at runtime.
 ui/PermissionsDialog.qml	511	root	Declared QML id; component context access is valid at runtime.
 ui/PermissionsDialog.qml	512	root	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	44	root	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	45	root	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	288	root	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	289	types	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	291	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	75	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	76	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	317	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	318	types	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	320	root	Declared QML id; component context access is valid at runtime.
 ui/PickerGrid.qml	67	root	Declared QML id; component context access is valid at runtime.
 ui/PickerGrid.qml	68	root	Declared QML id; component context access is valid at runtime.
 ui/PickerGrid.qml	70	root	Declared QML id; component context access is valid at runtime.
@@ -652,7 +652,7 @@ ui/PickerGrid.qml	98	root	Declared QML id; component context access is valid at 
 ui/PickerGrid.qml	100	root	Declared QML id; component context access is valid at runtime.
 ui/PickerGrid.qml	107	root	Declared QML id; component context access is valid at runtime.
 ui/PickerGrid.qml	121	root	Declared QML id; component context access is valid at runtime.
-ui/PickerGrid.qml	138	root	Declared QML id; component context access is valid at runtime.
+ui/PickerGrid.qml	143	root	Declared QML id; component context access is valid at runtime.
 ui/PickerList.qml	49	root	Declared QML id; component context access is valid at runtime.
 ui/PickerList.qml	50	root	Declared QML id; component context access is valid at runtime.
 ui/PickerList.qml	53	root	Declared QML id; component context access is valid at runtime.
@@ -670,11 +670,11 @@ ui/PickerList.qml	102	root	Declared QML id; component context access is valid at
 ui/PickerList.qml	104	root	Declared QML id; component context access is valid at runtime.
 ui/PickerList.qml	111	root	Declared QML id; component context access is valid at runtime.
 ui/PickerList.qml	125	root	Declared QML id; component context access is valid at runtime.
-ui/PickerListing.qml	91	Quickshell	Quickshell import exports this runtime singleton or enum.
-ui/PickerListing.qml	95	root	Declared QML id; component context access is valid at runtime.
-ui/PickerListing.qml	100	process	Declared QML id; component context access is valid at runtime.
-ui/PickerListing.qml	105	root	Declared QML id; component context access is valid at runtime.
-ui/PickerListing.qml	107	running	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
+ui/PickerListing.qml	100	Quickshell	Quickshell import exports this runtime singleton or enum.
+ui/PickerListing.qml	104	root	Declared QML id; component context access is valid at runtime.
+ui/PickerListing.qml	109	process	Declared QML id; component context access is valid at runtime.
+ui/PickerListing.qml	121	root	Declared QML id; component context access is valid at runtime.
+ui/PickerListing.qml	123	running	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
 ui/PickerPlaces.qml	84	rail	Declared QML id; component context access is valid at runtime.
 ui/PickerPlaces.qml	85	rail	Declared QML id; component context access is valid at runtime.
 ui/PickerPlaces.qml	86	root	Declared QML id; component context access is valid at runtime.
@@ -687,18 +687,18 @@ ui/PickerRecent.qml	35	FileViewError	Quickshell import exports this runtime sing
 ui/PickerRecent.qml	46	history	Declared QML id; component context access is valid at runtime.
 ui/PickerRecent.qml	54	status	XmlListModel status property in its own onStatusChanged handler.
 ui/PickerRecent.qml	76	history	Declared QML id; component context access is valid at runtime.
-ui/PickerSave.qml	36	parent	Inherited QtQuick Item property in the enclosing item scope.
-ui/PickerSave.qml	47	Layout	Imported Qt module supplies this type or attached property.
-ui/PickerSave.qml	91	Layout	Imported Qt module supplies this type or attached property.
+ui/PickerSave.qml	37	parent	Inherited QtQuick Item property in the enclosing item scope.
+ui/PickerSave.qml	48	Layout	Imported Qt module supplies this type or attached property.
+ui/PickerSave.qml	92	Layout	Imported Qt module supplies this type or attached property.
 ui/PickerWindow.qml	22	Quickshell	Quickshell import exports this runtime singleton or enum.
 ui/PickerWindow.qml	23	Quickshell	Quickshell import exports this runtime singleton or enum.
-ui/PickerWindow.qml	119	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/PickerWindow.qml	363	Quickshell	Quickshell import exports this runtime singleton or enum.
-ui/PickerWindow.qml	378	Quickshell	Quickshell import exports this runtime singleton or enum.
-ui/PickerWindow.qml	389	Quickshell	Quickshell import exports this runtime singleton or enum.
-ui/PickerWindow.qml	689	win	Declared QML id; component context access is valid at runtime.
-ui/PickerWindow.qml	690	places	Declared QML id; component context access is valid at runtime.
-ui/PickerWindow.qml	691	places	Declared QML id; component context access is valid at runtime.
+ui/PickerWindow.qml	122	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/PickerWindow.qml	359	Quickshell	Quickshell import exports this runtime singleton or enum.
+ui/PickerWindow.qml	374	Quickshell	Quickshell import exports this runtime singleton or enum.
+ui/PickerWindow.qml	385	Quickshell	Quickshell import exports this runtime singleton or enum.
+ui/PickerWindow.qml	686	win	Declared QML id; component context access is valid at runtime.
+ui/PickerWindow.qml	687	places	Declared QML id; component context access is valid at runtime.
+ui/PickerWindow.qml	688	places	Declared QML id; component context access is valid at runtime.
 ui/PowerSectorsReader.qml	9	text	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
 ui/Preview.qml	433	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/PreviewArchive.qml	29	root	Declared QML id; component context access is valid at runtime.
@@ -2311,7 +2311,6 @@ ui/WindowBody.qml	323	chrome	Declared QML id; component context access is valid 
 ui/WindowBody.qml	324	view	Declared QML id; component context access is valid at runtime.
 ui/GridArea.qml	190	root	Declared QML id; name-only slow-click cancellation uses the same view owner.
 ui/List.qml	152	root	Declared QML id; name-only slow-click cancellation uses the same view owner.
-
 ui/boot/tabtearoff.qml	36	root	Declared QML id; component context access is valid at runtime.
 ui/boot/tabtearoff.qml	38	root	Declared QML id; component context access is valid at runtime.
 ui/boot/tabtearoff.qml	39	root	Declared QML id; component context access is valid at runtime.

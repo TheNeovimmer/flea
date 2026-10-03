@@ -229,12 +229,12 @@ Item {
     }
 
     function dualRecent(check, walk) {
-        var short = root.texts(dualRow, walk)
+        var dualTexts = root.texts(dualRow, walk)
         check("Dual Recent drops Location at the single-pane floor", dualHeader.cols.location, false)
         check("Dual Recent header and row sets agree", dualRow.columnSet(), dualHeader.columnSet())
-        check("Dual Recent builds its name", short.name !== null, true)
-        if (short.name)
-            check("Dual Recent name stays above the dual floor", short.name.width >= Flea.Theme.dualColumn.nameMin, true)
+        check("Dual Recent builds its name", dualTexts.name !== null, true)
+        if (dualTexts.name)
+            check("Dual Recent name stays above the dual floor", dualTexts.name.width >= Flea.Theme.dualColumn.nameMin, true)
         var full = root.texts(dualFloorRow, walk)
         check("Dual Recent draws Location at its exact floor", dualFloorHeader.columnSet(), "name,location,size,date")
         check("Dual Recent exact-floor row matches its header", dualFloorRow.columnSet(), dualFloorHeader.columnSet())
