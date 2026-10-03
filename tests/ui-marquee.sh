@@ -145,7 +145,7 @@ marquee_interactions() {
     click_row 2 left --mods ctrl
     marquee_expect selectedIndices 0 "$label Ctrl-click toggles its mark off"
     click_row 3 left --mods shift
-    marquee_expect selectedIndices '2,3' "$label Shift-click extends from cursor anchor"
+    marquee_expect selectedIndices '0,2,3' "$label Shift-click adds its range from the cursor anchor to the earlier mark"
     click_row 1 left
     marquee_four "$label"
     key -k Escape >/dev/null || fail "marquee: Escape delivery failed"
