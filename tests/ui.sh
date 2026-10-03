@@ -13501,6 +13501,7 @@ case_clipboard() {
     command -v wl-paste >/dev/null || fail "clipboard: wl-paste is missing"
     local dir="$fixture_root/clipboard" adir bdir textdir apid aid bpid bid types offer start_ns elapsed_ns state
     local cut_clear_deadline_ns=1000000000 offer_read_timeout_s=3
+    local batchdir="$dir/fresh-window" batch_file_count=3 clipboard_wait_timeout_s=5 clipboard_poll_interval_s=0.05 deadline file
     sandbox_scratch "$dir"
     adir="$dir/a"
     bdir="$dir/b"
@@ -13541,6 +13542,42 @@ case_clipboard() {
     clipboard_press "$bpid" -k Escape
     clipboard_menu_wait "$bid" false
     printf 'CLIPBOARD copy ok\n'
+
+    # This fresh-window multi-file Ctrl+V leg owns the headless menu hunt's system Paste destinations, count and bytes.
+    mkdir -p "$batchdir"
+    clipboard_press "$apid" -M ctrl -k a -m ctrl -k y
+    deadline=$((SECONDS + clipboard_wait_timeout_s))
+    while :; do
+        state=$(clipboard_ipc "$aid" fileClipboard) || fail "clipboard: no source multi-file clipboard"
+        jq -e --arg first "$adir/f1" --arg second "$adir/f2" --arg third "$adir/f3" \
+            '.paths == [$first, $second, $third] and .moving == false and (.token | length) > 0' <<< "$state" >/dev/null && break
+        (( SECONDS < deadline )) || fail "clipboard: multi-file Copy never published"
+        sleep "$clipboard_poll_interval_s"
+    done
+    xwdrag_kill_second "$bpid"
+    XW_SECOND_PID=""
+    xwdrag_launch_second "$batchdir"
+    bpid=$XW_SECOND_PID
+    bid=$XW_SECOND_ID
+    deadline=$((SECONDS + clipboard_wait_timeout_s))
+    while :; do
+        state=$(clipboard_ipc "$bid" fileClipboard) || fail "clipboard: no fresh-window clipboard"
+        jq -e --arg first "$adir/f1" --arg second "$adir/f2" --arg third "$adir/f3" \
+            '.paths == [$first, $second, $third] and .moving == false' <<< "$state" >/dev/null && break
+        (( SECONDS < deadline )) || fail "clipboard: fresh window never read all copied paths"
+        sleep "$clipboard_poll_interval_s"
+    done
+    clipboard_press "$bpid" -M ctrl -k v -m ctrl
+    for file in f1 f2 f3; do
+        xwdrag_wait_path "$batchdir/$file" present || fail "clipboard: fresh-window destination lacks $file"
+        [[ -f "$batchdir/$file" && ! -L "$batchdir/$file" ]] || fail "clipboard: fresh-window $file is not a regular copy"
+        cmp "$adir/$file" "$batchdir/$file" || fail "clipboard: fresh-window $file bytes differ or its source went"
+    done
+    xwdrag_row_point "$bid" "$bpid" f3 >/dev/null || fail "clipboard: fresh-window copied rows never appeared"
+    [[ "$(clipboard_ipc "$bid" total)" == "$batch_file_count" ]] || fail "clipboard: fresh-window Paste listed the wrong file count"
+    printf 'CLIPBOARD fresh-window multi-file copy ok\n'
+    xwdrag_navigate_second "$bdir"
+    clipboard_press "$apid" -k Escape -k g -k g
 
     clipboard_press "$apid" -k j -k x
     clipboard_wait "$bid" cut "$adir/f2"
@@ -13605,7 +13642,7 @@ case_clipboard() {
     printf 'CLIPBOARD text-only ok\n'
     xwdrag_kill_second "$bpid"
     XW_SECOND_PID=""
-    printf 'clipboard: 6 checks, 0 failed\n'
+    printf 'clipboard: 7 checks, 0 failed\n'
 }
 
 clipboard_ipc() {

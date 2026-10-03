@@ -7,7 +7,7 @@ import "flea" as Flea
 import "flea/js/Keymap.js" as Keymap
 import "flea/js/Menu.js" as Menu
 
-// Each real window and backend share the driver's clipboard-helper double across invocations.
+// Each real window observes native clipboard refusals; the driver records Copy as text separately.
 ShellRoot {
     id: shell
     property int stage: 0
@@ -16,6 +16,13 @@ ShellRoot {
     property string source: Quickshell.env("FLEA_HUNT_SOURCE")
     property string destination: Quickshell.env("FLEA_HUNT_DEST")
     property var messages: []
+    property var clipReplies: []
+    property var pasteRequest: null
+    property int pasteReadSequence: 0
+    readonly property int probeTickMs: 100
+    readonly property int clipboardReadTimeoutMs: 5000
+    readonly property int clipboardReadStage: 14
+    readonly property string clipboardRefusal: "WAYLAND_DISPLAY is not set, so there is no clipboard to use"
     property bool quitting: false
     property int leafIndex: 0
     readonly property int artifactStage: 20
@@ -24,6 +31,16 @@ ShellRoot {
     readonly property var pane: body.currentPane
 
     function log(line) { console.log("CLIPHUNT " + line) }
+    function checkPublication() {
+        var sets = clipReplies.filter(function (reply) { return reply.op === "set" })
+        log((sets.length === 1 && sets[0].ok === false && sets[0].error === clipboardRefusal
+             && pane.clipboardState.sets.length === 0 ? "PASS" : "FAIL")
+            + " local-" + action + " clipSet-refused replies=" + JSON.stringify(sets))
+        var notices = messages.filter(function (message) { return message.text.indexOf("Copied in this window only:") === 0 })
+        log((notices.length === 1 && notices[0].error === true
+             && notices[0].text === "Copied in this window only: " + clipboardRefusal ? "PASS" : "FAIL")
+            + " local-" + action + " window-only-message-once notices=" + JSON.stringify(notices))
+    }
     function quit() {
         if (quitting) return
         quitting = true
@@ -41,19 +58,29 @@ ShellRoot {
         target: shell.pane
         function onMessage(text, isError) { shell.messages.push({text: text, error: isError}) }
     }
+    Connections {
+        target: shell.pane.backend
+        function onClipResult(message) { shell.clipReplies.push(message) }
+    }
+    Connections {
+        target: shell.pane.collide
+        // An empty destination answers immediately, so keep the real request before pending clears.
+        function onPendingChanged() { if (shell.pane.collide.pending) shell.pasteRequest = shell.pane.collide.pending }
+    }
     Process {
         id: artifactCheck
         command: ["python3", Quickshell.env("FLEA_HUNT_CHECKS"), "files", shell.action, shell.source,
                   shell.destination, Quickshell.env("FLEA_HUNT_SOURCE_BYTES")]
         stdout: StdioCollector { onStreamFinished: shell.log(this.text.trim()) }
         onExited: function(exitCode, exitStatus) {
+            shell.checkPublication()
             shell.log((exitCode === 0 ? "PASS" : "FAIL") + " local-" + shell.action + " filesystem-result")
             shell.log("DONE action=" + shell.action)
             shell.quit()
         }
     }
     Timer {
-        interval: 100
+        interval: shell.probeTickMs
         repeat: true
         running: !shell.quitting
         onTriggered: shell.advance()
@@ -142,15 +169,6 @@ ShellRoot {
         } else if (stage === 9 && ticks >= 5) {
             log("DONE action=" + action)
             quit()
-        } else if (stage === 0 && action === "paste" && !pane.listInFlight && pane.path === destination) {
-            pane.act(Keymap.lookup(Qt.Key_V, "", Qt.ControlModifier, "listing"))
-            stage = 5
-            ticks = 0
-        } else if (stage === 5 && ticks >= 15) {
-            log((pane.total === 2 ? "PASS" : "FAIL") + " fresh-window-system-paste-files total="
-                + pane.total + " pending=" + JSON.stringify(pane.collide.pending) + " messages=" + JSON.stringify(messages))
-            log("DONE action=" + action)
-            quit()
         } else if (stage === 0 && pane.total === 2 && !pane.listInFlight && pane.visibleItemFor(0)) {
             pane.selectAll()
             var key = action === "cut" ? Qt.Key_X : Qt.Key_C
@@ -167,10 +185,13 @@ ShellRoot {
                 return
             }
             log("INFO local-" + action + " paths=" + pane.clipboard.paths.join("|") + " moving=" + pane.clipboard.moving)
-            // Publication may be asynchronous. Wait a full second after paths have resolved.
             stage = 2
             ticks = 0
-        } else if (stage === 2 && ticks >= 10) {
+        } else if (stage === 2 && (clipReplies.some(function (reply) { return reply.op === "set" })
+                                  || ticks * probeTickMs >= clipboardReadTimeoutMs)) {
+            var mark = action === "cut" ? "scissors" : "copy"
+            log((pane.visibleItemFor(0).clipMark === mark && pane.visibleItemFor(1).clipMark === mark ? "PASS" : "FAIL")
+                + " local-" + action + " selected-file-marks expected=" + mark)
             pane.open(destination)
             stage = 3
             ticks = 0
@@ -189,9 +210,21 @@ ShellRoot {
                 return
             }
             // Positive control drives the real transfer path with this window's internal clipboard.
+            pasteReadSequence = pane.clipboardState.getSequence
+            pasteRequest = null
             pane.act("paste")
-            log((pane.collide.pending ? "PASS" : "FAIL") + " local-paste-asks-for-files pending="
-                + JSON.stringify(pane.collide.pending))
+            stage = clipboardReadStage
+            ticks = 0
+        } else if (stage === clipboardReadStage && (pane.clipboardState.gets.length === 0
+                                                    || ticks * probeTickMs >= clipboardReadTimeoutMs)) {
+            var gets = clipReplies.filter(function (reply) { return reply.op === "get" })
+            log((pane.clipboardState.getSequence === pasteReadSequence + 1 && pane.clipboardState.gets.length === 0
+                 && gets.length === 1 && gets[0].ok === false && gets[0].error === clipboardRefusal ? "PASS" : "FAIL")
+                + " local-paste-read-answered replies=" + JSON.stringify(gets))
+            var paths = [source + "/alpha.txt", source + "/beta.txt"]
+            log((pasteRequest && pasteRequest.c === "transfer" && pasteRequest.op === (action === "cut" ? "move" : "copy")
+                 && pasteRequest.dest === destination && JSON.stringify(pasteRequest.paths) === JSON.stringify(paths) ? "PASS" : "FAIL")
+                + " local-paste-asks-for-files pending=" + JSON.stringify(pasteRequest))
             stage = 4
             ticks = 0
         } else if (stage === 4 && ticks >= 10) {

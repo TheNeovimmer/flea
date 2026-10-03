@@ -11,17 +11,12 @@ FILE_CLIPBOARD_MIME = "x-special/gnome-copied-files"
 
 def publication(action, calls_path, source):
     calls = calls_path.read_text().splitlines()
-    if not calls:
-        raise ValueError("no clipboard publication calls")
-    expected_paths = [(source / name).as_uri() for name in SELECTED_NAMES]
-    # Sample input: {"args":["--type","x-special/gnome-copied-files"],"text":"cut\nfile:///source/alpha.txt\nfile:///source/beta.txt\n"}
+    # Sample input: {"args":["--type","text/uri-list"],"text":"file:///source/alpha.txt"} is forbidden for file Copy/Cut.
     for line in calls:
         call = json.loads(line)
-        lines = call["text"].splitlines()
-        if lines != [action, *expected_paths]:
-            raise ValueError("publication must name exactly both selected paths with verb " + action)
-        if FILE_CLIPBOARD_MIME not in call["args"]:
-            raise ValueError("publication lacks the file clipboard MIME type")
+        if any(text.startswith("file://") for text in call["text"].splitlines()) \
+                or any(mime in call["args"] for mime in (FILE_CLIPBOARD_MIME, "text/uri-list")):
+            raise ValueError("file Copy/Cut must use clipSet, never wl-copy file URIs")
 
 
 def record_bytes(source, snapshot):
@@ -82,8 +77,11 @@ def main():
     except (ValueError, KeyError, TypeError, OSError, IndexError) as error:
         print("FAIL " + action + " " + kind + ": " + str(error))
         return 1
-    targets = "directories" if kind == "terminals" else "files"
-    print("PASS " + action + " " + kind + " verified both selected " + targets)
+    if kind == "publication":
+        print("PASS " + action + " publication sent no file URIs through wl-copy")
+    else:
+        targets = "directories" if kind == "terminals" else "files"
+        print("PASS " + action + " " + kind + " verified both selected " + targets)
     return 0
 
 

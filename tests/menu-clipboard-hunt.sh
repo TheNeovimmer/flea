@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# Real browser window and backend, with a deterministic system clipboard-helper double.
+# Real browser window and backend without a compositor; wl-copy records only Copy as text.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
+# GVfs must leave with this temporary home, so later suites never inherit its trash store through D-Bus.
+if [ "${FLEA_HUNT_PRIVATE_BUS:-}" != 1 ]; then
+    command -v dbus-run-session >/dev/null || { echo 'FAIL dbus-run-session is unavailable'; exit 1; }
+    exec dbus-run-session -- env FLEA_HUNT_PRIVATE_BUS=1 bash tests/menu-clipboard-hunt.sh "$@"
+fi
 python3 tests/menu-clipboard-checks-test.py || exit 1
 command -v qs >/dev/null || { echo 'FAIL qs is unavailable'; exit 1; }
 sandbox_root_ok
@@ -10,7 +15,7 @@ test_root=$(mktemp -d "$SANDBOX_ROOT/flea-menu-clipboard-hunt.XXXXXX") || exit 1
 : > "$test_root/$SANDBOX_MARKER" || exit 1
 cleanup() { sandbox_remove "$test_root"; }
 trap cleanup EXIT
-mkdir -p "$test_root"/{home,state,data,cache,runtime,config,bin,source,copy-dest,cut-dest,paste-dest,pasteas-dest,pasteas-absolute-dest,pasteas-hard-dest,original-dest} || exit 1
+mkdir -p "$test_root"/{home,state,data,cache,runtime,config,bin,source,copy-dest,cut-dest,pasteas-dest,pasteas-absolute-dest,pasteas-hard-dest,original-dest} || exit 1
 chmod 700 "$test_root/runtime" || exit 1
 ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
@@ -24,7 +29,7 @@ for link_dest in pasteas pasteas-absolute pasteas-hard; do
 done
 ln -s ../source/alpha.txt "$test_root/original-dest/file-link" || exit 1
 ln -s / "$test_root/original-dest/root-link" || exit 1
-# Deterministic versions of the existing clipboard helpers, no compositor or foreign clipboard.
+# Copy as still publishes text through wl-copy; file Copy and Cut must never send URIs here.
 cat > "$test_root/bin/wl-copy" <<'PY'
 #!/usr/bin/env python3
 import json, os, sys
@@ -35,14 +40,7 @@ with open(path, "w") as output:
 with open(path + ".calls", "a") as output:
     output.write(json.dumps({"args": sys.argv[1:], "text": text}) + "\n")
 PY
-cat > "$test_root/bin/wl-paste" <<'SH'
-#!/bin/sh
-case " $* " in
-    *' --list-types '*) printf 'text/uri-list\nx-special/gnome-copied-files\n' ;;
-    *) cat "$FLEA_HUNT_CLIPBOARD" ;;
-esac
-SH
-chmod +x "$test_root/bin/wl-copy" "$test_root/bin/wl-paste" || exit 1
+chmod +x "$test_root/bin/wl-copy" || exit 1
 # Intercept terminal launch only; the candidate owns every backend and state request.
 cat > "$test_root/bin/flea-hunt" <<'SH'
 #!/bin/sh
@@ -56,20 +54,15 @@ chmod +x "$test_root/bin/flea-hunt" || exit 1
 failed=0
 checks=0
 failures=0
-for action in copy paste cut copyas-list copyas-grid copyas-columns terminal pasteas pasteas-absolute pasteas-hard original; do
+# Native ui:clipboard in tests/ui.sh owns fresh-window system Copy/Cut paste, including bytes and all selected destinations.
+for action in copy cut copyas-list copyas-grid copyas-columns terminal pasteas pasteas-absolute pasteas-hard original; do
     printf 'alpha contents\n' > "$test_root/source/alpha.txt"
     printf 'beta contents\n' > "$test_root/source/beta.txt"
     start="$test_root/source"
-    [ "$action" = paste ] && start="$test_root/paste-dest"
     [ "$action" = original ] && start="$test_root/original-dest"
     dest="$test_root/$action-dest"
     [ "$action" = terminal ] && dest="$test_root/copy-dest"
-    # Fresh-window Paste consumes Copy's publication without replacing it with fixture paths.
-    if [[ "$action" == copy || "$action" == cut ]]; then
-        : > "$test_root/clipboard"
-    elif [[ "$action" != paste ]]; then
-        printf 'file://%s/source/alpha.txt\nfile://%s/source/beta.txt\n' "$test_root" "$test_root" > "$test_root/clipboard"
-    fi
+    : > "$test_root/clipboard"
     : > "$test_root/clipboard.calls"
     : > "$test_root/clipboard.terminals"
     output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \

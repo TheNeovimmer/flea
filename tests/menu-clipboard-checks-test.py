@@ -74,37 +74,30 @@ class ClipboardFilesTest(unittest.TestCase):
         hunt = HELPER_PATH.with_name("menu-clipboard-hunt.sh").read_text()
         self.assertIn('tests/menu-clipboard-checks.py terminals "$action"', hunt)
 
-    def test_publication_accepts_copy_and_cut_with_exact_selection_and_mime(self):
+    def test_publication_accepts_no_wl_copy_calls_or_text_only_calls(self):
         calls = Path(self.scratch.name) / "clipboard.calls"
-        paths = [(self.source / name).as_uri() for name in CHECKS.SELECTED_NAMES]
         for action in ("copy", "cut"):
-            with self.subTest(action=action):
-                call = {"args": ["--type", CHECKS.FILE_CLIPBOARD_MIME],
-                        "text": "\n".join([action, *paths]) + "\n"}
-                calls.write_text(json.dumps(call) + "\n")
-                CHECKS.publication(action, calls, self.source)
+            for text in ("", json.dumps({"args": [], "text": "ordinary text"}) + "\n"):
+                with self.subTest(action=action, text=text):
+                    calls.write_text(text)
+                    CHECKS.publication(action, calls, self.source)
 
-    def test_publication_rejects_each_bad_call_even_after_a_good_call(self):
+    def test_publication_rejects_file_uris_or_file_mime_after_a_text_call(self):
         calls = Path(self.scratch.name) / "clipboard.calls"
+        good = {"args": [], "text": "ordinary text"}
         paths = [(self.source / name).as_uri() for name in CHECKS.SELECTED_NAMES]
+        bad_calls = [
+            {"args": [], "text": "\n".join(paths)},
+            {"args": ["--type", CHECKS.FILE_CLIPBOARD_MIME], "text": "copy\n" + paths[0]},
+            {"args": ["--type", "text/uri-list"], "text": ""},
+            {"args": [], "text": "cut\nfile:///another/window/file"},
+        ]
         for action in ("copy", "cut"):
-            good = {"args": ["--type", CHECKS.FILE_CLIPBOARD_MIME], "text": "\n".join([action, *paths])}
-            bad_calls = [
-                {"args": good["args"], "text": "\n".join(["cut" if action == "copy" else "copy", *paths])},
-                {"args": good["args"], "text": "\n".join([action, paths[0]])},
-                {"args": good["args"], "text": "\n".join([action, paths[1], paths[0]])},
-                {"args": good["args"], "text": "\n".join([action, paths[0], paths[0]])},
-                {"args": good["args"], "text": "\n".join([action, *paths, paths[0]])},
-                {"args": ["--type", "text/plain"], "text": good["text"]}
-            ]
             for bad in bad_calls:
                 with self.subTest(action=action, bad=bad):
                     calls.write_text(json.dumps(good) + "\n" + json.dumps(bad) + "\n")
-                    with self.assertRaises(ValueError):
+                    with self.assertRaisesRegex(ValueError, "never wl-copy"):
                         CHECKS.publication(action, calls, self.source)
-        calls.write_text("")
-        with self.assertRaisesRegex(ValueError, "no clipboard publication"):
-            CHECKS.publication("copy", calls, self.source)
 
     def make_links(self, action):
         for name in CHECKS.SELECTED_NAMES:
