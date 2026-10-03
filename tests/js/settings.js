@@ -258,6 +258,11 @@ function runCompletionRows(check) {
     check("while double mode keeps it a control",
           [find(view, "clickRename").available, Settings.focusable(find(view, "clickRename"))].join("|"),
           "true|true")
+    // ClickAndRefresh draws the pointer mark on Open items with and leaves Click a selected name to rename's slot blank; KeyboardFlows leaves Escape's blank too.
+    check("Open items with wears the board's pointer mark",
+          find(view, "openMode").glyph, "pointer")
+    check("Click a selected name to rename draws no mark", find(view, "clickRename").glyph === undefined, true)
+    check("Escape goes up a folder draws no mark", find(view, "escapeUp").glyph === undefined, true)
     check("Highlight today's dates ships off", find(view, "highlightToday").label + "|" + find(view, "highlightToday").on, "Highlight today's dates|false")
     check("and a stored on reads back on", find(Settings.rows("view", { data: { highlightToday: true } }), "highlightToday").on, true)
     check("Columns view limit ships at 3", find(view, "columnsLimit").selected, 3)

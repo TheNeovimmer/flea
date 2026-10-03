@@ -80,6 +80,16 @@ ShellRoot {
         implicitWidth: 640
         implicitHeight: 480
         color: "#303030"
+        // Three bare rows for the hint ink check, under the menu's ground and never pointed at.
+        Column {
+            enabled: false
+            width: 200
+            Flea.MenuRow { id: deadKeyRow; width: parent.width; entry: ({ label: "Paste", glyph: "clipboard", action: "paste", disabled: true, hint: "p" }) }
+            Flea.MenuRow { id: liveKeyRow; width: parent.width; entry: ({ label: "Copy", glyph: "copy", action: "copy", hint: "y" }) }
+            Flea.MenuRow { id: reasonRow; width: parent.width; entry: ({ label: "Extract", glyph: "archive-out", action: "extract", disabled: true, hint: "bsdtar is not installed", hintWrap: true }) }
+        }
+        Flea.Glyph { id: invertGlyph; width: 19; height: 19; name: "contrast"; color: "#ff0000" }
+        Flea.Glyph { id: plainGlyph; width: 19; height: 19; name: "copy"; color: "#ff0000" }
         Flea.ContextMenu { id: menu; anchors.fill: parent }
         Item { anchors.fill: parent; TestEvent { id: driver } }
     }
@@ -174,7 +184,8 @@ ShellRoot {
         { setup: shell.openOverflowingFlyout, ready: function () { return menu.submenuItemFor(3) }, run: shell.flyoutWheelHover },
         { setup: shell.openFlyoutWithDisabled, ready: function () { return menu.submenuItemFor(3) }, run: shell.flyoutOutside },
         { setup: shell.openFlyoutWithDisabled, ready: function () { return menu.submenuItemFor(3) }, run: shell.flyoutOutsideRight },
-        { setup: shell.openLiveFlyout, ready: function () { return menu.submenuItemFor(0) }, run: shell.flyoutEnabled }
+        { setup: shell.openLiveFlyout, ready: function () { return menu.submenuItemFor(0) }, run: shell.flyoutEnabled },
+        { setup: shell.openMain, ready: function () { return menu.itemFor(4) }, run: function () { shell.hintInk(); shell.glyphFill() } }
     ])
 
     Timer {
@@ -231,6 +242,42 @@ ShellRoot {
         shell.clickCentre(menu.itemFor(4), Qt.LeftButton)
         shell.check("main:enabled-once", shell.chosenLog, ["copy"])
         shell.check("main:enabled-closes", menu.opened, false)
+    }
+    // The Text a row draws a given string in, by its text, whatever else the row holds beside it.
+    function textDrawn(row, text) {
+        for (var i = 0; i < row.children.length; i++)
+            if (row.children[i].text === text) return row.children[i]
+        return null
+    }
+    // A dead row dims as a whole, so its key hint takes the label's ink and opacity; a reason sentence stays readable.
+    function hintInk() {
+        var deadLabel = shell.textDrawn(deadKeyRow, "Paste"), deadHint = shell.textDrawn(deadKeyRow, "p")
+        shell.check("hint:dead-label-dims", deadLabel.opacity < 1, true)
+        shell.check("hint:dead-key-hint-ink-is-the-label-ink", String(deadHint.color), String(deadLabel.color))
+        shell.check("hint:dead-key-hint-opacity-is-the-label-opacity", deadHint.opacity, deadLabel.opacity)
+        var liveLabel = shell.textDrawn(liveKeyRow, "Copy"), liveHint = shell.textDrawn(liveKeyRow, "y")
+        shell.check("hint:live-key-hint-keeps-the-label-ink", String(liveHint.color), String(liveLabel.color))
+        shell.check("hint:live-key-hint-is-full-opacity", liveHint.opacity, 1)
+        var reason = shell.textDrawn(reasonRow, "bsdtar is not installed")
+        shell.check("hint:dead-reason-stays-foreground", String(reason.color), String(Flea.Theme.color.foreground))
+        shell.check("hint:dead-reason-is-full-opacity", reason.opacity, 1)
+    }
+    // Every ShapePath fill a glyph draws, across each Shape it holds: only a mark that names a solid part may have a fill.
+    function fills(glyph) {
+        var out = []
+        for (var c = 0; c < glyph.children.length; c++) {
+            var paths = glyph.children[c].data
+            for (var i = 0; i < paths.length; i++) out.push(paths[i].fillColor)
+        }
+        return out
+    }
+    function glyphFill() {
+        var plain = shell.fills(plainGlyph), invert = shell.fills(invertGlyph)
+        shell.check("glyph:a mark without a solid part holds one shape and one transparent fill", [plainGlyph.children.length, plain.length, plain[0].a], [1, 1, 0])
+        shell.check("glyph:invert selection holds a second shape for its solid part", invertGlyph.children.length, 2)
+        var solid = invert.filter(function (fill) { return fill.a !== 0 })
+        shell.check("glyph:and exactly one fill is drawn", solid.length, 1)
+        shell.check("glyph:in the mark's own color", solid.length ? String(solid[0]) : "none", String(invertGlyph.color))
     }
     function mainOutside() { shell.outsideClose("main", Qt.LeftButton) }
     function mainOutsideRight() { shell.outsideClose("main-right", Qt.RightButton) }

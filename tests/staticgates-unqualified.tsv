@@ -117,9 +117,12 @@ ui/FleaMark.qml	41	Shape	Imported Qt module supplies this type or attached prope
 ui/FleaMark.qml	49	ShapePath	Imported Qt module supplies this type or attached property.
 ui/FleaMark.qml	50	ShapePath	Imported Qt module supplies this type or attached property.
 ui/FleaMark.qml	51	ShapePath	Imported Qt module supplies this type or attached property.
-ui/Glyph.qml	30	Shape	Imported Qt module supplies this type or attached property.
-ui/Glyph.qml	38	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Glyph.qml	39	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Glyph.qml	40	Shape	Imported Qt module supplies this type or attached property.
+ui/Glyph.qml	48	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Glyph.qml	49	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/GlyphSolid.qml	14	Shape	Imported Qt module supplies this type or attached property.
+ui/GlyphSolid.qml	15	root	Declared QML id; component context access is valid at runtime.
+ui/GlyphSolid.qml	15	root	Declared QML id; component context access is valid at runtime.
 ui/GridArea.qml	148	root	Declared QML id; component context access is valid at runtime.
 ui/GridArea.qml	149	root	Declared QML id; component context access is valid at runtime.
 ui/GridArea.qml	150	root	Declared QML id; component context access is valid at runtime.
@@ -1292,8 +1295,8 @@ ui/FactsTable.qml	34	root	Declared QML id; component context access is valid at 
 ui/FactsTable.qml	35	modelData	Declared QML property; enclosing component context supplies it.
 ui/FactsTable.qml	45	modelData	Declared QML property; enclosing component context supplies it.
 ui/Favourites.qml	83	inspectTimeout	Declared QML property; enclosing component context supplies it.
-ui/Glyph.qml	38	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/Glyph.qml	39	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Glyph.qml	48	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Glyph.qml	49	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/GridArea.qml	148	root	Declared QML id; component context access is valid at runtime.
 ui/GridArea.qml	149	root	Declared QML id; component context access is valid at runtime.
 ui/GridArea.qml	150	root	Declared QML id; component context access is valid at runtime.

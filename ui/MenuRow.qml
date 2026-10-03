@@ -229,8 +229,9 @@ Item {
                : implicitWidth
         wrapMode: root.entry.hintWrap === true ? Text.WordWrap : Text.NoWrap
         horizontalAlignment: Text.AlignRight
-        // An unavailable row retains its reason while its label takes the muted role.
-        color: root.available ? root.labelColor : Theme.color.foreground
+        // A dead row dims as a whole, so its key hint takes the label's ink and opacity; only a wrapped reason sentence stays readable.
+        color: root.available || root.entry.hintWrap !== true ? root.labelColor : Theme.color.foreground
+        opacity: root.available || root.entry.hintWrap === true ? 1 : label.opacity
         font.family: Theme.font.family
         font.pixelSize: Theme.font.caption
         // A version beside the status square is a number, so its digits keep one width the way the rail's sizes do.

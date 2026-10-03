@@ -1176,6 +1176,15 @@ directory. It ships off. A hint is only ever `ui/js/Keymap.js` `hintFor`, which 
 `keys.toml`, so no surface can advertise a key nothing is bound to, and no chord depends on the
 setting: the keymap is read by `Focus.handleKey` and this value is read by nobody in that path.
 
+**A dead menu row dims as a whole, key hint included.** `ui/MenuRow.qml` draws an unavailable row's key hint
+in the label's muted ink at the label's 0.55 opacity; only a reason sentence (`hintWrap`, Extract's "bsdtar is not
+installed") stays at the foreground, full opacity, because the sentence is the row's content. An available row's hint
+keeps the label ink it has had since 0.3.7. `tests/menu-card-sink.qml` pins the three. **The Copy as switch governs two
+different rows.** The file menu shows the Copy as flyout; a Places or Favorites row's menu and the Locked tile show the
+flat Copy path of 0.3.7 (one click, that row's own path), because MenuAdditions040 replaces the file menu's row and
+draws no place menu. `ui/js/Menu.js` `availableEntry` turns the `copyAs` spec into `copypath` for kind P, and
+`src/uimigrate.rs` already carries a user's old `copypath` choice to the one switch.
+
 **`display.textSize.mode` is `"system"` or one Omarchy stop**, one of 9, 10, 11, 12, 14, 16 and 20.
 It is one key and not two, so there is nowhere for a free number to be stored.
 
@@ -3479,6 +3488,13 @@ copy in its own probe directory rather than by editing the table this repo ships
 array with no preset of its own, so a cap it draws for a Mac-only chord would be wrong for half
 its readers the moment the toggle moved. `tests/js/keymap.js` resolves the whole sheet under both
 presets and fails if any row answers differently.
+
+**A mirrored pair shows the same number of spellings on the sheet.** `sheetFor` adds a second spelling while the cap
+fits `SHEET_CAP_BUDGET`, which gave next tab `]` beside prev tab `[ / ctrl-pageup`. The generator's `SHEET_MIRRORS`
+(cursor, page, history, tab, tab move, zoom, text size and extend pairs) now shows a second spelling on both members or
+on neither; Windows Page Up loses `pageup` beside `ctrl-u` because ctrl-d is not bound there. Pairs that are not
+mirrors by data, undo and redo, copy and cut, browse in and parent, are left alone. `tests/js/keymap.js` asserts the
+pairs across every preset and both frontends.
 
 The tool emits JavaScript only. Plan 6 adds the Rust output together with the terminal key
 type that consumes it; a generated module with no caller is dead code, so the second output
@@ -6555,7 +6571,13 @@ eight shapes in one icon (`film`: one rounded rect plus seven strokes), so `Glyp
 takes one `PathSvg` per mark whose `d` string is every source `<path>`, `<rect>` and `<circle>`
 joined into one multi-subpath SVG path, which `PathSvg` already draws as a single shape. This
 is simpler than a second-path property and needed no change to `Glyph.qml` beyond reading
-`Icons.pathFor(name)`, one line.
+`Icons.pathFor(name)`, one line. That held until a board filled part of a mark: Invert selection's right half disc
+is solid in MenuAdditions040, and a stroke cannot draw a solid half. `Icons.js` `FILLED` names such a sub-path by
+mark, and `Glyph.qml` builds `ui/GlyphSolid.qml` over the stroke the first time a mark names one, `contrast` alone
+today. It is built on demand because a second `ShapePath` in every glyph put `tests/rowcost.qml` at 18 objects a row
+against its ceiling of 17; every other mark keeps one shape and a transparent fill, which `tests/menu-card-sink.qml`
+pins. Hatching the half with stroked lines was the stroke-only
+alternative and was refused: abutting antialiased edges leave seams and the table would no longer hold the board's path.
 
 A `<rect>` or `<circle>` element has no `d` attribute, so each was converted with the standard
 rounded-rect-to-path and circle-to-two-arcs formulas rather than typed by hand. Concatenating

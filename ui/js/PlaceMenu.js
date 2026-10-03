@@ -51,7 +51,6 @@ function perform(action, key, sidebar, favourites) {
     // The Places row's Copy path row acts on its own path, the way the Locked
     // tile's does: MenuAdditions040 replaced the file menu's row, not this one.
     else if (action === "copypath") pane.performMenu("copypath", 0, [path])
-    else if (action.indexOf("copyAs:") === 0) pane.performMenu(action, 0, [path])
     else if (action === "addFavourite") favourites.add(path, leaf(path))
     else if (action === "removeFavourite") removeAt(sidebar, favourites, index, path)
 }

@@ -77,6 +77,17 @@ function run(check) {
     check("Preview keeps the board's right-hand column", Icons.pathFor("preview"), "M3 3h18v18H3z M15 3v18")
     check("Folders first keeps the board's stacked rules", Icons.pathFor("folders-first"), "M2 12V4h6l2 2h12v6H2z M2 17h20 M2 21h20")
 
+    // ClickAndRefresh's Open items with row and Icons040 draw the pointer: an arrow head and its tail, both strokes.
+    drawsItsOwnMark("pointer")
+    check("the pointer is the board's cut", Icons.pathFor("pointer"), "M4 4l16 6.5-7 2-2 7z M13 13l6 6")
+
+    // MenuAdditions040 fills contrast's right half disc as well as stroking it; ui/Glyph.qml reads this table for the solid part.
+    check("Invert selection's solid part is the board's half disc", Icons.filledPathFor("contrast"), "M12 18a6 6 0 0 0 0-12v12z")
+    check("and it is one of the mark's own sub-paths", Icons.pathFor("contrast").indexOf(Icons.filledPathFor("contrast")) >= 0, true)
+    check("no other mark has a solid part",
+          Object.keys(Icons.PATHS).filter(function (name) { return Icons.filledPathFor(name) !== "" }).join(","), "contrast")
+    check("a name with no entry fills nothing", Icons.filledPathFor("nonesuch"), "")
+
     var sidebarNames = ["house", "download", "file-text", "image", "film", "music", "folder-git-2", "folder"]
     for (var j = 0; j < sidebarNames.length; j++) {
         drawsItsOwnMark(sidebarNames[j])

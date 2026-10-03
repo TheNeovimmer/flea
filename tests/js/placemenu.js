@@ -69,10 +69,20 @@ function run(check) {
 
     check("a Places row offers the path rows and nothing that cuts, sends or destroys",
           labels(PlaceMenu.entries(placeRow, -1, [])),
-          "Open|New tab|Open in terminal|Copy as|Add to Favorites")
+          "Open|New tab|Open in terminal|Copy path|Add to Favorites")
     check("and a Favorites row ends on Remove rather than Add, so issue 138's duplicate is impossible",
           labels(PlaceMenu.entries(favouriteRow, 2, [])),
-          "Open|New tab|Open in terminal|Copy as|Remove from Favorites")
+          "Open|New tab|Open in terminal|Copy path|Remove from Favorites")
+    // 0df3a4c3 turned this row into the Copy as flyout; the board draws that on the file menu only, so a place keeps 0.3.7's one click.
+    var placeCopy = PlaceMenu.entries(placeRow, -1, []).filter(function (row) { return row.action === "copypath" })[0] || {}
+    check("a place's Copy path is one flat row that copies at once, as in 0.3.7",
+          [placeCopy.id, placeCopy.label, placeCopy.glyph, placeCopy.submenu === undefined].join("|"), "copypath|Copy path|file-text|true")
+    check("and no place row opens a flyout",
+          PlaceMenu.entries(placeRow, -1, []).filter(function (row) { return row.submenu !== undefined }).length, 0)
+    check("the one Copy as switch hides a place's Copy path",
+          labels(PlaceMenu.entries(placeRow, -1, ["copyAs"])), "Open|New tab|Open in terminal|Add to Favorites")
+    check("and the file menu keeps the Copy as flyout beside it",
+          labels(Menu.listingEntries({ hiddenActions: [], hasRow: true, rowMode: 0o100644 })).indexOf("Copy as") >= 0, true)
     check("the key carries the path, because the rail rebuilds under an open menu",
           PlaceMenu.key(favouriteRow, 2), "place:2:/home/gm/Work")
     check("and a Places row carries no favourite index", PlaceMenu.key(placeRow, -1), "place:-1:/home/gm/Downloads")
@@ -86,8 +96,8 @@ function run(check) {
     PlaceMenu.perform("copypath", "place:-1:/home/gm/Downloads", acting, null)
     check("Copy path copies that path", acting.navigationPane.copied.join(","), "copypath:/home/gm/Downloads")
     PlaceMenu.perform("copyAs:copyQuoted", "place:-1:/home/gm/Downloads", acting, null)
-    check("and a Copy as leaf copies it in its own form", acting.navigationPane.copied.join(","),
-          "copypath:/home/gm/Downloads,copyAs:copyQuoted:/home/gm/Downloads")
+    check("and a Copy as leaf is no place action, since a place draws no flyout", acting.navigationPane.copied.join(","),
+          "copypath:/home/gm/Downloads")
 
     var favourites = { records: [{ label: "Work", path: "/home/gm/Work" }], added: [], removed: [],
                        add: function (path, label) { this.added.push(path + " as " + label) },

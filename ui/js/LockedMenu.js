@@ -9,6 +9,7 @@
 // ui/js/Menu.js INVENTORY order, one group, so the menu never reorders under its caller.
 // Controller ruling for 0.3.8: the tile keeps its single Copy path row, acting as before,
 // while its visibility follows the Copy as switch that replaced Copy path in Settings > Menus.
+// A Places row's menu keeps the flat row the same way (ui/js/Menu.js availableEntry).
 var LOCKED_IDS = ["openTerminal", "permissions", "copyAs"]
 
 // The bar's sentence when every locked id is hidden, naming the switch that brings them back.

@@ -70,7 +70,7 @@ tests/picker-hunt.qml 445
 tests/js/network.js 306
 tests/js/ops.js 511
 tests/js/slowclick.js 308
-tests/js/settings.js 337
+tests/js/settings.js 342
 tests/js/tap.js 333
 tests/js/uistate.js 370
 tests/js/watch.js 354
@@ -126,7 +126,7 @@ ui/js/Anchor.js 405
 ui/js/Devices.js 366
 ui/js/Filter.js 257
 ui/js/Focus.js 435
-ui/js/Keymap.js 338
+ui/js/Keymap.js 355
 ui/js/Nav.js 308
 ui/js/Markdown.js 155
 ui/js/MdBlocks.js 361

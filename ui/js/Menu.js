@@ -79,8 +79,7 @@ var INVENTORY = [
     ["permissions", "Permissions", "lock", "F", "inspect"],
     // Both boards place Make executable in inspect, without a key, only on scripts missing every execute bit.
     ["makeExecutable", "Make executable", "play", "F", "inspect", "makeExecutable"],
-    // MenuAdditions040: Copy as replaces the hidden Copy path row and ships
-    // hidden like it; every variant covers the whole selection, one per line.
+    // MenuAdditions040: Copy as replaces the file menu's hidden Copy path row; a place keeps the flat Copy path behind the same switch.
     ["copyAs", "Copy as", "file-text", "FP", "inspect", "copyAs"],
     // MenuAdditions rule 2: after Copy as, one row per executable in ~/.config/flea/scripts, and
     // absent rather than greyed when that directory is missing or holds none.
@@ -145,10 +144,11 @@ function availableEntry(e, p, kind) {
         if (p.clipboardAvailable === true)
             e.submenu = pasteAsEntries()
     }
-    // MenuAdditions040: Copy as replaces Copy path; every variant covers the
-    // whole selection, one path per line, through wl-copy.
-    if (e.action === "copyAs")
-        e.submenu = copyAsEntries()
+    // Every Copy as variant covers the whole selection, one path per line; no board draws a place menu with it, so a place keeps 0.3.7's flat Copy path.
+    if (e.action === "copyAs") {
+        if (kind === "P") { e.id = e.action = "copypath"; e.label = "Copy path" }
+        else e.submenu = copyAsEntries()
+    }
     // MenuAdditions040: Invert selection flips over the rows the listing
     // draws, so with nothing selected there is nothing to flip from.
     if (e.action === "invertSelection" && count === 0) return false
