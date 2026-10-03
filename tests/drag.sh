@@ -49,17 +49,20 @@ receiver_processes() {
 import os, select, signal, sys
 from pathlib import Path
 
+# Sample input: argv[1:] is ["stop", "/tree/tests/drag-receiver.py", "/run/receiver.log", "123"].
 mode, script, log, *pids = sys.argv[1:]
 term_seconds, kill_seconds = 3, 2
 
 def owned(pid):
     try:
+        # Sample input: cmdline is b"python3\0/tree/tests/drag-receiver.py\0/run/receiver.log\0".
         arguments = Path("/proc", str(pid), "cmdline").read_bytes().split(b"\0")
         return os.fsencode(script) in arguments and os.fsencode(log) in arguments
     except (FileNotFoundError, ProcessLookupError):
         return False
 
 for raw_pid in pids:
+    # Sample input: receiver PID argument "123" becomes integer 123.
     pid = int(raw_pid)
     if not owned(pid):
         continue
@@ -101,6 +104,7 @@ for process in Path("/proc").iterdir():
     try:
         if process.stat().st_uid != os.getuid():
             continue
+        # Sample input: /proc/456/comm contains "hyprland-dialog\n".
         if (process / "comm").read_text().strip() != dialog_name:
             continue
         if application_id in (process / "cmdline").read_bytes():
@@ -368,6 +372,7 @@ r5_wait_feedback() {
   local attempt state owner="$HOMEDIR/bbb" line="Move 1 item to $HOMEDIR/bbb · ctrl at lift copies"
   for ((attempt=1; attempt<=r5_poll_attempts; attempt++)); do
     state=$(ipc statusActivityState) || { r5_evidence; die "R5 drag activity observer failed"; }
+    # Sample input: {"activities":[{"running":false,"ownerPath":"/run/home/bbb","text":"Move 1 item to /run/home/bbb · ctrl at lift copies"}]}.
     if jq -e --arg owner "$owner" --arg line "$line" '
         [.activities[] | select(.running | not) | {ownerPath,text}] ==
         [{ownerPath:$owner,text:$line}]' <<< "$state" >/dev/null; then
@@ -529,6 +534,7 @@ aaa_before_r0=$(ls -A "$HOMEDIR/aaa" | tr '\n' ' ')
 printf 's1 payload\n' > "$HOMEDIR/s1.txt"
 expect_ipc total $((r0_before + 1))
 set -- $(screen_centre s1.txt); s1x=$1; s1y=$2
+# Sample input: R0's aaa screen centre is "300 220".
 set -- $(screen_centre aaa)
 a1x=$1; a1y=$2
 native_key -M ctrl -k comma -m ctrl
@@ -558,8 +564,10 @@ echo "== R2: the drop lands where the pointer is, not one frame stale =="
 # and Drag.drop() flushes the pending one first. A stale ghost drops into a folder the drag merely
 # crossed, so this drag crosses aaa deliberately and finishes on bbb.
 set -- $(screen_centre r2.txt); sx=$1; sy=$2
+# Sample input: R2's aaa screen centre is "300 220".
 set -- $(screen_centre aaa)
 ax=$1; ay=$2
+# Sample input: R2's bbb screen centre is "300 260".
 set -- $(screen_centre bbb)
 bx=$1; by=$2
 warp "$sx" "$sy"; sleep 0.4
@@ -580,6 +588,7 @@ echo
 echo "== R3: ctrl decides copy versus move, and the lift is where it is read =="
 # Lift reads Ctrl here, so the copy-alone offer drops a copy while Drag.active ignores later keys.
 set -- $(screen_centre r3.txt); sx=$1; sy=$2
+# Sample input: R3's aaa screen centre is "300 220".
 set -- $(screen_centre aaa)
 ax=$1; ay=$2
 warp "$sx" "$sy"; sleep 0.4
@@ -601,6 +610,7 @@ echo "== R4: the status line names the folder under the pointer =="
 # dropIndex is not refreshed yet inside onDropIndexChanged and the line read "to a folder" over a
 # folder whose frame was already up.
 set -- $(screen_centre r4.txt); sx=$1; sy=$2
+# Sample input: R4's bbb screen centre is "300 260".
 set -- $(screen_centre bbb)
 bx=$1; by=$2
 warp "$sx" "$sy"; sleep 0.4
@@ -689,6 +699,7 @@ glide_to "$tx" "$ty"; sleep "$r5_delegate_rest_seconds"
 r5_wait_listing
 check "resting on the second tab selected it" "$(ipc tabIndex)" "$r5_target_tab"
 r5_floor_point=$(floor_centre) || { r5_evidence; die "R5 has no measured destination listing floor"; }
+# Sample input: R5's destination floor centre is "300 500".
 read -r fx fy <<< "$r5_floor_point"
 glide_to "$fx" "$fy"
 r5_wait_feedback
@@ -843,8 +854,10 @@ native_tab "$r7_home_tab"
 check "the second drag starts from the home listing" "$(ipc path)" "$HOMEDIR"
 for i in $(seq 1 "$r7_poll_attempts"); do rowidx r7-second.txt >/dev/null 2>&1 && break; sleep "$r7_row_poll_seconds"; done
 point=$(screen_centre r7-second.txt) || die "R7 source r7-second.txt is not visible"
+# Sample input: R7's second source screen centre is "300 300".
 read -r sx sy <<< "$point"
 point=$(screen_tab_centre "$r7_tmpfs_tab") || die "R7 destination tab is not visible for the second drag"
+# Sample input: R7's second destination tab screen centre is "500 100".
 read -r tx ty <<< "$point"
 warp "$sx" "$sy"; sleep "$r7_pointer_settle_seconds"
 press; sleep "$r7_press_settle_seconds"
@@ -1311,7 +1324,9 @@ RECV_ADDR=""
 for i in $(seq 1 40); do
   RECV_ADDR=$(hyprctl clients -j | python3 -c '
 import json, sys
+# Sample input: the plain receiver PID argument is "123".
 pid = int(sys.argv[1])
+# Sample input: plain receiver clients are [{"pid":123,"address":"0xabc","title":"flea-drag-receiver"}].
 hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$RECV_PID") || true
@@ -1335,7 +1350,9 @@ else
   # Sample input, hyprctl clients -j: '[{"pid": 456, "address": "0xdef"}]'.
   FLEA_ADDR=$(hyprctl clients -j | python3 -c '
 import json, sys
+# Sample input: the outbound source PID argument is "456".
 pid = int(sys.argv[1])
+# Sample input: outbound source clients are [{"pid":456,"address":"0xdef"}].
 hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$MYPID")
@@ -1346,12 +1363,15 @@ print(hits[0]["address"] if len(hits) == 1 else "")
   hyprctl dispatch "hl.dsp.window.resize({ x = $flea_w, y = $flea_h })" >/dev/null
   sleep 0.6
   geometry=$(r11_geometry) || die "outbound window geometry unavailable"
+  # Sample input: the outbound window geometry is "40 80 1000 720 true".
   read -r WX WY WW WH _ <<< "$geometry"
 
   # Edge: a release that stays inside Flea must not be a drop on the receiver, and it still moves.
   point=$(screen_centre inner.txt) || die "inner.txt is not visible"
+  # Sample input: the in-window source centre is "300 300".
   read -r sx sy <<< "$point"
   point=$(screen_centre aaa) || die "aaa is not visible"
+  # Sample input: the in-window target folder centre is "300 220".
   read -r ax ay <<< "$point"
   warp "$sx" "$sy"; sleep 0.4
   press; sleep 0.3
@@ -1364,11 +1384,13 @@ print(hits[0]["address"] if len(hits) == 1 else "")
         "$(grep -c 'body<<' "$RECV_LOG" || true)" "0"
 
   point=$(screen_centre outbound.txt) || die "outbound.txt is not visible"
+  # Sample input: the plain outbound source centre is "300 340".
   read -r sx sy <<< "$point"
   # Sample input, hyprctl clients -j: '{"address": "0xabc", "at": [1100, 80], "size": [420, 320]}'.
   set -- $(hyprctl clients -j | python3 -c '
 import json, sys
 addr = sys.argv[1]
+# Sample input: plain receiver geometry is [{"address":"0xabc","at":[1100,80],"size":[420,320]}].
 for w in json.load(sys.stdin):
     if w.get("address") == addr:
         x, y = w["at"]; w_, h = w["size"]
@@ -1393,6 +1415,7 @@ import pathlib, sys
 text = pathlib.Path(sys.argv[1]).read_text() if pathlib.Path(sys.argv[1]).exists() else ""
 needle = "file://" 
 name = sys.argv[2]
+# Sample input: the plain receiver body is "body<<\nfile:///run/home/outbound.txt\n>>".
 start = text.find("body<<")
 end = text.find(">>", start)
 body = text[start:end] if start >= 0 else ""
@@ -1421,7 +1444,9 @@ print("received" if needle in body and name in body else "missing")
   for i in $(seq 1 40); do
     RECV_ADDR=$(hyprctl clients -j | python3 -c '
 import json, sys
+# Sample input: the Shift receiver PID argument is "789".
 pid = int(sys.argv[1])
+# Sample input: Shift receiver clients are [{"pid":789,"address":"0xghi","title":"flea-drag-receiver"}].
 hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$RECV_PID") || true
@@ -1442,11 +1467,13 @@ print(hits[0]["address"] if len(hits) == 1 else "")
     hyprctl dispatch "hl.dsp.focus({ window = \"$FLEA_ADDR\" })" >/dev/null
     sleep 0.4
     point=$(screen_centre outbound-shift.txt) || die "outbound-shift.txt is not visible"
+    # Sample input: the Shift outbound source centre is "300 380".
     read -r sx sy <<< "$point"
     # Sample input, hyprctl clients -j: '{"address": "0xabc", "at": [1100, 80], "size": [420, 320]}'.
     set -- $(hyprctl clients -j | python3 -c '
 import json, sys
 addr = sys.argv[1]
+# Sample input: Shift receiver geometry is [{"address":"0xghi","at":[1100,80],"size":[420,320]}].
 for w in json.load(sys.stdin):
     if w.get("address") == addr:
         x, y = w["at"]; w_, h = w["size"]
@@ -1480,6 +1507,7 @@ import pathlib, sys
 text = pathlib.Path(sys.argv[1]).read_text() if pathlib.Path(sys.argv[1]).exists() else ""
 needle = "file://"
 name = sys.argv[2]
+# Sample input: the Shift receiver body is "body<<\nfile:///run/home/outbound-shift.txt\n>>".
 start = text.find("body<<")
 end = text.find(">>", start)
 body = text[start:end] if start >= 0 else ""

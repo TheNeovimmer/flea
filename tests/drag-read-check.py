@@ -6,6 +6,7 @@ from drag_read import DropReader, MAX_BODY, MIME_TYPES, READ_CHUNK, READ_TIMEOUT
 
 COPY_ACTION = 1
 MOVE_ACTION = 2
+NO_ACTION = 0
 PING_INTERVAL = READ_TIMEOUT / 2
 
 
@@ -25,6 +26,8 @@ class Loop:
 
     def source_remove(self, timer):
         self.removed.add(timer)
+        self.pending = [entry for entry in self.pending if entry[1] != timer]
+        heapq.heapify(self.pending)
 
     def advance(self, seconds):
         end = self.now + seconds
@@ -108,7 +111,7 @@ class ReadCheck(unittest.TestCase):
         reader.start()
         return reader
 
-    def ended(self, action=COPY_ACTION):
+    def ended(self, action):
         self.assertEqual(self.drop.actions, [action])
         self.assertEqual(self.quits, [True])
         self.assertTrue(self.cancellable.cancelled)
@@ -124,7 +127,7 @@ class ReadCheck(unittest.TestCase):
         self.ended(MOVE_ACTION)
 
     def test_stalled_stream_keeps_loop_responsive_and_times_out_once(self):
-        self.reader([None])
+        self.reader([None], MOVE_ACTION)
         pings = []
         self.loop.timeout_add_seconds(PING_INTERVAL, lambda: pings.append(True))
         self.loop.advance(PING_INTERVAL)
@@ -133,36 +136,42 @@ class ReadCheck(unittest.TestCase):
         self.assertFalse(self.cancellable.cancelled)
         self.loop.advance(READ_TIMEOUT - PING_INTERVAL)
         self.assertEqual(self.log, [f"read-error=timeout after {READ_TIMEOUT} s"])
-        self.ended()
+        self.ended(NO_ACTION)
         self.stream.pending(self.stream, RuntimeError("cancelled"))
         self.loop.advance(RECEIVER_LIFETIME)
         self.assertEqual(self.log, [f"read-error=timeout after {READ_TIMEOUT} s"])
-        self.ended()
+        self.ended(NO_ACTION)
 
     def test_pending_mime_negotiation_has_the_same_bound(self):
-        self.reader([], offer_pending=True)
+        self.reader([], MOVE_ACTION, offer_pending=True)
         self.loop.advance(READ_TIMEOUT)
         self.assertEqual(self.log, [f"read-error=timeout after {READ_TIMEOUT} s"])
-        self.ended()
+        self.ended(NO_ACTION)
 
     def test_over_cap_never_logs_a_partial_body(self):
-        reader = self.reader([b"x" * READ_CHUNK] * (MAX_BODY // READ_CHUNK) + [b"x"])
+        reader = self.reader([b"x" * READ_CHUNK] * (MAX_BODY // READ_CHUNK) + [b"x"], MOVE_ACTION)
         self.loop.advance(READ_TIMEOUT)
         self.assertEqual(self.log, ["read-error=drop body exceeds 1 MiB"])
         self.assertLessEqual(sum(map(len, reader.chunks)), MAX_BODY)
-        self.ended()
+        self.ended(NO_ACTION)
 
     def test_exact_cap_is_accepted(self):
         self.reader([b"x" * READ_CHUNK] * (MAX_BODY // READ_CHUNK))
         self.loop.advance(READ_TIMEOUT)
         self.assertEqual(self.log, ["mime=text/uri-list", "body<<", "x" * MAX_BODY, ">>"])
-        self.ended()
+        self.ended(COPY_ACTION)
 
     def test_read_error_quits_and_removes_the_deadline(self):
-        self.reader([RuntimeError("source failed")])
-        self.loop.advance(RECEIVER_LIFETIME)
+        reader = self.reader([RuntimeError("source failed")], MOVE_ACTION)
+        deadline = reader.timer
+        self.loop.advance(PING_INTERVAL)
         self.assertEqual(self.log, ["read-error=source failed"])
-        self.ended()
+        self.assertNotIn(deadline, [timer for _, timer, _ in self.loop.pending])
+        self.ended(NO_ACTION)
+        before_deadline = list(self.log)
+        self.loop.advance(RECEIVER_LIFETIME)
+        self.assertEqual(self.log, before_deadline)
+        self.ended(NO_ACTION)
 
     def test_read_deadline_precedes_lifetime(self):
         self.assertGreater(READ_TIMEOUT, 0)

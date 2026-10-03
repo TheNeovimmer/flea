@@ -21,7 +21,9 @@ from gi.repository import Gdk, Gio, GLib, Gtk
 from drag_read import DropReader, MIME_TYPES, RECEIVER_LIFETIME
 
 MARKER = ".flea-test-sandbox"
+# Sample input: FLEA_RECV_W="420" sets the receiver width to 420 pixels.
 RECEIVER_WIDTH = int(os.environ.get("FLEA_RECV_W", "420"))
+# Sample input: FLEA_RECV_H="320" sets the receiver height to 320 pixels.
 RECEIVER_HEIGHT = int(os.environ.get("FLEA_RECV_H", "320"))
 
 

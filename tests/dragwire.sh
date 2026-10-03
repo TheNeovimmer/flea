@@ -21,9 +21,10 @@ else
     printf '%s\n' "$advertised" | sed 's/^/     /'
 fi
 
-# Comparing the whole normalized offer pins every ternary arm and rejects a trailing token.
+# Sample input: "Drag.supportedActions: root.dragLink ? Qt.LinkAction : Qt.CopyAction"; extract the whole offer.
 offer=$(code_of ui/FileDrag.qml | grep 'Drag\.supportedActions:' | sed 's/.*Drag\.supportedActions:[[:space:]]*//')
 [ -n "$offer" ] || bad "no Drag.supportedActions line left in ui/FileDrag.qml to pin"
+# Sample input: "root.dragShift ? Qt.MoveAction : Qt.CopyAction;" ends with the plain copy arm.
 final=$(printf '%s\n' "$offer" | sed 's/.*://;s/[[:space:];]//g')
 if [ "$final" = "Qt.CopyAction" ]; then
     ok "a plain lift offers copy alone"
@@ -42,6 +43,7 @@ fi
 if printf '%s' "$advertised" | grep -q 'Qt\.LinkAction'; then
     ok "a link lift offers a link"
 else
+    # Sample input: "ui/FileDrag.qml:27: Drag.supportedActions: Qt.CopyAction" yields the source text.
     bad "a link lift must offer Qt.LinkAction, got: $(printf '%s' "$advertised" | cut -d: -f3-)"
 fi
 
@@ -72,9 +74,12 @@ else
 fi
 side=$(for f in ui/*.qml ui/js/*.js; do code_of "$f" | grep -H --label="$f" -n 'proposed'; done)
 badside=""
+# Sample input: the proposed-action scan emits "ui/DropInto.qml:88: Drag.dropInto(drop.proposedAction)".
 while IFS= read -r hit; do
     [ -n "$hit" ] || continue
+    # Sample input: "ui/DropInto.qml:88: Drag.dropInto(drop.proposedAction)" names ui/DropInto.qml.
     file=$(printf '%s' "$hit" | cut -d: -f1)
+    # Sample input: "ui/DropInto.qml:88: Drag.dropInto(drop.proposedAction)" keeps the code after field 2.
     text=$(printf '%s' "$hit" | cut -d: -f3-)
     case "$file" in
         ui/js/Drag.js) continue ;;
@@ -97,23 +102,28 @@ else
 fi
 # Helper ignores proposed for any Flea marker: no bitwise proposed read outside foreignHeld.
 bites=$(grep -n 'proposed &' ui/js/Drag.js)
+# Sample input: "9:function foreignHeld(proposed) {" starts the helper at line 9.
 start=$(grep -n '^function foreignHeld' ui/js/Drag.js | cut -d: -f1)
 if [ -z "$start" ]; then
     bad "ui/js/Drag.js has no ^function foreignHeld line, so the single-helper range is unbounded"
 fi
 finish=""
+# Sample input: helper boundaries arrive as one line number per line, "9\n16\n".
 while IFS= read -r n; do
     if [ "$n" -gt "${start:-0}" ]; then
         finish=$n
         break
     fi
+    # Sample input: "16:function dropVerb(marker, proposed) {" supplies the next function's line number.
 done <<< "$(grep -n '^function ' ui/js/Drag.js | cut -d: -f1)"
 if [ -z "$finish" ]; then
     finish=$(($(wc -l < ui/js/Drag.js) + 1))
 fi
 outside=""
+# Sample input: the bitwise scan emits "10: return proposed & Qt.CopyAction".
 while IFS= read -r hit; do
     [ -n "$hit" ] || continue
+    # Sample input: "10: return proposed & Qt.CopyAction" locates the read at line 10.
     n=$(printf '%s' "$hit" | cut -d: -f1)
     if [ -n "$start" ] && [ -n "$finish" ] && [ "$n" -ge "$start" ] && [ "$n" -lt "$finish" ]; then
         continue
@@ -131,8 +141,7 @@ fi
 # The shortened bound, and the fewest stub calls that show the wait kept polling.
 short_wait_ns=300000000
 min_poll_calls=2
-# Sample input: "xwdrag_wait_row_gone() {", the ui.sh wait run with only its 10 s bound cut to short_wait_ns.
-# The wait reads through xwdrag_count, so the guard comes along; the stub below answers both.
+# Sample input: "xwdrag_wait_row_gone() {" and "wait_ns=10000000000"; extract the wait and count guard, then shorten the bound.
 eval "$(sed -n '/^xwdrag_count()/,/^}/p;/^xwdrag_wait_row_gone()/,/^}/p' tests/ui.sh | sed "s/wait_ns=[0-9][0-9]*/wait_ns=$short_wait_ns/")"
 # A stub qs that fails every call, so the wait must keep polling to the bound.
 xwdrag_qs() {
@@ -145,6 +154,7 @@ calls=$(
         printf 'rc=%s\n' "$?"
     } 3>&1
 )
+# Sample input: "call\ncall\nrc=1\n" reports exit status 1 after two failed polls.
 wait_rc=$(printf '%s\n' "$calls" | sed -n 's/^rc=//p')
 poll_calls=$(printf '%s\n' "$calls" | grep -c '^call$')
 # A wait that saw no row and no total answers 1 only after polling for it.

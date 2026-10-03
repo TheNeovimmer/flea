@@ -3,6 +3,7 @@ READ_CHUNK = 65536
 READ_TIMEOUT = 5
 RECEIVER_LIFETIME = 90
 MIME_TYPES = ["text/uri-list", "text/plain"]
+NO_ACTION = 0
 
 
 class DropReader:
@@ -71,11 +72,12 @@ class DropReader:
         if error is None:
             self.write(f"mime={self.mime}")
             self.write("body<<")
+            # Sample input: [b"file:///", b"fixture.txt\r\n"] decodes to one complete URI-list body.
             self.write(b"".join(self.chunks).decode("utf-8", "replace"))
             self.write(">>")
         else:
             self.write(f"read-error={error}")
         try:
-            self.drop.finish(self.action)
+            self.drop.finish(self.action if error is None else NO_ACTION)
         finally:
             self.quit_app()
