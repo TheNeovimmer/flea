@@ -1,11 +1,7 @@
 import QtQuick
 import "." as Flea
 
-// RenderedPreviews: the Markdown bar and pane, loaded only for a Markdown file,
-// so a window that never shows one never compiles them. The bar is the board's
-// own and the PDF viewer's grammar: the Markdown mark, the name, its line count
-// right after it, the settings strip's segmented control at 20 px, and close.
-// A held picture covers the whole item.
+// The Markdown bar and pane load only for a Markdown file.
 Item {
     id: root
 

@@ -1,5 +1,6 @@
 // Shared figure assertions read the live tree and its painted pixels.
 var ACCENT_BLEND_TOLERANCE = 3;
+var FONT_SIZE_EPSILON = 0.000001;
 var RGBA_CHANNELS = 4;
 var LINK_BLUE_MIN = 200;
 var LINK_RED_MAX = 110;
@@ -35,9 +36,13 @@ function labelError(svg, font, foreground) {
     if (labels.length === 0)
         return "no Mermaid labels";
     var escaped = font.family.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+    var root = svg.match(/<svg\b[^>]*>/)[0];
+    var width = Number(root.match(/\swidth="([^"]*)"/)[1]);
+    var viewWidth = Number(root.match(/\sviewBox="([^"]*)"/)[1].trim().split(/\s+/)[2]);
     for (var i = 0; i < labels.length; i++) {
         var label = labels[i];
-        if (label.indexOf('font-size="' + font.pixelSize + '"') < 0)
+        var size = label.match(/\sfont-size="([^"]*)"/);
+        if (!size || Math.abs(Number(size[1]) * width / viewWidth - font.pixelSize) > FONT_SIZE_EPSILON)
             return "label size differs from body " + font.pixelSize + "px: " + label;
         if (label.indexOf('font-family="' + escaped + '"') < 0)
             return "label family differs from body " + font.family + ": " + label;

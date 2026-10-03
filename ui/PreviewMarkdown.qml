@@ -4,7 +4,7 @@ import "." as Flea
 import "js/Icons.js" as Icons
 import "js/Markdown.js" as Markdown
 
-// Active-file Markdown preview: Rendered blocks and verbatim Source share the board's document inset; resolve image URLs before Qt sees them, box remote images, load only beside the document, and leave links inert.
+// Rendered and Source previews share document insets, and only images beside the document can load.
 Item {
     id: root
 
@@ -30,8 +30,7 @@ Item {
     function hexOf(c) {
         return "#" + hexByte(c.r) + hexByte(c.g) + hexByte(c.b)
     }
-    // The surface fences and inline code sit on: the column's frame is the window colour, so it is the chrome
-    // surface there; Quick Look's page is the chrome surface, so its host passes the window colour (md_rendered code_bg).
+    // The host supplies the code surface colour for its page.
     property color codeSurface: Theme.color.surface
     readonly property string borderHex: hexOf(Theme.color.muted)
     readonly property string chromeHex: hexOf(root.codeSurface)
@@ -40,11 +39,7 @@ Item {
     readonly property string accentHex: hexOf(Theme.color.accent)
     readonly property string mutedHex: hexOf(Theme.color.muted)
     readonly property string surfaceHex: hexOf(Theme.color.surface)
-    // Figures render only for the file under the cursor in the rendered
-    // view: the Source view shows raw text and sends no request, and a path
-    // change clears the block list, destroying delegates with their tickets.
-    // RenderedPreviews md_rendered, each board pixel (at body 14) on the nearest existing token, resolved at 14 in the notes.
-    // Document padding 16 20 is gap + rowPaddingY and rowPaddingX + rowPaddingY - hairline.
+    // Only the active file in Rendered view may request figures.
     readonly property int insetX: Theme.spacing.rowPaddingX + Theme.spacing.rowPaddingY - Theme.spacing.hairline
     readonly property int insetY: Theme.spacing.gap + Theme.spacing.rowPaddingY
     // The 6 px gap above every block after the first is rowPaddingY (7), and the fence's 8 12 padding is gap (9) and rowPaddingX (14).
@@ -57,9 +52,7 @@ Item {
         return Math.round(Theme.font.body * (level >= 1 && level <= root.headingRatio.length ? root.headingRatio[level - 1] : 1))
     }
     readonly property bool figuresArmed: root.active && root.view !== Markdown.SOURCE
-    // The parse runs off the UI thread: the worker posts the block tree and the
-    // UI shows the previous content or the loading state until it arrives. A
-    // newer file cancels an older parse by sequence number.
+    // Parse sequence numbers reject replies for an older file.
     property var blockList: []
     property int parseSeq: 0
     property int appliedSeq: 0
@@ -99,9 +92,7 @@ Item {
     }
     // Instantiated delegates only: the lazy suite asserts this stays bounded.
     function delegateCount() { return body.contentItem.children.length }
-    // One figure delegate's live state, for the figures suite: null while the
-    // block is further than the cache from the viewport. A live delegate with
-    // no answer and no ticket still sent nothing, so the far check reads those.
+    // An absent figure delegate answers null to the render probe.
     function figureInfo(i) {
         var d = blockItem(i)
         if (!d)
@@ -137,10 +128,7 @@ Item {
         onPathChanged: root.readFailed = false
     }
 
-    // A WorkerScript logs one connect warning on this Qt however it is written,
-    // so small files parse inline and never instantiate one; the worker serves
-    // only large files, where the parse must leave the UI thread. Activated
-    // imperatively in askParse: a binding lags the rawText change that fires it.
+    // Large files require synchronous worker activation before their parse request.
     readonly property int workerThreshold: 65536
     Loader {
         id: parserLoader
@@ -168,8 +156,7 @@ Item {
         root.parsedOffThread = true
     }
 
-    // The worker owns the large parse; this timer is the dead-worker fallback,
-    // never the path: it parses synchronously once rather than leaving no preview.
+    // A dead worker triggers one synchronous recovery parse.
     Timer {
         id: parseFallback
         interval: root.parseFallbackMs
@@ -194,8 +181,7 @@ Item {
         }
         root.parsing = true
         root.parseError = ""
-        // Read off the live length: a binding on rawText still holds the
-        // previous file when this change fires it. Creation is synchronous.
+        // The live text length determines worker activation before bindings update.
         var wantWorker = root.rawText.length > root.workerThreshold
         parserLoader.active = wantWorker
         var w = parserLoader.item
@@ -228,7 +214,7 @@ Item {
         root.askParse()
     }
 
-    // Warm both heights outside binding evaluation on a Rendered/Source flip, preventing hidden-pane layout from causing a contentHeight binding loop.
+    // Warming both view heights prevents a contentHeight binding loop on Rendered/Source changes.
     onViewChanged: {
         body.contentHeight
         sourceText.implicitHeight
@@ -302,8 +288,7 @@ Item {
             property var block: modelData
             property int blockIndex: index
             width: ListView.view.width
-            // True while any of this delegate shows in the viewport: figures ask
-            // only here, so a block the viewport never reaches sends nothing.
+            // Only a figure intersecting the viewport may send a render request.
             readonly property bool inView: {
                 var v = ListView.view
                 if (!v)
@@ -319,8 +304,7 @@ Item {
                 : block.type === "list" ? listGrid.height
                 : block.type === "table" ? tableGrid.height : localImage.height
 
-                    // Qt's own Markdown renderer; with no link handler anywhere a link stays ink.
-                    // A heading is a run at the board's size, bold, so it takes the same line box.
+                    // Headings use the prescribed bold text size and line box.
                     Flea.MarkdownText {
                         id: runText
                         visible: block.type === "run" || block.type === "heading"

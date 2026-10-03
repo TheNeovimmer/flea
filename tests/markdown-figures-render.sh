@@ -173,3 +173,19 @@ printf '%s\n' "$arrow_output" | grep -qE 'MARKDOWN_ARROWS [0-9]+ checks, 0 faile
 if [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then
     cp "$test_root/runtime/markdown-arrows.png" "$FLEA_CI_SUITE_LOGS/markdown-arrows.png" || exit 1
 fi
+
+md3u_output=$(timeout 45 "$qjs" tests/markdown-advfix-md3u.mjs) || { printf '%s\n' "$md3u_output"; exit 1; }
+printf '%s\n' "$md3u_output" | head -1
+printf '%s\n' "$md3u_output" | tail -1 > "$test_root/md3u-cases.json" || exit 1
+md3u_native=$(QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QML_XHR_ALLOW_FILE_READ=1 QT_FORCE_STDERR_LOGGING=1 \
+    XDG_RUNTIME_DIR="$test_root/runtime" timeout 25 qml6 tests/markdown-advfix-md3u.qml -- "file://$test_root/md3u-cases.json" 2>&1)
+md3u_status=$?
+printf '%s\n' "$md3u_native" | grep -E 'MD3U_GEOMETRY|MARKDOWN_MD3U_NATIVE|FAIL'
+if [ "$md3u_status" -ne 0 ] || ! printf '%s\n' "$md3u_native" | grep -qE 'MARKDOWN_MD3U_NATIVE [0-9]+ checks, 0 failed'; then
+    printf 'FAIL native md3u geometry exited %s\n' "$md3u_status"
+    printf '%s\n' "$md3u_native"
+    exit 1
+fi
+if [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then
+    cp "$test_root/md3u-cases.png" "$FLEA_CI_SUITE_LOGS/markdown-md3u-geometry.png" || exit 1
+fi

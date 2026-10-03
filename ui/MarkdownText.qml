@@ -1,8 +1,6 @@
 import QtQuick
 
-// A Markdown document's text on RenderedPreviews' 1.7 line box. Qt leaves a rich Text's first
-// line its natural height and gives every later line the box, so the padding adds the first
-// line's missing leading, half above and half below: n lines are n boxes and sit centred.
+// First-line padding keeps every Markdown line centred in the prescribed line box.
 Text {
     id: root
 

@@ -462,6 +462,18 @@ function run(check) {
     check("a display block keeps its source", dispOne.source, "x^2")
     var dispSolo = Markdown.blocks("$$x^2$$\n", dir, chrome, ink)[0]
     check("a solo display line becomes a figure", dispSolo.type, "figure")
+    var displayTail = ["$$x$$ trailing text", "$$\nx\n$$ trailing text"]
+    for (var tailIndex = 0; tailIndex < displayTail.length; tailIndex++) {
+        check("md3u F1 display tail " + tailIndex,
+            JSON.stringify(Markdown.blocks(displayTail[tailIndex], dir, chrome, ink)),
+            JSON.stringify([{ type: "figure", kind: "math", source: "x", display: true },
+                { type: "run", text: " trailing text" }]))
+    }
+    check("md3u F3 backtick heading stays literal", MdLeaf.headingSafe("```python"), "\\```python")
+    check("md3u F3 tilde heading stays literal", MdLeaf.headingSafe("~~~python"), "\\~~~python")
+    check("md3u F6 prices before maths pair only x", MdInline.spanIntervals("$5 and $10; $x$").join(","), "12,15,1,1")
+    check("md3u F6 prices stay prose before maths", styled("$5 and $10; $x$"),
+        '$5 and $10; <code data-math="inline" style="background-color:#181825">x</code>')
     var dispOpen = Markdown.blocks("$$\nx^2\n", dir, chrome, ink)
     check("an unterminated display stays prose", dispOpen.map(function (b) { return b.type }).join(","), "run")
     check("a figure source stays raw",

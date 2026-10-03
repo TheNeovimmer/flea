@@ -91,7 +91,7 @@ function mathIntervals(text, code) {
             if (open >= 0 && len === openLen && canClose) {
                 out.push(open, j, openLen, 1)
                 open = -1
-            } else if (open < 0 && j < text.length && !isSpace(text.charAt(j))) {
+            } else if (j < text.length && !isSpace(text.charAt(j))) {
                 open = i
                 openLen = len
             }

@@ -61,7 +61,7 @@ function headingSafe(text) {
     var ordered = /^(\d{1,9})([.)])(?=[ \t]|$)/.exec(t)
     if (ordered !== null)
         return ordered[1] + "\\" + t.slice(ordered[1].length)
-    var block = /^(?:[-+*](?:[ \t]|$)|>|#{1,6}(?:[ \t]|$)|~~~)/.test(t)
+    var block = /^(?:[-+*](?:[ \t]|$)|>|#{1,6}(?:[ \t]|$)|```|~~~)/.test(t)
     return block || isThematic(t) ? "\\" + t : t
 }
 

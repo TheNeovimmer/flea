@@ -253,19 +253,30 @@ function inlineClasses(svg) {
     });
 }
 
-// Every label, including a tspan, carries the page's own typography and foreground.
-function forceText(svg, family, px, foreground) {
+const MERMAID_BODY_PX = 13;
+const CANVAS_MARGIN = 1;
+const BOUNDS_PRECISION = 10;
+const TEXT_DESCENT_RATIO = 0.3;
+const DEFAULT_STROKE_WIDTH = 1;
+const DEFAULT_MITER_LIMIT = 4;
+const MARKER_EXTENT = 4;
+
+// Sample input: <text font-size="13" dy="4.55">A</text> keeps the library's label metrics.
+function forceText(svg, family, foreground) {
     var font = escAttr(family);
     return svg.replace(/<(?:text|tspan)(\s[^<>]*?)?>/g, function (tag) {
-        var oldSize = tag.match(/\sfont-size="([\d.]+)"/);
-        var out = tag.replace(/\s(?:font-family|font-size|fill)="[^"]*"/g, "");
-        if (oldSize && Number(oldSize[1]) > 0) {
-            out = out.replace(/\sdy="(-?[\d.]+)"/, function (m, dy) {
-                return ' dy="' + (Number(dy) * px / Number(oldSize[1])) + '"';
-            });
-        }
-        return out.replace(/>$/, ' font-family="' + font + '" font-size="' + px
-            + '" fill="' + escAttr(foreground) + '">');
+        var out = tag.replace(/\s(?:font-family|fill)="[^"]*"/g, "");
+        return out.replace(/>$/, ' font-family="' + font + '" fill="' + escAttr(foreground) + '">');
+    });
+}
+
+// Sample input: <svg width="100" height="50" viewBox="0 0 100 50"> doubles as one figure at body 26.
+function scaleCanvas(svg, px) {
+    var scale = px / MERMAID_BODY_PX;
+    return svg.replace(/<svg\b[^<>]*>/, function (root) {
+        return root.replace(/\s(width|height)="([\d.]+)"/g, function (m, name, value) {
+            return ' ' + name + '="' + Number(value) * scale + '"';
+        });
     });
 }
 
@@ -278,54 +289,88 @@ function tightenVertical(svg) {
     var box = view ? view[1].trim().split(/\s+/).map(Number) : [];
     var body = svg.replace(/<defs>[\s\S]*?<\/defs>/g, "");
     // Unknown paths, inherited text positions and transforms retain the library's safe canvas.
-    if (box.length !== 4 || !box.every(Number.isFinite) || /\btransform=|<path\b|<tspan\b/.test(body))
+    if (box.length !== 4 || !box.every(Number.isFinite) || /\btransform=|<path\b|<tspan\b/.test(body)
+            || /<(?:g|svg)\b[^>]*\sstroke(?:-width)?=|\sstyle="[^"]*stroke/.test(body))
         return svg;
     var top = Infinity;
     var bottom = -Infinity;
     var valid = true;
+    // Sample input: <rect height="80"/> reads 80 from its height attribute.
     function number(tag, name, fallback) {
         var found = tag.match(new RegExp('\\s' + name + '="([^"]*)"'));
-        return found ? Number(found[1]) : fallback;
+        return found ? (found[1].trim() === "" ? NaN : Number(found[1])) : fallback;
     }
     function include(low, high, pad) {
-        if (!Number.isFinite(low) || !Number.isFinite(high)) {
+        if (!Number.isFinite(low) || !Number.isFinite(high) || !Number.isFinite(pad)) {
             valid = false;
             return;
         }
         top = Math.min(top, low - pad);
         bottom = Math.max(bottom, high + pad);
     }
+    // Sample input: <polygon stroke="#fff" stroke-width="8" stroke-linejoin="miter"/> includes its joins.
+    function strokePad(tag, kind) {
+        var stroke = tag.match(/\sstroke="([^"]*)"/);
+        var width = number(tag, "stroke-width", DEFAULT_STROKE_WIDTH);
+        if (!Number.isFinite(width) || width < 0)
+            return NaN;
+        if (!stroke || stroke[1] === "none")
+            return 0;
+        var pad = width / 2;
+        if (kind === "polygon" || kind === "polyline") {
+            var join = tag.match(/\sstroke-linejoin="([^"]*)"/);
+            if (!join || join[1] === "miter") {
+                var limit = number(tag, "stroke-miterlimit", DEFAULT_MITER_LIMIT);
+                if (!(limit >= 1))
+                    return NaN;
+                pad *= limit;
+            }
+            else if (join[1] !== "round" && join[1] !== "bevel")
+                return NaN;
+        }
+        if (kind === "line" || kind === "polyline") {
+            var cap = tag.match(/\sstroke-linecap="([^"]*)"/);
+            if (cap && cap[1] === "square")
+                pad *= Math.SQRT2;
+            else if (cap && cap[1] !== "round" && cap[1] !== "butt")
+                return NaN;
+        }
+        if (/marker-/.test(tag))
+            pad += MARKER_EXTENT * width;
+        return pad;
+    }
     body.replace(/<(rect|line|circle|ellipse|polygon|polyline|text)\b[^<>]*>/g, function (tag, kind) {
+        var pad = strokePad(tag, kind);
         if (kind === "rect") {
             var y = number(tag, "y", 0);
-            include(y, y + number(tag, "height", NaN), 0);
+            include(y, y + number(tag, "height", NaN), pad);
         } else if (kind === "line") {
             var y1 = number(tag, "y1", 0), y2 = number(tag, "y2", 0);
-            include(Math.min(y1, y2), Math.max(y1, y2), /marker-/.test(tag) ? 4 : 0);
+            include(Math.min(y1, y2), Math.max(y1, y2), pad);
         } else if (kind === "circle" || kind === "ellipse") {
             var cy = number(tag, "cy", 0);
             var radius = number(tag, kind === "circle" ? "r" : "ry", NaN);
-            include(cy - radius, cy + radius, 0);
+            include(cy - radius, cy + radius, pad);
         } else if (kind === "polygon" || kind === "polyline") {
             var points = tag.match(/\spoints="([^"]*)"/);
             var numbers = points ? points[1].trim().split(/[\s,]+/).map(Number) : [];
             if (numbers.length < 2 || numbers.length % 2 !== 0)
                 valid = false;
             for (var i = 1; i < numbers.length; i += 2)
-                include(numbers[i], numbers[i], /marker-/.test(tag) ? 4 : 0);
+                include(numbers[i], numbers[i], pad);
         } else {
             var font = number(tag, "font-size", NaN);
             var baseline = number(tag, "y", NaN);
             var dy = tag.match(/\sdy="(-?[\d.]+)(em|%)?"/);
             baseline += dy ? Number(dy[1]) * (dy[2] === "em" ? font : dy[2] === "%" ? font / 100 : 1) : 0;
-            include(baseline - font, baseline + 0.3 * font, 0);
+            include(baseline - font, baseline + TEXT_DESCENT_RATIO * font, pad);
         }
         return tag;
     });
     if (!valid || !Number.isFinite(top) || !(bottom > top))
         return svg;
-    var y = Math.floor((top - 1) * 10) / 10;
-    var height = Math.ceil((bottom + 1 - y) * 10) / 10;
+    var y = Math.floor((top - CANVAS_MARGIN) * BOUNDS_PRECISION) / BOUNDS_PRECISION;
+    var height = Math.ceil((bottom + CANVAS_MARGIN - y) * BOUNDS_PRECISION) / BOUNDS_PRECISION;
     var head = root[0].replace(/height="[^"]*"/, 'height="' + height + '"');
     head = head.replace(/viewBox="[^"]*"/, 'viewBox="' + box[0] + ' ' + y + ' ' + box[2] + ' ' + height + '"');
     return svg.replace(root[0], head);
@@ -400,7 +445,7 @@ export function postMermaid(svg, t) {
     out = out.replace(/<svg([^<>]*?)\sstyle="[^"]*"/, "<svg$1");
     // A click directive unwraps to its content; the link never ships.
     out = out.replace(/<a\s[^<>]*>/g, "").replace(/<\/a>/g, "");
-    out = tightenVertical(forceText(out, t.font || "sans-serif", t.bodyPx || 14, t.fg));
+    out = scaleCanvas(tightenVertical(forceText(out, t.font || "sans-serif", t.fg)), t.bodyPx || 14);
     out = markerPaths(out);
     var bad = checkSafe(out);
     if (bad)

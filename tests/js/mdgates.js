@@ -8,6 +8,23 @@ function run(check) {
     check("md3z F2 one preview header", !/\/\/[^\n]*\n\/\/[^\n]*\nItem \{/.test(preview), true)
     check("md3z F2 image sentence beside resolution", /\/\/ Resolve images[^\n]*\n    function askParse/.test(preview), true)
     check("md3z F3 markerPaths sample", /\/\/ Sample input:[^\n]*points=[^\n]*\nfunction markerPaths/.test(Source.source("ui/js/FigureWorker.mjs")), true)
+    var commentFiles = ["ui/MarkdownFigure.qml", "ui/MarkdownText.qml", "ui/MarkdownPane.qml",
+        "ui/PreviewMarkdown.qml", "ui/js/MdBlocks.js"]
+    for (var f = 0; f < commentFiles.length; f++) {
+        var sourceLines = Source.source(commentFiles[f]).split("\n")
+        for (var c = 0; c < sourceLines.length; c++) {
+            if (!/^\s*\/\//.test(sourceLines[c]))
+                continue
+            check("md3u F4 comment length " + commentFiles[f] + ":" + (c + 1),
+                sourceLines[c].trim().length <= 140, true)
+            if (c > 0 && /^\s*\/\//.test(sourceLines[c - 1]))
+                check("md3u F4 single constraint " + commentFiles[f] + ":" + (c + 1),
+                    /Sample(?: input)?:/.test(sourceLines[c - 1] + sourceLines[c]), true)
+        }
+    }
+    var blocksSource = Source.source("ui/js/MdBlocks.js")
+    check("md3u F5 figureKind sample", /\/\/ Sample input:[^\n]*mermaid[^\n]*\nfunction figureKind/.test(blocksSource), true)
+    check("md3u F8 display sample", /\/\/ Sample input:[^\n]*\$\$x[^\n]*\\n[^\n]*\n        var disp/.test(blocksSource), true)
     var figureRunner = Source.source("tests/markdown-figures-render.sh")
     check("md3t F5 one shell header", !/^#![^\n]*\n#[^\n]*\n#/.test(figureRunner), true)
     var figureModule = Source.source("tests/markdown-figures-render.js")

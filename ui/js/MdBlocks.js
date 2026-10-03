@@ -10,6 +10,7 @@
 var CODE_INDENT = 4
 var MIN_RULE_MARKS = 3
 var MAX_RULE_INDENT = 3
+var DISPLAY_DELIMITER_LENGTH = 2
 
 function listMarker(line) {
     var mark = Container.readListMarker(line)
@@ -18,9 +19,7 @@ function listMarker(line) {
     return mark
 }
 
-// A fenced info string naming a figure: mermaid draws a diagram, math and
-// latex draw a display formula. The first word decides, case-insensitively,
-// so an info string carrying a title still figures. Anything else is code.
+// Sample input: "mermaid chart title" selects a diagram by its first word, ignoring case.
 function figureKind(info) {
     var first = String(info || "").trim().split(/\s+/)[0] || ""
     var word = first.toLowerCase()
@@ -221,16 +220,17 @@ function blockPass(lines, state, emit, collect) {
             send("fenceOpen", i, text, top, display, open.info)
             continue
         }
-        // A closed top-level $$ block is a figure; cache its next closer so malformed input never rescans a tail.
+        // Sample input: "$$x^2$$" and "$$\nx^2\n$$" emit figures, with trailing prose retained.
         var disp = top === null ? /^ {0,3}\$\$(.*)$/.exec(text) : null
         if (disp !== null) {
             var rest = disp[1]
             var closeAt = rest.indexOf("$$")
             var mathSource = ""
+            var mathTail = ""
             var mathTo = i
             if (closeAt >= 0) {
-                if (rest.slice(closeAt + 2).trim().length === 0)
-                    mathSource = rest.slice(0, closeAt).trim()
+                mathSource = rest.slice(0, closeAt).trim()
+                mathTail = rest.slice(closeAt + DISPLAY_DELIMITER_LENGTH)
             } else {
                 if (mathEnd <= i) {
                     mathEnd = i + 1
@@ -239,11 +239,10 @@ function blockPass(lines, state, emit, collect) {
                 }
                 if (mathEnd < lines.length) {
                     var endAt = lines[mathEnd].indexOf("$$")
-                    if (lines[mathEnd].slice(endAt + 2).trim().length === 0) {
-                        mathSource = [rest].concat(lines.slice(i + 1, mathEnd),
-                            [lines[mathEnd].slice(0, endAt)]).join("\n").trim()
-                        mathTo = mathEnd
-                    }
+                    mathSource = [rest].concat(lines.slice(i + 1, mathEnd),
+                        [lines[mathEnd].slice(0, endAt)]).join("\n").trim()
+                    mathTail = lines[mathEnd].slice(endAt + DISPLAY_DELIMITER_LENGTH)
+                    mathTo = mathEnd
                 }
             }
             if (mathSource.length > 0) {
@@ -252,7 +251,9 @@ function blockPass(lines, state, emit, collect) {
                 if (emit !== undefined)
                     emit({ type: "figure", kind: "math", source: mathSource, display: true })
                 i = mathTo
-                leaf = null
+                if (mathTail.length > 0)
+                    send("run", i, mathTail, null, mathTail)
+                leaf = mathTail.trim().length > 0 ? { kind: "paragraph", owner: owner } : null
                 continue
             }
         }

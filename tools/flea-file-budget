@@ -49,7 +49,7 @@ src/vulkan.rs 728
 tests/js/columns.js 618
 tests/js/drag.js 301
 tests/js/previewswap.js 367
-tests/js/mdstructure.js 520
+tests/js/mdstructure.js 532
 tests/js/focus.js 522
 tests/js/mounts.js 383
 tests/js/menu.js 335
@@ -101,7 +101,7 @@ ui/js/Filter.js 253
 ui/js/Focus.js 408
 ui/js/Keymap.js 338
 ui/js/Markdown.js 152
-ui/js/MdBlocks.js 355
+ui/js/MdBlocks.js 356
 ui/js/MdInline.js 279
 ui/js/Menu.js 425
 ui/js/Drag.js 302

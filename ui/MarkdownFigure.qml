@@ -1,6 +1,6 @@
 import QtQuick
 
-// One rendered figure: a maths formula or a Mermaid diagram, drawn from the SVG the shared figure worker answers. Block mode sizes to the natural size, scales down to fit the width and never up; a display formula centres, a diagram sits left like a fenced block. Inline mode sizes to the line height for $...$ beside text. Pending reserves no height and draws nothing; an error draws the source as the board's fenced block, so a figure is never worse than the code it came from.
+// Figures keep their aspect ratio, fit the pane width, and fall back to source on failure.
 Item {
     id: root
 
@@ -24,12 +24,9 @@ Item {
     property string svg: ""
     property string error: ""
     property int ticket: 0
-    // False while the Source view is drawn: no request leaves, and arming
-    // later asks with the same props, answered from the service cache.
+    // The Source view sends no figure requests.
     property bool askArmed: true
-    // False while the delegate sits outside the visible viewport: no request
-    // leaves, and scrolling into view asks once. Unlike askArmed this keeps
-    // whatever arrived, so a settled figure never redraws on a scroll.
+    // Offscreen delegates retain settled figures and send no requests.
     property bool inView: true
 
     function hexTheme() {
@@ -38,9 +35,7 @@ Item {
             muted: root.mutedHex, surface: root.surfaceHex };
     }
     function ask() {
-        // Off screen a prop change invalidates rather than sends, so the
-        // scroll back in refetches with the current props; on screen the old
-        // figure stays until its replacement lands.
+        // Offscreen property changes invalidate the settled figure until it enters the viewport.
         if (!root.askArmed || root.source === "" || !root.inView) {
             root.ticket = 0;
             root.svg = "";
@@ -62,15 +57,11 @@ Item {
     onFontFamilyChanged: askTimer.restart()
     onBodyPxChanged: askTimer.restart()
     onAskArmedChanged: askTimer.restart()
-    // A delegate built off screen asks nothing until it scrolls into view,
-    // which always lands post-layout, so this edge needs no debounce below.
+    // Entering the viewport requests an unsettled figure after layout.
     onInViewChanged: if (root.inView && root.askArmed && root.source !== "" && root.ticket === 0 && root.svg === "" && root.error === "") root.ask()
     Component.onCompleted: askTimer.restart()
 
-    // Setup assigns every prop in turn, and ListView positions the delegate
-    // after it completes, so asking at once sends from pre-position geometry
-    // and fires once per prop. One short debounce coalesces the churn and
-    // outlasts the layout pass, so inView reads the placed position.
+    // Coalesce property changes until layout places the delegate in its viewport.
     Timer {
         id: askTimer
         interval: 50
@@ -93,7 +84,7 @@ Item {
         }
     }
 
-    // Data URLs keep figures out of the filesystem entirely; Qt SVG takes them through Image like any other URL (proven in tests/markdown-figures).
+    // Data URLs deliver figures to Qt SVG without filesystem writes.
     readonly property string dataUrl: root.svg === "" ? ""
         : "data:image/svg+xml," + encodeURIComponent(root.svg)
 
@@ -124,7 +115,7 @@ Item {
         fillMode: Image.PreserveAspectFit
     }
 
-    // The board's fenced block: chrome surface, plain source text. A refused source many kilobytes long elides to its head, so one fallback can never size the column past what a frame can hold.
+    // A failed figure draws bounded source on the code surface.
     readonly property string fallbackBody: root.source.length > 2000
         ? root.source.slice(0, 2000) + "… (" + (root.source.length - 2000) + " more)"
         : root.source
