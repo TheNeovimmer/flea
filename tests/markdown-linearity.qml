@@ -98,15 +98,17 @@ QtObject {
         const parserLoader = { active: false, item: { sendMessage() {} } };
         const ask = new Function('root', 'file', 'Markdown', 'parseFallback', 'parserLoader', body('function askParse()'));
         const reply = new Function('root', 'messageObject', body('function landed(messageObject)'));
-        // The product's own dropParse, parseNow and restoreScroll bodies, bound to each stub root; the list is an empty stub.
+        // The product's own dropParse, parseNow, rememberScroll and restoreScroll bodies, bound to each stub root; the list is an empty stub.
         const drop = new Function('root', body('function dropParse()'));
         const landing = new Function('root', 'Markdown', 'text', 'dir', 'chrome', 'ink', body('function parseNow('));
         const restore = new Function('root', 'body', body('function restoreScroll()'));
+        const remember = new Function('root', 'body', body('function rememberScroll()'));
         const list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: 0, height: 0, contentY: 0 };
         function wired(r) {
             r.dropParse = () => drop(r);
             r.parseNow = (text, dir, chrome, ink) => landing(r, Markdown, text, dir, chrome, ink);
             r.restoreScroll = () => restore(r, list);
+            r.rememberScroll = () => remember(r, list);
             return r;
         }
         // The fallback timer's handler, searched from its own id so an earlier Timer's handler is never the one found.
