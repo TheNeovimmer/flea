@@ -76,22 +76,23 @@ Item {
         anchors.fill: parent
         clip: true
         contentWidth: width
-        contentHeight: Math.max(height, root.view === Markdown.SOURCE ? sourceText.implicitHeight : body.implicitHeight)
+        contentHeight: Math.max(height, root.view === Markdown.SOURCE ? sourceText.measuredHeight : body.implicitHeight)
         visible: !root.tooLarge && !root.readFailed
-
         FastScrollHandler {
             parent: flick
             flickable: flick
         }
-
         Flea.ViewportScrollBar {
             parent: flick
             anchors { top: parent.top; right: parent.right }
             flickable: flick
         }
-
         Text {
             id: sourceText
+            // Measure Source outside the scroll-height binding, where Text's lazy getter can relayout and notify.
+            property real measuredHeight: 0
+            onImplicitHeightChanged: if (root.view === Markdown.SOURCE) sourceText.measuredHeight = sourceText.implicitHeight
+            onVisibleChanged: if (root.view === Markdown.SOURCE) sourceText.measuredHeight = sourceText.implicitHeight
             visible: root.view === Markdown.SOURCE
             width: parent.width
             text: root.rawText
@@ -101,7 +102,6 @@ Item {
             font.family: Theme.font.family
             font.pixelSize: Theme.font.body
         }
-
         Column {
             id: body
             visible: root.view !== Markdown.SOURCE
