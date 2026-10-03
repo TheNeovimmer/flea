@@ -1,0 +1,152 @@
+// The staged file text is the old render byte for byte, and one batched rebase equals one rebase per pair.
+use super::undocodec::encode;
+use super::undocost_tests::identity;
+use super::undorebase::RebaseMap;
+use super::undoshare::{Doc, StoredRedo, MAX_FILE_BYTES};
+use super::undostage::Staged;
+use crate::backend::link::LinkKind;
+use crate::backend::redo::Replay;
+use crate::backend::undo::{Entry, ItemIdentity, Step};
+use crate::error::FleaError;
+use crate::jsondoc::render;
+use std::path::PathBuf;
+
+// Written by the code before the staged render, from the document fixture_doc builds.
+const GOLDEN: &str = include_str!("../../tests/fixtures/undo-journal-golden.json");
+
+fn path(text: &str) -> PathBuf {
+    PathBuf::from(text)
+}
+
+// Every step kind, a birth time known and unknown, escapes in text, and both kinds of redo record.
+pub(super) fn fixture_doc() -> Doc {
+    let plain = ItemIdentity::from_parts(1, 2, 0o100000, 3, (4, 5), (6, 7), None);
+    let steps = vec![
+        Step::Moved { from: path("/a/one \"quoted\".txt"), to: path("/b/uni\u{e9}\u{4e2d}.txt"), before: identity(1, 1), after: identity(2, 1) },
+        Step::Created { path: path("/a/made") },
+        Step::Linked { path: path("/a/link"), identity: plain.clone(), source: path("/a/one"), kind: LinkKind::Relative },
+        Step::Copied { from: path("/a/c"), to: path("/b/c"), source: identity(3, 1), created: plain.clone(), manifest: None, manifest_nonce: Some(7) },
+        Step::MadeDir { path: path("/a/dir"), identity: identity(4, 2) },
+        Step::MadeFile { path: path("/a/file"), identity: plain.clone() },
+        Step::Trashed(crate::backend::trash::Entry { original: path("/a/gone"), uri: "trash:///gone\n2".to_string() }),
+        Step::Mode { path: path("/a/mode"), before: 0o644, after: 0o600, dev: 9, ino: 10, born: Some((11, 12)) },
+    ];
+    let replay = Replay::from_steps("copy".to_string(), vec![
+        (steps[3].clone(), Some(identity(3, 1)), Some((path("/b"), identity(5, 1)))),
+        (steps[1].clone(), None, None),
+    ]);
+    Doc {
+        undo: vec![Entry { op: "move".to_string(), steps }, Entry { op: "barrier".to_string(), steps: vec![Step::Barrier] }],
+        redo: vec![StoredRedo::Ok(replay), StoredRedo::Err(FleaError { where_: "redo".into(), path: "/a".into(), msg: "gone".into() })],
+        push_gen: 7,
+    }
+}
+
+fn empty() -> Doc {
+    Doc { undo: Vec::new(), redo: Vec::new(), push_gen: 0 }
+}
+
+#[test]
+fn the_staged_text_is_the_old_render_byte_for_byte() {
+    let doc = fixture_doc();
+    let staged = Staged::new(&doc);
+    assert_eq!(staged.text(), GOLDEN, "the journal file did not change a byte");
+    assert_eq!(staged.text(), render(&encode(&doc)));
+    assert_eq!(staged.len(), GOLDEN.len() as u64, "the staged size is the written size");
+    for doc in [empty(), Doc { undo: Vec::new(), redo: fixture_doc().redo, push_gen: 1 }, Doc { undo: fixture_doc().undo, redo: Vec::new(), push_gen: u64::MAX }] {
+        let staged = Staged::new(&doc);
+        assert_eq!(staged.text(), render(&encode(&doc)));
+        assert_eq!(staged.len(), staged.text().len() as u64);
+    }
+}
+
+// The old loop: render the whole document on every turn and drop the oldest until it fits.
+fn old_trim(doc: &mut Doc, cap: u64) {
+    while render(&encode(doc)).len() as u64 > cap {
+        if doc.undo.len() > 1 { doc.undo.remove(0); } else if !doc.redo.is_empty() { doc.redo.remove(0); } else { break; }
+    }
+}
+
+#[test]
+fn trimming_by_piece_sizes_keeps_what_trimming_by_whole_renders_kept() {
+    let mut doc = fixture_doc();
+    for salt in 0..6u64 {
+        doc.undo.push(Entry { op: format!("op {}", salt), steps: vec![Step::MadeFile { path: path(&format!("/a/{}", "x".repeat(40 * salt as usize + 1))), identity: identity(salt, 1) }] });
+    }
+    let whole = render(&encode(&doc)).len() as u64;
+    for cap in (0..=whole + 10).step_by(37) {
+        let mut old = Doc { undo: doc.undo.clone(), redo: Vec::new(), push_gen: doc.push_gen };
+        old.redo.extend(fixture_doc().redo);
+        let mut staged = Staged::new(&old);
+        staged.trim_to(cap);
+        old_trim(&mut old, cap);
+        assert_eq!(staged.text(), render(&encode(&old)), "cap {}", cap);
+        assert_eq!(staged.fits(cap), render(&encode(&old)).len() as u64 <= cap);
+    }
+    assert_eq!(MAX_FILE_BYTES, 32 * 1024 * 1024, "the cap is the old one");
+}
+
+// A small identity space, so moves collide and chain: a new identity is often the next move's old one.
+fn lcg(state: &mut u64) -> u64 {
+    *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    *state >> 33
+}
+
+fn small_identity(state: &mut u64) -> ItemIdentity {
+    let born = match lcg(state) % 3 { 0 => None, 1 => Some((1, 1)), _ => Some((2, 2)) };
+    ItemIdentity::from_parts(1, lcg(state) % 5, 0o100000, lcg(state) % 2, (lcg(state) as i64 % 2, 0), (0, 0), born)
+}
+
+fn small_step(state: &mut u64) -> Step {
+    let id = small_identity(state);
+    match lcg(state) % 5 {
+        0 => Step::Moved { from: path("/f"), to: path("/t"), before: id, after: small_identity(state) },
+        1 => Step::Copied { from: path("/f"), to: path("/t"), source: id, created: small_identity(state), manifest: None, manifest_nonce: None },
+        2 => Step::MadeFile { path: path("/m"), identity: id },
+        3 => Step::MadeDir { path: path("/d"), identity: id },
+        _ => Step::Linked { path: path("/l"), identity: id, source: path("/s"), kind: LinkKind::Hard },
+    }
+}
+
+#[test]
+fn one_batched_rebase_equals_one_rebase_per_pair() {
+    let mut state = 11;
+    for round in 0..200 {
+        let mut doc = empty();
+        for _ in 0..3 {
+            doc.undo.push(Entry { op: "op".to_string(), steps: (0..4).map(|_| small_step(&mut state)).collect() });
+            let saved = (0..3).map(|_| (small_step(&mut state), Some(small_identity(&mut state)), Some((path("/p"), small_identity(&mut state))))).collect();
+            doc.redo.push(StoredRedo::Ok(Replay::from_steps("op".to_string(), saved)));
+        }
+        let pairs: Vec<_> = (0..1 + round % 8).map(|_| (small_identity(&mut state), small_identity(&mut state))).collect();
+        let mut sequential = Doc { undo: doc.undo.clone(), redo: Vec::new(), push_gen: 0 };
+        sequential.redo = doc.redo.iter().map(|r| match r {
+            StoredRedo::Ok(replay) => { let (op, steps) = replay.steps_data(); StoredRedo::Ok(Replay::from_steps(op, steps)) }
+            StoredRedo::Err(e) => StoredRedo::Err(FleaError { where_: e.where_.clone(), path: e.path.clone(), msg: e.msg.clone() }),
+        }).collect();
+        for (old, new) in &pairs {
+            for entry in &mut sequential.undo { entry.rebase(old, new); }
+            for stored in &mut sequential.redo { if let StoredRedo::Ok(replay) = stored { replay.rebase(old, new); } }
+        }
+        let map = RebaseMap::new(pairs.iter().map(|(old, new)| (old, new)));
+        for entry in &mut doc.undo { entry.rebase_with(&mut |id| map.moved(id)); }
+        for stored in &mut doc.redo {
+            if let StoredRedo::Ok(replay) = stored { replay.rebase_with(&mut |id| map.moved(id), &mut |id| map.item(id)); }
+        }
+        assert_eq!(render(&encode(&doc)), render(&encode(&sequential)), "round {}", round);
+    }
+}
+
+// A journal the reader ignores (here a symlink) still answers newer when its target is, as it did before the single read.
+#[test]
+fn an_ignored_journal_that_a_newer_writer_owns_is_still_refused() {
+    let sandbox = crate::backend::testdir::TestDir::new("ustage-newer-link");
+    let dir = sandbox.path().join("runtime");
+    let shared = super::undoshare::Shared::at(dir.clone()).unwrap();
+    let target = sandbox.path().join("newer.json");
+    std::fs::write(&target, "{\"v\":3,\"undo\":[],\"redo\":[]}").unwrap();
+    std::os::unix::fs::symlink(&target, dir.join(super::undoshare::JOURNAL_FILE)).unwrap();
+    let entry = Entry { op: "op".to_string(), steps: vec![Step::Created { path: path("/a") }] };
+    assert!(super::undoshare::push_entry(&shared, &entry).is_err(), "a newer file is never rewritten");
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "{\"v\":3,\"undo\":[],\"redo\":[]}");
+}

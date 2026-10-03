@@ -6,7 +6,7 @@ use crate::error::FleaError;
 use crate::jsondoc::{parse, Json};
 use std::path::PathBuf;
 
-const VERSION: u32 = 2;
+pub(crate) const VERSION: u32 = 2;
 // A single record is checked, never trusted: absolute paths, closed kind sets, parsed numbers.
 const MAX_OP: usize = 128;
 const MAX_PATH: usize = 4096;
@@ -101,7 +101,7 @@ fn step(step: &Step) -> Json {
     }
 }
 
-fn entry(entry: &Entry) -> Json {
+pub(crate) fn entry(entry: &Entry) -> Json {
     obj(vec![
         ("op", s(&entry.op)),
         ("steps", arr(entry.steps.iter().map(step).collect())),
@@ -121,7 +121,7 @@ fn replay_step(st: &Step, input: &Option<ItemIdentity>, parent: &Option<(PathBuf
     obj(pairs)
 }
 
-fn stored_redo(stored: &StoredRedo) -> Json {
+pub(crate) fn stored_redo(stored: &StoredRedo) -> Json {
     match stored {
         StoredRedo::Ok(replay) => {
             let (op, steps) = replay.steps_data();
@@ -136,6 +136,8 @@ fn stored_redo(stored: &StoredRedo) -> Json {
     }
 }
 
+// The whole document as a tree; the byte pin compares the piecewise render against this form.
+#[cfg(test)]
 pub(crate) fn encode(doc: &Doc) -> Json {
     obj(vec![
         ("v", n(VERSION)),
@@ -145,7 +147,7 @@ pub(crate) fn encode(doc: &Doc) -> Json {
     ])
 }
 
-fn get<'a>(pairs: &'a [(String, Json)], key: &str) -> Option<&'a Json> {
+pub(crate) fn get<'a>(pairs: &'a [(String, Json)], key: &str) -> Option<&'a Json> {
     pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v)
 }
 
@@ -357,14 +359,15 @@ fn decode_redo(value: &Json) -> Option<StoredRedo> {
     Some(StoredRedo::Ok(Replay::from_steps(checked_op(get(pairs, "op")?)?, out)))
 }
 
+#[cfg(test)]
 pub(crate) fn decode(text: &str) -> Option<Doc> {
-    let root = parse(text).ok()?;
-    let pairs = root.as_object()?;
-    match get(pairs, "v") {
-        // v1 files predate the barrier kind and still read; anything newer is foreign.
-        Some(Json::Num(literal)) if literal == "1" || literal == &VERSION.to_string() => {}
-        _ => return None,
+    match super::undostage::read(text) {
+        super::undostage::Read::Doc(doc) => Some(doc),
+        _ => None,
     }
+}
+
+pub(crate) fn decode_pairs(pairs: &[(String, Json)]) -> Option<Doc> {
     let push_gen = get(pairs, "gen").and_then(parse_u64).unwrap_or(0);
     let undo_items = get(pairs, "undo")?.as_array()?;
     let redo_items = get(pairs, "redo")?.as_array()?;

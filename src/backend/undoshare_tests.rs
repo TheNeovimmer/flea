@@ -328,9 +328,9 @@ fn an_oversized_doc_trims_oldest_and_keeps_newest() {
         doc.undo.push(Entry { op: format!("{}-{}", big, index), steps: vec![Step::Created { path }] });
     }
     assert!(crate::jsondoc::render(&crate::backend::undocodec::encode(&doc)).len() as u64 > super::MAX_FILE_BYTES);
-    super::trim_to_fit(&mut doc);
-    assert!(super::fits(&doc), "trimmed doc fits the cap");
-    assert_eq!(doc.undo.last().unwrap().op, format!("{}-{}", big, 39));
+    let text = super::staged_to_fit(&doc).expect("trimmed doc fits the cap").text();
+    assert!(text.len() as u64 <= super::MAX_FILE_BYTES && text.contains(&format!("{}-{}\"", big, 39)), "fits, newest stays");
+    assert!(!text.contains(&format!("{}-{}\"", big, 0)), "the oldest record went");
 }
 
 // One entry over the cap leaves a barrier in the file; no window keeps the payload.

@@ -1814,6 +1814,9 @@ failure fails the check rather than passing it.
   `$XDG_RUNTIME_DIR/flea/` with an flocked lock file and predictable-path writes; a take is one
   locked read-modify-write, so two windows pressing Ctrl+Z undo two different operations.
 - `backend/undocodec.rs` that journal's versioned wire form and its read-time checks, both directions.
+- `backend/undostage.rs` that journal's file text, in and out: `read` parses the file once (a document, a newer
+  writer's file, or garbage) and `Staged` renders each entry once, so trimming to the cap sums piece sizes and a write
+  is a join. `backend/undorebase.rs` is `RebaseMap`, one walk of the document for a whole batch of moves.
 - `heap.rs` pins glibc's mmap threshold for the backend, see "The listing arena returns to the OS".
 - `launcher/mod.rs` re-exports `prewarm`, nothing else.
 - `launcher/prewarm.rs` writes the listing and first screenful before the UI starts.
@@ -5441,6 +5444,15 @@ browser's `restore` and `delete` (`trashbrowse.rs`, `trashdelete.rs`) and the pe
 `apply` (`permissions.rs`).
 `docs/protocol.md` carries the wire; this is the part a reader of the code needs that the wire does not
 say.
+
+**One operation on the shared journal is one parse, one render and one walk (0.3.8).** The file is one JSON
+document of up to 32 MiB, and every push, take and finish rewrites it whole, so the cost is linear in its size by
+design. It was once that cost several times over: the file read and parsed twice, rendered three times for one
+store, and walked once per Moved step of the new entry. `undoshare.rs` `load` reads and parses once, `Staged`
+renders once and trims by the pieces' byte sizes, and `RebaseMap` rebases every stored step in one walk however many
+moves the entry holds. `undocost_tests.rs` pins the counts (decodes, renders, steps visited, identity comparisons,
+bytes read and written) with per-thread counters in `undoprobe.rs`, never wall time, and `undostage_tests.rs` pins
+the written bytes to `tests/fixtures/undo-journal-golden.json`, which the code before the change produced.
 
 **A write names its files once, when it arrives.** The viewport's read requests (`window`, `thumb`, `dirsize`) name
 a row of the current listing, because a viewport is a fact about the listing. A write outlives the

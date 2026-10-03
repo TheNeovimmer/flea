@@ -92,6 +92,15 @@ pub mod trash;
 pub mod undo;
 pub mod undoshare;
 pub mod undocodec;
+mod undorebase;
+mod undostage;
+// Test-only: per-thread work counters the shared journal's count tests read.
+#[cfg(test)]
+pub(crate) mod undoprobe;
+#[cfg(test)]
+mod undocost_tests;
+#[cfg(test)]
+mod undostage_tests;
 pub mod redo;
 pub mod link;
 // The open listing's directory, watched so an outside change reaches the client; see docs/protocol.md "changed".
