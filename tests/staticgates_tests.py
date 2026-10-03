@@ -16,7 +16,7 @@ from unittest import mock
 
 import staticgates as gates
 
-# The expression fixtures keep non-declarations indented according to the column-0 house style.
+# A function expression stays indented here; the column-0 house style keeps column 0 for declarations.
 DUPDECL_FIXTURES = {
     'F1-opacity': ('ui/A.qml', 'Item { Behavior on opacity { property int value: 0; property int value: 1 } }\n', 'Duplicate property name'),
     'F1-x': ('ui/A.qml', 'Item { Behavior on x { property int wire: 0; property int wire: 1 } }\n', 'Duplicate property name'),
