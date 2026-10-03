@@ -52,6 +52,44 @@ mod tests {
     const INITIAL_SOFT: c_ulong = 80;
     const HARD_LIMIT: c_ulong = 96;
 
+    fn read_listing_reply(output: &mut impl BufRead, report: &mut String, directory: &str) -> std::io::Result<bool> {
+        loop {
+            let mut line = String::new();
+            if output.read_line(&mut line)? == 0 {
+                return Ok(false);
+            }
+            // Sample replies: {"t":"rows","start":0,"rows":[]} or {"t":"error","where":"scan","path":"/missing","msg":"..."}.
+            let reply = crate::json::field_str(&line, "t");
+            let listed = reply.as_deref() == Some("rows");
+            let failed = reply.as_deref() == Some("error")
+                && crate::json::field_str(&line, "path").as_deref() == Some(directory);
+            report.push_str(&line);
+            if listed || failed {
+                return Ok(listed);
+            }
+        }
+    }
+
+    #[test]
+    fn picker_listing_reader_stops_at_each_terminal_reply_and_keeps_its_report() {
+        const DIRECTORY: &str = "/missing";
+        const ROWS: &[u8] = b"{\"t\":\"listed\",\"path\":\"/missing\",\"n\":0}\n{\"t\":\"rows\",\"start\":0,\"rows\":[]}\n";
+        const ERROR: &[u8] = b"{\"t\":\"error\",\"where\":\"scan\",\"path\":\"/missing\",\"msg\":\"No such file or directory\"}\n";
+        const OTHER_ERROR: &[u8] = b"{\"t\":\"error\",\"where\":\"scan\",\"path\":\"/other\",\"msg\":\"unrelated failure\"}\n";
+        const UNREAD: &[u8] = b"the backend is still waiting for stdin\n";
+        for (terminal, expected_listed) in [(ROWS, true), (ERROR, false)] {
+            let mut expected_report = OTHER_ERROR.to_vec();
+            expected_report.extend_from_slice(terminal);
+            let mut fixture = expected_report.clone();
+            fixture.extend_from_slice(UNREAD);
+            let mut output = std::io::Cursor::new(fixture);
+            let mut report = String::new();
+            let listed = read_listing_reply(&mut output, &mut report, DIRECTORY).unwrap();
+            assert_eq!(listed, expected_listed, "{}", report);
+            assert_eq!(report.as_bytes(), expected_report, "listing reader must stop at its terminal reply: {}", report);
+        }
+    }
+
     #[test]
     fn picker_raises_soft_limit_to_hard_only_once_in_a_child() {
         if std::env::var_os(CHILD_ENV).is_none() {
@@ -97,21 +135,18 @@ mod tests {
         writeln!(input, r#"{{"c":"list","path":"{}"}}"#, crate::json::escape(&directory.to_string_lossy())).unwrap();
         let mut output = std::io::BufReader::new(child.stdout.take().unwrap());
         let mut report = String::new();
-        let mut listed = false;
-        loop {
-            let mut line = String::new();
-            if output.read_line(&mut line).unwrap() == 0 { break; }
-            // Sample reply: {"t":"rows","start":0,"rows":[...]}, following the handled listing.
-            listed = line.contains(r#""t":"rows""#);
-            report.push_str(&line);
-            if listed { break; }
-        }
-        if listed { writeln!(input, r#"{{"c":"quit"}}"#).unwrap(); }
+        let listed = read_listing_reply(&mut output, &mut report, &directory.to_string_lossy());
+        let quit = if matches!(listed, Ok(true)) {
+            writeln!(input, r#"{{"c":"quit"}}"#)
+        } else {
+            Ok(())
+        };
         drop(input);
-        output.read_to_string(&mut report).unwrap();
+        let drained = output.read_to_string(&mut report);
         let result = child.wait_with_output().unwrap();
         report.push_str(&String::from_utf8_lossy(&result.stderr));
-        assert!(listed && result.status.success() && report.contains("1 passed"), "{}", report);
+        assert!(matches!(listed, Ok(true)) && quit.is_ok() && drained.is_ok() && result.status.success() && report.contains("1 passed"),
+            "listing read: {:?}, quit: {:?}, drain: {:?}\n{}", listed, quit, drained, report);
     }
 
     #[test]
