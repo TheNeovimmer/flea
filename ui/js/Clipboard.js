@@ -3,7 +3,10 @@
 .import "ClipMarks.js" as ClipMarks
 
 function empty() { return { paths: [], moving: false, token: "" } }
-function state() { return { sets: [], ownTokens: Object.create(null), generation: 0, failed: [], gets: [], deferred: null } }
+function state() {
+    return { sets: [], ownTokens: Object.create(null), generation: 0, failed: [], gets: [], deferred: null,
+        getSequence: 0, acceptedGetSequence: 0 }
+}
 function session(pane) {
     if (!pane.clipboardState) pane.clipboardState = state()
     return pane.clipboardState
@@ -27,7 +30,6 @@ function take(queue, backend) {
 }
 
 function replace(pane, message) {
-    session(pane).generation += 1
     pane.clipboard = message.clip === "copy" || message.clip === "cut"
         ? { paths: message.paths || [], moving: message.clip === "cut", token: message.token || "" }
         : empty()
@@ -51,6 +53,7 @@ function selection(pane, message, s) {
     if (message.token && s.ownTokens[message.token]) return
     // A watcher can see our owner before set answers with its token.
     if (pendingEcho(s, message)) { s.deferred = {pane: pane, message: message}; return }
+    s.generation += 1
     replace(pane, message)
 }
 
@@ -85,9 +88,12 @@ function receive(pane, message) {
     } else if (message.op === "get") {
         var waiting = take(s.gets, pane.backend)
         if (!waiting) return
-        // A pending local set or newer selection outranks this system read.
-        if (message.ok && s.sets.length === 0 && waiting.generation === s.generation)
+        // A local set, newer watcher selection or later accepted read outranks this reply.
+        if (message.ok && s.sets.length === 0 && waiting.generation === s.generation
+                && waiting.sequence > s.acceptedGetSequence) {
+            s.acceptedGetSequence = waiting.sequence
             replace(pane, message)
+        }
         waiting.ready()
     } else if (message.op === "clear" && message.ok === false) {
         pane.message("Could not clear the system clipboard: " + message.error, true)
@@ -106,7 +112,8 @@ function read(pane, ready) {
             return
         }
     }
-    s.gets.push({ backend: pane.backend, ready: ready, generation: s.generation })
+    s.getSequence += 1
+    s.gets.push({ backend: pane.backend, ready: ready, generation: s.generation, sequence: s.getSequence })
     pane.backend.send({ c: "clipGet" })
 }
 
