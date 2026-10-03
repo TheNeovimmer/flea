@@ -266,8 +266,8 @@ rowidx() {
   local i n total
   total=$(ipc total)
   for i in $(seq 0 $((total - 1))); do
-    n=$(ipc rowAt "$i")
-    case "$n" in "$1|"*) echo "$i"; return 0;; esac
+    n=$(ipc visibleRowName "$i")
+    if [ "$n" = "$1" ]; then echo "$i"; return 0; fi
   done
   return 1
 }
@@ -609,6 +609,8 @@ r7_pointer_settle_seconds=0.4
 r7_press_settle_seconds=0.3
 r7_release_settle_seconds=0.5
 r7_stopped_state=T
+# Sample input, /proc/<pid>/stat: '123 (flea) T 1 123 ...'; the owned backend's state is field 3.
+backend_state() { cut -d' ' -f3 "/proc/$BACKEND_PID/stat"; }
 XDEV=$(mktemp -d /dev/shm/flea-drag-xdev-XXXXXX)
 : > "$XDEV/$SANDBOX_MARKER"
 mkdir -p "$XDEV/big"
@@ -643,18 +645,18 @@ warp "$sx" "$sy"; sleep "$r7_pointer_settle_seconds"
 press; sleep "$r7_press_settle_seconds"
 kill -STOP "$BACKEND_PID" || die "R7 could not stop its owned backend"
 for i in $(seq 1 "$r7_poll_attempts"); do
-  [ "$(cut -d' ' -f3 "/proc/$BACKEND_PID/stat")" = "$r7_stopped_state" ] && break
+  [ "$(backend_state)" = "$r7_stopped_state" ] && break
   sleep "$r7_poll_seconds"
 done
-check "the owned backend stopped before the hover switch" "$(cut -d' ' -f3 "/proc/$BACKEND_PID/stat")" "$r7_stopped_state"
-[ "$(cut -d' ' -f3 "/proc/$BACKEND_PID/stat")" = "$r7_stopped_state" ] || die "R7 backend did not stop"
+check "the owned backend stopped before the hover switch" "$(backend_state)" "$r7_stopped_state"
+[ "$(backend_state)" = "$r7_stopped_state" ] || die "R7 backend did not stop"
 glide_to "$tx" "$ty"
 for i in $(seq 1 "$r7_poll_attempts"); do [ "$(ipc tabIndex)" = "$r7_tmpfs_tab" ] && [ "$(ipc listInFlight)" = true ] && break; sleep "$r7_poll_seconds"; done
 check "resting on the tmpfs tab selected it" "$(ipc tabIndex)" "$r7_tmpfs_tab"
 check "and its listing is out against the stopped backend" "$(ipc listInFlight)" "true"
 release; sleep "$r7_release_settle_seconds"
 check "the release was refused with the listing still out" "$(ipc listInFlight)" "true"
-check "and the backend was still stopped at that point" "$(cut -d' ' -f3 "/proc/$BACKEND_PID/stat")" "$r7_stopped_state"
+check "and the backend was still stopped at that point" "$(backend_state)" "$r7_stopped_state"
 expect_ipc lastMessage "A directory is already loading."
 expect_ipc statusError false
 check "the refused drop leaves the tmpfs directory empty" "$(ls -A "$XDEV/big")" ""
@@ -668,10 +670,12 @@ check "nothing lands after the refused listing finishes" "$(ls -A "$XDEV/big")" 
 check "and the source still survives after the listing finishes" \
       "$(printf 'r7 payload\n' | cmp -s - "$HOMEDIR/r7.txt" && echo same || echo differs)" "same"
 check "and the window survived the resumed listing" "$(ipc total >/dev/null 2>&1 && echo alive || echo gone)" "alive"
-# Repeat the same plain lift after the destination listing has landed, then await its hover re-list too.
+# A fresh identity after the refusal checks distinguishes this lift from any wrongly queued first drop.
+printf 'r7 second payload\n' > "$HOMEDIR/r7-second.txt" || die "R7 could not write the second drag's source"
 native_tab "$r7_home_tab"
 check "the second drag starts from the home listing" "$(ipc path)" "$HOMEDIR"
-point=$(screen_centre r7.txt) || die "R7 source r7.txt did not survive the refused drop"
+for i in $(seq 1 "$r7_poll_attempts"); do rowidx r7-second.txt >/dev/null 2>&1 && break; sleep "$r7_row_poll_seconds"; done
+point=$(screen_centre r7-second.txt) || die "R7 source r7-second.txt is not visible"
 read -r sx sy <<< "$point"
 point=$(screen_tab_centre "$r7_tmpfs_tab") || die "R7 destination tab is not visible for the second drag"
 read -r tx ty <<< "$point"
@@ -682,12 +686,14 @@ expect_ipc tabIndex "$r7_tmpfs_tab"
 expect_ipc path "$XDEV/big"
 expect_ipc listInFlight false
 release; sleep "$r7_release_settle_seconds"
-wait_for "$XDEV/big/r7.txt" present || die "R7 second drag did not reach the tmpfs tab"
+wait_for "$XDEV/big/r7-second.txt" present || die "R7 second drag did not reach the tmpfs tab"
 check "the second drag landed on the tmpfs tab" \
-      "$([ -e "$XDEV/big/r7.txt" ] && echo landed || echo missing)" "landed"
-check "byte for byte" "$(cmp -s "$HOMEDIR/r7.txt" "$XDEV/big/r7.txt" && echo same || echo differs)" "same"
+      "$([ -e "$XDEV/big/r7-second.txt" ] && echo landed || echo missing)" "landed"
+check "byte for byte" "$(cmp -s "$HOMEDIR/r7-second.txt" "$XDEV/big/r7-second.txt" && echo same || echo differs)" "same"
 check "as a copy, so the source survives" \
-      "$([ -e "$HOMEDIR/r7.txt" ] && echo kept || echo GONE)" "kept"
+      "$([ -e "$HOMEDIR/r7-second.txt" ] && echo kept || echo GONE)" "kept"
+check "and the first drag's file never reached the destination" \
+      "$([ -e "$XDEV/big/r7.txt" ] && echo landed || echo absent)" "absent"
 check "and the window survived" "$(ipc total >/dev/null 2>&1 && echo alive || echo gone)" "alive"
 
 # ---------------------------------------------------------------- R8
@@ -796,7 +802,7 @@ begin_pair() {
 
 target_points() {
   local point x y
-  point=$(screen_centre folder) || die "target folder is not visible: row=$(rowidx folder 2>&1) centre=$(ipc rowCentre "$(rowidx folder 2>/dev/null)" 2>&1) window=${WW}x${WH} view=$(ipc viewMode 2>&1) total=$(ipc total 2>&1)"
+  point=$(screen_centre folder) || die "target folder is not visible: row=$(rowidx folder 2>&1) centre=$(ipc rowCentre "$(rowidx folder 2>/dev/null)" 2>&1) window=${WW}x${WH} view=$(ipc viewMode 2>&1) total=$(ipc total 2>&1) row0=$(ipc visibleRowName 0 2>&1)"
   read -r folder_x folder_y <<< "$point"
   point=$(floor_centre) || die "target has no measured empty listing floor"
   read -r floor_x floor_y <<< "$point"
