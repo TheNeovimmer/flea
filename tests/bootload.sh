@@ -27,8 +27,7 @@ entries=""
 for f in $files; do grep -q 'ShellRoot *{' "ui/boot/$f" && entries="$entries $f"; done
 expected=$(cd ui/boot && printf '%s\n' *.qml | wc -l)
 
-# A declarative Loader source carries no initial props, so a root-level required prop on a
-# Loader-loaded file can never hold at creation; delegate props nested deeper are untouched.
+# A declarative Loader carries no initial props, so root-level required props cannot hold at creation; nested delegate props are untouched.
 required=""
 for f in $files; do
     case "$entries" in *" $f"*) continue ;; esac
@@ -68,8 +67,7 @@ if [ "$warn_count" -ne 0 ]; then
     printf '%s\n' "$output" | grep -aiE 'is not a type|Required property .* was not initialized' | head -10
     exit 1
 fi
-# A note is an offscreen-only failure the probe could not classify; only the pinned
-# PanelWindow artifact may pass, every novel one fails beside the probe's own FAIL.
+# A note is an unclassified offscreen failure; only the pinned PanelWindow artifact may pass, every novel one fails beside the probe's FAIL.
 notes=$(printf '%s\n' "$output" | grep -a 'BOOTLOAD NOTE' || true)
 if [ -n "$notes" ]; then
     other=$(printf '%s\n' "$notes" | grep -av 'No PanelWindow backend loaded' || true)

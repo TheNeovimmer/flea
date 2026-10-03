@@ -1,8 +1,8 @@
 #!/bin/bash
-# Verdict helpers for the Bottom-layer drop probe, shared by the live probe and
-# the headless scan. Pure string logic only, so tests/xwtab-scan.sh can drive
-# every arm with fabricated input: no hyprctl, no qs, no process table here.
-# The probe supplies the live readers around these; the scan stubs them.
+# Verdict helpers shared by the Bottom-layer probe and headless scan; the probe supplies live readers and the scan stubs them.
+
+layerdrop_path_attempts=30
+layerdrop_path_poll=0.5
 
 # Pids in AFTER not in BEFORE, normalised numeric sort deduped, no edge space.
 layerdrop_torn_pids() {
@@ -22,19 +22,26 @@ layerdrop_path_matches() {
     [[ -n "${1:-}" && "${1:-}" == "${2:-}" ]]
 }
 
-# 0 when any pid in TORN reads as WANT through PATHS_TSV ("pid<TAB>path" lines).
-layerdrop_any_on_path() {
-    local torn="$1" want="$2" paths_tsv="$3" pid line p
-    [[ -n "$want" ]] || return 1
+# 0 when a torn pid resolves to a qs instance on the lifted folder; paths_tsv retains failure diagnostics.
+layerdrop_catcher_hit() {
+    local torn="$1" lifted_path="$2" pid tid seen attempt
+    paths_tsv=""
+    [[ -n "$lifted_path" ]] || return 1
     [[ -n "$torn" ]] || return 1
     for pid in $torn; do
-        p=""
-        while IFS= read -r line; do
-            [[ "${line%%$'\t'*}" == "$pid" ]] || continue
-            p="${line#*$'\t'}"
-            break
-        done <<< "$paths_tsv"
-        layerdrop_path_matches "$p" "$want" && return 0
+        tid=$(layerdrop_qsid "$pid") || continue
+        [[ -n "$tid" ]] || continue
+        seen=""
+        for attempt in $(seq 1 "$layerdrop_path_attempts"); do
+            seen=$(qs ipc -i "$tid" call flea path 2>/dev/null || true)
+            layerdrop_path_matches "$seen" "$lifted_path" && break
+            sleep "$layerdrop_path_poll"
+        done
+        paths_tsv+="${pid}"$'\t'"${seen}"$'\n'
+        if layerdrop_path_matches "$seen" "$lifted_path"; then
+            printf 'torn-off window %s took the drop on %s\n' "$pid" "$seen" >&2
+            return 0
+        fi
     done
     return 1
 }

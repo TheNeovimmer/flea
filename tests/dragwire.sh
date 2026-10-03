@@ -14,10 +14,31 @@ fail=0
 ok()  { printf 'ok   %s\n' "$*"; pass=$((pass+1)); }
 bad() { printf 'FAIL %s\n' "$*"; fail=$((fail+1)); }
 
-# Comments may name an action to explain it, so every check below reads code only.
+# Sample input: Drag.supportedActions: Qt.MoveAction // explanatory comment, which is ignored.
 code_of() { sed -e 's://.*::' "$1"; }
 
-advertised=$(for f in ui/*.qml; do code_of "$f" | grep -H --label="$f" -n 'Drag\.supportedActions'; done)
+advertised=$(while IFS= read -r f; do
+    code_of "$f" | grep -H --label="$f" -n 'Drag\.supportedActions'
+done < <(find ui -type f -name '*.qml'))
+
+advertiser_files=$(printf '%s\n' "$advertised" | cut -d: -f1 | sort -u)
+expected_advertisers=$(printf '%s\n' ui/FileDrag.qml ui/TabBar.qml | sort -u)
+if [[ "$advertiser_files" == "$expected_advertisers" ]]; then
+    ok "only ui/FileDrag.qml and ui/TabBar.qml advertise drag actions"
+else
+    bad "unexpected Drag.supportedActions files: $advertiser_files"
+fi
+
+# FileDrag and Drag.js offer uri-list; DropInto and RowDrag consume it, with no other ui users.
+uri_files=$(while IFS= read -r f; do
+    code_of "$f" | grep -H --label="$f" 'text/uri-list'
+done < <(find ui -type f \( -name '*.qml' -o -name '*.js' \)) | cut -d: -f1 | sort -u)
+expected_uri_files=$(printf '%s\n' ui/DropInto.qml ui/FileDrag.qml ui/RowDrag.qml ui/js/Drag.js | sort -u)
+if [[ "$uri_files" == "$expected_uri_files" ]]; then
+    ok "uri-list is confined to the file payload producers and their two receivers"
+else
+    bad "unexpected text/uri-list files: $uri_files"
+fi
 
 # Exactly one file-drag advertiser of copy, the file lift, plus the tab drag's own Move.
 copy_files=$(printf '%s' "$advertised" | grep 'CopyAction' | cut -d: -f1 | sort -u)
@@ -48,9 +69,7 @@ else
     bad "file lift offers failed (status=$offer_status): $file_offer"
 fi
 
-# The Move-alone advertiser is the tab drag, and it carries no folder with it: Files
-# moves a folder whenever Move is offered, so the private type rides alone. The file
-# lift's own Shift move keeps its uri-list by the verb rule the checks above pin.
+# The Move-alone advertiser is the tab drag: it carries the private type alone, since Files moves a folder whenever Move is offered.
 if grep -q 'text/uri-list' ui/TabBar.qml; then
     bad "the tab drag must not offer text/uri-list with Move"
 else

@@ -47,6 +47,76 @@ def shell(code):
 with tempfile.TemporaryDirectory() as temporary:
     scratch = pathlib.Path(temporary)
     log = scratch / 'calls'
+    receiver_start = UI.index('    [[ -n "$recv_addr" ]] || fail')
+    receiver_end = UI.index('    read -r rcx rcy', receiver_start)
+    receiver = 'receiver_case() {\n' + UI[receiver_start:receiver_end] + '\n}\n'
+    focus_helpers = '\n'.join(function(UI, name) for name in
+                              ('xwdrag_focus', 'xwdrag_wait_focus', 'xwdrag_fail_unfocused'))
+    if 'hypr_dispatch() {' in UI:
+        focus_helpers += '\n' + function(UI, 'hypr_dispatch')
+    for refusal in ('none', 'focus-status', 'focus-reply', 'focus-stolen',
+                    'float-status', 'float-reply', 'move-status', 'move-reply'):
+        log.write_text('')
+        result = shell(focus_helpers + '\n' + receiver + f"\ncall_log='{log}'\nrefusal='{refusal}'\n" + r'''
+recv_pid=303
+recv_addr=0xc
+fail() {
+    printf 'FAIL %s\n' "$*"
+    exit 1
+}
+sleep() { :; }
+hyprctl() {
+    case "$1" in
+        clients)
+            printf '%s\n' '[{"pid":303,"address":"0xc","title":"flea-drag-receiver"}]'
+            ;;
+        activewindow)
+            printf 'readback\n' >> "$call_log"
+            if [[ "$refusal" == focus-stolen ]]; then
+                printf '%s\n' '{"pid":202,"address":"0xb"}'
+            else
+                printf '%s\n' '{"pid":303,"address":"0xc"}'
+            fi
+            ;;
+        dispatch)
+            printf '%s\n' "$2" >> "$call_log"
+            local phase
+            case "$2" in
+                hl.dsp.focus*) phase=focus ;;
+                hl.dsp.window.float*) phase=float ;;
+                hl.dsp.window.move*) phase=move ;;
+            esac
+            if [[ "$refusal" == "$phase-status" ]]; then
+                return 1
+            elif [[ "$refusal" == "$phase-reply" ]]; then
+                printf 'refused\n'
+            else
+                printf 'ok\n'
+            fi
+            ;;
+    esac
+}
+if (
+    set -e
+    receiver_case
+); then
+    exit 0
+else
+    exit 1
+fi
+''')
+        calls = log.read_text().splitlines()
+        actions = [line for line in calls if 'hl.dsp.window.' in line]
+        detail = result.stdout + result.stderr + ' calls=' + repr(calls)
+        if refusal == 'none':
+            check('receiver placement reads focus and explicitly targets its address',
+                  result.returncode == 0 and 'readback' in calls and len(actions) == 2
+                  and all('window = "address:0xc"' in line for line in actions), detail)
+        else:
+            check('receiver placement fails loudly on ' + refusal,
+                  result.returncode != 0 and 'FAIL' in result.stdout
+                  and len(actions) <= (1 if refusal.startswith('float') else 2 if refusal.startswith('move') else 0), detail)
+
     result = shell(function(UI, 'xwtab_cleanup') + f'''
 recv_pid=345
 xwtab_release() {{ :; }}
@@ -364,6 +434,70 @@ python3() { return 2; }
     check('Keys on their own focused Item remain valid', result.returncode == 0, result.stdout + result.stderr)
 
     probe = (ROOT / 'tests/probes/layer-drop-bottom.sh').read_text()
+    move = function(probe, 'move_to')
+    verdict_output = function(probe, 'out') + '\n' + function(probe, 'refuse')
+    for cursor_status, cursor in ((1, ''), (1, '40, 80'), (0, ''), (0, '40'),
+                                  (0, '40, nope'), (0, '40, 80, 9'), (0, '40.5, 80')):
+        log.write_text('')
+        result = shell('set -u\n' + move + '\n' + verdict_output + f'''
+hyprctl() {{
+    printf '%s\\n' '{cursor}'
+    return {cursor_status}
+}}
+ydotool() {{ printf 'motion\\n' >> '{log}'; }}
+sleep() {{ :; }}
+move_to 40 80
+''')
+        check('cursor read refuses status=' + str(cursor_status) + ' input=' + repr(cursor),
+              result.returncode != 0 and result.stdout.startswith('LAYERDROP FAIL ')
+              and not log.read_text() and 'unbound variable' not in result.stderr,
+              result.stdout + result.stderr)
+    for cursor in ('40, 80', '-40, -80'):
+        target = cursor.replace(',', '')
+        result = shell('set -u\n' + move + '\n' + verdict_output + f'''
+hyprctl() {{ printf '%s\\n' '{cursor}'; }}
+ydotool() {{ exit 2; }}
+move_to {target}
+''')
+        check('valid integer cursor read reaches target ' + target,
+              result.returncode == 0 and not result.stdout, result.stdout + result.stderr)
+
+    header = probe[:probe.index('set -u')].splitlines()
+    for marker, proof in (('LAYERDROP PASS', 'panel'),
+                          ('LAYERDROP CATCHER-TEAROFF', 'folder'),
+                          ('LAYERDROP FAIL <why>', 'failure')):
+        check('probe header documents ' + marker + ' and its proof',
+              any(marker in line and proof in line.lower() for line in header))
+
+    comments = {
+        'tests/bootload.sh': ('# A declarative Loader', '# A note is'),
+        'tests/dragwire.sh': ('# The Move-alone advertiser',),
+        'tests/probes/layer-drop-bottom.sh': ('# A minimal Bottom-layer panel',),
+    }
+    for relative, starts in comments.items():
+        lines = (ROOT / relative).read_text().splitlines()
+        for start in starts:
+            index = next(index for index, line in enumerate(lines) if line.startswith(start))
+            check(relative + ' comment occupies one line: ' + start,
+                  not lines[index + 1].startswith('#'))
+    for relative in ('tests/probes/layer-drop-bottom.sh',
+                     'tests/probes/layer-drop-verdict.sh', 'tests/xwtab-scan.sh'):
+        lines = (ROOT / relative).read_text().splitlines()[1:]
+        comments = lines[:next(index for index, line in enumerate(lines)
+                               if not line.startswith('#'))]
+        check(relative + ' header has complete one-line comments',
+              all(line.endswith('.') for line in comments), repr(comments))
+
+    for suffix, value in (('outside_x', '200'), ('outside_y', '60'), ('target_nudge', '6')):
+        name = 'xwtab_' + suffix
+        check('tab-drag names ' + name + ' beside helpers',
+              name + '=' + value in UI[UI.index('xwtab_logs='):UI.index('xwtab_drag_to_window()')]
+              and 'layerdrop_' + suffix + '=' + value in probe)
+        shared = function(UI, 'xwtab_drag_to_window')
+        escape = UI[UI.index('    # Escape mid-drag over A cancels'):UI.index('    xwtab_wait_cancel')]
+        check('shared and Escape gestures use ' + name,
+              name in shared and name in escape)
+
     gesture_start = probe.index('move_to "$sx" "$sy"\ndrag_mark=')
     gesture_end = probe.index('# Wait for an observed panel receipt', gesture_start)
     gesture = probe[gesture_start:gesture_end]
@@ -433,8 +567,42 @@ sleep() { :; }
 layerdrop_wait_drag receiver
 ''')
         check('layer probe refuses release without a held receiver receipt', result.returncode != 0, result.stdout + result.stderr)
-    block = probe[probe.index('    if layerdrop_path_matches "$seen" "$lifted_path"; then'):]
+    block = probe[probe.index('paths_tsv=""'):]
     check('catcher outcome never masquerades as fixture PANEL-DROP PASS', 'out "PASS"' not in block)
+    check('probe calls the exercised catcher verdict',
+          'if layerdrop_catcher_hit "$torn" "$lifted_path"; then' in block)
+    for torn_path, wanted in (('/fixture', 'LAYERDROP CATCHER-TEAROFF'),
+                              ('/elsewhere', 'LAYERDROP FAIL ')):
+        result = shell('set -u\n' + verdict_output + f'''
+. '{ROOT / 'tests/probes/layer-drop-verdict.sh'}'
+layerdrop_path_attempts=2
+layerdrop_path_poll=0
+flea_pid=101
+torn=202
+lifted_path=/fixture
+before_flea=101
+after_flea='101 202'
+log=/dev/null
+layerdrop_qsid() {{
+    case "$1" in
+        101) printf 'source-id\\n' ;;
+        202) printf 'torn-id\\n' ;;
+        *) return 1 ;;
+    esac
+}}
+qs() {{
+    case "$3" in
+        source-id) printf '/fixture\\n' ;;
+        torn-id) printf '%s\\n' '{torn_path}' ;;
+        *) return 1 ;;
+    esac
+}}
+sleep() {{ :; }}
+''' + block)
+        check('live catcher verdict reads torn pid on ' + torn_path,
+              result.stdout.startswith(wanted)
+              and (result.returncode == 0) == (torn_path == '/fixture'),
+              result.stdout + result.stderr)
 
 print(f'{checks} safety checks, {failures} failed')
 raise SystemExit(bool(failures))

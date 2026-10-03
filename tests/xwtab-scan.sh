@@ -1,7 +1,6 @@
 #!/bin/bash
 # Headless check for the xwtab free-desktop scan, same code the case runs.
-# Fabricated monitors, clients and layers prove level 0 is skipped, other
-# workspaces are skipped, levels 1 to 3 on the focused monitor still block.
+# Fabricated monitors, clients and layers prove level 0 and other workspaces are skipped while levels 1 to 3 on the focused monitor block.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 repo=$PWD
@@ -186,22 +185,52 @@ ok "native before/after leaves one torn pid: $torn_case"
 else
 bad "native before/after leaves one torn pid, want '169306', got '$torn_case'"
 fi
-paths_case=$(printf '169306\t%s' "/fake/layer-drop/src")
-if layerdrop_any_on_path "$torn_case" "/fake/layer-drop/src" "$paths_case"; then
+layerdrop_path_attempts=2
+layerdrop_path_poll=0
+flea_pid=169083
+layerdrop_qsid() {
+    case "$1" in
+        169083) printf 'source-id\n' ;;
+        169306) printf 'torn-id\n' ;;
+        *) return 1 ;;
+    esac
+}
+qs() {
+    [[ "$1" == ipc && "$2" == -i && "$4 $5 $6" == 'call flea path' ]] || return 1
+    case "$3" in
+        source-id) printf '/fake/layer-drop/src\n' ;;
+        torn-id) printf '%s\n' "$torn_path" ;;
+        *) return 1 ;;
+    esac
+}
+torn_path=/fake/layer-drop/src
+if layerdrop_catcher_hit "$torn_case" "/fake/layer-drop/src"; then
 ok "a torn window on the lifted folder is the drop reaching the catcher"
 else
 bad "a torn window on the lifted folder should count as the drop reaching the catcher"
 fi
-if layerdrop_any_on_path "$torn_case" "/fake/layer-drop/src" "$(printf '169306\t%s' "/elsewhere")"; then
+torn_path=/elsewhere
+if layerdrop_catcher_hit "$torn_case" "/fake/layer-drop/src"; then
 bad "a torn window on another folder must not count as the drop reaching the catcher"
 else
 ok "a torn window on another folder does not count"
 fi
-if layerdrop_any_on_path "" "/fake/layer-drop/src" "$paths_case"; then
+if layerdrop_catcher_hit "" "/fake/layer-drop/src"; then
 bad "no torn window must not count as the drop reaching the catcher"
 else
 ok "no torn window does not count"
 fi
+if layerdrop_catcher_hit 169307 "/fake/layer-drop/src"; then
+bad "a torn pid without a qs instance must not count as the catcher"
+else
+ok "a torn pid without a qs instance does not count"
+fi
+if layerdrop_catcher_hit "$torn_case" ""; then
+bad "an empty lifted folder must not count as the catcher"
+else
+ok "an empty lifted folder does not count"
+fi
+unset -f qs layerdrop_qsid
 printf 'PANEL-DROP\n' > "$scratch/panel-hit.log"
 if layerdrop_panel_hit "$scratch/panel-hit.log"; then
 ok "the probe panel route still passes on its own log line"
@@ -213,17 +242,6 @@ if layerdrop_panel_hit "$scratch/panel-miss.log"; then
 bad "an empty panel log must not count as the panel taking the drop"
 else
 ok "an empty panel log does not count"
-fi
-# The probe shares this verdict file, so a revert of its verdict section reddens here too.
-if grep -q 'FLEA_PATH=$srcdir' "$repo/tests/probes/layer-drop-bottom.sh"; then
-bad "the probe verdict still keys on the torn window environ"
-else
-ok "the probe verdict no longer keys on the torn window environ"
-fi
-if grep -q 'layerdrop_torn_pids' "$repo/tests/probes/layer-drop-bottom.sh"; then
-ok "the probe verdict shares the torn computation above"
-else
-bad "the probe verdict should share the torn computation above"
 fi
 # Hyprland selectors built from an address need the address: prefix.
 # A bare address resolves nothing while the dispatcher still returns ok.

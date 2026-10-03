@@ -1,11 +1,11 @@
 #!/bin/bash
 # Probe: a drop on empty desktop reaches a Bottom-layer panel (xw6 item 3).
-# Controller runs this on minipc under Hyprland as `bash tests/probes/layer-drop-bottom.sh`
-# with FLEA_BIN pointing at the built release binary (FLEA_UI defaults to this checkout's
-# ui/); it also runs inside tests/ui.sh's environment, which provides the same two variables,
-# omarchy-drive on PATH and the session's QT_QPA_PLATFORMTHEME. Either way it is unattended:
-# bounded waits only, cleanup through the trap, and exactly one stdout line, either
-# `LAYERDROP PASS` or `LAYERDROP FAIL <why>`; every diagnostic goes to stderr.
+# Run on minipc under Hyprland with FLEA_BIN set to the release binary; FLEA_UI defaults to this checkout ui directory.
+# tests/ui.sh supplies the same variables, omarchy-drive on PATH and QT_QPA_PLATFORMTHEME; every wait is bounded.
+# Exactly one stdout marker is emitted; diagnostics go to stderr.
+# LAYERDROP PASS proves the fixture Bottom panel recorded PANEL-DROP.
+# LAYERDROP CATCHER-TEAROFF proves a new Flea window opened on the lifted folder through the catcher.
+# LAYERDROP FAIL <why> reports a setup, input or unobserved-drop failure and exits unsuccessfully.
 set -u
 out() { printf 'LAYERDROP %s\n' "$*"; }
 refuse() { declare -F layerdrop_diagnostics >/dev/null && layerdrop_diagnostics; out "FAIL $*"; exit 1; }
@@ -57,8 +57,7 @@ layerdrop_diagnostics() {
 log="$work/panel.log"
 : > "$log"
 
-# A minimal Bottom-layer panel with a DropArea for the tab type. A drop appends
-# PANEL-DROP through a shell escaping the QML string, so the check reads a file.
+# A minimal Bottom-layer panel offers the tab DropArea and appends PANEL-DROP to the file the check reads.
 cat > "$work/panel.qml" <<EOF
 import QtQuick
 import Quickshell
@@ -238,13 +237,19 @@ read -r dx dy <<< "$point"
 # The Bottom panel must still be mapped at release, or the drop has no receiver.
 hyprctl layers -j 2>/dev/null | grep -Fq '"namespace": "flea-layer-drop"' || refuse "Bottom panel went away before the drop"
 move_to() {
-    local tx="$1" ty="$2" i cx cy
-    for i in $(seq 1 16); do
-        set -- $(hyprctl cursorpos | tr -d ',')
-        cx=$1; cy=$2
-        if [ "$((tx - cx))" -le 4 ] && [ "$((tx - cx))" -ge -4 ] && [ "$((ty - cy))" -le 4 ] && [ "$((ty - cy))" -ge -4 ]; then return 0; fi
-        ydotool mousemove -x "$(((tx - cx) / 2))" -y "$(((ty - cy) / 2))" >/dev/null 2>&1 || refuse "pointer motion failed"
-        sleep 0.05
+    local tx="$1" ty="$2" i cx cy cursor
+    local attempts=16 tolerance=4 divisor=2 poll=0.05
+    for i in $(seq 1 "$attempts"); do
+        cursor=$(hyprctl cursorpos) || refuse "cursorpos read failed"
+        # Sample input: hyprctl cursorpos returns "40, 80"; negative coordinates are valid.
+        [[ "$cursor" =~ ^[[:space:]]*(-?[0-9]+),[[:space:]]+(-?[0-9]+)[[:space:]]*$ ]] || refuse "invalid cursor position: $cursor"
+        cx=${BASH_REMATCH[1]}
+        cy=${BASH_REMATCH[2]}
+        if (( tx - cx <= tolerance && tx - cx >= -tolerance && ty - cy <= tolerance && ty - cy >= -tolerance )); then
+            return 0
+        fi
+        ydotool mousemove -x "$(((tx - cx) / divisor))" -y "$(((ty - cy) / divisor))" >/dev/null 2>&1 || refuse "pointer motion failed"
+        sleep "$poll"
     done
     refuse "pointer did not reach $tx,$ty"
 }
@@ -326,28 +331,14 @@ if layerdrop_panel_hit "$log"; then
     out "PASS"
     exit 0
 fi
-# The drop reached Flea's own Bottom catcher instead: a new owned window reads
-# as the lifted folder through the same qs ipc reader the case uses for its tabs.
+# The drop reached Flea's own Bottom catcher when a new owned window reads as the lifted folder through qs ipc.
 after_flea=$(pgrep -x qs | while read -r pid; do tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq "$flea_ui" && printf '%s ' "$pid"; done)
 torn=$(layerdrop_torn_pids "$before_flea" "$after_flea")
 paths_tsv=""
-for pid in $torn; do
-    tid=$(layerdrop_qsid "$pid" || true)
-    [ -n "${tid:-}" ] || continue
-    seen=""
-    for _ in $(seq 1 30); do
-        seen=$(qs ipc -i "$tid" call flea path 2>/dev/null || true)
-        layerdrop_path_matches "$seen" "$lifted_path" && break
-        sleep 0.5
-    done
-    paths_tsv="${paths_tsv}${pid}$(printf '\t')${seen}
-"
-    if layerdrop_path_matches "$seen" "$lifted_path"; then
-        printf 'torn-off window %s took the drop on %s\n' "$pid" "$seen" >&2
-        out "CATCHER-TEAROFF"
-        exit 0
-    fi
-done
+if layerdrop_catcher_hit "$torn" "$lifted_path"; then
+    out "CATCHER-TEAROFF"
+    exit 0
+fi
 printf 'flea windows before: %s after: %s\n' "$before_flea" "$after_flea" >&2
 printf 'lifted folder: %s torn: %s paths: %s\n' "$lifted_path" "$torn" "$(printf '%s' "$paths_tsv" | tr '\n' ';')" >&2
 refuse "no PANEL-DROP in $log and no torn-off window"

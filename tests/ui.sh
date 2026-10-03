@@ -10835,6 +10835,16 @@ print(hits[0]["address"] if len(hits) == 1 else "")
     sleep 0.4
 }
 
+# Sample input: hyprctl dispatch returns "ok" on success or a refusal string even with exit 0.
+hypr_dispatch() {
+    local reply
+    if reply=$(hyprctl dispatch "$1" 2>&1); then
+        [[ "$reply" == ok ]] && return 0
+    fi
+    printf 'hyprctl refused %s: %s\n' "$1" "$reply" >&2
+    return 1
+}
+
 xwdrag_focus() {
     local pid="$1" addr
     addr=$(hyprctl clients -j | python3 -c '
@@ -10843,7 +10853,7 @@ hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$pid") || fail "xwdrag: no window for pid $pid"
     [[ -n "$addr" ]] || fail "xwdrag: no address for pid $pid"
-    hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
+    hypr_dispatch "hl.dsp.focus({ window = \"address:$addr\" })" || fail "xwdrag: could not focus $pid"
     xwdrag_wait_focus "$pid" "$addr"
 }
 
@@ -11017,6 +11027,9 @@ xwdrag_kill_second() {
 
 # Each launcher preserves stdout and stderr across exec_qs; run.log only archives flea.log.
 xwtab_logs=("$flea_log" "$run_root/flea-second.log")
+xwtab_outside_x=200
+xwtab_outside_y=60
+xwtab_target_nudge=6
 xwtab_marks=(0 0)
 xwtab_source=""
 xwtab_target=""
@@ -11195,11 +11208,11 @@ xwtab_drag_to_window() {
     xwtab_mark_logs
     xwtab_button_down=true
     ydotool click 0x40 >/dev/null 2>&1 || fail "xwtab: pointer press failed"
-    xwtab_gesture+=" outside=$((wx + 200)),$((wy + wh + 60))"
-    xwdrag_glide "$((wx + 200))" "$((wy + wh + 60))"
+    xwtab_gesture+=" outside=$((wx + xwtab_outside_x)),$((wy + wh + xwtab_outside_y))"
+    xwdrag_glide "$((wx + xwtab_outside_x))" "$((wy + wh + xwtab_outside_y))"
     xwtab_wait_start
     xwdrag_glide "$dx" "$dy"
-    xwdrag_glide "$((dx + 6))" "$dy"
+    xwdrag_glide "$((dx + xwtab_target_nudge))" "$dy"
     xwdrag_glide "$dx" "$dy"
     if [[ "$mode" == catcher ]]; then
         xwtab_wait_catcher
@@ -11508,10 +11521,10 @@ print(hits[0]["address"] if len(hits) == 1 else "")
     xwtab_button_down=true
     ydotool click 0x40 >/dev/null 2>&1 || fail "xwtab: pointer press failed"
     sleep 0.3
-    xwdrag_glide "$((awx + 200))" "$((awy + awh + 60))"
+    xwdrag_glide "$((awx + xwtab_outside_x))" "$((awy + awh + xwtab_outside_y))"
     xwtab_wait_start
     xwdrag_glide "$sx" "$sy"
-    xwdrag_glide "$((sx + 6))" "$sy"
+    xwdrag_glide "$((sx + xwtab_target_nudge))" "$sy"
     xwdrag_glide "$sx" "$sy"
     # The catcher never takes keyboard focus, so Escape reaches the source drag filter.
     omarchy-drive key --window "$addr" -k Escape >/dev/null || fail "xwtab: Escape did not reach $apid"
@@ -11574,11 +11587,11 @@ print(hits[0]["address"] if len(hits) == 1 else "")
         sleep 0.25
     done
     [[ -n "$recv_addr" ]] || fail "xwtab: the foreign receiver never came up: $(cat "$dir/receiver-err.log" 2>/dev/null)"
-    hyprctl dispatch "hl.dsp.focus({ window = \"address:$recv_addr\" })" >/dev/null
+    xwdrag_focus "$recv_pid"
     sleep 0.3
-    hyprctl dispatch "hl.dsp.window.float()" >/dev/null
+    hypr_dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$recv_addr\" })" || fail "xwtab: could not float foreign receiver $recv_pid"
     sleep 0.3
-    hyprctl dispatch "hl.dsp.window.move({ x = 1100, y = 500 })" >/dev/null
+    hypr_dispatch "hl.dsp.window.move({ x = 1100, y = 500, window = \"address:$recv_addr\" })" || fail "xwtab: could not move foreign receiver $recv_pid"
     sleep 0.4
     read -r rcx rcy < <(hyprctl clients -j | python3 -c '
 import json, sys

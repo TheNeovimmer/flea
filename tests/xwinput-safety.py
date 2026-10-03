@@ -8,6 +8,9 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 UI = (ROOT / 'tests/ui.sh').read_text()
+GESTURE_CONSTANTS = '\n'.join(line for line in UI.splitlines()
+                              if line.startswith(('xwtab_outside_x=', 'xwtab_outside_y=',
+                                                  'xwtab_target_nudge=')))
 SHELL_TIMEOUT_SECONDS = 10
 checks = 0
 failures = 0
@@ -134,7 +137,7 @@ xwdrag_qs() {
         for refuse_address in ('false', 'true'):
             calls.write_text('')
             environment['DRIVER_REFUSE_ADDRESS'] = refuse_address
-            code = doubles + '\n' + helpers + '\n' + body + '\n' + invocation
+            code = doubles + '\n' + GESTURE_CONSTANTS + '\n' + helpers + '\n' + body + '\n' + invocation
             result = subprocess.run(['bash', '-uc', code], cwd=ROOT, capture_output=True,
                                     text=True, env=environment, timeout=SHELL_TIMEOUT_SECONDS)
             actual = calls.read_text().splitlines()
