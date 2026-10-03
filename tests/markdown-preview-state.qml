@@ -127,15 +127,14 @@ QtObject {
             + 'property int maxBytes: ' + defaultReaderLimitBytes + '\nproperty string view: ""\nproperty bool truncate: false\n'
             + 'property var seen: []\nreadonly property bool tooLarge:' + tooLarge + '\n'
             + 'readonly property string readerPath:' + readerPath + '\n'
-            + 'onReaderPathChanged: seen.push({ path: readerPath, size: size, limit: maxBytes })\n'
+            + 'onReaderPathChanged: seen.push(readerPath)\n'
             + 'function apply() {' + callback.replace(/Facts\./g, "facts.").replace(/ViewState\./g, "viewState.")
             + '} }', gate.sandbox)
         // Evaluate the observer before installing bindings so intermediate reader paths are recorded.
         var initialPath = probe.readerPath
         probe.apply()
-        var safe = probe.seen.every(function (value) {
-            return value.path === "" || value.size <= gate.remoteLimitBytes
-        })
+        // The row is over the limit from the start, so any path the reader saw on the way is an exposure.
+        var safe = probe.seen.every(function (path) { return path === "" })
         var guarded = initialPath === "" && safe && probe.active && probe.size === remoteRowBytes
             && probe.maxBytes === remoteLimitBytes && probe.readerPath === ""
         probe.size = remoteLimitBytes
@@ -156,6 +155,11 @@ QtObject {
             "readonly property bool tooLarge: false")
         check(blindLimit !== source && !readerGate(blindLimit, column).guarded,
             "F47 control: a tooLarge without its comparison is caught")
+        var sizeLine = "item.size = Qt.binding(function () { return root.row ? root.row.s : 0 })"
+        var lastLine = "item.truncate = Qt.binding(function () { return root.truncateText })"
+        var lateSize = column.replace(sizeLine, "").replace(lastLine, lastLine + "\n" + sizeLine)
+        check(lateSize.indexOf(sizeLine) > lateSize.indexOf(lastLine) && !readerGate(source, lateSize).guarded,
+            "F47 control: a size bound after active is caught")
     }
 
     function commentChecks(source) {
