@@ -69,8 +69,12 @@ Item {
     }
     function verifyHeld() {
         probe.check(FigureService.requests.length === 0, "a change before creation completes requests=" + FigureService.requests.length + ", want 0");
-        // The control: the same kind of change on a created figure does ask, so the zero above is the guard's.
         figure.created = true;
+        Qt.callLater(probe.verifyQuiet);
+    }
+    function verifyQuiet() {
+        probe.check(FigureService.requests.length === 0, "setting created back requests=" + FigureService.requests.length + ", want 0");
+        // The control: the same kind of change on a created figure does ask, so the zeros above are the guard's.
         figure.bgHex = "#555555";
         Qt.callLater(probe.verifySent);
     }
