@@ -137,19 +137,21 @@ function standaloneImage(line, dir, defs) {
         var head = MdHtml.tagHead(tag.tag)
         if (head.name !== "img" || head.closing || !head.validAttrs)
             return null
-        var src = "", alt = ""
+        // First attributes win even when their values are empty or absent.
+        var src = null
+        var alt = null
         for (var a = 0; a < head.attributes.length; a++) {
             var attr = head.attributes[a]
-            if (attr.name === "src")
+            if (attr.name === "src" && src === null)
                 src = attr.value === null ? "" : attr.value
-            if (attr.name === "alt")
+            if (attr.name === "alt" && alt === null)
                 alt = attr.value === null ? "" : attr.value
         }
-        var cls = MdUrl.classifyImage(src, dir)
+        var cls = MdUrl.classifyImage(src === null ? "" : src, dir)
         if (cls.kind === "remote")
             return { type: "remote", host: cls.host }
         if (cls.kind === "local")
-            return { type: "image", url: cls.url, alt: alt }
+            return { type: "image", url: cls.url, alt: alt === null ? "" : alt }
         return null
     }
     return null

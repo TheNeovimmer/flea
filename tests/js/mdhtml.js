@@ -11,6 +11,18 @@ function run(check) {
     var ink = "#c0caf5"
     function inline(s, color) { return Run.parseInline(s, dir, {}, {}, "#181825", color, []) }
     function tag(s) { return Html.sanitizeTag(s, dir, []).emit }
+    var customOpen = Html.tagHead("<svg-icon>")
+    var customClose = Html.tagHead("</svg-icon>")
+    check("R10 md2a svg-icon opening name", customOpen.name, "svg-icon")
+    check("R10 md2a svg-icon opening is not closing", customOpen.closing, false)
+    check("R10 md2a svg-icon opening has valid attributes", customOpen.validAttrs, true)
+    check("R10 md2a svg-icon closing matches opening name", customClose.name, customOpen.name)
+    check("R10 md2a svg-icon closing is closing", customClose.closing, true)
+    check("R10 md2a svg-icon closing has valid attributes", customClose.validAttrs, true)
+    check("R10 md2a svg-icon inline keeps tail", inline("<svg-icon>x</svg-icon> tail", ink), "x tail")
+    check("R10 md2a svg-icon document keeps tail",
+        JSON.stringify(Markdown.blocks("<svg-icon>x</svg-icon> tail", dir, "#181825", ink)),
+        JSON.stringify([{ type: "run", text: "x tail" }]))
     check("F1 HTML host has no tag", tag('<img src="http://a%3Cb%3Ex/x">').indexOf("<b>"), -1)
     check("F1 Markdown host has no tag", inline('![x](http://a%3Cb%3Ex/x)', ink).indexOf("<b>"), -1)
     check("F2 forbidden target has no live brackets", inline('[x](javascript:alert(1))', ink).indexOf("["), -1)
@@ -103,6 +115,31 @@ function run(check) {
         Leaf.standaloneImage('<img data-src="pic.png">', dir, {}), null)
     check("R9 standalone image normalizes unquoted slash",
         Leaf.standaloneImage('<img src=pic.png/>', dir, {}).url, "file://" + dir + "/pic.png")
+    var firstImage = { type: "image", url: "file://" + dir + "/a.png", alt: "" }
+    var firstAlt = { type: "image", url: firstImage.url, alt: "first" }
+    var duplicateImages = [
+        { label: "first src", tag: '<img src="a.png" src="b.png">', expected: firstImage },
+        { label: "first unquoted src", tag: '<img src=a.png src=b.png>', expected: firstImage },
+        { label: "first empty src", tag: '<img src="" src="b.png">', expected: null },
+        { label: "first valueless src", tag: '<img src src="b.png">', expected: null },
+        { label: "first local src", tag: '<img src="a.png" src="https://later.example/b.png">', expected: firstImage },
+        { label: "first remote src", tag: '<img SRC="https://first.example/a.png" src="b.png">',
+            expected: { type: "remote", host: "first.example" } },
+        { label: "first alt", tag: '<img src="a.png" alt="first" alt="last">', expected: firstAlt },
+        { label: "first unquoted alt", tag: '<img src=a.png alt=first alt=last>', expected: firstAlt },
+        { label: "first empty alt", tag: '<img src="a.png" alt="" alt="last">', expected: firstImage },
+        { label: "first valueless alt", tag: '<img src="a.png" alt alt="last">', expected: firstImage },
+        { label: "first mixed-case src and alt", tag: "<img SRC='a.png' src='b.png' ALT='first' alt='last'>",
+            expected: firstAlt }
+    ]
+    for (var duplicateIndex = 0; duplicateIndex < duplicateImages.length; duplicateIndex++) {
+        var duplicate = duplicateImages[duplicateIndex]
+        check("R10 md2b F45 md2c F38 standalone image keeps " + duplicate.label,
+            JSON.stringify(Leaf.standaloneImage(duplicate.tag, dir, {})), JSON.stringify(duplicate.expected))
+    }
+    check("R10 md2b F45 md2c F38 document keeps first src and alt",
+        JSON.stringify(Markdown.blocks("<img SRC='a.png' src='b.png' ALT='first' alt='last'>", dir, "#181825", ink)),
+        JSON.stringify([firstAlt]))
     for (var dropName in Html.DROP_CONTENT) {
         for (var nw = 0; nw < nonHtmlWhitespace.length; nw++)
             check("R9 malformed closer cannot end " + dropName + " body " + nw,
