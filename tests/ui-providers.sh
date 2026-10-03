@@ -419,6 +419,7 @@ providers_sharelink_checks() {
 }
 
 providers_dropbox_move_checks() {
+    local requests
     # A name that exists now asks first, so the move fails on a source folder that cannot be written.
     menus_guard "$menu_box/Dropbox/a-marked.txt"
     menus_guard "$menu_box/retired/dropbox-collision.txt"
@@ -436,8 +437,10 @@ providers_dropbox_move_checks() {
 
     menus_acknowledge
     menus_expect statusFooterState '.secondary.text | contains("a-marked.txt selected for retry")' 'acknowledged Dropbox failure names the identity-checked source for retry'
-    # The listed folder is the watched one, so its chmod is a change event that drops the retry line; restore it only after the line is read.
+    # The listed folder is watched, so its chmod drops the retry line and starts a re-read that would swallow Menu: wait for that re-read's own request and settle.
+    requests=$(ipc listRequests)
     chmod 0755 "$menu_box/list" || fail 'providers: cannot make the source folder writable again'
+    menus_relisted "$requests" 'the chmod of the watched source folder is re-read and settled before the retry menu opens'
     key -k Menu >/dev/null || fail 'providers: retained-selection retry menu failed'
     menus_expect menuState '.opened and .snapshotReady' 'native retry captures the retained original selection'
     providers_expect '(.refreshing | not) and .menuFocus' 'Dropbox retry refresh settles'

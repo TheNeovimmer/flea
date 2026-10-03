@@ -48,11 +48,19 @@ operations_footer_geometry() {
     printf 'OPERATIONS_FOOTER label=%q state=%s\n' "$1" "$(ipc statusFooterState)"
 }
 
+# Sample input: 100000 prints 100,000 and 999 prints 999, as ui/js/Format.js count() groups every count by thousands.
+operations_group_count() {
+    printf '%s' "$1" | sed -E ':group;s/([0-9])([0-9]{3})($|,)/\1,\2\3/;tgroup'
+}
+
 operations_idle_footer() {
-    local total="$1" selected="$2" label="$3" items="$1 items"
+    local total="$1" selected="$2" label="$3" grouped_total grouped_selected items
+    grouped_total=$(operations_group_count "$total")
+    grouped_selected=$(operations_group_count "$selected")
+    items="$grouped_total items"
     [[ "$total" == 1 ]] && items="1 item"
     # The left zone answers the selection when there is one, and may carry a byte total after it.
-    [[ "$selected" == 0 ]] || items="$selected of $total selected"
+    [[ "$selected" == 0 ]] || items="$grouped_selected of $grouped_total selected"
     # Three zones: the disk owns its own and an idle centre is empty rather than borrowing it.
     menus_expect statusFooterState ".total == $total and .selected == $selected and .filesystem != \"unknown\" and (.left.text | startswith(\"$items\")) and .disk.text == .filesystem and .disk.width > 0 and .disk.color == .left.color and .disk.fontSize == .left.fontSize and .centre.text == \"\" and .disk.x >= .left.x + .left.width" "$label"
     menus_equal "$label foreground" "$(ipc themeForeground)" "$(ipc statusColor)"
@@ -565,8 +573,7 @@ operations_cancel_live() (
     done
     jq -e '.activities[0].running and .activities[0].text == "Copying 1 of 2 · a-large.bin" and .transferCard.visible' <<< "$state" >/dev/null \
         || fail "operations: no filename-bearing live transfer before deadline: $state"
-    # Directive 45: the sweep runs beside the copy, so a batch names a total once it settles, which is
-    # microseconds for two local items. The loop above already waited for the card's line to say it.
+    # Directive 45: the sweep runs beside the copy, so a batch names its total once it settles, and the loop above waited for that.
     jq -e '.transferCard.byteLine | contains(" of ")' <<< "$state" >/dev/null \
         || fail "operations: the batch card states no total, its line reads [$(jq -r '.transferCard.byteLine' <<< "$state")]"
     printf 'OPERATIONS_BATCH_TOTAL line=%s\n' "$(jq -r '.transferCard.byteLine' <<< "$state")"
