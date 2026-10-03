@@ -22,6 +22,7 @@ ln -s "$PWD/ui" "$probe/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$probe/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$probe/config/Ui" || exit 1
 cp tests/permissions-focus.qml "$probe/config/shell.qml" || exit 1
+ln -s "$PWD/ui/boot/fleatab.qml" "$probe/config/fleatab.qml" || exit 1
 cp tests/permissions-layout.js "$probe/config/permissions-layout.js" || exit 1
 log="$probe/qs.log"
 readonly runLimitSeconds=60 expectedChecks=200 expectedQsStatus=143
