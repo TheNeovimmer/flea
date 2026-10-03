@@ -92,6 +92,11 @@ def helper_definitions(text):
     return re.findall(pattern, text, re.MULTILINE)
 
 
+# Sample output: hypr_window_move 0xabc 40 80: the compositor answered "window not found" (exit 0)
+def refusal(operation, arguments, reply, status):
+    return f'hypr_{operation} {" ".join(arguments)}: the compositor answered "{reply}" (exit {status})\n'
+
+
 def main():
     root = Path(__file__).resolve().parent.parent
     helper = (root / SHARED_HELPER_FILE).resolve(strict=True)
@@ -207,10 +212,11 @@ def main():
                 for reply in (WARNING, "", "ok\nwarning", " ok", "ok ", "okay"):
                     rc, output, calls = run(invoke, code=code, HYPR_FAKE_REPLY=reply)
                     check(operation + " " + form + " rejects reply " + repr(reply),
-                          rc == 1 and output == reply + "\n" and calls == [case["text"]], output)
+                          rc == 1 and output == refusal(operation, arguments, reply, 0) and calls == [case["text"]], output)
                 rc, output, calls = run(invoke, code=code, HYPR_FAKE_STATUS=str(FAILED_COMMAND_STATUS))
                 check(operation + " " + form + " rejects failed command with ok",
-                      rc == 1 and output == "ok\n" and calls == [case["text"]], output)
+                      rc == 1 and output == refusal(operation, arguments, "ok", FAILED_COMMAND_STATUS)
+                      and calls == [case["text"]], output)
             invalid = [arguments[:-1], arguments + ["extra"]]
             if operation != "cursor_move":
                 invalid.extend([bad, *arguments[1:]] for bad in

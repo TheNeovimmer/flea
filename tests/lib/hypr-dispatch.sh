@@ -29,11 +29,14 @@ _hypr_extent() {
     [[ "$2" =~ ^[0-9]+$ ]] || _hypr_refuse "$1" "$2" 'expected a nonnegative integer extent'
 }
 
+# Sample input: _hypr_reply_ok 1 'window not found' 0xabc 800 480, called by the typed helper it reports on.
 _hypr_reply_ok() {
-    if [[ "$1" == 0 && "$2" == ok ]]; then
+    local status="$1" answer="$2"
+    shift 2
+    if [[ "$status" == 0 && "$answer" == ok ]]; then
         return 0
     fi
-    printf '%s\n' "$2" >&2
+    printf '%s %s: the compositor answered "%s" (exit %s)\n' "${FUNCNAME[1]}" "$*" "$answer" "$status" >&2
     return 1
 }
 
@@ -42,7 +45,7 @@ hypr_window_focus() {
     _hypr_address hypr_window_focus "$1" || return 1
     local answer status=0
     answer=$(hyprctl dispatch "hl.dsp.focus({ window = \"address:$1\" })" 2>&1) || status=$?
-    _hypr_reply_ok "$status" "$answer"
+    _hypr_reply_ok "$status" "$answer" "$@"
 }
 
 hypr_window_float() {
@@ -54,7 +57,7 @@ hypr_window_float() {
     }
     local answer status=0
     answer=$(hyprctl dispatch "hl.dsp.window.float({ action = \"$2\", window = \"address:$1\" })" 2>&1) || status=$?
-    _hypr_reply_ok "$status" "$answer"
+    _hypr_reply_ok "$status" "$answer" "$@"
 }
 
 hypr_window_resize() {
@@ -64,7 +67,7 @@ hypr_window_resize() {
     _hypr_extent hypr_window_resize "$3" || return 1
     local answer status=0
     answer=$(hyprctl dispatch "hl.dsp.window.resize({ x = $2, y = $3, exact = true, window = \"address:$1\" })" 2>&1) || status=$?
-    _hypr_reply_ok "$status" "$answer"
+    _hypr_reply_ok "$status" "$answer" "$@"
 }
 
 hypr_window_move() {
@@ -74,7 +77,7 @@ hypr_window_move() {
     _hypr_coordinate hypr_window_move "$3" || return 1
     local answer status=0
     answer=$(hyprctl dispatch "hl.dsp.window.move({ x = $2, y = $3, window = \"address:$1\" })" 2>&1) || status=$?
-    _hypr_reply_ok "$status" "$answer"
+    _hypr_reply_ok "$status" "$answer" "$@"
 }
 
 hypr_window_close() {
@@ -82,7 +85,7 @@ hypr_window_close() {
     _hypr_address hypr_window_close "$1" || return 1
     local answer status=0
     answer=$(hyprctl dispatch "hl.dsp.window.close({ window = \"address:$1\" })" 2>&1) || status=$?
-    _hypr_reply_ok "$status" "$answer"
+    _hypr_reply_ok "$status" "$answer" "$@"
 }
 
 hypr_cursor_move() {
@@ -91,7 +94,7 @@ hypr_cursor_move() {
     _hypr_coordinate hypr_cursor_move "$2" || return 1
     local answer status=0
     answer=$(hyprctl dispatch "hl.dsp.cursor.move({x = $1, y = $2})" 2>&1) || status=$?
-    _hypr_reply_ok "$status" "$answer"
+    _hypr_reply_ok "$status" "$answer" "$@"
 }
 
 # Sample input: bash tests/lib/hypr-dispatch.sh window_resize 0xabc 800 480.
