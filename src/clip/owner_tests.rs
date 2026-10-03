@@ -31,8 +31,8 @@ fn expect(conn: &mut Conn, sender: u32, opcode: u16) -> u32 {
 
 // The owner's setup round trip: globals, done, then everything up to the closing sync.
 fn owner_hello(conn: &mut Conn) {
-    let registry = expect(conn, 1, 1);
-    let callback = expect(conn, 1, 0);
+    let registry = expect(conn, DISPLAY, DISPLAY_GET_REGISTRY);
+    let callback = expect(conn, DISPLAY, DISPLAY_SYNC);
     for (index, (interface, version)) in [("wl_seat", 1u32), ("ext_data_control_manager_v1", 1u32)].iter().enumerate() {
         let mut payload = Vec::new();
         wire::put_u32(&mut payload, 10 + index as u32);
@@ -43,7 +43,7 @@ fn owner_hello(conn: &mut Conn) {
     conn.send(callback, 0, &[], &[]).unwrap();
     loop {
         let event = conn.next_raw(MS).unwrap().expect("a request");
-        if event.sender == 1 && event.opcode == 0 {
+        if event.sender == DISPLAY && event.opcode == DISPLAY_SYNC {
             break;
         }
     }

@@ -10,6 +10,8 @@ use std::time::Duration;
 
 const MS: u32 = 5000;
 const TEST_WATCHDOG: Duration = Duration::from_millis(MS as u64);
+// Bounds a hang while the fake compositor reads a request or its descriptor.
+const TEST_READ_MS: u32 = 2000;
 
 // One globals round: the seat, the managers named, one unknown event the client skips, then the sync's done.
 pub(super) fn fake_hello(conn: &mut Conn, managers: &[(&str, u32)]) -> (u32, u32) {
@@ -205,7 +207,7 @@ pub(super) fn fake_selection(conn: &mut Conn, device: u32, types: &[&str]) {
 fn serve_receives(conn: &mut Conn, answers: &HashMap<String, Vec<u8>>) -> Vec<String> {
     let mut asked = Vec::new();
     loop {
-        let event = match conn.next_raw(2000).unwrap() {
+        let event = match conn.next_raw(TEST_READ_MS).unwrap() {
             Some(event) => event,
             None => return asked,
         };
@@ -214,7 +216,7 @@ fn serve_receives(conn: &mut Conn, answers: &HashMap<String, Vec<u8>>) -> Vec<St
         }
         let mut at = 0;
         let mime = wire::get_string(&event.body, &mut at).unwrap();
-        let fd = conn.take_fd(2000).unwrap().expect("a pipe");
+        let fd = conn.take_fd(TEST_READ_MS).unwrap().expect("a pipe");
         use std::io::Write;
         let mut file = std::fs::File::from(fd);
         file.write_all(&answers[&mime]).unwrap();
@@ -302,7 +304,7 @@ fn clear_with_a_stale_token_leaves_the_selection() {
     let asked = serve_receives(&mut conn, &answers);
     assert_eq!(asked, vec![format::FLEA.to_string()]);
     // No set_selection with a null source follows: the client drops the connection instead.
-    assert!(conn.next_raw(2000).unwrap().is_none(), "a stale token must clear nothing");
+    assert!(conn.next_raw(TEST_READ_MS).unwrap().is_none(), "a stale token must clear nothing");
     worker.join().unwrap();
 }
 
