@@ -64,9 +64,9 @@ def routes_modes(body):
                      r'    else\n        xwtab_wait_enter "\$bpid" "\$mode"\n    fi\n', body) is not None
 
 
-# Sample input: `        xwtab_wait_enter "$bpid" "$mode"` is one call; the definition `xwtab_wait_enter() {` is none.
+# Sample input: `        xwtab_wait_enter "$bpid" "$mode"` is one call however its arguments are quoted; `xwtab_wait_enter() {` is none.
 def enter_wait_calls(text):
-    return len(re.findall(r'\bxwtab_wait_enter "', text))
+    return len(re.findall(r'\bxwtab_wait_enter\b(?!\(\))', text))
 
 
 # Sample input: "# one\n# two\ncode\n# three" has the comment runs [(1, 2)], and a lone comment is no run.
@@ -523,9 +523,12 @@ xwtab_wait_enter 202 {mode}
     drag_body = UI[drag_start:UI.index('\n}\n', drag_start)]
     check('the drag helper sends catcher, own and refused to their own waits and only the rest to the enter wait',
           routes_modes(drag_body) and enter_wait_calls(UI) == 1, drag_body[-700:])
-    check('caller control counts a second enter wait wherever it sits on its line',
-          enter_wait_calls(UI + '\n    [[ -n "$bpid" ]] && xwtab_wait_enter "$bpid" observe\n') == 2
-          and enter_wait_calls('xwtab_wait_enter() {\n}\n') == 0)
+    second_calls = ['    [[ -n "$bpid" ]] && xwtab_wait_enter "$bpid" observe', '    xwtab_wait_enter $bpid observe',
+                    "    xwtab_wait_enter '202' observe", '    seen=$(xwtab_wait_enter)']
+    missed = [call for call in second_calls if enter_wait_calls(UI + '\n' + call + '\n') != 2]
+    check('caller control counts a second enter wait however it is written', not missed, repr(missed))
+    check('caller control does not count the definition', enter_wait_calls('xwtab_wait_enter() {\n}\n') == 0,
+          'the definition counted as a call')
     unrouted = drag_body.replace('    elif [[ "$mode" == refused ]]; then\n        xwtab_wait_refused "$bpid" held\n', '')
     check('routing control refuses a refused gesture that falls through to the enter wait',
           unrouted != drag_body and not routes_modes(unrouted), unrouted[-700:])
