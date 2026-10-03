@@ -29,7 +29,10 @@ Item {
         if (requests.length !== before + 1) return []
         var desired = requests[before].paths
         var unique = desired.filter(function(path, index) { return desired.indexOf(path) === index })
+        var outstanding = picker.markRequest
         reply(unique.map(function(path) { return path.slice("/virtual/".length) }))
+        // A completed check may already have started the next queued paths request.
+        check("queued selection check reply completes", picker.markRequest === outstanding, false)
         return picker.marks.map(function(mark) { return mark.path })
     }
     function selected(label, names) {

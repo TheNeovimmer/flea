@@ -6,11 +6,15 @@ from pathlib import Path
 import sys
 import time
 
+# Let native key events move focus or cancel while the check is outstanding.
+SUBMISSION_DELAY_SECONDS = 0.15
+
 if "--ui-state" in sys.argv:
     print("{}", flush=True)
     sys.exit(0)
 
 scenario = os.environ["FLEA_PICKER_HUNT_CASE"]
+# Sample FLEA_PICKER: {"mode": "open", "multiple": false, "folder": "/tmp/picker", "name": "a.txt", "title": "Picker hunt", "filters": [{"label": "Text", "globs": ["*.txt"], "mimes": []}]}
 folder = json.loads(os.environ["FLEA_PICKER"])["folder"]
 path = str(Path(folder) / "a.txt")
 mark = {"path": path, "uri": Path(path).as_uri(), "bytes": 1}
@@ -23,6 +27,7 @@ def emit(value):
 
 
 for line in sys.stdin:
+    # Sample stdin line: {"op":"validate","c":"picker","id":1}
     request = json.loads(line)
     command = request["c"]
     if command == "list":
@@ -39,8 +44,7 @@ for line in sys.stdin:
             reply.update(path=path, review=1, collision=scenario == "refuse-collision")
         elif operation in ("mark", "validate", "review"):
             attempts += 1
-            # Let native key events move focus or cancel while the check is outstanding.
-            time.sleep(0.15)
+            time.sleep(SUBMISSION_DELAY_SECONDS)
             if attempts == 1:
                 reply.update(ok=False, error=f"Could not inspect {path}: permission denied")
             else:

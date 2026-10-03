@@ -119,6 +119,10 @@ PY
             echo 'FAIL focus refusal probe did not reach a clean verdict'
             failures=$((failures+1))
         fi
+        if [[ "$scenario" = refuse-* && "$scenario" != refuse-cancel && "$scenario" != refuse-collision ]] && ! grep -Fq 'PICKER_HUNT RETRY Enter after refusal' <<< "$output"; then
+            echo 'FAIL focus refusal probe did not retry after refusal'
+            failures=$((failures+1))
+        fi
         if [ "$scenario" = remember ]; then
             wanted=grid
             [ "$view" = grid ] && wanted=list

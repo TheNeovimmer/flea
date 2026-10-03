@@ -158,6 +158,7 @@ ShellRoot {
         function onAnsweredChanged() {
             if (root.scenario.indexOf("refuse-") !== 0 || !root.win.answered) return
             Qt.callLater(function() {
+                if (root.scenario !== "refuse-cancel" && root.stage !== 2) return
                 root.check("answered request never restores initiating focus", root.win.contentItem.Window.window.activeFocusItem.name, "Cancel")
                 console.log("PICKER_HUNT DONE " + root.checks + " checks, " + root.failures + " failed")
             })
