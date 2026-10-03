@@ -94,8 +94,9 @@ marquee_to() {
     marquee_glide "$((wx + $1))" "$((wy + $2))"
 }
 
+# marquee_begin_below LAST [ctrl] [last_only] [tolerance]: a tail thinner than five pixels needs tolerance 0, an exact glide.
 marquee_begin_below() {
-    local last="$1" ctrl="${2:-false}" last_only="${3:-false}" ax ay aw ah rx ry rw rh cx cy pad
+    local last="$1" ctrl="${2:-false}" last_only="${3:-false}" tolerance="${4:-1}" ax ay aw ah rx ry rw rh cx cy pad
     local wx wy ww wh pointer_x pointer_y
     read -r ax ay aw ah <<< "$(ipc listAreaRect)"
     read -r rx ry rw rh <<< "$(ipc rowRect "$last")"
@@ -108,7 +109,7 @@ marquee_begin_below() {
     cx=$((ax + aw - pad - 12)); cy=$(((ry + rh + ay + ah) / 2))
     [[ "$last_only" == true ]] && cx=$((rx + rw * 3 / 4))
     read -r wx wy ww wh < <(window_box) || fail "marquee: owned window is unavailable"
-    marquee_glide "$((wx + cx))" "$((wy + cy))" 1
+    marquee_glide "$((wx + cx))" "$((wy + cy))" "$tolerance"
     read -r pointer_x pointer_y <<< "$(hyprctl cursorpos | tr -d ',')"
     [[ "$pointer_x $pointer_y" =~ ^-?[0-9]+\ -?[0-9]+$ ]] || fail "marquee: final press position is unavailable"
     (( pointer_x > wx + ax && pointer_x < wx + ax + aw && pointer_y > wy + ry + rh && pointer_y < wy + ay + ah )) \
@@ -144,7 +145,7 @@ marquee_interactions() {
     click_row 2 left --mods ctrl
     marquee_expect selectedIndices 0 "$label Ctrl-click toggles its mark off"
     click_row 3 left --mods shift
-    marquee_expect selectedIndices '2,3' "$label Shift-click extends from cursor anchor"
+    marquee_expect selectedIndices '0,2,3' "$label Shift-click adds its range from the cursor anchor to the earlier mark"
     click_row 1 left
     marquee_four "$label"
     key -k Escape >/dev/null || fail "marquee: Escape delivery failed"

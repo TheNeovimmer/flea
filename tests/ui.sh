@@ -2345,6 +2345,12 @@ last_whole_row() {
 case_clickedge() {
     local dir="$fixture_root/clickedge" mode
     local bindir="$fixture_root/clickedge-bin"
+    # The band block drives the pointer through tests/ui-marquee.sh, whose helpers read these; a fail must not leave the button down.
+    local marquee_checks=0 marquee_button_down=false marquee_ctrl_down=false before_band after_band
+    local band_rows=4 end_polls=100 end_poll_s=0.05 band_tail_min=3 band_glide_px=0 band_tail
+    export YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-$XDG_RUNTIME_DIR/.ydotool_socket}"
+    [[ -S "$YDOTOOL_SOCKET" ]] || fail "clickedge: no ydotoold socket at $YDOTOOL_SOCKET"
+    trap '( marquee_release ) >/dev/null 2>&1 || true' EXIT
     sandbox_scratch "$dir"
     sandbox_scratch "$bindir"
     local i
@@ -2521,31 +2527,50 @@ case_clickedge() {
         settle
         [[ "$(ipc renameEditorLive)" == "false" ]] || fail "clickedge: $mode Escape left the rename open"
         printf 'CLICKEDGE %s rename cancelled row=%s contentY=%s\n' "$mode" "$(ipc cursor)" "$(ipc viewContentY)"
-        # A band drag releases without scrolling: the press starts in the scroll lane past the row's right edge.
-        key -k Home >/dev/null || fail "clickedge: key Home was rejected"
-        settle
-        [[ "$(ipc viewContentY)" == "0" ]] || fail "clickedge: $mode Home did not return to the top before the band, contentY $(ipc viewContentY)"
+        # A band release never scrolls: the band starts on the bare ground below the last row, where marquee_begin_below checks the pointer landed.
+        key -k End >/dev/null || fail "clickedge: key End was rejected"
+        local band_last band_top band_want band_prev=-1 band_now band_settled=false band_held band_cx band_cy
+        local brx bry brw brh bay
+        band_last=$(( $(ipc total) - 1 ))
+        band_top=$((band_last - band_rows + 1))
+        (( band_top >= 1 )) || fail "clickedge: $mode holds too few rows for a $band_rows-row band, last $band_last"
+        for _attempt in $(seq 1 "$end_polls"); do
+            band_now=$(ipc viewContentY)
+            if [[ -n "$(ipc rowRect "$band_last")" && "$band_now" != 0 && "$band_now" == "$band_prev" ]]; then band_settled=true; break; fi
+            band_prev=$band_now
+            sleep "$end_poll_s"
+        done
+        [[ "$band_settled" == true ]] || fail "clickedge: $mode End never settled on row $band_last, contentY $band_now"
         read -r ax ay aw ah <<< "$(ipc listAreaRect)"
-        local whole_last
-        whole_last=$(last_whole_row "$visible" "$ay" "$ah")
-        local upper=2
-        (( whole_last > upper + 1 )) || fail "clickedge: $mode the window holds no band span, last whole $whole_last"
-        read -r crx cry crw crh <<< "$(ipc rowRect "$upper")"
-        local lane_x=$((crx + crw + 2))
-        (( lane_x < ax + aw )) || fail "clickedge: $mode no lane beside row $upper"
-        local end_cx end_cy before_band after_band
-        read -r end_cx end_cy <<< "$(ipc rowCentre "$whole_last")"
-        marquee_button_down=false
-        marquee_ctrl_down=false
+        read -r brx bry brw brh <<< "$(ipc rowRect "$band_last")"
+        [[ "$ax $ay $aw $ah $brx $bry $brw $brh" =~ ^[0-9]+(\ [0-9]+){7}$ ]] || fail "clickedge: $mode band geometry unavailable"
+        band_tail=$((ay + ah - (bry + brh)))
+        (( brh > 0 && band_tail >= band_tail_min )) || fail "clickedge: $mode the tail below row $band_last is $band_tail px, under the $band_tail_min an exact glide needs"
+        read -r _ bry _ _ <<< "$(ipc rowRect "$band_top")"
+        [[ "$bry" =~ ^[0-9]+$ ]] && (( bry >= ay )) || fail "clickedge: $mode band top row $band_top is not drawn whole, top [$bry] view top $ay"
+        read -r band_cx band_cy <<< "$(ipc rowCentre "$band_top")"
+        [[ "$band_cx $band_cy" =~ ^[0-9]+\ [0-9]+$ ]] || fail "clickedge: $mode row $band_top has no centre, got [$band_cx $band_cy]"
+        band_want=$(seq -s, "$band_top" "$band_last")
         before_band=$(ipc viewContentY)
-        marquee_press "$lane_x" "$((cry + crh / 2))"
-        marquee_to "$lane_x" "$end_cy"
+        marquee_begin_below "$band_last" false false "$band_glide_px"
+        marquee_to "$band_cx" "$band_cy"
+        marquee_state '.active and .tracking' "clickedge $mode has a live rubber band"
+        marquee_expect selectedIndices "$band_want" "clickedge $mode band marks rows $band_top to $band_last while held"
+        band_held=$(ipc viewContentY)
+        [[ "$band_held" == "$before_band" ]] || fail "clickedge: $mode the held band scrolled $before_band to $band_held"
         marquee_release
         settle
+        marquee_expect selectedIndices "$band_want" "clickedge $mode release keeps the banded rows"
+        marquee_expect cursor "$band_top" "clickedge $mode release moves the cursor to the row the band ended on"
         after_band=$(ipc viewContentY)
-        printf 'CLICKEDGE %s band from=%s to=%s before=%s after=%s selected=%s\n' "$mode" "$upper" "$whole_last" "$before_band" "$after_band" "$(ipc selectedIndices)"
-        [[ -n "$(ipc selectedIndices)" ]] || fail "clickedge: $mode the band marked nothing"
+        printf 'CLICKEDGE %s band from=%s to=%s tail=%s before=%s after=%s selected=%s\n' "$mode" "$band_last" "$band_top" "$band_tail" "$before_band" "$after_band" "$(ipc selectedIndices)"
         [[ "$after_band" == "$before_band" ]] || fail "clickedge: $mode the band release scrolled $before_band to $after_band"
+        # The next mode and the grid part assume the top of the listing with nothing marked and the cursor on row 0.
+        key -k Escape >/dev/null || fail "clickedge: key Escape was rejected"
+        key -k Home >/dev/null || fail "clickedge: key Home was rejected"
+        marquee_expect selectionCount 0 "clickedge $mode band marks are cleared for the next step"
+        marquee_expect cursor 0 "clickedge $mode cursor is back on row 0 for the next step"
+        marquee_expect viewContentY 0 "clickedge $mode view is back at the top for the next step"
         printf 'CLICKEDGE %s ok target=%s last=%s\n' "$mode" "$target" "$last"
     done
     mode=grid
@@ -3674,15 +3699,28 @@ case_reload() {
         printf 'RELOAD key=%s lists=%s-to-%s unchanged=quiet log=clean\n' "$chord" "$before" "$after"
     done
 
-    # A selection holds watcher debt, so only the manual reload can first see this added row.
-    key v >/dev/null
-    settle
-    [[ "$(ipc selectionCount)" == 1 ]] || fail "reload: v did not hold the watcher with a selection"
+    # The watcher re-reads 400 ms after a change and no hold lets a key through, so the owned backend is held: the reload's list is sent before the change is reported.
+    local qs_pid pid held_pid="" held_requests held_inflight
+    qs_pid=$(flea_pid)
+    # Sample input: /proc/<pid>/cmdline "/usr/bin/flea\0--backend\0"; ViewState's writer is a flea child too, run as --ui-state.
+    for pid in $(pgrep -P "$qs_pid" -x flea); do
+        tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq -- ' --backend ' && held_pid="$held_pid $pid"
+    done
+    held_pid=${held_pid# }
+    [[ "$held_pid" =~ ^[0-9]+$ ]] || fail "reload: expected one flea --backend child of qs $qs_pid to hold, found '$held_pid'"
     before=$(ipc listRequests)
+    # The pid is expanded here because the trap runs after this function's locals are gone.
+    trap "kill -CONT $held_pid 2>/dev/null || true" EXIT
+    kill -STOP "$held_pid" || fail "reload: could not stop backend $held_pid, so the watcher would report the change first"
     : > "$dir/b.txt"
-    sleep 1
-    [[ "$(ipc total)" == 1 && "$(ipc listRequests)" == "$before" ]] || fail "reload: the watcher re-listed while a selection stood"
     key -k F5 >/dev/null
+    settle
+    held_requests=$(ipc listRequests)
+    held_inflight=$(ipc listInFlight)
+    kill -CONT "$held_pid" || fail "reload: could not resume backend $held_pid"
+    trap - EXIT
+    [[ "$held_requests" == "$((before + 1))" && "$held_inflight" == true ]] \
+        || fail "reload: with the backend held F5 sent $before to $held_requests list requests, in flight $held_inflight, want one unanswered request"
     settle
     errors=$(grep -E 'TypeError|ReferenceError' "$flea_log" | grep -E 'Reload\.js|Focus\.js|Pane\.qml' || true)
     [[ -z "$errors" ]] || fail "reload: changed-row F5 raised $errors"
@@ -3905,21 +3943,25 @@ case_watch() {
     (( during > before )) \
         || fail "watch: nothing re-read while the directory was still being written, total stayed $before"
 
-    # A debt owed by this directory must not be paid by re-listing the next one. A bare selection
-    # no longer holds the re-read, so the debt is held with the menu open instead, which still does
-    # and survives the navigation; without the onPathChanged guard that debt is paid by a full
-    # re-list of the folder being opened.
+    # A debt owed here must not be paid by re-listing the next folder: the open menu holds it and takes every key, so its own Open on the folder row is the navigation.
+    key -k Home >/dev/null
+    settle
+    [[ "$(ipc rowAt 0)" == brand-new-folder\|dir\|* ]] || fail "watch: row 0 is not the folder the menu opens: $(ipc rowAt 0)"
     key m >/dev/null
     settle
+    local held_total
+    held_total=$(ipc total)
     printf 'owed\n' > "$dir/CCC-owed-on-leaving.txt"
-    sleep 0.5
+    sleep 1
+    [[ "$(ipc total)" == "$held_total" ]] || fail "watch: the open menu did not hold the re-read, total $held_total to $(ipc total)"
     # Counted from before the navigation, not from after it: the menu still holds the debt at the
     # navigation, so without the guard the timer pays it with a re-list of the folder being opened,
     # which wait_path polling would otherwise count as the navigation itself.
     local before_nav after_nav
     before_nav=$(ipc listRequests)
-    key -k Backspace >/dev/null
-    wait_path "$fixture_root"
+    menus_seek open
+    key -k Return >/dev/null
+    wait_path "$dir/brand-new-folder"
     sleep 1.5
     after_nav=$(ipc listRequests)
     printf 'WATCH carried lists %s to %s, one navigation and nothing else\n' "$before_nav" "$after_nav"
