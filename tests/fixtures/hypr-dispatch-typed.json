@@ -41,6 +41,24 @@
     "text": "hl.dsp.window.move({ x = -1920, y = -10, window = \"address:0xAbC\" })"
   },
   {
+    "operation": "window_resize_absolute",
+    "args": [
+      "0xAbC",
+      "800",
+      "480"
+    ],
+    "text": "hl.dsp.window.resize({ x = 800, y = 480, relative = false, window = \"address:0xAbC\" })"
+  },
+  {
+    "operation": "window_move_absolute",
+    "args": [
+      "0xAbC",
+      "-1920",
+      "-10"
+    ],
+    "text": "hl.dsp.window.move({ x = -1920, y = -10, relative = false, window = \"address:0xAbC\" })"
+  },
+  {
     "operation": "cursor_move",
     "args": [
       "-20",

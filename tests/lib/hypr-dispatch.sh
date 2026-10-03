@@ -80,6 +80,28 @@ hypr_window_move() {
     _hypr_reply_ok "$status" "$answer" "$@"
 }
 
+# Sample input: hypr_window_resize_absolute 0xabc 800 480, sends relative = false where hypr_window_resize sends exact = true.
+hypr_window_resize_absolute() {
+    _hypr_arity hypr_window_resize_absolute 'ADDR W H' "$@" || return 1
+    _hypr_address hypr_window_resize_absolute "$1" || return 1
+    _hypr_extent hypr_window_resize_absolute "$2" || return 1
+    _hypr_extent hypr_window_resize_absolute "$3" || return 1
+    local answer status=0
+    answer=$(hyprctl dispatch "hl.dsp.window.resize({ x = $2, y = $3, relative = false, window = \"address:$1\" })" 2>&1) || status=$?
+    _hypr_reply_ok "$status" "$answer" "$@"
+}
+
+# Sample input: hypr_window_move_absolute 0xabc 40 -20, sends relative = false where hypr_window_move sends no relative key.
+hypr_window_move_absolute() {
+    _hypr_arity hypr_window_move_absolute 'ADDR X Y' "$@" || return 1
+    _hypr_address hypr_window_move_absolute "$1" || return 1
+    _hypr_coordinate hypr_window_move_absolute "$2" || return 1
+    _hypr_coordinate hypr_window_move_absolute "$3" || return 1
+    local answer status=0
+    answer=$(hyprctl dispatch "hl.dsp.window.move({ x = $2, y = $3, relative = false, window = \"address:$1\" })" 2>&1) || status=$?
+    _hypr_reply_ok "$status" "$answer" "$@"
+}
+
 hypr_cursor_move() {
     _hypr_arity hypr_cursor_move 'X Y' "$@" || return 1
     _hypr_coordinate hypr_cursor_move "$1" || return 1
@@ -99,6 +121,8 @@ _hypr_program() {
         window_float) hypr_window_float "$@" ;;
         window_resize) hypr_window_resize "$@" ;;
         window_move) hypr_window_move "$@" ;;
+        window_resize_absolute) hypr_window_resize_absolute "$@" ;;
+        window_move_absolute) hypr_window_move_absolute "$@" ;;
         cursor_move) hypr_cursor_move "$@" ;;
         *) _hypr_refuse hypr-dispatch.sh "$operation" 'unknown typed operation' ;;
     esac || return 1

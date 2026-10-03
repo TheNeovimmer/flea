@@ -3783,9 +3783,12 @@ waits for its consumer.
 - `./tests/budget.sh` asserts `tools/flea-file-budget` itself rejects an oversized
   file and passes a clean tree.
 - `./tests/hyprdispatch.sh` keeps compositor command construction in `tests/lib/hypr-dispatch.sh`.
-  Its five typed entry points validate hexadecimal addresses, integer coordinates, nonnegative resize
+  Its seven typed entry points validate hexadecimal addresses, integer coordinates, nonnegative resize
   dimensions and exact `on|off`, then require the compositor reply to be exactly `ok`. Window calls
   always use `address:ADDR`; move and cursor coordinates may be negative for monitor origins.
+  `hypr_window_resize_absolute` and `hypr_window_move_absolute` send `relative = false`, the form the
+  xw6 harness always used, where `hypr_window_resize` sends `exact = true` and `hypr_window_move` no
+  relative key; every caller of the two absolute forms is in `tests/ui.sh` and the layer-drop probe.
   The helper's program form serves Python callers and prints `ok` only after the same checks pass.
   The static gate scans shell, Python, QML and JavaScript under `tests/`, removes only full-line `#`/`//`
   comments after whitespace, and outside the exempt files refuses `hl.dsp.` (including a backslash-split

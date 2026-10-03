@@ -9,6 +9,8 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 UI = (ROOT / 'tests/ui.sh').read_text()
 SHELL_TIMEOUT_SECONDS = 10
+LUA_PREFIX = 'hl.' + 'dsp.'
+TYPED_LIBRARY = '. ' + shlex.quote(str(ROOT / 'tests/lib/hypr-dispatch.sh')) + '\n'
 checks = 0
 failures = 0
 
@@ -48,10 +50,13 @@ def shell(code):
 
 
 STACKED_COMMENT_FILES = ('tests/xwtab-norm.sh', 'tests/xwtab-scan.sh')
-DRAGWIRE_HEADER_RUN = (2, 6)
+RECEIVER_CONSTANT_COUNT = 2
+DRAGWIRE_HEADER_LINES = 1
+DRAGWIRE_HEADER_TOPIC = 'tab drag'
 TEAROFF_HEADER_LINES = 2
 PARSER_SAMPLE_LEAD = 2
-BARE_BOUND = re.compile(r'seq 1 \d|hl\.dsp\.window\.(?:move|resize)\([^)]*[xy] = \d|"\d+ \d+ \d+ \d+ (?:True|False)"')
+BARE_BOUND = re.compile(r'seq 1 \d|hl\.dsp\.window\.(?:move|resize)\([^)]*[xy] = \d|"\d+ \d+ \d+ \d+ (?:True|False)"'
+                        r'|hypr_window_(?:move|resize)(?:_absolute)? +\S+ +(?:-?\d+(?: |$)|\S+ +-?\d+(?: |$))')
 BARE_SUBPROCESS_TIMEOUT = re.compile('timeout=' + r'\d')
 BARE_TIMER_INTERVAL = re.compile(r'interval:\s*\d')
 
@@ -84,6 +89,21 @@ def comment_runs(text):
     return runs
 
 
+# Sample input: xwtab_receiver_x=1100 and xwtab_receiver_y=500 are the receiver's placement constants in ui.sh.
+def receiver_placement(text):
+    return re.findall(r'^xwtab_receiver_[xy]=[0-9]+$', text, re.MULTILINE)
+
+
+# Sample input: "#!/bin/bash\n# Guards a tab drag.\n# Second line.\nset -u" has the header ["# Guards a tab drag.", "# Second line."].
+def header_comments(text):
+    header = []
+    for line in text.split('\n')[1:]:
+        if not line.startswith('#'):
+            break
+        header.append(line)
+    return header
+
+
 # Sample input: "x=$(python3 -c '\nprint(json.load(f))\n')" has no sample comment, so its line 2 is returned.
 def unsampled_parsers(text):
     lines = text.split('\n')
@@ -100,7 +120,7 @@ def unsampled_parsers(text):
     return missing
 
 
-# Sample input: "seq 1 40" and "window.move({ x = 40," hold a bare bound, while seq 1 "$n" and x = $px do not.
+# Sample input: "seq 1 40", "window.move({ x = 40," and "hypr_window_move_absolute $addr 40 80" hold a bare bound, while seq 1 "$n" and x = $px do not.
 def bare_bounds(text):
     return [number for number, line in enumerate(text.split('\n'), 1)
             if not line.lstrip().startswith('#') and BARE_BOUND.search(line)]
@@ -166,15 +186,17 @@ with tempfile.TemporaryDirectory() as temporary:
                                                  'xwdrag_assert_focus', 'xwdrag_wait_focus',
                                                  'xwdrag_fail_unfocused'))
     # The typed compositor helpers own every focus, float and move the receiver case issues.
-    focus_helpers += '\n. ' + shlex.quote(str(ROOT / 'tests/lib/hypr-dispatch.sh'))
-    # Sample input: xwtab_receiver_x=1100 and xwtab_receiver_y=500 are the receiver's placement constants in ui.sh.
-    focus_helpers += '\n' + '\n'.join(re.findall(r'^xwtab_receiver_[xy]=[0-9]+$', UI, re.MULTILINE))
+    focus_helpers += '\n' + TYPED_LIBRARY
+    receiver_constants = receiver_placement(UI)
+    check('receiver placement constants are exactly the two bare assignments',
+          len(receiver_constants) == RECEIVER_CONSTANT_COUNT, repr(receiver_constants))
+    focus_helpers += '\n' + '\n'.join(receiver_constants)
     if 'hypr_dispatch() {' in UI:
         focus_helpers += '\n' + function(UI, 'hypr_dispatch')
     for refusal in ('none', 'focus-status', 'focus-reply', 'focus-stolen',
                     'float-status', 'float-reply', 'move-status', 'move-reply'):
         log.write_text('')
-        result = shell(focus_helpers + '\n' + receiver + f"\ncall_log='{log}'\nrefusal='{refusal}'\n" + r'''
+        result = shell(focus_helpers + '\n' + receiver + f"\ncall_log='{log}'\nrefusal='{refusal}'\nlua_prefix={LUA_PREFIX}\n" + r'''
 recv_pid=303
 recv_addr=0xc
 fail() {
@@ -195,13 +217,13 @@ hyprctl() {
                 printf '%s\n' '{"pid":303,"address":"0xc"}'
             fi
             ;;
-        dispatch)
+        *)
             printf '%s\n' "$2" >> "$call_log"
             local phase
             case "$2" in
-                hl.dsp.focus*) phase=focus ;;
-                hl.dsp.window.float*) phase=float ;;
-                hl.dsp.window.move*) phase=move ;;
+                "$lua_prefix"focus*) phase=focus ;;
+                "$lua_prefix"window.float*) phase=float ;;
+                "$lua_prefix"window.move*) phase=move ;;
             esac
             if [[ "$refusal" == "$phase-status" ]]; then
                 return 1
@@ -223,7 +245,7 @@ else
 fi
 ''')
         calls = log.read_text().splitlines()
-        actions = [line for line in calls if 'hl.dsp.window.' in line]
+        actions = [line for line in calls if LUA_PREFIX + 'window.' in line]
         detail = result.stdout + result.stderr + ' calls=' + repr(calls)
         if refusal == 'none':
             check('receiver placement reads focus and explicitly targets its address',
@@ -259,6 +281,7 @@ xwtab_cleanup
     room_helpers = UI[UI.index('xwtab_rect_of() {'):UI.index('# xw6: a tab dragged onto another Flea')]
     double = f'''
 repo='{ROOT}'
+. "$repo/tests/lib/hypr-dispatch.sh"
 xwtab_saved=''
 xwtab_cleanup() {{ :; }}
 fail() {{ echo "FAIL $*"; exit 1; }}
@@ -269,8 +292,9 @@ hyprctl() {{
         printf '%s\\n' '[{{"name":"DP-2","x":0,"y":0,"width":1000,"height":800,"focused":true,"activeWorkspace":{{"id":1}}}}]'
     elif [[ "$1" == clients ]]; then printf '[]\\n'
     elif [[ "$1" == layers ]]; then printf '%s\\n' '{{"DP-2":{{"levels":{{"1":[]}}}}}}'
-    elif [[ "$1" == dispatch ]]; then
+    else
         printf '%s\\n' "$2" >> '{log}'
+        printf 'ok\\n'
     fi
 }}
 xwtab_rect_of() {{
@@ -293,15 +317,15 @@ xwtab_rect_of() {{
             action = re.search(r'hl\.dsp\.window\.(float|resize|move)\(.*window = "address:(0x[0-9a-f]+)"', line)
             if action:
                 per_window.setdefault(action.group(2), []).append(action.group(1))
-        every_addressed = all('window = "address:' in line for line in calls.splitlines() if 'hl.dsp.window.' in line)
+        every_addressed = all('window = "address:' in line for line in calls.splitlines() if LUA_PREFIX + 'window.' in line)
         return run, calls, per_window, every_addressed
 
     result, calls, per_window, every_addressed = room_run(room_helpers)
     check('room operations target owned addresses despite ignored focus',
           result.returncode == 0 and per_window == expected_room and every_addressed, calls + result.stderr)
     without_geometry = '\n'.join(line for line in room_helpers.split('\n')
-                                 if 'hl.dsp.window.resize({ x = $pw' not in line
-                                 and 'hl.dsp.window.move({ x = $px' not in line)
+                                 if 'hypr_window_resize_absolute "$addr" "$pw" "$ph"' not in line
+                                 and 'hypr_window_move_absolute "$addr" "$px"' not in line)
     result, calls, per_window, every_addressed = room_run(without_geometry)
     check('room check refuses a run that never resized or moved a window',
           without_geometry != room_helpers and result.returncode == 0 and per_window != expected_room,
@@ -316,7 +340,7 @@ xwtab_saved='101 0xa 20 20 470 370 False
 xwtab_restore_place
 ''')
     calls = log.read_text()
-    actions = [line for line in calls.splitlines() if 'hl.dsp.window.' in line]
+    actions = [line for line in calls.splitlines() if LUA_PREFIX + 'window.' in line]
     check('restore touches only proven owned address', actions and all('window = "address:0xa"' in line for line in actions), calls + result.stderr)
 
     duplicate_clients = ('[{"pid":101,"address":"0xa","at":[20,20],"size":[900,500],"floating":true},'
@@ -338,15 +362,19 @@ xwtab_restore_place
           result.returncode != 0 and 'FAIL xwtab: no geometry for 101' in result.stdout
           and '2 clients carry pid 101' in result.stdout + result.stderr, result.stdout + result.stderr)
 
-    centered = r'''
-declare -A state_x=([101]=40 [202]=1100)
-declare -A state_y=([101]=80 [202]=80)
-declare -A state_w=([101]=1000 [202]=1000)
-declare -A state_h=([101]=720 [202]=720)
+    # The typed helpers run hyprctl in a command substitution, so the placement state lives in files.
+    centered = f'state_dir={shlex.quote(str(scratch / "placement"))}\n' + r'''
+mkdir -p "$state_dir"
+state_put() { printf '%s\n' "$3" > "$state_dir/$1$2"; }
+state_get() { cat "$state_dir/$1$2"; }
+state_put x 101 40; state_put x 202 1100
+state_put y 101 80; state_put y 202 80
+state_put w 101 1000; state_put w 202 1000
+state_put h 101 720; state_put h 202 720
 xwtab_rect_of() {
     local pid="$1" addr=0xa
     [[ "$pid" != 202 ]] || addr=0xb
-    printf '%s %s %s %s %s True\n' "$addr" "${state_x[$pid]}" "${state_y[$pid]}" "${state_w[$pid]}" "${state_h[$pid]}"
+    printf '%s %s %s %s %s True\n' "$addr" "$(state_get x "$pid")" "$(state_get y "$pid")" "$(state_get w "$pid")" "$(state_get h "$pid")"
 }
 hyprctl() {
     local pid=101 coords nx ny
@@ -365,30 +393,31 @@ hyprctl() {
             ;;
     esac
     [[ "$2" != *address:0xb* ]] || pid=202
-    [[ "$2" != *window.float* ]] || return 0
+    [[ "$2" != *window.float* ]] || { printf 'ok\n'; return 0; }
     # Sample input: hl.dsp.window.resize({ x = 1250, y = 690, relative = false, window = "address:0xa" }).
     coords=${2#*x = }
     coords=${coords%%, relative*}
     coords=${coords/, y = / }
     read -r nx ny <<< "$coords"
     if [[ "$2" == *window.resize* ]]; then
-        state_x[$pid]=$((state_x[$pid] + (state_w[$pid] - nx) / 2))
-        state_y[$pid]=$((state_y[$pid] + (state_h[$pid] - ny) / 2))
-        state_w[$pid]=$nx
-        state_h[$pid]=$ny
+        state_put x "$pid" $(($(state_get x "$pid") + ($(state_get w "$pid") - nx) / 2))
+        state_put y "$pid" $(($(state_get y "$pid") + ($(state_get h "$pid") - ny) / 2))
+        state_put w "$pid" "$nx"
+        state_put h "$pid" "$ny"
     else
-        state_x[$pid]=$nx
-        state_y[$pid]=$ny
+        state_put x "$pid" "$nx"
+        state_put y "$pid" "$ny"
     fi
+    printf 'ok\n'
 }
 '''
     result = shell(room_helpers + double + centered + '\nxwtab_make_room 101 202\nxwtab_rect_of 101\n')
     check('room reaches exact parked rectangle with centered resize', result.returncode == 0 and '0xa 20 20 1250 690 True' in result.stdout, result.stdout + result.stderr)
     result = shell(room_helpers + double + centered + '''
-state_x[101]=20
-state_y[101]=20
-state_w[101]=1250
-state_h[101]=690
+state_put x 101 20
+state_put y 101 20
+state_put w 101 1250
+state_put h 101 690
 xwtab_saved='101 0xa 40 80 1000 720 True'
 xwtab_restore_place
 status=$?
@@ -400,7 +429,7 @@ exit "$status"
     restore = function(UI, 'xwtab_restore_place')
     log.write_text('')
     for failure_step in ('float-on', 'resize', 'move', 'float-off', 'readback'):
-        result = shell(restore + "\nfail_at='" + failure_step + "'\n" + r'''
+        result = shell(TYPED_LIBRARY + restore + "\nfail_at='" + failure_step + "'\n" + r'''
 xwtab_saved='101 0xa 20 20 900 500 False'
 flea_process_owned() { return 0; }
 xwtab_rect_of() { printf '0xa 40 40 900 500 True\n'; }
@@ -413,7 +442,8 @@ hyprctl() {
         *window.move*) step=move ;;
     esac
     printf '%s\n' "$step" >> "$call_log"
-    [[ "$step" != "$fail_at" ]]
+    [[ "$step" != "$fail_at" ]] || return 1
+    printf 'ok\n'
 }
 xwtab_wait_place() {
     printf 'readback\n' >> "$call_log"
@@ -978,13 +1008,31 @@ sleep() {{ :; }}
               result.stdout + result.stderr)
 
 # Static shape of the branch's test code: comment runs, parser samples, named bounds.
+check('receiver constant control refuses a trailing comment on either constant',
+      len(receiver_placement('xwtab_receiver_x=1100 # note\nxwtab_receiver_y=500\n')) != RECEIVER_CONSTANT_COUNT
+      and len(receiver_placement('xwtab_receiver_x=1100\nxwtab_receiver_y=500 # note\n')) != RECEIVER_CONSTANT_COUNT)
+check('receiver constant control accepts the two bare assignments',
+      len(receiver_placement('xwtab_receiver_x=1100\nxwtab_receiver_y=500\n')) == RECEIVER_CONSTANT_COUNT)
 check('comment run control finds a stacked pair', comment_runs('# one\n# two\ncode\n# three') == [(1, 2)])
 check('comment run control skips a shebang and a lone comment', comment_runs('#!/bin/bash\n# one\ncode\n') == [])
 for name in STACKED_COMMENT_FILES:
     check(name + ' keeps every comment to one line', comment_runs((ROOT / name).read_text()) == [],
           str(comment_runs((ROOT / name).read_text())))
-dragwire = comment_runs((ROOT / 'tests/dragwire.sh').read_text())
-check('dragwire header stays at its base length', dragwire[:1] == [DRAGWIRE_HEADER_RUN], str(dragwire))
+
+def dragwire_header_holds(text):
+    header = header_comments(text)
+    return len(header) == DRAGWIRE_HEADER_LINES and DRAGWIRE_HEADER_TOPIC in header[0]
+
+
+stacked_header = '#!/bin/bash\n# Guards what a drop target sees.\n# A tab drag offers Move alone.\nset -u\n'
+check('dragwire header control refuses a stacked header naming the tab drag', not dragwire_header_holds(stacked_header))
+check('dragwire header control refuses one line that never names the tab drag',
+      not dragwire_header_holds('#!/bin/bash\n# Guards what a drop target sees.\nset -u\n'))
+check('dragwire header control accepts one line naming the tab drag',
+      dragwire_header_holds('#!/bin/bash\n# Guards a tab drag, among others.\nset -u\n'))
+dragwire_text = (ROOT / 'tests/dragwire.sh').read_text()
+check('dragwire header is one comment line that names the tab drag', dragwire_header_holds(dragwire_text),
+      repr(header_comments(dragwire_text)))
 
 tearoff = (ROOT / 'ui/boot/tabtearoff.qml').read_text().split('\n')
 tearoff_header = [line for line in tearoff[:tearoff.index('Item {')] if line.startswith('//')]
@@ -1009,9 +1057,15 @@ check('parser sample control accepts a sample above the parser',
 check('parser sample control accepts a sample inside the parser',
       unsampled_parsers(unsampled_fixture.replace('print', '# Sample input: [].\nprint')) == [])
 check('bare bound control flags a literal seq and placement',
-      bare_bounds('for _ in $(seq 1 40); do\nhl.dsp.window.move({ x = 40, y = 1 })\nx="40 40 900 500 True"') == [1, 2, 3])
+      bare_bounds('for _ in $(seq 1 40); do\n' + LUA_PREFIX + 'window.move({ x = 40, y = 1 })\nx="40 40 900 500 True"') == [1, 2, 3])
+check('bare bound control flags a literal helper coordinate and extent',
+      bare_bounds('hypr_window_move_absolute "$addr" 40 "$py"\nhypr_window_resize "$addr" "$pw" 480\n'
+                  'hypr_window_move "$addr" -20 "$py"') == [1, 2, 3])
+check('bare bound control accepts named helper arguments',
+      bare_bounds('hypr_window_move_absolute "$addr" "$px" "$py"\nhypr_window_resize_absolute "$addr" "$w" "$h"\n'
+                  'hypr_window_focus "$addr"') == [])
 check('bare bound control accepts a named bound and a comment',
-      bare_bounds('for _ in $(seq 1 "$n"); do\nhl.dsp.window.move({ x = $px, y = $py })\n# seq 1 40') == [])
+      bare_bounds('for _ in $(seq 1 "$n"); do\n' + LUA_PREFIX + 'window.move({ x = $px, y = $py })\n# seq 1 40') == [])
 probe_text = (ROOT / 'tests/probes/layer-drop-bottom.sh').read_text()
 ui_branch = [UI[UI.index('# Sample input: {"pid":101,"address":"0xa","class":"flea"'):UI.index('xwdrag_geometry() {')],
              UI[UI.index('xwtab_logs=('):UI.index('# The cursor parks on row 0 above the card')]]
