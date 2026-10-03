@@ -454,7 +454,7 @@ press; sleep 0.3
 glide_to "$bx" "$by"; sleep 0.8
 MID=$(ipc stickyMessage)
 release; sleep 0.6
-check "the line names the folder under the pointer" "$MID" "Move 1 item to bbb · ctrl copies and shift moves, read at lift"
+check "the line names the folder under the pointer" "$MID" "Move 1 item to bbb · ctrl at lift copies"
 
 # ---------------------------------------------------------------- R1
 echo
@@ -598,51 +598,92 @@ check "and no other file moved" "$(ls -A "$HOMEDIR/aaa" | grep -vxF r1b.txt | tr
 check "and the window survived" "$(ipc total >/dev/null 2>&1 && echo alive || echo gone)" "alive"
 # ---------------------------------------------------------------- R7
 echo
-echo "== R7: a drop on a tab whose listing is still out is a copy, never a cross-device move =="
-# ui/TabBar.qml reads the destination device as unknown while pane.listInFlight, because dirDev is then
-# the directory the hover switch just left; with a tmpfs tab the stale device made the drop a move, and
-# a move across devices copies and then deletes the source. The window is held open, not raced: the
-# suite's own backend is stopped before the switch, so the listing it asks for cannot come back until
-# the drop has been taken, and the backend is continued only then.
+echo "== R7: a loading tab refuses the drop; after its listing lands, a cross-device drag copies =="
+# Stop only this suite's backend so the hovered current tab must refuse before its listing can land.
+r7_home_tab=0
+r7_tmpfs_tab=2
+r7_poll_attempts=40
+r7_poll_seconds=0.1
+r7_row_poll_seconds=0.25
+r7_pointer_settle_seconds=0.4
+r7_press_settle_seconds=0.3
+r7_release_settle_seconds=0.5
+r7_stopped_state=T
 XDEV=$(mktemp -d /dev/shm/flea-drag-xdev-XXXXXX)
 : > "$XDEV/$SANDBOX_MARKER"
-mkdir -p "$XDEV/big/dest"
+mkdir -p "$XDEV/big"
 check "the tmpfs root is another filesystem than the fixture" \
       "$([ "$(stat -c %d "$XDEV")" != "$(stat -c %d "$HOMEDIR")" ] && echo other || echo same)" "other"
 printf 'r7 payload\n' > "$HOMEDIR/r7.txt"
 # R6 left the third tab current; it is walked into the tmpfs directory through the path bar, as R5 walked into bbb.
-check "the third tab is current" "$(ipc tabIndex)" "2"
-native_key :; sleep 0.3
-native_key "$XDEV/big"; sleep 0.2
+check "the third tab is current" "$(ipc tabIndex)" "$r7_tmpfs_tab"
+native_key :
+expect_ipc pathBarOpen true
+native_key "$XDEV/big"
 native_key -k Return
-for i in $(seq 1 40); do [ "$(ipc path)" = "$XDEV/big" ] && [ "$(ipc listInFlight)" = false ] && break; sleep 0.25; done
+expect_ipc pathBarOpen false
+expect_ipc path "$XDEV/big"
+expect_ipc listInFlight false
 check "the third tab lists the tmpfs directory" "$(ipc path)" "$XDEV/big"
-native_tab 0
+native_tab "$r7_home_tab"
 check "the home tab is current again" "$(ipc path)" "$HOMEDIR"
-for i in $(seq 1 40); do rowidx r7.txt >/dev/null 2>&1 && break; sleep 0.25; done
+for i in $(seq 1 "$r7_poll_attempts"); do rowidx r7.txt >/dev/null 2>&1 && break; sleep "$r7_row_poll_seconds"; done
 # The one backend this suite owns: the instance's child running FLEA_BIN --backend, ui/Backend.qml's command.
 BACKEND_PID=""
 for p in $(pgrep -P "$MYPID"); do
   [ "$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null)" = "$FLEA_BIN --backend " ] && BACKEND_PID=$p
 done
 check "the suite found the one backend it owns" "$([ -n "$BACKEND_PID" ] && echo found || echo none)" "found"
+[[ -n "$BACKEND_PID" ]] || die "R7 cannot hold the listing without its owned backend"
 point=$(screen_centre r7.txt) || die "R7 source r7.txt is not visible"
 read -r sx sy <<< "$point"
-point=$(screen_tab_centre 2) || die "R7 destination tab is not visible"
+point=$(screen_tab_centre "$r7_tmpfs_tab") || die "R7 destination tab is not visible"
 read -r tx ty <<< "$point"
-warp "$sx" "$sy"; sleep 0.4
-press; sleep 0.3
-kill -STOP "$BACKEND_PID"
+warp "$sx" "$sy"; sleep "$r7_pointer_settle_seconds"
+press; sleep "$r7_press_settle_seconds"
+kill -STOP "$BACKEND_PID" || die "R7 could not stop its owned backend"
+for i in $(seq 1 "$r7_poll_attempts"); do
+  [ "$(cut -d' ' -f3 "/proc/$BACKEND_PID/stat")" = "$r7_stopped_state" ] && break
+  sleep "$r7_poll_seconds"
+done
+check "the owned backend stopped before the hover switch" "$(cut -d' ' -f3 "/proc/$BACKEND_PID/stat")" "$r7_stopped_state"
+[ "$(cut -d' ' -f3 "/proc/$BACKEND_PID/stat")" = "$r7_stopped_state" ] || die "R7 backend did not stop"
 glide_to "$tx" "$ty"
-for i in $(seq 1 40); do [ "$(ipc tabIndex)" = 2 ] && [ "$(ipc listInFlight)" = true ] && break; sleep 0.1; done
-check "resting on the tmpfs tab selected it" "$(ipc tabIndex)" "2"
+for i in $(seq 1 "$r7_poll_attempts"); do [ "$(ipc tabIndex)" = "$r7_tmpfs_tab" ] && [ "$(ipc listInFlight)" = true ] && break; sleep "$r7_poll_seconds"; done
+check "resting on the tmpfs tab selected it" "$(ipc tabIndex)" "$r7_tmpfs_tab"
 check "and its listing is out against the stopped backend" "$(ipc listInFlight)" "true"
-release; sleep 0.5
-check "the drop was taken with the listing still out" "$(ipc listInFlight)" "true"
-check "and the backend was still stopped at that point" "$(cut -d' ' -f3 "/proc/$BACKEND_PID/stat")" "T"
-kill -CONT "$BACKEND_PID"
-wait_for "$XDEV/big/r7.txt" present
-check "the file landed on the tmpfs tab" \
+release; sleep "$r7_release_settle_seconds"
+check "the release was refused with the listing still out" "$(ipc listInFlight)" "true"
+check "and the backend was still stopped at that point" "$(cut -d' ' -f3 "/proc/$BACKEND_PID/stat")" "$r7_stopped_state"
+expect_ipc lastMessage "A directory is already loading."
+expect_ipc statusError false
+check "the refused drop leaves the tmpfs directory empty" "$(ls -A "$XDEV/big")" ""
+check "and the refused source survives byte for byte" \
+      "$(printf 'r7 payload\n' | cmp -s - "$HOMEDIR/r7.txt" && echo same || echo differs)" "same"
+check "and the window survived the refusal" "$(ipc total >/dev/null 2>&1 && echo alive || echo gone)" "alive"
+kill -CONT "$BACKEND_PID" || die "R7 could not continue its owned backend"
+expect_ipc path "$XDEV/big"
+expect_ipc listInFlight false
+check "nothing lands after the refused listing finishes" "$(ls -A "$XDEV/big")" ""
+check "and the source still survives after the listing finishes" \
+      "$(printf 'r7 payload\n' | cmp -s - "$HOMEDIR/r7.txt" && echo same || echo differs)" "same"
+check "and the window survived the resumed listing" "$(ipc total >/dev/null 2>&1 && echo alive || echo gone)" "alive"
+# Repeat the same plain lift after the destination listing has landed, then await its hover re-list too.
+native_tab "$r7_home_tab"
+check "the second drag starts from the home listing" "$(ipc path)" "$HOMEDIR"
+point=$(screen_centre r7.txt) || die "R7 source r7.txt did not survive the refused drop"
+read -r sx sy <<< "$point"
+point=$(screen_tab_centre "$r7_tmpfs_tab") || die "R7 destination tab is not visible for the second drag"
+read -r tx ty <<< "$point"
+warp "$sx" "$sy"; sleep "$r7_pointer_settle_seconds"
+press; sleep "$r7_press_settle_seconds"
+glide_to "$tx" "$ty"
+expect_ipc tabIndex "$r7_tmpfs_tab"
+expect_ipc path "$XDEV/big"
+expect_ipc listInFlight false
+release; sleep "$r7_release_settle_seconds"
+wait_for "$XDEV/big/r7.txt" present || die "R7 second drag did not reach the tmpfs tab"
+check "the second drag landed on the tmpfs tab" \
       "$([ -e "$XDEV/big/r7.txt" ] && echo landed || echo missing)" "landed"
 check "byte for byte" "$(cmp -s "$HOMEDIR/r7.txt" "$XDEV/big/r7.txt" && echo same || echo differs)" "same"
 check "as a copy, so the source survives" \
@@ -655,6 +696,7 @@ echo "== R8: the line over a folder on another filesystem says copy, and the dro
 # ui/List.qml's verbAt reads the source device off the marker, stamped at the lift: after the hover
 # switch the pane's own dirDev is the destination's, and read from there the line said move over a
 # folder the drop would copy into. The same dragCopy drives the row's "copy here" badge.
+mkdir -p "$XDEV/big/dest"
 printf 'r8 payload\n' > "$HOMEDIR/r8.txt"
 native_tab 0
 check "the home tab is current" "$(ipc path)" "$HOMEDIR"
@@ -845,7 +887,7 @@ dual_drag_diagnostic() {
 
 visit_targets() {
   local destination="$1" verb="$2" suffix=""
-  [[ "$verb" != Move ]] || suffix=' · ctrl copies and shift moves, read at lift'
+  [[ "$verb" != Move ]] || suffix=' · ctrl at lift copies'
   glide_to "$folder_x" "$folder_y"
   expect_feedback "$destination" "$verb 2 items to folder$suffix"
   glide_to "$floor_x" "$floor_y"
