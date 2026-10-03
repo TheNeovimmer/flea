@@ -157,22 +157,6 @@ for tag_name in DROP_CONTENT_NAMES:
             f"<{tag_name}{tail}>{sentinel} ![x]({H}/{p}/x.png)</{tag_name}> R9_TAIL"))
 defs = []
 lines = ["# Security corpus", ""]
-for fi, (name, make) in enumerate(forms):
-    p = f"f{fi}"
-    if name == "fullref":
-        defs.append(f"[rid{p}]: {H}/{p}/x.png")
-    elif name == "collapsed":
-        defs.append(f"[cid{p}]: {H}/{p}/x.png")
-    elif name == "shortcut":
-        defs.append(f"[sid{p}]: {H}/{p}/x.png")
-    elif name == "multiline":
-        defs.append(f"[mid{p}]:\n  {H}/{p}/x.png")
-    elif name == "spacelabel":
-        defs.append(f"[My  Id{p}]: {H}/{p}/x.png")
-    elif name == "quotedef":
-        defs.append(f"> [qid{p}]: {H}/{p}/x.png")
-    elif name == "listdef":
-        defs.append(f"- [lid{p}]: {H}/{p}/x.png")
 contexts = [
     ("alone", lambda s: [s, ""]),
     ("quote", lambda s: ["> " + s, ""]),
@@ -184,11 +168,19 @@ contexts = [
     ("cell", lambda s: ["| " + s + " | x |", "| --- | --- |", ""]),
     ("htmlblock", lambda s: ["<div>", s, "</div>", ""]),
 ]
+reference_prefixes = {"fullref": "rid", "collapsed": "cid", "shortcut": "sid", "multiline": "mid",
+    "spacelabel": "My  Id", "quotedef": "qid", "listdef": "lid"}
 for fi, (name, make) in enumerate(forms):
     p = f"f{fi}"
     for ci, (cname, wrap) in enumerate(contexts):
+        context_path = f"{p}c{ci}"
+        if name in reference_prefixes:
+            label = reference_prefixes[name] + context_path
+            separator = "\n  " if name == "multiline" else " "
+            prefix = "> " if name == "quotedef" else "- " if name == "listdef" else ""
+            defs.append(f"{prefix}[{label}]:{separator}{H}/{context_path}/x.png")
         lines.append(f"<!-- {name} in {cname} -->")
-        for wl in wrap(make(f"{p}c{ci}")):
+        for wl in wrap(make(context_path)):
             lines.append(wl)
         lines.append("")
 lines.append("<!-- fenced controls stay literal -->")
@@ -214,6 +206,11 @@ delayed_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNA
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
+if ! printf '%s\n' "$delayed_output" | grep -q 'MARKDOWN_SECURITY reference forms resolved'; then
+    echo 'FAIL reference forms did not resolve before the delayed network check'
+    printf '%s\n' "$delayed_output"
+    exit 1
+fi
 if ! grep -qx '/delayed-corpus.png' "$hits" || grep -qx '/control-before-delayed-ready' "$hits" \
     || ! printf '%s\n' "$delayed_output" | grep -q 'MARKDOWN_SECURITY drained' \
     || printf '%s\n' "$delayed_output" | grep -q 'MARKDOWN_SECURITY FAIL'; then
@@ -223,10 +220,6 @@ if ! grep -qx '/delayed-corpus.png' "$hits" || grep -qx '/control-before-delayed
     exit 1
 fi
 delayed_count=$(grep -cvx '/control.png' "$hits" 2>/dev/null || true)
-if [ "$delayed_count" -eq 0 ]; then
-    echo 'FAIL delayed corpus escaped the zero-hit check'
-    exit 1
-fi
 echo "ok delayed corpus counted ($delayed_count remote request(s)), completed before control"
 : > "$hits"
 python3 - "$port" <<'RESET'
@@ -246,6 +239,11 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
 if ! printf '%s\n' "$output" | grep -q 'MARKDOWN_SECURITY drained'; then
     printf 'FAIL the render harness never drained (no live preview ran)\n'
     printf '%s\n' "$output" | grep -aE 'MARKDOWN_SECURITY|ERROR|error' | head -20
+    exit 1
+fi
+if ! printf '%s\n' "$output" | grep -q 'MARKDOWN_SECURITY reference forms resolved'; then
+    echo 'FAIL reference forms did not resolve before the network check'
+    printf '%s\n' "$output"
     exit 1
 fi
 if ! grep -qx '/control.png' "$hits"; then

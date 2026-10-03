@@ -10,6 +10,7 @@
 var CODE_INDENT = 4
 var MIN_RULE_MARKS = 3
 var MAX_RULE_INDENT = 3
+var LIST_INTERRUPT_START = 1
 
 function listMarker(line) {
     var mark = Container.readListMarker(line)
@@ -36,7 +37,7 @@ function ruleSuffix(line) {
 }
 
 function referenceState() {
-    return { defs: {}, notes: {}, order: [], numbers: {}, hidden: {}, escaped: {}, code: {}, dropped: [] }
+    return { defs: {}, notes: {}, numbers: {}, hidden: {}, escaped: {}, code: {}, dropped: [] }
 }
 
 function hideDefinition(state, from, to) {
@@ -96,11 +97,15 @@ function blockPass(lines, state, emit, collect) {
         var unmatchedText = Container.textAt(raw, view)
         var startsQuote = Container.quoteAt(raw, view) >= 0
         var startsList = Container.listAt(raw, view)
+        var siblingList = matched < frames.length && frames[matched].type === "list"
+            && startsList !== null && frames[matched].ordered === startsList.ordered
+        var listInterrupts = startsList !== null && (siblingList || ((!startsList.ordered
+            || startsList.start === LIST_INTERRUPT_START) && raw.slice(startsList.markerEnd).trim().length > 0))
         var startsFence = Leaf.fenceOpen(unmatchedText)
         var thematic = Leaf.isThematic(unmatchedText)
         var setext = leaf !== null && leaf.kind === "paragraph" && matched === frames.length && Leaf.isSetext(unmatchedText)
         var lazy = leaf !== null && leaf.kind === "paragraph" && unmatchedText.trim().length > 0
-            && !startsQuote && startsList === null && startsFence === null && !thematic
+            && !startsQuote && !listInterrupts && startsFence === null && !thematic
             && !/^ {0,3}#{1,6}(?:\s|$)/.test(unmatchedText)
         if (matched < frames.length && !lazy) {
             frames.length = matched
@@ -230,12 +235,10 @@ function blockPass(lines, state, emit, collect) {
             var note = Refs.readFootnoteDefinition(text)
             var ref = note === null ? Refs.readDefinition(text) : null
             if (note !== null) {
-                var number = state.order.length + 1
-                var stored = state.notes.hasOwnProperty(note.id) ? null : { n: number, text: note.text }
+                var stored = state.notes.hasOwnProperty(note.id) ? null : { text: note.text }
                 if (stored !== null) {
                     state.notes[note.id] = stored
-                    state.numbers[note.id] = number
-                    state.order.push(note.id)
+                    state.numbers[note.id] = 0
                 }
                 pending = { owner: owner, note: stored || {}, body: [note.text] }
                 hideDefinition(state, i, i)

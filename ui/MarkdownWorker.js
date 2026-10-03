@@ -14,7 +14,7 @@ Qt.include("js/MdBlocks.js");
 
 var Format = { date: date, fileUri: fileUri };
 var MdUrl = { canonicalUrl: canonicalUrl, classifyImage: classifyImage, placeholder: placeholder };
-var MdHtml = { closeToken: closeToken, openToken: openToken, documentText: documentText, readTag: readTag, sanitizeTag: sanitizeTag, tagHead: tagHead };
+var MdHtml = { closeToken: closeToken, openToken: openToken, documentText: documentText, normalizedTarget: normalizedTarget, readTag: readTag, sanitizeTag: sanitizeTag, tagHead: tagHead };
 var MdEscape = { escapeText: escapeText, isAsciiPunct: isAsciiPunct };
 var MdInline = { INTERVAL_STRIDE: INTERVAL_STRIDE, codeHtml: codeHtml, escapeHtmlText: escapeHtmlText, isPunct: isPunct, linkHtml: linkHtml, normalizeLabel: normalizeLabel, readAutolink: readAutolink, readBarelink: readBarelink, readInlineTarget: readInlineTarget, readLabelRef: readLabelRef, spanIntervals: spanIntervals };
 var MdRefs = { readDefinition: readDefinition, readDefinitionTarget: readDefinitionTarget, readFootnoteDefinition: readFootnoteDefinition, killDefinition: killDefinition, readFootnoteRef: readFootnoteRef, skipDropContent: skipDropContent };
