@@ -98,6 +98,8 @@ Item {
             onForgetMessage: function(text) { root.pane.forgetMessage(text) }
             menu: root.pane.railPane.contextMenu()
             onRenameFinished: root.pane.railPane.listArea.forceActiveFocus()
+            // The pane's own PointHandler never sees a press a row grabs, so an overlay rail claims the keyboard itself; a docked rail leaves it.
+            onPressed: if (root.overlay) root.pane.railPane.focusView = Focus.RAIL
             // The rail stays up while the pointer is on it, which is the other half of the reveal.
             HoverHandler { onHoveredChanged: root.over = hovered }
         }

@@ -6635,6 +6635,30 @@ position the menu opened over can name a different row by the time a row inside 
 `ui/js/Mounts.js` `rowByKey`). Right click never activates a rail row any more, so it cannot mount
 and open a stick somebody only meant to ask about.
 
+### A press on the revealed auto-hide rail takes the keyboard from the Sidebar, not from the pane
+
+`ui/Pane.qml` `focusPointer` is a `PointHandler` on the pane, and 29bc8ba5 (w77) taught `ui/PaneRail.qml`
+`focusPress` to map its press into the shown Sidebar and give an overlay rail the keyboard. That worked only
+while nothing below the pane grabbed the press: a handler that takes the exclusive grab on press starves every
+handler on an ancestor, so the pane's `PointHandler` is never activated. be2380ae gave `ui/SidebarRow.qml`'s
+`TapHandler` `ReleaseWithinBounds` under auto-hide (so the covered listing row cannot select the same click),
+which is such a grab, and from then on a click on a rail row left the keyboard on the list while the rail cursor
+moved (native `railpointer`). The rail's blank ground and a right click on a row were starved the same way: the
+Sidebar's interactive `Flickable` takes the press on blank ground, the row's tap takes it on a row. Measured in
+`tests/sidebar-flows.qml` with the rail an overlay: no `focusPointer` activation and no `focusPress` call for
+any of the three.
+
+So `ui/Sidebar.qml` reports its own press: a passive `PointHandler` on an `Item` above the `Flickable` and every
+row (z 1) emits `pressed()` on any button, and `ui/PaneRail.qml` sets `railPane.focusView = Focus.RAIL` on it
+only when the rail is an overlay. A passive handler on the topmost item sees the press first and leaves it to
+the row, so the row still owns its click and the covered listing row is still never selected. A docked rail is
+unchanged: its press never moved `focusView` (`focusPress` finds the press inside the Sidebar and does nothing
+unless `overlay`), and `tests/sidebar-flows-rail.js` pins that. The pane's `focusPress` stays for presses the
+Sidebar does not see. Other press grabbers over a pane (the preview shield, media strip, scroll bar, header
+resize handle, the loading shield) are keyboard-neutral today, and nothing here changes that; the row, tile and
+column-cell taps in the listing views keep the default `DragThreshold` policy, so the pane's `PointHandler`
+still fires for them and a dual view row click still focuses its pane through `focusRequested`.
+
 ### m raises the listing's menu too, under the cursor row
 
 `m` is one action, `menu`, and `ui/js/Focus.js` routes it by focus view. In the rail

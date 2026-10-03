@@ -64,6 +64,7 @@ ln -s "$(readlink -f ui/boot/Ui)" "$probe/config/Ui"
 ln -s "$PWD/ui/boot/fleatab.qml" "$probe/config/fleatab.qml"
 cp tests/sidebar-flows.qml "$probe/config/shell.qml"
 cp tests/sidebar-flows-extra.js "$probe/config/sidebar-flows-extra.js"
+cp tests/sidebar-flows-rail.js "$probe/config/sidebar-flows-rail.js"
 log="$probe/qs.log"
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
     HOME="$probe/home" XDG_STATE_HOME="$probe/state" XDG_CONFIG_HOME="$probe/config" \
