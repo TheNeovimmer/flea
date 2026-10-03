@@ -32,6 +32,13 @@ export YDOTOOL_SOCKET=$XDG_RUNTIME_DIR/.ydotool_socket
 ok()   { printf 'ok   %s\n' "$*"; pass=$((pass+1)); }
 bad()  { printf 'FAIL %s\n' "$*"; fail=$((fail+1)); }
 note() { printf '     %s\n' "$*"; }
+# A missing drop body prints what the receiver logged and the source's data-device traffic.
+outbound_evidence() {
+  grep -q 'body<<' "$RECV_LOG" && return 0
+  note "receiver log: $(tr '\n' '|' < "$RECV_LOG")"
+  note "receiver stderr: $(tail -5 "$1" 2>/dev/null | tr '\n' '|')"
+  grep -E 'wl_data_(source|offer|device)' "$SB/flea.log" | tail -25 | while IFS= read -r line; do note "$line"; done
+}
 check() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1"; note "expected [$3]"; note "got      [$2]"; fi; }
 die() { bad "$*"; exit 1; }
 
@@ -1214,6 +1221,7 @@ for w in json.load(sys.stdin):
     grep -q 'body<<' "$RECV_LOG" && break
     sleep 0.25
   done
+  outbound_evidence "$SB/receiver-err.log"
   check "the other process received the file URI" \
         "$(python3 -c '
 import pathlib, sys
@@ -1300,6 +1308,7 @@ for w in json.load(sys.stdin):
       grep -q 'body<<' "$RECV_LOG" && break
       sleep 0.25
     done
+    outbound_evidence "$SB/receiver-shift-err.log"
     check "the other process received the Shift-dragged file URI" \
           "$(python3 -c '
 import pathlib, sys
