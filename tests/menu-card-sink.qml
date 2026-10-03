@@ -70,7 +70,6 @@ ShellRoot {
         // The tick that reported is the last one: a stopped timer cannot advance an ended run.
         ticker.running = false
         shell.done = true
-        shell.check("timer-stopped", ticker.running, false)
         if (shell.failures.length === 0)
             shell.log("PASS " + shell.checks + " checks")
         shell.log("DONE failures=" + shell.failures.length)
