@@ -3,16 +3,19 @@
 .import "ClipMarks.js" as ClipMarks
 
 function empty() { return { paths: [], moving: false, token: "" } }
-function state() { return { sets: [], ownToken: "", failed: [], gets: [], deferred: null } }
+function state() { return { sets: [], ownTokens: Object.create(null), generation: 0, failed: [], gets: [], deferred: null } }
 function session(pane) {
     if (!pane.clipboardState) pane.clipboardState = state()
     return pane.clipboardState
 }
 
 function set(pane, paths, moving) {
+    var s = session(pane)
+    s.generation += 1
+    s.deferred = null
     var clip = { paths: paths, moving: moving, token: "" }
     pane.clipboard = clip
-    session(pane).sets.push({ pane: pane, backend: pane.backend, clip: clip })
+    s.sets.push({ pane: pane, backend: pane.backend, clip: clip })
     pane.backend.send({ c: "clipSet", op: moving ? "cut" : "copy", paths: paths })
 }
 
@@ -44,7 +47,7 @@ function pendingEcho(s, message) {
 
 function selection(pane, message, s) {
     s.deferred = null
-    if (message.token && message.token === s.ownToken) return
+    if (message.token && s.ownTokens[message.token]) return
     // A watcher can see our owner before set answers with its token.
     if (pendingEcho(s, message)) { s.deferred = {pane: pane, message: message}; return }
     replace(pane, message)
@@ -58,7 +61,8 @@ function receive(pane, message) {
         if (!message.ok) {
             entry.pane.message("Copied in this window only: " + message.error, true)
         } else {
-            s.ownToken = message.token
+            // Both panes can echo any earlier owner after a later set has answered.
+            if (message.token) s.ownTokens[message.token] = true
             // The collision card may already hold this cut, so its snapshot keeps the token too.
             entry.clip.token = message.token
             if (pane.clipboard === entry.clip)
@@ -81,7 +85,7 @@ function receive(pane, message) {
         var waiting = take(s.gets, pane.backend)
         if (!waiting) return
         // A refused read keeps the in-window copy usable without claiming system ownership.
-        if (message.ok) replace(pane, message)
+        if (message.ok && waiting.generation === s.generation) replace(pane, message)
         waiting.ready()
     } else if (message.op === "clear" && message.ok === false) {
         pane.message("Could not clear the system clipboard: " + message.error, true)
@@ -97,7 +101,7 @@ function read(pane, ready) {
             return
         }
     }
-    s.gets.push({ backend: pane.backend, ready: ready })
+    s.gets.push({ backend: pane.backend, ready: ready, generation: s.generation })
     pane.backend.send({ c: "clipGet" })
 }
 

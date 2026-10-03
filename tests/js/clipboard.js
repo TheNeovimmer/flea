@@ -5,6 +5,7 @@
 .import "../../ui/js/Menu.js" as Menu
 .import "collidefixture.js" as Fixture
 .import "sourcefixture.js" as Source
+.import "clipboardraces.js" as Races
 
 function pane() {
     var p = { path: "/dest", clipboard: Clipboard.empty(), clipboardState: Clipboard.state(),
@@ -194,4 +195,5 @@ function run(check) {
     Clipboard.receive(p, {op: "set", ok: true, token: "deferred-own"})
     Ops.paste(p)
     check("replaying an early echo cannot revive a failed watcher", p.sent[p.sent.length - 1].c, "clipGet")
+    Races.run(check, pane, changed, watchError)
 }

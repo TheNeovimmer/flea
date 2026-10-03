@@ -11856,10 +11856,23 @@ xwdrag_place() {
 }
 
 xwdrag_focus() {
-    local pid="$1" addr
+    local pid="$1" addr got now deadline next_focus
+    local focus_wait_ms=5000 focus_retry_ms=500 focus_poll_s=0.05
     addr=$(xwdrag_addr "$pid") || fail "xwdrag: no window address for pid $pid"
-    hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
-    sleep 0.4
+    now=$(date +%s%3N)
+    deadline=$((now + focus_wait_ms)); next_focus=$now
+    while (( now < deadline )); do
+        if (( now >= next_focus )); then
+            hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
+            next_focus=$((now + focus_retry_ms))
+        fi
+        # Sample input: hyprctl activewindow -j prints {"pid": 111} for the focused window.
+        got=$(hyprctl activewindow -j | jq -r '.pid // ""') || fail "xwdrag: no active window to check against $pid"
+        [[ "$got" == "$pid" ]] && { xwdrag_assert_focus "$pid"; return; }
+        sleep "$focus_poll_s"
+        now=$(date +%s%3N)
+    done
+    fail "xwdrag: active window is ${got:-unknown}, wanted $pid after ${focus_wait_ms} ms"
 }
 
 xwdrag_geometry() {
@@ -12883,7 +12896,8 @@ case_previewviews() {
 case_clipboard() {
     command -v wl-copy >/dev/null || fail "clipboard: wl-copy is missing"
     command -v wl-paste >/dev/null || fail "clipboard: wl-paste is missing"
-    local dir="$fixture_root/clipboard" adir bdir apid aid bpid bid types start_ns elapsed_ns state
+    local dir="$fixture_root/clipboard" adir bdir apid aid bpid bid types offer start_ns elapsed_ns state
+    local cut_clear_deadline_ns=1000000000 offer_read_timeout_s=3
     sandbox_scratch "$dir"
     adir="$dir/a"; bdir="$dir/b"
     mkdir -p "$adir" "$bdir"
@@ -12902,11 +12916,11 @@ case_clipboard() {
 
     clipboard_press "$apid" -k y
     clipboard_wait "$bid" copy "$adir/f1"
-    types=$(timeout 3 wl-paste -l) || fail "clipboard: no offered types"
+    types=$(timeout "$offer_read_timeout_s" wl-paste --list-types) || fail "clipboard: no offered types"
     for type in x-special/gnome-copied-files text/uri-list text/plain; do
         grep -Fx "$type" <<< "$types" >/dev/null || fail "clipboard: missing $type"
     done
-    [[ "$(timeout 3 wl-paste -t text/plain)" == "$adir/f1" ]] || fail "clipboard: plain path differs"
+    [[ "$(timeout "$offer_read_timeout_s" wl-paste -t text/plain)" == "$adir/f1" ]] || fail "clipboard: plain path differs"
     printf 'CLIPBOARD types ok\n'
     clipboard_press "$bpid" -k p
     xwdrag_wait_path "$bdir/f1" present || fail "clipboard: cross-window copy never arrived"
@@ -12932,20 +12946,25 @@ case_clipboard() {
         state=$(clipboard_ipc "$aid" fileClipboard 2>/dev/null || true)
         if jq -e '.paths == [] and .moving == false' <<< "$state" >/dev/null 2>&1; then break; fi
         elapsed_ns=$(( $(date +%s%N) - start_ns ))
-        (( elapsed_ns < 1000000000 )) || fail "clipboard: source cut remained past 1 s"
+        (( elapsed_ns < cut_clear_deadline_ns )) || fail "clipboard: source cut remained past 1 s"
         sleep 0.02
     done
     elapsed_ns=$(( $(date +%s%N) - start_ns ))
-    (( elapsed_ns <= 1000000000 )) || fail "clipboard: source cut cleared too late"
+    (( elapsed_ns <= cut_clear_deadline_ns )) || fail "clipboard: source cut cleared too late"
     xwdrag_wait_path "$bdir/f2" present || fail "clipboard: cut never arrived"
     xwdrag_wait_path "$adir/f2" absent || fail "clipboard: cut left its source"
-    [[ "$(clipboard_ipc "$aid" rowClipMark 0)" != scissors ]] || fail "clipboard: source still draws scissors"
+    [[ "$(clipboard_ipc "$aid" rowClipMark 1)" != scissors ]] || fail "clipboard: source still draws scissors"
     printf 'CLIPBOARD cut ok\n'
 
     xwdrag_wait_row_gone "$aid" f2 || fail "clipboard: source still lists f2"
     clipboard_press "$apid" -k End -k y
     clipboard_wait "$bid" copy "$adir/f3"
     xwdrag_kill_second "$apid"
+    types=$(timeout "$offer_read_timeout_s" wl-paste --list-types) || fail "clipboard: source close left no compositor offer"
+    grep -Fx text/uri-list <<< "$types" >/dev/null || fail "clipboard: source close lost the URI offer"
+    offer=$(timeout "$offer_read_timeout_s" wl-paste -t text/uri-list) || fail "clipboard: source close lost the URI list"
+    # Sample input: text/uri-list offers file:///.../a/f3 followed by a CRLF terminator.
+    [[ "$(tr -d '\r' <<< "$offer")" == "file://$adir/f3" ]] || fail "clipboard: source close no longer offers f3"
     clipboard_press "$bpid" -k p
     xwdrag_wait_path "$bdir/f3" present || fail "clipboard: source close lost its copy"
     cmp "$adir/f3" "$bdir/f3" || fail "clipboard: surviving copy differs"
