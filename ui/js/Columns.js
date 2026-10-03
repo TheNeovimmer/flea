@@ -37,6 +37,7 @@ function set(width, t, hidden) {
     var list = hidden || []
     for (var i = 0; i < list.length; i++) h[list[i]] = true
     return {
+        location: false,
         mode: width >= f.mode && !h["mode"],
         size: width >= f.size && !h["size"],
         date: width >= f.date && !h["date"],
@@ -50,7 +51,7 @@ function dualSet(width, t, hidden) {
     var showSize = (hidden || []).indexOf("size") < 0 && width >= base + t.size
     var showDate = (hidden || []).indexOf("date") < 0
         && width >= base + (showSize ? t.size : 0) + t.date
-    return {mode: false, kind: false, size: showSize, date: showDate}
+    return {mode: false, kind: false, location: false, size: showSize, date: showDate}
 }
 
 // Recent drops Location first, then Used and Size, protecting the same name floor as a list.

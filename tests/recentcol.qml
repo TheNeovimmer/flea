@@ -21,6 +21,8 @@ Item {
     Flea.Row { id: narrow; width: narrowHeader.contentWidth; row: root.file; recenting: true; hiddenCols: [] }
     Flea.Row { id: search; width: recent.width; row: root.file; searchQuery: "notes"; hiddenCols: [] }
     Flea.Row { id: plain; width: recent.width; row: root.file; hiddenCols: [] }
+    Flea.Header { id: changingHeader; width: root.paneWidth; hiddenCols: [] }
+    Flea.Row { id: changing; row: root.file; hiddenCols: []; assignedCols: Flea.Theme.columns(width, hiddenCols) }
 
     // Count built Location texts independently of their value and visibility; look up drawn texts separately.
     function texts(row, walk) {
@@ -33,7 +35,35 @@ Item {
         return out
     }
 
+    // List can deliver recenting before its shared assignedCols binding catches up.
+    function transitions(check, walk) {
+        check("Unlaid row has boolean Location", changing.cols.location, false)
+        changing.width = recent.width
+        var hidden = ["mode", "kind", "size", "date"]
+        var sets = [Flea.Theme.columns(changing.width, []), Flea.Theme.columns(changing.width, hidden),
+            Flea.Theme.dualColumns(changing.width, []), Flea.Theme.dualColumns(changing.width, hidden)]
+        for (var i = 0; i < sets.length; i++) {
+            changing.assignedCols = sets[i]
+            changing.recenting = true
+            check("Recent transition " + i + " keeps old Location boolean", changing.cols.location, false)
+            check("Recent transition " + i + " builds its location text", root.texts(changing, walk).locations, 1)
+            changing.assignedCols = Flea.Theme.columns(changing.width, i % 2 ? hidden : [], undefined, true)
+            check("Recent transition " + i + " rebuilds Location", changing.cols.location, true)
+            check("Recent transition " + i + " draws Location", root.texts(changing, walk).location !== null, true)
+            changing.recenting = false
+        }
+        changingHeader.recent = true
+        check("Header transition draws Location", changingHeader.cols.location, true)
+        changingHeader.hiddenCols = hidden
+        check("Hidden metadata keeps Recent Location", changingHeader.cols.location, true)
+        changingHeader.recent = false
+        check("Ordinary header has boolean Location", changingHeader.cols.location, false)
+        changingHeader.dualMode = true
+        check("Dual header has boolean Location", changingHeader.cols.location, false)
+    }
+
     function run(check, walk) {
+        root.transitions(check, walk)
         var r = root.texts(recent, walk)
         var l = root.texts(longRecent, walk)
         var s = root.texts(search, walk)

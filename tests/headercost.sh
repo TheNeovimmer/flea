@@ -60,7 +60,7 @@ fail_count=$(grep -ac 'HEADERCOST FAIL' "$log")
 done_count=$(grep -ac 'HEADERCOST DONE' "$log")
 # Offscreen platform mask warning is the platform's, never the guard's.
 platform_warning='This plugin does not support setting window masks'
-warnings=$(grep -aE 'TypeError|ReferenceError|ERROR|WARN|Cannot|is not a type|failed to load' "$log" | grep -vF "$platform_warning" || true)
+warnings=$(grep -aE 'TypeError|ReferenceError|ERROR|WARN|Cannot|Unable to assign|is not a type|failed to load' "$log" | grep -vF "$platform_warning" || true)
 
 # The DONE receipt is verified before the status is trusted: only a finished fixture proves its counts.
 if [ "$done_count" -ne 1 ]; then
