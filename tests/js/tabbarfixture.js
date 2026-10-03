@@ -9,7 +9,7 @@ function source(path) {
 }
 
 // Sample input: "    function cancelOut() {\n        root.Drag.cancel()\n    }".
-function method(text, name, root, Quickshell, ackTimer, sourceGeometry, strip, query, takenAck) {
+function method(text, name, root, Quickshell, ackTimer, sourceGeometry, strip, query, takenAck, tabDropDeadline) {
     var start = text.indexOf("function " + name + "(")
     if (start < 0) throw new Error("missing shipped method " + name)
     var end = text.indexOf("{", start) + 1
@@ -35,12 +35,15 @@ function bar(pane, shell) {
     var Quickshell = shell || { processId: 111, env: function () { return "/stub/exits" },
         execDetached: function (argv) { root.spawns.push(argv); return false } }
     var text = source("../../ui/TabBar.qml")
+    // Sample input: "readonly property int tabDropPeekFirst: 2".
+    root.tabDropPeekFirst = eval(text.match(/readonly property int tabDropPeekFirst: ([^\n]+)/)[1])
+    var tabDropDeadline = { stop: function () {}, restart: function () {} }
     var names = ["dragStarted", "dragFinished", "tabLiftBegan", "tabLiftEnded", "holdAck",
         "clearAck", "outFinished", "cancelOut", "returnAt", "tearOffAt", "acceptTabDrop",
         "onPeeked"]
     if (text.indexOf("function drainLifts(") >= 0) names.push("drainLifts")
     for (var i = 0; i < names.length; i++)
-        root[names[i]] = method(text, names[i], root, Quickshell, ackTimer, sourceGeometry, strip, null, takenAck)
+        root[names[i]] = method(text, names[i], root, Quickshell, ackTimer, sourceGeometry, strip, null, takenAck, tabDropDeadline)
     root.sendTaken = function (pid, token) { root.acks.push(token) }
     var ackRoot = { tabBar: root, view: { currentPane: pane }, tabs: Tabs, traceTab: function () {} }
     root.take = method(source("../../ui/boot/fleatab.qml"), "take", ackRoot)

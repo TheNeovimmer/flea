@@ -6,16 +6,14 @@ import "js/DragOut.js" as DragOut
 import "js/Tabs.js" as Tabs
 import "js/TabMove.js" as TabMove
 
-// The window's tab strip. Hidden with no height until a second tab exists, so the default window
-// keeps the chrome-to-list layout every existing click test and the first-paint path already have.
+// The window's tab strip. Hidden with no height until a second tab exists, so the default window keeps the chrome-to-list layout every existing click test and the first-paint path already have.
 Item {
     id: root
 
     property var pane: null
     enabled: root.pane !== null && root.pane.enabled
 
-    // pane.tabs is a replaced JS object, so these bindings have to read it directly; a helper
-    // call alone would not re-run when t opens a second tab.
+    // pane.tabs is a replaced JS object, so these bindings have to read it directly; a helper call alone would not re-run when t opens a second tab.
     readonly property var tabs: pane ? pane.tabs : null
     readonly property string path: pane ? pane.path : ""
     readonly property int tabCount: root.tabs && root.tabs.items && root.tabs.items.length > 0 ? root.tabs.items.length : 1
@@ -32,8 +30,7 @@ Item {
     // How long a drag rests on a tab before the tab is selected: long enough to cross it on the way elsewhere.
     readonly property int hoverSwitchMs: 400
 
-    // Tabs040 callout 1: a tab drag reorders the strip. dragFrom is the tab
-    // held, dropAt the insertion point (0..tabCount) its pointer names.
+    // Tabs040 callout 1: a tab drag reorders the strip. dragFrom is the tab held, dropAt the insertion point (0..tabCount) its pointer names.
     property int dragFrom: -1
     property int dropAt: -1
 
@@ -48,6 +45,10 @@ Item {
     property string outToken: ""
     property bool ownAccepted: false
     property var pendingTab: null
+    readonly property int tabDropPeekFirst: 2
+    // A receiver cannot wait longer than the source keeps its unacknowledged lift.
+    readonly property int tabDropWaitMs: Tabs.ACK_WAIT_MS
+    onPaneChanged: root.refuseTabDrop()
     // The lift outlives the drag's own end, until the taken ack or this wait ends.
     property int ackWaitMs: Tabs.ACK_WAIT_MS
     property double ackLiftedAt: 0
@@ -66,6 +67,12 @@ Item {
         onTriggered: root.drainLifts()
     }
 
+    Timer {
+        id: tabDropDeadline
+        interval: root.tabDropWaitMs
+        onTriggered: root.refuseTabDrop()
+    }
+
     Process {
         id: takenAck
         onExited: function (exitCode, exitStatus) {
@@ -80,9 +87,7 @@ Item {
     Flea.TabDragGeometry { id: sourceGeometry }
 
     Drag.dragType: Drag.Automatic
-    // Move only, and only the private tab type: a foreign app refuses it, so a tab
-    // can never move or copy the folder on disk. No proposedAction: a cross-process
-    // drop answers Ignore on Hyprland, and that answer decides nothing.
+    // Private tab MIME cannot move a folder on disk; Hyprland's cross-process Ignore is not an acknowledgment.
     Drag.supportedActions: Qt.MoveAction
     Drag.mimeData: root.outMime
     Drag.onDragFinished: function (dropAction) { root.outFinished(dropAction) }
@@ -106,9 +111,7 @@ Item {
         root.drainLifts()
     }
 
-    // The lift fixes the payload; a rename open refuses the way out, not the reorder.
-    // A lone tab never lifts: the strip is hidden for it, and moving a window's only
-    // tab is moving the window.
+    // The lift fixes the payload; a rename open refuses the way out, not the reorder. A lone tab never lifts: the strip is hidden for it, and moving a window's only tab is moving the window.
     function tabLiftBegan(index) {
         if (!Tabs.canLift(root.pane)) {
             root.dragFrom = -1
@@ -133,8 +136,7 @@ Item {
         root.ownAccepted = false
     }
 
-    // Inside the strip only the reorder runs. Past the window's edge the platform drag
-    // takes over; the reorder state freezes until the drop answers.
+    // Inside the strip only the reorder runs. Past the window's edge the platform drag takes over; the reorder state freezes until the drop answers.
     function tabLiftMoved(stripX, winX, winY) {
         root.dragMoved(stripX)
         if (root.parent)
@@ -153,8 +155,7 @@ Item {
         }
     }
 
-    // The DragHandler's own release: a platform gesture in flight owns the ending, so no
-    // reorder runs under it. The reset still runs, or the ghost would stand past the drop.
+    // The DragHandler's own release: a platform gesture in flight owns the ending, so no reorder runs under it. The reset still runs, or the ghost would stand past the drop.
     function tabLiftEnded() {
         if (root.outActive || root.ownAccepted) {
             root.dragFrom = -1
@@ -165,8 +166,7 @@ Item {
         if (root.ackLiftedAt === 0) root.clearAck()
     }
 
-    // The lift survives the drag's end: the ack lands after the drop action whatever it
-    // reports, so clearing here would orphan it. An own-strip reorder consumed its lift.
+    // The lift survives the drag's end: the ack lands after the drop action whatever it reports, so clearing here would orphan it. An own-strip reorder consumed its lift.
     function holdAck() {
         var lift = Tabs.liftFor(root.outstandingLifts, root.outToken)
         root.ackLiftedAt = Date.now()
@@ -200,11 +200,7 @@ Item {
         root.outstandingLifts = kept
     }
 
-    // The drop action of a cross-process drag decides nothing: on Hyprland it is always
-    // Ignore, which means do nothing. A move closes here only through the taken ack, a
-    // tear-off only through the panel drop, and a cancel changes nothing. An own-strip
-    // drop already reordered, so this only clears, and the late handler release behind
-    // it cannot reorder twice. Every end path runs here, so the panels go with it.
+    // Hyprland's Ignore decides nothing; acknowledgments close moves, panels handle tear-offs, and every ending clears gesture state without reordering twice.
     function outFinished(dropAction) {
         root.traceTab("drag-finished", "action=" + dropAction)
         var consumed = root.ownAccepted
@@ -257,30 +253,38 @@ Item {
         root.outFinished(Qt.IgnoreAction)
     }
 
-    // A tab from another Flea window lands at the drop position. Own drags reach here
-    // only out and back onto this strip, where the reorder owns them; the per-tab file
-    // areas refuse the tab MIME outright.
+    // A tab from another Flea window lands at the drop position. Own drags reach here only out and back onto this strip, where the reorder owns them; the per-tab file areas refuse the tab MIME outright.
     function tabEnterOk(drag) {
         var ok = Tabs.enterAccepts(drag.formats, drag.getDataAsString(Tabs.TAB_MIME), undefined, root.pane ? Tabs.canReceive(root.pane) : false, root.outActive)
         root.traceTab("enter-strip", "formats=" + String(drag.formats) + " ok=" + ok)
         return ok
     }
 
-    // A foreign drop waits on the backend: the folder must exist and be a directory
-    // before this window opens a tab and acks. The peek asks first 2 with no hidden
-    // flags, a quad no other client uses, so the reply answers this drop alone.
+    // The reserved peek discriminator and flags validate the folder before opening a tab and acknowledging its lift.
     function acceptTabDrop(payload, info, at) {
         if (root.pendingTab || !root.pane || !Tabs.canReceive(root.pane)) {
             root.traceTab("drop-skip", "reason=strip-accept-refused")
             return
         }
-        root.pendingTab = { payload: payload, pid: info.pid, token: info.token, path: info.path, at: at }
-        root.traceTab("peek-sent", "path=" + info.path + " first=2 hidden=false")
-        root.pane.backend.peek(info.path, 2, false, false)
+        root.pendingTab = { payload: payload, pid: info.pid, token: info.token, path: info.path, at: at, pane: root.pane }
+        tabDropDeadline.restart()
+        root.traceTab("peek-sent", "path=" + info.path + " first=" + root.tabDropPeekFirst + " hidden=false")
+        root.pane.backend.peek(info.path, root.tabDropPeekFirst, false, false)
     }
 
-    // The taken ack, after this window validated the folder and opened the tab. A drop
-    // never heard about sends nothing, so the source keeps its tab.
+    function refuseTabDrop() {
+        var pending = root.pendingTab
+        if (!pending)
+            return
+        root.pendingTab = null
+        tabDropDeadline.stop()
+        var pane = root.pane || pending.pane
+        if (pane)
+            pane.message("That tab could not be received.", false)
+        root.traceTab("receive", "ok=false refused-pending path=" + pending.path)
+    }
+
+    // The taken ack, after this window validated the folder and opened the tab. A drop never heard about sends nothing, so the source keeps its tab.
     function sendTaken(pid, token) {
         root.traceTab("taken-sent", "target=" + pid + " token=" + token)
         root.takenQueue = root.takenQueue.concat([{ pid: String(pid), token: String(token) }])
@@ -300,10 +304,11 @@ Item {
         target: root.pane ? root.pane.backend : null
         function onPeeked(path, hidden, total, rows, readFailed, mode, hiddenLast, first) {
             var pending = root.pendingTab
-            if (!pending || path !== pending.path || hidden !== false || hiddenLast !== false || first !== 2)
+            if (!pending || path !== pending.path || hidden !== false || hiddenLast !== false || first !== root.tabDropPeekFirst)
                 return
             root.traceTab("peek-answer", "path=" + path + " failed=" + readFailed + " total=" + total)
             root.pendingTab = null
+            tabDropDeadline.stop()
             if (readFailed) {
                 if (root.pane)
                     root.pane.message("That folder is no longer there.", false)
@@ -370,26 +375,21 @@ Item {
 
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
 
-                // GM's ruling: a drag resting on a tab selects it so the drop can land in that tab's
-                // listing, and a drop on the tab itself lands there too, by path, see ui/DropInto.qml.
+                // GM's ruling: a drag resting on a tab selects it so the drop can land in that tab's listing, and a drop on the tab itself lands there too, by path, see ui/DropInto.qml.
                 Flea.DropInto {
                     anchors.fill: parent
                     pane: root.pane
                     enabled: DragOut.searchTabEnabled(root.pane ? root.pane.searchMode : "", tab.current)
                     switchesOnHover: true
                     refuseLoading: DragOut.refuseLoading(root.pane && root.pane.listInFlight, true, tab.current)
-                    // The pane's drop path, not its drawn one: a tab selected by the hover switch is
-                    // current before its listing lands, and until then pane.path is the tab left behind.
-                    // Sidebar040: a history is not a directory, so a drop onto the tab standing on it
-                    // is refused rather than landing in the root it stands on.
+                    // The pane's drop path, not its drawn one: a tab selected by the hover switch is current before its listing lands, and until then pane.path is the tab left behind. Sidebar040: a history is not a directory, so a drop onto the tab standing on it is refused rather than landing in the root it stands on.
                     dest: root.pane && root.pane.recentMode.length > 0 && tab.current ? ""
                         : Tabs.pathAt(root.tabs, root.currentIndex, tab.index,
                                       root.pane ? root.pane.dropPath : root.path)
                     // Unknown while the listed reply is still out, because dirDev is then the directory a hover switch just left; unknown makes verbFor copy, never a move that turns into a cross-device delete.
                     destDev: Tabs.devAt(root.tabs, root.currentIndex, tab.index,
                                         root.pane && root.pane.backend && !root.pane.listInFlight ? root.pane.backend.dirDev : 0)
-                    // Only an accepted enter arms the switch: Qt emits entered before it reads accepted,
-                    // and a refused drag gets no exited, so the timer would otherwise never stop.
+                    // Only an accepted enter arms the switch: Qt emits entered before it reads accepted, and a refused drag gets no exited, so the timer would otherwise never stop.
                     onEntered: function (drag) { if (drag.accepted) hoverSwitch.restart() }
                     onExited: hoverSwitch.stop()
                     onDropped: hoverSwitch.stop()
@@ -405,8 +405,7 @@ Item {
                     color: tab.current ? Theme.color.background : "transparent"
                 }
 
-                // Flush on the strip's own bottom edge, replacing it rather than sitting inside the
-                // plate: rendered in Quickshell on a low-chroma theme, an inset edge vanishes.
+                // Flush on the strip's own bottom edge, replacing it rather than sitting inside the plate: rendered in Quickshell on a low-chroma theme, an inset edge vanishes.
                 Rectangle {
                     anchors.bottom: parent.bottom
                     anchors.left: parent.left
@@ -447,8 +446,7 @@ Item {
                     width: Theme.hitMin
                     height: parent.height
 
-                    // The mark never moves and its target never shrinks; only the ink answers, so a
-                    // crowded strip is no harder to hit than a tidy one.
+                    // The mark never moves and its target never shrinks; only the ink answers, so a crowded strip is no harder to hit than a tidy one.
                     Flea.Glyph {
                         anchors.centerIn: parent
                         width: Theme.chromeMarkSize
@@ -477,10 +475,7 @@ Item {
                     }
                 }
 
-                // Tabs040 callout 1: a left-button drag reorders rather than selects.
-                // A press without a move still taps above, and a file drag never
-                // enters here, so DropInto's hover switch answers only files.
-                // xw6: past the window's edge the same gesture leaves as a platform tab drag.
+                // Tabs040 callout 1: a left-button drag reorders rather than selects. A press without a move still taps above, and a file drag never enters here, so DropInto's hover switch answers only files. xw6: past the window's edge the same gesture leaves as a platform tab drag.
                 DragHandler {
                     acceptedButtons: Qt.LeftButton
                     target: null
@@ -525,9 +520,7 @@ Item {
         }
     }
 
-    // xw6: the strip's own tab catcher. A DropArea takes no pointer input, so this
-    // never blocks a tap or a reorder; it only answers the platform tab drag, at the
-    // drop position, while the per-tab file areas refuse the tab MIME outright.
+    // xw6: the strip's own tab catcher. A DropArea takes no pointer input, so this never blocks a tap or a reorder; it only answers the platform tab drag, at the drop position, while the per-tab file areas refuse the tab MIME outright.
     DropArea {
         anchors.left: parent.left
         anchors.leftMargin: Theme.spacing.rowPaddingX
@@ -555,8 +548,7 @@ Item {
                 return
             }
             if (Tabs.isOwnTab(info)) {
-                // Out and back onto its own strip: reorder in place and accept, and
-                // outFinished clears behind it so the late release reorders nothing.
+                // Out and back onto its own strip: reorder in place and accept, and outFinished clears behind it so the late release reorders nothing.
                 if (!root.outActive) {
                     root.traceTab("drop-skip", "reason=strip-own-inactive")
                     return
@@ -575,10 +567,7 @@ Item {
         }
     }
 
-    // The tear-off catcher lives only while this window's tab drag is out, and goes
-    // with every end path through outFinished, cancelOut and tearOffAt. It loads by
-    // file URL from the boot directory, beside the entries, so the startup path that
-    // avoids ui/qmldir never compiles it.
+    // The catcher loads from the boot URL only during an outgoing drag and unloads on every ending.
     Loader {
         id: tearPanels
         active: root.outActive
@@ -591,8 +580,7 @@ Item {
 
     Component.onCompleted: Tabs.setOwnPid(Quickshell.processId)
 
-    // Tabs040 callout 1: the accent bar where the held tab would land, flush
-    // through the strip's height the way the current tab's own edge is.
+    // Tabs040 callout 1: the accent bar where the held tab would land, flush through the strip's height the way the current tab's own edge is.
     Rectangle {
         visible: root.dragFrom >= 0 && root.dropAt >= 0
         x: Theme.spacing.rowPaddingX + root.dropAt * root.tabWidth - 1

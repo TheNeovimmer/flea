@@ -8,14 +8,11 @@
 .import "Startup.js" as Startup
 .import "TabMove.js" as TabMove
 
-// Hidden tabs are snapshots, so the pane and backend still own only one listing.
-// The nine-tab cap matches TUI's direct digit selection; GUI shortcuts cycle through the same state.
+// Hidden tabs are snapshots, so the pane and backend still own only one listing. The nine-tab cap matches TUI's direct digit selection; GUI shortcuts cycle through the same state.
 
 var MAX = 9
 
-// Where a tab snapshotted now should reopen: a search sets pane.path to the scope it walks, so the
-// directory the user was in is searchFrom, and every caller reads this BEFORE dropOverlay clears it.
-// A history is not a directory, so a pane standing on one records the folder it was opened over.
+// Where a tab snapshotted now should reopen: a search sets pane.path to the scope it walks, so the directory the user was in is searchFrom, and every caller reads this BEFORE dropOverlay clears it. A history is not a directory, so a pane standing on one records the folder it was opened over.
 function restingPath(pane) {
     if (pane.searchMode === "results" && (pane.searchFrom || "").length > 0)
         return pane.searchFrom
@@ -26,8 +23,7 @@ var nextTabIdentity = 0
 
 function snapshot(pane, path, identity) {
     var where = path === undefined ? restingPath(pane) : path
-    // A cursor and a selection read off a search's own listing name nothing in the directory the
-    // tab records, so a tab stepping back out of a search starts at its first row with none.
+    // A cursor and a selection read off a search's own listing name nothing in the directory the tab records, so a tab stepping back out of a search starts at its first row with none.
     var elsewhere = where !== pane.path
     return {
         tabIdentity: identity || ++nextTabIdentity,
@@ -73,8 +69,7 @@ function labelAt(pane, i) {
     return label(pathAt(pane.tabs, currentIndex(pane), i, pane.path), pane.home)
 }
 
-// The path tab i draws: the live pane path for the current tab, the snapshot's for a hidden one.
-// Takes the values rather than the pane so ui/TabBar.qml's binding can read each one by name.
+// The path tab i draws: the live pane path for the current tab, the snapshot's for a hidden one. Takes the values rather than the pane so ui/TabBar.qml's binding can read each one by name.
 function pathAt(tabs, index, i, currentPath) {
     if (i === index)
         return currentPath
@@ -104,9 +99,7 @@ function currentIndex(pane) {
     return pane.tabs ? pane.tabs.index : 0
 }
 
-// Issue 93, nixfred: says whether it dropped a walk's results, which are not the directory's rows.
-// One shared step for the search; see ui/js/Search.js leaveWalk.
-// A Recent listing is dropped the same way; see ui/js/RecentMode.js dropOverlay.
+// Issue 93, nixfred: says whether it dropped a walk's results, which are not the directory's rows. One shared step for the search; see ui/js/Search.js leaveWalk. A Recent listing is dropped the same way; see ui/js/RecentMode.js dropOverlay.
 function dropOverlay(pane) {
     var dropped = pane.searchMode === "results" || RecentMode.dropOverlay(pane)
     Search.leaveWalk(pane)
@@ -127,8 +120,7 @@ function busy(pane) {
     return false
 }
 
-// Only ever called for a switch that re-listed nothing; the clamp is the belt on top of that, since
-// an index past the end would select a row that is not there at all.
+// Only ever called for a switch that re-listed nothing; the clamp is the belt on top of that, since an index past the end would select a row that is not there at all.
 function restoreSelection(pane, selected, follows) {
     pane.clearSelection()
     if (!selected || selected.length === 0)
@@ -176,8 +168,7 @@ function apply(pane, item, dropped) {
     pane.tabs.pendingCursor = item.cursorIndex
     pane.tabs.pendingSortBy = item.sortBy
     pane.tabs.pendingSortDesc = item.sortDesc
-    // The tab's own dotfile answer is restored above, so the listing keeps it rather than taking the
-    // standing preference. A tab in another view clears at once: these rows were never listed in that view.
+    // The tab's own dotfile answer is restored above, so the listing keeps it rather than taking the standing preference. A tab in another view clears at once: these rows were never listed in that view.
     pane.openWithoutHistory(item.path, { keepHidden: true, clearAtOnce: viewChanged })
 }
 
@@ -211,8 +202,7 @@ function currentItems(pane, here) {
     return [snapshot(pane, here)]
 }
 
-// A caller may name where the new tab lands, which is what the Places row menu's own row does;
-// without one it is Settings, View, Opening that decides, and that still defaults to this folder.
+// A caller may name where the new tab lands, which is what the Places row menu's own row does; without one it is Settings, View, Opening that decides, and that still defaults to this folder.
 function openNew(pane, where) {
     if (busy(pane))
         return
@@ -224,22 +214,19 @@ function openNew(pane, where) {
     var here = restingPath(pane)
     closePreview(pane)
     var dropped = dropOverlay(pane)
-    // Settings > View > Opening decides where the new tab lands; it cloned the current folder before
-    // 0.2.1 and that is still the default. The tab the operator leaves keeps the path it was on.
+    // Settings > View > Opening decides where the new tab lands; it cloned the current folder before 0.2.1 and that is still the default. The tab the operator leaves keeps the path it was on.
     var target = where || Startup.newTabPath(pane.uiState, here, pane.home)
     var items = currentItems(pane, here)
     var index = currentIndex(pane)
     items[index] = snapshot(pane, here, items[index].tabIdentity)
     items.push(snapshot(pane, target))
     pane.tabs = pack(items, items.length - 1)
-    // dropOverlay clears the search but leaves the pane on the scope it walked and its rows on that
-    // walk's results, so a target equal to the scope still has to be listed again. Escape already does.
+    // dropOverlay clears the search but leaves the pane on the scope it walked and its rows on that walk's results, so a target equal to the scope still has to be listed again. Escape already does.
     if (pane.path !== target || dropped)
         pane.openWithoutHistory(target)
 }
 
-// Ctrl+Return on the cursor row, the keyboard twin of Tap.tappedTab's middle
-// click: that directory in a new tab, leaving the cursor and selection alone.
+// Ctrl+Return on the cursor row, the keyboard twin of Tap.tappedTab's middle click: that directory in a new tab, leaving the cursor and selection alone.
 function openCursorTab(pane) {
     var row = pane.rowFor ? pane.rowFor(pane.cursorIndex) : null
     if (!row || !row.d || typeof row.n !== "string") {
@@ -307,8 +294,7 @@ function move(pane, from, to) {
     pane.tabs = pack(items, TabMove.reorder(items, from, to, index))
 }
 
-// Tabs040 callout 1: the { and } keys move the current tab one place. A reorder
-// keeps the strip only: the pane stays on its path and lists nothing.
+// Tabs040 callout 1: the { and } keys move the current tab one place. A reorder keeps the strip only: the pane stays on its path and lists nothing.
 function moveCurrent(pane, delta) {
     var total = count(pane)
     if (total < 2)
@@ -340,12 +326,7 @@ function act(action, pane) {
         selectAt(pane, parseInt(action.charAt(3), 10) - 1)
 }
 
-// Tabs040 callout 2: with "Flea opens in" on Last folder the window reopens every tab in
-// order. remembered() runs where lastPath is written and carries no new trigger; restorePlan()
-// is the pure startup decision tests/js/tabrestore.js drives; restoreItems() shapes the plan
-// into snapshots apply() can switch to. A folder that no longer exists is kept, because nothing
-// here can stat a path: the listing's own error names it, the way startPath leaves a missing
-// lastPath to that same error.
+// Tabs040 callout 2: with "Flea opens in" on Last folder the window reopens every tab in order. remembered() runs where lastPath is written and carries no new trigger; restorePlan() is the pure startup decision tests/js/tabrestore.js drives; restoreItems() shapes the plan into snapshots apply() can switch to. A folder that no longer exists is kept, because nothing here can stat a path: the listing's own error names it, the way startPath leaves a missing lastPath to that same error.
 function remembered(pane) {
     var here = restingPath(pane)
     var items = pane.tabs && pane.tabs.items && pane.tabs.items.length > 0 ? pane.tabs.items : null
@@ -358,9 +339,7 @@ function remembered(pane) {
     return { paths: out, index: index }
 }
 
-// Null unless Last folder holds a remembered strip: Home and Chosen folder start exactly as
-// startPath answers, a named path outranks the strip, and an old file without the key, an
-// empty strip or one with nothing usable falls back to that same startPath answer.
+// Null unless Last folder holds a remembered strip: Home and Chosen folder start exactly as startPath answers, a named path outranks the strip, and an old file without the key, an empty strip or one with nothing usable falls back to that same startPath answer.
 function restorePlan(state, argvPath) {
     if (argvPath && String(argvPath).length > 0)
         return null
@@ -382,9 +361,7 @@ function restorePlan(state, argvPath) {
     return { paths: paths, index: index }
 }
 
-// A restored tab starts exactly like a tab opened fresh at that folder: snapshot() is what
-// openNew() records for its own new tab, so the standing view, sort and hidden preference all
-// come from the pane rather than from literals here.
+// A restored tab starts exactly like a tab opened fresh at that folder: snapshot() is what openNew() records for its own new tab, so the standing view, sort and hidden preference all come from the pane rather than from literals here.
 function restoreItems(pane, paths) {
     var out = []
     for (var i = 0; i < paths.length; i++)
@@ -397,12 +374,9 @@ var TAB_MIME = "application/x-flea-tab"
 
 var TAB_VIEWS = ["list", "grid", "columns"]
 
-// The process this window runs as, set once from Quickshell.processId where the
-// library is shared; tests/js/tabs.js sets it by hand. Empty until set, and an
-// empty self never owns a tab, so an unset caller refuses its own drag.
+// The shared library reads this window's Quickshell pid; an unset pid never owns a drag.
 var ownPid = ""
 
-// Set once per window; every caller reads this rather than threading a pid.
 function setOwnPid(pid) {
     ownPid = String(pid || "")
 }
@@ -455,8 +429,7 @@ function tabPayload(pane, index, pid, token) {
     return JSON.stringify([String(who), String(lift), String(info.path), String(info.view), String(info.cursor)])
 }
 
-// What the lift offers: the private tab MIME and nothing else, so a foreign app refuses
-// it. Empty when there is no such tab.
+// What the lift offers: the private tab MIME and nothing else, so a foreign app refuses it. Empty when there is no such tab.
 function tabDragMime(pane, index, pid, token) {
     var payload = tabPayload(pane, index, pid, token)
     if (!payload)
@@ -489,20 +462,16 @@ function parseTabMime(payload) {
              view: String(fields[3] || ""), cursor: String(fields[4] || "") }
 }
 
-// This window's own drag is the reorder path's, never a receive: without this a platform drag
-// set down back on its own strip would open a second tab on the folder it came from.
-// pid defaults to this window, so callers name only a foreign one to test against.
+// An own-window drag belongs to reorder; receiving it would duplicate its tab, and pid defaults to this window.
 function isOwnTab(info, pid) {
     var self = pid === undefined ? ownPid : String(pid)
     return !!info && self.length > 0 && info.pid === self
 }
 
-// Whether a drag offers the tab MIME; formats alone decide at enter time.
 function hasTabFormat(formats) {
     return !!formats && formats.indexOf(TAB_MIME) >= 0
 }
 
-// Enter-time accept for a foreign tab drag; payload arrives only at drop.
 function enterAccepts(formats, payload, selfPid, canRecv, outActive) {
     var text = String(payload || "")
     if (text.length === 0)
@@ -516,14 +485,12 @@ function enterAccepts(formats, payload, selfPid, canRecv, outActive) {
     return canRecv === true
 }
 
-// The strip answers an insertion point, 0 before the first tab and count past the last;
-// off the strip the tab lands at the end, which the caller passes as -1.
+// The strip answers an insertion point, 0 before the first tab and count past the last; off the strip the tab lands at the end, which the caller passes as -1.
 function dropIndexAt(x, tabWidth, tabCount) {
     return TabMove.insertionAt(x, tabWidth, tabCount)
 }
 
-// A catcher may retain drag focus after returning to the source on Hyprland.
-// Compare compositor-global coordinates with the source snapshot, never tear off blind.
+// A catcher may retain drag focus after returning to the source on Hyprland. Compare compositor-global coordinates with the source snapshot, never tear off blind.
 function catcherOutcome(rect, strip, x, y, tabWidth, tabCount) {
     if (!rect || !(rect.width > 0) || !(rect.height > 0) || !isFinite(x) || !isFinite(y))
         return { outcome: "cancel", at: -1 }
@@ -536,16 +503,14 @@ function catcherOutcome(rect, strip, x, y, tabWidth, tabCount) {
     return { outcome: "cancel", at: -1 }
 }
 
-// Whether the pane may receive a tab: a listing in flight and a full strip both refuse,
-// the first with navigation's own sentence. Silent, so an enter probe refuses for free.
+// Whether the pane may receive a tab: a listing in flight and a full strip both refuse, the first with navigation's own sentence. Silent, so an enter probe refuses for free.
 function canReceive(pane) {
     if (!pane || pane.listInFlight)
         return false
     return count(pane) < MAX
 }
 
-// A tab from another Flea window, opened at the drop position and shown. Own drags refuse,
-// because the reorder owns those; a busy or full strip refuses with its sentence.
+// A tab from another Flea window, opened at the drop position and shown. Own drags refuse, because the reorder owns those; a busy or full strip refuses with its sentence.
 function receiveTab(pane, payload, at) {
     if (!pane)
         return false
@@ -576,14 +541,12 @@ function receiveTab(pane, payload, at) {
     return true
 }
 
-// Finder parity: with one tab the strip is hidden, so a lone tab is not lifted;
-// moving a window's only tab is moving the window.
+// Finder parity: with one tab the strip is hidden, so a lone tab is not lifted; moving a window's only tab is moving the window.
 function canLift(pane) {
     return count(pane) >= 2
 }
 
-// The taken ack names the lift it closes. True only for the outstanding token; the
-// caller clears it, so a second ack for the same lift answers false.
+// The taken ack names the lift it closes. True only for the outstanding token; the caller clears it, so a second ack for the same lift answers false.
 function takeToken(stored, token) {
     return !!stored && stored.length > 0 && stored === String(token || "")
 }
@@ -591,7 +554,6 @@ function takeToken(stored, token) {
 // xw6 r5: the source holds its lift until the ack arrives or this wait ends, one network leg's own 15 s bound (ui/NetworkMounts.qml mountTimeout).
 var ACK_WAIT_MS = 15000
 
-// Whether an ack arriving at now may still close the lift begun at liftedAt.
 function ackCloses(stored, token, liftedAt, now) {
     if (!takeToken(stored, token))
         return false
@@ -611,8 +573,7 @@ function dropDecision(info, selfPid, outActive, canRecv) {
     return canRecv === true ? DROP_TAKE : DROP_IGNORE
 }
 
-// After an accepted drop the source closes the tab that left. A lone tab is never
-// lifted, so no move ever closes a window's only tab: that arm answers kept.
+// After an accepted drop the source closes the tab that left. A lone tab is never lifted, so no move ever closes a window's only tab: that arm answers kept.
 function closeTabAfterMove(pane, index) {
     if (!pane)
         return "kept"
@@ -627,8 +588,7 @@ function closeTabAfterMove(pane, index) {
     return "closed"
 }
 
-// A lift may not leave the window while a rename is open: the close after an accepted drop
-// would take the tab under the editor. The sentence is the refusal, read at the lift.
+// A lift may not leave the window while a rename is open: the close after an accepted drop would take the tab under the editor. The sentence is the refusal, read at the lift.
 function tearRefusal(pane) {
     if (!pane)
         return ""
@@ -641,8 +601,7 @@ function tearRefusal(pane) {
     return ""
 }
 
-// The tab standing on a path: the live one for the current tab, the snapshot's for a
-// hidden one. -1 when no tab names it.
+// The tab standing on a path: the live one for the current tab, the snapshot's for a hidden one. -1 when no tab names it.
 function indexOfPath(pane, path) {
     if (!pane || !path)
         return -1

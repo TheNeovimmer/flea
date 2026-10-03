@@ -2039,7 +2039,7 @@ added identity lifecycle and regression coverage: `ui/TabBar.qml` 604, `ui/js/Ta
 The test fixture loads shipped QML function bodies so cancel,
 completion and acknowledgment assertions exercise the actual transitions.
 
-xw6 round 13 records `ui/TabBar.qml` 569 to 588 for the sibling drag source, source
+xw6 round 13 records commit `5b91e7bd`: `ui/TabBar.qml` 569 to 588 for the sibling drag source, source
 geometry snapshot and shared own-return path. `ui/js/Tabs.js` 672 to 686 adds the pure
 catcher outcome decision using the existing insertion math. Geometry query plumbing
 lives in `ui/TabDragGeometry.qml`, below the soft budget; no global limit changes.

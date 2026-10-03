@@ -2,11 +2,7 @@ import QtQml
 import Quickshell
 import Quickshell.Io
 
-// The taken ack a receiving Flea calls after it validated the folder and opened the
-// tab: qs ipc --pid <pid> call fleatab taken <token>. A drop this window never hears
-// about changes nothing here; only a matching outstanding token closes the lifted tab.
-// The boot directory cannot reach ui/js through qs:, so the window hands the Tabs
-// library in with the Loader. See ui/boot/shell.qml on the same rule.
+// Only a validated tab's matching lift acknowledgment closes its source; the window supplies Tabs because qs: cannot reach ui/js.
 QtObject {
     id: root
 

@@ -12,14 +12,12 @@ import "js/Search.js" as Search
 import "js/Startup.js" as Startup
 import "js/Tabs.js" as Tabs
 
-// Everything inside the window ui/boot/shell.qml maps, arriving by file: URL on the first frame
-// because that is the only way Qt caches it; see AGENTS.md "The first window".
+// Everything inside the window ui/boot/shell.qml maps, arriving by file: URL on the first frame because that is the only way Qt caches it; see AGENTS.md "The first window".
 Rectangle {
     id: view
     anchors.fill: parent
     color: Theme.color.background
-    // The window this body was loaded into. Named host, not fleaWindow: a root property of
-    // that name would bind to itself through Ipc and read null.
+    // The window this body was loaded into. Named host, not fleaWindow: a root property of that name would bind to itself through Ipc and read null.
     property var host
     readonly property bool dualMode: ViewState.state.view === "dual"
     property int focusSide: (ViewState.state.dual || {}).focus === 1 ? 1 : 0
@@ -35,10 +33,7 @@ Rectangle {
         Qt.callLater(view.rememberDual)
     }
     function rememberPaths() {
-        // "Last folder" has to have a folder to return to, and the pair below is the dual
-        // view's own. The primary pane is the one a single-view window opens, so it is the
-        // one recorded; a write that lands the value already stored owes nothing, see
-        // ui/ViewState.qml "owe".
+        // "Last folder" has to have a folder to return to, and the pair below is the dual view's own. The primary pane is the one a single-view window opens, so it is the one recorded; a write that lands the value already stored owes nothing, see ui/ViewState.qml "owe".
         if (initialized && !dualMode && primaryPane.path) {
             ViewState.rememberLastPath(primaryPane.path)
             view.queueTabStrip()
@@ -46,13 +41,7 @@ Rectangle {
         if (!initialized || !dualMode || !secondPane.item || !primaryPane.path || !secondPane.item.pane.path) return
         Qt.callLater(view.rememberDual)
     }
-    // The strip itself changing (open, close, move, switch) writes the tabs even when no path
-    // changed, so a quit right after a reorder reopens the new order. Hooked on pane.tabs, which
-    // only a strip reassignment fires: a cursor move never touches it, and owe() drops a write
-    // whose strip did not move. Single view only, the strip remembered is the primary pane's.
-    // Queued past the move: ui/js/Tabs.js reassigns pane.tabs before apply() moves the pane, so a
-    // switch read at the tabs signal writes the old tab's path at the new index. Both signals queue
-    // one deferred write, which lands after the pane has moved.
+    // The strip itself changing (open, close, move, switch) writes the tabs even when no path changed, so a quit right after a reorder reopens the new order. Hooked on pane.tabs, which only a strip reassignment fires: a cursor move never touches it, and owe() drops a write whose strip did not move. Single view only, the strip remembered is the primary pane's. Queued past the move: ui/js/Tabs.js reassigns pane.tabs before apply() moves the pane, so a switch read at the tabs signal writes the old tab's path at the new index. Both signals queue one deferred write, which lands after the pane has moved.
     property bool tabStripQueued: false
     // Stage trace, on only with FLEA_TRACE_TABDRAG=1; read once, silent otherwise.
     readonly property bool tabTrace: Quickshell.env("FLEA_TRACE_TABDRAG") === "1"
@@ -95,9 +84,7 @@ Rectangle {
     }
 
 
-    // Issue 9's chords, aliased by keys.toml onto the Display section's own text size. The
-    // panel writes ui/ViewState.qml directly and shows the value in the row; a chord has no
-    // readout of its own with the panel shut, so this one adds the status line.
+    // Issue 9's chords, aliased by keys.toml onto the Display section's own text size. The panel writes ui/ViewState.qml directly and shows the value in the row; a chord has no readout of its own with the panel shut, so this one adds the status line.
     function applyTextSize(direction) {
         if (direction === 0)
             ViewState.followTextSize()
@@ -106,8 +93,7 @@ Rectangle {
         view.currentPane.message(TextSize.announce(ViewState.textSize, ViewState.omarchyBase), false)
     }
 
-    // The backend is told first and answers when it has drained, so closing never leaves a half
-    // file; the last-window handler itself is in ui/boot/shell.qml, which always exists.
+    // The backend is told first and answers when it has drained, so closing never leaves a half file; the last-window handler itself is in ui/boot/shell.qml, which always exists.
     Connections { target: backend; function onQuitReady() { view.backendDrained(0) } }
 
     Backend {
@@ -126,8 +112,7 @@ Rectangle {
         return networkHost
     }
 
-    // The canvas's own top chrome: where you are on the left, how you are looking at it on
-    // the right. The path lives here, which is why the status bar below carries counts instead.
+    // The canvas's own top chrome: where you are on the left, how you are looking at it on the right. The path lives here, which is why the status bar below carries counts instead.
     Flea.ChromeBar {
         id: chrome
         inputLive: !preview.active
@@ -156,12 +141,7 @@ Rectangle {
         onFilterRequested: view.currentPane.act("filter")
         onSortRequested: view.currentPane.act("sortNext")
         onViewChosen: function (mode) { ViewState.changeKey("view", mode) }
-        // The path bar's four. The primaryPane navigates and answers for the keyboard exactly as it
-        // does for every other route in, so a path typed and a row opened end the same way.
-        // Issue 194: a typed smb:// (or other network) address mounts through the window-long
-        // host's own open-a-share path, which lists a server's shares, rather than listing a
-        // local path. A network address is never listed as a folder: with no host it is refused
-        // with a sentence, the way 0.3.5 refused the line.
+        // The path bar's four. The primaryPane navigates and answers for the keyboard exactly as it does for every other route in, so a path typed and a row opened end the same way. Issue 194: a typed smb:// (or other network) address mounts through the window-long host's own open-a-share path, which lists a server's shares, rather than listing a local path. A network address is never listed as a folder: with no host it is refused with a sentence, the way 0.3.5 refused the line.
         onPathEntered: function (path) {
             if (/^(smb|sftp|ftp|ftps|dav|davs|nfs|afp):\/\//i.test(path)) {
                 var target = view.currentPane
@@ -180,9 +160,7 @@ Rectangle {
         onSettingsRequested: settingsPanel.open(view.currentPane)
     }
 
-    // The peek behind Tab. Every peeked line carries the directory and the hidden flag it
-    // answers for, so the bar takes the reply to its own request and the columns view, which
-    // peeks the same wire for the primaryPane's ancestors, goes on taking its own.
+    // The peek behind Tab. Every peeked line carries the directory and the hidden flag it answers for, so the bar takes the reply to its own request and the columns view, which peeks the same wire for the primaryPane's ancestors, goes on taking its own.
     Connections {
         target: view.currentPane.backend
         function onPeeked(path, hidden, total, rows, readFailed, mode) { chrome.completeWith(path, hidden, rows) }
@@ -198,9 +176,7 @@ Rectangle {
         pane: view.currentPane
     }
 
-    // The taken ack the receiving window calls after it validated and opened the tab.
-    // It loads by file URL from the boot directory, beside the entries, so the
-    // startup path that avoids ui/qmldir never compiles it.
+    // The acknowledgment handler loads from the boot URL so startup without ui/qmldir never compiles it.
     Loader {
         id: tabAck
         active: true
@@ -213,10 +189,7 @@ Rectangle {
         }
     }
 
-    // xw6: with one tab the strip is hidden, so a tab from another window lands
-    // anywhere in this one, at the end. A DropArea takes no pointer input, and the
-    // listing floor refuses the tab MIME, so this is the only thing that answers.
-    // Validation and the ack run through the strip's own path, at the end position.
+    // With the lone-tab strip hidden, this pointer-transparent receiver uses the strip's validation and acknowledgment at the end position.
     DropArea {
         anchors.fill: parent
         keys: [Tabs.TAB_MIME]
@@ -283,8 +256,7 @@ Rectangle {
         // Permissions040: the whole selection's paths for the multi-row card.
         onPermissionsBatchRequested: function (paths) { permissionsDialog.openMany(paths, primaryPane) }
         onPathBarRequested: chrome.startEdit()
-        // Issue 9. ViewState persists the stop and Theme derives its own tokens from it, so
-        // the whole window follows without any surface reading the chord itself.
+        // Issue 9. ViewState persists the stop and Theme derives its own tokens from it, so the whole window follows without any surface reading the chord itself.
         onTextSizeRequested: function (direction) { view.applyTextSize(direction) }
         onOpened: function (path) { if (shareBrowser.owner === primaryPane) shareBrowser.close() }
     }
@@ -390,11 +362,7 @@ Rectangle {
         onWheel: function(wheel) { wheel.accepted = true }
     }
 
-    // Every overlay below is built by its first open and kept, see AGENTS.md rule 6: a launch
-    // that never opens one pays neither its compile nor its objects. Each Loader carries the
-    // one or two members its callers read, and ui/Ipc.qml reads the built item or null.
-    // Each Loader carries its item's z, because a z set inside the item orders it only within
-    // the Loader, and the share browser below would otherwise paint over an open card.
+    // Every overlay below is built by its first open and kept, see AGENTS.md rule 6: a launch that never opens one pays neither its compile nor its objects. Each Loader carries the one or two members its callers read, and ui/Ipc.qml reads the built item or null. Each Loader carries its item's z, because a z set inside the item orders it only within the Loader, and the share browser below would otherwise paint over an open card.
     Loader {
         id: convertDialog
         z: 2
@@ -447,9 +415,7 @@ Rectangle {
         function open(holder) { active = true; item.open(holder) }
     }
 
-    // The settings panel, reached by the comma key from either view, by the toolbar's sliders
-    // button, and by the third door the Settings board draws: the background menu's own
-    // Settings row, which ui/js/Menu.js backgroundEntries builds and ui/Pane.qml act routes.
+    // The settings panel, reached by the comma key from either view, by the toolbar's sliders button, and by the third door the Settings board draws: the background menu's own Settings row, which ui/js/Menu.js backgroundEntries builds and ui/Pane.qml act routes.
     Loader {
         id: settingsPanel
         z: 3
@@ -491,8 +457,7 @@ Rectangle {
                 networkDialog.item.mountFinished(requestId, uri, false, "The requesting pane is no longer available.")
                 return
             }
-            // The host outlives the rail, so hiding the rail mid-dialog loses no answer: the
-            // completed below still lands and the dialog still finishes.
+            // The host outlives the rail, so hiding the rail mid-dialog loses no answer: the completed below still lands and the dialog still finishes.
             var sidebar = networkDialog.origin ? networkDialog.origin.sidebar : null
             if (sidebar) RailMenu.placeSubmitted(sidebar, requestId)
             networkDialog.owner = view.ensureNetworkService()
@@ -501,9 +466,7 @@ Rectangle {
         function onCancelRequested(requestId) { if (networkDialog.owner) networkDialog.owner.cancelLocation(requestId) }
     }
 
-    // The dialog's answer lands here rather than on the rail, so it lands whether the rail is
-    // shown or has been unloaded mid-mount. Every host answer routes once by origin here;
-    // ui/PaneRail.qml carries no duplicate handling, so a dual-view open cannot fire twice.
+    // The dialog's answer lands here rather than on the rail, so it lands whether the rail is shown or has been unloaded mid-mount. Every host answer routes once by origin here; ui/PaneRail.qml carries no duplicate handling, so a dual-view open cannot fire twice.
     Connections {
         target: view.networkService
         function onCompleted(requestId, uri, success, reason) {
@@ -534,8 +497,7 @@ Rectangle {
         }
     }
 
-    // A bare Network entry's own shares, same listArea placement as EmptyState above.
-    // An Item fronts this Loader because its callers read active, which is a Loader's own load switch.
+    // A bare Network entry's own shares, same listArea placement as EmptyState above. An Item fronts this Loader because its callers read active, which is a Loader's own load switch.
     Item {
         id: shareBrowser
         property Item owner: primaryPane
@@ -568,11 +530,7 @@ Rectangle {
         }
     }
 
-    // Issue 20: the mouse's own back button, taken by the window because no row is being
-    // clicked; ui/js/Nav.js mouseBack is what chooses between the history and the climb.
-    // The menu's own refusal is in there rather than in the list below because that is the
-    // only place a JavaScript suite can drive it; the list below is the other overlays a
-    // back press must not act behind.
+    // Issue 20: the mouse's own back button, taken by the window because no row is being clicked; ui/js/Nav.js mouseBack is what chooses between the history and the climb. The menu's own refusal is in there rather than in the list below because that is the only place a JavaScript suite can drive it; the list below is the other overlays a back press must not act behind.
     TapHandler {
         acceptedButtons: Qt.BackButton
         onTapped: {
@@ -593,8 +551,7 @@ Rectangle {
         // Read once, and only on the side that took the named folder; Pane.applyPendingSelect() forgets it after the first rows.
         if (!view.dualMode || pair.launchSide !== 1)
             primaryPane.pendingSelect = Quickshell.env("FLEA_SELECT") || ""
-        // Tabs040 callout 2: Last folder reopens every remembered tab in order at its folder.
-        // Dual startup keeps its own pair, and a named path outranks the strip either way.
+        // Tabs040 callout 2: Last folder reopens every remembered tab in order at its folder. Dual startup keeps its own pair, and a named path outranks the strip either way.
         var plan = view.dualMode ? null : Tabs.restorePlan(ViewState.state, named)
         if (plan)
             primaryPane.tabs = Tabs.pack(Tabs.restoreItems(primaryPane, plan.paths), plan.index)
@@ -605,10 +562,7 @@ Rectangle {
         UpdateCheck.startPolling()
     }
 
-    // The 30 day sweep runs off the startup path, not on it: a Trash listing costs one gio call per
-    // item and first paint is measured. Late enough that the window is up and the backend is
-    // answering, long before anyone reaches the Trash rail row. ui/TrashHost.qml refuses it when the
-    // setting is off, when it has already run today, and when the Trash window exists at all.
+    // The 30 day sweep runs off the startup path, not on it: a Trash listing costs one gio call per item and first paint is measured. Late enough that the window is up and the backend is answering, long before anyone reaches the Trash rail row. ui/TrashHost.qml refuses it when the setting is off, when it has already run today, and when the Trash window exists at all.
     Timer {
         id: trashSweep
         interval: 2000
