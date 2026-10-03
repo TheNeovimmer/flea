@@ -62,6 +62,14 @@ Item {
     }
     function verifyDrop() {
         probe.check(FigureService.requests.length === 0, "an ask equal to the last request sent requests=" + FigureService.requests.length + ", want 0");
+        // A figure still being built schedules nothing, so a change made before creation completes costs no request.
+        figure.created = false;
+        figure.bgHex = "#444444";
+        Qt.callLater(probe.verifyHeld);
+    }
+    function verifyHeld() {
+        probe.check(FigureService.requests.length === 0, "a change before creation completes requests=" + FigureService.requests.length + ", want 0");
+        figure.created = true;
         FigureService.done(figure.ticket, "", "inline render failed");
         var gap = Theme.spacing.gap;
         var want = measure.implicitWidth + probe.fenceSides * gap;

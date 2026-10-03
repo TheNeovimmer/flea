@@ -71,6 +71,7 @@ function run(check, service) {
     fake = service()
     fake.ask("overdue while stopping", true)
     fake.start()
+    var bystander = fake.ask("written beside the overdue head", true)
     fake.now = fake.root.renderMs + pastDeadlineMs
     fake.tick()
     check("a timeout kill leaves the helper stopping with nothing written", fake.root.stopping && fake.root.written.length === 0, true)
@@ -78,5 +79,6 @@ function run(check, service) {
     fake.ask("arrives while stopping", true)
     check("a ticket asked while stopping is held back", fake.writes.length === writesBeforeStop && fake.root.written.length === 0, true)
     fake.exit(cumulativeCpuExit)
-    check("the exit that follows a kill strikes and fails nothing more", fake.answers.length, 1)
+    check("the exit that follows a kill charges the written bystander no strike", fake.root.waiting[bystander].strikes, 0)
+    check("the exit that follows a kill fails nothing more", fake.answers.length, 1)
 }
