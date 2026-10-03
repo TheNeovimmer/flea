@@ -94,9 +94,9 @@ function delimAligns(line) {
     return aligns
 }
 
-// Sample input: "| a | b \| c |"; unescape pipes in cells and preserve other backslash pairs for the inline scanner.
+// Sample input: "| a | b \|" keeps the final pipe as cell text; other backslash pairs reach the inline scanner.
 function splitRow(line) {
-    var text = String(line).trim().replace(/^\||\|$/g, "")
+    var text = String(line).trim().replace(/^\|/, "")
     var cells = []
     var cell = ""
     for (var i = 0; i < text.length; i++) {
@@ -105,6 +105,8 @@ function splitRow(line) {
             cell += text.charAt(i + 1) === "|" ? "|" : ch + text.charAt(i + 1)
             i++
         } else if (ch === "|") {
+            if (i + 1 === text.length)
+                break
             cells.push(cell)
             cell = ""
         } else {

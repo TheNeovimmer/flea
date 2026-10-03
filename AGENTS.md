@@ -7156,7 +7156,7 @@ k2-markdown renders Markdown previews (RenderedPreviews callouts 1, 2 and 4), ea
 
 md3 brings the Markdown view to the RenderedPreviews board's rhythm, each re-derived with `wc -l`:
 `tests/markdown-render.qml` 422 to 493 for the inset, rhythm, heading, line-box, surface, fence-padding and bar
-geometry checks, and `ui/js/MdBlocks.js` at 356 lines (`wc -l`, matching its budget row) for ATX headings as a block of their own. Headings now render bold
+geometry checks, and `ui/js/MdBlocks.js` at 359 lines (`wc -l`, matching its budget row) for ATX headings as a block of their own. Headings now render bold
 in the foreground at 20/14 and 15/14 of `Theme.font.body` through `ui/MarkdownText.qml`'s 1.7 line box, which
 supersedes k2's Qt-sized headings above; setext headings keep Qt's sizes. The block gap, fence padding and document
 inset come from the existing row tokens rather than new literals.
@@ -7173,5 +7173,5 @@ baseline, accounting for raised bullets and descenders without trusting fallback
 Only this harness ceiling changes; the global caps and every existing assertion remain in force.
 
 The mdstack merge keeps md2's escaping, bulk escaper and linear span parser alongside md3's headings, figures
-and baseline checks. The union of their structure tests, plus escaped-dollar and heading-footnote integration
-checks, records `tests/js/mdstructure.js` at 532 lines; all existing budget rows keep their merged `wc -l` counts.
+and baseline checks. The union of their structure tests, plus escaped-dollar, heading-footnote integration and
+final escaped table-pipe checks, records `tests/js/mdstructure.js` at 596 lines (`wc -l`, matching its budget row).

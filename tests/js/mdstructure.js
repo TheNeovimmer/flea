@@ -292,6 +292,23 @@ function run(check) {
     check("a long table header escapes each input character once", longTable.head[0], longEscaped)
     check("a long table cell escapes each input character once", longTable.rows[0][0], longEscaped)
 
+    // R5 F11 samples pin escaped final pipes with an optional closing delimiter and an even-backslash control.
+    var finalPipeCases = [
+        { name: "escaped without closing delimiter", source: "| a | b \\|", cells: ["a", "b |"], rendered: ["a", "b &#124;"] },
+        { name: "escaped with closing delimiter", source: "| a | b \\| |", cells: ["a", "b |"], rendered: ["a", "b &#124;"] },
+        { name: "even backslashes before delimiter", source: "| a | b \\\\|", cells: ["a", "b \\\\"], rendered: ["a", "b &#92;"] }
+    ]
+    for (var finalPipeIndex = 0; finalPipeIndex < finalPipeCases.length; finalPipeIndex++) {
+        var finalPipeCase = finalPipeCases[finalPipeIndex]
+        check("R5 F11 split " + finalPipeCase.name,
+            JSON.stringify(MdLeaf.splitRow(finalPipeCase.source)), JSON.stringify(finalPipeCase.cells))
+        var finalPipeTable = Markdown.blocks(finalPipeCase.source + "\n| --- | --- |\n" + finalPipeCase.source, dir, chrome, ink)[0]
+        check("R5 F11 header " + finalPipeCase.name,
+            JSON.stringify(finalPipeTable.head), JSON.stringify(finalPipeCase.rendered))
+        check("R5 F11 body " + finalPipeCase.name,
+            JSON.stringify(finalPipeTable.rows[0]), JSON.stringify(finalPipeCase.rendered))
+    }
+
     var tasks = Markdown.blocks("- [ ] todo\n- [x] done\n", dir, chrome, ink)
     check("task items are one list", tasks.length === 1 && tasks[0].type === "list", true)
     check("an open task draws its box", tasks[0].items[0].indexOf("☐ todo") >= 0, true)
