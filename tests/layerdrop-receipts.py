@@ -119,7 +119,7 @@ move_to() {
     motions=$((motions + 1))
     if [[ "$motions" == 1 ]]; then
         printf 'TABDRAG drag-start pid=101 path=/fixture mime=application/x-flea-tab\n' >> "$work/flea.log"
-    elif [[ "$route" == catcher ]]; then
+    elif [[ "$route" == catcher || "$route" == unmapped ]]; then
         printf 'TABDRAG catcher-enter pid=101 global=8,1432\n' >> "$work/flea.log"
     elif [[ "$route" == panel || "$route" == finished ]]; then
         printf 'PANEL-ENTER\n' >> "$log"
@@ -161,10 +161,13 @@ ydotool() {
         else:
             check(route + ' receipt refuses before normal release',
                   result.returncode != 0 and not released and 'REFUSED' in result.stdout, detail)
-    (scratch / 'panel.log').write_text('PANEL-ENTER\n')
-    result = subprocess.run(['bash', '-c', setup + '\nlayerdrop_panel_hit "$log"'],
-                            capture_output=True, text=True, timeout=SHELL_TIMEOUT_SECONDS)
-    check('panel hover alone never counts as a panel drop', result.returncode != 0)
+    for receipt, succeeds, name in (
+            ('PANEL-DROP\n', True, 'panel drop receipt counts as a panel drop'),
+            ('PANEL-ENTER\n', False, 'panel hover alone never counts as a panel drop')):
+        (scratch / 'panel.log').write_text(receipt)
+        result = subprocess.run(['bash', '-c', setup + '\nlayerdrop_panel_hit "$log"'],
+                                capture_output=True, text=True, timeout=SHELL_TIMEOUT_SECONDS)
+        check(name, result.returncode == (0 if succeeds else 1), result.stdout + result.stderr)
 
 print(f'{checks} layer receipt checks, {failures} failed')
 raise SystemExit(bool(failures))

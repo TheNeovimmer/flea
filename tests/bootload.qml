@@ -3,8 +3,7 @@
 import QtQuick
 import Quickshell
 
-// xw6r3: every file under ui/boot/ loads the way the shell loads it.
-// Entries compile only; Loader-loaded components compile and instantiate with no props.
+// xw6r3: load every ui/boot/ file as the shell does; compile entries and instantiate Loader components with no props.
 ShellRoot {
     id: root
 

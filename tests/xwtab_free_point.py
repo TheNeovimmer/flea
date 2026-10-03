@@ -42,16 +42,13 @@ def validate_snapshots(clients, layers, monitors):
 
 def monitor_entry(monitors, mon_name):
     # Pick the focused monitor by name, else the focused flag, else the first.
-    if isinstance(monitors, list) and monitors:
-        for m in monitors:
-            if isinstance(m, dict) and m.get("name") == mon_name:
-                return m
-        for m in monitors:
-            if isinstance(m, dict) and m.get("focused"):
-                return m
-        if isinstance(monitors[0], dict):
-            return monitors[0]
-    return {}
+    for m in monitors:
+        if m.get("name") == mon_name:
+            return m
+    for m in monitors:
+        if m.get("focused"):
+            return m
+    return monitors[0]
 def workspace_ids(entry):
     # Active id plus the special id only when one is open (nonzero).
     active = None
@@ -79,14 +76,9 @@ def workspace_ids(entry):
         pass
     return valid
 def client_rects(clients, valid):
-    # Only mapped, non-hidden clients on a valid workspace cover the desktop.
-    # Empty valid means the active workspace is unknown, so keep every mapped row.
+    # Only mapped, non-hidden clients on valid workspaces cover the desktop; an unknown active workspace keeps every mapped row.
     rects = []
-    if not isinstance(clients, list):
-        return rects
     for c in clients:
-        if not isinstance(c, dict):
-            continue
         if not c.get("mapped"):
             continue
         if c.get("hidden"):
@@ -100,51 +92,24 @@ def client_rects(clients, valid):
                 continue
             if wid not in valid:
                 continue
-        try:
-            at = c.get("at", None)
-            sz = c.get("size", None)
-            x = at[0]
-            y = at[1]
-            w = sz[0]
-            h = sz[1]
-        except (TypeError, ValueError, IndexError):
-            continue
+        x, y = c["at"]
+        w, h = c["size"]
         rects.append([x, y, w, h])
     return rects
 def layer_rects(layers, mon_name, mx, my, mw, mh):
     # Only levels 1, 2 and 3 of the focused monitor, read off the levels key.
     rects = []
-    if not isinstance(layers, dict):
-        return rects
     entry = layers.get(mon_name, None)
-    if not isinstance(entry, dict):
+    if entry is None:
         return rects
-    levels = entry.get("levels", None)
-    if not isinstance(levels, dict):
-        return rects
+    levels = entry["levels"]
     for key in ("1", "2", "3"):
-        items = None
-        if key in levels:
-            items = levels[key]
-        elif int(key) in levels:
-            items = levels[int(key)]
-        else:
-            continue
-        if not isinstance(items, list):
-            continue
-        for node in items:
-            if not isinstance(node, dict):
-                continue
-            if not all(k in node for k in ("x", "y", "w", "h")):
-                continue
+        for node in levels.get(key, []):
             ns = str(node.get("namespace", ""))
-            try:
-                x = node["x"]
-                y = node["y"]
-                w = node["w"]
-                h = node["h"]
-            except (TypeError, ValueError):
-                continue
+            x = node["x"]
+            y = node["y"]
+            w = node["w"]
+            h = node["h"]
             full = x == mx and y == my and w == mw and h == mh
             if key == "1" and ns == CATCHER_NAMESPACE and full:
                 continue

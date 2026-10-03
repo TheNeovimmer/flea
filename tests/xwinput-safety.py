@@ -24,9 +24,39 @@ def check(name, condition, detail=''):
 
 
 # Sample input: xwtab_key() {\n    omarchy-drive key --window "$addr" "$@"\n}.
-def function(name):
-    start = UI.index(name + '() {')
-    return UI[start:UI.index('\n}', start) + 2]
+def function(name, text=None):
+    if text is None:
+        text = UI
+    # Sample input: hotkey() {\n    echo HOTKEY\n}\nkey() {\n    echo KEY\n}.
+    match = re.search(r'^' + re.escape(name) + r'\(\) \{', text, re.M)
+    if match is None:
+        raise ValueError('missing shell helper: ' + name)
+    start = match.start()
+    return text[start:text.index('\n}', start) + 2]
+
+
+fixture = 'hotkey() {\n    echo HOTKEY\n}\nkey() {\n    echo KEY\n}\n'
+check('key extraction ignores an earlier hotkey declaration',
+      function('key', fixture) == 'key() {\n    echo KEY\n}')
+
+
+# Sample input: if key -k Escape; then :; fi, or omarchy-drive key -k Escape.
+def ambiguous_input(body):
+    prefix = r'(?:^|&&|\|\||;)\s*(?:(?:if|then)\s+)*'
+    pattern = (prefix + r'(?:key|hotkey)\s|--window\s+flea\b|'
+               + prefix + r'omarchy-drive\s+key\b(?![^;&|\n]*--window(?:\s|=))')
+    # Sample input: key -k Escape >/dev/null, or omarchy-drive key --window flea /fixture.
+    return re.search(pattern, body, re.M)
+
+
+for prefix in ('xwdrag_focus "$bid" && ', 'xwdrag_focus "$bid" || ', 'if ', 'if true; then '):
+    for helper in ('key', 'hotkey'):
+        fixture = prefix + helper + ' -k Escape'
+        check('ambiguity guard refuses ' + fixture, ambiguous_input(fixture) is not None)
+check('ambiguity guard refuses driver key without window',
+      ambiguous_input('omarchy-drive key -k Escape') is not None)
+check('ambiguity guard accepts addressed driver key',
+      ambiguous_input('omarchy-drive key --window "$addr" -k Escape') is None)
 
 
 escape_start = UI.index('    # Escape mid-drag over A cancels')
@@ -120,8 +150,7 @@ xwdrag_qs() {
     bodies = {'xwtab after second launch': function('case_xwtab').split('    xwdrag_launch_second', 1)[1],
               'xwdrag': function('case_xwdrag'), 'xwdrag navigation': navigation}
     for name, body in bodies.items():
-        # Sample input: key -k Escape >/dev/null, or omarchy-drive key --window flea /fixture.
-        ambiguous = re.search(r'^\s*(?:key|hotkey)\s|--window\s+flea\b', body, re.M)
+        ambiguous = ambiguous_input(body)
         check(name + ' has no ambiguous input calls', ambiguous is None,
               ambiguous.group(0) if ambiguous else '')
 

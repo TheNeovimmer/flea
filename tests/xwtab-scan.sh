@@ -388,6 +388,45 @@ for layer in '1 desktop-widget' '3 overlay-widget' '3 qs-launcher' '1 qs-launche
     fi
 done
 # Keep the live shell helpers under the same deterministic regression gate.
+if python3 - "$repo" <<'PYSHAPES'
+import importlib.util
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / 'tests/xwtab_free_point.py'
+spec = importlib.util.spec_from_file_location('free_point', path)
+scan = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(scan)
+checks = 0
+
+
+def check(name, condition):
+    global checks
+    if not condition:
+        raise AssertionError(name)
+    checks += 1
+    print('ok ' + name)
+
+
+monitor = {'name': 'DP-2', 'x': 0, 'y': 0, 'width': 100, 'height': 100}
+scan.validate_snapshots([], {}, [monitor])
+check('valid layers may omit the selected monitor', scan.layer_rects({}, 'DP-2', 0, 0, 100, 100) == [])
+for shape in ('object', 'integer'):
+    entry = dict(monitor, activeWorkspace={'id': 1} if shape == 'object' else 1,
+                 specialWorkspace={'id': 99} if shape == 'object' else 99)
+    client = {'mapped': True, 'at': [0, 0], 'size': [100, 100],
+              'workspace': {'id': 99} if shape == 'object' else 99}
+    scan.validate_snapshots([client], {}, [entry])
+    valid = scan.workspace_ids(entry)
+    check(shape + ' active and special workspaces stay supported', valid == {1, 99})
+    check(shape + ' client workspace stays supported', scan.client_rects([client], valid) == [[0, 0, 100, 100]])
+print(str(checks) + ' retained snapshot shape checks, 0 failed')
+PYSHAPES
+then
+    ok "retained snapshot shapes"
+else
+    bad "retained snapshot shapes"
+fi
 if python3 "$repo/tests/xwtab-safety.py"; then ok "live shell safety regressions"; else bad "live shell safety regressions"; fi
 if python3 "$repo/tests/layerdrop-receipts.py"; then
     ok "layer receiver receipts"

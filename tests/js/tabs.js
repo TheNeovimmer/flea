@@ -327,8 +327,7 @@ function run(check) {
     check("with the cap's own sentence",
           fullReceiver.said[fullReceiver.said.length - 1], "Nine tabs is the most.")
 
-    // The taken ack closes the lifted tab; a lone tab is never lifted, so no move
-    // ever closes a window's only tab.
+    // The taken ack closes the lifted tab; a lone tab never lifts, so no move closes a window's only tab.
     var moved = Fixture.pane("/tmp/one")
     moved.tabs = { items: [{ path: "/tmp/one" }, { path: "/tmp/two", history: [], cursorIndex: 0,
                            viewMode: "list", showHidden: false, selected: [],
@@ -352,7 +351,8 @@ function run(check) {
     check("loading move keeps both tabs", Tabs.count(kept), 2)
     Tabs.closeAt(kept, 0)
     check("loading direct close keeps both tabs", Tabs.count(kept), 2)
-    check("no such tab keeps everything", Tabs.closeTabAfterMove(moved, 5), "kept")
+    check("no such tab keeps everything", Tabs.closeTabAfterMove(pair, 5), "kept")
+    check("no such tab keeps both tabs", Tabs.count(pair), 2)
 
     var geo = BarFixture.geometry()
     geo.begin("first", {})
@@ -395,6 +395,7 @@ function run(check) {
     nav.path = "/tmp/navigated"
     navBar.take(navToken)
     check("navigation ack closes lifted identity", nav.tabs.items[0].marker, "duplicate")
+    check("navigation ack closes exactly one tab", Tabs.count(nav), 1)
 
     var gone = BarFixture.pair()
     Tabs.openNew(gone)
@@ -508,9 +509,11 @@ function run(check) {
     var stubPane = BarFixture.pair()
     var stubBar = BarFixture.bar(stubPane)
     stubBar.tabLiftBegan(1)
+    var stubToken = stubBar.outToken
     stubBar.tearOffAt()
     check("spawn without ack keeps source pair", Tabs.count(stubPane), 2)
-    check("tearoff passes source pid and token", stubBar.spawns[0].join(" ").indexOf("FLEA_TAB_SOURCE_PID=111") >= 0, true)
+    check("tearoff passes source pid", stubBar.spawns[0].indexOf("FLEA_TAB_SOURCE_PID=111") >= 0, true)
+    check("tearoff passes captured token", stubToken !== "" && stubBar.spawns[0].indexOf("FLEA_TAB_TOKEN=" + stubToken) >= 0, true)
 
     // A lift may not leave while a rename is open, or the close would take the editor's tab.
     check("a clean pane tears out", Tabs.tearRefusal(Fixture.pane()), "")

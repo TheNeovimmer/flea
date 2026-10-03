@@ -56,7 +56,7 @@ tests/js/nav.js 323
 tests/js/network.js 306
 tests/js/ops.js 430
 tests/js/settings.js 337
-tests/js/tabs.js 597
+tests/js/tabs.js 600
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 396

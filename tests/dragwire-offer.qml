@@ -22,6 +22,7 @@ Item {
             ["plain", false, false, false, Qt.CopyAction],
             ["ctrl", false, true, false, Qt.CopyAction],
             ["shift", false, false, true, Qt.MoveAction],
+            ["ctrl plus shift without link", false, true, true, Qt.CopyAction],
             ["ctrl with shift", true, true, true, Qt.LinkAction]
         ]
         var failed = 0

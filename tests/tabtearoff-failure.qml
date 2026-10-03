@@ -21,6 +21,9 @@ ShellRoot {
         target: root.geometry
         function onRectChanged() { if (root.geometry.rect && root.geometry.rect.x !== 200) root.staleGeometry = true }
     }
+    function stop() {
+        Quickshell.execDetached(["kill", String(Quickshell.processId)])
+    }
     Component.onCompleted: {
         root.pane = Fixture.pair()
         root.bar = Fixture.bar(root.pane, Quickshell)
@@ -28,8 +31,17 @@ ShellRoot {
         root.bar.tearOffAt()
         var comp = Qt.createComponent("ui/boot/fleatab.qml")
         var geoComp = Qt.createComponent("geometry.qml")
-        if (geoComp.status !== Component.Ready) console.log("GEOMETRY FAIL load=" + geoComp.errorString())
+        if (geoComp.status !== Component.Ready) {
+            console.log("GEOMETRY FAIL load=" + geoComp.errorString())
+            root.stop()
+            return
+        }
         root.geometry = geoComp.createObject(null)
+        if (!root.geometry) {
+            console.log("GEOMETRY FAIL create=" + geoComp.errorString())
+            root.stop()
+            return
+        }
         root.geometry.begin("first", {})
         root.geometry.begin("latest", {})
         root.launchAck = comp.createObject(root, { panes: [root.firstPane, root.secondPane],
@@ -38,7 +50,7 @@ ShellRoot {
     }
     Timer {
         interval: root.stubWaitMs
-        running: true
+        running: root.geometry !== null
         onTriggered: {
             exited.path = Quickshell.env("FLEA_STUB_MARKER") || ""
             exited.reload()
@@ -58,7 +70,7 @@ ShellRoot {
             console.log("LAUNCHACK " + (!premature && root.launchAcks === 1 ? "PASS" : "FAIL") + " acknowledgments=" + root.launchAcks)
             console.log("TEAROFF " + (spawned && kept && Tabs.count(root.pane) === 2 ? "PASS" : "FAIL")
                 + " stubExited=" + spawned + " sourceTabs=" + Tabs.count(root.pane))
-            Quickshell.execDetached(["kill", String(Quickshell.processId)])
+            root.stop()
         }
     }
 }

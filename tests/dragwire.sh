@@ -42,8 +42,8 @@ ln -s "$PWD/ui/js" "$scratch/js" || exit 1
 offer_timeout_seconds=15
 file_offer=$(env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 timeout "$offer_timeout_seconds" qml6 tests/dragwire-offer.qml -- "$scratch/FileDrag.qml" 2>&1)
 offer_status=$?
-if [[ "$offer_status" == 0 ]] && grep -q 'file offers: 4 checks, 0 failed' <<< "$file_offer"; then
-    ok "file lift offers exactly copy, copy, move and link for plain, ctrl, shift and ctrl with shift"
+if [[ "$offer_status" == 0 ]] && grep -q 'file offers: 5 checks, 0 failed' <<< "$file_offer"; then
+    ok "file lift offers copy for plain, ctrl and ctrl plus shift without link; shift offers move and link takes priority"
 else
     bad "file lift offers failed (status=$offer_status): $file_offer"
 fi

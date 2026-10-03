@@ -28,15 +28,35 @@ printf 'parent=%s x=%s\n' "$PPID" "$x" >> "$FLEA_GEOMETRY_MARKER"
 printf '[{"pid":%s,"at":[%s,0],"size":[900,500],"mapped":true,"hidden":false}]\n' "$PPID" "$x"
 GEOMETRY
 chmod +x "$probe/bin/hyprctl"
-output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+run_probe() {
+    env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$probe/home" XDG_STATE_HOME="$probe/state" XDG_RUNTIME_DIR="$probe/runtime" \
     QT_QPA_PLATFORM=offscreen QML_XHR_ALLOW_FILE_READ=1 QT_FORCE_STDERR_LOGGING=1 \
     PATH="$probe/bin:$PATH" FLEA_GEOMETRY_MARKER="$probe/geometry-queries" \
     FLEA_BIN="$probe/flea-exits" FLEA_STUB_MARKER="$probe/child-exited" \
-    timeout 15 qs -p "$probe/config" 2>&1)
+    timeout 15 qs -p "$probe/config" 2>&1
+}
+output=$(run_probe)
 printf '%s\n' "$output"
 printf 'GEOMETRY child runs: '; tr '\n' ';' < "$probe/geometry-queries"; printf '\n'
 grep -q 'GEOMETRY PASS queryToken=latest' <<< "$output" || exit 1
 grep -q 'LAUNCHACK PASS acknowledgments=1' <<< "$output" || exit 1
 grep -q 'TEAROFF PASS stubExited=true sourceTabs=2' <<< "$output" || exit 1
 echo 'tabcatcher: geometry, launch ack and tear-off checks passed'
+
+# Failed geometry loading or creation must report failure and kill the probe before its timer dereferences null.
+for failure in load create; do
+    rm -f "$probe/config/geometry.qml"
+    if [[ "$failure" == create ]]; then
+        printf 'import QtQuick\nItem { required property string needed }\n' > "$probe/config/geometry.qml"
+    fi
+    output=$(run_probe)
+    status=$?
+    printf '%s\n' "$output"
+    if [[ "$status" == 124 ]] || ! grep -q "GEOMETRY FAIL $failure=" <<< "$output" \
+        || grep -qE 'TypeError|GEOMETRY PASS' <<< "$output"; then
+        echo "FAIL geometry $failure must report failure and exit without a null dereference (status=$status)"
+        exit 1
+    fi
+    echo "ok geometry $failure reports failure and exits before timeout"
+done

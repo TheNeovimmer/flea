@@ -22,11 +22,22 @@ def check(name, condition, detail=''):
 
 # Sample input: "xwtab_release() {\n    ydotool click 0x80\n}".
 def function(text, name):
-    start = text.index(name + '() {')
+    start = ('\n' + text).find('\n' + name + '() {')
+    if start < 0:
+        raise ValueError('missing shell helper: ' + name)
     line = text[start:text.index('\n', start)]
-    if line.endswith('}'): return line
+    if line.endswith('}'):
+        return line
     return text[start:text.index('\n}', start) + 2]
 
+
+for helper in ('xwtab_wait_cancel', 'layerdrop_wait_drag'):
+    try:
+        function('', helper)
+    except ValueError as error:
+        check('missing helper refused by name: ' + helper, helper in str(error), str(error))
+    else:
+        check('missing helper refused by name: ' + helper, False, 'extraction succeeded')
 
 
 def shell(code):
@@ -183,7 +194,7 @@ exit "$status"
         check('restore retains failed entry for retry after ' + failure_step, result.returncode != 0 and 'status=1 saved=101 0xa' in result.stdout and 'retry=0 saved=\n' in result.stdout and 'XWTAB restore failed' in result.stderr, result.stdout + result.stderr)
         log.write_text('')
 
-    wait_cancel = function(UI, 'xwtab_wait_cancel') if 'xwtab_wait_cancel() {' in UI else ''
+    wait_cancel = function(UI, 'xwtab_wait_cancel')
     start = UI.index('    # The catcher never takes keyboard focus', UI.index('case_xwtab()'))
     end = UI.index('    hyprctl layers -j', start)
     escape_leg = UI[start:end]
@@ -198,20 +209,19 @@ xwtab_release() { released=true; }
 xwtab_trace_lines() { [[ "${released:-false}" == true ]] && echo 'TABDRAG drag-finished pid=101 action=0'; }
 ''' + escape_leg)
     check('no-op Escape cannot pass through later release', result.returncode != 0, result.stdout + result.stderr)
-    wait_call = 'xwtab_wait_cancel' if wait_cancel else 'true'
     result = shell(wait_cancel + '''
 xwtab_cancel_attempts=30; xwtab_cancel_poll=0.1
 xwtab_source=101
 fail() { exit 1; }
 sleep() { :; }
 xwtab_trace_lines() { echo 'TABDRAG drag-finished pid=101 action=0'; }
-''' + wait_call)
+''' + 'xwtab_wait_cancel')
     check('cancel receipt while held satisfies Escape wait', result.returncode == 0, result.stdout + result.stderr)
-    listing_leg = UI[UI.index('    # A drop on B\'s listing'):UI.index('    # A drop onto a foreign receiver')]
+    listing_leg = UI[UI.index('    # B\'s window DropArea is off'):UI.index('    # A foreign receiver takes uri-list')]
     check('listing refusal requires cursor and refusal proof', '"$apid" "$bpid" refused' in listing_leg)
     move_leg = UI[UI.index('    # B has one tab'):UI.index('    # B\'s new tab torn off')]
     check('one-tab move requires target enter', '"$apid" "$bpid" require' in move_leg)
-    check('foreign refusal requires target delivery', '"$apid" "$recv_pid" require' in UI[UI.index('# A drop onto a foreign receiver'):UI.index("printf 'XWTAB foreign-refused")])
+    check('foreign refusal requires target delivery', '"$apid" "$recv_pid" require' in UI[UI.index('# A foreign receiver takes uri-list'):UI.index("printf 'XWTAB foreign-refused")])
 
     refusal_helpers = UI[UI.index('xwtab_logs='):UI.index('# The addr and rect')]
     refusal_helpers += '\n' + function(UI, 'xwtab_rect_of')
@@ -345,6 +355,10 @@ python3() { return 2; }
     result = shell("cd '" + str(scratch) + "'\nfiles=bad.qml\n" + validation)
     check('unrelated focus never exempts PanelWindow Keys', result.returncode != 0, result.stdout + result.stderr)
 
+    (scratch / 'ui/boot/unfocused.qml').write_text('PanelWindow { Item { Keys.onPressed: function(event) {} Item { focus: true } } }')
+    result = shell("cd '" + str(scratch) + "'\nfiles=unfocused.qml\n" + validation)
+    check('focused child never exempts unfocused Item Keys', result.returncode != 0, result.stdout + result.stderr)
+
     (scratch / 'ui/boot/good.qml').write_text('PanelWindow { Item { Keys.onPressed: function(event) {} focus: true } }')
     result = shell("cd '" + str(scratch) + "'\nfiles=good.qml\n" + validation)
     check('Keys on their own focused Item remain valid', result.returncode == 0, result.stdout + result.stderr)
@@ -353,7 +367,7 @@ python3() { return 2; }
     gesture_start = probe.index('move_to "$sx" "$sy"\ndrag_mark=')
     gesture_end = probe.index('# Wait for an observed panel receipt', gesture_start)
     gesture = probe[gesture_start:gesture_end]
-    waits = function(probe, 'layerdrop_wait_drag') if 'layerdrop_wait_drag() {' in probe else ''
+    waits = function(probe, 'layerdrop_wait_drag')
     log.write_text('')
     result = shell(waits + f"\nwork='{scratch}'\ncall_log='{log}'\n" + r'''
 sx=348
