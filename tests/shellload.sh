@@ -55,11 +55,14 @@ log="$shellload_root/shell.log"
 sandbox_require "$log"
 bus_log="$shellload_root/bus.log"
 sandbox_require "$bus_log"
+# A bus runner that fails before qs starts must still leave a log for the scans below.
+: > "$log" || exit 1
 
 # Offscreen and with no compositor, so this needs neither the display nor the display lock. A shell
 # does not exit on its own, so the timeout expiring is the success path and 124 is not a failure.
 # Seconds: generous enough for a cold QML compile on a loaded box, short enough for the battery.
 load_seconds=25
+# The shell starts the GVfs trash daemon, so it runs on its own bus, whose daemons log to bus.log and stay out of the scanned shell.log.
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
     HOME="$shellload_work/home" XDG_CONFIG_HOME="$shellload_work/config" \
     XDG_STATE_HOME="$shellload_work/state" XDG_DATA_HOME="$shellload_work/data" \
@@ -73,6 +76,7 @@ if [ "$status" -eq 124 ]; then
     ok "the loaded shell stayed alive until the existing timeout"
 else
     bad "qs exited before the load window completed (exit $status)"
+    head -5 "$bus_log" | sed 's/^/     bus: /'
 fi
 
 # Sample input, one Quickshell log line: '  INFO: Configuration Loaded'
