@@ -700,14 +700,16 @@ def compile_qml(root, files):
                                      file, '-o', str(out)], cwd=root, capture_output=True,
                                     text=True, timeout=QMLCACHEGEN_TIMEOUT_SECONDS)
             if result.returncode:
-                diagnostic = (result.stderr or result.stdout).strip()
-                return diagnostic.removeprefix('Error compiling qml file: ') or f'{file}: qmlcachegen exited {result.returncode} without diagnostics'
+                diagnostic = (result.stderr or result.stdout).strip().removeprefix('Error compiling qml file: ')
+                # Sample input: A.qml:4:18: error: Duplicate property name\nA.qml:6:18: error: Duplicate property name
+                lines = [line for line in diagnostic.splitlines() if line.strip()]
+                return lines or [f'{file}: qmlcachegen exited {result.returncode} without diagnostics']
             if not out.is_file() or not out.stat().st_size:
-                return f'{file}: qmlcachegen returned success without bytecode'
-            return None
+                return [f'{file}: qmlcachegen returned success without bytecode']
+            return []
 
         with ThreadPoolExecutor(max_workers=QMLCACHEGEN_POOL_SIZE) as pool:
-            return [error for error in pool.map(compile_file, files) if error]
+            return [error for errors in pool.map(compile_file, files) for error in errors]
 
 
 def qml_duplicate_member(root, files):

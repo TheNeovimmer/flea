@@ -380,6 +380,13 @@ class StaticGateTests(unittest.TestCase):
                     gates.compile_qml(self.root, ['ui/A.qml'])
         self.assertEqual(gates.compile_qml(self.root, []), [])
 
+    def test_duplicate_member_reports_each_compiler_error_line(self):
+        self.write('ui/A.qml', 'Item {}\n')
+        stderr = 'Error compiling qml file: ui/A.qml:4:18: error: Duplicate property name\nui/A.qml:6:18: error: Duplicate property name\n'
+        with mock.patch.object(gates.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '', stderr)):
+            self.assertEqual(gates.compile_qml(self.root, ['ui/A.qml']),
+                             ['ui/A.qml:4:18: error: Duplicate property name', 'ui/A.qml:6:18: error: Duplicate property name'])
+
     def test_duplicate_member_compiler_timeout_and_artifact_are_checked(self):
         self.write('ui/A.qml', 'Item {}\n')
         with mock.patch.object(gates.subprocess, 'run', side_effect=subprocess.TimeoutExpired('qmlcachegen', gates.QMLCACHEGEN_TIMEOUT_SECONDS)) as called:
