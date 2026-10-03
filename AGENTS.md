@@ -5544,19 +5544,20 @@ here only as the control that proves this box reads `GLIBC_TUNABLES` at all.
 `Pss` grew with it, 3,896 to 4,086 KiB with THP off, 180 KiB of that file-backed. `Cargo.toml` and
 `Cargo.lock` are identical at both, so no dependency arrived. By section (`size -A`), `.text` is
 +155,056 bytes, `.eh_frame` +13,768, `.gcc_except_table` +6,868 and `.rodata` +3,808; the unwind
-tables follow the code and `.rodata`'s share was not attributed. By symbol (`nm`), the growth sums
-to 154,018 bytes: about 84.6 kB is the owner's own code (`src/clip/` and
-`src/backend/clipreq.rs`), about 37.9 kB is std generics typed by it (channels, thread shims, drop
-glue), 20.3 kB is std generics that name neither the owner nor the picker (about 9.4 kB of
-`hashbrown` for six new key types and about 6.7 kB for the channel of the owner's ready line),
-about 9.7 kB is the picker and 1.9 kB is the rest of Flea. So about four fifths of the new code is
-the owner's by name, and the remainder is the picker and generics no symbol ties to a feature.
+tables follow the code and `.rodata`'s share was not attributed. By symbol (`nm`), the growth is
+154,018 bytes: 84,594 are the owner's own code (`src/clip/` and `src/backend/clipreq.rs`), 20,255
+are std generics that name neither the owner nor the picker (9,421 of `hashbrown` for six new key
+types and about 6,700 for the channel of the owner's ready line), 9,727 are the picker, 1,884 are
+the rest of Flea, and the remaining 37,558 are std generics typed by the owner (channels, thread
+shims, drop glue). So about four fifths of the new code is the owner's by name, and the rest is
+the picker and generics no symbol ties to a feature.
 Three levers were measured or sized and dropped. Sending the owner's ready line as a `String` in
 place of `(bool, String)` returns 12,160 bytes of binary and no `Pss` a ten-run batch can see,
 4,074 against 4,074 KiB. Replacing the `SetQueue` channel with a mutex and a condvar was sized at
 about 12 kB from its named symbols and not built, for the same reason. `panic = "abort"` returns
 567,208 bytes and 355 KiB, and is refused: `SetQueue` and the backend's threads contain a
-panicking request with `catch_unwind`. No lever returns the growth without the feature.
+panicking request with `catch_unwind`. So the two channel levers are below what `Pss` can show,
+and the one lever that is not gives up panic containment.
 
 ## Write operations and the undo journal
 
