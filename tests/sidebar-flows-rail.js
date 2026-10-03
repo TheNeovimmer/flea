@@ -13,6 +13,8 @@ function steps(root, pane, state) {
     // The listing the presses cover: enough rows (see tests/sidebar-flows.sh) that a row lies under every press point.
     function work() { return pane.home + "/Downloads" }
     var listsBefore = 0
+    // The hover hold is read this many withdraw timers after the pointer came to rest on the rail.
+    var holdSettles = 2, heldSince = 0
     // Sample input: file7.txt (the listing row whose bounds hold the point), or empty over bare listing ground.
     function rowUnder(item, x, y) {
         for (var i = 0; i < pane.rows.length; i++) {
@@ -75,9 +77,10 @@ function steps(root, pane, state) {
             return true
         },
         function () {
-            // Off the edge strip and on the revealed rail, the rail's own hover is what holds it up.
-            if (!rail().over) return false
-            root.check("autohide-switch: the pointer on the revealed rail holds it", rail().wanted, true)
+            // Off the edge strip and on the revealed rail, the rail's own hover is what holds it up, so it is still up after the withdraw timer would have run.
+            if (!heldSince) { if (!rail().over) return false; heldSince = Date.now() }
+            if (Date.now() - heldSince < holdSettles * rail().settleMs) return false
+            root.check("autohide-switch: the pointer on the revealed rail holds it past the settle", shown() && rail().revealed, true)
             root.move(pane, awayX, awayY)
             return true
         },
@@ -134,6 +137,7 @@ function steps(root, pane, state) {
         function () {
             settle("autohide-row-press")
             root.check("autohide-row-press: the press stayed in the open folder", pane.path, pane.home)
+            root.check("autohide-row-press: the open folder's own row requested no listing", pane.backend.listRequests - listsBefore, 0)
             pane.open(work())
             return true
         },
