@@ -67,6 +67,8 @@ ShellRoot {
         return null
     }
     function markdown() { return shell.find(shell.columnHost ? column : look, "PreviewMarkdown") }
+    // The view the host draws, read the way the ipc does: Quick Look's shownView, the column item's own view.
+    function drawnView(md) { return shell.columnHost ? md.view : look.markdownView() }
     function flick(item) { return shell.find(item, "Flickable") }
     // Rendered is the lazy list itself, Source the first Flickable; a list's margins sit outside its content.
     function mdFlick(md) { return md.view === "source" ? shell.flick(md) : md.bodyItem }
@@ -186,7 +188,8 @@ ShellRoot {
         var f = shell.mdFlick(md)
         var h = shell.extent(md)
         var inset = md.view === "source" ? 0 : 2 * md.insetX
-        if (!shell.check(md.view === shell.view, "reader is in " + md.view + ", not the requested " + shell.view)) return
+        if (!shell.check(shell.drawnView(md) === shell.view && md.view === shell.view,
+            label + " measured the " + shell.drawnView(md) + " layout, not the scenario's " + shell.view)) return
         if (!shell.check(md.width === f.width + inset && md.height === f.height, "reader left its viewport")) return
         if (md.view === "source") {
             var text = shell.sourceText(md)
@@ -211,11 +214,14 @@ ShellRoot {
     }
     function advanceMarkdown() {
         var md = shell.markdown()
-        if (!md || !md.contentReady || md.path !== shell.expectedPath || md.view !== shell.view) {
+        if (!md || !md.contentReady || md.path !== shell.expectedPath) {
             if (shell.ticks === 10) shell.log("WAIT markdown=" + md + " ready=" + (md ? md.contentReady : false)
                 + " path=" + (md ? md.path : "") + " view=" + (md ? md.view : "") + " column=" + column.previewState)
             return
         }
+        // The document under measure is in, so a view that is not the scenario's is a lost flip, not a wait.
+        if (!shell.check(shell.drawnView(md) === shell.view, "scenario " + shell.scenario + " draws the "
+            + shell.drawnView(md) + " layout, not its " + shell.view)) return
         if (shell.stage < 3 && md.rawText.indexOf("edge " + shell.count + "\n") !== 0) return
         if (shell.stage === 3 && md.rawText.indexOf("# Overflow edge") !== 0) return
         var h = shell.extent(md)

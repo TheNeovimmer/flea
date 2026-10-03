@@ -165,22 +165,33 @@ ShellRoot {
                     })[0]
                     root.check("Source is drawn by the live pane", liveMarkdown.view, "source")
                     root.check("the flip is kept nowhere in the state", Flea.ViewState.preview.markdownView, undefined)
-                    // The flip lives in the open Quick Look, so a move to another Markdown file keeps it.
-                    quick.open(root.fixture + "/b.md", "text-x-generic", 2000, "Markdown document", "")
+                    // The flip lives in the open Quick Look, so the cursor moving to another Markdown file keeps it.
+                    var fromRow = nativePane.rowFor(nativePane.cursorIndex)
+                    root.check("the cursor sits on the file Quick Look shows", fromRow ? fromRow.n : null, "a.md")
+                    nativeKeys.keyClick(Qt.Key_Down, Qt.NoModifier, -1)
                     root.stage = 3
                     root.stamp = Date.now()
                     return
                 }
-                if (stage === 3 && quick.status === "ready" && Date.now() - root.stamp > 300) {
-                    root.check("moving to another Markdown file keeps the flip", quick.markdownView(), "source")
-                    // Closing forgets it: the next Quick Look opens rendered.
-                    quick.close()
+                if (stage === 3 && quick.status === "ready" && quick.path === root.fixture + "/b.md" && Date.now() - root.stamp > 300) {
+                    var toRow = nativePane.rowFor(nativePane.cursorIndex)
+                    root.check("the cursor key moved to the next Markdown file", toRow ? toRow.n : null, "b.md")
+                    root.check("moving the cursor to another Markdown file keeps the flip", quick.markdownView(), "source")
                     quick.open(root.fixture + "/a.md", "text-x-generic", 2000, "Markdown document", "")
                     root.stage = 4
                     root.stamp = Date.now()
                     return
                 }
-                if (stage === 4 && quick.status === "ready" && Date.now() - root.stamp > 300) {
+                if (stage === 4 && quick.status === "ready" && quick.path === root.fixture + "/a.md" && Date.now() - root.stamp > 300) {
+                    root.check("opening another Markdown file keeps the flip", quick.markdownView(), "source")
+                    // Closing forgets it: the next Quick Look opens rendered.
+                    quick.close()
+                    quick.open(root.fixture + "/a.md", "text-x-generic", 2000, "Markdown document", "")
+                    root.stage = 5
+                    root.stamp = Date.now()
+                    return
+                }
+                if (stage === 5 && quick.status === "ready" && Date.now() - root.stamp > 300) {
                     root.check("a Quick Look opened after a flipped one was closed is rendered", quick.markdownView(), "rendered")
                     root.finish()
                 }

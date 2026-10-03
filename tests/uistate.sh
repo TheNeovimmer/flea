@@ -237,6 +237,10 @@ check "and keeps its view" "1" "$(echo "$out" | grep -c '"view": "columns"')"
 out=$(flea_ui '{"density":"tight"}' 2>&1); rc=$?
 check "a write over the retired leaf exits 0" "0" "$rc"
 check "and lands" "1" "$(grep -c '"density": "tight"' "$UI")"
+# The write fills the preview defaults in, so the unknown key and its sibling leaf are read back by value, not by shape.
+# Sample input: {"density": "tight", "preview": {"markdownView": "source", "thumbSize": "large", "column": true}, "view": "columns"}
+kept=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); p=d.get("preview", {}); print(p.get("markdownView"), p.get("thumbSize"), d.get("view"))' "$UI" 2>&1)
+check "and the write keeps the retired leaf, its sibling leaf and the view as read" "source large columns" "$kept"
 
 # G1: two folder patches both survive, a null forgets one, and two widths behave per key.
 fresh
