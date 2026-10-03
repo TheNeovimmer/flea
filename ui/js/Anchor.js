@@ -3,6 +3,7 @@
 .import "AnchorHold.js" as Hold
 
 // Re-reading the open listing without moving the user off it, for a foreign change and Flea's own delete.
+
 // A re-read renumbers every row, so it waits while an interaction owns the rows, while any paths asker resolves, or while unheld marks have no resolver.
 function busy(pane) {
     if (!pane)

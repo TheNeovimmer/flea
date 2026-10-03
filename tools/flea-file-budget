@@ -81,7 +81,7 @@ tests/rename-grid-bottom.qml 424
 tests/rename-grid-bottom.js 305
 tests/rename-lifecycle-check.js 356
 tests/touchpad.qml 747
-tests/xwsettings-tabs.qml 409
+tests/xwsettings-tabs.qml 416
 ui/Backend.qml 466
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 480
@@ -115,7 +115,7 @@ ui/Theme.qml 414
 ui/TrashView.qml 475
 ui/ViewState.qml 538
 ui/WindowBody.qml 571
-ui/js/Anchor.js 392
+ui/js/Anchor.js 393
 ui/js/Devices.js 366
 ui/js/Filter.js 257
 ui/js/Focus.js 435

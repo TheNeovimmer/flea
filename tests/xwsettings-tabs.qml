@@ -29,6 +29,7 @@ ShellRoot {
     readonly property int dragInset: 10
     readonly property int pointerMoveMs: 20
     readonly property int pointerEventMs: 1
+    readonly property int harnessTickMs: 50
 
     function check(label, actual, expected) {
         root.checks++
@@ -118,7 +119,8 @@ ShellRoot {
                 pane.clearSelection()
                 next()
             } else if (phase === 2) {
-                if (pane.total === initialTotal && Date.now() - phaseAt < 2000) return
+                if (Date.now() - phaseAt <= pane.wire.watchMs + root.harnessTickMs)
+                    return
                 check("clearing selection keeps the refreshed listing", pane.total, initialTotal + 1)
                 check("clearing selection sends no extra watched reread", pane.backend.listRequests, root.firstLists)
                 check("clearing selection removes the kept mark", pane.selectionCount(), 0)
@@ -400,7 +402,12 @@ ShellRoot {
             }
         }
     }
-    Timer { interval: 50; repeat: true; running: !root.finished; onTriggered: root.advance() }
+    Timer {
+        interval: root.harnessTickMs
+        repeat: true
+        running: !root.finished
+        onTriggered: root.advance()
+    }
     Timer {
         interval: 20000
         running: !root.finished
