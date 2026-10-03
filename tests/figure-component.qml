@@ -69,7 +69,14 @@ Item {
     }
     function verifyHeld() {
         probe.check(FigureService.requests.length === 0, "a change before creation completes requests=" + FigureService.requests.length + ", want 0");
+        // The control: the same kind of change on a created figure does ask, so the zero above is the guard's.
         figure.created = true;
+        figure.bgHex = "#555555";
+        Qt.callLater(probe.verifySent);
+    }
+    function verifySent() {
+        probe.check(FigureService.requests.length === 1 && FigureService.requests[0].bg === "#555555",
+            "a change on a created figure requests=" + FigureService.requests.length + ", want 1 carrying #555555");
         FigureService.done(figure.ticket, "", "inline render failed");
         var gap = Theme.spacing.gap;
         var want = measure.implicitWidth + probe.fenceSides * gap;

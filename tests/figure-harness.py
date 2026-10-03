@@ -292,7 +292,7 @@ QtObject {
                                          XDG_CACHE_HOME=str(box / "qml-cache")),
                                 capture_output=True, text=True, timeout=FRAGMENT_BOUND_SECONDS)
         component_output = result.stdout + result.stderr
-        component_ok = result.returncode == 0 and "figure-component: 7 check(s), 0 failed" in component_output
+        component_ok = result.returncode == 0 and "figure-component: 8 check(s), 0 failed" in component_output
         check(component_ok, "mx2a F31/F32 and mx2b F37/F38 one request per creation and per burst, an equal ask dropped, the exact failed-inline fence"
               + ("" if component_ok else ": " + component_output.strip()))
     else:

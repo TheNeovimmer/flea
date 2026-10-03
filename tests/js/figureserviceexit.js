@@ -72,6 +72,7 @@ function run(check, service) {
     fake.ask("overdue while stopping", true)
     fake.start()
     var bystander = fake.ask("written beside the overdue head", true)
+    check("the bystander is written beside the head before the kill", fake.root.written.indexOf(bystander), 1)
     fake.now = fake.root.renderMs + pastDeadlineMs
     fake.tick()
     check("a timeout kill leaves the helper stopping with nothing written", fake.root.stopping && fake.root.written.length === 0, true)
