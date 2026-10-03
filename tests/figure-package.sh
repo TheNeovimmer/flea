@@ -34,7 +34,7 @@ for name in root flea flea-git flea-bin; do
         package
     )
 done
-python3 - "$box" <<'PY'
+python3 - "$box" "$repo" <<'PY'
 import pathlib
 import re
 import sys
@@ -70,6 +70,23 @@ for package in ("root", "flea", "flea-git", "flea-bin"):
             if not valid:
                 failures += 1
                 print(f"FAIL {package}: {module.relative_to(ui)} imports missing {relative}")
+# Sample inputs: `  install -Dm644 ui/js/*.js ui/js/*.mjs -t "$pkgdir/usr/share/flea/ui/js"` in package(); `"$repo"/ui/js/*.mjs` in the tarball script.
+repo = pathlib.Path(sys.argv[2])
+body = re.search(r'^package\(\) \{\n(.*?)^\}', (repo / "packaging/flea-bin/PKGBUILD").read_text(), re.S | re.M).group(1)
+installed = [token for line in body.splitlines() if line.split()[:1] == ["install"]
+             for token in line.split()[1:] if not token.startswith(("-", '"$pkgdir'))]
+staged = {token.replace('"', "").removeprefix("$repo/")
+          for token in (repo / "packaging/flea-bin-tarball").read_text().split() if token.startswith('"$repo')}
+checks += 1
+if "ui/qmldir" not in installed:
+    failures += 1
+    print("FAIL flea-bin: no install path could be read from package()")
+# The binary is the one path the tarball script stages from its own first argument.
+for source in (path for path in installed if path != "flea"):
+    checks += 1
+    if source not in staged:
+        failures += 1
+        print(f"FAIL flea-bin: package() installs {source}, which packaging/flea-bin-tarball does not stage")
 checks += 1
 if (root / "root.licenses").read_text() != (root / "flea.licenses").read_text():
     failures += 1
