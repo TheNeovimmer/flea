@@ -377,7 +377,7 @@ expect_ipc() {
 # Sample output: DRAG_R7 phase=before-Return reader=pathBarText value=/dev/shm/flea-drag-xdev-AbCdEf/big
 walk_state() {
   local leg="$1" phase="$2" reader value
-  for reader in tabCount tabIndex tabLabels path keyDeliveryState pathBarOpen pathBarText lastMessage statusError; do
+  for reader in listInFlight listRequests tabCount tabIndex tabLabels path keyDeliveryState pathBarOpen pathBarText lastMessage statusError; do
     value=$(ipc "$reader") || die "$leg $phase observer failed: $reader: $value"
     printf 'DRAG_%s phase=%s reader=%s value=%q\n' "$leg" "$phase" "$reader" "$value"
   done
@@ -867,6 +867,9 @@ native_key :
 expect_ipc pathBarOpen true
 native_key "$XDEV/big"
 walk_state R7 before-Return
+# The payload written above is re-read by the watcher, and a path entered while a listing is out is refused.
+expect_ipc listInFlight false
+walk_state R7 settled
 native_key -k Return
 walk_state R7 after-Return
 expect_ipc pathBarOpen false
