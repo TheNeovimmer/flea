@@ -108,8 +108,8 @@ ShellRoot {
         readonly property bool saveReady: win.saveReview.key === win.saveKey
         readonly property bool saveCollision: win.saveReady && win.saveReview.collision
         readonly property bool submitting: win.acceptMarks || win.reviewRequest > 0
-        // Submission disables its initiating control; keep cancellation on the enabled focus path.
-        onSubmittingChanged: if (win.submitting) win.stepFocus(null, false)
+        // Submission keeps Cancel reachable and restores its initiating control only on refusal.
+        onSubmittingChanged: chrome.submissionChanged()
         readonly property bool marksAllowed: win.req.multiple && !win.saving
         readonly property var cursorRow: win.rowFor(win.cursorIndex)
         readonly property bool cursorFile: win.listingState === "ready" && !win.listingFailed && win.cursorRow !== null && !Picker.directory(win.cursorRow)

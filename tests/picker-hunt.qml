@@ -5,7 +5,7 @@ import "flea" as Flea
 import "flea/js/Keymap.js" as Keymap
 import "flea/js/Picker.js" as Picker
 
-// Drive the real picker and its real backend, with native Qt key events.
+// Drive the real picker with native Qt key events and controlled submission refusals.
 ShellRoot {
     id: root
     property var pickerShell: null
@@ -17,6 +17,8 @@ ShellRoot {
     property int failures: 0
     property int checks: 0
     readonly property int burstSteps: 3
+    property var initiatingFocus: null
+    property var movedFocus: null
 
     function check(label, got, want) {
         checks++
@@ -60,6 +62,80 @@ ShellRoot {
         check("busy double activation keeps Space refusal", win.message, "Selection is still being checked.")
     }
 
+    function focusRefusal() {
+        if (!win || win.listingState !== "ready" || !win.rows.length || (win.saving && !win.saveReady)) return
+        if (stage === 0) {
+            win.cursorIndex = 0
+            win.focusView()
+            if (!win.viewItem().activeFocus) return
+            var types = descendants(win.contentItem).filter(function(item) { return typeof item.reveal === "function" && item.flickableDirection === Flickable.HorizontalFlick })[0]
+            var viewButton = descendants(win.contentItem).filter(function(item) { return item.name === "List view" })[0]
+            check("filter strip keeps gap before view controls", Math.round(viewButton.mapToItem(win.contentItem, 0, 0).x - types.mapToItem(win.contentItem, types.width, 0).x), Flea.Theme.spacing.gap)
+            if (scenario === "refuse-validate")
+                win.marks = [{path: win.path + "/a.txt", uri: "file://" + win.path + "/a.txt", bytes: 1}]
+            if (win.saving) {
+                var form = descendants(win.contentItem).filter(function(item) { return item.fieldItem !== undefined && item.askedName !== undefined })[0]
+                form.fieldItem.forceActiveFocus()
+            } else if (scenario === "refuse-button") {
+                var open = descendants(win.contentItem).filter(function(item) { return item.primary === true && item.name === "Open" })[0]
+                open.forceActiveFocus()
+            }
+            initiatingFocus = win.contentItem.Window.window.activeFocusItem
+            press(Qt.Key_Return)
+            if (scenario === "refuse-collision") {
+                check("collision Enter focuses Cancel", win.contentItem.Window.window.activeFocusItem.label, "Cancel")
+                check("collision does not start submission", win.submitting, false)
+                check("collision keeps request open", win.answered, false)
+                finish()
+                return
+            }
+            check("Return starts submission", win.submitting, true)
+            check("submission steps focus to Cancel", win.contentItem.Window.window.activeFocusItem.name, "Cancel")
+            if (scenario === "refuse-moved" || scenario === "refuse-returned") {
+                press(Qt.Key_Tab)
+                movedFocus = win.contentItem.Window.window.activeFocusItem
+                check("Tab moves focus off stepped Cancel", movedFocus.name === "Cancel", false)
+                if (scenario === "refuse-returned") {
+                    press(Qt.Key_Backtab, Qt.ShiftModifier)
+                    movedFocus = win.contentItem.Window.window.activeFocusItem
+                    check("user returns focus to Cancel", movedFocus.name, "Cancel")
+                }
+            } else if (scenario === "refuse-cancel") {
+                press(Qt.Key_Return)
+                check("Cancel answers pending submission", win.answered, true)
+            }
+            stage = 1
+            stamp = Date.now()
+        } else if (stage === 1 && Date.now() - stamp > 400 && !win.submitting && !win.markRequest) {
+            check("refused submission keeps request open", win.answered, false)
+            check("refused submission keeps permission message", win.message, "Could not inspect " + win.path + "/a.txt: permission denied")
+            check("refused submission keeps error styling", win.messageError, true)
+            if (scenario === "refuse-moved" || scenario === "refuse-returned") {
+                check("refusal preserves user's moved focus", win.contentItem.Window.window.activeFocusItem === movedFocus, true)
+                win.focusView()
+            } else {
+                check("refusal restores initiating focus", win.contentItem.Window.window.activeFocusItem === initiatingFocus, true)
+                if (scenario === "refuse-mark" || scenario === "refuse-validate")
+                    check("refusal returns focus to view", win.viewItem().activeFocus, true)
+            }
+            console.log("PICKER_HUNT RETRY Enter after refusal")
+            press(Qt.Key_Enter, Qt.KeypadModifier)
+            stage = 2
+            stamp = Date.now()
+        }
+    }
+
+    Connections {
+        target: root.win
+        function onAnsweredChanged() {
+            if (root.scenario.indexOf("refuse-") !== 0 || !root.win.answered) return
+            Qt.callLater(function() {
+                root.check("answered request never restores initiating focus", root.win.contentItem.Window.window.activeFocusItem.name, "Cancel")
+                console.log("PICKER_HUNT DONE " + root.checks + " checks, " + root.failures + " failed")
+            })
+        }
+    }
+
     Component.onCompleted: {
         var comp = Qt.createComponent("flea/PickerWindow.qml")
         if (comp.status !== Component.Ready) {
@@ -82,6 +158,7 @@ ShellRoot {
                 root.finish()
                 return
             }
+            if (scenario.indexOf("refuse-") === 0) { root.focusRefusal(); return }
             if (win && scenario === "empty" && win.listingState === "empty") {
                 root.check("empty listing disables Open", win.canAccept, false)
                 var emptyButton = root.descendants(win.contentItem).filter(function(item) { return item.name === "Open" && item.available !== undefined })[0]

@@ -10,6 +10,36 @@ Item {
     id: root
 
     property var picker: null
+    property var submissionFocus: null
+
+    function submissionChanged() {
+        var window = root.Window.window
+        if (root.picker.submitting) {
+            var before = window ? window.activeFocusItem : null
+            root.submissionFocus = null
+            root.picker.stepFocus(null, false)
+            root.submissionFocus = {before: before, stepped: window ? window.activeFocusItem : null}
+            return
+        }
+        var pending = root.submissionFocus
+        // Replies clear submitting before they answer and before disabled controls re-enable.
+        Qt.callLater(function() {
+            if (!pending || root.submissionFocus !== pending) return
+            root.submissionFocus = null
+            if (root.picker.answered || root.picker.submitting) return
+            var before = pending.before
+            if (before && before.visible && before.enabled && pending.stepped && pending.stepped.activeFocus)
+                before.forceActiveFocus()
+        })
+    }
+
+    Connections {
+        target: root.Window.window
+        function onActiveFocusItemChanged() {
+            if (root.submissionFocus && root.Window.window.activeFocusItem !== root.submissionFocus.stepped)
+                root.submissionFocus = null
+        }
+    }
 
     signal cancelRequested()
     signal acceptRequested()
@@ -254,8 +284,8 @@ Item {
         // The view marks keep the far right, so the chips give way through their anchor.
         Flickable {
             id: types
-            anchors.right: views.left
-            anchors.rightMargin: Theme.spacing.gap
+            anchors.right: parent.right
+            anchors.rightMargin: views.width + Theme.spacing.rowPaddingX + Theme.spacing.gap
             anchors.verticalCenter: parent.verticalCenter
             // The chips take room first and the path gives way through its anchor, keeping its minimum.
             width: Picker.chipStripWidth(where.width - moves.width - views.width - 2 * Theme.spacing.rowPaddingX - 3 * Theme.spacing.gap, chipRow.width, Picker.CHIP_PATH_MIN)
