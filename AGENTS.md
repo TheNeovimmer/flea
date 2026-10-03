@@ -3066,7 +3066,7 @@ invert, `ui/js/Permissions.js` 11 to 36 the multi summary, `ui/js/Collide.js`
 
 e80 optional preview candidate records `ui/Preview.qml` at 490 with its existing scoped ceiling, `ui/SelectionPreview.qml` at 302, `ui/js/PreviewSettle.js` at 14 and `tests/js/previewswap.js` at 267, each re-derived with `wc -l`. The exact `tests/preview-settle-live.qml` ceiling is 424 for the real Window parent, production-shaped meta and selection signals, runner-provided readable images, gate diagnostics and fresh close/reopen checks. It preserves 35 automatic and 3 seeded manual checks, the 120ms timer and <200ms duplicate bound, storage and no-swap gates, identity refresh, visibility restoration and the exact picture-capture queue order. Its runner generates a tiny JPEG with the existing ffmpeg dependency and copies it into eight names inside each fresh marked sandbox and requires exit 143, one clean DONE, exact PASS counts, no FAIL and no warnings. Native acceptance remains with the controller.
 
-mx2 renders Markdown maths and Mermaid in a sandboxed quickjs-ng helper, each re-derived with `wc -l`: `src/figurehelper.rs` at 198 for the pure qjs and vendor resolution (`qjs_from` and `resolve_with`, with `qjs_path` and `resolve` the thin env-reading wrappers) with its env-free tests, the jailed argv with its three read-only binds and the 127 refusal; `ui/FigureService.qml` at 232 for the lazy Process with its stdin and SplitParser, the ticket deadlines with the timeout kill, the deadline timer running only while waiting holds a ticket, the 64-entry LRU with its key mirror, the idle exit and the 127 latch; `ui/js/FigureWorker.mjs` 632 to 352 for deleting everything that only existed for the Qt worker engine, keeping the post-processing both node and qjs import; the helper itself is the new `ui/vendor/figure-helper.mjs` at 70, and the `.mjs` pair escapes `tools/flea-file-budget` the way the old worker did, since the scan reads no `.mjs` and the tool already excludes `ui/vendor/` outright. `src/backend/sandbox.rs` 365 to 373 for `wrap_readonly_extra` with its nothing-writable bind list, over the soft budget and under the hard cap; `src/main.rs` 361 to 367 for the dispatch, the same. `tests/markdown-figures.qml` 495 to 329 for the service suite (answers, cache hit with no new helper line, idle exit, timeout restart, 127 latch and fence, the deadline-timer stopped checks, and the FIGPSS phases with the FIGHELPER peak), leaving its recorded ceiling with nothing over it; `tools/vendor-js/build.sh` 27 to 22 for dropping the assembler check with the classic worker it assembled. Deleted with nothing left behind: `ui/vendor/figure-worker.js` and `tools/vendor-js/assemble-figure-workers.py`.
+mx2 renders Markdown maths and Mermaid in a sandboxed quickjs-ng helper, each re-derived with `wc -l`: `src/figurehelper.rs` at 210 for the pure qjs and vendor resolution (`qjs_from` and `resolve_with`, with `qjs_path` and `resolve` the thin env-reading wrappers) with its env-free tests, the jailed argv with its three read-only binds and the 127 refusal; `ui/FigureService.qml` at 283 for the lazy Process with its stdin and SplitParser, the ticket deadlines with the timeout kill, the deadline timer running only while waiting holds a ticket, the 64-entry LRU with its key mirror, the idle exit and the 127 latch; `ui/js/FigureWorker.mjs` 632 to 352 for deleting everything that only existed for the Qt worker engine, keeping the post-processing both node and qjs import; the helper itself is the new `ui/vendor/figure-helper.mjs` at 70, and the `.mjs` pair escapes `tools/flea-file-budget` the way the old worker did, since the scan reads no `.mjs` and the tool already excludes `ui/vendor/` outright. `src/backend/sandbox.rs` 365 to 373 for `wrap_readonly_extra` with its nothing-writable bind list, over the soft budget and under the hard cap; `src/main.rs` 361 to 367 for the dispatch, the same. `tests/markdown-figures.qml` 495 to 329 for the service suite (answers, cache hit with no new helper line, idle exit, timeout restart, 127 latch and fence, the deadline-timer stopped checks, and the FIGPSS phases with the FIGHELPER peak), leaving its recorded ceiling with nothing over it; `tools/vendor-js/build.sh` 27 to 22 for dropping the assembler check with the classic worker it assembled. Deleted with nothing left behind: `ui/vendor/figure-worker.js` and `tools/vendor-js/assemble-figure-workers.py`.
 
 ## The key table is generated
 
@@ -4510,8 +4510,10 @@ no qjs, it prints one line on stderr and exits 127, without running anything uns
 
 `ui/FigureService.qml` owns one `Process` with stdin and a `SplitParser` on stdout, started
 lazily on the first request and stopped after `idleExitMs` (30000) with nothing waiting, so the
-memory returns to the system. A request past `renderMs` (2000) fails as "render timed out" and
-kills the helper; the next request starts a fresh one. A 64-entry LRU keyed by
+memory returns to the system. Only the oldest written and unanswered ticket has a `renderMs`
+(2000) deadline starting when it becomes the head; expiry kills the helper and fails that ticket
+as "render timed out", while every other written ticket is resent once to the next helper with a
+fresh turn and the poison ticket never returns. A 64-entry LRU keyed by
 `FigureWorker.cacheKey` answers a revisit or a theme flip back without re-rendering, and the QML
 copy of that key is pinned against the module by a node check rather than an import the singleton
 cannot load. A 127 exit or a spawn that never starts latches `available: false` for the session:
@@ -4523,8 +4525,10 @@ Measured on this Debian box through direct qjs, whose bwrap cannot run Arch's ja
 spawn-to-answer 51 to 55 ms for a formula and 167 to 176 ms for a diagram, five samples each;
 warm 0 to 2.5 ms per formula and 0.9 ms per diagram; the helper peaks at 41380 to 41524 kB RSS
 with both bundles loaded. The GUI side is taken offscreen on minipc, five samples each, every
-number a range: PSS before any figure, after the ten formulas and after the six diagrams, which
-must stay within 10 MB of the before value, and PSS 5 s after the idle exit with the helper gone.
+number a range: PSS before any figure, after the ten formulas and after the six diagrams, and
+PSS 5 s after the idle exit with the helper gone. The gate judges formula and diagram `Anonymous`
+growth against the same 10240 kB limit from one stamped `/proc/self/smaps_rollup` read containing
+both fields, keeping PSS as evidence because its shared-page divisor changes when other processes exit.
 Five native runs of the suite on minipc at `9b661b2e` (2026-10-03), every read a fresh `/proc`
 read: GUI PSS 52838 to 52974 kB before, 52387 to 53232 kB after the formulas, 52415 to 53260 kB
 after the diagrams and 52452 to 53300 kB 5 s after the idle exit; idle minus before is -394 to

@@ -137,11 +137,13 @@ print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDERR_TAIL", file=sys.stder
           f"r3 startup fixture pid={start_pid.read_text()} reaped (pgrep exit={result.returncode})")
 
     pss_checks = '# The GUI memory claim:' + section('# The GUI memory claim:', '\nprintf \'MARKDOWN_FIGURES %s')
-    def memory_samples(before, formulas, diagrams, stamps=(1, 2, 3, 4)):
+    def memory_samples(before, formulas, diagrams, stamps=(1, 2, 3, 4), anonymous=None):
         phases = (("before", before), ("formulas", formulas), ("diagrams", diagrams), ("idle", before))
+        anonymous = anonymous if anonymous is not None else (before, formulas, diagrams, before)
         output = "\n".join(f"MARKDOWN_FIGURES FIGPSS phase={phase} pss_kb={value}"
                            + (f" read_seq={stamp}" if stamp is not None else "")
-                           for (phase, value), stamp in zip(phases, stamps))
+                           + f" anonymous_kb={anon}"
+                           for (phase, value), stamp, anon in zip(phases, stamps, anonymous))
         output += "\nMARKDOWN_FIGURES FIGHELPER rss_peak_kb=41140"
         return run(pss_checks, output=output, verdict="0")
     result = memory_samples(52877, 52877, 52877)
@@ -159,11 +161,28 @@ print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDERR_TAIL", file=sys.stder
     result = memory_samples(52877, 52878, 52879)
     check(result.returncode == 0, "PSS fix fresh render-phase samples within budget pass")
     result = memory_samples(52877, 63118, 52879)
-    check(result.returncode != 0 and "FAIL formulas PSS exceeds before" in result.stdout,
+    check(result.returncode != 0 and "FAIL formulas Anonymous exceeds before" in result.stdout,
           "PSS fix fresh formula samples still enforce the existing budget")
     result = memory_samples(52877, 52878, 63118)
-    check(result.returncode != 0 and "FAIL diagrams PSS exceeds before" in result.stdout,
+    check(result.returncode != 0 and "FAIL diagrams Anonymous exceeds before" in result.stdout,
           "PSS fix fresh diagram samples still enforce the existing budget")
+    memory_before_kb = 52877
+    memory_limit_kb = 10240
+    over_limit_kb = memory_before_kb + memory_limit_kb + 1
+    result = memory_samples(memory_before_kb, over_limit_kb, over_limit_kb,
+                            anonymous=(memory_before_kb,) * 4)
+    check(result.returncode == 0, "G7 PSS jumps past 10240 kB while Anonymous is flat pass")
+    for index, phase in ((1, "formulas"), (2, "diagrams")):
+        anonymous = [memory_before_kb] * 4
+        anonymous[index] = over_limit_kb
+        result = memory_samples(memory_before_kb, memory_before_kb, memory_before_kb,
+                                anonymous=anonymous)
+        check(result.returncode != 0 and f"FAIL {phase} Anonymous exceeds before" in result.stdout,
+              f"G7 flat PSS with {phase} Anonymous growth past 10240 kB fails")
+    result = memory_samples(memory_before_kb, memory_before_kb, memory_before_kb,
+                            anonymous=(memory_before_kb, "", memory_before_kb, memory_before_kb))
+    check(result.returncode != 0 and "FAIL no FIGPSS formulas Anonymous value" in result.stdout,
+          "G7 a missing Anonymous value fails")
 
     refusal = section("# A missing engine", "# Byte identity")
     for mode in ("silent", "wrong"):
@@ -311,6 +330,21 @@ check("timeout=HELPER_EXIT_BOUND_SECONDS" in start_test
       "mx2a F16 / mx2b F15 helper startup has a named termination bound")
 build = (tree / "tools/vendor-js/build.sh").read_text()
 agents = (tree / "AGENTS.md").read_text()
+# Sample input: `src/figurehelper.rs` at 210 in the mx2 file-budget paragraph.
+budget_paragraph = next(line for line in agents.splitlines() if line.startswith("mx2 renders Markdown maths"))
+for path in ("src/figurehelper.rs", "ui/FigureService.qml"):
+    recorded = re.search(re.escape(f"`{path}` at ") + r"(\d+)", budget_paragraph)
+    actual = len((tree / path).read_text().splitlines())
+    check(recorded is not None and int(recorded[1]) == actual,
+          f"F24 mx2 records the final {path} line count ({actual})")
+helper_source = (tree / "ui/vendor/figure-helper.mjs").read_text()
+check(not re.search(r"(?m)^[ \t]*//[^\n]*\n[ \t]*//", helper_source),
+      "F26 helper comments keep each constraint on one line")
+figure_source = (tree / "ui/MarkdownFigure.qml").read_text()
+fallback = figure_source.split("readonly property string fallbackBody:", 1)[1].split("    Rectangle", 1)[0]
+check("readonly property int fallbackChars: 2000" in figure_source
+      and fallback.count("root.fallbackChars") == 3 and "2000" not in fallback,
+      "F27 fallback comparison, slice and remaining count share a named limit")
 headless_contract = agents.split("The suites that drive the debug binary", 1)[1].split("Its own `headless=`", 1)[0]
 check("needs nothing but a shell" not in headless_contract
       and all(word in headless_contract for word in ("no display, session or hardware", "python3", "Qt", "Quickshell", "quickjs-ng", "refuse loudly", "naming")),

@@ -17,7 +17,18 @@ FileView {
 
     // Sample inputs: "Pss: 45120 kB" in smaps_rollup, "VmHWM: 41380 kB" in a process status file.
     function memField(path, key) {
-        var lines = memory.readText(path).split("\n");
+        return memory.memValue(memory.readText(path), key);
+    }
+
+    function snapshot(path) {
+        var contents = memory.readText(path);
+        return { pss: memory.memValue(contents, "Pss"),
+            anonymous: memory.memValue(contents, "Anonymous"), readSequence: memory.readSequence };
+    }
+
+    // Sample input: "Pss: 45120 kB\nAnonymous: 32200 kB\n" from smaps_rollup.
+    function memValue(contents, key) {
+        var lines = contents.split("\n");
         for (var i = 0; i < lines.length; i++) {
             var cut = lines[i].split(":");
             if (cut.length >= 2 && cut[0] === key)

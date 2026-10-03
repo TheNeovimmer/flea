@@ -62,6 +62,8 @@ ShellRoot {
     property int prodIdleExitMs: 30000
     readonly property int readerFirstPssKb: 111
     readonly property int readerSecondPssKb: 222
+    readonly property int readerFirstAnonymousKb: 333
+    readonly property int readerSecondAnonymousKb: 444
 
     // Step order: answers, cache hit, idle exit, timeout restart, 127 latch.
     // The latch is last because it ends rendering for the session.
@@ -73,14 +75,14 @@ ShellRoot {
             return;
         }
         shell.check(Flea.FigureService.deadlineRunning === false, "the deadline timer is stopped before the first ask");
-        shell.writePhase("Pss: " + shell.readerFirstPssKb + " kB", function () {
-            var first = memory.memField(shell.phaseFile, "Pss");
-            var firstSequence = memory.readSequence;
-            shell.writePhase("Pss: " + shell.readerSecondPssKb + " kB", function () {
-                var second = memory.memField(shell.phaseFile, "Pss");
-                shell.check(first === shell.readerFirstPssKb && second === shell.readerSecondPssKb
-                    && memory.readSequence > firstSequence,
-                    "memory reader reloads the same path after its contents change");
+        shell.writePhase("Pss: " + shell.readerFirstPssKb + " kB\nAnonymous: " + shell.readerFirstAnonymousKb + " kB", function () {
+            var first = memory.snapshot(shell.phaseFile);
+            shell.writePhase("Pss: " + shell.readerSecondPssKb + " kB\nAnonymous: " + shell.readerSecondAnonymousKb + " kB", function () {
+                var second = memory.snapshot(shell.phaseFile);
+                shell.check(first.pss === shell.readerFirstPssKb && second.pss === shell.readerSecondPssKb
+                    && first.anonymous === shell.readerFirstAnonymousKb && second.anonymous === shell.readerSecondAnonymousKb
+                    && second.readSequence === first.readSequence + 1,
+                    "memory reader reloads both fields in one stamped read after its contents change");
                 shell.writePhase("answer", function () {
                     shell.logPss("before");
                     shell.step = 20;
@@ -99,8 +101,9 @@ ShellRoot {
     }
 
     function logPss(phase) {
-        var pss = memory.memField("/proc/self/smaps_rollup", "Pss");
-        shell.log("FIGPSS phase=" + phase + " pss_kb=" + pss + " read_seq=" + memory.readSequence);
+        var sample = memory.snapshot("/proc/self/smaps_rollup");
+        shell.log("FIGPSS phase=" + phase + " pss_kb=" + sample.pss + " read_seq=" + sample.readSequence
+            + " anonymous_kb=" + sample.anonymous);
     }
 
     function logHelperPeak() {

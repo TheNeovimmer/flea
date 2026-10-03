@@ -41,7 +41,7 @@ function service() {
     var root = { available: true, starting: false, stopping: false, generation: 0,
         helperExits: 0, deadlineExpirations: 0,
         seq: 0, sends: 0, workerAnswers: 0, cacheMax: 64, renderMs: 1000,
-        waiting: {}, answerCache: {}, answerOrder: [], pending: [] }
+        waiting: {}, answerCache: {}, answerOrder: [], pending: [], written: [], killSignal: 9 }
     root.done = function (id, svg, error) { fake.answers.push({ id: id, svg: svg, error: error }) }
     var helper = { running: false,
         signal: function (signal) { fake.kills.push({ signal: signal, generation: root.generation }) },
@@ -159,6 +159,22 @@ function run(check) {
     check("display revisit keeps its display answer", fake.answers[fake.answers.length - 1].svg, "display svg")
     check("both cache hits write no helper line", fake.writes.length, 2)
 
+    fake = service()
+    fake.root.store("math", "hot A", theme(), true, "A svg")
+    for (var i = 0; i < fake.root.cacheMax; i++) {
+        fake.ask("hot A", true)
+        fake.flush()
+        fake.root.store("math", "cold " + i, theme(), true, "cold svg")
+    }
+    var writesBeforeRevisit = fake.writes.length
+    var revisit = fake.ask("hot A", true)
+    fake.start()
+    fake.flush()
+    check("LRU keeps A hit before each of 64 other stores", fake.answers.some(function (answer) {
+        return answer.id === revisit && answer.svg === "A svg"
+    }), true)
+    check("LRU revisit writes no helper line", fake.writes.length - writesBeforeRevisit, 0)
+
     var exitCodes = [0, 1, 42, 127]
     for (var i = 0; i < exitCodes.length; i++) {
         fake = service()
@@ -180,21 +196,70 @@ function run(check) {
     var b = fake.ask("B", true)
     fake.now = deadlineMs + afterDeadlineMs
     fake.tick()
-    check("A deadline fails A and B together", fake.answers.length, 2)
-    check("A deadline removes B immediately", fake.root.waiting[b] === undefined, true)
+    check("A deadline fails only A", fake.answers.length, 1)
+    check("A deadline keeps B waiting for resend", fake.root.waiting[b] !== undefined, true)
     check("A deadline names timeout", fake.answers[0].error, "render timed out")
+    fake.tick()
+    check("repeated deadline ticks kill the helper only once", fake.kills.length, 1)
     fake.reply(a, "late A")
     check("a killed generation cannot cache a late answer", fake.root.cached("math", "A", theme(), true), undefined)
     fake.exit(9)
-    var c = fake.ask("C", true)
     fake.start()
+    check("B is resent once after A's kill", fake.writes.filter(function (line) { return line.id === b }).length, 2)
+    check("poison A is never resent", fake.writes.filter(function (line) { return line.id === a }).length, 1)
     fake.now = deadlineMs + staggerMs + afterDeadlineMs
     fake.tick()
-    check("B's former deadline cannot kill C", fake.kills.length, 1)
-    check("C remains waiting on its fresh generation", fake.root.waiting[c] !== undefined, true)
-    check("C records the generation it was sent to", fake.root.waiting[c].generation, fake.root.generation)
-    fake.reply(c, "C svg")
-    check("C answers normally after B's former deadline", fake.answers[fake.answers.length - 1].svg, "C svg")
+    check("B gets a fresh turn after resend", fake.kills.length, 1)
+    fake.reply(b, "B svg")
+    check("B answers after A times out", fake.answers[fake.answers.length - 1].svg, "B svg")
+
+    fake = service()
+    var slow = fake.ask("slow figure", true)
+    fake.now = deadlineMs + afterDeadlineMs
+    fake.tick()
+    check("waiting for helper start spends no render deadline", fake.answers.length, 0)
+    fake.start()
+    var queuedCount = 10
+    var formulas = []
+    for (var i = 0; i < queuedCount; i++)
+        formulas.push(fake.ask("formula " + i, true))
+    check("queued formulas have no running deadlines", formulas.every(function (id) { return fake.root.waiting[id].deadline === 0 }), true)
+    fake.now += deadlineMs + afterDeadlineMs
+    fake.tick()
+    check("one slow figure fails only itself ahead of ten formulas", fake.answers.length, 1)
+    fake.exit(9)
+    fake.start()
+    for (var i = 0; i < formulas.length; i++) {
+        fake.now += deadlineMs - staggerMs
+        fake.tick()
+        fake.reply(formulas[i], "formula svg " + i)
+    }
+    check("all ten queued formulas answer on their own turns", fake.answers.filter(function (answer) { return answer.svg !== "" }).length, queuedCount)
+    check("each queued formula is resent exactly once per kill", formulas.every(function (id) {
+        return fake.writes.filter(function (line) { return line.id === id }).length === 2
+    }), true)
+    check("ten queued turns cause no extra timeout", fake.kills.length, 1)
+
+    fake = service()
+    var firstSlow = fake.ask("first slow", true)
+    fake.start()
+    var secondSlow = fake.ask("second slow", true)
+    var healthy = fake.ask("healthy", true)
+    fake.now += deadlineMs + afterDeadlineMs
+    fake.tick()
+    fake.exit(9)
+    fake.start()
+    fake.now += deadlineMs + afterDeadlineMs
+    fake.tick()
+    check("a second slow figure fails only itself", fake.answers.length, 2)
+    check("second timeout names its own ticket", fake.answers[fake.answers.length - 1].id, secondSlow)
+    fake.exit(9)
+    fake.start()
+    fake.reply(healthy, "healthy svg")
+    check("healthy ticket survives both slow figures", fake.answers[fake.answers.length - 1].svg, "healthy svg")
+    check("healthy ticket is resent once for each kill", fake.writes.filter(function (line) { return line.id === healthy }).length, 3)
+    check("first poison is never resent", fake.writes.filter(function (line) { return line.id === firstSlow }).length, 1)
+    check("second poison stops after its own timeout", fake.writes.filter(function (line) { return line.id === secondSlow }).length, 2)
 
     fake = service()
     fake.ask("old helper", true)

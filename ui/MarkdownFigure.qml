@@ -94,8 +94,9 @@ Item {
     }
 
     // The board's fenced block: chrome surface, plain source text. A refused source many kilobytes long elides to its head, so one fallback can never size the column past what a frame can hold.
-    readonly property string fallbackBody: root.source.length > 2000
-        ? root.source.slice(0, 2000) + "… (" + (root.source.length - 2000) + " more)"
+    readonly property int fallbackChars: 2000
+    readonly property string fallbackBody: root.source.length > root.fallbackChars
+        ? root.source.slice(0, root.fallbackChars) + "… (" + (root.source.length - root.fallbackChars) + " more)"
         : root.source
     Rectangle {
         id: fallback

@@ -13,6 +13,8 @@ for name in root flea flea-git flea-bin; do
         else
             . "$repo/packaging/$name/PKGBUILD"
         fi
+        printf '%s\n' "${depends[@]}" > "$box/$name.depends"
+        printf '%s\n' "${license[@]}" > "$box/$name.licenses"
         srcdir="$box/$name/src"
         pkgdir="$box/$name/pkg"
         CARCH=x86_64
@@ -43,6 +45,11 @@ failures = 0
 # Sample inputs: import { renderFigure } from "../js/FigureWorker.mjs"; await import("./math.mjs").
 imports = re.compile(r'\b(?:from\s*|import\s*\(\s*|import\s*)["\'](\.[^"\']+)["\']')
 for package in ("root", "flea", "flea-git", "flea-bin"):
+    checks += 1
+    dependencies = (root / f"{package}.depends").read_text().splitlines()
+    if dependencies.count("quickjs-ng") != 1:
+        failures += 1
+        print(f"FAIL {package}: depends must declare quickjs-ng exactly once, matching the other PKGBUILDs")
     ui = root / package / "pkg/usr/share/flea/ui"
     modules = sorted(ui.glob("vendor/*.mjs")) + sorted(ui.glob("js/*.mjs"))
     required = ["js/FigureWorker.mjs", "vendor/figure-helper.mjs", "vendor/math.mjs", "vendor/mermaid.mjs"]
@@ -63,6 +70,10 @@ for package in ("root", "flea", "flea-git", "flea-bin"):
             if not valid:
                 failures += 1
                 print(f"FAIL {package}: {module.relative_to(ui)} imports missing {relative}")
+checks += 1
+if (root / "root.licenses").read_text() != (root / "flea.licenses").read_text():
+    failures += 1
+    print("FAIL root: license identifiers differ from packaging/flea/PKGBUILD")
 print(f"figure-package: {checks} check(s), {failures} failed")
 sys.exit(bool(failures))
 PY
