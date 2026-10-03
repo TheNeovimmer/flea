@@ -257,8 +257,8 @@
     "name": "continued-discard",
     "code": "hyprctl dispatch \\\n 'hl.dsp.focus({ window = \"address:0xabc\" })' \\\n >/dev/null || fail nope",
     "issues": [
-      "hypr-window-selector",
-      "hypr-window-reply"
+      "hypr-window-reply",
+      "hypr-window-selector"
     ],
     "calls": 1
   },
@@ -675,6 +675,198 @@
     "raw_rule": "neither A nor B",
     "issues": [],
     "issue_lines": [],
+    "calls": 0
+  },
+  {
+    "name": "round10-flag-value",
+    "code": "run([\"hyprctl\", \"-i\", \"instance\",\n    \"dispatch\", \"x\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-variable-between",
+    "code": "run([\"hyprctl\", flags,\n    \"dispatch\", \"x\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-f-string-prefix",
+    "code": "run([\"hyprctl\",\n    f\"dispatch\", \"x\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-plus-concatenation",
+    "code": "run(\"hyprctl \" +\n    \"dispatch x\")",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-leading-operator",
+    "code": "run(\"hyprctl \"\n    + \"dispatch x\")",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-raw-word-above",
+    "code": "args=(dispatch x)\nhyprctl \"${args[@]}\"",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-blank-line-in-list",
+    "code": "run([\"hyprctl\",\n\n    \"dispatch\", \"x\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-glued-comment",
+    "code": "run([\"hyprctl\",#note\n    \"dispatch\", \"x\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-hash-inside-string",
+    "code": "note = \" # inside string\"; run([\"hyprctl\",\n    \"dispatch\", \"x\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-unrelated-statements",
+    "code": "hyprctl\ndispatch x",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-every-mention-each-line-once",
+    "code": "hyprctl clients; command -v hyprctl; command -v hyprctl\necho dispatch\ncommand -v hyprctl",
+    "issues": [
+      "hypr-window-reply",
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1,
+      3
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-raw-word-in-trailing-comment",
+    "code": "command -v hyprctl\nprintf ok # dispatch",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-query-must-be-on-one-line",
+    "code": "run([\"hyprctl\",\n    \"clients\"])\necho dispatch",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-query-word-boundary",
+    "code": "hyprctl clients_x\necho dispatch",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-complete-queries-with-prose",
+    "code": "hyprctl -j clients\nhyprctl -j cursorpos\nhyprctl -j activewindow\nhyprctl -j monitors\nhyprctl -j getoption\nhyprctl -j activeworkspace\nhyprctl -j binds\nhyprctl -j configerrors\nprintf \"queries completed\"",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round10-tool-name-list",
+    "code": "tools=[\"hyprctl\", \"qs\", \"flea\"]",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round10-stub-definition",
+    "code": "hyprctl() { printf ok; }",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round10-batch-size-is-not-raw",
+    "code": "command -v hyprctl\nprintf --batch-size",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round10-dispatch-identifier-is-not-raw",
+    "code": "command -v hyprctl\nprintf dispatch_x",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round10-complete-queries-with-raw-prose",
+    "code": "run([\"hyprctl\", \"-j\", \"clients\"])\nrun([\"hyprctl\", \"-j\", \"cursorpos\"])\nrun([\"hyprctl\", \"-j\", \"activewindow\"])\nrun([\"hyprctl\", \"-j\", \"monitors\"])\nrun([\"hyprctl\", \"-j\", \"getoption\"])\nrun([\"hyprctl\", \"-j\", \"activeworkspace\"])\nrun([\"hyprctl\", \"-j\", \"binds\"])\nrun([\"hyprctl\", \"-j\", \"configerrors\"])\nprintf \"dispatch completed\"",
+    "issues": [],
     "calls": 0
   }
 ]

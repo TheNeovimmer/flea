@@ -3697,12 +3697,15 @@ waits for its consumer.
   dimensions and exact `on|off`, then require the compositor reply to be exactly `ok`. Window calls
   always use `address:ADDR`; move and cursor coordinates may be negative for monitor origins.
   The helper's program form serves Python callers and prints `ok` only after the same checks pass.
-  The static gate scans shell, Python, QML and JavaScript under `tests/`: rule A refuses a physical line
-  containing both `hyprctl` and `dispatch`/`--batch`, and the Lua check refuses `hl.dsp.` (including a
-  backslash-split prefix), exempting the helper and full-line `#`/`//` comments after whitespace.
-  Rule B scans text with full-line comments blanked and trailing whitespace-led `#`/`//` comments cut
-  for `hyprctl`, only whitespace/newlines, quotes, commas, backslashes, brackets/parentheses and optional
-  dash flags, then a whole `dispatch`/`--batch` token, reporting the `hyprctl` line once without lexer state.
+  The static gate scans shell, Python, QML and JavaScript under `tests/`, removes only full-line `#`/`//`
+  comments after whitespace, and refuses `hl.dsp.` (including a backslash-split prefix): rule A refuses a
+  physical line containing both `hyprctl` and `dispatch`/`--batch`, while rule B, in a file naming a whole
+  `dispatch`/`--batch` word, refuses every `hyprctl` that is not followed on its own physical line by
+  separators and optional dash flags other than `--batch`, then a closed read-only query word from
+  `QUERY_WORDS`, reporting each tool line once.
+  The exempt files are `tests/lib/hypr-dispatch.sh` (which keeps its call count),
+  `tests/hypr-dispatch-proof.py` and `tests/hyprdispatch.py`.
+  A raw word built at run time or taken from another file is outside this static contract.
   The proof runs the real helper against a fake compositor, checks exact text and refusal paths,
   and executes each shell harness's own helper source statement from its directory. It verifies
   the resolved source path of every entry point; missing and foreign helper copies must fail.

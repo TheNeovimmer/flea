@@ -175,7 +175,7 @@ def main():
                 if label == "missing":
                     print(f"source control {harness.name}: /nonexistent/lib/hypr-dispatch.sh rejected={not valid}")
 
-        for relative, names in (("tests/hyprdispatch.py", ("RAW_CALL", "CONTINUED_LUA_PREFIX", "scan")),
+        for relative, names in (("tests/hyprdispatch.py", ("RAW_WORD", "HYPRCTL_WORD", "COMPLETE_QUERY", "CONTINUED_LUA_PREFIX", "scan")),
                                 ("tests/hypr-dispatch-proof.py", ("functions", "helper_source_block", "source_origins", "helper_definitions"))):
             parser_source = (root / relative).read_text()
             source_lines = parser_source.splitlines()

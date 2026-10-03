@@ -10444,10 +10444,10 @@ EOS
     before=$(providers_calls omarchy-tailscale-send)
     key -k Return >/dev/null || fail 'taildrop: second-peer Enter failed'
     providers_call omarchy-tailscale-send "$(jq -cn --arg path "$menu_dir/b-cursor.txt" '["fixture.invalid",$path]')" "$before"
-    menus_expect menuState '(.opened | not) and (.submenu | not)' 'dispatch closes both native menus'
-    providers_expect '.listFocus' 'dispatch restores listing focus'
-    menus_message 'Sending b-cursor.txt to Bravo.' 'dispatch names the chosen peer and exact cursor file'
-    menus_equal 'dispatch preserves source bytes' 'list/b-cursor.txt original' "$(cat "$menu_dir/b-cursor.txt")"
+    menus_expect menuState '(.opened | not) and (.submenu | not)' 'the send closes both native menus'
+    providers_expect '.listFocus' 'the send restores listing focus'
+    menus_message 'Sending b-cursor.txt to Bravo.' 'the send names the chosen peer and exact cursor file'
+    menus_equal 'the send preserves source bytes' 'list/b-cursor.txt original' "$(cat "$menu_dir/b-cursor.txt")"
     menus_shot taildrop-sent
 
     providers_mode tailscale ready '{"BackendState":"NeedsLogin","Peer":{}}'
