@@ -135,12 +135,13 @@ QtObject {
         probe.apply()
         // The row is over the limit from the start, so any path the reader saw on the way is an exposure.
         var safe = probe.seen.every(function (path) { return path === "" })
-        var guarded = initialPath === "" && safe && probe.active && probe.size === remoteRowBytes
+        var sized = probe.size === remoteRowBytes
+        var guarded = initialPath === "" && safe && probe.active && sized
             && probe.maxBytes === remoteLimitBytes && probe.readerPath === ""
         probe.size = remoteLimitBytes
         var allowed = probe.readerPath === probe.root.path && probe.seen.length > 0
         probe.destroy()
-        return { guarded: guarded, allowed: allowed }
+        return { guarded: guarded, allowed: allowed, sized: sized, exposed: !safe }
     }
 
     function bindingChecks(source) {
@@ -158,7 +159,9 @@ QtObject {
         var sizeLine = "item.size = Qt.binding(function () { return root.row ? root.row.s : 0 })"
         var lastLine = "item.truncate = Qt.binding(function () { return root.truncateText })"
         var lateSize = column.replace(sizeLine, "").replace(lastLine, lastLine + "\n" + sizeLine)
-        check(lateSize.indexOf(sizeLine) > lateSize.indexOf(lastLine) && !readerGate(source, lateSize).guarded,
+        var late = readerGate(source, lateSize)
+        // The moved binding still ran, so the row reached its size and only the path seen on the way fails the gate.
+        check(lateSize.indexOf(sizeLine) > lateSize.indexOf(lastLine) && late.sized && late.exposed && !late.guarded,
             "F47 control: a size bound after active is caught")
     }
 
