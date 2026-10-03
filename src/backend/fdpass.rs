@@ -245,6 +245,29 @@ mod tests {
     use crate::backend::testdir::TestDir;
     use std::os::unix::fs::MetadataExt;
 
+    const CHILD_ENV: &str = "FLEA_FD_TRUNC_CHILD";
+    const TEST_NAME: &str = "backend::fdpass::tests::truncated_stream_descriptors_are_closed";
+    const ONE_TEST_PASSED: &str = "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;";
+
+    fn assert_truncation_child_passed(test_name: &str) {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([test_name, "--exact", "--nocapture"])
+            .env(CHILD_ENV, "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Sample stdout: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+        let passed = stdout.lines().any(|line| line.starts_with(ONE_TEST_PASSED));
+        assert!(output.status.success() && passed, "{}{}", stdout, String::from_utf8_lossy(&output.stderr));
+    }
+
+    #[test]
+    fn a_missing_truncation_child_test_is_rejected() {
+        const MISSING_TEST: &str = concat!("backend::fdpass::tests::truncated_stream_descriptors_are_closed", "_missing");
+        let rejected = std::panic::catch_unwind(|| assert_truncation_child_passed(MISSING_TEST));
+        assert!(rejected.is_err(), "a child that ran no tests must not pass");
+    }
+
     fn inode(fd: &OwnedFd) -> (u64, u64) {
         let file = std::fs::File::from(fd.try_clone().unwrap());
         let m = file.metadata().unwrap();
@@ -292,16 +315,9 @@ mod tests {
 
     #[test]
     fn truncated_stream_descriptors_are_closed() {
-        const CHILD_ENV: &str = "FLEA_FD_TRUNC_CHILD";
-        const TEST_NAME: &str = "backend::fdpass::tests::truncated_stream_descriptors_are_closed";
         // A child owns the fd count, so parallel tests cannot open or close descriptors beside it.
         if std::env::var_os(CHILD_ENV).is_none() {
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
-                .args([TEST_NAME, "--exact", "--nocapture"])
-                .env(CHILD_ENV, "1")
-                .output()
-                .unwrap();
-            assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+            assert_truncation_child_passed(TEST_NAME);
             return;
         }
         const TRUNCATED_FDS: usize = STREAM_MAX_FDS + 1;
