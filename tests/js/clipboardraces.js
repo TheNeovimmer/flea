@@ -78,7 +78,11 @@ function run(check, pane, changed, watchError) {
         check("fallback-get-race: pending paste uses newer selection", pasted(p), (moving ? "move" : "copy") + ":/get/b")
         acknowledge(p, "get-b")
         changed(p, moving ? "cut" : "copy", ["/get/b"], "get-b")
+        var pastes = p.asked.length
+        var sends = p.sent.length
         Ops.paste(p)
+        check("fallback-get-race: recovery starts a new paste", p.asked.length, pastes + 1)
+        check("fallback-get-race: recovery starts no fallback read", p.sent.length, sends)
         check("fallback-get-race: paste after recovery uses newer selection", pasted(p), (moving ? "move" : "copy") + ":/get/b")
     }
 
@@ -90,4 +94,58 @@ function run(check, pane, changed, watchError) {
     Ops.clip(p, true, ["/get/dual"])
     Clipboard.receive(other, {op: "get", ok: true, clip: "copy", paths: ["/get/stale"], token: "foreign-old"})
     check("fallback-get-race: shared generation preserves other pane's cut", pasted(other), "move:/get/dual")
+
+    p = pane()
+    other = pane()
+    mirror(p, other)
+    changed(p, "copy", ["/foreign/a"], "foreign-a")
+    watchError(p)
+    Ops.paste(p)
+    check("foreign-before-get: paste waits for read", p.asked.length, 0)
+    var generation = p.clipboardState.generation
+    changed(other, "cut", ["/foreign/b"], "foreign-b")
+    local = p.clipboard
+    check("foreign-before-get: accepted watcher advances generation", p.clipboardState.generation, generation + 1)
+    Clipboard.receive(p, {op: "get", ok: true, clip: "copy", paths: ["/foreign/a"], token: "foreign-a"})
+    check("foreign-before-get: newer selection survives", p.clipboard === local && other.clipboard === local, true)
+    check("foreign-before-get: waiting paste uses newer cut", pasted(p), "move:/foreign/b")
+    Ops.paste(other)
+    check("foreign-before-get: later paste uses newer cut", pasted(other), "move:/foreign/b")
+
+    p = pane()
+    other = pane()
+    mirror(p, other)
+    watchError(p)
+    watchError(other)
+    Ops.paste(p)
+    Ops.paste(other)
+    generation = p.clipboardState.generation
+    Clipboard.receive(p, {op: "get", ok: true, clip: "cut", paths: ["/read/b"], token: "read-b"})
+    local = p.clipboard
+    check("get-before-get: accepted read advances generation", p.clipboardState.generation, generation + 1)
+    Clipboard.receive(other, {op: "get", ok: true, clip: "copy", paths: ["/read/a"], token: "read-a"})
+    check("get-before-get: older read retains accepted selection", p.clipboard === local && other.clipboard === local, true)
+    check("get-before-get: both waiting pastes use accepted cut", pasted(p) + "," + pasted(other), "move:/read/b,move:/read/b")
+
+    p = pane()
+    other = pane()
+    mirror(p, other)
+    changed(p, "copy", ["/pending/a"], "pending-a")
+    watchError(other)
+    Ops.clip(p, true, ["/pending/b"])
+    local = p.clipboard
+    sends = other.sent.length
+    Ops.paste(other)
+    check("get-during-set: pending set starts no get", other.sent.length, sends)
+    check("get-during-set: pending paste moves local cut", pasted(other), "move:/pending/b")
+    Clipboard.receive(other, {op: "get", ok: true, clip: "copy", paths: ["/pending/a"], token: "pending-a"})
+    check("get-during-set: old reply retains local cut", p.clipboard === local && other.clipboard === local, true)
+    check("get-during-set: old reply never pastes old copy", pasted(other), "move:/pending/b")
+    acknowledge(p, "pending-b")
+    changed(p, "cut", ["/pending/b"], "pending-b")
+    changed(other, "cut", ["/pending/b"], "pending-b")
+    Ops.paste(other)
+    check("get-during-set: recovery starts a second paste", other.asked.length, 2)
+    check("get-during-set: acknowledged paste keeps cut", pasted(other), "move:/pending/b")
+    check("get-during-set: acknowledged selection retains token", p.clipboard.token, "pending-b")
 }

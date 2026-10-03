@@ -27,6 +27,7 @@ function take(queue, backend) {
 }
 
 function replace(pane, message) {
+    session(pane).generation += 1
     pane.clipboard = message.clip === "copy" || message.clip === "cut"
         ? { paths: message.paths || [], moving: message.clip === "cut", token: message.token || "" }
         : empty()
@@ -84,8 +85,9 @@ function receive(pane, message) {
     } else if (message.op === "get") {
         var waiting = take(s.gets, pane.backend)
         if (!waiting) return
-        // A refused read keeps the in-window copy usable without claiming system ownership.
-        if (message.ok && waiting.generation === s.generation) replace(pane, message)
+        // A pending local set or newer selection outranks this system read.
+        if (message.ok && s.sets.length === 0 && waiting.generation === s.generation)
+            replace(pane, message)
         waiting.ready()
     } else if (message.op === "clear" && message.ok === false) {
         pane.message("Could not clear the system clipboard: " + message.error, true)
@@ -94,7 +96,10 @@ function receive(pane, message) {
 
 function read(pane, ready) {
     var s = session(pane)
-    if (s.failed.indexOf(pane.backend) < 0) { ready(); return }
+    if (s.sets.length > 0 || s.failed.indexOf(pane.backend) < 0) {
+        ready()
+        return
+    }
     for (var i = 0; i < s.gets.length; i++) {
         if (s.gets[i].backend === pane.backend) {
             pane.message("Still reading the clipboard; try again.", false)
