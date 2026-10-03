@@ -862,6 +862,21 @@ XDEV=$(mktemp -d /dev/shm/flea-drag-xdev-XXXXXX)
 mkdir -p "$XDEV/big"
 check "the tmpfs root is another filesystem than the fixture" \
       "$([ "$(stat -c %d "$XDEV")" != "$(stat -c %d "$HOMEDIR")" ] && echo other || echo same)" "other"
+# Passes once the current tab lists the payload and no listing is out; the in-flight read is the last one before the caller's key.
+r7_payload_listed() {
+  local attempt flight=unread total
+  for ((attempt=1; attempt<=r7_poll_attempts; attempt++)); do
+    # rowidx reads a failed observer as an absent row, so the row count is read here first: a failed read or a reply that is no count ends the suite by name.
+    total=$(ipc total) && [[ "$total" =~ ^[0-9]+$ ]] || die "R7 row count unavailable: $total"
+    if rowidx r7.txt >/dev/null; then
+      flight=$(ipc listInFlight) || die "R7 listing state unavailable"
+      if [[ "$flight" == false ]]; then ok "R7 the payload is listed and no listing is out"; return; fi
+    fi
+    sleep "$r7_poll_seconds"
+  done
+  walk_state R7 unsettled
+  die "R7 the payload never settled in the listing: listed $(rowidx r7.txt >/dev/null && echo yes || echo no), in flight $flight"
+}
 printf 'r7 payload\n' > "$HOMEDIR/r7.txt"
 # R6 left the third tab current; it is walked into the tmpfs directory through the path bar, as R5 walked into bbb.
 check "the third tab is current" "$(ipc tabIndex)" "$r7_tmpfs_tab"
@@ -869,9 +884,8 @@ native_key :
 expect_ipc pathBarOpen true
 native_key "$XDEV/big"
 walk_state R7 before-Return
-# The payload written above is re-read by the watcher, and a path entered while a listing is out is refused.
-expect_ipc listInFlight false
-walk_state R7 settled
+# The watcher's re-read waits while anything holds the rows (Anchor.busy) and a path entered while a listing is out is refused, so Return waits for the payload's row.
+r7_payload_listed
 native_key -k Return
 walk_state R7 after-Return
 expect_ipc pathBarOpen false
