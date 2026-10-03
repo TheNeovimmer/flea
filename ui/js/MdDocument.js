@@ -75,9 +75,8 @@ function writer(state, dir, chrome, ink) {
             var items = []
             for (var k = 0; k < event.items.length; k++) {
                 var item = visibleLines(event.items[k], state)
-                if (item.join("\n").trim().length === 0)
-                    continue
-                item[0] = Leaf.taskText(item[0])
+                if (item.length > 0)
+                    item[0] = Leaf.taskText(item[0])
                 items.push(inlineOf(item.join("\n")))
             }
             if (items.length > 0)

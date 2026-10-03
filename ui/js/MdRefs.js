@@ -18,8 +18,8 @@ function readDefinition(line) {
 
 // Sample: <my pic.png> "Title" or pic.png, with no unquoted spaces in a bare destination.
 function readDefinitionTarget(text) {
-    var match = /^(<[^>]+>|\S+)(?:\s+("[^"\n]*"|'[^'\n]*'|\([^\n)]*\)))?$/.exec(text)
-    if (match === null || match[1].charAt(0) === "[")
+    var match = /^(<[^>\n]+>|[^<\s]\S*)(?:\s+("[^"\n]*"|'[^'\n]*'|\([^\n)]*\)))?$/.exec(text)
+    if (match === null)
         return ""
     var target = match[1]
     return target.charAt(0) === "<" ? target.slice(1, -1) : target

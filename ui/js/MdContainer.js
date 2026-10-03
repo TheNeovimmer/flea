@@ -6,6 +6,7 @@ var MAX_MARKER_INDENT = 3
 var MAX_MARKER_DIGITS = 9
 var DECIMAL_RADIX = 10
 var MAX_GAP_SCAN = CODE_INDENT + 1
+var MIN_MARKER_GAP = 1
 
 // Sample: a tab after two spaces advances to column four.
 function indentationAt(line, view, limit) {
@@ -39,13 +40,8 @@ function takeIndent(line, view, wanted) {
 
 // Sample: ">\ttext" consumes one column after > and retains the tab's remaining columns.
 function quoteAt(line, view) {
-    var at = view.at
-    var indent = view.padding
-    while (indent <= MAX_MARKER_INDENT && line.charAt(at) === " ") {
-        indent++
-        at++
-    }
-    return indent <= MAX_MARKER_INDENT && line.charAt(at) === ">" ? indent : -1
+    var indent = indentationAt(line, view)
+    return indent.width <= MAX_MARKER_INDENT && line.charAt(indent.end) === ">" ? indent.width : -1
 }
 
 function takeQuote(line, view, indent) {
@@ -58,12 +54,9 @@ function takeQuote(line, view, indent) {
 
 // Sample: "10.\ttext" starts content at column four, and five gap columns leave indented code.
 function listAt(line, view) {
-    var at = view.at
-    var indent = view.padding
-    while (indent <= MAX_MARKER_INDENT && line.charAt(at) === " ") {
-        indent++
-        at++
-    }
+    var indentation = indentationAt(line, view)
+    var at = indentation.end
+    var indent = indentation.width
     if (indent > MAX_MARKER_INDENT)
         return null
     var start = at
@@ -78,12 +71,12 @@ function listAt(line, view) {
         return null
     }
     at++
-    if (line.charAt(at) !== " " && line.charAt(at) !== "\t")
+    if (at < line.length && line.charAt(at) !== " " && line.charAt(at) !== "\t")
         return null
     var markerWidth = at - start
     var gapView = { at: at, padding: 0, column: view.column + indent + markerWidth }
-    var gap = indentationAt(line, gapView, MAX_GAP_SCAN).width
-    var consumedGap = gap > CODE_INDENT ? 1 : gap
+    var gap = at === line.length ? MIN_MARKER_GAP : indentationAt(line, gapView, MAX_GAP_SCAN).width
+    var consumedGap = gap > CODE_INDENT ? MIN_MARKER_GAP : gap
     return { indent: indent, ordered: ordered,
         start: ordered ? parseInt(line.slice(start, at - 1), DECIMAL_RADIX) : 0,
         contentCol: indent + markerWidth + consumedGap, markerEnd: at,

@@ -14,7 +14,19 @@ QtObject {
         { source: "- > ```\n  > [img]: pic.png\n  > ```\n\n![x][img]", dir: "/doc" },
         { source: "10. parent\n\n\t[img]: pic.png\n\n![x][img]", dir: "/doc" },
         { source: "> - ```\n>   code\n> - [img]: pic.png\n\n![x][img]", dir: "/doc" },
-        { source: "![x](pic.png)", dir: "" }
+        { source: "![x](pic.png)", dir: "" },
+        { source: "Title\n===\n[img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "Title\n-\n[img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "> Title\n===", dir: "/doc" },
+        { source: "> \t> [img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "> \t- [img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "> -\t-\t-\n> [img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "[img]: <pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "[img]: [cover].png\n\n![x][img]", dir: "/doc" },
+        { source: "5. [img]: pic.png\n6. next", dir: "/doc" },
+        { source: "1.\n2. shown", dir: "/doc" },
+        { source: "- [img]:\npic.png\n  visible", dir: "/doc" },
+        { source: "[^a]: first\n    second  \n    third\n\nsee[^a]", dir: "/doc" }
     ]
     property int workerReplies: 0
     readonly property int workerDeadlineMs: 10000

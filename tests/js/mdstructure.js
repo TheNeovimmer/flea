@@ -1,5 +1,9 @@
 .import "../../ui/js/Markdown.js" as Markdown
 .import "../../ui/js/MdInline.js" as MdInline
+.import "../../ui/js/MdBlocks.js" as MdBlocks
+.import "../../ui/js/MdContainer.js" as MdContainer
+.import "../../ui/js/MdLeaf.js" as MdLeaf
+.import "../../ui/js/MdRefs.js" as MdRefs
 
 // Block-tree structure against CommonMark: fences, breaks, lists, footnotes, math, references and inline spans.
 function run(check) {
@@ -39,6 +43,103 @@ function run(check) {
         if (sample.name === "document fence after list")
             check("R3 document fence keeps definition literal", rendered[1].text, "[img]: pic.png")
     }
+
+    // R4 premise inputs share root mechanisms across md2a, md2b and md2c.
+    var r4References = [
+        { name: "md2a F31 md2c F23 unclosed pic angle", source: "[img]: <pic.png", target: "" },
+        { name: "md2c F23 unclosed photo angle", source: "[img]: <photo.png", target: "" },
+        { name: "angle control", source: "[img]: <pic.png>", target: "pic.png" },
+        { name: "md2a F32 md2c F26 bare bracket", source: "[img]: [cover].png", target: "[cover].png" },
+        { name: "bracket control", source: "[img]: <[cover].png>", target: "[cover].png" },
+        { name: "bracket continuation exclusion", source: "[img]:\n  [cover].png", target: "" },
+        { name: "angle continuation rejection", source: "[img]:\n  <pic.png", target: "" },
+        { name: "md2a F33 md2b F28 equals", source: "Title\n===\n[img]: pic.png", target: "pic.png" },
+        { name: "md2a F33 single equals", source: "Title\n=\n[img]: pic.png", target: "pic.png" },
+        { name: "md2c F24 equals", source: "Heading\n=======\n[img]: pic.png", target: "pic.png" },
+        { name: "setext dash control", source: "Title\n---\n[img]: pic.png", target: "pic.png" },
+        { name: "setext short dash", source: "Title\n--\n[img]: pic.png", target: "pic.png" },
+        { name: "setext single dash", source: "Title\n-\n[img]: pic.png", target: "pic.png" },
+        { name: "md2a F34 md2b F29 quote tab", source: "> \t> [img]: pic.png", target: "pic.png" },
+        { name: "md2b F29 list tab", source: "> \t- [img]: pic.png", target: "pic.png" },
+        { name: "quote space control", source: ">   > [img]: pic.png", target: "pic.png" },
+        { name: "list space control", source: ">   - [img]: pic.png", target: "pic.png" },
+        { name: "md2b F31 md2c F25 dash tab rule", source: "> -\t-\t-\n> [img]: pic.png", target: "pic.png" },
+        { name: "md2b F31 star tab rule", source: "> *\t*\t*\n> [img]: pic.png", target: "pic.png" },
+        { name: "underscore tab rule", source: "> _\t_\t_\n> [img]: pic.png", target: "pic.png" },
+        { name: "tab rule trailing tab", source: "> -\t-\t-\t\n> [img]: pic.png", target: "pic.png" },
+        { name: "tab rule space control", source: "> - - -\n> [img]: pic.png", target: "pic.png" }
+    ]
+    for (var referenceIndex = 0; referenceIndex < r4References.length; referenceIndex++) {
+        var referenceCase = r4References[referenceIndex]
+        var referenceSource = referenceCase.source + "\n\n![x][img]"
+        check("R4 " + referenceCase.name + " definition",
+            Markdown.definitions(referenceSource).img || "", referenceCase.target)
+        var referenceBlocks = Markdown.blocks(referenceSource, dir, chrome, ink)
+        check("R4 " + referenceCase.name + " image",
+            referenceBlocks.some(function (block) { return block.type === "image" }), referenceCase.target !== "")
+        if (referenceCase.name.indexOf("unclosed") >= 0)
+            check("R4 " + referenceCase.name + " stays literal",
+                (referenceBlocks[0].text || "").indexOf(referenceCase.source.slice("[img]: ".length).replace("<", "&#60;")) >= 0, true)
+    }
+    check("R4 angle cannot close on another line", MdRefs.readDefinitionTarget("<pic.png\n>"), "")
+    var r4Underlines = ["=", "===", "--", "---"]
+    for (var underlineIndex = 0; underlineIndex < r4Underlines.length; underlineIndex++) {
+        var underline = r4Underlines[underlineIndex]
+        var quoteUnderline = Markdown.blocks("> Title\n" + underline, dir, chrome, ink)
+        check("R4 md2a F33 lazy quote " + underline, quoteUnderline[0].text, "Title")
+        var listUnderline = Markdown.blocks("- Title\n" + underline, dir, chrome, ink)
+        check("R4 md2a F33 lazy list " + underline, listUnderline[0].items[0], "Title")
+    }
+    var markerView = { at: 2, padding: 0, column: 2 }
+    check("R4 md2a F34 quote uses absolute tab columns", MdContainer.quoteAt("> \t> text", markerView), 2)
+    var tabListMarker = MdContainer.listAt("> \t- text", markerView)
+    check("R4 md2b F29 list uses absolute tab columns", tabListMarker === null ? -1 : tabListMarker.indent, 2)
+    check("R4 tab above marker indent stays code", MdContainer.quoteAt("\t> text", { at: 0, padding: 0, column: 0 }), -1)
+    var ruleMarks = ["-", "*", "_"]
+    var thematicMarkCount = 3
+    for (var ruleIndex = 0; ruleIndex < ruleMarks.length; ruleIndex++) {
+        var ruleText = ruleMarks[ruleIndex] + "\t" + ruleMarks[ruleIndex] + "\t" + ruleMarks[ruleIndex]
+        check("R4 md2b F31 md2c F25 suffix " + ruleMarks[ruleIndex], MdBlocks.ruleSuffix("> " + ruleText).count, thematicMarkCount)
+        check("R4 md2b F31 md2c F25 thematic " + ruleMarks[ruleIndex], MdLeaf.isThematic(ruleText), true)
+    }
+    var r4EmptyItems = [
+        { name: "md2a F30 hidden first", source: "1. [img]: pic.png\n2. Visible", start: 1, ordered: true, items: ["", "Visible"] },
+        { name: "md2b F30 empty first", source: "1. \n2. shown", start: 1, ordered: true, items: ["", "shown"] },
+        { name: "md2b F30 second", source: "1. \n2. second", start: 1, ordered: true, items: ["", "second"] },
+        { name: "md2c F27 hidden first", source: "5. [img]: pic.png\n6. next", start: 5, ordered: true, items: ["", "next"] },
+        { name: "hidden bullet", source: "- [img]: pic.png\n- Visible", start: 0, ordered: false, items: ["", "Visible"] },
+        { name: "empty bullet", source: "- \n- Visible", start: 0, ordered: false, items: ["", "Visible"] },
+        { name: "bare ordered marker", source: "1.\n2. shown", start: 1, ordered: true, items: ["", "shown"] },
+        { name: "bare bullet marker", source: "-\n- shown", start: 0, ordered: false, items: ["", "shown"] },
+        { name: "hidden only item", source: "- [img]: pic.png", start: 0, ordered: false, items: [""] }
+    ]
+    for (var emptyIndex = 0; emptyIndex < r4EmptyItems.length; emptyIndex++) {
+        var emptyCase = r4EmptyItems[emptyIndex]
+        check("R4 " + emptyCase.name + " keeps authored rows",
+            JSON.stringify(Markdown.blocks(emptyCase.source, dir, chrome, ink)),
+            JSON.stringify([{ type: "list", ordered: emptyCase.ordered, start: emptyCase.start, items: emptyCase.items }]))
+    }
+    var lazyDefinitionSource = "- [img]:\npic.png\n  visible"
+    check("R4 md2a F35 lazy hidden destination stays in item",
+        JSON.stringify(Markdown.blocks(lazyDefinitionSource, dir, chrome, ink)),
+        JSON.stringify([{ type: "list", ordered: false, start: 0, items: ["visible"] }]))
+    var lazyState = MdBlocks.referenceState()
+    var collectMembership = []
+    var renderMembership = []
+    function memberships(into) {
+        return function (event) {
+            into.push({ index: event.index, outer: event.outer === null ? null : event.outer.type })
+        }
+    }
+    MdBlocks.blockPass(lazyDefinitionSource.split("\n"), lazyState, memberships(collectMembership), true)
+    MdBlocks.blockPass(lazyDefinitionSource.split("\n"), lazyState, memberships(renderMembership), false)
+    check("R4 md2a F35 collect render membership agrees", JSON.stringify(renderMembership), JSON.stringify(collectMembership))
+    var continuedNote = "[^a]: first\n    second  \n    third\n\nsee[^a]"
+    var expectedNote = "first\nsecond  \nthird"
+    check("R4 md2a F36 continuation keeps hard break",
+        MdBlocks.collectReferences(continuedNote).notes.a.text, expectedNote)
+    var continuedNoteBlocks = Markdown.blocks(continuedNote, dir, chrome, ink)
+    check("R4 md2a F36 rendered note keeps hard break", continuedNoteBlocks[2].items[0], "<sup>1</sup> " + expectedNote)
 
     var front = Markdown.blocks("---\ntitle: Hi\n---\n\nText\n", dir, chrome, ink)
     check("front matter draws as a fence", front.length === 2 && front[0].type === "fence", true)

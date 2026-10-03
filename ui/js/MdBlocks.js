@@ -20,13 +20,13 @@ function listMarker(line) {
 // Sample: "> - - -" has one thematic suffix; cache it before opening any nested containers.
 function ruleSuffix(line) {
     var at = line.length - 1
-    while (at >= 0 && line.charAt(at) === " ")
+    while (at >= 0 && (line.charAt(at) === " " || line.charAt(at) === "\t"))
         at--
     var tick = line.charAt(at)
     var count = 0
     if (tick !== "-" && tick !== "*" && tick !== "_")
         return { start: line.length, count: count }
-    while (at >= 0 && (line.charAt(at) === tick || line.charAt(at) === " ")) {
+    while (at >= 0 && (line.charAt(at) === tick || line.charAt(at) === " " || line.charAt(at) === "\t")) {
         if (line.charAt(at) === tick)
             count++
         at--
@@ -97,8 +97,9 @@ function blockPass(lines, state, emit, collect) {
         var startsList = Container.listAt(raw, view)
         var startsFence = Leaf.fenceOpen(unmatchedText)
         var thematic = Leaf.isThematic(unmatchedText)
+        var setext = leaf !== null && leaf.kind === "paragraph" && matched === frames.length && Leaf.isSetext(unmatchedText)
         var lazy = leaf !== null && leaf.kind === "paragraph" && unmatchedText.trim().length > 0
-            && !startsQuote && startsList === null && startsFence === null && !thematic
+            && !startsQuote && startsList === null && startsFence === null && !thematic && !Leaf.isSetext(unmatchedText)
             && !/^ {0,3}#{1,6}(?:\s|$)/.test(unmatchedText)
         if (matched < frames.length && !lazy) {
             frames.length = matched
@@ -111,7 +112,7 @@ function blockPass(lines, state, emit, collect) {
         }
         var owner = frames.length > 0 ? frames[frames.length - 1].id : 0
         var fenced = leaf !== null && leaf.kind === "fence" && leaf.owner === owner
-        if (!fenced && !lazy) {
+        if (!fenced && !lazy && !setext) {
             while (true) {
                 var quoteIndent = Container.quoteAt(raw, view)
                 var marker = quoteIndent < 0 ? Container.listAt(raw, view) : null
@@ -153,18 +154,21 @@ function blockPass(lines, state, emit, collect) {
         if (pending !== null) {
             if (collect && pending.owner === owner && pending.note !== undefined
                     && Container.indentationAt(raw, view).width >= CODE_INDENT) {
-                pending.body.push(text.trim())
+                pending.body.push(text.replace(/^\s+/, ""))
                 hideDefinition(state, i, i)
                 send("hidden", i, text, top, display)
                 continue
             }
             if (collect && pending.owner === owner && pending.ref !== undefined
-                    && Container.indentationAt(raw, view).width < CODE_INDENT && Leaf.fenceOpen(text) === null) {
+                    && Container.indentationAt(raw, view).width < CODE_INDENT && Leaf.fenceOpen(text) === null
+                    && text.trim().charAt(0) !== "[") {
                 var destination = Refs.readDefinitionTarget(text.trim())
                 if (destination !== "") {
                     if (!state.defs.hasOwnProperty(pending.ref.key))
                         state.defs[pending.ref.key] = destination
                     hideDefinition(state, pending.index, i)
+                    // Replay the opener's paragraph state so its lazy destination keeps the same containers.
+                    state.hidden[pending.index] = "paragraph"
                     pending = null
                     leaf = null
                     send("hidden", i, text, top, display)
@@ -174,7 +178,7 @@ function blockPass(lines, state, emit, collect) {
             finishNote()
         }
         if (state.hidden.hasOwnProperty(i)) {
-            leaf = null
+            leaf = state.hidden[i] === "paragraph" ? { kind: "paragraph", owner: owner } : null
             send("hidden", i, text, top, display)
             continue
         }
@@ -265,7 +269,7 @@ function blockPass(lines, state, emit, collect) {
         if (Refs.killDefinition(text) !== text)
             state.escaped[i] = true
         send("run", i, text, top, display)
-        leaf = blank || Leaf.isThematic(text) || /^ {0,3}#{1,6}(?:\s|$)/.test(text) ? null : { kind: "paragraph", owner: owner }
+        leaf = blank || setext || Leaf.isThematic(text) || /^ {0,3}#{1,6}(?:\s|$)/.test(text) ? null : { kind: "paragraph", owner: owner }
     }
     finishNote()
 }

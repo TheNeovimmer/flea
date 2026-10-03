@@ -22,7 +22,12 @@ function indentOf(line) {
 }
 
 function isThematic(line) {
-    return /^ {0,3}([*_-])(?: *\1){2,} *$/.test(String(line))
+    return /^ {0,3}([*_-])(?:[ \t]*\1){2,}[ \t]*$/.test(String(line))
+}
+
+// Sample: "Title\n=" or "Title\n--" closes a paragraph with a setext underline.
+function isSetext(line) {
+    return /^ {0,3}(?:=+|-+)[ \t]*$/.test(String(line))
 }
 
 function fenceOpen(line) {
