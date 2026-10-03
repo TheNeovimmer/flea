@@ -51,7 +51,9 @@ ShellRoot {
     function clickName(name) {
         var row = pane.visibleItemFor(root.indexOf(name))
         if (!row) throw new Error("No visible row " + name)
+        // Sample input: 412 237 (rowNameCentre x y, window-relative), or empty for a row with no name.
         var centre = root.ipc().rowNameCentre(root.indexOf(name)).split(" ").map(Number)
+        if (centre.length !== 2 || !centre.every(isFinite)) throw new Error("No name centre for " + name)
         var point = row.mapFromItem(null, centre[0], centre[1])
         root.click(row, point.x, point.y)
     }

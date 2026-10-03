@@ -96,6 +96,7 @@ function clicks(root, pane, mode) {
         function () {
             if (!row()) return false
             var item = row(), label = item.captionItem || item.nameItem()
+            // Sample input: 412 237 (rowNameCentre x y, window-relative), or empty for a row with no name.
             var centre = root.ipc().rowNameCentre(root.indexOf(name)).split(" ").map(Number)
             var point = item.mapFromItem(null, centre[0], centre[1])
             root.check("rowNameCentre-" + mode + ": lands inside its own row",
