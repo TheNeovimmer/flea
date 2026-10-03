@@ -47,6 +47,9 @@ printf 'b\n' > "$probe/home/fixture/b.txt"
 ln -s a.txt "$probe/home/fixture/link.txt"
 mkdir "$probe/home/fixture/sub"
 printf 'read only\n' > "$probe/home/readonly/ro.txt"
+# The rail tests press over this listing; it is taller than the pane so a row lies under every press point.
+downloads_rows=40
+for ((row = 0; row < downloads_rows; row++)); do : > "$probe/home/Downloads/file$row.txt"; done
 touch -d '2000-01-01 00:00:00 UTC' "$probe/home/fixture/a.txt"
 chmod 555 "$probe/home/readonly"
 cat > "$probe/data/recently-used.xbel" <<XML

@@ -98,7 +98,7 @@ Item {
     property int renamingIndex: -1
     // Fires once, on both commit and cancel, so ui/Pane.qml has one place to hand focus back.
     signal renameFinished()
-    // Any press inside the rail, so an overlay rail can take the keyboard though a row, the eject mark or the Flickable below holds the grab.
+    // Any press inside the rail, so an overlay rail can take the keyboard though a row or the Flickable below holds the grab: the handler's item is above every child.
     signal pressed()
 
     // Sized in characters, because a monospace makes that exact where a pixel constant would be an accident.
