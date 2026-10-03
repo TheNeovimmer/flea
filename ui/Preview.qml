@@ -108,8 +108,7 @@ Item {
     // The 0.3.6 swap additions, null until the first open builds them below; every reader guards it.
     readonly property var swap: swapLoader.item
     readonly property bool swapBuilt: swapLoader.active
-    // The Markdown bar and pane, null until a Markdown file builds them; the
-    // memory suite asserts they cost nothing otherwise.
+    // The memory suite asserts both Markdown loader items are null without a Markdown file.
     readonly property var markdownItem: markdownLoader.item
     // Exposes the eager panes for the live swap gate, so it can pin the wiring.
     readonly property var panesItem: panes

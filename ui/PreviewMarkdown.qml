@@ -47,7 +47,7 @@ Item {
     // Keep this many pixels of blocks warm beyond the visible ListView window.
     readonly property int blockCachePixels: 600
     readonly property bool blocksReady: root.appliedSeq === root.parseSeq && !root.parsing
-    readonly property bool loading: root.active && !root.readFailed && !root.tooLarge
+    readonly property bool loading: root.active && !root.readFailed && !root.tooLarge && root.parseError === ""
         && (!file.loaded || !root.blocksReady)
     readonly property string status: {
         if (root.tooLarge) return "This file is too large to preview."
@@ -95,19 +95,18 @@ Item {
             if (messageObject.seq !== root.parseSeq)
                 return
             root.parsing = false
+            root.appliedSeq = messageObject.seq
             if (messageObject.error !== "") {
                 root.parseError = messageObject.error
                 return
             }
             root.parseError = ""
             root.blockList = messageObject.blocks
-            root.appliedSeq = messageObject.seq
             root.parsedOffThread = true
         }
     }
 
-    // The worker owns the parse; this timer is the dead-worker fallback, never
-    // the path: it parses synchronously once rather than leaving no preview.
+    // The worker owns parsing; this timer recovers synchronously only if its reply never settles the request.
     Timer {
         id: parseFallback
         interval: root.parseFallbackMs
@@ -117,20 +116,25 @@ Item {
                 return
             root.parseSeq++
             root.parsing = false
-            root.blockList = Markdown.blocks(root.rawText, Markdown.dirOf(root.path),
-                root.chromeHex, root.inkHex)
+            try {
+                root.blockList = Markdown.blocks(root.rawText, Markdown.dirOf(root.path),
+                    root.chromeHex, root.inkHex)
+                root.parseError = ""
+            } catch (error) {
+                root.parseError = String(error.message || error)
+            }
             root.appliedSeq = root.parseSeq
         }
     }
 
     function askParse() {
         root.parseSeq++
+        root.parseError = ""
         if (!root.active || root.tooLarge || !file.loaded) {
             root.parsing = false
             return
         }
         root.parsing = true
-        root.parseError = ""
         parseFallback.restart()
         parser.sendMessage({ seq: root.parseSeq, source: root.rawText,
             dir: Markdown.dirOf(root.path), chrome: root.chromeHex, ink: root.inkHex })
@@ -139,6 +143,7 @@ Item {
     onRawTextChanged: root.askParse()
     onActiveChanged: root.askParse()
     onPathChanged: {
+        root.parseError = ""
         root.blockList = []
         root.parsedOffThread = false
         root.askParse()
@@ -419,6 +424,14 @@ Item {
                         width: parent.width
                         spacing: 0
 
+                        TextMetrics {
+                            id: listMarkerMetrics
+                            text: block.type !== "list" ? "" : block.ordered
+                                ? (block.start + block.items.length - 1) + "." : "•"
+                            font.family: Theme.font.family
+                            font.pixelSize: Theme.font.body
+                        }
+
                         Repeater {
                             model: block.type === "list" ? block.items.length : 0
                             delegate: Row {
@@ -427,6 +440,7 @@ Item {
 
                                 Text {
                                     id: marker
+                                    width: listMarkerMetrics.advanceWidth
                                     text: block.ordered ? (block.start + index) + "." : "•"
                                     color: Theme.color.foreground
                                     font.family: Theme.font.family

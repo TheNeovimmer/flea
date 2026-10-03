@@ -1,6 +1,7 @@
 import QtQuick
 import QtQml
 import "../ui/js/Markdown.js" as Markdown
+import "markdown-work.js" as Work
 
 // Count string operations in Markdown.blocks at two sizes; durations are diagnostic only.
 QtObject {
@@ -179,11 +180,17 @@ QtObject {
                 dependencies.push(loadLibrary(file, cache, mutant));
                 return "";
             });
-        if (mutant && name === "MdHtml.js")
+        if (mutant === true && name === "MdHtml.js")
             code = code.replace(/    if \(dead !== undefined && dead !== null && i < dead.tagDead\)\n        return null\n/, "");
-        code = code.replace(/\.(charAt|charCodeAt|indexOf|slice|match|exec|test|replace|split|search)\s*\(/g, function (_, method) {
-            return ".counted_" + method + "(";
-        });
+        if (mutant === "suffix" && name === "MdBlocks.js")
+            code = code.replace("function blocks(source, dir, chrome, ink) {",
+                "function blocks(source, dir, chrome, ink) {\n"
+                + "    var suffixSink = 0;\n"
+                + "    for (var i = 0; i < source.length; i++) {\n"
+                + "        suffixSink += source.substring(i).lastIndexOf('z');\n"
+                + "    }\n"
+                + "    if (suffixSink > 0) throw new Error('suffix sink');\n");
+        code = Work.instrument(code, aliases, name);
         if (name === "MdRun.js")
             code += "\ncountFrameStep = function () { String.prototype.counted_charAt.call('x', 0); };\n";
         var names = [], declaration = /^(?:function|var)\s+(\w+)/gm, match;
@@ -196,6 +203,22 @@ QtObject {
     }
 
     function runMeasurements() {
+        try {
+            var coverage = Work.checkFiles(Qt.application.arguments, readSource);
+            var refused = false;
+            try {
+                Work.checkMethods("source.untrackedScan()", [], "coverage probe");
+            } catch (error) {
+                refused = String(error).indexOf("uncounted parser method") >= 0;
+            }
+            if (!refused)
+                throw new Error("untracked parser method accepted");
+            console.log("ok static method coverage for " + coverage + " parser files, unknown method refused");
+        } catch (error) {
+            console.log("FAIL " + error);
+            Qt.exit(1);
+            return;
+        }
         if (!callbackChecks()) {
             Qt.exit(1);
             return;
@@ -296,43 +319,7 @@ QtObject {
         };
         var names = ["codeDense", "codeOnly", "bangOpen", "bracketOpen", "angleOpen",
             "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent"];
-        var work = 0;
-        var methods = ["charAt", "charCodeAt", "indexOf", "slice", "match", "replace", "split", "search"];
-        var originals = {};
-        for (var m = 0; m < methods.length; m++) {
-            var method = methods[m];
-            originals[method] = String.prototype[method];
-            String.prototype["counted_" + method] = (function (original, method) {
-                return function () {
-                    var result = original.apply(this, arguments);
-                    if (method === "indexOf") {
-                        var from = Math.max(0, Math.min(this.length, Number(arguments[1]) || 0));
-                        work += result < 0 ? this.length - from
-                            : result - from + String(arguments[0]).length;
-                    } else {
-                        work += method === "slice" ? result.length
-                            : method === "charAt" || method === "charCodeAt" ? 1 : this.length;
-                    }
-                    return result;
-                };
-            })(originals[method], method);
-        }
-        var regexMethods = ["exec", "test"];
-        for (var rm = 0; rm < regexMethods.length; rm++) {
-            var regexMethod = regexMethods[rm];
-            RegExp.prototype["counted_" + regexMethod] = (function (original) {
-                return function (text) {
-                    work += String(text).length;
-                    return original.apply(this, arguments);
-                };
-            })(RegExp.prototype[regexMethod]);
-        }
-        var arraySlice = Array.prototype.slice;
-        Array.prototype.counted_slice = function () {
-            var result = arraySlice.apply(this, arguments);
-            work += result.length;
-            return result;
-        };
+        Work.install();
         var sizeRatio = 8;
         var marginNumerator = 3;
         var marginDenominator = 2;
@@ -340,18 +327,30 @@ QtObject {
         var mutantSmall = 2048;
         var mutantLarge = mutantSmall * sizeRatio;
         var mutant = loadLibrary("Markdown.js", {}, true);
-        work = 0;
+        Work.work = 0;
         var mutantUnit = "< ";
         mutant.blocks(mutantUnit.repeat(mutantSmall / mutantUnit.length), dir, "#181825", "#c0caf5");
-        var mutantA = work;
-        work = 0;
+        var mutantA = Work.work;
+        Work.work = 0;
         mutant.blocks(mutantUnit.repeat(mutantLarge / mutantUnit.length), dir, "#181825", "#c0caf5");
-        if (work <= mutantA * workLimit) {
-            console.log("FAIL dead-tag mutant accepted work=" + mutantA + "/" + work);
+        if (Work.work <= mutantA * workLimit) {
+            console.log("FAIL dead-tag mutant accepted work=" + mutantA + "/" + Work.work);
             Qt.exit(1);
             return;
         }
-        console.log("ok dead-tag mutant rejected work=" + mutantA + "/" + work);
+        console.log("ok dead-tag mutant rejected work=" + mutantA + "/" + Work.work);
+        var suffixMutant = loadLibrary("Markdown.js", {}, "suffix");
+        Work.work = 0;
+        suffixMutant.blocks("x".repeat(mutantSmall), dir, "#181825", "#c0caf5");
+        var suffixA = Work.work;
+        Work.work = 0;
+        suffixMutant.blocks("x".repeat(mutantLarge), dir, "#181825", "#c0caf5");
+        if (Work.work <= suffixA * workLimit) {
+            console.log("FAIL suffix-scan mutant accepted work=" + suffixA + "/" + Work.work);
+            Qt.exit(1);
+            return;
+        }
+        console.log("ok suffix-scan mutant rejected work=" + suffixA + "/" + Work.work);
         var measured = loadLibrary("Markdown.js", {});
         var frameSmall = 20000;
         var frameLarge = 160000;
@@ -360,15 +359,15 @@ QtObject {
         for (var k = 0; k < names.length; k++) {
             var name = names[k];
             var a = inputs[name](name === "linkFrames" ? frameSmall : name === "tagCost" ? tagSmall : small);
-            work = 0;
+            Work.work = 0;
             if (typeof gc === "function")
                 gc();
             var t0 = Date.now();
             measured.blocks(a, dir, "#181825", "#c0caf5");
             var t1 = Date.now();
-            var workA = work;
+            var workA = Work.work;
             var b = inputs[name](name === "linkFrames" ? frameLarge : name === "tagCost" ? tagLarge : large);
-            work = 0;
+            Work.work = 0;
             if (typeof gc === "function")
                 gc();
             var t2 = Date.now();
@@ -376,13 +375,9 @@ QtObject {
             var t3 = Date.now();
             var msA = t1 - t0;
             var msB = t3 - t2;
-            console.log("WORK " + name + " " + workA + " " + work + " " + msA + " " + msB);
+            console.log("WORK " + name + " " + workA + " " + Work.work + " " + msA + " " + msB);
         }
-        for (var restore = 0; restore < methods.length; restore++)
-            delete String.prototype["counted_" + methods[restore]];
-        for (var rr = 0; rr < regexMethods.length; rr++)
-            delete RegExp.prototype["counted_" + regexMethods[rr]];
-        delete Array.prototype.counted_slice;
+        Work.uninstall();
         Qt.quit();
     }
 }
