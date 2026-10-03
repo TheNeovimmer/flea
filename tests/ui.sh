@@ -3699,21 +3699,26 @@ case_reload() {
         printf 'RELOAD key=%s lists=%s-to-%s unchanged=quiet log=clean\n' "$chord" "$before" "$after"
     done
 
-    # A bare selection no longer holds the watcher and a live rubber band still does, so only the manual reload can first see this added row.
-    local marquee_checks=0 marquee_button_down=false marquee_ctrl_down=false ax ay aw ah
-    export YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-$XDG_RUNTIME_DIR/.ydotool_socket}"
-    [[ -S "$YDOTOOL_SOCKET" ]] || fail "reload: no ydotoold socket at $YDOTOOL_SOCKET"
-    trap '( marquee_release ) >/dev/null 2>&1 || true' EXIT
-    marquee_begin_below 0
-    read -r ax ay aw ah <<< "$(ipc listAreaRect)"
-    [[ "$ax $ay $aw $ah" =~ ^[0-9]+(\ [0-9]+){3}$ ]] || fail "reload: listing geometry unavailable"
-    marquee_to "$((ax + aw / 2))" "$((ay + ah / 2))"
-    marquee_state '.active and .tracking' "reload holds the watcher with a live rubber band"
+    # The watcher re-reads 400 ms after a change and no hold lets a key through, so the owned backend is held: the reload's list is sent before the change is reported.
+    local qs_pid pid held_pid="" held_requests held_inflight
+    qs_pid=$(flea_pid)
+    # Sample input: /proc/<pid>/cmdline "/usr/bin/flea\0--backend\0"; ViewState's writer is a flea child too, run as --ui-state.
+    for pid in $(pgrep -P "$qs_pid" -x flea); do
+        tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq -- ' --backend ' && held_pid="$held_pid $pid"
+    done
+    held_pid=${held_pid# }
+    [[ "$held_pid" =~ ^[0-9]+$ ]] || fail "reload: expected one flea --backend child of qs $qs_pid to hold, found '$held_pid'"
     before=$(ipc listRequests)
+    trap 'kill -CONT "$held_pid" 2>/dev/null || true' EXIT
+    kill -STOP "$held_pid" || fail "reload: could not stop backend $held_pid, so the watcher would report the change first"
     : > "$dir/b.txt"
-    sleep 1
-    [[ "$(ipc total)" == 1 && "$(ipc listRequests)" == "$before" ]] || fail "reload: the watcher re-listed while a rubber band stood"
     key -k F5 >/dev/null
+    settle
+    held_requests=$(ipc listRequests)
+    held_inflight=$(ipc listInFlight)
+    kill -CONT "$held_pid" || fail "reload: could not resume backend $held_pid"
+    [[ "$held_requests" == "$((before + 1))" && "$held_inflight" == true ]] \
+        || fail "reload: with the backend held F5 sent $before to $held_requests list requests, in flight $held_inflight, want one unanswered request"
     settle
     errors=$(grep -E 'TypeError|ReferenceError' "$flea_log" | grep -E 'Reload\.js|Focus\.js|Pane\.qml' || true)
     [[ -z "$errors" ]] || fail "reload: changed-row F5 raised $errors"
@@ -3725,7 +3730,6 @@ case_reload() {
     [[ "$message" == "Reloaded · 1 row changed" ]] || fail "reload: changed-row F5 said '$message', expected 'Reloaded · 1 row changed'"
     [[ "$(ipc path)" == "$dir" ]] || fail "reload: changed-row F5 left the listing path"
     [[ "$(ipc rowAt 1)" == b.txt\|* ]] || fail "reload: changed-row F5 did not draw b.txt"
-    marquee_release
     printf 'RELOAD changed-row F5=ok notice=%s log=clean\n' "$message"
     kill_flea
 }
