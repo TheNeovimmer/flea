@@ -21,6 +21,10 @@ QtObject {
     property var shareBrowser: null
     property var emptyState: null
     property var permissionsDialog: null
+    property IpcPreviewState previewReaders: IpcPreviewState {
+        fleaWindow: root.fleaWindow
+        pane: root.pane
+    }
     // Overlays and the columns view are built by their first open, see ui/shell.qml, so until then
     // each reader below answers the empty value its type has: "", false or -1, never a throw.
     readonly property var columns: root.pane ? root.pane.columnsArea : null
@@ -405,29 +409,18 @@ QtObject {
         function railRenameEditorLive(): bool { return root.pane.sidebar.renameEditor() !== null }
         function railRenameEditorText(): string { var e = root.pane.sidebar.renameEditor(); return e ? e.editorText : "" }
         function railRenameFieldShown(): bool { var e = root.pane.sidebar.renameEditor(); return e ? e.editorShown : false }
-        function previewOpen(): bool { return root.pane.preview.active }
-        function previewKind(): string { return root.pane.preview.kind }
-        function previewState(): string { return root.pane.preview.status }
-        function previewPosition(): int { return root.pane.preview.position } function previewDuration(): int { return root.pane.preview.duration }
-        // Fix round 1: what the strip actually draws, not a re-derived guess at its visible: expression.
-        function previewStrip(): string { return JSON.stringify({ visible: root.pane.preview.stripVisible, muted: root.pane.preview.muted, mute: root.fleaWindow.centreOf(root.pane.preview.muteMark) }) }
-        // A 0.25 zoom step and an expand flag are not legible off a screenshot, so the seam is the
-        // only honest answer for either; "" means no PDF is loaded, which is not zoom 1 or false.
-        function previewPdfPage(): int { var p = root.pane.preview.pdfItem; return p ? p.page : -1 }
-        function previewPdfZoom(): string { var p = root.pane.preview.pdfItem; return p ? String(p.zoom) : "" }
-        function previewPdfFocus(): int { var p = root.pane.preview.pdfItem; return p ? p.pdfControlIndex : -1 }
-        function pdfState(overlay: bool): string {
-            var p = overlay ? root.pane.preview.pdfItem : root.pane.previewColumnItem
-            if (!p) return "null"
-            return JSON.stringify({ page: overlay ? p.page : p.pdfPage(), pages: overlay ? p.pageCount : p.pdfPages,
-                frame: overlay ? "" : root.fleaWindow.rectOf(p.pdfFrameItem),
-                toolbar: overlay ? "" : root.fleaWindow.rectOf(p.pdfToolbarItem),
-                zoom: overlay ? p.zoom : p.pdfZoom, scrollY: p.pdfScrollY, focused: p.activeFocus, control: p.pdfControlIndex,
-                controls: p.pdfControls.map(function (control) { return { name: control.accessName, enabled: control.enabled,
-                    visible: control.visible, centre: root.fleaWindow.centreOf(control) } }) })
-        }
-        function previewExpanded(): string { var p = root.pane.preview.pdfItem; return p ? String(p.expanded) : "" }
-        function previewSwapState(): string { return JSON.stringify({ column: root.columns ? root.columns.swapState() : null, look: root.pane.preview.swapState() }) }
+        function previewOpen(): bool { return root.previewReaders.previewOpen() }
+        function previewKind(): string { return root.previewReaders.previewKind() }
+        function previewState(): string { return root.previewReaders.previewState() }
+        function previewPosition(): int { return root.previewReaders.previewPosition() }
+        function previewDuration(): int { return root.previewReaders.previewDuration() }
+        function previewStrip(): string { return root.previewReaders.previewStrip() }
+        function previewPdfPage(): int { return root.previewReaders.previewPdfPage() }
+        function previewPdfZoom(): string { return root.previewReaders.previewPdfZoom() }
+        function previewPdfFocus(): int { return root.previewReaders.previewPdfFocus() }
+        function pdfState(overlay: bool): string { return root.previewReaders.pdfState(overlay) }
+        function previewExpanded(): string { return root.previewReaders.previewExpanded() }
+        function previewSwapState(): string { return root.previewReaders.previewSwapState() }
         function previewSelectionState(): string {
             var column = root.pane.previewColumnItem
             return JSON.stringify({view: root.pane.viewMode, width: root.pane.listSlot.width,
@@ -531,11 +524,13 @@ QtObject {
         function columnMarkdownText(): string { return root.columns ? root.columns.markdownText() : "" }
         function columnLinesRect(): string { return root.columns ? root.fleaWindow.rectOf(root.columns.linesItem()) : "" }
         function columnArchiveRect(): string { return root.columns ? root.fleaWindow.rectOf(root.columns.archiveItem()) : "" }
-        function previewSurfaceRect(): string { return root.fleaWindow.rectOf(root.pane.preview.surfaceItem()) }
-        function previewPictureRect(): string { var p = root.pane.preview; if (!p) return ""; if (p.isImage) { var im = p.surfaceItem(); return im ? root.fleaWindow.rectOf(im.pictureItem) : "" } if (p.isMedia) { var me = p.surfaceItem(); return me ? root.fleaWindow.rectOf(me.contentItem) : "" } return "" }
-        function previewMediaLoaded(): bool { return root.pane.preview.mediaLoaded() }
-        function previewText(): string { return root.pane.preview.textShown() }
-        function previewArchiveNames(): string { return root.pane.preview.archiveNames() }
+        function previewSurfaceRect(): string { return root.previewReaders.previewSurfaceRect() }
+        function previewPictureRect(): string { return root.previewReaders.previewPictureRect() }
+        function previewMediaLoaded(): bool { return root.previewReaders.previewMediaLoaded() }
+        function previewText(): string { return root.previewReaders.previewText() }
+        function previewTextLength(): int { return root.previewReaders.previewTextLength() }
+        function previewTextTail(n: int): string { return root.previewReaders.previewTextTail(n) }
+        function previewArchiveNames(): string { return root.previewReaders.previewArchiveNames() }
         function columnArchiveNames(): string { return root.columns ? root.columns.archiveNames() : "" }
         function columnFailure(): string { return root.columns ? root.columns.failureText() : "" }
         function rowThumbRect(i: int): string { var item = root.pane.visibleItemFor(i); return item && item.thumbItem ? root.fleaWindow.rectOf(item.thumbItem) : "" }
@@ -605,11 +600,7 @@ QtObject {
         function swapState(): string { return JSON.stringify(root.pane.swap.describe()) }
         function thumbFile(i: int): string { return root.pane.thumbFor(i) }
         function rowCentre(i: int): string { return root.pane.rowFor(i) ? root.fleaWindow.centreOf(root.pane.visibleItemFor(i)) : "" }
-        // The same lookup as rowCentre, but for the preview's own seek slider, so a test can drive
-        // a real wheel event over it without hardcoding the strip's layout.
-        function previewSliderCentre(): string {
-            return root.pane.preview.active && root.pane.preview.isMedia ? root.fleaWindow.centreOf(root.pane.preview.seekSlider) : ""
-        }
+        function previewSliderCentre(): string { return root.previewReaders.previewSliderCentre() }
         // The same lookup as rowCentre, but for a rail row: the rail has no ListView, so Sidebar.railItemFor(i) walks its own Repeaters instead.
         function railRowCentre(i: int): string { return root.fleaWindow.centreOf(root.pane.sidebar.railItemFor(i)) }
         function railLabel(i: int): string { var item = root.pane.sidebar.railItemFor(i); return item ? item.modelData.label : "" }

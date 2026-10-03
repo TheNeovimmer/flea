@@ -148,7 +148,7 @@ PY
 
 # Preview column and Quick Look: JPEG, alpha PNG, PDF pages, Markdown modes, audio and text.
 sweep_previews() {
-    local file kind tag expected state before after
+    local file kind tag expected state before after text_bytes text_tail
     sweep_preview_fixture
     sweep_launch "$sweep_root/previews" '{"view":"columns"}'
     for tag in jpeg alpha pdf markdown remote audio text large overlimit; do
@@ -185,7 +185,13 @@ sweep_previews() {
         sweep_wait previewState "$expected"
         if [[ "$tag" == pdf ]]; then pdf_expect true '.page == 0 and .pages == 2' 'sweep first page decoded'; fi
         if [[ "$tag" == text ]]; then [[ "$(ipc previewText)" == *'hello from flea'* ]] || fail 'capsweep: Quick Look text missing'; fi
-        if [[ "$tag" == large ]]; then sweep_text previewText 'Log row 07999'; fi
+        if [[ "$tag" == large ]]; then
+            # The ASCII fixture's byte count equals its text length; only the last line crosses IPC.
+            text_bytes=$(wc -c < "$sweep_root/previews/$file")
+            text_tail=$(tail -n 1 "$sweep_root/previews/$file")
+            sweep_wait previewTextLength "$text_bytes"
+            sweep_wait previewTextTail "$text_tail" "$(( ${#text_tail} + 1 ))"
+        fi
         if [[ "$tag" == remote ]]; then [[ "$(ipc previewText)" == *'cdn.example.com'* ]] || fail 'capsweep: Quick Look remote image missing'; fi
         [[ "$tag" != audio ]] || state=playing
         sweep_shot "quicklook-$tag-$state"

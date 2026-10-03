@@ -71,3 +71,4 @@ jq -e '.view == "list" and .display.textSize.mode == 14 and .preview.thumbSize =
 sweep_launch "$sweep_root/views" '{"view":"grid","preview":{"thumbSize":"large"}}'
 jq -e '.view == "grid" and .preview.thumbSize == "large" and .preview.column and .display.textSize.mode == 14' "$scratch/seeded.json" >/dev/null
 printf 'CAPSWEEP_CHECK state-composition=2\n'
+python3 "$repo/tests/capsweep-ipc.py" "$scratch" "$repo"
