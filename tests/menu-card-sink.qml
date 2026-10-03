@@ -4,8 +4,7 @@ import QtTest
 import Quickshell
 import "flea" as Flea
 
-// tests/menu-card-sink.sh's harness: real pointer events on the real ui/ContextMenu.qml. A press no row takes
-// (a disabled row, a separator, the card's padding) stays in the card, on the main frame and the flyout alike.
+// tests/menu-card-sink.sh's harness: real pointer events on the real ui/ContextMenu.qml, on the main frame and the flyout.
 ShellRoot {
     id: shell
 
@@ -13,8 +12,15 @@ ShellRoot {
     property var failures: []
     property int ticks: 0
     property int scene: -1
+    property bool done: false
     property var chosenLog: []
     property var refusedLog: []
+    // Ticks a fresh menu settles before the first scene acts.
+    readonly property int settleTicks: 3
+    // Ticks a scene waits for its rows to stand before it runs anyway and fails by name.
+    readonly property int sceneTickBound: 50
+    // Rows in the overflowing flyout, enough to outgrow the 480 px window at any row height.
+    readonly property int overflowRows: 40
     // Where the scene's far corner is, clear of both frames, for the click that must close.
     readonly property point outside: Qt.point(630, 470)
 
@@ -61,6 +67,10 @@ ShellRoot {
     }
 
     function report() {
+        // The tick that reported is the last one: a stopped timer cannot advance an ended run.
+        ticker.running = false
+        shell.done = true
+        shell.check("timer-stopped", ticker.running, false)
         if (shell.failures.length === 0)
             shell.log("PASS " + shell.checks + " checks")
         shell.log("DONE failures=" + shell.failures.length)
@@ -98,11 +108,12 @@ ShellRoot {
             if (String(frame.children[i]).indexOf("CardScroll") >= 0) return frame.children[i]
         return null
     }
-    function outsideClose(tag) {
+    // The ground takes both buttons and closes on release, so a click that leaves the menu open is the card's doing.
+    function outsideClose(tag, button) {
         var out = menu.mapFromItem(null, shell.outside.x, shell.outside.y)
-        shell.press(menu, out.x, out.y, Qt.LeftButton)
+        shell.press(menu, out.x, out.y, button)
         shell.check(tag + ":outside-press-open", menu.opened, true)
-        shell.release(menu, out.x, out.y, Qt.LeftButton)
+        shell.release(menu, out.x, out.y, button)
         shell.check(tag + ":outside-release-closes", menu.opened, false)
     }
 
@@ -113,6 +124,20 @@ ShellRoot {
         var flyoutRow = Object.assign({}, entries[1])
         flyoutRow.submenu = [{ id: "a", label: "App A" }, { id: "off", label: "Unavailable", disabled: true },
                              { separator: true }, { id: "b", label: "App B" }]
+        entries[1] = flyoutRow
+        menu.entries = entries
+        menu.cursor = 1
+        menu.openSubmenu(1)
+    }
+    // An Open with flyout of overflowRows rows (App A, a disabled row, a separator, then enabled rows) taller than its frame.
+    function openOverflowingFlyout() {
+        shell.openMain()
+        var entries = menu.entries.slice()
+        var flyoutRow = Object.assign({}, entries[1])
+        var rows = [{ id: "a", label: "App A" }, { id: "off", label: "Unavailable", disabled: true }, { separator: true }]
+        for (var i = rows.length; i < shell.overflowRows; i++)
+            rows.push({ id: "r" + i, label: "App " + i })
+        flyoutRow.submenu = rows
         entries[1] = flyoutRow
         menu.entries = entries
         menu.cursor = 1
@@ -146,12 +171,15 @@ ShellRoot {
         { setup: shell.openMain, ready: function () { return menu.itemFor(6) }, run: shell.mainWheelHover },
         { setup: shell.openMain, ready: function () { return menu.itemFor(4) }, run: shell.mainEnabled },
         { setup: shell.openMain, ready: function () { return menu.itemFor(4) }, run: shell.mainOutside },
-        { setup: shell.openFlyoutWithDisabled, ready: function () { return menu.submenuItemFor(3) }, run: shell.flyoutWheelHover },
+        { setup: shell.openMain, ready: function () { return menu.itemFor(4) }, run: shell.mainOutsideRight },
+        { setup: shell.openOverflowingFlyout, ready: function () { return menu.submenuItemFor(3) }, run: shell.flyoutWheelHover },
         { setup: shell.openFlyoutWithDisabled, ready: function () { return menu.submenuItemFor(3) }, run: shell.flyoutOutside },
+        { setup: shell.openFlyoutWithDisabled, ready: function () { return menu.submenuItemFor(3) }, run: shell.flyoutOutsideRight },
         { setup: shell.openLiveFlyout, ready: function () { return menu.submenuItemFor(0) }, run: shell.flyoutEnabled }
     ])
 
     Timer {
+        id: ticker
         interval: 100
         repeat: true
         running: true
@@ -159,9 +187,10 @@ ShellRoot {
     }
 
     function advance() {
+        if (shell.done) return
         shell.ticks++
         if (shell.scene < 0) {
-            if (shell.ticks < 3) return
+            if (shell.ticks < shell.settleTicks) return
             shell.scene = 0
             shell.chosenLog = []
             shell.scenes[0].setup()
@@ -169,13 +198,12 @@ ShellRoot {
             return
         }
         var current = shell.scenes[shell.scene]
-        if (!shell.ready(current.ready()) && shell.ticks <= 50) return
+        if (!shell.ready(current.ready()) && shell.ticks <= shell.sceneTickBound) return
         current.run()
         shell.scene++
         shell.ticks = 0
         if (shell.scene >= shell.scenes.length) {
             shell.report()
-            shell.scene = 1000
             return
         }
         shell.chosenLog = []
@@ -205,20 +233,35 @@ ShellRoot {
         shell.check("main:enabled-once", shell.chosenLog, ["copy"])
         shell.check("main:enabled-closes", menu.opened, false)
     }
-    function mainOutside() { shell.outsideClose("main") }
+    function mainOutside() { shell.outsideClose("main", Qt.LeftButton) }
+    function mainOutsideRight() { shell.outsideClose("main-right", Qt.RightButton) }
 
     function flyoutWheelHover() {
         var sub = menu.submenuFrameItem
+        var card = shell.cardUnder(sub)
+        shell.check("flyout:overflows", card.contentHeight > card.height, true)
+        shell.check("flyout:card-not-interactive", card.interactive, false)
+        // The wheel over a disabled row steps the highlight one row (past the separator) and never pixel scrolls.
         var disabled = menu.submenuItemFor(1)
         driver.mouseWheel(disabled, disabled.width / 2, disabled.height / 2, Qt.NoButton, Qt.NoModifier, 0, -120, 1)
         shell.check("flyout:wheel-steps-one", menu.submenuCursor, 3)
-        shell.check("flyout:wheel-no-pixel-scroll", shell.cardUnder(sub).contentY, 0)
+        shell.check("flyout:wheel-no-pixel-scroll", card.contentY, 0)
         var row = menu.submenuItemFor(0)
         driver.mouseMove(row, 10, row.height / 2, 1, Qt.NoButton, Qt.NoModifier)
         driver.mouseMove(row, 20, row.height / 2, 1, Qt.NoButton, Qt.NoModifier)
         shell.check("flyout:hover-follows", menu.submenuCursor, 0)
+        // Only reveal moves the body: the last row scrolls into view, then a notch up steps one row and leaves it where it is.
+        var last = shell.overflowRows - 1
+        menu.submenuCursor = last
+        shell.check("flyout:reveal-scrolls", card.contentY > 0, true)
+        var revealed = card.contentY
+        var tail = menu.submenuItemFor(last)
+        driver.mouseWheel(tail, tail.width / 2, tail.height / 2, Qt.NoButton, Qt.NoModifier, 0, 120, 1)
+        shell.check("flyout:wheel-up-steps-one", menu.submenuCursor, last - 1)
+        shell.check("flyout:wheel-up-no-pixel-scroll", card.contentY, revealed)
     }
-    function flyoutOutside() { shell.outsideClose("flyout") }
+    function flyoutOutside() { shell.outsideClose("flyout", Qt.LeftButton) }
+    function flyoutOutsideRight() { shell.outsideClose("flyout-right", Qt.RightButton) }
     function flyoutEnabled() {
         shell.clickCentre(menu.submenuItemFor(0), Qt.LeftButton)
         shell.check("flyout:enabled-once", shell.chosenLog, ["openWith:a"])

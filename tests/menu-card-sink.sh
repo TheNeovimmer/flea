@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# A press on a menu card no row takes (disabled row, separator, padding) leaves the menu open on both
-# frames, and a click outside still closes it on release; real pointer events, offscreen, no display or lock.
+# A press no menu row takes stays in the card, a click outside closes on release; real pointer events, offscreen.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
@@ -12,8 +11,7 @@ fi
 
 # A marked sandbox of its own under the fixture root, so cleanup deletes only what this run owns.
 test_root=$(mktemp -d "$FIXTURE_ROOT/flea-menu-card-sink-XXXXXX") || exit 1
-# GNU mktemp -d honours a relative TMPDIR verbatim, so the one path this suite makes is checked
-# absolute and non-empty before anything trusts it.
+# GNU mktemp -d keeps a relative TMPDIR verbatim, so the path is checked absolute and two components deep.
 case $test_root in
   /*/*) ;;
   *) echo "FAIL: mktemp -d gave '$test_root', which is not an absolute path two components deep"; exit 1 ;;
@@ -37,9 +35,7 @@ output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     timeout 30 qs -p "$test_root/config" 2>&1)
 qs_status=$?
 
-# Sample input, one probe line: "  INFO qml: MENUSINK PASS 87 checks"
-# Sample input, the receipt: "  INFO qml: MENUSINK DONE failures=0".
-# The owned termination is the probe's own self-kill (SIGTERM, 143) after its one DONE receipt; a PASS beside any other status is a double's, never a proof.
+# Sample input: "  INFO qml: MENUSINK PASS 87 checks", then "MENUSINK DONE failures=0", then the probe's own SIGTERM (143).
 pass_count=$(printf '%s\n' "$output" | grep -c 'MENUSINK PASS')
 fail_count=$(printf '%s\n' "$output" | grep -c 'MENUSINK FAIL')
 done_count=$(printf '%s\n' "$output" | grep -c 'MENUSINK DONE')
