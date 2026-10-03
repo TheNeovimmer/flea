@@ -50,7 +50,12 @@ operations_footer_geometry() {
 
 # Sample input: 100000 prints 100,000 and 999 prints 999, as ui/js/Format.js count() groups every count by thousands.
 operations_group_count() {
-    printf '%s' "$1" | sed -E ':group;s/([0-9])([0-9]{3})($|,)/\1,\2\3/;tgroup'
+    local digits="$1" grouped=""
+    while (( ${#digits} > 3 )); do
+        grouped=",${digits: -3}$grouped"
+        digits=${digits:0:${#digits}-3}
+    done
+    printf '%s' "$digits$grouped"
 }
 
 operations_idle_footer() {

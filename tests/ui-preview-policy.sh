@@ -230,6 +230,7 @@ PY
         video_entry=$(ipc thumbnailPolicyState | jq -er ".files[\"$queued_video\"]") || fail "thumbnailpolicy: the video row has no thumbnail after re-enable"
         menus_guard "$video_entry"
         [[ -f "$video_entry" ]] || fail "thumbnailpolicy: the video thumbnail file is missing: $video_entry"
+        [[ "$(dirname "$video_entry")" == "$menu_box/cache/thumbnails/large" ]] || fail "thumbnailpolicy: the video thumbnail lies outside the cache listed while off: $video_entry"
         if grep -Fxq -- "$(basename "$video_entry")" <<< "$entries_while_off"; then
             fail "thumbnailpolicy: the video was thumbnailed while media was off or canceled: $video_entry"
         fi
