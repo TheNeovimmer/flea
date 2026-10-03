@@ -10703,6 +10703,9 @@ case_recent() {
     sandbox_scratch "$dir"
     printf 'first file\n' > "$dir/alpha.txt"
     printf 'second file\n' > "$dir/beta.txt"
+    local deep="$dir/a-very-long-parent-directory/another-long-parent-directory/deeply-nested-recent-location"
+    mkdir -p "$deep"
+    printf 'third file\n' > "$deep/gamma.txt"
 
     local fixture_home="$fixture_root/recent-home"
     fixture_home_make "$fixture_home"
@@ -10710,6 +10713,7 @@ case_recent() {
     cat > "$fixture_home/.local/share/recently-used.xbel" <<EOS
 <?xml version="1.0" encoding="UTF-8"?>
 <xbel version="1.0">
+  <bookmark href="file://$deep/gamma.txt" added="2026-09-25T10:00:00Z" modified="2026-09-25T10:00:00Z" visited="2026-09-25T10:00:00Z"/>
   <bookmark href="file://$dir/beta.txt" added="2026-09-26T10:00:00Z" modified="2026-09-26T10:00:00Z" visited="2026-09-26T10:00:00Z"/>
   <bookmark href="file://$dir/alpha.txt" added="2026-09-26T09:00:00Z" modified="2026-09-26T09:00:00Z" visited="2026-09-27T10:00:00Z"/>
 </xbel>
@@ -10717,6 +10721,7 @@ EOS
     # Only visited favors alpha: beta leads in file order, added, modified and mtime alike.
     touch -d '2026-09-26 10:00:00' "$dir/beta.txt"
     touch -d '2026-09-26 09:00:00' "$dir/alpha.txt"
+    touch -d '2026-09-25 10:00:00' "$deep/gamma.txt"
 
     local state="$fixture_root/recent-state"
     seed_ui_state "$state" '{"places":{"showRecent":true}}'
@@ -10724,7 +10729,7 @@ EOS
     export HOME="$fixture_home"
     launch "$dir"
     export HOME="$real_home"
-    wait_listing 2
+    wait_listing 3
     local labels=
     for _attempt in $(seq 1 100); do
         labels=$(ipc railLabels 2>/dev/null || printf unavailable)
@@ -10745,17 +10750,20 @@ EOS
     for _attempt in $(seq 1 200); do
         mode=$(ipc recentMode 2>/dev/null || printf unavailable)
         total=$(ipc total 2>/dev/null || printf unavailable)
-        if [[ "$mode" == "results" && "$total" == "2" && "$(ipc listInFlight 2>/dev/null)" == "false" ]]; then break; fi
+        if [[ "$mode" == "results" && "$total" == "3" && "$(ipc listInFlight 2>/dev/null)" == "false" ]]; then break; fi
         sleep 0.05
     done
     [[ "$mode" == "results" ]] || fail "recent: Enter on the rail row never listed the history"
-    [[ "$total" == "2" ]] || fail "recent: the history listed $total rows, not 2"
-    [[ "$(ipc headerTitles)" == "Name|Size|Used" ]] \
-        || fail "recent: the header does not read Name|Size|Used: $(ipc headerTitles)"
+    [[ "$total" == "3" ]] || fail "recent: the history listed $total rows, not 3"
+    [[ "$(ipc headerTitles)" == "Name|Location|Size|Used" ]] \
+        || fail "recent: the header does not read Name|Location|Size|Used: $(ipc headerTitles)"
     [[ "$(ipc rowAt 0)" == *"/alpha.txt|file|"* ]] \
         || fail "recent: the newest visited bookmark is not first: $(ipc rowAt 0)"
     [[ "$(ipc rowAt 1)" == *"/beta.txt|file|"* ]] \
         || fail "recent: the older visited bookmark is not second: $(ipc rowAt 1)"
+    [[ "$(ipc rowAt 2)" == *"${deep#/}/gamma.txt|file|"* ]] \
+        || fail "recent: the oldest visited bookmark with a deep location is not third: $(ipc rowAt 2)"
+    shot recent-listing
 
     key -k Escape >/dev/null
     wait_path "$dir"

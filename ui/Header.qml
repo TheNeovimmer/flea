@@ -52,14 +52,13 @@ Item {
     // A search takes the header's slot whole, but the strip's ground is a plain Rectangle and
     // accepts no input, so the titles under it stay hittable unless the handlers go down with them.
     readonly property bool sortable: root.searchMode.length === 0
-    // Recent draws the search column set's name beside its location, with the date beside them as
-    // Used; Mode and Kind head nothing while it stands, the way no search heads them.
+    // Sidebar040: Recent replaces Mode with fixed Location and heads its date as Used.
     property bool recent: false
 
     // The columns this width affords, less the hidden ones; rows draw lane-narrow like this header.
     property var hiddenCols: ViewState.hiddenCols
     readonly property real contentWidth: Math.max(0, root.width - Theme.spacing.rowPaddingX)
-    readonly property var cols: root.dualMode ? Theme.dualColumns(root.contentWidth, root.hiddenCols) : Theme.columns(root.contentWidth, root.hiddenCols, root.dateWidth)
+    readonly property var cols: root.recent ? Theme.columns(root.contentWidth, root.hiddenCols, root.dateWidth, true, root.dualMode) : root.dualMode ? Theme.dualColumns(root.contentWidth, root.hiddenCols) : Theme.columns(root.contentWidth, root.hiddenCols, root.dateWidth)
 
     implicitHeight: Theme.chromeHeight
 
@@ -86,7 +85,7 @@ Item {
         anchors.left: parent.left
         anchors.leftMargin: Theme.spacing.rowPaddingX + root.leadingSlot + (root.dualMode ? Theme.markSize + Theme.spacing.gap : 0)
         anchors.right: headerMode.left
-        anchors.rightMargin: root.cols.mode && !root.recent ? Theme.spacing.gap : 0
+        anchors.rightMargin: (root.recent ? root.cols.location : root.cols.mode) ? Theme.spacing.gap : 0
         anchors.verticalCenter: parent.verticalCenter
         text: root.title("Name", "name")
         elide: Text.ElideRight
@@ -99,9 +98,9 @@ Item {
         anchors.right: headerSize.left
         anchors.rightMargin: root.cols.size && !root.dualMode ? Theme.spacing.gap : 0
         anchors.verticalCenter: parent.verticalCenter
-        visible: root.cols.mode && !root.recent
-        width: root.cols.mode && !root.recent ? (root.dragKey === "mode" ? root.dragPreview : Theme.column.mode) : 0
-        text: root.title("Mode", "mode")
+        visible: root.recent ? root.cols.location : root.cols.mode
+        width: root.recent ? (root.cols.location ? Theme.column.location : 0) : root.cols.mode ? (root.dragKey === "mode" ? root.dragPreview : Theme.column.mode) : 0
+        text: root.recent ? "Location" : root.title("Mode", "mode")
     }
 
     PanelSectionHeader {
@@ -370,22 +369,19 @@ Item {
     // What the header case reads, built from the same values the header renders.
     function titles() {
         if (root.recent)
-            return "Name|Size|Used"
+            return "Name" + (root.cols.location ? "|Location" : "") + (root.cols.size ? "|Size" : "") + (root.cols.date ? "|Used" : "")
         return "Name|Mode|Size|Modified|Kind"
     }
 
     // What the header is drawing right now, for the seam that reads it beside a row's.
-    function columnSet() {
-        if (root.recent)
-            return ["name"].concat(root.cols.size ? ["size"] : []).concat(root.cols.date ? ["date"] : []).join(",")
-        return root.dualMode ? ["name"].concat(root.cols.size ? ["size"] : []).concat(root.cols.date ? ["date"] : []).join(",") : Theme.columnNames(root.contentWidth, root.hiddenCols, root.dateWidth)
-    }
+    function columnSet() { return Columns.names(root.cols) }
 
     // The one lookup the geometry reader needs, the same by-key idiom Pane.itemFor uses for rows.
     function cell(key) {
         switch (key) {
         case "name": return headerName
-        case "mode": return headerMode
+        case "location": return root.recent ? headerMode : null
+        case "mode": return root.recent ? null : headerMode
         case "size": return headerSize
         case "date": return headerDate
         case "kind": return headerKind

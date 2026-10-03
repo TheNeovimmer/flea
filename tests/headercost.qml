@@ -15,6 +15,8 @@ ShellRoot {
     property var singleRow: ({ n: "headercost.txt", p: 33188, d: false, s: 18000, m: 1758835200, k: 0 })
     property var dirRow: ({ n: "big", p: 16877, d: true, s: 60, m: 1758835200, k: 0 })
 
+    Loader { id: recentProbe; source: "recentcol.qml" }
+
     Flea.Header {
         id: probeHeader
         width: 800
@@ -348,6 +350,9 @@ ShellRoot {
     }
 
     function finish(first) {
+        root.seedWidths({})
+        check("Recent geometry fixture built", recentProbe.item !== null, true)
+        if (recentProbe.item !== null) recentProbe.item.run(root.check, root.walk)
         console.log("HEADERCOST DONE checks=" + root.checks)
         if (failures.length === 0)
             console.log("HEADERCOST PASS accents=0 metrics=0 hot=1 fit=" + first)

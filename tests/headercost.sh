@@ -40,6 +40,7 @@ ln -s "$stage/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -m ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -m ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/headercost.qml "$test_root/config/shell.qml" || exit 1
+cp tests/recentcol.qml "$test_root/config/recentcol.qml" || exit 1
 
 # Sample input, one probe line: "  INFO qml: HEADERCOST PASS accents=0 metrics=0 hot=1 fit=42".
 # HEADERCOST_TIMEOUT shortens the bound for iteration only; the default stays 20.
@@ -51,7 +52,7 @@ log="$test_root/headercost.log"
 status=$?
 
 # Byte-exact receipts for every production source under test plus both fixture files.
-receipts=$(sha256sum "$PWD/ui/Header.qml" "$PWD/ui/FitMetrics.qml" "$PWD/ui/ViewState.qml" "$PWD/ui/js/ColumnFit.js" "$PWD/ui/js/Columns.js" tests/headercost.qml tests/headercost-viewstate.qml) || exit 1
+receipts=$(sha256sum "$PWD/ui/Header.qml" "$PWD/ui/Row.qml" "$PWD/ui/Theme.qml" "$PWD/ui/List.qml" "$PWD/ui/FitMetrics.qml" "$PWD/ui/ViewState.qml" "$PWD/ui/js/ColumnFit.js" "$PWD/ui/js/Columns.js" tests/headercost.qml tests/headercost-viewstate.qml tests/recentcol.qml) || exit 1
 printf '%s\n' "$receipts" >> "$log"
 
 pass_count=$(grep -ac 'HEADERCOST PASS' "$log")
@@ -59,7 +60,7 @@ fail_count=$(grep -ac 'HEADERCOST FAIL' "$log")
 done_count=$(grep -ac 'HEADERCOST DONE' "$log")
 # Offscreen platform mask warning is the platform's, never the guard's.
 platform_warning='This plugin does not support setting window masks'
-warnings=$(grep -aE 'TypeError|ReferenceError|ERROR|WARN|Cannot|is not a type|failed to load' "$log" | grep -vF "$platform_warning" || true)
+warnings=$(grep -aE 'TypeError|ReferenceError|ERROR|WARN|Cannot|Unable to assign|is not a type|failed to load' "$log" | grep -vF "$platform_warning" || true)
 
 # The DONE receipt is verified before the status is trusted: only a finished fixture proves its counts.
 if [ "$done_count" -ne 1 ]; then
@@ -91,5 +92,6 @@ if [ -n "$warnings" ]; then
 fi
 grep -a 'HEADERCOST PASS' "$log" | tail -1
 grep -a 'HEADERCOST DONE' "$log" | tail -1
+grep -a 'RECENTCOL floor=' "$log"
 printf '%s\n' "$receipts"
 printf 'headercost: qs exit %s\n' "$status"

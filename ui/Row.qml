@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import "js/Columns.js" as Columns
 import "js/Drag.js" as DragOps
 import "js/Format.js" as Format
 import "js/Icons.js" as Icons
@@ -48,8 +49,7 @@ Item {
     property string searchQuery: ""
     // Which of the two is narrowing. A filter keeps the ordinary columns, because its rows are this directory's own and their names are plain names, not paths.
     property bool filtering: false
-    // A search row's name is its path relative to the search root, so the name and location split here; see docs/protocol.md "search".
-    // A recent row's name is its path under the history's base, so it splits the way a search row's does.
+    // Search and Recent split the path into a base name and location; see docs/protocol.md "search".
     property bool recenting: false
     readonly property bool searching: !root.filtering && root.searchQuery.length > 0 && root.row !== null && root.row.n.length > 0
     readonly property bool locating: root.searching || root.recenting
@@ -58,7 +58,7 @@ Item {
     readonly property string linkMark: root.row && root.row.l ? " -> " + root.row.l : ""
     // The name, then a link's target; a folder carries no slash, its glyph and the folders-first order already say it.
     readonly property string decoratedName: root.displayName + root.linkMark
-    readonly property string locationText: root.locating ? (root.recenting ? Recent.locationOf(root.row.n) : Match.location(root.row.n)) : ""
+    readonly property string locationText: root.locating && root.row ? (root.recenting ? Recent.locationOf(root.row.n) : Match.location(root.row.n)) : ""
     readonly property var nameRun: Match.run(root.displayName, root.searchQuery)
     // Assigned by List.qml's shared budgets; -2 keeps the local geometry default for PickerList and drop-target rows.
     property int assignedNameBudget: -2
@@ -76,9 +76,8 @@ Item {
 
     // The columns this row's width affords. A column that is not drawn takes neither its width nor its gap, so the chain collapses onto its right neighbour.
     property var assignedCols: null // Set by List.qml; null keeps the local default below.
-    readonly property var cols: root.assignedCols !== null ? root.assignedCols : (root.dualMode ? Theme.dualColumns(root.width, root.hiddenCols) : Theme.columns(root.width, root.hiddenCols, root.dateWidth))
+    readonly property var cols: root.assignedCols !== null ? root.assignedCols : root.recenting ? Theme.columns(root.width, root.hiddenCols, root.dateWidth, true, root.dualMode) : root.dualMode ? Theme.dualColumns(root.width, root.hiddenCols) : Theme.columns(root.width, root.hiddenCols, root.dateWidth)
     readonly property bool modeShown: !root.locating && root.cols.mode
-    // A search row keeps Size where it fits and shows Date only when it is a Recent row.
     readonly property bool sizeShown: root.cols.size
     readonly property bool dateShown: (!root.searching || root.recenting) && root.cols.date
     readonly property bool kindShown: !root.locating && root.cols.kind
@@ -259,9 +258,9 @@ Item {
         elideMiddle: true
     }
 
-    // The search column set: the name shrinks to its content so the location beside it has room.
-    // Both are built only while a row splits a path that way, over the same span the two drew in side by side.
+    // One lazy path split: Recent reserves Location; search keeps the inline name share.
     Loader {
+        id: locatingLoader
         active: root.locating
         anchors.left: icon.right
         anchors.leftMargin: Theme.spacing.gap
@@ -270,11 +269,13 @@ Item {
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         sourceComponent: Item {
+            readonly property var owner: parent.parent
+            property alias location: location
             MatchText {
                 id: searchName
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                width: Math.min(implicitWidth, root.searchSlot * root.nameShare)
+                width: root.recenting ? Math.max(0, parent.width - (parent.owner.cols.location ? Theme.column.location + Theme.spacing.gap : 0)) : Math.min(implicitWidth, root.searchSlot * parent.owner.nameShare)
                 text: root.decoratedName
                 matchStart: root.nameRun.start
                 matchLength: root.nameRun.length
@@ -285,8 +286,10 @@ Item {
             }
 
             Text {
+                id: location
+                visible: !parent.owner.recenting || parent.owner.cols.location
                 anchors.left: searchName.right
-                anchors.leftMargin: Theme.spacing.gap
+                anchors.leftMargin: parent.owner.recenting && !parent.owner.cols.location ? 0 : Theme.spacing.gap
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.locationText
@@ -444,12 +447,11 @@ Item {
         return Theme.color.foreground
     }
 
-    // What this row is drawing right now, for the seam that reads it beside the header's.
-    function columnSet() { return Theme.columnNames(root.width, root.hiddenCols, root.dateWidth) }
-
-    // The same by-key idiom Header.cell uses, so the overflow reader can reach a specific cell.
+    // The drawn columns and cells, shared with Header's geometry seam.
+    function columnSet() { return Columns.names(root.cols) }
     function cell(key) {
         switch (key) {
+        case "location": return locatingLoader.item ? locatingLoader.item.location : null
         case "mode": return mode
         case "size": return size
         case "date": return modified

@@ -107,12 +107,12 @@ ui/Preview.qml 723
 ui/PreviewColumn.qml 574
 ui/DeviceMounts.qml 496
 ui/PreviewMarkdown.qml 473
-ui/Row.qml 480
+ui/Row.qml 482
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
 ui/Sidebar.qml 657
 ui/StatusBar.qml 456
-ui/Theme.qml 414
+ui/Theme.qml 416
 ui/TrashView.qml 475
 ui/ViewState.qml 538
 ui/WindowBody.qml 576

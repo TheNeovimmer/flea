@@ -27,7 +27,7 @@ ListView {
     readonly property real listSizeWidth: root.listDual ? Theme.dualColumn.size : Theme.column.size
     readonly property real listDateWidth: root.listDual ? Theme.dualColumn.date : Theme.column.date
     // The same set Row.cols resolves, from the same width and hidden array, so the two cannot drift.
-    readonly property var listCols: root.listDual ? Theme.dualColumns(root.rowWidth, root.rowHiddenCols) : Theme.columns(root.rowWidth, root.rowHiddenCols, root.listDateWidth)
+    readonly property var listCols: root.pane && root.pane.recentMode.length > 0 ? Theme.columns(root.rowWidth, root.rowHiddenCols, root.listDateWidth, true, root.listDual) : root.listDual ? Theme.dualColumns(root.rowWidth, root.rowHiddenCols) : Theme.columns(root.rowWidth, root.rowHiddenCols, root.listDateWidth)
     readonly property bool listModeShown: root.listCols ? !!root.listCols.mode : false
     readonly property bool listSizeShown: root.listCols ? !!root.listCols.size : false
     readonly property bool listDateShown: root.listCols ? !!root.listCols.date : false
@@ -114,7 +114,7 @@ ListView {
         // ordinary columns, because these rows are still this directory's own and not walk results.
         searchQuery: root.pane.searchMode.length > 0 ? root.pane.searchQuery : root.pane.filterQuery
         filtering: root.pane.shown !== null
-        // Sidebar040: a recent row splits its path into a name and a location, the way a search row does.
+        // Sidebar040: Recent splits its path into Name and the fixed Location column.
         recenting: root.pane.recentMode.length > 0
         renaming: listingIndex === root.pane.renamingIndex
         renamePane: root.pane
