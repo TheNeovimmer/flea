@@ -99,7 +99,7 @@ function blockPass(lines, state, emit, collect) {
         var thematic = Leaf.isThematic(unmatchedText)
         var setext = leaf !== null && leaf.kind === "paragraph" && matched === frames.length && Leaf.isSetext(unmatchedText)
         var lazy = leaf !== null && leaf.kind === "paragraph" && unmatchedText.trim().length > 0
-            && !startsQuote && startsList === null && startsFence === null && !thematic && !Leaf.isSetext(unmatchedText)
+            && !startsQuote && startsList === null && startsFence === null && !thematic
             && !/^ {0,3}#{1,6}(?:\s|$)/.test(unmatchedText)
         if (matched < frames.length && !lazy) {
             frames.length = matched
@@ -160,8 +160,8 @@ function blockPass(lines, state, emit, collect) {
                 continue
             }
             if (collect && pending.owner === owner && pending.ref !== undefined
-                    && Container.indentationAt(raw, view).width < CODE_INDENT && Leaf.fenceOpen(text) === null
-                    && text.trim().charAt(0) !== "[") {
+                    && Container.indentationAt(raw, view).width < CODE_INDENT && Leaf.fenceOpen(text) === null) {
+                // Sample: '[cover].png "Title"' accepts a destination only when the complete line parses.
                 var destination = Refs.readDefinitionTarget(text.trim())
                 if (destination !== "") {
                     if (!state.defs.hasOwnProperty(pending.ref.key))

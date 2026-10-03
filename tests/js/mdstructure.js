@@ -17,6 +17,48 @@ function run(check) {
         return Markdown.prepare(doc, dir, undefined, chrome, ink)
     }
 
+    // R5 samples follow CommonMark 4.3 examples 92-94: lazy underlines are text unless they start a break.
+    var r5Lazy = [
+        { name: "example 92", source: "> Foo\n---", blocks: [{ type: "quote", text: "Foo" }, { type: "run", text: "---" }] },
+        { name: "example 93", source: "> foo\nbar\n===", blocks: [{ type: "quote", text: "foo\nbar\n===" }] },
+        { name: "example 94", source: "- Foo\n---", blocks: [{ type: "list", ordered: false, start: 0, items: ["Foo"] }, { type: "run", text: "---" }] },
+        { name: "list equals", source: "- foo\nbar\n===", blocks: [{ type: "list", ordered: false, start: 0, items: ["foo\nbar\n==="] }] },
+        { name: "quote short dash", source: "> foo\n--", blocks: [{ type: "quote", text: "foo\n--" }] },
+        { name: "list short dash", source: "- foo\n--", blocks: [{ type: "list", ordered: false, start: 0, items: ["foo\n--"] }] }
+    ]
+    for (var lazyIndex = 0; lazyIndex < r5Lazy.length; lazyIndex++) {
+        var lazyCase = r5Lazy[lazyIndex]
+        check("R5 G1 " + lazyCase.name, JSON.stringify(Markdown.blocks(lazyCase.source, dir, chrome, ink)),
+            JSON.stringify(lazyCase.blocks))
+    }
+
+    // R5 samples follow CommonMark 4.7: "[cover]:\n[cover].png" accepts the whole destination line.
+    var r5Destinations = [
+        { name: "bracket image", key: "cover", tail: "[cover].png", target: "[cover].png" },
+        { name: "bracket label", key: "a", tail: "[b]", target: "[b]" },
+        { name: "definition-shaped tail", key: "foo", tail: "[bar]: /url", target: "" },
+        { name: "optional title", key: "cover", tail: '[cover].png "Cover"', target: "[cover].png" },
+        { name: "trailing whitespace", key: "cover", tail: "[cover].png \t", target: "[cover].png" },
+        { name: "text after title", key: "cover", tail: '[cover].png "Cover" extra', target: "" }
+    ]
+    var definitionSeparators = [" ", "\n"]
+    for (var destinationIndex = 0; destinationIndex < r5Destinations.length; destinationIndex++) {
+        var destinationCase = r5Destinations[destinationIndex]
+        for (var separatorIndex = 0; separatorIndex < definitionSeparators.length; separatorIndex++) {
+            var definitionSource = "[" + destinationCase.key + "]:" + definitionSeparators[separatorIndex] + destinationCase.tail
+            var expectedDefinitions = {}
+            if (destinationCase.target !== "")
+                expectedDefinitions[destinationCase.key] = destinationCase.target
+            var definitionLabel = "R5 G2 " + destinationCase.name + (definitionSeparators[separatorIndex] === "\n" ? " next line" : " same line")
+            check(definitionLabel, JSON.stringify(Markdown.definitions(definitionSource)), JSON.stringify(expectedDefinitions))
+            var definitionImage = Markdown.blocks(definitionSource + "\n\n![x][" + destinationCase.key + "]", dir, chrome, ink)
+            check(definitionLabel + " image", definitionImage.some(function (block) { return block.type === "image" }), destinationCase.target !== "")
+            if (destinationCase.target === "")
+                check(definitionLabel + " stays paragraph", Markdown.blocks(definitionSource, dir, chrome, ink)[0].text,
+                    definitionSource.replace(/\[/g, "&#91;").replace(/\]/g, "&#93;"))
+        }
+    }
+
     // R3 samples pin each container transition through the public block path for links and footnotes.
     var refCases = [
         { name: "document fence after list", source: "- parent\n```\n[img]: pic.png\n```", resolves: false },
@@ -51,7 +93,7 @@ function run(check) {
         { name: "angle control", source: "[img]: <pic.png>", target: "pic.png" },
         { name: "md2a F32 md2c F26 bare bracket", source: "[img]: [cover].png", target: "[cover].png" },
         { name: "bracket control", source: "[img]: <[cover].png>", target: "[cover].png" },
-        { name: "bracket continuation exclusion", source: "[img]:\n  [cover].png", target: "" },
+        { name: "bracket continuation destination", source: "[img]:\n  [cover].png", target: "[cover].png" },
         { name: "angle continuation rejection", source: "[img]:\n  <pic.png", target: "" },
         { name: "md2a F33 md2b F28 equals", source: "Title\n===\n[img]: pic.png", target: "pic.png" },
         { name: "md2a F33 single equals", source: "Title\n=\n[img]: pic.png", target: "pic.png" },
@@ -85,10 +127,12 @@ function run(check) {
     var r4Underlines = ["=", "===", "--", "---"]
     for (var underlineIndex = 0; underlineIndex < r4Underlines.length; underlineIndex++) {
         var underline = r4Underlines[underlineIndex]
+        // CommonMark example 93 keeps lazy underline text; examples 92 and 94 put the break outside.
+        var expectedLazyText = underline === "---" ? "Title" : "Title\n" + underline
         var quoteUnderline = Markdown.blocks("> Title\n" + underline, dir, chrome, ink)
-        check("R4 md2a F33 lazy quote " + underline, quoteUnderline[0].text, "Title")
+        check("R4 md2a F33 lazy quote " + underline, quoteUnderline[0].text, expectedLazyText)
         var listUnderline = Markdown.blocks("- Title\n" + underline, dir, chrome, ink)
-        check("R4 md2a F33 lazy list " + underline, listUnderline[0].items[0], "Title")
+        check("R4 md2a F33 lazy list " + underline, listUnderline[0].items[0], expectedLazyText)
     }
     var markerView = { at: 2, padding: 0, column: 2 }
     check("R4 md2a F34 quote uses absolute tab columns", MdContainer.quoteAt("> \t> text", markerView), 2)
