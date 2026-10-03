@@ -12,6 +12,7 @@ var MIN_RULE_MARKS = 3
 var MAX_RULE_INDENT = 3
 var DISPLAY_DELIMITER_LENGTH = 2
 var LIST_INTERRUPT_START = 1
+var hasOwn = Object.prototype.hasOwnProperty
 
 function listMarker(line) {
     var mark = Container.readListMarker(line)
@@ -47,8 +48,10 @@ function ruleSuffix(line) {
     return { start: at + 1, count: count }
 }
 
+// Keys are document text, so the three keyed maps have no prototype: "__proto__" and "hasOwnProperty" are ordinary ids.
 function referenceState() {
-    return { defs: {}, notes: {}, numbers: {}, hidden: {}, escaped: {}, code: {}, dropped: [] }
+    return { defs: Object.create(null), notes: Object.create(null), numbers: Object.create(null),
+        hidden: {}, escaped: {}, code: {}, dropped: [] }
 }
 
 function hideDefinition(state, from, to) {
@@ -64,7 +67,6 @@ function blockPass(lines, state, emit, collect) {
     var pending = null
     var serial = 0
     var lastQuote = -1
-    var mathEnd = -1
     function send(kind, index, text, top, display, info) {
         if (emit !== undefined)
             emit({ type: "line", kind: kind, index: index, text: text,
@@ -183,7 +185,7 @@ function blockPass(lines, state, emit, collect) {
                 // Sample: '[cover].png "Title"' accepts a destination only when the complete line parses.
                 var destination = Refs.readDefinitionTarget(text.trim())
                 if (destination !== "") {
-                    if (!state.defs.hasOwnProperty(pending.ref.key))
+                    if (!hasOwn.call(state.defs, pending.ref.key))
                         state.defs[pending.ref.key] = destination
                     hideDefinition(state, pending.index, i)
                     // Replay the opener's paragraph state so its lazy destination keeps the same containers.
@@ -237,12 +239,13 @@ function blockPass(lines, state, emit, collect) {
                 mathSource = rest.slice(0, closeAt).trim()
                 mathTail = rest.slice(closeAt + DISPLAY_DELIMITER_LENGTH)
             } else {
-                if (mathEnd <= i) {
-                    mathEnd = i + 1
-                    while (mathEnd < lines.length && lines[mathEnd].indexOf("$$") < 0)
-                        mathEnd++
+                // The closer search stops at the paragraph's blank line, so no later opener scans these lines again.
+                var mathEnd = -1
+                for (var at = i + 1; mathEnd < 0 && at < lines.length && lines[at].trim().length > 0; at++) {
+                    if (lines[at].indexOf("$$") >= 0)
+                        mathEnd = at
                 }
-                if (mathEnd < lines.length) {
+                if (mathEnd > i) {
                     var endAt = lines[mathEnd].indexOf("$$")
                     mathSource = [rest].concat(lines.slice(i + 1, mathEnd),
                         [lines[mathEnd].slice(0, endAt)]).join("\n").trim()
@@ -285,7 +288,7 @@ function blockPass(lines, state, emit, collect) {
             var note = Refs.readFootnoteDefinition(text)
             var ref = note === null ? Refs.readDefinition(text) : null
             if (note !== null) {
-                var stored = state.notes.hasOwnProperty(note.id) ? null : { text: note.text }
+                var stored = hasOwn.call(state.notes, note.id) ? null : { text: note.text }
                 if (stored !== null) {
                     state.notes[note.id] = stored
                     state.numbers[note.id] = 0
@@ -297,7 +300,7 @@ function blockPass(lines, state, emit, collect) {
             }
             if (ref !== null) {
                 if (ref.target !== "") {
-                    if (!state.defs.hasOwnProperty(ref.key))
+                    if (!hasOwn.call(state.defs, ref.key))
                         state.defs[ref.key] = ref.target
                     hideDefinition(state, i, i)
                     send("hidden", i, text, top, display)
@@ -354,6 +357,5 @@ function prepare(source, dir, defs, chrome, ink) {
     var lines = Html.documentText(source).split("\n")
     var state = referenceState()
     blockPass(lines, state, undefined, true)
-    blockPass(lines, state, undefined, false)
     return Document.preparedText(lines, state, dir, defs, chrome, ink)
 }

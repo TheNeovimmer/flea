@@ -7198,3 +7198,16 @@ the timer still outlasts ListView's placement so `inView` reads the placed posit
 log fires only when a figure fails its second strike. `ui/js/FigureWorker.mjs` records 509 lines, `ui/FigureService.qml` 298. The md2 merge
 leaves `tests/markdown-linearity.qml` at 543 lines, the merged `wc -l` where both sides added cases (399 on the stack,
 529 on md2), and its budget row is that number.
+
+md3u closing round 4 hardens the Markdown parser's edges. A multi-line `$$` display block closes on the first later line holding `$$`
+only inside its own paragraph: the search stops at the first blank line, so a stray opener stays text instead of swallowing the
+document up to the next `$$` (no two scans share a line, and `mathOpeners` in `tests/markdown-linearity.qml` pins the linear cost). The
+keyed maps `defs`, `notes` and `numbers` have no prototype and every reader asks `Object.prototype.hasOwnProperty.call`, because a
+footnote id of `__proto__` threw and `hasOwnProperty` left its citation unnumbered. `prepare()` runs the one collecting block pass;
+a second pass over the same lines was measured to change none of `code`, `escaped`, `hidden`, `dropped` or the three maps on 20,000
+generated documents. `MdLeaf.js` names the marker limits `MdContainer.js` names, and `localAbsolute` refuses a backslash in the
+reference the document wrote while the folder may hold one (`containedLocal` keeps the containment check as strict as before).
+`prepare()` has no caller in `ui/`: the preview draws `blocks()`, whose front matter and `$$` lines are a `PlainText` fence or a
+figure, and `tests/markdown-security.sh` now carries both placements and a Source-view instance with zero requests required.
+`tests/js/mdround4.js` holds the parser pins. The file budget rows move to the real `wc -l`: `ui/js/MdBlocks.js` 361 and
+`tests/markdown-linearity.qml` 547.

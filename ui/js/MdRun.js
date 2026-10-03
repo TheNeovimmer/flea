@@ -7,6 +7,7 @@
 .import "MdRefs.js" as Refs
 .import "MdResolve.js" as Res
 
+var hasOwn = Object.prototype.hasOwnProperty
 // The work gate replaces this no-op to count each frame visited.
 var countFrameStep = function () {}
 
@@ -115,7 +116,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
         if (c === "[") {
             if (body.charAt(i + 1) === "^") {
                 var fn = Refs.readFootnoteRef(body, i)
-                if (fn !== null && numbers && numbers.hasOwnProperty(fn.id)
+                if (fn !== null && numbers && hasOwn.call(numbers, fn.id)
                         && (cited !== undefined || numbers[fn.id] > 0)) {
                     citationTokens[tokens.length] = fn.id
                     tokens.push("<sup>" + numbers[fn.id] + "</sup>")
@@ -168,7 +169,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
                         var label = ref.label.length > 0 ? ref.label : raw
                         if (label.length > 0) {
                             var key = Md.normalizeLabel(label)
-                            if (defs.hasOwnProperty(key)) {
+                            if (hasOwn.call(defs, key)) {
                                 made = Res.resolvePair(raw, defs[key], frame.bang, dir, ink, tokens)
                                 j = ref.end
                             }
@@ -176,7 +177,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
                     }
                 } else if (raw.length > 0) {
                     var skey = Md.normalizeLabel(raw)
-                    if (defs.hasOwnProperty(skey))
+                    if (hasOwn.call(defs, skey))
                         made = Res.resolvePair(raw, defs[skey], frame.bang, dir, ink, tokens)
                 }
                 if (made !== null && !frame.bang) {

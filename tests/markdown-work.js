@@ -5,7 +5,8 @@ var STRING_METHODS = ["charAt", "charCodeAt", "indexOf", "lastIndexOf", "slice",
 var REGEX_METHODS = ["exec", "test"]
 var ARRAY_METHODS = ["slice", "join", "map", "concat"]
 var CONSTANT_TIME_METHODS = ["push", "pop", "hasOwnProperty"]
-var CONSTANT_TIME_CALLS = ["Math.max", "Math.min", "String.fromCharCode", "String.fromCodePoint"]
+// hasOwn is each parser file's alias of Object.prototype.hasOwnProperty, one hashed lookup; Object.create(null) makes one empty map.
+var CONSTANT_TIME_CALLS = ["Math.max", "Math.min", "String.fromCharCode", "String.fromCodePoint", "hasOwn.call", "Object.create"]
 // This local writer method runs parser functions whose internal operations are instrumented.
 var PARSER_OBJECT_CALLS = ["writer.finish"]
 var COMMENT_PREFIX_LENGTH = "//".length

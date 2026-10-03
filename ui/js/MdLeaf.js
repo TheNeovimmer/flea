@@ -5,6 +5,14 @@
 .import "MdHtml.js" as MdHtml
 .import "MdInline.js" as Md
 
+// The limits MdContainer names for list markers; the worker bundle shares only functions between files, so each holds its own.
+var MAX_MARKER_INDENT = 3
+var MAX_MARKER_DIGITS = 9
+var MAX_HEADING_LEVEL = 6
+var hasOwn = Object.prototype.hasOwnProperty
+var ORDERED_MARKER = new RegExp("^(\\d{1," + MAX_MARKER_DIGITS + "})([.)])(?=[ \\t]|$)")
+var HEADING_MARKER = new RegExp("^(?:[-+*](?:[ \\t]|$)|>|#{1," + MAX_HEADING_LEVEL + "}(?:[ \\t]|$)|```|~~~)")
+
 // Sample input: "[x] done" draws a checked GFM task box; "[ ] pending" draws an empty one.
 function taskText(text) {
     var m = /^\[([ xX])\] (.*)$/.exec(String(text))
@@ -30,13 +38,13 @@ function isThematic(line) {
 function atxHeading(line) {
     var s = String(line)
     var i = 0
-    while (i < 3 && s.charAt(i) === " ")
+    while (i < MAX_MARKER_INDENT && s.charAt(i) === " ")
         i++
     var from = i
     while (i < s.length && s.charAt(i) === "#")
         i++
     var level = i - from
-    if (level < 1 || level > 6 || (i < s.length && s.charAt(i) !== " " && s.charAt(i) !== "\t"))
+    if (level < 1 || level > MAX_HEADING_LEVEL || (i < s.length && s.charAt(i) !== " " && s.charAt(i) !== "\t"))
         return null
     var end = s.length
     while (end > i && (s.charAt(end - 1) === " " || s.charAt(end - 1) === "\t"))
@@ -57,10 +65,10 @@ function atxHeading(line) {
 // Sample input: 1. Intro answers 1\. Intro; - item answers \- item; _Plain_ is unchanged.
 function headingSafe(text) {
     var t = String(text)
-    var ordered = /^(\d{1,9})([.)])(?=[ \t]|$)/.exec(t)
+    var ordered = ORDERED_MARKER.exec(t)
     if (ordered !== null)
         return ordered[1] + "\\" + t.slice(ordered[1].length)
-    var block = /^(?:[-+*](?:[ \t]|$)|>|#{1,6}(?:[ \t]|$)|```|~~~)/.test(t)
+    var block = HEADING_MARKER.test(t)
     return block || isThematic(t) ? "\\" + t : t
 }
 
@@ -151,12 +159,12 @@ function standaloneImage(line, dir, defs) {
             if (r === null || r.end !== text.length)
                 return null
             var key = Md.normalizeLabel(r.label.length > 0 ? r.label : alt)
-            if (!defs.hasOwnProperty(key))
+            if (!hasOwn.call(defs, key))
                 return null
             target = defs[key]
         } else if (after === text.length) {
             var skey = Md.normalizeLabel(alt)
-            if (alt.length === 0 || !defs.hasOwnProperty(skey))
+            if (alt.length === 0 || !hasOwn.call(defs, skey))
                 return null
             target = defs[skey]
         } else {

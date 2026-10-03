@@ -156,14 +156,20 @@ function classifyImage(raw, dir) {
     var collapsed = normalizeSubpath(name)
     if (collapsed === null)
         return { kind: "dropped" }
-    return localAbsolute(String(dir || "") + "/" + collapsed, dir)
+    return containedLocal(String(dir || "") + "/" + collapsed, dir)
 }
 
 // Sample: /docs/notes/../pic.png resolves inside /docs; /docs/../pic.png is refused.
 function localAbsolute(path, dir) {
+    if (String(path).indexOf("\\") >= 0)
+        return { kind: "dropped" }
+    return containedLocal(path, dir)
+}
+
+// The folder may hold a backslash (legal on Linux); only the reference the document wrote may not.
+function containedLocal(path, dir) {
     var root = dir === "" ? "/" : String(dir)
-    if (root.charAt(0) !== "/" || String(path).charAt(0) !== "/"
-            || root.indexOf("\\") >= 0 || String(path).indexOf("\\") >= 0)
+    if (root.charAt(0) !== "/" || String(path).charAt(0) !== "/")
         return { kind: "dropped" }
     var base = normalizeSubpath(root, true)
     var collapsed = normalizeSubpath(path, true)

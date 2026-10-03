@@ -203,6 +203,19 @@ ShellRoot {
                 onBlockListChanged: Qt.callLater(shell.startDrain)
             }
 
+            // Source view draws the raw file, front matter and display math included, as plain text.
+            Flea.PreviewMarkdown {
+                id: sourceView
+                anchors.top: parent.top
+                anchors.left: parent.left
+                width: 200
+                height: 200
+                active: true
+                path: shell.fixture
+                size: 1
+                view: "source"
+            }
+
             // Echo every block through the product text format; fences stay PlainText, and prose uses MarkdownText.
             Column {
                 id: echo

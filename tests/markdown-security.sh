@@ -156,7 +156,8 @@ for tag_name in DROP_CONTENT_NAMES:
         forms.append((f"drop-{tag_name}-{label}", lambda p, tag_name=tag_name, tail=tail, sentinel=sentinel:
             f"<{tag_name}{tail}>{sentinel} ![x]({H}/{p}/x.png)</{tag_name}> R9_TAIL"))
 defs = []
-lines = ["# Security corpus", ""]
+# Front matter and display math lines reach the screen as code, so an image written there must stay literal text.
+lines = ["---", f"title: ![front]({H}/frontmatter/x.png)", f"[front]({H}/frontmatter/link.png)", "---", "", "# Security corpus", ""]
 contexts = [
     ("alone", lambda s: [s, ""]),
     ("quote", lambda s: ["> " + s, ""]),
@@ -191,6 +192,10 @@ lines.append("```")
 lines.append("")
 lines.append("Use `![span](%s/spancode/x.png)` for art." % H)
 lines.append("")
+lines.append("<!-- display math lines stay literal -->")
+lines.extend(["$$", f"![math]({H}/mathblock/x.png)", f'<img src="{H}/mathblock/tag.png">', "$$", ""])
+lines.extend([f"$$![math]({H}/mathline/x.png)$$", ""])
+lines.extend(["$$ open", f"![math]({H}/mathopen/x.png)", "$$ close", ""])
 lines.extend(defs)
 lines.append("")
 with open(dest, "w") as f:
