@@ -668,7 +668,9 @@ click_row_name() {
     local centre cx cy wx wy ww wh
     centre=$(ipc rowNameCentre "$index")
     [[ -n "$centre" ]] || fail "row $index has no on-screen name centre"
+    # Sample input: 412 237 (rowNameCentre x y, window-relative).
     read -r cx cy <<< "$centre"
+    # Sample input: 40 80 1000 720 (window_box x y width height).
     read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
     omarchy-drive click "$((cx + wx))" "$((cy + wy))" "$@" >/dev/null
 }
@@ -676,11 +678,14 @@ click_row_name() {
 click_row_beside_name() {
     local index="$1"; shift
     local rx ry rw rh nx ny nw nh cx cy wx wy ww wh
+    # Sample input: 0 236 980 28 (rowRect x y width height).
     read -r rx ry rw rh <<< "$(ipc rowRect "$index")"
+    # Sample input: 34 240 120 20 (rowNameRect x y width height).
     read -r nx ny nw nh <<< "$(ipc rowNameRect "$index")"
     [[ "$rx $ry $rw $rh $nx $ny $nw $nh" =~ ^-?[0-9]+(\ -?[0-9]+){7}$ ]] \
         || fail "row $index has no row and name rectangles"
-    cx=$((rx + rw / 2)); cy=$((ry + rh / 2))
+    cx=$((rx + rw / 2))
+    cy=$((ry + rh / 2))
     if (( nx + nw < rx + rw )); then cx=$(((nx + nw + rx + rw) / 2))
     elif (( nx > rx )); then cx=$(((rx + nx) / 2))
     elif (( ny > ry )); then cy=$(((ry + ny) / 2))
@@ -689,6 +694,7 @@ click_row_beside_name() {
     (( cx > rx && cx < rx + rw && cy > ry && cy < ry + rh \
         && (cx < nx || cx >= nx + nw || cy < ny || cy >= ny + nh) )) \
         || fail "row $index's non-name point $cx,$cy is outside the row or inside the name"
+    # Sample input: 40 80 1000 720 (window_box x y width height).
     read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
     omarchy-drive click "$((cx + wx))" "$((cy + wy))" "$@" >/dev/null
 }
