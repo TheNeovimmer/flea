@@ -290,6 +290,8 @@ Item {
         root.dualRecent(check, walk)
         check("Hidden Size and Used release Location at 375px", Columns.recentSet(root.hiddenLocationFloor, root.premiseTokens, ["size", "date"]).location, true)
         check("Hidden Size releases Used at 350px", Columns.recentSet(root.hiddenUsedFloor, root.premiseTokens, ["size"]).date, true)
+        check("Hidden Size and Used keep Location hidden one pixel below 375px", Columns.recentSet(root.hiddenLocationFloor - root.belowFloor, root.premiseTokens, ["size", "date"]).location, false)
+        check("Hidden Size keeps Used hidden one pixel below 350px", Columns.recentSet(root.hiddenUsedFloor - root.belowFloor, root.premiseTokens, ["size"]).date, false)
         var r = root.texts(recent, walk)
         var l = root.texts(longRecent, walk)
         var s = root.texts(search, walk)
