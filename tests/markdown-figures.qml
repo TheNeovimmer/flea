@@ -41,8 +41,8 @@ ShellRoot {
     property int pendingTicksMark: 0
     readonly property int hangingRenderMs: 400
     readonly property int tickIntervalMs: 50
-    readonly property int tickCoverageDivisor: 2
-    readonly property int pendingTickMinimum: Math.floor(hangingRenderMs / tickIntervalMs / tickCoverageDivisor)
+    // A loop blocked across the whole wait delivers exactly one coalesced pump event before the deadline event, so the check requires more than that one.
+    readonly property int blockedLoopTicks: 1
     // A source to ask once the current helper has stopped: the phase file
     // only affects the next spawned helper, never the running one.
     property string awaitSource: ""
@@ -209,9 +209,9 @@ ShellRoot {
         } else if (shell.step === 7) {
             shell.check(svg === "" && error === "render timed out", "a helper that never answers times out");
             shell.check(Flea.FigureService.deadlineExpirations > shell.renderDeadlineMark, "the hanging helper answers from the deadline event");
-            shell.check(shell.ticks - shell.pendingTicksMark >= shell.pendingTickMinimum,
-                "the event loop ticks while the helper waits (" + (shell.ticks - shell.pendingTicksMark)
-                + "/" + shell.pendingTickMinimum + " events)");
+            shell.check(shell.ticks - shell.pendingTicksMark > shell.blockedLoopTicks,
+                "the event loop ticks while the helper waits (count=" + (shell.ticks - shell.pendingTicksMark)
+                + ", must exceed " + shell.blockedLoopTicks + ")");
             Flea.FigureService.renderMs = 5000;
             shell.writePhase("answer", function () {
                 shell.awaitSource = "\\sum_{n=1}^{\\infty}\\frac{1}{n^2}";

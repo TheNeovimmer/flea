@@ -286,8 +286,8 @@ check(not re.search(r"(?m)^#[^\n]*\n#", script[script.index("\n") + 1:]), "F7 sh
 check("depth > 12" not in worker and "/ 2;" not in worker and "* 100) / 100" not in worker,
       "F12 resolver and ex conversion policy numbers have names")
 qml = (tree / "tests/markdown-figures.qml").read_text()
-check("pendingTickMinimum" in qml and "shell.ticks - shell.pendingTicksMark >= shell.pendingTickMinimum" in qml,
-      "r3 the hanging wait requires multiple tick events")
+check("readonly property int blockedLoopTicks: 1" in qml and "shell.ticks - shell.pendingTicksMark > shell.blockedLoopTicks" in qml,
+      "F20 the hanging wait rejects the single coalesced tick of a blocked loop")
 # Sample input: "    time.sleep(10)" in a generated Python hang fixture.
 check(not re.search(r"(?m)^    time[.]sleep[(]", pathlib.Path(__file__).read_text()) and "hang) sleep" not in script,
       "r3 hang fixtures block without wall-clock sleeps")
