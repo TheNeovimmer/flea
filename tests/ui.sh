@@ -11323,17 +11323,18 @@ case_dual() {
     printf 'DUAL navigation=ok focus=ok watch=ok restart=ok crumb=ok before=%s\n' "$before"
 }
 
+# The row read is `at` (0 unless a kept cursor scrolled the list), where a row without a delegate reads "loading".
 dual_sort_wait() {
-    local mark="$1" first="$2" deadline=$((SECONDS + 15))
+    local mark="$1" first="$2" at="${3:-0}" deadline=$((SECONDS + 15))
     while (( SECONDS < deadline )); do
-        if [[ "$(ipc sortMark)" == "$mark" && "$(ipc rowAt 0)" == "$first|"* && "$(ipc listInFlight)" == false ]]; then
+        if [[ "$(ipc sortMark)" == "$mark" && "$(ipc rowAt "$at")" == "$first|"* && "$(ipc listInFlight)" == false ]]; then
             menus_checks=$((menus_checks + 1))
-            printf 'DUAL_SORT_CHECK %s mark=%s first=%s\n' "$menus_checks" "$mark" "$first"
+            printf 'DUAL_SORT_CHECK %s mark=%s first=%s at=%s\n' "$menus_checks" "$mark" "$first" "$at"
             return
         fi
         sleep 0.05
     done
-    fail "dualsort: expected $mark/$first, observed $(ipc sortMark)/$(ipc rowAt 0)"
+    fail "dualsort: expected $mark/$first at $at, observed $(ipc sortMark)/$(ipc rowAt "$at") inflight=$(ipc listInFlight) contentY=$(ipc listContentY) dual=$(ipc dualState)"
 }
 
 dual_sort_header() {
@@ -11346,7 +11347,7 @@ dual_sort_header() {
 
 case_dualsort() {
     local dir="$fixture_root/dual-sort" state="$fixture_root/dual-sort-state" menus_checks=0
-    local side index name left right left_scroll right_scroll mode list_requests date_epoch=1700000000
+    local side index name left right left_scroll right_scroll mode list_requests kept_name kept_at date_epoch=1700000000
     sandbox_scratch "$dir"
     sandbox_scratch "$state"
     for side in left right; do
@@ -11446,7 +11447,10 @@ case_dualsort() {
         list_requests=$(ipc dualState | jq -er '.panes[1].listRequests')
         key -k Escape >/dev/null
         menus_expect keyDeliveryState '.searchMode == ""' "Escape closes dual Search $mode"
-        dual_sort_wait mtime:asc file-00.txt
+        # Typing relists via the preferences timer, which keeps the cursor row by name and scrolls to it; results relist from row 0.
+        if [[ "$mode" == typing ]]; then kept_name=file-79.txt kept_at=79; else kept_name=file-00.txt kept_at=0; fi
+        dual_sort_wait mtime:asc "$kept_name" "$kept_at"
+        menus_expect dualState ".panes[1].cursor == $kept_at" "dual Search $mode leaves the cursor on $kept_name"
         menus_expect dualState ".panes[1].listRequests == $((list_requests + 1))" "dual Search $mode consumes deferred sort in one listing"
         key -k Tab >/dev/null
         dual_sort_wait mtime:asc file-00.txt
