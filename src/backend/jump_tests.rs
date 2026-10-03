@@ -106,6 +106,8 @@ fn a_slow_zoxide_answers_the_last_ranking_and_starts_nothing() {
     let counted = script(&dir, "counted", &format!("printf x >> '{}/spawned'; printf '   2.0 /b\\n'", dir.path().display()));
     let full = script(&dir, "full", "printf '   2.0 /a\\n'");
     assert_eq!(zoxide(&full, ZOXIDE_LIMIT), vec![("/a".to_string(), 2.0)], "a run inside its limit keeps its ranking");
+    // The first run's reaper frees the slot on its own thread, so it must finish before this test takes the slot.
+    reaped();
     ZOXIDE_RUNNING.store(true, Ordering::SeqCst);
     let taken = zoxide(&counted, ZOXIDE_LIMIT);
     // Released before any assert, so a failure here cannot hold the slot for the tests after it.
