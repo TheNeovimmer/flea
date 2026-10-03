@@ -13,8 +13,8 @@ shelf/ShelfCard.qml 443
 shelf/ShelfService.qml 481
 src/backend/copyfile.rs 730
 src/backend/copyfile_tests.rs 607
-src/backend/durable.rs 678
-src/backend/durable_tests.rs 1249
+src/backend/durable.rs 790
+src/backend/durable_tests.rs 1305
 src/backend/fsinforeq.rs 407
 src/backend/jump_tests.rs 406
 src/backend/renamecompat.rs 762
@@ -29,7 +29,7 @@ src/backend/metareq.rs 416
 src/backend/movebatch.rs 474
 src/backend/movebatch_tests.rs 752
 src/backend/opsdispatch.rs 2204
-src/backend/opsreq.rs 551
+src/backend/opsreq.rs 554
 src/backend/opsreq/tests.rs 471
 src/backend/permissions.rs 719
 src/backend/run.rs 715

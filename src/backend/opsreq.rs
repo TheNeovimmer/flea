@@ -457,6 +457,9 @@ pub(crate) fn run_transfer_checked(
     let entry = Entry { op: if moving { "move".to_string() } else { "copy".to_string() }, steps };
     let finished = crate::backend::durable::finish(id, &tx, &mut durability, &dest, ok);
     let note = join_link_note(skipped_links, &finished.note);
+    // Test builds read what the operation still holds open exactly where the done line goes out.
+    #[cfg(test)]
+    crate::backend::durable::test_note_report(&durability);
     let _ = tx.send(OpMsg::TransferDone { id, ok, failed, skipped, cancelled: was_cancelled, entry, retry, durable: finished.ok, note });
 }
 

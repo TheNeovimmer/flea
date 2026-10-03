@@ -3,6 +3,8 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::{Arc, Condvar, Mutex};
 
 // Test builds only: forced-durable paths, injected mountinfo text, fsync fault flags, flush counts; a release build has none of it.
 #[cfg(test)]
@@ -22,17 +24,20 @@ thread_local! {
     static RANGE_WAITS: Cell<usize> = const { Cell::new(0) };
     // Range calls in order, so a test pins the pipelined sequence.
     static RANGE_LOG: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-    // The syncfs leg answering failure, so a batch confirm keeps every source.
-    static FAIL_SYNCFS: Cell<bool> = const { Cell::new(false) };
-    static FAIL_SYNCFS_ERRNO: Cell<i32> = const { Cell::new(0) };
+    // The syncfs leg answering this errno, 0 for no failure, so a batch confirm keeps every source.
+    static FAIL_SYNCFS: Cell<i32> = const { Cell::new(0) };
     // The clone leg answering failure, so a batch confirm keeps every source after draining.
     static FAIL_CLONE: Cell<bool> = const { Cell::new(false) };
     // Completed syncfs calls, so a batch pins one per confirm.
     static SYNCFS_FLUSHES: Cell<usize> = const { Cell::new(0) };
-    // Files released on the calling thread, so scoped closes still count.
+    // Files handed to a close wave on the calling thread, so closes on background threads still count.
     static RELEASES: Cell<usize> = const { Cell::new(0) };
-    // Release, syncfs, folder and removal steps in order, so a batch pins its sequence.
+    // Release, join, syncfs, folder and removal steps in order, so a batch pins its sequence.
     static ORDER_LOG: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    // Close waves held open behind a gate until their join, so a test sees descriptors still open behind the next batch.
+    static HOLD_WAVES: Cell<bool> = const { Cell::new(false) };
+    // Descriptors still held or unjoined where an operation reports, None until read.
+    static AT_REPORT: Cell<Option<usize>> = const { Cell::new(None) };
 }
 
 // errno 22 means no range writeback, not a lost byte; errno 5 is a drive refusing bytes.
@@ -141,10 +146,72 @@ pub(crate) fn batch_syncfs_for(dest: &Path, body: &str, durable: bool, rclone: b
 pub const DIR_UNCONFIRMED: &str = "copied, but the drive did not confirm the folder";
 
 // 64 held files bound one unconfirmed batch, the same bound movebatch closes on.
-const HELD_CAP: usize = 64;
+pub(crate) const HELD_CAP: usize = 64;
+
+// One batch being copied and confirmed plus the wave still closing behind it, the most descriptors a move holds open.
+#[cfg(test)]
+pub(crate) const MAX_OPEN_HELD: usize = 2 * HELD_CAP;
 
 // The done line's own words for a copy onto rclone, printable as-is.
 pub const RCLONE_NOTE: &str = "rclone uploads them in the background";
+
+// The closes of one confirmed batch, running behind the next batch; joined before the next wave and before the result.
+#[derive(Default)]
+struct Wave {
+    closers: Vec<std::thread::JoinHandle<()>>,
+    // Test builds only: the gate holding this wave's closes open until its join opens it, so a test never hangs on it.
+    #[cfg(test)]
+    gate: Option<Arc<Gate>>,
+}
+
+#[cfg(test)]
+struct Gate {
+    open: Mutex<bool>,
+    opened: Condvar,
+}
+
+#[cfg(test)]
+impl Gate {
+    fn new() -> Gate {
+        Gate { open: Mutex::new(false), opened: Condvar::new() }
+    }
+
+    fn wait(&self) {
+        let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+        while !*open {
+            open = self.opened.wait(open).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+
+    fn release(&self) {
+        *self.open.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.opened.notify_all();
+    }
+}
+
+impl Wave {
+    // One thread per file, so a 100 ms vfat close never waits on another; a spawn that fails drops its closure and closes that file inline.
+    fn start(files: Vec<std::fs::File>) -> Wave {
+        #[cfg(test)]
+        let gate = HOLD_WAVES.with(|v| v.get()).then(|| Arc::new(Gate::new()));
+        let mut closers = Vec::with_capacity(files.len());
+        for file in files {
+            #[cfg(test)]
+            let behind = gate.clone();
+            let close = move || {
+                #[cfg(test)]
+                if let Some(gate) = &behind {
+                    gate.wait();
+                }
+                drop(file);
+            };
+            if let Ok(closer) = std::thread::Builder::new().spawn(close) {
+                closers.push(closer);
+            }
+        }
+        Wave { closers, #[cfg(test)] gate }
+    }
+}
 
 // One operation's durability, created from its destination and carried down through Progress.
 pub struct Durability {
@@ -155,6 +222,7 @@ pub struct Durability {
     // A failed settle stays failed, so later confirms keep every source.
     unsettled: bool,
     held: Vec<std::fs::File>,
+    wave: Wave,
     touched: HashSet<PathBuf>,
     last: Option<PathBuf>,
 }
@@ -179,7 +247,7 @@ impl Durability {
             None => false,
         };
         Durability { durable, rclone, file_failed: false, batch_syncfs, unsettled: false, held: Vec::new(),
-            touched: HashSet::new(), last: None }
+            wave: Wave::default(), touched: HashSet::new(), last: None }
     }
 
     // A landed file stays open until its batch confirms, so 64 closes land with one syncfs.
@@ -230,29 +298,49 @@ impl Durability {
         #[cfg(test)]
         ORDER_LOG.with(|v| v.borrow_mut().push("clone-drop".to_string()));
         self.release_held();
-        // A failed confirm still drains descriptors and stays sticky for every later source.
+        // A failed confirm still hands every file to a wave and stays sticky for every later source.
         if result.is_err() {
             self.unsettled = true;
         }
         result
     }
 
-    // Each held close runs on its own scoped thread, so one 100 ms vfat close never waits on another.
+    // The confirmed batch's closes run behind the next batch: the wave before it is joined first, so two batches of descriptors at most stay open.
     pub fn release_held(&mut self) {
         if self.held.is_empty() {
             return;
         }
+        self.join_wave();
         let files: Vec<std::fs::File> = std::mem::take(&mut self.held);
         #[cfg(test)]
         {
             RELEASES.with(|v| v.set(v.get() + files.len()));
             ORDER_LOG.with(|v| v.borrow_mut().extend(files.iter().map(|_| "release".to_string())));
         }
-        std::thread::scope(|s| {
-            for file in files {
-                s.spawn(move || drop(file));
+        self.wave = Wave::start(files);
+    }
+
+    // A closer that panicked has nothing left to close, so its join result is dropped.
+    fn join_wave(&mut self) {
+        if self.wave.closers.is_empty() {
+            return;
+        }
+        #[cfg(test)]
+        {
+            ORDER_LOG.with(|v| v.borrow_mut().push("join".to_string()));
+            if let Some(gate) = self.wave.gate.take() {
+                gate.release();
             }
-        });
+        }
+        for closer in self.wave.closers.drain(..) {
+            let _ = closer.join();
+        }
+    }
+
+    // Everything this operation holds is closed and joined, so an eject right after is never refused.
+    fn drain(&mut self) {
+        self.release_held();
+        self.join_wave();
     }
 
     // A test pins the held count without touching the descriptors.
@@ -345,6 +433,13 @@ impl Durability {
     }
 }
 
+impl Drop for Durability {
+    // Whatever ends an operation, an early return or a panic included, leaves no descriptor open on the drive.
+    fn drop(&mut self) {
+        self.drain();
+    }
+}
+
 // Counted through this seam, never timed: tests assert the counts.
 pub fn fsync_file(f: &std::fs::File) -> std::io::Result<()> {
     #[cfg(test)]
@@ -432,17 +527,13 @@ pub fn fsync_dir(path: &Path) -> std::io::Result<()> {
 
 // One filesystem-wide confirm on the pre-write fd, before vfat's final writable closes.
 fn syncfs_fd(file: &std::fs::File) -> std::io::Result<()> {
+    // Refused before counting, so a failed confirm never reads as confirmed.
     #[cfg(test)]
     {
-        let errno = FAIL_SYNCFS_ERRNO.with(|v| v.get());
+        let errno = FAIL_SYNCFS.with(|v| v.get());
         if errno != 0 {
             return Err(std::io::Error::from_raw_os_error(errno));
         }
-    }
-    // Refused before counting, so a failed confirm never reads as confirmed.
-    #[cfg(test)]
-    if FAIL_SYNCFS.with(|v| v.get()) {
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, "simulated syncfs failure"));
     }
     use std::os::unix::io::AsRawFd;
     let rc = unsafe { syncfs(file.as_raw_fd()) };
@@ -512,27 +603,30 @@ pub struct Finish {
     pub note: String,
 }
 
-// After the last landed file: one writing line, then the settled batch syncfs, then every touched directory.
+// After the last landed file: one writing line, then the settled batch syncfs, then every touched directory, then the last close wave joined.
 pub fn finish(id: usize, tx: &std::sync::mpsc::Sender<crate::backend::opsreq::OpMsg>, durability: &mut Durability, dest: &Path, landed: usize) -> Finish {
-    // Nothing to confirm drains held descriptors without a syncfs, so an eject never waits on one.
+    let finished = confirm_finish(id, tx, durability, dest, landed);
+    // The done line goes out after this returns, so no descriptor may stay open on the drive past it.
+    durability.drain();
+    finished
+}
+
+fn confirm_finish(id: usize, tx: &std::sync::mpsc::Sender<crate::backend::opsreq::OpMsg>, durability: &mut Durability, dest: &Path, landed: usize) -> Finish {
+    // Nothing to confirm sends no syncfs; finish still drains the held descriptors, so an eject never waits on one.
     if landed == 0 {
-        durability.release_held();
         return Finish { ok: false, note: String::new() };
     }
     if durability.rclone {
-        durability.release_held();
         return Finish { ok: false, note: RCLONE_NOTE.to_string() };
     }
     if !durability.durable {
-        durability.release_held();
         return Finish { ok: false, note: String::new() };
     }
     let _ = tx.send(crate::backend::opsreq::OpMsg::Meta { line: writing_line(id, &drive_name(dest)) });
     if durability.file_failed {
-        durability.release_held();
         return Finish { ok: false, note: String::new() };
     }
-    // flush_dirs settles held files first, so no fd stays open at transferdone.
+    // flush_dirs settles held files first, so every file is handed to a wave before the folders confirm.
     match durability.flush_dirs() {
         Ok(()) => Finish { ok: true, note: String::new() },
         Err(_) => Finish { ok: false, note: DIR_UNCONFIRMED.to_string() },
@@ -551,12 +645,13 @@ pub fn test_reset() {
     FAIL_RANGE_WAIT.with(|v| v.set(0));
     RANGE_WAITS.with(|v| v.set(0));
     RANGE_LOG.with(|v| v.borrow_mut().clear());
-    FAIL_SYNCFS.with(|v| v.set(false));
-    FAIL_SYNCFS_ERRNO.with(|v| v.set(0));
+    FAIL_SYNCFS.with(|v| v.set(0));
     FAIL_CLONE.with(|v| v.set(false));
     SYNCFS_FLUSHES.with(|v| v.set(0));
     RELEASES.with(|v| v.set(0));
     ORDER_LOG.with(|v| v.borrow_mut().clear());
+    HOLD_WAVES.with(|v| v.set(false));
+    AT_REPORT.with(|v| v.set(None));
 }
 
 #[cfg(test)]
@@ -569,8 +664,7 @@ pub fn test_reset_counts() {
     FAIL_RANGE_WAIT.with(|v| v.set(0));
     RANGE_WAITS.with(|v| v.set(0));
     RANGE_LOG.with(|v| v.borrow_mut().clear());
-    FAIL_SYNCFS.with(|v| v.set(false));
-    FAIL_SYNCFS_ERRNO.with(|v| v.set(0));
+    FAIL_SYNCFS.with(|v| v.set(0));
     FAIL_CLONE.with(|v| v.set(false));
     SYNCFS_FLUSHES.with(|v| v.set(0));
     RELEASES.with(|v| v.set(0));
@@ -594,7 +688,31 @@ pub fn test_releases() -> usize {
     RELEASES.with(|v| v.get())
 }
 
-// Release, syncfs, folder and removal steps in the order they ran.
+// Waves started from here on stay open until their join, so a test sees descriptors still open behind the next batch.
+#[cfg(test)]
+pub(crate) fn test_hold_waves(hold: bool) {
+    HOLD_WAVES.with(|v| v.set(hold));
+}
+
+// Called where an operation reports its result: descriptors still held or whose closers are not yet joined.
+#[cfg(test)]
+pub(crate) fn test_note_report(durability: &Durability) {
+    AT_REPORT.with(|v| v.set(Some(durability.held.len() + durability.wave.closers.len())));
+}
+
+#[cfg(test)]
+pub(crate) fn test_open_at_report() -> Option<usize> {
+    AT_REPORT.with(|v| v.get())
+}
+
+// This process's open descriptors naming a file under dir, so a test counts what an eject would be refused for.
+#[cfg(test)]
+pub(crate) fn test_open_under(dir: &Path) -> usize {
+    let fds = std::fs::read_dir("/proc/self/fd").map(|d| d.flatten().collect::<Vec<_>>()).unwrap_or_default();
+    fds.iter().filter_map(|fd| std::fs::read_link(fd.path()).ok()).filter(|target| target.starts_with(dir)).count()
+}
+
+// Release, join, syncfs, folder and removal steps in the order they ran.
 #[cfg(test)]
 pub fn test_order() -> Vec<String> {
     ORDER_LOG.with(|v| v.borrow().clone())
@@ -644,16 +762,10 @@ pub fn test_set_fail_files(fail: bool) {
     FAIL_FILE.with(|v| v.set(fail));
 }
 
-// The syncfs leg answers failure, so a batch keeps every source.
-#[cfg(test)]
-pub fn test_set_fail_syncfs(fail: bool) {
-    FAIL_SYNCFS.with(|v| v.set(fail));
-}
-
-// Inject the confirm's actual errno, including an unplug or a read-only remount.
+// The syncfs leg answers this errno, an unplug or a read-only remount included, so a batch keeps every source; 0 clears it.
 #[cfg(test)]
 pub(crate) fn test_set_syncfs_errno(errno: i32) {
-    FAIL_SYNCFS_ERRNO.with(|v| v.set(errno));
+    FAIL_SYNCFS.with(|v| v.set(errno));
 }
 
 // The clone leg answers failure, so a batch keeps every source after draining.
