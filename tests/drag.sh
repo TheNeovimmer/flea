@@ -796,7 +796,7 @@ begin_pair() {
 
 target_points() {
   local point x y
-  point=$(screen_centre folder) || die "target folder is not visible"
+  point=$(screen_centre folder) || die "target folder is not visible: row=$(rowidx folder 2>&1) centre=$(ipc rowCentre "$(rowidx folder 2>/dev/null)" 2>&1) window=${WW}x${WH} view=$(ipc viewMode 2>&1) total=$(ipc total 2>&1)"
   read -r folder_x folder_y <<< "$point"
   point=$(floor_centre) || die "target has no measured empty listing floor"
   read -r floor_x floor_y <<< "$point"
