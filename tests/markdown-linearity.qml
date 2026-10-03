@@ -219,6 +219,30 @@ QtObject {
             { name: "division after call", source: "source.slice(0) / source.untrackedScan() / divisor" },
             { name: "division after number", source: "10 / source.untrackedScan() / divisor" },
             { name: "division after identifier", source: "count / source.untrackedScan() / divisor" },
+            { name: "increment after line break", source: 'i\n++ /"/.test(z)',
+                error: "unsupported increment or decrement after line break" + lexicalError + blockRegexLine },
+            { name: "decrement after line break", source: 'i\n-- /"/.test(z)',
+                error: "unsupported increment or decrement after line break" + lexicalError + blockRegexLine },
+            { name: "increment after CR", source: 'i\r++ /"/.test(z)',
+                error: "unsupported increment or decrement after line break" + lexicalError + blockRegexLine },
+            { name: "increment after CRLF", source: 'i\r\n++ /"/.test(z)',
+                error: "unsupported increment or decrement after line break" + lexicalError + blockRegexLine },
+            { name: "increment after line separator", source: 'i\u2028++ /"/.test(z)',
+                error: "unsupported increment or decrement after line break" + lexicalError + blockRegexLine },
+            { name: "decrement after paragraph separator", source: 'i\u2029-- /"/.test(z)',
+                error: "unsupported increment or decrement after line break" + lexicalError + blockRegexLine },
+            { name: "increment after multiline comment", source: 'i /* comment\n*/ ++ /"/.test(z)',
+                error: "unsupported increment or decrement after line break" + lexicalError + blockRegexLine },
+            { name: "increment after line comment", source: 'i // comment\n++ /"/.test(z)',
+                error: "unsupported increment or decrement after line break" + lexicalError + blockRegexLine },
+            { name: "increment after CR line comment", source: 'i // comment\r++ /"/.test(z)',
+                error: "unsupported increment or decrement after line break" + lexicalError + blockRegexLine },
+            { name: "increment after line separator comment", source: 'i // comment\u2028++ /"/.test(z)',
+                error: "unsupported increment or decrement after line break" + lexicalError + blockRegexLine },
+            { name: "decrement after paragraph separator comment", source: 'i // comment\u2029-- /"/.test(z)',
+                error: "unsupported increment or decrement after line break" + lexicalError + blockRegexLine },
+            { name: "decrement after newline then comment", source: 'i\n/* comment */ -- /"/.test(z)',
+                error: "unsupported increment or decrement after line break" + lexicalError + blockRegexLine },
             { name: "regex quote after block", source: 'if (ready) {}\n/[\"]/.test(source); source.untrackedScan("payload")',
                 error: braceError + blockRegexLine },
             { name: "regex line comment after block", source: "if (ready) {}\n/[//]/.test(source); source.untrackedScan()",
@@ -242,9 +266,24 @@ QtObject {
             { name: "debugger statement", source: "debugger\n/[//]/.test(source); source.untrackedScan()",
                 error: "unsupported slash after debugger" + lexicalError + blockRegexLine },
             { name: "await identifier", source: "await / source.untrackedScan() / divisor",
-                error: "unsupported slash after contextual keyword await" + lexicalError + firstSourceLine },
+                error: "unsupported contextual keyword await" + lexicalError + firstSourceLine },
             { name: "yield identifier", source: "yield / source.untrackedScan() / divisor",
-                error: "unsupported slash after contextual keyword yield" + lexicalError + firstSourceLine },
+                error: "unsupported contextual keyword yield" + lexicalError + firstSourceLine },
+            { name: "for await head", source: 'for await (x of y) /"/.test(z)',
+                error: "unsupported contextual keyword await" + lexicalError + firstSourceLine },
+            { name: "plain await", source: "\nawait",
+                error: "unsupported contextual keyword await" + lexicalError + blockRegexLine },
+            { name: "async function", source: "\nasync function parse() {}",
+                error: "unsupported contextual keyword async" + lexicalError + blockRegexLine },
+            { name: "plain yield", source: "\nyield",
+                error: "unsupported contextual keyword yield" + lexicalError + blockRegexLine },
+            { name: "await after CR line comment", source: "// comment\rawait",
+                error: "unsupported contextual keyword await" + lexicalError + blockRegexLine },
+            { name: "async after line separator comment", source: "// comment\u2028async",
+                error: "unsupported contextual keyword async" + lexicalError + blockRegexLine },
+            { name: "yield after paragraph separator comment", source: "// comment\u2029yield",
+                error: "unsupported contextual keyword yield" + lexicalError + blockRegexLine },
+            { name: "await property division", source: "obj.await / source.untrackedScan() / divisor" },
             { name: "of keyword", source: "for (var part of /[//]/.source) source.untrackedScan()",
                 error: "unsupported slash after contextual keyword of" + lexicalError + firstSourceLine },
             { name: "Unicode identifier", source: "caf\u00e9 / source.untrackedScan() / divisor",
@@ -279,6 +318,15 @@ QtObject {
             Work.checkMethods('source.slice(0) / divisor; count / divisor', [], "division probe");
             Work.checkMethods('(count) / divisor; source[0] / divisor; count++ / divisor; count-- / divisor', [], "operand probe");
             Work.checkMethods('source.return / divisor; Leaf.if(ready) / divisor', ["Leaf"], "keyword property probe");
+            Work.checkMethods('obj.await / divisor', [], "await property probe");
+            Work.checkMethods('obj.async / divisor', [], "async property probe");
+            Work.checkMethods('obj.yield / divisor', [], "yield property probe");
+            Work.checkMethods('awaitable + asyncWork + yielded', [], "contextual keyword prefix probe");
+            Work.checkMethods('"await async yield" /* await async yield */', [], "contextual keyword literal probe");
+            var postfixDivision = "i++ / 2";
+            if (Work.stripLiterals(postfixDivision, coverageName) !== postfixDivision)
+                throw new Error("postfix division was stripped");
+            console.log("ok coverage i++ / 2 scans as division");
             console.log("ok coverage ignores methods inside literals and comments");
         } catch (error) {
             console.log("FAIL coverage literal contents: " + error);

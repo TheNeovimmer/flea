@@ -10,6 +10,7 @@ var CONSTANT_TIME_CALLS = ["Math.max", "Math.min", "String.fromCharCode", "Strin
 var PARSER_OBJECT_CALLS = ["writer.finish"]
 var COMMENT_PREFIX_LENGTH = "//".length
 var SPREAD_LENGTH = "...".length
+var LINE_BREAK_PATTERN = /[\n\r\u2028\u2029]/
 var work = 0
 
 function coverageError(code, name, offset, reason) {
@@ -24,6 +25,7 @@ function stripLiterals(code, name) {
     var i = 0
     var canRegex = true
     var token = ""
+    var tokenEnd = 0
     var statementEnd = ""
     var controlParens = []
     while (i < code.length) {
@@ -40,15 +42,21 @@ function stripLiterals(code, name) {
                 throw coverageError(code, name, start, "slash after closing brace")
             if (statementEnd !== "")
                 throw coverageError(code, name, start, "slash after " + statementEnd)
-            if (/^(await|yield|of)$/.test(token))
+            if (token === "of")
                 throw coverageError(code, name, start, "slash after contextual keyword " + token)
         }
         var literal = c === '"' || c === "'" || (c === "/" && canRegex && !comment)
         if (comment || literal) {
             if (comment) {
-                var end = next === "/" ? code.indexOf("\n", i + COMMENT_PREFIX_LENGTH)
-                    : code.indexOf("*/", i + COMMENT_PREFIX_LENGTH)
-                i = end < 0 ? code.length : end + (next === "/" ? 0 : "*/".length)
+                var end = i + COMMENT_PREFIX_LENGTH
+                if (next === "/") {
+                    while (end < code.length && !LINE_BREAK_PATTERN.test(code.charAt(end)))
+                        end++
+                    i = end
+                } else {
+                    end = code.indexOf("*/", end)
+                    i = end < 0 ? code.length : end + "*/".length
+                }
             } else {
                 var inClass = false
                 i++
@@ -72,6 +80,7 @@ function stripLiterals(code, name) {
                 }
                 canRegex = false
                 token = ""
+                tokenEnd = i
             }
             out.push(code.slice(kept, start))
             out.push(" ")
@@ -86,6 +95,9 @@ function stripLiterals(code, name) {
             while (/[A-Za-z0-9_$]/.test(code.charAt(i)) && i < code.length)
                 i++
             token = propertyName ? "" : code.slice(start, i)
+            tokenEnd = i
+            if (/^(await|async|yield)$/.test(token))
+                throw coverageError(code, name, start, "contextual keyword " + token)
             // Retain statement-ending keywords through an optional break or continue label.
             if (/^(break|continue|debugger)$/.test(token))
                 statementEnd = token
@@ -99,6 +111,7 @@ function stripLiterals(code, name) {
             canRegex = true
             token = ""
             i += SPREAD_LENGTH
+            tokenEnd = i
             continue
         }
         if (c === "(")
@@ -107,12 +120,16 @@ function stripLiterals(code, name) {
             canRegex = controlParens.pop() === true
         else if (c === "]" || c === "}" || c === ".")
             canRegex = false
-        else if ((c === "+" || c === "-") && next === c)
+        else if ((c === "+" || c === "-") && next === c) {
+            // Trivia containing a line break makes an increment or decrement unsafe to classify.
+            if (LINE_BREAK_PATTERN.test(code.slice(tokenEnd, start)))
+                throw coverageError(code, name, start, "increment or decrement after line break")
             i++
-        else
+        } else
             canRegex = true
         token = c
         i++
+        tokenEnd = i
     }
     out.push(code.slice(kept))
     return out.join("")
