@@ -935,6 +935,22 @@ but not the body-after-the-first-frame split. Its title and size are read from `
 and the Theme, so splitting them off the first map would resize a portal dialog in front of the
 operator, and the chooser is not on the measured path.
 
+**The startup object gate.** `tests/startup-objects.qml` counts the objects one window has built
+when its first listing settles and fails above `startupObjectLimit`, which is 714 since 0.3.8. The
+cross-window tab drag raised it from 702, twelve more by the suite's own count, all built in every
+window. `ui/WindowBody.qml` holds the window's DropArea and the `tabAck` Loader; `ui/TabBar.qml`
+holds the strip's DropArea, the `ackTimer` and `tabDropDeadline` Timers, the `takenAck` Process,
+the `dragOrigin` Item and one `TabDragGeometry` with its `query` Process; `ui/boot/fleatab.qml`
+holds the catcher's IpcHandler and its two Connections. The two DropAreas and the catcher must be
+live before any lift, because a drop from another window arrives unannounced. Building the rest on
+the first lift was measured on 2026-10-03 (offscreen, THP off, `Pss_Anon`, medians of ten against
+a control of the same batch) and returned 62 kB of 44 MB against a run-to-run sigma of 240 kB, so
+they stay plain objects. The window as a whole costs about 0.6 MB more there than at 759fd8eb
+(43,536 to 44,298 kB, +631 paired, and +486 and +696 in two more batches), 0.37 MB of it at the tab drag's
+merge, and no deletion variant located that in the instances, the JS libraries or a per-row
+handler. A change that raises the count names each new object here and says why it cannot wait
+for first use.
+
 ## Predictable path writes
 
 `dest` sits in a shared runtime directory, so its path is guessable and could be
@@ -5519,6 +5535,19 @@ down to 17,904, which is arena address-space reservation with zero resident page
 `Pss` was 1374 against 1394 KiB on a **single** unpaired sample, which is one sample and is not
 evidence of a direction; a second party's single sample pointed the other way. It is recorded
 here only as the control that proves this box reads `GLIBC_TUNABLES` at all.
+
+**0.3.8's backend growth is the clipboard owner, measured 2026-10-03 (1b08a2f7 against
+759fd8eb).** The release binary grew 182,616 bytes, 3,514,144 to 3,696,760, and the backend's
+`Pss` grew with it, 3,896 to 4,086 KiB with THP off, 180 KiB of that file-backed. `Cargo.toml` and
+`Cargo.lock` are identical at both, so no dependency arrived. By `nm`, about 84.6 kB is the
+owner's own code (`src/clip/` and `src/backend/clipreq.rs`), about 37.9 kB is std generics typed
+by it (channels, thread shims, drop glue), about 9.7 kB is the picker and 20.3 kB is std generics
+that name neither. Three levers were measured or sized and dropped. Sending the owner's ready
+line as a `String` in place of `(bool, String)` returns 12,160 bytes of binary and no `Pss` a
+ten-run batch can see, 4,074 against 4,074 KiB. Replacing the `SetQueue` channel with a mutex and
+a condvar was sized at about 12 kB from its named symbols and not built, for the same reason.
+`panic = "abort"` returns 567,208 bytes and 355 KiB, and is refused: `SetQueue` and the backend's
+threads contain a panicking request with `catch_unwind`. The growth is the feature's own code.
 
 ## Write operations and the undo journal
 

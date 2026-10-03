@@ -4,7 +4,7 @@ import Quickshell
 
 ShellRoot {
     id: root
-    readonly property int startupObjectLimit: 702
+    readonly property int startupObjectLimit: 714
     readonly property int sectorsWrittenField: 6
     readonly property int deadlineProbeMs: 1200
     readonly property int sectorChangeDelayMs: 600
