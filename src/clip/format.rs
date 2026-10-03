@@ -134,6 +134,7 @@ pub fn build_flea(op: &str, token: &str) -> Vec<u8> {
 }
 
 // The token is 32 hex chars; anything else is another owner's bytes, not a refusal.
+// Sample inputs "copy ab12cd34ab12cd34ab12cd34ab12cd34" and "copy ab12cd34ab12cd34ab12cd34ab12cd34 1234" yield the same operation and token.
 pub fn parse_flea(bytes: &[u8]) -> Option<(String, String)> {
     let s = std::str::from_utf8(bytes).ok()?;
     let s = s.trim_matches(|c: char| c == '\0' || c.is_whitespace());

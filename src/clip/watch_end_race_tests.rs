@@ -2,11 +2,7 @@
 use super::*;
 use std::io::Write;
 
-const INITIAL_OFFER: u32 = 20;
 const DELAYED_OFFER: u32 = INITIAL_OFFER + 1;
-const SENTINEL_OFFER: u32 = DELAYED_OFFER + 1;
-const FLEA_RECEIVES: usize = 2;
-const ONE_RECEIVE: usize = 1;
 const NEXT_TOKEN: &str = "038c038c038c038c038c038c038c038c";
 const P_PID: i32 = 1;
 const WEXITED: i32 = 4;

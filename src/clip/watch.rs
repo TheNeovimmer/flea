@@ -30,8 +30,8 @@ pub(crate) fn shared() -> Shared {
 }
 
 // One watcher thread per backend; the flag in State keeps clipWatch idempotent.
-pub(crate) fn request_watch(replies: Sender<OpMsg>, state: Shared) {
-    std::thread::spawn(move || watch_loop(replies, state, None, RETRY_EVERY));
+pub(crate) fn start(replies: Sender<OpMsg>) {
+    std::thread::spawn(move || watch_loop(replies, shared(), None, RETRY_EVERY));
 }
 
 // The retry delay is a parameter so a test reconnects at once instead of waiting a second.
