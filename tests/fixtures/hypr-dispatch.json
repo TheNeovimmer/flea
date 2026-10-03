@@ -1,0 +1,982 @@
+[
+  {
+    "name": "round3-no-window-field",
+    "code": "hypr_dispatch 'hl.dsp.window.close()' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "round3-selector-in-unrelated-text",
+    "code": "hypr_dispatch 'hl.dsp.focus({ note = \"address:0xabc\", window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "round3-valid-address-whitespace",
+    "code": "hypr_dispatch 'hl.dsp.focus({ window\t =\t\"address:0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "round3-raw-doubled-spaces",
+    "code": "hyprctl  dispatch anything",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round3-raw-tab",
+    "code": "hyprctl\tdispatch anything",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round3-raw-json-flag",
+    "code": "hyprctl -j dispatch anything",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round3-raw-batch-flags",
+    "code": "hyprctl -j\t--batch anything",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round3-raw-instance-flag",
+    "code": "hyprctl -i 0 -j dispatch anything",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round3-raw-command-word-boundary",
+    "code": "hyprctl -j dispatching anything",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "bare-focus",
+    "code": "hypr_dispatch 'hl.dsp.focus({ window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "scoped-focus",
+    "code": "hypr_dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "bare-window.float",
+    "code": "hypr_dispatch 'hl.dsp.window.float({ window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "scoped-window.float",
+    "code": "hypr_dispatch 'hl.dsp.window.float({ window = \"address:0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "bare-window.resize",
+    "code": "hypr_dispatch 'hl.dsp.window.resize({ window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "scoped-window.resize",
+    "code": "hypr_dispatch 'hl.dsp.window.resize({ window = \"address:0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "bare-window.move",
+    "code": "hypr_dispatch 'hl.dsp.window.move({ window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "scoped-window.move",
+    "code": "hypr_dispatch 'hl.dsp.window.move({ window = \"address:0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "bare-window.close",
+    "code": "hypr_dispatch 'hl.dsp.window.close({ window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "scoped-window.close",
+    "code": "hypr_dispatch 'hl.dsp.window.close({ window = \"address:0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "implicit",
+    "code": "hyprctl dispatch \"hl.dsp.window.float()\" >/dev/null || fail nope",
+    "issues": [
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "discard-checked-status",
+    "code": "hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' >/dev/null || fail nope",
+    "issues": [
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "discard-unchecked",
+    "code": "hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' >/dev/null",
+    "issues": [
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "discard-spaced",
+    "code": "hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' > /dev/null 2>&1 || fail nope",
+    "issues": [
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "captured",
+    "code": "answer=$(hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })') || fail \"$answer\"",
+    "issues": [
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "class",
+    "code": "hypr_dispatch 'hl.dsp.focus({ window = \"class:flea\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "title-parenthesis-hash",
+    "code": "hypr_dispatch 'hl.dsp.focus({ window = \"title:foo(bar)#baz\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "comment-call",
+    "code": "# hyprctl dispatch \"hl.dsp.window.float()\" >/dev/null || fail nope",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "cursor",
+    "code": "hyprctl dispatch \"hl.dsp.cursor.move({x = 2, y = 3})\" >/dev/null",
+    "issues": [
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "escaped-shell-selector",
+    "code": "hypr_dispatch \"hl.dsp.focus({ window = \\\"address:$addr\\\" })\" || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "python-bare",
+    "code": "answer = run([\"hyprctl\", \"dispatch\", f'hl.dsp.focus({{ window = \"{addr}\" }})'])",
+    "issues": [
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "python-address",
+    "code": "answer = run([\"hyprctl\", \"dispatch\", f'hl.dsp.focus({{ window = \"address:{addr}\" }})'])",
+    "issues": [
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "continued-discard",
+    "code": "hyprctl dispatch \\\n 'hl.dsp.focus({ window = \"address:0xabc\" })' \\\n >/dev/null || fail nope",
+    "issues": [
+      "hypr-window-reply",
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "discard-before-call",
+    "code": "hyprctl dispatch >/dev/null 'hl.dsp.focus({ window = \"address:0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "literal-newline-discard",
+    "code": "hyprctl dispatch '\nhl.dsp.focus({ window = \"address:0xabc\" })\n' >/dev/null || fail nope",
+    "issues": [
+      "hypr-window-reply",
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "word-hash",
+    "code": "addr=address#part; hypr_dispatch 'hl.dsp.focus({ window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "round2-nested-substitution",
+    "code": "answer=\"$(hyprctl dispatch 'hl.dsp.focus({ window = \"title:foo;bar\" })' >/dev/null)\"",
+    "issues": [
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "round2-pipeline",
+    "code": "hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' | cat >/dev/null",
+    "issues": [
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "round2-ansi-apostrophe",
+    "code": "hyprctl dispatch $'hl.dsp.focus({ window = \"title:foo\\';bar\" })' >/dev/null",
+    "issues": [
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "raw-batch",
+    "code": "hyprctl --batch \"anything\"",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round7-continued-raw-dispatch",
+    "code": "hyprctl \\\n  dispatch anything",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round7-continued-raw-batch",
+    "code": "hyprctl \\\n  -j \\\n  --batch anything",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round7-continued-lua-prefix",
+    "code": "command=\"hl.\\\ndsp.focus()\"",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "round7-uncontinued-lines-stay-separate",
+    "code": "hyprctl -j clients\necho dispatch",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0,
+    "issue_lines": [
+      1
+    ]
+  },
+  {
+    "name": "round8-hash-comment-before-raw-call",
+    "code": "# note \\\nhyprctl dispatch anything",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round8-hash-comment-names-raw-call",
+    "code": "# hyprctl dispatch anything \\\nprintf 'harmless\\n'",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round8-js-comment-before-raw-call",
+    "code": "  // note \\\nrun([\"hyprctl\", \"dispatch\", \"anything\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round8-js-comment-names-raw-call",
+    "code": "// hyprctl dispatch anything \\\nconst harmless = true;",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round8-python-list-raw-call",
+    "code": "run([\"hyprctl\",\n     \"dispatch\", \"anything\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round8-shell-array-raw-call",
+    "code": "command=(hyprctl\n         dispatch anything)\n\"${command[@]}\"",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round8-python-list-raw-batch",
+    "code": "run([\n    \"hyprctl\",\n    \"--batch\", \"anything\"\n])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round8-shell-function-lines-stay-separate",
+    "code": "probe() {\n    hyprctl clients\n    printf '%s\\n' dispatch\n}",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0,
+    "issue_lines": [
+      2
+    ]
+  },
+  {
+    "name": "round8-quoted-brackets-stay-separate",
+    "code": "hyprctl clients | grep '(clients['\nprintf '%s\\n' dispatch",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0,
+    "issue_lines": [
+      1
+    ]
+  },
+  {
+    "name": "round8-comment-inside-list-before-raw-call",
+    "code": "run([\n    # note \\\n    \"hyprctl\",\n    \"dispatch\", \"anything\"\n])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round8-comment-inside-readonly-list",
+    "code": "run([\n    # hyprctl dispatch anything \\\n    \"hyprctl\",\n    \"clients\"\n])",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "split-selector",
+    "code": "hypr_dispatch 'hl.dsp.focus({\n window = \"address:0xabc\" })' ",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "comment-batch",
+    "code": "# hyprctl --batch \"anything\"",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "checked-helper-body",
+    "code": "hypr_dispatch() {\n    answer=$(hyprctl dispatch \"$1\" 2>&1)\n}\n",
+    "helper_file": true,
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "raw-after-helper-body",
+    "code": "hypr_dispatch() {\n    answer=$(hyprctl dispatch \"$1\" 2>&1)\n}\nhyprctl dispatch anything\n",
+    "helper_file": true,
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "helper-name-outside-shared-file",
+    "code": "hypr_dispatch() {\n    answer=$(hyprctl dispatch \"$1\" 2>&1)\n}\n",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round4-readonly-pipeline-intentionally-refused",
+    "code": "hyprctl -j clients | grep dispatch",
+    "calls": 0,
+    "issues": [
+      "hypr-window-reply"
+    ]
+  },
+  {
+    "name": "round4-readonly-reworded-pipeline",
+    "code": "hyprctl -j clients | grep address",
+    "calls": 0,
+    "issues": []
+  },
+  {
+    "name": "round4-quoted-fake-selector",
+    "code": "hypr_dispatch \"hl.dsp.focus({ note = '{ window = \\\"address:0xabc\\\" }', window = \\\"0xabc\\\" })\"",
+    "calls": 1,
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "js-comment",
+    "code": "// hyprctl dispatch \"hl.dsp.window.close()\"",
+    "calls": 0,
+    "issues": []
+  },
+  {
+    "name": "indented-comments",
+    "code": "  # hyprctl --batch anything\n\t// hl.dsp.focus()",
+    "calls": 0,
+    "issues": []
+  },
+  {
+    "name": "typed-focus",
+    "code": "hypr_window_focus \"$addr\" || fail nope",
+    "calls": 0,
+    "issues": []
+  },
+  {
+    "name": "typed-program",
+    "code": "run([\"bash\", helper, \"window_resize\", addr, width, height])",
+    "calls": 0,
+    "issues": []
+  },
+  {
+    "name": "lua-in-js",
+    "code": "const command = \"hl.dsp.window.close()\";",
+    "calls": 1,
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "round9-rule-b-backslash-hyprctl-line",
+    "code": "(\n    hyprctl \\\n        dispatch anything\n)",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-python-list-hyprctl-line",
+    "code": "run([\n    \"hyprctl\",\n    \"dispatch\", \"anything\"])",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-shell-array-hyprctl-line",
+    "code": "command=(\n    hyprctl\n    dispatch anything)\n\"${command[@]}\"",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-after-hash-apostrophe",
+    "code": "note=ok # don't carry quotes\nrun([\"hyprctl\",\n     \"dispatch\", \"anything\"])",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-after-slash-apostrophe",
+    "code": "const note = true; // don't carry quotes\nrun([\"hyprctl\",\n     \"dispatch\", \"anything\"])",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-after-shell-backslash-string",
+    "code": "printf '%s\\n' '\\'\nrun([\"hyprctl\",\n     \"dispatch\", \"anything\"])",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-hash-comment-between-parts",
+    "code": "hyprctl \\\n    # don't carry quotes\n    dispatch anything",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-slash-comment-between-parts",
+    "code": "hyprctl \\\n    // don't carry quotes\n    dispatch anything",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-hash-trailing-comment-first-part",
+    "code": "hyprctl \\ # don't carry quotes\n    dispatch anything",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-slash-trailing-comment-first-part",
+    "code": "hyprctl \\ // don't carry quotes\n    dispatch anything",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-split-flags-batch-hyprctl-line",
+    "code": "(\n    hyprctl \\\n        -j \\\n        --batch anything\n)",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-clean-readonly-then-helper",
+    "code": "(\n    hyprctl clients\n    hypr_dispatch 'typed'\n)",
+    "raw_rule": "neither A nor B",
+    "issues": [],
+    "issue_lines": [],
+    "calls": 0
+  },
+  {
+    "name": "round9-clean-monitors-then-log",
+    "code": "(\n    hyprctl monitors -j\n    printf '%s\\n' 'dispatch completed'\n)",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-clean-shell-function-distant-dispatch",
+    "code": "probe() {\n    (\n        hyprctl clients\n        printf '%s\\n' intermediate\n        printf '%s\\n' another\n        printf '%s\\n' dispatch\n    )\n}",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      3
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-flag-value",
+    "code": "run([\"hyprctl\", \"-i\", \"instance\",\n    \"dispatch\", \"x\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-variable-between",
+    "code": "run([\"hyprctl\", flags,\n    \"dispatch\", \"x\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-f-string-prefix",
+    "code": "run([\"hyprctl\",\n    f\"dispatch\", \"x\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-plus-concatenation",
+    "code": "run(\"hyprctl \" +\n    \"dispatch x\")",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-leading-operator",
+    "code": "run(\"hyprctl \"\n    + \"dispatch x\")",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-raw-word-above",
+    "code": "args=(dispatch x)\nhyprctl \"${args[@]}\"",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-blank-line-in-list",
+    "code": "run([\"hyprctl\",\n\n    \"dispatch\", \"x\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-glued-comment",
+    "code": "run([\"hyprctl\",#note\n    \"dispatch\", \"x\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-hash-inside-string",
+    "code": "note = \" # inside string\"; run([\"hyprctl\",\n    \"dispatch\", \"x\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-unrelated-statements",
+    "code": "hyprctl\ndispatch x",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-every-mention-each-line-once",
+    "code": "hyprctl clients; command -v hyprctl; command -v hyprctl\necho dispatch\ncommand -v hyprctl",
+    "issues": [
+      "hypr-window-reply",
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1,
+      3
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-raw-word-in-trailing-comment",
+    "code": "command -v hyprctl\nprintf ok # dispatch",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-query-must-be-on-one-line",
+    "code": "run([\"hyprctl\",\n    \"clients\"])\necho dispatch",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-query-word-boundary",
+    "code": "hyprctl clients_x\necho dispatch",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round10-complete-queries-with-prose",
+    "code": "hyprctl -j clients\nhyprctl -j cursorpos\nhyprctl -j activewindow\nhyprctl -j monitors\nhyprctl -j getoption\nhyprctl -j activeworkspace\nhyprctl -j binds\nhyprctl -j configerrors\nprintf \"queries completed\"",
+    "issues": [],
+    "calls": 0,
+    "issue_lines": []
+  },
+  {
+    "name": "round10-tool-name-list",
+    "code": "tools=[\"hyprctl\", \"qs\", \"flea\"]",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round10-stub-definition",
+    "code": "hyprctl() { printf ok; }",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round10-batch-size-is-not-raw",
+    "code": "command -v hyprctl\nprintf --batch-size",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round10-dispatch-identifier-is-not-raw",
+    "code": "command -v hyprctl\nprintf dispatch_x",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round10-complete-queries-with-raw-prose",
+    "code": "run([\"hyprctl\", \"-j\", \"clients\"])\nrun([\"hyprctl\", \"-j\", \"cursorpos\"])\nrun([\"hyprctl\", \"-j\", \"activewindow\"])\nrun([\"hyprctl\", \"-j\", \"monitors\"])\nrun([\"hyprctl\", \"-j\", \"getoption\"])\nrun([\"hyprctl\", \"-j\", \"activeworkspace\"])\nrun([\"hyprctl\", \"-j\", \"binds\"])\nrun([\"hyprctl\", \"-j\", \"configerrors\"])\nprintf \"dispatch completed\"",
+    "issues": [
+      "hypr-window-reply",
+      "hypr-window-reply",
+      "hypr-window-reply",
+      "hypr-window-reply",
+      "hypr-window-reply",
+      "hypr-window-reply",
+      "hypr-window-reply",
+      "hypr-window-reply"
+    ],
+    "calls": 0,
+    "issue_lines": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  {
+    "name": "round11-query-word-as-instance-operand",
+    "code": "run([\"hyprctl\", \"-i\", \"clients\",\n    \"dispatch\", \"x\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round11-query-identifier-names-raw-command",
+    "code": "clients = \"dispatch\"\nrun([\"hyprctl\", clients])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round11-raw-words-without-tool",
+    "code": "args=(dispatch x)\nprintf \"%s\\n\" --batch",
+    "issues": [],
+    "issue_lines": [],
+    "calls": 0
+  },
+  {
+    "name": "round11-tool-identifier-is-not-whole-word",
+    "code": "real_hyprctl clients\necho dispatch",
+    "issues": [],
+    "issue_lines": [],
+    "calls": 0
+  },
+  {
+    "name": "round11-full-line-raw-comments-stay-clean",
+    "code": "  # dispatch\nhyprctl clients\n\t// --batch\nhyprctl monitors",
+    "issues": [],
+    "issue_lines": [],
+    "calls": 0
+  },
+  {
+    "name": "round11-rule-a-before-b-each-line-once",
+    "code": "run([\"hyprctl\", \"dispatch\", \"hyprctl\"])\nrun([\"hyprctl\", \"clients\"])\nraw = \"--batch\"",
+    "issues": [
+      "hypr-window-reply",
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1,
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round12-rule-a-alone-refuses-a-tool-identifier-line",
+    "code": "real_hyprctl dispatch focuswindow x\necho clients",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  }
+]

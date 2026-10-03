@@ -1,0 +1,51 @@
+[
+  {
+    "operation": "window_focus",
+    "args": [
+      "0xAbC"
+    ],
+    "text": "hl.dsp.focus({ window = \"address:0xAbC\" })"
+  },
+  {
+    "operation": "window_float",
+    "args": [
+      "0xAbC",
+      "on"
+    ],
+    "text": "hl.dsp.window.float({ action = \"on\", window = \"address:0xAbC\" })"
+  },
+  {
+    "operation": "window_float",
+    "args": [
+      "0xAbC",
+      "off"
+    ],
+    "text": "hl.dsp.window.float({ action = \"off\", window = \"address:0xAbC\" })"
+  },
+  {
+    "operation": "window_resize",
+    "args": [
+      "0xAbC",
+      "800",
+      "480"
+    ],
+    "text": "hl.dsp.window.resize({ x = 800, y = 480, exact = true, window = \"address:0xAbC\" })"
+  },
+  {
+    "operation": "window_move",
+    "args": [
+      "0xAbC",
+      "-1920",
+      "-10"
+    ],
+    "text": "hl.dsp.window.move({ x = -1920, y = -10, window = \"address:0xAbC\" })"
+  },
+  {
+    "operation": "cursor_move",
+    "args": [
+      "-20",
+      "-30"
+    ],
+    "text": "hl.dsp.cursor.move({x = -20, y = -30})"
+  }
+]

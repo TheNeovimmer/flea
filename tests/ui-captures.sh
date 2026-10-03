@@ -11,9 +11,8 @@ cap_resize() {
     if ! jq -e '.floating' <<< "$client" >/dev/null; then
         omarchy-drive window float "$address" >/dev/null || fail "captures: owned window could not float"
     fi
-    result=$(hyprctl dispatch "hl.dsp.window.resize({ x = $target_width, y = $target_height, exact = true, window = \"address:$address\" })") \
-        || fail "captures: compositor resize failed"
-    [[ "$result" == ok* ]] || fail "captures: compositor refused resize to ${target_width}x${target_height}: $result"
+    result=$(hypr_window_resize "$address" "$target_width" "$target_height" 2>&1) \
+        || fail "captures: compositor refused resize to ${target_width}x${target_height}: $result"
     omarchy-drive window center "$address" >/dev/null || fail "captures: owned window could not center"
     while (( SECONDS < end )); do
         read -r wx wy width height < <(window_box) || fail "captures: native window coordinates unavailable"

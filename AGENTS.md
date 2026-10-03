@@ -3751,6 +3751,23 @@ waits for its consumer.
   `--open` from an absent one.
 - `./tests/budget.sh` asserts `tools/flea-file-budget` itself rejects an oversized
   file and passes a clean tree.
+- `./tests/hyprdispatch.sh` keeps compositor command construction in `tests/lib/hypr-dispatch.sh`.
+  Its five typed entry points validate hexadecimal addresses, integer coordinates, nonnegative resize
+  dimensions and exact `on|off`, then require the compositor reply to be exactly `ok`. Window calls
+  always use `address:ADDR`; move and cursor coordinates may be negative for monitor origins.
+  The helper's program form serves Python callers and prints `ok` only after the same checks pass.
+  The static gate scans shell, Python, QML and JavaScript under `tests/`, removes only full-line `#`/`//`
+  comments after whitespace, and outside the exempt files refuses `hl.dsp.` (including a backslash-split
+  prefix) and applies rule A first to any physical line containing both `hyprctl` and `dispatch`/`--batch`.
+  Rule B requires a file naming `hyprctl` as a whole word to name no whole raw word (`dispatch`, `--batch`)
+  anywhere in the comment-stripped file, and reports every `hyprctl` line once, keeping rule A's first report
+  for a line.
+  The exempt files are `tests/lib/hypr-dispatch.sh` (which keeps its call count),
+  `tests/hypr-dispatch-proof.py` and `tests/hyprdispatch.py`.
+  A raw word built at run time or taken from another file is outside this static contract.
+  The proof runs the real helper against a fake compositor, checks exact text and refusal paths,
+  and executes each shell harness's own helper source statement from its directory. It verifies
+  the resolved source path of every entry point; missing and foreign helper copies must fail.
 - `./tools/flea-acceptance` is the everything-works battery, and **its checklist is derived at run
   time, never written from memory**: every request in `docs/protocol.md`, every action in
   `keys.toml` (the `[digits]` range included, which binds nine keys no `action =` line names), every

@@ -187,8 +187,9 @@ case_unmounted() (
 
 # The window this case owns, floated so its width is this case's to set and nobody else's.
 sidebar_resize() {
-    local width="$1" height="${2:-800}"
-    hyprctl dispatch "hl.dsp.window.resize({ x = $width, y = $height })" >/dev/null \
+    local width="$1" height="${2:-800}" addr
+    addr=$(xwdrag_addr "$(flea_pid)") || fail "sidebar: missing owned window"
+    hypr_window_resize "$addr" "$width" "$height" \
         || fail "sidebar: the window would not resize to $width"
     settle
     settle
@@ -235,7 +236,7 @@ sidebar_wait() {
 # outlives the window, and a window narrower than Theme.space(640) hides it on its own without
 # touching what was remembered.
 case_sidebar() (
-    local dir="$fixture_root/sidebar" state="$fixture_root/sidebar-state" stored width
+    local dir="$fixture_root/sidebar" state="$fixture_root/sidebar-state" stored width addr
     sandbox_scratch "$dir"
     : > "$dir/a.txt"
     : > "$dir/b.txt"
@@ -244,7 +245,8 @@ case_sidebar() (
 
     launch "$dir"
     wait_listing 2
-    hyprctl dispatch "hl.dsp.window.float()" >/dev/null || fail 'sidebar: the window would not float'
+    addr=$(xwdrag_addr "$(flea_pid)") || fail "sidebar: missing owned window"
+    hypr_window_float "$addr" "on" || fail 'sidebar: the window would not float'
     settle
     sidebar_resize 1200
     [[ "$(sidebar_state .hidden)" == "false" ]] || fail "sidebar: a fresh home opened with the rail hidden, $(ipc railState)"
@@ -270,7 +272,8 @@ case_sidebar() (
     sidebar_stored shown "$stored"
 
     echo "-- directive 74: with auto-hide off a narrow window keeps the rail --"
-    hyprctl dispatch "hl.dsp.window.float()" >/dev/null || fail 'sidebar: the window would not float'
+    addr=$(xwdrag_addr "$(flea_pid)") || fail "sidebar: missing owned window"
+    hypr_window_float "$addr" "on" || fail 'sidebar: the window would not float'
     settle
     sidebar_resize 1200
     sidebar_wait false

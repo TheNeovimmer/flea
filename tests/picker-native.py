@@ -253,7 +253,7 @@ class Request:
             raise AssertionError("cannot identify owned picker for resize")
         if not found[0]["floating"]:
             drive("window", "float", self.title)
-        answer = run(["hyprctl", "dispatch", f'hl.dsp.window.resize({{ x = {width}, y = {height}, exact = true, window = "address:{found[0]["address"]}" }})'], drive_env)
+        answer = run(["bash", REPO / "tests/lib/hypr-dispatch.sh", "window_resize", found[0]["address"], width, height], drive_env)
         check(f"{self.name}: compositor accepted resize", answer.strip() == "ok", answer)
         drive("window", "center", self.title)
         self.until(f"viewport {width}x{height}", lambda state: state["width"] == width and state["height"] == height)

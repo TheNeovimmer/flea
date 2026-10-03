@@ -928,10 +928,10 @@ class Native:
             raise RuntimeError("native TUI resize has an invalid owned address or extent")
         if not window["floating"]:
             self.drive("window", "float", self.address)
-        dispatch = f'hl.dsp.window.resize({{ x = {width}, y = {height}, exact = true, window = "address:{self.address}" }})'
-        result = command(["hyprctl", "dispatch", dispatch]).decode().strip()
-        self.log.write((dispatch + "\n" + result + "\n").encode())
-        if not result.startswith("ok"):
+        resize = ["bash", SCRIPT.parent / "lib/hypr-dispatch.sh", "window_resize", self.address, width, height]
+        result = command(resize).decode().strip()
+        self.log.write((shlex.join(map(str, resize)) + "\n" + result + "\n").encode())
+        if result != "ok":
             raise RuntimeError("compositor refused native TUI resize: " + result)
         self.drive("window", "center", self.address)
         self.wait(label, lambda: self.identity()["size"] == [width, height])

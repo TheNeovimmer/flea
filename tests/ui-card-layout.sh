@@ -29,10 +29,9 @@ cardsize_rect() {
     printf 'CARD_RECT surface=%s viewport=%sx%s rect=%s\n' "$name" "$ww" "$wh" "$rect"
 }
 
-cardsize_dispatch() {
+cardsize_resize() {
     local result
-    result=$(hyprctl dispatch "$1" 2>&1) || fail "cardsizes: compositor dispatch failed: $result"
-    [[ "$result" == ok* ]] || fail "cardsizes: compositor refused dispatch: $result"
+    result=$(hypr_window_resize "$@" 2>&1) || fail "cardsizes: compositor resize failed: $result"
 }
 
 cardsize_network() {
@@ -96,7 +95,7 @@ OPENER
         if [[ "$viewport" == fullscreen ]]; then
             omarchy-drive window fullscreen "$addr" >/dev/null || fail "cardsizes: fullscreen failed"
         else
-            cardsize_dispatch "hl.dsp.window.resize({ x = ${viewport%x*}, y = ${viewport#*x}, exact = true, window = \"address:$addr\" })"
+            cardsize_resize "$addr" "${viewport%x*}" "${viewport#*x}"
             omarchy-drive window center "$addr" >/dev/null || fail "cardsizes: centering failed"
         fi
         settle
