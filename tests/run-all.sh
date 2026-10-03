@@ -56,6 +56,7 @@ ui-tui|is a standalone native TUI proof that needs the display and owns the disp
 themes|needs the display: it launches the candidate once per stock theme, and tests/js/themes.js is the half that runs here
 fs-matrix|needs root, loop devices and the mkfs tools for the loop-mount half; fs-matrix-smoke runs the rest
 fs-stick-images|needs root, loop devices, sfdisk and the mkfs tools to write the stick layouts
+xwstate|drives two shipped windows offscreen; its two cross-window clipboard checks need a Wayland compositor with data-control, so it is red without one
 "
 
 printf '\nNot run here, and why:\n'

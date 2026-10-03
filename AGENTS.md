@@ -3408,6 +3408,7 @@ waits for its consumer.
 ## Testing
 
 - `tests/picker-040.sh` is 0.3.10's Picker040 acceptance suite for path entry and collision review, expected red until then and named in run-all's not-run list.
+- `tests/xwstate.sh` drives two shipped windows offscreen through `tests/xwstate-control.qml`, a test-only IPC seam copied into a sandbox. Its cross-window clipboard checks read the system clipboard, so they are red without a Wayland compositor with data-control; it is named in run-all's not-run list until one runs it.
 
 - **The warning gate covers `#[cfg(test)]`, which is the point of it.** `cargo build` cannot see
   anything inside a test module, so a build-only gate hides every unused import and dead helper
