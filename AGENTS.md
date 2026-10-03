@@ -3697,11 +3697,12 @@ waits for its consumer.
   dimensions and exact `on|off`, then require the compositor reply to be exactly `ok`. Window calls
   always use `address:ADDR`; move and cursor coordinates may be negative for monitor origins.
   The helper's program form serves Python callers and prints `ok` only after the same checks pass.
-  The static gate scans shell, Python, QML and JavaScript under `tests/`, excluding the helper and
-  lines beginning with `#` or `//` after whitespace, ending each comment at its own newline.
-  It refuses `hl.dsp.` or both `hyprctl` and `dispatch`/`--batch` on a logical line, joining
-  backslash continuations and open `()`/`[]` outside quotes before both rules run. Braces do not join lines.
-  This is deliberately conservative: reword a refused read-only line.
+  The static gate scans shell, Python, QML and JavaScript under `tests/`: rule A refuses a physical line
+  containing both `hyprctl` and `dispatch`/`--batch`, and the Lua check refuses `hl.dsp.` (including a
+  backslash-split prefix), exempting the helper and full-line `#`/`//` comments after whitespace.
+  Rule B scans text with full-line comments blanked and trailing whitespace-led `#`/`//` comments cut
+  for `hyprctl`, only whitespace/newlines, quotes, commas, backslashes, brackets/parentheses and optional
+  dash flags, then a whole `dispatch`/`--batch` token, reporting the `hyprctl` line once without lexer state.
   The proof runs the real helper against a fake compositor, checks exact text and refusal paths,
   and executes each shell harness's own helper source statement from its directory. It verifies
   the resolved source path of every entry point; missing and foreign helper copies must fail.

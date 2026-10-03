@@ -520,5 +520,161 @@
     "issues": [
       "hypr-window-selector"
     ]
+  },
+  {
+    "name": "round9-rule-b-backslash-hyprctl-line",
+    "code": "(\n    hyprctl \\\n        dispatch anything\n)",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-python-list-hyprctl-line",
+    "code": "run([\n    \"hyprctl\",\n    \"dispatch\", \"anything\"])",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-shell-array-hyprctl-line",
+    "code": "command=(\n    hyprctl\n    dispatch anything)\n\"${command[@]}\"",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-after-hash-apostrophe",
+    "code": "note=ok # don't carry quotes\nrun([\"hyprctl\",\n     \"dispatch\", \"anything\"])",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-after-slash-apostrophe",
+    "code": "const note = true; // don't carry quotes\nrun([\"hyprctl\",\n     \"dispatch\", \"anything\"])",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-after-shell-backslash-string",
+    "code": "printf '%s\\n' '\\'\nrun([\"hyprctl\",\n     \"dispatch\", \"anything\"])",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-hash-comment-between-parts",
+    "code": "hyprctl \\\n    # don't carry quotes\n    dispatch anything",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-slash-comment-between-parts",
+    "code": "hyprctl \\\n    // don't carry quotes\n    dispatch anything",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-hash-trailing-comment-first-part",
+    "code": "hyprctl \\ # don't carry quotes\n    dispatch anything",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-slash-trailing-comment-first-part",
+    "code": "hyprctl \\ // don't carry quotes\n    dispatch anything",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-rule-b-split-flags-batch-hyprctl-line",
+    "code": "(\n    hyprctl \\\n        -j \\\n        --batch anything\n)",
+    "raw_rule": "B",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      2
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round9-clean-readonly-then-helper",
+    "code": "(\n    hyprctl clients\n    hypr_dispatch 'typed'\n)",
+    "raw_rule": "neither A nor B",
+    "issues": [],
+    "issue_lines": [],
+    "calls": 0
+  },
+  {
+    "name": "round9-clean-monitors-then-log",
+    "code": "(\n    hyprctl monitors -j\n    printf '%s\\n' 'dispatch completed'\n)",
+    "raw_rule": "neither A nor B",
+    "issues": [],
+    "issue_lines": [],
+    "calls": 0
+  },
+  {
+    "name": "round9-clean-shell-function-distant-dispatch",
+    "code": "probe() {\n    (\n        hyprctl clients\n        printf '%s\\n' intermediate\n        printf '%s\\n' another\n        printf '%s\\n' dispatch\n    )\n}",
+    "raw_rule": "neither A nor B",
+    "issues": [],
+    "issue_lines": [],
+    "calls": 0
   }
 ]

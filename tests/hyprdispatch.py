@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Keep compositor command construction inside the typed helper."""
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -9,71 +10,61 @@ RAW_WORDS = ("dispatch", "--batch")
 HELPER_FILE = "tests/lib/hypr-dispatch.sh"
 SOURCE_SUFFIXES = (".sh", ".py", ".qml", ".js")
 COMMENT_PREFIXES = ("#", "//")
-OPEN_BRACKETS = "(["
-CLOSE_BRACKETS = ")]"
-QUOTE_MARKS = "'\""
+FIRST_LINE = 1
+SEPARATORS = r"[\s'\",\\\[\]()]"
+DASH_FLAG = r"--?[\w-]+"
+TRAILING_COMMENT = r"[^\S\r\n]+(?:#|//).*"
 
+# Sample input: 'run(["hyprctl",\n"-j", "dispatch"])' is refused by rule B at the hyprctl line.
+RAW_CALL = re.compile(
+    rf"(?<![\w-])hyprctl{SEPARATORS}+"
+    rf"(?:{DASH_FLAG}{SEPARATORS}+)*"
+    r"(?:dispatch|--batch)(?![\w-])"
+)
 
-# Sample input: 'run(["hyprctl",\n"dispatch"])' yields one logical line starting at physical line 1.
-def logical_lines(text):
-    pending = ""
-    first_line = 1
-    depth = 0
-    quote = ""
-    for number, physical_line in enumerate(text.splitlines(keepends=True), start=1):
-        line = physical_line.rstrip("\r\n")
-        if line.lstrip().startswith(COMMENT_PREFIXES):
-            if pending and not depth:
-                yield first_line, pending
-                pending = ""
-            if not pending:
-                first_line = number + 1
-            continue
-        continued = physical_line.endswith(("\\\n", "\\\r\n"))
-        if continued:
-            line = line.removesuffix("\\")
-        escaped = False
-        for character in line:
-            if escaped:
-                escaped = False
-            elif character == "\\":
-                escaped = True
-            elif quote:
-                if character == quote:
-                    quote = ""
-            elif character in QUOTE_MARKS:
-                quote = character
-            elif character in OPEN_BRACKETS:
-                depth += 1
-            elif character in CLOSE_BRACKETS and depth:
-                depth -= 1
-        pending += line
-        if continued:
-            continue
-        if depth:
-            pending += " "
-            continue
-        yield first_line, pending
-        pending = ""
-        first_line = number + 1
-    if pending:
-        yield first_line, pending
+# Sample input: "hl.\\\ndsp.focus()" retains the split-prefix verdict without quote or bracket state.
+CONTINUED_LUA_PREFIX = re.compile(r"(?:\\\r?\n)*".join(re.escape(character) for character in LUA_PREFIX))
 
 
 # Sample input: hypr_window_focus "$addr" || fail nope
 def scan(text, helper_file=False):
     issues = []
     count = 0
-    for number, line in logical_lines(text):
+    raw_lines = set()
+    lua_lines = set()
+    comment_free_lines = []
+    for number, line in enumerate(text.splitlines(), start=FIRST_LINE):
+        if line.lstrip().startswith(COMMENT_PREFIXES):
+            comment_free_lines.append("")
+            continue
+        comment_free_lines.append(line)
         count += line.count(LUA_PREFIX)
         if helper_file:
             continue
         if LUA_PREFIX in line:
             issues.append((number, "hypr-window-selector"))
-        # Deliberately conservative: reword any refused line that is not a compositor command.
+            lua_lines.add(number)
+        # Rule A deliberately refuses any non-comment physical line containing both command words.
         if "hyprctl" in line and any(word in line for word in RAW_WORDS):
             issues.append((number, "hypr-window-reply"))
-    return count, issues
+            raw_lines.add(number)
+    comment_free_text = "\n".join(comment_free_lines)
+    for match in CONTINUED_LUA_PREFIX.finditer(comment_free_text):
+        if "\n" not in match.group():
+            continue
+        count += 1
+        number = comment_free_text[:match.start()].count("\n") + FIRST_LINE
+        if not helper_file and number not in lua_lines:
+            issues.append((number, "hypr-window-selector"))
+            lua_lines.add(number)
+    if not helper_file:
+        raw_text = re.sub(TRAILING_COMMENT, "", comment_free_text, flags=re.MULTILINE)
+        for match in RAW_CALL.finditer(raw_text):
+            number = raw_text[:match.start()].count("\n") + FIRST_LINE
+            if number not in raw_lines:
+                issues.append((number, "hypr-window-reply"))
+                raw_lines.add(number)
+    return count, sorted(issues, key=lambda issue: issue[0])
 
 
 def main():
@@ -92,8 +83,13 @@ def main():
         if count != fixture["calls"]:
             problems.append(f"fixture {fixture['name']}: expected {fixture['calls']} call(s), got {count}")
         actual = [rule for _, rule in issues]
-        if actual != fixture["issues"]:
+        # Issue order is not part of the refusal contract.
+        if sorted(actual) != sorted(fixture["issues"]):
             problems.append(f"fixture {fixture['name']}: expected {fixture['issues']}, got {actual}")
+        if "issue_lines" in fixture:
+            actual_lines = [line for line, _ in issues]
+            if actual_lines != fixture["issue_lines"]:
+                problems.append(f"fixture {fixture['name']}: expected lines {fixture['issue_lines']}, got {actual_lines}")
     if not files or not calls or not fixtures:
         problems.append("empty source or fixture sweep")
     for problem in problems:
