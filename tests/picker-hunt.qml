@@ -135,7 +135,7 @@ ShellRoot {
             win.open(win.path + "/" + root.missingFolder)
             stage = 1
         } else if (win.listingFailed) {
-            check("a failed open holds no rows", win.total, 0)
+            check("a failed open holds no rows", win.total === 0 && win.rows.length === 0, true)
             check("a failed open reads as empty", win.listingState, "empty")
             check("a failed open draws the hero", heroItem().visible, true)
             check("a failed open reports its error", win.messageError && win.message.length > 0, true)
