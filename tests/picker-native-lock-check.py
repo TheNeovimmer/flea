@@ -17,19 +17,10 @@ namespace = dict(os=os, fcntl=fcntl, Path=Path, re=re, subprocess=subprocess, pr
 launchers = [node for node in source.body if isinstance(node, ast.FunctionDef) and node.name in {"run", "start", "guard"}]
 exec(compile(ast.Module(body=launchers, type_ignores=[]), "picker-native.py", "exec"), namespace)
 helper = next((node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == "take_display_lock"), None)
-if helper:
-    exec(compile(ast.Module(body=[helper], type_ignores=[]), "picker-native.py", "exec"), namespace)
-    take_lock = namespace["take_display_lock"]
-else:
-    # Sample input: display_lock = open(...); fcntl.flock(display_lock, LOCK_EX | LOCK_NB).
-    body = next(node.body for node in source.body if isinstance(node, ast.Try))
-    start = next(index for index, node in enumerate(body) if isinstance(node, ast.Assign)
-                 and any(isinstance(target, ast.Name) and target.id == "display_lock" for target in node.targets))
-    old = compile(ast.Module(body=body[start:start + 2], type_ignores=[]), "picker-native.py", "exec")
-    def take_lock(runtime):
-        namespace["drive_env"] = {"XDG_RUNTIME_DIR": runtime}
-        exec(old, namespace)
-        return namespace["display_lock"]
+if helper is None:
+    raise SystemExit("FAIL picker-native-lock-check: missing take_display_lock helper in picker-native.py")
+exec(compile(ast.Module(body=[helper], type_ignores=[]), "picker-native.py", "exec"), namespace)
+take_lock = namespace["take_display_lock"]
 
 checks = 0
 failures = 0

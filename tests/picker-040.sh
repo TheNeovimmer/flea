@@ -23,8 +23,10 @@ for view in list grid; do
         mode=open
         multiple=true
         preset=default
-        case "$scenario" in cursor-open|marked-open) multiple=false; preset=mac ;; esac
-        case "$scenario" in save-marks|collision) mode=save; multiple=false ;; esac
+        if [ "$scenario" = collision ]; then
+            mode=save
+            multiple=false
+        fi
         printf '{"pickerView":"%s","keys":"%s"}' "$view" "$preset" > "$phase/state/flea/ui.json"
         request=$(python3 - "$mode" "$multiple" "$test_root/fixture" <<'PY'
 import json,sys
@@ -46,29 +48,10 @@ PY
             failures=$((failures+1))
         elif grep -q 'PICKER_HUNT FAIL' <<< "$output"; then
             failures=$((failures+1))
-        elif [ "$scenario" = cursor-open ] || [ "$scenario" = marked-open ]; then
-            if ! python3 - "$phase/reply.json" <<'PY'
-import json,sys
-try:r=json.load(open(sys.argv[1]))
-except (OSError,ValueError):sys.exit(1)
-sys.exit(0 if r.get('response')==0 and len(r.get('uris',[]))==1 else 1)
-PY
-            then echo 'FAIL file activation did not write a successful portal reply'; failures=$((failures+1)); fi
         elif ! grep -q 'PICKER_HUNT DONE.*0 failed' <<< "$output"; then
             echo 'FAIL picker hunt did not reach a clean verdict'
             printf '%s\n' "$output" | tail -8
             failures=$((failures+1))
-        fi
-        if [ "$scenario" = remember ]; then
-            wanted=grid
-            [ "$view" = grid ] && wanted=list
-            if ! python3 - "$phase/state/flea/ui.json" "$wanted" <<'PY'
-import json,sys
-try:r=json.load(open(sys.argv[1]))
-except (OSError,ValueError):sys.exit(1)
-sys.exit(0 if r.get('pickerView')==sys.argv[2] else 1)
-PY
-            then echo 'FAIL remembered view was not persisted for restart'; failures=$((failures+1)); fi
         fi
         warnings=$(printf '%s\n' "$output" | grep -E 'TypeError|ReferenceError|Unable to assign' || true)
         if [ -n "$warnings" ]; then printf 'FAIL picker binding warning: %s\n' "$warnings"; failures=$((failures+1)); fi

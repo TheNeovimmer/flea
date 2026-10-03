@@ -21,11 +21,16 @@ Item {
     }
     function deliver(names) { backend.paths(paths(names)) }
     function settleQueued() {
-        if (picker.markRequest !== -1) return
+        check("queued selection reaches paths reply", picker.markRequest, -1)
+        if (picker.markRequest !== -1) return []
+        var before = requests.length
         deliver(indices.map(function(index) { return picker.rowFor(index).n }))
-        var desired = requests[requests.length - 1].paths
+        check("queued selection paths reply starts a fresh check", requests.length, before + 1)
+        if (requests.length !== before + 1) return []
+        var desired = requests[before].paths
         var unique = desired.filter(function(path, index) { return desired.indexOf(path) === index })
         reply(unique.map(function(path) { return path.slice("/virtual/".length) }))
+        return picker.marks.map(function(mark) { return mark.path })
     }
     function selected(label, names) {
         check(label, requests[requests.length - 1].paths, paths(names))
@@ -125,8 +130,8 @@ Item {
         check("queued Select All dispatches before later range", indices, [0, 1, 2, 3, 4])
         settleQueued()
         check("later range dispatches after Select All", indices, [2, 3])
-        settleQueued()
-        check("Select All then range preserves A to E", picker.marks.map(function(mark) { return mark.path }), paths(["A", "B", "C", "D", "E"]))
+        var rangeMarks = settleQueued()
+        check("Select All then range produces A to E", rangeMarks, paths(["A", "B", "C", "D", "E"]))
         console.log("picker-selection QML: " + checks + " checks, " + failures + " failed")
         Qt.exit(failures ? 1 : 0)
     }

@@ -14,6 +14,9 @@ STUB_EXECUTABLE_MODE = 0o755
 QML_SUCCESS_EXIT = 0
 QML_ASSERTION_EXIT = 1
 QML_TIMEOUT_EXIT = 124
+ROW_PROBE_TIMEOUT_SECONDS = 5
+ROW_PROBE_GRACE_SECONDS = 1
+HELD_ROW_OFFSET = 60
 checks = 0
 failures = 0
 
@@ -89,5 +92,67 @@ exit "$PICKER_QML_STATUS"
         failures += not ok
         print(("PASS " if ok else "FAIL ") + "picker-selection preserves output and exit=" + str(status)
               + " observed=" + str(result.returncode) + " printed=" + str(bool(result.stdout)))
+
+with tempfile.TemporaryDirectory(prefix="picker-missing-helper-") as scratch:
+    probe = Path(scratch)
+    (probe / "picker-native-lock-check.py").write_text((REPO / "tests/picker-native-lock-check.py").read_text())
+    # Sample input: def take_display_lock(runtime_dir): defines the required native lock helper.
+    native = (REPO / "tests/picker-native.py").read_text().replace("def take_display_lock(", "def missing_display_lock(")
+    (probe / "picker-native.py").write_text(native)
+    result = subprocess.run(["python3", str(probe / "picker-native-lock-check.py")],
+                            capture_output=True, text=True, check=False, timeout=ROW_PROBE_TIMEOUT_SECONDS)
+    checks += 1
+    ok = result.returncode != 0 and "FAIL picker-native-lock-check: missing take_display_lock helper in picker-native.py" in result.stderr
+    failures += not ok
+    print(("PASS " if ok else "FAIL ") + "missing native lock helper fails with its name")
+
+source = (REPO / "tests/picker-040.sh").read_text()
+checks += 1
+unused = [scenario for scenario in ["cursor-open", "marked-open", "save-marks", "remember"] if scenario in source]
+failures += bool(unused)
+print(("FAIL " if unused else "PASS ") + "picker-040 contains only reachable scenarios" + (": " + ", ".join(unused) if unused else ""))
+
+for name in ["picker-hunt", "picker-040"]:
+    source = (REPO / "tests" / (name + ".qml")).read_text()
+    # Sample input: win.cursorIndex = win.rows.findIndex(...) + win.held precedes win.focusView().
+    line = next(line for line in source.splitlines() if "win.rows.findIndex" in line)
+    begin = source.index(line)
+    end = source.index("                win.focusView()", begin)
+    locate = source[begin:end]
+    with tempfile.TemporaryDirectory(prefix="picker-missing-row-") as scratch:
+        probe = Path(scratch) / "missing-row.qml"
+        probe.write_text("""import QtQuick
+Item {
+    id: root
+    property var win: ({rows: [{n: "z.txt"}], held: HELD_OFFSET, cursorIndex: 0})
+    property bool finished: false
+    property bool named: false
+    property bool accepted: false
+    function check(label, got, want) {
+        named = label.indexOf("missing row a.txt") >= 0 && got !== want
+    }
+    function finish() { finished = true }
+    function locate() {
+LOCATE
+        accepted = true
+    }
+    Component.onCompleted: {
+        locate()
+        var ok = finished && named && !accepted
+        console.log((ok ? "PASS " : "FAIL ") + "missing row a.txt held=" + win.held + " finished=" + finished + " named=" + named + " accepted=" + accepted)
+        Qt.exit(ok ? 0 : 1)
+    }
+}
+""".replace("HELD_OFFSET", str(HELD_ROW_OFFSET)).replace("LOCATE", locate))
+        result = subprocess.run(["timeout", str(ROW_PROBE_TIMEOUT_SECONDS), "qml6", str(probe)],
+                                env=dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_FORCE_STDERR_LOGGING="1"),
+                                capture_output=True, text=True, check=False, timeout=ROW_PROBE_TIMEOUT_SECONDS + ROW_PROBE_GRACE_SECONDS)
+        checks += 1
+        ok = result.returncode == 0 and "PASS missing row a.txt" in result.stderr
+        failures += not ok
+        print(("PASS " if ok else "FAIL ") + name + " missing row fails before held offset")
+        if not ok:
+            print(result.stderr.strip())
+
 print(f"picker-runner-check: {checks} checks, {failures} failed")
 raise SystemExit(bool(failures))

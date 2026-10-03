@@ -90,6 +90,10 @@ impl Held {
         Ok(now)
     }
 }
+fn target_is_dir(target: &File, path: &Path) -> Result<bool, String> {
+    target.metadata().map(|metadata| metadata.is_dir())
+        .map_err(|error| format!("Could not inspect {}: {}", path.display(), io_message(&error)))
+}
 struct SaveReview {
     id: usize,
     folder: Held,
@@ -135,7 +139,7 @@ impl State {
                     if !wanted.contains(&held.path) { continue; }
                     let metadata = held.current()?;
                     let is_dir = match &held.target {
-                        Some(target) => target.metadata().map_err(|error| io_message(&error))?.is_dir(),
+                        Some(target) => target_is_dir(target, &held.path)?,
                         None => metadata.is_dir(),
                     };
                     if is_dir != directory { wanted.remove(&held.path); }

@@ -2,6 +2,20 @@ use super::*;
 use crate::backend::testdir::TestDir;
 
 #[test]
+fn retained_target_metadata_error_names_the_path() {
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("cat").stdin(Stdio::piped()).stdout(Stdio::null()).spawn().unwrap();
+    let path = PathBuf::from(format!("/proc/{}/fd", child.id()));
+    let target = Held::open(&path, true).unwrap().file;
+    assert!(target.metadata().unwrap().is_dir());
+    drop(child.stdin.take());
+    assert!(child.wait().unwrap().success());
+    assert_eq!(target.metadata().unwrap_err().kind(), std::io::ErrorKind::NotFound);
+    assert_eq!(target_is_dir(&target, &path).unwrap_err(),
+        format!("Could not inspect {}: file or folder not found", path.display()));
+}
+
+#[test]
 fn inaccessible_selection_reports_plain_cause_and_recovers() {
     use std::os::unix::fs::PermissionsExt;
     let dir = TestDir::new("picker-plain-error");

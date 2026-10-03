@@ -181,8 +181,13 @@ ShellRoot {
                     root.stamp = Date.now()
                     return
                 }
-                win.cursorIndex = win.rows.findIndex(function(row) { return row.n === "a.txt" }) + win.held
-                if (win.cursorIndex < 0) return
+                var rowIndex = win.rows.findIndex(function(row) { return row.n === "a.txt" })
+                if (rowIndex < 0) {
+                    root.check("missing row a.txt", rowIndex >= 0, true)
+                    root.finish()
+                    return
+                }
+                win.cursorIndex = rowIndex + win.held
                 win.focusView()
                 if (!win.viewItem().activeFocus) return
                 root.check("real cursor is a file", win.rowFor(win.cursorIndex).n, "a.txt")
