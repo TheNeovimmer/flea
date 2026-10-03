@@ -106,7 +106,7 @@ ui/Preview.qml 723
 ui/PreviewColumn.qml 574
 ui/DeviceMounts.qml 496
 ui/PreviewMarkdown.qml 473
-ui/Row.qml 479
+ui/Row.qml 480
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
 ui/Sidebar.qml 681
@@ -114,7 +114,7 @@ ui/StatusBar.qml 456
 ui/Theme.qml 414
 ui/TrashView.qml 475
 ui/ViewState.qml 538
-ui/WindowBody.qml 571
+ui/WindowBody.qml 575
 ui/js/Anchor.js 405
 ui/js/Devices.js 366
 ui/js/Filter.js 257
