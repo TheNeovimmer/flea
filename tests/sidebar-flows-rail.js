@@ -78,7 +78,11 @@ function steps(root, pane, state) {
         },
         function () {
             // Off the edge strip and on the revealed rail, the rail's own hover is what holds it up, so it is still up after the withdraw timer would have run.
-            if (!heldSince) { if (!rail().over) return false; heldSince = Date.now() }
+            if (!heldSince) {
+                if (!rail().over) return false
+                root.check("control: the rail's withdraw timer has a duration", rail().settleMs > 0, true)
+                heldSince = Date.now()
+            }
             if (Date.now() - heldSince < holdSettles * rail().settleMs) return false
             root.check("autohide-switch: the pointer on the revealed rail holds it past the settle", shown() && rail().revealed, true)
             root.move(pane, awayX, awayY)
