@@ -255,8 +255,12 @@ function run(check) {
     check("F33 unsolicited reply gets no selection token", listing.replies.length, 2)
     readReply(listing, worker, '{"t":"listed","n":2}')
     check("F33 other listing messages still forward", JSON.stringify(listing.messages), '[{"t":"listed","n":2}]')
+    // Queue a live request so only the obsolete guard can block its late reply.
+    var obsoleteRequest = 3
+    check("F43 paths request starts before worker becomes obsolete", requestPaths(worker, false, [0], obsoleteRequest), true)
+    check("F43 obsolete reply has a queued token", JSON.stringify(worker.pathRequests), JSON.stringify([obsoleteRequest]))
     worker.obsolete = true
     readReply(listing, worker, '{"t":"paths","paths":["/b/obsolete"]}')
-    check("F33 obsolete worker forwards nothing", listing.replies.length, 2)
-    check("F33 obsolete worker accepts no paths request", requestPaths(worker, false, [0], 3), false)
+    check("F43 obsolete worker forwards nothing", listing.replies.length, 2)
+    check("F33 obsolete worker accepts no paths request", requestPaths(worker, false, [0], obsoleteRequest), false)
 }
