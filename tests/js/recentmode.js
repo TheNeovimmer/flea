@@ -241,10 +241,10 @@ function run(check) {
     check("Pane.openWithoutHistory leaves Recent through the helper", openBranch.indexOf("RecentMode.leave(root)") >= 0, true)
 
     // The menu reaches past key dispatch, so one helper refuses a paste in Recent for both routes.
-    var pasteBranch = Source.slice(paneSource, "function pasteLink(kind, paths)", "function setCursor(index, context)")
+    var pasteBranch = Source.slice(paneSource, "function pasteLink(kind)", "function setCursor(index, context)")
     var focusSource = Source.source("ui/js/Focus.js")
     var actBranch = Source.slice(focusSource, 'case "pasteLink":', 'case "cut":')
-    check("Pane.pasteLink guards first", firstCodeLine(pasteBranch, "function pasteLink(kind, paths) {"), "if (RecentMode.refusePaste(root)) return")
+    check("Pane.pasteLink guards first", firstCodeLine(pasteBranch, "function pasteLink(kind) {"), "if (RecentMode.refusePaste(root)) return")
     check("Focus.act guards first", firstCodeLine(actBranch, 'case "pasteHardLink":'), "if (RecentMode.refusePaste(root)) return")
     // A missing marker names itself instead of scanning from inside the branch.
     check("a missing marker names itself", firstCodeLine("a {\n  if (x) return\n}", 'case "nope":'), 'missing marker case "nope":')

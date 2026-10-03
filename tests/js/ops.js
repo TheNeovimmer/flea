@@ -251,15 +251,18 @@ function run(check) {
     Ops.clip(capturedPane, true, captured)
     check("a menu clipboard action retains captured paths without resolving the current listing",
           capturedPane.clipboard.paths.join(",") + "|" + capturedPane.clipboard.moving + "|" + capturedRequests.length,
-          "/d/captured.txt,/d/second.txt|true|0")
+          "/d/captured.txt,/d/second.txt|true|1")
+    check("captured clipboard paths reach the system without another row lookup",
+          capturedRequests[0].c + "|" + capturedRequests[0].paths.join(","),
+          "clipSet|/d/captured.txt,/d/second.txt")
     Ops.compressResolved(capturedPane, captured, "zip", 31)
     check("compression carries the captured paths and menu identity into the worker",
-          capturedRequests[0].paths.join(",") + "|" + capturedRequests[0].menuId,
+          capturedRequests[1].paths.join(",") + "|" + capturedRequests[1].menuId,
           "/d/captured.txt,/d/second.txt|31")
     Ops.moveToDropbox(capturedPane, "/dropbox", 32)
     check("Dropbox transfer retains the menu identity alongside the full selection",
           capturedPane.asked.length === 1 ? capturedPane.asked[0].menuId + "|" + capturedPane.asked[0].rows.length + "|" + capturedRequests.length
-                                          : "not asked", "32|40|1")
+                                          : "not asked", "32|40|2")
 
     var t = Ops.started(12, true, 3)
     check("a started transfer carries its id, its direction and its count",

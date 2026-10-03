@@ -136,11 +136,10 @@ function availableEntry(e, p, kind) {
         return (e.id === "removeFavourite") === (p.placeFavourite === true)
     if (e.action === "addFavourite" && kind === "F")
         e.disabled = count !== 1 || ((Number(p.rowMode) || 0) & 0o170000) !== 0o040000
-    if (e.action === "paste") e.disabled = p.clipboardAvailable !== true
+    if (e.action === "paste") e.disabled = p.clipboardAvailable !== true && p.clipboardWatchFailed !== true
     // MenuAdditions040: Show original is visible but only on a symlink.
     if (e.action === "showOriginal" && p.rowIsSymlink !== true) return false
-    // MenuAdditions040: Paste as holds only the three link rows, and only
-    // while the clipboard holds something, like Paste above it.
+    // Paste as keeps its disabled row without a chevron until files are known.
     if (e.action === "pasteAs") {
         // A filesystem that holds no links offers no link rows at all.
         if (p.canLink === false) return false

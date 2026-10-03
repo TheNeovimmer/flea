@@ -3,14 +3,15 @@
 .import "Archive.js" as Archive
 .import "Convert.js" as Convert
 .import "CopyAs.js" as CopyAs
+.import "Clipboard.js" as Clipboard
 .import "Filter.js" as Filter
 .import "Format.js" as Format
 .import "Transfer.js" as Transfer
 .import "Status.js" as Status
 
-// The clipboard is entirely client-side: the backend knows about a transfer, never about a pending paste.
+// The pane mirrors the system file selection and keeps a local copy if ownership fails.
 function emptyClipboard() {
-    return { paths: [], moving: false }
+    return Clipboard.empty()
 }
 
 // What the status bar and the card are tracking while a transfer runs; id is what a cancel names.
@@ -263,7 +264,7 @@ function pathsBusy(pane) {
 // listing those indices belonged to is gone by then. The backend resolves them while it still can.
 function clip(pane, moving, paths) {
     if (paths) {
-        pane.clipboard = {paths: paths, moving: moving}
+        Clipboard.set(pane, paths, moving)
         pane.message(copied(paths.length, moving), false)
         return
     }
@@ -281,7 +282,7 @@ function clipResolved(pane, list) {
     }
     var moving = pane.clipPending
     pane.clipPending = null
-    pane.clipboard = { paths: list, moving: moving }
+    Clipboard.set(pane, list, moving)
     pane.message(copied(list.length, moving), false)
 }
 
@@ -308,15 +309,8 @@ function archiveDoneLine(verified) {
                     : "Extracted. The archive index could not be read, so this was not verified."
 }
 
-function paste(pane) {
-    var clip = pane.clipboard
-    if (!clip || clip.paths.length === 0) {
-        pane.message("There is nothing to paste; y copies and x cuts.", false)
-        return
-    }
-    // A cut is spent once its paste goes out, see ui/CollideHost.qml; a copy stays so it can be pasted again.
-    pane.collide.ask({ c: "transfer", op: clip.moving ? "move" : "copy", paths: clip.paths, dest: pane.path }, null, clip.moving)
-}
+function paste(pane, forceMove) { Clipboard.paste(pane, "", forceMove === true) }
+function pasteLink(pane, kind) { Clipboard.paste(pane, kind, false) }
 
 function undo(pane) {
     pane.backend.undo()

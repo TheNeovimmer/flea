@@ -1710,6 +1710,8 @@ case_rows() {
         || fail "rows: the real directory draws $(ipc rowGlyph "$dir_row"), not a folder"
 
     # Menus.html's hint slot: a key on every bound row, nothing on Duplicate, which nothing binds.
+    key -k y >/dev/null
+    settle
     seek_row_named target.txt
     key m >/dev/null
     settle
@@ -3080,6 +3082,8 @@ case_background() {
     seed_ui_state "$fixture_root/background-state" "{\"menu\":{\"hidden\":$menu_shipped}}"
     launch "$dir"
     wait_listing 4
+    key -k y >/dev/null
+    settle
 
     click_background
     settle
@@ -12463,10 +12467,23 @@ xwdrag_place() {
 }
 
 xwdrag_focus() {
-    local pid="$1" addr
+    local pid="$1" addr got now deadline next_focus
+    local focus_wait_ms=5000 focus_retry_ms=500 focus_poll_s=0.05
     addr=$(xwdrag_addr "$pid") || fail "xwdrag: no window address for pid $pid"
-    hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
-    sleep 0.4
+    now=$(date +%s%3N)
+    deadline=$((now + focus_wait_ms)); next_focus=$now
+    while (( now < deadline )); do
+        if (( now >= next_focus )); then
+            hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
+            next_focus=$((now + focus_retry_ms))
+        fi
+        # Sample input: hyprctl activewindow -j prints {"pid": 111} for the focused window.
+        got=$(hyprctl activewindow -j | jq -r '.pid // ""') || fail "xwdrag: no active window to check against $pid"
+        [[ "$got" == "$pid" ]] && { xwdrag_assert_focus "$pid"; return; }
+        sleep "$focus_poll_s"
+        now=$(date +%s%3N)
+    done
+    fail "xwdrag: active window is ${got:-unknown}, wanted $pid after ${focus_wait_ms} ms"
 }
 
 xwdrag_geometry() {
@@ -13474,6 +13491,169 @@ case_previewviews() {
 . "$repo/tests/ui-railpointer.sh"
 . "$repo/tests/ui-openwith-design.sh"
 . "$repo/tests/ui-providers.sh"
+# Native minipc checks two owned windows, surviving owners, GTK files and disabled text-only Paste inside a marked root.
+case_clipboard() {
+    command -v wl-copy >/dev/null || fail "clipboard: wl-copy is missing"
+    command -v wl-paste >/dev/null || fail "clipboard: wl-paste is missing"
+    local dir="$fixture_root/clipboard" adir bdir textdir apid aid bpid bid types offer start_ns elapsed_ns state
+    local cut_clear_deadline_ns=1000000000 offer_read_timeout_s=3
+    sandbox_scratch "$dir"
+    adir="$dir/a"
+    bdir="$dir/b"
+    textdir="$dir/text-only"
+    mkdir -p "$adir" "$bdir"
+    printf 'first\n' > "$adir/f1"
+    printf 'second\n' > "$adir/f2"
+    printf 'third\n' > "$adir/f3"
+    printf 'GTK\n' > "$dir/gtk"
+    trap 'case_xwdrag_cleanup' EXIT
+    trap xwdrag_signal_cleanup HUP INT TERM
+    launch "$adir"
+    wait_listing 3
+    apid=$(flea_pid) || fail "clipboard: no owned first window"
+    aid=$(xwdrag_qsid "$apid") || fail "clipboard: no first instance id"
+    xwdrag_launch_second "$bdir"
+    bpid=$XW_SECOND_PID
+    bid=$XW_SECOND_ID
+
+    clipboard_press "$apid" -k y
+    clipboard_wait "$bid" copy "$adir/f1"
+    types=$(timeout "$offer_read_timeout_s" wl-paste --list-types) || fail "clipboard: no offered types"
+    for type in x-special/gnome-copied-files text/uri-list text/plain; do
+        grep -Fx "$type" <<< "$types" >/dev/null || fail "clipboard: missing $type"
+    done
+    [[ "$(timeout "$offer_read_timeout_s" wl-paste -t text/plain)" == "$adir/f1" ]] || fail "clipboard: plain path differs"
+    printf 'CLIPBOARD types ok\n'
+    clipboard_press "$bpid" -k p
+    xwdrag_wait_path "$bdir/f1" present || fail "clipboard: cross-window copy never arrived"
+    cmp "$adir/f1" "$bdir/f1" || fail "clipboard: copy differs or removed its source"
+    xwdrag_row_point "$bid" "$bpid" f1 >/dev/null || fail "clipboard: copied row never appeared"
+    clipboard_press "$bpid" -k m
+    clipboard_menu_wait "$bid" true
+    state=$(clipboard_ipc "$bid" menuState) || fail "clipboard: no menu model"
+    # Sample input: {"entries":[{"action":"paste","disabled":false}]}
+    jq -e 'any(.entries[]; .action == "paste" and .disabled == false)' <<< "$state" >/dev/null \
+        || fail "clipboard: file copy left Paste disabled or missing"
+    clipboard_press "$bpid" -k Escape
+    clipboard_menu_wait "$bid" false
+    printf 'CLIPBOARD copy ok\n'
+
+    clipboard_press "$apid" -k j -k x
+    clipboard_wait "$bid" cut "$adir/f2"
+    [[ "$(clipboard_ipc "$aid" rowClipMark 1)" == scissors ]] || fail "clipboard: source has no scissors mark"
+    xwdrag_focus "$bpid"
+    xwdrag_assert_focus "$bpid"
+    local baddr
+    baddr=$(xwdrag_addr "$bpid") || fail "clipboard: no destination address"
+    [[ -n "$baddr" ]] || fail "clipboard: empty destination address"
+    start_ns=$(date +%s%N)
+    xwdrag_key "$baddr" -k p >/dev/null || fail "clipboard: cut paste key failed"
+    while :; do
+        state=$(clipboard_ipc "$aid" fileClipboard 2>/dev/null || true)
+        if jq -e '.paths == [] and .moving == false' <<< "$state" >/dev/null 2>&1; then break; fi
+        elapsed_ns=$(( $(date +%s%N) - start_ns ))
+        (( elapsed_ns < cut_clear_deadline_ns )) || fail "clipboard: source cut remained past 1 s"
+        sleep 0.02
+    done
+    elapsed_ns=$(( $(date +%s%N) - start_ns ))
+    (( elapsed_ns <= cut_clear_deadline_ns )) || fail "clipboard: source cut cleared too late"
+    xwdrag_wait_path "$bdir/f2" present || fail "clipboard: cut never arrived"
+    xwdrag_wait_path "$adir/f2" absent || fail "clipboard: cut left its source"
+    [[ "$(clipboard_ipc "$aid" rowClipMark 1)" != scissors ]] || fail "clipboard: source still draws scissors"
+    printf 'CLIPBOARD cut ok\n'
+
+    xwdrag_wait_row_gone "$aid" f2 || fail "clipboard: source still lists f2"
+    clipboard_press "$apid" -k End -k y
+    clipboard_wait "$bid" copy "$adir/f3"
+    xwdrag_kill_second "$apid"
+    types=$(timeout "$offer_read_timeout_s" wl-paste --list-types) || fail "clipboard: source close left no compositor offer"
+    grep -Fx text/uri-list <<< "$types" >/dev/null || fail "clipboard: source close lost the URI offer"
+    offer=$(timeout "$offer_read_timeout_s" wl-paste -t text/uri-list) || fail "clipboard: source close lost the URI list"
+    # Sample input: text/uri-list offers file:///.../a/f3 followed by a CRLF terminator.
+    [[ "$(tr -d '\r' <<< "$offer")" == "file://$adir/f3" ]] || fail "clipboard: source close no longer offers f3"
+    clipboard_press "$bpid" -k p
+    xwdrag_wait_path "$bdir/f3" present || fail "clipboard: source close lost its copy"
+    cmp "$adir/f3" "$bdir/f3" || fail "clipboard: surviving copy differs"
+    printf 'CLIPBOARD owner-close ok\n'
+
+    printf 'copy\nfile://%s' "$dir/gtk" | timeout "$offer_read_timeout_s" wl-copy -t x-special/gnome-copied-files \
+        || fail "clipboard: GTK ownership failed"
+    clipboard_wait "$bid" copy "$dir/gtk"
+    clipboard_press "$bpid" -k p
+    xwdrag_wait_path "$bdir/gtk" present || fail "clipboard: GTK copy never arrived"
+    cmp "$dir/gtk" "$bdir/gtk" || fail "clipboard: GTK copy differs"
+    printf 'CLIPBOARD GTK ok\n'
+
+    mkdir -p "$textdir"
+    printf 'unchanged\n' > "$textdir/sentinel"
+    xwdrag_navigate_second "$textdir"
+    timeout "$offer_read_timeout_s" wl-copy hello || fail "clipboard: text ownership failed"
+    clipboard_wait "$bid" none ""
+    clipboard_press "$bpid" -k m
+    clipboard_menu_wait "$bid" true
+    state=$(clipboard_ipc "$bid" menuState) || fail "clipboard: no menu model"
+    # Sample input: {"entries":[{"action":"paste","disabled":true}]}
+    jq -e 'any(.entries[]; .action == "paste" and .disabled == true)' <<< "$state" >/dev/null \
+        || fail "clipboard: text-only clipboard left Paste enabled or missing"
+    clipboard_press "$bpid" -k Escape
+    clipboard_menu_wait "$bid" false
+    clipboard_text_no_paste "$bid" "$bpid" "$textdir"
+    printf 'CLIPBOARD text-only ok\n'
+    xwdrag_kill_second "$bpid"
+    XW_SECOND_PID=""
+    printf 'clipboard: 6 checks, 0 failed\n'
+}
+
+clipboard_ipc() {
+    timeout -k "$ipc_call_kill_after" "$ipc_call_timeout" qs ipc -i "$1" call flea "${@:2}"
+}
+clipboard_press() {
+    local pid="$1" addr
+    shift
+    xwdrag_focus "$pid"
+    xwdrag_assert_focus "$pid"
+    addr=$(xwdrag_addr "$pid") || fail "clipboard: no address for $pid"
+    [[ -n "$addr" ]] || fail "clipboard: empty address for $pid"
+    xwdrag_key "$addr" "$@" >/dev/null || fail "clipboard: key failed for $pid"
+}
+clipboard_menu_wait() {
+    local id="$1" visible="$2" state
+    local menu_wait_timeout_s=5 menu_poll_interval_s=0.05
+    local deadline=$((SECONDS + menu_wait_timeout_s))
+    while (( SECONDS <= deadline )); do
+        state=$(clipboard_ipc "$id" contextMenuVisible) || fail "clipboard: no menu visibility"
+        [[ "$state" == "$visible" ]] && return
+        sleep "$menu_poll_interval_s"
+    done
+    fail "clipboard: menu never became $visible"
+}
+clipboard_text_no_paste() {
+    local id="$1" pid="$2" dest="$3" before after state
+    local observe_timeout_s=2 observe_poll_interval_s=0.05
+    before=$(find "$dest" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort) || fail "clipboard: cannot list text destination"
+    clipboard_press "$pid" -k p
+    local deadline=$((SECONDS + observe_timeout_s))
+    while (( SECONDS <= deadline )); do
+        state=$(clipboard_ipc "$id" collideState) || fail "clipboard: no collision state"
+        # Sample input: {"opened":false}
+        jq -e '.opened == false' <<< "$state" >/dev/null || fail "clipboard: plain text opened a collision card"
+        after=$(find "$dest" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort) || fail "clipboard: cannot list text destination"
+        [[ "$before" == "$after" && ! -e "$dest/hello" ]] || fail "clipboard: plain text pasted a file"
+        sleep "$observe_poll_interval_s"
+    done
+}
+clipboard_wait() {
+    local id="$1" kind="$2" path="$3" deadline=$((SECONDS + 5)) state
+    while (( SECONDS <= deadline )); do
+        state=$(clipboard_ipc "$id" fileClipboard 2>/dev/null || true)
+        if jq -e --arg kind "$kind" --arg path "$path" \
+            'if $kind == "none" then .paths == [] and .moving == false
+             else .paths == [$path] and .moving == ($kind == "cut") end' <<< "$state" >/dev/null 2>&1; then return; fi
+        sleep 0.05
+    done
+    fail "clipboard: $id never mirrored $kind $path"
+}
+
 . "$repo/tests/ui-rail.sh"
 . "$repo/tests/ui-dropbox-roots.sh"
 . "$repo/tests/ui-settings-layout.sh"

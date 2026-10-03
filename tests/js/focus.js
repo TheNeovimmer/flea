@@ -591,12 +591,14 @@ function run(check) {
     menu.join = function (parent, name) { return parent + "/" + name }
     menu.sticky = function () {}
     menu.backend = {
+        send: function (request) { menu.clipRequests.push(request) },
         duplicate: function (path, id) { menuRequests.push("duplicate:" + id) },
         trash: function (rows, id) { menuRequests.push("trash:" + id) },
         extract: function (path, dest, id) { menuRequests.push("extract:" + id) },
         compress: function (paths, dest, format, id) { menuRequests.push(paths.join(",") + ":" + id) }
     }
     menu.moveToDropbox = function (id) { menuRequests.push("dropbox:" + id) }
+    menu.clipRequests = []
     menu.openConvert = function (id) { menuRequests.push("convert:" + id) }
     var selectedPaths = ["/d/captured.txt", "/d/second.txt"]
     Focus.act("copy", menu, 42, selectedPaths)
@@ -729,7 +731,7 @@ function run(check) {
     check("copy path copies at once", copyPathPane.copied, "/d/a.txt")
     var pasteLinkPane = listPane(true)
     pasteLinkPane.linked = []
-    pasteLinkPane.pasteLink = function (kind, paths) { pasteLinkPane.linked.push(kind + ":" + paths.join(",")) }
+    pasteLinkPane.pasteLink = function (kind) { pasteLinkPane.linked.push(kind + ":" + arguments.length) }
     Focus.act("pasteLink", pasteLinkPane, 0, ["/d/a.txt"])
-    check("paste link asks for a relative link", pasteLinkPane.linked.join("|"), "relative:/d/a.txt")
+    check("paste link asks for a relative link without captured row paths", pasteLinkPane.linked.join("|"), "relative:1")
 }

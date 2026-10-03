@@ -26,7 +26,7 @@ function runInventory(check) {
         var rows = Menu.listingEntries({
             showHidden: false, hasRow: true, dropboxPath: "/home/jw/Dropbox",
             taildropPeers: [{ id: "x", label: "Box" }], taildropInstalled: true, dropboxInstalled: true,
-            localSendInstalled: true,
+            localSendInstalled: true, clipboardAvailable: true,
             archiveFormats: ["zip"], canConvert: true, canExtract: true, selectionCount: shapes[s].selectionCount,
             selectionModes: shapes[s].selectionModes, rowMode: 0o100644, rowIsSymlink: shapes[s].rowIsSymlink,
             rowInDropbox: shapes[s].rowInDropbox, rowIsArchive: shapes[s].rowIsArchive,

@@ -190,14 +190,13 @@ function act(action, root, menuId, paths) {
     case "pasteAbsoluteLink":
     case "pasteHardLink":
         if (RecentMode.refusePaste(root)) return
-        root.pasteLink(action === "pasteAbsoluteLink" ? "absolute" : action === "pasteHardLink" ? "hard" : "relative", paths); return
+        root.pasteLink(action === "pasteAbsoluteLink" ? "absolute" : action === "pasteHardLink" ? "hard" : "relative"); return
     case "cut": Ops.clip(root, true, paths); return
     // Recent is a history, not a directory: pasting or creating there would land in the root it stands on.
     case "paste": if (root.recentMode.length > 0) { root.message("This listing is a history, and cannot take a paste.", false); return } Ops.paste(root); return
     case "movePaste":
         if (root.recentMode.length > 0) { root.message("This listing is a history, and cannot take a paste.", false); return }
-        if (root.clipboard.paths.length === 0) { root.message("The clipboard is empty.", false); return }
-        root.collide.ask({c: "transfer", op: "move", paths: root.clipboard.paths, dest: root.path}, null, true)
+        Ops.paste(root, true)
         return
     case "undo": Ops.undo(root); return
     case "redo": root.backend.send({c: "redo"}); return

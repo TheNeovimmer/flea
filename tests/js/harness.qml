@@ -4,6 +4,7 @@ import "background.js" as BackgroundSuite
 import "buttons.js" as ButtonsSuite
 import "collide.js" as CollideSuite
 import "clipmarks.js" as ClipMarksSuite
+import "clipboard.js" as ClipboardSuite
 import "columns.js" as ColumnsSuite
 import "contrast.js" as ContrastSuite
 import "copyas.js" as CopyAsSuite
@@ -123,6 +124,7 @@ Item {
         }
 
         var suites = [
+            ["clipboard", ClipboardSuite],
             ["archive", ArchiveSuite], ["background", BackgroundSuite], ["buttons", ButtonsSuite], ["collide", CollideSuite], ["clipmarks", ClipMarksSuite], ["columns", ColumnsSuite], ["contrast", ContrastSuite],
             ["dirsizes", DirSizesSuite], ["drag", DragSuite], ["dragout", DragOutSuite], ["dst", DstSuite], ["ddtarget", DdtargetSuite],
             ["copyas", CopyAsSuite], ["invert", InvertSuite],
@@ -187,7 +189,7 @@ Item {
         for (var i = 0; i < failures.length; i++) {
             console.log("FAIL " + failures[i])
         }
-        console.log(checked + " checks, " + failures.length + " failed")
+        console.log((hasOnly ? only : "js") + ": " + checked + " checks, " + failures.length + " failed")
         Qt.exit(failures.length === 0 ? 0 : 1)
     }
 }
