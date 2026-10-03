@@ -5,7 +5,7 @@ use crate::jsonstring::parse_string;
 // A hand-edited state file is an input, so nesting is bounded rather than recursed until the stack ends.
 pub const MAX_DEPTH: usize = 32;
 
-const INDENT: &str = "  ";
+pub const INDENT: &str = "  ";
 
 // Num keeps the literal it was written with, so 192 stays 192 and 1.0 stays 1.0 across a rewrite.
 #[derive(Clone, Debug, PartialEq)]
@@ -78,6 +78,13 @@ pub fn render(value: &Json) -> String {
     let mut out = String::new();
     write_value(&mut out, value, 0);
     out.push('\n');
+    out
+}
+
+// One value as it renders at `depth` inside a larger document, with no trailing newline.
+pub fn render_at(value: &Json, depth: usize) -> String {
+    let mut out = String::new();
+    write_value(&mut out, value, depth);
     out
 }
 

@@ -51,6 +51,8 @@ impl ItemIdentity {
     }
     // With no birth time on either side this stays the dev, inode and kind check it always was.
     pub fn same_item(&self, other: &Self) -> bool {
+        #[cfg(test)]
+        super::undoprobe::compare();
         self.dev == other.dev && self.ino == other.ino && self.kind == other.kind && !born_differs(self.born, other.born)
     }
     // A batched move removes its source only while it still holds the bytes its copy took.
@@ -117,20 +119,12 @@ pub struct Entry {
 
 impl Entry {
     pub(crate) fn rebase(&mut self, old: &ItemIdentity, new: &ItemIdentity) {
+        self.rebase_with(&mut |identity| if identity.unchanged_for_move(old) { *identity = new.clone(); });
+    }
+
+    pub(crate) fn rebase_with(&mut self, change: &mut impl FnMut(&mut ItemIdentity)) {
         for step in &mut self.steps {
-            match step {
-                Step::Moved { before, after, .. } => {
-                    if before.unchanged_for_move(old) { *before = new.clone(); }
-                    if after.unchanged_for_move(old) { *after = new.clone(); }
-                }
-                Step::Copied { source, created, .. } => {
-                    if source.unchanged_for_move(old) { *source = new.clone(); }
-                    if created.unchanged_for_move(old) { *created = new.clone(); }
-                }
-                Step::MadeFile { identity, .. } | Step::MadeDir { identity, .. } if identity.unchanged_for_move(old) => *identity = new.clone(),
-                Step::Linked { identity, .. } if identity.unchanged_for_move(old) => *identity = new.clone(),
-                _ => {}
-            }
+            super::undorebase::rebase_step(step, change);
         }
     }
 }
