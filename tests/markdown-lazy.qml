@@ -41,6 +41,10 @@ ShellRoot {
     function report() {
         if (shell.done || !md.contentReady) return
         md.bodyItem.forceLayout()
+        if (md.delegateCount() === 0) {
+            shell.fail("no delegates after forceLayout")
+            return
+        }
         shell.log("blocks=" + md.blockList.length + " delegates=" + md.delegateCount()
             + " offthread=" + md.parsedOffThread)
         shell.done = true

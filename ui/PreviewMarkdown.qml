@@ -65,7 +65,7 @@ Item {
     // Keep this many pixels of blocks warm beyond the visible ListView window.
     readonly property int blockCachePixels: 600
     readonly property bool blocksReady: root.appliedSeq === root.parseSeq && !root.parsing
-    readonly property bool loading: root.active && !root.readFailed && !root.tooLarge
+    readonly property bool loading: root.active && !root.readFailed && !root.tooLarge && root.parseError === ""
         && (!file.loaded || !root.blocksReady)
     readonly property string status: {
         if (root.tooLarge) return "This file is too large to preview."
@@ -146,17 +146,17 @@ Item {
         if (messageObject.seq !== root.parseSeq)
             return
         root.parsing = false
+        root.appliedSeq = messageObject.seq
         if (messageObject.error !== "") {
             root.parseError = messageObject.error
             return
         }
         root.parseError = ""
         root.blockList = messageObject.blocks
-        root.appliedSeq = messageObject.seq
         root.parsedOffThread = true
     }
 
-    // A dead worker triggers one synchronous recovery parse.
+    // The worker owns parsing; this timer recovers synchronously only if its reply never settles the request.
     Timer {
         id: parseFallback
         interval: root.parseFallbackMs
@@ -166,8 +166,13 @@ Item {
                 return
             root.parseSeq++
             root.parsing = false
-            root.blockList = Markdown.blocks(root.rawText, Markdown.dirOf(root.path),
-                root.chromeHex, root.inkHex)
+            try {
+                root.blockList = Markdown.blocks(root.rawText, Markdown.dirOf(root.path),
+                    root.chromeHex, root.inkHex)
+                root.parseError = ""
+            } catch (error) {
+                root.parseError = String(error.message || error)
+            }
             root.appliedSeq = root.parseSeq
         }
     }
@@ -175,12 +180,12 @@ Item {
     // Resolve images before Qt sees text: remote images become placeholders; only files beside the document load.
     function askParse() {
         root.parseSeq++
+        root.parseError = ""
         if (!root.active || root.tooLarge || !file.loaded) {
             root.parsing = false
             return
         }
         root.parsing = true
-        root.parseError = ""
         // The live text length determines worker activation before bindings update.
         var wantWorker = root.rawText.length > root.workerThreshold
         parserLoader.active = wantWorker
@@ -209,6 +214,7 @@ Item {
     onRawTextChanged: root.askParse()
     onActiveChanged: root.askParse()
     onPathChanged: {
+        root.parseError = ""
         root.blockList = []
         root.parsedOffThread = false
         root.askParse()
@@ -520,6 +526,14 @@ Item {
                         width: parent.width
                         spacing: 0
 
+                        TextMetrics {
+                            id: listMarkerMetrics
+                            text: block.type !== "list" ? "" : block.ordered
+                                ? (block.start + block.items.length - 1) + "." : "•"
+                            font.family: Theme.font.family
+                            font.pixelSize: Theme.font.body
+                        }
+
                         Repeater {
                             model: block.type === "list" ? block.items.length : 0
                             delegate: Row {
@@ -528,6 +542,7 @@ Item {
 
                                 Flea.MarkdownText {
                                     id: marker
+                                    width: listMarkerMetrics.advanceWidth
                                     text: block.ordered ? (block.start + index) + "." : "•"
                                     // The marker shares the item's line box and first-line leading.
                                     textFormat: Text.RichText

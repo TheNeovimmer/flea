@@ -64,7 +64,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
                 if (same) {
                     out.push(lastRef)
                     i = spanTo
-                    sp += 4
+                    sp += Md.INTERVAL_STRIDE
                     continue
                 }
                 var innerText = body.slice(innerStart, innerEnd)
@@ -87,11 +87,11 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
                 out.push(-1 - (tokens.length - 1))
             }
             i = spanTo
-            sp += 4
+            sp += Md.INTERVAL_STRIDE
             continue
         }
         if (sp < spans.length && i > spans[sp]) {
-            sp += 4
+            sp += Md.INTERVAL_STRIDE
             continue
         }
         var c = body.charAt(i)
@@ -115,7 +115,8 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
         if (c === "[") {
             if (body.charAt(i + 1) === "^") {
                 var fn = Refs.readFootnoteRef(body, i)
-                if (fn !== null && numbers && numbers.hasOwnProperty(fn.id)) {
+                if (fn !== null && numbers && numbers.hasOwnProperty(fn.id)
+                        && (cited !== undefined || numbers[fn.id] > 0)) {
                     citationTokens[tokens.length] = fn.id
                     tokens.push("<sup>" + numbers[fn.id] + "</sup>")
                     out.push(-1 - (tokens.length - 1))
@@ -210,7 +211,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
                 bare = null
             if (bare !== null) {
                 if (!styleLinks) {
-                    out.push(body.slice(i, bare.end))
+                    out.push(Md.escapeHtmlText(bare.url))
                     i = bare.end
                     continue
                 }
@@ -244,8 +245,14 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
             continue
         }
         var tokenIndex = -1 - out[k]
-        if (cited !== undefined && citationTokens.hasOwnProperty(tokenIndex))
-            cited[citationTokens[tokenIndex]] = true
+        if (citationTokens.hasOwnProperty(tokenIndex)) {
+            var id = citationTokens[tokenIndex]
+            if (cited !== undefined && numbers[id] === 0) {
+                cited.push(id)
+                numbers[id] = cited.length
+            }
+            tokens[tokenIndex] = "<sup>" + numbers[id] + "</sup>"
+        }
         parts[k] = tokens[tokenIndex]
     }
     return parts.join("")

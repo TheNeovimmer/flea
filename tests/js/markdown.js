@@ -71,7 +71,7 @@ function run(check) {
     check("a local reference image resolves", Markdown.prepare(kept, dir).indexOf("![demo](file:///home/gm/notes/shot.png)") >= 0, true)
     var links = "[docs](https://example.com/guide) and <https://example.com/raw>\n"
     check("links without ink escape brackets", Markdown.prepare(links, dir),
-        "&#91;docs&#93;(https://example.com/guide) and <https://example.com/raw>\n")
+        "&#91;docs&#93;(https&#58;&#47;&#47;example&#46;com&#47;guide) and https&#58;&#47;&#47;example&#46;com&#47;raw\n")
     var code = "```\n![demo](https://cdn.example.com/demo.png)\n```\n"
     check("a fenced image is shown, never resolved", Markdown.prepare(code, dir), code)
     var span = "Use `![demo](https://cdn.example.com/demo.png)` for art.\n"
@@ -192,7 +192,7 @@ function run(check) {
     check("an autolink wraps", linked("See <https://example.com/x> here.").indexOf("<font") >= 0, true)
     check("a bad ink escapes link brackets",
         Markdown.prepare("See [a](https://example.com/x) here.", dir, undefined, chrome, "red"),
-        "See &#91;a&#93;(https://example.com/x) here.")
+        "See &#91;a&#93;(https&#58;&#47;&#47;example&#46;com&#47;x) here.")
     check("emphasis cannot form inside a link label",
         linked("See [*hi*](https://example.com/x) here.").indexOf("&#42;hi&#42;") >= 0, true)
 

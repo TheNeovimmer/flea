@@ -90,8 +90,7 @@ Item {
     // tall from the column top down to the name, with no toggle; the remembered choice decides.
     readonly property bool isMarkdownRow: root.previewState === Facts.TEXT && root.row !== null
         && Kinds.isMarkdown(root.row.n)
-    // The lazy Markdown pane, null until a Markdown row builds it; every reader
-    // below guards it, the way the PDF loader's readers guard pdfLoader.item.
+    // The Markdown pane stays null without a Markdown row, so every reader guards the loader item.
     readonly property var markdown: markdownLoader.item
     // Stretch renders a vector to the whole box, so the frame's pictures keep Fit for an SVG alone.
     readonly property bool vectorPath: /\.svgz?$/i.test(root.path)
@@ -252,6 +251,7 @@ Item {
                 onLoaded: {
                     item.path = Qt.binding(function () { return root.path })
                     item.size = Qt.binding(function () { return root.row ? root.row.s : 0 })
+                    item.maxBytes = Qt.binding(function () { return root.textLimit })
                     item.active = Qt.binding(function () {
                         return root.visible && !root.manualHold
                             && root.rowState === Facts.TEXT && root.isMarkdownRow
@@ -259,7 +259,6 @@ Item {
                     item.view = Qt.binding(function () {
                         return ViewState.markdownView === "source" ? "source" : "rendered"
                     })
-                    item.maxBytes = Qt.binding(function () { return root.textLimit })
                     item.truncate = Qt.binding(function () { return root.truncateText })
                 }
             }

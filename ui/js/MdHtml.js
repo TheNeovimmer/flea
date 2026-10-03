@@ -51,18 +51,28 @@ function isNameChar(c) {
     return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9")
 }
 
+function isHtmlWhitespace(c) {
+    return c === "\t" || c === "\n" || c === "\f" || c === "\r" || c === " "
+}
+
 // Sample: <img src="pic.png" alt="picture">. Quote-check only the candidate; a failed native search marks later openers dead, and oversized tags stay literal.
 function readTag(text, i, dead) {
     if (dead !== undefined && dead !== null && i < dead.tagDead)
         return null
-    var gt = text.indexOf(">", i + 1)
+    var cached = dead !== undefined && dead !== null && dead.tagClose > i
+    var gt = cached ? dead.tagClose : text.indexOf(">", i + 1)
+    if (dead !== undefined && dead !== null && gt >= 0)
+        dead.tagClose = gt
     if (gt < 0) {
         if (dead !== undefined && dead !== null)
             dead.tagDead = text.length
         return null
     }
-    if (gt - i > MAX_TAG_LENGTH)
+    if (gt - i > MAX_TAG_LENGTH) {
+        if (dead !== undefined && dead !== null)
+            dead.tagDead = gt - MAX_TAG_LENGTH
         return null
+    }
     var candidate = text.slice(i, gt + 1)
     var dq = candidate.indexOf('"')
     var sq = candidate.indexOf("'")
@@ -85,14 +95,14 @@ function readTag(text, i, dead) {
     return { tag: candidate, end: gt + 1 }
 }
 
-// Sample input: ' a=b/' keeps the slash in b/; ' a="b"/' sets the self-closing flag only at the end.
+// Sample input: ' a=b/' keeps the slash in b/; ' ==/' names '=' with value '/'; ' a="b"/' sets the self-closing flag.
 function scanAttributes(rest) {
     var i = 0
     var attributes = []
     var valid = true
     var selfClose = false
     while (i < rest.length) {
-        while (i < rest.length && /\s/.test(rest.charAt(i)))
+        while (i < rest.length && isHtmlWhitespace(rest.charAt(i)))
             i++
         if (i >= rest.length)
             break
@@ -101,23 +111,22 @@ function scanAttributes(rest) {
             i++
             continue
         }
-        var aname = ""
-        while (i < rest.length && /[^\s=/>]/.test(rest.charAt(i))) {
+        // Before an attribute name, even '=' starts the name; only a later '=' starts its value.
+        var aname = rest.charAt(i).toLowerCase()
+        i++
+        while (i < rest.length && !isHtmlWhitespace(rest.charAt(i))
+                && rest.charAt(i) !== "=" && rest.charAt(i) !== "/" && rest.charAt(i) !== ">") {
             aname += rest.charAt(i).toLowerCase()
             i++
         }
-        if (aname.length === 0) {
-            i++
-            continue
-        }
         if (!/^[A-Za-z_:][-A-Za-z0-9_.:]*$/.test(aname))
             valid = false
-        while (i < rest.length && /\s/.test(rest.charAt(i)))
+        while (i < rest.length && isHtmlWhitespace(rest.charAt(i)))
             i++
         var value = null
         if (rest.charAt(i) === "=") {
             i++
-            while (i < rest.length && /\s/.test(rest.charAt(i)))
+            while (i < rest.length && isHtmlWhitespace(rest.charAt(i)))
                 i++
             var q = rest.charAt(i)
             if (q === '"' || q === "'") {
@@ -129,7 +138,7 @@ function scanAttributes(rest) {
                 i++
             } else {
                 var begin = i
-                while (i < rest.length && !/[\s>]/.test(rest.charAt(i)))
+                while (i < rest.length && !isHtmlWhitespace(rest.charAt(i)) && rest.charAt(i) !== ">")
                     i++
                 value = rest.slice(begin, i)
             }
@@ -153,17 +162,30 @@ function tagHead(tag) {
         i++
     }
     var rest = tag.slice(i, tag.length - 1)
-    if (!/^[a-z]/.test(name) || (rest !== "" && !/^[\s/]/.test(rest))
-            || (closing && !/^\s*$/.test(rest)) || (rest.charAt(0) === "/" && !/^\/\s*$/.test(rest)))
+    var slashFirst = rest.charAt(0) === "/"
+    var whitespaceEnd = slashFirst ? 1 : 0
+    while (whitespaceEnd < rest.length && isHtmlWhitespace(rest.charAt(whitespaceEnd)))
+        whitespaceEnd++
+    var validHead = /^[a-z]/.test(name)
+        && (rest === "" || isHtmlWhitespace(rest.charAt(0)) || slashFirst)
+        && (!closing || (!slashFirst && whitespaceEnd === rest.length))
+        && (!slashFirst || whitespaceEnd === rest.length)
+    // Malformed dropped openers still suppress their bodies; malformed closers cannot end a dropped body.
+    if (!validHead && (closing || !DROP_CONTENT.hasOwnProperty(name)))
         name = ""
     var attrs = scanAttributes(rest)
-    return { name: name, closing: closing, rest: rest, selfClose: attrs.selfClose,
+    return { name: name, closing: closing, rest: rest, selfClose: validHead && attrs.valid && attrs.selfClose,
         attributes: attrs.attributes, validAttrs: attrs.valid }
+}
+
+// Sample input: " \thttps://a.example/x\n " strips URL padding and embedded tab, CR and LF.
+function normalizedTarget(value) {
+    return String(value).replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, "").replace(/[\t\r\n]/g, "")
 }
 
 // One attribute value with entities decoded for the safety checks below.
 function attrKept(name, value, tagName) {
-    var seen = MdUrl.canonicalUrl(value).toLowerCase()
+    var seen = normalizedTarget(MdUrl.canonicalUrl(value)).toLowerCase()
     // CSS url() in any attribute loads, so the attribute goes.
     if (/url\s*\(/i.test(seen))
         return false
@@ -231,7 +253,7 @@ function sanitizeTag(tag, dir, tokens) {
     var kept = ""
     var srcSeen = null
     var srcsetSeen = null
-    var altSeen = ""
+    var altSeen = null
     for (var i = 0; i < head.attributes.length; i++) {
         var aname = head.attributes[i].name
         var value = head.attributes[i].value
@@ -241,16 +263,22 @@ function sanitizeTag(tag, dir, tokens) {
                 || aname.indexOf("data-") === 0 || aname.indexOf("on") === 0)
             continue
         if (aname === "srcset") {
-            if (value !== null)
-                srcsetSeen = value
+            if (srcsetSeen === null)
+                srcsetSeen = value === null ? "" : value
             continue
         }
         if (aname === "src" && (name === "img" || name === "source")) {
-            srcSeen = value === null ? "" : value
+            if (srcSeen === null)
+                srcSeen = value === null ? "" : value
             continue
         }
-        if (aname === "alt")
+        if (aname === "alt") {
+            if (altSeen !== null)
+                continue
             altSeen = value === null ? "" : value
+        }
+        if (aname === "href" && value !== null)
+            value = normalizedTarget(value)
         if (value === null || attrKept(aname, value, name))
             kept += " " + aname + (value === null ? "" : '="' + escapeAttr(value) + '"')
     }
@@ -261,7 +289,7 @@ function sanitizeTag(tag, dir, tokens) {
         else if (srcsetSeen !== null)
             picked = srcsetPick(srcsetSeen, dir)
         if (picked !== null && picked.kind === "local")
-            return { emit: hold('<img src="' + picked.url + '" alt="' + escapeAttr(altSeen) + '">'), drop: null }
+            return { emit: hold('<img src="' + picked.url + '" alt="' + escapeAttr(altSeen === null ? "" : altSeen) + '">'), drop: null }
         if (picked !== null && picked.kind === "remote")
             return { emit: "\n\n" + MdUrl.placeholder(MdEscape.escapeText(picked.host)) + "\n\n", drop: null }
         return { emit: MdUrl.canonicalUrl(altSeen).length > 0 ? MdEscape.escapeText(altSeen) : "", drop: null }

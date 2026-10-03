@@ -4,6 +4,56 @@ set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
 
+check_report() {
+    local output=$1 line blocks delegates offthread minimum_blocks minimum_delegates maximum_delegates delegate_fraction_divisor
+    # Reject a fixture too small to establish viewport-bounded rendering.
+    minimum_blocks=800
+    # A blank pane establishes no rendered viewport.
+    minimum_delegates=1
+    # Bound live delegates independently of the document's total block count.
+    maximum_delegates=150
+    # Require fewer than one quarter of the document's blocks to have live delegates.
+    delegate_fraction_divisor=4
+    # Sample input: MARKDOWN_LAZY blocks=12500 delegates=12 offthread=true.
+    line=$(printf '%s\n' "$output" | grep -aE 'MARKDOWN_LAZY blocks=' | head -1)
+    if [ -z "$line" ]; then
+        printf 'FAIL the lazy harness never reported (no live preview ran)\n'
+        printf '%s\n' "$output" | grep -aE 'MARKDOWN_LAZY|ERROR|error' | head -20
+        return 1
+    fi
+    blocks=$(printf '%s\n' "$line" | grep -aoE 'blocks=[0-9]+' | grep -aoE '[0-9]+')
+    delegates=$(printf '%s\n' "$line" | grep -aoE 'delegates=[0-9]+' | grep -aoE '[0-9]+')
+    offthread=$(printf '%s\n' "$line" | grep -aoE 'offthread=[a-z]+' | cut -d= -f2)
+    [ "$offthread" = "true" ] || {
+        echo "FAIL the parse never left the UI thread"
+        return 1
+    }
+    [ "$blocks" -ge "$minimum_blocks" ] || {
+        echo "FAIL only $blocks blocks, the fixture is no test"
+        return 1
+    }
+    [ "$delegates" -ge "$minimum_delegates" ] || {
+        echo "FAIL zero delegates, the pane is blank"
+        return 1
+    }
+    [ "$delegates" -le "$maximum_delegates" ] || {
+        echo "FAIL $delegates delegates for $blocks blocks, nothing is lazy"
+        return 1
+    }
+    [ "$delegates" -lt "$((blocks / delegate_fraction_divisor))" ] || {
+        echo "FAIL $delegates delegates approach $blocks blocks"
+        return 1
+    }
+    printf 'PASS %s blocks draw through %s delegates, parsed off thread\n' "$blocks" "$delegates"
+}
+
+if check_report "MARKDOWN_LAZY blocks=12500 delegates=0 offthread=true" >/dev/null; then
+    echo "FAIL zero delegate report was accepted"
+    exit 1
+fi
+check_report "MARKDOWN_LAZY blocks=12500 delegates=12 offthread=true" >/dev/null || exit 1
+printf "ok lazy wrapper rejects zero and accepts drawn delegates\n"
+
 if ! command -v qs >/dev/null; then
     echo "markdown-lazy.sh: qs is not installed, cannot render the preview"
     exit 1
@@ -30,12 +80,6 @@ done > "$test_root/notes.md" || exit 1
 printf 'readme bytes: %s\n' "$(stat -c %s "$test_root/notes.md")"
 # Require more than half a MiB so the fixture exercises a substantial document.
 minimum_fixture_bytes=524288
-# Reject a fixture too small to establish viewport-bounded rendering.
-minimum_blocks=800
-# Bound live delegates independently of the document's total block count.
-maximum_delegates=150
-# Require fewer than one quarter of the document's blocks to have live delegates.
-delegate_fraction_divisor=4
 [ "$(stat -c %s "$test_root/notes.md")" -gt "$minimum_fixture_bytes" ] || { echo "FAIL the README fixture is too small"; exit 1; }
 
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
@@ -49,27 +93,4 @@ if printf '%s\n' "$output" | grep -q 'MARKDOWN_LAZY FAIL'; then
     printf '%s\n' "$output" | grep -aE 'MARKDOWN_LAZY|ERROR' | head -10
     exit 1
 fi
-# Sample input: MARKDOWN_LAZY blocks=12500 delegates=12 offthread=true.
-line=$(printf '%s\n' "$output" | grep -aE 'MARKDOWN_LAZY blocks=' | head -1)
-if [ -z "$line" ]; then
-    printf 'FAIL the lazy harness never reported (no live preview ran)\n'
-    printf '%s\n' "$output" | grep -aE 'MARKDOWN_LAZY|ERROR|error' | head -20
-    exit 1
-fi
-blocks=$(printf '%s\n' "$line" | grep -aoE 'blocks=[0-9]+' | grep -aoE '[0-9]+')
-delegates=$(printf '%s\n' "$line" | grep -aoE 'delegates=[0-9]+' | grep -aoE '[0-9]+')
-offthread=$(printf '%s\n' "$line" | grep -aoE 'offthread=[a-z]+' | cut -d= -f2)
-[ "$offthread" = "true" ] || { echo "FAIL the parse never left the UI thread"; exit 1; }
-[ "$blocks" -ge "$minimum_blocks" ] || {
-    echo "FAIL only $blocks blocks, the fixture is no test"
-    exit 1
-}
-[ "$delegates" -le "$maximum_delegates" ] || {
-    echo "FAIL $delegates delegates for $blocks blocks, nothing is lazy"
-    exit 1
-}
-[ "$delegates" -lt "$((blocks / delegate_fraction_divisor))" ] || {
-    echo "FAIL $delegates delegates approach $blocks blocks"
-    exit 1
-}
-printf 'PASS %s blocks draw through %s delegates, parsed off thread\n' "$blocks" "$delegates"
+check_report "$output"

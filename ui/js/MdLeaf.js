@@ -80,12 +80,6 @@ function fenceOpen(line) {
     return { tick: m[1].charAt(0), len: m[1].length, info: m[2].replace(/\s+$/, "") }
 }
 
-// Sample input: "```" closes a backtick fence opened with length 3.
-function fenceClose(line, tick, len) {
-    var m = /^ {0,3}(```+|~~~+) *$/.exec(String(line))
-    return m !== null && m[1].charAt(0) === tick && m[1].length >= len
-}
-
 // Sample input: "| :--- | ---: |"; dashes with optional edge colons carry the alignment, anything else is not a table.
 function delimAligns(line) {
     var cells = String(line).trim().replace(/^\||\|$/g, "").split("|")
@@ -174,15 +168,24 @@ function standaloneImage(line, dir, defs) {
         var tag = MdHtml.readTag(text, 0)
         if (tag === null)
             return null
-        var src = (/src\s*=\s*"([^"]*)"/i.exec(text) || /src\s*=\s*'([^']*)'/i.exec(text)
-            || /src\s*=\s*([^\s>]+)/i.exec(text) || [])[1] || ""
-        var cls = MdUrl.classifyImage(src, dir)
+        var head = MdHtml.tagHead(tag.tag)
+        if (head.name !== "img" || head.closing || !head.validAttrs)
+            return null
+        // First attributes win even when their values are empty or absent.
+        var src = null
+        var alt = null
+        for (var a = 0; a < head.attributes.length; a++) {
+            var attr = head.attributes[a]
+            if (attr.name === "src" && src === null)
+                src = attr.value === null ? "" : attr.value
+            if (attr.name === "alt" && alt === null)
+                alt = attr.value === null ? "" : attr.value
+        }
+        var cls = MdUrl.classifyImage(src === null ? "" : src, dir)
         if (cls.kind === "remote")
             return { type: "remote", host: cls.host }
-        if (cls.kind === "local") {
-            var name = (/alt\s*=\s*"([^"]*)"/i.exec(text) || /alt\s*=\s*'([^']*)'/i.exec(text) || [])[1] || ""
-            return { type: "image", url: cls.url, alt: name }
-        }
+        if (cls.kind === "local")
+            return { type: "image", url: cls.url, alt: alt === null ? "" : alt }
         return null
     }
     return null
@@ -224,6 +227,6 @@ function alertTitle(line) {
     var m = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i.exec(String(line))
     if (m === null)
         return null
-    var title = m[1].charAt(0) + m[1].slice(1).toLowerCase()
+    var title = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase()
     return "**" + title + "**" + (m[2].length > 0 ? " " + m[2] : "")
 }

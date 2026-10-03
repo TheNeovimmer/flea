@@ -2,6 +2,14 @@
 
 // MdEscape: ASCII punctuation as numeric entities, so emphasis, links and autolinks cannot form inside converted text.
 var ASCII_LIMIT = 128
+var SYMBOL_PUNCT_START = 33
+var SYMBOL_PUNCT_END = 47
+var COLON_PUNCT_START = 58
+var COLON_PUNCT_END = 64
+var BRACKET_PUNCT_START = 91
+var BRACKET_PUNCT_END = 96
+var BRACE_PUNCT_START = 123
+var BRACE_PUNCT_END = 126
 var LONG_ESCAPE_LENGTH = 1024
 var ENTITY_CHARS = "&#;"
 // Sample input: a<b splits to ["a", "<", "b"]; the capture keeps each punctuation character for its entity.
@@ -16,8 +24,10 @@ for (var asciiCode = 0; asciiCode < ASCII_LIMIT; asciiCode++) {
 }
 
 function isAsciiPunct(code) {
-    return (code >= 33 && code <= 47) || (code >= 58 && code <= 64)
-        || (code >= 91 && code <= 96) || (code >= 123 && code <= 126)
+    return (code >= SYMBOL_PUNCT_START && code <= SYMBOL_PUNCT_END)
+        || (code >= COLON_PUNCT_START && code <= COLON_PUNCT_END)
+        || (code >= BRACKET_PUNCT_START && code <= BRACKET_PUNCT_END)
+        || (code >= BRACE_PUNCT_START && code <= BRACE_PUNCT_END)
 }
 
 function escapeWith(text, splitter) {

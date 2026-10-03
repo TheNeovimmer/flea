@@ -10,7 +10,7 @@ var MAX_STYLED_SPANS = 1024
 
 // Links never fetch, but javascript: and data: hrefs must never be emitted: only http, https, mailto, relative and #anchor targets become anchors.
 function isLinkTarget(url) {
-    var seen = MdUrl.canonicalUrl(url)
+    var seen = MdHtml.normalizedTarget(MdUrl.canonicalUrl(url))
     var m = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.exec(seen)
     if (m === null)
         return true
@@ -34,6 +34,7 @@ function resolvePair(raw, target, bang, dir, ink, tokens) {
         }
         return Md.escapeHtmlText(clean)
     }
+    target = MdHtml.normalizedTarget(target)
     if (!isLinkTarget(target))
         return Md.escapeHtmlText("[" + clean + "](" + target + ")")
     var html = Md.linkHtml(clean, target, ink)
@@ -112,7 +113,7 @@ function parseAngle(body, i, dir, ink, styleLinks, dead, tokens, out) {
         auto = null
     if (auto !== null) {
         if (!styleLinks) {
-            out.push(body.slice(i, auto.end))
+            out.push(Md.escapeHtmlText(auto.url))
             i = auto.end
             return i
         }

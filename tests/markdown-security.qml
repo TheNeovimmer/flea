@@ -7,6 +7,8 @@ import "flea/js/MdRun.js" as Run
 import "flea/js/MdUrl.js" as Url
 import "flea/js/MdResolve.js" as Resolve
 import "flea/js/MdHtml.js" as Html
+import "flea/js/MdBlocks.js" as Blocks
+import "flea/js/MdInline.js" as Inline
 
 // Render the preview and every emitted block offscreen; the shell checks the counter after the control GET handshake.
 ShellRoot {
@@ -23,6 +25,9 @@ ShellRoot {
     property bool started: false
     readonly property int drainPollMs: 16
     readonly property int watchdogMs: 30000
+    readonly property int referenceFormCount: 7
+    readonly property int referenceContextCount: 9
+    readonly property int expectedReferences: referenceFormCount * referenceContextCount
     property var validationFailures: []
     property string counter: Quickshell.env("FLEA_MARKDOWN_COUNTER")
 
@@ -52,6 +57,32 @@ ShellRoot {
             resourceUrls(children[i], urls)
     }
 
+    // Sample: <!-- fullref in alone --> followed by ![pic][ridf14c0] must resolve its own f14c0/x.png definition.
+    function referenceResolution(source, dir, counter) {
+        var defs = Blocks.collectReferences(source).defs
+        var cases = /<!-- (fullref|collapsed|shortcut|multiline|spacelabel|quotedef|listdef) in [a-z0-9]+ -->\n([\s\S]*?)(?=<!--|$)/g
+        var hit = null
+        var total = 0
+        var resolved = 0
+        while ((hit = cases.exec(source)) !== null) {
+            total++
+            var use = /!\[([^\]]+)\](?:\[([^\]]*)\])?/.exec(hit[2])
+            if (use === null)
+                continue
+            var label = use[2] || use[1]
+            var key = Inline.normalizeLabel(label)
+            var path = /(f[0-9]+c[0-9]+)$/.exec(key)
+            var expected = path === null ? "" : counter + "/" + path[1] + "/x.png"
+            if (expected === "" || defs[key] !== expected)
+                continue
+            // Probe each raw use with the collected definition; the full corpus retains its code and table controls.
+            var parsed = Blocks.blocks(use[0] + "\n\n[" + label + "]: " + defs[key], dir, "#181825", "#c0caf5")
+            if (parsed.length === 1 && parsed[0].type === "remote" && parsed[0].host === Url.hostOf(expected))
+                resolved++
+        }
+        return { total: total, resolved: resolved }
+    }
+
     function startDrain() {
         if (started || !md.contentReady || md.blockList.length === 0)
             return
@@ -59,6 +90,18 @@ ShellRoot {
             return
         started = true
         var dir = Url.dirOf(fixture)
+        var references = referenceResolution(md.rawText, dir, counter)
+        log("references=" + references.resolved + "/" + references.total)
+        if (references.total !== expectedReferences || references.resolved !== expectedReferences) {
+            fail("reference forms did not all resolve, expected " + expectedReferences)
+            return
+        }
+        log("reference forms resolved")
+        var corpusText = JSON.stringify(md.blockList)
+        if (corpusText.indexOf("R9_DROP_BODY") >= 0)
+            validationFailures.push("malformed drop tag kept its body")
+        if (corpusText.indexOf("R9_KEEP_BODY") < 0 || corpusText.indexOf("R9_TAIL") < 0)
+            validationFailures.push("HTML whitespace control body or tag tail was lost")
         var paths = ["file://" + dir + "/../x.png", dir + "/notes/../../x.png",
             "file://" + dir + "/%2e%2e/x.png", dir + "/notes/%2e%2e/%2e%2e/x.png"]
         for (var i = 0; i < paths.length; i++) {
