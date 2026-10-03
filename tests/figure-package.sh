@@ -5,16 +5,21 @@ cd "$(dirname "$0")/.."
 repo=$PWD
 box=$(mktemp -d "${TMPDIR:-/tmp}/flea-figure-package.XXXXXX")
 trap 'rm -rf -- "$box"' EXIT
-for name in flea flea-git flea-bin; do
+for name in root flea flea-git flea-bin; do
     (
-        . "$repo/packaging/$name/PKGBUILD"
+        if [ "$name" = root ]; then
+            . "$repo/PKGBUILD"
+            startdir="$repo"
+        else
+            . "$repo/packaging/$name/PKGBUILD"
+        fi
         srcdir="$box/$name/src"
         pkgdir="$box/$name/pkg"
         CARCH=x86_64
         mkdir -p "$srcdir/target/release"
         printf 'package binary fixture\n' > "$srcdir/target/release/flea"
         case "$name" in
-            flea) tree="$srcdir/$pkgname-$pkgver" ;;
+            root|flea) tree="$srcdir/$pkgname-$pkgver" ;;
             flea-git) tree="$srcdir/$pkgname" ;;
             flea-bin) tree="$srcdir/$_pkgname-$pkgver-linux-$CARCH" ;;
         esac
@@ -37,10 +42,19 @@ checks = 0
 failures = 0
 # Sample inputs: import { renderFigure } from "../js/FigureWorker.mjs"; await import("./math.mjs").
 imports = re.compile(r'\b(?:from\s*|import\s*\(\s*|import\s*)["\'](\.[^"\']+)["\']')
-for package in ("flea", "flea-git", "flea-bin"):
+for package in ("root", "flea", "flea-git", "flea-bin"):
     ui = root / package / "pkg/usr/share/flea/ui"
     modules = sorted(ui.glob("vendor/*.mjs")) + sorted(ui.glob("js/*.mjs"))
-    assert modules, f"{package}: no installed modules"
+    required = ["js/FigureWorker.mjs", "vendor/figure-helper.mjs", "vendor/math.mjs", "vendor/mermaid.mjs"]
+    for relative in required:
+        checks += 1
+        if not (ui / relative).is_file():
+            failures += 1
+            print(f"FAIL {package}: missing {relative}")
+    checks += 1
+    if not list(ui.glob("vendor/LICENSES/*")):
+        failures += 1
+        print(f"FAIL {package}: missing vendor/LICENSES")
     for module in modules:
         for relative in imports.findall(module.read_text()):
             checks += 1

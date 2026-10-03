@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# flea --figure-helper through the debug binary: the ten formulas and six
-# diagram kinds render, the malformed pair answers error, the hostile trio
-# never reaches an SVG, the oversize source is refused, EOF ends the helper
-# at 0, and a missing engine exits 127 with one stderr line.
+# Exercise formula and diagram rendering, malformed and hostile inputs, size limits, EOF, engine refusals and the FigureService lifecycle.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
 
 fleabin="$PWD/target/debug/flea"
-[ -x "$fleabin" ] || { echo "markdown-figures.sh: no debug binary at $fleabin, run cargo build first"; exit 1; }
+[ -x "$fleabin" ] || {
+    echo "markdown-figures.sh: no debug binary at $fleabin, run cargo build first"
+    exit 1
+}
 python3 tests/figure-helper-start.py "$fleabin" || exit 1
+python3 tests/figure-harness.py || exit 1
 # FLEA_QJS names the engine: an absolute executable path wins, then the Arch system binary, then the dev tree copy.
 resolve_qjs() {
     if [ -n "${FLEA_QJS:-}" ] && [ "${FLEA_QJS#/}" != "${FLEA_QJS}" ] && [ -x "${FLEA_QJS}" ]; then
@@ -22,30 +23,52 @@ resolve_qjs() {
         return 1
     fi
 }
-qjs=$(resolve_qjs) || { echo "markdown-figures.sh: no qjs (FLEA_QJS=${FLEA_QJS:-unset}, /usr/bin/qjs, $PWD/.superpowers/tools/qjs)"; exit 1; }
+qjs=$(resolve_qjs) || {
+    echo "markdown-figures.sh: no qjs (FLEA_QJS=${FLEA_QJS:-unset}, /usr/bin/qjs, $PWD/.superpowers/tools/qjs)"
+    exit 1
+}
 
 test_root="$FIXTURE_ROOT/flea-markdown-figures-$$"
 sandbox_make "$test_root"
-cleanup() { sandbox_remove "$test_root"; }
+cleanup() {
+    sandbox_remove "$test_root"
+}
 trap cleanup EXIT
 
-# The jail assumes Arch's merged-/usr loader layout, so on a box whose
-# bwrap cannot run anything (this Debian one included) the jailed path is
-# skipped loudly and the same requests drive qjs direct, the way
-# src/backend/sandboxprobe.rs skips rather than fails there.
-probe_out=$(printf '%s\n' '{"id":1,"kind":"math","source":"x^2","display":false,"theme":{"bg":"#101315","fg":"#c0caf5"}}' | FLEA_QJS="$qjs" "$fleabin" --figure-helper 2>/dev/null)
-if printf '%s' "$probe_out" | grep -q '"id":1'; then
+# Only a detected denial of user namespaces permits the direct-engine test fallback.
+
+# Bound the jailed startup probe so a broken helper cannot hold the suite open.
+PROBE_BOUND_SECONDS=10
+probe_out=$(printf '%s\n' '{"id":1,"kind":"math","source":"x^2","display":false,"theme":{"bg":"#101315","fg":"#c0caf5"}}' | FLEA_QJS="$qjs" timeout "$PROBE_BOUND_SECONDS" "$fleabin" --figure-helper 2> "$test_root/probe.stderr")
+probe_rc=$?
+# Sample input: {"id":1,"svg":"<svg/>"}, exactly one successful answer to the probe.
+if [ "$probe_rc" -eq 0 ] && [ ! -s "$test_root/probe.stderr" ] && printf '%s' "$probe_out" | python3 -c '
+import json
+import sys
+try:
+    reply = json.load(sys.stdin)
+    valid = reply.get("id") == 1 and reply.get("svg", "").startswith("<svg") and "error" not in reply
+except (ValueError, AttributeError):
+    valid = False
+sys.exit(not valid)
+'; then
     engine=("$fleabin" --figure-helper)
     echo "markdown-figures.sh: driving the jailed helper"
-else
+elif [ "$probe_rc" -ne 0 ] && grep -q '^bwrap: No permissions to create new namespace' "$test_root/probe.stderr"; then
     engine=("$qjs" "$PWD/ui/vendor/figure-helper.mjs")
-    echo "markdown-figures.sh: SKIP the bwrap jail cannot run here, driving qjs direct"
+    echo "markdown-figures.sh: SKIP no user namespaces in this container, driving qjs direct"
+    cat "$test_root/probe.stderr"
+else
+    echo "markdown-figures.sh: FAIL jailed probe exited $probe_rc without a valid answer"
+    cat "$test_root/probe.stderr"
+    exit 1
 fi
 
 # One python driver builds every request, so the shell never quotes a formula.
 cat > "$test_root/drive.py" <<'EOF'
 import json, subprocess, sys
 import re
+from collections import Counter
 prog, arg, outdir = sys.argv[1], sys.argv[2], sys.argv[3]
 # xmlns is a namespace, never a fetch, so it is stripped before the check.
 def clean(svg):
@@ -80,15 +103,18 @@ body += "this is not json\n"
 body += "".join(json.dumps(r) + "\n" for r in reqs[3:])
 p = subprocess.run([prog, arg], input=body, capture_output=True, text=True, timeout=300)
 lines = [json.loads(l) for l in p.stdout.splitlines()]
+reply_counts = Counter(a["id"] for a in lines)
 by_id = {a["id"]: a for a in lines}
 fails = []
 def check(cond, why):
     print(("PASS " if cond else "FAIL ") + why)
     if not cond:
         fails.append(why)
-# Every request is answered exactly once, by its own id, beside the id 0
-# answer the non-JSON line earns.
-check(sorted(k for k in by_id if k != 0) == sorted(r["id"] for r in reqs), "every request answered once under its own id")
+# The malformed input is one request too, answered once under id 0.
+request_counts = Counter(r["id"] for r in reqs)
+request_counts[0] += 1
+check(reply_counts == request_counts, "every request answered once under its own id")
+check(len(lines) == len(reqs) + 1, "reply count equals request count including the malformed line")
 check(p.returncode == 0, "EOF ends the helper with exit 0")
 check(p.stderr == "", "a clean run writes nothing on stderr")
 forbidden = ["http:", "https:", "@import", "<script", "<image", "foreignObject", "127.0.0.1"]
@@ -122,21 +148,55 @@ if ! python3 "$test_root/drive.py" "${engine[@]}" "$test_root"; then
     exit 1
 fi
 
-# A missing engine refuses with 127 and one stderr line, running nothing unsandboxed.
-missing_out=$(FLEA_QJS="$test_root/no-such-qjs" "$fleabin" --figure-helper < /dev/null 2>&1)
+# A missing engine refuses exactly, with both sandbox tools present on a controlled PATH.
+mkdir -p "$test_root/sandbox-tools" "$test_root/no-sandbox" || exit 1
+for tool in bwrap prlimit; do
+    tool_path=$(command -v "$tool") || exit 1
+    ln -sf "$tool_path" "$test_root/sandbox-tools/$tool" || exit 1
+done
+PATH="$test_root/sandbox-tools" FLEA_QJS="$test_root/no-such-qjs" "$fleabin" --figure-helper < /dev/null > "$test_root/missing-qjs.stdout" 2> "$test_root/missing-qjs.stderr"
 missing_rc=$?
-[ "$missing_rc" -eq 127 ] || { echo "markdown-figures.sh: FAIL missing qjs exited $missing_rc, want 127"; exit 1; }
-[ "$(printf '%s\n' "$missing_out" | wc -l)" -eq 1 ] || { echo "markdown-figures.sh: FAIL missing qjs printed $(printf '%s\n' "$missing_out" | wc -l) lines, want 1"; exit 1; }
-echo "PASS missing qjs exits 127 with one stderr line"
+[ "$missing_rc" -eq 127 ] || {
+    echo "markdown-figures.sh: FAIL missing qjs exited $missing_rc, want 127"
+    exit 1
+}
+missing_expected="flea: the figure helper needs quickjs-ng at $test_root/no-such-qjs, and it is missing"
+printf '%s\n' "$missing_expected" > "$test_root/missing-qjs.expected"
+if [ -s "$test_root/missing-qjs.stdout" ] || ! cmp -s "$test_root/missing-qjs.expected" "$test_root/missing-qjs.stderr"; then
+    echo "markdown-figures.sh: FAIL missing qjs did not print the exact refusal on stderr"
+    exit 1
+fi
+echo "PASS $missing_expected (exit 127)"
+
+# The missing sandbox has its own refusal branch, with a present engine.
+PATH="$test_root/no-sandbox" FLEA_QJS="$qjs" "$fleabin" --figure-helper < /dev/null > "$test_root/missing-sandbox.stdout" 2> "$test_root/missing-sandbox.stderr"
+sandbox_rc=$?
+[ "$sandbox_rc" -eq 127 ] || {
+    echo "markdown-figures.sh: FAIL missing sandbox exited $sandbox_rc, want 127"
+    exit 1
+}
+sandbox_expected="flea: the figure helper needs bwrap and prlimit, and one of them is missing"
+printf '%s\n' "$sandbox_expected" > "$test_root/missing-sandbox.expected"
+if [ -s "$test_root/missing-sandbox.stdout" ] || ! cmp -s "$test_root/missing-sandbox.expected" "$test_root/missing-sandbox.stderr"; then
+    echo "markdown-figures.sh: FAIL missing sandbox did not print the exact refusal on stderr"
+    exit 1
+fi
+echo "PASS $sandbox_expected (exit 127)"
 
 # Byte identity against node, the engine the bundles were built for. Loud skip when absent.
 if command -v node >/dev/null; then
 node tests/figure-cache.mjs || exit 1
-cat > "$test_root/identity.mjs" <<'EOF'
+node tests/figure-worker.mjs || exit 1
+# Build identity imports as file URLs so checkout punctuation cannot affect substitution or module resolution.
+identity_root=$(python3 -c 'import pathlib
+import sys
+print(pathlib.Path(sys.argv[1]).as_uri())' "$PWD") || exit 1
+{
+printf 'import { renderFigure } from "%s/ui/js/FigureWorker.mjs";\n' "$identity_root"
+printf 'import { texToSvg } from "%s/ui/vendor/math.mjs";\n' "$identity_root"
+printf 'import { mermaidToSvg } from "%s/ui/vendor/mermaid.mjs";\n' "$identity_root"
+cat <<'EOF'
 import { readFileSync, writeFileSync } from "node:fs";
-import { renderFigure } from "/PLACEHOLDER/ui/js/FigureWorker.mjs";
-import { texToSvg } from "/PLACEHOLDER/ui/vendor/math.mjs";
-import { mermaidToSvg } from "/PLACEHOLDER/ui/vendor/mermaid.mjs";
 const theme = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const frac = renderFigure("math", "\\frac{a}{b}", true, theme, { texToSvg });
 let flow = renderFigure("mermaid", "flowchart TD\n    A --> B", true, theme, { mermaidToSvg });
@@ -144,8 +204,11 @@ if (flow && flow.then)
     flow = await flow;
 writeFileSync(process.argv[3], JSON.stringify({ frac, flow }));
 EOF
-sed -i "s#/PLACEHOLDER#$PWD#" "$test_root/identity.mjs"
-node "$test_root/identity.mjs" "$test_root/node-theme.json" "$test_root/node-actual.json" || { echo "markdown-figures.sh: FAIL node could not render"; exit 1; }
+} > "$test_root/identity.mjs"
+node "$test_root/identity.mjs" "$test_root/node-theme.json" "$test_root/node-actual.json" || {
+    echo "markdown-figures.sh: FAIL node could not render"
+    exit 1
+}
 python3 - "$test_root/node-expected.json" "$test_root/node-actual.json" <<'EOF'
 import json, sys
 want = json.load(open(sys.argv[1]))
@@ -158,8 +221,7 @@ else
     echo "markdown-figures.sh: SKIP node is absent, so the byte-identity check did not run"
 fi
 
-# FigureService against the real helper: cache, idle exit, timeout restart,
-# the 127 latch and the fence. Loud skip where qs is absent.
+# FigureService drives the same selected engine for cache, idle exit, timeout restart, the 127 latch and the fence; qs absence skips loudly.
 if ! command -v qs >/dev/null; then
     echo "markdown-figures.sh: SKIP qs is absent, so the FigureService suite did not run"
     echo "MARKDOWN_FIGURES DONE failures=0"
@@ -170,19 +232,24 @@ ln -s "$PWD/ui" "$test_root/qsconfig/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/qsconfig/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/qsconfig/Ui" || exit 1
 cp tests/markdown-figures.qml "$test_root/qsconfig/shell.qml" || exit 1
+# The hang must outlive the service render deadline without becoming unbounded.
+HANG_SECONDS=30
 mkdir -p "$test_root/stubbin" || exit 1
 printf 'answer\n' > "$test_root/phase" || exit 1
-# The service runs FLEA_BIN or "flea": with FLEA_BIN unset the stub answers,
-# hangs or refuses per the phase file, and execs the real binary to answer.
+# With FLEA_BIN unset the service's stub hangs, refuses or execs the selected engine according to the phase file.
+printf -v engine_exec '%q ' "${engine[@]}"
 cat > "$test_root/stubbin/flea" <<EOF
-#!/bin/sh
+#!/bin/bash
 if [ "\$1" = "--figure-helper" ]; then
     phase=\$(cat "$test_root/phase" 2>/dev/null)
     case "\$phase" in
-        hang) sleep 30 ;;
+        hang) sleep $HANG_SECONDS ;;
         exit42) exit 42 ;;
-        refused) echo "flea: stub has no engine" >&2; exit 127 ;;
-        *) exec "$fleabin" --figure-helper ;;
+        refused)
+            echo "flea: stub has no engine" >&2
+            exit 127
+            ;;
+        *) exec $engine_exec ;;
     esac
 fi
 echo "stub flea: unexpected argv \$*" >&2
@@ -191,7 +258,7 @@ EOF
 chmod +x "$test_root/stubbin/flea" || exit 1
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_BIN \
     HOME="$test_root" XDG_STATE_HOME="$test_root" XDG_CACHE_HOME="$test_root" \
-    XDG_RUNTIME_DIR="$test_root" FLEA_QJS="$qjs" FLEA_FIG_REAL="$fleabin" \
+    XDG_RUNTIME_DIR="$test_root" FLEA_QJS="$qjs" \
     FLEA_FIG_PHASE_FILE="$test_root/phase" PATH="$test_root/stubbin:$PATH" \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
     timeout 150 qs -p "$test_root/qsconfig" 2>&1 ) 2>/dev/null )
@@ -233,16 +300,31 @@ FIG_PSS_BUDGET_KB=10240
 fig_pss=$(printf '%s\n' "$output" | grep -a 'MARKDOWN_FIGURES FIGPSS')
 fig_peak=$(printf '%s\n' "$output" | grep -a 'MARKDOWN_FIGURES FIGHELPER')
 printf '%s\n' "$fig_pss" "$fig_peak"
-fig_val() { printf '%s\n' "$fig_pss" | sed -n "s/.*phase=$1 pss_kb=\([0-9][0-9]*\).*/\1/p"; }
+# Sample input: MARKDOWN_FIGURES FIGPSS phase=before pss_kb=45120.
+fig_val() {
+    printf '%s\n' "$fig_pss" | sed -n "s/.*phase=$1 pss_kb=\([0-9][0-9]*\).*/\1/p"
+}
 for phase in before formulas diagrams idle; do
-    [ -n "$(fig_val "$phase")" ] || { echo "markdown-figures.sh: FAIL no FIGPSS $phase line"; verdict=1; }
+    [ -n "$(fig_val "$phase")" ] || {
+    echo "markdown-figures.sh: FAIL no FIGPSS $phase line"
+    verdict=1
+}
 done
-printf '%s\n' "$fig_peak" | grep -q 'rss_peak_kb=[0-9]' || { echo "markdown-figures.sh: FAIL no FIGHELPER peak line"; verdict=1; }
+printf '%s\n' "$fig_peak" | grep -q 'rss_peak_kb=[0-9]' || {
+    echo "markdown-figures.sh: FAIL no FIGHELPER peak line"
+    verdict=1
+}
 if [ -n "$(fig_val before)" ] && [ -n "$(fig_val formulas)" ]; then
-    [ "$(fig_val formulas)" -le "$(( $(fig_val before) + FIG_PSS_BUDGET_KB ))" ] || { echo "markdown-figures.sh: FAIL formulas PSS exceeds before by more than $FIG_PSS_BUDGET_KB kB"; verdict=1; }
+    [ "$(fig_val formulas)" -le "$(( $(fig_val before) + FIG_PSS_BUDGET_KB ))" ] || {
+    echo "markdown-figures.sh: FAIL formulas PSS exceeds before by more than $FIG_PSS_BUDGET_KB kB"
+    verdict=1
+}
 fi
 if [ -n "$(fig_val before)" ] && [ -n "$(fig_val diagrams)" ]; then
-    [ "$(fig_val diagrams)" -le "$(( $(fig_val before) + FIG_PSS_BUDGET_KB ))" ] || { echo "markdown-figures.sh: FAIL diagrams PSS exceeds before by more than $FIG_PSS_BUDGET_KB kB"; verdict=1; }
+    [ "$(fig_val diagrams)" -le "$(( $(fig_val before) + FIG_PSS_BUDGET_KB ))" ] || {
+    echo "markdown-figures.sh: FAIL diagrams PSS exceeds before by more than $FIG_PSS_BUDGET_KB kB"
+    verdict=1
+}
 fi
 if [ "$verdict" -ne 0 ]; then
     printf '%s\n' "$output" | grep -a 'MARKDOWN_FIGURES FAIL' | head -30

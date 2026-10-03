@@ -26,6 +26,19 @@ for (const theme of themes) {
         failures++;
         console.log("FAIL one source has separate inline and display cache keys");
     }
+    for (const role of ["bg", "fg", "accent", "muted", "line", "surface", "border", "font", "bodyPx"]) {
+        const changed = { ...theme, [role]: role === "bodyPx" ? 20 : "changed " + role };
+        checks++;
+        if (cacheKey("mermaid", "A --> B", theme, true) === cacheKey("mermaid", "A --> B", changed, true)) {
+            failures++;
+            console.log("FAIL worker cache key includes theme role " + role);
+        }
+        checks++;
+        if (qmlKey("mermaid", "A --> B", changed, true) !== cacheKey("mermaid", "A --> B", changed, true)) {
+            failures++;
+            console.log("FAIL service and worker agree on theme role " + role);
+        }
+    }
 }
 console.log(`figure-cache: ${checks} check(s), ${failures} failed`);
 process.exitCode = failures > 0 ? 1 : 0;

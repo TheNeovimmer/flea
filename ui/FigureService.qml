@@ -41,7 +41,8 @@ Item {
 
     // Mirrors FigureWorker.cacheKey, including the display mode that changes formula layout.
     function cacheKeyOf(kind, source, t, display) {
-        var key = [t.bg, t.fg, t.accent || "", t.font || "", t.bodyPx || 0].join("|");
+        var key = [t.bg, t.fg, t.accent || "", t.muted || "", t.line || "", t.surface || "",
+            t.border || "", t.font || "", t.bodyPx || 0].join("|");
         return kind + "\n" + key + "\n" + !!display + "\n" + source;
     }
 

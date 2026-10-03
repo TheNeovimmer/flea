@@ -5,9 +5,18 @@
 export var MATH_LIMIT = 4096;
 export var MERMAID_LIMIT = 32768;
 export var CACHE_MAX = 64;
+// Bound nested variable and color-mix resolution before it can exhaust the stack.
+var RESOLVER_DEPTH_MAX = 12;
+// MathJax uses a 16 px body when the theme supplies no body size.
+var DEFAULT_BODY_PX = 16;
+// MathJax's ex size is half its body size.
+var EX_BODY_FRACTION = 0.5;
+// Keep converted SVG dimensions to two decimal places.
+var PX_ROUNDING_FACTOR = 100;
 
 export function themeKey(t) {
-    return [t.bg, t.fg, t.accent || "", t.font || "", t.bodyPx || 0].join("|");
+    return [t.bg, t.fg, t.accent || "", t.muted || "", t.line || "", t.surface || "",
+        t.border || "", t.font || "", t.bodyPx || 0].join("|");
 }
 
 export function cacheKey(kind, source, t, display) {
@@ -46,9 +55,7 @@ export function mix(h1, h2, p) {
     return toHex([a[0] * p + b[0] * (1 - p), a[1] * p + b[1] * (1 - p), a[2] * p + b[2] * (1 - p)]);
 }
 
-// Base table: the theme's own colours. --accent and friends stay undefined
-// unless the theme names them, so each var() falls back to the library's own
-// derivation (itself a color-mix the resolver then computes).
+// Theme roles stay undefined unless named, so var() can fall back to the library's color-mix derivations.
 function baseVars(t) {
     var v = { bg: t.bg, fg: t.fg };
     if (t.accent)
@@ -100,15 +107,16 @@ function splitTop(s, sep) {
     return parts;
 }
 
-function parseMix(inner, table, depth) {
+// Sample input: in srgb, var(--fg) 25%, var(--bg).
+function parseMix(inner, table, depth, trail) {
     var args = splitTop(inner, ",").map(function (x) { return x.trim(); });
     if (args.length < 3 || args[0] !== "in srgb")
         return null;
     var stops = args.slice(1).map(function (a) {
         var m = a.match(/^(.*?)\s+([\d.]+)%\s*$/);
         if (m)
-            return [resolveValue(m[1].trim(), table, depth + 1), parseFloat(m[2]) / 100];
-        return [resolveValue(a, table, depth + 1), -1];
+            return [resolveValue(m[1].trim(), table, depth + 1, trail), parseFloat(m[2]) / 100];
+        return [resolveValue(a, table, depth + 1, trail), -1];
     });
     var named = stops.filter(function (s) { return s[1] >= 0; });
     var share = 0;
@@ -124,9 +132,11 @@ function parseMix(inner, table, depth) {
     return mix(stops[0][0], stops[1][0], p0);
 }
 
-function resolveValue(s, table, depth) {
-    if (depth > 12)
-        return s;
+// Sample input: var(--accent, color-mix(in srgb, var(--fg) 25%, var(--bg))).
+function resolveValue(s, table, depth, trail) {
+    if (depth > RESOLVER_DEPTH_MAX)
+        throw new Error("diagram style exceeds resolver depth cap");
+    trail = trail || [];
     var out = s;
     var again = true;
     while (again) {
@@ -140,10 +150,12 @@ function resolveValue(s, table, depth) {
             var parts = splitTop(inner, ",");
             var name = parts[0].trim().replace(/^--/, "");
             var val;
-            if (Object.prototype.hasOwnProperty.call(table, name))
-                val = resolveValue(table[name], table, depth + 1);
-            else if (parts.length > 1)
-                val = resolveValue(parts.slice(1).join(","), table, depth + 1);
+            if (Object.prototype.hasOwnProperty.call(table, name)) {
+                if (trail.indexOf(name) >= 0)
+                    throw new Error("diagram style variable cycle at --" + name);
+                val = resolveValue(table[name], table, depth + 1, trail.concat(name));
+            } else if (parts.length > 1)
+                val = resolveValue(parts.slice(1).join(","), table, depth + 1, trail);
             else
                 return out;
             out = out.slice(0, i) + val + out.slice(j + 1);
@@ -155,7 +167,7 @@ function resolveValue(s, table, depth) {
             var e = closeParen(out, m + 9);
             if (e < 0)
                 return out;
-            var got = parseMix(out.slice(m + 10, e), table, depth);
+            var got = parseMix(out.slice(m + 10, e), table, depth, trail);
             if (got === null)
                 return out;
             out = out.slice(0, m) + got + out.slice(e + 1);
@@ -165,8 +177,7 @@ function resolveValue(s, table, depth) {
     return out;
 }
 
-// Null when clean, else a short reason. xmlns is a namespace, never a fetch,
-// so it is exempt from the http check.
+// Null when clean, else a short reason; xmlns is a namespace and exempt from the http check.
 export function checkSafe(svg) {
     var s = svg.replace(/xmlns(?::\w+)?="[^"]*"/g, "");
     if (s.indexOf("@import") >= 0)
@@ -196,13 +207,12 @@ function escAttr(s) {
     return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
 
-// Inline the library's class rules as presentation attributes, then drop
-// every <style> block. Only fill, stroke, widths, opacity and font props
-// cross over: the rest is layout Qt SVG never reads.
+// Inline only fill, stroke, widths, opacity and font class rules as SVG attributes, then drop style blocks Qt never reads.
 var INLINE_PROPS = ["fill", "stroke", "stroke-width", "stroke-linecap",
     "stroke-linejoin", "stroke-dasharray", "opacity",
     "font-family", "font-size", "font-weight", "text-anchor"];
 
+// Sample input: <style>rect.node { fill: #ffffff; }</style><rect class="node"/>.
 function inlineClasses(svg) {
     var styles = [];
     svg = svg.replace(/<style>([\s\S]*?)<\/style>/g, function (m, css) {
@@ -273,16 +283,13 @@ function forceFont(svg, family) {
 
 export function postMermaid(svg, t) {
     var table = baseVars(t);
-    // Library-defined derivations (--_text etc. plus per-chart vars such as
-    // --xychart-color-0) resolve against the theme base above.
+    // Sample input: <style>svg { --_text: var(--fg); --xychart-color-0: var(--accent); }</style>.
     svg.replace(/<style>([\s\S]*?)<\/style>/g, function (m, css) {
         css.replace(/\/\*[\s\S]*?\*\//g, "").split(";").forEach(function (d) {
             var p = d.split(":");
             if (p.length < 2)
                 return;
-            // The block's first declaration carries its selector prefix
-            // ("svg { --_text"), so only the text after the last brace names
-            // the variable.
+            // The first declaration's selector prefix ("svg { --_text") ends at the last brace before the variable name.
             var name = p[0].trim();
             var brace = Math.max(name.lastIndexOf("{"), name.lastIndexOf("}"));
             if (brace >= 0)
@@ -297,8 +304,7 @@ export function postMermaid(svg, t) {
         table[k] = resolveValue(table[k], table, 0);
     });
     var out = resolveValue(svg, table, 0);
-    // Whatever @import line survived resolution is remote by definition.
-    // The font URLs carry semicolons of their own, so match to the paren.
+    // Surviving @import lines are remote; match the paren because font URLs carry semicolons.
     out = out.replace(/@import\s+url\([^)]*\)\s*;?/g, "");
     // A non-local url() is a fetch; a local #fragment (arrow markers) stays.
     out = out.replace(/url\((?!\s*#)[^)]*\)/g, "none");
@@ -322,9 +328,9 @@ export function postMath(svg, t) {
         throw new Error("formula did not render");
     var out = svg.split("currentColor").join(t.fg);
     // The bundle sets em 16 ex 8, so one ex is half the body size in px.
-    var exPx = (t.bodyPx || 16) / 2;
+    var exPx = (t.bodyPx || DEFAULT_BODY_PX) * EX_BODY_FRACTION;
     out = out.replace(/(-?\d+(?:\.\d+)?)ex/g, function (m, v) {
-        var px = Math.round(parseFloat(v) * exPx * 100) / 100;
+        var px = Math.round(parseFloat(v) * exPx * PX_ROUNDING_FACTOR) / PX_ROUNDING_FACTOR;
         return String(px) + "px";
     });
     var bad = checkSafe(out);
@@ -333,8 +339,7 @@ export function postMath(svg, t) {
     return out;
 }
 
-// One figure through the loaded bundles: the svg, or a throw the caller
-// words into {id, error}. apis carries the two bundle entry points.
+// Render through the two bundle entry points in apis, returning SVG or throwing a reason the caller puts in {id, error}.
 export function renderFigure(kind, source, display, theme, apis) {
     if (kind !== "math" && kind !== "mermaid")
         throw new Error("unknown figure kind");

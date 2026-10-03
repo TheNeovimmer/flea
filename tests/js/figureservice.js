@@ -91,6 +91,27 @@ function theme() {
 }
 
 function run(check) {
+    var harness = Source.source("tests/markdown-figures.qml")
+    function idleProbe(running) {
+        var shell = { awaitSource: "fresh", afterAwait: 5, step: 4, t0: 0,
+            idleExitWaitStart: 0, idleExitBoundMs: 5000, awaitTimerStop: false,
+            results: [], asked: [], finished: [],
+            check: function (passed) { this.results.push(passed) },
+            askFresh: function (source) { this.asked.push(source) },
+            finish: function (status) { this.finished.push(status) } }
+        var Flea = { FigureService: { helperRunning: running } }
+        var Date = { now: function () { return shell.idleExitBoundMs + 1 } }
+        new Function("shell", "Flea", "Date", block(harness, "function drive()"))(shell, Flea, Date)
+        return shell
+    }
+    var idle = idleProbe(false)
+    check("idle harness observes the helper exit before judging elapsed time", idle.results[0], true)
+    check("observed idle exit allows the next ask", idle.asked.length, 1)
+    idle = idleProbe(true)
+    check("idle harness fails a helper still running past its wait bound", idle.results[0], false)
+    check("idle wait failure ends the harness immediately", idle.finished.length, 1)
+    check("idle wait failure sends no new request", idle.asked.length, 0)
+
     var deadlineMs = 1000
     var staggerMs = 100
     var afterDeadlineMs = 1

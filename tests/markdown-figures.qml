@@ -26,7 +26,11 @@ ShellRoot {
 
     property string phaseFile: Quickshell.env("FLEA_FIG_PHASE_FILE")
     property int step: 0
-    property double t0: 0
+    property double idleExitWaitStart: 0
+    // Bound the wait for helperRunning to report the idle helper's exit.
+    readonly property int idleExitBoundMs: 5000
+    // Bound main-thread stalls measured by the independent tick timer.
+    readonly property int tickGapBoundMs: 2000
     property int sendsMark: 0
     property int answersMark: 0
     property string firstSvg: ""
@@ -198,7 +202,7 @@ ShellRoot {
             shell.check(Flea.FigureService.sends === shell.sendsMark + 1, "the display revisit sends nothing");
             shell.step = 4;
             Flea.FigureService.idleExitMs = 150;
-            shell.t0 = Date.now();
+            shell.idleExitWaitStart = Date.now();
             shell.awaitSource = "\\sqrt{2}";
             shell.afterAwait = 5;
         } else if (shell.step === 5) {
@@ -311,10 +315,17 @@ ShellRoot {
             shell.awaitSource = "";
             shell.step = shell.afterAwait;
             if (shell.step === 5)
-                shell.check(Date.now() - shell.t0 < 5000, "the idle exit stops the process");
+                shell.check(true, "the idle exit stops the process");
             if (shell.step === 14)
                 shell.exitAskedAt = Date.now();
             shell.askFresh(src);
+        }
+        if (shell.step === 4 && Flea.FigureService.helperRunning
+                && Date.now() - shell.idleExitWaitStart > shell.idleExitBoundMs) {
+            shell.awaitSource = "";
+            shell.check(false, "the idle exit stops the process within its wait bound");
+            shell.finish(1);
+            return;
         }
         // The idle-phase reading waits past the helper's stop, then the
         // functional flow starts on a production idle exit again.
@@ -365,7 +376,7 @@ ShellRoot {
             return;
         shell.done = true;
         pump.running = false;
-        shell.check(shell.maxGap < 2000, "main thread never blocked, max tick gap ms=" + shell.maxGap);
+        shell.check(shell.maxGap < shell.tickGapBoundMs, "main thread never blocked, max tick gap ms=" + shell.maxGap);
         shell.check(Flea.FigureService.workerAnswers > 0, "every answer came through the helper");
         shell.log("DONE failures=" + (shell.failures + extra));
         shell.quit();

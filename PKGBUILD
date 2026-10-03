@@ -84,7 +84,9 @@ package() {
 
   # paths.rs looks for /usr/share/flea/ui/boot/shell.qml, so the UI ships as data beside the binary.
   install -Dm644 ui/qmldir ui/*.qml -t "$pkgdir/usr/share/flea/ui"
-  install -Dm644 ui/js/*.js -t "$pkgdir/usr/share/flea/ui/js"
+  install -Dm644 ui/js/*.js ui/js/*.mjs -t "$pkgdir/usr/share/flea/ui/js"
+  install -Dm644 ui/vendor/*.mjs -t "$pkgdir/usr/share/flea/ui/vendor"
+  install -Dm644 ui/vendor/LICENSES/* -t "$pkgdir/usr/share/flea/ui/vendor/LICENSES"
   # The two Quickshell entries, in their own directory so ui/qmldir's singletons stay off the startup path.
   install -Dm644 ui/boot/shell.qml ui/boot/picker.qml -t "$pkgdir/usr/share/flea/ui/boot"
   # B1: the bar plugin ships as data too, and Flea's own Enable shelf switch copies it from here into
