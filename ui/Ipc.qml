@@ -262,7 +262,7 @@ QtObject {
         function trashControlCentre(name: string): string {
             var view = root.pane.trash.item
             if (!view) return ""
-            var item = ({back: view.backItem, up: view.upItem, cancel: view.confirmationItem.cancelItem, danger: view.confirmationItem.dangerItem})[name]
+            var item = ({back: view.backItem, up: view.upItem, empty: view.emptyItem, cancel: view.confirmationItem.cancelItem, danger: view.confirmationItem.dangerItem})[name]
             return item ? root.fleaWindow.centreOf(item) : ""
         }
 
@@ -848,6 +848,7 @@ QtObject {
             }
             return out.join("\n")
         }
+        function trashFocusEmpty(): bool { var view = root.pane.trash.item; if (!view) return false; view.emptyItem.forceActiveFocus(Qt.TabFocusReason); return view.emptyItem.activeFocus }
     }
     function rowNameItem(i) {
         var item = root.pane.rowFor(i) ? root.pane.visibleItemFor(i) : null

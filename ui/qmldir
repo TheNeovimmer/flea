@@ -7,7 +7,6 @@ singleton UpdateCheck 1.0 UpdateCheck.qml
 singleton DefaultClaim 1.0 DefaultClaim.qml
 Backend 1.0 Backend.qml
 CheckBox 1.0 CheckBox.qml
-ChromeAction 1.0 ChromeAction.qml
 ChromeBar 1.0 ChromeBar.qml
 ChromeButton 1.0 ChromeButton.qml
 ChromeModes 1.0 ChromeModes.qml

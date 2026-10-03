@@ -70,7 +70,9 @@ function run(check) {
     // The card's keyboard opening and its primary agree, so Enter is safe.
     check("the card still opens on Keep both", Collide.START, Buttons.primaryFor("collide"))
 
-    // The height lives in ui/DialogButton.qml as Theme.rowHeight minus its padding, so no constant here can drift from it.
+    // The height lives in ui/DialogButton.qml as Theme.rowHeight minus its padding, or the strip's chromeHeight when hosted, so no constant here can drift from it.
     check("buttons draw the theme height, not a constant",
-        Source.source("ui/DialogButton.qml").indexOf("implicitHeight: Theme.rowHeight - Theme.spacing.rowPaddingY") >= 0, true)
+        Source.source("ui/DialogButton.qml").indexOf("implicitHeight: root.inStrip ? Theme.chromeHeight : Theme.rowHeight - Theme.spacing.rowPaddingY") >= 0, true)
+    check("a hosted control draws the strip's control height, not a constant",
+        Source.source("ui/DialogButton.qml").indexOf("root.inStrip ? Theme.chromeControlHeight : root.height") >= 0, true)
 }

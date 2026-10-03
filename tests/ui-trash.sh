@@ -243,6 +243,16 @@ trash_shot() {
     printf 'TRASH_SHOT path=%s viewport=%q\n' "$path" "$(window_box)"
 }
 
+# Moves the pointer onto a native control and nudges it, because a warp alone sends Qt no motion (see hover_row).
+trash_hover() {
+    local cx cy wx wy
+    read -r cx cy <<< "$(ipc trashControlCentre "$1")"
+    [[ "$cx" =~ ^[0-9]+$ && "$cy" =~ ^[0-9]+$ ]] || fail "trash: missing native control centre"
+    read -r wx wy _width _height < <(window_box) || fail "native window coordinates unavailable"
+    omarchy-drive move "$((wx + cx))" "$((wy + cy))" >/dev/null || fail "trash: native pointer move failed"
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
+}
+
 trash_empty_strip() {
     trash_rail right
     menu_seek "Empty Trash"
@@ -823,6 +833,16 @@ case_trash() {
         || fail "trash: partial deletion has no file-specific failure detail"
     trash_guard_store 1
     trash_shot trash-partial-failure
+    # The strip's Empty Trash against ButtonSystem040's rest, hover and keyboard cells, the pointer parked clear of it between them.
+    trash_hover back
+    trash_shot trash-empty-action-rest
+    trash_hover empty
+    settle
+    trash_shot trash-empty-action-hover
+    trash_hover back
+    [[ "$(ipc trashFocusEmpty)" == true ]] || fail "trash: the strip's Empty Trash did not take the keyboard"
+    settle
+    trash_shot trash-empty-action-focus
     uri=$(/usr/bin/gio trash --list | cut -f1)
     backing=$(trash_backing "$uri") || fail "trash: missing survivor backing"
     trash_guard "$backing"

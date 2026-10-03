@@ -2,7 +2,7 @@ import QtQuick
 import qs.Commons
 import "js/Buttons.js" as Buttons
 
-// Variant A (Buttons040, GM 2026-09-24): the one control every dialog, card and picker button draws.
+// Variant A (Buttons040, GM 2026-09-24): the one control every dialog, card, picker button and strip action draws.
 Item {
     id: root
 
@@ -17,6 +17,8 @@ Item {
     property bool focused: root.activeFocus
     // True where the form owns the Tab order and the button only reports through tabbed.
     property bool tabHandle: false
+    // Hosted in a 27 strip (or a 37 settings row), the control keeps the host's height at caption, and Tab reaches it.
+    property bool inStrip: false
 
     signal activated()
     // The form owns the order; a button only reports that Tab happened inside it.
@@ -30,8 +32,15 @@ Item {
     // The frame and this wash say which action is being asked for; an accent label said it by going darker, HANDOFF rule 18.
     readonly property color wash: root.primary && root.available ? Qt.alpha(Theme.color.accent, Buttons.WASH_PRESS) : "transparent"
 
+    // The press area fills the strip so it clears hitMin, while the frame is drawn at the control height, centred in the strip less its rule.
+    readonly property real frameHeight: root.inStrip ? Theme.chromeControlHeight : root.height
+    readonly property real frameY: root.inStrip ? Math.round((root.height - Theme.spacing.hairline - root.frameHeight) / 2) : 0
+
     implicitWidth: Math.max(Theme.hitMin, text.implicitWidth + 2 * root.horizontalPadding + 2 * Theme.spacing.hairline)
-    implicitHeight: Theme.rowHeight - Theme.spacing.rowPaddingY
+    implicitHeight: root.inStrip ? Theme.chromeHeight : Theme.rowHeight - Theme.spacing.rowPaddingY
+    // A strip control stays in the Tab chain and drops out as a disabled item; flipping activeFocusOnTab under a focused control only warns.
+    activeFocusOnTab: root.inStrip
+    enabled: root.available || !root.inStrip
     opacity: root.available ? 1 : Buttons.DISABLED_OPACITY
     scale: tap.pressed && root.available && !Theme.reducedMotion ? Buttons.PRESS_SCALE : 1
 
@@ -44,38 +53,49 @@ Item {
         NumberAnimation { duration: Buttons.PRESS_MS; easing.type: Easing.OutQuad }
     }
 
-    Rectangle {
-        anchors.fill: parent
-        color: root.wash
-        border.width: Theme.spacing.hairline
-        border.color: root.frame
-    }
+    Item {
+        id: box
+        y: root.frameY
+        width: parent.width
+        height: root.frameHeight
 
-    // Hover and press lay the control's own ink over the wash a primary carries.
-    Rectangle {
-        anchors.fill: parent
-        color: tap.pressed && root.available ? Qt.alpha(root.ink, Buttons.WASH_PRESS)
-            : hover.hovered && root.available ? Qt.alpha(root.ink, Buttons.WASH_HOVER) : "transparent"
-    }
+        Rectangle {
+            objectName: "buttonFrame"
+            anchors.fill: parent
+            color: root.wash
+            border.width: Theme.spacing.hairline
+            border.color: root.frame
+        }
 
-    Text {
-        id: text
-        anchors.centerIn: parent
-        text: root.label
-        color: root.ink
-        font.family: Theme.font.family
-        font.pixelSize: Buttons.labelSizeFor(Theme.font.body)
-        textFormat: Text.PlainText
-    }
+        // Hover and press lay the control's own ink over the wash a primary carries.
+        Rectangle {
+            objectName: "buttonWash"
+            anchors.fill: parent
+            color: tap.pressed && root.available ? Qt.alpha(root.ink, Buttons.WASH_PRESS)
+                : hover.hovered && root.available ? Qt.alpha(root.ink, Buttons.WASH_HOVER) : "transparent"
+        }
 
-    // Focus never moves the frame: the ring says where the keyboard is.
-    Rectangle {
-        anchors.fill: parent
-        anchors.margins: -Buttons.RING
-        color: "transparent"
-        border.width: Buttons.RING
-        border.color: Theme.color.foreground
-        visible: root.focused && root.available
+        Text {
+            id: text
+            objectName: "buttonLabel"
+            anchors.centerIn: parent
+            text: root.label
+            color: root.ink
+            font.family: Theme.font.family
+            font.pixelSize: Buttons.labelSizeFor(root.inStrip ? Theme.font.caption : Theme.font.body)
+            textFormat: Text.PlainText
+        }
+
+        // Focus never moves the frame: the ring says where the keyboard is.
+        Rectangle {
+            objectName: "buttonRing"
+            anchors.fill: parent
+            anchors.margins: -Buttons.RING
+            color: "transparent"
+            border.width: Buttons.RING
+            border.color: Theme.color.foreground
+            visible: root.focused && root.available
+        }
     }
 
     HoverHandler {

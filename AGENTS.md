@@ -2075,6 +2075,16 @@ load-bearing tree-wide (Theme, NetworkDialog, SidebarRow, ContextMenu and Previe
 for Style and Color), so an `omarchy update` reshaping it is a standing, tracked risk rather
 than a rule any one file breaks.
 
+The Trash strip's Empty Trash is the one button, not a second recipe (GM 2026-10-03, after seeing two Empty Trash
+buttons that drew differently). `ui/TrashView.qml` instantiates `Flea.DialogButton` with `destructive: true` and
+`inStrip: true`: the host's height (`Theme.chromeHeight` for the press area, `Theme.chromeControlHeight` for the frame,
+centred in the strip less its rule) at caption size, a muted frame that never changes, the error label, hover 8% and
+press 14% of the ink with the 0.96 press, a 2 px foreground ring outside the frame, 0.55 when disabled, and Tab in the
+focus chain. The strip's former own control, whose frame rose to the ink and whose focus was a wash, is deleted.
+`tests/button-system.sh` pins the ladder in five states against a destructive dialog button, plus the sweep table of
+every framed labelled press target in `ui/` (the control, the ruled set members, the marks, and the two deferred
+members PickerChrome's `Framed` and NetworkForm's TLS box); a new hand-built button fails its completeness check.
+
 ## How the list renders
 
 `ui/Pane.qml`'s `ListView` sets `clip: true` because the top row of a wheel-scrolled viewport is

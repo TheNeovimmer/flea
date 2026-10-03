@@ -95,7 +95,7 @@ ui/ColumnsArea.qml 479
 ui/ContextMenu.qml 703
 ui/ConvertDialog.qml 433
 ui/GridArea.qml 412
-ui/Ipc.qml 857
+ui/Ipc.qml 858
 ui/KeymapSheet.qml 523
 ui/List.qml 437
 tests/touchpad-edge.qml 438
@@ -119,7 +119,7 @@ ui/SettingsRow.qml 410
 ui/Sidebar.qml 657
 ui/StatusBar.qml 456
 ui/Theme.qml 416
-ui/TrashView.qml 475
+ui/TrashView.qml 479
 ui/ViewState.qml 538
 ui/WindowBody.qml 631
 ui/js/Anchor.js 405

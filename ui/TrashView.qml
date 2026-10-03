@@ -52,6 +52,8 @@ FocusScope {
     readonly property var confirmationItem: confirmation
     readonly property var backItem: backButton
     readonly property var upItem: upButton
+    readonly property var emptyItem: emptyAction
+    readonly property var stripItem: strip
     readonly property string countText: countLabel.text
     readonly property var headerLabels: [nameTitle.text, locationTitle.text, deletedTitle.text]
     function rowItemFor(index) { return listing.itemAtIndex(index) }
@@ -305,6 +307,7 @@ FocusScope {
         anchors.fill: parent
         spacing: 0
         Rectangle {
+            id: strip
             width: parent.width
             height: Theme.chromeHeight
             color: Theme.color.surface
@@ -359,11 +362,12 @@ FocusScope {
                     font { family: Theme.font.family; pixelSize: Theme.font.caption }
                 }
                 // Emptying the Trash was reachable only by right-clicking the rail row. It addresses the whole Trash, which is what the count beside it describes, so it belongs here. It opens the confirmation the menu row opens: the boundary is unchanged and no key is bound to it. Disabled exactly where ui/js/Menu.js disables the row.
-                Flea.ChromeAction {
+                Flea.DialogButton {
                     id: emptyAction
                     anchors.verticalCenter: parent.verticalCenter
                     label: "Empty Trash"
-                    role: "error"
+                    destructive: true
+                    inStrip: true
                     available: root.total > 0 && !root.busy
                     onActivated: root.prepare(true)
                 }
