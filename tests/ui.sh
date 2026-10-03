@@ -11463,7 +11463,8 @@ case_dualsort() {
         key l >/dev/null
         settings_wait_value '.sort.key == "kind" and .sort.reverse == false'
         key -k Escape >/dev/null
-        dual_sort_wait kind:asc file-00.txt
+        # A Settings relist keeps the cursor file by name and scrolls to it, so the focused pane holds only rows around that file's new index.
+        dual_sort_wait kind:asc "$kept_name" "$kept_at"
     done
     kill_flea
     launch "$dir/left"
