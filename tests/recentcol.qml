@@ -112,8 +112,8 @@ Item {
         return count
     }
 
-    // Include sibling and ancestor handlers whose enabled hit area overlaps any part of the title.
-    function titleInputHandlers(headerItem, title, button, walk) {
+    // Menu checks require the header's own full-area TapHandler; other checks include all overlapping handlers.
+    function titleInputHandlers(headerItem, title, button, walk, headerMenuOnly) {
         var count = 0
         walk(headerItem, function (o) {
             if (!(o instanceof PointerHandler || o instanceof MouseArea))
@@ -121,6 +121,9 @@ Item {
             if (!o.enabled || !(o.acceptedButtons & button))
                 return
             var area = o instanceof MouseArea ? o : o.parent
+            if (headerMenuOnly && (!(o instanceof TapHandler) || o.parent !== headerItem
+                || area !== headerItem || o.acceptedButtons !== Qt.RightButton || o.margin !== 0))
+                return
             if (!area || !area.visible || !area.enabled || area.width <= 0 || area.height <= 0)
                 return
             var start = title.mapToItem(area, 0, 0)
@@ -135,7 +138,16 @@ Item {
 
     function locationInput(check, walk, title) {
         check("No header left-button handler covers Location", root.titleInputHandlers(header, title, Qt.LeftButton, walk), 0)
-        check("Whole-header right-button menu covers Location", root.titleInputHandlers(header, title, Qt.RightButton, walk), 1)
+        check("One right-button handler covers Location", root.titleInputHandlers(header, title, Qt.RightButton, walk), 1)
+        check("Location right-button handler belongs to the whole-header menu", root.titleInputHandlers(header, title, Qt.RightButton, walk, true), 1)
+        var menu = null
+        walk(header, function (o) {
+            if (o instanceof TapHandler && o.parent === header && o.acceptedButtons === Qt.RightButton)
+                menu = o
+        })
+        check("Header owns its right-button menu handler", menu !== null, true)
+        if (!menu)
+            return
         var control = siblingControl.createObject(header)
         check("Synthetic sibling TapHandler was built", control !== null, true)
         if (!control)
@@ -144,6 +156,12 @@ Item {
         control.buttons = Qt.RightButton
         check("Synthetic sibling right-button handler allows Location exclusion", root.titleInputHandlers(header, title, Qt.LeftButton, walk), 0)
         check("Synthetic sibling right-button handler is inspected", root.titleInputHandlers(header, title, Qt.RightButton, walk), 2)
+        check("Foreign right-button handler does not count as the whole-header menu", root.titleInputHandlers(header, title, Qt.RightButton, walk, true), 1)
+        menu.enabled = false
+        check("Foreign right-button handler alone still covers Location", root.titleInputHandlers(header, title, Qt.RightButton, walk), 1)
+        check("Foreign right-button handler alone cannot satisfy the whole-header menu check", root.titleInputHandlers(header, title, Qt.RightButton, walk, true), 0)
+        menu.enabled = true
+        check("Restored whole-header menu covers Location", root.titleInputHandlers(header, title, Qt.RightButton, walk, true), 1)
         control.buttons = Qt.LeftButton
         control.inputEnabled = false
         check("Disabled sibling handler allows Location exclusion", root.titleInputHandlers(header, title, Qt.LeftButton, walk), 0)
