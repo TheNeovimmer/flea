@@ -8,8 +8,7 @@ import "flea/js/Scroll.js" as Scroll
 
 // tp2-r2: grid margin lanes and axis lanes on bare views, offscreen. A grid rests at -gap on
 // both axes and never reads overscrolled there; an axis with no scroll range takes no delta,
-// so a diagonal on a vertical list coasts exactly like the pure vertical stroke. The scroll bar
-// measures a list's content plus its margins, so a list with margins reads true at both ends.
+// so a diagonal on a vertical list coasts exactly like the pure vertical stroke.
 // tests/scroll-bounds.sh drives it.
 ShellRoot {
     id: root
@@ -297,6 +296,7 @@ ShellRoot {
         console.log("LANES bar " + label + " span=" + span.toFixed(1) + " knob=" + length.toFixed(1) + " dragged=" + view.contentY.toFixed(1))
     }
 
+    // The scroll bar measures a list's content plus its margins, so a list with margins reads true at both ends.
     function checkBars() {
         if (shortList.contentHeight >= shortList.height)
             fail("the short fixture is not shorter than its view: " + shortList.contentHeight)
