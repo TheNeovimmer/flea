@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-# Source-level checks use only the standard library and qmllint's JSON diagnostic IDs.
+# Source-level checks use the standard library and Qt's compiler and diagnostic IDs.
 import argparse
 import collections
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,10 @@ ALIAS_FIXPOINT_CAP = 8
 QMLLINT_TIMEOUT_SECONDS = 120
 # Keep a missing-JSON diagnostic readable even when qmllint emits a long error.
 STDERR_EXCERPT_LENGTH = 200
+# Limit simultaneous Qt compilers and bound each source file's compilation.
+QMLCACHEGEN_POOL_SIZE = 4
+QMLCACHEGEN_TIMEOUT_SECONDS = 15
+QMLCACHEGEN_PATHS = ('/usr/lib/qt6/qmlcachegen', '/usr/lib/qt6/libexec/qmlcachegen')
 
 
 def inventory(root, tracked=False):
@@ -42,81 +47,15 @@ def inventory(root, tracked=False):
     return sorted(paths)
 
 
-def regex_start(prefix):
-    prefix = prefix.rstrip(' \t\r\n~')
-    if prefix.endswith(('++', '--')):
-        return False
-    if re.search(r'(?:^|[=(,:!\[{};?&|+*/%^<>-]|\b(?:return|throw|case|yield|await|typeof|void|delete|in|instanceof|else|do))$', prefix):
-        return True
-    if not prefix.endswith(')'):
-        return False
-    depth = 1
-    for at in range(len(prefix) - 2, -1, -1):
-        depth += (prefix[at] == ')') - (prefix[at] == '(')
-        if depth == 0:
-            return bool(re.search(r'\b(?:if|while|for|with|switch|catch)[\s~]*$', prefix[:at]))
-    return False
-
-
-def template_end(source, start):
-    # Nested templates and quoted interpolation values remain one opaque string token.
-    stack = ['`']
-    starts = [start]
-    i = start + 1
-    prefix = list(source)
-    while i < len(source) and stack:
-        char = source[i]
-        if isinstance(stack[-1], str):
-            quote = stack[-1]
-            if char == '\\':
-                i += 2
-                continue
-            if quote == '`' and source.startswith('${', i):
-                stack.append(1)
-                starts.append(i)
-                i += 2
-                continue
-            if char == quote:
-                stack.pop()
-                at = starts.pop()
-                prefix[at:i + 1] = '0' + '~' * (i - at)
-        elif source.startswith('//', i) or source.startswith('/*', i):
-            line_comment = source.startswith('//', i)
-            end = source.find('\n' if line_comment else '*/', i + 2)
-            end = len(source) if end < 0 else end + (0 if line_comment else 2)
-            prefix[i:end] = '~' * (end - i)
-            i = end
-            continue
-        elif char in '\'"`':
-            stack.append(char)
-            starts.append(i)
-        elif char == '/' and regex_start(''.join(prefix[:i])):
-            match = re.match(r'/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\n])*/[A-Za-z]*', source[i:])
-            if match:
-                prefix[i:i + len(match[0])] = '0' + '~' * (len(match[0]) - 1)
-                i += len(match[0])
-                continue
-        elif char == '{':
-            stack[-1] += 1
-        elif char == '}':
-            stack[-1] -= 1
-            if not stack[-1]:
-                stack.pop()
-                starts.pop()
-        i += 1
-    return i
-
-
-def masked(source, suffix, literal_tokens=False):
+# Sample input: var text = "quoted"; /* comment */ run()
+def masked(source, suffix):
     # Keep offsets and newlines so diagnostics always point at the original source.
     out = list(source)
     i = 0
     while i < len(source):
         start = i
-        literal = False
         raw = re.match(r'r(\#*)"', source[i:]) if suffix == '.rs' else None
         if raw:
-            literal = True
             end = source.find('"' + raw[1], i + len(raw[0]))
             i = len(source) if end < 0 else end + 1 + len(raw[1])
         elif source.startswith('//', i) and suffix != '.sh' or source[i] == '#' and suffix == '.sh' and (i == 0 or source[i - 1].isspace()):
@@ -139,7 +78,6 @@ def masked(source, suffix, literal_tokens=False):
             # Sample input: echo \' ; x    y keeps the quote literal and the following code visible.
             i += 2
         elif source[i] in '"\'`' and not (suffix == '.rs' and source[i] == "'" and not re.match(r"'(?:\\.|[^'\\\n])'", source[i:])):
-            literal = True
             quote = source[i]
             # Sample input: $'it\'s' is ANSI-C; \$'a\' keeps its backslash literal.
             literal_backslash = suffix == '.sh' and quote == "'"
@@ -150,12 +88,8 @@ def masked(source, suffix, literal_tokens=False):
                     backslashes += 1
                     at -= 1
                 literal_backslash = backslashes % 2 != 0
-            if literal_tokens and quote == '`':
-                i = template_end(source, i)
-                quote = None
-            else:
-                i += 1
-            while quote is not None and i < len(source):
+            i += 1
+            while i < len(source):
                 if source[i] == '\\' and not literal_backslash:
                     i += 2
                 elif source[i] == quote:
@@ -164,9 +98,7 @@ def masked(source, suffix, literal_tokens=False):
                 else:
                     i += 1
         elif (source[i] == '/' and suffix in ('.js', '.qml')
-              and (regex_start(''.join(out[:i])) if literal_tokens else
-                   re.search(r'(?:^|[=(,:!\[{};?]|\breturn)\s*$', source[:i]))):
-            literal = True
+              and re.search(r'(?:^|[=(,:!\[{};?]|\breturn)\s*$', source[:i])):
             # A regex literal is data, including its character classes and escaped slashes.
             i += 1
             bracket = False
@@ -190,9 +122,6 @@ def masked(source, suffix, literal_tokens=False):
         for at in range(start, min(i, len(source))):
             if source[at] != '\n':
                 out[at] = '~'
-        if literal_tokens and literal:
-            # A value token lets a following newline end its binding without exposing literal contents.
-            out[start] = '0'
     text = ''.join(out)
     if suffix == '.sh':
         # Literal heredoc bodies are fixture data or child-script strings, not shell tokens.
@@ -745,73 +674,58 @@ def qml_undeclared_read(root, files, sample=False):
         return len(qml), errors
 
 
-def duplicate_members(code, suffix):
-    # Sample input: QtObject { readonly property alias wire: wire; readonly property alias wire: wire }
-    identifier = r'[A-Za-z_$][\w$]*'
-    space = r'[\s~]*'
-    type_name = identifier + r'(?:\.' + identifier + r')*'
-    declaration = re.compile(
-        r'property[\s~]+' + type_name + r'(?:' + space + '<' + space + type_name + space + '>)?'
-        r'[\s~]+(?P<property>' + identifier + r')(?![\w$])|'
-        r'(?:signal|function)[\s~]+(?P<callable>' + identifier + r')(?![\w$])|(?P<id>id)' + space + ':')
-    tokens = list(re.finditer(identifier + r'|[^\s~]', code))
-    stack, top, duplicates = [], {}, []
+def qmlcachegen_binary():
+    paths = [os.environ['FLEA_QMLCACHEGEN']] if os.environ.get('FLEA_QMLCACHEGEN') else []
+    paths.extend(QMLCACHEGEN_PATHS)
+    for binary in paths:
+        if Path(binary).is_file() and os.access(binary, os.X_OK):
+            return binary
+    raise ValueError('qmlcachegen unavailable; tried: ' + ', '.join(paths))
 
-    def starts_member(index):
-        while index and tokens[index - 1][0] in ('readonly', 'default', 'required'):
-            index -= 1
-        if not index or tokens[index - 1][0] in ('{', '}', ';'):
-            return True
-        previous = tokens[index - 1]
-        return ('\n' in code[previous.end():tokens[index].start()]
-                and previous[0] not in (':', '=', '.', ',', '?', '+', '-', '*', '/', '%', '&', '|',
-                                       '^', '!', '<', '>', '(', '[', 'return', 'async', 'new', 'yield'))
 
-    for index, token in enumerate(tokens):
-        value = token[0]
-        members = top if suffix == '.js' and not stack else stack[-1][1] if stack else None
-        if members is not None and starts_member(index):
-            match = declaration.match(code, token.start())
-            if match and (suffix == '.qml' or value == 'function'):
-                name = match['property'] or match['callable'] or match['id']
-                if value != 'function' or re.match(space + r'\(', code[match.end():]):
-                    line = code.count('\n', 0, token.start()) + 1
-                    if name in members:
-                        duplicates.append((line, name, members[name]))
-                    else:
-                        members[name] = line
-        if value in ('{', '(', '['):
-            is_object = False
-            qml_context = suffix == '.qml' and (not stack or stack[-1][0] in ('object', 'array'))
-            if value == '{' and qml_context and index and re.fullmatch(r'[A-Z][\w$]*', tokens[index - 1][0]):
-                start = index - 1
-                while start >= 2 and tokens[start - 1][0] == '.' and re.fullmatch(identifier, tokens[start - 2][0]):
-                    start -= 2
-                binding_type = (start and tokens[start - 1][0] == ':'
-                                and (start < 2 or tokens[start - 2][0] != ')'))
-                is_object = (starts_member(start) or binding_type
-                             or stack and stack[-1][0] == 'array' and tokens[start - 1][0] in ('[', ','))
-            kind = 'object' if is_object else 'array' if value == '[' and qml_context else value
-            stack.append((kind, {} if is_object else None))
-        elif value in ('}', ')', ']') and stack:
-            stack.pop()
-    return duplicates
+# Sample input: Item { property int wire: 0; property int wire: 1 }
+def compile_qml(root, files):
+    if not files:
+        return []
+    binary = qmlcachegen_binary()
+    with tempfile.TemporaryDirectory(prefix='staticgates-qmlcachegen-') as scratch:
+        def compile_file(file):
+            out = Path(scratch) / (file + 'c')
+            out.parent.mkdir(parents=True, exist_ok=True)
+            result = subprocess.run([binary, '--only-bytecode', '--resource-path', '/' + file,
+                                     file, '-o', str(out)], cwd=root, capture_output=True,
+                                    text=True, timeout=QMLCACHEGEN_TIMEOUT_SECONDS)
+            if result.returncode:
+                diagnostic = (result.stderr or result.stdout).strip()
+                return diagnostic.removeprefix('Error compiling qml file: ') or f'{file}: qmlcachegen exited {result.returncode} without diagnostics'
+            if not out.is_file() or not out.stat().st_size:
+                return f'{file}: qmlcachegen returned success without bytecode'
+            return None
+
+        with ThreadPoolExecutor(max_workers=QMLCACHEGEN_POOL_SIZE) as pool:
+            return [error for error in pool.map(compile_file, files) if error]
 
 
 def qml_duplicate_member(root, files):
-    errors = []
-    scanned = 0
-    for file in files:
-        path = root / file
-        qml = path.suffix == '.qml' and file.startswith(('ui/', 'tests/'))
-        js = path.suffix == '.js' and file.startswith('ui/')
-        if not (qml or js) or not path.is_file():
-            continue
-        scanned += 1
-        code = masked(path.read_text(), path.suffix, literal_tokens=True)
-        errors.extend(f'{file}:{line}: {name} declared again (first at {first})'
-                      for line, name, first in duplicate_members(code, path.suffix))
-    return scanned, errors
+    qml = [file for file in files if file.startswith(('ui/', 'tests/'))
+           and file.endswith('.qml') and (root / file).is_file()]
+    js = [file for file in files if file.startswith('ui/')
+          and file.endswith('.js') and (root / file).is_file()]
+    errors = compile_qml(root, qml)
+    for file in js:
+        members = {}
+        for line, source in enumerate((root / file).read_text().splitlines(), 1):
+            # This check relies on the column-0 house style for top-level JS declarations.
+            # Sample input: function wire() {} or var wire = null, starting at column 0.
+            match = re.match(r'(?:function[ \t]+([A-Za-z_$][\w$]*)[ \t]*\(|(?:var|const|let)[ \t]+([A-Za-z_$][\w$]*)(?![\w$]))', source)
+            if not match:
+                continue
+            name = match[1] or match[2]
+            if name in members:
+                errors.append(f'{file}:{line}: {name} declared again (first at {members[name]})')
+            else:
+                members[name] = line
+    return len(qml) + len(js), errors
 
 
 CHECKS = dict(zip(GATES, (conflict_marker, fused_line, paneprops, del_printable, qml_undeclared_read, qml_duplicate_member)))
@@ -845,7 +759,7 @@ def negative_controls(root):
             expected = {'conflict-marker': 'unresolved conflict marker', 'fused-line': 'fused code gap',
                         'paneprops': 'pane.removedProperty absent', 'del-printable': 'printable event.text decision',
                         'qml-undeclared-read': 'new unqualified read asker',
-                        'qml-duplicate-member': 'wire declared again (first at ' + ('2)' if file.endswith('.js') else '3)')}[gate]
+                        'qml-duplicate-member': ('wire declared again (first at 2)' if file.endswith('.js') else 'Duplicate alias name')}[gate]
             if (result.returncode != 1 or expected not in diagnostic or file + ':' not in diagnostic
                     or 'STATICGATES FAIL gates=1' not in result.stdout):
                 errors.append(f'{gate}: planted defect was not rejected: {result.stdout} {result.stderr}')

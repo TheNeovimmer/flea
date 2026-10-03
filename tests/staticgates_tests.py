@@ -16,6 +16,21 @@ from unittest import mock
 
 import staticgates as gates
 
+# The expression fixtures keep non-declarations indented according to the column-0 house style.
+DUPDECL_FIXTURES = {
+    'F1-opacity': ('ui/A.qml', 'Item { Behavior on opacity { property int value: 0; property int value: 1 } }\n', 'Duplicate property name'),
+    'F1-x': ('ui/A.qml', 'Item { Behavior on x { property int wire: 0; property int wire: 1 } }\n', 'Duplicate property name'),
+    'F2-increment': ('ui/A.js', 'function wire() {}\nvar counter = 0\ncounter++\nfunction wire() {}\n', 'wire declared again (first at 1)'),
+    'F2-decrement': ('ui/A.js', 'function wire() {}\nvar counter = 0\ncounter--\nfunction wire() {}\n', 'wire declared again (first at 1)'),
+    'F3-object-division': ('ui/A.qml', 'Item {\nfunction first() { var x = {} / 2; } function wire() { return /x/; }\nfunction wire() {}\n}\n', 'Duplicate method name'),
+    'F3-template-return': ('ui/A.qml', 'Item {\nproperty int wire: 0\nproperty string text: `${({return:10}).return / 2}/s`\nproperty int wire: 1\n}\n', 'Duplicate property name'),
+    'F3-ratio-return': ('ui/Ratio.js', 'function wire() {}\nvar ratio = ({return: 4}).return / 2;\nfunction wire() {}', 'wire declared again (first at 1)'),
+    'F4-binding-return': ('ui/A.qml', 'Item {\nproperty int wire: 0\nproperty var result: ({return:10}).return\nproperty int wire: 1\n}\n', 'Duplicate property name'),
+    'F5-void': ('ui/Plain.js', 'function wire() {}\nvoid\n    function wire() {}()\n', None),
+    'F5-typeof': ('ui/Plain.js', 'function wire() {}\nvar type = typeof\n    function wire() {}\n', None),
+}
+
+
 # The qmllint command places its JSON output before the requested source paths.
 QMLLINT_JSON_ARGUMENT = 2
 QMLLINT_FIRST_FILE_ARGUMENT = 3
@@ -245,132 +260,81 @@ class StaticGateTests(unittest.TestCase):
                 self.assertEqual(gates.fused_line(self.root, ['sample.sh']),
                                  (1, ['sample.sh:4: fused code gap (4 spaces)']))
 
-    def test_duplicate_member_pane_alias_reports_both_lines(self):
-        self.write('ui/Pane.qml', 'import QtQuick\nFocusScope {\n'
-                   '    readonly property alias wire: wire\n'
-                   '    readonly property alias wire: wire\n}\n')
-        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Pane.qml']),
-                         (1, ['ui/Pane.qml:4: wire declared again (first at 3)']))
+    def assert_qml_rejected(self, file, source, diagnostic):
+        self.write(file, source)
+        count, errors = gates.qml_duplicate_member(self.root, [file])
+        self.assertEqual(count, 1)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn(diagnostic, errors[0])
+        self.assertTrue(errors[0].startswith(file + ':'), errors)
+        # Sample input: ui/A.qml:4:18: error: Duplicate property name
+        self.assertRegex(errors[0], r':\d+:\d+: error: ')
 
-    def test_duplicate_member_all_declaration_kinds(self):
-        declarations = ('property int value: 0', 'readonly property int value: 0',
-                        'default property list<QtObject> value', 'required property int value',
-                        'required readonly property int value', 'property alias value: root.width',
-                        'signal value()', 'signal value', 'function value() {}', 'id: root')
-        for declaration in declarations:
+    def test_duplicate_member_review_fixtures(self):
+        for name, (file, source, diagnostic) in DUPDECL_FIXTURES.items():
+            with self.subTest(fixture=name):
+                self.write(file, source)
+                count, errors = gates.qml_duplicate_member(self.root, [file])
+                self.assertEqual(count, 1)
+                if diagnostic is None:
+                    self.assertEqual(errors, [])
+                else:
+                    self.assertEqual(len(errors), 1, errors)
+                    self.assertIn(diagnostic, errors[0])
+                    self.assertTrue(errors[0].startswith(file + ':'), errors)
+
+    def test_duplicate_member_historical_pane(self):
+        fixture = Path(__file__).with_name('staticgates-pane-338b343f.qml.txt')
+        self.assert_qml_rejected('ui/Pane.qml', fixture.read_text(), 'Duplicate alias name')
+
+    def test_duplicate_member_qt_declaration_kinds_and_ids(self):
+        declarations = {
+            'property int value: 0': 'Duplicate property name',
+            'readonly property int value: 0': 'Duplicate property name',
+            'default property list<QtObject> value': 'Duplicate property name',
+            'required property int value': 'Duplicate property name',
+            'property alias value: root.width': 'Duplicate alias name',
+            'signal value()': 'Duplicate signal name',
+            'function value() {}': 'Duplicate method name',
+            'id: root': 'Property value set multiple times',
+        }
+        for declaration, diagnostic in declarations.items():
             with self.subTest(declaration=declaration):
-                self.write('tests/Decl.qml', 'QtObject {\n' + declaration + '\n' + declaration + '\n}\n')
-                name = 'id' if declaration.startswith('id:') else 'value'
-                self.assertEqual(gates.qml_duplicate_member(self.root, ['tests/Decl.qml']),
-                                 (1, [f'tests/Decl.qml:3: {name} declared again (first at 2)']))
+                self.assert_qml_rejected('tests/Decl.qml',
+                                         'QtObject {\n' + declaration + '\n' + declaration + '\n}\n', diagnostic)
 
-    def test_duplicate_member_cross_kind_collision(self):
-        self.write('ui/A.qml', 'Item {\nproperty int value: 0\nsignal value()\nfunction value() {}\n}\n')
-        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/A.qml']),
-                         (1, ['ui/A.qml:3: value declared again (first at 2)',
-                              'ui/A.qml:4: value declared again (first at 2)']))
+    def test_duplicate_member_qt_sibling_and_nested_scopes_pass(self):
+        self.write('ui/A.qml', 'Item { property int value: 0; function run() {}\n'
+                   'QtObject { id: first; property int value: 1; signal done(); function run() {} }\n'
+                   'QtObject { id: second; property int value: 2; signal done(); function run() {} }\n}\n')
+        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/A.qml']), (1, []))
 
-    def test_duplicate_member_identifier_names_are_not_truncated(self):
-        for name in ('value$', '$value', '_value', 'value1'):
-            with self.subTest(name=name):
-                self.write('ui/Names.qml', f'Item {{\nproperty int {name}: 0\nproperty int {name}: 1\n}}\n')
-                self.write('ui/Names.js', f'function {name}() {{}}\nfunction {name}() {{}}\n')
-                self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Names.qml', 'ui/Names.js']),
-                                 (2, [f'ui/Names.qml:3: {name} declared again (first at 2)',
-                                      f'ui/Names.js:2: {name} declared again (first at 1)']))
+    def test_duplicate_member_qt_bound_and_inline_objects_are_checked(self):
+        sources = ('QQ.Item { property QtObject child: QQ.QtObject { property int value: 0; property int value: 1 } }',
+                   'Item { data: [QtObject { property int value: 0; property int value: 1 }] }',
+                   'Item { component Inner: QtObject { property int value: 0; property int value: 1 } }')
+        for source in sources:
+            with self.subTest(source=source):
+                self.assert_qml_rejected('ui/A.qml', source, 'Duplicate property name')
 
-    def test_duplicate_member_id_attribute_cannot_be_assigned_twice(self):
-        self.write('ui/Ids.qml', 'QtObject { id: first; id: second }\n')
-        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Ids.qml']),
-                         (1, ['ui/Ids.qml:1: id declared again (first at 1)']))
+    def test_duplicate_member_qt_does_not_resolve_imports(self):
+        self.write('ui/A.qml', 'import Absent.Module\nItem { property int value: 0 }\n')
+        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/A.qml']), (1, []))
+        self.assert_qml_rejected('ui/A.qml', 'import Absent.Module\n'
+                                 'Item { property int value: 0; property int value: 1 }\n', 'Duplicate property name')
 
-    def test_duplicate_member_sibling_objects_pass(self):
-        self.write('tests/Siblings.qml', 'Item {\n'
-                   'QtObject { id: first; property int value: 0; signal done(); function run() {} }\n'
-                   'QtObject { id: second; property int value: 0; signal done(); function run() {} }\n}\n')
-        self.assertEqual(gates.qml_duplicate_member(self.root, ['tests/Siblings.qml']), (1, []))
+    def test_duplicate_member_js_declaration_kinds_and_names(self):
+        for declaration in ('function value$() {}', 'var $value = 0', 'let _value = 0', 'const value1 = 0'):
+            with self.subTest(declaration=declaration):
+                name = declaration.split()[1].split('(')[0]
+                self.write('ui/A.js', declaration + '\n' + declaration + '\n')
+                self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/A.js']),
+                                 (1, [f'ui/A.js:2: {name} declared again (first at 1)']))
+        self.write('ui/A.js', 'function wire() {}\nvar wire = 0\n')
+        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/A.js']),
+                         (1, ['ui/A.js:2: wire declared again (first at 1)']))
 
-    def test_duplicate_member_nested_object_can_redeclare_parent(self):
-        self.write('ui/Nested.qml', 'Item { id: root; property int value: 0; function run() {}\n'
-                   'QtObject { id: child; property int value: 1; function run() {} }\n}\n')
-        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Nested.qml']), (1, []))
-        self.write('ui/Nested.qml', 'Item { property int value: 0\n'
-                   'QtObject { property int value: 1 }\nproperty int value: 2\n}\n')
-        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Nested.qml']),
-                         (1, ['ui/Nested.qml:3: value declared again (first at 1)']))
-
-    def test_duplicate_member_inline_object_is_checked(self):
-        self.write('ui/Inline.qml', 'Item { QtObject { id: x; property int value: 0; signal done() } }\n')
-        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Inline.qml']), (1, []))
-        self.write('ui/Inline.qml', 'Item { QtObject { id: x; property int value: 0; property int value: 1 } }\n')
-        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Inline.qml']),
-                         (1, ['ui/Inline.qml:1: value declared again (first at 1)']))
-
-    def test_duplicate_member_strings_comments_and_regex_keep_scopes(self):
-        bindings = ('property string text: "} Item { property int value: 1"',
-                    "property string text: '{ signal value(); }'",
-                    'property var text: `} QtObject { function value() {} ${ {value: 1} }`',
-                    'property var text: `outer ${ `inner } {` } end`',
-                    'property var text: `outer ${ /* comment */ /}/.test("}") } end`',
-                    'property var text: `outer ${ (() => { if ("(") /}/.test("}") })() } end`',
-                    'property var pattern: /[{}]\\/function value\\(\\)/',
-                    'property var pattern: /* comment */ /}/',
-                    'property var pattern: true || /{/.test("x")',
-                    'property var pattern: 1 + /{/.source.length',
-                    '// } QtObject { property int value: 1',
-                    '/* } QtObject { property int value: 1; id: fake */')
-        for binding in bindings:
-            with self.subTest(binding=binding):
-                source = 'Item {\nproperty int value: 0\n' + binding + '\n'
-                self.write('ui/Literals.qml', source + '}\n')
-                self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Literals.qml']), (1, []))
-                self.write('ui/Literals.qml', source + 'property int value: 1\n}\n')
-                self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Literals.qml']),
-                                 (1, ['ui/Literals.qml:4: value declared again (first at 2)']))
-
-    def test_duplicate_member_function_body_literal_is_not_a_member(self):
-        self.write('ui/Body.qml', 'Item {\nproperty int value: 0\nfunction run() {\n'
-                   'var object = {value: 1, id: "local", nested: {value: 2}}\n'
-                   'function value() { return object }\n}\n}\n')
-        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Body.qml']), (1, []))
-
-    def test_duplicate_member_function_regex_does_not_change_scopes(self):
-        self.write('ui/Regex.qml', 'Item {\nfunction run() { if (true) /{/.test("x"); }\n'
-                   'property int wire: 0\nproperty int wire: 1\n}\n')
-        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Regex.qml']),
-                         (1, ['ui/Regex.qml:4: wire declared again (first at 3)']))
-
-    def test_duplicate_member_typed_function_body_is_not_an_object(self):
-        self.write('ui/Typed.qml', 'Item {\nfunction run(): QQ.QtObject {\n'
-                   'function wire() {}\nfunction wire() {}\nreturn {wire: 1}\n}\n'
-                   'property int wire: 0\nproperty int wire: 1\n}\n')
-        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Typed.qml']),
-                         (1, ['ui/Typed.qml:8: wire declared again (first at 7)']))
-
-    def test_duplicate_member_binding_expressions_are_not_objects(self):
-        self.write('ui/Bindings.qml', 'Item {\nproperty int value: 0\nfunction callback() {}\n'
-                   'property var first: function callback() { return {value: 1} }\n'
-                   'property var second:\nfunction callback() { return {value: 2} }\n'
-                   'property var third: (function callback() { return {value: 3} })()\n'
-                   'onWidthChanged: { function callback() {}; var object = {value: 4} }\n}\n')
-        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Bindings.qml']), (1, []))
-
-    def test_duplicate_member_qualified_and_bound_objects(self):
-        self.write('ui/Qualified.qml', 'QQ.Item { property int value: 0\n'
-                   'property QtObject child: QQ.QtObject { property int value: 1 }\n'
-                   'data: [QQ.QtObject { property int value: 2 },\n'
-                   'QQ.QtObject { property int value: 3; property int value: 4 }]\n'
-                   'component Inner: QQ.QtObject { property int value: 5 }\n}\n')
-        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Qualified.qml']),
-                         (1, ['ui/Qualified.qml:4: value declared again (first at 4)']))
-
-    def test_duplicate_member_comments_between_declaration_tokens(self):
-        self.write('ui/Comment.qml', 'QtObject {\nproperty /* } */ int value: 0\n'
-                   'readonly /* { */ property int value: 1\n}\n')
-        self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Comment.qml']),
-                         (1, ['ui/Comment.qml:3: value declared again (first at 2)']))
-
-    def test_duplicate_member_js_twin_plain_and_pragma_library(self):
+    def test_duplicate_member_js_plain_and_pragma_library(self):
         for pragma in ('', '.pragma library\n'):
             with self.subTest(pragma=pragma):
                 self.write('ui/js/Twin.js', pragma + 'function wire() {}\nfunction wire() {}\n')
@@ -378,9 +342,9 @@ class StaticGateTests(unittest.TestCase):
                 self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/js/Twin.js']),
                                  (1, [f'ui/js/Twin.js:{first + 1}: wire declared again (first at {first})']))
 
-    def test_duplicate_member_js_only_file_scope_declarations(self):
+    def test_duplicate_member_js_nested_and_expression_names_pass(self):
         source = ('function wire() { function wire() {}; return {wire: 1} }\n'
-                  'var one = function wire() {}\nvar two =\nfunction wire() {}\n'
+                  'var one = function wire() {}\nvar two =\n    function wire() {}\n'
                   'var object = {wire: function wire() {}}\n'
                   'if (true) { function wire() {} }\n')
         self.write('ui/Plain.js', source)
@@ -388,6 +352,32 @@ class StaticGateTests(unittest.TestCase):
         self.write('ui/Plain.js', source + 'function wire() {}\n')
         self.assertEqual(gates.qml_duplicate_member(self.root, ['ui/Plain.js']),
                          (1, ['ui/Plain.js:7: wire declared again (first at 1)']))
+
+    def test_duplicate_member_qmlcachegen_override_and_fallback(self):
+        with mock.patch.dict(os.environ, {'FLEA_QMLCACHEGEN': sys.executable}):
+            self.assertEqual(gates.qmlcachegen_binary(), sys.executable)
+        with mock.patch.dict(os.environ, {'FLEA_QMLCACHEGEN': str(self.root / 'missing')}):
+            with mock.patch.object(gates, 'QMLCACHEGEN_PATHS', (sys.executable,)):
+                self.assertEqual(gates.qmlcachegen_binary(), sys.executable)
+
+    def test_duplicate_member_missing_qmlcachegen_is_loud(self):
+        override = str(self.root / 'override')
+        fallback = str(self.root / 'fallback')
+        with mock.patch.dict(os.environ, {'FLEA_QMLCACHEGEN': override}):
+            with mock.patch.object(gates, 'QMLCACHEGEN_PATHS', (fallback,)):
+                with self.assertRaisesRegex(ValueError, 'qmlcachegen unavailable; tried: ' + override + ', ' + fallback):
+                    gates.compile_qml(self.root, ['ui/A.qml'])
+        self.assertEqual(gates.compile_qml(self.root, []), [])
+
+    def test_duplicate_member_compiler_timeout_and_artifact_are_checked(self):
+        self.write('ui/A.qml', 'Item {}\n')
+        with mock.patch.object(gates.subprocess, 'run', side_effect=subprocess.TimeoutExpired('qmlcachegen', gates.QMLCACHEGEN_TIMEOUT_SECONDS)) as called:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                gates.compile_qml(self.root, ['ui/A.qml'])
+        self.assertEqual(called.call_args.kwargs['timeout'], gates.QMLCACHEGEN_TIMEOUT_SECONDS)
+        with mock.patch.object(gates.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '', '')):
+            self.assertEqual(gates.compile_qml(self.root, ['ui/A.qml']),
+                             ['ui/A.qml: qmlcachegen returned success without bytecode'])
 
     def test_duplicate_member_filters_paths_and_skips_missing_files(self):
         files = ('ui/A.qml', 'tests/nested/A.qml', 'ui/js/A.js', 'ui/Plain.js',
@@ -399,7 +389,7 @@ class StaticGateTests(unittest.TestCase):
         self.assertEqual(count, 4)
         self.assertEqual({error.split(':')[0] for error in errors}, set(files[:4]))
 
-    def test_duplicate_member_cli_uses_tracked_inventory_and_formats_diagnostic(self):
+    def test_duplicate_member_cli_uses_tracked_inventory_and_qt_diagnostic(self):
         self.write('ui/Pane.qml', 'Item {\nproperty alias wire: root.width\nproperty alias wire: root.width\n}\n')
         output = io.StringIO()
         with mock.patch.object(sys, 'argv', ['staticgates.py', '--gate', 'qml-duplicate-member',
@@ -409,8 +399,8 @@ class StaticGateTests(unittest.TestCase):
                     result = gates.main()
         self.assertEqual(result, 1)
         inventory.assert_any_call(self.root, tracked=True)
-        self.assertEqual(output.getvalue(), 'STATICGATE qml-duplicate-member FAIL '
-                         'ui/Pane.qml:3: wire declared again (first at 2)\nSTATICGATES FAIL gates=1\n')
+        self.assertIn('STATICGATE qml-duplicate-member FAIL ui/Pane.qml:3:', output.getvalue())
+        self.assertIn('Duplicate alias name\nSTATICGATES FAIL gates=1\n', output.getvalue())
 
 
 if __name__ == '__main__':

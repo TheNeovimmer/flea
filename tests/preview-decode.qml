@@ -330,13 +330,13 @@ ShellRoot {
     // Interim/final finder: interim keeps autoTransform false, final sets true, sources differ.
     function interimPair() {
         var all = shell.findAll(quickPreview.item, [])
-        var inter = null, final = null
+        var inter = null, finalImage = null
         for (var i = 0; i < all.length; i++) {
             var src = String(all[i].source || "")
-            if (all[i].autoTransform !== undefined && src.endsWith("/" + shell.interimOrig)) final = all[i]
+            if (all[i].autoTransform !== undefined && src.endsWith("/" + shell.interimOrig)) finalImage = all[i]
             else if (src.endsWith("/" + shell.interimCache)) inter = all[i]
         }
-        return [inter, final]
+        return [inter, finalImage]
     }
 
     function geom(item) {
