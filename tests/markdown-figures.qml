@@ -37,12 +37,15 @@ ShellRoot {
     property string firstSvg: ""
     property string inlineSvg: ""
     property int ticket: 0
-    property int ticks: 0
-    property int pendingTicksMark: 0
-    readonly property int hangingRenderMs: 400
+    property int pendingPumpCallbacks: 0
+    property bool hangingDeadlineArmed: false
+    readonly property int hangingRenderLimitMs: 300000
     readonly property int tickIntervalMs: 50
-    // A loop blocked across the whole wait delivers exactly one coalesced pump event before the deadline event, so the check requires more than that one.
-    readonly property int blockedLoopTicks: 1
+    // Pump callbacks prove liveness before the test makes the hanging ticket overdue.
+    readonly property int requiredPendingPumpCallbacks: 2
+    readonly property int expiredTicketDeadline: 0
+    readonly property int recoveredRenderMs: 5000
+    readonly property int watchdogMs: 150000
     // A source to ask once the current helper has stopped: the phase file
     // only affects the next spawned helper, never the running one.
     property string awaitSource: ""
@@ -60,10 +63,6 @@ ShellRoot {
     property int measIdleExitMs: 150
     readonly property int idleWaitMs: 5000
     property int prodIdleExitMs: 30000
-    readonly property int readerFirstPssKb: 111
-    readonly property int readerSecondPssKb: 222
-    readonly property int readerFirstAnonymousKb: 333
-    readonly property int readerSecondAnonymousKb: 444
 
     // Step order: answers, cache hit, idle exit, timeout restart, 127 latch.
     // The latch is last because it ends rendering for the session.
@@ -75,19 +74,11 @@ ShellRoot {
             return;
         }
         shell.check(Flea.FigureService.deadlineRunning === false, "the deadline timer is stopped before the first ask");
-        shell.writePhase("Pss: " + shell.readerFirstPssKb + " kB\nAnonymous: " + shell.readerFirstAnonymousKb + " kB", function () {
-            var first = memory.snapshot(shell.phaseFile);
-            shell.writePhase("Pss: " + shell.readerSecondPssKb + " kB\nAnonymous: " + shell.readerSecondAnonymousKb + " kB", function () {
-                var second = memory.snapshot(shell.phaseFile);
-                shell.check(first.pss === shell.readerFirstPssKb && second.pss === shell.readerSecondPssKb
-                    && first.anonymous === shell.readerFirstAnonymousKb && second.anonymous === shell.readerSecondAnonymousKb
-                    && second.readSequence === first.readSequence + 1,
-                    "memory reader reloads both fields in one stamped read after its contents change");
-                shell.writePhase("answer", function () {
-                    shell.logPss("before");
-                    shell.step = 20;
-                    shell.askMeasFormula(0);
-                });
+        memory.checkReload(shell.phaseFile, shell.writePhase, shell.check, function () {
+            shell.writePhase("answer", function () {
+                shell.logPss("before");
+                shell.step = 20;
+                shell.askMeasFormula(0);
             });
         });
     }
@@ -103,7 +94,7 @@ ShellRoot {
     function logPss(phase) {
         var sample = memory.snapshot("/proc/self/smaps_rollup");
         shell.log("FIGPSS phase=" + phase + " pss_kb=" + sample.pss + " read_seq=" + sample.readSequence
-            + " anonymous_kb=" + sample.anonymous);
+            + " anonymous_kb=" + sample.anonymous + " rss_kb=" + sample.rss);
     }
 
     function logHelperPeak() {
@@ -203,7 +194,7 @@ ShellRoot {
         } else if (shell.step === 5) {
             shell.check(svg !== "" && error === "", "a request after the idle exit restarts the helper");
             shell.step = 6;
-            Flea.FigureService.renderMs = shell.hangingRenderMs;
+            Flea.FigureService.renderMs = shell.hangingRenderLimitMs;
             shell.writePhase("hang", function () {
                 shell.awaitSource = "\\int_0^1 x^2\\,dx";
                 shell.afterAwait = 7;
@@ -212,10 +203,9 @@ ShellRoot {
         } else if (shell.step === 7) {
             shell.check(svg === "" && error === "render timed out", "a helper that never answers times out");
             shell.check(Flea.FigureService.deadlineExpirations > shell.renderDeadlineMark, "the hanging helper answers from the deadline event");
-            shell.check(shell.ticks - shell.pendingTicksMark > shell.blockedLoopTicks,
-                "the event loop ticks while the helper waits (count=" + (shell.ticks - shell.pendingTicksMark)
-                + ", must exceed " + shell.blockedLoopTicks + ")");
-            Flea.FigureService.renderMs = 5000;
+            shell.check(shell.hangingDeadlineArmed && shell.pendingPumpCallbacks === shell.requiredPendingPumpCallbacks,
+                "pending-ticket pump callbacks precede the hanging deadline");
+            Flea.FigureService.renderMs = shell.recoveredRenderMs;
             shell.writePhase("answer", function () {
                 shell.awaitSource = "\\sum_{n=1}^{\\infty}\\frac{1}{n^2}";
                 shell.afterAwait = 9;
@@ -276,7 +266,7 @@ ShellRoot {
     }
 
     Timer {
-        interval: 150000
+        interval: shell.watchdogMs
         repeat: false
         running: true
         onTriggered: {
@@ -291,12 +281,22 @@ ShellRoot {
         repeat: true
         running: true
         onTriggered: {
-            shell.ticks++;
             shell.drive();
         }
     }
 
     function drive() {
+        if (shell.step === 7 && !shell.hangingDeadlineArmed
+                && Flea.FigureService.written.indexOf(shell.ticket) >= 0) {
+            shell.check(shell.ticket > 0 && Flea.FigureService.waiting[shell.ticket] !== undefined
+                && Flea.FigureService.deadlineExpirations === shell.renderDeadlineMark,
+                "pump callback sees the hanging ticket still waiting and unanswered");
+            shell.pendingPumpCallbacks++;
+            if (shell.pendingPumpCallbacks === shell.requiredPendingPumpCallbacks) {
+                shell.hangingDeadlineArmed = true;
+                Flea.FigureService.waiting[shell.ticket].deadline = shell.expiredTicketDeadline;
+            }
+        }
         // The idle exit and the timeout kill are stopped processes, not
         // answers, so the next phase's ask waits for one here.
         if (shell.awaitSource !== "" && !Flea.FigureService.helperRunning
@@ -310,7 +310,6 @@ ShellRoot {
             }
             shell.helperExitsMark = Flea.FigureService.helperExits;
             shell.renderDeadlineMark = Flea.FigureService.deadlineExpirations;
-            shell.pendingTicksMark = shell.ticks;
             shell.askFresh(src);
         }
         // The idle-phase reading waits past the helper's stop, then the

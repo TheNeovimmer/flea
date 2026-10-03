@@ -144,6 +144,20 @@ function run(check) {
     var staggerMs = 100
     var afterDeadlineMs = 1
     var fake = service()
+    var absent = fake.ask("answered outside written", true)
+    fake.start()
+    fake.root.written = []
+    var lastWritten = fake.ask("last written still waiting", true)
+    fake.reply(absent, "absent svg")
+    check("an answer absent from written keeps the last written ticket", fake.root.written[0], lastWritten)
+    check("the absent written ticket still answers its own request", fake.answers[0].id, absent)
+    fake.now = deadlineMs + afterDeadlineMs
+    fake.tick()
+    check("the last written ticket keeps its deadline turn", fake.answers.some(function (answer) {
+        return answer.id === lastWritten && answer.error === "render timed out"
+    }), true)
+
+    fake = service()
     var inline = fake.ask("\\sum_{n=1}^3 n", false)
     fake.start()
     fake.reply(inline, "inline svg")

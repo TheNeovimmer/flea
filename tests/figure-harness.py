@@ -137,13 +137,14 @@ print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDERR_TAIL", file=sys.stder
           f"r3 startup fixture pid={start_pid.read_text()} reaped (pgrep exit={result.returncode})")
 
     pss_checks = '# The GUI memory claim:' + section('# The GUI memory claim:', '\nprintf \'MARKDOWN_FIGURES %s')
-    def memory_samples(before, formulas, diagrams, stamps=(1, 2, 3, 4), anonymous=None):
+    def memory_samples(before, formulas, diagrams, stamps=(1, 2, 3, 4), anonymous=None, rss=None):
         phases = (("before", before), ("formulas", formulas), ("diagrams", diagrams), ("idle", before))
         anonymous = anonymous if anonymous is not None else (before, formulas, diagrams, before)
+        rss = rss if rss is not None else anonymous
         output = "\n".join(f"MARKDOWN_FIGURES FIGPSS phase={phase} pss_kb={value}"
                            + (f" read_seq={stamp}" if stamp is not None else "")
-                           + f" anonymous_kb={anon}"
-                           for (phase, value), stamp, anon in zip(phases, stamps, anonymous))
+                           + f" anonymous_kb={anon} rss_kb={resident}"
+                           for (phase, value), stamp, anon, resident in zip(phases, stamps, anonymous, rss))
         output += "\nMARKDOWN_FIGURES FIGHELPER rss_peak_kb=41140"
         return run(pss_checks, output=output, verdict="0")
     result = memory_samples(52877, 52877, 52877)
@@ -161,28 +162,39 @@ print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDERR_TAIL", file=sys.stder
     result = memory_samples(52877, 52878, 52879)
     check(result.returncode == 0, "PSS fix fresh render-phase samples within budget pass")
     result = memory_samples(52877, 63118, 52879)
-    check(result.returncode != 0 and "FAIL formulas Anonymous exceeds before" in result.stdout,
+    check(result.returncode != 0 and "FAIL formulas Rss exceeds before" in result.stdout,
           "PSS fix fresh formula samples still enforce the existing budget")
     result = memory_samples(52877, 52878, 63118)
-    check(result.returncode != 0 and "FAIL diagrams Anonymous exceeds before" in result.stdout,
+    check(result.returncode != 0 and "FAIL diagrams Rss exceeds before" in result.stdout,
           "PSS fix fresh diagram samples still enforce the existing budget")
     memory_before_kb = 52877
     memory_limit_kb = 10240
     over_limit_kb = memory_before_kb + memory_limit_kb + 1
     result = memory_samples(memory_before_kb, over_limit_kb, over_limit_kb,
                             anonymous=(memory_before_kb,) * 4)
-    check(result.returncode == 0, "G7 PSS jumps past 10240 kB while Anonymous is flat pass")
+    check(result.returncode == 0, "G1 PSS jumps past 10240 kB while Rss and Anonymous are flat pass")
+    for index, phase in ((1, "formulas"), (2, "diagrams")):
+        rss = [memory_before_kb] * 4
+        rss[index] = over_limit_kb
+        result = memory_samples(memory_before_kb, memory_before_kb, memory_before_kb,
+                                anonymous=(memory_before_kb,) * 4, rss=rss)
+        check(result.returncode != 0 and f"FAIL {phase} Rss exceeds before" in result.stdout,
+              f"G1 file-backed {phase} Rss growth past 10240 kB with flat Anonymous fails")
     for index, phase in ((1, "formulas"), (2, "diagrams")):
         anonymous = [memory_before_kb] * 4
         anonymous[index] = over_limit_kb
         result = memory_samples(memory_before_kb, memory_before_kb, memory_before_kb,
                                 anonymous=anonymous)
-        check(result.returncode != 0 and f"FAIL {phase} Anonymous exceeds before" in result.stdout,
+        check(result.returncode != 0 and f"FAIL {phase} Rss exceeds before" in result.stdout,
               f"G7 flat PSS with {phase} Anonymous growth past 10240 kB fails")
     result = memory_samples(memory_before_kb, memory_before_kb, memory_before_kb,
                             anonymous=(memory_before_kb, "", memory_before_kb, memory_before_kb))
     check(result.returncode != 0 and "FAIL no FIGPSS formulas Anonymous value" in result.stdout,
           "G7 a missing Anonymous value fails")
+    result = memory_samples(memory_before_kb, memory_before_kb, memory_before_kb,
+                            rss=(memory_before_kb, "", memory_before_kb, memory_before_kb))
+    check(result.returncode != 0 and "FAIL no FIGPSS formulas Rss value" in result.stdout,
+          "G1 a missing Rss value fails")
 
     refusal = section("# A missing engine", "# Byte identity")
     for mode in ("silent", "wrong"):
@@ -305,12 +317,24 @@ check(not re.search(r"(?m)^#[^\n]*\n#", script[script.index("\n") + 1:]), "F7 sh
 check("depth > 12" not in worker and "/ 2;" not in worker and "* 100) / 100" not in worker,
       "F12 resolver and ex conversion policy numbers have names")
 qml = (tree / "tests/markdown-figures.qml").read_text()
-check("readonly property int blockedLoopTicks: 1" in qml and "shell.ticks - shell.pendingTicksMark > shell.blockedLoopTicks" in qml,
-      "F20 the hanging wait rejects the single coalesced tick of a blocked loop")
+check("readonly property int hangingRenderLimitMs: 300000" in qml
+      and "Flea.FigureService.renderMs = shell.hangingRenderLimitMs" in qml
+      and "readonly property int requiredPendingPumpCallbacks: 2" in qml
+      and "readonly property int expiredTicketDeadline: 0" in qml
+      and "shell.pendingPumpCallbacks === shell.requiredPendingPumpCallbacks" in qml
+      and "shell.ticket > 0 && Flea.FigureService.waiting[shell.ticket] !== undefined" in qml
+      and "Flea.FigureService.deadlineExpirations === shell.renderDeadlineMark" in qml
+      and "shell.pendingPumpCallbacks++;" in qml
+      and "Flea.FigureService.waiting[shell.ticket].deadline = shell.expiredTicketDeadline;" in qml
+      and "shell.hangingDeadlineArmed && shell.pendingPumpCallbacks === shell.requiredPendingPumpCallbacks" in qml
+      and "blockedLoopTicks" not in qml and "pendingTicksMark" not in qml,
+      "G2 hanging deadline follows pending-ticket pump callbacks without racing a duration")
 # Sample input: "    time.sleep(10)" in a generated Python hang fixture.
 check(not re.search(r"(?m)^    time[.]sleep[(]", pathlib.Path(__file__).read_text()) and "hang) sleep" not in script,
       "r3 hang fixtures block without wall-clock sleeps")
 reader = (tree / "tests/figure-memory/FigureMemory.qml").read_text()
+check('rss: memory.memValue(contents, "Rss")' in reader and '" rss_kb=" + sample.rss' in qml,
+      "G1 Rss, PSS and Anonymous share one stamped memory snapshot")
 # Sample input: var kids = memory.readText("/proc/1234/task/1234/children").trim().split(/\s+/);
 children_line = next(line for line in reader.splitlines() if '"/children"' in line)
 check("Sample input:" in reader.split(children_line, 1)[0].splitlines()[-1],

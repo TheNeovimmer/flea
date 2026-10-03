@@ -316,16 +316,16 @@ if [ "$verdict" -ne 0 ]; then
     printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|RangeError|ERROR' | head -6
     exit 1
 fi
-# The GUI memory claim: judge Anonymous growth from each stamped read, with PSS and the helper peak printed as evidence.
-FIG_ANONYMOUS_BUDGET_KB=10240
+# The GUI memory claim: judge Rss growth from each stamped read, with PSS, Anonymous and the helper peak printed as evidence.
+FIG_RSS_BUDGET_KB=10240
 fig_pss=$(printf '%s\n' "$output" | grep -a 'MARKDOWN_FIGURES FIGPSS')
 fig_peak=$(printf '%s\n' "$output" | grep -a 'MARKDOWN_FIGURES FIGHELPER')
 printf '%s\n' "$fig_pss" "$fig_peak"
-# Sample input: MARKDOWN_FIGURES FIGPSS phase=before pss_kb=45120 read_seq=3 anonymous_kb=32200.
+# Sample input: MARKDOWN_FIGURES FIGPSS phase=before pss_kb=45120 read_seq=3 anonymous_kb=32200 rss_kb=60100.
 fig_val() {
     printf '%s\n' "$fig_pss" | sed -n "s/.*phase=$1 .*${2:-pss_kb}=\([0-9][0-9]*\).*/\1/p"
 }
-# Sample input: MARKDOWN_FIGURES FIGPSS phase=formulas pss_kb=45120 read_seq=4 anonymous_kb=32200.
+# Sample input: MARKDOWN_FIGURES FIGPSS phase=formulas pss_kb=45120 read_seq=4 anonymous_kb=32200 rss_kb=60100.
 fig_stamp() {
     printf '%s\n' "$fig_pss" | sed -n "s/.*phase=$1 pss_kb=[0-9][0-9]* read_seq=\([0-9][0-9]*\).*/\1/p"
 }
@@ -337,6 +337,10 @@ for phase in before formulas diagrams idle; do
 }
     [ -n "$(fig_val "$phase" anonymous_kb)" ] || {
     echo "markdown-figures.sh: FAIL no FIGPSS $phase Anonymous value"
+    verdict=1
+}
+    [ -n "$(fig_val "$phase" rss_kb)" ] || {
+    echo "markdown-figures.sh: FAIL no FIGPSS $phase Rss value"
     verdict=1
 }
     stamp=$(fig_stamp "$phase")
@@ -354,15 +358,15 @@ printf '%s\n' "$fig_peak" | grep -q 'rss_peak_kb=[0-9]' || {
     echo "markdown-figures.sh: FAIL no FIGHELPER peak line"
     verdict=1
 }
-if [ -n "$(fig_val before anonymous_kb)" ] && [ -n "$(fig_val formulas anonymous_kb)" ]; then
-    [ "$(fig_val formulas anonymous_kb)" -le "$(( $(fig_val before anonymous_kb) + FIG_ANONYMOUS_BUDGET_KB ))" ] || {
-    echo "markdown-figures.sh: FAIL formulas Anonymous exceeds before by more than $FIG_ANONYMOUS_BUDGET_KB kB"
+if [ -n "$(fig_val before rss_kb)" ] && [ -n "$(fig_val formulas rss_kb)" ]; then
+    [ "$(fig_val formulas rss_kb)" -le "$(( $(fig_val before rss_kb) + FIG_RSS_BUDGET_KB ))" ] || {
+    echo "markdown-figures.sh: FAIL formulas Rss exceeds before by more than $FIG_RSS_BUDGET_KB kB"
     verdict=1
 }
 fi
-if [ -n "$(fig_val before anonymous_kb)" ] && [ -n "$(fig_val diagrams anonymous_kb)" ]; then
-    [ "$(fig_val diagrams anonymous_kb)" -le "$(( $(fig_val before anonymous_kb) + FIG_ANONYMOUS_BUDGET_KB ))" ] || {
-    echo "markdown-figures.sh: FAIL diagrams Anonymous exceeds before by more than $FIG_ANONYMOUS_BUDGET_KB kB"
+if [ -n "$(fig_val before rss_kb)" ] && [ -n "$(fig_val diagrams rss_kb)" ]; then
+    [ "$(fig_val diagrams rss_kb)" -le "$(( $(fig_val before rss_kb) + FIG_RSS_BUDGET_KB ))" ] || {
+    echo "markdown-figures.sh: FAIL diagrams Rss exceeds before by more than $FIG_RSS_BUDGET_KB kB"
     verdict=1
 }
 fi

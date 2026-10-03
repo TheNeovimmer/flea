@@ -5,6 +5,12 @@ FileView {
     printErrors: false
     // Each stamp belongs to a completed reload, including the write/read check.
     property int readSequence: 0
+    readonly property int firstPssKb: 111
+    readonly property int secondPssKb: 222
+    readonly property int firstAnonymousKb: 333
+    readonly property int secondAnonymousKb: 444
+    readonly property int firstRssKb: 555
+    readonly property int secondRssKb: 666
 
     function readText(path) {
         memory.path = path;
@@ -23,10 +29,28 @@ FileView {
     function snapshot(path) {
         var contents = memory.readText(path);
         return { pss: memory.memValue(contents, "Pss"),
+            rss: memory.memValue(contents, "Rss"),
             anonymous: memory.memValue(contents, "Anonymous"), readSequence: memory.readSequence };
     }
 
-    // Sample input: "Pss: 45120 kB\nAnonymous: 32200 kB\n" from smaps_rollup.
+    function checkReload(path, writePhase, check, then) {
+        writePhase("Pss: " + memory.firstPssKb + " kB\nAnonymous: " + memory.firstAnonymousKb
+            + " kB\nRss: " + memory.firstRssKb + " kB", function () {
+            var first = memory.snapshot(path);
+            writePhase("Pss: " + memory.secondPssKb + " kB\nAnonymous: " + memory.secondAnonymousKb
+                + " kB\nRss: " + memory.secondRssKb + " kB", function () {
+                var second = memory.snapshot(path);
+                check(first.pss === memory.firstPssKb && second.pss === memory.secondPssKb
+                    && first.anonymous === memory.firstAnonymousKb && second.anonymous === memory.secondAnonymousKb
+                    && first.rss === memory.firstRssKb && second.rss === memory.secondRssKb
+                    && second.readSequence === first.readSequence + 1,
+                    "memory reader reloads all three fields in one stamped read after its contents change");
+                then();
+            });
+        });
+    }
+
+    // Sample input: "Pss: 45120 kB\nAnonymous: 32200 kB\nRss: 60100 kB\n" from smaps_rollup.
     function memValue(contents, key) {
         var lines = contents.split("\n");
         for (var i = 0; i < lines.length; i++) {

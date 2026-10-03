@@ -216,7 +216,8 @@ Item {
         var asked = root.waiting[id];
         delete root.waiting[id];
         var at = root.written.indexOf(id);
-        root.written.splice(at, 1);
+        if (at >= 0)
+            root.written.splice(at, 1);
         if (at === 0 && root.written.length > 0)
             root.waiting[root.written[0]].deadline = Date.now() + root.renderMs;
         if (message.svg !== undefined) {
