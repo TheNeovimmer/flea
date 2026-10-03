@@ -37,6 +37,8 @@ if [ ! -x "$BIN" ]; then
   printf 'xwsettings.sh: build it (cargo build); refusing to report on nothing\n' >&2
   exit 1
 fi
+python3 tests/xwsettings-drain.py "$BIN"
+check "quitReady observers finish before shutdown" 0 "$?"
 python3 tests/ui-process-ownership.py || fail=1
 
 # The singleton and the libraries it imports, copied the way tests/uiwriter.sh copies them:
