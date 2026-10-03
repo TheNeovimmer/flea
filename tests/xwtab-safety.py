@@ -15,11 +15,16 @@ checks = 0
 failures = 0
 
 
+# Sample input: "probe documents LAYERDROP FAIL <why>" prints as "probe documents LAYERDROP failed <why>".
+FAIL_WORD = re.compile(r'FAIL(?=[: ])')
+
+
 def check(name, condition, detail=''):
     global checks, failures
     checks += 1
     if condition:
-        print('ok ' + name)
+        # An ok line may name a FAIL marker it proves, and the CI contract reads that word as a verdict.
+        print('ok ' + FAIL_WORD.sub('failed', name))
     else:
         failures += 1
         print('FAIL ' + name + ': ' + detail)

@@ -180,11 +180,13 @@ xwdrag_qs() {
 }
 xwdrag_row_point() { printf '100 100\n'; }
 xwdrag_floor_point() { printf '500 500\n'; }
+# The typed helpers are the only compositor writes; each stub records its arguments for the placement check.
+hypr_window_resize() { printf 'resize %s\n' "$*" >> "$sweep_root/placement"; }
+hypr_window_move() { printf 'move %s\n' "$*" >> "$sweep_root/placement"; }
 hyprctl() {
     case "$1" in
         monitors) printf '[{"focused":true,"x":0,"y":0,"width":800,"height":600,"scale":1}]\n' ;;
         clients) printf '[{"pid":101,"address":"0x101","floating":true},{"pid":202,"address":"0x202","floating":true}]\n' ;;
-        dispatch) printf 'ok\n' ;;
         cursorpos) cat "$sweep_root/pointer" ;;
         *) fail "unexpected hyprctl: $1" ;;
     esac
@@ -252,6 +254,9 @@ ipc() {
         assert not manifest.exists() and not (root / f"evidence/sweep-{name}.png").exists()
     if group == "G3":
         assert (root / "buttons").read_text().splitlines() == ["0x40", "0x80"], "held button not released"
+        # Sample input: an 800x600 monitor at 0,0 gives each window 400x600, A at x 0 and B at x 400.
+        assert (root / "placement").read_text().splitlines() == [
+            "resize 0x101 400 600", "move 0x101 0 0", "resize 0x202 400 600", "move 0x202 400 0"], "half-screen placement drifted"
 
 
 PICKER_STUBS = r"""

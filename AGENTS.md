@@ -3448,6 +3448,7 @@ waits for its consumer.
 
 - `tests/picker-040.sh` is 0.3.10's Picker040 acceptance suite for path entry and collision review, expected red until then and named in run-all's not-run list.
 - `tests/xwstate.sh` is a headless run-all suite: it drives two shipped windows offscreen through `tests/xwstate-control.qml`, a test-only IPC seam copied into a sandbox. It proves the received tab keeps its cursor, settings and Favorites reach the idle window, a cut in one window stays there with one "Copied in this window only" notice and never reaches the other, a window pasting its own cut moves the file and empties its clipboard, and undo crosses windows. Offscreen there is no compositor, so sharing a clipboard between two windows is the native `clipboard` case of `tests/ui.sh`, not this suite's.
+- `tests/run-all.sh` counts a suite that exits 0 while its output holds a line matching `(^|[: ])FAIL[: ]` as failed and quotes that line, the same contract flea-ci enforces, so an expected failure a suite shows is reworded (`expected: ... failed ...`) and never echoed raw. `tests/runall-rule.sh` pins that rule on a scratch copy of run-all.sh with stub suites, a quiet one, one past 64 KB of output and the non-matching controls included, so a rule that loses its match on a loud suite goes red.
 
 - **The warning gate covers `#[cfg(test)]`, which is the point of it.** `cargo build` cannot see
   anything inside a test module, so a build-only gate hides every unused import and dead helper

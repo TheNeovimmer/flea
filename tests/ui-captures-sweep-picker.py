@@ -23,6 +23,8 @@ WAIT_SECONDS = 20
 POLL_SECONDS = 0.1
 CAPTURE_SETTLE_SECONDS = 0.4
 CAPTURE_BODY_PX = 14
+PICKER_WIDTH = 1040
+PICKER_HEIGHT = 760
 PROCESS_WAIT_SECONDS = 5
 # Sample input: "hwkh1d5nbmt", the instance id Quickshell names its runtime directory by.
 QS_INSTANCE_ID_CHARS = 11
@@ -224,11 +226,11 @@ try:
         raise AssertionError("invalid picker window address")
     if not client["floating"]:
         run(["omarchy-drive", "window", "float", title])
-    answer = run(["hyprctl", "dispatch", f'hl.dsp.window.resize({{x=1040,y=760,exact=true,window="address:{client["address"]}"}})'])
+    answer = run(["bash", REPO / "tests/lib/hypr-dispatch.sh", "window_resize", client["address"], PICKER_WIDTH, PICKER_HEIGHT])
     if answer != "ok":
         raise AssertionError(f"picker resize refused: {answer}")
     run(["omarchy-drive", "window", "center", title])
-    wait("picker viewport", lambda: state()["width"] == 1040 and state()["height"] == 760)
+    wait("picker viewport", lambda: state()["width"] == PICKER_WIDTH and state()["height"] == PICKER_HEIGHT)
     press("-k", "space")
     wait("marked first row", lambda: not state()["marksBusy"] and len(state()["marks"]) == 1)
     for mode, chord in (("list", "1"), ("grid", "3")):
