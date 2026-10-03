@@ -41,13 +41,6 @@
     "text": "hl.dsp.window.move({ x = -1920, y = -10, window = \"address:0xAbC\" })"
   },
   {
-    "operation": "window_close",
-    "args": [
-      "0xAbC"
-    ],
-    "text": "hl.dsp.window.close({ window = \"address:0xAbC\" })"
-  },
-  {
     "operation": "cursor_move",
     "args": [
       "-20",

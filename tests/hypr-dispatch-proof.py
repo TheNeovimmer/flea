@@ -27,7 +27,7 @@ PLACEMENT_Y = 80
 PLACEMENT_WIDTH = 1000
 PLACEMENT_HEIGHT = 720
 SHARED_HELPER_FILE = "tests/lib/hypr-dispatch.sh"
-OPERATIONS = ("window_focus", "window_float", "window_resize", "window_move", "window_close", "cursor_move")
+OPERATIONS = ("window_focus", "window_float", "window_resize", "window_move", "cursor_move")
 ENTRY_POINTS = tuple("hypr_" + operation for operation in OPERATIONS)
 LUA_PREFIX = "hl." + "dsp."
 FAKE = r'''#!/usr/bin/env bash
@@ -175,7 +175,7 @@ def main():
                 if label == "missing":
                     print(f"source control {harness.name}: /nonexistent/lib/hypr-dispatch.sh rejected={not valid}")
 
-        for relative, names in (("tests/hyprdispatch.py", ("scan",)),
+        for relative, names in (("tests/hyprdispatch.py", ("logical_lines", "scan")),
                                 ("tests/hypr-dispatch-proof.py", ("functions", "helper_source_block", "source_origins", "helper_definitions"))):
             parser_source = (root / relative).read_text()
             source_lines = parser_source.splitlines()
@@ -189,6 +189,19 @@ def main():
                 check("sample input directly above " + name, documented, relative)
 
         shared_code = ". " + shlex.quote(str(helper))
+        rc, output, calls = run("compgen -A function hypr_", code=shared_code)
+        check("only supported typed entry points exist",
+              rc == 0 and set(output.splitlines()) == set(ENTRY_POINTS) and not calls, output)
+        # Sample input: window_focus) hypr_window_focus "$@" ;; from the program case.
+        program_operations = re.findall(r"^        ([a-z_]+)\) hypr_", helper.read_text(), re.MULTILINE)
+        check("only supported program operations exist", tuple(program_operations) == OPERATIONS,
+              ", ".join(program_operations))
+        check("typed fixtures cover only supported operations",
+              {case["operation"] for case in cases} == set(OPERATIONS))
+        scanner = ast.parse((root / "tests/hyprdispatch.py").read_text())
+        stdin_reads = [node for node in ast.walk(scanner) if isinstance(node, ast.Attribute)
+                       and isinstance(node.value, ast.Name) and node.value.id == "sys" and node.attr == "stdin"]
+        check("scanner has no stdin mode", not stdin_reads)
         definition_owners = {name: [] for name in (*ENTRY_POINTS, "hypr_dispatch")}
         for path in sorted((root / "tests").rglob("*.sh")):
             harness_text = text if path == root / "tests/ui.sh" else path.read_text()

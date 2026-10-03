@@ -10,11 +10,27 @@ HELPER_FILE = "tests/lib/hypr-dispatch.sh"
 SOURCE_SUFFIXES = (".sh", ".py", ".qml", ".js")
 
 
+# Sample input: "hyprctl \\\ndispatch anything" yields one logical line starting at physical line 1.
+def logical_lines(text):
+    pending = ""
+    first_line = 1
+    for number, physical_line in enumerate(text.splitlines(keepends=True), start=1):
+        line = physical_line.rstrip("\r\n")
+        if physical_line.endswith(("\\\n", "\\\r\n")):
+            pending += line.removesuffix("\\")
+            continue
+        yield first_line, pending + line
+        pending = ""
+        first_line = number + 1
+    if pending:
+        yield first_line, pending
+
+
 # Sample input: hypr_window_focus "$addr" || fail nope
 def scan(text, helper_file=False):
     issues = []
     count = 0
-    for number, line in enumerate(text.splitlines(), start=1):
+    for number, line in logical_lines(text):
         if line.lstrip().startswith(("#", "//")):
             continue
         count += line.count(LUA_PREFIX)
@@ -55,7 +71,4 @@ def main():
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] == ["--scan-fixture"]:
-        print(json.dumps(scan(sys.stdin.read())))
-    else:
-        sys.exit(main())
+    sys.exit(main())

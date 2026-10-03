@@ -80,14 +80,6 @@ hypr_window_move() {
     _hypr_reply_ok "$status" "$answer" "$@"
 }
 
-hypr_window_close() {
-    _hypr_arity hypr_window_close 'ADDR' "$@" || return 1
-    _hypr_address hypr_window_close "$1" || return 1
-    local answer status=0
-    answer=$(hyprctl dispatch "hl.dsp.window.close({ window = \"address:$1\" })" 2>&1) || status=$?
-    _hypr_reply_ok "$status" "$answer" "$@"
-}
-
 hypr_cursor_move() {
     _hypr_arity hypr_cursor_move 'X Y' "$@" || return 1
     _hypr_coordinate hypr_cursor_move "$1" || return 1
@@ -107,7 +99,6 @@ _hypr_program() {
         window_float) hypr_window_float "$@" ;;
         window_resize) hypr_window_resize "$@" ;;
         window_move) hypr_window_move "$@" ;;
-        window_close) hypr_window_close "$@" ;;
         cursor_move) hypr_cursor_move "$@" ;;
         *) _hypr_refuse hypr-dispatch.sh "$operation" 'unknown typed operation' ;;
     esac || return 1

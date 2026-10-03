@@ -257,8 +257,8 @@
     "name": "continued-discard",
     "code": "hyprctl dispatch \\\n 'hl.dsp.focus({ window = \"address:0xabc\" })' \\\n >/dev/null || fail nope",
     "issues": [
-      "hypr-window-reply",
-      "hypr-window-selector"
+      "hypr-window-selector",
+      "hypr-window-reply"
     ],
     "calls": 1
   },
@@ -321,6 +321,42 @@
     "issues": [
       "hypr-window-reply"
     ],
+    "calls": 0
+  },
+  {
+    "name": "round7-continued-raw-dispatch",
+    "code": "hyprctl \\\n  dispatch anything",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round7-continued-raw-batch",
+    "code": "hyprctl \\\n  -j \\\n  --batch anything",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round7-continued-lua-prefix",
+    "code": "command=\"hl.\\\ndsp.focus()\"",
+    "issues": [
+      "hypr-window-selector"
+    ],
+    "calls": 1
+  },
+  {
+    "name": "round7-uncontinued-lines-stay-separate",
+    "code": "hyprctl -j clients\necho dispatch",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round7-continued-comment",
+    "code": "# hyprctl \\\n  dispatch anything",
+    "issues": [],
     "calls": 0
   },
   {
