@@ -7385,10 +7385,10 @@ PYEOF
 # launch() so omarchy-drive itself is unaffected. Two rows, not one, in the fixture directory:
 # setCursor clamps cursorDown to the single valid index on a one-row listing, which reads exactly
 # like dead keyboard input and cost real time to tell apart from it while this case was written.
-# gio's own mount table is per-user, not per-HOME, so a real share left mounted from other work
-# would leak into networkEntries and fail the empty check no matter what fixture HOME says; this
-# gates the empty check on "gio mount -l" itself carrying no Mount() line, and fails loud with
-# that listing rather than guessing, since this case cannot unmount another task's own work.
+# gio's own mount table is per-user, not per-HOME, but Flea reads it only through "gio mount -li",
+# and the case's gio double answers that with nothing, so the operator's own shares never reach the
+# rail and a native case never refuses on them. case_network waits for two listings and asserts the
+# Network group shows exactly the fixture's rows instead of assuming the box is bare.
 # Issue 21, TomFaulkner: a saved network place can be edited from the rail, and the address that
 # finally mounts is written back over that place's own line rather than saved beside it.
 case_editplace() {
@@ -7538,7 +7538,7 @@ case_network() {
     : > "$dir/apple.txt"
     local fixture_home="$fixture_root/network-home"
     fixture_home_make "$fixture_home"
-    local real_home="$HOME" mount_log="$fake_root/mount.log" mount_calls="$fake_root/mount-calls"
+    local real_home="$HOME" mount_log="$fake_root/mount.log" mount_calls="$fake_root/mount-calls" list_calls="$fake_root/list-calls"
     local state="$fixture_root/network-state" stored bookmarks="$fixture_home/.config/gtk-3.0/bookmarks"
     local real_state="${XDG_STATE_HOME-}" real_config="${XDG_CONFIG_HOME-}"
     export XDG_CONFIG_HOME="$fixture_home/.config"
@@ -7546,6 +7546,7 @@ case_network() {
     stored="$state/flea/ui.json"
     : > "$mount_log"
     : > "$mount_calls"
+    : > "$list_calls"
     mkfifo "$fake_root/mount-release"
     local races="$fixture_root/network-races" race_state="$fixture_root/network-race-state" name
     sandbox_scratch "$races"
@@ -7712,10 +7713,22 @@ case_network() {
             || fail "network: $1 fixture was no longer waiting at its release barrier"
     }
 
-    local live_mounts
-    live_mounts=$(gio mount -l 2>/dev/null | grep -c '^Mount(') || true
-    [[ "$live_mounts" -eq 0 ]] \
-        || fail "network: $live_mounts real gio mount(s) already present, cannot assert an empty rail against ambient state: $(gio mount -l 2>/dev/null)"
+    # The double answers "gio mount -li" empty and logs each call; listings run 5 s apart, so two logged ones mean the group was built from that answer.
+    local network_polls_wanted=2 network_poll_attempts=400
+    network_wait_polled() {
+        local attempt
+        for attempt in $(seq 1 "$network_poll_attempts"); do
+            [[ "$(wc -l < "$list_calls")" -ge "$network_polls_wanted" ]] && return
+            sleep 0.05
+        done
+        fail "network: the rail's mount listing ran $(wc -l < "$list_calls") time(s), not $network_polls_wanted"
+    }
+    network_assert_group() {
+        local want="$1" what="$2" seen
+        seen=$(ipc networkEntries)
+        [[ "$seen" == "$want" ]] \
+            || fail "network: $what: the Network group shows [$seen], not the fixture's [$want]; kernel network mounts seen by /proc/self/mountinfo: $(grep -E ' - (nfs4?|cifs|smb3|fuse(\.[^ ]*)?) ' /proc/self/mountinfo | head -n 5)"
+    }
 
     # This case proves form/bookmark behavior, not a network route; a bounded local gio double keeps
     # the newly functional Save action from dialing TEST-NET-2 or reopening on its later timeout.
@@ -7725,7 +7738,7 @@ case "\$*" in
 "info --attributes=trash::item-count trash:///"|"monitor --dir=trash:///") exec /usr/bin/gio "\$@" ;;
 esac
 case "\$1 \${2:-}" in
-"mount -li") exit 0 ;;
+"mount -li") printf 'listed\n' >> "$list_calls"; exit 0 ;;
 "mount nfs://cancel.test/export")
     : > "$fake_root/cancel-started"
     read release < "$fake_root/mount-release"
@@ -7773,7 +7786,8 @@ EOS
     launch "$dir"
     export HOME="$real_home"
     wait_listing 3
-    [[ -z "$(ipc networkEntries)" ]] || fail "network: the group is not empty with no bookmarks, gio mounts or Dropbox"
+    network_wait_polled
+    network_assert_group "" "no bookmarks, no listed mounts and no Dropbox"
     shot network-empty
 
     # The current keymap binds "a" to add network from both listing and rail contexts.

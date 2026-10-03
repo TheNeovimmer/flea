@@ -3472,6 +3472,7 @@ waits for its consumer.
   of them lived here for three review rounds, one of them predating the whole thumbnail plan,
   because the gate said "build" and nobody ran the other half.
 - `cargo test` runs the unit tests inside every module.
+- A native `tests/ui.sh` case never refuses on the operator's own mounts: it runs Flea against its own `gio` double (`mount -li` lists only the fixture) and asserts what Flea shows, so `case_network` waits for two logged listings and then requires the Network group to equal the fixture's rows, naming any kernel network mount in `/proc/self/mountinfo` when it does not.
 - **Each `tests/ui.sh` case opens with a paragraph rather than a one-line comment**, and that is
   deliberate. A case is a fixture, a stub and a sequence, and the part a reader cannot recover from
   the assertions is what the stub is standing in for and what the case controls for;
