@@ -475,7 +475,8 @@ operations_cancel() (
     printf 'OPERATIONS_GATE %s\n' "$receipt"
     menus_expect statusActivityState '.activities[0].running and .transferCard.visible and .transferCard.cancel.visible and .transferCard.cancel.enabled' "real in-flight transfer remains cancellable in its card while interrupted"
     operations_counts_footer "interrupted transfer"
-    operations_secondary " · esc cancels" "transfer footer names its native cancellation key"
+    # StatusBar rule 8 (3b4223c5): the card owns a running transfer's cancel key and the strip's secondary draws nothing for it.
+    operations_secondary "" "transfer footer leaves the cancellation key to the card"
     key m >/dev/null
     menus_expect menuState '.opened' "a native popup opens above the running transfer"
     key -k Escape >/dev/null
@@ -557,15 +558,15 @@ operations_cancel_live() (
     while (( SECONDS < deadline )); do
         state=$(ipc statusActivityState) || fail "operations: live transfer observer failed"
         jq -e '.errors == 0' <<< "$state" >/dev/null || fail "operations: unpaused transfer failed: $state"
-        if jq -e '.activities[0].running and .activities[0].text == "Copying 1 of 2 · a-large.bin"' <<< "$state" >/dev/null; then break; fi
+        # The card draws the sample it published last (250 ms beat), so its byte line trails the activity text; wait on the line naming a total.
+        if jq -e '.activities[0].running and .activities[0].text == "Copying 1 of 2 · a-large.bin" and (.transferCard.byteLine | contains(" of "))' <<< "$state" >/dev/null; then break; fi
         if jq -e '(.activities | length) == 0 and .notice != ""' <<< "$state" >/dev/null; then operations_missed_window transfer-progress "$state"; fi
         sleep 0.05
     done
     jq -e '.activities[0].running and .activities[0].text == "Copying 1 of 2 · a-large.bin" and .transferCard.visible' <<< "$state" >/dev/null \
         || fail "operations: no filename-bearing live transfer before deadline: $state"
     # Directive 45: the sweep runs beside the copy, so a batch names a total once it settles, which is
-    # microseconds for two local items. Read from the state above rather than polled for: this window
-    # is the live transfer's own, and an extra round trip here is what operations_missed_window is for.
+    # microseconds for two local items. The loop above already waited for the card's line to say it.
     jq -e '.transferCard.byteLine | contains(" of ")' <<< "$state" >/dev/null \
         || fail "operations: the batch card states no total, its line reads [$(jq -r '.transferCard.byteLine' <<< "$state")]"
     printf 'OPERATIONS_BATCH_TOTAL line=%s\n' "$(jq -r '.transferCard.byteLine' <<< "$state")"

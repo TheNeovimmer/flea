@@ -429,7 +429,6 @@ providers_dropbox_move_checks() {
     menus_error 'Move failed: a-marked.txt · permission denied' 'Move to Dropbox reports the real refusal'
     menus_expect statusActivityState '(.activities | length) == 0 and .errors == 1' 'failed Dropbox move finishes without hiding its error'
     menus_expect statusFooterState '.secondary.text == " · esc dismisses"' 'unacknowledged Dropbox error keeps the informational error specimen'
-    chmod 0755 "$menu_box/list" || fail 'providers: cannot make the source folder writable again'
     menus_equal 'the refusal keeps the marked source bytes' 'list/a-marked.txt original' "$(cat "$menu_dir/a-marked.txt")"
     [[ ! -e "$menu_box/Dropbox/a-marked.txt" ]] || fail 'providers: a refused move left an item in Dropbox'
     menus_equal 'Dropbox retry selects only the failed marked file' "$(row_index_of a-marked.txt)" "$(ipc selectedIndices)"
@@ -437,6 +436,8 @@ providers_dropbox_move_checks() {
 
     menus_acknowledge
     menus_expect statusFooterState '.secondary.text | contains("a-marked.txt selected for retry")' 'acknowledged Dropbox failure names the identity-checked source for retry'
+    # The listed folder is the watched one, so its chmod is a change event that drops the retry line; restore it only after the line is read.
+    chmod 0755 "$menu_box/list" || fail 'providers: cannot make the source folder writable again'
     key -k Menu >/dev/null || fail 'providers: retained-selection retry menu failed'
     menus_expect menuState '.opened and .snapshotReady' 'native retry captures the retained original selection'
     providers_expect '(.refreshing | not) and .menuFocus' 'Dropbox retry refresh settles'

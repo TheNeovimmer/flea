@@ -5831,7 +5831,8 @@ case_gridnavigation() {
         key -k End -k Down -k Right >/dev/null
         cardsize_expect cursor 60
         caption=$(ipc gridCaptionState 60)
-        jq -e '.lines == 2 and .truncated and .textHeight <= .slotHeight and .bottom <= .tileHeight' <<< "$caption" >/dev/null \
+        # 0d857089: Flea elides the name itself, so the mark is in the text and Qt, handed a fitting caption, truncates nothing.
+        jq -e '.lines == 2 and (.name | contains("\u2026")) and (.truncated | not) and .textHeight <= .slotHeight and .bottom <= .tileHeight' <<< "$caption" >/dev/null \
             || fail "grid: two-line caption leaves its reserved tile slot: $caption"
         shot "grid-navigation-$preset-two-line-caption"
         # Prime fixture count guarantees an incomplete row at every admitted column count.
