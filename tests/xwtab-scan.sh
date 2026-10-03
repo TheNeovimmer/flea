@@ -29,8 +29,7 @@ ok "level 0 plus other workspace skipped, active bottom kept: $got"
 else
 bad "level 0 plus other workspace skipped, want '8 976', got '$got'"
 fi
-# Old scan at fb5d999e counted every layer and every client, so the same three
-# files leave it no point at all and the caller fails on the empty answer.
+# Old scan at fb5d999e counted every layer and every client, so these three files leave it no point and the caller fails.
 old=$(python3 -B -c '
 import json,sys
 mx,my,mw,mh=[int(v) for v in sys.argv[1:5]]
@@ -65,8 +64,7 @@ ok "old scan at fb5d999e finds no point on the same files"
 else
 bad "old scan at fb5d999e should find no point, got '$old'"
 fi
-# Without the level 0 background the other-workspace fullscreen alone still
-# blocks the old scan, while the new one keeps the same 8 976 answer.
+# Without the level 0 background the other-workspace fullscreen alone still blocks the old scan, while the new one keeps 8 976.
 cat > "$scratch/layers-nobg.json" <<'EOF'
 {"DP-2":{"levels":{"0":[],"1":[],"2":[{"address":"0x3","x":0,"y":0,"w":2560,"h":30,"namespace":"omarchy-bar","pid":300}],"3":[]}}}
 EOF
@@ -159,8 +157,7 @@ ok "closed special workspace is skipped: $got7"
 else
 bad "closed special workspace is skipped, want '8 1432', got '$got7'"
 fi
-# The tear-off count compares normalised sets, so a leading space, a doubled
-# space and a duplicate collapse to the same sorted unique set.
+# The tear-off count compares normalised sets, so a leading space, a doubled space and a duplicate collapse to one sorted unique set.
 . "$repo/tests/xwtab-norm.sh" || { bad "cannot source xwtab-norm.sh"; }
 norm=$(xwtab_norm_set " 160643 159605 160229 159605 " || true)
 if [ "$norm" = "159605 160229 160643" ]; then
@@ -174,9 +171,7 @@ ok "empty set stays empty"
 else
 bad "empty set stays empty, got '$norm_empty'"
 fi
-# The probe verdict against the native lines that failed it: before "169083 "
-# and after "169083 169306 " is one torn pid, and a torn window reading as the
-# lifted folder through the qs ipc reader is the drop reaching the catcher.
+# The probe verdict against the native lines that failed it: one torn pid (before "169083 ", after "169083 169306 ") reading as the lifted folder is the catcher drop.
 . "$repo/tests/probes/layer-drop-verdict.sh" || { bad "cannot source layer-drop-verdict.sh"; }
 torn_case=$(layerdrop_torn_pids "169083 " "169083 169306 " || true)
 if [ "$torn_case" = "169306" ]; then
@@ -242,8 +237,7 @@ bad "an empty panel log must not count as the panel taking the drop"
 else
 ok "an empty panel log does not count"
 fi
-# Hyprland selectors built from an address need the address: prefix.
-# A bare address resolves nothing while the dispatcher still returns ok.
+# Hyprland selectors built from an address need the address: prefix, because a bare address resolves nothing while the dispatcher answers ok.
 bare=$(grep -rnE 'window[[:space:]]*=[[:space:]]*\\?"(\$|0x|\{)' "$repo/tests" --exclude=xwtab-scan.sh || true)
 if [ -n "$bare" ]; then
 bad "bare window selector without address: prefix: $bare"
@@ -284,8 +278,8 @@ bad "a source finishing before release must fail even with a target enter"
 else
 ok "a source finishing before release is refused"
 fi
-# Run the real gesture helper against a compositor and pointer recorder.
-: > "$scratch/own-strip.out"
+# Run the real gesture helper in catcher mode; the own and refused modes stay pinned by tests/xwtab-safety.py.
+: > "$scratch/catcher-drag.out"
 (
     fail() { exit 1; }
     xwdrag_glide() { printf 'glide %s %s\n' "$1" "$2"; }
@@ -294,14 +288,14 @@ fi
     xwtab_wait_start() { printf 'start\n'; }
     xwtab_wait_catcher() { printf 'catcher\n'; }
     xwtab_wait_enter() { printf 'enter %s %s\n' "$1" "$2"; }
-    ydotool() { printf 'pointer %s %s\n' "$1" "$2" >> "$scratch/own-strip.out"; }
+    ydotool() { printf 'pointer %s %s\n' "$1" "$2" >> "$scratch/catcher-drag.out"; }
     xwtab_drag_to_window 501 106 281 106 101 101 catcher
-) >> "$scratch/own-strip.out"
+) >> "$scratch/catcher-drag.out"
 expected=$(printf 'glide 501 106\nmark\npointer click 0x40\nglide 365 845\nstart\nglide 281 106\nglide 287 106\nglide 281 106\ncatcher\npointer click 0x80')
-if [ "$(cat "$scratch/own-strip.out")" = "$expected" ]; then
-ok "own-strip drag starts outside before post-start motion and catcher landing"
+if [ "$(cat "$scratch/catcher-drag.out")" = "$expected" ]; then
+ok "catcher drag starts outside before post-start motion and catcher landing"
 else
-bad "own-strip drag did not wait for start and catcher before returning and releasing"
+bad "catcher drag did not wait for start and catcher before landing and releasing"
 fi
 # A failure after pressing releases through the same case cleanup, at every waiting stage.
 for stage in start target enter; do
@@ -390,6 +384,25 @@ PYFIX
         bad "$kind snapshot must exit 2 without coordinate (status=$status output=$(cat "$scratch/bad.out"))"
     fi
 done
+# A monitor the snapshots do not carry answers no point, so another monitor's panels never stand in for it.
+cat > "$scratch/layers-other.json" <<'EOF'
+{"DP-1":{"levels":{"0":[],"1":[],"2":[],"3":[]}}}
+EOF
+printf '{}\n' > "$scratch/layers-empty.json"
+for kind in monitor-unknown layers-without-monitor layers-empty; do
+    mon=DP-2
+    layers_file="$scratch/layers.json"
+    [ "$kind" = monitor-unknown ] && mon=DP-9
+    [ "$kind" = layers-without-monitor ] && layers_file="$scratch/layers-other.json"
+    [ "$kind" = layers-empty ] && layers_file="$scratch/layers-empty.json"
+    python3 -B "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 "$mon" "$scratch/clients-empty.json" "$layers_file" "$scratch/monitors.json" > "$scratch/unknown.out" 2> "$scratch/unknown.err"
+    status=$?
+    if [[ "$status" == 2 && ! -s "$scratch/unknown.out" ]] && grep -Fq "$mon" "$scratch/unknown.err"; then
+        ok "$kind refused by monitor name without a coordinate"
+    else
+        bad "$kind must exit 2 naming $mon without a coordinate (status=$status output=$(cat "$scratch/unknown.out") error=$(cat "$scratch/unknown.err"))"
+    fi
+done
 # Every interactive layer level blocks except the exact Bottom catcher.
 for layer in '1 desktop-widget' '3 overlay-widget' '3 qs-launcher' '1 qs-launcher'; do
     read -r level namespace <<< "$layer"
@@ -428,7 +441,18 @@ def check(name, condition):
 
 monitor = {'name': 'DP-2', 'x': 0, 'y': 0, 'width': 100, 'height': 100}
 scan.validate_snapshots([], {}, [monitor])
-check('valid layers may omit the selected monitor', scan.layer_rects({}, 'DP-2', 0, 0, 100, 100) == [])
+try:
+    scan.layer_rects({}, 'DP-2', 0, 0, 100, 100)
+except ValueError as error:
+    check('layers omitting the selected monitor are refused by its name', 'DP-2' in str(error))
+else:
+    check('layers omitting the selected monitor are refused by its name', False)
+try:
+    scan.monitor_entry([monitor], 'DP-9')
+except ValueError as error:
+    check('a monitor missing from the snapshot is refused by its name', 'DP-9' in str(error))
+else:
+    check('a monitor missing from the snapshot is refused by its name', False)
 for shape in ('object', 'integer'):
     entry = dict(monitor, activeWorkspace={'id': 1} if shape == 'object' else 1,
                  specialWorkspace={'id': 99} if shape == 'object' else 99)

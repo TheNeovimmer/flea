@@ -2,17 +2,14 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 
-// The tear-off catcher: one transparent Bottom-layer panel per screen, alive only
-// while the source tab drag is out (the Loader owning this unloads on every end
-// path). A drop here runs in the source process, so it reports exactly, where a
-// cross-process drop action reports Ignore for every landing. Below windows and
-// above the wallpaper, so only empty desktop reaches it. The boot directory cannot
-// reach ui/js through qs:, so the strip hands the tab MIME in with the Loader.
+// The tear-off catcher: one transparent Bottom-layer panel per screen, alive only while the source
+// tab drag is out; the Loader that owns it unloads it on every end path.
 Item {
     id: root
 
     // Loader assigns this after creation, so required can never hold here.
     property var tabBar: null
+    // The boot directory cannot reach ui/js through qs:, so the strip hands the tab MIME in.
     property string tabMime: ""
 
     Variants {

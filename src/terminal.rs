@@ -1,4 +1,5 @@
 use crate::gui;
+use crate::tearoff;
 use crate::thp;
 use crate::vulkan;
 use std::ffi::OsString;
@@ -53,8 +54,32 @@ pub fn detach(child: &mut Command) {
     vulkan::drop_display_pin(child);
     // The platform theme Flea traded for its own startup is Qt's alone too, and is handed back here.
     gui::restore_platform_theme(child);
+    // The tear-off hand-off belongs to the one window a tear-off starts, never to a terminal or an updater.
+    tearoff::drop_env(child);
     // The child outlives us, so an inherited pipe would kill it on its first write; see AGENTS.md "Opening a file".
     child.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     // Its own process group, so nothing that later kills Flea's group reaches the child.
     child.process_group(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsStr;
+
+    // The tear-off hand-off ui/TabBar.qml gives its one new window, which a terminal must never inherit.
+    const TEAR_OFF_ENV: [&str; 3] = ["FLEA_TAB_SOURCE_PID", "FLEA_TAB_CURSOR", "FLEA_TAB_TOKEN"];
+
+    #[test]
+    fn a_detached_child_loses_every_tear_off_variable() {
+        let mut child = Command::new(std::env::current_exe().unwrap());
+        for name in TEAR_OFF_ENV {
+            child.env(name, "stale");
+        }
+        detach(&mut child);
+        for name in TEAR_OFF_ENV {
+            let entry = child.get_envs().find(|(key, _)| *key == OsStr::new(name));
+            assert_eq!(entry, Some((OsStr::new(name), None)), "{name} survived detach");
+        }
+    }
 }

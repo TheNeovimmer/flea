@@ -34,6 +34,18 @@ layerdrop_cleanup() {
 trap 'layerdrop_cleanup' EXIT
 qs_pid=""; flea_pid=""; torn=""; addr=""; qid=""; drag_mark=0
 centre=""; lifted_path=""; source_rect=""; sx=""; sy=""; dx=""; dy=""
+layerdrop_panel_attempts=40 # Bound the wait for the fixture panel's layer surface to map.
+layerdrop_panel_poll=0.25 # Poll the layer list between checks.
+layerdrop_lookup_attempts=60 # Bound the wait for the Flea client and its qs instance to appear.
+layerdrop_lookup_poll=0.5 # Poll the clients and qs instances between checks.
+layerdrop_torn_attempts=20 # Bound the lookup of a torn-off window's qs instance.
+layerdrop_settle_attempts=40 # Bound each wait for window state: focus, float, fixture listing, second tab and drop receipt.
+layerdrop_settle_poll=0.1 # Poll the compositor and qs between state checks.
+layerdrop_park_attempts=60 # Bound the wait for the probe window to reach its park rectangle.
+layerdrop_park_x=40
+layerdrop_park_y=40
+layerdrop_park_w=900
+layerdrop_park_h=500
 
 # Print setup and this gesture's trace only when the probe fails.
 layerdrop_diagnostics() {
@@ -91,9 +103,9 @@ EOF
 setsid qs -p "$work/panel.qml" >"$work/qs.log" 2>&1 &
 qs_pid=$!
 qs_up=""
-for _ in $(seq 1 40); do
+for _ in $(seq 1 "$layerdrop_panel_attempts"); do
     if hyprctl layers -j 2>/dev/null | grep -Fq '"namespace": "flea-layer-drop"'; then qs_up=1; break; fi
-    sleep 0.25
+    sleep "$layerdrop_panel_poll"
 done
 [ -n "$qs_up" ] || refuse "no Quickshell layer surface appeared"
 
@@ -105,7 +117,7 @@ export XDG_STATE_HOME="$work/state"
 FLEA_TRACE_TABDRAG=1 FLEA_UI="$flea_ui" FLEA_BIN="$flea_bin" setsid nohup "$flea_bin" --gui "$srcdir" >"$work/flea.log" 2>&1 </dev/null &
 flea_pid=$!
 addr=""
-for _ in $(seq 1 60); do
+for _ in $(seq 1 "$layerdrop_lookup_attempts"); do
     addr=$(hyprctl clients -j | python3 -c '
 import json, sys
 # Sample input: [{"address":"0xa","pid":101,"at":[40,40],"size":[900,500],"floating":true}].
@@ -113,7 +125,7 @@ hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$flea_pid") || true
     [ -n "$addr" ] && break
-    sleep 0.5
+    sleep "$layerdrop_lookup_poll"
 done
 [ -n "$addr" ] || refuse "no Flea window came up"
 # Read only the probe's address, including after every compositor operation.
@@ -132,10 +144,11 @@ print(c["at"][0], c["at"][1], c["size"][0], c["size"][1], str(bool(c.get("floati
 layerdrop_focus() {
     local i active
     hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null || refuse "could not focus probe window"
-    for i in $(seq 1 40); do
+    for i in $(seq 1 "$layerdrop_settle_attempts"); do
+        # Sample input: {"address":"0xa","pid":101,"class":"flea"} from hyprctl activewindow -j.
         active=$(hyprctl activewindow -j 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("address", ""))' || true)
         [ "$active" = "$addr" ] && return 0
-        sleep 0.1
+        sleep "$layerdrop_settle_poll"
     done
     refuse "probe window never took focus"
 }
@@ -147,53 +160,54 @@ if [ "$floating" != True ]; then
     hyprctl dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$addr\" })" >/dev/null || refuse "could not float probe window"
 fi
 floated=""
-for _ in $(seq 1 40); do
+for _ in $(seq 1 "$layerdrop_settle_attempts"); do
     source_rect=$(layerdrop_rect || true)
     read -r wx wy ww wh floating <<< "$source_rect"
     if [ "${floating:-}" = True ]; then floated=1; break; fi
-    sleep 0.1
+    sleep "$layerdrop_settle_poll"
 done
 [ -n "$floated" ] || refuse "probe window never floated"
-hyprctl dispatch "hl.dsp.window.resize({ x = 900, y = 500, relative = false, window = \"address:$addr\" })" >/dev/null || refuse "could not resize probe window"
-hyprctl dispatch "hl.dsp.window.move({ x = 40, y = 40, relative = false, window = \"address:$addr\" })" >/dev/null || refuse "could not park probe window"
+hyprctl dispatch "hl.dsp.window.resize({ x = $layerdrop_park_w, y = $layerdrop_park_h, relative = false, window = \"address:$addr\" })" >/dev/null || refuse "could not resize probe window"
+hyprctl dispatch "hl.dsp.window.move({ x = $layerdrop_park_x, y = $layerdrop_park_y, relative = false, window = \"address:$addr\" })" >/dev/null || refuse "could not park probe window"
 parked=""
-for _ in $(seq 1 60); do
+for _ in $(seq 1 "$layerdrop_park_attempts"); do
     source_rect=$(layerdrop_rect || true)
-    if [ "$source_rect" = "40 40 900 500 True" ]; then parked=1; break; fi
-    sleep 0.1
+    if [ "$source_rect" = "$layerdrop_park_x $layerdrop_park_y $layerdrop_park_w $layerdrop_park_h True" ]; then parked=1; break; fi
+    sleep "$layerdrop_settle_poll"
 done
-[ -n "$parked" ] || refuse "probe window never reached 40,40 at 900x500"
+[ -n "$parked" ] || refuse "probe window never reached $layerdrop_park_x,$layerdrop_park_y at ${layerdrop_park_w}x${layerdrop_park_h}"
 # The qs instance id for this pid, same lookup tests/ui.sh uses for its tabs.
 qid=""
-for _ in $(seq 1 60); do
+for _ in $(seq 1 "$layerdrop_lookup_attempts"); do
     qid=$(qs list --all --json 2>/dev/null | python3 -c '
 import json, sys
+# Sample input: [{"id":"abc123","pid":101,"config_path":"/ui/boot/shell.qml"}].
 hits = [x for x in json.load(sys.stdin) if x.get("config_path") == sys.argv[1] and x.get("pid") == int(sys.argv[2])]
 print(hits[0]["id"] if len(hits) == 1 else "")
 ' "$flea_ui/boot/shell.qml" "$flea_pid") || true
     [ -n "$qid" ] && break
-    sleep 0.5
+    sleep "$layerdrop_lookup_poll"
 done
 [ -n "$qid" ] || refuse "no qs instance for $flea_pid"
 # The command-line fixture must have landed before t snapshots it into another tab.
 ready=""
-for _ in $(seq 1 40); do
+for _ in $(seq 1 "$layerdrop_settle_attempts"); do
     lifted_path=$(qs ipc -i "$qid" call flea path 2>/dev/null || true)
     if [ "$lifted_path" = "$srcdir" ] && [ "$(qs ipc -i "$qid" call flea listInFlight 2>/dev/null || true)" = false ]; then ready=1; break; fi
-    sleep 0.1
+    sleep "$layerdrop_settle_poll"
 done
 [ -n "$ready" ] || refuse "source window did not settle on fixture $srcdir"
 layerdrop_focus
 omarchy-drive key --window "$addr" t >/dev/null 2>&1 || refuse "t did not reach probe window"
 # A second tab must be current and settled on the fixture, never the operator's home.
 two=""
-for _ in $(seq 1 40); do
+for _ in $(seq 1 "$layerdrop_settle_attempts"); do
     lifted_path=$(qs ipc -i "$qid" call flea path 2>/dev/null || true)
     if [ "$(qs ipc -i "$qid" call flea tabCount 2>/dev/null || true)" = "2" ] \
         && [ "$(qs ipc -i "$qid" call flea tabIndex 2>/dev/null || true)" = "1" ] \
         && [ "$lifted_path" = "$srcdir" ] \
         && [ "$(qs ipc -i "$qid" call flea listInFlight 2>/dev/null || true)" = false ]; then two=1; break; fi
-    sleep 0.1
+    sleep "$layerdrop_settle_poll"
 done
 [ -n "$two" ] || refuse "second tab did not settle on fixture $srcdir"
 # Read both the painted tab centre and the real client geometry after the park.
@@ -209,6 +223,7 @@ mon_json=$(hyprctl monitors -j 2>/dev/null || true)
 [ -n "$mon_json" ] || refuse "no monitors to scan"
 read -r mx my mw mh mon_name < <(printf '%s' "$mon_json" | python3 -c '
 import json, sys
+# Sample input: [{"name":"DP-2","x":0,"y":0,"width":2560,"height":1440,"focused":true,"activeWorkspace":{"id":1}}].
 ms = json.load(sys.stdin)
 m = [x for x in ms if x.get("focused")] or ms
 print(m[0]["x"], m[0]["y"], m[0]["width"], m[0]["height"], m[0].get("name", ""))
@@ -218,6 +233,7 @@ hyprctl clients -j 2>/dev/null > "$work/clients.json" || refuse "no clients to s
 # The own panel receives the drop, so it is filtered out of the cover like the case filters nothing yet mapped.
 hyprctl layers -j 2>/dev/null | python3 -c '
 import json, sys
+# Sample input: {"DP-2":{"levels":{"1":[{"namespace":"flea-layer-drop","x":0,"y":0,"w":2560,"h":1440,"pid":200}]}}}.
 d = json.load(sys.stdin)
 for entry in (d.values() if isinstance(d, dict) else []):
     lv = entry.get("levels") if isinstance(entry, dict) else None
@@ -305,24 +321,25 @@ layerdrop_wait_drag receiver
 ydotool click 0x80 >/dev/null 2>&1 || refuse "pointer release failed"
 layerdrop_button_down=false
 # Wait for an observed panel receipt or a new Flea process before evaluating either route.
-for _ in $(seq 1 40); do
+for _ in $(seq 1 "$layerdrop_settle_attempts"); do
     layerdrop_panel_hit "$log" && break
     after_flea=$(pgrep -x qs | while read -r pid; do tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq "$flea_ui" && printf '%s ' "$pid"; done)
     torn=$(layerdrop_torn_pids "$before_flea" "$after_flea")
     [ -n "$torn" ] && break
-    sleep 0.1
+    sleep "$layerdrop_settle_poll"
 done
 # The qs instance id for a torn-off pid, same lookup the case uses for its tabs.
 layerdrop_qsid() {
     local pid="$1" i tid
-    for i in $(seq 1 20); do
+    for i in $(seq 1 "$layerdrop_torn_attempts"); do
         tid=$(qs list --all --json 2>/dev/null | python3 -c '
 import json, sys
+# Sample input: [{"id":"def456","pid":202,"config_path":"/ui/boot/shell.qml"}], read for the torn-off window.
 hits = [x for x in json.load(sys.stdin) if x.get("config_path") == sys.argv[1] and x.get("pid") == int(sys.argv[2])]
 print(hits[0]["id"] if len(hits) == 1 else "")
 ' "$flea_ui/boot/shell.qml" "$pid") || true
         if [ -n "$tid" ]; then printf '%s' "$tid"; return 0; fi
-        sleep 0.5
+        sleep "$layerdrop_lookup_poll"
     done
     return 1
 }

@@ -20,6 +20,7 @@ import "js/Permissions.js" as Permissions
 import "js/Selection.js" as Selection
 import "js/SlowClick.js" as SlowClick
 import "js/Sort.js" as Sort
+import "js/Tabs.js" as Tabs
 import "js/Thumbs.js" as Thumbs
 
 FocusScope {
@@ -652,7 +653,7 @@ FocusScope {
     // A terminal in the directory being shown, through ui/Opener.qml's flea --terminal.
     function openTerminal() { wire.opener.openTerminal(root.path) }
 
-    function newWindow() { Quickshell.execDetached([Quickshell.env("FLEA_BIN") || "flea", root.path]) }
+    function newWindow() { Quickshell.execDetached(Tabs.freshLaunch([Quickshell.env("FLEA_BIN") || "flea", root.path])) }
 
     // Quoted when it holds whitespace, because this one is pasted into a shell: see ui/js/Format.js.
     function copyDirPath() { wire.opener.copyText(Format.shellQuoted(root.path)) }

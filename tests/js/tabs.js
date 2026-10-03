@@ -403,10 +403,27 @@ function run(check) {
     check("no such tab keeps both tabs", Tabs.count(pair), 2)
 
     var geo = BarFixture.geometry()
-    geo.begin("first", {})
-    geo.begin("latest", {})
-    geo.finish()
-    check("overlapping geometry query restarts latest lift", geo.queryToken, "latest")
+    check("geometry fixture loads the shipped onExited hook", geo.hooks.onExited, true)
+    check("geometry fixture loads the shipped onStreamFinished hook", geo.hooks.onStreamFinished, true)
+    // Each shipped hook is the only restart in one of the two orders the query can end in.
+    function overlap(skip, order) {
+        var lift = BarFixture.geometry(skip)
+        lift.begin("first", {})
+        lift.begin("latest", {})
+        for (var step = 0; step < order.length; step++) lift[order[step]]("[]")
+        return lift.queryToken
+    }
+    check("onExited restarts the latest lift when the stream ends first", overlap("", ["stream", "exit"]), "latest")
+    check("without onExited the stream-first lift stays on the old token", overlap("onExited", ["stream", "exit"]), "first")
+    check("onStreamFinished restarts the latest lift when the exit comes first", overlap("", ["exit", "stream"]), "latest")
+    check("without onStreamFinished the exit-first lift stays on the old token", overlap("onStreamFinished", ["exit", "stream"]), "first")
+    var unterminated = ""
+    try {
+        BarFixture.method('function broken() { var s = "{" }', "broken")
+    } catch (error) {
+        unterminated = String(error)
+    }
+    check("an unmatched brace in a method string is a named extraction error", unterminated.indexOf("unterminated shipped method broken") >= 0, true)
 
     var crPane = Fixture.pane("/tmp/a\rb")
     var crText = Tabs.tabPayload(crPane, 0, "222", "cr")
@@ -570,6 +587,16 @@ function run(check) {
     if (typeof Tabs.prepareCursor === "function") Tabs.prepareCursor(launchCursor, "tear-7")
     Tabs.applyPending(launchCursor)
     check("tearoff launch restores cursor filename after rows", launchCursor.cursorIndex, 7)
+
+    // A new window is not a tear-off, so its launch strips the hand-off the torn-off window it runs in carries.
+    var windowSpawns = []
+    var windowShell = { env: function () { return "/stub/flea" }, execDetached: function (argv) { windowSpawns.push(argv) } }
+    BarFixture.method(BarFixture.source("../../ui/Pane.qml"), "newWindow", { path: "/tmp/elsewhere" }, windowShell)()
+    var windowArgv = windowSpawns[0] || []
+    check("a new window still opens the folder it was asked for", windowArgv.slice(-2).join(" "), "/stub/flea /tmp/elsewhere")
+    var handOff = ["FLEA_TAB_SOURCE_PID", "FLEA_TAB_CURSOR", "FLEA_TAB_TOKEN"]
+    for (var h = 0; h < handOff.length; h++)
+        check("a new window drops " + handOff[h], windowArgv[0] === "env" && windowArgv[windowArgv.indexOf(handOff[h]) - 1] === "-u", true)
 
     // A lift may not leave while a rename is open, or the close would take the editor's tab.
     check("a clean pane tears out", Tabs.tearRefusal(Fixture.pane()), "")

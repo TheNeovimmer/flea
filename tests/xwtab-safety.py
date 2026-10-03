@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 # Run shipped shell helpers against owned-window, receiver, and trace doubles.
 import pathlib
+import re
 import shlex
 import subprocess
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 UI = (ROOT / 'tests/ui.sh').read_text()
+SHELL_TIMEOUT_SECONDS = 10
 checks = 0
 failures = 0
 
@@ -42,7 +44,53 @@ for helper in ('xwtab_wait_cancel', 'layerdrop_wait_drag'):
 
 
 def shell(code):
-    return subprocess.run(['bash', '-c', code], cwd=ROOT, capture_output=True, text=True, timeout=10)
+    return subprocess.run(['bash', '-c', code], cwd=ROOT, capture_output=True, text=True, timeout=SHELL_TIMEOUT_SECONDS)
+
+
+STACKED_COMMENT_FILES = ('tests/xwtab-norm.sh', 'tests/xwtab-scan.sh')
+DRAGWIRE_HEADER_RUN = (2, 6)
+TEAROFF_HEADER_LINES = 2
+PARSER_SAMPLE_LEAD = 2
+BARE_BOUND = re.compile(r'seq 1 \d|hl\.dsp\.window\.(?:move|resize)\([^)]*[xy] = \d|"\d+ \d+ \d+ \d+ (?:True|False)"')
+BARE_SUBPROCESS_TIMEOUT = re.compile('timeout=' + r'\d')
+BARE_TIMER_INTERVAL = re.compile(r'interval:\s*\d')
+
+
+# Sample input: "# one\n# two\ncode\n# three" has the comment runs [(1, 2)], and a lone comment is no run.
+def comment_runs(text):
+    runs = []
+    start = length = 0
+    for number, line in enumerate(text.split('\n') + [''], 1):
+        if line.lstrip().startswith('#') and not line.startswith('#!'):
+            start = start or number
+            length += 1
+            continue
+        if length > 1:
+            runs.append((start, length))
+        start = length = 0
+    return runs
+
+
+# Sample input: "x=$(python3 -c '\nprint(json.load(f))\n')" has no sample comment, so its line 2 is returned.
+def unsampled_parsers(text):
+    lines = text.split('\n')
+    missing = []
+    for index, line in enumerate(lines):
+        if 'json.load' not in line:
+            continue
+        start = index
+        while start > 0 and 'python3 -' not in lines[start]:
+            start -= 1
+        window = lines[max(start - PARSER_SAMPLE_LEAD, 0):index + 1]
+        if not any('Sample input' in entry for entry in window):
+            missing.append(index + 1)
+    return missing
+
+
+# Sample input: "seq 1 40" and "window.move({ x = 40," hold a bare bound, while seq 1 "$n" and x = $px do not.
+def bare_bounds(text):
+    return [number for number, line in enumerate(text.split('\n'), 1)
+            if not line.lstrip().startswith('#') and BARE_BOUND.search(line)]
 
 
 def cache_snapshot(path):
@@ -59,11 +107,13 @@ with tempfile.TemporaryDirectory() as temporary:
     # The verified CI archive has no Git metadata, so index its files in private scratch.
     if not (ROOT / '.git').exists():
         metadata = scratch / 'git'
-        subprocess.run(['git', 'init', '-q', str(metadata)], check=True, capture_output=True, timeout=10)
+        subprocess.run(['git', 'init', '-q', str(metadata)], check=True, capture_output=True,
+                       timeout=SHELL_TIMEOUT_SECONDS)
         git = ['git', '--git-dir=' + str(metadata / '.git'), '--work-tree=' + str(ROOT)]
         subprocess.run(git + ['add', '-A', '-f', '--', '.', ':(exclude)target', ':(exclude).superpowers'],
-                       cwd=ROOT, check=True, capture_output=True, timeout=10)
-    tracked = subprocess.run(git + ['ls-files', '-z'], cwd=ROOT, capture_output=True, text=True, timeout=10)
+                       cwd=ROOT, check=True, capture_output=True, timeout=SHELL_TIMEOUT_SECONDS)
+    tracked = subprocess.run(git + ['ls-files', '-z'], cwd=ROOT, capture_output=True, text=True,
+                             timeout=SHELL_TIMEOUT_SECONDS)
     bytecode = [path for path in tracked.stdout.split('\0') if path.endswith('.pyc')]
     check('no tracked Python bytecode', tracked.returncode == 0 and not bytecode,
           tracked.stderr + repr(bytecode))
@@ -97,8 +147,10 @@ with tempfile.TemporaryDirectory() as temporary:
     receiver_start = UI.index('    [[ -n "$recv_addr" ]] || fail')
     receiver_end = UI.index('    read -r rcx rcy', receiver_start)
     receiver = 'receiver_case() {\n' + UI[receiver_start:receiver_end] + '\n}\n'
-    focus_helpers = '\n'.join(function(UI, name) for name in
-                              ('xwdrag_focus', 'xwdrag_wait_focus', 'xwdrag_fail_unfocused'))
+    focus_constants = UI[UI.index('xwdrag_focus_attempts='):UI.index('# Bounded wait until the active window')]
+    focus_helpers = focus_constants + '\n'.join(function(UI, name) for name in
+                                                ('xwdrag_active_field', 'xwdrag_focus', 'xwdrag_wait_focus',
+                                                 'xwdrag_fail_unfocused'))
     if 'hypr_dispatch() {' in UI:
         focus_helpers += '\n' + function(UI, 'hypr_dispatch')
     for refusal in ('none', 'focus-status', 'focus-reply', 'focus-stolen',
@@ -164,7 +216,11 @@ fi
                   result.returncode != 0 and 'FAIL' in result.stdout
                   and len(actions) <= (1 if refusal.startswith('float') else 2 if refusal.startswith('move') else 0), detail)
 
-    result = shell(function(UI, 'xwtab_cleanup') + f'''
+    cleanup_function = function(UI, 'xwtab_cleanup')
+
+    def cleanup_kills(code):
+        log.write_text('')
+        run = shell(code + f'''
 recv_pid=345
 xwtab_release() {{ :; }}
 xwtab_restore_place() {{ :; }}
@@ -172,7 +228,15 @@ kill() {{ printf '%s\\n' "$*" >> '{log}'; }}
 wait() {{ :; }}
 xwtab_cleanup
 ''')
-    check('failure cleanup kills saved receiver pid', result.returncode == 0 and log.exists() and '345' in log.read_text(), result.stdout + result.stderr)
+        return run, log.read_text().splitlines()
+
+    result, kills = cleanup_kills(cleanup_function)
+    check('failure cleanup kills exactly the saved receiver pid', result.returncode == 0 and kills == ['345'],
+          result.stdout + result.stderr + repr(kills))
+    wrong_pid = cleanup_function.replace('kill "$recv_pid"', 'kill "1$recv_pid"')
+    result, kills = cleanup_kills(wrong_pid)
+    check('cleanup check refuses a kill of the wrong pid', wrong_pid != cleanup_function and kills == ['1345'],
+          result.stdout + result.stderr + repr(kills))
 
     room_helpers = UI[UI.index('xwtab_rect_of() {'):UI.index('# xw6: a tab dragged onto another Flea')]
     double = f'''
@@ -186,7 +250,7 @@ hyprctl() {{
     if [[ "$1" == monitors ]]; then
         printf '%s\\n' '[{{"name":"DP-2","x":0,"y":0,"width":1000,"height":800,"focused":true,"activeWorkspace":{{"id":1}}}}]'
     elif [[ "$1" == clients ]]; then printf '[]\\n'
-    elif [[ "$1" == layers ]]; then printf '{{}}\\n'
+    elif [[ "$1" == layers ]]; then printf '%s\\n' '{{"DP-2":{{"levels":{{"1":[]}}}}}}'
     elif [[ "$1" == dispatch ]]; then
         printf '%s\\n' "$2" >> '{log}'
     fi
@@ -199,10 +263,31 @@ xwtab_rect_of() {{
     printf '%s %s %s %s %s True\\n' "$addr" "$x" "$y" "$w" "$h"
 }}
 '''
-    result = shell(room_helpers + double + '\nxwtab_make_room 101 202\n')
-    calls = log.read_text() if log.exists() else ''
-    actions = [line for line in calls.splitlines() if 'hl.dsp.window.' in line]
-    check('room operations target owned addresses despite ignored focus', result.returncode == 0 and len(actions) >= 4 and all('window = "address:' in line for line in actions), calls + result.stderr)
+    expected_room = {'0xa': ['float', 'resize', 'move'], '0xb': ['float', 'resize', 'move']}
+
+    # Sample input: hl.dsp.window.resize({ x = 470, y = 370, relative = false, window = "address:0xa" }).
+    def room_run(helpers):
+        log.write_text('')
+        run = shell(helpers + double + '\nxwtab_make_room 101 202\n')
+        calls = log.read_text()
+        per_window = {}
+        for line in calls.splitlines():
+            action = re.search(r'hl\.dsp\.window\.(float|resize|move)\(.*window = "address:(0x[0-9a-f]+)"', line)
+            if action:
+                per_window.setdefault(action.group(2), []).append(action.group(1))
+        every_addressed = all('window = "address:' in line for line in calls.splitlines() if 'hl.dsp.window.' in line)
+        return run, calls, per_window, every_addressed
+
+    result, calls, per_window, every_addressed = room_run(room_helpers)
+    check('room operations target owned addresses despite ignored focus',
+          result.returncode == 0 and per_window == expected_room and every_addressed, calls + result.stderr)
+    without_geometry = '\n'.join(line for line in room_helpers.split('\n')
+                                 if 'hl.dsp.window.resize({ x = $pw' not in line
+                                 and 'hl.dsp.window.move({ x = $px' not in line)
+    result, calls, per_window, every_addressed = room_run(without_geometry)
+    check('room check refuses a run that never resized or moved a window',
+          without_geometry != room_helpers and result.returncode == 0 and per_window != expected_room,
+          calls + result.stderr + repr(per_window))
     result = shell(room_helpers + double + '\nstale=true\nxwtab_make_room 101 202\n')
     check('room fails when geometry never moved', result.returncode != 0, result.stdout + result.stderr)
 
@@ -215,6 +300,25 @@ xwtab_restore_place
     calls = log.read_text()
     actions = [line for line in calls.splitlines() if 'hl.dsp.window.' in line]
     check('restore touches only proven owned address', actions and all('window = "address:0xa"' in line for line in actions), calls + result.stderr)
+
+    duplicate_clients = ('[{"pid":101,"address":"0xa","at":[20,20],"size":[900,500],"floating":true},'
+                         '{"pid":101,"address":"0xb","at":[600,400],"size":[300,200],"floating":false}]')
+    single_clients = '[{"pid":101,"address":"0xa","at":[20,20],"size":[900,500],"floating":true}]'
+    rect_function = function(UI, 'xwtab_rect_of')
+    for clients, label, wanted in ((single_clients, 'one client', '0xa 20 20 900 500 True\n'),
+                                   (duplicate_clients, 'two clients', ''),
+                                   ('[]', 'no client', '')):
+        result = shell(rect_function + f"\nhyprctl() {{ printf '%s\\n' '{clients}'; }}\nxwtab_rect_of 101\n")
+        count = {'one client': 1, 'two clients': 2, 'no client': 0}[label]
+        check('rectangle of a pid carried by ' + label,
+              result.stdout == wanted and (result.returncode == 0) == bool(wanted)
+              and (count == 1 or f'{count} clients carry pid 101' in result.stderr), result.stdout + result.stderr)
+    result = shell(room_helpers + double.split('xwtab_rect_of() {')[0]
+                   + f"\nhyprctl() {{ if [[ \"$1\" == clients ]]; then printf '%s\\n' '{duplicate_clients}'; fi; }}\n"
+                   + '\nxwtab_make_room 101 202\n')
+    check('room fails naming the pid and the client count on a duplicate pid',
+          result.returncode != 0 and 'FAIL xwtab: no geometry for 101' in result.stdout
+          and '2 clients carry pid 101' in result.stdout + result.stderr, result.stdout + result.stderr)
 
     centered = r'''
 declare -A state_x=([101]=40 [202]=1100)
@@ -238,7 +342,7 @@ hyprctl() {
             return 0
             ;;
         layers)
-            printf '{}\n'
+            printf '%s\n' '{"DP-2":{"levels":{"1":[]}}}'
             return 0
             ;;
     esac
@@ -313,19 +417,25 @@ exit "$status"
 
     wait_cancel = function(UI, 'xwtab_wait_cancel')
     start = UI.index('    # The catcher never takes keyboard focus', UI.index('case_xwtab()'))
-    end = UI.index('    hyprctl layers -j', start)
+    end = UI.index('    xwtab_wait_unmapped "$apid"', start)
     escape_leg = UI[start:end]
-    result = shell(wait_cancel + '''
+    escape_double = '''
 xwtab_cancel_attempts=30; xwtab_cancel_poll=0.1
 xwtab_source=101; apid=101
 addr=0xa
 fail() { echo "FAIL $*"; exit 1; }
-omarchy-drive() { :; }
 sleep() { :; }
 xwtab_release() { released=true; }
 xwtab_trace_lines() { [[ "${released:-false}" == true ]] && echo 'TABDRAG drag-finished pid=101 action=0'; }
-''' + escape_leg)
-    check('no-op Escape cannot pass through later release', result.returncode != 0, result.stdout + result.stderr)
+'''
+    escape_failure = 'FAIL xwtab: Escape did not cancel while the button was held'
+    result = shell(wait_cancel + escape_double + 'omarchy-drive() { :; }\n' + escape_leg)
+    check('no-op Escape cannot pass through later release',
+          result.returncode != 0 and escape_failure in result.stdout, result.stdout + result.stderr)
+    result = shell(wait_cancel + escape_double + 'omarchy-drive() { return 1; }\n' + escape_leg)
+    check('another failure cannot satisfy the Escape leg control',
+          result.returncode != 0 and escape_failure not in result.stdout and 'FAIL xwtab: Escape did not reach' in result.stdout,
+          result.stdout + result.stderr)
     result = shell(wait_cancel + '''
 xwtab_cancel_attempts=30; xwtab_cancel_poll=0.1
 xwtab_source=101
@@ -334,6 +444,68 @@ sleep() { :; }
 xwtab_trace_lines() { echo 'TABDRAG drag-finished pid=101 action=0'; }
 ''' + 'xwtab_wait_cancel')
     check('cancel receipt while held satisfies Escape wait', result.returncode == 0, result.stdout + result.stderr)
+
+    unmap_attempts = int(re.search(r'xwtab_unmap_attempts=(\d+)', UI).group(1))
+    unmap_constants = UI[UI.index('xwtab_unmap_attempts='):UI.index('xwtab_wait_unmapped()')]
+    unmap_function = function(UI, 'xwtab_wait_unmapped')
+    mapped_layers = '{"DP-2":{"levels":{"1":[{"namespace":"flea-tab-tearoff","pid":101}]}}}'
+    clear_layers = '{"DP-2":{"levels":{"1":[]}}}'
+    mapped_failure = 'Escape left the catcher mapped'
+    reads_log = scratch / 'layer-reads'
+    for name, hyprctl_body, wanted in (
+            ('catcher gone at once', f"printf '%s\\n' '{clear_layers}'", 'passes'),
+            ('catcher unmapping after two polls',
+             f"printf 'read\\n' >> '{reads_log}'; if (( $(wc -l < '{reads_log}') <= 2 )); then printf '%s\\n' '{mapped_layers}'; else printf '%s\\n' '{clear_layers}'; fi",
+             'passes'),
+            ('catcher never unmapping', f"printf '%s\\n' '{mapped_layers}'", 'left the catcher mapped'),
+            ('hyprctl failing', "printf 'Socket error\\n'; return 1", 'hyprctl layers failed'),
+            ('hyprctl answering no JSON', "printf 'not json\\n'", 'layers JSON unreadable')):
+        log.write_text('')
+        reads_log.write_text('')
+        result = shell(unmap_constants + '\n' + unmap_function + f'''
+fail() {{ echo "FAIL $*"; exit 1; }}
+sleep() {{ printf 'poll\\n' >> '{log}'; }}
+hyprctl() {{ {hyprctl_body}; }}
+xwtab_wait_unmapped 101
+''')
+        polls = len(log.read_text().splitlines())
+        detail = result.stdout + result.stderr + f' polls={polls}'
+        if wanted == 'passes':
+            condition = result.returncode == 0 and polls == (2 if 'two polls' in name else 0)
+        elif wanted == 'left the catcher mapped':
+            condition = result.returncode != 0 and mapped_failure in result.stdout and polls == unmap_attempts
+        else:
+            condition = result.returncode != 0 and wanted in result.stdout and mapped_failure not in result.stdout and polls == 0
+        check('Escape layer wait: ' + name, condition, detail)
+    check('Escape leg waits for the catcher layer to unmap after release',
+          'xwtab_release || fail "xwtab: pointer release failed"\n    xwtab_wait_unmapped "$apid"\n'
+          in UI[UI.index('    # Escape mid-drag over A cancels'):UI.index("    printf 'XWTAB escape ok")])
+
+    enter_constants = UI[UI.index('xwtab_receipt_attempts='):UI.index('xwtab_mark_logs()')]
+    enter_function = function(UI, 'xwtab_wait_enter')
+    enter_receipt = 'qml: TABDRAG enter-window pid=202 ok=true\n'
+    enter_source = scratch / 'enter-source.log'
+    enter_target = scratch / 'enter-target.log'
+    for mode, trace, wanted in (('require', enter_receipt, 0), ('require', '', 'no enter on 202'),
+                                ('observe', '', 'observe'), ('observe', enter_receipt, 'observe'),
+                                ('typo', enter_receipt, 'typo')):
+        enter_source.write_text('')
+        enter_target.write_text(trace)
+        result = shell(enter_constants + '\n' + enter_function + '\n' + function(UI, 'xwtab_trace_lines') + f'''
+xwtab_source=101
+xwtab_logs=('{enter_source}' '{enter_target}')
+xwtab_marks=(0 0)
+xwtab_receipt_attempts=2
+fail() {{ printf 'FAIL %s\\n' "$*"; exit 1; }}
+sleep() {{ :; }}
+xwtab_wait_enter 202 {mode}
+''')
+        condition = result.returncode == 0 if wanted == 0 else result.returncode != 0 and wanted in result.stdout
+        check(f'enter wait with mode {mode} and {"an enter" if trace else "no enter"}', condition,
+              result.stdout + result.stderr)
+    callers = [line.split()[-1] for line in UI.splitlines() if line.startswith('    xwtab_drag_to_window "')]
+    check('every drag gesture passes a known mode', callers and set(callers) <= {'require', 'catcher', 'own', 'refused'},
+          repr(callers))
 
     own_test_attempts = 2
     own_source_pid = 101
@@ -773,6 +945,55 @@ sleep() {{ :; }}
               result.stdout.startswith(wanted)
               and (result.returncode == 0) == (torn_path == '/fixture'),
               result.stdout + result.stderr)
+
+# Static shape of the branch's test code: comment runs, parser samples, named bounds.
+check('comment run control finds a stacked pair', comment_runs('# one\n# two\ncode\n# three') == [(1, 2)])
+check('comment run control skips a shebang and a lone comment', comment_runs('#!/bin/bash\n# one\ncode\n') == [])
+for name in STACKED_COMMENT_FILES:
+    check(name + ' keeps every comment to one line', comment_runs((ROOT / name).read_text()) == [],
+          str(comment_runs((ROOT / name).read_text())))
+dragwire = comment_runs((ROOT / 'tests/dragwire.sh').read_text())
+check('dragwire header stays at its base length', dragwire[:1] == [DRAGWIRE_HEADER_RUN], str(dragwire))
+
+tearoff = (ROOT / 'ui/boot/tabtearoff.qml').read_text().split('\n')
+tearoff_header = [line for line in tearoff[:tearoff.index('Item {')] if line.startswith('//')]
+check('tear-off catcher header states its lifecycle in two lines',
+      len(tearoff_header) == TEAROFF_HEADER_LINES
+      and 'alive only while' in tearoff_header[0] + tearoff_header[1]
+      and 'unloads it on every end path' in tearoff_header[1],
+      str(tearoff_header))
+
+catcher_start = scan.index(': > "$scratch/catcher-drag.out"')
+catcher_note = scan[scan.rindex('\n', 0, scan.rindex('\n', 0, catcher_start)) + 1:catcher_start].strip()
+catcher_check = scan[catcher_start:scan.index('# A failure after pressing', catcher_start)]
+check('catcher drag check names the mode it drives', 'catcher mode' in catcher_note
+      and 'tests/xwtab-safety.py' in catcher_note and 'own-strip' not in catcher_check
+      and 'ok "catcher drag' in catcher_check and 'bad "catcher drag' in catcher_check,
+      catcher_note + catcher_check)
+
+unsampled_fixture = "x=$(python3 -c '\nprint(json.load(f))\n')"
+check('parser sample control flags an unsampled parser', unsampled_parsers(unsampled_fixture) == [2])
+check('parser sample control accepts a sample above the parser',
+      unsampled_parsers('# Sample input: [].\n' + unsampled_fixture) == [])
+check('parser sample control accepts a sample inside the parser',
+      unsampled_parsers(unsampled_fixture.replace('print', '# Sample input: [].\nprint')) == [])
+check('bare bound control flags a literal seq and placement',
+      bare_bounds('for _ in $(seq 1 40); do\nhl.dsp.window.move({ x = 40, y = 1 })\nx="40 40 900 500 True"') == [1, 2, 3])
+check('bare bound control accepts a named bound and a comment',
+      bare_bounds('for _ in $(seq 1 "$n"); do\nhl.dsp.window.move({ x = $px, y = $py })\n# seq 1 40') == [])
+probe_text = (ROOT / 'tests/probes/layer-drop-bottom.sh').read_text()
+ui_branch = [UI[UI.index('# Sample input: {"pid":101,"address":"0xa","class":"flea"'):UI.index('xwdrag_geometry() {')],
+             UI[UI.index('xwtab_logs=('):UI.index('# The cursor parks on row 0 above the card')]]
+for label, text in (('probe', probe_text), ('ui.sh helpers', ui_branch[0]), ('ui.sh xwtab case', ui_branch[1])):
+    check(label + ' puts a sample input above every parser', unsampled_parsers(text) == [], str(unsampled_parsers(text)))
+    check(label + ' names its poll bounds and placements', bare_bounds(text) == [], str(bare_bounds(text)))
+
+check('bare timeout control flags a literal', BARE_SUBPROCESS_TIMEOUT.search('run(x, ' + 'timeout=' + '10)') is not None)
+check('bare interval control flags a literal', BARE_TIMER_INTERVAL.search('interval: ' + '800') is not None)
+check('xwtab-safety.py names its subprocess bound', BARE_SUBPROCESS_TIMEOUT.search(pathlib.Path(__file__).read_text()) is None)
+bootload = (ROOT / 'tests/bootload.qml').read_text()
+check('bootload.qml names its timer interval',
+      BARE_TIMER_INTERVAL.search(bootload) is None and 'interval: root.checkDelayMs' in bootload)
 
 print(f'{checks} safety checks, {failures} failed')
 raise SystemExit(bool(failures))

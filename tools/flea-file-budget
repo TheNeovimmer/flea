@@ -47,7 +47,7 @@ src/uistate.rs 659
 src/uistore.rs 540
 src/vulkan.rs 728
 tests/js/columns.js 618
-tests/js/drag.js 420
+tests/js/drag.js 427
 tests/js/previewswap.js 367
 tests/js/focus.js 522
 tests/js/mounts.js 383
@@ -56,7 +56,7 @@ tests/js/nav.js 323
 tests/js/network.js 306
 tests/js/ops.js 430
 tests/js/settings.js 337
-tests/js/tabs.js 656
+tests/js/tabs.js 683
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 396
@@ -78,7 +78,7 @@ ui/NetworkDialog.qml 449
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 838
 ui/OpenWithDialog.qml 596
-ui/Pane.qml 992
+ui/Pane.qml 993
 ui/PaneMenuActions.qml 458
 ui/PaneWire.qml 539
 ui/PermissionsDialog.qml 589
@@ -106,7 +106,7 @@ ui/js/Drag.js 372
 ui/js/Ops.js 438
 ui/js/Picker.js 325
 ui/js/Settings.js 455
-ui/js/Tabs.js 712"
+ui/js/Tabs.js 723"
 
 status=0
 

@@ -383,11 +383,18 @@ function run(check) {
         [Drag.uriFor("/source\nfolder/a.txt")], "/target", 32, "", "", Qt.LinkAction)
     check("cross-window LF source folder preserves Shift move", movedNewline.length === 1 ? movedNewline[0].op : "nothing sent", "move")
     check("cross-window LF source folder preserves Ctrl Shift link", linkedNewline.length === 1 ? linkedNewline[0].c : "nothing sent", "link")
+    // Ctrl decides the verb only where devices match and the proposal is a move, so a lost Ctrl shows as a move.
+    var lostCtrlNewline = []
+    var lostCtrlFields = copyMarker.split("\n")
+    lostCtrlFields[2] = moveMarker.split("\n")[2]
     Drag.dropInto(pane(copiedNewline, [], rows), copyMarker,
-        [Drag.uriFor("/source\nfolder/a.txt")], "/target", 32, "", "", Qt.CopyAction)
+        [Drag.uriFor("/source\nfolder/a.txt")], "/target", 56, "", "", Qt.MoveAction)
+    Drag.dropInto(pane(lostCtrlNewline, [], rows), lostCtrlFields.join("\n"),
+        [Drag.uriFor("/source\nfolder/a.txt")], "/target", 56, "", "", Qt.MoveAction)
     Drag.dropInto(pane(plainNewline, [], rows), plainMarker,
         [Drag.uriFor("/source\nfolder/a.txt")], "/target", 32, "", "", Qt.CopyAction)
-    check("cross-window LF source folder preserves Ctrl copy", copiedNewline.length === 1 ? copiedNewline[0].op : "nothing sent", "copy")
+    check("cross-window LF source folder preserves Ctrl copy on one device", copiedNewline.length === 1 ? copiedNewline[0].op : "nothing sent", "copy")
+    check("cross-window LF source folder moves on one device once Ctrl is lost", lostCtrlNewline.length === 1 ? lostCtrlNewline[0].op : "nothing sent", "move")
     check("cross-window LF source folder copies across devices without Shift", plainNewline.length === 1 ? plainNewline[0].op : "nothing sent", "copy")
 
     // Each legal separator byte and a literal percent must round-trip without changing the lift intent.

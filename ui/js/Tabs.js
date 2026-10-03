@@ -462,6 +462,17 @@ function newToken() {
     return String(Date.now()) + "-" + String(Math.floor(Math.random() * TOKEN_RANDOM_RANGE))
 }
 
+// The hand-off a tear-off gives the one window it starts; src/tearoff.rs drops the same names for Rust launches.
+var TEAR_OFF_ENV = ["FLEA_TAB_SOURCE_PID", "FLEA_TAB_CURSOR", "FLEA_TAB_TOKEN"]
+
+// Sample input: ["flea", "/tmp"] gives ["env", "-u", "FLEA_TAB_SOURCE_PID", "-u", "FLEA_TAB_CURSOR", "-u", "FLEA_TAB_TOKEN", "flea", "/tmp"].
+function freshLaunch(argv) {
+    var unset = ["env"]
+    for (var i = 0; i < TEAR_OFF_ENV.length; i++)
+        unset.push("-u", TEAR_OFF_ENV[i])
+    return unset.concat(argv)
+}
+
 // A lift names the live current tab or stored hidden tab, with the cursor name when available; null if absent.
 function tabInfo(pane, index) {
     if (!pane)

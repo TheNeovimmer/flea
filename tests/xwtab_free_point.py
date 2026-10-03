@@ -41,14 +41,11 @@ def validate_snapshots(clients, layers, monitors):
 
 
 def monitor_entry(monitors, mon_name):
-    # Pick the focused monitor by name, else the focused flag, else the first.
+    # The named monitor only: another monitor's workspace never answers for it.
     for m in monitors:
         if m.get("name") == mon_name:
             return m
-    for m in monitors:
-        if m.get("focused"):
-            return m
-    return monitors[0]
+    raise ValueError("monitor " + mon_name + " is not in the monitors snapshot")
 def workspace_ids(entry):
     # Active id plus the special id only when one is open (nonzero).
     active = None
@@ -101,7 +98,7 @@ def layer_rects(layers, mon_name, mx, my, mw, mh):
     rects = []
     entry = layers.get(mon_name, None)
     if entry is None:
-        return rects
+        raise ValueError("layers snapshot has no entry for monitor " + mon_name)
     levels = entry["levels"]
     for key in ("1", "2", "3"):
         for node in levels.get(key, []):
@@ -153,13 +150,12 @@ def main(argv):
         return 2
     try:
         validate_snapshots(clients, layers, monitors)
+        valid = workspace_ids(monitor_entry(monitors, mon_name))
+        rects = client_rects(clients, valid)
+        rects.extend(layer_rects(layers, mon_name, mx, my, mw, mh))
     except ValueError as error:
         sys.stderr.write("xwtab_free_point: invalid snapshot: %s\n" % error)
         return 2
-    entry = monitor_entry(monitors, mon_name)
-    valid = workspace_ids(entry)
-    rects = client_rects(clients, valid)
-    rects.extend(layer_rects(layers, mon_name, mx, my, mw, mh))
     found = find_free_point(mx, my, mw, mh, rects)
     if found is None:
         sys.stdout.write("\n")

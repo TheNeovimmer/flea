@@ -1688,6 +1688,7 @@ failure fails the check rather than passing it.
 - `open.rs` hands one file to `gio open` and waits for it, see "Opening a file".
 - `terminal.rs` hands one directory to `xdg-terminal-exec --dir=` and does not wait, see "Opening a file";
   its `detach` is the set of guards every program Flea starts and does not wait for carries.
+- `tearoff.rs` names the three tab tear-off variables and removes them from a child's environment, for `detach` and `open.rs`.
 - `update.rs` `flea --update [check]`: the install kind, the source's answer, and Omarchy's updater, see "Updates".
 - `defaults.rs` claims or releases the OS-level default: the desktop-entry install check,
   the `inode/directory` MIME default via `xdg-mime`, and reporting each half, see "Modes".
@@ -2033,18 +2034,22 @@ captures a stable tab identity and its source pane until acknowledgment or the e
 15-second deadline. Accepted lifts wait for pane settlement beyond that deadline, and source
 closures wait for a held strip reorder to finish; pending receiver drops are refused without acknowledgment. A desktop
 tear-off uses the same acknowledgment after its initial folder lists. The geometry query
-restarts for the latest overlapping lift.
-The `wc -l` ceilings are `ui/TabBar.qml` 607, `ui/js/Tabs.js` 712, `ui/WindowBody.qml` 635
-and `ui/boot/fleatab.qml` 50, with merge-base comments kept verbatim with their original
-line breaks. `tests/js/tabs.js` is 654: the hunt cursor-name checks join the existing
-no-such-tab, navigation acknowledgment and captured tear-off token checks.
+restarts for the latest overlapping lift, from either its process exit or its stream end.
+The tear-off variables `FLEA_TAB_SOURCE_PID`, `FLEA_TAB_CURSOR` and `FLEA_TAB_TOKEN` reach only the window a
+tear-off starts: `src/tearoff.rs` drops them from the terminal and opened-program launchers, and `Tabs.freshLaunch`
+drops them from the new-window launch.
+The `wc -l` ceilings are `ui/TabBar.qml` 607, `ui/js/Tabs.js` 723, `ui/Pane.qml` 993,
+`ui/WindowBody.qml` 635 and `ui/boot/fleatab.qml` 50, with merge-base comments kept verbatim with their original
+line breaks. `tests/js/tabs.js` is 683: the hunt cursor-name checks join the existing
+no-such-tab, navigation acknowledgment and captured tear-off token checks, and the new-window check and the
+two geometry hook orders add to them.
 The cursor handoff uses held rows or the existing name-only locate request, then fetches
 only its destination window; desktop tear-off carries the filename through the launch
-environment. `ui/PaneWire.qml` is 539, `ui/js/Drag.js` 371 and `tests/js/drag.js`
-420, for the locate reply route and percent-encoded drag source field with bounded
+environment. `ui/PaneWire.qml` is 539, `ui/js/Drag.js` 372 and `tests/js/drag.js`
+427, for the locate reply route and percent-encoded drag source field with bounded
 legacy shapes. The Columns floor uses the same loading refusal and dropPath as List and Grid.
-The test fixture loads shipped QML function bodies so cancel,
-completion and acknowledgment assertions exercise the actual transitions.
+The test fixture loads shipped QML function bodies and the geometry query's exit and stream-finished
+hooks, so cancel, completion, acknowledgment and restart assertions exercise the actual transitions.
 
 xw6 round 13 records commit `5b91e7bd`: `ui/TabBar.qml` 569 to 588 for the sibling drag source, source
 geometry snapshot and shared own-return path. `ui/js/Tabs.js` 672 to 686 adds the pure

@@ -10857,14 +10857,23 @@ print(hits[0]["address"] if len(hits) == 1 else "")
     xwdrag_wait_focus "$pid" "$addr"
 }
 
+# Sample input: {"pid":101,"address":"0xa","class":"flea","title":"Flea"} with the key pid answers 101, and a non-JSON reply answers nothing.
+xwdrag_active_field() {
+    printf '%s' "$1" | python3 -c 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1],""))' "$2" 2>/dev/null || true
+}
+
+xwdrag_focus_attempts=40 # Bound the wait for the wanted window to become the active one.
+xwdrag_focus_poll=0.25 # Poll the active window between checks.
+xwdrag_focus_settle=0.2 # Let the compositor deliver the focus before the next key.
+
 # Bounded wait until the active window is the wanted pid, so a later key reaches it.
 xwdrag_wait_focus() {
     local pid="$1" addr="$2" i active apid
-    for i in $(seq 1 40); do
+    for i in $(seq 1 "$xwdrag_focus_attempts"); do
         active=$(hyprctl activewindow -j 2>/dev/null || true)
-        apid=$(printf '%s' "$active" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("pid",""))' 2>/dev/null || true)
-        [[ "$apid" == "$pid" ]] && { sleep 0.2; return 0; }
-        sleep 0.25
+        apid=$(xwdrag_active_field "$active" pid)
+        [[ "$apid" == "$pid" ]] && { sleep "$xwdrag_focus_settle"; return 0; }
+        sleep "$xwdrag_focus_poll"
     done
     xwdrag_fail_unfocused "$pid" "$addr"
 }
@@ -10873,10 +10882,10 @@ xwdrag_wait_focus() {
 xwdrag_fail_unfocused() {
     local pid="$1" addr="$2" active apid aaddr aclass atitle
     active=$(hyprctl activewindow -j 2>/dev/null || true)
-    apid=$(printf '%s' "$active" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("pid",""))' 2>/dev/null || true)
-    aaddr=$(printf '%s' "$active" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("address",""))' 2>/dev/null || true)
-    aclass=$(printf '%s' "$active" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("class",""))' 2>/dev/null || true)
-    atitle=$(printf '%s' "$active" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("title",""))' 2>/dev/null || true)
+    apid=$(xwdrag_active_field "$active" pid)
+    aaddr=$(xwdrag_active_field "$active" address)
+    aclass=$(xwdrag_active_field "$active" class)
+    atitle=$(xwdrag_active_field "$active" title)
     [[ -n "$apid" ]] || apid="(none)"
     fail "xwdrag: window $pid at $addr never took focus, active is pid=$apid addr=$aaddr class=$aclass title=$atitle"
 }
@@ -11030,6 +11039,8 @@ xwtab_logs=("$flea_log" "$run_root/flea-second.log")
 xwtab_outside_x=200
 xwtab_outside_y=60
 xwtab_target_nudge=6
+xwtab_receipt_attempts=30 # Bound each wait for a gesture receipt in the held-button trace.
+xwtab_receipt_poll=0.1 # Poll the trace between receipt checks.
 xwtab_marks=(0 0)
 xwtab_source=""
 xwtab_target=""
@@ -11070,19 +11081,20 @@ xwtab_dump_trace() {
 # A platform drag must start at the source and stay active until the test releases it.
 xwtab_wait_start() {
     local i lines
-    for i in $(seq 1 30); do
+    for i in $(seq 1 "$xwtab_receipt_attempts"); do
         lines=$(xwtab_trace_lines | grep -a "TABDRAG .* pid=$xwtab_source " || true)
         if grep -aq 'TABDRAG drag-finished' <<< "$lines"; then fail "xwtab: source $xwtab_source ended the drag before release"; fi
         grep -aq 'TABDRAG drag-start' <<< "$lines" && return 0
-        sleep 0.1
+        sleep "$xwtab_receipt_poll"
     done
     fail "xwtab: no platform drag started on source $xwtab_source"
 }
 
-# Require an enter after this press with no later leave; observe permits a refused target.
+# Require an enter after this press with no later leave; require is the only mode.
 xwtab_wait_enter() {
     local bpid="$1" mode="$2" i lines numbered enter_no leave_no source_lines
-    for i in $(seq 1 30); do
+    [[ "$mode" == require ]] || fail "xwtab: unknown enter wait mode '$mode', the only mode is require"
+    for i in $(seq 1 "$xwtab_receipt_attempts"); do
         source_lines=$(xwtab_trace_lines | grep -a "TABDRAG .* pid=$xwtab_source " || true)
         if grep -aq 'TABDRAG drag-finished' <<< "$source_lines"; then fail "xwtab: source $xwtab_source ended the drag before target $bpid entered"; fi
         # Sample input: TABDRAG enter-window pid=202 (the foreign receiver ends its line at the pid).
@@ -11093,10 +11105,9 @@ xwtab_wait_enter() {
             leave_no=$(printf '%s\n' "$numbered" | grep -a -E 'TABDRAG (leave-window|leave-strip)' | tail -1 | cut -d: -f1 || true)
             if [[ -z "$leave_no" ]] || (( enter_no > leave_no )); then return 0; fi
         fi
-        sleep 0.1
+        sleep "$xwtab_receipt_poll"
     done
-    if [[ "$mode" == require ]]; then fail "xwtab: no enter on $bpid after the press"; fi
-    return 0
+    fail "xwtab: no enter on $bpid after the press"
 }
 
 xwtab_refused_attempts=30 # Bound the refused-finish wait after release.
@@ -11149,6 +11160,28 @@ xwtab_wait_cancel() {
     fail "xwtab: Escape did not cancel while the button was held"
 }
 
+xwtab_unmap_attempts=30 # Bound the wait for the catcher layer to leave the compositor after a cancel.
+xwtab_unmap_poll=0.1 # Poll the layer list between unmap checks.
+# The cancel receipt precedes the Loader unload, so the compositor may still list the catcher for a few polls.
+xwtab_wait_unmapped() {
+    local pid="$1" attempt layers verdict
+    for attempt in $(seq 1 "$xwtab_unmap_attempts"); do
+        layers=$(hyprctl layers -j 2>&1) || fail "xwtab: hyprctl layers failed: $layers"
+        # Sample input: {"DP-2":{"levels":{"1":[{"namespace":"flea-tab-tearoff","pid":101}]}}} while the catcher is mapped.
+        verdict=$(printf '%s' "$layers" | python3 -c '
+import json, sys
+def contains(node):
+    if isinstance(node, dict):
+        return str(node.get("pid", "")) == sys.argv[1] or any(contains(v) for v in node.values())
+    return isinstance(node, list) and any(contains(v) for v in node)
+print("mapped" if contains(json.load(sys.stdin)) else "unmapped")
+' "$pid" 2>&1) || fail "xwtab: layers JSON unreadable: $verdict"
+        [[ "$verdict" == mapped ]] || return 0
+        sleep "$xwtab_unmap_poll"
+    done
+    fail "xwtab: Escape left the catcher mapped after $xwtab_unmap_attempts polls"
+}
+
 # The case cleanup and failure path release every gesture that got as far as press.
 xwtab_button_down=false
 xwtab_release() {
@@ -11170,11 +11203,11 @@ xwtab_cleanup() {
 # A desktop drop must enter the catcher while the button is still held.
 xwtab_wait_catcher() {
     local i lines
-    for i in $(seq 1 30); do
+    for i in $(seq 1 "$xwtab_receipt_attempts"); do
         lines=$(xwtab_trace_lines | grep -a "TABDRAG .* pid=$xwtab_source " || true)
         grep -aq 'TABDRAG drag-finished' <<< "$lines" && fail "xwtab: source ended before catcher enter"
         grep -aq 'TABDRAG catcher-enter' <<< "$lines" && return 0
-        sleep 0.1
+        sleep "$xwtab_receipt_poll"
     done
     fail "xwtab: no catcher enter after platform start"
 }
@@ -11204,19 +11237,19 @@ xwtab_wait_own_enter() {
 }
 xwtab_wait_outcome() {
     local outcome="$1" i
-    for i in $(seq 1 30); do
+    for i in $(seq 1 "$xwtab_receipt_attempts"); do
         xwtab_trace_lines | grep -a "TABDRAG catcher-drop pid=$xwtab_source outcome=$outcome " >/dev/null && return 0
-        sleep 0.1
+        sleep "$xwtab_receipt_poll"
     done
     fail "xwtab: catcher never reported outcome=$outcome"
 }
 # An own drop lands on the catcher or, when Hyprland re-enters the source, on its own strip; both reorder.
 xwtab_wait_own_return() {
     local i lines
-    for i in $(seq 1 30); do
+    for i in $(seq 1 "$xwtab_receipt_attempts"); do
         lines=$(xwtab_trace_lines | grep -a "TABDRAG .* pid=$xwtab_source " || true)
         grep -aq "TABDRAG catcher-drop pid=$xwtab_source outcome=return \|TABDRAG drop-strip pid=$xwtab_source " <<< "$lines" && return 0
-        sleep 0.1
+        sleep "$xwtab_receipt_poll"
     done
     fail "xwtab: own drop reached neither the catcher return nor the source strip"
 }
@@ -11264,7 +11297,15 @@ xwtab_drag_to_window() {
 xwtab_rect_of() {
     local rect
     # Sample input: [{"pid":101,"address":"0xa","at":[20,20],"size":[900,500],"floating":true}].
-    rect=$(hyprctl clients -j 2>/dev/null | python3 -c 'import json,sys; cs=json.load(sys.stdin); h=[c for c in cs if str(c.get("pid"))==sys.argv[1]]; print("%s %s %s %s %s %s" % (h[0]["address"],h[0]["at"][0],h[0]["at"][1],h[0]["size"][0],h[0]["size"][1],str(bool(h[0].get("floating")))) if h else "")' "$1" || true)
+    rect=$(hyprctl clients -j 2>/dev/null | python3 -c '
+import json, sys
+hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
+if len(hits) != 1:
+    sys.stderr.write("xwtab: %d clients carry pid %s, one wanted\n" % (len(hits), sys.argv[1]))
+    sys.exit(0)
+c = hits[0]
+print(c["address"], c["at"][0], c["at"][1], c["size"][0], c["size"][1], bool(c.get("floating")))
+' "$1" || true)
     [[ -n "$rect" ]] || return 1
     printf '%s\n' "$rect"
 }
@@ -11323,21 +11364,22 @@ xwtab_make_room() {
     local apid="$1" bpid="$2" aaddr ax ay aw ah afloating baddr bx by bw bh bfloating
     flea_process_owned "$apid" || fail "xwtab: refusing to move unowned window $apid"
     flea_process_owned "$bpid" || fail "xwtab: refusing to move unowned window $bpid"
-    read -r aaddr ax ay aw ah afloating < <(xwtab_rect_of "$apid") || fail "xwtab: no geometry for $apid"
-    read -r baddr bx by bw bh bfloating < <(xwtab_rect_of "$bpid") || fail "xwtab: no geometry for $bpid"
+    local arect brect
+    arect=$(xwtab_rect_of "$apid" 2>&1) || fail "xwtab: no geometry for $apid: $arect"
+    brect=$(xwtab_rect_of "$bpid" 2>&1) || fail "xwtab: no geometry for $bpid: $brect"
+    read -r aaddr ax ay aw ah afloating <<< "$arect"
+    read -r baddr bx by bw bh bfloating <<< "$brect"
     [[ -n "${aaddr:-}" && -n "${baddr:-}" ]] || fail "xwtab: no geometry for a parked window"
     xwtab_saved="$apid $aaddr $ax $ay $aw $ah $afloating
 $bpid $baddr $bx $by $bw $bh $bfloating"
     trap 'xwtab_cleanup' EXIT
-    local mon_json mon mon_name
+    local mon_json mx my mw mh mon_name
     mon_json=$(hyprctl monitors -j 2>/dev/null || true)
     [[ -n "$mon_json" ]] || fail "xwtab: no focused monitor to make room on"
-    mon=$(printf '%s' "$mon_json" | python3 -c 'import json,sys; ms=json.load(sys.stdin); m=[x for x in ms if x.get("focused")] or ms; print(m[0]["x"],m[0]["y"],m[0]["width"],m[0]["height"])' || true)
-    [[ -n "$mon" ]] || fail "xwtab: no focused monitor to make room on"
-    mon_name=$(printf '%s' "$mon_json" | python3 -c 'import json,sys; ms=json.load(sys.stdin); m=[x for x in ms if x.get("focused")] or ms; print(m[0].get("name",""))' || true)
-    [[ -n "$mon_name" ]] || fail "xwtab: no focused monitor to make room on"
-    local mx my mw mh pw ph park_inset=20 park_margin=60 park_min_width=200 park_min_height=150
-    read -r mx my mw mh <<< "$mon"
+    # Sample input: [{"name":"DP-2","x":0,"y":0,"width":2560,"height":1440,"focused":true,"activeWorkspace":{"id":1}}].
+    read -r mx my mw mh mon_name < <(printf '%s' "$mon_json" | python3 -c 'import json,sys; ms=json.load(sys.stdin); m=[x for x in ms if x.get("focused")] or ms; print(m[0]["x"],m[0]["y"],m[0]["width"],m[0]["height"],m[0].get("name",""))' || true)
+    [[ -n "${mon_name:-}" ]] || fail "xwtab: no focused monitor to make room on"
+    local pw ph park_inset=20 park_margin=60 park_min_width=200 park_min_height=150
     pw=$(((mw - park_margin) / 2))
     ph=$(((mh - park_margin) / 2))
     (( pw >= park_min_width && ph >= park_min_height )) || fail "xwtab: monitor ${mw}x${mh} leaves no room to park two windows"
@@ -11399,14 +11441,17 @@ xwtab_describe_pid() {
     [[ -n "$ppid" ]] || ppid="?"
     age=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ' || true)
     [[ -n "$age" ]] || age="?"
+    # Sample input: [{"pid":101,"address":"0xa"}].
     win=$(hyprctl clients -j 2>/dev/null | python3 -c 'import json, sys; print("yes" if any(str(c.get("pid")) == sys.argv[1] for c in json.load(sys.stdin)) else "no")' "$pid" 2>/dev/null || true)
     [[ -n "$win" ]] || win="unknown"
     printf 'XWTAB extra pid=%s ppid=%s age=%s window=%s cmd=%s\n' "$pid" "$ppid" "$age" "$win" "$cmd" >&2
 }
 
+xwtab_third_attempts=60 # Bound the wait for the torn-off window's owned process.
+xwtab_third_poll=0.5 # Poll the owned pids between checks.
 xwtab_wait_third() {
     local before="$1" after pid
-    for _attempt in $(seq 1 60); do
+    for _attempt in $(seq 1 "$xwtab_third_attempts"); do
         after=$(flea_pids | tr '\n' ' ')
         for pid in $after; do
             [[ " $before " == *" $pid "* ]] && continue
@@ -11417,11 +11462,31 @@ xwtab_wait_third() {
                 fail "xwtab: refusing unowned third window $pid"
             fi
         done
-        sleep 0.5
+        sleep "$xwtab_third_poll"
     done
     return 1
 }
 
+# The two windows sit side by side at one height; the foreign receiver sits under B's column.
+xwtab_window_y=80
+xwtab_window_w=1000
+xwtab_window_h=720
+xwtab_a_x=40
+xwtab_b_x=1100
+xwtab_receiver_x=1100
+xwtab_receiver_y=500
+xwtab_tabcount_attempts=40 # Bound the wait for a window's tab count to change.
+xwtab_tabcount_poll=0.25 # Poll the tab count between checks.
+xwtab_parked_attempts=10 # Bound the wait for the parked windows to appear as clients.
+xwtab_parked_poll=0.5 # Poll the clients between checks.
+xwtab_listing_attempts=100 # Bound the wait for the torn-off window to list its folder.
+xwtab_listing_poll=0.05 # Poll the folder and listing flag between checks.
+xwtab_settle_attempts=20 # Bound the wait for the process and window counts to settle after a tear-off.
+xwtab_settle_poll=0.5 # Poll the process and window sets between checks.
+xwtab_reorder_attempts=40 # Bound the wait for the own-strip drop to move the active tab.
+xwtab_reorder_poll=0.1 # Poll the active tab index between checks.
+xwtab_receiver_attempts=40 # Bound the wait for the foreign receiver window to map.
+xwtab_receiver_poll=0.25 # Poll the clients between checks.
 case_xwtab() {
     local dir adir bdir
     # The tab handoff trace, on for both windows; every fail below dumps it first.
@@ -11450,8 +11515,8 @@ case_xwtab() {
     local bpid bid
     bpid=$XW_SECOND_PID
     bid=$XW_SECOND_ID
-    xwdrag_place "$apid" 40 80 1000 720
-    xwdrag_place "$bpid" 1100 80 1000 720
+    xwdrag_place "$apid" "$xwtab_a_x" "$xwtab_window_y" "$xwtab_window_w" "$xwtab_window_h"
+    xwdrag_place "$bpid" "$xwtab_b_x" "$xwtab_window_y" "$xwtab_window_w" "$xwtab_window_h"
     # B has one tab, enabling its window DropArea, so require an enter before the move.
     xwdrag_focus "$apid"
     local sx sy dx dy i
@@ -11460,14 +11525,17 @@ case_xwtab() {
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
     read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwtab: B has no floor"
     xwtab_drag_to_window "$sx" "$sy" "$dx" "$dy" "$apid" "$bpid" require
-    for i in $(seq 1 40); do
+    for i in $(seq 1 "$xwtab_tabcount_attempts"); do
         [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "2" ]] && break
-        sleep 0.25
+        sleep "$xwtab_tabcount_poll"
     done
     [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: B never gained the tab"
     [[ "$(xwdrag_qs "$bid" path 2>/dev/null)" == "$adir/sub1" ]] \
         || fail "xwtab: B shows $(xwdrag_qs "$bid" path 2>/dev/null), not sub1"
-    for i in $(seq 1 40); do [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "1" ]] && break; sleep 0.25; done
+    for i in $(seq 1 "$xwtab_tabcount_attempts"); do
+        [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "1" ]] && break
+        sleep "$xwtab_tabcount_poll"
+    done
     [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "1" ]] || fail "xwtab: A kept its moved tab"
     [[ "$(xwdrag_qs "$aid" path 2>/dev/null)" == "$adir" ]] \
         || fail "xwtab: A shows $(xwdrag_qs "$aid" path 2>/dev/null), not $adir"
@@ -11479,10 +11547,10 @@ case_xwtab() {
     before=$(flea_pids | tr '\n' ' ')
     # The parked windows' Hyprland pids, retried while the compositor catches up with the move.
     before_wins=""
-    for i in $(seq 1 10); do
+    for i in $(seq 1 "$xwtab_parked_attempts"); do
         before_wins=$(xwtab_window_pids "$before" || true)
         [[ -n "$before_wins" ]] && break
-        sleep 0.5
+        sleep "$xwtab_parked_poll"
     done
     [[ -n "$before_wins" ]] || fail "xwtab: no Hyprland windows for the parked Flea pids $before"
     xwtab_make_room "$apid" "$bpid" || fail "xwtab: no empty desktop to tear off onto"
@@ -11493,14 +11561,17 @@ case_xwtab() {
     xwtab_wait_outcome tearoff
     cpid=$(xwtab_wait_third "$before") || fail "xwtab: no third window tore off"
     cid=$(xwdrag_qsid "$cpid") || fail "xwtab: no qs instance for $cpid"
-    for i in $(seq 1 100); do
+    for i in $(seq 1 "$xwtab_listing_attempts"); do
         [[ "$(xwdrag_qs "$cid" path 2>/dev/null)" == "$adir/sub1" \
             && "$(xwdrag_qs "$cid" listInFlight 2>/dev/null)" == false ]] && break
-        sleep 0.05
+        sleep "$xwtab_listing_poll"
     done
     [[ "$(xwdrag_qs "$cid" path 2>/dev/null)" == "$adir/sub1" ]] \
         || fail "xwtab: third window shows $(xwdrag_qs "$cid" path 2>/dev/null), not sub1"
-    for i in $(seq 1 40); do [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "1" ]] && break; sleep 0.25; done
+    for i in $(seq 1 "$xwtab_tabcount_attempts"); do
+        [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "1" ]] && break
+        sleep "$xwtab_tabcount_poll"
+    done
     [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "1" ]] || fail "xwtab: B kept its torn-off tab"
     printf 'XWTAB tearoff ok\n'
     # The tear-off opened exactly one window: qs pids and Hyprland windows settle to before plus the third.
@@ -11508,11 +11579,11 @@ case_xwtab() {
     want_after=$(xwtab_norm_set "$before $cpid")
     want_wins=$(xwtab_norm_set "$before_wins $cpid")
     after=""; after_wins=""
-    for i in $(seq 1 20); do
+    for i in $(seq 1 "$xwtab_settle_attempts"); do
         after=$(xwtab_norm_set "$(flea_pids | tr '\n' ' ')")
         after_wins=$(xwtab_norm_set "$(xwtab_window_pids "$after" || true)")
         [[ "$after" == "$want_after" && "$after_wins" == "$want_wins" ]] && break
-        sleep 0.5
+        sleep "$xwtab_settle_poll"
     done
     if [[ "$after" != "$want_after" || "$after_wins" != "$want_wins" ]]; then
         printf 'XWTAB pids before: %s\n' "$before" >&2
@@ -11563,14 +11634,7 @@ print(hits[0]["address"] if len(hits) == 1 else "")
     omarchy-drive key --window "$addr" -k Escape >/dev/null || fail "xwtab: Escape did not reach $apid"
     xwtab_wait_cancel
     xwtab_release || fail "xwtab: pointer release failed"
-    hyprctl layers -j | python3 -c '
-import json,sys
-def contains(node):
-    if isinstance(node,dict):
-        return str(node.get("pid",""))==sys.argv[1] or any(contains(v) for v in node.values())
-    return isinstance(node,list) and any(contains(v) for v in node)
-sys.exit(1 if contains(json.load(sys.stdin)) else 0)
-' "$apid" || fail "xwtab: Escape left the catcher mapped"
+    xwtab_wait_unmapped "$apid"
     [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: Escape moved the tab"
     [[ "$(flea_pids | tr '\n' ' ')" == "$esc_before" ]] || fail "xwtab: Escape opened a window"
     printf 'XWTAB escape ok\n'
@@ -11582,7 +11646,10 @@ sys.exit(1 if contains(json.load(sys.stdin)) else 0)
     ox=$((ox - (sx - ox) / 4))
     xwtab_drag_to_window "$sx" "$sy" "$ox" "$oy" "$apid" "$apid" own
     xwtab_wait_own_return
-    for i in $(seq 1 40); do [[ "$(xwdrag_qs "$aid" tabIndex 2>/dev/null)" == 0 ]] && break; sleep 0.1; done
+    for i in $(seq 1 "$xwtab_reorder_attempts"); do
+        [[ "$(xwdrag_qs "$aid" tabIndex 2>/dev/null)" == 0 ]] && break
+        sleep "$xwtab_reorder_poll"
+    done
     [[ "$(xwdrag_qs "$aid" tabIndex 2>/dev/null)" == 0 ]] || fail "xwtab: own-strip drop did not reorder the active tab"
     sleep 0.5
     [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: own-strip drop changed the tab count"
@@ -11610,24 +11677,26 @@ sys.exit(1 if contains(json.load(sys.stdin)) else 0)
     recv_pid=$!
     xwtab_logs+=("$recv_log")
     xwtab_marks+=(0)
-    for i in $(seq 1 40); do
+    for i in $(seq 1 "$xwtab_receiver_attempts"); do
         recv_addr=$(hyprctl clients -j | python3 -c '
 import json, sys
+# Sample input: [{"title":"flea-drag-receiver","address":"0xc"}], one hit once the receiver is mapped.
 hits = [w for w in json.load(sys.stdin) if w.get("title") == "flea-drag-receiver"]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ') || true
         [[ -n "$recv_addr" ]] && break
-        sleep 0.25
+        sleep "$xwtab_receiver_poll"
     done
     [[ -n "$recv_addr" ]] || fail "xwtab: the foreign receiver never came up: $(cat "$dir/receiver-err.log" 2>/dev/null)"
     xwdrag_focus "$recv_pid"
     sleep 0.3
     hypr_dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$recv_addr\" })" || fail "xwtab: could not float foreign receiver $recv_pid"
     sleep 0.3
-    hypr_dispatch "hl.dsp.window.move({ x = 1100, y = 500, window = \"address:$recv_addr\" })" || fail "xwtab: could not move foreign receiver $recv_pid"
+    hypr_dispatch "hl.dsp.window.move({ x = $xwtab_receiver_x, y = $xwtab_receiver_y, window = \"address:$recv_addr\" })" || fail "xwtab: could not move foreign receiver $recv_pid"
     sleep 0.4
     read -r rcx rcy < <(hyprctl clients -j | python3 -c '
 import json, sys
+# Sample input: [{"title":"flea-drag-receiver","at":[1100,500],"size":[400,300]}], read once it is placed.
 hits = [w for w in json.load(sys.stdin) if w.get("title") == "flea-drag-receiver"]
 c = hits[0]
 print(c["at"][0] + c["size"][0] // 2, c["at"][1] + c["size"][1] // 2)

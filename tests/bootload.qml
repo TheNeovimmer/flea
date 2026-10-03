@@ -8,6 +8,8 @@ ShellRoot {
     id: root
 
     property var failures: []
+    // Grace before the check, so the shell finishes starting first; a fixed pause, not a measured load time.
+    readonly property int checkDelayMs: 800
 
     // A holder, so instantiated Items parent to an Item and open no window.
     Item { id: holder }
@@ -61,7 +63,7 @@ ShellRoot {
     }
 
     Timer {
-        interval: 800
+        interval: root.checkDelayMs
         running: true
         repeat: false
         onTriggered: root.check()

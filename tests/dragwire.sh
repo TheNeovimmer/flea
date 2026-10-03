@@ -4,8 +4,7 @@
 # A plain file lift offers copy alone until the browser-upload work settles the offer: a browser
 # uploader refuses a move offer. Ctrl offers copy alone, Shift move alone, Ctrl with Shift link
 # alone, so a receiver that takes whatever is offered still takes the lift's verb. The shelf drag
-# stays copy only. A tab drag offers Move alone with only the private tab type, so a foreign
-# app refuses it and a tab can never move or copy the folder on disk.
+# stays copy only. A tab drag offers Move alone with only the private tab type, so a foreign app refuses it.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
