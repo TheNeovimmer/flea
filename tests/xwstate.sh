@@ -168,7 +168,7 @@ check "A's cut does not reach window B" true \
 check "A still says the cut once after B saw A's later write" "$ONCE_NOTICE" \
     "$(call "$a_pid" state | jq -c .notices)"
 
-# A pastes its own cut into the other fixture folder; the file moves and A's spent mark clears.
+# A pastes its own cut into the other fixture folder; the file moves and A's clipboard empties.
 call "$a_pid" openFixture b >/dev/null || broken "could not open the paste folder in A"
 await_state "$a_pid" '.loading == false and (.path | endswith("/b"))' || broken "A never listed the paste folder"
 call "$a_pid" pasteCut >/dev/null || broken "could not paste in A"
