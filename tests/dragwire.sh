@@ -33,9 +33,10 @@ else
     bad "expected one Drag.supportedActions line in each advertiser, found FileDrag=$file_lines TabBar=$tab_lines"
 fi
 
-# Comparing the whole normalized offer pins every ternary arm and rejects a trailing token.
+# Sample input: "Drag.supportedActions: root.dragLink ? Qt.LinkAction : Qt.CopyAction"; extract the whole offer.
 offer=$(code_of ui/FileDrag.qml | grep 'Drag\.supportedActions:' | sed 's/.*Drag\.supportedActions:[[:space:]]*//')
 [ -n "$offer" ] || bad "no Drag.supportedActions line left in ui/FileDrag.qml to pin"
+# Sample input: "root.dragShift ? Qt.MoveAction : Qt.CopyAction;" ends with the plain copy arm.
 final=$(printf '%s\n' "$offer" | sed 's/.*://;s/[[:space:];]//g')
 if [ "$final" = "Qt.CopyAction" ]; then
     ok "a plain lift offers copy alone"
@@ -142,9 +143,12 @@ else
 fi
 side=$(for f in ui/*.qml ui/js/*.js; do code_of "$f" | grep -H --label="$f" -n 'proposed'; done)
 badside=""
+# Sample input: the proposed-action scan emits "ui/DropInto.qml:88: Drag.dropInto(drop.proposedAction)".
 while IFS= read -r hit; do
     [ -n "$hit" ] || continue
+    # Sample input: "ui/DropInto.qml:88: Drag.dropInto(drop.proposedAction)" names ui/DropInto.qml.
     file=$(printf '%s' "$hit" | cut -d: -f1)
+    # Sample input: "ui/DropInto.qml:88: Drag.dropInto(drop.proposedAction)" keeps the code after field 2.
     text=$(printf '%s' "$hit" | cut -d: -f3-)
     case "$file" in
         ui/js/Drag.js) continue ;;
@@ -167,23 +171,28 @@ else
 fi
 # Helper ignores proposed for any Flea marker: no bitwise proposed read outside foreignHeld.
 bites=$(grep -n 'proposed &' ui/js/Drag.js)
+# Sample input: "9:function foreignHeld(proposed) {" starts the helper at line 9.
 start=$(grep -n '^function foreignHeld' ui/js/Drag.js | cut -d: -f1)
 if [ -z "$start" ]; then
     bad "ui/js/Drag.js has no ^function foreignHeld line, so the single-helper range is unbounded"
 fi
 finish=""
+# Sample input: helper boundaries arrive as one line number per line, "9\n16\n".
 while IFS= read -r n; do
     if [ "$n" -gt "${start:-0}" ]; then
         finish=$n
         break
     fi
+    # Sample input: "16:function dropVerb(marker, proposed) {" supplies the next function's line number.
 done <<< "$(grep -n '^function ' ui/js/Drag.js | cut -d: -f1)"
 if [ -z "$finish" ]; then
     finish=$(($(wc -l < ui/js/Drag.js) + 1))
 fi
 outside=""
+# Sample input: the bitwise scan emits "10: return proposed & Qt.CopyAction".
 while IFS= read -r hit; do
     [ -n "$hit" ] || continue
+    # Sample input: "10: return proposed & Qt.CopyAction" locates the read at line 10.
     n=$(printf '%s' "$hit" | cut -d: -f1)
     if [ -n "$start" ] && [ -n "$finish" ] && [ "$n" -ge "$start" ] && [ "$n" -lt "$finish" ]; then
         continue
@@ -201,8 +210,7 @@ fi
 # The shortened bound, and the fewest stub calls that show the wait kept polling.
 short_wait_ns=300000000
 min_poll_calls=2
-# Sample input: "xwdrag_wait_row_gone() {", the ui.sh wait run with only its 10 s bound cut to short_wait_ns.
-# The wait reads through xwdrag_count, so the guard comes along; the stub below answers both.
+# Sample input: "xwdrag_wait_row_gone() {" and "wait_ns=10000000000"; extract the wait and count guard, then shorten the bound.
 eval "$(sed -n '/^xwdrag_count()/,/^}/p;/^xwdrag_wait_row_gone()/,/^}/p' tests/ui.sh | sed "s/wait_ns=[0-9][0-9]*/wait_ns=$short_wait_ns/")"
 # A stub qs that fails every call, so the wait must keep polling to the bound.
 xwdrag_qs() {
@@ -215,6 +223,7 @@ calls=$(
         printf 'rc=%s\n' "$?"
     } 3>&1
 )
+# Sample input: "call\ncall\nrc=1\n" reports exit status 1 after two failed polls.
 wait_rc=$(printf '%s\n' "$calls" | sed -n 's/^rc=//p')
 poll_calls=$(printf '%s\n' "$calls" | grep -c '^call$')
 # A wait that saw no row and no total answers 1 only after polling for it.
@@ -238,6 +247,168 @@ if code_of ui/TabBar.qml | grep -q 'Drag.source: dragOrigin' \
 else
     bad "tab drag source must not be the strip DropArea's ancestor"
 fi
+
+if python3 -B tests/drag-read-check.py; then
+    ok "the receiver's asynchronous reads pass the headless self-check"
+else
+    bad "the receiver's asynchronous read self-check failed"
+fi
+
+# The failed-read evidence line and the after-drop line of tests/drag.sh, read against stub observers (that suite itself needs the display).
+evidence_pid=4242
+# Sample input: tests/drag.sh function bodies, each from its name line to the closing brace on a line of its own.
+eval "$(sed -n '/^evidence_json()/,/^}/p;/^expect_evidence()/,/^}/p;/^after_drop_line()/,/^}/p' tests/drag.sh)"
+MYPID=$evidence_pid
+# Sample input, ipc statusActivityState: {"activities":[{"id":0,"text":"Copy 2 items to a","running":false}],"errors":0,"notice":""}
+ipc() {
+    case "$1" in
+        statusActivityState) printf '%s\n' '{"activities":[{"id":0,"text":"Copy 2 items to a","running":false}],"errors":0,"notice":"","undoAvailable":false}' ;;
+        dualState) printf '%s\n' '{"active":false,"focused":0,"panes":[{"path":"/home/p"}]}' ;;
+        path) printf '%s\n' /home/p ;;
+        tabCount) printf '%s\n' 2 ;;
+        tabIndex) printf '%s\n' 1 ;;
+        collideState) return 3 ;;
+        *) printf '\n' ;;
+    esac
+}
+# Sample input, hyprctl clients -j: [{"pid": 4242, "address": "0xabc", "at": [12, 42], "size": [2536, 1386], "floating": false, "focusHistoryID": 0}]
+hyprctl() {
+    case "$1" in
+        clients) printf '%s\n' '[{"pid":4242,"address":"0xabc","at":[12,42],"size":[2536,1386],"floating":false,"focusHistoryID":0},{"pid":7,"address":"0xdef"}]' ;;
+        activewindow) printf '%s\n' '{"address":"0xabc","class":"flea","title":"x"}' ;;
+    esac
+}
+evidence=$(expect_evidence lastMessage 'Copied 2 items · z undoes' '')
+# Sample input: 'DRAG_EXPECT_FAIL {"reader":"lastMessage",...}', one line, JSON after the prefix.
+if [ "$(printf '%s\n' "$evidence" | wc -l)" -eq 1 ] && [ "${evidence%% *}" = DRAG_EXPECT_FAIL ] \
+    && printf '%s\n' "${evidence#DRAG_EXPECT_FAIL }" | jq -e '
+        .reader == "lastMessage" and .observed == ""
+        and .statusActivityState.notice == "" and .statusActivityState.errors == 0
+        and (.statusActivityState.activities | length) == 1
+        and .path == "/home/p" and .tabCount == 2 and .tabIndex == 1 and .dualState.focused == 0
+        and (.collideState | test("observer exit 3"))
+        and (.clients | length) == 1 and .clients[0].address == "0xabc" and .clients[0].floating == false
+        and .clients[0].focus == 0 and .clients[0].at == [12, 42] and .clients[0].size == [2536, 1386]
+        and .activeWindow.class == "flea"' >/dev/null; then
+    ok "a failed read prints one JSON line with the transfer, status, tab, pane and window facts"
+else
+    bad "the failed-read evidence is not one complete JSON line: $evidence"
+fi
+after=$(after_drop_line)
+# Sample input: 'DRAG_R9_AFTER_DROP {"notice":"","errors":0,"running":[false],"currentPane":0,...}'.
+if [ "$(printf '%s\n' "$after" | wc -l)" -eq 1 ] && [ "${after%% *}" = DRAG_R9_AFTER_DROP ] \
+    && printf '%s\n' "${after#DRAG_R9_AFTER_DROP }" | jq -e '
+        .notice == "" and .errors == 0 and .running == [false] and .currentPane == 0
+        and .path == "/home/p" and .tabIndex == "1"' >/dev/null; then
+    ok "the after-drop line carries the notice and the current pane"
+else
+    bad "the after-drop line is not one complete JSON line: $after"
+fi
+# Sample input: expect_ipc's body, whose two die calls (observer failure, mismatch) each follow the evidence call.
+dies=0
+unprinted=0
+previous=
+while IFS= read -r body_line; do
+    if [[ "$body_line" == *'die "'* ]]; then
+        dies=$((dies + 1))
+        [[ "$previous" == *expect_evidence* || "$body_line" == *expect_evidence* ]] || unprinted=$((unprinted + 1))
+    fi
+    previous=$body_line
+done < <(sed -n '/^expect_ipc()/,/^}/p' tests/drag.sh)
+if [ "$dies" -eq 2 ] && [ "$unprinted" -eq 0 ]; then
+    ok "expect_ipc prints the evidence line before each of its two failures"
+else
+    bad "expect_ipc must call expect_evidence before each die"
+fi
+# Sample input: the lines around the call in cross_view_pair, release then the line then the file wait.
+around=$(sed -n '/^cross_view_pair()/,/^}/p' tests/drag.sh | grep -B1 -A1 -x '[[:space:]]*after_drop_line' | sed 's/^[[:space:]]*//')
+if [ "$around" = $'release; ctrl_up\nafter_drop_line\npair_result "$source" "$drop" "$name" Copy' ]; then
+    ok "the after-drop line is read right after the release and before the file wait"
+else
+    bad "after_drop_line must sit between the commit release and its pair_result, got: $around"
+fi
+
+# Sample input, tests/drag.sh: cleanup_drop_events='wl_data_(device|source)#[0-9]+\.(drop|...)'.
+eval "$(grep '^cleanup_drop_events=' tests/drag.sh)"
+# Sample input, WAYLAND_DEBUG: '[06:32:03.100000] {Default Queue} wl_data_source#80.dnd_finished()' and the request 'wl_data_device#6.start_drag(...)'.
+drop_events=$(printf '%s\n' '[1.0] {Default Queue} wl_data_device#6.drop()' '[1.1] {Default Queue} wl_data_source#80.dnd_finished()' \
+    '[1.2] {Default Queue} wl_data_source#80.cancelled()' '[1.3] {Default Queue}  -> wl_data_device#6.start_drag(wl_data_source#80)' \
+    | grep -c -E "${cleanup_drop_events:-unset}")
+if [ "$drop_events" -eq 3 ]; then
+    ok "the teardown keeps the compositor's drop, finished and cancelled events and not the lift request"
+else
+    bad "cleanup_drop_events must match drop, dnd_finished and cancelled only, matched $drop_events of 3"
+fi
+
+# A row or tab centre is awaited through one helper, and a bare substitution of it is the unbound $1 that ended R3 silently.
+bare=$(grep -n -E 'set -- \$\(screen_(tab_)?centre|point=\$\(screen_(tab_)?centre' tests/drag.sh)
+if [ -z "$bare" ]; then
+    ok "no pointer position is read from a bare screen_centre or screen_tab_centre substitution"
+else
+    bad "a pointer position bypasses centre_into and tab_centre_into:"
+    printf '%s\n' "$bare" | sed 's/^/     /'
+fi
+
+# The centre helper of tests/drag.sh against doubles whose rowCentre answers late, or never (that suite needs the display).
+centre_tmp=$(mktemp -d)
+[ -n "$centre_tmp" ] && [ "${centre_tmp#/}" != "$centre_tmp" ] || { bad "no scratch root for the centre doubles"; exit 1; }
+printf 'marker\n' > "$centre_tmp/marker"
+# Sample input: tests/drag.sh function bodies, each from its name line to the closing brace on a line of its own, and one-line wrappers.
+eval "$(sed -n '/^rowidx()/,/^}/p;/^screen_centre()/,/^}/p;/^screen_tab_centre()/,/^}/p;/^centre_fail_line()/,/^}/p;/^await_centre()/,/^}/p;/^centre_into()/p;/^tab_centre_into()/p;/^die()/p' tests/drag.sh)"
+# The poll bound is shrunk and its gap removed so the never-answering case ends at once.
+centre_poll_attempts=4
+centre_poll_seconds=0
+WX=12; WY=42; WW=2560; WH=1440
+centre_mode=late
+printf '0\n' > "$centre_tmp/calls"
+# Sample input, ipc rowCentre 1: "300 220", the row's centre inside the window; an empty answer is a listing mid-swap.
+ipc() {
+    local calls
+    case "$1" in
+        total) printf '%s\n' 3 ;;
+        visibleRowName) case "$2" in 0) printf '%s\n' aaa ;; 1) printf '%s\n' r3.txt ;; *) printf '%s\n' zzz ;; esac ;;
+        rowCentre)
+            calls=$(( $(cat "$centre_tmp/calls") + 1 )); printf '%s\n' "$calls" > "$centre_tmp/calls"
+            if [ "$centre_mode" = late ] && [ "$calls" -gt 2 ]; then printf '%s\n' '300 220'; else printf '\n'; fi ;;
+        tabCentre) printf '\n' ;;
+        listInFlight) printf '%s\n' true ;;
+        viewMode) printf '%s\n' list ;;
+        path) printf '%s\n' /home/p ;;
+    esac
+}
+late=$( { centre_into sx sy r3.txt; printf 'got=%s,%s calls=%s\n' "${sx:-unset}" "${sy:-unset}" "$(cat "$centre_tmp/calls")"; } 2>&1 )
+if [ "$late" = 'got=312,262 calls=3' ]; then
+    ok "a centre that answers nothing twice and then a point is returned into the caller's variables"
+else
+    bad "the late centre must be returned after 3 reads, got: $late"
+fi
+centre_mode=never
+never=$( (centre_into sx sy r3.txt; printf 'reached\n') 2>&1 ); never_rc=$?
+# Sample input: 'DRAG_CENTRE_FAIL {"reader":"screen_centre","name":"r3.txt","rowidx":"1","centre":"",...}', one line.
+evidence=$(printf '%s\n' "$never" | grep '^DRAG_CENTRE_FAIL ')
+if [ "$never_rc" -eq 1 ] && [ "$(printf '%s\n' "$evidence" | wc -l)" -eq 1 ] \
+    && printf '%s\n' "${evidence#DRAG_CENTRE_FAIL }" | jq -e '
+        .reader == "screen_centre" and .name == "r3.txt" and .rowidx == "1" and .centre == ""
+        and .window == {"width": 2560, "height": 1440}
+        and .listing == {"inFlight": "true", "total": "3", "view": "list", "path": "/home/p"}' >/dev/null; then
+    ok "a centre that never answers prints one DRAG_CENTRE_FAIL line with the lookup, read, window and listing"
+else
+    bad "the never-answering centre must exit 1 after one DRAG_CENTRE_FAIL line, got rc=$never_rc: $never"
+fi
+if printf '%s\n' "$never" | grep -q '^FAIL the row r3.txt has no visible screen centre$' \
+    && ! printf '%s\n' "$never" | grep -q -e 'unbound variable' -e '^reached$'; then
+    ok "and the suite ends on a die that names the row, not on an unbound variable"
+else
+    bad "the never-answering centre must die naming r3.txt, got: $never"
+fi
+tab=$( (tab_centre_into tx ty 2; printf 'reached\n') 2>&1 ); tab_rc=$?
+if [ "$tab_rc" -eq 1 ] && printf '%s\n' "$tab" | grep -q '^FAIL the tab 2 has no visible screen centre$' \
+    && printf '%s\n' "$tab" | grep -q '^DRAG_CENTRE_FAIL .*"reader":"screen_tab_centre"' && ! printf '%s\n' "$tab" | grep -q '^reached$'; then
+    ok "a tab centre that never answers ends the suite the same way"
+else
+    bad "the never-answering tab centre must die naming tab 2, got rc=$tab_rc: $tab"
+fi
+[ -f "$centre_tmp/marker" ] && [ -n "$centre_tmp" ] && [ "${centre_tmp#/}" != "$centre_tmp" ] && rm -rf -- "$centre_tmp"
 
 printf 'dragwire: %s check(s), %s failed\n' "$((pass + fail))" "$fail"
 [ "$fail" -eq 0 ]

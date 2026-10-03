@@ -22,20 +22,142 @@ button_down=false
 control_down=false
 shift_held=false
 RECV_PID=""
+RECV_PIDS=()
+declare -A RECV_REAPED=()
 pointer_tolerance=4
+hyprland_instance_lines=1
+receiver_stderr_lines=5
+outbound_data_device_lines=25
+cleanup_stderr_lines=80
+cleanup_drop_event_lines=40
+# Whether the compositor delivered the drop and the source heard dnd_finished or a cancel.
+cleanup_drop_events='wl_data_(device|source)#[0-9]+\.(drop|dnd_drop_performed|dnd_finished|cancelled)'
 
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
 export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-1}
-export HYPRLAND_INSTANCE_SIGNATURE=$(ls -t "$XDG_RUNTIME_DIR"/hypr/ | head -1)
+export HYPRLAND_INSTANCE_SIGNATURE=$(ls -t "$XDG_RUNTIME_DIR"/hypr/ | head -n "$hyprland_instance_lines")
 export YDOTOOL_SOCKET=$XDG_RUNTIME_DIR/.ydotool_socket
 
 ok()   { printf 'ok   %s\n' "$*"; pass=$((pass+1)); }
 bad()  { printf 'FAIL %s\n' "$*"; fail=$((fail+1)); }
 note() { printf '     %s\n' "$*"; }
+# A missing drop body prints what the receiver logged and the source's data-device traffic.
+outbound_evidence() {
+  grep -q 'body<<' "$RECV_LOG" && return 0
+  note "receiver log: $(tr '\n' '|' < "$RECV_LOG")"
+  note "receiver stderr: $(tail -n "$receiver_stderr_lines" "$1" 2>/dev/null | tr '\n' '|')"
+  grep -E 'wl_data_(source|offer|device)' "$SB/flea.log" | tail -n "$outbound_data_device_lines" | while IFS= read -r line; do
+    note "$line"
+  done
+}
 check() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1"; note "expected [$3]"; note "got      [$2]"; fi; }
 die() { bad "$*"; exit 1; }
 
 . "$repo/tests/lib/hypr-dispatch.sh"
+
+receiver_processes() {
+  python3 -B - "$1" "$repo/tests/drag-receiver.py" "$SB/receiver.log" "${@:2}" <<'PY'
+import os, select, signal, sys
+from pathlib import Path
+
+# Sample input: argv[1:] is ["stop", "/tree/tests/drag-receiver.py", "/run/receiver.log", "123"].
+mode, script, log, *pids = sys.argv[1:]
+term_seconds, kill_seconds = 3, 2
+
+def owned(pid):
+    try:
+        # Sample input: cmdline is b"python3\0/tree/tests/drag-receiver.py\0/run/receiver.log\0".
+        arguments = Path("/proc", str(pid), "cmdline").read_bytes().split(b"\0")
+        return os.fsencode(script) in arguments and os.fsencode(log) in arguments
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+
+for raw_pid in pids:
+    # Sample input: receiver PID argument "123" becomes integer 123.
+    pid = int(raw_pid)
+    if not owned(pid):
+        continue
+    if mode == "assert":
+        print(f"receiver pid={pid} is still running")
+        raise SystemExit(1)
+    try:
+        descriptor = os.pidfd_open(pid)
+        try:
+            # The descriptor pins the PID; recheck this run's exact argv before sending a signal.
+            if not owned(pid):
+                continue
+            signal.pidfd_send_signal(descriptor, signal.SIGTERM)
+            forced = not select.select([descriptor], [], [], term_seconds)[0]
+            if forced:
+                signal.pidfd_send_signal(descriptor, signal.SIGKILL)
+                if not select.select([descriptor], [], [], kill_seconds)[0]:
+                    print(f"receiver pid={pid} survived SIGKILL")
+                    raise SystemExit(1)
+            print(f"DRAG_RECEIVER_DRAIN pid={pid} forced_kill={str(forced).lower()}")
+        finally:
+            os.close(descriptor)
+    except ProcessLookupError:
+        pass
+PY
+}
+
+receiver_dialogs_gone() {
+  local receiver_pid=$1 dialogs dialog_pid
+  dialogs=$(python3 -B - <<'PY'
+import os
+from pathlib import Path
+
+dialog_name = "hyprland-dialog"
+application_id = b"com.thisisgm.FleaDragReceiver"
+for process in Path("/proc").iterdir():
+    if not process.name.isdigit():
+        continue
+    try:
+        if process.stat().st_uid != os.getuid():
+            continue
+        # Sample input: /proc/456/comm contains "hyprland-dialog\n".
+        if (process / "comm").read_text().strip() != dialog_name:
+            continue
+        if application_id in (process / "cmdline").read_bytes():
+            print(process.name)
+    except (FileNotFoundError, ProcessLookupError):
+        continue
+PY
+  ) || { bad "could not check receiver $receiver_pid compositor dialogs"; return 1; }
+  if [ -n "$dialogs" ]; then
+    while IFS= read -r dialog_pid; do
+      bad "receiver $receiver_pid left hyprland-dialog pid=$dialog_pid"
+    done <<< "$dialogs"
+    return 1
+  fi
+  ok "receiver $receiver_pid left no compositor dialog"
+}
+
+stop_receiver() {
+  local pid=$1
+  [ "${RECV_REAPED[$pid]:-false}" = true ] && return 0
+  receiver_processes stop "$pid" || { bad "receiver pid=$pid could not be stopped"; return 1; }
+  wait "$pid" 2>/dev/null || true
+  RECV_REAPED[$pid]=true
+  receiver_dialogs_gone "$pid"
+}
+
+stop_receivers() {
+  local pid status=0
+  for pid in "${RECV_PIDS[@]}"; do
+    stop_receiver "$pid" || status=1
+  done
+  return "$status"
+}
+
+assert_receivers_gone() {
+  if receiver_processes assert "${RECV_PIDS[@]}"; then
+    ok "no receiver from this run remains"
+  else
+    bad "a receiver from this run remains"
+    return 1
+  fi
+}
 
 stop_owned_processes() {
   [[ -n "${FLEA_PID:-}" ]] || return 0
@@ -117,6 +239,8 @@ cleanup() {
   if [ "$button_down" = true ]; then
     ydotool key 1:1 1:0 >/dev/null 2>&1 || { bad "cleanup could not cancel the held drag"; status=1; }
   fi
+  stop_receivers || { status=1; drained=false; }
+  assert_receivers_gone || { status=1; drained=false; }
   stop_owned_processes || { status=1; drained=false; }
   # Teardown is bounded even when the owned application cannot drain; failed teardown retains its fixtures.
   if [ "$button_down" = true ]; then
@@ -128,16 +252,13 @@ cleanup() {
   if [ "$shift_held" = true ]; then
     ydotool key 42:0 >/dev/null 2>&1 || { bad "cleanup could not release Shift"; status=1; }
   fi
-  if [ -n "$RECV_PID" ]; then
-    kill "$RECV_PID" 2>/dev/null || true
-    wait "$RECV_PID" 2>/dev/null || true
-  fi
   if [ -f "$SB/flea.log" ]; then
     note "native stderr from $SB/flea.log"
     # WAYLAND_DEBUG traces every request. Keep the drag facts and the application's own lines.
     if grep -q '^\[' "$SB/flea.log"; then
       grep -E 'origin window|start_drag' "$SB/flea.log" || true
-      grep -v -E '^\[' "$SB/flea.log" | tail -80
+      grep -E "$cleanup_drop_events" "$SB/flea.log" | tail -n "$cleanup_drop_event_lines" || true
+      grep -v -E '^\[' "$SB/flea.log" | tail -n "$cleanup_stderr_lines"
     else
       cat -- "$SB/flea.log"
     fi
@@ -210,22 +331,106 @@ native_key() {
   omarchy-drive key --window flea "$@" || result=$?
   (( result == 0 )) || die "native key delivery failed with status $result: $*"
 }
+# Sample input: '{"notice":""}' stays JSON; '/home/x' or an observer error becomes one JSON string.
+evidence_json() {
+  if [[ -n "$1" ]] && jq -e type >/dev/null 2>&1 <<< "$1"; then printf '%s' "$1"; else jq -Rn --arg text "$1" '$text'; fi
+}
+
+# Sample output: DRAG_EXPECT_FAIL {"reader":"lastMessage","expected":"Copied 2 items · z undoes","observed":"","statusActivityState":{"notice":""},...}
+# One line of every transfer, status bar, tab and window fact the seam can read, printed only when a read fails and never fatal.
+expect_evidence() {
+  local reader value clients active args=()
+  for reader in statusActivityState statusFooterState collideState dualState keyDeliveryState path tabCount tabIndex \
+                lastMessage stickyMessage statusPrimary statusError; do
+    value=$(ipc "$reader") || value="observer exit $?: $value"
+    args+=(--argjson "$reader" "$(evidence_json "$value")")
+  done
+  clients=$(hyprctl clients -j 2>&1 | jq -c --argjson pid "${MYPID:-0}" \
+    '[.[] | select(.pid == $pid) | {address, at, size, floating, focus: .focusHistoryID}]' 2>&1) || clients="hyprctl clients failed: $clients"
+  active=$(hyprctl activewindow -j 2>&1 | jq -c '{address, class}' 2>&1) || active="hyprctl activewindow failed: $active"
+  args+=(--argjson clients "$(evidence_json "$clients")" --argjson activeWindow "$(evidence_json "$active")")
+  printf 'DRAG_EXPECT_FAIL %s\n' "$(jq -nc --arg reader "$1" --arg expected "$2" --arg observed "$3" '$ARGS.named' "${args[@]}" 2>&1)"
+}
+
+# One line straight after a release: a notice that came and went reads differently from one never said.
+after_drop_line() {
+  local state dual path tab
+  state=$(ipc statusActivityState) || state="observer exit $?: $state"
+  dual=$(ipc dualState) || dual="observer exit $?: $dual"
+  path=$(ipc path) || path="observer exit $?: $path"
+  tab=$(ipc tabIndex) || tab="observer exit $?: $tab"
+  printf 'DRAG_R9_AFTER_DROP %s\n' "$(jq -nc --argjson state "$(evidence_json "$state")" --argjson dual "$(evidence_json "$dual")" \
+    --arg path "$path" --arg tab "$tab" \
+    '{notice: ($state.notice? // null), errors: ($state.errors? // null), running: [$state | try .activities[].running catch empty],
+      currentPane: ($dual.focused? // null), path: $path, tabIndex: $tab}' 2>&1)"
+}
+
 expect_ipc() {
   local reader="$1" expected="$2" observed attempt
   for ((attempt=1; attempt<=40; attempt++)); do
-    observed=$(ipc "$reader") || die "native observer failed: $reader"
+    observed=$(ipc "$reader") || { expect_evidence "$reader" "$expected" "$observed"; die "native observer failed: $reader"; }
     if [[ "$observed" == "$expected" ]]; then ok "$reader = $expected"; return; fi
     sleep 0.25
   done
+  expect_evidence "$reader" "$expected" "$observed"
   die "$reader expected [$expected], observed [$observed]"
 }
 
-r5_state() {
-  local phase="$1" reader value
-  for reader in tabCount tabIndex tabLabels path keyDeliveryState pathBarOpen; do
-    value=$(ipc "$reader") || die "R5 $phase observer failed: $reader: $value"
-    printf 'DRAG_R5 phase=%s reader=%s value=%q\n' "$phase" "$reader" "$value"
+# Sample output: DRAG_R7 phase=before-Return reader=pathBarText value=/dev/shm/flea-drag-xdev-AbCdEf/big
+walk_state() {
+  local leg="$1" phase="$2" reader value
+  for reader in listInFlight listRequests tabCount tabIndex tabLabels path keyDeliveryState pathBarOpen pathBarText lastMessage statusError; do
+    value=$(ipc "$reader") || die "$leg $phase observer failed: $reader: $value"
+    printf 'DRAG_%s phase=%s reader=%s value=%q\n' "$leg" "$phase" "$reader" "$value"
   done
+}
+
+r5_evidence() {
+  local reader value status line
+  for reader in lastMessage statusError listInFlight tabIndex path statusActivityState; do
+    status=0
+    value=$(ipc "$reader") || status=$?
+    note "R5 $reader: [$value] (observer exit $status)"
+  done
+  note "R5 floor point used: [${r5_floor_point:-unmeasured}]"
+  note "R5 window geometry used (x y width height): [$WX $WY $WW $WH]"
+  note "R5 last $r5_data_device_lines data-device lines:"
+  grep -E 'wl_data_(source|offer|device)' "$SB/flea.log" | tail -n "$r5_data_device_lines" | while IFS= read -r line; do note "$line"; done
+}
+
+r5_wait_listing() {
+  local attempt tab path loading
+  for ((attempt=1; attempt<=r5_poll_attempts; attempt++)); do
+    if ! tab=$(ipc tabIndex) || ! path=$(ipc path) || ! loading=$(ipc listInFlight); then
+      r5_evidence
+      die "R5 destination listing observer failed"
+    fi
+    if [[ "$tab" == "$r5_target_tab" && "$path" == "$HOMEDIR/bbb" && "$loading" == false ]]; then
+      ok "R5 destination tab and listing settled before measuring the floor"
+      return 0
+    fi
+    sleep "$r5_poll_seconds"
+  done
+  r5_evidence
+  die "R5 destination listing did not settle: tab=[$tab] path=[$path] listInFlight=[$loading]"
+}
+
+# Read the same target-owned activity as expect_feedback before releasing the held drag.
+r5_wait_feedback() {
+  local attempt state owner="$HOMEDIR/bbb" line="Move 1 item to $HOMEDIR/bbb · ctrl at lift copies"
+  for ((attempt=1; attempt<=r5_poll_attempts; attempt++)); do
+    state=$(ipc statusActivityState) || { r5_evidence; die "R5 drag activity observer failed"; }
+    # Sample input: {"activities":[{"running":false,"ownerPath":"/run/home/bbb","text":"Move 1 item to /run/home/bbb · ctrl at lift copies"}]}.
+    if jq -e --arg owner "$owner" --arg line "$line" '
+        [.activities[] | select(.running | not) | {ownerPath,text}] ==
+        [{ownerPath:$owner,text:$line}]' <<< "$state" >/dev/null; then
+      ok "R5 floor feedback owner=[$owner] line=[$line]"
+      return 0
+    fi
+    sleep "$r5_poll_seconds"
+  done
+  r5_evidence
+  die "R5 floor feedback did not name bbb: observed $state"
 }
 
 # The product entry resolves the UI, renderer and backend identity before execing Quickshell.
@@ -268,8 +473,8 @@ rowidx() {
   local i n total
   total=$(ipc total)
   for i in $(seq 0 $((total - 1))); do
-    n=$(ipc rowAt "$i")
-    case "$n" in "$1|"*) echo "$i"; return 0;; esac
+    n=$(ipc visibleRowName "$i")
+    if [ "$n" = "$1" ]; then echo "$i"; return 0; fi
   done
   return 1
 }
@@ -293,11 +498,46 @@ screen_tab_centre() {
   printf '%s %s\n' "$((WX + x))" "$((WY + y))"
 }
 
+# Seconds a row or tab centre may take to answer after a swap (50 polls of 0.1 s), and the poll gap.
+centre_poll_attempts=50
+centre_poll_seconds=0.1
+# centre_fail_line <reader> <name> : one DRAG_CENTRE_FAIL line with what the row lookup, the centre read and the window said.
+centre_fail_line() {
+  local idx="" centre="" listing=""
+  if [[ "$1" = screen_centre ]]; then
+    idx=$(rowidx "$2" 2>&1) || idx="none: $idx"
+    [[ "$idx" =~ ^[0-9]+$ ]] && centre=$(ipc rowCentre "$idx" 2>&1)
+  else
+    centre=$(ipc tabCentre "$2" 2>&1)
+  fi
+  listing=$(jq -nc --arg inFlight "$(ipc listInFlight 2>&1)" --arg total "$(ipc total 2>&1)" --arg view "$(ipc viewMode 2>&1)" \
+    --arg path "$(ipc path 2>&1)" '$ARGS.named')
+  printf 'DRAG_CENTRE_FAIL %s\n' "$(jq -nc --arg reader "$1" --arg name "$2" --arg rowidx "$idx" --arg centre "$centre" \
+    --argjson window "$(jq -nc --argjson w "${WW:-0}" --argjson h "${WH:-0}" '{width: $w, height: $h}')" \
+    --argjson listing "$listing" '$ARGS.named')"
+}
+# await_centre <xvar> <yvar> <reader> <name> : polls until a visible centre answers, then sets both variables in this shell, and ends the suite otherwise.
+await_centre() {
+  local await_x=$1 await_y=$2 await_reader=$3 await_name=$4 await_point await_try await_kind
+  for (( await_try = 0; await_try < centre_poll_attempts; await_try++ )); do
+    if await_point=$("$await_reader" "$await_name"); then
+      read -r "$await_x" "$await_y" <<< "$await_point"
+      return 0
+    fi
+    sleep "$centre_poll_seconds"
+  done
+  centre_fail_line "$await_reader" "$await_name"
+  [[ "$await_reader" = screen_tab_centre ]] && await_kind=tab || await_kind=row
+  die "the $await_kind $await_name has no visible screen centre"
+}
+# centre_into <xvar> <yvar> <row name> and tab_centre_into <xvar> <yvar> <tab index> : a failure is a die in the caller, never an unbound $1.
+centre_into() { await_centre "$1" "$2" screen_centre "$3"; }
+tab_centre_into() { await_centre "$1" "$2" screen_tab_centre "$3"; }
+
 native_tab() {
-  local index="$1" point x y
+  local index="$1" x y
   expect_ipc listInFlight false
-  point=$(screen_tab_centre "$index") || die "tab $index has no visible native target"
-  read -r x y <<< "$point"
+  tab_centre_into x y "$index"
   warp "$x" "$y"
   press
   release
@@ -376,9 +616,8 @@ r0_before=$(ipc total)
 aaa_before_r0=$(ls -A "$HOMEDIR/aaa" | tr '\n' ' ')
 printf 's1 payload\n' > "$HOMEDIR/s1.txt"
 expect_ipc total $((r0_before + 1))
-set -- $(screen_centre s1.txt); s1x=$1; s1y=$2
-set -- $(screen_centre aaa)
-a1x=$1; a1y=$2
+centre_into s1x s1y s1.txt
+centre_into a1x a1y aaa
 native_key -M ctrl -k comma -m ctrl
 expect_ipc settingsOpen true
 warp "$s1x" "$s1y"; sleep 0.4
@@ -405,11 +644,9 @@ echo "== R2: the drop lands where the pointer is, not one frame stale =="
 # ui/List.qml positions the ghost by assignment and never by a binding, because Drag moves are posted
 # and Drag.drop() flushes the pending one first. A stale ghost drops into a folder the drag merely
 # crossed, so this drag crosses aaa deliberately and finishes on bbb.
-set -- $(screen_centre r2.txt); sx=$1; sy=$2
-set -- $(screen_centre aaa)
-ax=$1; ay=$2
-set -- $(screen_centre bbb)
-bx=$1; by=$2
+centre_into sx sy r2.txt
+centre_into ax ay aaa
+centre_into bx by bbb
 warp "$sx" "$sy"; sleep 0.4
 press; sleep 0.3
 glide_to "$ax" "$ay"; sleep 0.4
@@ -427,9 +664,8 @@ check "a plain drag is a move, so the source is gone" \
 echo
 echo "== R3: ctrl decides copy versus move, and the lift is where it is read =="
 # Lift reads Ctrl here, so the copy-alone offer drops a copy while Drag.active ignores later keys.
-set -- $(screen_centre r3.txt); sx=$1; sy=$2
-set -- $(screen_centre aaa)
-ax=$1; ay=$2
+centre_into sx sy r3.txt
+centre_into ax ay aaa
 warp "$sx" "$sy"; sleep 0.4
 ctrl_down; sleep 0.3
 press; sleep 0.3
@@ -448,15 +684,14 @@ echo "== R4: the status line names the folder under the pointer =="
 # sayDrag looks the row up directly rather than through a bound property, because a binding on
 # dropIndex is not refreshed yet inside onDropIndexChanged and the line read "to a folder" over a
 # folder whose frame was already up.
-set -- $(screen_centre r4.txt); sx=$1; sy=$2
-set -- $(screen_centre bbb)
-bx=$1; by=$2
+centre_into sx sy r4.txt
+centre_into bx by bbb
 warp "$sx" "$sy"; sleep 0.4
 press; sleep 0.3
 glide_to "$bx" "$by"; sleep 0.8
 MID=$(ipc stickyMessage)
 release; sleep 0.6
-check "the line names the folder under the pointer" "$MID" "Move 1 item to bbb · ctrl copies and shift moves, read at lift"
+check "the line names the folder under the pointer" "$MID" "Move 1 item to bbb · ctrl at lift copies"
 
 # ---------------------------------------------------------------- R1
 echo
@@ -464,8 +699,8 @@ echo "== R1: only a release over a valid folder may transfer =="
 # ui/List.qml reads the grab transition and not active, because a release and a grab another item
 # stole flip active the same way and only a release may drop. A synthetic pointer cannot steal a
 # grab, so what is asserted here is the invariant that rule exists to protect, not the steal itself.
-set -- $(screen_centre r1a.txt); sx=$1; sy=$2
-set -- $(screen_centre r1b.txt); fx=$1; fy=$2
+centre_into sx sy r1a.txt
+centre_into fx fy r1b.txt
 warp "$sx" "$sy"; sleep 0.4
 press; sleep 0.3
 glide_to "$fx" "$fy"; sleep 0.5
@@ -474,7 +709,7 @@ check "a release over a file row transfers nothing" \
       "$([ -e "$HOMEDIR/r1a.txt" ] && echo kept || echo GONE)" "kept"
 check "and the gesture leaves no status line behind" "$(ipc stickyMessage)" ""
 
-set -- $(screen_centre r1b.txt); sx=$1; sy=$2
+centre_into sx sy r1b.txt
 warp "$sx" "$sy"; sleep 0.4
 press; sleep 0.3
 point=$(floor_centre) || die "R1 has no measured empty listing floor"
@@ -487,54 +722,66 @@ check "a release over empty space transfers nothing" \
 # ---------------------------------------------------------------- R5
 echo
 echo "== R5: a drag resting on a tab selects it, and the drop lands on that tab's floor =="
+r5_target_tab=1
+r5_poll_attempts=40
+r5_poll_seconds=0.25
+r5_delegate_rest_seconds=1.6
+r5_pointer_settle_seconds=0.4
+r5_press_settle_seconds=0.3
+r5_drop_settle_seconds=0.6
+r5_data_device_lines=15
+r5_floor_point=""
 # GM's ruling. The second tab is walked into bbb through the path bar, the first tab is shown again,
 # then r1a.txt is lifted, rested on the second tab past ui/TabBar.qml's hoverSwitchMs, and released
 # on the empty floor under the rows. The marker resolves the drop by path, because after the switch
 # the row indices name bbb's own rows; a same-filesystem move is what a plain drag means.
 export PATH="$HOME/.local/bin:$PATH"
-r5_state before-t
+walk_state R5 before-t
 expect_ipc tabCount 1
 expect_ipc tabIndex 0
 native_key t
-r5_state after-t
+walk_state R5 after-t
 expect_ipc tabCount 2
 expect_ipc tabIndex 1
 native_key :
 expect_ipc pathBarOpen true
 native_key "$HOMEDIR/bbb"
-r5_state before-Return
+walk_state R5 before-Return
 native_key -k Return
-r5_state after-Return
+walk_state R5 after-Return
 expect_ipc pathBarOpen false
 expect_ipc path "$HOMEDIR/bbb"
 expect_ipc listInFlight false
 check "the second tab shows bbb" "$(ipc path)" "$HOMEDIR/bbb"
-r5_state before-tab-click
+walk_state R5 before-tab-click
 native_tab 0
-r5_state after-tab-click
+walk_state R5 after-tab-click
 expect_ipc tabIndex 0
 expect_ipc path "$HOMEDIR"
 expect_ipc listInFlight false
 check "and the first tab is the home listing again" "$(ipc path)" "$HOMEDIR"
-point=$(screen_centre r1a.txt) || die "R5 source r1a.txt is not visible"
-read -r sx sy <<< "$point"
-point=$(screen_tab_centre 1) || die "R5 destination tab is not visible"
-read -r tx ty <<< "$point"
-warp "$sx" "$sy"; sleep 0.4
-press; sleep 0.3
+centre_into sx sy r1a.txt
+tab_centre_into tx ty "$r5_target_tab"
+warp "$sx" "$sy"; sleep "$r5_pointer_settle_seconds"
+press; sleep "$r5_press_settle_seconds"
 # The rest outlives the switch by a second: the pressed row's delegate is released by the re-list
 # while the drag still runs, and the QDrag used to die with it (quickshell SIGSEGV, 2026-09-07).
-glide_to "$tx" "$ty"; sleep 1.6
-check "resting on the second tab selected it" "$(ipc tabIndex)" "1"
-point=$(floor_centre) || die "R5 has no measured destination listing floor"
-read -r fx fy <<< "$point"
-glide_to "$fx" "$fy"; sleep 0.6
-release; sleep 0.6
+glide_to "$tx" "$ty"; sleep "$r5_delegate_rest_seconds"
+r5_wait_listing
+check "resting on the second tab selected it" "$(ipc tabIndex)" "$r5_target_tab"
+r5_floor_point=$(floor_centre) || { r5_evidence; die "R5 has no measured destination listing floor"; }
+# Sample input: R5's destination floor centre is "300 500".
+read -r fx fy <<< "$r5_floor_point"
+glide_to "$fx" "$fy"
+r5_wait_feedback
+release; sleep "$r5_drop_settle_seconds"
 wait_for "$HOMEDIR/bbb/r1a.txt" present
+r5_before_drop_fail=$fail
 check "the file landed on the second tab's floor" \
       "$([ -e "$HOMEDIR/bbb/r1a.txt" ] && echo bbb || echo missing)" "bbb"
 check "as a move, so the source is gone" \
       "$([ -e "$HOMEDIR/r1a.txt" ] && echo still-there || echo moved)" "moved"
+if (( fail > r5_before_drop_fail )); then r5_evidence; fi
 check "and the window survived the drop" "$(ipc total >/dev/null 2>&1 && echo alive || echo gone)" "alive"
 
 # ---------------------------------------------------------------- R6
@@ -576,17 +823,14 @@ expect_ipc listInFlight false
 expect_ipc showHidden true
 printf 'GUI_TAB_KEYS preset=default context=listing next=wrap,forward previous=backward,wrap retained-hidden=true\n'
 # aaa's centre is read here, on the tab the drop lands on, under whatever dotdirs sort ahead of it.
-point=$(screen_centre aaa) || die "R6 destination aaa is not visible"
-read -r fx fy <<< "$point"
+centre_into fx fy aaa
 native_tab 0
 check "and the home tab does not" "$(rowidx .r0hidden || echo none)" "none"
 # Escape drops the restored selection; aaa already holds R3's copy, so the drop is judged by its delta.
 native_key -k Escape; sleep 0.3
 aaa_before=$(ls -A "$HOMEDIR/aaa" | tr '\n' ' ')
-point=$(screen_centre r1b.txt) || die "R6 source r1b.txt is not visible"
-read -r sx sy <<< "$point"
-point=$(screen_tab_centre 2) || die "R6 destination tab is not visible"
-read -r tx ty <<< "$point"
+centre_into sx sy r1b.txt
+tab_centre_into tx ty 2
 warp "$sx" "$sy"; sleep 0.4
 press; sleep 0.3
 glide_to "$tx" "$ty"; sleep 1.2
@@ -600,55 +844,103 @@ check "and no other file moved" "$(ls -A "$HOMEDIR/aaa" | grep -vxF r1b.txt | tr
 check "and the window survived" "$(ipc total >/dev/null 2>&1 && echo alive || echo gone)" "alive"
 # ---------------------------------------------------------------- R7
 echo
-echo "== R7: a drop on a tab whose listing is still out is a copy, never a cross-device move =="
-# ui/TabBar.qml reads the destination device as unknown while pane.listInFlight, because dirDev is then
-# the directory the hover switch just left; with a tmpfs tab the stale device made the drop a move, and
-# a move across devices copies and then deletes the source. The window is held open, not raced: the
-# suite's own backend is stopped before the switch, so the listing it asks for cannot come back until
-# the drop has been taken, and the backend is continued only then.
+echo "== R7: a loading tab refuses the drop; after its listing lands, a cross-device drag copies =="
+# Stop only this suite's backend so the hovered current tab must refuse before its listing can land.
+r7_home_tab=0
+r7_tmpfs_tab=2
+r7_poll_attempts=40
+r7_poll_seconds=0.1
+r7_row_poll_seconds=0.25
+r7_pointer_settle_seconds=0.4
+r7_press_settle_seconds=0.3
+r7_release_settle_seconds=0.5
+r7_stopped_state=T
+# Sample input, /proc/<pid>/stat: '123 (flea) T 1 123 ...'; the owned backend's state is field 3.
+backend_state() { cut -d' ' -f3 "/proc/$BACKEND_PID/stat"; }
 XDEV=$(mktemp -d /dev/shm/flea-drag-xdev-XXXXXX)
 : > "$XDEV/$SANDBOX_MARKER"
-mkdir -p "$XDEV/big/dest"
+mkdir -p "$XDEV/big"
 check "the tmpfs root is another filesystem than the fixture" \
       "$([ "$(stat -c %d "$XDEV")" != "$(stat -c %d "$HOMEDIR")" ] && echo other || echo same)" "other"
 printf 'r7 payload\n' > "$HOMEDIR/r7.txt"
 # R6 left the third tab current; it is walked into the tmpfs directory through the path bar, as R5 walked into bbb.
-check "the third tab is current" "$(ipc tabIndex)" "2"
-native_key :; sleep 0.3
-native_key "$XDEV/big"; sleep 0.2
+check "the third tab is current" "$(ipc tabIndex)" "$r7_tmpfs_tab"
+native_key :
+expect_ipc pathBarOpen true
+native_key "$XDEV/big"
+walk_state R7 before-Return
+# The payload written above is re-read by the watcher, and a path entered while a listing is out is refused.
+expect_ipc listInFlight false
+walk_state R7 settled
 native_key -k Return
-for i in $(seq 1 40); do [ "$(ipc path)" = "$XDEV/big" ] && [ "$(ipc listInFlight)" = false ] && break; sleep 0.25; done
+walk_state R7 after-Return
+expect_ipc pathBarOpen false
+expect_ipc path "$XDEV/big"
+expect_ipc listInFlight false
 check "the third tab lists the tmpfs directory" "$(ipc path)" "$XDEV/big"
-native_tab 0
+native_tab "$r7_home_tab"
 check "the home tab is current again" "$(ipc path)" "$HOMEDIR"
-for i in $(seq 1 40); do rowidx r7.txt >/dev/null 2>&1 && break; sleep 0.25; done
+for i in $(seq 1 "$r7_poll_attempts"); do rowidx r7.txt >/dev/null 2>&1 && break; sleep "$r7_row_poll_seconds"; done
 # The one backend this suite owns: the instance's child running FLEA_BIN --backend, ui/Backend.qml's command.
 BACKEND_PID=""
 for p in $(pgrep -P "$MYPID"); do
   [ "$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null)" = "$FLEA_BIN --backend " ] && BACKEND_PID=$p
 done
 check "the suite found the one backend it owns" "$([ -n "$BACKEND_PID" ] && echo found || echo none)" "found"
-point=$(screen_centre r7.txt) || die "R7 source r7.txt is not visible"
-read -r sx sy <<< "$point"
-point=$(screen_tab_centre 2) || die "R7 destination tab is not visible"
-read -r tx ty <<< "$point"
-warp "$sx" "$sy"; sleep 0.4
-press; sleep 0.3
-kill -STOP "$BACKEND_PID"
+[[ -n "$BACKEND_PID" ]] || die "R7 cannot hold the listing without its owned backend"
+centre_into sx sy r7.txt
+tab_centre_into tx ty "$r7_tmpfs_tab"
+warp "$sx" "$sy"; sleep "$r7_pointer_settle_seconds"
+press; sleep "$r7_press_settle_seconds"
+kill -STOP "$BACKEND_PID" || die "R7 could not stop its owned backend"
+for i in $(seq 1 "$r7_poll_attempts"); do
+  [ "$(backend_state)" = "$r7_stopped_state" ] && break
+  sleep "$r7_poll_seconds"
+done
+check "the owned backend stopped before the hover switch" "$(backend_state)" "$r7_stopped_state"
+[ "$(backend_state)" = "$r7_stopped_state" ] || die "R7 backend did not stop"
 glide_to "$tx" "$ty"
-for i in $(seq 1 40); do [ "$(ipc tabIndex)" = 2 ] && [ "$(ipc listInFlight)" = true ] && break; sleep 0.1; done
-check "resting on the tmpfs tab selected it" "$(ipc tabIndex)" "2"
+for i in $(seq 1 "$r7_poll_attempts"); do [ "$(ipc tabIndex)" = "$r7_tmpfs_tab" ] && [ "$(ipc listInFlight)" = true ] && break; sleep "$r7_poll_seconds"; done
+check "resting on the tmpfs tab selected it" "$(ipc tabIndex)" "$r7_tmpfs_tab"
 check "and its listing is out against the stopped backend" "$(ipc listInFlight)" "true"
-release; sleep 0.5
-check "the drop was taken with the listing still out" "$(ipc listInFlight)" "true"
-check "and the backend was still stopped at that point" "$(cut -d' ' -f3 "/proc/$BACKEND_PID/stat")" "T"
-kill -CONT "$BACKEND_PID"
-wait_for "$XDEV/big/r7.txt" present
-check "the file landed on the tmpfs tab" \
-      "$([ -e "$XDEV/big/r7.txt" ] && echo landed || echo missing)" "landed"
-check "byte for byte" "$(cmp -s "$HOMEDIR/r7.txt" "$XDEV/big/r7.txt" && echo same || echo differs)" "same"
+release; sleep "$r7_release_settle_seconds"
+check "the release was refused with the listing still out" "$(ipc listInFlight)" "true"
+check "and the backend was still stopped at that point" "$(backend_state)" "$r7_stopped_state"
+expect_ipc lastMessage "A directory is already loading."
+expect_ipc statusError false
+check "the refused drop leaves the tmpfs directory empty" "$(ls -A "$XDEV/big")" ""
+check "and the refused source survives byte for byte" \
+      "$(printf 'r7 payload\n' | cmp -s - "$HOMEDIR/r7.txt" && echo same || echo differs)" "same"
+check "and the window survived the refusal" "$(ipc total >/dev/null 2>&1 && echo alive || echo gone)" "alive"
+kill -CONT "$BACKEND_PID" || die "R7 could not continue its owned backend"
+expect_ipc path "$XDEV/big"
+expect_ipc listInFlight false
+check "nothing lands after the refused listing finishes" "$(ls -A "$XDEV/big")" ""
+check "and the source still survives after the listing finishes" \
+      "$(printf 'r7 payload\n' | cmp -s - "$HOMEDIR/r7.txt" && echo same || echo differs)" "same"
+check "and the window survived the resumed listing" "$(ipc total >/dev/null 2>&1 && echo alive || echo gone)" "alive"
+# A fresh identity after the refusal checks distinguishes this lift from any wrongly queued first drop.
+printf 'r7 second payload\n' > "$HOMEDIR/r7-second.txt" || die "R7 could not write the second drag's source"
+native_tab "$r7_home_tab"
+check "the second drag starts from the home listing" "$(ipc path)" "$HOMEDIR"
+for i in $(seq 1 "$r7_poll_attempts"); do rowidx r7-second.txt >/dev/null 2>&1 && break; sleep "$r7_row_poll_seconds"; done
+centre_into sx sy r7-second.txt
+tab_centre_into tx ty "$r7_tmpfs_tab"
+warp "$sx" "$sy"; sleep "$r7_pointer_settle_seconds"
+press; sleep "$r7_press_settle_seconds"
+glide_to "$tx" "$ty"
+expect_ipc tabIndex "$r7_tmpfs_tab"
+expect_ipc path "$XDEV/big"
+expect_ipc listInFlight false
+release; sleep "$r7_release_settle_seconds"
+wait_for "$XDEV/big/r7-second.txt" present || die "R7 second drag did not reach the tmpfs tab"
+check "the second drag landed on the tmpfs tab" \
+      "$([ -e "$XDEV/big/r7-second.txt" ] && echo landed || echo missing)" "landed"
+check "byte for byte" "$(cmp -s "$HOMEDIR/r7-second.txt" "$XDEV/big/r7-second.txt" && echo same || echo differs)" "same"
 check "as a copy, so the source survives" \
-      "$([ -e "$HOMEDIR/r7.txt" ] && echo kept || echo GONE)" "kept"
+      "$([ -e "$HOMEDIR/r7-second.txt" ] && echo kept || echo GONE)" "kept"
+check "and the first drag's file never reached the destination" \
+      "$([ -e "$XDEV/big/r7.txt" ] && echo landed || echo absent)" "absent"
 check "and the window survived" "$(ipc total >/dev/null 2>&1 && echo alive || echo gone)" "alive"
 
 # ---------------------------------------------------------------- R8
@@ -657,21 +949,19 @@ echo "== R8: the line over a folder on another filesystem says copy, and the dro
 # ui/List.qml's verbAt reads the source device off the marker, stamped at the lift: after the hover
 # switch the pane's own dirDev is the destination's, and read from there the line said move over a
 # folder the drop would copy into. The same dragCopy drives the row's "copy here" badge.
+mkdir -p "$XDEV/big/dest"
 printf 'r8 payload\n' > "$HOMEDIR/r8.txt"
 native_tab 0
 check "the home tab is current" "$(ipc path)" "$HOMEDIR"
 for i in $(seq 1 40); do rowidx r8.txt >/dev/null 2>&1 && break; sleep 0.25; done
-point=$(screen_centre r8.txt) || die "R8 source r8.txt is not visible"
-read -r sx sy <<< "$point"
-point=$(screen_tab_centre 2) || die "R8 destination tab is not visible"
-read -r tx ty <<< "$point"
+centre_into sx sy r8.txt
+tab_centre_into tx ty 2
 warp "$sx" "$sy"; sleep 0.4
 press; sleep 0.3
 glide_to "$tx" "$ty"
 for i in $(seq 1 40); do [ "$(ipc path)" = "$XDEV/big" ] && [ "$(ipc listInFlight)" = false ] && rowidx dest >/dev/null 2>&1 && break; sleep 0.1; done
 check "resting on the tmpfs tab listed it in full" "$(ipc path)" "$XDEV/big"
-point=$(screen_centre dest) || die "R8 destination folder is not visible"
-read -r fx fy <<< "$point"
+centre_into fx fy dest
 glide_to "$fx" "$fy"; sleep 0.6
 check "the line over the folder says copy" "$(ipc stickyMessage)" "Copy 1 item to dest"
 release; sleep 0.6
@@ -683,7 +973,11 @@ check "as a copy, so the source survives" \
       "$([ -e "$HOMEDIR/r8.txt" ] && echo kept || echo GONE)" "kept"
 check "and the window survived" "$(ipc total >/dev/null 2>&1 && echo alive || echo gone)" "alive"
 echo
-[ "$fail" = 0 ] || exit 1
+if [ "$fail" != 0 ]; then
+  note "stopping before R9 because earlier drag checks failed"
+  echo "$((pass + fail)) checks, $fail failed"
+  exit 1
+fi
 
 # ---------------------------------------------------------------- shared source/target ownership
 dual_destination_side=""
@@ -729,15 +1023,13 @@ make_pair() {
 }
 
 mark_pair() {
-  local name="$1" first second point px py expected
+  local name="$1" first second px py expected
   first=$(rowidx "$name-a.txt") || die "first pair identity is not listed"
   second=$(rowidx "$name-b.txt") || die "second pair identity is not listed"
-  point=$(screen_centre "$name-a.txt") || die "first pair identity is not visible"
-  read -r px py <<< "$point"
+  centre_into px py "$name-a.txt"
   omarchy-drive click "$px" "$py" left >/dev/null || die "native plain selection failed"
   expect_ipc selectedIndices "$first"
-  point=$(screen_centre "$name-b.txt") || die "second pair identity is not visible"
-  read -r px py <<< "$point"
+  centre_into px py "$name-b.txt"
   omarchy-drive click "$px" "$py" left --mods ctrl >/dev/null || die "native additive selection failed"
   expected=$(jq -nr --argjson first "$first" --argjson second "$second" '[$first,$second] | sort | map(tostring) | join(",")')
   expect_ipc selectedIndices "$expected"
@@ -745,10 +1037,9 @@ mark_pair() {
 }
 
 begin_pair() {
-  local name="$1" verb="$2" point px py
+  local name="$1" verb="$2" px py
   mark_pair "$name"
-  point=$(screen_centre "$name-a.txt") || die "marked drag source is not visible"
-  read -r px py <<< "$point"
+  centre_into px py "$name-a.txt"
   glide_to "$px" "$py"
   [[ "$verb" != Copy ]] || ctrl_down
   press
@@ -756,8 +1047,7 @@ begin_pair() {
 
 target_points() {
   local point x y
-  point=$(screen_centre folder) || die "target folder is not visible"
-  read -r folder_x folder_y <<< "$point"
+  centre_into folder_x folder_y folder
   point=$(floor_centre) || die "target has no measured empty listing floor"
   read -r floor_x floor_y <<< "$point"
   point=$(ipc chromeButtonCentre sliders) || die "neutral chrome target is unavailable"
@@ -847,7 +1137,7 @@ dual_drag_diagnostic() {
 
 visit_targets() {
   local destination="$1" verb="$2" suffix=""
-  [[ "$verb" != Move ]] || suffix=' · ctrl copies and shift moves, read at lift'
+  [[ "$verb" != Move ]] || suffix=' · ctrl at lift copies'
   glide_to "$folder_x" "$folder_y"
   expect_feedback "$destination" "$verb 2 items to folder$suffix"
   glide_to "$floor_x" "$floor_y"
@@ -904,9 +1194,7 @@ cross_view_pair() {
   for phase in cancel commit; do
     native_tab 0
     expect_ipc path "$source"; expect_ipc viewMode "$source_mode"; expect_ipc listInFlight false
-    point=$(ipc tabCentre 1) || die "destination tab is unavailable"
-    [[ "$point" =~ ^[0-9]+\ [0-9]+$ ]] || die "destination tab has no valid geometry"
-    read -r tx ty <<< "$point"; tx=$((WX + tx)); ty=$((WY + ty))
+    tab_centre_into tx ty 1
     begin_pair "$name" Copy
     glide_to "$tx" "$ty"
     expect_ipc tabIndex 1
@@ -929,6 +1217,7 @@ cross_view_pair() {
       fi
       owned_path "$source/$name-a.txt"; owned_path "$source/$name-b.txt"; owned_path "$drop"
       release; ctrl_up
+      after_drop_line
       pair_result "$source" "$drop" "$name" Copy
       expect_feedback "" ""
     fi
@@ -1093,15 +1382,18 @@ recv_w=420; recv_h=320
 recv_x=1100; recv_y=80
 flea_x=40; flea_y=80; flea_w=1000; flea_h=720
 want_actions=1
-FLEA_RECV_W=$recv_w FLEA_RECV_H=$recv_h setsid python3 "$repo/tests/drag-receiver.py" "$RECV_LOG" >"$SB/receiver-err.log" 2>&1 &
+FLEA_RECV_W=$recv_w FLEA_RECV_H=$recv_h setsid python3 -B "$repo/tests/drag-receiver.py" "$RECV_LOG" >"$SB/receiver-err.log" 2>&1 &
 RECV_PID=$!
+RECV_PIDS+=("$RECV_PID")
 RECV_ADDR=""
 # Sample input, hyprctl clients -j: '[{"pid": 123, "address": "0xabc", "title": "flea-drag-receiver"}]'.
 for i in $(seq 1 40); do
   RECV_ADDR=$(hyprctl clients -j | python3 -c '
 import json, sys
+# Sample input: the plain receiver PID argument is "123".
 pid = int(sys.argv[1])
-hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid or w.get("title") == "flea-drag-receiver"]
+# Sample input: plain receiver clients are [{"pid":123,"address":"0xabc","title":"flea-drag-receiver"}].
+hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$RECV_PID") || true
   [ -n "$RECV_ADDR" ] && break
@@ -1124,7 +1416,9 @@ else
   # Sample input, hyprctl clients -j: '[{"pid": 456, "address": "0xdef"}]'.
   FLEA_ADDR=$(hyprctl clients -j | python3 -c '
 import json, sys
+# Sample input: the outbound source PID argument is "456".
 pid = int(sys.argv[1])
+# Sample input: outbound source clients are [{"pid":456,"address":"0xdef"}].
 hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$MYPID")
@@ -1138,13 +1432,12 @@ print(hits[0]["address"] if len(hits) == 1 else "")
   hypr_window_move "$FLEA_ADDR" "$flea_x" "$flea_y" || die "outbound could not move Flea"
   sleep 0.6
   geometry=$(r11_geometry) || die "outbound window geometry unavailable"
+  # Sample input: the outbound window geometry is "40 80 1000 720 true".
   read -r WX WY WW WH _ <<< "$geometry"
 
   # Edge: a release that stays inside Flea must not be a drop on the receiver, and it still moves.
-  point=$(screen_centre inner.txt) || die "inner.txt is not visible"
-  read -r sx sy <<< "$point"
-  point=$(screen_centre aaa) || die "aaa is not visible"
-  read -r ax ay <<< "$point"
+  centre_into sx sy inner.txt
+  centre_into ax ay aaa
   warp "$sx" "$sy"; sleep 0.4
   press; sleep 0.3
   glide_to "$ax" "$ay"; sleep 0.5
@@ -1155,12 +1448,12 @@ print(hits[0]["address"] if len(hits) == 1 else "")
   check "and the other process logged nothing" \
         "$(grep -c 'body<<' "$RECV_LOG" || true)" "0"
 
-  point=$(screen_centre outbound.txt) || die "outbound.txt is not visible"
-  read -r sx sy <<< "$point"
+  centre_into sx sy outbound.txt
   # Sample input, hyprctl clients -j: '{"address": "0xabc", "at": [1100, 80], "size": [420, 320]}'.
   set -- $(hyprctl clients -j | python3 -c '
 import json, sys
 addr = sys.argv[1]
+# Sample input: plain receiver geometry is [{"address":"0xabc","at":[1100,80],"size":[420,320]}].
 for w in json.load(sys.stdin):
     if w.get("address") == addr:
         x, y = w["at"]; w_, h = w["size"]
@@ -1178,12 +1471,14 @@ for w in json.load(sys.stdin):
     grep -q 'body<<' "$RECV_LOG" && break
     sleep 0.25
   done
+  outbound_evidence "$SB/receiver-err.log"
   check "the other process received the file URI" \
         "$(python3 -c '
 import pathlib, sys
 text = pathlib.Path(sys.argv[1]).read_text() if pathlib.Path(sys.argv[1]).exists() else ""
 needle = "file://" 
 name = sys.argv[2]
+# Sample input: the plain receiver body is "body<<\nfile:///run/home/outbound.txt\n>>".
 start = text.find("body<<")
 end = text.find(">>", start)
 body = text[start:end] if start >= 0 else ""
@@ -1203,17 +1498,19 @@ print("received" if needle in body and name in body else "missing")
   : > "$RECV_LOG"
   want_actions=2
   # End the first receiver so the Shift lookup can match only its own.
-  kill "$RECV_PID" 2>/dev/null || true
-  wait "$RECV_PID" 2>/dev/null || true
-  FLEA_RECV_W=$recv_w FLEA_RECV_H=$recv_h setsid python3 "$repo/tests/drag-receiver.py" "$RECV_LOG" >"$SB/receiver-shift-err.log" 2>&1 &
+  stop_receiver "$RECV_PID" || die "plain receiver teardown failed"
+  FLEA_RECV_W=$recv_w FLEA_RECV_H=$recv_h setsid python3 -B "$repo/tests/drag-receiver.py" "$RECV_LOG" >"$SB/receiver-shift-err.log" 2>&1 &
   RECV_PID=$!
+  RECV_PIDS+=("$RECV_PID")
   RECV_ADDR=""
   # Sample input, hyprctl clients -j: '[{"pid": 123, "address": "0xabc", "title": "flea-drag-receiver"}]'.
   for i in $(seq 1 40); do
     RECV_ADDR=$(hyprctl clients -j | python3 -c '
 import json, sys
+# Sample input: the Shift receiver PID argument is "789".
 pid = int(sys.argv[1])
-hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid or w.get("title") == "flea-drag-receiver"]
+# Sample input: Shift receiver clients are [{"pid":789,"address":"0xghi","title":"flea-drag-receiver"}].
+hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$RECV_PID") || true
     [ -n "$RECV_ADDR" ] && break
@@ -1232,12 +1529,12 @@ print(hits[0]["address"] if len(hits) == 1 else "")
     sleep 0.4
     hypr_window_focus "$FLEA_ADDR" || die "outbound could not focus Flea after placing the Shift receiver"
     sleep 0.4
-    point=$(screen_centre outbound-shift.txt) || die "outbound-shift.txt is not visible"
-    read -r sx sy <<< "$point"
+    centre_into sx sy outbound-shift.txt
     # Sample input, hyprctl clients -j: '{"address": "0xabc", "at": [1100, 80], "size": [420, 320]}'.
     set -- $(hyprctl clients -j | python3 -c '
 import json, sys
 addr = sys.argv[1]
+# Sample input: Shift receiver geometry is [{"address":"0xghi","at":[1100,80],"size":[420,320]}].
 for w in json.load(sys.stdin):
     if w.get("address") == addr:
         x, y = w["at"]; w_, h = w["size"]
@@ -1264,12 +1561,14 @@ for w in json.load(sys.stdin):
       grep -q 'body<<' "$RECV_LOG" && break
       sleep 0.25
     done
+    outbound_evidence "$SB/receiver-shift-err.log"
     check "the other process received the Shift-dragged file URI" \
           "$(python3 -c '
 import pathlib, sys
 text = pathlib.Path(sys.argv[1]).read_text() if pathlib.Path(sys.argv[1]).exists() else ""
 needle = "file://"
 name = sys.argv[2]
+# Sample input: the Shift receiver body is "body<<\nfile:///run/home/outbound-shift.txt\n>>".
 start = text.find("body<<")
 end = text.find(">>", start)
 body = text[start:end] if start >= 0 else ""
@@ -1290,6 +1589,8 @@ print("received" if needle in body and name in body else "missing")
   fi
 fi
 
+stop_receivers || die "outbound receiver teardown failed"
+assert_receivers_gone || die "outbound receiver drain failed"
 printf 'DRAG_SHARED routes=List-Grid,Grid-activeColumns,dual-left-right,dual-right-left real_relative_input=ok index_only=not_exercised transfer_preemption=not_exercised\n'
 echo "$((pass + fail)) checks, $fail failed"
 [ "$fail" = 0 ] || exit 1
