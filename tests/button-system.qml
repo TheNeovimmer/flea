@@ -6,8 +6,7 @@ import Quickshell
 import "flea" as Flea
 import "flea/js/TextSize.js" as TextSize
 
-// tests/button-system.sh's harness: the Trash strip's Empty Trash (the real ui/TrashView.qml) and a destructive
-// Flea.DialogButton draw one ladder in rest, hover, keyboard focus, pressed and disabled, and differ only in height and label size.
+// tests/button-system.sh's harness: the real TrashView strip's Empty Trash and a destructive Flea.DialogButton draw one ladder in five states.
 ShellRoot {
     id: shell
 
@@ -23,9 +22,13 @@ ShellRoot {
     readonly property int parkY: 50
     readonly property int releaseOutside: -40
     readonly property int noDelay: 0
-    // Quiet ticks (the press scale unchanged) before a state is read, and the most ticks the run may take; both count frames, never time.
+    // Quiet ticks (the press scale unchanged) before a state is read; a count of frames, never time.
     readonly property int settleTicks: 4
-    readonly property int tickCap: 4000
+    // The most ticks a run may take: half of what the .sh's outer timeout holds at one tick per tickMs, so this cap always fires first.
+    readonly property int tickMs: 16
+    readonly property int outerTimeoutS: Number(Quickshell.env("BUTTONSYS_TIMEOUT_S")) || 60
+    readonly property int capShare: 2
+    readonly property int tickCap: Math.floor(shell.outerTimeoutS * 1000 / shell.tickMs / shell.capShare)
     readonly property int chainCap: 200
     readonly property int trashRows: 3
     // GM's text size, where the strip is 27 and its control 20 (ButtonSystem040).
@@ -45,6 +48,10 @@ ShellRoot {
     property real lastScaleB: -1
     property bool acted: false
     property var script: []
+    // The root every path this run touches must lie under, and the ops the strip sent to the backend this run never has.
+    readonly property string sandboxRoot: Quickshell.env("BUTTONSYS_ROOT") || ""
+    property var requestedOps: []
+    readonly property var destructiveOps: ["delete", "restore"]
 
     function log(line) { console.log("BUTTONSYS " + line) }
     function check(name, actual, expected) {
@@ -136,7 +143,7 @@ ShellRoot {
     // No backend answers in this harness, so a request the view sends is dropped and the view reads as idle.
     Connections {
         target: view
-        function onRequested() { view.pendingOp = "" }
+        function onRequested(message) { shell.requestedOps.push(message.op); view.pendingOp = "" }
     }
     Connections {
         target: view.emptyItem
@@ -286,10 +293,36 @@ ShellRoot {
     }
 
     Timer {
-        interval: 16
+        interval: shell.tickMs
         repeat: true
         running: true
         onTriggered: shell.advance()
+    }
+
+    // Under the marked root, with no parent hop; a path outside it, or a harness started with no root, fails closed before any control is activated.
+    function underRoot(path) {
+        return shell.sandboxRoot.length > 0 && path.indexOf(shell.sandboxRoot + "/") === 0 && path.split("/").indexOf("..") < 0
+    }
+    function pinned() {
+        var home = Quickshell.env("HOME") || ""
+        var data = Quickshell.env("XDG_DATA_HOME") || home + "/.local/share"
+        var paths = [
+            ["HOME", home],
+            ["XDG_DATA_HOME", data],
+            ["XDG_CONFIG_HOME", Quickshell.env("XDG_CONFIG_HOME") || home + "/.config"],
+            ["XDG_STATE_HOME", Quickshell.env("XDG_STATE_HOME") || home + "/.local/state"],
+            ["XDG_CACHE_HOME", Quickshell.env("XDG_CACHE_HOME") || home + "/.cache"],
+            ["the Trash directory", data + "/Trash"],
+            ["the view's home", view.home],
+            ["the state file ViewState reads", Flea.ViewState.store.path]
+        ]
+        var ok = true
+        for (var i = 0; i < paths.length; i++) {
+            var inside = shell.underRoot(paths[i][1])
+            shell.check("sandbox: " + paths[i][0] + " lies under the harness root", inside, true)
+            if (!inside) ok = false
+        }
+        return ok
     }
 
     Component.onCompleted: Flea.ViewState.state = { display: { textSize: { mode: TextSize.nearest(shell.pinnedSize) } } }
@@ -304,6 +337,8 @@ ShellRoot {
             shell.ruling()
             shell.geometry()
             shell.inputs()
+            shell.check("no delete or restore request was sent", shell.requestedOps.filter(function (op) { return shell.destructiveOps.indexOf(op) >= 0 }), [])
+            shell.check("the confirmation card never opened, so no key could confirm it", view.confirmationOpen, false)
         } })
         shell.script = steps
     }
@@ -317,7 +352,11 @@ ShellRoot {
             return
         }
         if (shell.step > shell.script.length) return
-        if (shell.script.length === 0) { shell.buildScript(); return }
+        if (shell.script.length === 0) {
+            if (!shell.pinned()) { shell.finish(); return }
+            shell.buildScript()
+            return
+        }
         if (shell.step === shell.script.length) { shell.finish(); return }
         var current = shell.script[shell.step]
         if (!shell.acted) {

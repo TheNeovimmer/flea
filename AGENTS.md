@@ -2082,8 +2082,16 @@ centred in the strip less its rule) at caption size, a muted frame that never ch
 press 14% of the ink with the 0.96 press, a 2 px foreground ring outside the frame, 0.55 when disabled, and Tab in the
 focus chain. The strip's former own control, whose frame rose to the ink and whose focus was a wash, is deleted.
 `tests/button-system.sh` pins the ladder in five states against a destructive dialog button, plus the sweep table of
-every framed labelled press target in `ui/` (the control, the ruled set members, the marks, and the two deferred
-members PickerChrome's `Framed` and NetworkForm's TLS box); a new hand-built button fails its completeness check.
+the `ui/` files that declare the Button accessible role and draw a `border.width` (the control, the ruled set members,
+the marks, and the two deferred members PickerChrome's `Framed` and NetworkForm's TLS box); a new file of that shape
+fails its completeness check, and a hand-built button that spells neither is not seen by it. The retired
+second recipe is searched for across the whole tree bar the changelog. The harness is destructive-capable (it drives the
+real TrashView and activates Empty Trash), so the suite pins every XDG root under its marked `mktemp -d` root, the QML
+proves each resolved path (the Trash directory and the state file included) lies under it before anything is
+activated, and no backend answers, so a `prepare` request is dropped, the confirmation card never opens and a
+`delete` or `restore` request fails the run. Its in-QML tick cap is half the outer `timeout`, passed down so the
+"harness did not finish" branch fires first. In `tests/ui-trash.sh` each Empty Trash shot waits on `ipc trashEmptyState`
+(`hovered|focused|pressed|available`), and the case hands the pointer and the keyboard back afterwards.
 
 ## How the list renders
 

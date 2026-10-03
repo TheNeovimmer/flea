@@ -245,12 +245,36 @@ trash_shot() {
 
 # Moves the pointer onto a native control and nudges it, because a warp alone sends Qt no motion (see hover_row).
 trash_hover() {
-    local cx cy wx wy
+    local cx cy wx wy nudge
     read -r cx cy <<< "$(ipc trashControlCentre "$1")"
     [[ "$cx" =~ ^[0-9]+$ && "$cy" =~ ^[0-9]+$ ]] || fail "trash: missing native control centre"
     read -r wx wy _width _height < <(window_box) || fail "native window coordinates unavailable"
     omarchy-drive move "$((wx + cx))" "$((wy + cy))" >/dev/null || fail "trash: native pointer move failed"
-    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
+    nudge=$(YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 2>&1) \
+        || fail "trash: the 1 px pointer nudge to $1 failed, so Qt saw no motion: $nudge"
+}
+
+# Waits until the strip's Empty Trash reads the wanted "hovered|focused|pressed|available" (a glob), so no shot lands before the state is drawn.
+trash_empty_wait() {
+    local want="$1" end=$((SECONDS + 20)) state
+    while (( SECONDS < end )); do
+        state=$(ipc trashEmptyState) || fail "trash: the Empty Trash state reader failed"
+        # shellcheck disable=SC2053
+        if [[ "$state" == $want ]]; then
+            trash_checks=$((trash_checks + 1))
+            printf 'TRASH_PASS Empty Trash reads %s observed=%s\n' "$want" "$state"
+            return
+        fi
+        sleep 0.05
+    done
+    fail "trash: the strip's Empty Trash never read $want; last state: $state"
+}
+
+# Parks the pointer where it was, hands the keyboard back to the Trash listing the way open() does, and proves the button let go.
+trash_restore_input() {
+    omarchy-drive move "$1" "$2" >/dev/null || fail "trash: could not park the pointer back at $1,$2"
+    [[ "$(ipc trashFocusListing)" == true ]] || fail "trash: the keyboard did not return to the Trash listing"
+    trash_empty_wait '*|false|*|*'
 }
 
 trash_empty_strip() {
@@ -718,7 +742,7 @@ trash_sweep_case() {
 }
 
 case_trash() {
-    local trash_box payload row uri backing root trash_checks=0
+    local trash_box payload row uri backing root trash_checks=0 pointer_x pointer_y
     local trash_case_label="${1:-full}"
     local trash_parent_bus_id="" trash_private_bus_id="" trash_bus_address="" trash_bus_pid="" trash_provider_pid=""
     [[ "$(realpath -e "$(command -v gio)")" == /usr/bin/gio ]] || fail "trash: product gio resolves to a stub"
@@ -834,15 +858,19 @@ case_trash() {
     trash_guard_store 1
     trash_shot trash-partial-failure
     # The strip's Empty Trash against ButtonSystem040's rest, hover and keyboard cells, the pointer parked clear of it between them.
+    read -r pointer_x pointer_y < <(hyprctl cursorpos | tr -d ',')
+    [[ "$pointer_x" =~ ^[0-9]+$ && "$pointer_y" =~ ^[0-9]+$ ]] || fail "trash: no pointer position from hyprctl cursorpos"
     trash_hover back
+    trash_empty_wait 'false|false|false|true'
     trash_shot trash-empty-action-rest
     trash_hover empty
-    settle
+    trash_empty_wait 'true|false|false|true'
     trash_shot trash-empty-action-hover
     trash_hover back
     [[ "$(ipc trashFocusEmpty)" == true ]] || fail "trash: the strip's Empty Trash did not take the keyboard"
-    settle
+    trash_empty_wait 'false|true|false|true'
     trash_shot trash-empty-action-focus
+    trash_restore_input "$pointer_x" "$pointer_y"
     uri=$(/usr/bin/gio trash --list | cut -f1)
     backing=$(trash_backing "$uri") || fail "trash: missing survivor backing"
     trash_guard "$backing"

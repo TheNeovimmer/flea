@@ -88,14 +88,14 @@ tests/rename-grid-bottom.qml 424
 tests/rename-grid-bottom.js 305
 tests/rename-lifecycle-check.js 356
 tests/touchpad.qml 747
-tests/xwsettings-tabs.qml 416
+tests/xwsettings-tabs.qml 427
 ui/Backend.qml 469
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 479
 ui/ContextMenu.qml 703
 ui/ConvertDialog.qml 433
 ui/GridArea.qml 412
-ui/Ipc.qml 858
+ui/Ipc.qml 862
 ui/KeymapSheet.qml 523
 ui/List.qml 437
 tests/touchpad-edge.qml 438
@@ -104,7 +104,7 @@ ui/NetworkDialog.qml 445
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 849
 ui/OpenWithDialog.qml 608
-ui/Pane.qml 1024
+ui/Pane.qml 1025
 ui/PaneMenuActions.qml 465
 ui/PaneWire.qml 584
 ui/PermissionsDialog.qml 634

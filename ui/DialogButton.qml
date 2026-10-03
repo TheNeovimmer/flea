@@ -17,7 +17,7 @@ Item {
     property bool focused: root.activeFocus
     // True where the form owns the Tab order and the button only reports through tabbed.
     property bool tabHandle: false
-    // Hosted in a 27 strip (or a 37 settings row), the control keeps the host's height at caption, and Tab reaches it.
+    // Hosted in the chrome strip: a Theme.chromeHeight press area around a Theme.chromeControlHeight frame at caption size, and Tab reaches it.
     property bool inStrip: false
 
     signal activated()
