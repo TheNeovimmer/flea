@@ -2034,8 +2034,9 @@ captures a stable tab identity and its source pane until acknowledgment or the e
 closures wait for a held strip reorder to finish; pending receiver drops are refused without acknowledgment. A desktop
 tear-off uses the same acknowledgment after its initial folder lists. The geometry query
 restarts for the latest overlapping lift. File ceilings are re-derived with `wc -l` for the
-added identity lifecycle and regression coverage: `ui/TabBar.qml` 604, `ui/js/Tabs.js` 682,
-`ui/WindowBody.qml` 636 for both destination pane signals, and `tests/js/tabs.js` 597.
+added identity lifecycle and regression coverage: `ui/TabBar.qml` 592, `ui/js/Tabs.js` 641,
+`ui/WindowBody.qml` 590 for both destination pane signals, and `tests/js/tabs.js` 597; the three
+fell when their comments folded to one line each.
 The test fixture loads shipped QML function bodies so cancel,
 completion and acknowledgment assertions exercise the actual transitions.
 
