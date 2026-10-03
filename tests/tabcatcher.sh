@@ -44,13 +44,13 @@ grep -q 'LAUNCHACK PASS acknowledgments=1' <<< "$output" || exit 1
 grep -q 'TEAROFF PASS stubExited=true sourceTabs=2' <<< "$output" || exit 1
 echo 'tabcatcher: geometry, launch ack and tear-off checks passed'
 
-# Failed geometry loading or creation must report failure and kill the probe before its timer dereferences null.
-# Print the probe's expected failure line with the FAIL verdict word reworded, so only a real failure reads as one.
+# Sample input: "GEOMETRY FAIL load=boom" in the log prints "expected: GEOMETRY failed load=boom".
 expected_failure_line() {
     local line
     line=$(grep -oE "GEOMETRY FAIL $1=.*" "$2" | head -n 1 | sed -E 's/\x1b\[[0-9;]*m//g')
     printf 'expected: %s\n' "${line//FAIL/failed}"
 }
+# Failed geometry loading or creation must report failure and kill the probe before its timer dereferences null.
 for failure in load create; do
     rm -f "$probe/config/geometry.qml"
     if [[ "$failure" == create ]]; then
