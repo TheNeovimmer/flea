@@ -524,6 +524,10 @@ Item {
                 else pane.clipPending = null
             }
             if (!listingEnded) {
+                // A refused window ends its directory's anchor so the owed re-read can run.
+                if (where === "window" && root.anchor && input === root.anchor.path
+                        && root.anchor.path === root.pane.path)
+                    root.anchor = Anchor.failAnchor(root.pane, root.anchor, Theme.fileRowHeight)
                 pane.message(text, true)
                 return
             }

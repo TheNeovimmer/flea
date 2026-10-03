@@ -271,15 +271,17 @@ on its reply (the re-read flips `menuSelectionIdentity` and the reply is refused
 being typed (the re-read closes the query line), a search listing is showing (the walk owns the
 rows outright), a rubber-band drag runs, a file drag runs or waits on its paths reply (the rows
 must not shift under a live pointer), any paths asker resolves (clipboard, drag, compress, Copy as,
-permissions or the anchor's own tagged ask, so two replies never cross), a list is already in flight
+permissions or the anchor's own tagged ask, so two replies never cross), an
+unfinished anchor for the open directory, a list is already in flight
 or a transfer waits on the collision card (`ui/CollideHost.qml decide` writes its transfer before
 it clears `pending`, so the transfer reaches the backend ahead of any re-read the card held back).
 A bare selection, and the path-keyed copy and cut marks which never named a row index, are not a
 reason to hold: another window's change shows at once with the same files marked. Marks outside the
 held window resolve through one batched `paths` round trip before the swap and one batched `locate`
 after it, each tagged to its asker (`ui/PaneWire.qml onPaths` routes only the anchor's tag to
-`Anchor.fillPaths`, `Anchor.takeLocated` guards the locate reply by directory), and with no backend
-that can answer either the re-read waits instead. A preference re-list also re-marks by name: a
+`Anchor.fillPaths`, `Anchor.takeLocated` matches the directory, the anchor's own locate id and
+`transferId` 0), and with no backend that can answer either the re-read waits instead.
+A preference re-list also re-marks by name: a
 settings change to hidden, sort or grouping captures `Anchor.preference` before it re-lists, and
 `ui/PaneSwap.qml` applies `Anchor.applyPreference` after the watched anchor. When any selected row
 lies outside the held window, the preference re-list clears the whole selection rather than silently
@@ -3216,6 +3218,11 @@ request-scoped locate IDs, separate send statements and the unfinished-anchor ho
 `ui/PaneWire.qml` is 575 and `tests/js/xwwatch.js` is 310 after folding the cited comment blocks
 and updating the locate reply fixture. The new `tests/js/xwanchor-races.js` is 129 lines and
 needs no exception. `tests/xwsettings-tabs.qml` remains 416. Global limits and all checks remain intact.
+
+The x5m round 4 fixes record `ui/PaneWire.qml` at 579 lines, re-derived with `wc -l`, for
+ending the open directory's anchor after a window refusal without losing the error line or cursor.
+The race suite is 183 lines inside both budgets, with locate-ID range and window-refusal pins.
+Global limits and all checks remain intact.
 
 ## The key table is generated
 

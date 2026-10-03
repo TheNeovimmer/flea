@@ -1,5 +1,8 @@
 .import "../../ui/js/Anchor.js" as Anchor
 .import "../../ui/js/Ops.js" as Ops
+.import "../../ui/js/Swap.js" as Swap
+.import "../../ui/js/Errors.js" as Errors
+.import "../../ui/js/Nav.js" as Nav
 .import "xwwatch.js" as Fixture
 
 var DEEP_START = 350
@@ -8,6 +11,7 @@ var OUTSIDE_INDEX = 499
 var RETRY_INDEX = 450
 var RETRY_ID = 77
 var ROW_HEIGHT = 37
+var QML_INT_MAX = 2147483647
 
 function wireSource() {
     var request = new XMLHttpRequest()
@@ -17,12 +21,12 @@ function wireSource() {
 }
 
 // Sample source: function onLocated(message) { ... } ends at the Connections member's indentation.
-function handler(source, name, indent) {
+function handler(source, name, indent, parameters) {
     var pattern = new RegExp("function " + name + "\\([^)]*\\) \\{([\\s\\S]*?)\\n" + indent + "\\}")
     var match = source.match(pattern)
     if (!match)
         throw new Error("PaneWire handler missing: " + name)
-    return new Function("root", "pane", "Anchor", "Theme", "Ops", "message", match[1])
+    return new Function(parameters || "root,pane,Anchor,Theme,Ops,message", match[1])
 }
 
 function rows(p, names, held) {
@@ -37,6 +41,54 @@ function deepPane() {
     p.total = DIRECTORY_COUNT
     p.selection.toggle(DEEP_START + 1)
     return p
+}
+
+function listCount(p) {
+    return p.sent.filter(function (command) { return command === "list " + p.path }).length
+}
+
+function windowRefusal(check, source, reread, busy, theme) {
+    var failed = handler(source, "onFailed", "        ",
+                         "root,pane,Anchor,Theme,Ops,Swap,Errors,Nav,where,input,message,mode")
+    var p = deepPane()
+    var cursor = p.cursorIndex
+    var notices = []
+    p.message = function (text, error) { notices.push({ text: text, error: error }) }
+    var wire = { pane: p, anchor: Anchor.watched(p), stale: true }
+    rows(p, ["head-a", "head-b", "head-c"], 0)
+    wire.anchor = Anchor.apply(p, wire.anchor)
+    p.listInFlight = false
+    var pending = wire.anchor
+    var lists = listCount(p)
+    check("F19 deep window starts with an unfinished anchor", !!pending, true)
+    wire.watchBusy = busy(wire, p, Anchor)
+    check("F19 deep window holds the owed reread", wire.watchBusy, true)
+    reread(wire, p, Anchor, theme, Ops)
+    check("F19 waiting for deep rows retains refresh debt", wire.stale, true)
+    check("F19 waiting for deep rows sends no second list", listCount(p), lists)
+    failed(wire, p, Anchor, theme, Ops, Swap, Errors, Nav, "window", "/other", "Other mount is not responding.", 0)
+    check("F19 another directory's window refusal leaves the anchor", wire.anchor === pending, true)
+    failed(wire, p, Anchor, theme, Ops, Swap, Errors, Nav, "stale", "/d", "Listing changed.", 0)
+    check("F19 stale refusal leaves the anchor", wire.anchor === pending, true)
+    p.path = "/away"
+    failed(wire, p, Anchor, theme, Ops, Swap, Errors, Nav, "window", "/d", "Mount is not responding.", 0)
+    check("F19 a window refusal after navigation leaves the old anchor", wire.anchor === pending, true)
+    p.path = "/d"
+    failed(wire, p, Anchor, theme, Ops, Swap, Errors, Nav, "window", "/d", "Mount is not responding.", 0)
+    check("F19 refused deep window ends the anchor", wire.anchor, null)
+    check("F19 refused deep window keeps the cursor's place", p.cursorIndex, cursor)
+    check("F19 refused deep window keeps the error line", notices[notices.length - 1].text, "Mount is not responding.")
+    check("F19 refused deep window keeps the error role", notices[notices.length - 1].error, true)
+    wire.watchBusy = busy(wire, p, Anchor)
+    check("F19 refused deep window releases watchBusy", wire.watchBusy, false)
+    check("F19 refused deep window retains debt until reread", wire.stale, true)
+    reread(wire, p, Anchor, theme, Ops)
+    check("F19 refused deep window sends exactly one second list", listCount(p), lists + 1)
+    check("F19 refused deep window pays refresh debt", wire.stale, false)
+    check("F19 reread leaves the refusal line visible", notices[notices.length - 1].text, "Mount is not responding.")
+    wire.watchBusy = busy(wire, p, Anchor)
+    reread(wire, p, Anchor, theme, Ops)
+    check("F19 an in-flight reread sends no third list", listCount(p), lists + 1)
 }
 
 function run(check) {
@@ -70,7 +122,8 @@ function run(check) {
     var retry = commands[commands.length - 2]
     var own = commands[commands.length - 1]
     check("F10 retry locate precedes anchor locate", retry.transferId, RETRY_ID)
-    check("F10 anchor locate carries its own request identity", own.id > 0, true)
+    check("F17 anchor locate meets its reserved ID floor", own.id >= Anchor.LOCATE_ID_FLOOR, true)
+    check("F17 anchor locate exceeds QML's largest menu ID", own.id > QML_INT_MAX, true)
     located(wire, p, Anchor, theme, Ops, { directory: "/d", id: 0, transferId: RETRY_ID,
             ok: true, matches: [{ path: "/d/retry-file", index: RETRY_INDEX }] })
     check("F10 retry reply reaches its handler and clears retry bookkeeping", wire.retryId, 0)
@@ -126,4 +179,5 @@ function run(check) {
         check(label + " pays the retained refresh debt", wire.stale, false)
         check(label + " captures the restored marks on next reread", !!(wire.anchor && wire.anchor.hadMarks), true)
     }
+    windowRefusal(check, source, reread, busy, theme)
 }

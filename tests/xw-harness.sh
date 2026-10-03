@@ -6,7 +6,7 @@ repo=$PWD
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 source_file=${XW_HARNESS_SOURCE:-$repo/tests/ui.sh}
-# Sample source assignments: ipc_call_timeout=2s, xw_hang_s=30, xw_poll_s=0.2, xw_ui_poll_s=0.05, xw_ui_poll_tries=100, xw_window_poll_tries=300.
+# Sample source assignments: ipc_call_timeout=2s, ipc_call_kill_after=1s, xw_hang_s=30, xw_poll_s=0.2, xw_ui_poll_s=0.05, xw_ui_poll_tries=100, xw_window_poll_tries=300.
 eval "$(sed -nE '/^(ipc_call_timeout|ipc_call_kill_after|xw_hang_s|xw_poll_s|xw_ui_poll_s|xw_ui_poll_tries|xw_window_poll_tries)=/p' "$source_file")" || exit 1
 for helper in case_xwwatch xw_ipc xw_click_background xw_cleanup owned_trash_monitors xw_editor_diagnostics xw_wait_dialog; do
     eval "$(sed -n "/^$helper()/,/^}/p" "$source_file")" || exit 1
