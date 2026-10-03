@@ -112,12 +112,12 @@ Item {
         onExited: function (exitCode, exitStatus) {
             root.helperExits++;
             root.starting = false;
-            var unexpected = !root.stopping;
             root.stopping = true;
             var error = "figure engine exited " + exitCode + " (status " + exitStatus + ")";
             if (exitCode === root.refusalExit)
                 root.refuse(error);
-            else if (unexpected) {
+            else {
+                // A kill or an idle stop leaves nothing written, so only a crash finds a head to strike.
                 var failed = root.strikeHead();
                 root.requeueWritten();
                 if (failed !== undefined)

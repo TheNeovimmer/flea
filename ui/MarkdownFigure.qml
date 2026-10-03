@@ -25,27 +25,43 @@ Item {
         return { bg: root.bgHex, fg: root.fgHex, accent: root.accentHex,
             font: root.fontFamily, bodyPx: root.bodyPx };
     }
+    // Nothing is asked until the figure is created, so its construction-time assignments cost no request.
+    property bool created: false
+    // The request this figure last sent; an ask for the same state is dropped, so a burst of changes renders once.
+    property string lastRequest: ""
     function ask() {
         if (root.source === "") {
             root.ticket = 0;
             root.svg = "";
             root.error = "";
+            root.lastRequest = "";
             return;
         }
-        root.ticket = FigureService.ask(root.kind, root.source,
-            root.display, root.hexTheme());
+        var theme = root.hexTheme();
+        var request = JSON.stringify([root.kind, root.source, root.display, theme]);
+        if (request === root.lastRequest)
+            return;
+        root.lastRequest = request;
+        root.ticket = FigureService.ask(root.kind, root.source, root.display, theme);
+    }
+    // Every trigger lands on the one deferred ask, so the changes of one burst send one request.
+    function schedule() {
+        if (root.created)
+            Qt.callLater(root.ask);
     }
 
-    onKindChanged: root.ask()
-    onSourceChanged: root.ask()
-    onDisplayChanged: root.ask()
-    // A theme change flips the three colours one after another, so one deferred ask carries the final set.
-    onBgHexChanged: Qt.callLater(root.ask)
-    onFgHexChanged: Qt.callLater(root.ask)
-    onAccentHexChanged: Qt.callLater(root.ask)
-    onFontFamilyChanged: root.ask()
-    onBodyPxChanged: root.ask()
-    Component.onCompleted: root.ask()
+    onKindChanged: root.schedule()
+    onSourceChanged: root.schedule()
+    onDisplayChanged: root.schedule()
+    onBgHexChanged: root.schedule()
+    onFgHexChanged: root.schedule()
+    onAccentHexChanged: root.schedule()
+    onFontFamilyChanged: root.schedule()
+    onBodyPxChanged: root.schedule()
+    Component.onCompleted: {
+        root.created = true;
+        root.schedule();
+    }
 
     Connections {
         target: FigureService
@@ -99,18 +115,21 @@ Item {
     readonly property string fallbackBody: root.source.length > root.fallbackChars
         ? root.source.slice(0, root.fallbackChars) + "… (" + (root.source.length - root.fallbackChars) + " more)"
         : root.source
+    // The fence pads every edge by one gap, so a width or a height adds both of its sides.
+    readonly property real fencePadding: Theme.spacing.gap
+    readonly property real fenceBothSides: fallbackItem.anchors.leftMargin + fallbackItem.anchors.rightMargin
     Rectangle {
         id: fallback
         visible: root.failed
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: fallbackItem.implicitHeight + 2 * Theme.spacing.gap
+        height: fallbackItem.implicitHeight + root.fenceBothSides
         color: Theme.color.surface
         Text {
             id: fallbackItem
             anchors.fill: parent
-            anchors.margins: Theme.spacing.gap
+            anchors.margins: root.fencePadding
             text: root.fallbackBody
             textFormat: Text.PlainText
             wrapMode: Text.Wrap
@@ -129,7 +148,7 @@ Item {
     readonly property real inlineWidth: root.inline && inlineFigure.implicitHeight > 0
         ? Math.round(inlineFigure.implicitWidth * (root.bodyPx / inlineFigure.implicitHeight)) : 0
 
-    implicitWidth: root.inline ? (root.failed ? fallbackItem.implicitWidth + 2 * Theme.spacing.gap : root.inlineWidth) : root.width
+    implicitWidth: root.inline ? (root.failed ? fallbackItem.implicitWidth + root.fenceBothSides : root.inlineWidth) : root.width
     // A failed inline still draws its fence, so it sizes to the fence rather than the line it never became.
     implicitHeight: root.inline ? (root.failed ? fallback.height : root.bodyPx)
         : root.failed ? fallback.height : root.fitHeight

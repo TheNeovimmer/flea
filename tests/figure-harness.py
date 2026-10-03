@@ -292,8 +292,8 @@ QtObject {
                                          XDG_CACHE_HOME=str(box / "qml-cache")),
                                 capture_output=True, text=True, timeout=FRAGMENT_BOUND_SECONDS)
         component_output = result.stdout + result.stderr
-        component_ok = result.returncode == 0 and "figure-component: 3 check(s), 0 failed" in component_output
-        check(component_ok, "mx2a F31/F32 one final-theme request and a nonzero failed-inline fence"
+        component_ok = result.returncode == 0 and "figure-component: 6 check(s), 0 failed" in component_output
+        check(component_ok, "mx2a F31/F32 and mx2b F37/F38 one request per creation and per burst, an equal ask dropped, the exact failed-inline fence"
               + ("" if component_ok else ": " + component_output.strip()))
     else:
         check(False, "mx2a F31/F32 require qml6 for the real component probe")
@@ -529,10 +529,33 @@ check("const READONLY_PREFIX_ARGS: usize = 4;" in sandbox
       and "READONLY_PREFIX_ARGS + ro_binds.len() * READONLY_BIND_ARGS" in sandbox,
       "mx2a F30 read-only sandbox prefix and bind argument counts are named")
 service_source = (tree / "ui/FigureService.qml").read_text()
-check("readonly property int refusalExit: 127" in service_source
+# Sample input: `pub const REFUSED: i32 = 127;` in src/figurehelper.rs.
+def rust_refusal(source):
+    found = re.search(r"(?m)^pub const REFUSED: i32 = (\d+);", source)
+    return int(found[1]) if found else None
+
+
+# Sample input: `readonly property int refusalExit: 127` in ui/FigureService.qml.
+def qml_refusal(source):
+    found = re.search(r"(?m)^\s*readonly property int refusalExit: (\d+)$", source)
+    return int(found[1]) if found else None
+
+
+helper_rust = (tree / "src/figurehelper.rs").read_text()
+rust_status = rust_refusal(helper_rust)
+qml_status = qml_refusal(service_source)
+check(rust_status is not None and rust_status == qml_status
       and "REFUSED in src/figurehelper.rs" in service_source
       and "exitCode === root.refusalExit" in service_source,
-      "mx2a F35 the refusal comparison uses the Rust REFUSED status by name")
+      f"mx2a F35 and F38 the QML refusal status ({qml_status}) equals the Rust REFUSED ({rust_status})")
+sample_rust = "pub const REFUSED: i32 = 127;\n"
+sample_qml = "    readonly property int refusalExit: 127\n"
+check(rust_refusal(sample_rust) == qml_refusal(sample_qml) == 127
+      and rust_refusal(sample_rust.replace("127", "126")) != qml_refusal(sample_qml)
+      and qml_refusal(sample_qml.replace("127", "126")) != rust_refusal(sample_rust),
+      "mx2b F36 a changed refusal status on either side no longer matches")
+check(rust_refusal("") is None and qml_refusal("") is None,
+      "mx2b F36 an absent refusal status parses as nothing, never as a match")
 helper_source = (tree / "ui/vendor/figure-helper.mjs").read_text()
 check(not re.search(r"(?m)^[ \t]*//[^\n]*\n[ \t]*//", helper_source),
       "F26 helper comments keep each constraint on one line")

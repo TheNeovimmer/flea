@@ -5,6 +5,8 @@ Item {
     id: probe
     property int checks: 0
     property int failures: 0
+    // A fence pads its text on the left and on the right.
+    readonly property int fenceSides: 2
     function check(passed, label) {
         probe.checks++;
         if (!passed) {
@@ -12,28 +14,59 @@ Item {
             console.log("FAIL " + label);
         }
     }
+    // The same text a failed inline figure fences, measured with no width bound to it.
+    Text {
+        id: measure
+        visible: false
+        text: figure.fallbackBody
+        textFormat: Text.PlainText
+        font.family: figure.fontFamily
+        font.pixelSize: figure.bodyPx
+    }
     MarkdownFigure {
         id: figure
         inline: true
         source: "x^2"
-        width: implicitWidth
+        bgHex: "#202020"
+        fgHex: "#dddddd"
+        accentHex: "#445566"
+        width: 300
     }
-    Component.onCompleted: Qt.callLater(probe.flip)
-    function flip() {
+    // Two hops of Qt.callLater put every deferred ask queued during creation ahead of the first check.
+    Component.onCompleted: Qt.callLater(probe.hop)
+    function hop() {
+        Qt.callLater(probe.created);
+    }
+    function created() {
+        probe.check(FigureService.requests.length === 1, "creation requests=" + FigureService.requests.length + ", want 1");
+        probe.check(FigureService.requests.length > 0 && FigureService.requests[0].bg === "#202020",
+            "the creation request carries the colours the figure was created with");
         FigureService.requests = [];
         figure.bgHex = "#111111";
         figure.fgHex = "#eeeeee";
         figure.accentHex = "#aabbcc";
+        figure.fontFamily = "sans-serif";
+        figure.bodyPx = 15;
         Qt.callLater(probe.verify);
     }
     function verify() {
         probe.check(FigureService.requests.length === 1, "theme flip requests=" + FigureService.requests.length + ", want 1");
         var finalTheme = FigureService.requests[0];
         probe.check(finalTheme && finalTheme.bg === figure.bgHex && finalTheme.fg === figure.fgHex
-            && finalTheme.accent === figure.accentHex, "the coalesced request carries every final colour");
+            && finalTheme.accent === figure.accentHex && finalTheme.font === figure.fontFamily
+            && finalTheme.bodyPx === figure.bodyPx, "the coalesced request carries every final colour and font");
+        FigureService.requests = [];
+        figure.bgHex = "#333333";
+        figure.bgHex = "#111111";
+        Qt.callLater(probe.verifyDrop);
+    }
+    function verifyDrop() {
+        probe.check(FigureService.requests.length === 0, "an ask equal to the last request sent requests=" + FigureService.requests.length + ", want 0");
         FigureService.done(figure.ticket, "", "inline render failed");
-        probe.check(figure.failed && figure.implicitWidth > 0 && figure.width === figure.implicitWidth,
-            "failed inline implicitWidth=" + figure.implicitWidth + ", want a nonzero fence");
+        var gap = Theme.spacing.gap;
+        var want = measure.implicitWidth + probe.fenceSides * gap;
+        probe.check(figure.failed && measure.implicitWidth > 0 && figure.implicitWidth === want,
+            "failed inline implicitWidth=" + figure.implicitWidth + ", want " + want + " (text " + measure.implicitWidth + " plus two gaps of " + gap + ")");
         console.log("figure-component: " + probe.checks + " check(s), " + probe.failures + " failed");
         Qt.quit();
     }

@@ -66,4 +66,17 @@ function run(check, service) {
     fake.start()
     fake.reply(survivor, "survivor svg")
     check("the survivor renders after the kill and one crash", fake.answers[fake.answers.length - 1].svg, "survivor svg")
+
+    // Nothing is written while the helper stops, so its exit finds no written ticket to strike or resend.
+    fake = service()
+    fake.ask("overdue while stopping", true)
+    fake.start()
+    fake.now = fake.root.renderMs + pastDeadlineMs
+    fake.tick()
+    check("a timeout kill leaves the helper stopping with nothing written", fake.root.stopping && fake.root.written.length === 0, true)
+    var writesBeforeStop = fake.writes.length
+    fake.ask("arrives while stopping", true)
+    check("a ticket asked while stopping is held back", fake.writes.length === writesBeforeStop && fake.root.written.length === 0, true)
+    fake.exit(cumulativeCpuExit)
+    check("the exit that follows a kill strikes and fails nothing more", fake.answers.length, 1)
 }
