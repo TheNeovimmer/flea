@@ -2030,11 +2030,12 @@ its own decisive axis (the toolchain) made the rest of that measurement moot. `u
 
 xw6 adversarial fixes retain the tab handoff detail and exact payload paths. Each lift
 captures a stable tab identity and its source pane until acknowledgment or the existing
-15-second deadline; pending receiver drops are refused without acknowledgment. A desktop
+15-second deadline. Accepted lifts wait for pane settlement beyond that deadline, and source
+closures wait for a held strip reorder to finish; pending receiver drops are refused without acknowledgment. A desktop
 tear-off uses the same acknowledgment after its initial folder lists. The geometry query
 restarts for the latest overlapping lift. File ceilings are re-derived with `wc -l` for the
-added identity lifecycle and regression coverage: `ui/TabBar.qml` 602, `ui/js/Tabs.js` 683,
-`ui/WindowBody.qml` 636 for both destination pane signals, and `tests/js/tabs.js` 562.
+added identity lifecycle and regression coverage: `ui/TabBar.qml` 604, `ui/js/Tabs.js` 682,
+`ui/WindowBody.qml` 636 for both destination pane signals, and `tests/js/tabs.js` 597.
 The test fixture loads shipped QML function bodies so cancel,
 completion and acknowledgment assertions exercise the actual transitions.
 

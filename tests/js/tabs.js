@@ -443,6 +443,41 @@ function run(check) {
     waitingBar.drainLifts()
     check("navigation completion closes acknowledged identity", Tabs.count(waiting), 1)
 
+    var delayed = BarFixture.pair()
+    var delayedBar = BarFixture.bar(delayed)
+    delayedBar.tabLiftBegan(1)
+    var delayedToken = delayedBar.outToken
+    delayedBar.outFinished(Qt.IgnoreAction)
+    var delayedLift = delayedBar.outstandingLifts[0]
+    var acceptedAgeMs = 1000
+    var pastDeadlineAgeMs = Tabs.ACK_WAIT_MS + 1
+    delayedLift.liftedAt = Date.now() - acceptedAgeMs
+    delayed.listInFlight = true
+    check("backdated lift accepts ack at 1000 ms", delayedBar.take(delayedToken), true)
+    delayedLift.liftedAt = Date.now() - pastDeadlineAgeMs
+    delayedBar.drainLifts()
+    check("taken lift survives past 15001 ms while loading", delayedBar.outstandingLifts.length, 1)
+    delayed.listInFlight = false
+    delayedBar.drainLifts()
+    check("settlement past 15001 ms closes acknowledged source", Tabs.count(delayed), 1)
+    check("settlement consumes acknowledged lift", delayedBar.outstandingLifts.length, 0)
+
+    var held = BarFixture.pair()
+    Tabs.openNew(held)
+    var heldIds = held.tabs.items.map(function (item) { return item.tabIdentity })
+    var heldBar = BarFixture.bar(held)
+    heldBar.tabLiftBegan(0)
+    var heldToken = heldBar.outToken
+    heldBar.outFinished(Qt.IgnoreAction)
+    heldBar.dragStarted(1)
+    heldBar.dropAt = 0
+    check("ack during held B reorder is accepted", heldBar.take(heldToken), true)
+    check("ack leaves A B C indices intact during reorder", Tabs.count(held), 3)
+    check("held B remains at its captured index", held.tabs.items[heldBar.dragFrom].tabIdentity, heldIds[1])
+    heldBar.dragFinished()
+    check("release lands B at front then closes A", held.tabs.items.map(function (item) { return item.tabIdentity }).join(","), [heldIds[1], heldIds[2]].join(","))
+    check("release drains deferred ack", heldBar.outstandingLifts.length, 0)
+
     var localPane = BarFixture.pair()
     Tabs.openNew(localPane)
     var localBar = BarFixture.bar(localPane)

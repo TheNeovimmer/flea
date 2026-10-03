@@ -103,6 +103,7 @@ Item {
         }
         root.dragFrom = -1
         root.dropAt = -1
+        root.drainLifts()
     }
 
     // The lift fixes the payload; a rename open refuses the way out, not the reorder.
@@ -180,11 +181,12 @@ Item {
     }
 
     function drainLifts() {
+        if (root.dragFrom >= 0) return
         var now = Date.now()
         var kept = []
         for (var i = 0; i < root.outstandingLifts.length; i++) {
             var lift = root.outstandingLifts[i]
-            if (!Tabs.ackCloses(lift.token, lift.token, lift.liftedAt, now)) {
+            if (!lift.taken && !Tabs.ackCloses(lift.token, lift.token, lift.liftedAt, now)) {
                 if (root.outToken === lift.token) root.outToken = ""
                 continue
             }

@@ -18,11 +18,13 @@ def rectangle(node, fields, label):
         raise ValueError(label + " rectangle field missing or not a number")
 
 
-# Sample snapshots: clients=[{"at":[0,0],"size":[900,500]}], layers={"DP-2":{"levels":{"1":[]}}}, monitors=[{"x":0,"y":0,"width":2560,"height":1440}].
+# Sample snapshots: clients=[{"mapped":true,"at":[0,0],"size":[900,500]}], layers={"DP-2":{"levels":{"1":[]}}}, monitors=[{"x":0,"y":0,"width":2560,"height":1440}].
 def validate_snapshots(clients, layers, monitors):
     if not isinstance(clients, list): raise ValueError("clients must be a list")
     for client in clients:
         if not isinstance(client, dict): raise ValueError("client must be an object")
+        if not isinstance(client.get("mapped"), bool):
+            raise ValueError("client mapped field missing or not a boolean")
         for field in ("at", "size"):
             values = client.get(field)
             if not isinstance(values, list) or len(values) != 2 or not all(number(v) for v in values):

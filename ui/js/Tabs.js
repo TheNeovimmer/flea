@@ -413,8 +413,7 @@ function newToken() {
     return String(Date.now()) + "-" + String(Math.floor(Math.random() * TOKEN_RANDOM_RANGE))
 }
 
-// The tab a lift names: the live snapshot for the current tab, the stored one for a hidden
-// tab, with the cursor file name only when the row is at hand. Null when no such tab.
+// A lift names the live current tab or stored hidden tab, with the cursor name when available; null if absent.
 function tabInfo(pane, index) {
     if (!pane)
         return null

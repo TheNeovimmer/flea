@@ -56,7 +56,7 @@ tests/js/nav.js 323
 tests/js/network.js 306
 tests/js/ops.js 430
 tests/js/settings.js 337
-tests/js/tabs.js 562
+tests/js/tabs.js 597
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 396
@@ -91,7 +91,7 @@ ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
 ui/Sidebar.qml 675
 ui/StatusBar.qml 460
-ui/TabBar.qml 602
+ui/TabBar.qml 604
 ui/Theme.qml 415
 ui/TrashView.qml 475
 ui/ViewState.qml 410
@@ -105,7 +105,7 @@ ui/js/Drag.js 346
 ui/js/Ops.js 438
 ui/js/Picker.js 325
 ui/js/Settings.js 455
-ui/js/Tabs.js 683"
+ui/js/Tabs.js 682"
 
 status=0
 

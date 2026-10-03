@@ -24,7 +24,15 @@ verdict_sh="$(dirname "$0")/layer-drop-verdict.sh"
 . "$verdict_sh"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/layer-drop.XXXXXXXX") || refuse "mktemp failed"
-trap 'kill "$qs_pid" "$flea_pid" $torn 2>/dev/null; rm -rf "$work"' EXIT
+layerdrop_button_down=false
+layerdrop_cleanup() {
+    if [[ "$layerdrop_button_down" == true ]]; then
+        ydotool click 0x80 >/dev/null 2>&1 || true
+    fi
+    kill "$qs_pid" "$flea_pid" $torn 2>/dev/null || true
+    rm -rf "$work"
+}
+trap 'layerdrop_cleanup' EXIT
 qs_pid=""; flea_pid=""; torn=""; addr=""; qid=""; drag_mark=0
 centre=""; lifted_path=""; source_rect=""; sx=""; sy=""; dx=""; dy=""
 
@@ -237,22 +245,57 @@ move_to() {
     done
     refuse "pointer did not reach $tx,$ty"
 }
+layerdrop_outside_x=200
+layerdrop_outside_y=60
+layerdrop_target_nudge=6
+layerdrop_drag_attempts=40
+layerdrop_drag_poll=0.1
+# Require platform start, mapped catcher and catcher enter while the pointer remains held.
+layerdrop_wait_drag() {
+    local stage="$1" attempt lines
+    for attempt in $(seq 1 "$layerdrop_drag_attempts"); do
+        lines=$(tail -n +"$((drag_mark + 1))" "$work/flea.log" | grep -a "TABDRAG .* pid=$flea_pid " || true)
+        if grep -aq 'TABDRAG drag-finished' <<< "$lines"; then
+            refuse "drag ended before $stage while pointer held"
+        fi
+        case "$stage" in
+            start)
+                if grep -aq "TABDRAG drag-start .* path=$srcdir mime=" <<< "$lines"; then
+                    return 0
+                fi
+                ;;
+            mapped)
+                if hyprctl layers -j 2>/dev/null | grep -Fq '"namespace": "flea-tab-tearoff"'; then
+                    return 0
+                fi
+                ;;
+            catcher)
+                if grep -aq 'TABDRAG catcher-enter' <<< "$lines"; then
+                    return 0
+                fi
+                ;;
+        esac
+        sleep "$layerdrop_drag_poll"
+    done
+    refuse "no $stage receipt from platform tab drag on fixture $srcdir"
+}
+
 # Flea windows before the drop: its own Bottom catcher may take the drop and tear off instead.
 before_flea=$(pgrep -x qs | while read -r pid; do tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq "$flea_ui" && printf '%s ' "$pid"; done)
 [ "$(layerdrop_rect || true)" = "$source_rect" ] || refuse "source geometry changed before the press"
 move_to "$sx" "$sy"
 drag_mark=$(wc -l < "$work/flea.log")
+layerdrop_button_down=true
 ydotool click 0x40 >/dev/null 2>&1 || refuse "pointer press failed"
+move_to "$((wx + layerdrop_outside_x))" "$((wy + wh + layerdrop_outside_y))"
+layerdrop_wait_drag start
+layerdrop_wait_drag mapped
 move_to "$dx" "$dy"
-started=""
-for _ in $(seq 1 40); do
-    lines=$(tail -n +"$((drag_mark + 1))" "$work/flea.log" | grep -a "TABDRAG .* pid=$flea_pid " || true)
-    if grep -aq 'TABDRAG drag-finished' <<< "$lines"; then refuse "drag ended before pointer release"; fi
-    if grep -aq "TABDRAG drag-start .* path=$srcdir mime=" <<< "$lines"; then started=1; break; fi
-    sleep 0.1
-done
-[ -n "$started" ] || refuse "no platform tab drag started from fixture $srcdir"
+move_to "$((dx + layerdrop_target_nudge))" "$dy"
+move_to "$dx" "$dy"
+layerdrop_wait_drag catcher
 ydotool click 0x80 >/dev/null 2>&1 || refuse "pointer release failed"
+layerdrop_button_down=false
 # Wait for an observed panel receipt or a new Flea process before evaluating either route.
 for _ in $(seq 1 40); do
     layerdrop_panel_hit "$log" && break

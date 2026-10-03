@@ -34,21 +34,18 @@ else
 fi
 
 # Qt hands effectAllowed from this expression; combined Copy and Move violates the plain offer.
-file_offer=$(code_of ui/FileDrag.qml | sed -n '/Drag\.supportedActions:/,/Qt.CopyAction/p')
-if printf '%s' "$file_offer" | grep -q 'Qt\.CopyAction' && ! printf '%s' "$file_offer" | grep -q '|'; then
-    ok "a plain file lift offers copy alone"
+scratch=$(mktemp -d) || exit 1
+trap 'rm -rf "$scratch"' EXIT
+# Load the exact component outside ui's qmldir, which eagerly imports unrelated Quickshell singletons.
+cp ui/FileDrag.qml "$scratch/FileDrag.qml" || exit 1
+ln -s "$PWD/ui/js" "$scratch/js" || exit 1
+offer_timeout_seconds=15
+file_offer=$(env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 timeout "$offer_timeout_seconds" qml6 tests/dragwire-offer.qml -- "$scratch/FileDrag.qml" 2>&1)
+offer_status=$?
+if [[ "$offer_status" == 0 ]] && grep -q 'file offers: 4 checks, 0 failed' <<< "$file_offer"; then
+    ok "file lift offers exactly copy, copy, move and link for plain, ctrl, shift and ctrl with shift"
 else
-    bad "a plain file lift must offer Qt.CopyAction alone"
-fi
-if code_of ui/FileDrag.qml | grep -q 'dragCopy' && code_of ui/FileDrag.qml | grep -q 'dragShift' && code_of ui/FileDrag.qml | grep -q 'dragLink'; then
-    ok "ctrl offers copy alone, shift move alone, ctrl with shift link alone"
-else
-    bad "the file offer must narrow on dragCopy, dragShift and dragLink"
-fi
-if code_of ui/FileDrag.qml | grep -q 'Qt\.LinkAction'; then
-    ok "a link lift offers a link"
-else
-    bad "a link lift must offer Qt.LinkAction"
+    bad "file lift offers failed (status=$offer_status): $file_offer"
 fi
 
 # The Move-alone advertiser is the tab drag, and it carries no folder with it: Files

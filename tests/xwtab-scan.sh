@@ -16,13 +16,11 @@ trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/monitors.json" <<'EOF'
 [{"name":"DP-2","x":0,"y":0,"width":2560,"height":1440,"focused":true,"activeWorkspace":{"id":1,"name":"1"},"specialWorkspace":{"id":0,"name":""}}]
 EOF
-# Levels carry a fullscreen level 0 background, a fullscreen qs catcher on 1
-# and the real bar strip on 2, the exact minipc shape the tear-off hit.
+# The minipc fixture has a fullscreen level 0 background, fullscreen level 1 catcher and level 2 bar strip.
 cat > "$scratch/layers.json" <<'EOF'
 {"DP-2":{"levels":{"0":[{"address":"0x1","x":0,"y":0,"w":2560,"h":1440,"namespace":"omarchy-background","pid":100}],"1":[{"address":"0x2","x":0,"y":0,"w":2560,"h":1440,"namespace":"flea-tab-tearoff","pid":200}],"2":[{"address":"0x3","x":0,"y":0,"w":2560,"h":30,"namespace":"omarchy-bar","pid":300}],"3":[]}}}
 EOF
-# Active bottom cover plus a fullscreen client on workspace 2, plus one hidden
-# and one unmapped row that never cover anything on any workspace.
+# Active bottom cover and a fullscreen workspace 2 client, plus hidden and unmapped rows that never cover.
 cat > "$scratch/clients.json" <<'EOF'
 [{"address":"0xa","mapped":true,"hidden":false,"at":[0,1000],"size":[2560,440],"workspace":{"id":1,"name":"1"},"floating":true,"monitor":1,"class":"x","title":"t","pid":1000},{"address":"0xb","mapped":true,"hidden":false,"at":[0,0],"size":[2560,1440],"workspace":{"id":2,"name":"2"},"floating":false,"monitor":1,"class":"x","title":"t","pid":1001},{"address":"0xc","mapped":true,"hidden":true,"at":[0,0],"size":[2560,1440],"workspace":{"id":1,"name":"1"},"floating":false,"monitor":1,"class":"x","title":"t","pid":1002},{"address":"0xd","mapped":false,"hidden":false,"at":[0,0],"size":[2560,1440],"workspace":{"id":1,"name":"1"},"floating":false,"monitor":1,"class":"x","title":"t","pid":1003}]
 EOF
@@ -341,7 +339,7 @@ else
 bad "layer probe geometry selected another client"
 fi
 # Malformed snapshots must never produce automation coordinates.
-for kind in clients-object layers-list levels-object level-object monitors-empty client-missing client-text layer-missing layer-text monitor-missing monitor-text; do
+for kind in clients-object layers-list levels-object level-object monitors-empty client-missing client-text client-mapped-missing client-mapped-text client-mapped-number client-mapped-null layer-missing layer-text monitor-missing monitor-text; do
     python3 - "$scratch" "$kind" <<'PYFIX'
 import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
@@ -356,6 +354,10 @@ if kind == "level-object": layers["DP-2"]["levels"]["2"] = {}
 if kind == "monitors-empty": monitors = []
 if kind == "client-missing": del clients[0]["size"]
 if kind == "client-text": clients[0]["at"][0] = "zero"
+if kind == "client-mapped-missing": del clients[0]["mapped"]
+if kind == "client-mapped-text": clients[0]["mapped"] = "true"
+if kind == "client-mapped-number": clients[0]["mapped"] = 1
+if kind == "client-mapped-null": clients[0]["mapped"] = None
 if kind == "layer-missing": del layers["DP-2"]["levels"]["2"][0]["w"]
 if kind == "layer-text": layers["DP-2"]["levels"]["2"][0]["w"] = "wide"
 if kind == "monitor-missing": del monitors[0]["width"]
@@ -376,7 +378,14 @@ for layer in '1 desktop-widget' '3 overlay-widget' '3 qs-launcher' '1 qs-launche
     read -r level namespace <<< "$layer"
     printf '{"DP-2":{"levels":{"%s":[{"x":0,"y":0,"w":2560,"h":1440,"namespace":"%s"}]}}}\n' "$level" "$namespace" > "$scratch/blocker.json"
     blocked=$(python3 "$repo/tests/xwtab_free_point.py" 0 0 2560 1440 DP-2 "$scratch/clients-empty.json" "$scratch/blocker.json" "$scratch/monitors.json")
-    if [[ -z "$blocked" ]]; then ok "level $level $namespace blocks desktop"; else bad "level $level $namespace must block desktop, got $blocked"; fi
+    status=$?
+    if [[ "$status" != 0 ]]; then
+        bad "level $level $namespace scan failed (status=$status)"
+    elif [[ -z "$blocked" ]]; then
+        ok "level $level $namespace blocks desktop"
+    else
+        bad "level $level $namespace must block desktop, got $blocked"
+    fi
 done
 # Keep the live shell helpers under the same deterministic regression gate.
 if python3 "$repo/tests/xwtab-safety.py"; then ok "live shell safety regressions"; else bad "live shell safety regressions"; fi

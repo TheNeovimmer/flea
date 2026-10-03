@@ -11182,23 +11182,34 @@ xwtab_rect_of() {
 xwtab_saved=""
 xwtab_restore_place() {
     [[ -n "$xwtab_saved" ]] || return 0
-    local pid addr x y w h floating cur caddr cx cy cw ch cfloating action
+    local pid addr x y w h floating cur caddr cx cy cw ch cfloating action failed remaining="" status=0
     while read -r pid addr x y w h floating; do
         [[ -n "${pid:-}" ]] || continue
         if ! flea_process_owned "$pid"; then printf 'XWTAB restore skipped unowned pid=%s\n' "$pid" >&2; continue; fi
         cur=$(xwtab_rect_of "$pid" || true)
         read -r caddr cx cy cw ch cfloating <<< "$cur"
-        if [[ -z "$cur" || "$caddr" != "$addr" ]]; then printf 'XWTAB restore skipped unproven address=%s\n' "$addr" >&2; continue; fi
-        action=off; [[ "$floating" != True ]] || action=on
-        if ! hyprctl dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$addr\" })" >/dev/null 2>&1 \
-            || ! hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"address:$addr\" })" >/dev/null 2>&1 \
-            || ! hyprctl dispatch "hl.dsp.window.resize({ x = $w, y = $h, relative = false, window = \"address:$addr\" })" >/dev/null 2>&1 \
-            || ! hyprctl dispatch "hl.dsp.window.float({ action = \"$action\", window = \"address:$addr\" })" >/dev/null 2>&1 \
-            || ! xwtab_wait_place "$pid" "$addr" "$x" "$y" "$w" "$h" "$floating"; then
+        if [[ -z "$cur" || "$caddr" != "$addr" ]]; then
+            printf 'XWTAB restore skipped unproven address=%s\n' "$addr" >&2
+            remaining+="$pid $addr $x $y $w $h $floating"$'\n'
+            status=1
+            continue
+        fi
+        action=off
+        [[ "$floating" != True ]] || action=on
+        failed=0
+        hyprctl dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$addr\" })" >/dev/null 2>&1 || failed=1
+        hyprctl dispatch "hl.dsp.window.resize({ x = $w, y = $h, relative = false, window = \"address:$addr\" })" >/dev/null 2>&1 || failed=1
+        hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"address:$addr\" })" >/dev/null 2>&1 || failed=1
+        hyprctl dispatch "hl.dsp.window.float({ action = \"$action\", window = \"address:$addr\" })" >/dev/null 2>&1 || failed=1
+        xwtab_wait_place "$pid" "$addr" "$x" "$y" "$w" "$h" "$floating" || failed=1
+        if [[ "$failed" != 0 ]]; then
             printf 'XWTAB restore failed pid=%s address=%s\n' "$pid" "$addr" >&2
+            remaining+="$pid $addr $x $y $w $h $floating"$'\n'
+            status=1
         fi
     done <<< "$xwtab_saved"
-    xwtab_saved=""
+    xwtab_saved=$remaining
+    return "$status"
 }
 
 xwtab_place_attempts=30
@@ -11211,6 +11222,7 @@ xwtab_wait_place() {
         [[ "$actual" != "$expected" ]] || return 0
         sleep "$xwtab_place_poll"
     done
+    printf 'XWTAB place mismatch pid=%s expected=[%s] actual=[%s] monitors=%s\n' "$pid" "$expected" "$actual" "$(hyprctl monitors -j 2>/dev/null || true)" >&2
     return 1
 }
 
@@ -11233,17 +11245,24 @@ $bpid $baddr $bx $by $bw $bh $bfloating"
     [[ -n "$mon" ]] || fail "xwtab: no focused monitor to make room on"
     mon_name=$(printf '%s' "$mon_json" | python3 -c 'import json,sys; ms=json.load(sys.stdin); m=[x for x in ms if x.get("focused")] or ms; print(m[0].get("name",""))' || true)
     [[ -n "$mon_name" ]] || fail "xwtab: no focused monitor to make room on"
-    local mx my mw mh pw ph
+    local mx my mw mh pw ph park_inset=20 park_margin=60 park_min_width=200 park_min_height=150
     read -r mx my mw mh <<< "$mon"
-    pw=$(((mw - 60) / 2)); ph=$(((mh - 60) / 2))
-    (( pw >= 200 && ph >= 150 )) || fail "xwtab: monitor ${mw}x${mh} leaves no room to park two windows"
+    pw=$(((mw - park_margin) / 2))
+    ph=$(((mh - park_margin) / 2))
+    (( pw >= park_min_width && ph >= park_min_height )) || fail "xwtab: monitor ${mw}x${mh} leaves no room to park two windows"
     local pid addr px
     for pid in "$apid" "$bpid"; do
-        if [[ "$pid" == "$apid" ]]; then addr=$aaddr; px=$((mx + 20)); else addr=$baddr; px=$((mx + 40 + pw)); fi
+        if [[ "$pid" == "$apid" ]]; then
+            addr=$aaddr
+            px=$((mx + park_inset))
+        else
+            addr=$baddr
+            px=$((mx + 2 * park_inset + pw))
+        fi
         hyprctl dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$addr\" })" >/dev/null || fail "xwtab: could not float $pid"
-        hyprctl dispatch "hl.dsp.window.move({ x = $px, y = $((my + 20)), relative = false, window = \"address:$addr\" })" >/dev/null || fail "xwtab: could not park $pid"
         hyprctl dispatch "hl.dsp.window.resize({ x = $pw, y = $ph, relative = false, window = \"address:$addr\" })" >/dev/null || fail "xwtab: could not size $pid"
-        xwtab_wait_place "$pid" "$addr" "$px" "$((my + 20))" "$pw" "$ph" True || fail "xwtab: owned window $pid never reached its parked rectangle"
+        hyprctl dispatch "hl.dsp.window.move({ x = $px, y = $((my + park_inset)), relative = false, window = \"address:$addr\" })" >/dev/null || fail "xwtab: could not park $pid"
+        xwtab_wait_place "$pid" "$addr" "$px" "$((my + park_inset))" "$pw" "$ph" True || fail "xwtab: owned window $pid never reached its parked rectangle"
     done
     local point
     # Free point counts only what can take the drop, see tests/xwtab_free_point.py.
