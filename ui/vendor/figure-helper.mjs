@@ -1,11 +1,8 @@
-// One sandboxed figure renderer: newline-delimited JSON in, one JSON line
-// per request out. Started by `flea --figure-helper` under bwrap, so nothing
-// here reaches the network and nothing writable is visible.
+// One sandboxed figure renderer: newline-delimited JSON in and out, started by flea --figure-helper under bwrap with no network or writable paths.
 import * as std from "qjs:std";
 import * as os from "qjs:os";
 
-// ELK's GWT code takes its Error from `global`, and its in-process FakeWorker
-// posts through setTimeout; neither exists until named here.
+// ELK's GWT code takes Error from global and its in-process FakeWorker posts through setTimeout; neither exists until named here.
 globalThis.global = globalThis;
 globalThis.setTimeout = os.setTimeout;
 globalThis.clearTimeout = os.clearTimeout;
@@ -48,8 +45,7 @@ async function renderOne(req) {
     throw new Error("unknown figure kind");
 }
 
-// A bad line answers error under its own id, or id 0 when it names none,
-// and the loop always survives it; EOF ends the process.
+// A bad line answers error under its own id, or id 0 when it names none; the loop survives it and EOF ends the process.
 var line;
 while ((line = std.in.getline()) !== null) {
     if (line === "" || line === "\n")

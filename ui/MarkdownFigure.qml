@@ -1,6 +1,6 @@
 import QtQuick
 
-// Figures keep their aspect ratio, fit the pane width, and fall back to source on failure.
+// One rendered figure: the helper's SVG at its aspect ratio within the pane width, or fenced source when rendering fails.
 Item {
     id: root
 
@@ -34,34 +34,55 @@ Item {
             font: root.fontFamily, bodyPx: root.bodyPx,
             muted: root.mutedHex, surface: root.surfaceHex };
     }
+    // Nothing is asked until the figure is created, so its construction-time assignments cost no request.
+    property bool created: false
+    // The request this figure last sent; an ask for the same state is dropped, so a burst of changes renders once.
+    property string lastRequest: ""
     function ask() {
+        root.askRuns++;
         // Offscreen property changes invalidate the settled figure until it enters the viewport.
         if (!root.askArmed || root.source === "" || !root.inView) {
             root.ticket = 0;
             root.svg = "";
             root.error = "";
+            root.lastRequest = "";
             return;
         }
-        root.ticket = FigureService.ask(root.kind, root.source,
-            root.display, root.hexTheme());
+        var theme = root.hexTheme();
+        var request = JSON.stringify([root.kind, root.source, root.display, theme]);
+        if (request === root.lastRequest)
+            return;
+        root.lastRequest = request;
+        root.ticket = FigureService.ask(root.kind, root.source, root.display, theme);
+    }
+    // The suite counts ask runs and reads the armed deferred ask, so it waits and asserts without timing.
+    property int askRuns: 0
+    readonly property bool askPending: askTimer.running
+    // Every trigger lands on the one deferred ask, so the changes of one burst send one request.
+    function schedule() {
+        if (root.created)
+            askTimer.restart();
     }
 
-    onKindChanged: askTimer.restart()
-    onSourceChanged: askTimer.restart()
-    onDisplayChanged: askTimer.restart()
-    onBgHexChanged: askTimer.restart()
-    onFgHexChanged: askTimer.restart()
-    onAccentHexChanged: askTimer.restart()
-    onMutedHexChanged: askTimer.restart()
-    onSurfaceHexChanged: askTimer.restart()
-    onFontFamilyChanged: askTimer.restart()
-    onBodyPxChanged: askTimer.restart()
-    onAskArmedChanged: askTimer.restart()
+    onKindChanged: root.schedule()
+    onSourceChanged: root.schedule()
+    onDisplayChanged: root.schedule()
+    onBgHexChanged: root.schedule()
+    onFgHexChanged: root.schedule()
+    onAccentHexChanged: root.schedule()
+    onMutedHexChanged: root.schedule()
+    onSurfaceHexChanged: root.schedule()
+    onFontFamilyChanged: root.schedule()
+    onBodyPxChanged: root.schedule()
+    onAskArmedChanged: root.schedule()
     // Entering the viewport requests an unsettled figure after layout.
-    onInViewChanged: if (root.inView && root.askArmed && root.source !== "" && root.ticket === 0 && root.svg === "" && root.error === "") root.ask()
-    Component.onCompleted: askTimer.restart()
+    onInViewChanged: if (root.created && root.inView && root.askArmed && root.source !== "" && root.ticket === 0 && root.svg === "" && root.error === "") root.ask()
+    Component.onCompleted: {
+        root.created = true;
+        root.schedule();
+    }
 
-    // Coalesce property changes until layout places the delegate in its viewport.
+    // ListView places the delegate after it completes, so the one ask waits out layout and inView reads the placed position.
     Timer {
         id: askTimer
         interval: 50
@@ -116,21 +137,25 @@ Item {
     }
 
     // A failed figure draws bounded source on the code surface.
-    readonly property string fallbackBody: root.source.length > 2000
-        ? root.source.slice(0, 2000) + "… (" + (root.source.length - 2000) + " more)"
+    readonly property int fallbackChars: 2000
+    readonly property string fallbackBody: root.source.length > root.fallbackChars
+        ? root.source.slice(0, root.fallbackChars) + "… (" + (root.source.length - root.fallbackChars) + " more)"
         : root.source
+    // The fence pads every edge by one gap, so a width or a height adds both of its sides.
+    readonly property real fencePadding: Theme.spacing.gap
+    readonly property real fenceBothSides: fallbackItem.anchors.leftMargin + fallbackItem.anchors.rightMargin
     Rectangle {
         id: fallback
         visible: root.failed
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: fallbackItem.implicitHeight + 2 * Theme.spacing.gap
+        height: fallbackItem.implicitHeight + root.fenceBothSides
         color: root.fallbackColor
         Text {
             id: fallbackItem
             anchors.fill: parent
-            anchors.margins: Theme.spacing.gap
+            anchors.margins: root.fencePadding
             text: root.fallbackBody
             textFormat: Text.PlainText
             wrapMode: Text.Wrap
@@ -149,7 +174,7 @@ Item {
     readonly property real inlineWidth: root.inline && inlineFigure.implicitHeight > 0
         ? Math.round(inlineFigure.implicitWidth * (root.bodyPx / inlineFigure.implicitHeight)) : 0
 
-    implicitWidth: root.inline ? root.inlineWidth : root.width
+    implicitWidth: root.inline ? (root.failed ? fallbackItem.implicitWidth + root.fenceBothSides : root.inlineWidth) : root.width
     // A failed inline still draws its fence, so it sizes to the fence rather than the line it never became.
     implicitHeight: root.inline ? (root.failed ? fallback.height : root.bodyPx)
         : root.failed ? fallback.height : root.fitHeight
