@@ -56,7 +56,7 @@ function undoGuard(check, body) {
         checkSelection: function () { selections += 1 }, finish: function () {}, next: function () {}}
     var stage = new Function("root", "with(root) " + body(Source.source("tests/permissions-focus.qml"), "runStage"))
     stage(root)
-    check("Apply watch reread cannot stand in for Undo reply", selections, 0)
+    check("Apply watch reread cannot stand in for Undo reply", sent.length, 0)
     root.undoReplies = 1
     root.pane.wire.stale = true
     stage(root)

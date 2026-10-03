@@ -26,8 +26,9 @@ permissions_wait() {
 
 permissions_expect() {
     local reader="$1" expected="$2" observed end=$((SECONDS + 20))
+    shift 2
     while (( SECONDS < end )); do
-        observed=$(ipc "$reader") || fail "permissions: $reader unavailable"
+        observed=$(ipc "$reader" "$@") || fail "permissions: $reader unavailable"
         if [[ "$observed" == "$expected" ]]; then
             permissions_checks=$((permissions_checks + 1))
             printf 'PERMISSIONS_PASS %s expected=%q observed=%q\n' "$reader" "$expected" "$observed"
@@ -543,11 +544,12 @@ permissions_eligibility() {
 }
 
 permissions_search() {
-    local first second marks cursor scroll quoted_paths index applied=744
+    local first second marks cursor scroll quoted_paths index start=644 applied=744
+    local owner_execute_bit=64 batch_count=2 fixture_rows=6
     local settled='.searchMode == "results" and .searchQuery == "txt" and (.searchRunning | not)'
     permissions_guard "$permissions_listing/other.txt"
     permissions_guard "$permissions_listing/special.txt"
-    chmod 0644 "$permissions_listing/other.txt" "$permissions_listing/special.txt" || fail "permissions: search fixture modes failed"
+    chmod "$start" "$permissions_listing/other.txt" "$permissions_listing/special.txt" || fail "permissions: search fixture modes failed"
     quoted_paths=$(jq -cn --arg first "$permissions_listing/other.txt" --arg second "$permissions_listing/special.txt" '[$first, $second] | sort')
     permissions_wait '(.opened == false) and .inputReady' 'listing accepts the Search gesture'
     # Tab flips the scope to the pane's own directory, so the walk never leaves the fixture.
@@ -555,6 +557,8 @@ permissions_search() {
     permissions_wait "$settled" 'Search settles over the fixture directory' keyDeliveryState
     first=$(row_index_of other.txt)
     second=$(row_index_of special.txt)
+    permissions_expect visibleRowMode "$start" "$first"
+    permissions_expect visibleRowMode "$start" "$second"
     # A plain click on a result reveals it and leaves the search, so the marks take ctrl.
     click_row "$first" left --mods ctrl
     click_row "$second" left --mods ctrl
@@ -564,12 +568,12 @@ permissions_search() {
     permissions_expect contextMenuVisible true
     index=$(menu_row_index Permissions) || fail "permissions: no Permissions row on the Search results"
     permissions_point "$(ipc contextMenuRowCentre "$index")"
-    permissions_wait ".opened and (.busy == false) and .editable and .title == \"Permissions for 2 items\" and (.paths | sort) == $quoted_paths" 'Search results open the batch card with both marked files'
+    permissions_wait ".opened and (.busy == false) and .editable and .title == \"Permissions for $batch_count items\" and (.paths | sort) == $quoted_paths" 'Search results open the batch card with both marked files'
     cursor=$(ipc cursor)
     scroll=$(ipc listContentY)
     permissions_expect selectedIndices "$marks"
     permissions_control "Owner execute"
-    permissions_wait 'any(.controls[]; .bit == 64 and .value == "on" and .focused)' 'owner-execute box becomes an explicit set on the Search results'
+    permissions_wait "any(.controls[]; .bit == $owner_execute_bit and .value == \"on\" and .focused)" 'owner-execute box becomes an explicit set on the Search results'
     permissions_control Apply
     permissions_wait '(.opened == false) and .inputReady' 'Apply closes Permissions over the Search results'
     [[ "$(stat -c '%a' "$permissions_listing/other.txt")" == "$applied" \
@@ -582,10 +586,13 @@ permissions_search() {
     permissions_expect selectedIndices "$marks"
     permissions_expect cursor "$cursor"
     permissions_expect listContentY "$scroll"
+    # The held rows are read again from disk: a search that kept its old rows would still carry the start mode.
+    permissions_expect visibleRowMode "$applied" "$first"
+    permissions_expect visibleRowMode "$applied" "$second"
     shot "permissions-$permissions_group-search-applied"
     key -k Escape >/dev/null || fail "permissions: Search dismissal failed"
     permissions_wait '.searchMode == ""' 'Escape closes the Search after Apply' keyDeliveryState
-    wait_listing 6
+    wait_listing "$fixture_rows"
 }
 
 permissions_overlay() {

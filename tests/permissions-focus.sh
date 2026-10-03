@@ -24,7 +24,7 @@ ln -s "$(readlink -f ui/boot/Ui)" "$probe/config/Ui" || exit 1
 cp tests/permissions-focus.qml "$probe/config/shell.qml" || exit 1
 cp tests/permissions-layout.js "$probe/config/permissions-layout.js" || exit 1
 log="$probe/qs.log"
-readonly runLimitSeconds=60 expectedChecks=195 expectedQsStatus=143
+readonly runLimitSeconds=60 expectedChecks=200 expectedQsStatus=143
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
     HOME="$probe/home" XDG_STATE_HOME="$probe/state" XDG_CONFIG_HOME="$probe/config" \
     XDG_DATA_HOME="$probe/data" XDG_CACHE_HOME="$probe/cache" XDG_RUNTIME_DIR="$probe/runtime" \

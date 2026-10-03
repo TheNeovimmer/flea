@@ -317,6 +317,7 @@ ShellRoot {
             next("refreshApplied")
         } else if (stage === "refreshApplied") {
             if (dialog().opened || pane.listInFlight || pane.wire.anchor || pane.backend.listRequests <= beforeLists) return
+            check("batch Apply returns the keyboard to the visible view", pane.listArea.activeFocus, true)
             checkSelection("batch Apply")
             beforeLists = pane.backend.listRequests
             beforeUndoReplies = undoReplies

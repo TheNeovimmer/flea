@@ -98,6 +98,11 @@ QtObject {
             var item = root.pane.visibleItemFor(i)
             return item && item.visible && item.row ? item.row.n : ""
         }
+        // Sample output: "744", the permission bits the held row carries, "" for a row that is not drawn.
+        function visibleRowMode(i: int): string {
+            var item = root.pane.visibleItemFor(i)
+            return item && item.visible && item.row ? (Number(item.row.p) & 0o7777).toString(8) : ""
+        }
         function railCursor(): int { return root.pane.railCursor }
         function railCount(): int { return root.pane.railCount }
         function railState(): string { return JSON.stringify({hidden: root.pane.railHidden, width: root.pane.sidebarWidth, inset: root.pane.railInset, pane: root.pane.width}) }
