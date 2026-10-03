@@ -32,6 +32,14 @@ function unchanged(previous, next) {
     return JSON.stringify(previous) === JSON.stringify(next)
 }
 
+// Release schedules the rebuild after tapped dispatch, so the original handler can finish choosing.
+function pressChanged(menu, pressed) {
+    var held = menu.pressedRows > 0
+    menu.pressedRows = Math.max(0, menu.pressedRows + (pressed ? 1 : -1))
+    if (held && menu.pressedRows === 0)
+        Qt.callLater(menu.refreshProviderRows)
+}
+
 // Preserve action and peer identity when refreshed capabilities change the inventory beneath the keyboard cursor.
 function refreshedCursor(previous, next, cursor, submenuRow, submenuCursor) {
     var action = previous[cursor] ? previous[cursor].action : ""
