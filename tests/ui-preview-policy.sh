@@ -65,7 +65,9 @@ if binds:
     source = pathlib.Path(inputs[-1][0])
     assert inputs[-1][0] == inputs[-1][1] and source.resolve().parent == root / 'listing' and source.is_file()
     name = source.name
-    assert name in ['a-ready.png', 'b-block1.png', 'b-block2.png', 'b-block3.png', 'b-block4.png', 'c-image.png', 'd-video.mp4']
+    workers = int(os.environ['FLEA_THUMB_POLICY_WORKERS'])
+    assert workers >= 1
+    assert name in ['a-ready.png', *['b-block%d.png' % number for number in range(1, workers + 1)], 'c-image.png', 'd-video.mp4']
     record = {'name': name, 'pid': os.getpid(), 'parent': os.getppid(), 'argv': arguments, 'started': time.monotonic()}
     descriptor = os.open(root / 'helpers.jsonl', os.O_WRONLY | os.O_APPEND)
     try:
@@ -85,10 +87,17 @@ PY
 }
 
 case_thumbnailpolicy() (
-    local menu_box="" mode path index cached digest baseline backend helper_count deadline permissions_listing tool off_state
+    local menu_box="" mode path index cached digest baseline backend helper_count deadline permissions_listing tool off_state video_entry entries_while_off
+    local workers queued_image queued_video rows expected_initial expected_complete
     local -a backends
-    local expected_initial='["a-ready.png","b-block1.png","b-block2.png","b-block3.png","b-block4.png"]'
-    local expected_complete='["a-ready.png","b-block1.png","b-block2.png","b-block3.png","b-block4.png","c-image.png","d-video.mp4"]'
+    # Sample input: const THUMB_WORKERS: usize = 6; every worker is held, so the pool size is read from here, never restated.
+    workers=$(sed -n 's/^const THUMB_WORKERS: usize = \([0-9][0-9]*\);$/\1/p' "$repo/src/backend/run.rs")
+    [[ "$workers" =~ ^[1-9][0-9]*$ ]] || fail "thumbnailpolicy: THUMB_WORKERS is not readable from src/backend/run.rs"
+    # Row 0 is the warm a-ready.png, rows 1..workers are held, and the image and the video queue behind them.
+    queued_image=$((workers + 1)) queued_video=$((workers + 2)) rows=$((workers + 3))
+    expected_initial=$(jq -cn --argjson n "$workers" '["a-ready.png"] + [range(1; $n + 1) | "b-block\(.).png"]') || fail "thumbnailpolicy: expected helper list failed"
+    # A video thumbnails through the pre-linked worker (571b43b1), which has no prlimit start, so only the image is seen here.
+    expected_complete=$(jq -cn --argjson initial "$expected_initial" '$initial + ["c-image.png"]') || fail "thumbnailpolicy: complete helper list failed"
     [[ -x /usr/bin/prlimit && -x /usr/bin/python3 ]] || fail "thumbnailpolicy: production prlimit or Python is unavailable"
     for tool in magick ffmpeg; do
         command -v "$tool" >/dev/null || fail "thumbnailpolicy: real fixture tool is unavailable: $tool"
@@ -114,7 +123,7 @@ case_thumbnailpolicy() (
         menus_guard "$menu_box/listing/a-ready.png"
         cp "$menu_box/sources/image.png" "$menu_box/listing/a-ready.png" || fail "thumbnailpolicy: warm image setup failed"
         thumbnailpolicy_wrapper
-        export FLEA_THUMB_POLICY_BOX="$menu_box"
+        export FLEA_THUMB_POLICY_BOX="$menu_box" FLEA_THUMB_POLICY_WORKERS="$workers"
         export XDG_CONFIG_HOME="$menu_box/config" XDG_CACHE_HOME="$menu_box/cache" XDG_DATA_HOME="$menu_box/data"
         export PATH="$menu_box/bin:$PATH"
         seed_ui_state "$menu_box/state" "{\"view\":\"$mode\",\"keys\":\"default\",\"preview\":{\"column\":true,\"loadOn\":\"manual\",\"thumbnails\":\"media\"}}"
@@ -127,8 +136,8 @@ case_thumbnailpolicy() (
         thumbnailpolicy_helper_inventory '["a-ready.png"]'
         kill_flea
 
-        # Four production workers are held before decoding; two further visible rows remain queued.
-        for index in 1 2 3 4; do
+        # Every production worker is held before decoding; two further visible rows remain queued.
+        for index in $(seq 1 "$workers"); do
             menus_guard "$menu_box/listing/b-block$index.png"
             cp "$menu_box/sources/image.png" "$menu_box/listing/b-block$index.png" || fail "thumbnailpolicy: blocking source setup failed"
             menus_guard "$menu_box/gates/b-block$index.png"
@@ -140,7 +149,7 @@ case_thumbnailpolicy() (
         cp "$menu_box/sources/video.mp4" "$menu_box/listing/d-video.mp4" || fail "thumbnailpolicy: queued video setup failed"
         "$flea_bin" --ui-state '{"preview":{"thumbnails":"off"}}' >/dev/null || fail "thumbnailpolicy: disabled launch state failed"
         launch "$menu_box/listing"
-        wait_listing 7
+        wait_listing "$rows"
         permissions_viewport 1280 900
         if [[ "$mode" == columns ]]; then
             key -M ctrl -k Space -m ctrl >/dev/null
@@ -153,7 +162,7 @@ case_thumbnailpolicy() (
         settings_wait_value '.preview.thumbnails == "images"'
         key l >/dev/null
         settings_wait_value '.preview.thumbnails == "media"'
-        thumbnailpolicy_expect '(.pending | sort) == [1,2,3,4,5,6] and (.files["0"] | type == "string" and length > 0)' "$mode has running and queued native thumbnail work"
+        thumbnailpolicy_expect "(.pending | sort) == [range(1; $rows)] and (.files[\"0\"] | type == \"string\" and length > 0)" "$mode has running and queued native thumbnail work"
         off_state='.pending == [] and (.files | keys) == ["0"]'
         if [[ "$mode" == columns ]]; then
             key -k Escape >/dev/null
@@ -171,7 +180,7 @@ case_thumbnailpolicy() (
         deadline=$((SECONDS + 5))
         while (( SECONDS < deadline )); do
             helper_count=$(jq -s 'length' "$menu_box/helpers.jsonl") || fail "thumbnailpolicy: invalid helper log"
-            [[ "$helper_count" == 5 ]] && break
+            [[ "$helper_count" == "$((workers + 1))" ]] && break
             sleep 0.05
         done
         thumbnailpolicy_helper_inventory "$expected_initial"
@@ -189,7 +198,7 @@ PY
         baseline=$(ipc thumbnailPolicyState | jq -c '{contentY,cursor,previewIndex,previewPath,previewReady}')
         key h >/dev/null
         settings_wait_value '.preview.thumbnails == "images"'
-        thumbnailpolicy_expect '.mode == "images" and (.pending | sort) == [1,2,3,4,5] and (.files | has("6") | not)' "$mode cancels the queued video without scrolling"
+        thumbnailpolicy_expect ".mode == \"images\" and (.pending | sort) == [range(1; $queued_video)] and (.files | has(\"$queued_video\") | not)" "$mode cancels the queued video without scrolling"
         key h >/dev/null
         settings_wait_value '.preview.thumbnails == "off"'
         thumbnailpolicy_expect ".mode == \"off\" and $off_state" "$mode cancels unowned pending rows and retains completed cache and preview ownership"
@@ -198,7 +207,7 @@ PY
         [[ "$(ipc thumbnailPolicyState | jq -c '{contentY,cursor,previewIndex,previewPath,previewReady}')" == "$baseline" ]] \
             || fail "thumbnailpolicy: changing policy moved the listing or changed loaded preview ownership"
         thumbnailpolicy_release || fail "thumbnailpolicy: running decoder release failed"
-        thumbnailpolicy_expect '.pending == [] and (.files | keys) == ["0","1","2","3","4"] and all(.files[]; type == "string" and length > 0)' "$mode lets running real helpers finish while canceled jobs stay absent"
+        thumbnailpolicy_expect ".pending == [] and (.files | keys | sort) == ([range(0; $queued_image) | tostring] | sort) and all(.files[]; type == \"string\" and length > 0)" "$mode lets running real helpers finish while canceled jobs stay absent"
         if [[ "$mode" == columns ]]; then
             thumbnailpolicy_expect '.previewIndex == 1 and (.previewPath | endswith("/b-block1.png")) and .previewReady' 'Columns decodes its owned thumbnail after gate release'
             omarchy-drive wait ipc -p "$flea_ui/boot" flea columnThumbShown true --timeout 15 >/dev/null \
@@ -206,21 +215,33 @@ PY
             baseline=$(jq -c '.previewReady = true' <<< "$baseline") || fail "thumbnailpolicy: invalid preview baseline"
         fi
         thumbnailpolicy_helper_inventory "$expected_initial"
-        for index in 0 1 2 3 4 5 6; do
+        for index in $(seq 0 "$((rows - 1))"); do
             [[ -z "$(ipc rowThumb "$index")" ]] || fail "thumbnailpolicy: Off still draws a thumbnail at row $index"
         done
         shot "thumbnail-policy-$mode-off"
+        entries_while_off=$(ls -1 "$menu_box/cache/thumbnails/large") || fail "thumbnailpolicy: cannot list the thumbnail cache"
         key l >/dev/null
         settings_wait_value '.preview.thumbnails == "images"'
         key l >/dev/null
         settings_wait_value '.preview.thumbnails == "media"'
-        thumbnailpolicy_expect '.pending == [] and (.files | keys) == ["0","1","2","3","4","5","6"] and all(.files[]; type == "string" and length > 0)' "$mode re-enables only canceled work and receives real image/video output"
+        thumbnailpolicy_expect ".pending == [] and (.files | keys | sort) == ([range(0; $rows) | tostring] | sort) and all(.files[]; type == \"string\" and length > 0)" "$mode re-enables only canceled work and receives real image/video output"
         thumbnailpolicy_helper_inventory "$expected_complete"
+        # The cache file is the observable: absent while off, and written without the program's Thumb::Mimetype key only by the worker (tests/thumbs.sh).
+        video_entry=$(ipc thumbnailPolicyState | jq -er ".files[\"$queued_video\"]") || fail "thumbnailpolicy: the video row has no thumbnail after re-enable"
+        menus_guard "$video_entry"
+        [[ -f "$video_entry" ]] || fail "thumbnailpolicy: the video thumbnail file is missing: $video_entry"
+        [[ "$(dirname "$video_entry")" == "$menu_box/cache/thumbnails/large" ]] || fail "thumbnailpolicy: the video thumbnail lies outside the cache listed while off: $video_entry"
+        if grep -Fxq -- "$(basename "$video_entry")" <<< "$entries_while_off"; then
+            fail "thumbnailpolicy: the video was thumbnailed while media was off or canceled: $video_entry"
+        fi
+        if grep -aq 'Thumb::Mimetype' "$video_entry"; then
+            fail "thumbnailpolicy: the video was thumbnailed by the exec path, not the production worker: $video_entry"
+        fi
         [[ "$(sha256sum < "$cached")" == "$digest" ]] || fail "thumbnailpolicy: re-enabling regenerated completed cache"
         [[ "$(ipc thumbnailPolicyState | jq -c '{contentY,cursor,previewIndex,previewPath,previewReady}')" == "$baseline" ]] \
             || fail "thumbnailpolicy: re-enabling changed the viewport or loaded preview"
         key -k Escape >/dev/null
-        for index in 0 1 2 3 4 5 6; do
+        for index in $(seq 0 "$((rows - 1))"); do
             deadline=$((SECONDS + 15))
             while [[ "$(ipc rowThumbReady "$index")" != true ]] && (( SECONDS < deadline )); do sleep 0.05; done
             [[ "$(ipc rowThumbReady "$index")" == true ]] || fail "thumbnailpolicy: row $index never decoded its enabled thumbnail"
