@@ -233,6 +233,53 @@ r5_state() {
   done
 }
 
+r5_evidence() {
+  local reader value status line
+  for reader in lastMessage statusError listInFlight tabIndex path statusActivityState; do
+    status=0
+    value=$(ipc "$reader") || status=$?
+    note "R5 $reader: [$value] (observer exit $status)"
+  done
+  note "R5 floor point used: [${r5_floor_point:-unmeasured}]"
+  note "R5 window geometry used (x y width height): [$WX $WY $WW $WH]"
+  note "R5 last $r5_data_device_lines data-device lines:"
+  grep -E 'wl_data_(source|offer|device)' "$SB/flea.log" | tail -n "$r5_data_device_lines" | while IFS= read -r line; do note "$line"; done
+}
+
+r5_wait_listing() {
+  local attempt tab path loading
+  for ((attempt=1; attempt<=r5_poll_attempts; attempt++)); do
+    if ! tab=$(ipc tabIndex) || ! path=$(ipc path) || ! loading=$(ipc listInFlight); then
+      r5_evidence
+      die "R5 destination listing observer failed"
+    fi
+    if [[ "$tab" == "$r5_target_tab" && "$path" == "$HOMEDIR/bbb" && "$loading" == false ]]; then
+      ok "R5 destination tab and listing settled before measuring the floor"
+      return 0
+    fi
+    sleep "$r5_poll_seconds"
+  done
+  r5_evidence
+  die "R5 destination listing did not settle: tab=[$tab] path=[$path] listInFlight=[$loading]"
+}
+
+# Read the same target-owned activity as expect_feedback before releasing the held drag.
+r5_wait_feedback() {
+  local attempt state owner="$HOMEDIR/bbb" line="Move 1 item to $HOMEDIR/bbb · ctrl at lift copies"
+  for ((attempt=1; attempt<=r5_poll_attempts; attempt++)); do
+    state=$(ipc statusActivityState) || { r5_evidence; die "R5 drag activity observer failed"; }
+    if jq -e --arg owner "$owner" --arg line "$line" '
+        [.activities[] | select(.running | not) | {ownerPath,text}] ==
+        [{ownerPath:$owner,text:$line}]' <<< "$state" >/dev/null; then
+      ok "R5 floor feedback owner=[$owner] line=[$line]"
+      return 0
+    fi
+    sleep "$r5_poll_seconds"
+  done
+  r5_evidence
+  die "R5 floor feedback did not name bbb: observed $state"
+}
+
 # The product entry resolves the UI, renderer and backend identity before execing Quickshell.
 QSG_RHI_BACKEND="${QSG_RHI_BACKEND:-vulkan}" HOME="$HOMEDIR" FLEA_TEST_RUN_ROOT="$SB" \
   WAYLAND_DEBUG=1 \
@@ -492,6 +539,15 @@ check "a release over empty space transfers nothing" \
 # ---------------------------------------------------------------- R5
 echo
 echo "== R5: a drag resting on a tab selects it, and the drop lands on that tab's floor =="
+r5_target_tab=1
+r5_poll_attempts=40
+r5_poll_seconds=0.25
+r5_delegate_rest_seconds=1.6
+r5_pointer_settle_seconds=0.4
+r5_press_settle_seconds=0.3
+r5_drop_settle_seconds=0.6
+r5_data_device_lines=15
+r5_floor_point=""
 # GM's ruling. The second tab is walked into bbb through the path bar, the first tab is shown again,
 # then r1a.txt is lifted, rested on the second tab past ui/TabBar.qml's hoverSwitchMs, and released
 # on the empty floor under the rows. The marker resolves the drop by path, because after the switch
@@ -523,23 +579,27 @@ expect_ipc listInFlight false
 check "and the first tab is the home listing again" "$(ipc path)" "$HOMEDIR"
 point=$(screen_centre r1a.txt) || die "R5 source r1a.txt is not visible"
 read -r sx sy <<< "$point"
-point=$(screen_tab_centre 1) || die "R5 destination tab is not visible"
+point=$(screen_tab_centre "$r5_target_tab") || die "R5 destination tab is not visible"
 read -r tx ty <<< "$point"
-warp "$sx" "$sy"; sleep 0.4
-press; sleep 0.3
+warp "$sx" "$sy"; sleep "$r5_pointer_settle_seconds"
+press; sleep "$r5_press_settle_seconds"
 # The rest outlives the switch by a second: the pressed row's delegate is released by the re-list
 # while the drag still runs, and the QDrag used to die with it (quickshell SIGSEGV, 2026-09-07).
-glide_to "$tx" "$ty"; sleep 1.6
-check "resting on the second tab selected it" "$(ipc tabIndex)" "1"
-point=$(floor_centre) || die "R5 has no measured destination listing floor"
-read -r fx fy <<< "$point"
-glide_to "$fx" "$fy"; sleep 0.6
-release; sleep 0.6
+glide_to "$tx" "$ty"; sleep "$r5_delegate_rest_seconds"
+r5_wait_listing
+check "resting on the second tab selected it" "$(ipc tabIndex)" "$r5_target_tab"
+r5_floor_point=$(floor_centre) || { r5_evidence; die "R5 has no measured destination listing floor"; }
+read -r fx fy <<< "$r5_floor_point"
+glide_to "$fx" "$fy"
+r5_wait_feedback
+release; sleep "$r5_drop_settle_seconds"
 wait_for "$HOMEDIR/bbb/r1a.txt" present
+r5_before_drop_fail=$fail
 check "the file landed on the second tab's floor" \
       "$([ -e "$HOMEDIR/bbb/r1a.txt" ] && echo bbb || echo missing)" "bbb"
 check "as a move, so the source is gone" \
       "$([ -e "$HOMEDIR/r1a.txt" ] && echo still-there || echo moved)" "moved"
+if (( fail > r5_before_drop_fail )); then r5_evidence; fi
 check "and the window survived the drop" "$(ipc total >/dev/null 2>&1 && echo alive || echo gone)" "alive"
 
 # ---------------------------------------------------------------- R6
@@ -736,7 +796,11 @@ check "as a copy, so the source survives" \
       "$([ -e "$HOMEDIR/r8.txt" ] && echo kept || echo GONE)" "kept"
 check "and the window survived" "$(ipc total >/dev/null 2>&1 && echo alive || echo gone)" "alive"
 echo
-[ "$fail" = 0 ] || exit 1
+if [ "$fail" != 0 ]; then
+  note "stopping before R9 because earlier drag checks failed"
+  echo "$((pass + fail)) checks, $fail failed"
+  exit 1
+fi
 
 # ---------------------------------------------------------------- shared source/target ownership
 dual_destination_side=""
