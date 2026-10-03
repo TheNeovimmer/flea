@@ -370,23 +370,27 @@ class Request:
 
 def test_single():
     single = Request("SP01-single").opened()
-    check("SP01 zero checked Open disabled", not single.state()["canAccept"], single.state())
-    single.row("alpha.txt")
-    single.key("-k", "Return")
-    check("SP01 zero checked Enter stays open", single.result is None and single.state()["marks"] == [])
-    single.mark("alpha.txt")
-    single.mark("beta.txt")
-    single.until("single mark replaced", lambda state: [mark["path"] for mark in state["marks"]] == [str(fixture / "beta.txt")])
     single.row("folder")
+    state = single.state()
+    check("SP01 folder cursor disables Open", not state["canAccept"] and not single.control("Open")["enabled"], state)
+    check("SP01 one-file hints advertise cursor choice", state["hints"] == "Enter open · Esc cancel", state["hints"])
     single.key("-k", "Return")
-    single.until("Enter navigated", lambda state: state["path"] == str(fixture / "folder"))
+    single.until("Enter navigated", lambda state: state["path"] == str(fixture / "folder") and state["state"] != "loading")
     single.click("Back")
-    single.until("Back retained mark and restored listing focus", lambda state: state["path"] == str(fixture)
-                 and len(state["marks"]) == 1 and state["listFocus"])
-    single.capture("checked")
+    single.until("Back restored listing focus without marks", lambda state: state["path"] == str(fixture)
+                 and state["state"] == "ready" and state["marks"] == [] and state["listFocus"])
     single.row("alpha.txt")
+    state = single.state()
+    check("SP01 file cursor enables Open without marks", state["canAccept"] and state["marks"] == []
+          and single.control("Open")["enabled"], state)
+    single.key("-k", "space")
+    time.sleep(NO_EVENT_WAIT_S)
+    state = single.state()
+    check("SP01 Space leaves cursor choice unmarked", state["marks"] == [] and not state["marksBusy"]
+          and state["cursorName"] == "alpha.txt" and state["canAccept"] and single.result is None, state)
+    single.capture("cursor-choice")
     single.key("-k", "Return")
-    single.answered(0, [(fixture / "beta.txt").as_uri()])
+    single.answered(0, [(fixture / "alpha.txt").as_uri()])
 
 
 def test_multiple():
@@ -407,7 +411,7 @@ def test_multiple():
 
 
 def test_directory():
-    directory = Request("SP03-directory", directory=GLib.Variant("b", True)).opened()
+    directory = Request("SP03-directory", directory=GLib.Variant("b", True), multiple=GLib.Variant("b", True)).opened()
     directory.mark("folder")
     directory.key("-k", "Return")
     directory.until("marked directory navigated", lambda state: state["path"] == str(fixture / "folder"))
@@ -433,8 +437,7 @@ def test_filters():
     filtered.until("Tab enters listing", lambda state: state["listFocus"])
     filtered.key("-k", "End")
     filtered.until("last window loads", lambda state: state["cursor"] == 150 and state["held"] > 0 and state["cursorName"] == "zz-last.png")
-    filtered.key("-k", "space")
-    filtered.until("last window checked", lambda state: not state["marksBusy"] and len(state["marks"]) == 1)
+    filtered.until("last window cursor choice enables Open without marks", lambda state: state["canAccept"] and state["marks"] == [])
     filtered.click("Open")
     result = filtered.answered(0, [(large / "zz-last.png").as_uri()])
     check("SP04 selected filter returned", result["results"].get("current_filter") == ("All files", [(0, "*")]), result)
@@ -452,7 +455,7 @@ def test_changed():
     changed.capture("changed-identity")
     changed.cancel()
 
-    missing = Request("SP05-missing").opened()
+    missing = Request("SP05-missing", multiple=GLib.Variant("b", True)).opened()
     missing.mark("beta.txt")
     move(fixture / "beta.txt", fixture / "beta-retained")
     missing.click("Open")
@@ -461,7 +464,7 @@ def test_changed():
     move(fixture / "beta-retained", fixture / "beta.txt")
 
     guard(fixture / "linked-folder").symlink_to(fixture / "folder")
-    linked = Request("SP05-directory-link", directory=GLib.Variant("b", True)).opened()
+    linked = Request("SP05-directory-link", directory=GLib.Variant("b", True), multiple=GLib.Variant("b", True)).opened()
     linked.mark("linked-folder")
     linked.click("Choose folder")
     linked.answered(0, [(fixture / "linked-folder").as_uri()])
@@ -520,23 +523,23 @@ def test_failure():
     denied.row(target.name)
     guard(parent).chmod(0)
     try:
-        denied.key("-k", "space")
+        denied.key("-k", "Return")
         expected = f"Could not inspect {target}: permission denied"
         refused = denied.until("kernel permission refusal is plain and retains the picker", lambda state:
                                not state["marksBusy"] and state["messageError"] and state["message"] == expected)
-        check("refused selection has no accepted URI", not refused["marks"] and not refused["canAccept"], refused["marks"])
+        check("refused cursor choice has no accepted URI", not refused["marks"] and denied.result is None, refused["marks"])
         denied.capture("permission-denied")
     finally:
         guard(parent).chmod(0o700)
-    denied.mark(target.name)
-    denied.until("restored permissions allow the same item", lambda state: state["canAccept"] and len(state["marks"]) == 1)
-    denied.click("Open")
+    denied.row(target.name)
+    denied.until("restored cursor choice enables Open without marks", lambda state: state["canAccept"] and state["marks"] == [])
+    denied.key("-k", "Return")
     denied.answered(0, [target.as_uri()])
     check("permission recovery keeps the original file contents", target.read_text() == "retained picker contents")
 
     for mode in ["open", "save"]:
         lost = Request(f"SP09-backend-{mode}", "SaveFile" if mode == "save" else "OpenFile",
-                       **({"current_name": GLib.Variant("s", "draft.txt")} if mode == "save" else {})).opened()
+                       **({"current_name": GLib.Variant("s", "draft.txt")} if mode == "save" else {"multiple": GLib.Variant("b", True)})).opened()
         if mode == "open": lost.mark("alpha.txt")
         else: lost.until("draft reviewed before backend loss", lambda state: state["saveReady"])
         before = lost.state()
