@@ -24,6 +24,7 @@ ShellRoot {
     property int initialTotal: 0
     property int firstLists: 0
     property int secondLists: 0
+    property var selectedNames: []
     property bool previewGrabbed: false
     readonly property int dragInset: 10
     readonly property int pointerMoveMs: 20
@@ -85,7 +86,7 @@ ShellRoot {
             Component.onCompleted: if (active) setSource("file://" + Quickshell.env("PROBE_BODY"), { host: watchWin })
         }
     }
-    Process { id: outsideCreate; command: ["touch", root.here + "/watch-new.txt"] }
+    Process { id: outsideCreate; command: ["touch", root.here + "/000-watch-new.txt"] }
     FileView {
         id: launchFile
         path: Quickshell.env("PROBE_LAUNCHES")
@@ -102,20 +103,25 @@ ShellRoot {
                 root.initialTotal = pane.total
                 root.firstLists = pane.backend.listRequests
                 root.secondLists = otherPane.backend.listRequests
+                root.selectedNames = [pane.rowFor(pane.cursorIndex).n, pane.rowFor(1).n]
+                pane.clearSelection()
                 pane.toggleSelectAt(1)
+                check("the watch fixture starts with both selected files", pane.selectionCount(), 2)
                 outsideCreate.running = true; next()
             } else if (phase === 1) {
-                if (otherPane.total === initialTotal && Date.now() - phaseAt < 2000) return
+                if ((otherPane.total === initialTotal || pane.total === initialTotal) && Date.now() - phaseAt < 2000) return
                 check("the other window refreshes the watched folder", otherPane.total, initialTotal + 1)
-                check("a selected window defers its own watched reread", pane.total, initialTotal)
-                check("a selected window sends no watched reread", pane.backend.listRequests, root.firstLists)
+                check("a selected window refreshes its watched folder", pane.total, initialTotal + 1)
+                check("a selected window sends its own watched reread", pane.backend.listRequests > root.firstLists, true)
+                check("the watched reread keeps both selected files", pane.selectedIndices().map(function (i) { return pane.rowFor(i).n }), root.selectedNames)
                 root.firstLists = pane.backend.listRequests
                 pane.clearSelection()
                 next()
             } else if (phase === 2) {
                 if (pane.total === initialTotal && Date.now() - phaseAt < 2000) return
-                check("clearing selection pays the first window's watch debt", pane.total, initialTotal + 1)
-                check("clearing selection sends the deferred watched reread", pane.backend.listRequests > root.firstLists, true)
+                check("clearing selection keeps the refreshed listing", pane.total, initialTotal + 1)
+                check("clearing selection sends no extra watched reread", pane.backend.listRequests, root.firstLists)
+                check("clearing selection removes the kept mark", pane.selectionCount(), 0)
                 check("the other window requested its own watched reread", otherPane.backend.listRequests > root.secondLists, true)
                 finish()
             }

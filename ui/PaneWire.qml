@@ -57,6 +57,8 @@ Item {
     // restarted by them, so a directory under continuous change settles rather than never firing.
     readonly property int watchMs: 400
     // What holds the owed re-read back, decided in ui/js/Anchor.js busy() so tests/js/collide.js can redden on it.
+    // A bare selection is not among them: xw5 re-anchors the marks by file identity, so the change
+    // applies at once with the same files marked instead of waiting for the selection to clear.
     readonly property bool watchBusy: Anchor.busy(pane)
     // ui/Pane.qml reaches the three through these: openCursor takes the opener, the menu reads the
     // Taildrop peers, and the two share actions call the other two.
@@ -95,7 +97,7 @@ Item {
         if (root.watchBusy)
             return
         root.stale = false
-        root.anchor = Anchor.watched(pane)
+        root.anchor = Anchor.watched(pane, false, Theme.fileRowHeight)
     }
 
     // The owed re-read goes through the timer rather than straight out of this handler: reading
@@ -165,6 +167,11 @@ Item {
         function onRows(start, items, ms, kinds, listing) { swap.takeRows(start, items, kinds, listing) }
 
         function onLocated(message) {
+            var taken = Anchor.takeLocated(root.pane, root.anchor, message, Theme.fileRowHeight)
+            if (taken.handled) {
+                root.anchor = taken.anchor
+                return
+            }
             if (!root.retryId || message.transferId !== root.retryId) return
             root.retryId = 0
             root.retryPaths = []
@@ -449,8 +456,12 @@ Item {
             }
         }
 
-        // The answer to Ops.clip's askPaths; nothing reaches the clipboard until this lands.
+        // A paths reply reaches only the asker its tag names; the anchor's own is consumed above.
         function onPaths(list) {
+            if (Anchor.takesPaths(root.pane, root.anchor)) {
+                root.anchor = Anchor.fillPaths(root.pane, root.anchor, list)
+                return
+            }
             Ops.pathsResolved(pane, list)
         }
 
@@ -503,6 +514,13 @@ Item {
                 if (claim && claim.kind === "drag") {
                     pane.pathsPending = null
                     claim.deliver(null, claim)
+                    if (!listingEnded) return
+                } else if (claim && claim.kind === "anchor") {
+                    // A failed anchor ask ends the anchor on its clamped index instead of stranding it.
+                    if (root.anchor && root.anchor.needPaths)
+                        root.anchor = Anchor.failAnchor(root.pane, root.anchor, Theme.fileRowHeight)
+                    else
+                        root.pane.pathsPending = null
                     if (!listingEnded) return
                 } else if (claim) pane.pathsPending = null
                 else pane.clipPending = null

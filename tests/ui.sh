@@ -263,7 +263,13 @@ owned_trash_monitors() {
                 [[ -d "$process" ]] || continue
                 # Sample stat: "347 (gio) Z 1 347 ..."; a zombie has already exited and cannot survive.
                 [[ "$(sed 's/.*) //' "$process/stat" 2>/dev/null | cut -d' ' -f1)" == Z ]] && continue
-                return 3
+                if flea_process_owned "$pid"; then
+                    return 3
+                else
+                    result=$?
+                    (( result != 3 )) || return 3
+                    continue
+                fi
             fi
             if grep -Fx "FLEA_BIN=$flea_bin" <<< "$environment" >/dev/null \
                 && grep -F "FLEA_PATH=$fixture_root/" <<< "$environment" >/dev/null; then
@@ -3787,20 +3793,27 @@ case_watch() {
     [[ "$(ipc rowAt "$(ipc cursor)")" == preview-me.txt\|* ]] \
         || fail "watch: a create above the cursor moved it to $(ipc rowAt "$(ipc cursor)")"
 
-    # A selection names rows by index, so the re-read waits for it rather than re-pointing it.
+    # xw5: a selection no longer holds the re-read back. The change applies at once and every mark
+    # stays on the same file by identity, so a window holding a selection never looks stale.
     key v >/dev/null
     settle
     [[ "$(ipc selectionCount)" == "1" ]] || fail "watch: v did not select the cursor row"
     printf 'held\n' > "$dir/BBB-while-selected.txt"
-    sleep 2
-    [[ "$(ipc total)" == "5" ]] \
-        || fail "watch: the listing re-read to $(ipc total) rows while a selection stood"
-    [[ "$(ipc selectionCount)" == "1" ]] || fail "watch: the held selection was cleared anyway"
-    # Clearing the selection is what pays the debt the notification left standing.
-    key -k Escape >/dev/null
     omarchy-drive wait ipc -p "$flea_ui/boot" flea total 6 --timeout 15 >/dev/null \
-        || fail "watch: clearing the selection did not run the owed re-read, total is $(ipc total)"
-    printf 'WATCH deferred=ok paid=ok total=%s\n' "$(ipc total)"
+        || fail "watch: the listing did not re-read to 6 rows while a selection stood, total is $(ipc total)"
+    settle
+    [[ "$(ipc selectionCount)" == "1" ]] \
+        || fail "watch: the re-read cleared the held selection"
+    [[ "$(ipc rowAt "$(ipc cursor)")" == preview-me.txt\|* ]] \
+        || fail "watch: the re-read moved the cursor to $(ipc rowAt "$(ipc cursor)")"
+    [[ "$(ipc selectedIndices)" == "$(ipc cursor)" ]] \
+        || fail "watch: the held mark is on $(ipc selectedIndices), not on the cursor file"
+    # Clearing the selection now owes nothing: the change was already applied under it.
+    key -k Escape >/dev/null
+    settle
+    [[ "$(ipc selectionCount)" == "0" ]] || fail "watch: Escape did not clear the selection"
+    [[ "$(ipc total)" == "6" ]] || fail "watch: clearing the selection re-read to $(ipc total) rows"
+    printf 'WATCH immediate=ok kept=ok total=%s\n' "$(ipc total)"
 
     # A directory under continuous writing still has to settle. The timer absorbs notifications rather
     # than being restarted by them, so the sample that matters is taken WHILE the writing is still
@@ -3820,16 +3833,17 @@ case_watch() {
     (( during > before )) \
         || fail "watch: nothing re-read while the directory was still being written, total stayed $before"
 
-    # A debt owed by this directory must not be paid by re-listing the next one. The selection is what
-    # holds the debt, and leaving clears that selection, so without the guard the owed re-read fires
-    # against whatever the pane has just opened.
-    key v >/dev/null
+    # A debt owed by this directory must not be paid by re-listing the next one. A bare selection
+    # no longer holds the re-read, so the debt is held with the menu open instead, which still does
+    # and survives the navigation; without the onPathChanged guard that debt is paid by a full
+    # re-list of the folder being opened.
+    key m >/dev/null
     settle
     printf 'owed\n' > "$dir/CCC-owed-on-leaving.txt"
     sleep 0.5
-    # Counted from before the navigation, not from after it: the owed re-read lands about 400 ms after
-    # the selection clears, which is inside wait_path's own polling, so a sample taken on arrival has
-    # already counted it and could never tell the two apart.
+    # Counted from before the navigation, not from after it: the menu still holds the debt at the
+    # navigation, so without the guard the timer pays it with a re-list of the folder being opened,
+    # which wait_path polling would otherwise count as the navigation itself.
     local before_nav after_nav
     before_nav=$(ipc listRequests)
     key -k Backspace >/dev/null
@@ -3843,6 +3857,454 @@ case_watch() {
     settle
     assert_window
     kill_flea
+}
+
+# xw5: another window's change shows at once with the selection kept on the same files.
+#
+# Two owned qs processes on one folder: B selects three files, A creates, renames and deletes
+# through its own UI, and B applies each change with the marks and the cursor still on the same
+# files. The driver is the shell plus A itself, so nothing here stubs gio or the backend: both
+# windows watch the same directory and B answers only its own inotify.
+#
+# The UI copy identifies A's owned process for launch and cleanup. Both windows share ShellId
+# flea, so config paths cannot distinguish their IPC: every read names the window's qs pid.
+# Keys reach each window by its Hyprland address, resolved from the same owned pid.
+# A qs pid of this run whose cmdline carries the needle, or nothing; a foreign match never qualifies.
+xw_owned_pid_for_arg() {
+    local needle="$1" pid pids
+    pids=$(pgrep -x qs) || return 0
+    for pid in $pids; do
+        if tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq -- "$needle"; then
+            if flea_process_owned "$pid"; then printf '%s\n' "$pid"; return 0; fi
+        fi
+    done
+    return 0
+}
+
+# The compositor addresses of one pid right now, empty or several when the window is not up alone.
+# Sample input: hyprctl clients -j answers [{"address":"0xabc","pid":111}] and the helper prints 0xabc for 111.
+xw_window_addr_now() {
+    hyprctl clients -j | jq -r --argjson pid "$1" '.[] | select(.pid == $pid) | .address'
+}
+
+# Polls until exactly one compositor client holds the pid, so a window still mapping never reads as missing; only the condition is asserted.
+xw_addr_for_pid() {
+    local pid="$1" addr status attempt clients
+    local tries=200
+    local gap_s=0.05
+    if ! flea_process_owned "$pid"; then
+        printf 'xwwatch: pid %s is not a window this run owns\n' "$pid" >&2
+        return 1
+    fi
+    addr=""
+    for attempt in $(seq 1 $tries); do
+        addr=$(xw_window_addr_now "$pid")
+        status=$?
+        if [[ $status -ne 0 ]]; then
+            printf 'xwwatch: pid %s has no window address: the clients list could not be read\n' "$pid" >&2
+            return 1
+        fi
+        if [[ -n "$addr" && "$addr" != *$'\n'* ]]; then
+            printf '%s\n' "$addr"
+            return 0
+        fi
+        addr=""
+        sleep $gap_s
+    done
+    clients=$(hyprctl clients -j 2>&1)
+    printf 'xwwatch: pid %s has no single window address: %s\n' "$pid" "$clients" >&2
+    return 1
+}
+
+xw_second_window() {
+    local start_path="$1" ui_copy="$2" pid addr status
+    mkdir -p "$ui_copy" || fail "xwwatch: could not stage the second window's UI copy"
+    cp -a "$flea_ui/." "$ui_copy/" || fail "xwwatch: could not copy the UI for the second window"
+    FLEA_UI="$ui_copy" FLEA_BIN="$flea_bin" \
+        setsid nohup "$flea_bin" --gui "$start_path" >>"$run_root/flea.A.log" 2>&1 </dev/null &
+    pid=""
+    for _attempt in $(seq 1 300); do
+        pid=$(xw_owned_pid_for_arg "$ui_copy") && [[ -n "$pid" ]] && break || pid=""
+        sleep 0.05
+    done
+    [[ -n "$pid" ]] || fail "xwwatch: the second window's process never appeared"
+    addr=""
+    for _attempt in $(seq 1 300); do
+        addr=$(xw_window_addr_now "$pid")
+        status=$?
+        if [[ $status -ne 0 ]]; then
+            fail "xwwatch: the second window's address is unreadable: the clients list could not be read"
+        fi
+        if [[ -n "$addr" && "$addr" != *$'\n'* ]]; then
+            break
+        fi
+        addr=""
+        sleep 0.05
+    done
+    [[ -n "$addr" ]] || fail "xwwatch: pid $pid never showed a window"
+    printf '%s\n' "$addr"
+}
+
+xw_key() {
+    local addr="$1"
+    shift
+    omarchy-drive key --window "$addr" "$@" >/dev/null
+}
+
+xw_ipc() {
+    local pid="$1"
+    shift
+    timeout --kill-after="$ipc_call_kill_after" "$ipc_call_timeout" qs ipc --pid "$pid" call flea "$@"
+}
+
+# Aim at this address's own empty listing centre, then raise that window before the right click.
+xw_click_background() {
+    local addr="$1" pid="$2" clients geometry window_pid wx wy ww wh cx cy total row centre row_x row_y row_h
+    clients=$(hyprctl clients -j) || fail "xwwatch: cannot read A's window geometry"
+    # Sample clients: [{"address":"0xaaa","class":"com.thisisgm.flea","pid":111,"at":[100,200],"size":[880,620]}].
+    geometry=$(jq -er --arg addr "$addr" --arg class "$flea_window_class" '
+        [.[] | select(.address == $addr and .class == $class)] | select(length == 1) | .[0]
+        | [.pid, .at[0], .at[1], .size[0], .size[1]]
+        | select(all(.[]; type == "number" and . == floor))
+        | select(.[0] > 0 and .[3] > 0 and .[4] > 0) | @tsv' <<< "$clients") \
+        || fail "xwwatch: A has no single valid window geometry at $addr"
+    read -r window_pid wx wy ww wh <<< "$geometry"
+    [[ "$window_pid" == "$pid" ]] || fail "xwwatch: A's address $addr belongs to pid $window_pid, not $pid"
+    flea_process_owned "$pid" || fail "xwwatch: refusing background coordinates from unowned window $pid"
+    read -r cx cy <<< "$(xw_ipc "$pid" listingBackgroundCentre)"
+    [[ "$cx $cy" =~ ^[0-9]+\ [0-9]+$ ]] \
+        && (( cx < ww && cy < wh )) || fail "xwwatch: A's listing centre is outside its window"
+    total=$(xw_ipc "$pid" total)
+    row_h=$(xw_ipc "$pid" fileRowHeight)
+    [[ "$total $row_h" =~ ^[0-9]+\ [0-9]+$ ]] && (( row_h > 0 )) \
+        || fail "xwwatch: A's listing bounds are unreadable"
+    for (( row = 0; row < total; row++ )); do
+        centre=$(xw_ipc "$pid" rowCentre "$row")
+        [[ -n "$centre" ]] || continue
+        read -r row_x row_y <<< "$centre"
+        [[ "$row_y" =~ ^[0-9]+$ ]] || fail "xwwatch: A's row $row has no valid centre"
+        (( cy > row_y + row_h / 2 || cy < row_y - row_h / 2 )) \
+            || fail "xwwatch: A's background point lands on row $row"
+    done
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null || fail "xwwatch: could not raise A's window"
+    omarchy-drive click "$((cx + wx))" "$((cy + wy))" right >/dev/null
+}
+
+# Stop the copied-UI window before kill_flea waits for all owned backends and Trash monitors.
+xw_kill_second() {
+    local copy="$1" pid pids process ownership
+    local deadline=$((SECONDS + drain_wait_s)) poll_gap_s=0.05
+    pids=$(pgrep -x qs) || return 0
+    for pid in $pids; do
+        process=$(flea_process_dir "$pid") || return 3
+        if tr '\0' ' ' 2>/dev/null < "$process/cmdline" | grep -Fq -- "$copy"; then
+            if flea_process_owned "$pid"; then
+                kill "$pid" || [[ ! -d "$process" ]] || fail "xwwatch: could not stop the second window $pid"
+                while [[ -d "$process" ]]; do
+                    if flea_process_owned "$pid"; then
+                        (( SECONDS < deadline )) || fail "xwwatch: second window survived for $drain_wait_s s"
+                        sleep "$poll_gap_s"
+                    else
+                        ownership=$?
+                        (( ownership != 3 )) || fail "xwwatch: second window ownership became unreadable during teardown"
+                        break
+                    fi
+                done
+            else
+                ownership=$?
+                (( ownership == 2 )) || fail "xwwatch: refusing to stop unowned or unreadable second window $pid"
+            fi
+        fi
+    done
+}
+
+# Run both cleanup halves even if one fails, without re-entering the case's exit trap.
+xw_cleanup() {
+    local copy="$1" result=0
+    (
+        trap - EXIT
+        xw_kill_second "$copy"
+    ) || result=1
+    (
+        trap - EXIT
+        kill_flea
+    ) || result=1
+    return "$result"
+}
+
+# The hang guard in seconds: the 400 ms watch settle plus whatever the compositor and IPC cost that day, asserted as condition only.
+xw_hang_s=30
+# Poll at half the 400 ms watch settle so completed re-reads are seen without busy polling.
+xw_poll_s=0.2
+# Poll dialog and editor focus every 50 ms so typing can start as soon as the UI is ready.
+xw_ui_poll_s=0.05
+# Keep dialog and editor waits bounded to five seconds of sleep plus their IPC round trips.
+xw_ui_poll_tries=100
+
+xw_wait_total() {
+    local pid="$1" want="$2" step="$3" start=$SECONDS seen
+    while (( SECONDS - start < xw_hang_s )); do
+        if seen=$(xw_ipc "$pid" total) && [[ -n "$seen" && "$seen" == "$want" ]]; then
+            printf 'XWWATCH %s ok\n' "$step"
+            return 0
+        fi
+        sleep "$xw_poll_s"
+    done
+    fail "xwwatch: $step left pid $pid at ${seen:-unreadable}, not $want"
+}
+
+# A rename moves no count, so no total can wait on it: sweep the rows until the name appears.
+xw_wait_row() {
+    local pid="$1" want="$2" step="$3" start total row seen
+    start=$SECONDS
+    while (( SECONDS - start < xw_hang_s )); do
+        total=$(xw_ipc "$pid" total 2>/dev/null || printf 0)
+        for ((row = 0; row < total; row++)); do
+            seen=$(xw_ipc "$pid" rowAt "$row" 2>/dev/null || true)
+            if [[ "$seen" == "$want|"* ]]; then
+                printf 'XWWATCH %s ok\n' "$step"
+                return 0
+            fi
+        done
+        sleep 0.2
+    done
+    fail "xwwatch: $step never showed $want"
+}
+
+xw_goto() {
+    local addr="$1" pid="$2" target="$3" n
+    xw_key "$addr" g
+    for ((n = 0; n < target; n++)); do
+        xw_key "$addr" j
+    done
+    sleep "$settle_s"
+}
+
+xw_menu_seek() {
+    local addr="$1" pid="$2" want="$3" entries target i cursor steps step label
+    entries=$(xw_ipc "$pid" contextMenuEntries)
+    target=-1
+    i=0
+    local IFS='|'
+    for label in $entries; do
+        [[ "$label" == "$want" ]] && { target=$i; break; }
+        i=$((i + 1))
+    done
+    unset IFS
+    [[ "$target" -ge 0 ]] || fail "xwwatch: no menu row labelled $want in $entries"
+    steps=$(xw_ipc "$pid" contextMenuModel | jq -er 'length') || fail "xwwatch: could not read menu inventory"
+    for ((step = 0; step <= steps; step++)); do
+        cursor=$(xw_ipc "$pid" contextMenuCursor)
+        [[ "$cursor" == "$target" ]] && return 0
+        xw_key "$addr" -k Down
+        sleep "$settle_s"
+    done
+    fail "xwwatch: could not reach $want, cursor stalled at $(xw_ipc "$pid" contextMenuCursor)"
+}
+
+# Flea windows from an aborted earlier run never match flea_pids (their cmdline carries the
+# UI copy, not "$flea_ui"), so a case that aborts past its teardown would leak one into every
+# later case's assert_window. Sweep them here, before anything owned is running: an operator's
+# own window never carries FIXTURE_ROOT in its cmdline.
+xw_sweep_stale() {
+    local pid pids
+    pids=$(pgrep -x qs) || return 0
+    for pid in $pids; do
+        if tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -Fq -- "$FIXTURE_ROOT"; then
+            kill "$pid" || [[ ! -d "/proc/$pid" ]] || fail "xwwatch: could not stop stale test window $pid"
+        fi
+    done
+}
+
+# A total that matches while rows are still landing proves nothing, so the promptness waits above
+# are followed by this before any mark or cursor is read.
+xw_settled() {
+    local pid="$1" n
+    for ((n = 0; n < 100; n++)); do
+        [[ "$(xw_ipc "$pid" listInFlight 2>/dev/null)" == "false" ]] && return 0
+        sleep 0.05
+    done
+    fail "xwwatch: the listing never settled"
+}
+
+# Shared failure snapshot for the dialog and inline editor, with the case's window identities in scope.
+xw_editor_diagnostics() {
+    local pid="$1" step="$2" stateA="${3-}" dialogA="${4-}" stateB menuA menuB cursorA rowA totalA totalB active
+    if (( $# < 3 )); then stateA=$(xw_ipc "$pid" renameState 2>/dev/null || true); fi
+    # The case's local window identities and directory remain in scope for this failure snapshot.
+    stateB=$(xw_ipc "$pidB" renameState 2>/dev/null || true)
+    menuA=$(xw_ipc "$pid" contextMenuVisible 2>/dev/null || true)
+    menuB=$(xw_ipc "$pidB" contextMenuVisible 2>/dev/null || true)
+    if (( $# < 4 )); then dialogA=$(xw_ipc "$pid" menuDialogState 2>/dev/null || true); fi
+    cursorA=$(xw_ipc "$pid" cursor 2>/dev/null || true)
+    rowA=$(xw_ipc "$pid" rowAt "$cursorA" 2>/dev/null || true)
+    totalA=$(xw_ipc "$pid" total 2>/dev/null || true)
+    totalB=$(xw_ipc "$pidB" total 2>/dev/null || true)
+    active=$(hyprctl activewindow -j 2>/dev/null | jq -c --arg addrA "$addrA" --arg addrB "$addrB" \
+        --arg pidA "$pid" --arg pidB "$pidB" \
+        '{address, pid, isA: (.address == $addrA and (.pid | tostring) == $pidA),
+          isB: (.address == $addrB and (.pid | tostring) == $pidB)}' 2>/dev/null || true)
+    printf 'XWWATCH editor failure step=%s A=%s/%s B=%s/%s\n' "$step" "$addrA" "$pid" "$addrB" "$pidB" >&2
+    printf 'A renameState=%s contextMenuVisible=%s menuDialogState=%s\n' "${stateA:-unreadable}" "${menuA:-unreadable}" "${dialogA:-unreadable}" >&2
+    printf 'B renameState=%s contextMenuVisible=%s\n' "${stateB:-unreadable}" "${menuB:-unreadable}" >&2
+    printf 'A cursor=%s rowAt=%s total=%s; B total=%s; activewindow=%s\n' "${cursorA:-unreadable}" "${rowA:-unreadable}" "${totalA:-unreadable}" "${totalB:-unreadable}" "${active:-unreadable}" >&2
+    ls -la "$dir" >&2 || true
+}
+
+# The rename editor opens a round trip after its key, so typing starts on its focus, not on sleep.
+xw_wait_editor() {
+    local pid="$1" step="$2" n stateA
+    for ((n = 0; n < xw_ui_poll_tries; n++)); do
+        stateA=$(xw_ipc "$pid" renameState 2>/dev/null || true)
+        if printf '%s\n' "$stateA" | jq -e '.index >= 0 and .focused' >/dev/null; then
+            return 0
+        fi
+        sleep "$xw_ui_poll_s"
+    done
+    xw_editor_diagnostics "$pid" "$step" "$stateA"
+    fail "xwwatch: $step: the rename editor never opened or took focus"
+}
+
+# New File owns the dialog's Field control; completion requires a closed dialog and the created file.
+xw_wait_dialog() {
+    local pid="$1" want="$2" step="$3" file="${4-}" n state stateA
+    for ((n = 0; n < xw_ui_poll_tries; n++)); do
+        state=$(xw_ipc "$pid" menuDialogState 2>/dev/null || true)
+        if [[ "$want" == open ]]; then
+            if printf '%s\n' "$state" | jq -e '.opened == true and .action == "newFile" and any(.controls[]?; .name == "Field" and .focused == true)' >/dev/null; then
+                return 0
+            fi
+        elif printf '%s\n' "$state" | jq -e '.opened == false' >/dev/null && [[ -f "$file" ]]; then
+            return 0
+        fi
+        sleep "$xw_ui_poll_s"
+    done
+    stateA=$(xw_ipc "$pid" renameState 2>/dev/null || true)
+    xw_editor_diagnostics "$pid" "$step" "$stateA" "$state"
+    if [[ "$want" == open ]]; then
+        fail "xwwatch: $step: the New File name field never opened or took focus"
+    fi
+    fail "xwwatch: $step: the New File dialog never closed or $file never appeared on disk"
+}
+
+case_xwwatch() {
+    local dir="$fixture_root/xwwatch" ui_copy="$fixture_root/xwwatch-ui" addrB addrA row pidA pidB cleanup_command entries marksA marksB
+    printf -v cleanup_command 'xw_cleanup %q || exit 1' "$ui_copy"
+    trap "$cleanup_command" EXIT
+    trap 'exit 1' HUP INT TERM
+    xw_sweep_stale
+    sandbox_scratch "$dir"
+    sandbox_scratch "$ui_copy"
+    printf 'one\n' > "$dir/sel-one.txt"
+    printf 'two\n' > "$dir/sel-two.txt"
+    printf 'three\n' > "$dir/sel-three.txt"
+    printf 'four\n' > "$dir/renamed-later.txt"
+    printf 'five\n' > "$dir/untouched.txt"
+    launch "$dir"
+    wait_listing 5
+    pidB=$(flea_pid)
+    addrB=$(xw_addr_for_pid "$pidB") || fail "xwwatch: no B window address"
+    [[ -n "$addrB" ]] || fail "xwwatch: no B window address"
+
+    # B selects three files and parks its cursor on the last of them.
+    seek_row_named sel-one.txt
+    key v >/dev/null
+    key j >/dev/null
+    key v >/dev/null
+    key j >/dev/null
+    key v >/dev/null
+    settle
+    [[ "$(xw_ipc "$pidB" selectionCount)" == "3" ]] || fail "xwwatch: B selected $(xw_ipc "$pidB" selectionCount), not 3"
+    [[ "$(xw_ipc "$pidB" rowAt "$(xw_ipc "$pidB" cursor)")" == sel-two.txt\|* ]] \
+        || fail "xwwatch: B cursor is on $(xw_ipc "$pidB" rowAt "$(xw_ipc "$pidB" cursor)"), not sel-two.txt"
+
+    # A opens beside it on the same folder.
+    addrA=$(xw_second_window "$dir" "$ui_copy") || fail "xwwatch: no A window address"
+    [[ -n "$addrA" ]] || fail "xwwatch: no A window address"
+    pidA=$(hyprctl clients -j | jq -er --arg addr "$addrA" \
+        '[.[] | select(.address == $addr)] | select(length == 1) | .[0].pid
+         | select(type == "number" and . == floor and . > 0)') \
+        || fail "xwwatch: no single A pid at $addrA"
+    flea_process_owned "$pidA" || fail "xwwatch: A pid $pidA is not owned by this run"
+    [[ "$pidA" != "$pidB" ]] || fail "xwwatch: A and B share pid $pidA"
+    xw_wait_total "$pidA" 5 "second window listing"
+    xw_settled "$pidA"
+
+    # A has no marks; B holds three. Equal answers expose routes reaching the same instance.
+    marksA=$(xw_ipc "$pidA" selectionCount) || fail "xwwatch: A IPC route pid $pidA failed"
+    marksB=$(xw_ipc "$pidB" selectionCount) || fail "xwwatch: B IPC route pid $pidB failed"
+    [[ "$marksA" != "$marksB" ]] \
+        || fail "xwwatch: A IPC route pid $pidA and B IPC route pid $pidB both answered $marksA marks"
+    [[ "$marksA" == 0 ]] || fail "xwwatch: A IPC route pid $pidA answered $marksA marks, expected 0"
+    [[ "$marksB" == 3 ]] || fail "xwwatch: B IPC route pid $pidB answered $marksB marks, expected 3"
+
+    # A creates a file through its own New File row; B shows it with the same three marked.
+    xw_click_background "$addrA" "$pidA"
+    sleep "$settle_s"
+    entries=$(xw_ipc "$pidA" contextMenuEntries)
+    [[ "$entries" == 'New Folder|New File'* ]] || fail "xwwatch: A did not open its background menu: $entries"
+    xw_menu_seek "$addrA" "$pidA" "New File"
+    xw_key "$addrA" -k Return
+    xw_wait_dialog "$pidA" open "New File after menu Return"
+    xw_key "$addrA" -M ctrl -k a -m ctrl -k BackSpace
+    xw_key "$addrA" created-by-a.txt
+    xw_key "$addrA" -k Return
+    xw_wait_dialog "$pidA" closed "New File after submit" "$dir/created-by-a.txt"
+    xw_wait_total "$pidA" 6 "create in A"
+    xw_wait_total "$pidB" 6 "create"
+    xw_settled "$pidA"
+    xw_settled "$pidB"
+    xw_wait_row "$pidA" created-by-a.txt "create row in A"
+    xw_wait_row "$pidB" created-by-a.txt "create row in B"
+    [[ "$(xw_ipc "$pidB" selectionCount)" == "3" ]] || fail "xwwatch: B lost a mark after create"
+    marksB=$(xw_ipc "$pidB" selectedIndices) || fail "xwwatch: B marks unreadable after create"
+    local marked_names="" marked_row
+    for row in ${marksB//,/ }; do
+        marked_row=$(xw_ipc "$pidB" rowAt "$row") || fail "xwwatch: B marked row $row unreadable after create"
+        marked_names+="${marked_row%%|*}"$'\n'
+    done
+    [[ "$(printf '%s' "$marked_names" | LC_ALL=C sort)" == $'sel-one.txt\nsel-three.txt\nsel-two.txt' ]] \
+        || fail "xwwatch: B marks after create name $marked_names instead of the same three files"
+
+    # A renames a file B never marked; B follows the name with its marks untouched.
+    xw_goto "$addrA" "$pidA" 1
+    [[ "$(xw_ipc "$pidA" rowAt "$(xw_ipc "$pidA" cursor)")" == renamed-later.txt\|* ]] \
+        || fail "xwwatch: A cursor is on $(xw_ipc "$pidA" rowAt "$(xw_ipc "$pidA" cursor)"), not renamed-later.txt"
+    xw_key "$addrA" -k F2
+    xw_wait_editor "$pidA" "rename after F2"
+    xw_key "$addrA" -M ctrl -k a -m ctrl -k BackSpace
+    xw_key "$addrA" renamed-by-a.txt
+    xw_key "$addrA" -k Return
+    xw_wait_row "$pidB" renamed-by-a.txt "rename"
+    xw_settled "$pidB"
+
+    # A deletes a file B holds marked; B drops that mark and keeps the other two.
+    row=0
+    local found=-1
+    for ((row = 0; row < 6; row++)); do
+        if [[ "$(xw_ipc "$pidA" rowAt "$row")" == sel-one.txt\|* ]]; then found=$row; break; fi
+    done
+    [[ "$found" -ge 0 ]] || fail "xwwatch: A never listed sel-one.txt"
+    xw_goto "$addrA" "$pidA" "$found"
+    xw_key "$addrA" -k Delete
+    xw_wait_total "$pidB" 5 "delete"
+    xw_settled "$pidB"
+    [[ "$(xw_ipc "$pidB" selectionCount)" == "2" ]] \
+        || fail "xwwatch: B holds $(xw_ipc "$pidB" selectionCount) marks, not the 2 survivors"
+    [[ "$(xw_ipc "$pidB" rowAt "$(xw_ipc "$pidB" cursor)")" == sel-two.txt\|* ]] \
+        || fail "xwwatch: B cursor is on $(xw_ipc "$pidB" rowAt "$(xw_ipc "$pidB" cursor)"), not sel-two.txt"
+    local survivor_rows
+    survivor_rows=$(xw_ipc "$pidB" selectedIndices)
+    [[ -n "$survivor_rows" ]] || fail "xwwatch: B holds no readable marks"
+    for row in ${survivor_rows//,/ }; do
+        case "$(xw_ipc "$pidB" rowAt "$row")" in
+            sel-two.txt\|* | sel-three.txt\|*) ;;
+            *) fail "xwwatch: B mark on row $row is $(xw_ipc "$pidB" rowAt "$row"), not a survivor" ;;
+        esac
+    done
+    printf 'XWWATCH survivors ok\n'
+    xw_cleanup "$ui_copy" || fail "xwwatch: owned windows or backends did not drain"
+    trap - EXIT HUP INT TERM
 }
 
 # Issue 143, stubbed at lsblk and gio: empty, inserted and mounted optical media are all exercised without a real drive.
@@ -12034,15 +12496,6 @@ xwdrag_assert_focus() {
     [[ -n "$got" ]] || fail "xwdrag: active window has no pid, wanted $want"
     [[ "$got" == "$want" ]] || fail "xwdrag: active window is $got, wanted $want"
 }
-# Sample input: hyprctl clients -j carries {"pid": 123, "address": "0xabc"} for one owned window.
-xwdrag_addr() {
-    local pid="$1"
-    hyprctl clients -j | python3 -c '
-import json, sys
-hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
-print(hits[0]["address"] if len(hits) == 1 else "")
-' "$pid"
-}
 # Targeted keystrokes carry a window address, since --window flea matches both windows at once.
 xwdrag_key() {
     local addr="$1"
@@ -12955,7 +13408,7 @@ case_previewviews() {
 . "$repo/tests/ui-columns-background.sh"
 . "$repo/tests/ui-captures-markdown.sh"
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden xwsettings selection watch reload optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject poweroff rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare hanglisting hanginspect openwithdesign noblank previewswap transferlive recent middleclick opentab xwundo)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden xwsettings selection watch xwwatch reload optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject poweroff rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare hanglisting hanginspect openwithdesign noblank previewswap transferlive recent middleclick opentab xwundo)
 
 : > "$run_log"
 : > "$flea_log"

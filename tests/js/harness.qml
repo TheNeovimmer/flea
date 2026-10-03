@@ -38,6 +38,7 @@ import "marks.js" as MarksSuite
 import "match.js" as MatchSuite
 import "motion.js" as MotionSuite
 import "menu.js" as MenuSuite
+import "xwnewfile.js" as XwNewFileSuite
 import "openwith.js" as OpenWithSuite
 import "devices.js" as DevicesSuite
 import "mounts.js" as MountsSuite
@@ -103,6 +104,8 @@ import "extthumbs.js" as ExtThumbsSuite
 import "uistate.js" as UiStateSuite
 import "update.js" as UpdateSuite
 import "watch.js" as WatchSuite
+import "xwwatch.js" as XwWatchSuite
+import "xwrl4.js" as Xwrl4Suite
 import "gvfsbridge.js" as GvfsBridgeSuite
 
 Item {
@@ -129,7 +132,7 @@ Item {
             ["gridgeometry", GridGeometrySuite], ["density", DensitySuite],
             ["focus-lines", FocusLinesSuite], ["focus-wrap", FocusWrapSuite],
             ["format", FormatSuite], ["icons", IconsSuite],
-            ["jump", JumpSuite], ["jump-heldout", JumpHeldoutSuite], ["keymap", KeymapSuite], ["localsend", LocalSendSuite], ["listbudget", ListBudgetSuite], ["match", MatchSuite], ["menu", MenuSuite],
+            ["jump", JumpSuite], ["jump-heldout", JumpHeldoutSuite], ["keymap", KeymapSuite], ["localsend", LocalSendSuite], ["listbudget", ListBudgetSuite], ["match", MatchSuite], ["menu", MenuSuite], ["xwnewfile", XwNewFileSuite],
             ["marks", MarksSuite], ["markdown", MarkdownSuite], ["mounts", MountsSuite], ["motion", MotionSuite], ["names", NamesSuite], ["nav", NavSuite], ["crumbs", CrumbsSuite], ["devices", DevicesSuite], ["network", NetworkSuite],
             ["openwith", OpenWithSuite], ["ops", OpsSuite], ["opstrash", OpsTrashSuite],
             ["palette", PaletteSuite], ["pathbar", PathBarSuite], ["places", PlacesSuite], ["placemenu", PlaceMenuSuite], ["rail", RailSuite], ["scripts", ScriptsSuite],
@@ -147,7 +150,7 @@ Item {
             ["sort", SortSuite], ["swap", SwapSuite], ["startup", StartupSuite], ["trashdates", TrashDatesSuite], ["permissions", PermissionsSuite], ["status", StatusSuite], ["statusfix", StatusFixSuite], ["taildrop", TaildropSuite], ["textsize", TextSizeSuite],
             ["trash", TrashSuite], ["tap", TapSuite], ["marquee", MarqueeSuite], ["tabs", TabsSuite], ["tabs-switch", TabsSwitchSuite], ["tabmove", TabMoveSuite], ["tabrestore", TabRestoreSuite], ["shelfmodel", ShelfModelSuite],
             ["themes", ThemesSuite], ["thumbs", ThumbsSuite], ["extthumbs", ExtThumbsSuite], ["transfer", TransferSuite], ["uistate", UiStateSuite], ["update", UpdateSuite],
-            ["watch", WatchSuite], ["gvfsbridge", GvfsBridgeSuite]
+            ["watch", WatchSuite], ["xwwatch", XwWatchSuite], ["xwrl4", Xwrl4Suite], ["gvfsbridge", GvfsBridgeSuite]
         ]
         var argv = Qt.application.arguments
         var only = ""
