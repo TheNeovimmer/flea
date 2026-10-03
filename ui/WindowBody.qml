@@ -72,7 +72,11 @@ Rectangle {
         var next = drained.slice()
         next[side] = true
         drained = next
-        if (closing && drained[0] && drained[1]) Quickshell.execDetached(["kill", String(Quickshell.processId)])
+        // Finish quitReady delivery before SIGTERM can interrupt another observer.
+        if (closing && drained[0] && drained[1]) Qt.callLater(view.finishQuit)
+    }
+    function finishQuit() {
+        Quickshell.execDetached(["kill", String(Quickshell.processId)])
     }
     onDualModeChanged: {
         if (!initialized) return
