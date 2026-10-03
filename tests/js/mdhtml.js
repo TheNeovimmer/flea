@@ -1,7 +1,7 @@
 .import "../../ui/js/Markdown.js" as Markdown
 .import "../../ui/js/MdHtml.js" as Html
 .import "../../ui/js/MdResolve.js" as Resolve
-.import "../../ui/js/MdRefs.js" as Refs
+.import "../../ui/js/MdBlocks.js" as Blocks
 .import "../../ui/js/MdRun.js" as Run
 
 function run(check) {
@@ -39,22 +39,26 @@ function run(check) {
     check("R2 bare host slash retained", tag('<a href=https://x.com/>'), '<a href="https://x.com/">')
     check("R2 separated slash closes", tag('<a href=https://x.com/p/ />'), '<a href="https://x.com/p/" />')
     check("R2 quoted slash closes", tag('<a href="https://x.com/p/"/>'), '<a href="https://x.com/p/" />')
-    var continued = ["- parent\n    [img]: pic.png", "10. parent\n\n    [img]: pic.png",
+    check("R3 thematic break ends a reference paragraph",
+        Markdown.definitions("Text\n\n***\n[img]: pic.png").img, "pic.png")
+    check("R3 quoted thematic break ends a reference paragraph",
+        Markdown.definitions("> - - -\n> [img]: pic.png").img, "pic.png")
+    var continued = ["- parent\n\n    [img]: pic.png", "10. parent\n\n    [img]: pic.png",
         "1.  item\n\n    [img]: pic.png"]
     for (var l = 0; l < continued.length; l++) {
-        check("R2 list definition " + l, Refs.collectDefs(continued[l].split("\n")).defs.img, "pic.png")
+        check("R2 list definition " + l, Blocks.collectReferences(continued[l]).defs.img, "pic.png")
         check("R2 list image " + l, Markdown.prepare(continued[l] + "\n\n![x][img]", dir,
             undefined, "#181825", ink).indexOf("file://" + dir + "/pic.png") >= 0, true)
     }
     var endedFences = ["> ```\n> code\n\n[img]: pic.png", "- ```\n  code\n\n[img]: pic.png"]
     for (var f = 0; f < endedFences.length; f++)
-        check("R2 container fence ends " + f, Refs.collectDefs(endedFences[f].split("\n")).defs.img, "pic.png")
-    check("R2 lookahead fence never a destination", JSON.stringify(Refs.collectDefs(
-        ["[foo]:", "```", "[a]: b", "```"]).defs), "{}")
-    check("R2 lookahead code never a destination", JSON.stringify(Refs.collectDefs(
-        ["[foo]:", "    pic.png"]).defs), "{}")
-    check("F16 prose not consumed", Refs.collectDefs(['[foo]:', 'Hello world']).dropped.length, 0)
-    check("F16 title accepted", Refs.collectDefs(['[foo]:', 'bar "title"']).defs.foo, 'bar')
-    check("F17 four spaces", Refs.collectFootnotes(['[^1]: a', '    more']).notes['1'].text, 'a\nmore')
-    check("F17 eight spaces", Refs.collectFootnotes(['[^1]: a', '        more']).notes['1'].text, 'a\nmore')
+        check("R2 container fence ends " + f, Blocks.collectReferences(endedFences[f]).defs.img, "pic.png")
+    check("R2 lookahead fence never a destination", JSON.stringify(Blocks.collectReferences(
+        "[foo]:\n```\n[a]: b\n```").defs), "{}")
+    check("R2 lookahead code never a destination", JSON.stringify(Blocks.collectReferences(
+        "[foo]:\n    pic.png").defs), "{}")
+    check("F16 prose not consumed", Blocks.collectReferences("[foo]:\nHello world").dropped.length, 0)
+    check("F16 title accepted", Blocks.collectReferences('[foo]:\nbar "title"').defs.foo, 'bar')
+    check("F17 four spaces", Blocks.collectReferences("[^1]: a\n    more").notes['1'].text, 'a\nmore')
+    check("F17 eight spaces", Blocks.collectReferences("[^1]: a\n        more").notes['1'].text, 'a\nmore')
 }

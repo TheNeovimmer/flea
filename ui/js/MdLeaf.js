@@ -5,7 +5,6 @@
 .import "MdHtml.js" as MdHtml
 .import "MdInline.js" as Md
 .import "MdRun.js" as Run
-.import "MdRefs.js" as Refs
 
 // GFM task items draw their box, checked or not; anything else passes through.
 function taskText(text) {
@@ -176,49 +175,4 @@ function alertTitle(line) {
         return null
     var title = m[1].charAt(0) + m[1].slice(1).toLowerCase()
     return "**" + title + "**" + (m[2].length > 0 ? " " + m[2] : "")
-}
-
-// Prepare one document's prose for md4c: fences pass through, the rest resolves inline, definitions are dropped.
-function prepare(source, dir, defs, chrome, ink) {
-    var body = String(source)
-    var rawLines = body.split("\n")
-    var found = Refs.collectDefs(rawLines)
-    var foot = Refs.collectFootnotes(rawLines)
-    var hide = {}
-    var ranges = found.dropped.concat(foot.dropped)
-    for (var h = 0; h < ranges.length; h++)
-        for (var l = ranges[h][0]; l <= ranges[h][1]; l++)
-            hide[l] = true
-    var lines = []
-    for (var li = 0; li < rawLines.length; li++) {
-        if (!hide.hasOwnProperty(li))
-            lines.push(rawLines[li])
-    }
-    defs = defs || found.defs
-    var tokens = []
-    function inlineOf(joined) {
-        return Run.parseInline(joined, dir, defs, foot.numbers, chrome, ink, tokens)
-    }
-    var out = []
-    var prose = []
-    var fenced = false
-    function flush() {
-        if (prose.length > 0)
-            out.push(inlineOf(prose.join("\n")))
-        prose = []
-    }
-    for (var i = 0; i < lines.length; i++) {
-        if (/^ {0,3}(```|~~~)/.test(lines[i])) {
-            flush()
-            fenced = !fenced
-            out.push(lines[i])
-            continue
-        }
-        if (fenced)
-            out.push(lines[i])
-        else
-            prose.push(Refs.killDefinition(lines[i]))
-    }
-    flush()
-    return out.join("\n")
 }

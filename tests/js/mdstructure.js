@@ -13,6 +13,33 @@ function run(check) {
         return Markdown.prepare(doc, dir, undefined, chrome, ink)
     }
 
+    // R3 samples pin each container transition through the public block path for links and footnotes.
+    var refCases = [
+        { name: "document fence after list", source: "- parent\n```\n[img]: pic.png\n```", resolves: false },
+        { name: "quoted list blank", source: "> - parent\n>\n>     [img]: pic.png", resolves: true },
+        { name: "nested quote", source: "> > [img]: pic.png", resolves: true },
+        { name: "list fence enters indented quote", source: "- ```\n  > code\n\n[img]: pic.png", resolves: true },
+        { name: "list fence enters outside quote", source: "- ```\n> quote\n\n[img]: pic.png", resolves: true },
+        { name: "quoted ordered item blank", source: "> 1.  item\n>\n>     [img]: pic.png", resolves: true },
+        { name: "quoted list fence ends at sibling", source: "> - ```\n>   code\n> - [img]: pic.png", resolves: true },
+        { name: "ordered tab continuation", source: "10. parent\n\n\t[img]: pic.png", resolves: true },
+        { name: "unordered tab paragraph", source: "- parent\n\t[img]: pic.png", resolves: false },
+        { name: "unordered tab continuation", source: "- parent\n\n\t[img]: pic.png", resolves: true },
+        { name: "fence inside quoted list item", source: "- > ```\n  > [img]: pic.png\n  > ```", resolves: false },
+        { name: "definition inside paragraph", source: "paragraph\n[img]: pic.png", resolves: false }
+    ]
+    for (var r = 0; r < refCases.length; r++) {
+        var sample = refCases[r]
+        var rendered = Markdown.blocks(sample.source + "\n\n![x][img]", dir, chrome, ink)
+        check("R3 link " + sample.name, rendered.some(function (b) { return b.type === "image" }), sample.resolves)
+        var noteSource = sample.source.replace("[img]: pic.png", "[^img]: Note.")
+        var notes = Markdown.blocks(noteSource + "\n\nsee[^img]", dir, chrome, ink)
+        check("R3 footnote " + sample.name,
+            JSON.stringify(notes).indexOf("<sup>1</sup> Note.") >= 0, sample.resolves)
+        if (sample.name === "document fence after list")
+            check("R3 document fence keeps definition literal", rendered[1].text, "[img]: pic.png")
+    }
+
     var front = Markdown.blocks("---\ntitle: Hi\n---\n\nText\n", dir, chrome, ink)
     check("front matter draws as a fence", front.length === 2 && front[0].type === "fence", true)
     check("front matter keeps its lines", front[0].text, "title: Hi")

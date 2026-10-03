@@ -89,7 +89,7 @@ function tagFor(tag, dir) {
 
 // Reference definitions, `[id]: url`, resolved against the same rule.
 function definitions(source) {
-    return Refs.collectDefs(String(source).split("\n")).defs
+    return Blocks.collectReferences(source).defs
 }
 
 // One HTML escape pass: & < > and every ASCII punctuation character become numeric entities.
@@ -119,7 +119,7 @@ function resolveRun(joined, dir, defs, chrome, ink) {
 }
 
 function prepare(source, dir, defs, chrome, ink) {
-    return Leaf.prepare(source, dir, defs, chrome, ink)
+    return Blocks.prepare(source, dir, defs, chrome, ink)
 }
 
 function listMarker(line) {

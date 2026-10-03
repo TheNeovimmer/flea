@@ -8,6 +8,12 @@ QtObject {
     property var workerInputs: [
         { source: "- parent\n    [img]: pic.png\n\n![x][img]\n\n- see[^a]\n\n[^a]: Note.", dir: "/doc" },
         { source: "> ```\n> code\n\n[img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "- parent\n```\n[img]: pic.png\n```\n\n![x][img]", dir: "/doc" },
+        { source: "> - parent\n>\n>     [img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "> > [img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "- > ```\n  > [img]: pic.png\n  > ```\n\n![x][img]", dir: "/doc" },
+        { source: "10. parent\n\n\t[img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "> - ```\n>   code\n> - [img]: pic.png\n\n![x][img]", dir: "/doc" },
         { source: "![x](pic.png)", dir: "" }
     ]
     property int workerReplies: 0
@@ -155,7 +161,7 @@ QtObject {
             });
         if (mutant && name === "MdHtml.js")
             code = code.replace(/    if \(dead !== undefined && dead !== null && i < dead.tagDead\)\n        return null\n/, "");
-        code = code.replace(/\.(charAt|charCodeAt|indexOf|slice)\s*\(/g, function (_, method) {
+        code = code.replace(/\.(charAt|charCodeAt|indexOf|slice|match|exec|test|replace|split|search)\s*\(/g, function (_, method) {
             return ".counted_" + method + "(";
         });
         if (name === "MdRun.js")
@@ -246,6 +252,14 @@ QtObject {
                 var count = Math.floor(n / (opener.length + link.length));
                 return opener.repeat(count) + link.repeat(count);
             },
+            blankList: function (n) {
+                var half = Math.floor(n / 2);
+                return "- parent\n" + "\n".repeat(half) + "- " + "x".repeat(half);
+            },
+            blankIndent: function (n) {
+                var half = Math.floor(n / 2);
+                return "- parent\n" + "\n".repeat(half) + " ".repeat(half) + "x";
+            },
             backtickRun: function (n) {
                 var s = "";
                 while (s.length < n)
@@ -254,9 +268,9 @@ QtObject {
             }
         };
         var names = ["codeDense", "codeOnly", "bangOpen", "bracketOpen", "angleOpen",
-            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "linkFrames"];
+            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "linkFrames", "blankList", "blankIndent"];
         var work = 0;
-        var methods = ["charAt", "charCodeAt", "indexOf", "slice"];
+        var methods = ["charAt", "charCodeAt", "indexOf", "slice", "match", "replace", "split", "search"];
         var originals = {};
         for (var m = 0; m < methods.length; m++) {
             var method = methods[m];
@@ -269,11 +283,22 @@ QtObject {
                         work += result < 0 ? this.length - from
                             : result - from + String(arguments[0]).length;
                     } else {
-                        work += method === "slice" ? result.length : 1;
+                        work += method === "slice" ? result.length
+                            : method === "charAt" || method === "charCodeAt" ? 1 : this.length;
                     }
                     return result;
                 };
             })(originals[method], method);
+        }
+        var regexMethods = ["exec", "test"];
+        for (var rm = 0; rm < regexMethods.length; rm++) {
+            var regexMethod = regexMethods[rm];
+            RegExp.prototype["counted_" + regexMethod] = (function (original) {
+                return function (text) {
+                    work += String(text).length;
+                    return original.apply(this, arguments);
+                };
+            })(RegExp.prototype[regexMethod]);
         }
         var arraySlice = Array.prototype.slice;
         Array.prototype.counted_slice = function () {
@@ -328,6 +353,8 @@ QtObject {
         }
         for (var restore = 0; restore < methods.length; restore++)
             delete String.prototype["counted_" + methods[restore]];
+        for (var rr = 0; rr < regexMethods.length; rr++)
+            delete RegExp.prototype["counted_" + regexMethods[rr]];
         delete Array.prototype.counted_slice;
         Qt.quit();
     }
