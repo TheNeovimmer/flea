@@ -9,8 +9,8 @@ pkgrel=2
 pkgdesc='Fast, keyboard-first file manager for Omarchy (prebuilt binary)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/thisisgm/flea'
-license=('MIT')
-depends=('bubblewrap' 'expect' 'gcc-libs' 'glib2' 'glibc' 'gvfs' 'gvfs-afc' 'gvfs-dnssd' 'gvfs-gphoto2' 'gvfs-mtp' 'gvfs-nfs' 'gvfs-smb' 'hicolor-icon-theme' 'kimageformats' 'libheif' 'omarchy' 'python' 'python-gobject' 'qt6-multimedia' 'qt6-webengine' 'quickshell' 'shared-mime-info' 'usbmuxd' 'util-linux' 'wl-clipboard' 'xdg-terminal-exec' 'xdg-utils')
+license=('MIT' 'Apache-2.0' 'EPL-2.0' 'BSD-2-Clause')
+depends=('bubblewrap' 'expect' 'gcc-libs' 'glib2' 'glibc' 'gvfs' 'gvfs-afc' 'gvfs-dnssd' 'gvfs-gphoto2' 'gvfs-mtp' 'gvfs-nfs' 'gvfs-smb' 'hicolor-icon-theme' 'kimageformats' 'libheif' 'omarchy' 'python' 'python-gobject' 'qt6-multimedia' 'qt6-webengine' 'quickjs-ng' 'quickshell' 'shared-mime-info' 'usbmuxd' 'util-linux' 'wl-clipboard' 'xdg-terminal-exec' 'xdg-utils')
 optdepends=('libarchive: archive listing and extraction'
             '7zip: 7z archive support'
             'imagemagick: image conversion'
@@ -51,7 +51,9 @@ package() {
 
   # paths.rs looks for /usr/share/flea/ui/boot/shell.qml, so the UI ships as data beside the binary.
   install -Dm644 ui/qmldir ui/*.qml -t "$pkgdir/usr/share/flea/ui"
-  install -Dm644 ui/js/*.js -t "$pkgdir/usr/share/flea/ui/js"
+  install -Dm644 ui/js/*.js ui/js/*.mjs -t "$pkgdir/usr/share/flea/ui/js"
+  install -Dm644 ui/vendor/*.mjs -t "$pkgdir/usr/share/flea/ui/vendor"
+  install -Dm644 ui/vendor/LICENSES/* -t "$pkgdir/usr/share/flea/ui/vendor/LICENSES"
   # The two Quickshell entries, in their own directory so ui/qmldir's singletons stay off the startup path.
   install -Dm644 ui/boot/shell.qml ui/boot/picker.qml ui/boot/fleatab.qml ui/boot/tabtearoff.qml -t "$pkgdir/usr/share/flea/ui/boot"
   # The bar plugin ships as data, flat, for the Enable shelf switch to copy into the user's plugin directory.

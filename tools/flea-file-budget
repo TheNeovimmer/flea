@@ -60,6 +60,7 @@ tests/js/columns.js 666
 tests/js/drag.js 469
 tests/js/devices.js 303
 tests/js/previewswap.js 386
+tests/js/mdstructure.js 596
 tests/js/focus.js 745
 tests/js/mounts.js 262
 tests/js/menu.js 508
@@ -78,6 +79,8 @@ tests/js/tabs.js 686
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 399
+tests/markdown-render.qml 628
+tests/markdown-linearity.qml 553
 tests/preview-settle-live.qml 457
 tests/preview-decode.qml 507
 tests/js/status.js 354
@@ -92,7 +95,7 @@ ui/ColumnsArea.qml 479
 ui/ContextMenu.qml 703
 ui/ConvertDialog.qml 433
 ui/GridArea.qml 412
-ui/Ipc.qml 855
+ui/Ipc.qml 857
 ui/KeymapSheet.qml 523
 ui/List.qml 437
 tests/touchpad-edge.qml 438
@@ -106,10 +109,10 @@ ui/PaneMenuActions.qml 465
 ui/PaneWire.qml 584
 ui/PermissionsDialog.qml 634
 ui/PickerWindow.qml 779
-ui/Preview.qml 724
-ui/PreviewColumn.qml 574
+ui/Preview.qml 646
+ui/PreviewColumn.qml 585
 ui/DeviceMounts.qml 496
-ui/PreviewMarkdown.qml 473
+ui/PreviewMarkdown.qml 784
 ui/Row.qml 482
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
@@ -125,7 +128,9 @@ ui/js/Filter.js 257
 ui/js/Focus.js 435
 ui/js/Keymap.js 338
 ui/js/Nav.js 308
-ui/js/Markdown.js 527
+ui/js/Markdown.js 155
+ui/js/MdBlocks.js 361
+ui/js/MdInline.js 295
 ui/js/Menu.js 454
 ui/js/Drag.js 342
 ui/js/Ops.js 426
@@ -148,6 +153,10 @@ budget_for() {
 }
 
 while IFS= read -r file; do
+  # Pinned vendor bundles are excluded as generated output; the generated Keymap.js keeps its recorded ceiling.
+  case "$file" in
+    ui/vendor/*) continue ;;
+  esac
   budgets=$(budget_for "$file")
   [ -z "$budgets" ] && continue
   soft=${budgets% *}

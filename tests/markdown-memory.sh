@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Prove Markdown Loader activation and plain-text teardown; statically pin four panes without direct Layouts imports.
+set -u
+. "$(dirname "$0")/../tools/flea-sandbox-guard"
+cd "$(dirname "$0")/.." || exit 1
+
+# A file path, not an inline Component: nothing compiles at startup.
+grep -q 'source: "MarkdownPane.qml"' ui/Preview.qml \
+    || { echo "FAIL Quick Look builds its Markdown bar eagerly"; exit 1; }
+grep -q 'source: "PreviewMarkdown.qml"' ui/PreviewColumn.qml \
+    || { echo "FAIL the column builds its Markdown pane eagerly"; exit 1; }
+if grep -nE '^[[:space:]]*(Flea\.)?(PreviewMarkdown|MarkdownPane)[[:space:]]*\{' ui/Preview.qml ui/PreviewColumn.qml; then
+    echo "FAIL a Markdown pane is instantiated directly"
+    exit 1
+fi
+# Pin direct QtQuick.Layouts imports in these four panes, not transitive runtime module loading.
+if grep -rn "^[[:space:]]*import QtQuick.Layouts" ui/PreviewMarkdown.qml ui/MarkdownPane.qml ui/Preview.qml ui/PreviewColumn.qml; then
+    echo "FAIL the Markdown path imports QtQuick.Layouts"
+    exit 1
+fi
+printf 'ok four Markdown panes never directly import QtQuick.Layouts\n'
+
+if ! command -v qs >/dev/null; then
+    echo "markdown-memory.sh: qs is not installed, cannot count settled objects"
+    exit 1
+fi
+
+test_root="$FIXTURE_ROOT/flea-markdown-memory-$$"
+sandbox_make "$test_root"
+cleanup() { sandbox_remove "$test_root"; }
+trap cleanup EXIT
+
+mkdir -p "$test_root/config" "$test_root/home" "$test_root/state" "$test_root/cache" "$test_root/runtime" || exit 1
+chmod 700 "$test_root/runtime" || exit 1
+ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
+ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
+ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
+cp tests/markdown-memory.qml "$test_root/config/shell.qml" || exit 1
+echo "plain text" > "$test_root/note.txt" || exit 1
+printf "# Markdown\n" > "$test_root/note.md" || exit 1
+
+output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_MEMORY_ROOT="$test_root" \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+
+if printf '%s\n' "$output" | grep -q 'MARKDOWN_MEMORY FAIL'; then
+    printf 'FAIL the memory harness refused its window\n'
+    printf '%s\n' "$output" | grep -aE 'MARKDOWN_MEMORY|ERROR' | head -10
+    exit 1
+fi
+printf '%s\n' "$output" | grep -q 'MARKDOWN_MEMORY positive lookMarkdown=built columnMarkdown=built contentReady=true' \
+    || { echo "FAIL both Markdown Loaders never activated"; exit 1; }
+line=$(printf '%s\n' "$output" | grep -aE 'MARKDOWN_MEMORY lookMarkdown=' | head -1)
+if [ -z "$line" ]; then
+    printf 'FAIL the memory harness never settled (no live window ran)\n'
+    printf '%s\n' "$output" | grep -aE 'MARKDOWN_MEMORY|ERROR|error' | head -20
+    exit 1
+fi
+printf '%s\n' "$line" | grep -q 'lookMarkdown=null' || { echo "FAIL $line"; exit 1; }
+printf '%s\n' "$line" | grep -q 'columnMarkdown=null' || { echo "FAIL $line"; exit 1; }
+printf 'PASS %s\n' "$line"

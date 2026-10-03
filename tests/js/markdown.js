@@ -1,6 +1,39 @@
 .import "../../ui/js/Markdown.js" as Markdown
+.import "../../ui/js/MdInline.js" as Inline
+.import "../../ui/js/MdLeaf.js" as Leaf
+.import "sourcefixture.js" as Source
 
 function run(check) {
+    var quickLook = Source.slice(Source.source("ui/Preview.qml"), "id: markdownLoader", "item.closeRequested.connect")
+    var activeAt = quickLook.indexOf("item.active =")
+    check("Quick Look Markdown activation exists", activeAt >= 0, true)
+    var readerInputs = ["path", "size", "maxBytes", "truncate"]
+    for (var inputIndex = 0; inputIndex < readerInputs.length; inputIndex++) {
+        var input = readerInputs[inputIndex]
+        var bindingAt = quickLook.indexOf("item." + input + " =")
+        check("Quick Look Markdown binds " + input + " before activation",
+            bindingAt >= 0 && bindingAt < activeAt, true)
+    }
+
+    var loadBody = Source.slice(Source.source("tests/markdown-render.qml"),
+        "if (shell.loadStep < shell.loadCases.length) {", "if (shell.fixture.length === 0)")
+    var settleLoad = new Function("shell", "md", "settle", loadBody)
+    function loadMock(text, fresh) {
+        var before = 7
+        var shell = { loadStep: 1, loadSeq: before, fixture: "/notes.md", loadFailures: [],
+            loadCases: [{ text: "", suffix: ".empty" }, { text: text, suffix: ".second" }, { text: "", suffix: ".last" }],
+            log: function () {}, fail: function (why) { this.failure = why }, failure: "" }
+        var md = { contentReady: true, rawText: text, status: "ready", parseSeq: before + (fresh ? 1 : 0),
+            appliedSeq: before + (fresh ? 1 : 0), path: "/notes.md.first" }
+        settleLoad(shell, md, { restart: function () {} })
+        return shell
+    }
+    check("stale identical load is rejected", loadMock("# Identical\n", false).failure.length > 0, true)
+    check("stale empty load is rejected", loadMock("", false).failure.length > 0, true)
+    check("stale load is not counted as a completion", loadMock("", false).loadStep, 1)
+    check("fresh identical load is counted", loadMock("# Identical\n", true).loadStep, 2)
+    check("fresh empty load is counted", loadMock("", true).loadStep, 2)
+
     check("rendered and source are the only views", Markdown.isView("rendered") && Markdown.isView("source"), true)
     check("a hand edit is not a view", Markdown.isView("html"), false)
     check("an empty stored value is not a view", Markdown.isView(""), false)
@@ -25,36 +58,65 @@ function run(check) {
     check("a remote URL never loads", Markdown.classifyImage("https://cdn.example.com/a.png", dir).kind, "remote")
     check("a remote URL keeps its host", Markdown.classifyImage("https://cdn.example.com/a.png", dir).host, "cdn.example.com")
     check("an absolute path never loads", Markdown.classifyImage("/etc/passwd", dir).kind, "dropped")
-    check("a subfolder never loads", Markdown.classifyImage("img/shot.png", dir).kind, "dropped")
+    check("a subfolder beside the file loads", Markdown.classifyImage("img/shot.png", dir).kind, "local")
+    check("a subfolder resolves under the file", Markdown.classifyImage("img/shot.png", dir).url,
+        "file:///home/gm/notes/img/shot.png")
+    check("a dotted subpath stays inside", Markdown.classifyImage("img/../shot.png", dir).kind, "local")
     check("a parent escape never loads", Markdown.classifyImage("../shot.png", dir).kind, "dropped")
     check("a data URI never loads", Markdown.classifyImage("data:image/png;base64,AAA", dir).kind, "dropped")
     check("an empty target never loads", Markdown.classifyImage("", dir).kind, "dropped")
 
+    check("R2 root parent clamps and refuses outside", Markdown.classifyImage("/etc/x.png", "/../docs").kind, "dropped")
+    check("R2 root parent clamps private outside", Markdown.classifyImage("/etc/private.png", "/../docs").kind, "dropped")
+    check("R2 root parent allows inside", Markdown.classifyImage("/docs/a.png", "/../docs").url, "file:///docs/a.png")
+    check("R2 root folder contains children", Markdown.classifyImage("/pic.png", "/").url, "file:///pic.png")
+    check("R2 empty folder means root", Markdown.classifyImage("pic.png", "").url, "file:///pic.png")
+    var rootImage = Markdown.blocks("![x](pic.png)", Markdown.dirOf("/README.md"))
+    check("R2 root document renders image", rootImage[0].type, "image")
+    check("R2 root document image URL", rootImage[0].url, "file:///pic.png")
+    check("R2 invalid folder fails closed", Markdown.classifyImage("/pic.png", "/docs\\bad").kind, "dropped")
+
     var spare = "# Notes\n\n![demo](https://cdn.example.com/demo.png)\n\n![local](shot.png)\n"
     var prepared = Markdown.prepare(spare, dir)
-    check("a remote image becomes the placeholder", prepared.indexOf("Remote image not loaded \u00b7 cdn.example.com") >= 0, true)
+    check("a remote image becomes the placeholder", prepared,
+        "# Notes\n\n\n\nRemote image not loaded \u00b7 cdn&#46;example&#46;com\n\n\n\n![local](file:///home/gm/notes/shot.png)\n")
     check("no remote image syntax survives", /!\[[^\]]*\]\(https?:/i.test(prepared), false)
     check("a local image resolves to its file URL", prepared.indexOf("![local](file:///home/gm/notes/shot.png)") >= 0, true)
     check("prose around images is untouched", prepared.indexOf("# Notes") === 0, true)
 
     var refs = "![demo][logo]\n\n[logo]: https://cdn.example.com/logo.png\n"
     var preparedRefs = Markdown.prepare(refs, dir)
-    check("a remote reference image becomes the placeholder", preparedRefs.indexOf("Remote image not loaded \u00b7 cdn.example.com") >= 0, true)
+    check("a remote reference image becomes the placeholder", preparedRefs,
+        "\n\nRemote image not loaded \u00b7 cdn&#46;example&#46;com\n\n\n\n")
     var kept = "![demo][logo]\n\n[logo]: shot.png\n"
     check("a local reference image resolves", Markdown.prepare(kept, dir).indexOf("![demo](file:///home/gm/notes/shot.png)") >= 0, true)
     var links = "[docs](https://example.com/guide) and <https://example.com/raw>\n"
-    check("links never load and never leave", Markdown.prepare(links, dir), links)
+    check("links without ink escape brackets", Markdown.prepare(links, dir),
+        "&#91;docs&#93;(https&#58;&#47;&#47;example&#46;com&#47;guide) and https&#58;&#47;&#47;example&#46;com&#47;raw\n")
     var code = "```\n![demo](https://cdn.example.com/demo.png)\n```\n"
     check("a fenced image is shown, never resolved", Markdown.prepare(code, dir), code)
     var span = "Use `![demo](https://cdn.example.com/demo.png)` for art.\n"
     check("an inline-code image is shown, never resolved", Markdown.prepare(span, dir), span)
     var html = 'Before <img src="https://cdn.example.com/a.png" alt="art"> after\n'
-    check("a remote img tag becomes the placeholder", Markdown.prepare(html, dir).indexOf("Remote image not loaded \u00b7 cdn.example.com") >= 0, true)
+    check("a remote img tag becomes the placeholder", Markdown.prepare(html, dir),
+        "Before \n\nRemote image not loaded \u00b7 cdn&#46;example&#46;com\n\n after\n")
     check("no remote img tag survives", /<img[^>]*https?:/i.test(Markdown.prepare(html, dir)), false)
     var htmlLocal = 'See <img src="shot.png" alt="art"> here\n'
     check("a local img tag resolves", Markdown.prepare(htmlLocal, dir).indexOf('src="file:///home/gm/notes/shot.png"') >= 0, true)
 
     check("an empty file counts no lines", Markdown.lineCount(""), 0)
+    check("a final newline ends the second line", Markdown.lineCount("a\nb\n"), 2)
+    check("an unterminated second line still counts", Markdown.lineCount("a\nb"), 2)
+    check("a newline alone is one empty line", Markdown.lineCount("\n"), 1)
+    check("CRLF ends each line once", Markdown.lineCount("a\r\nb\r\n"), 2)
+    var capture = Source.source("tests/ui-captures-markdown.sh")
+    var fixture = capture.match(/cat > "\$dir\/listing\/notes\.md" <<'EOF'\n([\s\S]*?)\nEOF/)
+    check("the native capture fixture exists", fixture !== null, true)
+    var fixtureText = fixture ? fixture[1] + "\n" : ""
+    // src/backend/linecount.rs: LF bytes plus an unterminated final line, with zero for an empty file.
+    var backendCount = (fixtureText.match(/\n/g) || []).length + (fixtureText.length > 0 && !fixtureText.endsWith("\n") ? 1 : 0)
+    check("the native capture backend count is 48", backendCount, 48)
+    check("the capture header agrees with the backend", Markdown.countLine(Markdown.lineCount(fixtureText)), Markdown.countLine(backendCount))
     check("lines count the breaks plus one", Markdown.lineCount("a\nb\nc"), 3)
     check("one line reads singular", Markdown.countLine(1), "1 line")
     check("many lines read grouped", Markdown.countLine(1200), "1,200 lines")
@@ -64,7 +126,8 @@ function run(check) {
     function kinds(doc) {
         return Markdown.blocks(doc, dir).map(function (b) { return b.type }).join(",")
     }
-    check("plain prose is one run", kinds("# Hi\n\nSome words.\n"), "run")
+    check("plain prose is one run", kinds("Some words.\n\nMore words.\n"), "run")
+    check("a heading splits out ahead of its prose", kinds("# Hi\n\nSome words.\n"), "heading,run")
     check("a fence splits out verbatim", kinds("Before\n\n```js\nvar a = 1;\n```\n\nAfter\n"), "run,fence,run")
     var fence = Markdown.blocks("```js\nvar a = 1;\n```\n", dir)[0]
     check("a fence carries no ticks", fence.text, "var a = 1;")
@@ -85,7 +148,7 @@ function run(check) {
     check("a mid-text image stays a run", kinds("See ![demo](https://cdn.example.com/a.png) here.\n"), "run")
     var mixed = Markdown.blocks("# T\n\n> q\n\n```\nc\n```\n\n![a](https://h.example.com/a.png)\n\n![b](b.png)\n\nEnd\n", dir)
     check("a mixed document splits in order",
-        mixed.map(function (b) { return b.type }).join(","), "run,quote,fence,remote,image,run")
+        mixed.map(function (b) { return b.type }).join(","), "heading,quote,fence,remote,image,run")
     check("no remote image syntax survives any run",
         mixed.every(function (b) { return b.type !== "run" || !/!\[[^\]]*\]\(https?:/i.test(b.text) }), true)
 
@@ -122,6 +185,56 @@ function run(check) {
         && tabled[0].head[0].indexOf("|") < 0, true)
     check("pipes without a delimiter stay a run", kinds("a | b\nc | d\n"), "run")
 
+    // GFM example 200: escaped pipes remain cell text in prose, code spans and strong emphasis.
+    var escapedTable = Markdown.blocks("| f\\|oo |\n| ------ |\n| b `\\|` az |\n| b **\\|** im |\n", dir, chrome)[0]
+    check("GFM 200 header unescapes pipe", escapedTable.head[0], "f&#124;oo")
+    check("GFM 200 code span unescapes pipe", escapedTable.rows[0][0],
+        'b <code style="background-color:#181825">&#124;</code> az')
+    check("GFM 200 strong row unescapes pipe", escapedTable.rows[1][0], "b **&#124;** im")
+    // The backtick sends prose down the scan path, where only a table cell turns its pipe into an entity.
+    check("a pipe outside a table stays prose", Markdown.prepare("a | `b`", dir, undefined, chrome),
+        'a | <code style="background-color:#181825">b</code>')
+    check("table splitting keeps other backslash pairs", Leaf.splitRow("| \\*literal\\* | \\`code\\` |").join("|"),
+        "\\*literal\\*|\\`code\\`")
+    var missingInlineRejected = false
+    try {
+        Leaf.tableBlock(["head"], ["left"], [["cell"]])
+    } catch (error) {
+        missingInlineRejected = true
+    }
+    check("tableBlock requires the document inline callback", missingInlineRejected, true)
+    check("unused public tableBlock wrapper is absent", typeof Markdown.tableBlock, "undefined")
+    var callbackTable = Leaf.tableBlock(["head"], ["left"], [["cell"]], function (text) { return "inline:" + text })
+    check("table callback renders header and body", callbackTable.head[0] + "|" + callbackTable.rows[0][0], "inline:head|inline:cell")
+    // The column is sized for the widest cell as drawn, so a link's long URL never outweighs a wider plain cell.
+    var linkBeside = Markdown.blocks("| h |\n| --- |\n| [a](https://a-very-long-url.example/path) |\n| wider plain cell |\n", dir, chrome, "#c0caf5")[0]
+    check("a link cell does not win the column by its source length", linkBeside.measure.join(), "wider plain cell")
+    var markBeside = Markdown.blocks("| h |\n| --- |\n| **bo** |\n| abcd |\n", dir, chrome, "#c0caf5")[0]
+    check("emphasis markers do not count toward the drawn width", markBeside.measure.join(), "abcd")
+    var longList = Markdown.blocks(Array.apply(null, Array(70)).map(function (x, i) { return "- item " + i }).join("\n") + "\n", dir, chrome, "#c0caf5")
+    check("a long list becomes chunks that cover every item once", longList.map(function (b) { return b.items.length }).join(","), "32,32,6")
+    check("list chunks continue the numbering", Markdown.blocks(Array.apply(null, Array(40)).map(function (x, i) { return (i + 5) + ". x" }).join("\n") + "\n", dir, chrome, "#c0caf5")
+        .map(function (b) { return b.start + "/" + b.last + "/" + (b.joined === true) }).join(","), "5/44/false,37/44/true")
+    var rows = Array.apply(null, Array(50)).map(function (x, i) { return "| r" + i + " |" }).join("\n")
+    var longTable = Markdown.blocks("| h |\n| --- |\n" + rows + "\n", dir, chrome, "#c0caf5")
+    check("a long table becomes chunks with one header and shared widths", longTable.map(function (b) { return b.head.length + ":" + b.rows.length + ":" + b.measure[0] }).join(","), "1:24:r10,0:24:r10,0:2:r10")
+    check("short list and table stay one block with no chunk fields", [Markdown.blocks("- a\n- b\n", dir, chrome, "#c0caf5")[0].joined,
+        Markdown.blocks("| h |\n| --- |\n| a |\n", dir, chrome, "#c0caf5")[0].joined].map(String).join(), "undefined,undefined")
+    check("only http, https and mailto count as external links", ["https://a.example", "HTTP://a.example", "mailto:a@b.example", "./x.md", "#top",
+        "ftp://h/f", "javascript:alert(1)", "java\tscript:alert(1)", "file:///etc/passwd", "//a.example", ""].map(function (u) { return Markdown.isExternalLink(u) }).join(), "true,true,true,false,false,false,false,false,false,false,false")
+
+    var cellSources = ["**bold**", "*emphasis*", "`a & <b>`", "[guide](https://example.com/?a=1&b=2)",
+        "\\*literal\\*", "a \\| b", "\\`literal\\`", "\\[literal\\]", "<script>secret</script>safe",
+        "a &amp; b", "&#42;literal&#42;"]
+    var inlineTable = Markdown.blocks("| " + cellSources.join(" | ") + " |\n| "
+        + cellSources.map(function () { return "---" }).join(" | ") + " |\n| "
+        + cellSources.join(" | ") + " |\n", dir, chrome, "#c0caf5")[0]
+    for (var cellIndex = 0; cellIndex < cellSources.length; cellIndex++) {
+        var cellProse = Markdown.prepare(cellSources[cellIndex], dir, undefined, chrome, "#c0caf5")
+        check("table header uses paragraph inline semantics: " + cellSources[cellIndex], inlineTable.head[cellIndex], cellProse)
+        check("table body uses paragraph inline semantics: " + cellSources[cellIndex], inlineTable.rows[0][cellIndex], cellProse)
+    }
+
     var ink = "#c0caf5"
     function linked(doc) {
         return Markdown.prepare(doc, dir, undefined, chrome, ink)
@@ -136,11 +249,25 @@ function run(check) {
     check("a query ampersand escapes",
         linked("See [a](https://example.com/?x=1&y=2) here.").indexOf("x=1&#38;y=2") >= 0, true)
     check("an autolink wraps", linked("See <https://example.com/x> here.").indexOf("<font") >= 0, true)
-    check("a bad ink leaves links alone",
-        Markdown.prepare("See [a](https://example.com/x) here.", dir, undefined, chrome, "red")
-            .indexOf("[a](https://example.com/x)") >= 0, true)
+    check("a bad ink escapes link brackets",
+        Markdown.prepare("See [a](https://example.com/x) here.", dir, undefined, chrome, "red"),
+        "See &#91;a&#93;(https&#58;&#47;&#47;example&#46;com&#47;x) here.")
     check("emphasis cannot form inside a link label",
         linked("See [*hi*](https://example.com/x) here.").indexOf("&#42;hi&#42;") >= 0, true)
+
+    var barelinks = [
+        { text: "See https://example.com/x. here.", url: "https://example.com/x" },
+        { text: "See https://example.com/a(b)). here.", url: "https://example.com/a(b)" },
+        { text: "See http://example.com/x?!.,;: here.", url: "http://example.com/x" },
+        { text: "See www.example.com/x)). here.", url: "www.example.com/x" }
+    ]
+    for (var bareIndex = 0; bareIndex < barelinks.length; bareIndex++) {
+        var bare = barelinks[bareIndex]
+        var bareStart = "See ".length
+        var read = Inline.readBarelink(bare.text, bareStart)
+        check("barelink URL and end offset " + bareIndex,
+            read && read.url === bare.url && read.end === bareStart + bare.url.length, true)
+    }
 
     function lists(doc) {
         return Markdown.blocks(doc, dir).filter(function (b) { return b.type === "list" })

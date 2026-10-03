@@ -20,8 +20,29 @@ QtObject {
         return false
     }
     function previewOpen(): bool { return root.pane.preview.active }
+    // Read the column's mounted Markdown view, empty until its document is ready.
+    function columnMarkdownView(): string {
+        var column = root.pane.previewColumnItem
+        var markdown = column ? column.markdown : null
+        return column && column.visible && markdown && markdown.active && markdown.contentReady ? markdown.view : ""
+    }
     function previewKind(): string { return root.pane.preview.kind }
     function previewState(): string { return root.pane.preview.status }
+    // One entry per figure block; "" while no Markdown body is mounted, so a case keeps polling.
+    function previewFigures(): string {
+        var m = root.pane.preview.markdownItem
+        if (!m || !m.contentReady || m.blockList === undefined)
+            return ""
+        var out = []
+        for (var i = 0; i < m.blockList.length; i++) {
+            if (m.blockList[i].type !== "figure")
+                continue
+            var info = m.figureInfo(i)
+            out.push(i + "=" + (info === null ? "deferred"
+                : info.failed ? "failed" : info.ready ? "ready" : info.working ? "working" : "idle"))
+        }
+        return out.join(",")
+    }
     function previewPosition(): int { return root.pane.preview.position }
     function previewDuration(): int { return root.pane.preview.duration }
     // Fix round 1: what the strip actually draws, not a re-derived guess at its visible: expression.

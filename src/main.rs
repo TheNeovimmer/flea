@@ -23,6 +23,7 @@ mod uischema;
 mod uimigrate;
 mod uistate;
 mod favourites;
+mod figurehelper;
 mod gvfsprefetch;
 mod captures;
 mod shelf;
@@ -177,6 +178,11 @@ fn main() {
     // flea --thumb-worker: only ever started by the backend, inside its sandbox, with a socket on stdin.
     if args.len() == 2 && args[1] == "--thumb-worker" {
         exit(backend::thumbworker::run());
+    }
+
+    // flea --figure-helper: maths and diagrams through quickjs-ng, jailed; see AGENTS.md "Markdown figures".
+    if args.len() == 2 && args[1] == "--figure-helper" {
+        exit(figurehelper::run());
     }
 
     // flea --launch-warm <list> <gvfs-path> <gvfs-dest>: one fork for both launch jobs, "-" skips one.

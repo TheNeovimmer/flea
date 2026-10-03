@@ -5,7 +5,6 @@ import "js/Facts.js" as Facts
 import "js/Kinds.js" as Kinds
 import "js/Thumbs.js" as Thumbs
 import "js/ExtThumbs.js" as ExtThumbs
-import "js/Icons.js" as Icons
 import "js/Motion.js" as Motion
 import "js/PreviewSettle.js" as PreviewSettle
 import "js/PreviewSwap.js" as PreviewSwap
@@ -45,12 +44,14 @@ Item {
         if (root.isMedia) return mediaLoader.item
         if (root.isPdf) return pdfLoader.item
         if (root.isArchive) return archivePane
-        if (root.kind === "text") return root.isMarkdown ? markdownPane.bodyItem : textPane.bodyItem
+        if (root.kind === "text") return root.isMarkdown
+            ? (markdownLoader.item ? markdownLoader.item.bodyItem : null) : textPane.bodyItem
         return null
     }
     function mediaLoaded() { return mediaLoader.item !== null }
-    function textShown() { return root.isMarkdown ? markdownPane.rawText : textPane.shownText() }
-    function markdownView() { return root.active && root.isMarkdown ? markdownPane.view : "" }
+    function textShown() { return root.isMarkdown
+        ? (markdownLoader.item ? markdownLoader.item.rawText : "") : textPane.shownText() }
+    function markdownView() { return root.active && root.isMarkdown && markdownLoader.item ? markdownLoader.item.shownView : "" }
     function archiveNames() { return root.archiveMeta && root.archiveMeta.names ? root.archiveMeta.names.map(function (e) { return e.n }).join("|") : "" }
     readonly property bool pdfExpanded: root.isPdf && pdfLoader.item !== null && pdfLoader.item.expanded
     // The PDF surface, null with no document loaded: ui/Ipc.qml answers "" for that, so an unmeasured state never reads as a value.
@@ -70,7 +71,8 @@ Item {
         if (root.isPdf) return (pdfLoader.item && pdfLoader.item.failed) ? "This file could not be read." : "pdf"
         if (root.isImage) return imageLoader.item ? imageLoader.item.status : "loading"
         if (root.isArchive) return root.archiveMeta === null ? "loading" : (root.archiveFailed ? "This archive could not be read." : "archive")
-        if (root.kind === "text") return root.isMarkdown ? markdownPane.status : textPane.status
+        if (root.kind === "text") return root.isMarkdown
+            ? (markdownLoader.item ? markdownLoader.item.status : "loading") : textPane.status
         return "This file cannot be previewed."
     }
     // The swap's answer: nothing loading, and a PDF with a page on screen or refused.
@@ -105,6 +107,8 @@ Item {
     // The 0.3.6 swap additions, null until the first open builds them below; every reader guards it.
     readonly property var swap: swapLoader.item
     readonly property bool swapBuilt: swapLoader.active
+    // The memory suite asserts both Markdown loader items are null without a Markdown file.
+    readonly property var markdownItem: markdownLoader.item
     // Exposes the eager panes for the live swap gate, so it can pin the wiring.
     readonly property var panesItem: panes
     // Synchronous: a local source: URL answers item on the same call that sets active.
@@ -464,110 +468,28 @@ Item {
                 truncate: root.pane ? (root.pane.storageClass === "network" || root.pane.storageClass === "phone") : false
             }
 
-            // RenderedPreviews: the Markdown bar and pane inside panes, so a held picture covers them whole.
-            Item {
-                id: markdownBar
-                readonly property int barHeight: 27
-                readonly property int edgeInset: 14
-                readonly property int gap: 9
-                readonly property int markSize: 16
-                readonly property int segmentHeight: 20
-                readonly property int closeInset: 2
-                readonly property real ruleOpacity: 0.4
-                anchors.top: parent.top
-                anchors.left: parent.left
-                anchors.right: parent.right
-                height: barHeight
-                visible: root.isMarkdown
-
-                Rectangle {
-                    anchors.bottom: parent.bottom
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    height: Theme.spacing.hairline
-                    color: Theme.color.muted
-                    opacity: markdownBar.ruleOpacity
-                }
-
-                Flea.Glyph {
-                    id: barMark
-                    anchors.left: parent.left
-                    anchors.leftMargin: markdownBar.edgeInset
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: markdownBar.markSize
-                    height: markdownBar.markSize
-                    maxSize: markdownBar.markSize
-                    name: Icons.glyphFor(root.iconName)
-                    color: Theme.color.foreground
-                }
-
-                // corner: a filename is arbitrary text, so PlainText, the same rule every name on this surface follows.
-                Text {
-                    id: barName
-                    anchors.left: barMark.right
-                    anchors.leftMargin: markdownBar.gap
-                    anchors.right: barLines.left
-                    anchors.rightMargin: markdownBar.gap
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: root.path.substring(root.path.lastIndexOf("/") + 1)
-                    color: Theme.color.foreground
-                    font.family: Theme.font.family
-                    font.pixelSize: Theme.font.body
-                    textFormat: Text.PlainText
-                    elide: Text.ElideMiddle
-                }
-
-                Text {
-                    id: barLines
-                    anchors.right: barSegment.left
-                    anchors.rightMargin: markdownBar.gap
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: markdownPane.lineLabel
-                    visible: markdownPane.contentReady
-                    color: Theme.color.muted
-                    font.family: Theme.font.family
-                    font.pixelSize: Theme.font.caption
-                    textFormat: Text.PlainText
-                }
-
-                Flea.SettingsSegment {
-                    id: barSegment
-                    anchors.right: barClose.left
-                    anchors.rightMargin: markdownBar.gap
-                    anchors.verticalCenter: parent.verticalCenter
-                    options: ["Rendered", "Source"]
-                    value: ViewState.markdownView === "source" ? "Source" : "Rendered"
-                    controlHeight: markdownBar.segmentHeight
-                    onPicked: function (index) {
-                        ViewState.changeLeaf("preview", { markdownView: index === 0 ? "rendered" : "source" })
-                    }
-                }
-
-                Flea.ChromeButton {
-                    id: barClose
-                    gesturePolicy: TapHandler.ReleaseWithinBounds
-                    anchors.right: parent.right
-                    anchors.rightMargin: markdownBar.closeInset
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: Theme.hitMin
-                    height: parent.height
-                    glyphSize: Theme.font.caption
-                    glyph: "x"
-                    onActivated: root.close()
-                }
-            }
-
-            Flea.PreviewMarkdown {
-                id: markdownPane
+            // A file-path Loader, never an inline Component, so a window that never shows Markdown never compiles it.
+            Loader {
+                id: markdownLoader
                 anchors.fill: parent
-                anchors.topMargin: markdownBar.height
                 active: root.isMarkdown
-                view: ViewState.markdownView === "source" ? "source" : "rendered"
-                path: root.path
-                size: root.size
-                // The same gate the text pane reads: over-limit rows are refused, never truncated.
-                maxBytes: ExtThumbs.textLimit(root.pane ? root.pane.storageClass : "")
-                truncate: root.pane ? (root.pane.storageClass === "network" || root.pane.storageClass === "phone") : false
+                source: "MarkdownPane.qml"
+                onLoaded: {
+                    item.path = Qt.binding(function () { return root.path })
+                    item.size = Qt.binding(function () { return root.size })
+                    item.view = Qt.binding(function () {
+                        return ViewState.markdownView === "source" ? "source" : "rendered"
+                    })
+                    item.maxBytes = Qt.binding(function () {
+                        return ExtThumbs.textLimit(root.pane ? root.pane.storageClass : "")
+                    })
+                    item.truncate = Qt.binding(function () {
+                        return root.pane ? (root.pane.storageClass === "network"
+                            || root.pane.storageClass === "phone") : false
+                    })
+                    item.active = Qt.binding(function () { return root.isMarkdown })
+                    item.closeRequested.connect(root.close)
+                }
             }
 
             Loader {

@@ -49,16 +49,49 @@ ShellRoot {
         }
         return null
     }
+    // The delegate carries one Image per block kind, and only the one the block draws has a source.
+    function findSourced(item, type) {
+        if ((String(item).indexOf(type) === 0 || String(item).indexOf("QQuick" + type) === 0) && String(item.source) !== "")
+            return item
+        var children = item.children || []
+        for (var i = 0; i < children.length; i++) {
+            var found = shell.findSourced(children[i], type)
+            if (found) return found
+        }
+        return null
+    }
     function markdown() { return shell.find(shell.columnHost ? column : look, "PreviewMarkdown") }
     function flick(item) { return shell.find(item, "Flickable") }
-    function extent(md) {
-        if (md.view !== "source") return md.bodyItem.height
+    // Rendered is the lazy list itself, Source the first Flickable; a list's margins sit outside its content.
+    function mdFlick(md) { return md.view === "source" ? shell.flick(md) : md.bodyItem }
+    function top(f) { return f.originY - f.topMargin }
+    function bottom(f) { return f.originY + f.contentHeight - f.height + f.bottomMargin }
+    function sourceText(md) {
         var children = shell.flick(md).contentItem.children
         for (var i = 0; i < children.length; i++)
             if (String(children[i]).indexOf("QQuickText") === 0 && children[i].text === md.rawText)
-                return children[i].height
+                return children[i]
         shell.fail("source text is absent")
-        return 0
+        return null
+    }
+    function extent(md) {
+        if (md.view !== "source") return md.bodyItem.contentHeight
+        var text = shell.sourceText(md)
+        return text ? text.height + 2 * md.insetY : 0
+    }
+    // The bar the viewer draws for this flickable: inside the Source flickable, on the frame for the lazy list.
+    function barFor(md, f) {
+        var parent = md.view === "source" ? f : md
+        for (var i = 0; i < parent.children.length; i++) {
+            var child = parent.children[i]
+            if (String(child).indexOf("ViewportScrollBar") === 0 && child.flickable === f) return child
+        }
+        return null
+    }
+    // A few blocks are all instantiated, so the last delegate's bottom is the content the list reports.
+    function laidOutHeight(md) {
+        var last = md.blockItem(md.blockList.length - 1)
+        return last ? last.y + last.height : -1
     }
 
     FloatingWindow {
@@ -128,14 +161,17 @@ ShellRoot {
         shell.scrolling = true
     }
     function cell(label, md) {
-        var f = shell.flick(md)
+        var f = shell.mdFlick(md)
         var h = shell.extent(md)
+        var inset = md.view === "source" ? 0 : 2 * md.insetX
         if (!shell.check(md.view === shell.view, "reader is in " + md.view + ", not the requested " + shell.view)) return
-        if (!shell.check(md.width === f.width && md.height === f.height, "reader left its viewport")) return
-        if (!shell.check(md.bodyItem.width === f.width, "rendered text width changed")) return
-        if (!shell.check(Math.abs(f.contentHeight - Math.max(f.height, h)) < 0.1, "content height is stale")) return
-        var bar = shell.find(f, "ViewportScrollBar")
-        if (!shell.check(bar && bar.parent === f && bar.width === Flea.Theme.spacing.rowPaddingX,
+        if (!shell.check(md.width === f.width + inset && md.height === f.height, "reader left its viewport")) return
+        if (!shell.check(md.bodyItem.width === md.width - 2 * md.insetX, "rendered text width changed")) return
+        if (md.view === "source") {
+            if (!shell.check(Math.abs(f.contentHeight - Math.max(f.height, h)) < 0.1, "content height is stale")) return
+        } else if (!shell.check(Math.abs(f.contentHeight - shell.laidOutHeight(md)) < 0.1, "content height is stale")) return
+        var bar = shell.barFor(md, f)
+        if (!shell.check(bar && bar.width === Flea.Theme.spacing.rowPaddingX,
             "scroll lane changed its fixed overlay geometry")) return
         if (!shell.check(bar.overflow === (h - f.height > 0.5), "overflow disagrees with laid-out content")) return
         shell.cases++
@@ -172,14 +208,14 @@ ShellRoot {
             if (!shell.check(h > md.height && h - shell.belowHeight < 40, "tall document missed overflow edge")) return
             shell.cell("tall", md)
             if (shell.done) return
-            var f = shell.flick(md)
-            if (!shell.check(f.contentY === shell.scrollTop, "overflow scroll did not start at the top")) return
+            var f = shell.mdFlick(md)
+            if (!shell.check(f.contentY === shell.top(f), "overflow scroll did not start at the top")) return
             shell.wheelDown(f)
         } else if (shell.stage === 2) {
-            var f = shell.flick(md)
+            var f = shell.mdFlick(md)
             if (f.moving) return
-            if (!shell.check(f.contentY > shell.scrollTop, "overflow could not scroll")) return
-            if (!shell.check(f.contentY <= f.contentHeight - f.height, "overflow scrolled past its content bounds")) return
+            if (!shell.check(f.contentY > shell.top(f), "overflow could not scroll")) return
+            if (!shell.check(f.contentY <= shell.bottom(f), "overflow scrolled past its content bounds")) return
             shell.scrolling = false
             shell.stage = 3
             shell.show("mixed.md", "text-plain")
@@ -187,7 +223,7 @@ ShellRoot {
             if (!shell.check(md.blockList.some(function(b) { return b.type === "table" })
                 && md.blockList.some(function(b) { return b.type === "image" }), "mixed blocks never arrived")) return
             var imageBlock = md.blockList.findIndex(function(b) { return b.type === "image" })
-            var image = shell.find(md.blockItem(imageBlock), "Image")
+            var image = shell.findSourced(md.blockItem(imageBlock), "Image")
             if (!image || image.status !== Image.Ready) return
             shell.cell("image-table-fence", md)
             if (shell.done) return

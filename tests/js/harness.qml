@@ -17,6 +17,7 @@ import "dragout.js" as DragOutSuite
 import "dst.js" as DstSuite
 import "errors.js" as ErrorsSuite
 import "facts.js" as FactsSuite
+import "figureservice.js" as FigureServiceSuite
 import "filter.js" as FilterSuite
 import "filter-cursor.js" as FilterCursorSuite
 import "foldersorts.js" as FolderSortsSuite
@@ -34,6 +35,11 @@ import "jump-heldout.js" as JumpHeldoutSuite
 import "keymap.js" as KeymapSuite
 import "localsend.js" as LocalSendSuite
 import "markdown.js" as MarkdownSuite
+import "mdstructure.js" as MdStructureSuite
+import "mdhtml.js" as MdHtmlSuite
+import "mdgates.js" as MdGatesSuite
+import "mdr7.js" as MdR7Suite
+import "mdround4.js" as MdRound4Suite
 import "listbudget.js" as ListBudgetSuite
 import "marks.js" as MarksSuite
 import "match.js" as MatchSuite
@@ -130,14 +136,14 @@ Item {
             ["dirsizes", DirSizesSuite], ["drag", DragSuite], ["dragout", DragOutSuite], ["dst", DstSuite], ["ddtarget", DdtargetSuite],
             ["copyas", CopyAsSuite], ["invert", InvertSuite],
             ["edmonton", DstSuite],
-            ["errors", ErrorsSuite], ["facts", FactsSuite], ["filter", FilterSuite], ["filter-cursor", FilterCursorSuite],
+            ["errors", ErrorsSuite], ["facts", FactsSuite], ["figureservice", FigureServiceSuite], ["filter", FilterSuite], ["filter-cursor", FilterCursorSuite],
             ["focus", FocusSuite], ["focus-grid", FocusGridSuite], ["focus-forward", FocusForwardSuite],
             ["foldersorts", FolderSortsSuite],
             ["gridgeometry", GridGeometrySuite], ["density", DensitySuite],
             ["focus-lines", FocusLinesSuite], ["focus-wrap", FocusWrapSuite],
             ["format", FormatSuite], ["icons", IconsSuite],
             ["jump", JumpSuite], ["jump-heldout", JumpHeldoutSuite], ["keymap", KeymapSuite], ["localsend", LocalSendSuite], ["listbudget", ListBudgetSuite], ["match", MatchSuite], ["menu", MenuSuite], ["xwnewfile", XwNewFileSuite],
-            ["marks", MarksSuite], ["markdown", MarkdownSuite], ["mounts", MountsSuite], ["motion", MotionSuite], ["names", NamesSuite], ["nav", NavSuite], ["crumbs", CrumbsSuite], ["devices", DevicesSuite], ["network", NetworkSuite],
+            ["marks", MarksSuite], ["markdown", MarkdownSuite], ["mdstructure", MdStructureSuite], ["mdhtml", MdHtmlSuite], ["mdr7", MdR7Suite], ["mdround4", MdRound4Suite], ["mounts", MountsSuite], ["motion", MotionSuite], ["names", NamesSuite], ["nav", NavSuite], ["crumbs", CrumbsSuite], ["devices", DevicesSuite], ["network", NetworkSuite],
             ["openwith", OpenWithSuite], ["ops", OpsSuite], ["opstrash", OpsTrashSuite],
             ["palette", PaletteSuite], ["pathbar", PathBarSuite], ["places", PlacesSuite], ["placemenu", PlaceMenuSuite], ["rail", RailSuite], ["scripts", ScriptsSuite],
             ["phones", PhonesSuite],
@@ -153,6 +159,7 @@ Item {
             ["selection", SelectionSuite], ["shiftranges", ShiftRangesSuite], ["sheetquery", SheetQuerySuite], ["sheetcandidates", SheetCandidatesSuite], ["reload", ReloadSuite], ["slowclick", SlowClickSuite], ["slowop", SlowOpSuite], ["settings", SettingsSuite], ["settingsmenus", SettingsMenusSuite], ["settingsshelf", SettingsShelfSuite], ["settingsabout", SettingsAboutSuite],
             ["sort", SortSuite], ["swap", SwapSuite], ["startup", StartupSuite], ["trashdates", TrashDatesSuite], ["permissions", PermissionsSuite], ["status", StatusSuite], ["statusfix", StatusFixSuite], ["taildrop", TaildropSuite], ["textsize", TextSizeSuite],
             ["trash", TrashSuite], ["tap", TapSuite], ["marquee", MarqueeSuite], ["tabs", TabsSuite], ["tabcatcher", TabCatcherSuite], ["tabs-switch", TabsSwitchSuite], ["tabmove", TabMoveSuite], ["tabrestore", TabRestoreSuite], ["shelfmodel", ShelfModelSuite],
+            ["mdgates", MdGatesSuite],
             ["themes", ThemesSuite], ["thumbs", ThumbsSuite], ["extthumbs", ExtThumbsSuite], ["transfer", TransferSuite], ["uistate", UiStateSuite], ["update", UpdateSuite],
             ["watch", WatchSuite], ["xwwatch", XwWatchSuite], ["xwanchor-races", XwAnchorRacesSuite], ["xwrl4", Xwrl4Suite], ["gvfsbridge", GvfsBridgeSuite]
         ]

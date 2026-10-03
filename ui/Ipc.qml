@@ -422,8 +422,10 @@ QtObject {
         function railRenameEditorText(): string { var e = root.pane.sidebar.renameEditor(); return e ? e.editorText : "" }
         function railRenameFieldShown(): bool { var e = root.pane.sidebar.renameEditor(); return e ? e.editorShown : false }
         function previewOpen(): bool { return root.previewReaders.previewOpen() }
+        function columnMarkdownView(): string { return root.previewReaders.columnMarkdownView() }
         function previewKind(): string { return root.previewReaders.previewKind() }
         function previewState(): string { return root.previewReaders.previewState() }
+        function previewFigures(): string { return root.previewReaders.previewFigures() }
         function previewPosition(): int { return root.previewReaders.previewPosition() }
         function previewDuration(): int { return root.previewReaders.previewDuration() }
         function previewStrip(): string { return root.previewReaders.previewStrip() }

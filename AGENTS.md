@@ -1796,6 +1796,7 @@ failure fails the check rather than passing it.
   for `tools/flea-portal`, `--ui-state [<patch>]` reads or merges the shared view state,
   `--launch-warm <list> <gvfs-path> <gvfs-dest>` runs both launch jobs under one fork, "-" skipping
   one, which `gui.rs` alone starts, see "The first window",
+  `--figure-helper` runs the sandboxed quickjs-ng figure renderer on stdio, see "Markdown figures",
   `--version` prints the version, `--print-target` resolves `--select`'s pair for the tests, and
   anything else opens the window, on `--select`'s parent directory when one is given, unless
   explicit `--tui` requests the terminal interface, `--gui` being the explicit spelling of the
@@ -1807,6 +1808,8 @@ failure fails the check rather than passing it.
 - `terminal.rs` hands one directory to `xdg-terminal-exec --dir=` and does not wait, see "Opening a file";
   its `detach` is the set of guards every program Flea starts and does not wait for carries.
 - `tearoff.rs` names the three tab tear-off variables and removes them from a child's environment, for `detach` and `open.rs`.
+- `figurehelper.rs` `flea --figure-helper`: maths and diagrams through quickjs-ng under the
+  thumbnail jail's flags and caps, see "Markdown figures".
 - `update.rs` `flea --update [check]`: the install kind, the source's answer, and Omarchy's updater, see "Updates".
 - `defaults.rs` claims or releases the OS-level default: the desktop-entry install check,
   the `inode/directory` MIME default via `xdg-mime`, and reporting each half, see "Modes".
@@ -2186,7 +2189,10 @@ lives in `ui/TabDragGeometry.qml`, below the soft budget; no global limit change
 `tools/flea-file-budget` scans `src`, `ui` and `tests` for `.rs`, `.qml` and `.js`
 files. Rust and QML get a 250-line soft budget and a 400-line hard cap; JS gets 200
 soft and 300 hard. Going over the hard cap fails the tool; going over the soft budget
-only warns. The budget is a smell detector, not a target, and **it is not a reason to refactor a
+only warns. The md3 Markdown rhythm harness recorded `tests/markdown-render.qml` at 493 lines;
+its marker-baseline follow-up raises that one scoped ceiling to 628 for two-size painted-baseline
+and adjacent-item geometry checks, with the details beside the md3 paragraph below.
+The budget is a smell detector, not a target, and **it is not a reason to refactor a
 stable file**. Three files cross the hard cap purely as arithmetic of a clean merge for 0.1.4, with
 no conflict and no new code: `ui/ChromeBar.qml`, `ui/Sidebar.qml` and `ui/Row.qml`, the last by a
 single line. `ui/NetworkMounts.qml` was a
@@ -3309,6 +3315,8 @@ ending the open directory's anchor after a window refusal without losing the err
 The race suite is 183 lines inside both budgets, with locate-ID range and window-refusal pins.
 Global limits and all checks remain intact.
 
+mx2 renders Markdown maths and Mermaid in a sandboxed quickjs-ng helper, each re-derived with `wc -l`: `src/figurehelper.rs` at 210 for the pure qjs and vendor resolution (`qjs_from` and `resolve_with`, with `qjs_path` and `resolve` the thin env-reading wrappers) with its env-free tests, the jailed argv with its three read-only binds and the 127 refusal; `ui/FigureService.qml` at 298 for the lazy Process with its stdin and SplitParser, the ticket deadlines with the timeout kill, the deadline timer running only while waiting holds a ticket, the 64-entry LRU with its key mirror, the idle exit and the 127 latch; `ui/js/FigureWorker.mjs` 632 to 513 for deleting everything that only existed for the Qt worker engine, keeping the post-processing both node and qjs import, then merged with the md stack's theme-role, canvas and marker post-processing; the helper itself is the new `ui/vendor/figure-helper.mjs` at 66, and the `.mjs` pair escapes `tools/flea-file-budget` the way the old worker did, since the scan reads no `.mjs` and the tool already excludes `ui/vendor/` outright. `src/backend/sandbox.rs` 365 to 385 for `wrap_readonly_extra` with its nothing-writable bind list, over the soft budget and under the hard cap; `src/main.rs` 361 to 392 for the dispatch, the same, where 367 was the stack's own and the stage's clip and tear-off dispatch adds the rest. `tests/markdown-figures.qml` 495 to 399 for the service suite (answers, cache hit with no new helper line, idle exit, timeout restart, 127 latch and fence, the deadline-timer stopped checks, and the FIGPSS phases with the FIGHELPER peak), leaving its recorded ceiling with nothing over it; `tools/vendor-js/build.sh` 27 to 31 for dropping the assembler check with the classic worker it assembled, then refusing a missing bundle target before the download. Deleted with nothing left behind: `ui/vendor/figure-worker.js` and `tools/vendor-js/assemble-figure-workers.py`.
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.
@@ -3448,7 +3456,7 @@ waits for its consumer.
 
 - `tests/picker-040.sh` is 0.3.10's Picker040 acceptance suite for path entry and collision review, expected red until then and named in run-all's not-run list.
 - `tests/xwstate.sh` is a headless run-all suite: it drives two shipped windows offscreen through `tests/xwstate-control.qml`, a test-only IPC seam copied into a sandbox. It proves the received tab keeps its cursor, settings and Favorites reach the idle window, a cut in one window stays there with one "Copied in this window only" notice and never reaches the other, a window pasting its own cut moves the file and empties its clipboard, and undo crosses windows. Offscreen there is no compositor, so sharing a clipboard between two windows is the native `clipboard` case of `tests/ui.sh`, not this suite's.
-
+- `tests/preview-040.sh` is 0.3.10's TallPreviews acceptance wrapper: it exits 0 only on its one known per-file scroll restoration failure and exits 1 on any other result, unexpected green included; that expected-failure contract keeps it out of the default battery.
 - **The warning gate covers `#[cfg(test)]`, which is the point of it.** `cargo build` cannot see
   anything inside a test module, so a build-only gate hides every unused import and dead helper
   there; two lived here for three review rounds for exactly that reason. Keep debug and release
@@ -3484,7 +3492,10 @@ waits for its consumer.
   commit's binary"**, which is the defect `39e1737` and `8eec5fc` were both written to close, so the
   unconditional build is the contract and the per-suite `-x` guards exist only for a suite invoked
   directly. The suites that drive the debug binary use `target/debug/flea` and `thumbs.sh` the release one. It runs every suite that
-  needs nothing but a shell, and reads each suite's OWN exit code, never a pipeline's.
+  needs no display, session or hardware, and reads each suite's OWN exit code, never a pipeline's.
+  Those suites need a shell, python3, the Qt and Quickshell runtimes, and quickjs-ng for the figure
+  suites; the package build and check dependency closure must supply those tools. A missing required
+  tool must make its suite refuse loudly, naming the executable or paths it looked for.
   Its own `headless=` list is the inventory of those and its own `not_run` list is the inventory of
   the rest with what each needs, so this paragraph carries neither a count nor a membership for
   either list to outgrow. A suite in neither list fails the runner's own audit, so one cannot go
@@ -4746,6 +4757,68 @@ how an operator gets the exec path back.
 **Measured before it was built**, outside Flea, from the research session's `prefork.c`: the first
 43 videos of the media fixture took 828 ms at 4 at a time against 1489 through the sandboxed exec
 path, and 2595 against 4387 one at a time.
+
+## Markdown figures
+
+Maths (MathJax 4.1.3) and diagrams (beautiful-mermaid 1.1.3) render in a sandboxed quickjs-ng
+helper, `flea --figure-helper`, because neither Qt engine runs them. Qt's WorkerScript engine
+cannot run either bundle (no lookbehind, no Unicode property escapes, no `new Worker` for ELK,
+bare-`this` errors), and the GUI process went from 80-108 MB PSS to about 357 MB after one
+formula. QtWebEngine is not an option: on minipc a Quickshell 0.3.1 config with a `WebEngineView`
+crashes at start (`QEventLoop: Cannot be used without QCoreApplication`).
+
+`ui/vendor/figure-helper.mjs` sets `globalThis.global`, `setTimeout` and `clearTimeout` before
+anything imports, then reads newline-delimited JSON off stdin. ELK's GWT code takes its `Error`
+from `global`, and its in-process FakeWorker posts through setTimeout; without them flowchart,
+state, class and ER throw `cannot set property 'stackTraceLimit' of undefined`. It imports
+`math.mjs` on the first maths request and `mermaid.mjs` on the first diagram through dynamic
+`import()`, so a maths-only document never loads the diagram bytes. `window` stays undefined (a
+bundle then reads `navigator.userAgent` and throws) and so does `self` (ELK then takes the
+web-worker branch, and its `Worker` export is undefined). quickjs-ng names its modules `qjs:std`
+and `qjs:os`, not `std` and `os`. `ui/js/FigureWorker.mjs` is a plain ES module both node and qjs
+import: the Qt SVG fix-ups, `checkSafe`, the hostile href, url and click refusals and the size
+limits, with everything that only existed for the Qt worker engine deleted.
+
+The protocol is one JSON line per request and one line back. A request carries `{id, kind,
+source, display, theme}` and an answer carries `{id, svg}` or `{id, error}`; a line that is not
+JSON answers `{id: 0, error}`. One bad request never ends the loop, and EOF ends the process at
+0. `flea --figure-helper` (`src/figurehelper.rs`) resolves `/usr/bin/qjs`, or `FLEA_QJS` when it
+is an absolute path (a test hook, documented as one), resolves the UI tree's `vendor/` directory
+the same way the GUI's own root is resolved, and execs the helper under
+`sandbox::wrap_readonly_extra`: the thumbnail jail's flags and prlimit caps (2 GiB address space,
+30 s CPU), read-only binds for the vendor directory, for `ui/js/FigureWorker.mjs` and for the qjs
+binary when it lives outside `/usr`, nothing writable, no network. With no bwrap or prlimit, or
+no qjs, it prints one line on stderr and exits 127, without running anything unsandboxed.
+
+`ui/FigureService.qml` owns one `Process` with stdin and a `SplitParser` on stdout, started
+lazily on the first request and stopped after `idleExitMs` (30000) with nothing waiting, so the
+memory returns to the system. Only the oldest written and unanswered ticket has a `renderMs`
+(2000) deadline starting when it becomes the head; expiry kills the helper and fails that ticket
+as "render timed out", while every other written ticket is resent once to the next helper with a
+fresh turn and the poison ticket never returns. An unexpected helper exit requeues every
+written ticket and charges only the head one strike; its second strike fails that ticket,
+so a crash cannot loop and one cumulative CPU-cap exit costs no figure. The service's own
+kill charges no strike, and exit 127 still refuses the session. A 64-entry LRU keyed by
+`FigureWorker.cacheKey` answers a revisit or a theme flip back without re-rendering, and the QML
+copy of that key is pinned against the module by a node check rather than an import the singleton
+cannot load. A 127 exit or a spawn that never starts latches `available: false` for the session:
+one log line, and every figure shows its fenced source exactly as a render failure does, with no
+retry storm. `ui/MarkdownFigure.qml` is unchanged by the move: the ask/done ticket API is the
+same, so md3 wires figures into the Markdown view later without touching this unit.
+
+Measured on this Debian box through direct qjs, whose bwrap cannot run Arch's jail: cold
+spawn-to-answer 51 to 55 ms for a formula and 167 to 176 ms for a diagram, five samples each;
+warm 0 to 2.5 ms per formula and 0.9 ms per diagram; the helper peaks at 41380 to 41524 kB RSS
+with both bundles loaded. The GUI side is taken offscreen on minipc, five samples each, every
+number a range: PSS before any figure, after the ten formulas and after the six diagrams, and
+PSS 5 s after the idle exit with the helper gone. The gate judges formula and diagram `Rss`
+growth against the same 10240 kB limit from one stamped `/proc/self/smaps_rollup` read, because
+RSS includes this process's resident file-backed pages without PSS's changing shared-page
+divisor, and prints PSS and Anonymous as evidence.
+Five native runs of the suite on minipc at `9b661b2e` (2026-10-03), every read a fresh `/proc`
+read: GUI PSS 52838 to 52974 kB before, 52387 to 53232 kB after the formulas, 52415 to 53260 kB
+after the diagrams and 52452 to 53300 kB 5 s after the idle exit; idle minus before is -394 to
++338 kB within a run, and the helper peaks at 41132 to 41200 kB RSS there.
 
 ## Thumbnail pool
 
@@ -7444,3 +7517,96 @@ Pickfix records `tests/picker-grid.qml` 448 to 450 for the real grid stub's mark
 038-stage7 then joins permfocus, and two more ceilings are the merged files' `wc -l` for the same reason: `ui/ContextMenu.qml` 691 to 703 and `ui/Ipc.qml` 844 to 861, where permfocus's own branch stood at 694 and 859 before it met the stage's clipboard and menu work; the 859 is the 854 its paragraph records plus the five lines of the read-only `visibleRowMode` seam (17b67227), which that branch added without a record.
 
 038-stage7 then joins sweep038, the capture sweep and its readers, and three ceilings are the merged files' `wc -l`: `ui/Ipc.qml` 861 to 855 because sweep038 moves the preview readers into `ui/IpcPreviewState.qml`, `ui/Preview.qml` 723 to 724 for the `markdownView` reader, and `ui/PickerWindow.qml` 781 to 779, where pickfix had already shortened the file under its row and the sweep's theme fields add one line.
+
+038-mdstage joins the Markdown stack onto the stage, and ten ceilings are the merged files' `wc -l`: `ui/Ipc.qml` 857 (the stage's 855 plus one-line wrappers for `columnMarkdownView` and `previewFigures`, whose bodies sit in `ui/IpcPreviewState.qml` with the other preview readers), `ui/Preview.qml` 646, `ui/PreviewColumn.qml` 585, `ui/Theme.qml` 416, `ui/js/Filter.js` 257, `tests/js/mounts.js` 262, `src/backend/jump_tests.rs` 408, `src/backend/proto.rs` 378, `src/backend/opsdispatch.rs` 2204, and `ui/PreviewMarkdown.qml` 784, the stack's 782 plus the Source measurement the stage's height loop fix needs in the stack's structure. The stack's `ListView` body has no `Column`, but `sourceFlick` still read `sourceText.implicitHeight` inside its `contentHeight`, so the stage's `measuredHeight` copy (updated on `onImplicitHeightChanged` and `onVisibleChanged` while the view is Source) feeds `contentHeight` there. The stage's named bar literals (`ui/Preview.qml`'s inline `markdownBar`) went with that bar, which the stack moved into `ui/MarkdownPane.qml`, where its two remaining literals are now `segmentHeight` and `ruleOpacity`. `packaging/flea-bin-tarball` and the root `PKGBUILD` now install the same ui set as the three `package()` functions: `ui/js/*.mjs`, `ui/vendor/*.mjs`, its licences and the four boot files.
+
+md3 brings the Markdown view to the RenderedPreviews board's rhythm, each re-derived with `wc -l`:
+`tests/markdown-render.qml` 422 to 493 for the inset, rhythm, heading, line-box, surface, fence-padding and bar
+geometry checks, and `ui/js/MdBlocks.js` at 359 lines (`wc -l`, matching its budget row) for ATX headings as a block of their own. Headings now render bold
+in the foreground at 20/14 and 15/14 of `Theme.font.body` through `ui/MarkdownText.qml`'s 1.7 line box, which
+supersedes k2's Qt-sized headings above; setext headings keep Qt's sizes. The block gap, fence padding and document
+inset come from the existing row tokens rather than new literals.
+
+md3's marker-baseline follow-up keeps list markers on the item's line box through literal rich
+text instead of plain text; Markdown would parse an isolated ordered marker as its own list.
+Their explicit height is the font-derived 1.7 box, so rich text's extra implicit height cannot stretch a list row.
+`tests/markdown-render.qml` grows from 493 to 628 lines (`wc -l`, matching its budget row) for grabs
+at the suite's body size and a larger supported stop, mapped baseline checks, quote-bar span,
+table header and body alignment, remote-placeholder centres and failed-figure padding. Qt's
+`baselineOffset` omits the Markdown fixed-height leading, so `tests/markdown-render.js` also
+compares first-line ink against a single-line reference that draws marker and item on one shared
+baseline, accounting for raised bullets and descenders without trusting fallback-font glyph bounds.
+Only this harness ceiling changes; the global caps and every existing assertion remain in force.
+
+The mdstack merge keeps md2's escaping, bulk escaper and linear span parser alongside md3's headings, figures
+and baseline checks. The union of their structure tests, plus escaped-dollar, heading-footnote integration and
+final escaped table-pipe checks, records `tests/js/mdstructure.js` at 596 lines (`wc -l`, matching its budget row).
+
+The mx2 merge into the stack keeps one deferred ask in `ui/MarkdownFigure.qml`: every property change restarts the 50 ms
+`askTimer` once the figure is `created` (entering the viewport is the one direct ask, for a placed figure that holds nothing), so a burst sends one request and one equal to the last sent is dropped, and
+the timer still outlasts ListView's placement so `inView` reads the placed position. The figure cache key and
+`FigureWorker.themeKey` carry every theme role the diagram paints (muted, line, surface, border), and the unexpected-exit
+log fires only when a figure fails its second strike. `ui/js/FigureWorker.mjs` records 513 lines, `ui/FigureService.qml` 298. The md2 merge
+leaves `tests/markdown-linearity.qml` at 543 lines, the merged `wc -l` where both sides added cases (399 on the stack,
+529 on md2), and its budget row was that number at that merge.
+
+mdhunt round 2 closes the three gaps in how round 1 keeps the reader's place, and `ui/PreviewMarkdown.qml` was 782 lines (`wc -l`) there and is 784 on the stage (its budget row). The coalescing window is not
+restarted: `onFileChanged` starts `reloadCoalesce` only when it is not running, the same rule as the directory watcher's 400 ms timer, because `restart()` pushed the 50 ms window back on every
+event and a file written every 20 ms never reloaded until its writer stopped (`disk-stream` appends 40 times, 20 ms apart, and requires reloads to land while the writer runs, fewer than
+the writes, and the final text after it stops). A held place ends the moment the reader moves: the list's `onContentYChanged` calls `releaseHeldPlace`, which drops `keepScroll` and `heldY`
+once the view is `samePlacePx` or more from `heldY`, `restoreScroll` records `heldY` before it moves the view so its own move reads as the same place, and `settingBlocks` brackets each
+`blockList` assignment (in `landed` and `parseNow`) because a model reset moves the list to its top before `restoreScroll` runs and that is the list, not the reader. `rememberScroll` then keeps a
+place only while one still waits, where round 1 compared `contentY` with `heldY` at the next reload and so read a reader who scrolled away and back as not having moved (`disk-regrow` moves the
+view up 200 px and back, writes the full text, and requires the view to stay; `disk-partial` still returns to the deep place). `disk-uneven` (60 one line paragraphs then 60 code blocks of 25
+lines, the reader past three quarters of the real height, a same-length edit of the first paragraph) found no estimated bound to fix: in the turn the model is replaced `contentHeight` is still the
+previous layout's exact 27261, equal to the real height the phase measures by walking the document, and it never reported a smaller one while reloading, so `restoreScroll` keeps its form and
+the phase stays as the guard. The new phases live in `tests/markdown-disk-reader.qml` (`tests/markdown-disk.qml` stays under its 400 line cap), `overshoot` is sampled on every `contentY` and
+`contentHeight` change, `disk-worker` records `parseRuns` and proves the worker landed the edit (a Qt.callLater probe sees `parsing` still true a turn after the ask) and that one save, a truncate
+and a write 10 ms apart that raise two watcher events, is one load. `tests/preview-hunt.sh` runs 28 phases. `rememberScroll` clears `heldY` when it takes a new place, because a path change and a failed load drop `keepScroll` and leave `heldY` set, and a stale one would let the reader's next
+move end a place taken for a reload still in flight (F43 in `tests/markdown-preview-state.qml` runs the shipped body on such a state).
+
+md3u closing round 4 hardens the Markdown parser's edges. A multi-line `$$` display block closes on the first later line holding `$$`
+only inside its own paragraph: the search stops at the first blank line, so a stray opener stays text instead of swallowing the
+document up to the next `$$` (a scan ends at the first later line holding `$$`, and every opener is such a line, so no line is scanned twice). The
+keyed maps `defs`, `notes` and `numbers` have no prototype and every reader asks `Object.prototype.hasOwnProperty.call`, because a
+footnote id of `__proto__` threw and `hasOwnProperty` left its citation unnumbered. `prepare()` runs the one collecting block pass;
+a second pass over the same lines was measured to change none of `code`, `escaped`, `hidden`, `dropped` or the three maps on 20,000
+generated documents. `MdLeaf.js` names the marker limits `MdContainer.js` names, and `localAbsolute` refuses a backslash in the
+reference the document wrote while the folder may hold one (`containedLocal` keeps the containment check as strict as before).
+`prepare()` has no caller in `ui/`: the preview draws `blocks()`, whose front matter and `$$` lines are a `PlainText` fence or a
+figure, and `tests/markdown-security.sh` now carries both placements and a Source-view instance with zero requests required.
+`tests/js/mdround4.js` holds the parser pins. The file budget row of `ui/js/MdBlocks.js` moves to its real `wc -l`, 361.
+
+The mdhunt fixes change four Markdown preview behaviours, with `tests/preview-hunt.sh` phases `links`, `theme`, `disk`,
+`disk-rename`, `disk-scroll`, `disk-stale`, `long-list` and `long-table` pinning them (`size-key` keeps 0.3.7: preview
+context refuses the listing size chord). Links: `ui/MarkdownText.qml` has the one `onLinkActivated`, and only a link its
+`linkGate` passes reaches `Qt.openUrlExternally`; `PreviewMarkdown.qml` sets the gate to `Markdown.isExternalLink` (`http`,
+`https`, `mailto` after the parser's own normalisation) on each text, because `markdown-linearity` loads the component
+alone, with no `js/` beside it. A relative link, an anchor and any other scheme open nothing. Theme: the link ink and code chrome are parsed into the
+runs (the importer hardcodes its link blue over `linkColor`), so `PreviewMarkdown.qml` reparses when `inkHex` or `chromeHex`
+changes. Disk: the one `FileView` on the shown file has `watchChanges`, reloads on a change or an editor's rename-over save,
+and `savedY` puts the ListView back where it was once the new model has reset it; a path change re-points the watcher and
+clears the saved place, so an old file never reloads into the new one. Long containers: `MdLeaf.chunkList` and `chunkTable`
+split a list of more than 32 items or a table of more than 24 rows into consecutive blocks the outer ListView already draws
+lazily. List chunks carry `start` (numbering continues) and `last` (one marker column width); table chunks carry `measure`,
+the widest cell per column over the whole table chosen by its drawn text length (tags, emphasis markers and entities do not
+count), so chunks share column widths, and only the first keeps the header. A chunk after the first is `joined`: its grid
+sits `blockGap` higher and its delegate is that much shorter, so chunks read as one container. A short list or table is one
+block as before. `ui/PreviewMarkdown.qml` was 782 lines (`wc -l`) and is 784 on the stage (its budget row), and `ui/js/Markdown.js` 155. One event is one parse: `askParse` skips a request equal in text, folder, chrome and ink to the last one that parsed, a path change only voids the old result (the new file's load asks), a theme switch asks once through `Qt.callLater`, a landed parse releases the saved scroll even when the list saw no model change, and `parseRuns` counts the parses that ran so the `parse-quick`, `parse-column` and `parse-worker` phases of `tests/preview-hunt.sh` (`tests/markdown-parse-count.qml`) pin one parse per open, disk edit, rename-over save and theme switch, and none for a save that changes nothing.
+
+mdhunt round 1 keeps the reader's place and the error state honest across a save, and `ui/PreviewMarkdown.qml` was 766 lines then (`wc -l`). A good load clears
+`readFailed` (a save that unlinks and recreates the file can fail one reload, and the old code kept "This file could not be read." after the file was back). The watcher's
+events go through one `reloadCoalesce` timer of 50 ms (`reloadCoalesceMs`: an editor's truncate, write and rename land within a few milliseconds, and 50 ms is well under what a
+reader notices), and a place the saved scroll cannot yet reach is kept: `restoreScroll` bounds the view between the list's resting top (`originY - topMargin`) and the end of the new
+content, releases the place only once the content is tall enough to hold it, and otherwise records where it left the view (`heldY`) so the next reload restores the same place
+until the reader moves (round 2). A path change still clears it, and stops a reload still waiting in the coalescing window: that reload belongs to the old file, and
+left alone it read the new file a second time (`disk-switch` switches files in the turn the timer starts and requires one load). `parseNow` is the one synchronous landing, used by `askParse` and by the `parseFallback` timer, which now parses
+the request that was sent (`askedText` and its folder, chrome and ink, never `rawText`), releases a remembered scroll, and on a throw voids the memo so the next equal request
+parses again; `askParse` clears `parseError` only when it goes on to parse. `loadRuns` counts the loads that landed. `tests/markdown-disk.qml` holds the `disk-fail`,
+`disk-partial` (truncate, a half-written file, then the full text), `disk-shrink`, `disk-switch` and `disk-worker` (a file past `workerThreshold`) phases, `theme` scrolls before the switch and
+requires the place after it, and `tests/markdown-parse-count.qml` has every disk step wait for `loadRuns` to rise (a named poll limit fails by name), the worker phase switch files
+in the turn the first request is asked and prove the late reply is dropped, and a `parse-fallback` phase that runs `tests/preview-hunt.sh`'s scratch copy of `ui` (a worker that
+never answers, a 200 ms fallback wait, and a parser that throws on one marker) so no product seam exists for it. The chunk sizes the hunt reads are `MdLeaf.js`'s own
+`TABLE_CHUNK_ROWS` and `LIST_CHUNK_ITEMS`, and each of the four rows its pitch check compares must be found first.
+`tests/markdown-linearity.qml` (553 lines, its budget row) and `tests/markdown-preview-state.qml` bind the shipped `dropParse`, `parseNow` and `restoreScroll` bodies to their stub roots,
+find the fallback handler from its own id so an earlier Timer is never the one read, and give the list-grid probe a closed link gate; they had failed since the previous round's `dropParse` and `linkGate`.
