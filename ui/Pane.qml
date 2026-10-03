@@ -893,7 +893,9 @@ FocusScope {
     readonly property alias taildropService: wire.taildrop
     readonly property alias opener: wire.opener
     readonly property var dropboxService: root.networkService
-    readonly property bool menuValuesLive: menu.preparing || menu.opened
+    // The keymap sheet's query asks the menu's own rows, so the values stay live for as long as the sheet is open.
+    readonly property bool sheetReadsMenu: root.keymapSheet !== null && root.keymapSheet.opened === true
+    readonly property bool menuValuesLive: menu.preparing || menu.opened || root.sheetReadsMenu
     readonly property var menuPermissionRow: root.menuValuesLive ? root.permissionSelection() : null
 
     Flea.ContextMenu {

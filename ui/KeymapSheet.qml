@@ -25,12 +25,8 @@ Item {
     // The cursor sits on the first row, the menu lift, and arrows move it.
     property int resultCursor: 0
     onQueryChanged: root.resultCursor = 0
-    readonly property var sheet: {
-        var rows = root.actionRows()
-        if (root.query.length === 0)
-            return rows
-        return SheetQuery.rank(SheetQuery.actionCandidates(rows), root.query).map(function (c) { return c })
-    }
+    // The whole table in every state, so the cap column keeps one width whatever the query narrows to.
+    readonly property var sheet: root.actionRows()
     // The query results across actions, the cursor row's menu, places and recent files, bounded.
     readonly property var queryResults: {
         if (root.query.length === 0 || !root.focusHolder)
@@ -249,6 +245,13 @@ Item {
     // menuEntries() uses: one row per line, the cap and the wording it is drawn beside.
     function rows() {
         var out = []
+        // Under a query the sheet draws its results, so a test reads those instead of the resting grid.
+        if (root.query.length > 0) {
+            for (var r = 0; r < root.queryResults.length; r++)
+                out.push(root.queryResults[r].keys + " " + root.queryResults[r].label
+                    + (root.queryResults[r].disabled === true ? " (disabled)" : ""))
+            return out.join("\n")
+        }
         for (var g = 0; g < root.groups.length; g++) {
             out.push(root.groups[g].title)
             for (var i = 0; i < root.groups[g].rows.length; i++)
@@ -311,7 +314,7 @@ Item {
                 Text {
                     anchors.right: parent.right
                     anchors.baseline: title.baseline
-                    text: root.query.length > 0 ? "esc clears" : "esc closes"
+                    text: "esc closes"
                     color: Theme.color.muted
                     font.family: Theme.font.family
                     font.pixelSize: Theme.font.caption
@@ -319,24 +322,61 @@ Item {
                 }
             }
 
-            // The query the typed keys narrowed the sheet to, drawn only while one stands: at rest
-            // the card holds the title and the rows and nothing else.
+            // The query line, drawn only while one stands: a muted ? in the cap column and the query in a
+            // field on the label column, as CommandPalette draws it. GM 2026-10-03: the field's focus is its
+            // own hairline accent frame, as 0.3.6 drew fields, never the board's 2 px foreground ring.
             Item {
+                id: queryRow
                 width: parent.width
-                height: queryLine.visible ? queryLine.implicitHeight : 0
+                height: queryRow.visible ? queryBox.height : 0
                 visible: root.query.length > 0
 
                 Text {
-                    id: queryLine
+                    id: queryPrompt
                     anchors.left: parent.left
-                    anchors.right: parent.right
-                    visible: root.query.length > 0
-                    text: root.query
-                    color: Theme.color.foreground
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: root.capWidth
+                    horizontalAlignment: Text.AlignHCenter
+                    text: "?"
+                    color: Theme.color.muted
                     font.family: Theme.font.family
-                    font.pixelSize: Theme.font.caption
+                    font.pixelSize: Theme.font.bodySmall
                     textFormat: Text.PlainText
-                    elide: Text.ElideRight
+                }
+
+                Rectangle {
+                    id: queryBox
+                    anchors.left: parent.left
+                    anchors.leftMargin: root.capWidth + root.capGap
+                    anchors.right: parent.right
+                    height: Theme.rowHeight - Theme.spacing.rowPaddingY
+                    color: Theme.color.background
+                    border.width: Theme.spacing.hairline
+                    border.color: Theme.color.accent
+
+                    Text {
+                        id: queryLine
+                        anchors.left: parent.left
+                        anchors.leftMargin: Theme.spacing.gap
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Math.min(implicitWidth, parent.width - 2 * Theme.spacing.gap - queryCaret.width)
+                        text: root.query
+                        color: Theme.color.foreground
+                        font.family: Theme.font.family
+                        font.pixelSize: Theme.font.body
+                        textFormat: Text.PlainText
+                        elide: Text.ElideLeft
+                    }
+
+                    // The field always holds the caret while it shows, and a TextInput's caret takes its text ink.
+                    Rectangle {
+                        id: queryCaret
+                        anchors.left: queryLine.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Theme.spacing.hairline
+                        height: Theme.font.body + Theme.spacing.hairline
+                        color: Theme.color.foreground
+                    }
                 }
             }
 
@@ -384,20 +424,22 @@ Item {
                             id: hitLabel
                             anchors.left: hitCap.right
                             anchors.leftMargin: root.capGap
-                            anchors.right: hitWhere.left
                             anchors.verticalCenter: parent.verticalCenter
+                            width: Math.min(implicitWidth, parent.width - hitCap.width - root.capGap)
                             text: hit.modelData.label
                             color: hit.modelData.disabled === true ? Theme.color.muted : Theme.color.foreground
                             pixelSize: Theme.font.caption
                             matchStart: SheetQuery.matchOf(hit.modelData.label, root.query) ? SheetQuery.matchOf(hit.modelData.label, root.query).start : -1
                             matchLength: SheetQuery.matchOf(hit.modelData.label, root.query) ? SheetQuery.matchOf(hit.modelData.label, root.query).length : 0
                         }
+                        // Where the result lives, muted and inline right after its name, as the board draws it.
                         Text {
                             id: hitWhere
+                            anchors.left: hitLabel.right
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
                             visible: String(hit.modelData.where || "").length > 0
-                            text: String(hit.modelData.where || "").length > 0 ? "in " + hit.modelData.where : ""
+                            text: String(hit.modelData.where || "").length > 0 ? " in " + hit.modelData.where : ""
                             color: Theme.color.muted
                             font.family: Theme.font.family
                             font.pixelSize: Theme.font.caption
@@ -501,11 +543,10 @@ Item {
         anchors.fill: parent
         focus: true
 
-        // Esc clears a standing query before it closes; every other key answers through SheetQuery.sheetKey.
+        // Esc closes the sheet from any state; every key answers through SheetQuery.sheetKey.
         Keys.onPressed: function (event) {
             var decision = SheetQuery.sheetKey(root.query, root.queryResults.length, root.resultCursor, event.key, event.text)
-            if (decision === "clear") { root.query = "" }
-            else if (decision === "up" || decision === "down") {
+            if (decision === "up" || decision === "down") {
                 root.resultCursor = SheetQuery.stepCursor(root.resultCursor, decision === "up" ? -1 : 1, root.queryResults.length)
             }
             else if (decision === "activate") { root.activateResult() }

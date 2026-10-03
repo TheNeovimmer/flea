@@ -1,5 +1,7 @@
 .import "../../ui/js/SheetQuery.js" as SheetQuery
 .import "sourcefixture.js" as Source
+.import "../../ui/js/Keymap.js" as Keymap
+.import "../../ui/js/Menu.js" as Menu
 
 function run(check) {
     // Candidates from stub menu, rail and recent models, plus the Enter dispatch.
@@ -85,4 +87,56 @@ function run(check) {
     check("a recent file dispatches as its row", SheetQuery.dispatch(recents[0]).kind, "recent")
     var disabledRow = menus.filter(function (row) { return row.label === "Paste"; })[0]
     check("a disabled row never runs", SheetQuery.dispatch(disabledRow).kind, "disabled")
+    // One action, one row (CommandPalette "After typing perm"): an action that is both a key and a menu row lists once, as its key.
+    var cursorOnFile = { hasRow: true, hiddenActions: [], selectionCount: 1, rowMode: 0o100644, selectionModes: [0o100644],
+        cursorIsTarget: true, hasShebang: true, rowIsFile: true, rowIsSymlink: true, rowIsArchive: true, rowIsImage: true,
+        clipboardAvailable: true, canTrash: true, canConvert: true, canExtract: true, archiveFormats: ["zip"],
+        storageClass: "network", dropboxInstalled: true, taildropInstalled: true, openWithLoaded: true, openWithApps: [] }
+    var realActions = SheetQuery.actionCandidates(Keymap.sheetFor("default", "gui", false))
+    var realMenus = SheetQuery.menuCandidates(Menu.listingEntries(cursorOnFile), function (a) { return Keymap.hintFor(a) })
+    var keyed = {}
+    realActions.forEach(function (row) { keyed[row.action] = true })
+    var both = realMenus.filter(function (row) { return keyed[row.menuAction] === true }).map(function (row) { return row.menuAction })
+    // The overlap on the default preset: open cut copy paste pasteAs rename trash deletePermanently openTerminal copyAs toggleHidden.
+    check("the shipped menu and key table overlap", both.indexOf("deletePermanently") >= 0 && both.indexOf("trash") >= 0, true)
+    check("SheetQuery.unique exists", typeof SheetQuery.unique, "function")
+    var merged = typeof SheetQuery.unique === "function" ? SheetQuery.unique(realActions.concat(realMenus)) : realActions.concat(realMenus)
+    both.forEach(function (name) {
+        var runs = merged.filter(function (row) { return row.action === name || row.menuAction === name })
+        check("one row runs " + name, runs.length, 1)
+        check(name + " keeps the key row the board draws", runs.length === 1 ? runs[0].section : -1, 0)
+    })
+    var perm = SheetQuery.rank(realActions.concat(realMenus), "perm").map(function (row) { return row.keys + " " + row.label })
+    check("perm lists delete permanently once, then Permissions", perm.join("|"), "shift-delete delete permanently| Permissions")
+    var trash = SheetQuery.rank(realActions.concat(realMenus), "trash").filter(function (row) {
+        return row.action === "trash" || row.menuAction === "trash" })
+    check("trash lists the file menu's Move to Trash once", trash.length, 1)
+    // A flyout leaf shares no action with a key, so the dedupe never drops one.
+    check("flyout leaves survive the dedupe", merged.filter(function (row) { return row.where === "Compress" }).length,
+          realMenus.filter(function (row) { return row.where === "Compress" }).length)
+    // Availability is the menu's own answer for the pane's real cursor: on a regular file Permissions runs, on nothing it is refused.
+    function permissionsRow(context) {
+        var rows = SheetQuery.menuCandidates(Menu.listingEntries(context), function (a) { return Keymap.hintFor(a) })
+        return rows.filter(function (row) { return row.label === "Permissions" })[0]
+    }
+    var onFile = permissionsRow(cursorOnFile)
+    check("Permissions is available with the cursor on a regular file", onFile.disabled, false)
+    check("and Enter runs it through the menu", SheetQuery.dispatch(onFile).kind + ":" + SheetQuery.dispatch(onFile).menuAction, "menu:permissions")
+    var onNothing = permissionsRow({ hasRow: true, hiddenActions: [], selectionCount: 0, rowMode: 0, selectionModes: [] })
+    check("Permissions is drawn disabled with nothing to act on", onNothing.disabled, true)
+    check("and Enter is refused", SheetQuery.dispatch(onNothing).kind, "disabled")
+    // The values the context above stands for are live in Pane only while the menu or the sheet reads them.
+    var paneSource = Source.source("ui/Pane.qml")
+    check("the pane keeps the menu's values live while the keymap sheet is open",
+          /readonly property bool menuValuesLive:[^\n]*sheetReadsMenu/.test(paneSource), true)
+    check("and the sheet's open state is what makes them so",
+          /readonly property bool sheetReadsMenu:[^\n]*keymapSheet\.opened/.test(paneSource), true)
+    // The menu's verdict rides on the key row: Rename refused by the menu (a read-only folder, several rows) is refused here too.
+    var refused = SheetQuery.unique(SheetQuery.actionCandidates(Keymap.sheetFor("default", "gui", false)).concat(
+        SheetQuery.menuCandidates(Menu.listingEntries({ hasRow: true, hiddenActions: [], selectionCount: 2, rowMode: 0o100644, selectionModes: [0o100644, 0o100644] }),
+            function (a) { return Keymap.hintFor(a) }))).filter(function (row) { return row.action === "rename" || row.menuAction === "rename" })
+    check("a refused Rename is still one row", refused.length, 1)
+    check("it keeps the key row's wording", refused[0].label, "rename")
+    check("it reads disabled from the menu", refused[0].disabled, true)
+    check("and Enter is refused", SheetQuery.dispatch(refused[0]).kind, "disabled")
 }

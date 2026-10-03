@@ -140,9 +140,35 @@ function matchOf(label, query) {
     return { start: at, length: needle.length }
 }
 
+// Sample input: a key row {action: "trash"} then a menu row {menuAction: "trash"} keeps the key row only.
+// One action, one row: the key row stays, and a disabled menu row's verdict rides on it, so a folder that refuses Rename refuses it here.
+function unique(candidates) {
+    var at = {}
+    var out = []
+    var list = candidates || []
+    for (var i = 0; i < list.length; i++) {
+        var run = String(list[i].action || list[i].menuAction || "")
+        if (run.length === 0) {
+            out.push(list[i])
+        } else if (at[run] === undefined) {
+            at[run] = out.length
+            out.push(list[i])
+        } else if (list[i].disabled === true && out[at[run]].section === 0 && out[at[run]].disabled !== true) {
+            var held = {}
+            for (var field in out[at[run]]) {
+                held[field] = out[at[run]][field]
+            }
+            held.disabled = true
+            held.menuAction = list[i].menuAction
+            out[at[run]] = held
+        }
+    }
+    return out
+}
+
 function rank(candidates, query) {
     var needle = String(query || "").trim().toLowerCase()
-    var list = candidates || []
+    var list = unique(candidates)
     if (needle.length === 0) {
         return list.slice(0, RESULT_LIMIT)
     }
@@ -233,7 +259,7 @@ function isBareModifier(key) {
 // The one decision the sheet's Keys.onPressed runs, so the handler owns no key meaning of its own.
 function sheetKey(query, resultCount, cursor, key, text) {
     if (key === Qt.Key_Escape)
-        return String(query).length > 0 ? "clear" : "close"
+        return "close"
     if (String(query).length > 0) {
         if (key === Qt.Key_Up)
             return "up"

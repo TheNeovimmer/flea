@@ -335,11 +335,37 @@ case_cap_sidebar() {
     kill_flea
 }
 
-# CommandPalette: rest, then the shipped perm specimen; tag belongs to 0.3.9.
+# How long the sheet or the Permissions dialog may take to read open or closed after a key.
+cap_sheet_wait_s=10
+
+# Types a word into the open keymap sheet one key at a time, then waits for the query to read back whole.
+cap_sheet_type() {
+    local word="$1" i
+    for ((i = 0; i < ${#word}; i++)); do
+        key "${word:i:1}" >/dev/null
+    done
+    omarchy-drive wait ipc -p "$flea_ui/boot" flea keymapQuery "$word" --timeout "$cap_sheet_wait_s" >/dev/null \
+        || fail "cap_sheet: the query never reached $word, it is '$(ipc keymapQuery)'"
+    [[ "$(ipc keymapQuery)" == "$word" ]] || fail "cap_sheet: the query is '$(ipc keymapQuery)', not $word"
+}
+
+# Waits until a reader (or its jq field) answers the exact word, or fails naming the last value.
+cap_sheet_expect() {
+    local reader="$1" want="$2" what="$3" field="${4:-.}" end got=""
+    end=$((SECONDS + cap_sheet_wait_s))
+    while (( SECONDS < end )); do
+        got=$(ipc "$reader") || fail "cap_sheet: $reader failed $what"
+        [[ "$field" == . ]] || got=$(jq -r "$field" <<< "$got")
+        [[ "$got" == "$want" ]] && return 0
+        settle
+    done
+    fail "cap_sheet: $what, last value '$got'"
+}
+
+# CommandPalette: the sheet at rest, then its query with a place, with capless rows, and with the cursor on a file.
 case_cap_sheet() {
     local dir="$fixture_root/cap-sheet"
-    local sheet_rows query="perm" end
-    local clear_wait_s=10
+    local sheet_rows
     sandbox_scratch "$dir"
     : > "$dir/a.txt"
     : > "$dir/b.txt"
@@ -347,31 +373,49 @@ case_cap_sheet() {
     launch "$dir"
     wait_listing 2
     key '?' >/dev/null
-    omarchy-drive wait ipc -p "$flea_ui/boot" flea keymapSheetOpen true --timeout 10 >/dev/null \
+    omarchy-drive wait ipc -p "$flea_ui/boot" flea keymapSheetOpen true --timeout "$cap_sheet_wait_s" >/dev/null \
         || fail "cap_sheet: ? opened no keymap sheet"
     [[ "$(ipc keymapSheetOpen)" == "true" ]] || fail "cap_sheet: ? opened no keymap sheet"
     [[ "$(ipc keymapQuery)" == "" ]] || fail "cap_sheet: the resting sheet carries query '$(ipc keymapQuery)'"
     shot cap-sheet-rest
-    key p >/dev/null
-    key e >/dev/null
-    key r >/dev/null
-    key m >/dev/null
-    omarchy-drive wait ipc -p "$flea_ui/boot" flea keymapQuery perm --timeout 10 >/dev/null \
-        || fail "cap_sheet: the query never reached perm, it is '$(ipc keymapQuery)'"
-    [[ "$(ipc keymapQuery)" == "perm" ]] || fail "cap_sheet: the query is '$(ipc keymapQuery)', not perm"
+    # A place named exactly ranks first, and the file menu's Move to Trash lists once under its key.
+    cap_sheet_type trash
+    sheet_rows=$(ipc keymapSheetRows)
+    [[ "$(head -n 1 <<< "$sheet_rows")" == ' Open Trash' ]] \
+        || fail "cap_sheet: the trash query does not lead with the Trash place: ${sheet_rows//$'\n'/ | }"
+    shot cap-sheet-query-trash
+    key -k Escape >/dev/null
+    cap_sheet_expect keymapSheetOpen false "Escape did not close the sheet after trash"
+    # The cursor row's Compress flyout answers with rows that carry no cap.
+    key '?' >/dev/null
+    cap_sheet_expect keymapSheetOpen true "? did not reopen the sheet"
+    cap_sheet_type comp
+    sheet_rows=$(ipc keymapSheetRows)
+    grep -q 'Compress' <<< "$sheet_rows" || fail "cap_sheet: the comp query lists no Compress row: ${sheet_rows//$'\n'/ | }"
+    ! grep -q '^[^ ]' <<< "$sheet_rows" || fail "cap_sheet: the comp query lists a row with a cap: ${sheet_rows//$'\n'/ | }"
+    shot cap-sheet-query-comp
+    key -k Escape >/dev/null
+    cap_sheet_expect keymapSheetOpen false "Escape did not close the sheet after comp"
+    # The cursor stays on a.txt: Delete permanently lists once under its key, and Permissions is a live row.
+    key '?' >/dev/null
+    cap_sheet_expect keymapSheetOpen true "? did not reopen the sheet"
+    cap_sheet_type perm
     sheet_rows=$(ipc keymapSheetRows)
     grep -Fxq 'shift-delete delete permanently' <<< "$sheet_rows" \
-        || fail "cap_sheet: the perm query lists no delete permanently row"
+        || fail "cap_sheet: the perm query lists no delete permanently row: ${sheet_rows//$'\n'/ | }"
+    [[ "$(grep -ci 'delete permanently' <<< "$sheet_rows")" == 1 ]] \
+        || fail "cap_sheet: delete permanently is listed more than once: ${sheet_rows//$'\n'/ | }"
+    grep -Fxq ' Permissions' <<< "$sheet_rows" \
+        || fail "cap_sheet: Permissions reads unavailable with the cursor on a file: ${sheet_rows//$'\n'/ | }"
     shot cap-sheet-query
+    key -k Down >/dev/null
+    shot cap-sheet-query-perm-file
+    key -k Return >/dev/null
+    cap_sheet_expect keymapSheetOpen false "Enter on Permissions did not close the sheet"
+    cap_sheet_expect permissionsState true "Enter on Permissions opened no dialog" .opened
     key -k Escape >/dev/null
-    end=$((SECONDS + clear_wait_s))
-    while (( SECONDS < end )); do
-        query=$(ipc keymapQuery) || fail "cap_sheet: keymapQuery failed after Escape"
-        [[ "$query" == "" ]] && break
-        settle
-    done
-    [[ "$query" == "" ]] || fail "cap_sheet: Escape did not clear the query, last value '$query'"
-    printf 'CAP_SHEET rest=ok query=perm\n'
+    cap_sheet_expect permissionsState false "Escape did not close the Permissions dialog" .opened
+    printf 'CAP_SHEET rest=ok queries=trash,comp,perm permissions=opened\n'
     kill_flea
 }
 

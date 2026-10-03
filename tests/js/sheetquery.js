@@ -41,12 +41,13 @@ function run(check) {
     // A query matching nothing lists nothing rather than the whole sheet.
     check("no match is an empty sheet", SheetQuery.rank(rows, "zzz").length, 0)
     check("a keys-only miss is empty too", SheetQuery.rank(rows, "Open ^z").length, 0)
-    // The native capture must query a board specimen supported by the shipped key table.
+    // The native capture types the board's specimens through cap_sheet_type, and perm must still find its shipped row.
     var capture = Source.slice(Source.source("tests/ui-captures.sh"), "case_cap_sheet() {", "\nmatrix_check() {")
-    // Sample input: key p >/dev/null
-    var typed = capture.match(/^\s*key [a-z] >\/dev\/null$/gm) || []
-    var captureQuery = typed.map(function (line) { return line.trim().split(/\s+/)[1] }).join("")
-    var captureRows = SheetQuery.rank(SheetQuery.actionCandidates(Keymap.sheetFor("default", "gui", false)), captureQuery)
+    // Sample input: cap_sheet_type perm
+    var typed = capture.match(/^\s*cap_sheet_type [a-z]+$/gm) || []
+    var captureQueries = typed.map(function (line) { return line.trim().split(/\s+/)[1] })
+    check("the capture types the place, capless and Permissions specimens in order", captureQueries.join(","), "trash,comp,perm")
+    var captureRows = SheetQuery.rank(SheetQuery.actionCandidates(Keymap.sheetFor("default", "gui", false)), captureQueries[2])
     check("the capture query finds its shipped board row",
           captureRows.map(function (row) { return row.keys + " " + row.label }).join("\n"), "shift-delete delete permanently")
     // An exact NAME match ranks first, above an exact action label.
@@ -117,9 +118,22 @@ function run(check) {
     check("CapsLock alone is a bare modifier", SheetQuery.isBareModifier(Qt.Key_CapsLock), true)
     check("Delete is no bare modifier", SheetQuery.isBareModifier(Qt.Key_Delete), false)
     check("Escape is no bare modifier", SheetQuery.isBareModifier(Qt.Key_Escape), false)
-    // The key decision the sheet's Keys.onPressed runs: Esc clears a standing query before it closes.
-    check("Esc clears a standing query", SheetQuery.sheetKey("co", 2, 0, Qt.Key_Escape, ""), "clear")
+    // The key decision the sheet's Keys.onPressed runs: CommandPalette callout 2, Esc closes the sheet from any state.
+    check("Esc closes from a standing query", SheetQuery.sheetKey("co", 2, 0, Qt.Key_Escape, ""), "close")
     check("Esc with none closes", SheetQuery.sheetKey("", 0, 0, Qt.Key_Escape, ""), "close")
+    // The header reads "esc closes" in every state, and no branch of the sheet still empties a query on Esc.
+    var sheetText = Source.source("ui/KeymapSheet.qml")
+    check("the header never reads esc clears", sheetText.indexOf("esc clears"), -1)
+    check("the header reads esc closes in every state", sheetText.indexOf('text: "esc closes"') >= 0, true)
+    check("the sheet has no clear branch", sheetText.indexOf('decision === "clear"'), -1)
+    // Backspace shortens the query one character at a time; the last one leaves the resting sheet.
+    var typed = "tag"
+    var steps = []
+    while (typed.length > 0 && SheetQuery.sheetKey(typed, 1, 0, Qt.Key_Backspace, "") === "backspace") {
+        typed = typed.substring(0, typed.length - 1)
+        steps.push(typed)
+    }
+    check("Backspace empties the query a character at a time", steps.join("|"), "ta|t|")
     check("Up moves the cursor", SheetQuery.sheetKey("c", 3, 1, Qt.Key_Up, ""), "up")
     check("Down moves the cursor", SheetQuery.sheetKey("c", 3, 1, Qt.Key_Down, ""), "down")
     check("Return runs the row", SheetQuery.sheetKey("c", 3, 0, Qt.Key_Return, ""), "activate")
@@ -198,4 +212,29 @@ function run(check) {
     check("Trash menu rows keep their host's confirmation path", trashCalls.join(","), "close,deletePermanently")
     var sheetAction = Source.source("ui/KeymapSheet.qml")
     check("activateResult runs through SheetQuery.runAction", Source.slice(sheetAction, "function activateResult()", "// Directive 18").indexOf("SheetQuery.runAction") >= 0, true)
+
+    // CommandPalette "After typing": the board's query line, a muted ? centred in the cap column and the query in a
+    // field on the label column. GM 2026-10-03: the field's focus is its own hairline accent frame, never a ring.
+    var lineSource = Source.slice(sheetText, "// The query line, drawn only while one stands", "// The query results replace")
+    check("the query line draws the board's ? prompt", lineSource.indexOf('text: "?"') >= 0, true)
+    check("the prompt is centred in the cap column", lineSource.indexOf("width: root.capWidth") >= 0
+          && lineSource.indexOf("horizontalAlignment: Text.AlignHCenter") >= 0, true)
+    check("the prompt is muted at bodySmall", lineSource.indexOf("font.pixelSize: Theme.font.bodySmall") >= 0
+          && lineSource.indexOf("color: Theme.color.muted") >= 0, true)
+    check("the field starts on the label column", lineSource.indexOf("anchors.leftMargin: root.capWidth + root.capGap") >= 0, true)
+    check("the field is a hairline frame in the accent", lineSource.indexOf("border.width: Theme.spacing.hairline") >= 0
+          && lineSource.indexOf("border.color: Theme.color.accent") >= 0, true)
+    check("the field draws no foreground ring", lineSource.indexOf("Buttons.RING"), -1)
+    check("the field holds a caret after the text", lineSource.indexOf("id: queryCaret") >= 0, true)
+    check("the query reads at body size like a field", lineSource.indexOf("font.pixelSize: Theme.font.body") >= 0, true)
+    // One cap column in every state: the sheet the column is measured over is the whole table, never the query's results.
+    var tableSource = Source.slice(sheetText, "readonly property var sheet:", "// The query results across")
+    check("the sheet the cap column measures does not narrow with the query", tableSource.indexOf("root.query"), -1)
+    check("the ranked results are the only thing the query narrows", tableSource.indexOf("SheetQuery.rank"), -1)
+    // A place or recent result says where inline, muted, right after its name.
+    var hitSource = Source.slice(sheetText, "id: hitLabel", "id: hitWhere")
+    check("the name does not stop at a right-anchored suffix", hitSource.indexOf("anchors.right: hitWhere.left"), -1)
+    var whereSource = Source.slice(sheetText, "id: hitWhere", "visible: root.query.length === 0")
+    check("the suffix follows the name", whereSource.indexOf("anchors.left: hitLabel.right") >= 0, true)
+    check("the suffix reads as a space then in, inline with the name", whereSource.indexOf('" in " + hit.modelData.where') >= 0, true)
 }
