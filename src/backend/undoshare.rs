@@ -188,8 +188,6 @@ fn load(shared: &Shared) -> Result<Doc, ()> {
             return ignored(shared);
         }
     };
-    #[cfg(test)]
-    super::undoprobe::decode();
     match read(&text) {
         Read::Doc(doc) => Ok(doc),
         Read::Newer => Err(()),

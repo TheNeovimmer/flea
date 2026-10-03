@@ -18,17 +18,34 @@ const JOURNAL_ENTRY_COUNTS: [usize; 3] = [1, 8, 28];
 // The count tests use a journal of this many entries of FIXTURE_STEPS steps, a few thousand stored steps.
 const FIXTURE_ENTRIES: usize = 5;
 const FIXTURE_STEPS: usize = 200;
+// Inodes per salt: wider than any step index, so two salts never share an inode.
+const INODES_PER_SALT: u64 = 1_000_000;
+// The salt gap between a step's before identity and its after identity.
+const AFTER_SALT_OFFSET: u64 = 500;
+// The salt gap that makes a second move's after identity new to the journal.
+const MOVE_AGAIN_SALT_OFFSET: u64 = 900;
+// A file length base, so every identity carries a length that differs by step.
+const FILE_LEN_BASE: u64 = 4096;
+const MTIME_NANOS: i64 = 123_456_789;
+const CHANGED_NANOS: i64 = 987_654_321;
+// A birth time this many seconds before BASE_SECONDS.
+const BORN_BEFORE_BASE: u64 = 5;
+// Salts for the entries a test adds beside the fixture's own, each outside its salts and offsets.
+const UNDONE_MOVE_SALT: u64 = 40;
+const RENAME_BEFORE_SALT: u64 = 77;
+const RENAME_AFTER_SALT: u64 = 78;
+const MEASURED_PUSH_SALT: u64 = 900;
 
 // One identity per (salt, n), so two salts never collide and one pair always matches itself.
 pub(super) fn identity(salt: u64, n: u64) -> ItemIdentity {
-    let at = salt * 1_000_000 + n;
-    ItemIdentity::from_parts(DEVICE, at, REGULAR, 4096 + n, (BASE_SECONDS + n as i64, 123_456_789),
-        (BASE_SECONDS + salt as i64, 987_654_321), Some((BASE_SECONDS as u64 - 5, n as u32)))
+    let at = salt * INODES_PER_SALT + n;
+    ItemIdentity::from_parts(DEVICE, at, REGULAR, FILE_LEN_BASE + n, (BASE_SECONDS + n as i64, MTIME_NANOS),
+        (BASE_SECONDS + salt as i64, CHANGED_NANOS), Some((BASE_SECONDS as u64 - BORN_BEFORE_BASE, n as u32)))
 }
 
 // The after identity of step n in a move entry of the given salt; a later move starts from it.
 fn after_of(salt: u64, n: u64) -> ItemIdentity {
-    identity(salt + 500, n)
+    identity(salt + AFTER_SALT_OFFSET, n)
 }
 
 // A bulk move of `steps` files into one folder, as the perf harness's 1,000-file move records it.
@@ -74,7 +91,7 @@ fn remove_again(steps: usize) -> Entry {
             from: PathBuf::from(format!("/home/gm/Work/archive-{}/assets/images/file-{:05}.png", salt, at)),
             to: PathBuf::from(format!("/home/gm/Work/second-{}/file-{:05}.png", salt, at)),
             before: after_of(salt, at),
-            after: identity(salt + 900, at),
+            after: identity(salt + MOVE_AGAIN_SALT_OFFSET, at),
         }
     }).collect();
     Entry { op: "move again".to_string(), steps }
@@ -83,7 +100,7 @@ fn remove_again(steps: usize) -> Entry {
 fn rename_entry() -> Entry {
     Entry { op: "rename".to_string(), steps: vec![Step::Moved {
         from: PathBuf::from("/home/gm/Work/a.txt"), to: PathBuf::from("/home/gm/Work/b.txt"),
-        before: identity(77, 1), after: identity(78, 1),
+        before: identity(RENAME_BEFORE_SALT, 1), after: identity(RENAME_AFTER_SALT, 1),
     }] }
 }
 
@@ -122,8 +139,9 @@ fn a_push_of_a_thousand_moves_visits_each_stored_step_once() {
     let entry = remove_again(STEPS_PER_MOVE);
     let (result, counts) = measured(|| push_entry(&shared, &entry));
     assert!(matches!(result, Ok(PushResult::Stored)));
-    assert!(counts.visits <= stored, "rebase visited {} steps of a journal of {}", counts.visits, stored);
-    // Each stored identity is compared with the moves that name its own inode only.
+    assert_eq!(counts.visits, stored, "rebase visits every stored step once");
+    // Each stored identity is compared with the moves that name its own inode only; these moves do name stored inodes.
+    assert!(counts.compares > 0, "the second move names stored inodes, so some identity comparison ran");
     assert!(counts.compares <= 2 * stored, "{} identity comparisons for {} stored steps", counts.compares, stored);
     assert_eq!((counts.decodes, counts.renders), (1, 1));
 }
@@ -131,7 +149,7 @@ fn a_push_of_a_thousand_moves_visits_each_stored_step_once() {
 #[test]
 fn an_undo_of_a_thousand_moves_visits_each_stored_step_once() {
     let (_sandbox, shared, _) = fixture("ucost-undo");
-    let big = move_entry(40, STEPS_PER_MOVE);
+    let big = move_entry(UNDONE_MOVE_SALT, STEPS_PER_MOVE);
     assert!(matches!(push_entry(&shared, &big), Ok(PushResult::Stored)));
     let stored = stored_steps(FIXTURE_ENTRIES, FIXTURE_STEPS);
     let (claimed, counts) = measured(|| claim_undo(&shared));
@@ -140,7 +158,10 @@ fn an_undo_of_a_thousand_moves_visits_each_stored_step_once() {
     let changes: Vec<_> = pairs_of(&entry).into_iter().map(|(old, new)| (new, old)).collect();
     let (done, counts) = measured(|| finish_undone(&shared, Some(entry), &changes, gen));
     assert!(done.is_ok());
-    assert!(counts.visits <= stored, "rebase visited {} steps of a journal of {}", counts.visits, stored);
+    // The undone entry is gone before the rebase walks, so it visits exactly the fixture's steps.
+    assert_eq!(counts.visits, stored, "rebase visits every stored step once");
+    // The undone move shares no inode with the fixture, so nothing is compared.
+    assert_eq!(counts.compares, 0, "no stored step names the undone move's inodes");
     assert_eq!((counts.decodes, counts.renders), (1, 1), "a finish decodes and renders once");
 }
 
@@ -152,7 +173,9 @@ fn a_finished_redo_visits_each_stored_step_once() {
     let changes = pairs_of(&entry);
     let (done, counts) = measured(|| finish_redone(&shared, entry, &changes, false));
     assert!(done.is_ok());
-    assert!(counts.visits <= stored, "rebase visited {} steps of a journal of {}", counts.visits, stored);
+    assert_eq!(counts.visits, stored, "rebase visits every stored step once");
+    assert!(counts.compares > 0, "the redone move names stored inodes, so some identity comparison ran");
+    assert!(counts.compares <= 2 * stored, "{} identity comparisons for {} stored steps", counts.compares, stored);
     assert_eq!((counts.decodes, counts.renders), (1, 1));
 }
 
@@ -200,7 +223,7 @@ fn measure_the_cost_of_one_operation_by_journal_size() {
             undoprobe::reset();
             match kind {
                 0 => { let _ = push_entry(&shared, &rename_entry()); }
-                1 => { let _ = push_entry(&shared, &move_entry(900, STEPS_PER_MOVE)); }
+                1 => { let _ = push_entry(&shared, &move_entry(MEASURED_PUSH_SALT, STEPS_PER_MOVE)); }
                 _ => {
                     let (entry, gen) = claim_undo(&shared).unwrap().unwrap();
                     let changes: Vec<_> = pairs_of(&entry).into_iter().map(|(old, new)| (new, old)).collect();

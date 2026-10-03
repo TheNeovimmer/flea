@@ -387,6 +387,8 @@ pub(crate) fn decode_pairs(pairs: &[(String, Json)]) -> Option<Doc> {
 
 // A newer writer owns the file; the reader falls back to memory and never rewrites it.
 pub(crate) fn is_newer_version(text: &str) -> bool {
+    #[cfg(test)]
+    super::undoprobe::decode();
     let Ok(root) = parse(text) else { return false };
     let Some(pairs) = root.as_object() else { return false };
     match get(pairs, "v") {

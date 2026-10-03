@@ -16,6 +16,8 @@ pub(crate) enum Read {
 
 // Sample input: {"v":2,"gen":1,"undo":[],"redo":[]}
 pub(crate) fn read(text: &str) -> Read {
+    #[cfg(test)]
+    super::undoprobe::decode();
     let Ok(root) = parse(text) else { return Read::Malformed };
     let Some(pairs) = root.as_object() else { return Read::Malformed };
     match get(pairs, "v") {

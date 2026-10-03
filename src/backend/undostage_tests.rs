@@ -14,6 +14,33 @@ use std::path::PathBuf;
 // Written by the code before the staged render, from the document fixture_doc builds.
 const GOLDEN: &str = include_str!("../../tests/fixtures/undo-journal-golden.json");
 
+// Multiplier and increment of the test's linear congruential generator (Knuth's MMIX constants).
+const LCG_MULTIPLIER: u64 = 6364136223846793005;
+const LCG_INCREMENT: u64 = 1442695040888963407;
+// The generator's low bits cycle with a short period, so a draw keeps only its top 31 bits.
+const LCG_DRAW_SHIFT: u32 = 33;
+const LCG_SEED: u64 = 11;
+// Trim caps the byte-size test tries are this many bytes apart.
+const TRIM_CAP_STRIDE: usize = 37;
+// Entries added to the fixture document in the trim test, and how much longer each one's path grows.
+const EXTRA_TRIM_ENTRIES: u64 = 6;
+const PATH_GROWTH_PER_ENTRY: usize = 40;
+// The random rebase test: documents tried, and the size of each one.
+const REBASE_ROUNDS: usize = 200;
+const ENTRIES_PER_DOC: usize = 3;
+const STEPS_PER_ENTRY: usize = 4;
+const REDO_STEPS: usize = 3;
+// A batch holds 1 to this many pairs, cycling with the round.
+const MAX_PAIRS_PER_BATCH: usize = 8;
+// A small identity space, so moves collide and chain.
+const INODE_CHOICES: u64 = 5;
+const LEN_CHOICES: u64 = 2;
+const MTIME_CHOICES: i64 = 2;
+const BORN_CHOICES: u64 = 3;
+const STEP_KINDS: u64 = 5;
+// The size cap the staged journal keeps, in MiB.
+const MAX_FILE_MIB: u64 = 32;
+
 fn path(text: &str) -> PathBuf {
     PathBuf::from(text)
 }
@@ -70,11 +97,11 @@ fn old_trim(doc: &mut Doc, cap: u64) {
 #[test]
 fn trimming_by_piece_sizes_keeps_what_trimming_by_whole_renders_kept() {
     let mut doc = fixture_doc();
-    for salt in 0..6u64 {
-        doc.undo.push(Entry { op: format!("op {}", salt), steps: vec![Step::MadeFile { path: path(&format!("/a/{}", "x".repeat(40 * salt as usize + 1))), identity: identity(salt, 1) }] });
+    for salt in 0..EXTRA_TRIM_ENTRIES {
+        doc.undo.push(Entry { op: format!("op {}", salt), steps: vec![Step::MadeFile { path: path(&format!("/a/{}", "x".repeat(PATH_GROWTH_PER_ENTRY * salt as usize + 1))), identity: identity(salt, 1) }] });
     }
     let whole = render(&encode(&doc)).len() as u64;
-    for cap in (0..=whole + 10).step_by(37) {
+    for cap in (0..=whole + 10).step_by(TRIM_CAP_STRIDE) {
         let mut old = Doc { undo: doc.undo.clone(), redo: Vec::new(), push_gen: doc.push_gen };
         old.redo.extend(fixture_doc().redo);
         let mut staged = Staged::new(&old);
@@ -83,23 +110,23 @@ fn trimming_by_piece_sizes_keeps_what_trimming_by_whole_renders_kept() {
         assert_eq!(staged.text(), render(&encode(&old)), "cap {}", cap);
         assert_eq!(staged.fits(cap), render(&encode(&old)).len() as u64 <= cap);
     }
-    assert_eq!(MAX_FILE_BYTES, 32 * 1024 * 1024, "the cap is the old one");
+    assert_eq!(MAX_FILE_BYTES, MAX_FILE_MIB * 1024 * 1024, "the cap is the old one");
 }
 
 // A small identity space, so moves collide and chain: a new identity is often the next move's old one.
 fn lcg(state: &mut u64) -> u64 {
-    *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-    *state >> 33
+    *state = state.wrapping_mul(LCG_MULTIPLIER).wrapping_add(LCG_INCREMENT);
+    *state >> LCG_DRAW_SHIFT
 }
 
 fn small_identity(state: &mut u64) -> ItemIdentity {
-    let born = match lcg(state) % 3 { 0 => None, 1 => Some((1, 1)), _ => Some((2, 2)) };
-    ItemIdentity::from_parts(1, lcg(state) % 5, 0o100000, lcg(state) % 2, (lcg(state) as i64 % 2, 0), (0, 0), born)
+    let born = match lcg(state) % BORN_CHOICES { 0 => None, 1 => Some((1, 1)), _ => Some((2, 2)) };
+    ItemIdentity::from_parts(1, lcg(state) % INODE_CHOICES, 0o100000, lcg(state) % LEN_CHOICES, (lcg(state) as i64 % MTIME_CHOICES, 0), (0, 0), born)
 }
 
 fn small_step(state: &mut u64) -> Step {
     let id = small_identity(state);
-    match lcg(state) % 5 {
+    match lcg(state) % STEP_KINDS {
         0 => Step::Moved { from: path("/f"), to: path("/t"), before: id, after: small_identity(state) },
         1 => Step::Copied { from: path("/f"), to: path("/t"), source: id, created: small_identity(state), manifest: None, manifest_nonce: None },
         2 => Step::MadeFile { path: path("/m"), identity: id },
@@ -110,15 +137,15 @@ fn small_step(state: &mut u64) -> Step {
 
 #[test]
 fn one_batched_rebase_equals_one_rebase_per_pair() {
-    let mut state = 11;
-    for round in 0..200 {
+    let mut state = LCG_SEED;
+    for round in 0..REBASE_ROUNDS {
         let mut doc = empty();
-        for _ in 0..3 {
-            doc.undo.push(Entry { op: "op".to_string(), steps: (0..4).map(|_| small_step(&mut state)).collect() });
-            let saved = (0..3).map(|_| (small_step(&mut state), Some(small_identity(&mut state)), Some((path("/p"), small_identity(&mut state))))).collect();
+        for _ in 0..ENTRIES_PER_DOC {
+            doc.undo.push(Entry { op: "op".to_string(), steps: (0..STEPS_PER_ENTRY).map(|_| small_step(&mut state)).collect() });
+            let saved = (0..REDO_STEPS).map(|_| (small_step(&mut state), Some(small_identity(&mut state)), Some((path("/p"), small_identity(&mut state))))).collect();
             doc.redo.push(StoredRedo::Ok(Replay::from_steps("op".to_string(), saved)));
         }
-        let pairs: Vec<_> = (0..1 + round % 8).map(|_| (small_identity(&mut state), small_identity(&mut state))).collect();
+        let pairs: Vec<_> = (0..1 + round % MAX_PAIRS_PER_BATCH).map(|_| (small_identity(&mut state), small_identity(&mut state))).collect();
         let mut sequential = Doc { undo: doc.undo.clone(), redo: Vec::new(), push_gen: 0 };
         sequential.redo = doc.redo.iter().map(|r| match r {
             StoredRedo::Ok(replay) => { let (op, steps) = replay.steps_data(); StoredRedo::Ok(Replay::from_steps(op, steps)) }
@@ -148,5 +175,8 @@ fn an_ignored_journal_that_a_newer_writer_owns_is_still_refused() {
     std::os::unix::fs::symlink(&target, dir.join(super::undoshare::JOURNAL_FILE)).unwrap();
     let entry = Entry { op: "op".to_string(), steps: vec![Step::Created { path: path("/a") }] };
     assert!(super::undoshare::push_entry(&shared, &entry).is_err(), "a newer file is never rewritten");
-    assert_eq!(std::fs::read_to_string(&target).unwrap(), "{\"v\":3,\"undo\":[],\"redo\":[]}");
+    // A wrong store would rename a fresh file onto the journal path, replacing the link.
+    let journal = dir.join(super::undoshare::JOURNAL_FILE);
+    assert!(journal.symlink_metadata().unwrap().file_type().is_symlink(), "the journal path is still the link");
+    assert_eq!(std::fs::read_link(&journal).unwrap(), target, "the link still points at the newer file");
 }

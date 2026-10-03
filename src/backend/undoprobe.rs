@@ -3,6 +3,7 @@ use std::cell::Cell;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct Counts {
+    // Parses of a journal text.
     pub decodes: u64,
     pub renders: u64,
     // Identity comparisons: one per same_item call.
@@ -33,6 +34,7 @@ pub(crate) fn snapshot() -> Counts {
     COUNTS.with(|cell| cell.get())
 }
 
+// One bump per parse of a journal text, from the parsers themselves.
 pub(crate) fn decode() {
     bump(|c| c.decodes += 1);
 }
