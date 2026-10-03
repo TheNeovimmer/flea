@@ -198,7 +198,7 @@ ShellRoot {
         shell.check(Checks.insetError(rects, md.width, md.insetX, md.insetY, body), "document inset")
         shell.check(Checks.rhythmError(rects, Flea.Theme.spacing.rowPaddingY), "block rhythm")
         shell.check(Checks.headingError(h1, h2, para, body, ink), "heading sizes and ink")
-        shell.check(Checks.lineBoxError(texts, para.boxRatio), "line boxes")
+        shell.check(Checks.lineBoxError(texts), "line boxes")
         shell.check(Checks.quoteBoxError(md.blockItem(shell.blockIndex("quote")), md), "quote bar spans line box")
         var tableIndex = shell.blockIndex("table")
         var table = md.blockList[tableIndex]

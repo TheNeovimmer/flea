@@ -214,14 +214,17 @@ function headingError(h1, h2, para, body, foreground) {
     return "";
 }
 
-// Every line uses MarkdownText's font-derived box and each block spans whole boxes.
-function lineBoxError(items, boxRatio) {
+// The RenderedPreviews board sets Markdown text on a 1.7 line box; the renderer never supplies its own ratio here.
+var BOARD_LINE_BOX_RATIO = 1.7;
+
+// Every line uses the board's box at its font size and each block spans whole boxes.
+function lineBoxError(items) {
     if (items.length === 0)
         return "no run or heading drew its text on a line box";
     for (var i = 0; i < items.length; i++) {
         var t = items[i].text;
         var h = items[i].h;
-        var expected = Math.round(boxRatio * t.font.pixelSize);
+        var expected = Math.round(BOARD_LINE_BOX_RATIO * t.font.pixelSize);
         if (t.box !== expected)
             return items[i].name + " has a " + t.box + " px box, want " + expected + " px at font " + t.font.pixelSize;
         if (!(t.box > 0) || t.lineHeight !== t.box || h < t.box || h % t.box !== 0)

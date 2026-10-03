@@ -97,19 +97,19 @@ function run(check) {
     }
     check("md3t F7 out-of-buffer rect rejected", error.indexOf("1080") >= 0 && error.indexOf("560x1080") >= 0, true)
     var bodyPx = 14
-    var boxRatio = 1.7
     for (var r = 1; r <= 2; r++) {
         var box = Math.round(r * bodyPx)
         check("md3v F1 " + r + ".0 line box rejected", Render.lineBoxError([
             { name: "run", h: box, text: { box: box, lineHeight: box, font: { pixelSize: bodyPx } } }
-        ], boxRatio) !== "", true)
+        ]) !== "", true)
     }
-    var goodBox = Math.round(boxRatio * bodyPx)
+    var goodBox = Math.round(Render.BOARD_LINE_BOX_RATIO * bodyPx)
     check("md3v F1 font-derived box accepted", Render.lineBoxError([
         { name: "run", h: goodBox, text: { box: goodBox, lineHeight: goodBox, font: { pixelSize: bodyPx } } }
-    ], boxRatio), "")
+    ]), "")
     var renderer = Source.source("tests/markdown-render.qml")
-    check("md3v F1 ratio read from MarkdownText", /Checks\.lineBoxError\(texts, \w+\.boxRatio\)/.test(renderer), true)
+    check("md3z F6 board ratio is 1.7", Render.BOARD_LINE_BOX_RATIO, 1.7)
+    check("md3z F6 ratio never read from the renderer", renderer.indexOf("Checks.lineBoxError(texts)") >= 0 && renderer.indexOf("boxRatio") < 0, true)
     check("md3v F3 rhythm read from Theme token", renderer.indexOf("Checks.rhythmError(rects, Flea.Theme.spacing.rowPaddingY)") >= 0, true)
     // Sample input: shell.check(Checks.rhythmError(rects, md.blockGap), "block rhythm").
     var rhythmCall = renderer.match(/shell\.check\(Checks\.rhythmError\([^\n]+/)[0]
