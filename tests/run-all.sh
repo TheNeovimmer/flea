@@ -22,6 +22,8 @@ cargo build -q --release || { printf 'run-all: release build failed, nothing els
 headless="staticgates js keymap-gen charts budget aurpush aur-versions pkgrel-check signalarity empty-state sandbox capability-ownership gio-auth gvfs ops modes update protocol portal archive thumbs thumbs-exec network-open-share network-keyless mount-listing lazy-objects startup-objects connections-style pdf-turn pdf-first preview-decode preview-swap preview-colwork preview-settle-live preview-select uistate uiwriter xwsettings xwstate media filemanager1 dragwire tabcatcher tabreceive sidebarcost shellload bootload xwtab-scan settings-columns preview-frame preview-geometry jump-ui jump-gap picker-recent picker-stall grid-gap rowcost columnscost columnrow-geom columndividers columnsfolder columnspeekgate headercost headerhandles menu-settle menu-snapshot-retire menus-evidence menu-shebang pane-states eject-verdict markdown-render preview-layout-loop lockedmenu arm-prompt acceptance-matrix counts listcost listnamebudget clickedge-origin ui-fixture-home ui-captures-sheet menu-scroll-width scroll-fill columnclip-empty listhidden gridhidden gridcaption statusbar-hint xw-addr xw-harness touchpad fs-matrix-smoke scroll-lanes touchpad-tool touchpad-edge scroll-bounds picker-grid picker-hunt picker-selection permissions-adv permissions-focus scrolloff-view hyprdispatch sidebar-flows menu-clipboard-hunt menu-backend-hunt"
 # capsweep-check runs capsweep-controls.py's capture refusals and capsweep-ipc.py's offscreen readers.
 headless="$headless capsweep-check"
+# Sample input: "FAIL x", "suite: FAIL x" and "a FAIL: x" match, "ok FAILED" and "xFAIL x" do not; the flea-ci contract.
+fail_line='(^|[: ])FAIL[: ]'
 failed=0
 ran=0
 
@@ -34,7 +36,13 @@ for name in $headless; do
     # The suites do not share a summary format, so the last non-empty line is quoted as-is
     # rather than parsed into a number this script would then have to keep true.
     last=$(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -1)
-    if [ "$rc" -eq 0 ]; then
+    # Exit status and output must agree: a suite that exits 0 over a FAIL line still failed.
+    printed=""
+    [ "$rc" -ne 0 ] || printed=$(printf '%s\n' "$out" | grep -a -m1 -E "$fail_line") || printed=""
+    if [ "$rc" -eq 0 ] && [ -n "$printed" ]; then
+        printf '  %-14s FAIL   rc=0 but its output holds a FAIL line: %s\n' "$name" "$printed"
+        failed=$((failed + 1))
+    elif [ "$rc" -eq 0 ]; then
         printf '  %-14s ok     %s\n' "$name" "$last"
     else
         printf '  %-14s FAIL   rc=%s  %s\n' "$name" "$rc" "$last"

@@ -105,12 +105,22 @@ ShellRoot {
             property var kindNames: []
             property bool recent: false
             property bool folderMode: false
+            // A plain single-file request: no multi-select, so the product's marksAllowed is false.
+            property bool marksAllowed: false
+            property bool showHidden: false
+            property string sortBy: "name"
+            property bool sortDesc: false
+            property real windowLead: 0.25
             property int windowSize: 35
             property int coalesceMs: 16
             property bool backendUnavailable: true
             property int pendingListings: 0
             function rowFor(index) { return (index >= 0 && index < rows.length) ? rows[index] : null }
             function toggleMark(index) {}
+            function endRange() {}
+            function markRange(from, to) {}
+            function selectAll() {}
+            function setView(mode) {}
             function doubleActivate(index, rowPath, firstPath) {}
             function activate(index) {}
             function goUp() {}

@@ -45,18 +45,28 @@ grep -q 'TEAROFF PASS stubExited=true sourceTabs=2' <<< "$output" || exit 1
 echo 'tabcatcher: geometry, launch ack and tear-off checks passed'
 
 # Failed geometry loading or creation must report failure and kill the probe before its timer dereferences null.
+# Print the probe's expected failure line with the FAIL verdict word reworded, so only a real failure reads as one.
+expected_failure_line() {
+    local line
+    line=$(grep -oE "GEOMETRY FAIL $1=.*" "$2" | head -n 1 | sed -E 's/\x1b\[[0-9;]*m//g')
+    printf 'expected: %s\n' "${line//FAIL/failed}"
+}
 for failure in load create; do
     rm -f "$probe/config/geometry.qml"
     if [[ "$failure" == create ]]; then
         printf 'import QtQuick\nItem { required property string needed }\n' > "$probe/config/geometry.qml"
     fi
+    captured="$probe/geometry-$failure.log"
+    # A substitution keeps the shell's own "Terminated" job notice (the probe kills itself on failure) out of the log.
     output=$(run_probe)
     status=$?
-    printf '%s\n' "$output"
-    if [[ "$status" == 124 ]] || ! grep -q "GEOMETRY FAIL $failure=" <<< "$output" \
-        || grep -qE 'TypeError|GEOMETRY PASS' <<< "$output"; then
+    printf '%s\n' "$output" > "$captured"
+    if [[ "$status" == 124 ]] || ! grep -q "GEOMETRY FAIL $failure=" "$captured" \
+        || grep -qE 'TypeError|GEOMETRY PASS' "$captured"; then
+        cat "$captured"
         echo "FAIL geometry $failure must report failure and exit without a null dereference (status=$status)"
         exit 1
     fi
+    expected_failure_line "$failure" "$captured"
     echo "ok geometry $failure reports failure and exits before timeout"
 done

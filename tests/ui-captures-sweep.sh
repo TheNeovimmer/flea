@@ -442,10 +442,8 @@ sweep_windows() {
         [[ "$address" =~ ^0x[0-9a-fA-F]+$ ]] || fail 'capsweep: invalid window address'
         # Sample input: {"pid":123,"address":"0xabc","floating":true}.
         if ! jq -e .floating <<< "$client" >/dev/null; then omarchy-drive window float "$address" >/dev/null; fi
-        result=$(hyprctl dispatch "hl.dsp.window.resize({ x = $width, y = $height, exact = true, window = \"address:$address\" })")
-        [[ "$result" == ok* ]] || fail "capsweep: half-screen resize refused: $result"
-        result=$(hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $ay, exact = true, window = \"address:$address\" })")
-        [[ "$result" == ok* ]] || fail "capsweep: half-screen placement refused: $result"
+        result=$(hypr_window_resize "$address" "$width" "$height" 2>&1) || fail "capsweep: half-screen resize refused: $result"
+        result=$(hypr_window_move "$address" "$x" "$ay" 2>&1) || fail "capsweep: half-screen placement refused: $result"
         end=$((SECONDS + placement_wait_seconds))
         while (( SECONDS < end )); do
             # Sample input: 0 0 960 1080, the owned window's logical x, y, width and height.
