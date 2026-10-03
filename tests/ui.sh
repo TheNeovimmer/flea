@@ -11167,7 +11167,7 @@ xwtab_cleanup() {
     xwtab_restore_place
 }
 
-# Hyprland never re-enters the source, so own returns and desktop drops land on the catcher.
+# A desktop drop must enter the catcher while the button is still held.
 xwtab_wait_catcher() {
     local i lines
     for i in $(seq 1 30); do
@@ -11177,6 +11177,22 @@ xwtab_wait_catcher() {
         sleep 0.1
     done
     fail "xwtab: no catcher enter after platform start"
+}
+xwtab_own_attempts=30 # Match the catcher wait's held-phase bound.
+xwtab_own_poll=0.1 # Match the catcher wait's trace polling interval.
+xwtab_own_trace_tail=10 # Keep the last source receipts in a timeout diagnostic.
+# An own return may enter the catcher or re-enter the source strip while the button is held.
+xwtab_wait_own_enter() {
+    local attempt lines
+    for attempt in $(seq 1 "$xwtab_own_attempts"); do
+        lines=$(xwtab_trace_lines | grep -aE "TABDRAG .* pid=$xwtab_source( |$)" || true)
+        grep -aq 'TABDRAG drag-finished' <<< "$lines" && fail "xwtab: source $xwtab_source ended before catcher-enter or own enter-strip ok=true"
+        if grep -aq 'TABDRAG catcher-enter' <<< "$lines" \
+            || grep -aqE 'TABDRAG enter-strip .* ok=true( |$)' <<< "$lines"; then return 0; fi
+        sleep "$xwtab_own_poll"
+    done
+    printf '%s\n' "${lines:-(no TABDRAG lines for source $xwtab_source since press)}" | tail -n "$xwtab_own_trace_tail" >&2
+    fail "xwtab: source $xwtab_source reached neither TABDRAG catcher-enter nor TABDRAG enter-strip ok=true after platform start within $xwtab_own_attempts polls"
 }
 xwtab_wait_outcome() {
     local outcome="$1" i
@@ -11216,6 +11232,8 @@ xwtab_drag_to_window() {
     xwdrag_glide "$dx" "$dy"
     if [[ "$mode" == catcher ]]; then
         xwtab_wait_catcher
+    elif [[ "$mode" == own ]]; then
+        xwtab_wait_own_enter
     elif [[ "$mode" == refused ]]; then
         xwtab_wait_refused "$bpid" held
     else
@@ -11547,7 +11565,7 @@ sys.exit(1 if contains(json.load(sys.stdin)) else 0)
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre after Escape"
     # The first tab's left quarter inserts before it; its centre is the next insertion slot.
     ox=$((ox - (sx - ox) / 4))
-    xwtab_drag_to_window "$sx" "$sy" "$ox" "$oy" "$apid" "$apid" catcher
+    xwtab_drag_to_window "$sx" "$sy" "$ox" "$oy" "$apid" "$apid" own
     xwtab_wait_own_return
     for i in $(seq 1 40); do [[ "$(xwdrag_qs "$aid" tabIndex 2>/dev/null)" == 0 ]] && break; sleep 0.1; done
     [[ "$(xwdrag_qs "$aid" tabIndex 2>/dev/null)" == 0 ]] || fail "xwtab: own-strip drop did not reorder the active tab"

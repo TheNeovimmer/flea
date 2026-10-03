@@ -307,6 +307,92 @@ sleep() { :; }
 xwtab_trace_lines() { echo 'TABDRAG drag-finished pid=101 action=0'; }
 ''' + 'xwtab_wait_cancel')
     check('cancel receipt while held satisfies Escape wait', result.returncode == 0, result.stdout + result.stderr)
+
+    own_test_attempts = 2
+    own_source_pid = 101
+    own_other_pid = 202
+    source_log = scratch / 'flea.log'
+    target_log = scratch / 'flea-second.log'
+    own_constants = UI[UI.index('xwtab_own_attempts='):UI.index('xwtab_wait_own_enter()')]
+    own_helpers = '\n'.join(function(UI, name) for name in
+                            ('xwtab_trace_lines', 'xwtab_wait_own_enter'))
+    own_double = f'''
+xwtab_source={own_source_pid}
+xwtab_logs=('{source_log}' '{target_log}')
+xwtab_marks=(1 0)
+xwtab_own_attempts={own_test_attempts}
+fail() {{ printf 'FAIL %s\\n' "$*"; exit 1; }}
+sleep() {{ printf '%s\\n' "$1" >> '{log}'; }}
+'''
+    catcher_receipt = f'qml: TABDRAG catcher-enter pid={own_source_pid} global=501,106\n'
+    strip_receipt = f'qml: TABDRAG enter-strip pid={own_source_pid} formats=application/x-flea-tab ok=true\n'
+    finished_receipt = f'qml: TABDRAG drag-finished pid={own_source_pid} action=0\n'
+    stale_receipt = strip_receipt.rstrip('\n') + ' old=true\n'
+    for name, trace, succeeds in (
+            ('accepts catcher-enter alone', catcher_receipt, True),
+            ('accepts source enter-strip ok=true alone', strip_receipt, True),
+            ('refuses source enter-strip ok=false', strip_receipt.replace('ok=true', 'ok=false'), False),
+            ('refuses another pid enter-strip', strip_receipt.replace(str(own_source_pid), str(own_other_pid)), False),
+            ('refuses a pid prefix enter-strip', strip_receipt.replace(f'pid={own_source_pid}', f'pid={own_source_pid}0'), False),
+            ('refuses drag-finished', finished_receipt, False),
+            ('refuses drag-finished after catcher-enter', catcher_receipt + finished_receipt, False),
+            ('refuses drag-finished after enter-strip', strip_receipt + finished_receipt, False),
+            ('refuses receipts before the press mark', '', False)):
+        source_log.write_text(stale_receipt + trace)
+        target_log.write_text('')
+        log.write_text('')
+        result = shell(own_constants + own_helpers + own_double + '\nxwtab_wait_own_enter\n')
+        detail = result.stdout + result.stderr
+        polls = log.read_text().splitlines()
+        if succeeds:
+            condition = result.returncode == 0 and not polls
+        elif finished_receipt in trace:
+            condition = result.returncode != 0 and not polls and 'ended before' in detail
+        else:
+            condition = (result.returncode != 0 and len(polls) == own_test_attempts
+                         and 'TABDRAG catcher-enter' in result.stdout
+                         and 'TABDRAG enter-strip ok=true' in result.stdout)
+        check('own held wait ' + name, condition, detail + ' polls=' + repr(polls))
+        if 'ok=false' in trace:
+            check('own held timeout prints the last source trace', trace.rstrip('\n') in result.stderr, detail)
+
+    own_leg = UI[UI.index('    # Out and back onto the own strip reorders'):UI.index('    # A drop on B\'s listing is refused')]
+    own_gesture = next(line for line in own_leg.splitlines() if line.strip().startswith('xwtab_drag_to_window '))
+    check('own-return leg uses own held wait', own_gesture.endswith('"$apid" "$apid" own'), own_gesture)
+    desktop_leg = UI[UI.index('    # B\'s new tab torn off'):UI.index('    xwtab_wait_outcome tearoff')]
+    check('desktop tear-off keeps catcher held wait', '"$bpid" desktop catcher' in desktop_leg)
+    gesture_helpers = '\n'.join(function(UI, name) for name in
+                               ('xwtab_mark_logs', 'xwtab_wait_start', 'xwtab_wait_catcher',
+                                'xwtab_drag_to_window', 'xwtab_release'))
+    gesture_constants = UI[UI.index('xwtab_outside_x='):UI.index('xwtab_mark_logs()')]
+    for name, receipt in (('catcher-enter', catcher_receipt), ('source enter-strip ok=true', strip_receipt)):
+        source_log.write_text(stale_receipt)
+        target_log.write_text('')
+        log.write_text('')
+        result = shell(gesture_constants + own_constants + own_helpers + '\n' + gesture_helpers + own_double + f'''
+apid=$xwtab_source
+sx=501; sy=106; ox=401; oy=106
+fixture_source_rect='40 80 1000 720'
+fixture_receipt={shlex.quote(receipt)}
+xwtab_button_down=false
+xwdrag_geometry() {{ printf '%s\\n' "$fixture_source_rect"; }}
+xwdrag_glide() {{
+    if [[ "$xwtab_button_down" == true && "$1 $2" == "$ox $oy" ]]; then
+        printf '%s' "$fixture_receipt" >> '{source_log}'
+    fi
+}}
+ydotool() {{
+    if [[ "$2" == 0x40 ]]; then
+        printf 'TABDRAG drag-start pid=%s index=1\\n' "$apid" >> '{source_log}'
+    else
+        printf 'release\\n' >> '{log}'
+    fi
+}}
+''' + own_gesture + '\n[[ "$xwtab_button_down" == false ]]\n')
+        check('own-return gesture accepts ' + name + ' before release',
+              result.returncode == 0 and log.read_text().splitlines() == ['release'],
+              result.stdout + result.stderr + log.read_text())
+
     listing_leg = UI[UI.index('    # A drop on B\'s listing is refused'):UI.index('    # A drop onto a foreign receiver is refused')]
     check('listing refusal requires cursor and refusal proof', '"$apid" "$bpid" refused' in listing_leg)
     move_leg = UI[UI.index('    # B has one tab'):UI.index('    # B\'s new tab torn off')]
