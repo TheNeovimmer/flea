@@ -4,6 +4,7 @@ set -uo pipefail
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
 command -v qs >/dev/null || { printf 'FAIL startup-objects: qs is required\n'; exit 1; }
+command -v dbus-run-session >/dev/null || { printf 'FAIL startup-objects: dbus-run-session is required\n'; exit 1; }
 test_root="$FIXTURE_ROOT/flea-startup-objects-$$"
 sandbox_make "$test_root"
 cleanup() { sandbox_remove "$test_root"; }
@@ -35,6 +36,8 @@ esac
 SH
 chmod +x "$test_root/bin/gio" || exit 1
 log="$test_root/startup.log"
+# The shell starts the GVfs trash daemon, so it gets its own bus; on the inherited one a later suite's first trash goes unlisted.
+# The bus and its daemons write to bus.log, so their own warnings never reach the engine-warning scan of the qs log.
 ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u QML_DISABLE_DISK_CACHE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$PWD/target/debug/flea" \
@@ -42,7 +45,7 @@ log="$test_root/startup.log"
     PATH="$test_root/bin:$PATH" STARTUP_OBJECTS_LEG_TIMEOUT_SECONDS="$leg_timeout_seconds" \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 QML_IMPORT_TRACE=1 \
     QT_LOGGING_RULES='qt.qml.diskcache*=true' \
-    timeout "$probe_timeout_seconds" qs -p "$test_root/config" > "$log" 2>&1 ) 2>/dev/null
+    dbus-run-session -- bash -c 'timeout "$1" qs -p "$2" > "$3" 2>&1' _ "$probe_timeout_seconds" "$test_root/config" "$log" 2> "$test_root/bus.log" ) 2>/dev/null
 status=$?
 grep -a 'STARTUP_OBJECTS' "$log" || true
 if [ "$status" -ne 0 ] && [ "$status" -ne 143 ]; then

@@ -200,6 +200,7 @@ menus_confirmation() {
 menus_permissions() {
     local name="$1" preset="$2" actual
     menus_file_menu "$name"
+    menus_expect menuState 'any(.entries[]; .action == "permissions" and (.disabled == false) and (.errored | not))' "regular-file Permissions is enabled without error"
     menus_choose permissions pointer
     menus_expect permissionsState '.opened and .editable and .mode == "0644"' "permissions reads actual file mode"
     menus_shot "$preset-permissions"
@@ -621,6 +622,9 @@ case_menuscoverage() (
         menus_confirmation a.txt "$preset"
         menus_permissions a.txt "$preset"
         menus_dialog_keys "$preset"
+        menus_file_menu folder
+        menus_expect menuState 'any(.entries[]; .action == "permissions" and (.disabled == false) and (.errored | not))' "directory Permissions is enabled without error"
+        key -k Escape >/dev/null
         menus_file_menu link
         menus_expect menuState 'any(.entries[]; .action == "permissions" and .disabled and .errored and .hint == null)' "symlink permissions reads red with no sentence"
         key -k Escape >/dev/null
@@ -633,8 +637,27 @@ case_menuscoverage() (
         menus_expect selectionCount '. == 2' "Ctrl-click creates two selected items before menu eligibility"
         menus_expect dualState ".panes[.focused].selected == [$first_index,$second_index]" "selected identities are a.txt and b.txt"
         click_row "$(row_index_of a.txt)" right
-        menus_expect menuState '.entries as $entries | ["rename","duplicate","openWith","properties","permissions"] | all(.[]; . as $action | any($entries[]; .action == $action and .disabled))' "multi-selection eligibility"
+        # Permissions takes the whole selection (board Permissions040), so two regular files enable it; the four single-item rows stay disabled.
+        menus_expect menuState '.opened and .hasRow and .snapshotReady and (.snapshotId > 0) and (.entries as $entries | ["rename","duplicate","openWith","properties"] | all(.[]; . as $action | any($entries[]; .action == $action and .disabled)))' "multi-selection single-item rows stay disabled"
+        menus_expect menuState 'any(.entries[]; .action == "permissions" and (.disabled == false) and (.errored | not))' "two regular files keep Permissions enabled without error"
         key -k Escape >/dev/null
+        # permissionsEntry refuses the whole selection for one row that is neither a regular file nor a directory.
+        for target in folder link; do
+            first_index=$(row_index_of a.txt)
+            second_index=$(row_index_of "$target")
+            click_row "$first_index" left
+            menus_expect dualState ".panes[.focused].selected == [$first_index]" "Permissions pair starts with a.txt alone"
+            click_row "$second_index" left --mods ctrl
+            menus_expect selectionCount '. == 2' "Permissions pair selects a.txt and $target"
+            menus_expect dualState "(.panes[.focused].selected | sort) == ([$first_index,$second_index] | sort)" "Permissions pair holds the a.txt and $target identities"
+            click_row "$first_index" right
+            if [[ "$target" == folder ]]; then
+                menus_expect menuState '.opened and .hasRow and .snapshotReady and (.snapshotId > 0) and any(.entries[]; .action == "permissions" and (.disabled == false) and (.errored | not))' "a file and a directory keep Permissions enabled without error"
+            else
+                menus_expect menuState '.opened and .hasRow and .snapshotReady and (.snapshotId > 0) and any(.entries[]; .action == "permissions" and .disabled and .errored and .hint == null)' "one symlink disables and errors Permissions for the whole selection"
+            fi
+            key -k Escape >/dev/null
+        done
         key -k Escape >/dev/null
         menus_actions "$preset"
         kill_flea

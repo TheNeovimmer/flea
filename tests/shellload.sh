@@ -16,6 +16,8 @@ if ! command -v qs >/dev/null; then
     exit 1
 fi
 
+command -v dbus-run-session >/dev/null || { echo "shellload.sh: dbus-run-session is required, the shell's Trash monitor must not touch the inherited bus"; exit 1; }
+
 . "$PWD/tools/flea-sandbox-guard"
 sandbox_forbidden /tmp && sandbox_refuse "shellload: /tmp is inside a forbidden test target"
 shellload_root=$(mktemp -d /tmp/flea-shellload.XXXXXXXX) || exit 1
@@ -52,6 +54,7 @@ shellload_bin=${FLEA_BIN:-$PWD/target/debug/flea}
 log="$shellload_root/shell.log"
 sandbox_require "$log"
 
+# The shell starts the GVfs trash daemon, so it gets its own bus; on the inherited one a later suite's first trash goes unlisted.
 # Offscreen and with no compositor, so this needs neither the display nor the display lock. A shell
 # does not exit on its own, so the timeout expiring is the success path and 124 is not a failure.
 # Seconds: generous enough for a cold QML compile on a loaded box, short enough for the battery.
@@ -62,7 +65,7 @@ env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT 
     XDG_CACHE_HOME="$shellload_work/cache" XDG_RUNTIME_DIR="$shellload_work/runtime" TMPDIR="$shellload_work/tmp" \
     FLEA_PATH="$shellload_work/fixture" FLEA_BIN="$shellload_bin" \
     QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
-    timeout "$load_seconds" qs -p "$PWD/ui/boot" >"$log" 2>&1
+    dbus-run-session -- timeout "$load_seconds" qs -p "$PWD/ui/boot" >"$log" 2>&1
 status=$?
 
 if [ "$status" -eq 124 ]; then

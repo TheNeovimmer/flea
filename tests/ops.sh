@@ -5,16 +5,26 @@ set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 
 cd "$(dirname "$0")/.." || exit 1
+# Trash runs on this run's own session bus, whose daemons take the sandbox's home, so no earlier suite's gvfsd answers and no real trash is touched.
+if [ "${FLEA_OPS_BUS:-}" != 1 ]; then
+  command -v dbus-run-session >/dev/null || { echo 'ops.sh: dbus-run-session is required for isolated Trash' >&2; exit 1; }
+  FLEA_OPS_BASE="$FIXTURE_ROOT/flea-ops-bus-$$"
+  sandbox_make "$FLEA_OPS_BASE"
+  mkdir -p "$FLEA_OPS_BASE/home" "$FLEA_OPS_BASE/data" || exit 1
+  # The script itself keeps the real HOME, which the sandbox guard checks; only the bus and its daemons take the sandbox's.
+  exec env HOME="$FLEA_OPS_BASE/home" XDG_DATA_HOME="$FLEA_OPS_BASE/data" dbus-run-session -- \
+    env FLEA_OPS_BUS=1 FLEA_OPS_BASE="$FLEA_OPS_BASE" HOME="$HOME" bash "$0" "$@"
+fi
 BIN=./target/debug/flea
 # Without this every case below drives a missing binary and reports the result as a product failure.
 [ -x "$BIN" ] || { echo "ops.sh: $BIN is missing, run cargo build" >&2; exit 1; }
-D="$FIXTURE_ROOT/flea-ops-test-$$"
+D="$FLEA_OPS_BASE/run"
 fail=0
 
 cleanup() {
   exec 3>&- 2>/dev/null
   [ -n "${BACKEND_PID:-}" ] && kill "$BACKEND_PID" 2>/dev/null
-  sandbox_remove "$D"
+  sandbox_remove "$FLEA_OPS_BASE"
 }
 trap cleanup EXIT
 
@@ -36,7 +46,7 @@ start_backend() {
   rm -f "$D/out"; : > "$D/out"
   mkfifo "$D/in"
   sandbox_remove "$D/rt"; mkdir -p "$D/rt"
-  XDG_RUNTIME_DIR="$D/rt" $BIN --backend < "$D/in" > "$D/out" 2>/dev/null &
+  HOME="$FLEA_OPS_BASE/home" XDG_DATA_HOME="$FLEA_OPS_BASE/data" XDG_RUNTIME_DIR="$D/rt" $BIN --backend < "$D/in" > "$D/out" 2>/dev/null &
   BACKEND_PID=$!
   exec 3> "$D/in"
 }
