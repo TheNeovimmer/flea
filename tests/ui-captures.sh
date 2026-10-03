@@ -322,7 +322,8 @@ case_cap_sidebar() {
 # CommandPalette: rest, then the shipped perm specimen; tag belongs to 0.3.9.
 case_cap_sheet() {
     local dir="$fixture_root/cap-sheet"
-    local sheet_rows
+    local sheet_rows query="perm" end
+    local clear_wait_s=10
     sandbox_scratch "$dir"
     : > "$dir/a.txt"
     : > "$dir/b.txt"
@@ -347,8 +348,13 @@ case_cap_sheet() {
         || fail "cap_sheet: the perm query lists no delete permanently row"
     shot cap-sheet-query
     key -k Escape >/dev/null
-    omarchy-drive wait ipc -p "$flea_ui/boot" flea keymapQuery "" --timeout 10 >/dev/null \
-        || fail "cap_sheet: Escape did not clear the query"
+    end=$((SECONDS + clear_wait_s))
+    while (( SECONDS < end )); do
+        query=$(ipc keymapQuery) || fail "cap_sheet: keymapQuery failed after Escape"
+        [[ "$query" == "" ]] && break
+        settle
+    done
+    [[ "$query" == "" ]] || fail "cap_sheet: Escape did not clear the query, last value '$query'"
     printf 'CAP_SHEET rest=ok query=perm\n'
     kill_flea
 }
