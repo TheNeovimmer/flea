@@ -117,6 +117,8 @@ function run(check) {
     Reload.landed(idle)
     check("an ordinary navigation owes no notice", idle.said.length + "|" + idle.reloadFrom, "0|-1")
 
+    sidebarReplyOrder(check)
+
     // The listed line's changed count reaches the listed signal PaneSwap reads; a missing one reads unknown.
     var routed = []
     var fake = { dirDev: 0, dirWritable: true,
@@ -136,4 +138,70 @@ function run(check) {
     check("the list request sends wantChanged only when asked", backendList.indexOf("wantChanged: wantChanged === true") >= 0, true)
     check("Backend declares changed on its listed signal", backend.indexOf("signal listed(int total, real readMs, real sortMs, string path, var changed)") >= 0, true)
     check("PaneSwap applyListed declares the changed count", swapListed.indexOf("function applyListed(total, readMs, sortMs, path, changed)") === 0, true)
+}
+
+// Execute the suite's reload steps with a reply inside keyClick and with a reply delivered later.
+function sidebarReplyOrder(check) {
+    var source = Source.source("tests/sidebar-flows.qml")
+    var steps = Source.slice(source, "function reloadChecks(mode) {", "\n    Timer {")
+    var observer = source.match(/function onReloadFromChanged\(\) \{([^\n]*)\}/)
+    var readySource = source.match(/function ready\(path\) \{([^\n]*)\}/)[1]
+    function scenario(inline, omitCtrlArm) {
+        var root = { fixture: "/fixture", reloadStage: 0, beforeLists: 0,
+            reloadNotice: { from: -1, total: 0 }, observedMessages: [], pick: function () {} }
+        var pane = { path: root.fixture, viewMode: "list", listingState: "ready", listInFlight: false,
+            total: 4, held: 0, windowSize: 40, cursorIndex: 0, filterQuery: "", searchMode: "", recentMode: "",
+            reloadChanged: -1, cursorRow: { n: "a.txt" }, rowFor: function () { return this.cursorRow },
+            backend: { listRequests: 0 },
+            openWithoutHistory: function () { this.listInFlight = true; this.reloadFrom = -1; this.backend.listRequests++ },
+            message: function (text) { root.observedMessages.push(text) } }
+        var from = -1
+        var heard = observer ? new Function("root", "pane", observer[1]) : function () {}
+        Object.defineProperty(pane, "reloadFrom", {
+            get: function () { return from },
+            set: function (value) { if (value !== from) { from = value; heard(root, pane) } }
+        })
+        var failures = []
+        var assertions = 0
+        var qt = { Key_F5: 1, Key_R: 2, ControlModifier: 4 }
+        function verify(label, actual, expected) {
+            assertions++
+            if (JSON.stringify(actual) !== JSON.stringify(expected)) failures.push(label + ": got " + JSON.stringify(actual) + ", expected " + JSON.stringify(expected))
+        }
+        var ready = new Function("pane", "return function(path) {" + readySource + "}")(pane)
+        var runStep = new Function("root", "pane", "Qt", "ready", "check", "fixture", "return " + steps)(root, pane, qt, ready, verify, root.fixture)
+        function land() {
+            pane.reloadChanged = pane.backend.listRequests === 1 ? 1 : 0
+            pane.total = 5
+            Reload.landed(pane)
+            pane.listInFlight = false
+        }
+        root.press = function (key) {
+            if (omitCtrlArm && key === qt.Key_R) pane.openWithoutHistory()
+            else Reload.begin(pane, { anchor: null })
+            if (inline) land()
+        }
+        check("reload probe keeps the F5 step pending", runStep("list"), false)
+        if (!inline) {
+            var before = assertions
+            check("reload probe waits on listInFlight before F5 assertions", runStep("list"), false)
+            check("reload probe makes no assertions before F5 completes", assertions, before)
+            land()
+        }
+        check("reload probe keeps the CtrlR step pending", runStep("list"), false)
+        if (!inline) {
+            before = assertions
+            check("reload probe waits on listInFlight before CtrlR assertions", runStep("list"), false)
+            check("reload probe makes no assertions before CtrlR completes", assertions, before)
+            land()
+        }
+        check("reload probe ends after CtrlR completion", runStep("list"), true)
+        if (omitCtrlArm) {
+            check("reload probe rejects a CtrlR that never armed its own notice", failures.length, 1)
+            check("reload probe names the missing CtrlR arm", failures[0].indexOf("reload-notice-CtrlR-list"), 0)
+        } else check("reload probe handles " + (inline ? "reply before key return" : "reply after key return"), failures.join(" | "), "")
+    }
+    scenario(true, false)
+    scenario(false, false)
+    scenario(true, true)
 }

@@ -19,6 +19,7 @@ ShellRoot {
     property bool executing: false
     property int beforeLists: 0
     property int reloadStage: 0
+    property var reloadNotice: ({ from: -1, total: 0 })
     property var observedMessages: []
     property bool mutationDone: false
     property string cursorBeforeRail: ""
@@ -81,6 +82,8 @@ ShellRoot {
     }
     Connections {
         target: root.pane
+        // keyClick can deliver rows before returning, so record arming when it happens.
+        function onReloadFromChanged() { if (pane.reloadFrom >= 0) root.reloadNotice = { from: pane.reloadFrom, total: root.reloadNotice.total } }
         function onMessage(text, isError) { root.observedMessages = root.observedMessages.concat([text]) }
     }
     Process {
@@ -345,24 +348,26 @@ ShellRoot {
         if (root.reloadStage === 0) {
             root.pick("a.txt")
             root.beforeLists = pane.backend.listRequests
-            var total = pane.total
+            root.reloadNotice = { from: -1, total: pane.total }
             root.press(Qt.Key_F5)
             check("reload-F5-" + mode + ": sends one re-list", pane.backend.listRequests - root.beforeLists, 1)
-            check("reload-notice-F5-" + mode + ": arms changed-row notice", pane.reloadFrom, total)
             root.reloadStage = 1
             return false
         }
         if (root.reloadStage === 1) {
+            check("reload-notice-F5-" + mode + ": arms changed-row notice", root.reloadNotice.from, root.reloadNotice.total)
+            check("reload-complete-F5-" + mode + ": spends its notice", pane.reloadFrom, -1)
             check("reload-anchor-" + mode + ": keeps the cursor name", pane.cursorRow.n, "a.txt")
             if (mode === "list") check("reload-changed-count: added row is reported", root.observedMessages.indexOf("Reloaded · 1 row changed") >= 0, true)
             root.beforeLists = pane.backend.listRequests
-            total = pane.total
+            root.reloadNotice = { from: -1, total: pane.total }
             root.press(Qt.Key_R, Qt.ControlModifier)
             check("reload-CtrlR-" + mode + ": sends one re-list", pane.backend.listRequests - root.beforeLists, 1)
-            check("reload-notice-CtrlR-" + mode + ": arms changed-row notice", pane.reloadFrom, total)
             root.reloadStage = 2
             return false
         }
+        check("reload-notice-CtrlR-" + mode + ": arms changed-row notice", root.reloadNotice.from, root.reloadNotice.total)
+        check("reload-complete-CtrlR-" + mode + ": spends its notice", pane.reloadFrom, -1)
         root.reloadStage = 0
         return true
     }
