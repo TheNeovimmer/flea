@@ -344,6 +344,8 @@ function handleKey(event, root, sidebar) {
         return Filter.typeKey(event, root)
     }
     var action = lookup(event, root)
+    // A key that means an action ends a pending slow click, so its rename never lands after that key's result; a bare modifier means none.
+    if (action.length > 0 && root.cancelSlowClick) root.cancelSlowClick()
     // With escape-up on Escape cancels an armed trash or a live vim pair and stops, with it off Escape disarms through the sequence and runs its own action.
     var escapeCancelsArm = action === "escape" && root.escapeUp === true
         && (root.trashArmedAt > 0 || (ARMED_PAIRS[root.keySequence] === true && root.keySequenceIdentity === stampOf(root)))

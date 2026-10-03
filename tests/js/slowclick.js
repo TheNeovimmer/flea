@@ -1,5 +1,6 @@
 .import "../../ui/js/SlowClick.js" as SlowClick
 .import "../../ui/js/Tap.js" as Tap
+.import "../../ui/js/Focus.js" as Focus
 .import "sourcefixture.js" as Source
 
 // Slow-click rename shared by the three views: tap arms a pane timer, double click cancels, fire renames a still-held sole row.
@@ -31,6 +32,28 @@ function root() {
         cancelled: 0,
         cancelSlowClick: function () { this.cancelled += 1; SlowClick.cancel(this) }
     }
+}
+
+// The pane members Focus.handleKey reads on its way to dispatch, over root()'s slow-click state; act records the action.
+function keyed() {
+    var pane = root()
+    pane.focusView = "list"
+    pane.viewMode = "list"
+    pane.recentMode = ""
+    pane.filterTyping = false
+    pane.listInFlight = false
+    pane.shown = null
+    pane.inputAt = 0
+    pane.rowsAt = 0
+    pane.trashArmedAt = 0
+    pane.keySequence = ""
+    pane.keySequenceIdentity = ""
+    pane.preview = { active: false, isMedia: false, isPdf: false }
+    pane.shareBrowser = { active: false }
+    pane.sidebar = { renameEditor: function () { return null } }
+    pane.renameEditor = function () { return null }
+    pane.message = function () {}
+    return pane
 }
 
 function run(check) {
@@ -196,6 +219,30 @@ function run(check) {
     check("a menu request cancels the slow click", menureq.slowClickIndex, -2)
     check("and it ran through the pane", menureq.cancelled, 1)
 
+    // A key the pane handles disarms a pending slow click, so the key's result is never followed by an editor.
+    var armedKeys = [["Return", Qt.Key_Return, "\r", none, "open"], ["Space", Qt.Key_Space, " ", none, "preview"],
+                     ["Delete", Qt.Key_Delete, "", none, "trash"], ["Shift+F10", Qt.Key_F10, "", Qt.ShiftModifier, "menu"]]
+    for (var k = 0; k < armedKeys.length; k++) {
+        var pending = keyed()
+        SlowClick.arm(pending, 4, none, 1000, 400)
+        SlowClick.arm(pending, 4, none, 1500, 400)
+        Focus.handleKey({ key: armedKeys[k][1], text: armedKeys[k][2], modifiers: armedKeys[k][3] }, pending, pending.sidebar)
+        check(armedKeys[k][0] + " reaches its action", pending.did.join(","), armedKeys[k][4])
+        check(armedKeys[k][0] + " disarms the pending slow click", pending.cancelled, 1)
+        check("and the timer then renames nothing after " + armedKeys[k][0], SlowClick.fire(pending), false)
+    }
+    // An armed slow click left alone still renames.
+    var alone = keyed()
+    SlowClick.arm(alone, 4, none, 1000, 400)
+    SlowClick.arm(alone, 4, none, 1500, 400)
+    check("an armed slow click left alone still renames", SlowClick.fire(alone), true)
+    // A key held by the rename editor is not the pane's, and a bare modifier is no action.
+    var shiftOnly = keyed()
+    SlowClick.arm(shiftOnly, 4, none, 1000, 400)
+    SlowClick.arm(shiftOnly, 4, none, 1500, 400)
+    Focus.handleKey({ key: Qt.Key_Shift, text: "", modifiers: Qt.ShiftModifier }, shiftOnly, shiftOnly.sidebar)
+    check("a bare modifier press leaves the slow click armed", SlowClick.fire(shiftOnly), true)
+
     // wasSoleSelection reads O(1) facts, never the whole index array a select-all would build.
     var calls = 0
     var counted = root()
@@ -236,6 +283,10 @@ function run(check) {
     var pane = Source.source("ui/Pane.qml")
     check("a press stops the timer without clearing the tap record",
           pane.indexOf("function pressSlowClick() { slowClickTimer.stop() }") >= 0, true)
+    check("the pane's act disarms the slow click before it dispatches",
+          Source.slice(pane, "function act(action, menuId, paths, context) {", "if (trashHost.confirming)").indexOf("cancelSlowClick()") >= 0, true)
+    check("the key handler disarms it for every key that means an action",
+          Source.slice(Source.source("ui/js/Focus.js"), "var action = lookup(event, root)", "action = sequenceAction(").indexOf("root.cancelSlowClick()") >= 0, true)
     check("a cancel stops the timer and clears the tap record",
           pane.indexOf("function cancelSlowClick() { slowClickTimer.stop(); SlowClick.cancel(root) }") >= 0, true)
     // A press on empty ground holds the button past the interval, so it stops the pane timer too.

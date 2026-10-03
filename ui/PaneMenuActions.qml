@@ -205,12 +205,13 @@ Loader {
         pane.backend.send({c: "menuaction", op: "snapshot", id: requestId,
             rows: rows !== undefined ? rows : Ops.targetIndices(pane), cursor: pane.cursorIndex})
     }
-    // A ready snapshot opens the editor at once; anything else takes the F2 route.
+    // A ready snapshot over the same selection opens the editor at once, one still in flight takes the F2 route, and a moved selection refuses as activate does.
     function openRenameFromMenu() {
         if (pane.renamePending) { pane.message("Rename is still finishing.", false); return }
         if (deleting || survivorId) { pane.message("The deletion is still finishing.", false); return }
-        if (Ops.menuRenameNow(ready, identity, pane.menuSelectionIdentity)
-                && pane.contextMenu().validateChoice("rename", "")) {
+        var route = Ops.menuRenameRoute(ready, identity, pane.menuSelectionIdentity)
+        if (route === "stale") { pane.message("Selected items changed; reopen the menu.", true); return }
+        if (route === "now" && pane.contextMenu().validateChoice("rename", "")) {
             show("rename")
             return
         }
