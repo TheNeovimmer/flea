@@ -337,8 +337,7 @@ ShellRoot {
             shell.check("reopen:notch-dropped", mh5.notchAccum === 0, String(mh5.notchAccum))
             shell.check("reopen:pixel-dropped", mh5.pixelAccum === 0, String(mh5.pixelAccum))
             shell.check("reopen:touch-dropped", mh5.stepAccum === 0, String(mh5.stepAccum))
-            // At shipped defaults c opens a lone flyout because Copy as is hidden. The main
-            // frame must close that flyout before its wheel step, just as for a visible parent.
+            // The main frame closes the hidden Copy as flyout before spending its wheel step.
             menu.openAt(Qt.point(20, 20))
             var loneOpened = menu.openSubmenuFor("copyAs")
             shell.check("hunt:lone-copy-opens", loneOpened && menu.loneFlyoutAction === "copyAs",

@@ -226,9 +226,10 @@ FocusScope {
 
     // The cut or copied paths, absolute because a paste lands in a different directory; see ui/js/Ops.js.
     property var clipboard: Ops.emptyClipboard()
-    // The mode of an askPaths round trip in flight, or null; nothing reaches the clipboard until it answers.
+    // The outstanding ordered clipboard request, or null; late replies cannot publish an older choice.
     property var clipPending: null
-    property var clipQueued: null
+    property var clipQueue: []
+    property int clipSequence: 0
     // Which asker a pending paths reply belongs to, null meaning the clipboard, which is what every
     // reply meant before compress also had to resolve a selection wider than this pane holds.
     property var pathsPending: null

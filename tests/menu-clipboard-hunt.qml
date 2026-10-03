@@ -2,21 +2,24 @@
 
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import "flea" as Flea
 import "flea/js/Keymap.js" as Keymap
 import "flea/js/Menu.js" as Menu
 
-// Real window body and backend. Each invocation owns a fresh process; the shell driver
-// supplies a shared clipboard-helper double and checks publication between invocations.
+// Each real window and backend share the driver's clipboard-helper double across invocations.
 ShellRoot {
     id: shell
     property int stage: 0
     property int ticks: 0
     property string action: Quickshell.env("FLEA_HUNT_ACTION")
+    property string source: Quickshell.env("FLEA_HUNT_SOURCE")
     property string destination: Quickshell.env("FLEA_HUNT_DEST")
     property var messages: []
     property bool quitting: false
     property int leafIndex: 0
+    readonly property int artifactStage: 20
+    readonly property var linkLeaves: ({pasteas: "pasteLink", "pasteas-absolute": "pasteAbsoluteLink", "pasteas-hard": "pasteHardLink"})
     readonly property var copyLeaves: ["copyPath", "copyName", "copyStem", "copydirpath", "copyUri", "copyQuoted"]
     readonly property var pane: body.currentPane
 
@@ -37,6 +40,16 @@ ShellRoot {
     Connections {
         target: shell.pane
         function onMessage(text, isError) { shell.messages.push({text: text, error: isError}) }
+    }
+    Process {
+        id: artifactCheck
+        command: ["python3", Quickshell.env("FLEA_HUNT_CHECKS"), "files", shell.action, shell.source, shell.destination]
+        stdout: StdioCollector { onStreamFinished: shell.log(this.text.trim()) }
+        onExited: function(exitCode, exitStatus) {
+            shell.log((exitCode === 0 ? "PASS" : "FAIL") + " local-" + shell.action + " filesystem-result")
+            shell.log("DONE action=" + shell.action)
+            shell.quit()
+        }
     }
     Timer {
         interval: 100
@@ -147,7 +160,12 @@ ShellRoot {
             stage = 1
             ticks = 0
         } else if (stage === 1 && pane.clipboard.paths.length === 2) {
-            log("PASS local-" + action + " paths=" + pane.clipboard.paths.join("|") + " moving=" + pane.clipboard.moving)
+            if (pane.clipboard.moving !== (action === "cut")) {
+                log("FAIL local-" + action + " wrong moving=" + pane.clipboard.moving)
+                quit()
+                return
+            }
+            log("INFO local-" + action + " paths=" + pane.clipboard.paths.join("|") + " moving=" + pane.clipboard.moving)
             // Publication may be asynchronous. Wait a full second after paths have resolved.
             stage = 2
             ticks = 0
@@ -163,37 +181,30 @@ ShellRoot {
                 + " paste-as-destination action=" + linkAction + " opened=" + pane.contextMenu().opened
                 + " flyout=" + pane.contextMenu().submenuOpen + " messages=" + JSON.stringify(messages))
             pane.contextMenu().close()
-            if (action === "pasteas") {
+            if (action.indexOf("pasteas") === 0) {
                 pane.act("pasteAs")
                 stage = 12
                 ticks = 0
                 return
             }
-            // Positive control: the clipboard filled by this window reaches the real collision
-            // and transfer path, proving the fresh-window failure is not a broken backend.
+            // Positive control drives the real transfer path with this window's internal clipboard.
             pane.act("paste")
             log((pane.collide.pending ? "PASS" : "FAIL") + " local-paste-asks-for-files pending="
                 + JSON.stringify(pane.collide.pending))
             stage = 4
             ticks = 0
         } else if (stage === 4 && ticks >= 10) {
-            log((pane.total === 2 ? "PASS" : "FAIL") + " local-paste-lands-files total=" + pane.total)
-            log("DONE action=" + action)
-            quit()
+            if (pane.total !== 2) log("FAIL local-paste-lands-files total=" + pane.total)
+            stage = artifactStage
+            artifactCheck.running = true
         } else if (stage === 12 && pane.menuActions.ready && pane.contextMenu().submenuOpen) {
-            pane.contextMenu().chooseSub("pasteLink")
+            pane.contextMenu().chooseSub(linkLeaves[action])
             stage = 13
             ticks = 0
         } else if (stage === 13 && ticks >= 10) {
-            log((pane.total === 3 || pane.collide.pending ? "PASS" : "FAIL")
-                + " hidden-paste-as-links total=" + pane.total + " messages=" + JSON.stringify(messages))
-            if (pane.total !== 3 && !pane.collide.pending) pane.pasteLink("relative", null)
-            stage = 14
-            ticks = 0
-        } else if (stage === 14 && ticks >= 10) {
-            log((pane.total === 3 ? "PASS" : "FAIL") + " direct-paste-link-control total=" + pane.total)
-            log("DONE action=" + action)
-            quit()
+            if (pane.total !== 3) log("FAIL hidden-paste-as-links total=" + pane.total + " messages=" + JSON.stringify(messages))
+            stage = artifactStage
+            artifactCheck.running = true
         }
     }
 }

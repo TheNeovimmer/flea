@@ -168,7 +168,7 @@ function run(check) {
     // The condition on opening Pane.qml: one paths reply now has two possible askers, and the
     // clipboard is the one that already worked. An unclaimed reply must still land where it always did.
     var clipPane = windowedPane([])
-    clipPane.clipPending = true
+    Ops.clip(clipPane, true)
     Ops.pathsResolved(clipPane, ["/d/a", "/d/b"])
     check("a paths reply with nothing pending still reaches the clipboard",
           clipPane.clipboard ? clipPane.clipboard.paths.length + "/" + clipPane.clipboard.moving : "lost",

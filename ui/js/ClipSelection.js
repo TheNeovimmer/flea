@@ -1,36 +1,55 @@
 .pragma library
 
-// Only one untagged paths reply may be outstanding; the latest overlapping selection waits with its own verb.
-function take(pane, moving, paths, indices, copied) {
-    if (paths) {
-        pane.clipboard = { paths: paths, moving: moving }
-        pane.clipQueued = pane.clipPending !== null ? { paths: paths, moving: moving } : null
-        pane.message(copied(paths.length, moving), false)
-        return
-    }
-    if (pane.clipPending !== null) {
-        pane.clipQueued = { rows: indices.slice(), moving: moving, path: pane.path, listing: pane.backend.heldListing }
-        return
-    }
-    pane.clipPending = moving
-    pane.backend.askPaths(indices)
+function publish(pane, request, copied) {
+    if (request.sequence !== pane.clipSequence) return
+    pane.clipboard = { paths: request.paths, moving: request.moving }
+    pane.message(copied(request.paths.length, request.moving), false)
 }
 
-// A resolved menu choice already replaced the clipboard; an older reply cannot replace it again.
-function resolved(pane, list, copied) {
-    if (pane.clipPending === null) return
-    var moving = pane.clipPending
-    var queued = pane.clipQueued
-    pane.clipPending = null
-    pane.clipQueued = null
-    if (queued && queued.paths) return
-    pane.clipboard = { paths: list, moving: moving }
-    pane.message(copied(list.length, moving), false)
-    if (!queued) return
-    if (queued.path !== pane.path || queued.listing !== pane.backend.heldListing || pane.listInFlight) {
-        pane.message("Selected items changed; copy or cut again.", false)
+// Untagged paths replies resolve one queued request at a time; only the newest choice publishes.
+function drain(pane) {
+    if (pane.clipPending !== null) return
+    var queue = (pane.clipQueue || []).slice()
+    while (queue.length) {
+        var request = queue[0]
+        if (request.paths !== null || request.sequence !== pane.clipSequence) {
+            queue.shift()
+            continue
+        }
+        if (request.path !== pane.path || request.listing !== pane.backend.heldListing || pane.listInFlight) {
+            queue.shift()
+            pane.message("Selected items changed; copy or cut again.", false)
+            continue
+        }
+        pane.clipQueue = queue
+        pane.clipPending = request
+        pane.backend.askPaths(request.rows)
         return
     }
-    pane.clipPending = queued.moving
-    pane.backend.askPaths(queued.rows)
+    pane.clipQueue = queue
+}
+
+function take(pane, moving, paths, indices, copied) {
+    pane.clipSequence = (pane.clipSequence || 0) + 1
+    var request = { sequence: pane.clipSequence, moving: moving, paths: paths ? paths.slice() : null,
+        rows: paths ? null : indices.slice(), path: pane.path, listing: pane.backend.heldListing }
+    pane.clipQueue = (pane.clipQueue || []).concat([request])
+    if (request.paths !== null) publish(pane, request, copied)
+    drain(pane)
+}
+
+function resolved(pane, list, copied) {
+    if (pane.clipPending === null) return
+    var sequence = pane.clipPending.sequence
+    var queue = (pane.clipQueue || []).slice()
+    for (var i = 0; i < queue.length; i++) {
+        if (queue[i].sequence !== sequence) continue
+        var request = Object.assign({}, queue[i], { paths: list.slice() })
+        queue[i] = request
+        publish(pane, request, copied)
+        break
+    }
+    pane.clipQueue = queue
+    pane.clipPending = null
+    drain(pane)
 }

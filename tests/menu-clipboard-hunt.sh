@@ -9,7 +9,7 @@ test_root=$(mktemp -d "$SANDBOX_ROOT/flea-menu-clipboard-hunt.XXXXXX") || exit 1
 : > "$test_root/$SANDBOX_MARKER" || exit 1
 cleanup() { sandbox_remove "$test_root"; }
 trap cleanup EXIT
-mkdir -p "$test_root"/{home,state,data,cache,runtime,config,bin,source,copy-dest,cut-dest,paste-dest,pasteas-dest,original-dest} || exit 1
+mkdir -p "$test_root"/{home,state,data,cache,runtime,config,bin,source,copy-dest,cut-dest,paste-dest,pasteas-dest,pasteas-absolute-dest,pasteas-hard-dest,original-dest} || exit 1
 chmod 700 "$test_root/runtime" || exit 1
 ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
@@ -17,7 +17,9 @@ ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/menu-clipboard-hunt.qml "$test_root/config/shell.qml" || exit 1
 printf 'alpha contents\n' > "$test_root/source/alpha.txt"
 printf 'beta contents\n' > "$test_root/source/beta.txt"
-printf 'canary contents\n' > "$test_root/pasteas-dest/canary.txt"
+for link_dest in pasteas pasteas-absolute pasteas-hard; do
+    printf 'canary contents\n' > "$test_root/$link_dest-dest/canary.txt"
+done
 ln -s ../source/alpha.txt "$test_root/original-dest/file-link" || exit 1
 ln -s / "$test_root/original-dest/root-link" || exit 1
 # Deterministic versions of the existing clipboard helpers, no compositor or foreign clipboard.
@@ -52,7 +54,7 @@ chmod +x "$test_root/bin/flea-hunt" || exit 1
 failed=0
 checks=0
 failures=0
-for action in copy cut paste copyas-list copyas-grid copyas-columns terminal pasteas original; do
+for action in copy paste cut copyas-list copyas-grid copyas-columns terminal pasteas pasteas-absolute pasteas-hard original; do
     printf 'alpha contents\n' > "$test_root/source/alpha.txt"
     printf 'beta contents\n' > "$test_root/source/beta.txt"
     start="$test_root/source"
@@ -60,14 +62,19 @@ for action in copy cut paste copyas-list copyas-grid copyas-columns terminal pas
     [ "$action" = original ] && start="$test_root/original-dest"
     dest="$test_root/$action-dest"
     [ "$action" = terminal ] && dest="$test_root/copy-dest"
-    # Another application's file clipboard holds both sources before the browser starts.
-    printf 'file://%s/source/alpha.txt\nfile://%s/source/beta.txt\n' "$test_root" "$test_root" > "$test_root/clipboard"
+    # Fresh-window Paste consumes Copy's publication without replacing it with fixture paths.
+    if [[ "$action" == copy || "$action" == cut ]]; then
+        : > "$test_root/clipboard"
+    elif [[ "$action" != paste ]]; then
+        printf 'file://%s/source/alpha.txt\nfile://%s/source/beta.txt\n' "$test_root" "$test_root" > "$test_root/clipboard"
+    fi
     : > "$test_root/clipboard.calls"
     output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
         HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CONFIG_HOME="$test_root/home/config" \
         XDG_DATA_HOME="$test_root/data" XDG_CACHE_HOME="$test_root/cache" XDG_RUNTIME_DIR="$test_root/runtime" \
         PATH="$test_root/bin:$PATH" FLEA_BIN="$test_root/bin/flea-hunt" FLEA_HUNT_REAL_BIN="$PWD/target/debug/flea" FLEA_PATH="$start" \
         FLEA_HUNT_ACTION="$action" FLEA_HUNT_DEST="$dest" FLEA_HUNT_CLIPBOARD="$test_root/clipboard" \
+        FLEA_HUNT_SOURCE="$test_root/source" FLEA_HUNT_CHECKS="$PWD/tests/menu-clipboard-checks.py" \
         QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 timeout 30 qs -p "$test_root/config" 2>&1)
     code=$?
     printf '%s\n' "$output" | grep -a 'CLIPHUNT'
@@ -81,15 +88,17 @@ for action in copy cut paste copyas-list copyas-grid copyas-columns terminal pas
         failed=1
         failures=$((failures + 1))
     fi
-    if [[ "$action" == copy || "$action" == cut ]]; then checks=$((checks + 1)); fi
-    if [[ "$action" == copy || "$action" == cut ]] && [ ! -s "$test_root/clipboard.calls" ]; then
-        printf 'FAIL %s never published either selected file to the system clipboard\n' "$action"
-        failed=1
-        failures=$((failures + 1))
+    if [[ "$action" == copy || "$action" == cut ]]; then
+        checks=$((checks + 1))
+        if ! python3 tests/menu-clipboard-checks.py publication "$action" "$test_root/clipboard.calls" "$test_root/source"; then
+            failed=1
+            failures=$((failures + 1))
+        fi
     fi
     if printf '%s\n' "$output" | grep -aq 'CLIPHUNT FAIL'; then failed=1; fi
     if [[ "$action" == copyas-* ]]; then
         checks=$((checks + 1))
+        # Sample input: {"text":"/source/alpha.txt\n/source/beta.txt"} is one Copy as publication.
         python3 - "$test_root/clipboard.calls" "$test_root/source" <<'PY'
 import json, pathlib, sys
 calls = [json.loads(line)["text"] for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
@@ -105,14 +114,21 @@ print("PASS six Copy as leaves and Ctrl+Shift+C copied both selected files")
 PY
         if [ "$?" -ne 0 ]; then failed=1; failures=$((failures + 1)); fi
     elif [[ "$action" != terminal && "$action" != original ]]; then
-    for file in alpha.txt beta.txt; do
-        checks=$((checks + 1))
-        if [ ! -f "$test_root/$action-dest/$file" ]; then
-            printf 'FAIL %s destination lacks %s\n' "$action" "$file"
-            failed=1
-            failures=$((failures + 1))
+        for file in alpha.txt beta.txt; do
+            checks=$((checks + 1))
+            if [ ! -f "$test_root/$action-dest/$file" ]; then
+                printf 'FAIL %s destination lacks %s\n' "$action" "$file"
+                failed=1
+                failures=$((failures + 1))
+            fi
+        done
+        if [[ "$action" == cut || "$action" == pasteas* ]]; then
+            checks=$((checks + 1))
+            if ! python3 tests/menu-clipboard-checks.py files "$action" "$test_root/source" "$dest"; then
+                failed=1
+                failures=$((failures + 1))
+            fi
         fi
-    done
     fi
     # Offscreen cannot set window masks; every other runtime error is significant.
     warnings=$(printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|WARN|ERROR' \

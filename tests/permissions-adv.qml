@@ -13,12 +13,23 @@ ShellRoot {
     property int phase: 0
     property int refreshes: 0
     property int changes: 0
+    readonly property int titleRuleCount: 1
+    readonly property int singleRuleCount: 4
+    readonly property real sectionRuleOpacity: 0.4
 
     function log(line) { console.log("PERMADV " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
     function check(name, cond, detail) {
         if (cond) shell.log("PASS " + name)
         else shell.failures.push(name + " got " + detail)
+    }
+
+    function visibleSections(item, result) {
+        if (!item.visible) return result
+        if (item.text === "WILL CHANGE") result.headers += 1
+        if (item.height === Flea.Theme.spacing.hairline && item.opacity === sectionRuleOpacity) result.rules += 1
+        for (var i = 0; i < item.children.length; i++) visibleSections(item.children[i], result)
+        return result
     }
 
     Item {
@@ -179,9 +190,7 @@ ShellRoot {
             var marked9 = shell.sent.length
             dialog.openMany(["/a", "/b"], holder)
             shell.answerInspects(marked9, "0644", "", "0644", "")
-            // Make executable uses the same backend signal with ids starting at 1000000.
-            // Its reply may arrive after another card opens, and belongs to neither this card
-            // nor an Apply that this card has issued.
+            // Make executable replies arriving after another card opens belong to neither its inspect nor its Apply.
             var changes9 = shell.changes
             dialog.receive({op: "applyMany", id: dialog.requestId, ok: true})
             shell.check("hunt:matching-id-without-apply-keeps-card", dialog.opened && shell.changes === changes9,
@@ -208,10 +217,26 @@ ShellRoot {
             shell.check("hunt:matching-batch-reply-closes-card", !dialog.opened, "opened=" + dialog.opened)
             shell.phase = 11
         } else if (shell.phase === 11) {
+            var marked11 = shell.sent.length
+            dialog.openMany(["/a", "/b", "/c"], holder)
+            for (var fi = marked11; fi < shell.sent.length; fi++)
+                dialog.receiveMany({op: "inspect", id: shell.sent[fi].id, ok: true, mode: "0644", reason: ""})
+            shell.phase = 12
+        } else if (shell.phase === 12) {
+            var multiSections = visibleSections(dialog.cardItem, {headers: 0, rules: 0})
+            shell.check("r1:multi-has-no-preview-header", multiSections.headers === 0, JSON.stringify(multiSections))
+            shell.check("r1:multi-keeps-only-title-rule", multiSections.rules === titleRuleCount, JSON.stringify(multiSections))
+            dialog.open("/a", holder)
+            dialog.receive({op: "inspect", id: dialog.requestId, ok: true, mode: "0644", reason: ""})
+            shell.phase = 13
+        } else if (shell.phase === 13) {
+            var singleSections = visibleSections(dialog.cardItem, {headers: 0, rules: 0})
+            shell.check("r1:single-keeps-preview-header", singleSections.headers === 1, JSON.stringify(singleSections))
+            shell.check("r1:single-keeps-section-rules", singleSections.rules === singleRuleCount, JSON.stringify(singleSections))
             for (var i = 0; i < shell.failures.length; i++)
                 shell.log("FAIL " + shell.failures[i])
             shell.log("DONE failures=" + shell.failures.length)
-            shell.phase = 12
+            shell.phase = 14
             shell.quit()
         }
     }

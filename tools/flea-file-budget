@@ -94,10 +94,10 @@ ui/NetworkDialog.qml 445
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 849
 ui/OpenWithDialog.qml 607
-ui/Pane.qml 1013
+ui/Pane.qml 1014
 ui/PaneMenuActions.qml 464
 ui/PaneWire.qml 559
-ui/PermissionsDialog.qml 629
+ui/PermissionsDialog.qml 632
 ui/PickerWindow.qml 781
 ui/Preview.qml 723
 ui/PreviewColumn.qml 574

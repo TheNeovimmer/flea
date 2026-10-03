@@ -43,6 +43,23 @@ function executable(check, state, entry, actions) {
 }
 
 function clipboard(check, pathsPane) {
+    var raceSent = [], race = pathsPane(raceSent), raceAt = 0
+    race.selectedIndices = function () { return [raceAt] }
+    Ops.clip(race, true)
+    Ops.clip(race, false, ["/d/B"])
+    raceAt = 2
+    Ops.clip(race, false)
+    Ops.pathsResolved(race, ["/d/A"])
+    check("r1: Cut A reply preserves resolved Copy B while Copy C waits", JSON.stringify(race.clipboard),
+          JSON.stringify({paths: ["/d/B"], moving: false}))
+    Ops.paste(race)
+    check("r1: Paste copies B and never moves A", JSON.stringify(race.asked[0]),
+          JSON.stringify({c: "transfer", op: "copy", paths: ["/d/B"], dest: "/d"}))
+    check("r1: queued Copy C resolves its own rows", JSON.stringify(raceSent[1].rows), "[2]")
+    Ops.pathsResolved(race, ["/d/C"])
+    Ops.paste(race)
+    check("r1: newest Copy C wins after resolving", JSON.stringify(race.asked[1]),
+          JSON.stringify({c: "transfer", op: "copy", paths: ["/d/C"], dest: "/d"}))
     var cutSent = []
     var cutPane = pathsPane(cutSent)
     cutPane.pathsPending = { kind: "drag" }
@@ -53,19 +70,20 @@ function clipboard(check, pathsPane) {
     // An overlapping Cut cannot rewrite the outstanding Copy verb.
     var overlapSent = []
     var overlapPane = pathsPane(overlapSent)
+    overlapPane.clipboard = {paths: ["/d/before"], moving: false}
     var overlapAt = 0
     overlapPane.selectedIndices = function () { return [overlapAt] }
     Ops.clip(overlapPane, false)
     overlapAt = 1
     Ops.clip(overlapPane, true)
-    check("hunt: pending Copy refuses a second Cut", overlapSent.length, 1)
+    check("hunt: pending Copy queues a second Cut", overlapSent.length, 1)
     Ops.pathsResolved(overlapPane, ["/d/f0"])
-    check("hunt: previous Copy never becomes a Cut of the previous selection",
+    check("hunt: older Copy reply preserves the previous clipboard",
           overlapPane.clipboard.moving, false)
     Ops.paste(overlapPane)
-    check("hunt: Paste never moves the earlier Copy after a later Cut",
+    check("hunt: Paste uses the previous clipboard while the latest Cut waits",
           JSON.stringify(overlapPane.asked[0]),
-          JSON.stringify({ c: "transfer", op: "copy", paths: ["/d/f0"], dest: "/d" }))
+          JSON.stringify({ c: "transfer", op: "copy", paths: ["/d/before"], dest: "/d" }))
     check("hunt: deferred Cut asks for its own selection", JSON.stringify(overlapSent[1]),
           JSON.stringify({ c: "paths", rows: [1] }))
     Ops.pathsResolved(overlapPane, ["/d/f1"])
@@ -99,5 +117,5 @@ function clipboard(check, pathsPane) {
     stale.backend.heldListing = 2
     Ops.pathsResolved(stale, ["/d/f0"])
     check("hunt: deferred row numbers cannot follow a re-list", staleSent.length, 1)
-    check("hunt: stale deferred selection leaves the earlier Copy intact", stale.clipboard.moving, false)
+    check("hunt: stale deferred selection never publishes the older Copy", stale.clipboard, null)
 }

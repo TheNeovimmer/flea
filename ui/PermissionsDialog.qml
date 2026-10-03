@@ -388,7 +388,7 @@ FocusScope {
                     Text { id: nameLabel; width: parent.width - Theme.markSize - kindLabel.width - 2 * parent.spacing; anchors.verticalCenter: parent.verticalCenter; text: root.path.split("/").pop(); elide: Text.ElideMiddle; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
                     Text { id: kindLabel; anchors.verticalCenter: parent.verticalCenter; text: root.facts.ok ? (root.facts.directory ? "directory" : "file") : ""; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.caption } }
                 }
-                Rectangle { width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4 }
+                Rectangle { visible: !root.isMulti; width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4 }
                 Row {
                     width: parent.width
                     height: root.headingHeight
@@ -451,6 +451,7 @@ FocusScope {
                 }
                 Item {
                     width: parent.width
+                    visible: !root.isMulti
                     height: Theme.spacing.rowPaddingY + Theme.settings.railPaddingY / 2 + Theme.spacing.hairline
                     Rectangle { y: Theme.settings.railPaddingY / 2; width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4 }
                 }
@@ -548,10 +549,12 @@ FocusScope {
                 }
                 Item {
                     width: parent.width
+                    visible: !root.isMulti
                     height: Theme.settings.railPaddingY + Theme.spacing.gap + Theme.spacing.hairline
                     Rectangle { y: Theme.settings.railPaddingY; width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4 }
                 }
                 Text {
+                    visible: !root.isMulti
                     text: "WILL CHANGE"
                     bottomPadding: Theme.spacing.rowPaddingY / 2
                     textFormat: Text.PlainText
