@@ -663,6 +663,36 @@ click_row() {
     omarchy-drive click "$((cx + wx))" "$((cy + wy))" "$@" >/dev/null
 }
 
+click_row_name() {
+    local index="$1"; shift
+    local centre cx cy wx wy ww wh
+    centre=$(ipc rowNameCentre "$index")
+    [[ -n "$centre" ]] || fail "row $index has no on-screen name centre"
+    read -r cx cy <<< "$centre"
+    read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
+    omarchy-drive click "$((cx + wx))" "$((cy + wy))" "$@" >/dev/null
+}
+
+click_row_beside_name() {
+    local index="$1"; shift
+    local rx ry rw rh nx ny nw nh cx cy wx wy ww wh
+    read -r rx ry rw rh <<< "$(ipc rowRect "$index")"
+    read -r nx ny nw nh <<< "$(ipc rowNameRect "$index")"
+    [[ "$rx $ry $rw $rh $nx $ny $nw $nh" =~ ^-?[0-9]+(\ -?[0-9]+){7}$ ]] \
+        || fail "row $index has no row and name rectangles"
+    cx=$((rx + rw / 2)); cy=$((ry + rh / 2))
+    if (( nx + nw < rx + rw )); then cx=$(((nx + nw + rx + rw) / 2))
+    elif (( nx > rx )); then cx=$(((rx + nx) / 2))
+    elif (( ny > ry )); then cy=$(((ry + ny) / 2))
+    elif (( ny + nh < ry + rh )); then cy=$(((ny + nh + ry + rh) / 2))
+    else fail "row $index has no point outside its name"; fi
+    (( cx > rx && cx < rx + rw && cy > ry && cy < ry + rh \
+        && (cx < nx || cx >= nx + nw || cy < ny || cy >= ny + nh) )) \
+        || fail "row $index's non-name point $cx,$cy is outside the row or inside the name"
+    read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
+    omarchy-drive click "$((cx + wx))" "$((cy + wy))" "$@" >/dev/null
+}
+
 # Steps the menu cursor onto a row by its label rather than by a hardcoded number of Downs, so a
 # case survives the operations design's own rows landing between the ones it cares about.
 menu_seek() {
@@ -2314,6 +2344,44 @@ case_clickedge() {
     launch "$dir"
     export PATH="$saved_path"
     wait_listing 150
+    clickedge_slow_name() {
+        local ax ay aw ah whole_last slow slow_name before_slow after_blank after_slow
+        key -k Home >/dev/null || fail "clickedge: key Home was rejected"
+        settle
+        read -r ax ay aw ah <<< "$(ipc listAreaRect)"
+        whole_last=$(last_whole_row "$(ipc total)" "$ay" "$ah")
+        (( whole_last >= 1 )) || fail "clickedge: $mode found no whole rows, last $whole_last"
+        slow=$((whole_last - 1))
+        slow_name=$(ipc visibleRowName "$slow")
+        [[ -n "$slow_name" ]] || fail "clickedge: $mode slow row $slow names nothing"
+        before_slow=$(ipc viewContentY)
+        click_row_name "$slow" left
+        settle
+        [[ "$(ipc selectedIndices)" == "$slow" ]] || fail "clickedge: $mode row $slow is not the sole selection"
+        sleep "$slow_click_gap_s"
+        click_row_beside_name "$slow" left
+        settle
+        sleep "$slow_click_gap_s"
+        after_blank=$(ipc viewContentY)
+        printf 'CLICKEDGE %s non-name row=%s before=%s after=%s live=%s\n' "$mode" "$slow" "$before_slow" "$after_blank" "$(ipc renameEditorLive)"
+        [[ "$(ipc renameEditorLive)" == "false" ]] || fail "clickedge: $mode a slow non-name click opened rename on row $slow"
+        [[ "$(ipc renamingIndex)" == "-1" ]] || fail "clickedge: $mode a slow non-name click armed rename on row $slow"
+        [[ "$(ipc selectedIndices)" == "$slow" ]] || fail "clickedge: $mode the non-name click changed the sole selection"
+        [[ "$after_blank" == "$before_slow" ]] || fail "clickedge: $mode the non-name click scrolled $before_slow to $after_blank"
+        click_row_name "$slow" left
+        settle
+        sleep "$slow_click_gap_s"
+        click_row_name "$slow" left
+        for _attempt in $(seq 1 100); do
+            [[ "$(ipc renameEditorLive)" == "true" ]] && break
+            sleep 0.05
+        done
+        after_slow=$(ipc viewContentY)
+        printf 'CLICKEDGE %s rename row=%s before=%s after=%s live=%s\n' "$mode" "$slow" "$before_slow" "$after_slow" "$(ipc renameEditorLive)"
+        [[ "$(ipc renameEditorLive)" == "true" ]] || fail "clickedge: $mode the slow click never opened rename on row $slow"
+        [[ "$(ipc renamingIndex)" == "$slow" ]] || fail "clickedge: $mode the slow click renamed another row"
+        [[ "$after_slow" == "$before_slow" ]] || fail "clickedge: $mode the slow click scrolled $before_slow to $after_slow"
+    }
     for mode in list columns; do
         if [[ "$mode" != list ]]; then
             click_chrome "$mode"
@@ -2415,29 +2483,8 @@ case_clickedge() {
             printf 'CLICKEDGE %s cut double opened=%q contentY=%s\n' "$mode" "$(cat "$opened")" "$(ipc viewContentY)"
             grep -q "^OPENED $dir/$cut_name$" "$opened" || fail "clickedge: $mode a double click on the cut row did not open $cut_name, log $(cat "$opened")"
         fi
-        # A slow click begins a rename and moves nothing: the reveal carries context 0.
-        key -k Home >/dev/null || fail "clickedge: key Home was rejected"
-        settle
-        read -r ax ay aw ah <<< "$(ipc listAreaRect)"
-        local whole_last
-        whole_last=$(last_whole_row "$visible" "$ay" "$ah")
-        (( whole_last >= 1 )) || fail "clickedge: $mode found no whole rows, last $whole_last"
-        local slow=$((whole_last - 1)) slow_name before_slow after_slow
-        slow_name=$(ipc visibleRowName "$slow")
-        [[ -n "$slow_name" ]] || fail "clickedge: $mode slow row $slow names nothing"
-        before_slow=$(ipc viewContentY)
-        click_row "$slow" left
-        settle
-        sleep "$slow_click_gap_s"
-        click_row "$slow" left
-        for _attempt in $(seq 1 100); do
-            [[ "$(ipc renameEditorLive)" == "true" ]] && break
-            sleep 0.05
-        done
-        after_slow=$(ipc viewContentY)
-        printf 'CLICKEDGE %s rename row=%s before=%s after=%s live=%s\n' "$mode" "$slow" "$before_slow" "$after_slow" "$(ipc renameEditorLive)"
-        [[ "$(ipc renameEditorLive)" == "true" ]] || fail "clickedge: $mode the slow click never opened rename on row $slow"
-        [[ "$after_slow" == "$before_slow" ]] || fail "clickedge: $mode the slow click scrolled $before_slow to $after_slow"
+        # A slow click renames only on the name, and neither target scrolls.
+        clickedge_slow_name
         # An in-place error expands the editor, and the reveal carries context 0 so it stays under the pointer.
         key -M ctrl -k a -m ctrl -k BackSpace >/dev/null || fail "clickedge: $mode clearing the rename draft failed"
         key "bad/name" >/dev/null || fail "clickedge: $mode typing the slash name failed"
@@ -2453,12 +2500,13 @@ case_clickedge() {
         key -k Escape >/dev/null || fail "clickedge: key Escape was rejected"
         settle
         [[ "$(ipc renameEditorLive)" == "false" ]] || fail "clickedge: $mode Escape left the rename open"
-        printf 'CLICKEDGE %s rename cancelled row=%s contentY=%s\n' "$mode" "$slow" "$(ipc viewContentY)"
+        printf 'CLICKEDGE %s rename cancelled row=%s contentY=%s\n' "$mode" "$(ipc cursor)" "$(ipc viewContentY)"
         # A band drag releases without scrolling: the press starts in the scroll lane past the row's right edge.
         key -k Home >/dev/null || fail "clickedge: key Home was rejected"
         settle
         [[ "$(ipc viewContentY)" == "0" ]] || fail "clickedge: $mode Home did not return to the top before the band, contentY $(ipc viewContentY)"
         read -r ax ay aw ah <<< "$(ipc listAreaRect)"
+        local whole_last
         whole_last=$(last_whole_row "$visible" "$ay" "$ah")
         local upper=2
         (( whole_last > upper + 1 )) || fail "clickedge: $mode the window holds no band span, last whole $whole_last"
@@ -2480,6 +2528,14 @@ case_clickedge() {
         [[ "$after_band" == "$before_band" ]] || fail "clickedge: $mode the band release scrolled $before_band to $after_band"
         printf 'CLICKEDGE %s ok target=%s last=%s\n' "$mode" "$target" "$last"
     done
+    mode=grid
+    click_chrome "$mode"
+    settle
+    [[ "$(ipc viewMode)" == "$mode" ]] || fail "clickedge: the chrome did not reach $mode"
+    clickedge_slow_name
+    key -k Escape >/dev/null || fail "clickedge: key Escape was rejected"
+    settle
+    [[ "$(ipc renameEditorLive)" == "false" ]] || fail "clickedge: $mode Escape left the rename open"
     kill_flea
 }
 

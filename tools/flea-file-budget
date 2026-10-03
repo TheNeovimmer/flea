@@ -87,7 +87,7 @@ ui/ColumnsArea.qml 480
 ui/ContextMenu.qml 682
 ui/ConvertDialog.qml 433
 ui/GridArea.qml 412
-ui/Ipc.qml 835
+ui/Ipc.qml 842
 ui/KeymapSheet.qml 533
 ui/List.qml 437
 tests/touchpad-edge.qml 438

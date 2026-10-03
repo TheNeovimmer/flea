@@ -97,11 +97,11 @@ case_cap_click() {
     seek_row_named "field-bench-notes.md" || fail "cap_click: could not find field-bench-notes.md"
     local idx
     idx=$(row_index_of "field-bench-notes.md")
-    click_row "$idx" left
+    click_row_name "$idx" left
     settle
     # A second click after the double-click interval starts rename; inside it opens instead.
     sleep 0.7
-    click_row "$idx" left
+    click_row_name "$idx" left
     settle
     local waited
     for waited in $(seq 1 100); do

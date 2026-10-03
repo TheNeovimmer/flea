@@ -51,8 +51,14 @@ ShellRoot {
     function clickName(name) {
         var row = pane.visibleItemFor(root.indexOf(name))
         if (!row) throw new Error("No visible row " + name)
-        var label = row.captionItem || row.nameItem()
-        root.click(label, row.captionItem ? label.width / 2 : Math.min(10, label.width / 2), Math.min(label.implicitHeight, label.height) / 2)
+        var centre = root.ipc().rowNameCentre(root.indexOf(name)).split(" ").map(Number)
+        var point = row.mapFromItem(null, centre[0], centre[1])
+        root.click(row, point.x, point.y)
+    }
+    function ipc() {
+        for (var i = 0; i < body.data.length; i++)
+            if (String(body.data[i]).indexOf("Ipc_") === 0) return body.data[i].seam
+        throw new Error("WindowBody has no IPC seam")
     }
     function find(item, type) {
         if (String(item).indexOf(type + "_") === 0) return item

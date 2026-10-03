@@ -598,8 +598,17 @@ QtObject {
         function swapState(): string { return JSON.stringify(root.pane.swap.describe()) }
         function thumbFile(i: int): string { return root.pane.thumbFor(i) }
         function rowCentre(i: int): string { return root.pane.rowFor(i) ? root.fleaWindow.centreOf(root.pane.visibleItemFor(i)) : "" }
-        // The same lookup as rowCentre, but for the preview's own seek slider, so a test can drive
-        // a real wheel event over it without hardcoding the strip's layout.
+        function rowNameCentre(i: int): string {
+            var label = root.rowNameItem(i)
+            if (!label) return ""
+            var width = Math.min(label.width, label.contentWidth === undefined ? label.implicitWidth : label.contentWidth)
+            var height = Math.min(label.height, label.contentHeight === undefined ? label.implicitHeight : label.contentHeight)
+            var x = root.pane.viewMode === "grid" ? label.width / 2 : width / 2
+            var point = label.mapToItem(null, x, height / 2)
+            return Math.round(point.x) + " " + Math.round(point.y)
+        }
+        function rowNameRect(i: int): string { return root.fleaWindow.rectOf(root.rowNameItem(i)) }
+        // The preview's own seek slider, so a test can drive a real wheel event without hardcoding the strip's layout.
         function previewSliderCentre(): string {
             return root.pane.preview.active && root.pane.preview.isMedia ? root.fleaWindow.centreOf(root.pane.preview.seekSlider) : ""
         }
@@ -824,5 +833,10 @@ QtObject {
             }
             return out.join("\n")
         }
+    }
+    function rowNameItem(i) {
+        var item = root.pane.rowFor(i) ? root.pane.visibleItemFor(i) : null
+        var label = item ? (item.captionItem || item.nameItem()) : null
+        return label && item.visible && label.visible ? label : null
     }
 }

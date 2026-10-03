@@ -1,4 +1,5 @@
 .import "flea/js/TextSize.js" as TextSize
+.import "flea/js/Tap.js" as Tap
 
 // Additional real-UI proofs share the hunt's fixture, driver and tally.
 function steps(root, pane, state, theme) {
@@ -72,7 +73,7 @@ function steps(root, pane, state, theme) {
             return true
         }
     ]
-    return tests.concat(clicks(root, pane, "grid"), clicks(root, pane, "columns"))
+    return tests.concat(clicks(root, pane, "list"), clicks(root, pane, "grid"), clicks(root, pane, "columns"))
 }
 
 function clicks(root, pane, mode) {
@@ -94,6 +95,14 @@ function clicks(root, pane, mode) {
         },
         function () {
             if (!row()) return false
+            var item = row(), label = item.captionItem || item.nameItem()
+            var centre = root.ipc().rowNameCentre(root.indexOf(name)).split(" ").map(Number)
+            var point = label.mapFromItem(null, centre[0], centre[1])
+            root.check("rowNameCentre-" + mode + ": inside the visible name item",
+                centre.length === 2 && point.x >= 0 && point.x < label.width && point.y >= 0 && point.y < label.height, true)
+            root.check("rowNameCentre-" + mode + ": product accepts the drawn name",
+                Tap.onName(label, null, {x: centre[0], y: centre[1]}, !!item.captionItem), true)
+            root.check("rowNameCentre-" + mode + ": missing row has no target", root.ipc().rowNameCentre(-1), "")
             root.clickName(name)
             at = Date.now()
             return true
