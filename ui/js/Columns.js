@@ -53,6 +53,19 @@ function dualSet(width, t, hidden) {
     return {mode: false, kind: false, size: showSize, date: showDate}
 }
 
+// Recent drops Location first, then Used and Size, protecting the same name floor as a list.
+function recentSet(width, t, hidden) {
+    var base = 2 * t.rowPaddingX + t.iconSize + t.gap + t.nameMin
+    var sizeFloor = base + t.size + t.gap
+    var dateFloor = sizeFloor + t.date + t.gap
+    var locationFloor = dateFloor + t.location + t.gap
+    var h = hidden || []
+    return {mode: false, kind: false,
+        size: width >= sizeFloor && h.indexOf("size") < 0,
+        date: width >= dateFloor && h.indexOf("date") < 0,
+        location: width >= locationFloor}
+}
+
 // A peeked reply is keyed by what ordered it, so a stale ancestor column never survives the hidden-last toggle: path plus hidden plus hiddenLast.
 // Sample input: peekKey("/a", true, true) is "/a\n11".
 function peekKey(path, hidden, hiddenLast) {
@@ -226,6 +239,7 @@ function autofitWidth(widths, fallback) {
 
 function names(s) {
     var out = ["name"]
+    if (s.location) out.push("location")
     for (var i = DROP_ORDER.length - 1; i >= 0; i--) {
         var key = DROP_ORDER[i]
         if (s[key])

@@ -10194,8 +10194,8 @@ EOS
     done
     [[ "$mode" == "results" ]] || fail "recent: Enter on the rail row never listed the history"
     [[ "$total" == "2" ]] || fail "recent: the history listed $total rows, not 2"
-    [[ "$(ipc headerTitles)" == "Name|Size|Used" ]] \
-        || fail "recent: the header does not read Name|Size|Used: $(ipc headerTitles)"
+    [[ "$(ipc headerTitles)" == "Name|Location|Size|Used" ]] \
+        || fail "recent: the header does not read Name|Location|Size|Used: $(ipc headerTitles)"
     [[ "$(ipc rowAt 0)" == *"/alpha.txt|file|"* ]] \
         || fail "recent: the newest visited bookmark is not first: $(ipc rowAt 0)"
     [[ "$(ipc rowAt 1)" == *"/beta.txt|file|"* ]] \

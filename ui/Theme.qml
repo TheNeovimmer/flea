@@ -114,6 +114,7 @@ Singleton {
         readonly property int pickerDate: Math.round(root.pickerDateBaseWidth * root.font.bodySmall / root.pickerDateBaseBodySmall)
         // Kind text varies too much for a character count, so its base is a pixel width scaled by the same ratio bodySmall already is.
         readonly property int kind: root.storedWidth("kind", Math.round(root.kindBaseWidth * root.font.bodySmall / 12))
+        readonly property int location: 150 // Sidebar040's fixed Recent column, shared by Header and Row.
         // Not a column: the floor under the name, which the four above drop one by one to protect.
         readonly property int nameMin: Math.round(root.nameMinChars * glyphMetrics.advanceWidth)
     }
@@ -241,14 +242,14 @@ Singleton {
     readonly property var columnTokens: ({
         rowPaddingX: root.spacing.rowPaddingX, gap: root.spacing.gap, iconSize: root.iconSize,
         nameMin: root.column.nameMin, mode: root.column.mode,
-        size: root.column.size, date: root.column.date, kind: root.column.kind
+        size: root.column.size, date: root.column.date, kind: root.column.kind, location: root.column.location
     })
     function columnSet(dateWidth) { return dateWidth === undefined ? root.columnTokens : Object.assign({}, root.columnTokens, {date: dateWidth}); }
-    function columns(width, hidden, dateWidth) { return Columns.set(width, root.columnSet(dateWidth), hidden); }
+    function columns(width, hidden, dateWidth, recent) { return recent ? Columns.recentSet(width, root.columnSet(dateWidth), hidden) : Columns.set(width, root.columnSet(dateWidth), hidden); }
 
     // The same set as one string, which is what the seam in ui/Ipc.qml compares across the two.
-    function columnNames(width, hidden, dateWidth) {
-        return Columns.names(root.columns(width, hidden, dateWidth));
+    function columnNames(width, hidden, dateWidth, recent) {
+        return Columns.names(root.columns(width, hidden, dateWidth, recent));
     }
 
     // Five callers plus the grid and settings tokens above: ConvertDialog, KeymapSheet, NetworkDialog, NetworkForm, TransferCard; every other spacing token is direct.
