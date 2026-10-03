@@ -9,6 +9,9 @@ var TARGET_SCAN_LIMIT = 8192
 var LABEL_SCAN_LIMIT = 1000
 var MIN_BARELINK_LENGTH = 9
 var MAX_MATH_RUN_LENGTH = 2
+var HTTP_PREFIX_LENGTH = 7
+var HTTPS_PREFIX_LENGTH = 8
+var WWW_PREFIX_LENGTH = 4
 
 function isSpace(c) {
     return c === " " || c === "\t" || c === "\n" || c === "\r"
@@ -112,11 +115,6 @@ function mergeIntervals(a, b) {
         bi += fromA ? 0 : INTERVAL_STRIDE
     }
     return out
-}
-
-// Escape one text character for md4c so no image, link, definition or tag forms from it.
-function escapeChar(c) {
-    return c === "<" ? "&#60;" : c === ">" ? "&#62;" : c === "[" ? "&#91;" : c === "]" ? "&#93;" : c
 }
 
 // An inline code span as styled HTML, content escaped; math keeps its kind tag for the later figure unit.
@@ -267,9 +265,9 @@ function readAutolink(text, i) {
 
 // Sample input: see https://a.example/x. here; answers {url, end} or null, GFM's trailing-punctuation strip.
 function readBarelink(text, i) {
-    var http = text.slice(i, i + 7) === "http://" || text.slice(i, i + 8) === "https://"
+    var http = text.slice(i, i + HTTP_PREFIX_LENGTH) === "http://" || text.slice(i, i + HTTPS_PREFIX_LENGTH) === "https://"
     if (!http) {
-        if (text.slice(i, i + 4) !== "www.")
+        if (text.slice(i, i + WWW_PREFIX_LENGTH) !== "www.")
             return null
         var before = i > 0 ? text.charAt(i - 1) : " "
         if (/[A-Za-z0-9_\/@]/.test(before))
@@ -279,11 +277,14 @@ function readBarelink(text, i) {
     while (j < text.length && !isSpace(text.charAt(j)) && text.charAt(j) !== "<")
         j++
     var url = text.slice(i, j)
-    while (url.length > 0 && "?!.,;:".indexOf(url.charAt(url.length - 1)) >= 0) {
-        url = url.slice(0, -1)
-        j--
-    }
-    if (url.charAt(url.length - 1) === ")" && url.indexOf("(") < 0) {
+    var parens = 0
+    for (var at = 0; at < url.length; at++)
+        parens += url.charAt(at) === "(" ? 1 : url.charAt(at) === ")" ? -1 : 0
+    while (url.length > 0) {
+        var tail = url.charAt(url.length - 1)
+        if ("?!.,;:".indexOf(tail) < 0 && !(tail === ")" && parens < 0))
+            break
+        parens += tail === ")" ? 1 : 0
         url = url.slice(0, -1)
         j--
     }

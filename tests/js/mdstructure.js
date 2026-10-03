@@ -267,6 +267,53 @@ function run(check) {
     var warn = Markdown.blocks("> [!WARNING] Careful.\n", dir, chrome, ink)[0]
     check("a warning titles itself", warn.text.indexOf("**Warning**") === 0, true)
 
+    check("R12 md2a F49 lowercase note title", Markdown.blocks("> [!note] Read this.", dir, chrome, ink)[0].text, "**Note** Read this.")
+    check("R12 md2a F49 mixed warning title", Markdown.blocks("> [!wARNING] Careful.", dir, chrome, ink)[0].text, "**Warning** Careful.")
+
+    var interruptionCases = [
+        { source: "The year was\n1986. A great season.", expected: [{ type: "run", text: "The year was\n1986. A great season." }] },
+        { source: "foo\n-", expected: [{ type: "run", text: "foo\n-" }] },
+        { source: "foo\n1. item", expected: [{ type: "run", text: "foo" }, { type: "list", ordered: true, start: 1, items: ["item"] }] },
+        { source: "foo\n1.", expected: [{ type: "run", text: "foo\n1." }] },
+        { source: "foo\n+", expected: [{ type: "run", text: "foo\n+" }] },
+        { source: "> foo\n1986. season", expected: [{ type: "quote", text: "foo\n1986. season" }] },
+        { source: "- foo\n-", expected: [{ type: "list", ordered: false, start: 0, items: ["foo", ""] }] }
+    ]
+    for (var interruptIndex = 0; interruptIndex < interruptionCases.length; interruptIndex++) {
+        var interruption = interruptionCases[interruptIndex]
+        check("R12 md2a F50 paragraph interruption " + interruptIndex,
+            JSON.stringify(Markdown.blocks(interruption.source, dir, chrome, ink)), JSON.stringify(interruption.expected))
+    }
+    var bareCases = [
+        { source: "(see https://example.com/x.)", url: "https://example.com/x" },
+        { source: "https://example.com/x).", url: "https://example.com/x" },
+        { source: "https://example.com/x(foo).", url: "https://example.com/x(foo)" },
+        { source: "(https://example.com/x(foo).)", url: "https://example.com/x(foo)" },
+        { source: "https://example.com/x(foo)).)", url: "https://example.com/x(foo)" }
+    ]
+    for (var bareIndex = 0; bareIndex < bareCases.length; bareIndex++) {
+        var bareCase = bareCases[bareIndex]
+        check("R12 md2a F51 punctuation and parens " + bareIndex,
+            MdInline.readBarelink(bareCase.source, bareCase.source.indexOf("https://")).url, bareCase.url)
+        check("R12 md2a F51 emitted href " + bareIndex,
+            styled(bareCase.source).indexOf('href="' + bareCase.url + '"') >= 0, true)
+    }
+    var citationCases = [
+        { source: "Text[^b]\n\n[^a]: unused\n[^b]: used", body: "Text<sup>1</sup>\n", items: ["<sup>1</sup> used"] },
+        { source: "Text[^b] then[^a] again[^b]\n\n[^a]: first definition\n[^b]: second definition",
+            body: "Text<sup>1</sup> then<sup>2</sup> again<sup>1</sup>\n",
+            items: ["<sup>1</sup> second definition", "<sup>2</sup> first definition"] },
+        { source: "![x[^a]](pic.png) then[^b]\n\n[^a]: discarded\n[^b]: used",
+            body: "![x&#91;&#94;a&#93;](file:///home/gm/notes/pic.png) then<sup>1</sup>\n", items: ["<sup>1</sup> used"] }
+    ]
+    for (var citationIndex = 0; citationIndex < citationCases.length; citationIndex++) {
+        var citationCase = citationCases[citationIndex]
+        var citationBlocks = Markdown.blocks(citationCase.source, dir, chrome, ink)
+        check("R12 md2a F55 citation body " + citationIndex, citationBlocks[0].text, citationCase.body)
+        check("R12 md2a F55 citation order " + citationIndex,
+            JSON.stringify(citationBlocks[citationBlocks.length - 1].items), JSON.stringify(citationCase.items))
+    }
+
     var foot = Markdown.blocks("Text[^a] here.\n\n[^a]: The note.\n", dir, chrome, ink)
     check("a footnote appends its list",
         foot.map(function (b) { return b.type }).join(","), "run,run,list")

@@ -22,6 +22,11 @@ function run(assert) {
     check("md2a F40 tilde info allows backticks", Leaf.fenceOpen("~~~foo`bar").info, "foo`bar")
 
     var inlineSource = Source.source("ui/js/MdInline.js")
+    check("R12 md2a F48 dead escape helper removed", /function escapeChar\(/.test(inlineSource), false)
+    check("R12 md2a F52 dead fence closer removed", /function fenceClose\(/.test(Source.source("ui/js/MdLeaf.js")), false)
+    check("R12 md2a F53 named punctuation bounds", /code\s*[<>]=\s*\d/.test(Source.source("ui/js/MdEscape.js")), false)
+    check("R12 md2a F53 named prefix lengths", /text\.slice\(i, i \+ \d+\)/.test(Source.slice(inlineSource, "function readBarelink(", "return url.length")), false)
+    check("R12 md2b F53 named driver stride", /sp \+= \d/.test(Source.source("ui/js/MdRun.js")), false)
     var strideSites = ["out[out.length - INTERVAL_STRIDE]", "out.length -= INTERVAL_STRIDE",
         "codeAt += INTERVAL_STRIDE", "ai += fromA ? INTERVAL_STRIDE : 0", "bi += fromA ? 0 : INTERVAL_STRIDE"]
     check("md2a F41 tuple stride named", inlineSource.indexOf("var INTERVAL_STRIDE = 4") >= 0, true)
@@ -80,10 +85,11 @@ function run(assert) {
         [{ type: "run", text: "before  tail" }])
 
     var corpus = Source.source("tests/markdown-security.sh")
+    check("R12 md2b F52 dead delayed zero branch removed", corpus.indexOf('if [ "$delayed_count" -eq 0 ]'), -1)
     check("md2b F41 remote badge corpus", corpus.indexOf("[![b]({H}/{p}/badge.png)](local.md)") >= 0, true)
     check("md2b F41 HTML badge corpus", corpus.indexOf('[<img src="{H}/{p}/badge.png">](local.md)') >= 0, true)
     var parsers = [
-        ["md2a F44", "ui/js/MdLeaf.js", ["isThematic", "fenceOpen", "fenceClose", "alertTitle", "taskText"]],
+        ["md2a F44", "ui/js/MdLeaf.js", ["isThematic", "fenceOpen", "alertTitle", "taskText"]],
         ["md2a F44", "ui/js/MdInline.js", ["normalizeLabel"]],
         ["md2b F43", "ui/js/MdHtml.js", ["tagHead"]],
         ["md2b F43", "ui/js/MdRefs.js", ["readFootnoteRef"]],

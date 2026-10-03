@@ -41,12 +41,6 @@ function fenceOpen(line) {
     return { tick: m[1].charAt(0), len: m[1].length, info: m[2].replace(/\s+$/, "") }
 }
 
-// Sample input: "```" closes a backtick fence opened with length 3.
-function fenceClose(line, tick, len) {
-    var m = /^ {0,3}(```+|~~~+) *$/.exec(String(line))
-    return m !== null && m[1].charAt(0) === tick && m[1].length >= len
-}
-
 // Sample input: "| :--- | ---: |"; dashes with optional edge colons carry the alignment, anything else is not a table.
 function delimAligns(line) {
     var cells = String(line).trim().replace(/^\||\|$/g, "").split("|")
@@ -193,6 +187,6 @@ function alertTitle(line) {
     var m = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i.exec(String(line))
     if (m === null)
         return null
-    var title = m[1].charAt(0) + m[1].slice(1).toLowerCase()
+    var title = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase()
     return "**" + title + "**" + (m[2].length > 0 ? " " + m[2] : "")
 }

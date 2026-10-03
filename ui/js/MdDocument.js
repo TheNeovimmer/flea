@@ -24,7 +24,7 @@ function writer(state, dir, chrome, ink) {
     var out = []
     var run = []
     var tokens = []
-    var cited = {}
+    var cited = []
     function inlineOf(text, citations) {
         return Run.parseInline(text, dir, state.defs, state.numbers, chrome, ink, tokens,
             citations === false ? undefined : cited)
@@ -152,10 +152,9 @@ function writer(state, dir, chrome, ink) {
         flushCode()
         flushRun()
         var footItems = []
-        for (var i = 0; i < state.order.length; i++) {
-            var id = state.order[i]
-            if (cited.hasOwnProperty(id))
-                footItems.push("<sup>" + state.notes[id].n + "</sup> " + inlineOf(state.notes[id].text, false))
+        for (var i = 0; i < cited.length; i++) {
+            var id = cited[i]
+            footItems.push("<sup>" + state.numbers[id] + "</sup> " + inlineOf(state.notes[id].text, false))
         }
         if (footItems.length > 0) {
             out.push({ type: "run", text: "---" })
@@ -170,10 +169,11 @@ function preparedText(lines, state, dir, defs, chrome, ink) {
     var out = []
     var prose = []
     var tokens = []
+    var cited = []
     function flush() {
         if (prose.length > 0)
             out.push(Run.parseInline(prose.join("\n"), dir, defs || state.defs,
-                state.numbers, chrome, ink, tokens))
+                state.numbers, chrome, ink, tokens, cited))
         prose = []
     }
     for (var i = 0; i < lines.length; i++) {

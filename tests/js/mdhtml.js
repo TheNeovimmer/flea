@@ -30,10 +30,40 @@ function run(check) {
     check("F3 empty ink escapes link opener", inline('[x](file:///etc)', "").indexOf("["), -1)
     check("F3 dropped tag cannot join image", inline('!<bogus>[x](http://x/a)', "").indexOf("!["), -1)
     check("F3 comment cannot join image", inline('!<!--gap-->[x](http://x/a)', "").indexOf("!["), -1)
+    var unsafeTargets = [" javascript:alert(1)", "\tjavascript:alert(1)\t", "\njavascript:alert(1)\r",
+        " \u0001JaVaScRiPt:alert(1)\u001f ", " java\tscript:alert(1) ", " java\nscript:alert(1) ",
+        " data:text/html,hi ", " file:///etc/passwd ", "&#32;javascript:alert(1)&#32;"]
+    for (var targetIndex = 0; targetIndex < unsafeTargets.length; targetIndex++) {
+        var unsafeTarget = unsafeTargets[targetIndex]
+        check("R12 md2b F46 HTML allowlist " + targetIndex, Html.attrKept("href", unsafeTarget, "a"), false)
+        check("R12 md2b F46 link allowlist " + targetIndex, Resolve.isLinkTarget(unsafeTarget), false)
+        check("R12 md2b F46 HTML emits no href " + targetIndex, tag('<a href="' + unsafeTarget + '">'), "<a>")
+        check("R12 md2b F46 Markdown emits no href " + targetIndex,
+            typeof Resolve.resolvePair("x", unsafeTarget, false, dir, ink, []), "string")
+    }
+    check("R12 md2b F46 https control", tag('<a href="https://example.com/x">'), '<a href="https://example.com/x">')
+    check("R12 md2b F46 HTML stripped target", tag('<a href=" \thttps://example.com/x\n ">'), '<a href="https://example.com/x">')
+    check("R12 md2b F46 Markdown stripped target", Resolve.resolvePair("x", " \thttps://example.com/x\n ", false,
+        dir, ink, []), -1)
+    var strippedTokens = []
+    Resolve.resolvePair("x", " \thttps://example.com/x\n ", false, dir, ink, strippedTokens)
+    check("R12 md2b F46 Markdown href value", strippedTokens[0].indexOf('href="https://example.com/x"') >= 0, true)
+    var imageInLink = "http://a/![x](http://host/p.png)"
+    check("R12 md2b F47 empty ink bare no image opener", inline(imageInLink, "").indexOf("!["), -1)
+    check("R12 md2b F47 empty ink bare label", inline(imageInLink, ""),
+        "http&#58;&#47;&#47;a&#47;&#33;&#91;x&#93;&#40;http&#58;&#47;&#47;host&#47;p&#46;png&#41;")
+    check("R12 md2b F47 empty ink autolink label", inline("<" + imageInLink + ">", ""), inline(imageInLink, ""))
     var paths = ['file://' + dir + '/../x.png', dir + '/notes/../../x.png',
         'file://' + dir + '/%2e%2e/x.png', dir + '/notes/%2e%2e/%2e%2e/x.png']
     for (var p = 0; p < paths.length; p++)
         check("F4 traversal " + p, Markdown.classifyImage(paths[p], dir).kind, "dropped")
+    var doublePaths = ["%252e%252e/x.png", "file://" + dir + "/%252e%252e/x.png",
+        dir + "/notes/%252e%252e/%252e%252e/x.png"]
+    var doubleUrls = ["file://" + dir + "/%252e%252e/x.png", "file://" + dir + "/%252e%252e/x.png",
+        "file://" + dir + "/notes/%252e%252e/%252e%252e/x.png"]
+    for (var doubleIndex = 0; doubleIndex < doublePaths.length; doubleIndex++)
+        check("R12 md2b F51 double encoded F4 literal " + doubleIndex,
+            Markdown.classifyImage(doublePaths[doubleIndex], dir).url, doubleUrls[doubleIndex])
     check("F4 unknown directory absolute", Markdown.classifyImage('/etc/x.png', 'relative').kind, "dropped")
     check("F4 unknown directory file", Markdown.classifyImage('file:///etc/x.png', 'relative').kind, "dropped")
     check("F4 unknown directory relative", Markdown.classifyImage("x.png", "relative").kind, "dropped")
@@ -136,6 +166,49 @@ function run(check) {
         var duplicate = duplicateImages[duplicateIndex]
         check("R10 md2b F45 md2c F38 standalone image keeps " + duplicate.label,
             JSON.stringify(Leaf.standaloneImage(duplicate.tag, dir, {})), JSON.stringify(duplicate.expected))
+    }
+    var inlineDuplicates = [
+        { tag: '<img src="a.png" src="b.png" alt="first" alt="last">', output: '<img src="file://' + dir + '/a.png" alt="first">' },
+        { tag: '<img src="a.png" src="https://later.example/b.png">', output: '<img src="file://' + dir + '/a.png" alt="">' },
+        { tag: '<img srcset="a.png 1x" srcset="b.png 1x">', output: '<img src="file://' + dir + '/a.png" alt="">' },
+        { tag: '<img srcset="a.png 1x" srcset="https://later.example/b.png 1x">', output: '<img src="file://' + dir + '/a.png" alt="">' },
+        { tag: '<img src="" src="b.png" alt="first" alt="last">', output: "first" },
+        { tag: '<img src src="b.png" alt alt="last">', output: "" },
+        { tag: '<img srcset srcset="b.png 1x" alt="first">', output: "first" }
+    ]
+    for (var inlineDuplicateIndex = 0; inlineDuplicateIndex < inlineDuplicates.length; inlineDuplicateIndex++) {
+        var inlineDuplicate = inlineDuplicates[inlineDuplicateIndex]
+        check("R12 md2b F49 inline first attributes " + inlineDuplicateIndex,
+            inline("prefix " + inlineDuplicate.tag, ink), "prefix " + inlineDuplicate.output)
+    }
+    var tagSizes = [8192, 16384, 32768]
+    var tagWorkFactor = 2
+    var previousTagWork = 0
+    function searchedTagCharacters(source) {
+        var searched = 0
+        var countedText = {
+            length: source.length,
+            charAt: function (at) { return source.charAt(at) },
+            slice: function (from, to) { return source.slice(from, to) },
+            indexOf: function (needle, from) {
+                var start = from === undefined ? 0 : from
+                var found = source.indexOf(needle, start)
+                searched += (found < 0 ? source.length : found + needle.length) - start
+                return found
+            }
+        }
+        var dead = { tagDead: -1 }
+        for (var opener = 0; opener < source.length - 1; opener++)
+            Html.readTag(countedText, opener, dead)
+        return searched
+    }
+    for (var sizeIndex = 0; sizeIndex < tagSizes.length; sizeIndex++) {
+        var size = tagSizes[sizeIndex]
+        var tagWork = searchedTagCharacters("<".repeat(size) + ">")
+        check("R12 md2b F48 tag work bounded " + size, tagWork <= tagWorkFactor * size, true)
+        if (previousTagWork > 0)
+            check("R12 md2b F48 doubling search work " + size, tagWork <= tagWorkFactor * previousTagWork, true)
+        previousTagWork = tagWork
     }
     check("R10 md2b F45 md2c F38 document keeps first src and alt",
         JSON.stringify(Markdown.blocks("<img SRC='a.png' src='b.png' ALT='first' alt='last'>", dir, "#181825", ink)),

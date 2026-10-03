@@ -59,14 +59,20 @@ function isHtmlWhitespace(c) {
 function readTag(text, i, dead) {
     if (dead !== undefined && dead !== null && i < dead.tagDead)
         return null
-    var gt = text.indexOf(">", i + 1)
+    var cached = dead !== undefined && dead !== null && dead.tagClose > i
+    var gt = cached ? dead.tagClose : text.indexOf(">", i + 1)
+    if (dead !== undefined && dead !== null && gt >= 0)
+        dead.tagClose = gt
     if (gt < 0) {
         if (dead !== undefined && dead !== null)
             dead.tagDead = text.length
         return null
     }
-    if (gt - i > MAX_TAG_LENGTH)
+    if (gt - i > MAX_TAG_LENGTH) {
+        if (dead !== undefined && dead !== null)
+            dead.tagDead = gt - MAX_TAG_LENGTH
         return null
+    }
     var candidate = text.slice(i, gt + 1)
     var dq = candidate.indexOf('"')
     var sq = candidate.indexOf("'")
@@ -172,9 +178,14 @@ function tagHead(tag) {
         attributes: attrs.attributes, validAttrs: attrs.valid }
 }
 
+// Sample input: " \thttps://a.example/x\n " strips URL padding and embedded tab, CR and LF.
+function normalizedTarget(value) {
+    return String(value).replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, "").replace(/[\t\r\n]/g, "")
+}
+
 // One attribute value with entities decoded for the safety checks below.
 function attrKept(name, value, tagName) {
-    var seen = MdUrl.canonicalUrl(value).toLowerCase()
+    var seen = normalizedTarget(MdUrl.canonicalUrl(value)).toLowerCase()
     // CSS url() in any attribute loads, so the attribute goes.
     if (/url\s*\(/i.test(seen))
         return false
@@ -242,7 +253,7 @@ function sanitizeTag(tag, dir, tokens) {
     var kept = ""
     var srcSeen = null
     var srcsetSeen = null
-    var altSeen = ""
+    var altSeen = null
     for (var i = 0; i < head.attributes.length; i++) {
         var aname = head.attributes[i].name
         var value = head.attributes[i].value
@@ -252,16 +263,22 @@ function sanitizeTag(tag, dir, tokens) {
                 || aname.indexOf("data-") === 0 || aname.indexOf("on") === 0)
             continue
         if (aname === "srcset") {
-            if (value !== null)
-                srcsetSeen = value
+            if (srcsetSeen === null)
+                srcsetSeen = value === null ? "" : value
             continue
         }
         if (aname === "src" && (name === "img" || name === "source")) {
-            srcSeen = value === null ? "" : value
+            if (srcSeen === null)
+                srcSeen = value === null ? "" : value
             continue
         }
-        if (aname === "alt")
+        if (aname === "alt") {
+            if (altSeen !== null)
+                continue
             altSeen = value === null ? "" : value
+        }
+        if (aname === "href" && value !== null)
+            value = normalizedTarget(value)
         if (value === null || attrKept(aname, value, name))
             kept += " " + aname + (value === null ? "" : '="' + escapeAttr(value) + '"')
     }
@@ -272,7 +289,7 @@ function sanitizeTag(tag, dir, tokens) {
         else if (srcsetSeen !== null)
             picked = srcsetPick(srcsetSeen, dir)
         if (picked !== null && picked.kind === "local")
-            return { emit: hold('<img src="' + picked.url + '" alt="' + escapeAttr(altSeen) + '">'), drop: null }
+            return { emit: hold('<img src="' + picked.url + '" alt="' + escapeAttr(altSeen === null ? "" : altSeen) + '">'), drop: null }
         if (picked !== null && picked.kind === "remote")
             return { emit: "\n\n" + MdUrl.placeholder(MdEscape.escapeText(picked.host)) + "\n\n", drop: null }
         return { emit: MdUrl.canonicalUrl(altSeen).length > 0 ? MdEscape.escapeText(altSeen) : "", drop: null }
