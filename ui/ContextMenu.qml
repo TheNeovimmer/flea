@@ -142,21 +142,21 @@ Item {
     // Issue 179: the background menu's Sort by flyout offers its forget row only for this folder.
     property bool hasFolderSort: false
 
-    // The construction lives in ui/js/Menu.js now, so the rows are unit-testable without a window:
-    // listingEntries(p) builds the listing's rows from the pane's state and headerEntries() the column titles' own on a right click (ui/Header.qml); this file only routes between them.
+    // Menu.js builds entries from the context shared by the row menu and query.
     function buildEntries() {
-        // Which release a rail row offers is the rail's knowledge, not the listing's, so the rail
-        // hands its rows in already built; see ui/js/Mounts.js "railMenu".
+        // Rail rows arrive built with their own release verdicts.
         if (root.forRail)
             return root.railEntries
         if (root.forHeader)
             return Menu.headerEntries(ViewState.hiddenCols, root.showHidden)
-        // The Locked tile's own rows, acting on the locked folder without listing it; never the
-        // background rows, which would create in or paste into the parent standing behind it.
+        // Locked rows address the denied folder rather than its covered parent.
         if (root.forLocked)
             return LockedMenu.lockedEntries({ lockedMode: root.lockedMode, hiddenActions: ViewState.menuHidden })
+        return Menu.listingEntries(root.listingContext())
+    }
+    function listingContext() {
         var view = MenuRefresh.providerView(root.lastProviderAnswer, MenuRefresh.live(root))
-        return Menu.listingEntries({
+        return {
             showHidden: root.showHidden,
             hasRow: root.hasRow,
             rowInDropbox: root.rowInDropbox,
@@ -187,7 +187,7 @@ Item {
             // ExtThumbs: the class row's presence and label read these, never "this drive".
             storageClass: root.storageClass, thumbPreview: ViewState.preview,
             updateVersion: UpdateCheck.menuVersion, hasFolderSort: root.hasFolderSort
-        })
+        }
     }
 
     // The row item at an index, for ui/Ipc.qml: a driven test clicks a menu row without deriving its geometry from a row count the Menus settings can now change under it.

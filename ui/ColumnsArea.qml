@@ -9,9 +9,7 @@ import "js/Nav.js" as Nav
 import "js/Swap.js" as Swap
 import "js/Tap.js" as Tap
 
-// The Miller three-pane. The parent and the child are read with peek, which never touches the pane's
-// own listing; the middle column is that listing, so the cursor, the selection and every per-row
-// facility keep working exactly as they do in the list view.
+// Miller columns peek their neighbours; the active listing shares List's cursor, selection and row operations.
 Item {
     id: root
 
@@ -425,12 +423,13 @@ Item {
             pane: root.pane
             showDivider: root.thirdShown
             // The list's and the grid's own two routes, reached from the one column whose rows are the pane's listing, so a click means the same thing in all three views.
-            onPicked: function (index, tapCount, modifiers) {
+            onPicked: function (index, tapCount, modifiers, onName) {
                 var wasSole = root.pane.slowClickWasSole(index)
                 Tap.tappedMiddle(index, tapCount, modifiers, root.pane)
                 // The slow click renames on the pane's timer; a double click opens through tappedMiddle() above instead.
                 if (tapCount === 2) root.pane.cancelSlowClick()
-                else if (tapCount === 1) root.pane.armSlowClick(index, modifiers, active.fileDragActive, wasSole)
+                else if (tapCount === 1 && onName) root.pane.armSlowClick(index, modifiers, active.fileDragActive, wasSole)
+                else root.pane.cancelSlowClick()
             }
             onMenuRequested: function (index, eventPoint) { Tap.tappedMenu(index, eventPoint, root.pane, root.menu) }
             onRowPressed: root.pane.pressSlowClick()

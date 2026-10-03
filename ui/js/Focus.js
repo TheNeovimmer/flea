@@ -325,20 +325,13 @@ function handleKey(event, root, sidebar) {
             root.selectionBand.cancel()
         return true
     }
-    // Guards a key that reaches the list before a rename field's own focus transfer lands, the OEM's
-    // "blocked:" lesson; the row editor and the rail's own field both need it. The index alone is not
-    // asked, because an editor released by a scroll or hidden by a view change left it set with
-    // nothing to give the keys to, and every later key was swallowed for the life of the window.
+    // A live rename editor owns keys; an index left behind by a hidden or recycled editor does not.
     if ((sidebar && sidebar.renameEditor() !== null) || root.renameEditor() !== null) {
         return true
     }
     root.inputAt = Date.now()
     root.rowsAt = 0
-    // Issue 12: a query line owns every key while it has the caret, which swallowed the cursor keys
-    // and left a listing with more than one match unreachable from the keyboard. A cursor key commits
-    // the line the way enter does and then goes on to mean what it means everywhere else: the filter
-    // is left standing over the rows it narrowed, and the search walks once for that press rather
-    // than once per keystroke, which is the sweep the design refused.
+    // Cursor keys commit a query before acting on its results; search walks once per commit.
     if ((root.searchMode === Search.TYPING || root.filterTyping) && leavesLine(event)) {
         if (root.filterTyping) Filter.commit(root)
         else Search.run(root)
@@ -369,41 +362,7 @@ function handleKey(event, root, sidebar) {
         shareBrowserAct(action, root)
         return true
     }
-    if (action === "focusNext" || action === "focusPrevious") {
-        if (root.dualMode && root.focusView === LIST) root.switchPane()
-        else root.focusView = next(root.focusView, sidebar || root.railAvailable)
-        return true
-    }
-    if (action === "focusPreview") {
-        if (!root.dualMode) root.focusPreviewColumn()
-        return true
-    }
-    // The sheet is global, unlike addNetwork, so it answers from the rail as well as the list. It
-    // takes active focus itself, so nothing below has to route keys into it while it stands.
-    if (action === "keymapSheet") {
-        root.keymapSheet.open(root)
-        return true
-    }
-    // Tabs are window-level, so t, w and the digits answer from the rail as well as the list.
-    if (action.indexOf("tab") === 0) {
-        root.act(action)
-        return true
-    }
-    // Issue 9: the text size belongs to the window, so it answers from either view.
-    if (action.indexOf("textSize") === 0) {
-        root.textSizeRequested(TextSize.direction(action))
-        return true
-    }
-    // The bar lives in the chrome above both views, so neither owns it; shell.qml holds the field.
-    if (action === "pathBar") {
-        root.pathBarRequested()
-        return true
-    }
-    // These answer from the rail as well as the list, so they are taken before the rail's own keys.
-    if (action === "windowNew" || action === "reload" || action === "sidebar" || action === "openTerminal" || action === "settings" || action === "copydirpath") {
-        root.act(action)
-        return true
-    }
+    if (windowAction(action, root, sidebar)) return true
     if (root.focusView === RAIL && sidebar) {
         RailKeys.act(action, root, sidebar)
         return true
@@ -416,19 +375,59 @@ function handleKey(event, root, sidebar) {
         root.message("", false)
         return true
     }
-    // No key acts on a row while a listing is out, see AGENTS.md "The listing swap"; it says why instead.
+    // No row action runs against a listing still in flight.
     if (Swap.swallows(root.listInFlight, action)) { root.message(Swap.LOADING, false); return true }
-    // Undo refuses through the gate it shares with the status bar's own click, saying nothing.
     if (action === "undo" && !canUndo(root, sidebar)) return true
     if (Grid.arrow(event, action, root)) return true
     if (action.length > 0 || Keymap.lookup(event.key, event.text, event.modifiers).length > 0) {
-        if (action.length > 0) root.act(action)
+        if (action.length > 0) dispatchAction(action, root)
         return true
     }
-    // An unbound printable key used to jump to a name, which only half worked because most letters
-    // are bound, and taught a habit that reached d and trashed the row. It names the filter instead.
+    // Unbound printable keys name the filter instead of jumping into destructive bindings.
     if (root.shown === null && Input.isPrintable(event.text)) {
         root.message("Press / to filter this listing by name.", false)
+        return true
+    }
+    return false
+}
+
+// Keys and query actions share the window's dispatcher before reaching pane actions.
+function dispatchAction(action, root) {
+    if (!windowAction(action, root)) root.act(action)
+}
+
+function windowAction(action, root, sidebar) {
+    if (action === "focusNext" || action === "focusPrevious") {
+        if (root.dualMode && root.focusView === LIST) root.switchPane()
+        else root.focusView = next(root.focusView, sidebar || root.sidebar || root.railAvailable)
+        return true
+    }
+    if (action === "focusPreview") {
+        if (!root.dualMode) root.focusPreviewColumn()
+        return true
+    }
+    if (action === "keymapSheet") {
+        root.keymapSheet.open(root)
+        return true
+    }
+    // Tabs answer from either view.
+    if (action.indexOf("tab") === 0) {
+        root.act(action)
+        return true
+    }
+    // Issue 9: the text size belongs to the window, so it answers from either view.
+    if (action.indexOf("textSize") === 0) {
+        root.textSizeRequested(TextSize.direction(action))
+        return true
+    }
+    // The chrome owns the path field.
+    if (action === "pathBar") {
+        root.pathBarRequested()
+        return true
+    }
+    // These answer from the rail as well as the list, so they are taken before the rail's own keys.
+    if (action === "windowNew" || action === "reload" || action === "sidebar" || action === "openTerminal" || action === "settings" || action === "copydirpath") {
+        root.act(action)
         return true
     }
     return false

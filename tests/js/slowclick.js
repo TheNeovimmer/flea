@@ -34,6 +34,16 @@ function root() {
 }
 
 function run(check) {
+    // The name slot can be wider or taller than the glyphs it draws.
+    var label = { visible: true, width: 200, height: 40, contentWidth: 60, contentHeight: 16,
+        mapFromItem: function (owner, x, y) { return { x: x, y: y } } }
+    check("a left-aligned name hits its drawn text", Tap.onName(label, null, { x: 10, y: 8 }, false), true)
+    check("blank space in the name slot is not text", Tap.onName(label, null, { x: 100, y: 8 }, false), false)
+    check("a centered caption hits at its middle", Tap.onName(label, null, { x: 100, y: 8 }, true), true)
+    check("a centered caption excludes its side padding", Tap.onName(label, null, { x: 10, y: 8 }, true), false)
+    check("a caption excludes its reserved empty line", Tap.onName(label, null, { x: 100, y: 30 }, true), false)
+    label.visible = false
+    check("a hidden name is never a hit", Tap.onName(label, null, { x: 10, y: 8 }, false), false)
     check("the slow click lives in SlowClick.js", typeof SlowClick.arm, "function")
     check("with a fire and a cancel beside it",
           typeof SlowClick.fire + "|" + typeof SlowClick.cancel, "function|function")

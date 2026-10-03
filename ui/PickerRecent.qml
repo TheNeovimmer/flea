@@ -14,6 +14,7 @@ QtObject {
 
     // The validated absolute paths, newest first; empty until refresh() has been asked for.
     property var paths: []
+    property var visits: ({})
     signal refreshed()
 
     readonly property string file: Recent.historyPath(Quickshell.env("XDG_DATA_HOME"), Quickshell.env("HOME"))
@@ -34,6 +35,7 @@ QtObject {
             if (error !== FileViewError.FileNotFound)
                 console.warn("PickerRecent: could not read " + root.file + ": " + error)
             root.paths = []
+            root.visits = ({})
             root.refreshed()
         }
     }
@@ -82,7 +84,9 @@ QtObject {
             found.push({ href: String(history.data(at, root.hrefRole) || ""),
                          stamp: visited.length > 0 ? visited : (modified.length > 0 ? modified : added) })
         }
-        root.paths = Recent.paths(found)
+        var entries = Recent.entries(found)
+        root.visits = Recent.visits(entries)
+        root.paths = entries.map(function (entry) { return entry.path })
         root.refreshed()
     }
 }

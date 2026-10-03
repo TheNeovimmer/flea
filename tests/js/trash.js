@@ -79,10 +79,12 @@ function run(check) {
     check("wire pin: Trash forwards by route instead of three names",
         trashSrc.indexOf('TrashKeys.route(action) !== "trash"') >= 0, true)
     var hostSrc = Source.source("ui/TrashHost.qml")
-    check("wire pin: host opens the sheet on the pane",
-        hostSrc.indexOf("pane.keymapSheet.open(") >= 0, true)
+    check("wire pin: host opens the sheet on the Trash host",
+        hostSrc.indexOf("pane.keymapSheet.open(root)") >= 0, true)
+    var windowDispatch = hostSrc.indexOf("Focus.dispatchAction(action, root.pane)") >= 0
+    var focusSrc = Source.source("ui/js/Focus.js")
     check("wire pin: host asks the bar through the pane signal",
-        hostSrc.indexOf("pane.pathBarRequested()") >= 0, true)
+        windowDispatch && focusSrc.indexOf("root.pathBarRequested()") >= 0, true)
     check("wire pin: host asks the size through the pane signal",
-        hostSrc.indexOf("pane.textSizeRequested(") >= 0, true)
+        windowDispatch && focusSrc.indexOf("root.textSizeRequested(") >= 0, true)
 }

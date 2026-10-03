@@ -4,6 +4,7 @@
 .import "Recent.js" as Recent
 .import "Swap.js" as Swap
 .import "Places.js" as Places
+.import "Focus.js" as Focus
 
 // The sheet's four-section query filter; imports no QML, so tests drive it.
 
@@ -198,7 +199,8 @@ function runAction(holder, action, close) {
         return
     }
     close()
-    holder.act(action)
+    if (holder.sheetAction) holder.sheetAction(action)
+    else Focus.dispatchAction(action, holder)
 }
 
 // Every menu row resolves its rows through the snapshot, so it refuses while a listing is out, unlike navigations.
@@ -209,6 +211,7 @@ function runMenu(holder, menuAction, close) {
     }
     if (typeof close === "function")
         close()
+    if (holder.sheetMenuAction) { holder.sheetMenuAction(menuAction); return }
     holder.menuActions.snapshot()
     holder.menuActions.activate(menuAction, true)
 }
