@@ -1,0 +1,190 @@
+[
+  {
+    "name": "bare-focus",
+    "code": "hypr_dispatch 'hl.dsp.focus({ window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "scoped-focus",
+    "code": "hypr_dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' || fail nope",
+    "issues": []
+  },
+  {
+    "name": "bare-window.float",
+    "code": "hypr_dispatch 'hl.dsp.window.float({ window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "scoped-window.float",
+    "code": "hypr_dispatch 'hl.dsp.window.float({ window = \"address:0xabc\" })' || fail nope",
+    "issues": []
+  },
+  {
+    "name": "bare-window.resize",
+    "code": "hypr_dispatch 'hl.dsp.window.resize({ window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "scoped-window.resize",
+    "code": "hypr_dispatch 'hl.dsp.window.resize({ window = \"address:0xabc\" })' || fail nope",
+    "issues": []
+  },
+  {
+    "name": "bare-window.move",
+    "code": "hypr_dispatch 'hl.dsp.window.move({ window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "scoped-window.move",
+    "code": "hypr_dispatch 'hl.dsp.window.move({ window = \"address:0xabc\" })' || fail nope",
+    "issues": []
+  },
+  {
+    "name": "bare-window.close",
+    "code": "hypr_dispatch 'hl.dsp.window.close({ window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "scoped-window.close",
+    "code": "hypr_dispatch 'hl.dsp.window.close({ window = \"address:0xabc\" })' || fail nope",
+    "issues": []
+  },
+  {
+    "name": "implicit",
+    "code": "hyprctl dispatch \"hl.dsp.window.float()\" >/dev/null || fail nope",
+    "issues": [
+      "hypr-window-selector",
+      "hypr-window-reply"
+    ]
+  },
+  {
+    "name": "discard-checked-status",
+    "code": "hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' >/dev/null || fail nope",
+    "issues": [
+      "hypr-window-reply"
+    ]
+  },
+  {
+    "name": "discard-unchecked",
+    "code": "hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' >/dev/null",
+    "issues": [
+      "hypr-window-reply"
+    ]
+  },
+  {
+    "name": "discard-spaced",
+    "code": "hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })' > /dev/null 2>&1 || fail nope",
+    "issues": [
+      "hypr-window-reply"
+    ]
+  },
+  {
+    "name": "captured",
+    "code": "answer=$(hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })') || fail \"$answer\"",
+    "issues": []
+  },
+  {
+    "name": "class",
+    "code": "hypr_dispatch 'hl.dsp.focus({ window = \"class:flea\" })' || fail nope",
+    "issues": []
+  },
+  {
+    "name": "title-parenthesis-hash",
+    "code": "hypr_dispatch 'hl.dsp.focus({ window = \"title:foo(bar)#baz\" })' || fail nope",
+    "issues": []
+  },
+  {
+    "name": "outside-call",
+    "code": "hypr_dispatch 'hl.dsp.focus({ window = \"0xabc\" })' || fail \"address:0xabc\"",
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "wrong-field",
+    "code": "hypr_dispatch 'hl.dsp.focus({ window = \"0xabc\", note = \"address:0xabc\" })'",
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "comment-selector",
+    "code": "hypr_dispatch 'hl.dsp.focus({ window = \"0xabc\" })' # address:0xabc",
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "comment-call",
+    "code": "# hyprctl dispatch \"hl.dsp.window.float()\" >/dev/null || fail nope",
+    "issues": []
+  },
+  {
+    "name": "inline-comment-call",
+    "code": "echo ready # hyprctl dispatch \"hl.dsp.window.float()\" >/dev/null || fail nope",
+    "issues": []
+  },
+  {
+    "name": "cursor",
+    "code": "hyprctl dispatch \"hl.dsp.cursor.move({x = 2, y = 3})\" >/dev/null",
+    "issues": []
+  },
+  {
+    "name": "escaped-shell-selector",
+    "code": "hypr_dispatch \"hl.dsp.focus({ window = \\\"address:$addr\\\" })\" || fail nope",
+    "issues": []
+  },
+  {
+    "name": "python-bare",
+    "code": "answer = run([\"hyprctl\", \"dispatch\", f'hl.dsp.focus({{ window = \"{addr}\" }})'])",
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "python-address",
+    "code": "answer = run([\"hyprctl\", \"dispatch\", f'hl.dsp.focus({{ window = \"address:{addr}\" }})'])",
+    "issues": []
+  },
+  {
+    "name": "continued-discard",
+    "code": "hyprctl dispatch \\\n 'hl.dsp.focus({ window = \"address:0xabc\" })' \\\n >/dev/null || fail nope",
+    "issues": [
+      "hypr-window-reply"
+    ]
+  },
+  {
+    "name": "mixed-calls",
+    "code": "hypr_dispatch 'hl.dsp.focus({ window = \"address:0xabc\" }); hl.dsp.window.float()'",
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "discard-before-call",
+    "code": "hyprctl dispatch >/dev/null 'hl.dsp.focus({ window = \"address:0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-reply"
+    ]
+  },
+  {
+    "name": "unrelated-discard",
+    "code": "echo ready >/dev/null; answer=$(hyprctl dispatch 'hl.dsp.focus({ window = \"address:0xabc\" })')",
+    "issues": []
+  },
+  {
+    "name": "selector-with-redirection-text",
+    "code": "answer=$(hyprctl dispatch 'hl.dsp.focus({ window = \"title:foo >/dev/null\" })')",
+    "issues": []
+  }
+]

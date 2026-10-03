@@ -35,6 +35,15 @@ note() { printf '     %s\n' "$*"; }
 check() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1"; note "expected [$3]"; note "got      [$2]"; fi; }
 die() { bad "$*"; exit 1; }
 
+hypr_dispatch() {
+    local answer
+    if answer=$(hyprctl dispatch "$1" 2>&1) && [[ "$answer" == ok ]]; then
+        return 0
+    fi
+    printf '%s\n' "$answer" >&2
+    return 1
+}
+
 stop_owned_processes() {
   [[ -n "${FLEA_PID:-}" ]] || return 0
   python3 - "$SB" "$FLEA_PID" <<'PY'
@@ -986,11 +995,13 @@ r11_geometry() {
     '[.[] | select(.pid == $pid)] | if length == 1 then .[0] else error("owned window missing or ambiguous") end
      | "\(.at[0]) \(.at[1]) \(.size[0]) \(.size[1]) \(.floating)"'
 }
-hyprctl dispatch "hl.dsp.window.float()" >/dev/null || die "R11 could not float the window"
+r11_addr=$(hyprctl clients -j | jq -er --argjson pid "$MYPID" '[.[] | select(.pid == $pid)] | if length == 1 then .[0].address else error("owned window missing or ambiguous") end') || die "R11 window address unavailable"
+[[ "$r11_addr" =~ ^0x[0-9a-fA-F]+$ ]] || die "R11 window address is invalid"
+hypr_dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$r11_addr\" })" || die "R11 could not float the window"
 sleep 0.5
-hyprctl dispatch "hl.dsp.window.resize({ x = 1200, y = 800 })" >/dev/null
+hypr_dispatch "hl.dsp.window.resize({ x = 1200, y = 800, exact = true, window = \"address:$r11_addr\" })" || die "R11 could not resize the window"
 sleep 0.4
-hyprctl dispatch "hl.dsp.window.move({ x = 400, y = 300 })" >/dev/null
+hypr_dispatch "hl.dsp.window.move({ x = 400, y = 300, window = \"address:$r11_addr\" })" || die "R11 could not move the window"
 sleep 0.8
 # Captured and checked before it is split, because a here-string always hands read one line.
 geometry=$(r11_geometry) || die "R11 window geometry unavailable"
@@ -1053,7 +1064,7 @@ expect_ipc pathBarOpen true
 native_key -k Escape
 expect_ipc pathBarOpen false
 
-hyprctl dispatch "hl.dsp.window.float()" >/dev/null
+hypr_dispatch "hl.dsp.window.float({ action = \"off\", window = \"address:$r11_addr\" })" || die "R11 could not tile the window"
 sleep 0.5
 echo
 
@@ -1099,13 +1110,13 @@ if [ -z "$RECV_ADDR" ]; then
   note "receiver stderr: $(cat "$SB/receiver-err.log" 2>/dev/null)"
 else
   ok "the receiver window is up"
-  hyprctl dispatch "hl.dsp.focus({ window = \"$RECV_ADDR\" })" >/dev/null
+  hypr_dispatch "hl.dsp.focus({ window = \"address:$RECV_ADDR\" })" || die "outbound could not focus the receiver"
   sleep 0.3
-  hyprctl dispatch "hl.dsp.window.float()" >/dev/null
+  hypr_dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$RECV_ADDR\" })" || die "outbound could not float the receiver"
   sleep 0.3
-  hyprctl dispatch "hl.dsp.window.resize({ x = $recv_w, y = $recv_h })" >/dev/null
+  hypr_dispatch "hl.dsp.window.resize({ x = $recv_w, y = $recv_h, exact = true, window = \"address:$RECV_ADDR\" })" || die "outbound could not resize the receiver"
   sleep 0.3
-  hyprctl dispatch "hl.dsp.window.move({ x = $recv_x, y = $recv_y })" >/dev/null
+  hypr_dispatch "hl.dsp.window.move({ x = $recv_x, y = $recv_y, window = \"address:$RECV_ADDR\" })" || die "outbound could not move the receiver"
   sleep 0.4
   # Sample input, hyprctl clients -j: '[{"pid": 456, "address": "0xdef"}]'.
   FLEA_ADDR=$(hyprctl clients -j | python3 -c '
@@ -1114,11 +1125,14 @@ pid = int(sys.argv[1])
 hits = [w for w in json.load(sys.stdin) if w.get("pid") == pid]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$MYPID")
-  hyprctl dispatch "hl.dsp.focus({ window = \"$FLEA_ADDR\" })" >/dev/null
+  [[ "$FLEA_ADDR" =~ ^0x[0-9a-fA-F]+$ ]] || die "outbound Flea window address is invalid"
+  hypr_dispatch "hl.dsp.focus({ window = \"address:$FLEA_ADDR\" })" || die "outbound could not focus Flea"
   sleep 0.4
-  hyprctl dispatch "hl.dsp.window.move({ x = $flea_x, y = $flea_y })" >/dev/null
+  hypr_dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$FLEA_ADDR\" })" || die "outbound could not float Flea"
   sleep 0.4
-  hyprctl dispatch "hl.dsp.window.resize({ x = $flea_w, y = $flea_h })" >/dev/null
+  hypr_dispatch "hl.dsp.window.resize({ x = $flea_w, y = $flea_h, exact = true, window = \"address:$FLEA_ADDR\" })" || die "outbound could not resize Flea"
+  sleep 0.4
+  hypr_dispatch "hl.dsp.window.move({ x = $flea_x, y = $flea_y, window = \"address:$FLEA_ADDR\" })" || die "outbound could not move Flea"
   sleep 0.6
   geometry=$(r11_geometry) || die "outbound window geometry unavailable"
   read -r WX WY WW WH _ <<< "$geometry"
@@ -1205,15 +1219,15 @@ print(hits[0]["address"] if len(hits) == 1 else "")
   if [ -z "$RECV_ADDR" ]; then
     bad "the Shift receiver is absent"
   else
-    hyprctl dispatch "hl.dsp.focus({ window = \"$RECV_ADDR\" })" >/dev/null
+    hypr_dispatch "hl.dsp.focus({ window = \"address:$RECV_ADDR\" })" || die "outbound could not focus the Shift receiver"
     sleep 0.3
-    hyprctl dispatch "hl.dsp.window.float()" >/dev/null
+    hypr_dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$RECV_ADDR\" })" || die "outbound could not float the Shift receiver"
     sleep 0.3
-    hyprctl dispatch "hl.dsp.window.resize({ x = $recv_w, y = $recv_h })" >/dev/null
+    hypr_dispatch "hl.dsp.window.resize({ x = $recv_w, y = $recv_h, exact = true, window = \"address:$RECV_ADDR\" })" || die "outbound could not resize the Shift receiver"
     sleep 0.3
-    hyprctl dispatch "hl.dsp.window.move({ x = $recv_x, y = $recv_y })" >/dev/null
+    hypr_dispatch "hl.dsp.window.move({ x = $recv_x, y = $recv_y, window = \"address:$RECV_ADDR\" })" || die "outbound could not move the Shift receiver"
     sleep 0.4
-    hyprctl dispatch "hl.dsp.focus({ window = \"$FLEA_ADDR\" })" >/dev/null
+    hypr_dispatch "hl.dsp.focus({ window = \"address:$FLEA_ADDR\" })" || die "outbound could not focus Flea after placing the Shift receiver"
     sleep 0.4
     point=$(screen_centre outbound-shift.txt) || die "outbound-shift.txt is not visible"
     read -r sx sy <<< "$point"

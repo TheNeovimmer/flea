@@ -11,6 +11,15 @@ fail() {
     exit 1
 }
 
+hypr_dispatch() {
+    local answer
+    if answer=$(hyprctl dispatch "$1" 2>&1) && [[ "$answer" == ok ]]; then
+        return 0
+    fi
+    printf '%s\n' "$answer" >&2
+    return 1
+}
+
 export PATH="$HOME/.local/bin:$PATH"
 eval "$(omarchy-drive env)"
 # omarchy-drive env omits the Qt platform theme, without which no icon name resolves; the session publishes it here.
@@ -11845,13 +11854,13 @@ print(hits[0]["address"] if len(hits) == 1 else "")
 xwdrag_place() {
     local pid="$1" x="$2" y="$3" w="$4" h="$5" addr
     addr=$(xwdrag_addr "$pid") || fail "xwdrag: no window address for pid $pid"
-    hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
+    hypr_dispatch "hl.dsp.focus({ window = \"address:$addr\" })" || fail "xwdrag: could not focus $pid"
     sleep 0.3
-    hyprctl dispatch "hl.dsp.window.float()" >/dev/null || fail "xwdrag: could not float $pid"
+    hypr_dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$addr\" })" || fail "xwdrag: could not float $pid"
     sleep 0.3
-    hyprctl dispatch "hl.dsp.window.resize({ x = $w, y = $h })" >/dev/null || fail "xwdrag: could not resize $pid"
+    hypr_dispatch "hl.dsp.window.resize({ x = $w, y = $h, exact = true, window = \"address:$addr\" })" || fail "xwdrag: could not resize $pid"
     sleep 0.3
-    hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y })" >/dev/null || fail "xwdrag: could not move $pid"
+    hypr_dispatch "hl.dsp.window.move({ x = $x, y = $y, window = \"address:$addr\" })" || fail "xwdrag: could not move $pid"
     sleep 0.4
 }
 
@@ -11863,7 +11872,7 @@ xwdrag_focus() {
     deadline=$((now + focus_wait_ms)); next_focus=$now
     while (( now < deadline )); do
         if (( now >= next_focus )); then
-            hyprctl dispatch "hl.dsp.focus({ window = \"$addr\" })" >/dev/null || fail "xwdrag: could not focus $pid"
+            hypr_dispatch "hl.dsp.focus({ window = \"address:$addr\" })" || fail "xwdrag: could not focus $pid"
             next_focus=$((now + focus_retry_ms))
         fi
         # Sample input: hyprctl activewindow -j prints {"pid": 111} for the focused window.
@@ -11987,15 +11996,6 @@ xwdrag_assert_focus() {
     got=$(hyprctl activewindow -j | python3 -c 'import json,sys; print(json.load(sys.stdin).get("pid",""))') || fail "xwdrag: no active window to check against $want"
     [[ -n "$got" ]] || fail "xwdrag: active window has no pid, wanted $want"
     [[ "$got" == "$want" ]] || fail "xwdrag: active window is $got, wanted $want"
-}
-# Sample input: hyprctl clients -j carries {"pid": 123, "address": "0xabc"} for one owned window.
-xwdrag_addr() {
-    local pid="$1"
-    hyprctl clients -j | python3 -c '
-import json, sys
-hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
-print(hits[0]["address"] if len(hits) == 1 else "")
-' "$pid"
 }
 # Targeted keystrokes carry a window address, since --window flea matches both windows at once.
 xwdrag_key() {
