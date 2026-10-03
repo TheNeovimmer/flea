@@ -1,10 +1,6 @@
-// Figure engine for rendered Markdown: maths (MathJax) and diagrams
-// (beautiful-mermaid). Pure logic with no QML imports; node and quickjs-ng
-// import it direct, and ui/vendor/figure-helper.mjs renders through it.
-//
-// Requests carry {id, kind, source, display, theme} and answers carry
-// {id, svg} or {id, error}. Identical (kind, source, theme) answers come from
-// the service's 64-entry LRU, so this module keeps no cache of its own.
+// Maths (MathJax) and diagrams (beautiful-mermaid) through a pure ES module shared by node and quickjs-ng.
+
+// Requests carry {id, kind, source, display, theme}; answers carry {id, svg} or {id, error}; FigureService caches by kind, source, display and theme.
 
 export var MATH_LIMIT = 4096;
 export var MERMAID_LIMIT = 32768;
@@ -16,7 +12,7 @@ export function themeKey(t) {
 }
 
 export function cacheKey(kind, source, t, display) {
-    return kind + (display ? ":display" : ":inline") + "\n" + themeKey(t) + "\n" + source;
+    return kind + "\n" + themeKey(t) + "\n" + !!display + "\n" + source;
 }
 
 function hexRGB(h) {

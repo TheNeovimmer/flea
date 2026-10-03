@@ -1,5 +1,9 @@
 .import "../../ui/js/Markdown.js" as Markdown
 .import "../../ui/js/MdInline.js" as MdInline
+.import "../../ui/js/MdBlocks.js" as MdBlocks
+.import "../../ui/js/MdContainer.js" as MdContainer
+.import "../../ui/js/MdLeaf.js" as MdLeaf
+.import "../../ui/js/MdRefs.js" as MdRefs
 
 // Block-tree structure against CommonMark: fences, breaks, lists, footnotes, math, references and inline spans.
 function run(check) {
@@ -12,6 +16,174 @@ function run(check) {
     function styled(doc) {
         return Markdown.prepare(doc, dir, undefined, chrome, ink)
     }
+
+    // R5 samples follow CommonMark 4.3 examples 92-94: lazy underlines are text unless they start a break.
+    var r5Lazy = [
+        { name: "example 92", source: "> Foo\n---", blocks: [{ type: "quote", text: "Foo" }, { type: "run", text: "---" }] },
+        { name: "example 93", source: "> foo\nbar\n===", blocks: [{ type: "quote", text: "foo\nbar\n===" }] },
+        { name: "example 94", source: "- Foo\n---", blocks: [{ type: "list", ordered: false, start: 0, items: ["Foo"] }, { type: "run", text: "---" }] },
+        { name: "list equals", source: "- foo\nbar\n===", blocks: [{ type: "list", ordered: false, start: 0, items: ["foo\nbar\n==="] }] },
+        { name: "quote short dash", source: "> foo\n--", blocks: [{ type: "quote", text: "foo\n--" }] },
+        { name: "list short dash", source: "- foo\n--", blocks: [{ type: "list", ordered: false, start: 0, items: ["foo\n--"] }] }
+    ]
+    for (var lazyIndex = 0; lazyIndex < r5Lazy.length; lazyIndex++) {
+        var lazyCase = r5Lazy[lazyIndex]
+        check("R5 G1 " + lazyCase.name, JSON.stringify(Markdown.blocks(lazyCase.source, dir, chrome, ink)),
+            JSON.stringify(lazyCase.blocks))
+    }
+
+    // R5 samples follow CommonMark 4.7: "[cover]:\n[cover].png" accepts the whole destination line.
+    var r5Destinations = [
+        { name: "bracket image", key: "cover", tail: "[cover].png", target: "[cover].png" },
+        { name: "bracket label", key: "a", tail: "[b]", target: "[b]" },
+        { name: "definition-shaped tail", key: "foo", tail: "[bar]: /url", target: "" },
+        { name: "optional title", key: "cover", tail: '[cover].png "Cover"', target: "[cover].png" },
+        { name: "trailing whitespace", key: "cover", tail: "[cover].png \t", target: "[cover].png" },
+        { name: "text after title", key: "cover", tail: '[cover].png "Cover" extra', target: "" }
+    ]
+    var definitionSeparators = [" ", "\n"]
+    for (var destinationIndex = 0; destinationIndex < r5Destinations.length; destinationIndex++) {
+        var destinationCase = r5Destinations[destinationIndex]
+        for (var separatorIndex = 0; separatorIndex < definitionSeparators.length; separatorIndex++) {
+            var definitionSource = "[" + destinationCase.key + "]:" + definitionSeparators[separatorIndex] + destinationCase.tail
+            var expectedDefinitions = {}
+            if (destinationCase.target !== "")
+                expectedDefinitions[destinationCase.key] = destinationCase.target
+            var definitionLabel = "R5 G2 " + destinationCase.name + (definitionSeparators[separatorIndex] === "\n" ? " next line" : " same line")
+            check(definitionLabel, JSON.stringify(Markdown.definitions(definitionSource)), JSON.stringify(expectedDefinitions))
+            var definitionImage = Markdown.blocks(definitionSource + "\n\n![x][" + destinationCase.key + "]", dir, chrome, ink)
+            check(definitionLabel + " image", definitionImage.some(function (block) { return block.type === "image" }), destinationCase.target !== "")
+            if (destinationCase.target === "")
+                check(definitionLabel + " stays paragraph", Markdown.blocks(definitionSource, dir, chrome, ink)[0].text,
+                    definitionSource.replace(/\[/g, "&#91;").replace(/\]/g, "&#93;"))
+        }
+    }
+
+    // R3 samples pin each container transition through the public block path for links and footnotes.
+    var refCases = [
+        { name: "document fence after list", source: "- parent\n```\n[img]: pic.png\n```", resolves: false },
+        { name: "quoted list blank", source: "> - parent\n>\n>     [img]: pic.png", resolves: true },
+        { name: "nested quote", source: "> > [img]: pic.png", resolves: true },
+        { name: "list fence enters indented quote", source: "- ```\n  > code\n\n[img]: pic.png", resolves: true },
+        { name: "list fence enters outside quote", source: "- ```\n> quote\n\n[img]: pic.png", resolves: true },
+        { name: "quoted ordered item blank", source: "> 1.  item\n>\n>     [img]: pic.png", resolves: true },
+        { name: "quoted list fence ends at sibling", source: "> - ```\n>   code\n> - [img]: pic.png", resolves: true },
+        { name: "ordered tab continuation", source: "10. parent\n\n\t[img]: pic.png", resolves: true },
+        { name: "unordered tab paragraph", source: "- parent\n\t[img]: pic.png", resolves: false },
+        { name: "unordered tab continuation", source: "- parent\n\n\t[img]: pic.png", resolves: true },
+        { name: "fence inside quoted list item", source: "- > ```\n  > [img]: pic.png\n  > ```", resolves: false },
+        { name: "definition inside paragraph", source: "paragraph\n[img]: pic.png", resolves: false }
+    ]
+    for (var r = 0; r < refCases.length; r++) {
+        var sample = refCases[r]
+        var rendered = Markdown.blocks(sample.source + "\n\n![x][img]", dir, chrome, ink)
+        check("R3 link " + sample.name, rendered.some(function (b) { return b.type === "image" }), sample.resolves)
+        var noteSource = sample.source.replace("[img]: pic.png", "[^img]: Note.")
+        var notes = Markdown.blocks(noteSource + "\n\nsee[^img]", dir, chrome, ink)
+        check("R3 footnote " + sample.name,
+            JSON.stringify(notes).indexOf("<sup>1</sup> Note.") >= 0, sample.resolves)
+        if (sample.name === "document fence after list")
+            check("R3 document fence keeps definition literal", rendered[1].text, "[img]: pic.png")
+    }
+
+    // R4 premise inputs share root mechanisms across md2a, md2b and md2c.
+    var r4References = [
+        { name: "md2a F31 md2c F23 unclosed pic angle", source: "[img]: <pic.png", target: "" },
+        { name: "md2c F23 unclosed photo angle", source: "[img]: <photo.png", target: "" },
+        { name: "angle control", source: "[img]: <pic.png>", target: "pic.png" },
+        { name: "md2a F32 md2c F26 bare bracket", source: "[img]: [cover].png", target: "[cover].png" },
+        { name: "bracket control", source: "[img]: <[cover].png>", target: "[cover].png" },
+        { name: "bracket continuation destination", source: "[img]:\n  [cover].png", target: "[cover].png" },
+        { name: "angle continuation rejection", source: "[img]:\n  <pic.png", target: "" },
+        { name: "md2a F33 md2b F28 equals", source: "Title\n===\n[img]: pic.png", target: "pic.png" },
+        { name: "md2a F33 single equals", source: "Title\n=\n[img]: pic.png", target: "pic.png" },
+        { name: "md2c F24 equals", source: "Heading\n=======\n[img]: pic.png", target: "pic.png" },
+        { name: "setext dash control", source: "Title\n---\n[img]: pic.png", target: "pic.png" },
+        { name: "setext short dash", source: "Title\n--\n[img]: pic.png", target: "pic.png" },
+        { name: "setext single dash", source: "Title\n-\n[img]: pic.png", target: "pic.png" },
+        { name: "md2a F34 md2b F29 quote tab", source: "> \t> [img]: pic.png", target: "pic.png" },
+        { name: "md2b F29 list tab", source: "> \t- [img]: pic.png", target: "pic.png" },
+        { name: "quote space control", source: ">   > [img]: pic.png", target: "pic.png" },
+        { name: "list space control", source: ">   - [img]: pic.png", target: "pic.png" },
+        { name: "md2b F31 md2c F25 dash tab rule", source: "> -\t-\t-\n> [img]: pic.png", target: "pic.png" },
+        { name: "md2b F31 star tab rule", source: "> *\t*\t*\n> [img]: pic.png", target: "pic.png" },
+        { name: "underscore tab rule", source: "> _\t_\t_\n> [img]: pic.png", target: "pic.png" },
+        { name: "tab rule trailing tab", source: "> -\t-\t-\t\n> [img]: pic.png", target: "pic.png" },
+        { name: "tab rule space control", source: "> - - -\n> [img]: pic.png", target: "pic.png" }
+    ]
+    for (var referenceIndex = 0; referenceIndex < r4References.length; referenceIndex++) {
+        var referenceCase = r4References[referenceIndex]
+        var referenceSource = referenceCase.source + "\n\n![x][img]"
+        check("R4 " + referenceCase.name + " definition",
+            Markdown.definitions(referenceSource).img || "", referenceCase.target)
+        var referenceBlocks = Markdown.blocks(referenceSource, dir, chrome, ink)
+        check("R4 " + referenceCase.name + " image",
+            referenceBlocks.some(function (block) { return block.type === "image" }), referenceCase.target !== "")
+        if (referenceCase.name.indexOf("unclosed") >= 0)
+            check("R4 " + referenceCase.name + " stays literal",
+                (referenceBlocks[0].text || "").indexOf(referenceCase.source.slice("[img]: ".length).replace("<", "&#60;")) >= 0, true)
+    }
+    check("R4 angle cannot close on another line", MdRefs.readDefinitionTarget("<pic.png\n>"), "")
+    var r4Underlines = ["=", "===", "--", "---"]
+    for (var underlineIndex = 0; underlineIndex < r4Underlines.length; underlineIndex++) {
+        var underline = r4Underlines[underlineIndex]
+        // CommonMark example 93 keeps lazy underline text; examples 92 and 94 put the break outside.
+        var expectedLazyText = underline === "---" ? "Title" : "Title\n" + underline
+        var quoteUnderline = Markdown.blocks("> Title\n" + underline, dir, chrome, ink)
+        check("R4 md2a F33 lazy quote " + underline, quoteUnderline[0].text, expectedLazyText)
+        var listUnderline = Markdown.blocks("- Title\n" + underline, dir, chrome, ink)
+        check("R4 md2a F33 lazy list " + underline, listUnderline[0].items[0], expectedLazyText)
+    }
+    var markerView = { at: 2, padding: 0, column: 2 }
+    check("R4 md2a F34 quote uses absolute tab columns", MdContainer.quoteAt("> \t> text", markerView), 2)
+    var tabListMarker = MdContainer.listAt("> \t- text", markerView)
+    check("R4 md2b F29 list uses absolute tab columns", tabListMarker === null ? -1 : tabListMarker.indent, 2)
+    check("R4 tab above marker indent stays code", MdContainer.quoteAt("\t> text", { at: 0, padding: 0, column: 0 }), -1)
+    var ruleMarks = ["-", "*", "_"]
+    var thematicMarkCount = 3
+    for (var ruleIndex = 0; ruleIndex < ruleMarks.length; ruleIndex++) {
+        var ruleText = ruleMarks[ruleIndex] + "\t" + ruleMarks[ruleIndex] + "\t" + ruleMarks[ruleIndex]
+        check("R4 md2b F31 md2c F25 suffix " + ruleMarks[ruleIndex], MdBlocks.ruleSuffix("> " + ruleText).count, thematicMarkCount)
+        check("R4 md2b F31 md2c F25 thematic " + ruleMarks[ruleIndex], MdLeaf.isThematic(ruleText), true)
+    }
+    var r4EmptyItems = [
+        { name: "md2a F30 hidden first", source: "1. [img]: pic.png\n2. Visible", start: 1, ordered: true, items: ["", "Visible"] },
+        { name: "md2b F30 empty first", source: "1. \n2. shown", start: 1, ordered: true, items: ["", "shown"] },
+        { name: "md2b F30 second", source: "1. \n2. second", start: 1, ordered: true, items: ["", "second"] },
+        { name: "md2c F27 hidden first", source: "5. [img]: pic.png\n6. next", start: 5, ordered: true, items: ["", "next"] },
+        { name: "hidden bullet", source: "- [img]: pic.png\n- Visible", start: 0, ordered: false, items: ["", "Visible"] },
+        { name: "empty bullet", source: "- \n- Visible", start: 0, ordered: false, items: ["", "Visible"] },
+        { name: "bare ordered marker", source: "1.\n2. shown", start: 1, ordered: true, items: ["", "shown"] },
+        { name: "bare bullet marker", source: "-\n- shown", start: 0, ordered: false, items: ["", "shown"] },
+        { name: "hidden only item", source: "- [img]: pic.png", start: 0, ordered: false, items: [""] }
+    ]
+    for (var emptyIndex = 0; emptyIndex < r4EmptyItems.length; emptyIndex++) {
+        var emptyCase = r4EmptyItems[emptyIndex]
+        check("R4 " + emptyCase.name + " keeps authored rows",
+            JSON.stringify(Markdown.blocks(emptyCase.source, dir, chrome, ink)),
+            JSON.stringify([{ type: "list", ordered: emptyCase.ordered, start: emptyCase.start, items: emptyCase.items }]))
+    }
+    var lazyDefinitionSource = "- [img]:\npic.png\n  visible"
+    check("R4 md2a F35 lazy hidden destination stays in item",
+        JSON.stringify(Markdown.blocks(lazyDefinitionSource, dir, chrome, ink)),
+        JSON.stringify([{ type: "list", ordered: false, start: 0, items: ["visible"] }]))
+    var lazyState = MdBlocks.referenceState()
+    var collectMembership = []
+    var renderMembership = []
+    function memberships(into) {
+        return function (event) {
+            into.push({ index: event.index, outer: event.outer === null ? null : event.outer.type })
+        }
+    }
+    MdBlocks.blockPass(lazyDefinitionSource.split("\n"), lazyState, memberships(collectMembership), true)
+    MdBlocks.blockPass(lazyDefinitionSource.split("\n"), lazyState, memberships(renderMembership), false)
+    check("R4 md2a F35 collect render membership agrees", JSON.stringify(renderMembership), JSON.stringify(collectMembership))
+    var continuedNote = "[^a]: first\n    second  \n    third\n\nsee[^a]"
+    var expectedNote = "first\nsecond  \nthird"
+    check("R4 md2a F36 continuation keeps hard break",
+        MdBlocks.collectReferences(continuedNote).notes.a.text, expectedNote)
+    var continuedNoteBlocks = Markdown.blocks(continuedNote, dir, chrome, ink)
+    check("R4 md2a F36 rendered note keeps hard break", continuedNoteBlocks[2].items[0], "<sup>1</sup> " + expectedNote)
 
     var front = Markdown.blocks("---\ntitle: Hi\n---\n\nText\n", dir, chrome, ink)
     check("front matter draws as a fence", front.length === 2 && front[0].type === "fence", true)
@@ -140,6 +312,14 @@ function run(check) {
     var unused = Markdown.blocks("Text.\n\n[^b]: Never cited.\n", dir, chrome, ink)
     check("an uncited note renders nothing",
         unused.map(function (b) { return b.type }).join(","), "run")
+    check("R2 raw list superscript never cites note",
+        kinds("- x<sup>1</sup>\n\n[^a]: Unused note."), "list")
+    check("R2 raw run superscript never cites note",
+        kinds("x<sup>1</sup>\n\n[^a]: Unused note."), "run")
+    check("R2 discarded image alt citation never adds note",
+        kinds("- ![x[^a]](pic.png)\n\n[^a]: Unused note."), "list")
+    var noteChain = Markdown.blocks("see[^a]\n\n[^a]: inner[^b]\n[^b]: child", dir, chrome, ink)
+    check("R2 notes retain body-only citation selection", noteChain[2].items.length, 1)
     var listFoot = Markdown.blocks("- see[^a]\n\n[^a]: The note.\n", dir, chrome, ink)
     check("a note cited only in a list gets its definition",
         listFoot.map(function (b) { return b.type }).join(","), "list,run,list")

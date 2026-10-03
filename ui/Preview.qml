@@ -479,7 +479,6 @@ Item {
                 onLoaded: {
                     item.path = Qt.binding(function () { return root.path })
                     item.size = Qt.binding(function () { return root.size })
-                    item.active = Qt.binding(function () { return root.isMarkdown })
                     item.view = Qt.binding(function () {
                         return ViewState.markdownView === "source" ? "source" : "rendered"
                     })
@@ -490,6 +489,7 @@ Item {
                         return root.pane ? (root.pane.storageClass === "network"
                             || root.pane.storageClass === "phone") : false
                     })
+                    item.active = Qt.binding(function () { return root.isMarkdown })
                     item.closeRequested.connect(root.close)
                 }
             }

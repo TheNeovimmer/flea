@@ -2,10 +2,16 @@
 
 // MdHtml: one forward scan allowlists raw tags; only sanitized markup reaches md4c.
 .import "MdUrl.js" as MdUrl
+.import "MdEscape.js" as MdEscape
 
 var TOKEN_OPEN = 57346
 var TOKEN_CLOSE = 57347
 var MAX_TAG_LENGTH = 4096
+
+// Sample input: "\uE0020\uE003" becomes "\uFFFD0\uFFFD" before document parsing reserves its token markers.
+function documentText(text) {
+    return String(text).replace(/[\uE002\uE003]/g, "\uFFFD")
+}
 
 // Held spans use private-use delimiters and one shared token table, restored after escaping.
 function openToken() {
@@ -57,10 +63,11 @@ function readTag(text, i, dead) {
     }
     if (gt - i > MAX_TAG_LENGTH)
         return null
-    var dq = text.indexOf('"', i + 1)
-    var sq = text.indexOf("'", i + 1)
-    if ((dq < 0 || dq > gt) && (sq < 0 || sq > gt))
-        return { tag: text.slice(i, gt + 1), end: gt + 1 }
+    var candidate = text.slice(i, gt + 1)
+    var dq = candidate.indexOf('"')
+    var sq = candidate.indexOf("'")
+    if (dq < 0 && sq < 0)
+        return { tag: candidate, end: gt + 1 }
     var quote = ""
     var j = i + 1
     while (j < gt) {
@@ -75,10 +82,64 @@ function readTag(text, i, dead) {
     }
     if (quote !== "")
         return null
-    return { tag: text.slice(i, gt + 1), end: gt + 1 }
+    return { tag: candidate, end: gt + 1 }
 }
 
-// Split a raw tag into its name, closing flag and raw attribute body.
+// Sample input: ' a=b/' keeps the slash in b/; ' a="b"/' sets the self-closing flag only at the end.
+function scanAttributes(rest) {
+    var i = 0
+    var attributes = []
+    var valid = true
+    var selfClose = false
+    while (i < rest.length) {
+        while (i < rest.length && /\s/.test(rest.charAt(i)))
+            i++
+        if (i >= rest.length)
+            break
+        if (rest.charAt(i) === "/") {
+            selfClose = i === rest.length - 1
+            i++
+            continue
+        }
+        var aname = ""
+        while (i < rest.length && /[^\s=/>]/.test(rest.charAt(i))) {
+            aname += rest.charAt(i).toLowerCase()
+            i++
+        }
+        if (aname.length === 0) {
+            i++
+            continue
+        }
+        if (!/^[A-Za-z_:][-A-Za-z0-9_.:]*$/.test(aname))
+            valid = false
+        while (i < rest.length && /\s/.test(rest.charAt(i)))
+            i++
+        var value = null
+        if (rest.charAt(i) === "=") {
+            i++
+            while (i < rest.length && /\s/.test(rest.charAt(i)))
+                i++
+            var q = rest.charAt(i)
+            if (q === '"' || q === "'") {
+                i++
+                var start = i
+                while (i < rest.length && rest.charAt(i) !== q)
+                    i++
+                value = rest.slice(start, i)
+                i++
+            } else {
+                var begin = i
+                while (i < rest.length && !/[\s>]/.test(rest.charAt(i)))
+                    i++
+                value = rest.slice(begin, i)
+            }
+        }
+        attributes.push({ name: aname, value: value })
+    }
+    return { attributes: attributes, valid: valid, selfClose: selfClose }
+}
+
+// Sample input: '<img src="pic.png"/>' yields name "img", its attributes and a self-closing flag.
 function tagHead(tag) {
     var i = 1
     var closing = false
@@ -87,11 +148,17 @@ function tagHead(tag) {
         i++
     }
     var name = ""
-    while (i < tag.length && isNameChar(tag.charAt(i))) {
+    while (i < tag.length && (isNameChar(tag.charAt(i)) || tag.charAt(i) === "-")) {
         name += tag.charAt(i).toLowerCase()
         i++
     }
-    return { name: name, closing: closing, rest: tag.slice(i, tag.length - 1) }
+    var rest = tag.slice(i, tag.length - 1)
+    if (!/^[a-z]/.test(name) || (rest !== "" && !/^[\s/]/.test(rest))
+            || (closing && !/^\s*$/.test(rest)) || (rest.charAt(0) === "/" && !/^\/\s*$/.test(rest)))
+        name = ""
+    var attrs = scanAttributes(rest)
+    return { name: name, closing: closing, rest: rest, selfClose: attrs.selfClose,
+        attributes: attrs.attributes, validAttrs: attrs.valid }
 }
 
 // One attribute value with entities decoded for the safety checks below.
@@ -149,7 +216,7 @@ function sanitizeTag(tag, dir, tokens) {
     if (name.length === 0)
         return { emit: "&#60;", drop: null }
     if (DROP_CONTENT.hasOwnProperty(name))
-        return { emit: "", drop: head.closing ? null : name }
+        return { emit: "", drop: head.closing || head.selfClose ? null : name }
     if (!ALLOWED.hasOwnProperty(name))
         return { emit: "", drop: null }
     // details shows its body; summary draws bold through the markdown parser.
@@ -159,55 +226,15 @@ function sanitizeTag(tag, dir, tokens) {
         return { emit: head.closing ? "**" : "**", drop: null }
     if (head.closing)
         return { emit: "</" + name + ">", drop: null }
-    var out = ""
-    var rest = head.rest
-    var i = 0
+    if (!head.validAttrs)
+        return { emit: "", drop: null }
     var kept = ""
     var srcSeen = null
     var srcsetSeen = null
     var altSeen = ""
-    var selfClose = false
-    while (i < rest.length) {
-        while (i < rest.length && /\s/.test(rest.charAt(i)))
-            i++
-        if (i >= rest.length)
-            break
-        if (rest.charAt(i) === "/") {
-            selfClose = true
-            i++
-            continue
-        }
-        var aname = ""
-        while (i < rest.length && /[^\s=/>]/.test(rest.charAt(i))) {
-            aname += rest.charAt(i).toLowerCase()
-            i++
-        }
-        if (aname.length === 0) {
-            i++
-            continue
-        }
-        while (i < rest.length && /\s/.test(rest.charAt(i)))
-            i++
-        var value = null
-        if (rest.charAt(i) === "=") {
-            i++
-            while (i < rest.length && /\s/.test(rest.charAt(i)))
-                i++
-            var q = rest.charAt(i)
-            if (q === '"' || q === "'") {
-                i++
-                var start = i
-                while (i < rest.length && rest.charAt(i) !== q)
-                    i++
-                value = rest.slice(start, i)
-                i++
-            } else {
-                var begin = i
-                while (i < rest.length && !/[\s>]/.test(rest.charAt(i)) && !(rest.charAt(i) === "/" && i === rest.length - 1))
-                    i++
-                value = rest.slice(begin, i)
-            }
-        }
+    for (var i = 0; i < head.attributes.length; i++) {
+        var aname = head.attributes[i].name
+        var value = head.attributes[i].value
         // Every style, class, id, background, srcset, poster, data-* and on* attribute is dropped, whatever its value.
         if (aname === "style" || aname === "class" || aname === "id"
                 || aname === "background" || aname === "poster"
@@ -236,15 +263,9 @@ function sanitizeTag(tag, dir, tokens) {
         if (picked !== null && picked.kind === "local")
             return { emit: hold('<img src="' + picked.url + '" alt="' + escapeAttr(altSeen) + '">'), drop: null }
         if (picked !== null && picked.kind === "remote")
-            return { emit: "\n\n" + MdUrl.placeholder(escapeHtmlText(picked.host)) + "\n\n", drop: null }
-        return { emit: MdUrl.canonicalUrl(altSeen).length > 0 ? escapeHtmlText(altSeen) : "", drop: null }
+            return { emit: "\n\n" + MdUrl.placeholder(MdEscape.escapeText(picked.host)) + "\n\n", drop: null }
+        return { emit: MdUrl.canonicalUrl(altSeen).length > 0 ? MdEscape.escapeText(altSeen) : "", drop: null }
     }
-    var close = (selfClose || VOID.hasOwnProperty(name)) ? " /" : ""
+    var close = (head.selfClose || VOID.hasOwnProperty(name)) ? " /" : ""
     return { emit: "<" + name + kept + close + ">", drop: null }
-}
-
-// Escape every ASCII punctuation mark before text reaches md4c, matching MdInline.escapeHtmlText without an import cycle.
-function escapeHtmlText(value) {
-    return String(value).replace(/[&<>\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E]/g,
-        function (c) { return "&#" + c.charCodeAt(0) + ";" })
 }

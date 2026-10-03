@@ -30,6 +30,7 @@ ShellRoot {
     property int sendsMark: 0
     property int answersMark: 0
     property string firstSvg: ""
+    property string inlineSvg: ""
     property int ticket: 0
     property var ticks: []
     property double maxGap: 0
@@ -52,6 +53,8 @@ ShellRoot {
     property double idleStoppedAt: 0
     property int idleWaitMs: 5000
     property int prodIdleExitMs: 30000
+    property int exitAnswerBoundMs: 2000
+    property double exitAskedAt: 0
 
     // Step order: answers, cache hit, idle exit, timeout restart, 127 latch.
     // The latch is last because it ends rendering for the session.
@@ -166,7 +169,9 @@ ShellRoot {
             shell.askDiagram();
         } else if (shell.step === 2) {
             shell.check(svg !== "" && error === "", "a diagram answers through the helper");
-            shell.check(svg.indexOf("http:") < 0, "the diagram answer passes checkSafe");
+            // Sample input: <svg xmlns="http://www.w3.org/2000/svg"> has a namespace, not a fetch.
+            var checkedSvg = svg.replace(/xmlns(?::\w+)?="[^"]*"/g, "");
+            shell.check(checkedSvg.indexOf("http:") < 0 && checkedSvg.indexOf("https:") < 0, "the diagram answer passes checkSafe");
             shell.step = 3;
             shell.sendsMark = Flea.FigureService.sends;
             shell.answersMark = Flea.FigureService.workerAnswers;
@@ -175,6 +180,22 @@ ShellRoot {
             shell.check(svg === shell.firstSvg && error === "", "a second identical request is a cache hit");
             shell.check(Flea.FigureService.sends === shell.sendsMark, "the cache hit writes no new helper line");
             shell.check(Flea.FigureService.workerAnswers === shell.answersMark, "the cache hit asks the helper nothing");
+            shell.step = 31;
+            shell.ticket = Flea.FigureService.ask("math", "\\frac{a}{b}", false, shell.theme());
+        } else if (shell.step === 31) {
+            shell.check(svg !== "" && svg !== shell.firstSvg && error === "", "the same source inline renders separately from display");
+            shell.check(Flea.FigureService.sends === shell.sendsMark + 1, "inline mode sends one new helper line");
+            shell.inlineSvg = svg;
+            shell.step = 32;
+            shell.ticket = Flea.FigureService.ask("math", "\\frac{a}{b}", false, shell.theme());
+        } else if (shell.step === 32) {
+            shell.check(svg === shell.inlineSvg && error === "", "the inline revisit keeps its own answer");
+            shell.check(Flea.FigureService.sends === shell.sendsMark + 1, "the inline revisit sends nothing");
+            shell.step = 33;
+            shell.askFormula();
+        } else if (shell.step === 33) {
+            shell.check(svg === shell.firstSvg && error === "", "the display revisit keeps its own answer");
+            shell.check(Flea.FigureService.sends === shell.sendsMark + 1, "the display revisit sends nothing");
             shell.step = 4;
             Flea.FigureService.idleExitMs = 150;
             shell.t0 = Date.now();
@@ -199,6 +220,15 @@ ShellRoot {
             });
         } else if (shell.step === 9) {
             shell.check(svg !== "" && error === "", "the next request after a timeout starts a fresh helper");
+            shell.writePhase("exit42", function () {
+                shell.awaitSource = "\\chi+42";
+                shell.afterAwait = 14;
+                shell.step = 140;
+            });
+        } else if (shell.step === 14) {
+            shell.check(svg === "" && error.indexOf("exited 42") >= 0, "a helper exit names its code");
+            shell.check(Date.now() - shell.exitAskedAt < shell.exitAnswerBoundMs, "a helper exit answers before the render deadline");
+            shell.check(Flea.FigureService.available, "an ordinary exit leaves a fresh helper available");
             shell.step = 10;
             shell.writePhase("refused", function () {
                 shell.awaitSource = "\\binom{n}{k}";
@@ -282,6 +312,8 @@ ShellRoot {
             shell.step = shell.afterAwait;
             if (shell.step === 5)
                 shell.check(Date.now() - shell.t0 < 5000, "the idle exit stops the process");
+            if (shell.step === 14)
+                shell.exitAskedAt = Date.now();
             shell.askFresh(src);
         }
         // The idle-phase reading waits past the helper's stop, then the

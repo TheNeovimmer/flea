@@ -49,6 +49,16 @@ ShellRoot {
         }
         return null
     }
+    // Exercise FileView load completion even when the new path leaves its text unchanged.
+    property var loadCases: [
+        { suffix: ".empty.md", text: "", name: "empty Markdown" },
+        { suffix: ".first.md", text: "# Identical\n", name: "first identical Markdown" },
+        { suffix: ".second.md", text: "# Identical\n", name: "second identical Markdown" }
+    ]
+    property int loadStep: 0
+    property var loadFailures: []
+    // Match the existing render settle allowance for each native FileView load.
+    readonly property int settleMs: 1200
 
     FloatingWindow {
         id: window
@@ -70,7 +80,7 @@ ShellRoot {
                 anchors.right: parent.right
                 height: 1060
                 active: true
-                path: shell.fixture
+                path: shell.fixture + shell.loadCases[0].suffix
                 size: 1
                 view: "rendered"
             }
@@ -235,10 +245,28 @@ ShellRoot {
 
     Timer {
         id: settle
-        interval: 1200
+        interval: shell.settleMs
         repeat: false
         running: true
         onTriggered: {
+            if (shell.loadStep < shell.loadCases.length) {
+                var test = shell.loadCases[shell.loadStep]
+                var ready = md.contentReady && md.rawText === test.text
+                shell.log((ready ? "ok " : "FAIL ") + test.name + " contentReady=" + md.contentReady
+                    + " status=" + md.status + " parseSeq=" + md.parseSeq + " appliedSeq=" + md.appliedSeq)
+                if (!ready)
+                    shell.loadFailures.push(test.name)
+                shell.loadStep++
+                if (shell.loadStep < shell.loadCases.length)
+                    md.path = shell.fixture + shell.loadCases[shell.loadStep].suffix
+                else if (shell.loadFailures.length > 0) {
+                    shell.fail("load completion missed " + shell.loadFailures.join(", "))
+                    return
+                } else
+                    md.path = shell.fixture
+                settle.restart()
+                return
+            }
             if (shell.fixture.length === 0)
                 shell.fail("no fixture arrived in FLEA_MARKDOWN_FIXTURE")
             else if (!md.contentReady || !pane.contentReady)
@@ -354,7 +382,7 @@ ShellRoot {
             Flea.ViewState.state = shell.savedState
             if (shell.failures > 0)
                 return shell.fail(shell.failures + " geometry checks failed")
-            return shell.pass("run, chip, markers at two sizes, rules, fence, box, bar and links all read")
+            return shell.pass("three load completions, run, chip, markers at two sizes, rules, fence, box, bar and links all read")
         }
 
         // The chrome chip behind the inline code, confined to its line, never full-bleed.

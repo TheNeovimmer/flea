@@ -4,6 +4,72 @@ import "../ui/js/Markdown.js" as Markdown
 
 // Count string operations in Markdown.blocks at two sizes; durations are diagnostic only.
 QtObject {
+    id: gate
+    property var workerInputs: [
+        { source: "- parent\n    [img]: pic.png\n\n![x][img]\n\n- see[^a]\n\n[^a]: Note.", dir: "/doc" },
+        { source: "> ```\n> code\n\n[img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "- parent\n```\n[img]: pic.png\n```\n\n![x][img]", dir: "/doc" },
+        { source: "> - parent\n>\n>     [img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "> > [img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "- > ```\n  > [img]: pic.png\n  > ```\n\n![x][img]", dir: "/doc" },
+        { source: "10. parent\n\n\t[img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "> - ```\n>   code\n> - [img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "![x](pic.png)", dir: "" },
+        { source: "Title\n===\n[img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "Title\n-\n[img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "> Title\n===", dir: "/doc" },
+        { source: "> \t> [img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "> \t- [img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "> -\t-\t-\n> [img]: pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "[img]: <pic.png\n\n![x][img]", dir: "/doc" },
+        { source: "[img]: [cover].png\n\n![x][img]", dir: "/doc" },
+        { source: "5. [img]: pic.png\n6. next", dir: "/doc" },
+        { source: "1.\n2. shown", dir: "/doc" },
+        { source: "- [img]:\npic.png\n  visible", dir: "/doc" },
+        { source: "[^a]: first\n    second  \n    third\n\nsee[^a]", dir: "/doc" },
+        { source: "```foo``` is inline code\nfollowing prose", dir: "/doc" },
+        { source: "a < b > c\nI <3 you > them", dir: "/doc" },
+        { source: "![x](caf%C3%A9.png)\n\n![x](file:///doc/100%25.png)\n\n![x](file:///doc/%2541.png)", dir: "/doc" },
+        { source: "![x](foo&#65583;bar.png)", dir: "/doc" },
+        { source: '<img src="pic.png"><span title="\uE0020\uE003">tail</span>', dir: "/doc" },
+        { source: "before <svg/> rest\n\nbefore <svg><svg/></svg> tail", dir: "/doc" },
+        { source: 'before <svg a=b/>hidden</svg> tail\n\nbefore <svg><svg a=b/>hidden</svg>hidden</svg> tail', dir: "/doc" }
+    ]
+    property int workerReplies: 0
+    readonly property int workerDeadlineMs: 10000
+    property WorkerScript workerProbe: WorkerScript {
+        source: "../ui/MarkdownWorker.js"
+        onMessage: function (message) {
+            var input = gate.workerInputs[message.seq]
+            var expected = Markdown.blocks(input.source, input.dir, "#181825", "#c0caf5")
+            if (message.error !== "" || JSON.stringify(message.blocks) !== JSON.stringify(expected)) {
+                console.log("FAIL worker parser differs from QML imports: " + message.error)
+                Qt.exit(1)
+                return
+            }
+            gate.workerReplies++
+            if (gate.workerReplies === gate.workerInputs.length) {
+                console.log("ok worker matches QML imports for " + gate.workerReplies + " inputs")
+                gate.runMeasurements()
+            }
+        }
+    }
+    property Timer workerWatchdog: Timer {
+        interval: gate.workerDeadlineMs
+        running: gate.workerReplies < gate.workerInputs.length
+        onTriggered: {
+            console.log("FAIL worker parser never answered")
+            Qt.exit(1)
+        }
+    }
+    Component.onCompleted: {
+        for (var i = 0; i < workerInputs.length; i++) {
+            var input = workerInputs[i]
+            workerProbe.sendMessage({ seq: i, source: input.source, dir: input.dir,
+                chrome: "#181825", ink: "#c0caf5" })
+        }
+    }
+
     function readSource(path) {
         var request = new XMLHttpRequest();
         request.open("GET", Qt.resolvedUrl(path), false);
@@ -34,7 +100,11 @@ QtObject {
         const fallbackMarker = source.indexOf(fallbackHandler, source.indexOf('id: parseFallback'));
         const fallback = new Function('root', 'Markdown', body(source.slice(fallbackMarker, fallbackMarker + fallbackHandler.length)));
         let failures = 0;
-        function check(ok, name) { console.log((ok ? 'ok ' : 'FAIL ') + name); if (!ok) failures++; }
+        function check(ok, name) {
+            console.log((ok ? 'ok ' : 'FAIL ') + name);
+            if (!ok)
+                failures++;
+        }
         root = { active: true, tooLarge: false, parseSeq: 5, parsing: true, blockList: [], path: '/doc/B.md' };
         file = { loaded: false };
         root.askParse = () => ask(root, file, Markdown, parseFallback, parserLoader);
@@ -67,11 +137,46 @@ QtObject {
         shell.ready = false;
         new Function('shell', 'look', 'column', body('function advance()', memory))(shell, {}, {});
         check(!shell.done, 'F2 pending memory readiness does not judge');
+        const htmlSource = readSource('../ui/js/MdHtml.js');
+        check(htmlSource.indexOf('.import "MdEscape.js" as MdEscape') >= 0
+            && htmlSource.indexOf('function escapeHtmlText(') < 0, 'R2 HTML reuses dependency-free escapeText');
+        const validator = readSource('markdown-linearity.sh');
+        check(validator.indexOf("| awk") < 0 && validator.indexOf('while read -r name') >= 0,
+            'R2 validator uses a plain Bash read loop');
+        const security = readSource('markdown-security.qml');
+        const control = { text: "" };
+        const imageStatus = { Loading: Image.Loading, Ready: Image.Ready, Error: Image.Error };
+        const pending = { children: [], source: "http://stub/delayed.png",
+            status: imageStatus.Loading, asynchronous: true };
+        const corpus = { children: [pending] };
+        const settled = security.indexOf('function imagesSettled(') < 0 ? () => true
+            : new Function('Image', 'return function imagesSettled(item) {'
+                + body('function imagesSettled(', security) + '}')(imageStatus);
+        const drain = new Function('started', 'md', 'fixture', 'Url', 'Html', 'Resolve',
+            'validationFailures', 'log', 'Qt', 'control', 'counter', 'XMLHttpRequest', 'root',
+            'imagesSettled', 'resourceUrls', 'resourceProbes', 'finishDrain',
+            body('function startDrain()', security));
+        function tryDrain() {
+            drain(false, { contentReady: true, blockList: ['corpus'] }, '/doc/a.md',
+                { dirOf: () => '/doc', classifyImage: () => ({ kind: 'dropped' }) },
+                { sanitizeTag: () => ({ emit: '' }) }, { resolvePair: () => '' }, [], () => {},
+                { callLater: callback => callback() }, control, 'http://stub',
+                function () {
+                    this.open = () => {};
+                    this.send = () => {};
+                }, corpus, settled,
+                () => {}, { model: [] }, () => { control.text = 'control'; });
+        }
+        tryDrain();
+        check(control.text === '', 'R2 control waits for every Loading corpus Image');
+        pending.status = imageStatus.Error;
+        tryDrain();
+        check(control.text !== '', 'R2 Error corpus Image releases control');
         return failures === 0;
     }
 
     // Sample input: .import "MdLeaf.js" as Leaf, followed by function blocks(...).
-    function loadLibrary(name, cache) {
+    function loadLibrary(name, cache, mutant) {
         if (cache[name]) return cache[name];
         var exports = {};
         cache[name] = exports;
@@ -83,11 +188,17 @@ QtObject {
         var aliases = [], dependencies = [];
         var code = request.responseText.replace(/^\.pragma.*$/gm, "").replace(
             /^\.import "([^"]+)" as (\w+)\s*$/gm, function (_, file, alias) {
-                aliases.push(alias); dependencies.push(loadLibrary(file, cache)); return "";
+                aliases.push(alias);
+                dependencies.push(loadLibrary(file, cache, mutant));
+                return "";
             });
-        code = code.replace(/\.(charAt|indexOf|slice)\s*\(/g, function (_, method) {
+        if (mutant && name === "MdHtml.js")
+            code = code.replace(/    if \(dead !== undefined && dead !== null && i < dead.tagDead\)\n        return null\n/, "");
+        code = code.replace(/\.(charAt|charCodeAt|indexOf|slice|match|exec|test|replace|split|search)\s*\(/g, function (_, method) {
             return ".counted_" + method + "(";
         });
+        if (name === "MdRun.js")
+            code += "\ncountFrameStep = function () { String.prototype.counted_charAt.call('x', 0); };\n";
         var names = [], declaration = /^(?:function|var)\s+(\w+)/gm, match;
         while ((match = declaration.exec(code)) !== null) names.push(match[1]);
         var fields = names.map(function (key) { return key + ":" + key; });
@@ -97,8 +208,11 @@ QtObject {
         return exports;
     }
 
-    Component.onCompleted: {
-        if (!callbackChecks()) { Qt.exit(1); return; }
+    function runMeasurements() {
+        if (!callbackChecks()) {
+            Qt.exit(1);
+            return;
+        }
         var small = 65536;
         var large = 524288;
         var dir = "/doc";
@@ -161,6 +275,28 @@ QtObject {
                 }
                 return s.slice(0, n);
             },
+            tagCost: function (n) {
+                var unit = "<b>x</b>";
+                return unit.repeat(Math.floor(n / unit.length));
+            },
+            tagAttrs: function (n) {
+                var unit = '<svg a=b/>hidden</svg><svg><svg a=b/>hidden</svg>hidden</svg><b title="b"/>x</b>';
+                return unit.repeat(Math.floor(n / unit.length));
+            },
+            linkFrames: function (n) {
+                var opener = "![";
+                var link = "[x](https://x)";
+                var count = Math.floor(n / (opener.length + link.length));
+                return opener.repeat(count) + link.repeat(count);
+            },
+            blankList: function (n) {
+                var half = Math.floor(n / 2);
+                return "- parent\n" + "\n".repeat(half) + "- " + "x".repeat(half);
+            },
+            blankIndent: function (n) {
+                var half = Math.floor(n / 2);
+                return "- parent\n" + "\n".repeat(half) + " ".repeat(half) + "x";
+            },
             backtickRun: function (n) {
                 var s = "";
                 while (s.length < n)
@@ -169,23 +305,71 @@ QtObject {
             }
         };
         var names = ["codeDense", "codeOnly", "bangOpen", "bracketOpen", "angleOpen",
-            "delimSoup", "quoteDeep", "listDeep", "backtickRun"];
+            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent"];
         var work = 0;
-        var methods = ["charAt", "indexOf", "slice"];
+        var methods = ["charAt", "charCodeAt", "indexOf", "slice", "match", "replace", "split", "search"];
         var originals = {};
         for (var m = 0; m < methods.length; m++) {
             var method = methods[m];
             originals[method] = String.prototype[method];
-            String.prototype["counted_" + method] = (function (original) {
-                return function () { work++; return original.apply(this, arguments); };
-            })(originals[method]);
+            String.prototype["counted_" + method] = (function (original, method) {
+                return function () {
+                    var result = original.apply(this, arguments);
+                    if (method === "indexOf") {
+                        var from = Math.max(0, Math.min(this.length, Number(arguments[1]) || 0));
+                        work += result < 0 ? this.length - from
+                            : result - from + String(arguments[0]).length;
+                    } else {
+                        work += method === "slice" ? result.length
+                            : method === "charAt" || method === "charCodeAt" ? 1 : this.length;
+                    }
+                    return result;
+                };
+            })(originals[method], method);
+        }
+        var regexMethods = ["exec", "test"];
+        for (var rm = 0; rm < regexMethods.length; rm++) {
+            var regexMethod = regexMethods[rm];
+            RegExp.prototype["counted_" + regexMethod] = (function (original) {
+                return function (text) {
+                    work += String(text).length;
+                    return original.apply(this, arguments);
+                };
+            })(RegExp.prototype[regexMethod]);
         }
         var arraySlice = Array.prototype.slice;
-        Array.prototype.counted_slice = function () { work++; return arraySlice.apply(this, arguments); };
+        Array.prototype.counted_slice = function () {
+            var result = arraySlice.apply(this, arguments);
+            work += result.length;
+            return result;
+        };
+        var sizeRatio = 8;
+        var marginNumerator = 3;
+        var marginDenominator = 2;
+        var workLimit = sizeRatio * marginNumerator / marginDenominator;
+        var mutantSmall = 2048;
+        var mutantLarge = mutantSmall * sizeRatio;
+        var mutant = loadLibrary("Markdown.js", {}, true);
+        work = 0;
+        var mutantUnit = "< ";
+        mutant.blocks(mutantUnit.repeat(mutantSmall / mutantUnit.length), dir, "#181825", "#c0caf5");
+        var mutantA = work;
+        work = 0;
+        mutant.blocks(mutantUnit.repeat(mutantLarge / mutantUnit.length), dir, "#181825", "#c0caf5");
+        if (work <= mutantA * workLimit) {
+            console.log("FAIL dead-tag mutant accepted work=" + mutantA + "/" + work);
+            Qt.exit(1);
+            return;
+        }
+        console.log("ok dead-tag mutant rejected work=" + mutantA + "/" + work);
         var measured = loadLibrary("Markdown.js", {});
+        var frameSmall = 20000;
+        var frameLarge = 160000;
+        var tagSmall = 4095;
+        var tagLarge = 32760;
         for (var k = 0; k < names.length; k++) {
             var name = names[k];
-            var a = inputs[name](small);
+            var a = inputs[name](name === "linkFrames" ? frameSmall : name === "tagCost" ? tagSmall : small);
             work = 0;
             if (typeof gc === "function")
                 gc();
@@ -193,7 +377,7 @@ QtObject {
             measured.blocks(a, dir, "#181825", "#c0caf5");
             var t1 = Date.now();
             var workA = work;
-            var b = inputs[name](large);
+            var b = inputs[name](name === "linkFrames" ? frameLarge : name === "tagCost" ? tagLarge : large);
             work = 0;
             if (typeof gc === "function")
                 gc();
@@ -206,6 +390,8 @@ QtObject {
         }
         for (var restore = 0; restore < methods.length; restore++)
             delete String.prototype["counted_" + methods[restore]];
+        for (var rr = 0; rr < regexMethods.length; rr++)
+            delete RegExp.prototype["counted_" + regexMethods[rr]];
         delete Array.prototype.counted_slice;
         Qt.quit();
     }

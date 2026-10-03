@@ -7,16 +7,21 @@
 .import "MdRefs.js" as Refs
 .import "MdResolve.js" as Res
 
+// The work gate replaces this no-op to count each frame visited.
+var countFrameStep = function () {}
+
 // The driver: held spans first, then one forward scan. defs maps normalised labels to targets; numbers maps footnote ids to numbers.
-function parseInline(text, dir, defs, numbers, chrome, ink, tokens, literalPlain) {
-    var body = String(text)
+function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, literalPlain) {
+    var body = MdHtml.documentText(text)
     // Plain prose returns directly; plain table cells use the bulk escaper before any markup is emitted.
     if (!/[`$[\]<>\\!]|https?:\/\/|www\./.test(body)
             && (!literalPlain || !/[*_~]|&(?:#(?:[0-9]+|[xX][0-9a-fA-F]+)|[A-Za-z][A-Za-z0-9]*);/.test(body)))
         return literalPlain ? Md.escapeHtmlText(body) : body
     var spans = Md.spanIntervals(body)
     var out = []
+    var citationTokens = {}
     var frames = []
+    var activeLinks = []
     // Without usable ink, link brackets are escaped so md4c cannot resolve unvetted targets.
     var styleLinks = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(ink || ""))
     var chromeOk = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(chrome || ""))
@@ -38,6 +43,10 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, literalPlain
             var spanTo = spans[sp + 1]
             var spanLen = spans[sp + 2]
             var spanKind = spans[sp + 3] === 1 ? "math" : ""
+            if (!chromeOk && spanKind === "math") {
+                sp += Md.INTERVAL_STRIDE
+                continue
+            }
             var held = null
             if (chromeOk) {
                 var innerStart = i + spanLen
@@ -107,6 +116,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, literalPlain
             if (body.charAt(i + 1) === "^") {
                 var fn = Refs.readFootnoteRef(body, i)
                 if (fn !== null && numbers && numbers.hasOwnProperty(fn.id)) {
+                    citationTokens[tokens.length] = fn.id
                     tokens.push("<sup>" + numbers[fn.id] + "</sup>")
                     out.push(-1 - (tokens.length - 1))
                     i = fn.end
@@ -123,13 +133,18 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, literalPlain
                 i++
                 continue
             }
-            frames.push({ bang: false, mark: out.length, rawStart: i + 1, active: true })
+            var opener = { bang: false, mark: out.length, rawStart: i + 1, active: true }
+            frames.push(opener)
+            activeLinks.push(opener)
             out.push("&#91;")
             i++
             continue
         }
         if (c === "]" && frames.length > 0) {
             var frame = frames.pop()
+            countFrameStep()
+            if (!frame.bang && frame.active)
+                activeLinks.pop()
             if (frame.passthrough) {
                 out.push("&#93;")
                 i++
@@ -164,9 +179,10 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, literalPlain
                         made = Res.resolvePair(raw, defs[skey], frame.bang, dir, ink, tokens)
                 }
                 if (made !== null && !frame.bang) {
-                    for (var f = 0; f < frames.length; f++)
-                        if (!frames[f].bang)
-                            frames[f].active = false
+                    while (activeLinks.length > 0) {
+                        countFrameStep()
+                        activeLinks.pop().active = false
+                    }
                 }
             }
             if (made !== null) {
@@ -222,8 +238,15 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, literalPlain
     }
     // Join strings and -1-index token references without per-span objects or another interpreted output scan.
     var parts = new Array(out.length)
-    for (var k = 0; k < out.length; k++)
-        parts[k] = typeof out[k] === "string" ? out[k] : tokens[-1 - out[k]]
+    for (var k = 0; k < out.length; k++) {
+        if (typeof out[k] === "string") {
+            parts[k] = out[k]
+            continue
+        }
+        var tokenIndex = -1 - out[k]
+        if (cited !== undefined && citationTokens.hasOwnProperty(tokenIndex))
+            cited[citationTokens[tokenIndex]] = true
+        parts[k] = tokens[tokenIndex]
+    }
     return parts.join("")
 }
-

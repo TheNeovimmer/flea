@@ -2,6 +2,17 @@
 .import "sourcefixture.js" as Source
 
 function run(check) {
+    var quickLook = Source.slice(Source.source("ui/Preview.qml"), "id: markdownLoader", "item.closeRequested.connect")
+    var activeAt = quickLook.indexOf("item.active =")
+    check("Quick Look Markdown activation exists", activeAt >= 0, true)
+    var readerInputs = ["path", "size", "maxBytes", "truncate"]
+    for (var inputIndex = 0; inputIndex < readerInputs.length; inputIndex++) {
+        var input = readerInputs[inputIndex]
+        var bindingAt = quickLook.indexOf("item." + input + " =")
+        check("Quick Look Markdown binds " + input + " before activation",
+            bindingAt >= 0 && bindingAt < activeAt, true)
+    }
+
     check("rendered and source are the only views", Markdown.isView("rendered") && Markdown.isView("source"), true)
     check("a hand edit is not a view", Markdown.isView("html"), false)
     check("an empty stored value is not a view", Markdown.isView(""), false)
@@ -33,6 +44,16 @@ function run(check) {
     check("a parent escape never loads", Markdown.classifyImage("../shot.png", dir).kind, "dropped")
     check("a data URI never loads", Markdown.classifyImage("data:image/png;base64,AAA", dir).kind, "dropped")
     check("an empty target never loads", Markdown.classifyImage("", dir).kind, "dropped")
+
+    check("R2 root parent clamps and refuses outside", Markdown.classifyImage("/etc/x.png", "/../docs").kind, "dropped")
+    check("R2 root parent clamps private outside", Markdown.classifyImage("/etc/private.png", "/../docs").kind, "dropped")
+    check("R2 root parent allows inside", Markdown.classifyImage("/docs/a.png", "/../docs").url, "file:///docs/a.png")
+    check("R2 root folder contains children", Markdown.classifyImage("/pic.png", "/").url, "file:///pic.png")
+    check("R2 empty folder means root", Markdown.classifyImage("pic.png", "").url, "file:///pic.png")
+    var rootImage = Markdown.blocks("![x](pic.png)", Markdown.dirOf("/README.md"))
+    check("R2 root document renders image", rootImage[0].type, "image")
+    check("R2 root document image URL", rootImage[0].url, "file:///pic.png")
+    check("R2 invalid folder fails closed", Markdown.classifyImage("/pic.png", "/docs\\bad").kind, "dropped")
 
     var spare = "# Notes\n\n![demo](https://cdn.example.com/demo.png)\n\n![local](shot.png)\n"
     var prepared = Markdown.prepare(spare, dir)

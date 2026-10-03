@@ -105,7 +105,7 @@ function styledSpan(kind, content, chrome, cache) {
     return held
 }
 
-// One "<" position: autolink, comment, declaration, or a sanitized tag with its drop-content skip. Answers the index past whatever it consumed.
+// Sample input: '<img src="pic.png">' at its "<" resolves a tag; '<https://a.example>' resolves an autolink.
 function parseAngle(body, i, dir, ink, styleLinks, dead, tokens, out) {
     var auto = Md.readAutolink(body, i)
     if (auto !== null && !isLinkTarget(auto.url))
@@ -153,7 +153,7 @@ function parseAngle(body, i, dir, ink, styleLinks, dead, tokens, out) {
         return i
     }
     var found = MdHtml.readTag(body, i, dead)
-    if (found === null) {
+    if (found === null || MdHtml.tagHead(found.tag).name.length === 0) {
         out.push("&#60;")
         i++
         return i

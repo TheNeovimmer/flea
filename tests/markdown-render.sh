@@ -88,6 +88,10 @@ var fenced = true;
 ![shot](https://cdn.example.com/shot.png)
 EOF
 
+: > "$test_root/notes.md.empty.md"
+printf '# Identical\n' > "$test_root/notes.md.first.md" || exit 1
+cp "$test_root/notes.md.first.md" "$test_root/notes.md.second.md" || exit 1
+
 # The harness ends itself with a kill, so the subshell keeps bash's "Terminated" notice out of the report.
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \

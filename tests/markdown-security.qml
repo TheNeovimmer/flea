@@ -16,14 +16,46 @@ ShellRoot {
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
 
     property string fixture: Quickshell.env("FLEA_MARKDOWN_FIXTURE")
+    property bool delayedCorpus: Quickshell.env("FLEA_MARKDOWN_DELAYED_CORPUS") === "1"
     property bool done: false
+    property bool probesBuilt: false
+    property bool draining: false
     property bool started: false
+    readonly property int drainPollMs: 16
     readonly property int watchdogMs: 30000
     property var validationFailures: []
     property string counter: Quickshell.env("FLEA_MARKDOWN_COUNTER")
 
+    // Wait for explicit Images in the preview, echo and resource probes to reach Ready or Error.
+    function imagesSettled(item) {
+        if (item.source !== undefined && item.asynchronous !== undefined
+                && String(item.source) !== "" && item.status !== Image.Ready && item.status !== Image.Error)
+            return false
+        var children = item.children || []
+        for (var i = 0; i < children.length; i++) {
+            if (!imagesSettled(children[i]))
+                return false
+        }
+        return true
+    }
+
+    // Sample: ![x](file:///pic.png) and <img src="file:///pic.png"> expose the Text image resources.
+    function resourceUrls(item, urls) {
+        if (item.textFormat === Text.MarkdownText) {
+            var re = /!\[[^\]]*\]\(([^)]+)\)|<img\b[^>]*\bsrc=["']([^"']*)["']/g
+            var hit = null
+            while ((hit = re.exec(String(item.text))) !== null)
+                urls.push(hit[1] || hit[2])
+        }
+        var children = item.children || []
+        for (var i = 0; i < children.length; i++)
+            resourceUrls(children[i], urls)
+    }
+
     function startDrain() {
         if (started || !md.contentReady || md.blockList.length === 0)
+            return
+        if (!imagesSettled(root))
             return
         started = true
         var dir = Url.dirOf(fixture)
@@ -34,7 +66,7 @@ ShellRoot {
                 validationFailures.push("traversal accepted " + paths[i])
             }
         }
-        if (Url.classifyImage("/etc/x.png", "").kind !== "dropped") {
+        if (Url.classifyImage("/etc/x.png", "relative").kind !== "dropped") {
             validationFailures.push("unknown document folder accepted absolute path")
         }
         var hostTags = ['<img src="http://a%3Cb%3Ex/x">',
@@ -50,26 +82,39 @@ ShellRoot {
                 validationFailures.push("rejected target emitted anchor syntax " + l)
         }
         log("blocks=" + md.blockList.length)
-        // Start the control after the corpus delegates have been built in this event turn.
+        // Build resource probes after delegates, then wait for their native Image completion signals.
         Qt.callLater(function () {
-            control.text = "![control](" + counter + "/control.png)"
-            var request = new XMLHttpRequest()
-            request.onreadystatechange = function () {
-                if (request.readyState !== XMLHttpRequest.DONE)
-                    return
-                if (request.status !== 200) {
-                    fail("control handshake failed " + request.status)
-                    return
-                }
-                for (var f = 0; f < validationFailures.length; f++)
-                    log("FAIL " + validationFailures[f])
-                done = true
-                log("drained, control GET landed")
-                quit()
-            }
-            request.open("GET", counter + "/drain")
-            request.send()
+            var urls = []
+            resourceUrls(root, urls)
+            resourceProbes.model = urls
+            probesBuilt = true
+            Qt.callLater(finishDrain)
         })
+    }
+
+    function finishDrain() {
+        if (done || draining || !probesBuilt || !imagesSettled(root))
+            return
+        draining = true
+        control.text = "![control](" + counter + "/control.png)"
+        var request = new XMLHttpRequest()
+        request.onreadystatechange = function () {
+            if (request.readyState !== XMLHttpRequest.DONE)
+                return
+            if (request.status !== 200) {
+                fail("control handshake failed " + request.status)
+                return
+            }
+            for (var f = 0; f < validationFailures.length; f++)
+                log("FAIL " + validationFailures[f])
+            if (shell.delayedCorpus && delayedImage.status === Image.Loading)
+                log("FAIL control overtook a Loading corpus Image")
+            done = true
+            log("drained, control GET landed")
+            quit()
+        }
+        request.open("GET", counter + "/drain")
+        request.send()
     }
 
     FloatingWindow {
@@ -84,6 +129,22 @@ ShellRoot {
             anchors.left: parent.left
             anchors.right: parent.right
             height: 1080
+
+            Repeater {
+                id: resourceProbes
+                model: []
+                delegate: Image {
+                    required property string modelData
+                    source: modelData
+                    asynchronous: true
+                }
+            }
+
+            Image {
+                id: delayedImage
+                source: shell.delayedCorpus ? shell.counter + "/delayed-corpus.png" : ""
+                asynchronous: true
+            }
 
             Flea.PreviewMarkdown {
                 id: md
@@ -116,6 +177,16 @@ ShellRoot {
                     text: Run.parseInline('!<!--gap-->[x](' + shell.counter + '/empty-comment.png)',
                         Url.dirOf(shell.fixture), {}, {}, '#181825', '', [])
                 }
+                Repeater {
+                    model: ["", "red"]
+                    delegate: Text {
+                        required property string modelData
+                        required property int index
+                        textFormat: Text.MarkdownText
+                        text: Run.parseInline('$![x](' + shell.counter + '/math-chrome-' + index + '.png)$',
+                            Url.dirOf(shell.fixture), {}, {}, modelData, '#c0caf5', [])
+                    }
+                }
                 anchors.top: md.bottom
                 width: 540
                 Repeater {
@@ -137,6 +208,18 @@ ShellRoot {
                     }
                 }
             }
+        }
+    }
+
+    Timer {
+        interval: shell.drainPollMs
+        repeat: true
+        running: !shell.done
+        onTriggered: {
+            if (shell.started)
+                shell.finishDrain()
+            else
+                shell.startDrain()
         }
     }
 

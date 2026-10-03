@@ -3,32 +3,58 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-# Verify wrapper rejection with partial timeout, missing input, missing repetition and excessive work.
+# Verify wrapper rejection with partial timeout, missing samples, malformed records and excessive work.
 if [ "${1:-}" != "--probe" ]; then
     probe_root=$(mktemp -d "${TMPDIR:-/tmp}/markdown-linearity.XXXXXX") || exit 1
     trap 'rm -rf -- "$probe_root"' EXIT
     cat > "$probe_root/timeout" <<'STUB'
 #!/usr/bin/env bash
-if [ "$LINEARITY_CASE" = timeout ]; then echo 'qml: WORK codeDense 1 8 1 8'; exit 124; fi
-if [ "$LINEARITY_CASE" = empty ]; then exit 0; fi
-if [ "$LINEARITY_CASE" = qml-error ]; then echo 'qml: WORK codeDense 1 8 1 8'; exit 1; fi
+if [ "$LINEARITY_CASE" = timeout ]; then
+    echo 'qml: WORK codeDense 1 8 1 8'
+    exit 124
+fi
+if [ "$LINEARITY_CASE" = empty ]; then
+    exit 0
+fi
+if [ "$LINEARITY_CASE" = qml-error ]; then
+    echo 'qml: WORK codeDense 1 8 1 8'
+    exit 1
+fi
 sample=0
 [ ! -f "$LINEARITY_COUNTER" ] || read -r sample < "$LINEARITY_COUNTER"
-sample=$((sample + 1)); echo "$sample" > "$LINEARITY_COUNTER"
-for name in codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun; do
+sample=$((sample + 1))
+echo "$sample" > "$LINEARITY_COUNTER"
+for name in codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun tagCost tagAttrs linkFrames blankList blankIndent; do
     [ "$LINEARITY_CASE" != missing ] || [ "$name" != listDeep ] || continue
     [ "$LINEARITY_CASE" != short ] || [ "$sample" != 2 ] || [ "$name" != listDeep ] || continue
-    large=8; [ "$LINEARITY_CASE" != nonlinear ] || large=13
-    printf 'qml: WORK %s 1 %s 1 999\n' "$name" "$large"
+    large=8
+    [ "$LINEARITY_CASE" != nonlinear ] || large=13
+    [ "$LINEARITY_CASE" != zero ] || large=0
+    if [ "$LINEARITY_CASE" = duplicate ]; then
+        printf 'qml: WORK %s 1 %s 1 999\n' "$name" "$large"
+    fi
+    if [ "$LINEARITY_CASE" = fields ]; then
+        printf 'qml: WORK %s 1 %s 1 999 extra\n' "$name" "$large"
+    elif [ "$LINEARITY_CASE" = unknown ]; then
+        printf 'qml: WORK bogus 1 %s 1 999\n' "$large"
+    else
+        printf 'qml: WORK %s 1 %s 1 999\n' "$name" "$large"
+    fi
 done
 STUB
     chmod +x "$probe_root/timeout"
-    for probe in timeout qml-error empty missing short nonlinear diagnostics; do
+    for probe in timeout qml-error empty missing short nonlinear duplicate fields zero unknown diagnostics; do
         rm -f "$probe_root/counter"
         if env PATH="$probe_root:$PATH" LINEARITY_CASE="$probe" LINEARITY_COUNTER="$probe_root/counter" \
-            bash "$0" --probe > "$probe_root/output" 2>&1; then status=0; else status=$?; fi
+            bash "$0" --probe > "$probe_root/output" 2>&1; then
+            status=0
+        else
+            status=$?
+        fi
         if { [ "$probe" = diagnostics ] && [ "$status" != 0 ]; } || { [ "$probe" != diagnostics ] && [ "$status" = 0 ]; }; then
-            echo "FAIL wrapper regression $probe status=$status"; cat "$probe_root/output"; exit 1
+            echo "FAIL wrapper regression $probe status=$status"
+            cat "$probe_root/output"
+            exit 1
         fi
         echo "ok wrapper regression $probe status=$status"
     done
@@ -52,24 +78,53 @@ run_once() {
     printf '%s\n' "$output" | sed -n 's/^qml: WORK //p'
 }
 
-expected='codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun'
+expected=(codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun tagCost tagAttrs linkFrames blankList blankIndent)
 repetitions=3
 size_ratio=8
-work_margin=1.5
+margin_numerator=3
+margin_denominator=2
+work_limit=$((size_ratio * margin_numerator / margin_denominator))
+max_integer_digits=18
 for ((run=1; run<=repetitions; run++)); do
     result=$(run_once) || { echo "FAIL parser harness never finished (run $run)"; exit 1; }
+    declare -A wanted=() seen=()
+    for name in "${expected[@]}"; do
+        wanted[$name]=1
+    done
+    failed=0
     # Sample input: codeDense 1200 9600 1 8 (work at each size, then diagnostic milliseconds).
-    printf '%s\n' "$result" | awk -v expected="$expected" -v run="$run" \
-        -v limit="$(awk -v ratio="$size_ratio" -v margin="$work_margin" 'BEGIN { print ratio * margin }')" '
-        BEGIN { count=split(expected, names, " "); for (i=1;i<=count;i++) wanted[names[i]]=1 }
-        {
-            if (!($1 in wanted) || seen[$1]++ || NF != 5 || $2 !~ /^[0-9]+$/ || $3 !~ /^[0-9]+$/ || $2 == 0 || $3 == 0) {
-                print "FAIL invalid work sample in run " run ": " $0; failed=1; next
-            }
-            if ($3 > $2 * limit) { print "FAIL " $1 " work ratio " $3/$2 " exceeds " limit; failed=1 }
-            else print "ok " $1 " work=" $2 "/" $3 " ms=" $4 "/" $5 " run=" run
-        }
-        END { for (i=1;i<=count;i++) if (seen[names[i]] != 1) { print "FAIL missing sample " names[i] " in run " run; failed=1 }; exit failed }
-    ' || exit 1
+    while read -r name work_a work_b ms_a ms_b extra; do
+        if [[ -z "$name" || ! -v "wanted[$name]" ]]; then
+            echo "FAIL invalid work sample in run $run: $name $work_a $work_b $ms_a $ms_b $extra"
+            failed=1
+            continue
+        fi
+        seen[$name]=$((${seen[$name]:-0} + 1))
+        if [[ ${seen[$name]} != 1 || -n "$extra" || -z "$ms_a" || -z "$ms_b"
+            || ! "$work_a" =~ ^[0-9]+$ || ! "$work_b" =~ ^[0-9]+$
+            || ${#work_a} -gt $max_integer_digits || ${#work_b} -gt $max_integer_digits ]]; then
+            echo "FAIL invalid work sample in run $run: $name $work_a $work_b $ms_a $ms_b $extra"
+            failed=1
+            continue
+        fi
+        work_a=$((10#$work_a))
+        work_b=$((10#$work_b))
+        if ((work_a == 0 || work_b == 0)); then
+            echo "FAIL zero work sample in run $run: $name"
+            failed=1
+        elif ((work_b / work_a > work_limit || (work_b / work_a == work_limit && work_b % work_a > 0))); then
+            echo "FAIL $name work ratio $work_b/$work_a exceeds $work_limit"
+            failed=1
+        else
+            echo "ok $name work=$work_a/$work_b ms=$ms_a/$ms_b run=$run"
+        fi
+    done <<< "$result"
+    for name in "${expected[@]}"; do
+        if [[ ${seen[$name]:-0} != 1 ]]; then
+            echo "FAIL missing sample $name in run $run"
+            failed=1
+        fi
+    done
+    [ "$failed" = 0 ] || exit 1
 done
-printf 'PASS 9 pathological inputs, 3 complete repetitions, work bound 8x plus 50%% margin\n'
+printf 'PASS %s pathological inputs, %s complete repetitions, work bound 8x plus 50%% margin\n' "${#expected[@]}" "$repetitions"

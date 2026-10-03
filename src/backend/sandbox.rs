@@ -121,8 +121,7 @@ pub fn wrap_readonly(inner: &[String], input: &Path) -> Vec<String> {
     wrap_readonly_extra(inner, &[input])
 }
 
-// The same boundary with caller-chosen read-only binds and no writable path at
-// all: the figure helper's vendor tree and engine live outside /usr.
+// The same boundary with caller-chosen read-only binds and nothing writable, including a figure vendor tree or engine outside /usr.
 pub fn wrap_readonly_extra(inner: &[String], ro_binds: &[&Path]) -> Vec<String> {
     let head_and_binds = 4 + ro_binds.len() * 3;
     let mut a: Vec<String> = Vec::with_capacity(inner.len() + BWRAP_FLAGS.len() + head_and_binds);

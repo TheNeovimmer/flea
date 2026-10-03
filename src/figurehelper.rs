@@ -10,8 +10,7 @@ use std::process::Command;
 pub const SYSTEM_QJS: &str = "/usr/bin/qjs";
 // A test hook, and only a test hook: an absolute path to a qjs binary.
 pub const QJS_ENV: &str = "FLEA_QJS";
-// The helper module beside the bundles it lazy-loads, and the shared
-// post-processing module one directory up that both node and qjs import.
+// The helper lazy-loads vendor bundles and imports the shared post-processing module from the UI js directory.
 pub const HELPER_NAME: &str = "figure-helper.mjs";
 pub const WORKER_NAME: &str = "FigureWorker.mjs";
 // Missing sandbox or engine refuses with this, never by running unsandboxed.
@@ -71,7 +70,7 @@ pub fn resolve_with(sandbox_ok: bool, qjs: &Path, ui: Option<&Path>) -> Result<V
         return Err(String::from("the figure helper is missing from the UI tree"));
     };
     let vendor = root.join("vendor");
-    if !vendor.join(HELPER_NAME).is_file() {
+    if !vendor.join(HELPER_NAME).is_file() || !root.join("js").join(WORKER_NAME).is_file() {
         return Err(String::from("the figure helper is missing from the UI tree"));
     }
     Ok(figure_argv(qjs, &vendor))
@@ -88,8 +87,8 @@ pub fn run() -> i32 {
             let mut cmd = Command::new(&argv[0]);
             cmd.args(&argv[1..]);
             // Exec replaces us, so the caller's stdin and stdout pipes reach qjs direct.
-            let _ = cmd.exec();
-            eprintln!("flea: the figure helper could not be started");
+            let error = cmd.exec();
+            eprintln!("flea: the figure helper could not start {}: {}", argv[0], error);
             REFUSED
         }
         Err(message) => {
@@ -150,6 +149,14 @@ mod tests {
         let err = resolve_with(true, &dir.path().join("qjs"), Some(dir.path()))
             .expect_err("a missing helper file must refuse");
         assert!(err.contains("UI tree"), "a missing helper must be named: {err}");
+    }
+
+    #[test]
+    fn a_missing_worker_file_is_refused_before_starting_the_helper() {
+        let dir = ui_tree("figure-worker-missing", true);
+        let err = resolve_with(true, Path::new("/bin/true"), Some(dir.path()))
+            .expect_err("a missing worker file must refuse");
+        assert!(err.contains("UI tree"), "a missing worker must be named: {err}");
     }
 
     #[test]

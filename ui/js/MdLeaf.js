@@ -5,9 +5,8 @@
 .import "MdHtml.js" as MdHtml
 .import "MdInline.js" as Md
 .import "MdRun.js" as Run
-.import "MdRefs.js" as Refs
 
-// GFM task items draw their box, checked or not; anything else passes through.
+// Sample input: "[x] done" draws a checked GFM task box; "[ ] pending" draws an empty one.
 function taskText(text) {
     var m = /^\[([ xX])\] (.*)$/.exec(String(text))
     if (m === null)
@@ -22,8 +21,9 @@ function indentOf(line) {
     return n
 }
 
+// Sample input: "  * * *" is a thematic break.
 function isThematic(line) {
-    return /^ {0,3}([*_-])(?: *\1){2,} *$/.test(String(line))
+    return /^ {0,3}([*_-])(?:[ \t]*\1){2,}[ \t]*$/.test(String(line))
 }
 
 // An ATX heading: up to 3 spaces, 1 to 6 hashes, a space or the end, the text and an optional closing run of hashes. Linear, no backtracking.
@@ -65,13 +65,22 @@ function headingSafe(text) {
     return block || isThematic(t) ? "\\" + t : t
 }
 
+// Sample: "Title\n=" or "Title\n--" closes a paragraph with a setext underline.
+function isSetext(line) {
+    return /^ {0,3}(?:=+|-+)[ \t]*$/.test(String(line))
+}
+
+// Sample input: "```js" opens a backtick fence with info "js".
 function fenceOpen(line) {
     var m = /^ {0,3}(```+|~~~+) *(.*)$/.exec(String(line))
     if (m === null)
         return null
+    if (m[1].charAt(0) === "`" && m[2].indexOf("`") >= 0)
+        return null
     return { tick: m[1].charAt(0), len: m[1].length, info: m[2].replace(/\s+$/, "") }
 }
 
+// Sample input: "```" closes a backtick fence opened with length 3.
 function fenceClose(line, tick, len) {
     var m = /^ {0,3}(```+|~~~+) *$/.exec(String(line))
     return m !== null && m[1].charAt(0) === tick && m[1].length >= len
@@ -117,7 +126,7 @@ function splitRow(line) {
 
 // The board's table as data for ui/PreviewMarkdown.qml: Qt's Markdown importer drops style attributes.
 function tableBlock(head, aligns, rows, inlineOf) {
-    inlineOf = inlineOf || function (text) { return Run.parseInline(text, "", {}, {}, "", "", [], true) }
+    inlineOf = inlineOf || function (text) { return Run.parseInline(text, "", {}, {}, "", "", [], undefined, true) }
     var cols = head.length
     for (var i = 0; i < rows.length; i++)
         cols = Math.max(cols, rows[i].length)
@@ -210,55 +219,11 @@ function imageBlock(alt, target, dir) {
     return null
 }
 
+// Sample input: "[!NOTE] Remember this" names a GFM alert and its trailing text.
 function alertTitle(line) {
     var m = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i.exec(String(line))
     if (m === null)
         return null
     var title = m[1].charAt(0) + m[1].slice(1).toLowerCase()
     return "**" + title + "**" + (m[2].length > 0 ? " " + m[2] : "")
-}
-
-// Prepare one document's prose for md4c: fences pass through, the rest resolves inline, definitions are dropped.
-function prepare(source, dir, defs, chrome, ink) {
-    var body = String(source)
-    var rawLines = body.split("\n")
-    var found = Refs.collectDefs(rawLines)
-    var foot = Refs.collectFootnotes(rawLines)
-    var hide = {}
-    var ranges = found.dropped.concat(foot.dropped)
-    for (var h = 0; h < ranges.length; h++)
-        for (var l = ranges[h][0]; l <= ranges[h][1]; l++)
-            hide[l] = true
-    var lines = []
-    for (var li = 0; li < rawLines.length; li++) {
-        if (!hide.hasOwnProperty(li))
-            lines.push(rawLines[li])
-    }
-    defs = defs || found.defs
-    var tokens = []
-    function inlineOf(joined) {
-        return Run.parseInline(joined, dir, defs, foot.numbers, chrome, ink, tokens)
-    }
-    var out = []
-    var prose = []
-    var fenced = false
-    function flush() {
-        if (prose.length > 0)
-            out.push(inlineOf(prose.join("\n")))
-        prose = []
-    }
-    for (var i = 0; i < lines.length; i++) {
-        if (/^ {0,3}(```|~~~)/.test(lines[i])) {
-            flush()
-            fenced = !fenced
-            out.push(lines[i])
-            continue
-        }
-        if (fenced)
-            out.push(lines[i])
-        else
-            prose.push(Refs.killDefinition(lines[i]))
-    }
-    flush()
-    return out.join("\n")
 }
