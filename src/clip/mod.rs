@@ -10,6 +10,9 @@ pub mod watch;
 pub mod own;
 pub mod cli;
 
+#[cfg(test)]
+mod testutil;
+
 // Serialises the tests that borrow process-global Wayland names for a fake socket.
 #[cfg(test)]
 pub(crate) static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());

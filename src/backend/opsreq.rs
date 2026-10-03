@@ -279,8 +279,7 @@ pub(crate) fn run_transfer_checked(
         let src = PathBuf::from(raw);
         let name = base_name(&src);
         let dst = dest.join(&name);
-        // A relative source would resolve against the backend's own working directory,
-        // so it is refused here rather than read from wherever that happens to be.
+        // Refuse relative sources so they cannot resolve against the backend's own working directory.
         if !src.is_absolute() {
             failed += 1;
             let _ = tx.send(OpMsg::Item { id, index, name, ok: false, err: "a source must be an absolute path".into() });

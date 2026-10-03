@@ -20,6 +20,10 @@ pub const STREAM_MAX_FDS: usize = 28;
 // cmsghdr is 16 bytes on x86_64 and its payload is padded to 8, so 28 ints take CMSG_SPACE(112) = 128.
 const CMSG_HEADER: usize = 16;
 const CMSG_SPACE: usize = 128;
+// Linux cmsghdr payloads align to eight bytes, so the padding mask is alignment minus one.
+const CMSG_ALIGN_MASK: usize = 8 - 1;
+// A stream read takes at most 8 KiB, bounding each receive buffer without limiting the message size.
+const STREAM_READ_BYTES: usize = 8192;
 // The largest request payload either side ever sends.
 pub const MAX_PAYLOAD: usize = 16;
 
@@ -88,7 +92,7 @@ pub fn send(sock: RawFd, payload: &[u8], fds: &[RawFd]) -> std::io::Result<()> {
         }
         msg.control = control.0.as_mut_ptr() as *mut c_void;
         // The exact used length: the kernel reads a zeroed header after the first as cmsg_len 0.
-        msg.controllen = (CMSG_HEADER + data_len + 7) & !7;
+        msg.controllen = (CMSG_HEADER + data_len + CMSG_ALIGN_MASK) & !CMSG_ALIGN_MASK;
     }
     let sent = unsafe { sendmsg(sock, &msg, MSG_NOSIGNAL) };
     if sent < 0 {
@@ -163,8 +167,7 @@ pub fn send_stream(sock: RawFd, mut payload: &[u8], fds: &[RawFd]) -> std::io::R
                 buf[at..at + 4].copy_from_slice(&fd.to_ne_bytes());
             }
             msg.control = control.0.as_mut_ptr() as *mut c_void;
-            // The exact used length: the kernel reads a zeroed header after the first as cmsg_len 0.
-            msg.controllen = (CMSG_HEADER + data_len + 7) & !7;
+            msg.controllen = (CMSG_HEADER + data_len + CMSG_ALIGN_MASK) & !CMSG_ALIGN_MASK;
         }
         let sent = unsafe { sendmsg(sock, &msg, MSG_NOSIGNAL) };
         if sent < 0 {
@@ -181,7 +184,7 @@ pub fn send_stream(sock: RawFd, mut payload: &[u8], fds: &[RawFd]) -> std::io::R
 
 // One recvmsg off a stream socket: its bytes and owned descriptors; Ok(None) is an orderly end.
 pub fn recv_stream(sock: RawFd) -> std::io::Result<Option<(Vec<u8>, Vec<OwnedFd>)>> {
-    let mut bytes = [0u8; 8192];
+    let mut bytes = [0u8; STREAM_READ_BYTES];
     let mut iov = IoVec { base: bytes.as_mut_ptr() as *mut c_void, len: bytes.len() };
     let mut control = Control([0; CMSG_SPACE]);
     let mut msg = MsgHdr {

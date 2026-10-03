@@ -156,7 +156,7 @@ pub(crate) fn spawn_owner_with(
         .arg("--clip-own")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .pre_exec(|| {
             if setsid() < 0 {
                 return Err(std::io::Error::last_os_error());
@@ -206,8 +206,18 @@ pub(crate) fn spawn_owner_with(
     match ready(&rx) {
         Ok((true, line)) if line.trim_end() == "ready" => {}
         _ => {
+            let stderr = child.stderr.take();
             abandon(child);
-            return Err("the clipboard owner did not answer".to_string());
+            let error = stderr.and_then(|stderr| {
+                use std::io::BufRead;
+                let mut line = String::new();
+                std::io::BufReader::new(stderr).read_line(&mut line).ok()?;
+                // Sample input: "flea: no clipboard protocol: neither data-control manager is offered\n".
+                let line = line.trim_end();
+                let error = line.strip_prefix("flea: ").unwrap_or(line);
+                (!error.is_empty()).then(|| error.to_string())
+            });
+            return Err(error.unwrap_or_else(|| "the clipboard owner did not answer".to_string()));
         }
     }
     let pid = child.id();

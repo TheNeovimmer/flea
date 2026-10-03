@@ -1,4 +1,4 @@
-// The clipboard reply shape, one for the backend and the CLI alike: {"t":"clip",...}.
+// The backend and flea --clip get|clear print this JSON shape; flea --clip set prints the bare token a shell script captures.
 pub struct Got {
     pub clip: String,
     pub paths: Vec<String>,

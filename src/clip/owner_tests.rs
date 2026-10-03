@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 const MS: u32 = 5000;
+// A hang bound for owner completion, never a duration the code under test is held to.
+const TEST_WATCHDOG: Duration = Duration::from_secs(6);
 
 fn serve(tag: &str) -> (TestDir, UnixListener, PathBuf) {
     let dir = TestDir::new(tag);
@@ -64,7 +66,7 @@ fn start_owner(path: PathBuf, paths: Vec<String>) -> (std::thread::JoinHandle<()
 fn superseded_device_offers_are_destroyed() {
     let (_dir, listener, path) = serve("clip-owner-retire");
     let (worker, _done) = start_owner(path, vec!["/tmp/a.txt".to_string()]);
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     owner_hello(&mut conn);
     for id in [20u32, 21, 22] {
@@ -95,7 +97,7 @@ fn a_reader_that_stops_reading_does_not_wedge_the_owner() {
     let paths: Vec<String> = (0..20000).map(|i| format!("/tmp/f{:05}.txt", i)).collect();
     let (_dir, listener, path) = serve("clip-owner-stuck");
     let (worker, done) = start_owner(path, paths);
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     owner_hello(&mut conn);
     // Asked for, never read, then replaced: only a write deadline lets the owner reach cancelled.
@@ -110,7 +112,7 @@ fn a_reader_that_stops_reading_does_not_wedge_the_owner() {
     conn.send(6, 0, &payload, &[fds[1]]).unwrap();
     drop(unsafe { OwnedFd::from_raw_fd(fds[1]) });
     conn.send(6, 1, &[], &[]).unwrap();
-    done.recv_timeout(Duration::from_secs(6)).expect("the owner exits within its write deadline");
+    done.recv_timeout(TEST_WATCHDOG).expect("the owner completion hang guard expired");
     worker.join().unwrap();
     drop(unsafe { OwnedFd::from_raw_fd(fds[0]) });
 }

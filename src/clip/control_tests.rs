@@ -9,6 +9,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::time::Duration;
 
 const MS: u32 = 5000;
+const TEST_WATCHDOG: Duration = Duration::from_millis(MS as u64);
 
 // One globals round: the seat, the managers named, one unknown event the client skips, then the sync's done.
 pub(super) fn fake_hello(conn: &mut Conn, managers: &[(&str, u32)]) -> (u32, u32) {
@@ -44,7 +45,7 @@ fn serve(dir: &TestDir) -> (UnixListener, std::path::PathBuf) {
 }
 
 fn read_to_end(stream: &UnixStream) -> Vec<u8> {
-    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    stream.set_read_timeout(Some(TEST_WATCHDOG)).unwrap();
     let mut out = Vec::new();
     use std::io::Read;
     let mut stream = stream;
@@ -69,7 +70,7 @@ fn the_ext_manager_owns_and_serves_every_type_until_cancelled() {
             serve_owner(&mut owner).unwrap();
         }
     });
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = Conn::over(OwnedFd::from(stream));
     fake_hello(&mut conn, &[(wire::EXT_MANAGER, 1)]);
     // Binds, then the source, its offers, the device and the selection, up to the sync.
@@ -124,7 +125,7 @@ fn the_zwlr_manager_is_the_fallback_at_the_version_it_offers() {
             let bound = handshake(&mut conn).unwrap();
             assert!(!bound.ext);
         });
-        let (stream, _) = listener.accept().unwrap();
+        let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
         let mut conn = Conn::over(OwnedFd::from(stream));
         fake_hello(&mut conn, &[(wire::ZWLR_MANAGER, offered)]);
         // The bind names the offered version, capped at 2.
@@ -155,7 +156,7 @@ fn neither_manager_is_an_honest_error_and_not_a_hang() {
         let err = handshake(&mut conn).unwrap_err();
         assert!(err.contains("no clipboard protocol"), "unexpected: {}", err);
     });
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = Conn::over(OwnedFd::from(stream));
     fake_hello(&mut conn, &[]);
     worker.join().unwrap();
@@ -170,7 +171,7 @@ fn a_display_error_is_a_hard_failure_with_its_message() {
         let err = handshake(&mut conn).unwrap_err();
         assert!(err.contains("no such seat"), "unexpected: {}", err);
     });
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = Conn::over(OwnedFd::from(stream));
     let _ = expect(&mut conn, 1, DISPLAY_GET_REGISTRY);
     let callback = expect(&mut conn, 1, DISPLAY_SYNC);
@@ -235,7 +236,7 @@ fn get_reads_the_token_then_the_files() {
         assert_eq!(got.token, probe);
         assert_eq!(got.skipped, 0);
     });
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = Conn::over(OwnedFd::from(stream));
     fake_hello(&mut conn, &[(wire::EXT_MANAGER, 1)]);
     let _ = expect(&mut conn, 2, REGISTRY_BIND);
@@ -261,7 +262,7 @@ fn an_empty_selection_is_none_and_text_alone_is_none() {
             assert_eq!(got.clip, "none");
             assert!(got.paths.is_empty());
         });
-        let (stream, _) = listener.accept().unwrap();
+        let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
         let mut conn = Conn::over(OwnedFd::from(stream));
         fake_hello(&mut conn, &[(wire::EXT_MANAGER, 1)]);
         let _ = expect(&mut conn, 2, REGISTRY_BIND);
@@ -290,7 +291,7 @@ fn clear_with_a_stale_token_leaves_the_selection() {
         let mut conn = Conn::connect_to(&path).unwrap();
         assert!(!clear_on(&mut conn, "ff12cd34ff12cd34ff12cd34ff12cd34").unwrap());
     });
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = Conn::over(OwnedFd::from(stream));
     fake_hello(&mut conn, &[(wire::EXT_MANAGER, 1)]);
     let _ = expect(&mut conn, 2, REGISTRY_BIND);
@@ -315,7 +316,7 @@ fn clear_with_the_live_token_clears() {
         let mut conn = Conn::connect_to(&path).unwrap();
         assert!(clear_on(&mut conn, &probe).unwrap());
     });
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = Conn::over(OwnedFd::from(stream));
     fake_hello(&mut conn, &[(wire::EXT_MANAGER, 1)]);
     let _ = expect(&mut conn, 2, REGISTRY_BIND);
@@ -354,7 +355,7 @@ fn a_source_that_never_closes_hits_the_timeout() {
         let got = get_on_with(&mut conn, |conn, offer, mime| receive_type_with(conn, offer, mime, HUNG_READ_MS)).unwrap();
         assert_eq!(got.clip, "none", "an unreadable selection is none, not a hang");
     });
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = Conn::over(OwnedFd::from(stream));
     fake_hello(&mut conn, &[(wire::EXT_MANAGER, 1)]);
     let _ = expect(&mut conn, 2, REGISTRY_BIND);

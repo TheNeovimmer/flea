@@ -10,6 +10,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::time::Duration;
 
 const MS: u32 = 5000;
+const TEST_WATCHDOG: Duration = Duration::from_millis(MS as u64);
 // A reconnect in a test happens at once; the production one-second pause is not under test.
 const NO_RETRY_WAIT: Duration = Duration::ZERO;
 
@@ -87,7 +88,7 @@ fn serve_n(conn: &mut Conn, answers: &HashMap<String, Vec<u8>>, n: usize) -> Vec
 }
 
 fn changed(rx: &std::sync::mpsc::Receiver<OpMsg>) -> String {
-    let Ok(OpMsg::Meta { line }) = rx.recv_timeout(Duration::from_secs(5)) else {
+    let Ok(OpMsg::Meta { line }) = rx.recv_timeout(TEST_WATCHDOG) else {
         panic!("a changed line");
     };
     line
@@ -108,7 +109,7 @@ fn events(conn: Conn) -> std::sync::mpsc::Receiver<wire::RawEvent> {
 }
 
 fn next_within(rx: &std::sync::mpsc::Receiver<wire::RawEvent>, what: &str) -> wire::RawEvent {
-    rx.recv_timeout(Duration::from_secs(5)).unwrap_or_else(|_| panic!("{} within the deadline", what))
+    rx.recv_timeout(TEST_WATCHDOG).unwrap_or_else(|_| panic!("{} within the deadline", what))
 }
 
 #[test]
@@ -116,7 +117,7 @@ fn a_watcher_reports_copy_then_none_then_cut_and_dedups_a_repeat() {
     let (_dir, listener, path) = serve("clip-watch-flow");
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
     let token_a = "ab12cd34ab12cd34ab12cd34ab12cd34";
@@ -167,7 +168,7 @@ fn a_dropped_connection_reconnects_once() {
     let (_dir, listener, path) = serve("clip-watch-drop");
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
     let mut answers = HashMap::new();
@@ -178,7 +179,7 @@ fn a_dropped_connection_reconnects_once() {
     assert_eq!(field_str_array(&line, "paths"), vec!["/tmp/a.txt".to_string()]);
     // The drop: the watcher comes back on a new connection.
     drop(conn);
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
     answers.insert(format::GNOME.to_string(), format::build_gnome("cut", &["/tmp/b.txt".to_string()]));
@@ -196,7 +197,7 @@ fn clear_case(gnome: Vec<u8>, wanted: Vec<String>) -> bool {
         let mut conn = Conn::connect_to(&path).unwrap();
         clear_cut_on(&mut conn, &wanted).unwrap()
     });
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     let registry = expect(&mut conn, 1, 1);
     let callback = expect(&mut conn, 1, 0);
@@ -266,7 +267,7 @@ fn a_thousand_superseded_offers_are_destroyed() {
     let (_dir, listener, path) = serve("clip-watch-retire");
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
     // A thousand offers with no types between them: nothing to receive, only to retire.
@@ -299,7 +300,7 @@ fn an_over_cap_selection_is_refused_not_broadcast() {
     let (_dir, listener, path) = serve("clip-watch-cap");
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
     let paths: Vec<String> = (0..100001).map(|i| format!("/tmp/f{:06}.txt", i)).collect();
@@ -318,7 +319,7 @@ fn a_primary_selection_retires_only_its_offer_and_keeps_the_clipboard() {
     let (_dir, listener, path) = serve("clip-watch-primary");
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
-    let (stream, _) = listener.accept().unwrap();
+    let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
     let mut answers = HashMap::new();
