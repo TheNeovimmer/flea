@@ -136,9 +136,12 @@ ShellRoot {
     }
 
     function finishDrain() {
-        if (done || draining || !probesBuilt || !imagesSettled(root))
+        if (done || draining || !probesBuilt || !imagesSettled(root) || sourceView.rawText.length === 0)
             return
         draining = true
+        // The Source view has the corpus by now, so its zero requests are counted over text it really drew.
+        if (sourceView.view !== "source" || sourceView.rawText.indexOf("![front](") < 0 || sourceView.rawText.indexOf("![math](") < 0)
+            validationFailures.push("Source view did not draw the corpus with its front matter and display math")
         control.text = "![control](" + counter + "/control.png)"
         var request = new XMLHttpRequest()
         request.onreadystatechange = function () {

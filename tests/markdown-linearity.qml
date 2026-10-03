@@ -453,10 +453,6 @@ QtObject {
                 var half = Math.floor(n / 2);
                 return "- parent\n" + "\n".repeat(half) + " ".repeat(half) + "x";
             },
-            mathOpeners: function (n) {
-                var unit = "$$ open\n\nprose\n\n";
-                return unit.repeat(Math.floor(n / unit.length));
-            },
             punctTail: function (n) {
                 var url = "https://example.com/x";
                 var tailLength = n - url.length;
@@ -472,7 +468,7 @@ QtObject {
             }
         };
         var names = ["codeDense", "codeOnly", "bangOpen", "bracketOpen", "angleOpen",
-            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent", "mathOpeners", "punctTail"];
+            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent", "punctTail"];
         Work.install();
         Work.work = 0;
         var uppercaseInput = "Note";

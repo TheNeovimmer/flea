@@ -7201,7 +7201,7 @@ leaves `tests/markdown-linearity.qml` at 543 lines, the merged `wc -l` where bot
 
 md3u closing round 4 hardens the Markdown parser's edges. A multi-line `$$` display block closes on the first later line holding `$$`
 only inside its own paragraph: the search stops at the first blank line, so a stray opener stays text instead of swallowing the
-document up to the next `$$` (no two scans share a line, and `mathOpeners` in `tests/markdown-linearity.qml` pins the linear cost). The
+document up to the next `$$` (a scan ends at the first later line holding `$$`, and every opener is such a line, so no line is scanned twice). The
 keyed maps `defs`, `notes` and `numbers` have no prototype and every reader asks `Object.prototype.hasOwnProperty.call`, because a
 footnote id of `__proto__` threw and `hasOwnProperty` left its citation unnumbered. `prepare()` runs the one collecting block pass;
 a second pass over the same lines was measured to change none of `code`, `escaped`, `hidden`, `dropped` or the three maps on 20,000
@@ -7209,5 +7209,4 @@ generated documents. `MdLeaf.js` names the marker limits `MdContainer.js` names,
 reference the document wrote while the folder may hold one (`containedLocal` keeps the containment check as strict as before).
 `prepare()` has no caller in `ui/`: the preview draws `blocks()`, whose front matter and `$$` lines are a `PlainText` fence or a
 figure, and `tests/markdown-security.sh` now carries both placements and a Source-view instance with zero requests required.
-`tests/js/mdround4.js` holds the parser pins. The file budget rows move to the real `wc -l`: `ui/js/MdBlocks.js` 361 and
-`tests/markdown-linearity.qml` 547.
+`tests/js/mdround4.js` holds the parser pins. The file budget row of `ui/js/MdBlocks.js` moves to its real `wc -l`, 361.
