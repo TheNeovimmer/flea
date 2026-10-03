@@ -354,8 +354,80 @@
     "calls": 0
   },
   {
-    "name": "round7-continued-comment",
-    "code": "# hyprctl \\\n  dispatch anything",
+    "name": "round8-hash-comment-before-raw-call",
+    "code": "# note \\\nhyprctl dispatch anything",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round8-hash-comment-names-raw-call",
+    "code": "# hyprctl dispatch anything \\\nprintf 'harmless\\n'",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round8-js-comment-before-raw-call",
+    "code": "  // note \\\nrun([\"hyprctl\", \"dispatch\", \"anything\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round8-js-comment-names-raw-call",
+    "code": "// hyprctl dispatch anything \\\nconst harmless = true;",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round8-python-list-raw-call",
+    "code": "run([\"hyprctl\",\n     \"dispatch\", \"anything\"])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round8-shell-array-raw-call",
+    "code": "command=(hyprctl\n         dispatch anything)\n\"${command[@]}\"",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round8-python-list-raw-batch",
+    "code": "run([\n    \"hyprctl\",\n    \"--batch\", \"anything\"\n])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round8-shell-function-lines-stay-separate",
+    "code": "probe() {\n    hyprctl clients\n    printf '%s\\n' dispatch\n}",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round8-quoted-brackets-stay-separate",
+    "code": "hyprctl clients | grep '(clients['\nprintf '%s\\n' dispatch",
+    "issues": [],
+    "calls": 0
+  },
+  {
+    "name": "round8-comment-inside-list-before-raw-call",
+    "code": "run([\n    # note \\\n    \"hyprctl\",\n    \"dispatch\", \"anything\"\n])",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "calls": 0
+  },
+  {
+    "name": "round8-comment-inside-readonly-list",
+    "code": "run([\n    # hyprctl dispatch anything \\\n    \"hyprctl\",\n    \"clients\"\n])",
     "issues": [],
     "calls": 0
   },

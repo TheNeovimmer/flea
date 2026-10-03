@@ -8,18 +8,52 @@ LUA_PREFIX = "hl." + "dsp."
 RAW_WORDS = ("dispatch", "--batch")
 HELPER_FILE = "tests/lib/hypr-dispatch.sh"
 SOURCE_SUFFIXES = (".sh", ".py", ".qml", ".js")
+COMMENT_PREFIXES = ("#", "//")
+OPEN_BRACKETS = "(["
+CLOSE_BRACKETS = ")]"
+QUOTE_MARKS = "'\""
 
 
-# Sample input: "hyprctl \\\ndispatch anything" yields one logical line starting at physical line 1.
+# Sample input: 'run(["hyprctl",\n"dispatch"])' yields one logical line starting at physical line 1.
 def logical_lines(text):
     pending = ""
     first_line = 1
+    depth = 0
+    quote = ""
     for number, physical_line in enumerate(text.splitlines(keepends=True), start=1):
         line = physical_line.rstrip("\r\n")
-        if physical_line.endswith(("\\\n", "\\\r\n")):
-            pending += line.removesuffix("\\")
+        if line.lstrip().startswith(COMMENT_PREFIXES):
+            if pending and not depth:
+                yield first_line, pending
+                pending = ""
+            if not pending:
+                first_line = number + 1
             continue
-        yield first_line, pending + line
+        continued = physical_line.endswith(("\\\n", "\\\r\n"))
+        if continued:
+            line = line.removesuffix("\\")
+        escaped = False
+        for character in line:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif quote:
+                if character == quote:
+                    quote = ""
+            elif character in QUOTE_MARKS:
+                quote = character
+            elif character in OPEN_BRACKETS:
+                depth += 1
+            elif character in CLOSE_BRACKETS and depth:
+                depth -= 1
+        pending += line
+        if continued:
+            continue
+        if depth:
+            pending += " "
+            continue
+        yield first_line, pending
         pending = ""
         first_line = number + 1
     if pending:
@@ -31,8 +65,6 @@ def scan(text, helper_file=False):
     issues = []
     count = 0
     for number, line in logical_lines(text):
-        if line.lstrip().startswith(("#", "//")):
-            continue
         count += line.count(LUA_PREFIX)
         if helper_file:
             continue

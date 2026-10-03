@@ -3698,8 +3698,9 @@ waits for its consumer.
   always use `address:ADDR`; move and cursor coordinates may be negative for monitor origins.
   The helper's program form serves Python callers and prints `ok` only after the same checks pass.
   The static gate scans shell, Python, QML and JavaScript under `tests/`, excluding the helper and
-  lines beginning with `#` or `//` after whitespace. It refuses `hl.dsp.` or both `hyprctl` and
-  `dispatch`/`--batch` on a logical line, joining backslash continuations before both rules run.
+  lines beginning with `#` or `//` after whitespace, ending each comment at its own newline.
+  It refuses `hl.dsp.` or both `hyprctl` and `dispatch`/`--batch` on a logical line, joining
+  backslash continuations and open `()`/`[]` outside quotes before both rules run. Braces do not join lines.
   This is deliberately conservative: reword a refused read-only line.
   The proof runs the real helper against a fake compositor, checks exact text and refusal paths,
   and executes each shell harness's own helper source statement from its directory. It verifies
