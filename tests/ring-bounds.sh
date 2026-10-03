@@ -11,19 +11,26 @@ sandbox_root_ok
 probe=$(mktemp -d "$SANDBOX_ROOT/flea-ring-bounds.XXXXXX") || exit 1
 : > "$probe/$SANDBOX_MARKER" || exit 1
 qs_pid=""
+# The run and each teardown wait are polled ten times a second (poll_s is one over polls_per_s) up to these bounds.
+poll_s=0.1
+polls_per_s=10
+run_budget_s=60
+stop_grace_s=2
+run_polls=$(( run_budget_s * polls_per_s ))
+stop_polls=$(( stop_grace_s * polls_per_s ))
 stop_qs() {
     [[ -n "$qs_pid" ]] || return 0
     local tick
     kill -TERM -- "-$qs_pid" 2>/dev/null || true
-    for ((tick = 0; tick < 20; tick++)); do
+    for ((tick = 0; tick < stop_polls; tick++)); do
         kill -0 -- "-$qs_pid" 2>/dev/null || break
-        sleep 0.1
+        sleep "$poll_s"
     done
     if kill -0 -- "-$qs_pid" 2>/dev/null; then
         kill -KILL -- "-$qs_pid" 2>/dev/null || true
-        for ((tick = 0; tick < 20; tick++)); do
+        for ((tick = 0; tick < stop_polls; tick++)); do
             kill -0 -- "-$qs_pid" 2>/dev/null || break
-            sleep 0.1
+            sleep "$poll_s"
         done
     fi
     wait "$qs_pid" 2>/dev/null || true
@@ -71,15 +78,15 @@ env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT 
     FLEA_PATH="$probe/home/fixture" FLEA_BIN="$bin" QT_QPA_PLATFORM=offscreen \
     QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 setsid dbus-run-session -- qs -p "$probe/config" >"$log" 2>&1 </dev/null &
 qs_pid=$!
-for ((tick = 0; tick < 600; tick++)); do
+for ((tick = 0; tick < run_polls; tick++)); do
     grep -aq 'RINGBOUNDS DONE checks=[0-9]* failed=[0-9]*' "$log" && break
-    sleep 0.1
+    sleep "$poll_s"
 done
 stop_qs || exit 1
 printf 'ring-bounds: owned process group gone\n'
 grep -aE 'RINGBOUNDS|TypeError|ReferenceError|ERROR|Cannot assign' "$log"
 tally=$(grep -ao 'RINGBOUNDS DONE checks=[0-9]* failed=[0-9]*' "$log" | tail -1)
-[[ -n "$tally" ]] || { printf 'FAIL ring-bounds produced no completion receipt inside 60s; log tail:\n'; tail -20 "$log"; exit 1; }
+[[ -n "$tally" ]] || { printf 'FAIL ring-bounds produced no completion receipt inside %ss; log tail:\n' "$run_budget_s"; tail -20 "$log"; exit 1; }
 [[ "$tally" == *' failed=0' ]] || exit 1
 if grep -aqE 'TypeError|ReferenceError|ERROR|Cannot assign' "$log"; then
     echo 'FAIL ring-bounds logged an engine error beside its receipt'

@@ -2,6 +2,43 @@
 .import "../../ui/js/Collide.js" as Collide
 .import "sourcefixture.js" as Source
 
+// The braced block holding a marker, found by brace depth so a renamed id or a moved line fails loudly.
+// Sample input: blockOf("A { id: x; B { y: 1 } } C { z: 2 }", "id: x") answers "{ id: x; B { y: 1 } }".
+function blockOf(text, marker) {
+    var at = text.indexOf(marker)
+    if (at < 0)
+        throw new Error("buttons: missing marker " + marker)
+    var open = at - 1
+    for (var back = 0; open >= 0; open--) {
+        if (text[open] === "}")
+            back++
+        else if (text[open] === "{" && back-- === 0)
+            break
+    }
+    if (open < 0)
+        throw new Error("buttons: no block holds " + marker)
+    var depth = 0
+    for (var end = open; end < text.length; end++) {
+        if (text[end] === "{")
+            depth++
+        else if (text[end] === "}" && --depth === 0)
+            return text.substring(open, end + 1)
+    }
+    throw new Error("buttons: the block holding " + marker + " never closes")
+}
+// The right-hand side of every `name:` line in a block, so a check reads the expression and not a grep over the file.
+// Sample input: valuesOf("{ border.width: 1\n border.color: Theme.color.accent\n }", "border.color") answers ["Theme.color.accent"].
+function valuesOf(block, name) {
+    var out = []
+    var lines = block.split("\n")
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim()
+        if (line.indexOf(name + ":") === 0)
+            out.push(line.substring(name.length + 1).trim())
+    }
+    return out
+}
+
 // Variant A (Buttons040, GM 2026-09-24): one control at Theme.rowHeight minus its padding, fixed primary per dialog, destructive as error ink, disabled 0.55.
 
 function run(check) {
@@ -82,12 +119,20 @@ function run(check) {
         "ui/OpenWithDialog.qml": accentFrame,
         "ui/PickerSave.qml": accentFrame,
         "ui/PermissionsDialog.qml": "border.color: octal.activeFocus ? Theme.color.accent : Theme.color.muted",
-        "ui/RenameField.qml": "border.color: root.errorText.length > 0 ? Theme.color.error : Theme.color.accent",
-        "ui/ChromeBar.qml": "border.color: Theme.color.accent"
+        "ui/RenameField.qml": "border.color: root.errorText.length > 0 ? Theme.color.error : Theme.color.accent"
     }
     for (var file in fields) {
         var text = Source.source(file)
         check(file + " frames a focused field in the accent", text.indexOf(fields[file]) >= 0, true)
         check(file + " draws no button ring around a field", text.indexOf("Buttons.RING") < 0, true)
     }
+    // The chrome path field is the editFrame block alone: one accent hairline, no ring, and no sibling draws a border around it.
+    var chrome = Source.source("ui/ChromeBar.qml")
+    var edit = blockOf(chrome, "id: editFrame")
+    check("the path frame's border colour is the accent", valuesOf(edit, "border.color").join("|"), "Theme.color.accent")
+    check("the path frame's border is one hairline", valuesOf(edit, "border.width").join("|"), "Theme.spacing.hairline")
+    check("the path frame draws no ring or ring clearance", /Buttons\.RING|ringClearance|margins:\s*-/.test(edit), false)
+    check("the strip draws no border but hairlines", valuesOf(chrome, "border.width").join("|"), "Theme.spacing.hairline")
+    check("the strip never reads a ring width or ring clearance", /Buttons\.RING|ringClearance/.test(chrome), false)
+    check("the block reader finds a nested block whole", blockOf("A { id: x; B { y: 1 } } C { z: 2 }", "id: x"), "{ id: x; B { y: 1 } }")
 }
