@@ -356,8 +356,8 @@ Rectangle {
         source: "PermissionsDialog.qml"
         readonly property bool opened: item !== null && item.opened
         property var owner: null
-        function open(path, holder) { owner = holder; active = true; item.open(path, holder) }
-        function openMany(paths, holder) { owner = holder; active = true; item.openMany(paths, holder) }
+        function open(path, holder) { owner = holder; active = true; item.open(path, holder.listArea) }
+        function openMany(paths, holder) { owner = holder; active = true; item.openMany(paths, holder.listArea) }
     }
     Connections {
         target: permissionsDialog.item

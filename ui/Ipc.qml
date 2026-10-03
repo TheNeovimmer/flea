@@ -209,9 +209,9 @@ QtObject {
                     Object.assign(root.controlState("Open", dialog.submitItem), {enabled: dialog.canSubmit})]})
         }
         function permissionsState(): string {
-            var dialog = root.permissionsDialog
-            if (!dialog) return JSON.stringify({opened: false})
-            return JSON.stringify({opened: dialog.opened, facts: dialog.facts, path: dialog.path, mode: dialog.modeText,
+            var probe = root, dialog = probe.permissionsDialog, inputReady = probe.pane.listArea.activeFocus && !probe.pane.listInFlight
+            if (!dialog) return JSON.stringify({opened: false, inputReady: inputReady})
+            return JSON.stringify({opened: dialog.opened, inputReady: !dialog.opened && !dialog.visible && inputReady, facts: dialog.facts, path: dialog.path, mode: dialog.modeText,
                 displayedError: dialog.displayedError, displayedSummary: dialog.displayedSummary,
                 bodyRect: root.fleaWindow.rectOf(dialog.bodyItem),
                 editable: dialog.editable, busy: dialog.busy, error: dialog.errorText, rect: root.fleaWindow.rectOf(dialog.cardItem),

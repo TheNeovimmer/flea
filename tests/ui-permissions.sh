@@ -115,6 +115,7 @@ permissions_setup() {
 permissions_open() {
     local name="$1" entry="${2:-pointer}" row target
     wait_path "$permissions_listing"
+    permissions_wait '(.opened == false) and .inputReady' 'listing accepts the next menu gesture'
     row=$(row_index_of "$name")
     if [[ "$entry" == pointer ]]; then click_row "$row" right
     else click_row "$row" left; key m >/dev/null; fi
@@ -157,7 +158,7 @@ permissions_apply() {
         if [[ "$entry" == space ]]; then key -k space >/dev/null
         else key -k Return >/dev/null; fi
     fi
-    permissions_wait '(.opened == false)' 'successful Apply closes Permissions'
+    permissions_wait '(.opened == false) and .inputReady' 'successful Apply closes Permissions and returns listing input'
     [[ "$(stat -c '%a' "$path")" == "$mode" ]] || fail "permissions: applied filesystem mode differs from $mode"
     [[ "$(ipc focusView)" == list ]] || fail "permissions: Apply did not restore listing focus"
 }
@@ -202,7 +203,7 @@ permissions_file() {
     permissions_mode 0600
     shot "permissions-$permissions_group-file-applied"
     permissions_control Cancel
-    permissions_wait '(.opened == false)'
+    permissions_wait '(.opened == false) and .inputReady'
 }
 
 permissions_directory() {
@@ -267,7 +268,7 @@ permissions_readonly_controls() {
     key -M shift -k Tab -m shift >/dev/null
     permissions_wait 'any(.controls[]; .name == "Cancel" and .focused)' 'read-only reverse traversal wraps to Cancel'
     permissions_control Cancel
-    permissions_wait '(.opened == false)'
+    permissions_wait '(.opened == false) and .inputReady'
 }
 
 permissions_readonly() {
@@ -368,7 +369,7 @@ permissions_keys() {
             permissions_wait "any(.controls[]; .name == $quoted and .focused)" "$preset Shift+Tab focuses $name"
         done
         key -k Return >/dev/null
-        permissions_wait '(.opened == false)' "$preset Return on Cancel dismisses"
+        permissions_wait '(.opened == false) and .inputReady' "$preset Return on Cancel dismisses and returns listing input"
         permissions_expect focusView list
         [[ "$(stat -c '%d:%i:%u:%g:%a:%s' "$permissions_listing/notes.md")" == "$before" ]] || fail "permissions: $preset focus traversal changed the file"
         permissions_open notes.md keyboard
@@ -405,7 +406,7 @@ permissions_keys() {
                     key -k space >/dev/null
                     ;;
             esac
-            permissions_wait '(.opened == false)' "$preset $name discards the draft"
+            permissions_wait '(.opened == false) and .inputReady' "$preset $name discards the draft and returns listing input"
             permissions_expect focusView list
             [[ "$(stat -c '%a' "$permissions_listing/notes.md")" == "${wanted#0}" ]] || fail "permissions: $preset $name committed a draft"
             key -k Down >/dev/null
