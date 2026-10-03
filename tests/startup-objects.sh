@@ -36,8 +36,7 @@ esac
 SH
 chmod +x "$test_root/bin/gio" || exit 1
 log="$test_root/startup.log"
-# The shell starts the GVfs trash daemon, so it gets its own bus; on the inherited one a later suite's first trash goes unlisted.
-# The bus and its daemons write to bus.log, so their own warnings never reach the engine-warning scan of the qs log.
+# The shell starts the GVfs trash daemon, so it runs on its own bus, whose daemons log to bus.log and stay out of the engine-warning scan.
 ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u QML_DISABLE_DISK_CACHE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$PWD/target/debug/flea" \

@@ -53,8 +53,9 @@ shellload_bin=${FLEA_BIN:-$PWD/target/debug/flea}
 [ -x "$shellload_bin" ] || { echo "shellload.sh: build the candidate backend first: $shellload_bin"; exit 1; }
 log="$shellload_root/shell.log"
 sandbox_require "$log"
+bus_log="$shellload_root/bus.log"
+sandbox_require "$bus_log"
 
-# The shell starts the GVfs trash daemon, so it gets its own bus; on the inherited one a later suite's first trash goes unlisted.
 # Offscreen and with no compositor, so this needs neither the display nor the display lock. A shell
 # does not exit on its own, so the timeout expiring is the success path and 124 is not a failure.
 # Seconds: generous enough for a cold QML compile on a loaded box, short enough for the battery.
@@ -65,7 +66,7 @@ env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT 
     XDG_CACHE_HOME="$shellload_work/cache" XDG_RUNTIME_DIR="$shellload_work/runtime" TMPDIR="$shellload_work/tmp" \
     FLEA_PATH="$shellload_work/fixture" FLEA_BIN="$shellload_bin" \
     QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
-    dbus-run-session -- timeout "$load_seconds" qs -p "$PWD/ui/boot" >"$log" 2>&1
+    dbus-run-session -- bash -c 'exec timeout "$1" qs -p "$2" > "$3" 2>&1' _ "$load_seconds" "$PWD/ui/boot" "$log" > "$bus_log" 2>&1
 status=$?
 
 if [ "$status" -eq 124 ]; then

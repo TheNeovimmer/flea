@@ -652,7 +652,7 @@ case_menuscoverage() (
             menus_expect dualState "(.panes[.focused].selected | sort) == ([$first_index,$second_index] | sort)" "Permissions pair holds the a.txt and $target identities"
             click_row "$first_index" right
             if [[ "$target" == folder ]]; then
-                menus_expect menuState '.opened and .hasRow and .snapshotReady and (.snapshotId > 0) and any(.entries[]; .action == "permissions" and (.disabled == false) and (.errored | not))' "a file and a directory keep Permissions enabled without error"
+                menus_expect menuState '.opened and .hasRow and .snapshotReady and (.snapshotId > 0) and (.entries as $entries | ["rename","duplicate","openWith","properties"] | all(.[]; . as $action | any($entries[]; .action == $action and .disabled))) and any(.entries[]; .action == "permissions" and (.disabled == false) and (.errored | not))' "a file and a directory keep Permissions enabled without error in the several-items menu"
             else
                 menus_expect menuState '.opened and .hasRow and .snapshotReady and (.snapshotId > 0) and any(.entries[]; .action == "permissions" and .disabled and .errored and .hint == null)' "one symlink disables and errors Permissions for the whole selection"
             fi
