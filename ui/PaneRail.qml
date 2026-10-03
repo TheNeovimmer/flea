@@ -43,11 +43,12 @@ Item {
     // leaving it by a pixel on the way to a row does not drop it.
     readonly property int settleMs: 220
     property bool revealed: false
-    property bool over: false
     // The rail's own context menu takes the pointer with it, so without this the rail withdraws out
     // from under the menu it just opened.
     readonly property bool menuHere: root.pane !== null && root.pane.contextMenu().opened
                                      && root.pane.contextMenu().forRail
+    // The rail stays up while the pointer is on it, which is the other half of the reveal.
+    readonly property bool over: railHover.hovered
     readonly property bool wanted: edge.hovered || root.over || root.menuHere
                                    || (root.pane !== null && root.pane.focusView === Focus.RAIL)
 
@@ -100,9 +101,9 @@ Item {
             onRenameFinished: root.pane.railPane.listArea.forceActiveFocus()
             // The pane's own PointHandler never sees a press a row grabs, so an overlay rail claims the keyboard itself; a docked rail leaves it.
             onPressed: if (root.overlay) root.pane.railPane.focusView = Focus.RAIL
-            // The rail stays up while the pointer is on it, which is the other half of the reveal.
-            HoverHandler { onHoveredChanged: root.over = hovered }
         }
+        // Disabled with the Sidebar, so an unload under the pointer clears it; a handler inside the Sidebar dies without reporting.
+        HoverHandler { id: railHover; enabled: rail.active }
     }
 
     // The rail's Sidebar renders the window-long service below; the service's answers

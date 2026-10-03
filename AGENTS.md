@@ -6659,6 +6659,12 @@ resize handle, the loading shield) are keyboard-neutral today, and nothing here 
 column-cell taps in the listing views keep the default `DragThreshold` policy, so the pane's `PointHandler`
 still fires for them and a dual view row click still focuses its pane through `focusRequested`.
 
+The reveal's hover flag cannot outlive the Sidebar. `ui/PaneRail.qml` `over` is `railHover.hovered`, a
+`HoverHandler` on the rail Loader that is enabled only while the Loader is active, not a flag a handler inside the
+Sidebar set: that handler died with the unload and never reported false, so an unload under the pointer (auto-hide
+switched on over the docked rail, or Ctrl+B hiding it) left `wanted` stuck true and the edge strip unable to reveal
+the rail. Pinned in `tests/sidebar-flows-rail.js`; 0.3.7 had the same defect.
+
 ### m raises the listing's menu too, under the cursor row
 
 `m` is one action, `menu`, and `ui/js/Focus.js` routes it by focus view. In the rail
