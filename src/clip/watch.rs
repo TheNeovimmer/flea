@@ -19,8 +19,8 @@ type Key = (String, String, Vec<String>);
 #[derive(Default)]
 pub(crate) struct Reported {
     last: Option<Key>,
-    latest_owner: String,
-    watching: bool,
+    generation: u64,
+    event_sequence: u64,
 }
 
 pub(crate) type Shared = Arc<Mutex<Reported>>;
@@ -29,33 +29,8 @@ pub(crate) fn shared() -> Shared {
     Arc::new(Mutex::new(Reported::default()))
 }
 
-pub(crate) struct OwnerWatch {
-    pub state: Shared,
-    pub replies: Sender<OpMsg>,
-}
-
-impl OwnerWatch {
-    // Recording the spawn under the emission lock keeps an older exit from clearing a newer owner.
-    pub fn spawn(&self, token: &str, spawn: impl FnOnce() -> std::io::Result<std::process::Child>) -> std::io::Result<std::process::Child> {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        let child = spawn()?;
-        state.latest_owner = token.to_string();
-        Ok(child)
-    }
-
-    // Hyprland omits the empty-selection event; only the last reported current owner may fill it in.
-    pub fn ended(&self, token: &str) {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if !state.watching || state.latest_owner != token || state.last.as_ref().map(|key| key.1.as_str()) != Some(token) {
-            return;
-        }
-        emit_locked(&self.replies, &mut state, "none", &[], "", 0);
-    }
-}
-
 // One watcher thread per backend; the flag in State keeps clipWatch idempotent.
 pub(crate) fn request_watch(replies: Sender<OpMsg>, state: Shared) {
-    state.lock().unwrap_or_else(|e| e.into_inner()).watching = true;
     std::thread::spawn(move || watch_loop(replies, state, None, RETRY_EVERY));
 }
 
@@ -118,6 +93,7 @@ fn connect_and_watch(replies: &Sender<OpMsg>, state: &Shared, socket: &Option<Pa
     wire::put_u32(&mut payload, bound.seat);
     conn.send(bound.manager, MANAGER_GET_DEVICE, &payload, &[])?;
     let mut offers: HashMap<u32, Vec<String>> = HashMap::new();
+    let mut ended = super::end::OwnerEnd::new(replies.clone(), state.clone(), socket.clone());
     loop {
         let event = match conn.next_raw(super::owner::WAIT_FOREVER) {
             Ok(Some(event)) => event,
@@ -133,6 +109,11 @@ fn connect_and_watch(replies: &Sender<OpMsg>, state: &Shared, socket: &Option<Pa
                 offers.insert(id, Vec::new());
             }
         } else if event.sender == READER_DEVICE && event.opcode == DEVICE_SELECTION {
+            let generation = {
+                let mut reported = state.lock().unwrap_or_else(|e| e.into_inner());
+                reported.event_sequence += 1;
+                reported.generation
+            };
             let mut at = 0;
             let current = match wire::get_u32(&event.body, &mut at) {
                 Some(id) if id != 0 => Some(id),
@@ -141,16 +122,34 @@ fn connect_and_watch(replies: &Sender<OpMsg>, state: &Shared, socket: &Option<Pa
             // Every highlight would otherwise leak one entry per window for its lifetime.
             retire_offers(&mut conn, &mut offers, current);
             match current {
-                None => emit(replies, state, "none", &[], "", 0),
+                None => {
+                    ended.track(None, "");
+                    emit(replies, state, "none", &[], "", 0);
+                },
                 Some(id) => match offers.get(&id) {
                     // An offer the selection names before its types is out of order, read as nothing.
-                    None => emit(replies, state, "none", &[], "", 0),
-                    Some(types) => match read_offer(&mut conn, id, types) {
-                        // An over-cap selection is refused out loud, never broadcast to every window.
-                        Err(ReadFail::Capped(e)) => {
-                            emit_error(replies, state, &e);
+                    None => {
+                        ended.track(None, "");
+                        emit(replies, state, "none", &[], "", 0);
+                    },
+                    Some(types) => {
+                        let read = read_offer(&mut conn, id, types);
+                        let mut reported = state.lock().unwrap_or_else(|e| e.into_inner());
+                        // Only an exit read begun after this event can report and invalidate its bytes.
+                        if reported.generation != generation { continue; }
+                        match read {
+                            // An over-cap selection is refused out loud, never broadcast to every window.
+                            Err(ReadFail::Capped(e)) => {
+                                ended.track(None, "");
+                                emit_error_locked(replies, &mut reported, &e);
+                            }
+                            Ok(read) => {
+                                if !ended.tracks(&read.token) {
+                                    ended.track(read.owner_pid, &read.token);
+                                }
+                                emit_locked(replies, &mut reported, &read.op, &read.paths, &read.token, read.skipped);
+                            }
                         }
-                        Ok(read) => emit(replies, state, &read.op, &read.paths, &read.token, read.skipped),
                     },
                 },
             }
@@ -172,8 +171,35 @@ fn connect_and_watch(replies: &Sender<OpMsg>, state: &Shared, socket: &Option<Pa
     }
 }
 
+// Token and event guards share the emitter lock, so newer selections win before their bytes arrive.
+pub(super) fn reread(replies: &Sender<OpMsg>, state: &Shared, token: &str,
+    read: impl FnOnce() -> Result<super::control::OfferFiles, String>,
+    cancelled: impl Fn() -> bool, track: impl FnOnce(&super::control::OfferFiles)) -> bool {
+    let current = |state: &Reported| state.last.as_ref().map(|key| key.1.as_str()) == Some(token);
+    let event_sequence = {
+        let state = state.lock().unwrap_or_else(|e| e.into_inner());
+        if cancelled() || !current(&state) { return false; }
+        state.event_sequence
+    };
+    let Ok(read) = read() else { return false; };
+    let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
+    if cancelled() || !current(&state) || state.event_sequence != event_sequence { return false; }
+    if read.token == token { return true; }
+    let key = (read.op.clone(), read.token.clone(), read.paths.clone());
+    if state.last.as_ref() != Some(&key) {
+        track(&read);
+        emit_locked(replies, &mut state, &read.op, &read.paths, &read.token, read.skipped);
+    }
+    true
+}
+
 fn emit_error(replies: &Sender<OpMsg>, state: &Shared, error: &str) {
     let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
+    emit_error_locked(replies, &mut state, error);
+}
+
+fn emit_error_locked(replies: &Sender<OpMsg>, state: &mut Reported, error: &str) {
+    state.generation += 1;
     state.last = None;
     say(replies, &none_error(error));
 }
@@ -188,6 +214,7 @@ fn emit_locked(replies: &Sender<OpMsg>, state: &mut Reported, op: &str, paths: &
     if state.last.as_ref() == Some(&key) {
         return;
     }
+    state.generation += 1;
     state.last = Some(key);
     say(replies, &changed(op, paths, token, skipped));
 }

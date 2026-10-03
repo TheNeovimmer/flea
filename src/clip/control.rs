@@ -152,6 +152,7 @@ pub(crate) struct OfferFiles {
     pub paths: Vec<String>,
     pub token: String,
     pub skipped: usize,
+    pub owner_pid: Option<u32>,
 }
 
 // A refused read is a selection past the path cap; any failed receive falls through instead.
@@ -173,12 +174,12 @@ pub(crate) fn read_offer(conn: &mut Conn, offer: u32, types: &[String]) -> Resul
 
 fn read_offer_with(conn: &mut Conn, offer: u32, types: &[String],
     mut receive: impl FnMut(&mut Conn, u32, &str) -> Result<Vec<u8>, String>) -> Result<OfferFiles, ReadFail> {
-    let none = OfferFiles { op: "none".to_string(), paths: Vec::new(), token: String::new(), skipped: 0 };
+    let none = OfferFiles { op: "none".to_string(), paths: Vec::new(), token: String::new(), skipped: 0, owner_pid: None };
     let has = |mime: &str| types.iter().any(|t| t == mime);
     if has(format::FLEA) {
         if let Ok(bytes) = receive(conn, offer, format::FLEA) {
             if let Some((op, token)) = format::parse_flea(&bytes) {
-                let mut got = OfferFiles { op, paths: Vec::new(), token, skipped: 0 };
+                let mut got = OfferFiles { op, paths: Vec::new(), token, skipped: 0, owner_pid: format::flea_pid(&bytes) };
                 // The token names our own copy; the paths still come from a file shape beside it.
                 if has(format::GNOME) {
                     if let Ok(bytes) = receive(conn, offer, format::GNOME) {
@@ -208,7 +209,7 @@ fn read_offer_with(conn: &mut Conn, offer: u32, types: &[String],
             if let Some((op, paths, skipped)) = format::parse_gnome(&bytes) {
                 if !paths.is_empty() {
                     format::check_path_cap(&paths).map_err(ReadFail::Capped)?;
-                    return Ok(OfferFiles { op, paths, token: String::new(), skipped });
+                    return Ok(OfferFiles { op, paths, token: String::new(), skipped, owner_pid: None });
                 }
             }
         }
@@ -226,7 +227,7 @@ fn read_offer_with(conn: &mut Conn, offer: u32, types: &[String],
                         }
                     }
                 }
-                return Ok(OfferFiles { op, paths, token: String::new(), skipped });
+                return Ok(OfferFiles { op, paths, token: String::new(), skipped, owner_pid: None });
             }
         }
     }
@@ -238,14 +239,32 @@ pub fn get_on(conn: &mut Conn) -> Result<Got, String> {
     get_on_with(conn, receive_type)
 }
 
+// The owner-exit reader retains the pid beside the same get handshake and offer parser.
+pub(crate) fn get_files_on(conn: &mut Conn) -> Result<OfferFiles, String> {
+    let mut failed = None;
+    let read = get_files_with(conn, |conn, offer, mime| {
+        let result = receive_type(conn, offer, mime);
+        if let Err(error) = &result { failed = Some(error.clone()); }
+        result
+    })?;
+    if let Some(error) = failed {
+        return Err(error);
+    }
+    Ok(read)
+}
+
 fn get_on_with(conn: &mut Conn, receive: impl FnMut(&mut Conn, u32, &str) -> Result<Vec<u8>, String>) -> Result<Got, String> {
+    let read = get_files_with(conn, receive)?;
+    Ok(Got { clip: read.op, paths: read.paths, token: read.token, skipped: read.skipped })
+}
+
+fn get_files_with(conn: &mut Conn, receive: impl FnMut(&mut Conn, u32, &str) -> Result<Vec<u8>, String>) -> Result<OfferFiles, String> {
     let bound = handshake(conn)?;
-    let none = Got { clip: "none".to_string(), paths: Vec::new(), token: String::new(), skipped: 0 };
+    let none = OfferFiles { op: "none".to_string(), paths: Vec::new(), token: String::new(), skipped: 0, owner_pid: None };
     let Some(selection) = read_selection(conn, &bound)? else {
         return Ok(none);
     };
-    let read = read_offer_with(conn, selection.offer, &selection.types, receive).map_err(ReadFail::message)?;
-    Ok(Got { clip: read.op, paths: read.paths, token: read.token, skipped: read.skipped })
+    read_offer_with(conn, selection.offer, &selection.types, receive).map_err(ReadFail::message)
 }
 
 pub fn get() -> Result<Got, String> {

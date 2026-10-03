@@ -2,6 +2,7 @@
 pub mod wire;
 pub(crate) mod protocol;
 mod receive;
+mod end;
 pub mod format;
 pub mod control;
 pub mod owner;
