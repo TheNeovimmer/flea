@@ -1,5 +1,6 @@
 .import "flea/js/TextSize.js" as TextSize
 .import "flea/js/Tap.js" as Tap
+.import "sidebar-flows-rail.js" as RailPress
 
 // Additional real-UI proofs share the hunt's fixture, driver and tally.
 function steps(root, pane, state, theme) {
@@ -73,7 +74,7 @@ function steps(root, pane, state, theme) {
             return true
         }
     ]
-    return tests.concat(clicks(root, pane, "list"), clicks(root, pane, "grid"), clicks(root, pane, "columns"))
+    return tests.concat(clicks(root, pane, "list"), clicks(root, pane, "grid"), clicks(root, pane, "columns"), RailPress.steps(root, pane, state))
 }
 
 function clicks(root, pane, mode) {

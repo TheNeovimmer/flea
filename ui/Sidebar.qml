@@ -98,6 +98,8 @@ Item {
     property int renamingIndex: -1
     // Fires once, on both commit and cancel, so ui/Pane.qml has one place to hand focus back.
     signal renameFinished()
+    // Any press inside the rail, so an overlay rail can take the keyboard though a row or the Flickable below holds the grab: the handler's item is above every child.
+    signal pressed()
 
     // Sized in characters, because a monospace makes that exact where a pixel constant would be an accident.
     readonly property int widthChars: 18
@@ -647,6 +649,15 @@ Item {
             return netRepeater.itemAt(rest)
         rest -= root.networkEntries.length
         return devRepeater.itemAt(rest)
+    }
+    // Above the Flickable and every row, because a PointHandler under their exclusive press grab is never given the press; a passive handler leaves the press to the row.
+    Item {
+        anchors.fill: parent
+        z: 1
+        PointHandler {
+            acceptedButtons: Qt.AllButtons
+            onActiveChanged: if (active) root.pressed()
+        }
     }
     // The rail edge, one Divider shared with the column edges.
     Flea.Divider {

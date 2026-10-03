@@ -47,6 +47,9 @@ printf 'b\n' > "$probe/home/fixture/b.txt"
 ln -s a.txt "$probe/home/fixture/link.txt"
 mkdir "$probe/home/fixture/sub"
 printf 'read only\n' > "$probe/home/readonly/ro.txt"
+# The rail tests press over this listing; it is taller than the pane so a row lies under every press point.
+downloads_rows=40
+for ((row = 0; row < downloads_rows; row++)); do : > "$probe/home/Downloads/file$row.txt"; done
 touch -d '2000-01-01 00:00:00 UTC' "$probe/home/fixture/a.txt"
 chmod 555 "$probe/home/readonly"
 cat > "$probe/data/recently-used.xbel" <<XML
@@ -64,6 +67,7 @@ ln -s "$(readlink -f ui/boot/Ui)" "$probe/config/Ui"
 ln -s "$PWD/ui/boot/fleatab.qml" "$probe/config/fleatab.qml"
 cp tests/sidebar-flows.qml "$probe/config/shell.qml"
 cp tests/sidebar-flows-extra.js "$probe/config/sidebar-flows-extra.js"
+cp tests/sidebar-flows-rail.js "$probe/config/sidebar-flows-rail.js"
 log="$probe/qs.log"
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
     HOME="$probe/home" XDG_STATE_HOME="$probe/state" XDG_CONFIG_HOME="$probe/config" \

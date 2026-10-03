@@ -45,10 +45,11 @@ ShellRoot {
     }
     function sheet() { return pane.keymapSheet.item }
     function openSheet() { root.press(Qt.Key_Question); return root.sheet() }
-    function click(item, x, y) {
-        driver.mousePress(item, x, y, Qt.LeftButton, Qt.NoModifier, 1)
-        driver.mouseRelease(item, x, y, Qt.LeftButton, Qt.NoModifier, 1)
+    function click(item, x, y, button) {
+        driver.mousePress(item, x, y, button || Qt.LeftButton, Qt.NoModifier, 1)
+        driver.mouseRelease(item, x, y, button || Qt.LeftButton, Qt.NoModifier, 1)
     }
+    function move(item, x, y) { return driver.mouseMove(item, x, y, 1, Qt.NoButton, Qt.NoModifier) }
     function clickName(name) {
         var row = pane.visibleItemFor(root.indexOf(name))
         if (!row) throw new Error("No visible row " + name)
