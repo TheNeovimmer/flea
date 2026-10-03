@@ -80,6 +80,7 @@ mod tests {
             search_reported: Instant::now(),
             generation: 0,
             clip_watching: false,
+            clip_watch: crate::clip::watch::shared(),
         }
     }
 

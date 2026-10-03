@@ -46,7 +46,7 @@ fn an_owner_without_a_clipboard_manager_returns_its_cause() {
         assert_eq!((bind.sender, bind.opcode), (ids[0], REGISTRY_BIND));
         Ok(())
     });
-    let result = spawn_owner_with(&script, "copy", &["/tmp/a".into()], |rx| rx.recv_timeout(TEST_WATCHDOG));
+    let result = spawn_owner_with(&script, "copy", &["/tmp/a".into()], |rx| rx.recv_timeout(TEST_WATCHDOG), None);
     let served = compositor.join().unwrap_or_else(|_| panic!("the fake compositor panicked; owner result: {:?}", result));
     assert!(served.is_ok(), "the fake compositor failed: {:?}; owner result: {:?}", served, result);
     assert_eq!(result.unwrap_err(), "no clipboard protocol: neither data-control manager is offered");
@@ -56,7 +56,7 @@ fn an_owner_without_a_clipboard_manager_returns_its_cause() {
 fn an_owner_startup_failure_returns_only_its_first_stderr_line() {
     let dir = TestDir::new("clip-owner-stderr");
     let script = dir.script("owner", "#!/bin/sh\ncat >/dev/null\nprintf 'flea: startup refused\\nsecond diagnostic\\n' >&2\nexit 2\n");
-    let result = spawn_owner_with(&script, "copy", &["/tmp/a".into()], |rx| rx.recv_timeout(TEST_WATCHDOG));
+    let result = spawn_owner_with(&script, "copy", &["/tmp/a".into()], |rx| rx.recv_timeout(TEST_WATCHDOG), None);
     assert_eq!(result.unwrap_err(), "startup refused");
 }
 
@@ -75,7 +75,7 @@ fn failed_child(quiet: bool) {
             assert!(read.0 && read.1.is_empty(), "the real child ended stdout without ready");
             Ok(read)
         }
-    });
+    }, None);
     assert_eq!(failed.unwrap_err(), "the clipboard owner did not answer");
     let pid: c_int = std::fs::read_to_string(&pidfile).unwrap().trim().parse().unwrap();
     let mut status = 0;

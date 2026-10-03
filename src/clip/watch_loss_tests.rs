@@ -20,7 +20,7 @@ fn the_final_lost_line_keeps_the_last_dropped_connection_cause() {
     ] {
         let (_dir, listener, path) = serve("clip-watch-lost-cause");
         let (tx, rx) = std::sync::mpsc::channel();
-        let watcher = std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
+        let watcher = std::thread::spawn(move || watch_loop(tx, shared(), Some(path), NO_RETRY_WAIT));
         for attempt in 0..=RETRIES {
             let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
             let mut raw = stream.try_clone().unwrap();

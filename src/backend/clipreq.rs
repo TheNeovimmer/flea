@@ -6,8 +6,9 @@ use std::sync::mpsc::Sender;
 static SETS: std::sync::OnceLock<SetQueue> = std::sync::OnceLock::new();
 
 // Validated before any spawn: a bad op or path answers rather than owning.
-pub fn request_set(replies: Sender<OpMsg>, op: String, paths: Vec<String>) {
-    SETS.get_or_init(SetQueue::new).start(replies, move || own::spawn_owner(&op, &paths));
+pub fn request_set(replies: Sender<OpMsg>, op: String, paths: Vec<String>, state: watch::Shared) {
+    let observed = watch::OwnerWatch { state, replies: replies.clone() };
+    SETS.get_or_init(SetQueue::new).start(replies, move || own::spawn_owner_watched(&op, &paths, Some(observed)));
 }
 
 struct SetWork {
@@ -109,12 +110,12 @@ fn beside(replies: Sender<OpMsg>, work: impl FnOnce() -> String + Send + 'static
 }
 
 // Idempotent: the first starts the watcher's one thread, later ones answer nothing.
-pub fn request_watch(replies: Sender<OpMsg>, watching: &mut bool) {
+pub fn request_watch(replies: Sender<OpMsg>, watching: &mut bool, state: watch::Shared) {
     if *watching {
         return;
     }
     *watching = true;
-    watch::request_watch(replies);
+    watch::request_watch(replies, state);
 }
 
 #[cfg(test)]
@@ -131,7 +132,7 @@ mod tests {
         assert!(SETS.set(SetQueue { sets }).is_ok(), "only this test may use the static mutation queue");
         for (op, path) in [("move", "/tmp/a"), ("copy", "relative/a")] {
             let (tx, _rx) = std::sync::mpsc::channel();
-            request_set(tx, op.into(), vec![path.into()]);
+            request_set(tx, op.into(), vec![path.into()], watch::shared());
             let work = pending.try_recv().expect("request_set must enqueue on the static mutation queue");
             assert_eq!(work.op, "set");
             let line = (work.start)();

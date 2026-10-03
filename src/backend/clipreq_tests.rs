@@ -68,7 +68,7 @@ fn a_silent_set_owner_never_holds_the_request_loop_and_still_refuses() {
             entered.send(()).unwrap();
             proceed.recv_timeout(TEST_HOLD_WATCHDOG).unwrap();
             Err(RecvTimeoutError::Timeout)
-        }));
+        }, None));
         returned.send(()).unwrap();
     });
     running.recv_timeout(TEST_WATCHDOG).unwrap();
@@ -121,9 +121,10 @@ fn a_watch_starts_once_and_the_second_is_silent() {
     let _env = DisplayEnv::set(None);
     let (tx, rx) = channel();
     let mut watching = false;
-    request_watch(tx.clone(), &mut watching);
+    let state = watch::shared();
+    request_watch(tx.clone(), &mut watching, state.clone());
     assert!(watching);
-    request_watch(tx, &mut watching);
+    request_watch(tx, &mut watching, state);
     let mut lines = 0;
     for m in rx.iter() {
         let line = clip_line(m);

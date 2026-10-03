@@ -302,10 +302,10 @@ fn handle_line(
             }
         }
         Request::Collisions { id, paths, rows, dest, menu_id } => super::collide::ask_beside(ops, id, menu_id, resolve_rows(paths, &rows, &st.base, &st.listing), &dest, &tb.mime, &tb.icons),
-        Request::ClipSet { op, paths } => super::clipreq::request_set(ops.tx.clone(), op, paths),
+        Request::ClipSet { op, paths } => super::clipreq::request_set(ops.tx.clone(), op, paths, st.clip_watch.clone()),
         Request::ClipGet => super::clipreq::request_get(ops.tx.clone()),
         Request::ClipClear { token, cut } => super::clipreq::request_clear(ops.tx.clone(), token, cut),
-        Request::ClipWatch => super::clipreq::request_watch(ops.tx.clone(), &mut st.clip_watching),
+        Request::ClipWatch => super::clipreq::request_watch(ops.tx.clone(), &mut st.clip_watching, st.clip_watch.clone()),
         Request::Link { op, paths, rows, dest, collide } => {
             let named = resolve_rows(paths, &rows, &st.base, &st.listing);
             do_link(out, ops, &op, named, &dest, collide)

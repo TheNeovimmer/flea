@@ -116,7 +116,7 @@ fn next_within(rx: &std::sync::mpsc::Receiver<wire::RawEvent>, what: &str) -> wi
 fn a_watcher_reports_copy_then_none_then_cut_and_dedups_a_repeat() {
     let (_dir, listener, path) = serve("clip-watch-flow");
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
+    std::thread::spawn(move || watch_loop(tx, shared(), Some(path), NO_RETRY_WAIT));
     let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
@@ -167,7 +167,7 @@ fn a_watcher_reports_copy_then_none_then_cut_and_dedups_a_repeat() {
 fn a_dropped_connection_reconnects_once() {
     let (_dir, listener, path) = serve("clip-watch-drop");
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
+    std::thread::spawn(move || watch_loop(tx, shared(), Some(path), NO_RETRY_WAIT));
     let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
@@ -272,7 +272,7 @@ fn a_copy_and_a_stale_cut_never_clear() {
 fn a_thousand_superseded_offers_are_destroyed() {
     let (_dir, listener, path) = serve("clip-watch-retire");
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
+    std::thread::spawn(move || watch_loop(tx, shared(), Some(path), NO_RETRY_WAIT));
     let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
@@ -308,7 +308,7 @@ fn a_capped_refusal_does_not_dedup_the_previous_selection() {
     const REPEATED_OFFER: u32 = 12;
     let (_dir, listener, path) = serve("clip-watch-cap");
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
+    std::thread::spawn(move || watch_loop(tx, shared(), Some(path), NO_RETRY_WAIT));
     let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
@@ -338,7 +338,7 @@ fn a_capped_refusal_does_not_dedup_the_previous_selection() {
 fn a_primary_selection_retires_only_its_offer_and_keeps_the_clipboard() {
     let (_dir, listener, path) = serve("clip-watch-primary");
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
+    std::thread::spawn(move || watch_loop(tx, shared(), Some(path), NO_RETRY_WAIT));
     let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     hello(&mut conn);

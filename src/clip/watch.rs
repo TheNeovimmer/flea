@@ -6,6 +6,7 @@ use crate::backend::opsreq::OpMsg;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 // A dropped connection reconnects at most RETRIES times, RETRY_EVERY apart.
@@ -15,29 +16,66 @@ const RETRY_EVERY: Duration = Duration::from_secs(1);
 // What dedup compares: a repeated identical selection emits once.
 type Key = (String, String, Vec<String>);
 
+#[derive(Default)]
+pub(crate) struct Reported {
+    last: Option<Key>,
+    latest_owner: String,
+    watching: bool,
+}
+
+pub(crate) type Shared = Arc<Mutex<Reported>>;
+
+pub(crate) fn shared() -> Shared {
+    Arc::new(Mutex::new(Reported::default()))
+}
+
+pub(crate) struct OwnerWatch {
+    pub state: Shared,
+    pub replies: Sender<OpMsg>,
+}
+
+impl OwnerWatch {
+    // Recording the spawn under the emission lock keeps an older exit from clearing a newer owner.
+    pub fn spawn(&self, token: &str, spawn: impl FnOnce() -> std::io::Result<std::process::Child>) -> std::io::Result<std::process::Child> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let child = spawn()?;
+        state.latest_owner = token.to_string();
+        Ok(child)
+    }
+
+    // Hyprland omits the empty-selection event; only the last reported current owner may fill it in.
+    pub fn ended(&self, token: &str) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if !state.watching || state.latest_owner != token || state.last.as_ref().map(|key| key.1.as_str()) != Some(token) {
+            return;
+        }
+        emit_locked(&self.replies, &mut state, "none", &[], "", 0);
+    }
+}
+
 // One watcher thread per backend; the flag in State keeps clipWatch idempotent.
-pub fn request_watch(replies: Sender<OpMsg>) {
-    std::thread::spawn(move || watch_loop(replies, None, RETRY_EVERY));
+pub(crate) fn request_watch(replies: Sender<OpMsg>, state: Shared) {
+    state.lock().unwrap_or_else(|e| e.into_inner()).watching = true;
+    std::thread::spawn(move || watch_loop(replies, state, None, RETRY_EVERY));
 }
 
 // The retry delay is a parameter so a test reconnects at once instead of waiting a second.
-fn watch_loop(replies: Sender<OpMsg>, socket: Option<PathBuf>, retry_every: Duration) {
-    let mut last: Option<Key> = None;
+fn watch_loop(replies: Sender<OpMsg>, state: Shared, socket: Option<PathBuf>, retry_every: Duration) {
     // The first connection never retries: no compositor or no manager is one line and the end.
-    let mut cause = match connect_and_watch(&replies, &mut last, &socket) {
+    let mut cause = match connect_and_watch(&replies, &state, &socket) {
         Ok(WatchEnd::Dropped(cause)) => cause,
         Err(e) => {
-            say(&replies, &none_error(&e));
+            emit_error(&replies, &state, &e);
             return;
         }
     };
     for _ in 0..RETRIES {
         std::thread::sleep(retry_every);
-        cause = match connect_and_watch(&replies, &mut last, &socket) {
+        cause = match connect_and_watch(&replies, &state, &socket) {
             Ok(WatchEnd::Dropped(cause)) | Err(cause) => cause,
         };
     }
-    say(&replies, &none_error(&format!("the clipboard connection was lost: {}", cause)));
+    emit_error(&replies, &state, &format!("the clipboard connection was lost: {}", cause));
 }
 
 fn say(replies: &Sender<OpMsg>, line: &str) {
@@ -69,7 +107,7 @@ enum WatchEnd {
 }
 
 // Reports selections until the connection drops; only the initial handshake is an Err.
-fn connect_and_watch(replies: &Sender<OpMsg>, last: &mut Option<Key>, socket: &Option<PathBuf>) -> Result<WatchEnd, String> {
+fn connect_and_watch(replies: &Sender<OpMsg>, state: &Shared, socket: &Option<PathBuf>) -> Result<WatchEnd, String> {
     let mut conn = match socket {
         Some(path) => Conn::connect_to(path)?,
         None => Conn::connect()?,
@@ -103,17 +141,16 @@ fn connect_and_watch(replies: &Sender<OpMsg>, last: &mut Option<Key>, socket: &O
             // Every highlight would otherwise leak one entry per window for its lifetime.
             retire_offers(&mut conn, &mut offers, current);
             match current {
-                None => emit(replies, last, "none", &[], "", 0),
+                None => emit(replies, state, "none", &[], "", 0),
                 Some(id) => match offers.get(&id) {
                     // An offer the selection names before its types is out of order, read as nothing.
-                    None => emit(replies, last, "none", &[], "", 0),
+                    None => emit(replies, state, "none", &[], "", 0),
                     Some(types) => match read_offer(&mut conn, id, types) {
                         // An over-cap selection is refused out loud, never broadcast to every window.
                         Err(ReadFail::Capped(e)) => {
-                            *last = None;
-                            say(replies, &none_error(&e));
+                            emit_error(replies, state, &e);
                         }
-                        Ok(read) => emit(replies, last, &read.op, &read.paths, &read.token, read.skipped),
+                        Ok(read) => emit(replies, state, &read.op, &read.paths, &read.token, read.skipped),
                     },
                 },
             }
@@ -135,12 +172,23 @@ fn connect_and_watch(replies: &Sender<OpMsg>, last: &mut Option<Key>, socket: &O
     }
 }
 
-fn emit(replies: &Sender<OpMsg>, last: &mut Option<Key>, op: &str, paths: &[String], token: &str, skipped: usize) {
+fn emit_error(replies: &Sender<OpMsg>, state: &Shared, error: &str) {
+    let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
+    state.last = None;
+    say(replies, &none_error(error));
+}
+
+fn emit(replies: &Sender<OpMsg>, state: &Shared, op: &str, paths: &[String], token: &str, skipped: usize) {
+    let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
+    emit_locked(replies, &mut state, op, paths, token, skipped);
+}
+
+fn emit_locked(replies: &Sender<OpMsg>, state: &mut Reported, op: &str, paths: &[String], token: &str, skipped: usize) {
     let key = (op.to_string(), token.to_string(), paths.to_vec());
-    if last.as_ref() == Some(&key) {
+    if state.last.as_ref() == Some(&key) {
         return;
     }
-    *last = Some(key);
+    state.last = Some(key);
     say(replies, &changed(op, paths, token, skipped));
 }
 
@@ -162,3 +210,7 @@ pub(crate) fn retire_offers(conn: &mut Conn, offers: &mut HashMap<u32, Vec<Strin
 #[cfg(test)]
 #[path = "watch_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "watch_owner_tests.rs"]
+mod owner_tests;
