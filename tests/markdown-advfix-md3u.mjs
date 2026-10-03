@@ -56,6 +56,13 @@ for (const id of Object.keys(sources)) {
             fontPx: Number(attr(labels[0], 'font-size')) * scale, paintBottom });
     }
 }
+const MITER_VERTEX_Y = 15;
+const MITER_HALF_STROKE = 4;
+const MITER_SEGMENT_DX = 5;
+const MITER_SEGMENT_DY = 10;
+// Both bottom joins have miter ratio sqrt(5), below SVG's default limit of 4.
+const MITER_TIP_Y = MITER_VERTEX_Y + MITER_HALF_STROKE
+    * Math.hypot(MITER_SEGMENT_DX, MITER_SEGMENT_DY) / MITER_SEGMENT_DX;
 const primitiveCases = [
     ['rect', '<rect x="5" y="5" width="10" height="10" stroke="#c0caf5" stroke-width="6"/>', 2, 18],
     ['rect-large', '<rect x="10" y="10" width="80" height="80" stroke="#c0caf5" stroke-width="8"/>', 6, 94],
@@ -63,8 +70,8 @@ const primitiveCases = [
     ['square-cap', '<line x1="5" y1="5" x2="15" y2="15" stroke="#c0caf5" stroke-width="8" stroke-linecap="square"/>', 5 - 4 * Math.SQRT2, 15 + 4 * Math.SQRT2],
     ['circle', '<circle cx="10" cy="10" r="5" stroke="#c0caf5" stroke-width="8"/>', 1, 19],
     ['ellipse', '<ellipse cx="10" cy="10" rx="3" ry="5" stroke="#c0caf5" stroke-width="8"/>', 1, 19],
-    ['polygon', '<polygon points="5,5 15,5 10,15" stroke="#c0caf5" stroke-width="8"/>', 1, 19],
-    ['polyline', '<polyline points="5,5 10,15 15,5" stroke="#c0caf5" stroke-width="8"/>', 1, 19]
+    ['polygon', '<polygon points="5,5 15,5 10,15" stroke="#c0caf5" stroke-width="8"/>', 1, MITER_TIP_Y],
+    ['polyline', '<polyline points="5,5 10,15 15,5" stroke="#c0caf5" stroke-width="8"/>', 1, MITER_TIP_Y]
 ];
 for (const [name, primitive, low, high] of primitiveCases) {
     const svg = postMermaid('<svg width="100" height="100" viewBox="0 0 100 100">' + primitive + '</svg>', theme);
