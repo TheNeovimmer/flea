@@ -56,7 +56,6 @@ BARE_SUBPROCESS_TIMEOUT = re.compile('timeout=' + r'\d')
 BARE_TIMER_INTERVAL = re.compile(r'interval:\s*\d')
 
 
-# Sample input: "# one\n# two\ncode\n# three" has the comment runs [(1, 2)], and a lone comment is no run.
 # Sample input: `    if [[ "$mode" == catcher ]]; then` ... `    else\n        xwtab_wait_enter "$bpid" "$mode"\n    fi`, one ladder.
 def routes_modes(body):
     return re.search(r'\n    if \[\[ "\$mode" == catcher \]\]; then\n        xwtab_wait_catcher\n'
@@ -65,6 +64,12 @@ def routes_modes(body):
                      r'    else\n        xwtab_wait_enter "\$bpid" "\$mode"\n    fi\n', body) is not None
 
 
+# Sample input: `        xwtab_wait_enter "$bpid" "$mode"` is one call; the definition `xwtab_wait_enter() {` is none.
+def enter_wait_calls(text):
+    return len(re.findall(r'\bxwtab_wait_enter "', text))
+
+
+# Sample input: "# one\n# two\ncode\n# three" has the comment runs [(1, 2)], and a lone comment is no run.
 def comment_runs(text):
     runs = []
     start = length = 0
@@ -517,7 +522,10 @@ xwtab_wait_enter 202 {mode}
     drag_start = UI.index('xwtab_drag_to_window() {')
     drag_body = UI[drag_start:UI.index('\n}\n', drag_start)]
     check('the drag helper sends catcher, own and refused to their own waits and only the rest to the enter wait',
-          routes_modes(drag_body) and len(re.findall(r'^\s+xwtab_wait_enter ', UI, re.M)) == 1, drag_body[-700:])
+          routes_modes(drag_body) and enter_wait_calls(UI) == 1, drag_body[-700:])
+    check('caller control counts a second enter wait wherever it sits on its line',
+          enter_wait_calls(UI + '\n    [[ -n "$bpid" ]] && xwtab_wait_enter "$bpid" observe\n') == 2
+          and enter_wait_calls('xwtab_wait_enter() {\n}\n') == 0)
     unrouted = drag_body.replace('    elif [[ "$mode" == refused ]]; then\n        xwtab_wait_refused "$bpid" held\n', '')
     check('routing control refuses a refused gesture that falls through to the enter wait',
           unrouted != drag_body and not routes_modes(unrouted), unrouted[-700:])
