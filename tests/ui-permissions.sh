@@ -546,6 +546,8 @@ permissions_eligibility() {
 permissions_search() {
     local first second marks cursor scroll quoted_paths index start=644 applied=744
     local owner_execute_bit=64 batch_count=2 fixture_rows=6
+    # Sample input: 0100644, a regular file's st_mode; the held row carries the type bits with the permissions.
+    local regular_file=0100000
     local settled='.searchMode == "results" and .searchQuery == "txt" and (.searchRunning | not)'
     permissions_guard "$permissions_listing/other.txt"
     permissions_guard "$permissions_listing/special.txt"
@@ -557,8 +559,8 @@ permissions_search() {
     permissions_wait "$settled" 'Search settles over the fixture directory' keyDeliveryState
     first=$(row_index_of other.txt)
     second=$(row_index_of special.txt)
-    permissions_expect visibleRowMode "$start" "$first"
-    permissions_expect visibleRowMode "$start" "$second"
+    permissions_expect visibleRowMode "$((regular_file | 0$start))" "$first"
+    permissions_expect visibleRowMode "$((regular_file | 0$start))" "$second"
     # A plain click on a result reveals it and leaves the search, so the marks take ctrl.
     click_row "$first" left --mods ctrl
     click_row "$second" left --mods ctrl
@@ -587,8 +589,8 @@ permissions_search() {
     permissions_expect cursor "$cursor"
     permissions_expect listContentY "$scroll"
     # The held rows are read again from disk: a search that kept its old rows would still carry the start mode.
-    permissions_expect visibleRowMode "$applied" "$first"
-    permissions_expect visibleRowMode "$applied" "$second"
+    permissions_expect visibleRowMode "$((regular_file | 0$applied))" "$first"
+    permissions_expect visibleRowMode "$((regular_file | 0$applied))" "$second"
     shot "permissions-$permissions_group-search-applied"
     key -k Escape >/dev/null || fail "permissions: Search dismissal failed"
     permissions_wait '.searchMode == ""' 'Escape closes the Search after Apply' keyDeliveryState
