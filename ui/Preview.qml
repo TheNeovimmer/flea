@@ -50,6 +50,7 @@ Item {
     }
     function mediaLoaded() { return mediaLoader.item !== null }
     function textShown() { return root.isMarkdown ? markdownPane.rawText : textPane.shownText() }
+    function markdownView() { return root.active && root.isMarkdown ? markdownPane.view : "" }
     function archiveNames() { return root.archiveMeta && root.archiveMeta.names ? root.archiveMeta.names.map(function (e) { return e.n }).join("|") : "" }
     readonly property bool pdfExpanded: root.isPdf && pdfLoader.item !== null && pdfLoader.item.expanded
     // The PDF surface, null with no document loaded: ui/Ipc.qml answers "" for that, so an unmeasured state never reads as a value.

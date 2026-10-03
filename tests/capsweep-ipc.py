@@ -6,6 +6,9 @@ import subprocess
 import sys
 import time
 
+PREVIEW_LOAD_SECONDS = 10
+PREVIEW_POLL_SECONDS = 0.05
+
 scratch, repo = map(Path, sys.argv[1:])
 config = scratch / "ipc"
 runtime = scratch / "runtime"
@@ -16,6 +19,8 @@ runtime.mkdir(mode=0o700)
 fixture = scratch / "large-readable.txt"
 payload = "".join(f"Log row {index:05}: selected text loads only when requested.\n" for index in range(8000))
 fixture.write_text(payload, encoding="utf-8")
+markdown = scratch / "notes.md"
+markdown.write_text("# Release notes\n", encoding="utf-8")
 environment = os.environ | {
     "XDG_RUNTIME_DIR": str(runtime),
     "QT_QPA_PLATFORM": "offscreen",
@@ -24,6 +29,7 @@ environment = os.environ | {
     "SWEEPIPC_UI": str(repo / "ui"),
     "SWEEPIPC_FILE": str(fixture),
     "SWEEPIPC_BYTES": str(fixture.stat().st_size),
+    "SWEEPIPC_MARKDOWN": str(markdown),
 }
 
 
@@ -59,7 +65,7 @@ with (scratch / "ipc.log").open("wb") as log:
         env=environment, stdout=log, stderr=subprocess.STDOUT,
     )
     try:
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + PREVIEW_LOAD_SECONDS
         while True:
             try:
                 if call("ready").strip() == b"true":
@@ -68,7 +74,7 @@ with (scratch / "ipc.log").open("wb") as log:
                 pass
             assert shell.poll() is None, (scratch / "ipc.log").read_text()
             assert time.monotonic() < deadline, "offscreen IPC did not start"
-            time.sleep(0.05)
+            time.sleep(PREVIEW_POLL_SECONDS)
         complete, refused = 0, None
         for size in (1024, 65536, 131072, 262144, 456000, 1048576):
             if measure(size):
@@ -93,11 +99,11 @@ with (scratch / "ipc.log").open("wb") as log:
             print(f"CAPSWEEP_IPC cutoff={cutoff} largest-complete={largest_complete} smallest-refused={smallest_refused}")
         else:
             print("CAPSWEEP_IPC no-limit-observed-through=1048576")
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + PREVIEW_LOAD_SECONDS
         while call("previewState", target="flea").strip() != b"ready":
             assert shell.poll() is None, (scratch / "ipc.log").read_text()
             assert time.monotonic() < deadline, (scratch / "ipc.log").read_text()
-            time.sleep(0.05)
+            time.sleep(PREVIEW_POLL_SECONDS)
         assert call("previewTextLength", target="flea").strip() == str(fixture.stat().st_size).encode()
         legacy = call("previewText", target="flea").removesuffix(b"\n")
         if legacy == payload.encode():
@@ -121,6 +127,7 @@ with (scratch / "ipc.log").open("wb") as log:
             "previewDuration": b"0", "previewPdfPage": b"-1", "previewPdfZoom": b"",
             "previewPdfFocus": b"-1", "previewExpanded": b"", "previewMediaLoaded": b"false",
             "previewArchiveNames": b"", "previewPictureRect": b"", "previewSliderCentre": b"",
+            "previewMarkdownView": b"", "listingDropActive": b"false",
         }.items():
             assert call(function, target="flea").strip() == expected, function
             checks += 1
@@ -128,6 +135,26 @@ with (scratch / "ipc.log").open("wb") as log:
             assert call("pdfState", overlay, target="flea").strip() == b"null", overlay
             checks += 1
         print(f"CAPSWEEP_IPC preview-checks={checks} failed=0 file-bytes={fixture.stat().st_size} tail-limit=4096")
+        reader_checks = 0
+        for active, enabled, correct_dest in ((False, True, True), (True, True, True),
+                                               (True, False, True), (True, True, False)):
+            assert call("floorState", str(active).lower(), str(enabled).lower(), str(correct_dest).lower()).strip() == b"true"
+            expected = str(active and enabled and correct_dest).lower().encode()
+            assert call("listingDropActive", target="flea").strip() == expected
+            reader_checks += 1
+        assert call("loadPreview").strip() == b"true"
+        deadline = time.monotonic() + PREVIEW_LOAD_SECONDS
+        while call("previewReady").strip() != b"true":
+            assert shell.poll() is None, (scratch / "ipc.log").read_text()
+            assert time.monotonic() < deadline, (scratch / "ipc.log").read_text()
+            time.sleep(PREVIEW_POLL_SECONDS)
+        for mode, active, is_markdown in (("rendered", True, True), ("source", True, True),
+                                         ("source", False, True), ("source", True, False)):
+            assert call("markdown", mode, str(active).lower(), str(is_markdown).lower()).strip() == b"true"
+            expected = mode.encode() if active and is_markdown else b""
+            assert call("previewMarkdownView", target="flea").strip() == expected
+            reader_checks += 1
+        print(f"CAPSWEEP_IPC capture-reader-checks={reader_checks} failed=0")
     except Exception:
         print((scratch / "ipc.log").read_text())
         raise

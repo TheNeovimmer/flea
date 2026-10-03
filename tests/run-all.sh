@@ -25,6 +25,7 @@ headless="js keymap-gen charts budget aurpush aur-versions pkgrel-check signalar
 
 
 
+# capsweep-check runs capsweep-controls.py's capture refusals and capsweep-ipc.py's offscreen readers.
 headless="$headless capsweep-check"
 failed=0
 ran=0

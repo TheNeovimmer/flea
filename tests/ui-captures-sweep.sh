@@ -9,6 +9,7 @@ sweep_shot() {
     settle
     shot "$name"
     dimensions=$(magick identify -ping -format '%wx%h' "$evidence_dir/$name.png")
+    # Sample input: 1320x820, from magick identify -ping -format %wx%h.
     [[ "$dimensions" =~ ^[1-9][0-9]*x[1-9][0-9]*$ ]] || fail "capsweep: invalid PNG dimensions for $name: $dimensions"
     printf 'SWEEP %s %s\n' "$name" "$dimensions"
     printf '%s\t%s\n' "$name" "$dimensions" >> "$evidence_dir/manifest.tsv"
@@ -43,6 +44,7 @@ sweep_launch() {
     local path="$1" patch="${2:-}" count
     [[ -n "$patch" ]] || patch='{}'
     kill_flea
+    # Sample input: {"view":"grid","preview":{"thumbSize":"large"}}, merged into the default state.
     seed_ui_state "$sweep_root/state" "$(jq -cn --arg path "$sweep_root/views" --argjson patch "$patch" '
         {keys:"default",view:"list",hidden:false,columnsLimit:3,display:{textSize:{mode:14}},
          preview:{column:true,loadOn:"automatic",markdownView:"rendered",thumbSize:"medium"},
@@ -52,6 +54,7 @@ sweep_launch() {
     wait_listing "$count"
     cap_resize 1320 820
     sweep_wait bodyPx 14
+    sweep_wait path "$path"
 }
 
 # Two rows stay selected for the selection specimen and carry an actual cut clipboard afterward.
@@ -73,7 +76,7 @@ sweep_seek() {
     n=$(ipc total)
     key g >/dev/null
     for i in $(seq 0 "$n"); do
-        # rowAt reads list delegates only, so the grid's cursor name comes from renameState.
+        # Sample input: {"cursor":2,"cursorName":".hidden.txt"}; renameState reads the grid's cursor name.
         cur=$(ipc renameState | jq -r '"\(.cursor):\(.cursorName)"')
         trail+="$cur "
         [[ "${cur#*:}" == "$want" ]] && return 0
@@ -110,16 +113,20 @@ sweep_views() {
         printf 'Hidden configuration\n' > "$path/.hidden.txt"
     done
     sweep_launch "$sweep_root/views"
+    sweep_wait viewMode list
     sweep_view_states list 3
     for size in medium large; do
         sweep_launch "$sweep_root/views" "$(jq -cn --arg size "$size" '{view:"grid",preview:{thumbSize:$size}}')"
         sweep_wait viewMode grid
+        menus_expect uiSettings ".preview.thumbSize == \"$size\"" "Grid $size thumbnail size loaded"
         sweep_view_states "grid-$size" 3
     done
     sweep_launch "$sweep_root/views" '{"view":"columns"}'
+    sweep_wait viewMode columns
     sweep_wait columnCount 3
     sweep_view_states columns-rest 3
     sweep_launch "$deep" '{"view":"columns"}'
+    sweep_wait viewMode columns
     sweep_wait columnCount 3
     sweep_view_states columns-deep 2
     kill_flea
@@ -169,10 +176,14 @@ sweep_previews() {
             pdf) sweep_wait columnPdfLoaded true; sweep_wait columnPdfPage 0 ;;
             markdown) sweep_text columnMarkdownText 'Release notes' ;;
             remote) sweep_text columnMarkdownText 'cdn.example.com' ;;
+            audio) sweep_wait columnPlayerLoaded false; sweep_wait columnMediaPlaying false; sweep_text columnPlayCentre ' ' ;;
             text) sweep_wait columnTextLines 'hello from flea|second line|' ;;
             large) sweep_text columnTextLines 'Log row 00000' ;;
             overlimit) sweep_wait columnTextLines 'too large' ;;
         esac
+        if [[ "$tag" == markdown ]]; then
+            [[ "$(ipc columnMarkdownText)" == 'Release notes'$'\n'* ]] || fail 'capsweep: column Markdown is not rendered'
+        fi
         sweep_shot "column-$tag-$state"
         if [[ "$tag" == pdf ]]; then
             permissions_point "$(ipc columnChevronCentre right)"
@@ -183,6 +194,7 @@ sweep_previews() {
         sweep_wait previewOpen true
         sweep_wait previewKind "$kind"
         sweep_wait previewState "$expected"
+        if [[ "$tag" == markdown ]]; then sweep_wait previewMarkdownView rendered; fi
         if [[ "$tag" == pdf ]]; then pdf_expect true '.page == 0 and .pages == 2' 'sweep first page decoded'; fi
         if [[ "$tag" == text ]]; then [[ "$(ipc previewText)" == *'hello from flea'* ]] || fail 'capsweep: Quick Look text missing'; fi
         if [[ "$tag" == large ]]; then
@@ -202,12 +214,14 @@ sweep_previews() {
         elif [[ "$tag" == markdown ]]; then
             key r >/dev/null
             sweep_wait previewState ready
-            sweep_wait columnMarkdownText "$(cat "$sweep_root/previews/notes.md")"
+            sweep_wait previewMarkdownView source
+            sweep_wait previewText "$(cat "$sweep_root/previews/notes.md")"
             sweep_shot quicklook-markdown-source
         fi
         key -k Escape >/dev/null
         sweep_wait previewOpen false
         if [[ "$tag" == markdown ]]; then
+            sweep_wait columnMarkdownText "$(cat "$sweep_root/previews/notes.md")"
             sweep_shot column-markdown-source
             key -k Space >/dev/null
             sweep_wait previewOpen true
@@ -370,6 +384,7 @@ sweep_settings() {
     sweep_launch "$sweep_root/views"
     settings_open_key
     sweep_wait settingsOpen true
+    # Sample input: [{"id":"keys"},{"id":"display"}], from settingsSections.
     mapfile -t sweep_sections < <(ipc settingsSections | jq -er '.[] | .id')
     (( ${#sweep_sections[@]} > 0 )) || fail 'capsweep: Settings inventory is empty'
     for section in "${sweep_sections[@]}"; do
@@ -398,6 +413,7 @@ sweep_settings() {
 # Two owned windows fill equal monitor halves, with a selected file held in flight over B.
 sweep_windows() {
     local apid aid bpid bid ax ay bx by width height sx sy dx dy result client address pid x end
+    local drag_wait_seconds=10 drag_poll_seconds=0.1 drag_seen=false mouse_release=0x80
     sweep_launch "$sweep_root/views"
     apid=$(flea_pid)
     aid=$(xwdrag_qsid "$apid")
@@ -406,15 +422,21 @@ sweep_windows() {
     bid=$XW_SECOND_ID
     trap 'xwdrag_cleanup; case_xwdrag_cleanup' EXIT
     trap xwdrag_signal_cleanup HUP INT TERM
+    # Sample input: [{"focused":true,"x":0,"y":0,"width":1920,"height":1080,"scale":1}].
     read -r ax ay width height < <(hyprctl monitors -j | jq -er '.[] | select(.focused) | [.x,.y,(.width / .scale | floor),(.height / .scale | floor)] | @tsv')
+    # Sample input: height=1080 width=1920, integer logical monitor dimensions.
     [[ "$height" =~ ^[0-9]+$ && "$width" =~ ^[0-9]+$ ]] || fail 'capsweep: focused monitor dimensions unavailable'
     width=$((width / 2))
     for pid in "$apid" "$bpid"; do
         x=$ax
         [[ "$pid" == "$bpid" ]] && x=$((ax + width))
+        # Sample input: [{"pid":123,"address":"0xabc","floating":true}], from hyprctl clients -j.
         client=$(hyprctl clients -j | jq -ec --argjson pid "$pid" '.[] | select(.pid == $pid)')
+        # Sample input: {"pid":123,"address":"0xabc","floating":true}.
         address=$(jq -er .address <<< "$client")
+        # Sample input: 0xabc, an owned Hyprland window address.
         [[ "$address" =~ ^0x[0-9a-fA-F]+$ ]] || fail 'capsweep: invalid window address'
+        # Sample input: {"pid":123,"address":"0xabc","floating":true}.
         if ! jq -e .floating <<< "$client" >/dev/null; then omarchy-drive window float "$address" >/dev/null; fi
         result=$(hyprctl dispatch "hl.dsp.window.resize({ x = $width, y = $height, exact = true, window = \"address:$address\" })")
         [[ "$result" == ok* ]] || fail "capsweep: half-screen resize refused: $result"
@@ -422,12 +444,15 @@ sweep_windows() {
         [[ "$result" == ok* ]] || fail "capsweep: half-screen placement refused: $result"
         end=$((SECONDS + 20))
         while (( SECONDS < end )); do
+            # Sample input: 0 0 960 1080, the owned window's logical x, y, width and height.
             read -r bx by sx sy < <(xwdrag_geometry "$pid")
             [[ "$bx $by $sx $sy" == "$x $ay $width $height" ]] && break
             sleep 0.1
         done
         [[ "$bx $by $sx $sy" == "$x $ay $width $height" ]] || fail "capsweep: window $pid did not occupy its monitor half"
         [[ "$(xwdrag_qs "$(xwdrag_qsid "$pid")" tokens)" == *$'baseSize=14\n'* ]] || fail "capsweep: window $pid text size is not 14"
+        [[ "$(xwdrag_qs "$(xwdrag_qsid "$pid")" bodyPx)" == 14 ]] || fail "capsweep: window $pid body size is not 14"
+        [[ "$(xwdrag_qs "$(xwdrag_qsid "$pid")" themeLoaded)" == true ]] || fail "capsweep: window $pid theme is not ready"
         [[ "$(xwdrag_qs "$(xwdrag_qsid "$pid")" themeForeground)" == "${real_foreground,,}" ]] || fail "capsweep: window $pid has the wrong theme"
     done
     xwdrag_focus "$bpid"
@@ -435,16 +460,28 @@ sweep_windows() {
     xwdrag_key "$(xwdrag_addr "$bpid")" v >/dev/null
     [[ "$(xwdrag_qs "$bid" selectionCount)" == 1 ]] || fail 'capsweep: B selection missing'
     xwdrag_focus "$apid"
+    # Sample input: 120 240, the source row's desktop centre.
     read -r sx sy < <(xwdrag_row_point "$aid" "$apid" a.txt) || fail 'capsweep: A source row unavailable'
+    # Sample input: 1100 800, the destination floor's desktop centre.
     read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail 'capsweep: B drop floor unavailable'
     xwdrag_glide "$sx" "$sy"
     ydotool click 0x40 >/dev/null 2>&1
     sleep 0.3
     xwdrag_glide "$dx" "$dy"
     settle
+    end=$((SECONDS + drag_wait_seconds))
+    while (( SECONDS < end )); do
+        drag_seen=$(xwdrag_qs "$bid" listingDropActive) || drag_seen=unavailable
+        [[ "$drag_seen" == true ]] && break
+        sleep "$drag_poll_seconds"
+    done
+    if [[ "$drag_seen" != true ]]; then
+        ydotool click "$mouse_release" >/dev/null 2>&1 || fail 'capsweep: pointer release failed'
+        fail "capsweep: B has no drag in flight over its floor, saw '$drag_seen'"
+    fi
     [[ -f "$sweep_root/views/a.txt" ]] || fail 'capsweep: source moved before button release'
     sweep_desktop_shot windows-drag-held
-    ydotool click 0x80 >/dev/null 2>&1
+    ydotool click "$mouse_release" >/dev/null 2>&1
     xwdrag_kill_second "$bpid"
     cat "$run_root/flea-second.log" >> "$run_log"
     kill_flea
@@ -458,6 +495,7 @@ sweep_desktop_shot() {
     omarchy-drive shot "$png" >/dev/null || fail 'capsweep: desktop capture failed'
     [[ -s "$png" ]] || fail 'capsweep: empty desktop capture'
     dimensions=$(magick identify -ping -format '%wx%h' "$png")
+    # Sample input: 1920x1080, from magick identify -ping -format %wx%h.
     [[ "$dimensions" =~ ^[1-9][0-9]*x[1-9][0-9]*$ ]] || fail 'capsweep: invalid desktop capture dimensions'
     printf 'SWEEP %s %s\n' "$name" "$dimensions"
     printf '%s\t%s\n' "$name" "$dimensions" >> "$evidence_dir/manifest.tsv"
@@ -474,7 +512,8 @@ sweep_run() {
     if [[ "$sweep_theme" == cool-dawn ]]; then
         cp "$repo/tests/fixtures/cool-dawn/colors.toml" "$sweep_home/.local/state/omarchy/current/theme/colors.toml"
         printf 'cool-dawn\n' > "$sweep_home/.local/state/omarchy/current/theme.name"
-        real_foreground='#dfe8e0'
+        # Sample input: foreground = "#DFE8E0" in the sweep's installed colors.toml.
+        real_foreground=$(python3 -c 'import pathlib,sys,tomllib; print(tomllib.loads(pathlib.Path(sys.argv[1]).read_text())["foreground"].lower())' "$sweep_home/.local/state/omarchy/current/theme/colors.toml")
     fi
     mkdir -p "$evidence_dir" "$sweep_root/views"
     [[ ! -e "$evidence_dir/manifest.tsv" ]] || fail 'capsweep: evidence directory already used'

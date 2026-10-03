@@ -9,6 +9,16 @@ QtObject {
     readonly property var columns: root.pane ? root.pane.columnsArea : null
     readonly property int textTailLimit: 4096
 
+    // PaneSwap already exposes its wire; read that wire's actual floor without adding a pane alias.
+    function listingDropActive(): bool {
+        var wire = root.pane && root.pane.swap ? root.pane.swap.wire : null
+        if (!wire) return false
+        for (var i = 0; i < wire.children.length; i++) {
+            var floor = wire.children[i]
+            if (floor.enabled && floor.dest === root.pane.dropPath && floor.containsDrag === true) return true
+        }
+        return false
+    }
     function previewOpen(): bool { return root.pane.preview.active }
     function previewKind(): string { return root.pane.preview.kind }
     function previewState(): string { return root.pane.preview.status }
@@ -16,8 +26,7 @@ QtObject {
     function previewDuration(): int { return root.pane.preview.duration }
     // Fix round 1: what the strip actually draws, not a re-derived guess at its visible: expression.
     function previewStrip(): string { return JSON.stringify({ visible: root.pane.preview.stripVisible, muted: root.pane.preview.muted, mute: root.fleaWindow.centreOf(root.pane.preview.muteMark) }) }
-    // A 0.25 zoom step and an expand flag are not legible off a screenshot, so the seam is the
-    // only honest answer for either; "" means no PDF is loaded, which is not zoom 1 or false.
+    // "" means no PDF is loaded, rather than zoom 1 or expanded false.
     function previewPdfPage(): int { var p = root.pane.preview.pdfItem; return p ? p.page : -1 }
     function previewPdfZoom(): string { var p = root.pane.preview.pdfItem; return p ? String(p.zoom) : "" }
     function previewPdfFocus(): int { var p = root.pane.preview.pdfItem; return p ? p.pdfControlIndex : -1 }
@@ -37,6 +46,7 @@ QtObject {
     function previewPictureRect(): string { var p = root.pane.preview; if (!p) return ""; if (p.isImage) { var im = p.surfaceItem(); return im ? root.fleaWindow.rectOf(im.pictureItem) : "" } if (p.isMedia) { var me = p.surfaceItem(); return me ? root.fleaWindow.rectOf(me.contentItem) : "" } return "" }
     function previewMediaLoaded(): bool { return root.pane.preview.mediaLoaded() }
     function previewText(): string { return root.pane.preview.textShown() }
+    function previewMarkdownView(): string { return root.pane.preview.markdownView() }
     // Length is in UTF-16 code units; the sweep's ASCII fixture has the same byte count.
     function previewTextLength(): int { return root.pane.preview.textShown().length }
     // Keep the reply bounded even if a caller asks for the entire file, including zero and negative counts.
@@ -45,8 +55,7 @@ QtObject {
         return count > 0 ? root.pane.preview.textShown().slice(-count) : ""
     }
     function previewArchiveNames(): string { return root.pane.preview.archiveNames() }
-    // The same lookup as rowCentre, but for the preview's own seek slider, so a test can drive
-    // a real wheel event over it without hardcoding the strip's layout.
+    // The slider centre lets a test wheel over the preview's seek slider without guessing its layout.
     function previewSliderCentre(): string {
         return root.pane.preview.active && root.pane.preview.isMedia ? root.fleaWindow.centreOf(root.pane.preview.seekSlider) : ""
     }

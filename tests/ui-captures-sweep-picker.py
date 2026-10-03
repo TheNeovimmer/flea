@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import time
+import tomllib
 
 import gi
 gi.require_version("Gio", "2.0")
@@ -17,6 +18,11 @@ REPO = Path(__file__).resolve().parent.parent
 FRONTEND = "org.freedesktop.portal.Desktop"
 BACKEND = "org.freedesktop.impl.portal.desktop.flea"
 OBJECT = "/org/freedesktop/portal/desktop"
+WAIT_SECONDS = 20
+POLL_SECONDS = 0.1
+CAPTURE_SETTLE_SECONDS = 0.4
+CAPTURE_BODY_PX = 14
+PROCESS_WAIT_SECONDS = 5
 root, theme_home, evidence = map(lambda value: Path(value).resolve(), sys.argv[1:])
 run_root = Path(os.environ["FLEA_TEST_RUN_ROOT"]).resolve()
 fixture_root = root.parent.parent
@@ -52,6 +58,15 @@ picker_pid = None
 title = f"Flea sweep picker {os.getpid()}"
 
 
+def fixture_foreground(home):
+    # Sample input: foreground = "#DFE8E0" in the sweep's installed colors.toml.
+    palette = tomllib.loads((home / ".local/state/omarchy/current/theme/colors.toml").read_text())
+    return palette["foreground"].lower()
+
+
+expected_foreground = fixture_foreground(theme_home)
+
+
 def run(args, environment=drive_env, timeout=10):
     return subprocess.run([str(arg) for arg in args], env=environment, text=True,
                           capture_output=True, check=True, timeout=timeout).stdout.strip()
@@ -67,18 +82,19 @@ def start(args, name):
 
 
 def wait(label, predicate):
-    deadline = time.monotonic() + 20
+    deadline = time.monotonic() + WAIT_SECONDS
     while time.monotonic() < deadline:
         while GLib.MainContext.default().pending():
             GLib.MainContext.default().iteration(False)
         observed = predicate()
         if observed:
             return observed
-        time.sleep(0.1)
+        time.sleep(POLL_SECONDS)
     raise AssertionError(f"picker sweep timed out: {label}")
 
 
 def windows():
+    # Sample input: [{"title":"Flea sweep picker 123","pid":456,"address":"0xabc"}].
     return json.loads(run(["hyprctl", "clients", "-j"]))
 
 
@@ -86,6 +102,7 @@ def owned_window():
     found = [window for window in windows() if window.get("title") == title and window.get("pid") == picker_pid]
     if len(found) != 1:
         raise AssertionError("owned picker window missing or ambiguous")
+    # Sample input: b"HOME=/fixture/home\0FLEA_PICKER_REPLY=/fixture/run/reply\0".
     environment = dict(row.split(b"=", 1) for row in Path(f"/proc/{picker_pid}/environ").read_bytes().split(b"\0") if b"=" in row)
     reply = Path(os.fsdecode(environment.get(b"FLEA_PICKER_REPLY", b""))).resolve()
     if not reply.is_relative_to(root / "run") or environment.get(b"HOME") != os.fsencode(theme_home):
@@ -97,7 +114,27 @@ def owned_window():
 
 def state():
     owned_window()
+    # Sample input: {"view":"grid","marksBusy":false,"marks":[],"themeLoaded":true,"themeForeground":"#dfe8e0"}.
     return json.loads(run(["qs", "ipc", "--pid", picker_pid, "call", "fleapicker", "snapshot"], picker_env, 5))
+
+
+def capture_state(mode):
+    observed = {}
+
+    def selected():
+        nonlocal observed
+        observed = state()
+        return observed if not observed["marksBusy"] and len(observed["marks"]) == 1 else None
+
+    try:
+        wait(f"{mode} selected row", selected)
+    except AssertionError as error:
+        raise AssertionError(f"picker {mode} expected marksBusy=false and one mark; saw marksBusy={observed.get('marksBusy')} marks={observed.get('marks')}") from error
+    if observed["body"] != CAPTURE_BODY_PX:
+        raise AssertionError(f"picker effective font size is {observed['body']}, expected {CAPTURE_BODY_PX}")
+    if not observed["themeLoaded"] or observed["themeForeground"].lower() != expected_foreground:
+        raise AssertionError(f"picker theme expected ready foreground={expected_foreground}; saw themeLoaded={observed['themeLoaded']} themeForeground={observed['themeForeground']}")
+    return observed
 
 
 def press(*keys):
@@ -159,6 +196,7 @@ try:
     client = owned_window()
     run(["omarchy-drive", "focus", title])
     wait("listing", lambda: state()["path"] == str(listing) and state()["total"] == 3 and state()["state"] != "loading")
+    # Sample input: "0xabc123", an owned Hyprland window address.
     if not re.fullmatch(r"0x[0-9a-fA-F]+", client["address"]):
         raise AssertionError("invalid picker window address")
     if not client["floating"]:
@@ -173,10 +211,8 @@ try:
     for mode, chord in (("list", "1"), ("grid", "3")):
         press("-M", "ctrl", "-k", chord, "-m", "ctrl")
         wait(mode, lambda: state()["view"] == mode)
-        observed = state()
-        if observed["body"] != 14:
-            raise AssertionError(f"picker effective font size is {observed['body']}, expected 14")
-        time.sleep(0.4)
+        time.sleep(CAPTURE_SETTLE_SECONDS)
+        observed = capture_state(mode)
         name = f"sweep-picker-{mode}-selected"
         png = evidence / f"{name}.png"
         if png.exists() or png.is_symlink():
@@ -185,6 +221,7 @@ try:
         if not png.is_file() or not png.stat().st_size:
             raise AssertionError(f"empty capture: {png}")
         dimensions = run(["magick", "identify", "-ping", "-format", "%wx%h", png])
+        # Sample input: "1040x760", from magick identify -ping -format %wx%h.
         if not re.fullmatch(r"[1-9][0-9]*x[1-9][0-9]*", dimensions):
             raise AssertionError(f"invalid PNG dimensions: {dimensions}")
         (evidence / f"{name}.json").write_text(json.dumps(observed, indent=2))
@@ -201,13 +238,18 @@ try:
 finally:
     # The private backend's process group owns its picker children, even after a failed IPC read.
     for process in reversed(processes):
-        if process.poll() is None:
+        try:
             os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        try:
+            process.wait(timeout=PROCESS_WAIT_SECONDS)
+        except subprocess.TimeoutExpired:
             try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
-                process.wait(timeout=5)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=PROCESS_WAIT_SECONDS)
     for log in logs:
         log.close()
     for path in root.glob("*.log"):

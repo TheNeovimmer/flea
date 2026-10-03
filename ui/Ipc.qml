@@ -502,6 +502,7 @@ QtObject {
         }
         function viewContentY(): int { return Math.round(root.pane.viewMode === "columns" && root.columns ? root.columns.activeContentY() : root.pane.listArea.contentY) }
         function listAreaRect(): string { return root.fleaWindow.rectOf(root.pane.listArea) }
+        function listingDropActive(): bool { return root.previewReaders.listingDropActive() }
         function rowRect(i: int): string { return root.fleaWindow.rectOf(root.pane.visibleItemFor(i)) }
         function dragPaneGeometry(side: int, index: int): string {
             var pane = side >= 0 && side < root.panes.length ? root.panes[side] : null
@@ -528,6 +529,7 @@ QtObject {
         function previewPictureRect(): string { return root.previewReaders.previewPictureRect() }
         function previewMediaLoaded(): bool { return root.previewReaders.previewMediaLoaded() }
         function previewText(): string { return root.previewReaders.previewText() }
+        function previewMarkdownView(): string { return root.previewReaders.previewMarkdownView() }
         function previewTextLength(): int { return root.previewReaders.previewTextLength() }
         function previewTextTail(n: int): string { return root.previewReaders.previewTextTail(n) }
         function previewArchiveNames(): string { return root.previewReaders.previewArchiveNames() }

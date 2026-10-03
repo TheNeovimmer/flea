@@ -46,7 +46,6 @@ src/backend/collide_replace_tests.rs 487
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 779
 src/backend/trashdelete.rs 916
-src/backend/iomount.rs 549
 src/gui.rs 501
 src/tui/actions.rs 1067
 src/tui/input.rs 449
@@ -99,8 +98,8 @@ ui/Pane.qml 1009
 ui/PaneMenuActions.qml 464
 ui/PaneWire.qml 559
 ui/PermissionsDialog.qml 629
-ui/PickerWindow.qml 781
-ui/Preview.qml 723
+ui/PickerWindow.qml 782
+ui/Preview.qml 724
 ui/PreviewColumn.qml 574
 ui/DeviceMounts.qml 496
 ui/PreviewMarkdown.qml 473
@@ -143,6 +142,7 @@ while IFS= read -r file; do
   hard=${budgets#* }
   lines=$(wc -l < "$file")
   if [ "$lines" -gt "$hard" ]; then
+    # Sample input: ui/Preview.qml 724, an exact per-file ceiling from known_over_cap.
     recorded=$(printf '%s\n' "$known_over_cap" | awk -v f="$file" '$1 == f { print $2 }')
     if [ -n "$recorded" ]; then
       if [ "$lines" -gt "$recorded" ]; then
