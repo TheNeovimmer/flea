@@ -207,8 +207,121 @@ sleep() { :; }
 xwtab_trace_lines() { echo 'TABDRAG drag-finished pid=101 action=0'; }
 ''' + wait_call)
     check('cancel receipt while held satisfies Escape wait', result.returncode == 0, result.stdout + result.stderr)
-    check('listing refusal requires target delivery', '"$apid" "$bpid" require' in UI[UI.index('# A drop on B\'s listing'):UI.index('# A drop onto a foreign receiver')])
+    listing_leg = UI[UI.index('    # A drop on B\'s listing'):UI.index('    # A drop onto a foreign receiver')]
+    check('listing refusal requires cursor and refusal proof', '"$apid" "$bpid" refused' in listing_leg)
+    move_leg = UI[UI.index('    # B has one tab'):UI.index('    # B\'s new tab torn off')]
+    check('one-tab move requires target enter', '"$apid" "$bpid" require' in move_leg)
     check('foreign refusal requires target delivery', '"$apid" "$recv_pid" require' in UI[UI.index('# A drop onto a foreign receiver'):UI.index("printf 'XWTAB foreign-refused")])
+
+    refusal_helpers = UI[UI.index('xwtab_logs='):UI.index('# The addr and rect')]
+    refusal_helpers += '\n' + function(UI, 'xwtab_rect_of')
+    refusal_double = r'''
+apid=101
+bpid=202
+aid=first
+bid=second
+bdir=/fixture/b
+esc_before='101 202 '
+fixture_source_rect='40 80 1000 720'
+fixture_target_clients='[{"pid":202,"address":"0xb","at":[1100,80],"size":[1000,720],"floating":true}]'
+fixture_tab_count=2
+fixture_tab_point='501 106'
+fixture_floor_point='1699 468'
+fixture_inside_cursor='1699, 468'
+fixture_outside_cursor='2100, 468'
+refusal_test_attempts=2
+xwtab_refused_attempts=$refusal_test_attempts
+fixture_cursor=$fixture_inside_cursor
+fail() {
+    printf 'FAIL %s\n' "$*"
+    exit 1
+}
+sleep() {
+    if [[ "$scenario" == delayed-finish && "$xwtab_button_down" == false ]]; then
+        printf 'qml: TABDRAG drag-finished pid=%s action=0\n' "$apid" >> "$flea_log"
+    fi
+}
+settle() {
+    :
+}
+xwtab_key() {
+    :
+}
+xwdrag_focus() {
+    :
+}
+flea_pids() {
+    printf '%s\n' "$apid" "$bpid"
+}
+flea_process_owned() {
+    [[ "$1" == "$bpid" ]]
+}
+xwdrag_qs() {
+    case "$2" in
+        tabCount) printf '%s\n' "$fixture_tab_count" ;;
+        path) printf '%s\n' "$bdir" ;;
+    esac
+}
+xwdrag_geometry() {
+    printf '%s\n' "$fixture_source_rect"
+}
+xwtab_tab_point() {
+    printf '%s\n' "$fixture_tab_point"
+}
+xwdrag_floor_point() {
+    printf '%s\n' "$fixture_floor_point"
+}
+hyprctl() {
+    case "$1" in
+        cursorpos) printf '%s\n' "$fixture_cursor" ;;
+        clients) printf '%s\n' "$fixture_target_clients" ;;
+    esac
+}
+xwdrag_glide() {
+    fixture_cursor="$1, $2"
+    [[ "$xwtab_button_down" == true && "$1 $2" == "$fixture_floor_point" ]] || return 0
+    case "$scenario" in
+        outside) fixture_cursor=$fixture_outside_cursor ;;
+        early-finish) printf 'qml: TABDRAG drag-finished pid=%s action=0\n' "$apid" >> "$flea_log" ;;
+        target-enter) printf 'qml: TABDRAG enter-window pid=%s ok=true\n' "$bpid" >> "$run_root/flea-second.log" ;;
+    esac
+}
+ydotool() {
+    if [[ "$2" == 0x40 ]]; then
+        printf 'qml: TABDRAG drag-start pid=%s index=1\n' "$apid" >> "$flea_log"
+        return 0
+    fi
+    case "$scenario" in
+        target-drop) printf 'qml: TABDRAG drop-window pid=%s empty=false\n' "$bpid" >> "$run_root/flea-second.log" ;;
+        late-enter) printf 'qml: TABDRAG enter-strip pid=%s ok=true\n' "$bpid" >> "$run_root/flea-second.log" ;;
+        no-finish|delayed-finish) return 0 ;;
+        accepted)
+            printf 'qml: TABDRAG drag-finished pid=%s action=2\n' "$apid" >> "$flea_log"
+            return 0
+            ;;
+    esac
+    printf 'qml: TABDRAG drag-finished pid=%s action=0\n' "$apid" >> "$flea_log"
+}
+'''
+    for scenario, succeeds, diagnostic in (
+            ('refused', True, ''),
+            ('delayed-finish', True, ''),
+            ('outside', False, 'cursor outside'),
+            ('early-finish', False, 'before release'),
+            ('target-enter', False, 'entered or dropped'),
+            ('target-drop', False, 'entered or dropped'),
+            ('late-enter', False, 'entered or dropped'),
+            ('no-finish', False, 'no refused finish'),
+            ('accepted', False, 'action=0')):
+        source_log = scratch / 'flea.log'
+        target_log = scratch / 'flea-second.log'
+        source_log.write_text('qml: TABDRAG drag-finished pid=101 action=0 old=true\n')
+        target_log.write_text('qml: TABDRAG enter-window pid=202 old=true\nqml: TABDRAG drop-strip pid=202 old=true\n')
+        setup = f"flea_log='{source_log}'\nrun_root='{scratch}'\nscenario='{scenario}'\n"
+        result = shell(setup + refusal_helpers + '\n' + refusal_double + '\n' + listing_leg)
+        detail = result.stdout + result.stderr
+        condition = result.returncode == 0 if succeeds else result.returncode != 0 and diagnostic in detail
+        check('listing refusal decision: ' + scenario, condition, detail)
 
     scan = (ROOT / 'tests/xwtab-scan.sh').read_text()
     blocker_start = scan.index("for layer in '1 desktop-widget'")

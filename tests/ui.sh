@@ -11085,6 +11085,44 @@ xwtab_wait_enter() {
     return 0
 }
 
+xwtab_refused_attempts=30 # Bound the refused-finish wait after release.
+xwtab_refused_poll=0.1 # Poll the source trace between refusal checks.
+# A disabled target proves refusal by cursor position while held, then IgnoreAction after release.
+xwtab_wait_refused() {
+    local bpid="$1" phase="$2" rect addr wx wy ww wh floating cursor cx cy attempt lines finished
+    if [[ "$phase" == held ]]; then
+        flea_process_owned "$bpid" || fail "xwtab: refused target $bpid is not owned"
+        rect=$(xwtab_rect_of "$bpid") || fail "xwtab: no owned rectangle for refused target $bpid"
+        # Sample input: 0xb 1100 80 1000 720 True.
+        read -r addr wx wy ww wh floating <<< "$rect"
+        cursor=$(hyprctl cursorpos 2>/dev/null) || fail "xwtab: no cursor position for refused target $bpid"
+        # Sample input: 1699, 468.
+        read -r cx cy <<< "${cursor//,/ }"
+        [[ "$cx" =~ ^-?[0-9]+$ && "$cy" =~ ^-?[0-9]+$ ]] || fail "xwtab: invalid cursor position $cursor"
+        (( cx >= wx && cx < wx + ww && cy >= wy && cy < wy + wh )) \
+            || fail "xwtab: cursor outside refused target $bpid: $cursor rect=$rect"
+    fi
+    for attempt in $(seq 1 "$xwtab_refused_attempts"); do
+        lines=$(xwtab_trace_lines)
+        # Sample input: qml: TABDRAG drag-finished pid=101 action=0.
+        finished=$(grep -aE "TABDRAG drag-finished pid=$xwtab_source( |$)" <<< "$lines" || true)
+        if [[ "$phase" == held && -n "$finished" ]]; then
+            fail "xwtab: source $xwtab_source ended the refused drag before release"
+        fi
+        # Sample input: qml: TABDRAG enter-window pid=202 ok=true.
+        if grep -aqE "TABDRAG [^ ]*(enter|drop)[^ ]* pid=$bpid( |$)" <<< "$lines"; then
+            fail "xwtab: refused target $bpid entered or dropped after the press"
+        fi
+        [[ "$phase" != held ]] || return 0
+        if grep -aqE "TABDRAG drag-finished pid=$xwtab_source action=0( |$)" <<< "$finished"; then
+            return 0
+        fi
+        [[ -z "$finished" ]] || fail "xwtab: refused drag on $bpid did not finish with action=0"
+        sleep "$xwtab_refused_poll"
+    done
+    fail "xwtab: no refused finish on $bpid after release within $xwtab_refused_attempts polls"
+}
+
 xwtab_cancel_attempts=30 # Bound the held-button cancellation wait.
 xwtab_cancel_poll=0.1 # Observe cancellation without releasing the pointer.
 # The cancellation receipt must arrive before the held button is released.
@@ -11148,7 +11186,8 @@ xwtab_wait_own_return() {
 # Start beyond the source edge before any target motion; Hyprland retargets only on motion.
 xwtab_drag_to_window() {
     local sx="$1" sy="$2" dx="$3" dy="$4" apid="$5" bpid="$6" mode="$7" wx wy ww wh
-    xwtab_source=$apid; xwtab_target=$bpid
+    xwtab_source=$apid
+    xwtab_target=$bpid
     xwtab_gesture="press=$sx,$sy target=$dx,$dy"
     read -r wx wy ww wh < <(xwdrag_geometry "$apid") || fail "xwtab: no source geometry"
     xwdrag_glide "$sx" "$sy"
@@ -11163,10 +11202,15 @@ xwtab_drag_to_window() {
     xwdrag_glide "$dx" "$dy"
     if [[ "$mode" == catcher ]]; then
         xwtab_wait_catcher
+    elif [[ "$mode" == refused ]]; then
+        xwtab_wait_refused "$bpid" held
     else
         xwtab_wait_enter "$bpid" "$mode"
     fi
     xwtab_release || fail "xwtab: pointer release failed"
+    if [[ "$mode" == refused ]]; then
+        xwtab_wait_refused "$bpid" released
+    fi
 }
 
 # The addr and rect of one owned pid, so room-making and restore never name a window by guess.
@@ -11361,7 +11405,7 @@ case_xwtab() {
     bid=$XW_SECOND_ID
     xwdrag_place "$apid" 40 80 1000 720
     xwdrag_place "$bpid" 1100 80 1000 720
-    # B has one tab and no strip, so anywhere in B takes the tab at the end.
+    # B has one tab, enabling its window DropArea, so require an enter before the move.
     xwdrag_focus "$apid"
     local sx sy dx dy i
     local move_before
@@ -11498,6 +11542,7 @@ sys.exit(1 if contains(json.load(sys.stdin)) else 0)
     [[ "$(flea_pids | tr '\n' ' ')" == "$esc_before" ]] || fail "xwtab: own-strip drop opened a window"
     printf 'XWTAB own-strip ok\n'
     # A drop on B's listing when B has two tabs changes nothing.
+    # B's window DropArea is disabled with two tabs, so prove refusal without an enter.
     # Focus is waited on by address, so the key cannot land on A instead.
     xwtab_key "$bpid" t
     settle
@@ -11505,7 +11550,7 @@ sys.exit(1 if contains(json.load(sys.stdin)) else 0)
     xwdrag_focus "$apid"
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
     read -r dx dy < <(xwdrag_floor_point "$bid" "$bpid") || fail "xwtab: B has no floor"
-    xwtab_drag_to_window "$sx" "$sy" "$dx" "$dy" "$apid" "$bpid" require
+    xwtab_drag_to_window "$sx" "$sy" "$dx" "$dy" "$apid" "$bpid" refused
     sleep 0.5
     [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: B took a listing drop"
     [[ "$(xwdrag_qs "$bid" path 2>/dev/null)" == "$bdir" ]] || fail "xwtab: B left $bdir"
@@ -11514,6 +11559,7 @@ sys.exit(1 if contains(json.load(sys.stdin)) else 0)
     printf 'XWTAB listing-refused ok\n'
     # A drop onto a foreign receiver is refused and A keeps its tab: the receiver only
     # takes uri-list and plain text, and the tab drag offers neither.
+    # The receiver logs every enter, including rejected MIME, so require its receipt.
     : > "$dir/.flea-test-sandbox"
     local recv_log="$dir/receiver.log" recv_pid="" recv_addr="" rcx rcy
     : > "$recv_log"
