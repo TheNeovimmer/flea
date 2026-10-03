@@ -306,6 +306,52 @@ function run(check) {
     check("on the folder it names", receiver.path, "/tmp/folder")
     check("in the view it names", receiver.viewMode, "grid")
     check("carrying the cursor name", receiver.tabs.items[1].cursorName, "note.txt")
+    // Receiving the filename is only half the move: the rows reply must restore that file.
+    receiver.rowFor = function (i) { return { n: i === 7 ? "note.txt" : "other-" + i } }
+    Tabs.applyPending(receiver)
+    check("cross-window receive restores the carried cursor file after rows", receiver.cursorIndex, 7)
+    var hiddenCursorSource = Fixture.pane("/tmp/hidden-cursor")
+    hiddenCursorSource.rowFor = function (i) { return { n: "file-" + i } }
+    Tabs.openNew(hiddenCursorSource, "/tmp/next-tab")
+    var hiddenCursorInfo = Tabs.parseTabMime(Tabs.tabPayload(hiddenCursorSource, 0, "222", "hidden-cursor"))
+    check("cross-window lift of a hidden tab carries its saved cursor file", hiddenCursorInfo.cursor, "file-4")
+    var absentCursor = Fixture.pane("/tmp/r")
+    absentCursor.rowFor = function (i) { return { n: "other-" + i } }
+    Tabs.receiveTab(absentCursor, JSON.stringify(["222", "missing", "/tmp/r", "list", "gone.txt"]), -1)
+    Tabs.applyPending(absentCursor)
+    check("a same-folder receive never trusts the receiver cursor index", absentCursor.cursorIndex, 0)
+
+    // A filename beyond the held window uses the existing backend locate seam, then asks only for its window.
+    var distantCursor = Fixture.pane("/tmp/r")
+    var locateRequests = []
+    distantCursor.held = 0
+    distantCursor.rows = [{ n: "first.txt" }]
+    distantCursor.rowFor = function (i) { return distantCursor.rows[i] || null }
+    distantCursor.backend.send = function (request) { locateRequests.push(request) }
+    Tabs.receiveTab(distantCursor, JSON.stringify(["222", "distant", "/tmp/distant", "list", "last.txt"]), -1)
+    Tabs.applyPending(distantCursor)
+    check("a moved cursor beyond the held rows asks locate by filename",
+        locateRequests.length ? locateRequests[0].path : "", "/tmp/distant/last.txt")
+    if (typeof Tabs.locatedCursor === "function")
+        Tabs.locatedCursor(distantCursor, { directory: "/tmp/distant", path: "/tmp/distant/last.txt", index: 19 })
+    check("a located moved cursor uses the receiver's fresh index", distantCursor.cursorIndex, 19)
+    check("a located moved cursor asks for its own window", distantCursor.windows.join("|"), "19:40")
+    distantCursor.cursorIndex = 3
+    if (typeof Tabs.locatedCursor === "function")
+        Tabs.locatedCursor(distantCursor, { directory: "/tmp/distant", path: "/tmp/distant/last.txt", index: 19 })
+    check("a spent locate reply cannot move the cursor twice", distantCursor.cursorIndex, 3)
+
+    var missingRequests = []
+    absentCursor.backend.send = function (request) { missingRequests.push(request) }
+    if (typeof Tabs.prepareCursor === "function") Tabs.prepareCursor(absentCursor, "gone.txt")
+    Tabs.applyPending(absentCursor)
+    absentCursor.cursorIndex = 4
+    if (typeof Tabs.locatedCursor === "function")
+        Tabs.locatedCursor(absentCursor, { directory: "/tmp/r", path: "/tmp/r/gone.txt", index: -1 })
+    check("a missing moved filename falls back to the first row", absentCursor.cursorIndex, 0)
+    check("a missing filename was located in the receiving folder",
+        missingRequests.length ? missingRequests[0].path : "", "/tmp/r/gone.txt")
+
     var plainView = Fixture.pane("/tmp/r")
     Tabs.receiveTab(plainView, JSON.stringify(["222", "tok-9", "/tmp/g", "britelite", ""]), -1)
     check("an unknown view keeps the standing one", plainView.viewMode, "list")
@@ -508,12 +554,20 @@ function run(check) {
 
     var stubPane = BarFixture.pair()
     var stubBar = BarFixture.bar(stubPane)
+    stubPane.rowFor = function (i) { return { n: "tear-" + i } }
     stubBar.tabLiftBegan(1)
     var stubToken = stubBar.outToken
     stubBar.tearOffAt()
     check("spawn without ack keeps source pair", Tabs.count(stubPane), 2)
     check("tearoff passes source pid", stubBar.spawns[0].indexOf("FLEA_TAB_SOURCE_PID=111") >= 0, true)
     check("tearoff passes captured token", stubToken !== "" && stubBar.spawns[0].indexOf("FLEA_TAB_TOKEN=" + stubToken) >= 0, true)
+
+    check("tearoff passes captured cursor filename", stubBar.spawns[0].indexOf("FLEA_TAB_CURSOR=tear-4") >= 0, true)
+    var launchCursor = Fixture.pane("/tmp/tear")
+    launchCursor.rowFor = function (i) { return { n: "tear-" + i } }
+    if (typeof Tabs.prepareCursor === "function") Tabs.prepareCursor(launchCursor, "tear-7")
+    Tabs.applyPending(launchCursor)
+    check("tearoff launch restores cursor filename after rows", launchCursor.cursorIndex, 7)
 
     // A lift may not leave while a rename is open, or the close would take the editor's tab.
     check("a clean pane tears out", Tabs.tearRefusal(Fixture.pane()), "")

@@ -9,6 +9,7 @@ import "js/Ops.js" as Ops
 import "js/Status.js" as Status
 import "js/Search.js" as Search
 import "js/Swap.js" as Swap
+import "js/Tabs.js" as Tabs
 import "js/Thumbs.js" as Thumbs
 import "js/ExtThumbs.js" as ExtThumbs
 import "js/Transfer.js" as Transfer
@@ -160,6 +161,7 @@ Item {
         function onRows(start, items, ms, kinds, listing) { swap.takeRows(start, items, kinds, listing) }
 
         function onLocated(message) {
+            Tabs.locatedCursor(pane, message)
             if (!root.retryId || message.transferId !== root.retryId) return
             root.retryId = 0
             root.retryPaths = []

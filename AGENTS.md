@@ -2034,10 +2034,15 @@ captures a stable tab identity and its source pane until acknowledgment or the e
 closures wait for a held strip reorder to finish; pending receiver drops are refused without acknowledgment. A desktop
 tear-off uses the same acknowledgment after its initial folder lists. The geometry query
 restarts for the latest overlapping lift.
-The `wc -l` ceilings are `ui/TabBar.qml` 605, `ui/js/Tabs.js` 664, `ui/WindowBody.qml` 631
+The `wc -l` ceilings are `ui/TabBar.qml` 607, `ui/js/Tabs.js` 712, `ui/WindowBody.qml` 635
 and `ui/boot/fleatab.qml` 50, with merge-base comments kept verbatim with their original
-line breaks. `tests/js/tabs.js` is 600: the three added lines pin the no-such-tab count,
-the navigation acknowledgment count and the captured tear-off token.
+line breaks. `tests/js/tabs.js` is 654: the hunt cursor-name checks join the existing
+no-such-tab, navigation acknowledgment and captured tear-off token checks.
+The cursor handoff uses held rows or the existing name-only locate request, then fetches
+only its destination window; desktop tear-off carries the filename through the launch
+environment. `ui/PaneWire.qml` is 539, `ui/js/Drag.js` 371 and `tests/js/drag.js`
+420, for the locate reply route and percent-encoded drag source field with bounded
+legacy shapes. The Columns floor uses the same loading refusal and dropPath as List and Grid.
 The test fixture loads shipped QML function bodies so cancel,
 completion and acknowledgment assertions exercise the actual transitions.
 

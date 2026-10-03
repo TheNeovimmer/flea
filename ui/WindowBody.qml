@@ -336,8 +336,10 @@ Rectangle {
             var named = view.initialized ? "" : (Quickshell.env("FLEA_PATH") || "")
             var pair = Startup.dualPaths(ViewState.state.dual, primaryPane.path || primaryPane.home, named)
             item.pane.clipboard = primaryPane.clipboard
-            if (pair.launchSide === 1)
+            if (pair.launchSide === 1) {
                 item.pane.pendingSelect = Quickshell.env("FLEA_SELECT") || ""
+                Tabs.prepareCursor(item.pane, named ? Quickshell.env("FLEA_TAB_CURSOR") : "")
+            }
             item.pane.open(pair.paths[1])
             if (view.initialized && view.dualMode) view.focusPane(view.focusSide)
         }
@@ -586,8 +588,10 @@ Rectangle {
         var start = Startup.startPath(ViewState.state, home, named)
         var pair = Startup.dualPaths(ViewState.state.dual, start, named)
         // Read once, and only on the side that took the named folder; Pane.applyPendingSelect() forgets it after the first rows.
-        if (!view.dualMode || pair.launchSide !== 1)
+        if (!view.dualMode || pair.launchSide !== 1) {
             primaryPane.pendingSelect = Quickshell.env("FLEA_SELECT") || ""
+            Tabs.prepareCursor(primaryPane, named ? Quickshell.env("FLEA_TAB_CURSOR") : "")
+        }
         // Tabs040 callout 2: Last folder reopens every remembered tab in order at its folder.
         // Dual startup keeps its own pair, and a named path outranks the strip either way.
         var plan = view.dualMode ? null : Tabs.restorePlan(ViewState.state, named)

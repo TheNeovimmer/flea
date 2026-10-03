@@ -251,7 +251,9 @@ Item {
     function tearOffAt() {
         if (root.outPath.length === 0)
             return
+        var info = Tabs.parseTabMime(root.outMime[Tabs.TAB_MIME])
         Quickshell.execDetached(["env", "FLEA_TAB_SOURCE_PID=" + root.outPid,
+            "FLEA_TAB_CURSOR=" + (info ? info.cursor : ""),
             "FLEA_TAB_TOKEN=" + root.outToken, Quickshell.env("FLEA_BIN") || "flea", root.outPath])
         root.outFinished(Qt.IgnoreAction)
     }

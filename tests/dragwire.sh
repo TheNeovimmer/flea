@@ -69,6 +69,17 @@ else
     bad "file lift offers failed (status=$offer_status): $file_offer"
 fi
 
+# Exercise the shipped floor bindings and handler while a listing is held and after it settles.
+floor_probe_seconds=15
+floor_output=$(env QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    timeout "$floor_probe_seconds" qml6 tests/dragwire-floor.qml 2>&1)
+floor_status=$?
+if [[ "$floor_status" == 0 ]] && grep -q 'floor drops: 21 checks, 0 failed' <<< "$floor_output"; then
+    ok "list, grid and columns floors refuse held listings and target the shown directory after settlement"
+else
+    bad "floor drops failed (status=$floor_status): $floor_output"
+fi
+
 # The Move-alone advertiser is the tab drag: it carries the private type alone, since Files moves a folder whenever Move is offered.
 if grep -q 'text/uri-list' ui/TabBar.qml; then
     bad "the tab drag must not offer text/uri-list with Move"

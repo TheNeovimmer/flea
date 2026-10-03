@@ -1,6 +1,7 @@
 import QtQuick
 import "js/sourcefixture.js" as Source
 import "js/tabsfixture.js" as Fixture
+import "js/tabbarfixture.js" as BarFixture
 import "../ui/js/Tabs.js" as Tabs
 
 Item {
@@ -59,8 +60,8 @@ Item {
         // Sample input: "onPaneChanged: root.refuseTabDrop()".
         var changed = text.match(/^\s*onPaneChanged:.*$/m) || []
         var code = "import QtQuick\nimport " + JSON.stringify(String(Qt.resolvedUrl("../ui/js/Tabs.js"))) + " as Tabs\n"
-            + "Item {\nid: root\nproperty var pane: null\nproperty var pendingTab: null\nproperty var acks: []\n"
-            + "function traceTab(stage, detail) {}\nfunction sendTaken(pid, token) { root.acks.push(token) }\n"
+            + "Item {\nid: root\nproperty var pane: null\nproperty var pendingTab: null\nproperty var acks: []\nproperty var onTaken: null\n"
+            + "function traceTab(stage, detail) {}\nfunction sendTaken(pid, token) { root.acks.push(token); if (root.onTaken) root.onTaken(token) }\n"
             + constants.join("\n") + "\n" + changed.join("\n") + "\n"
             + block(text, "function acceptTabDrop(") + "\n"
             + block(text, "function refuseTabDrop(") + "\n"
@@ -176,6 +177,27 @@ Item {
         test.check("failed peek keeps existing refusal", missingPane.said.join("|"), "That folder is no longer there.")
         test.check("failed peek sends no acknowledgment", missing.acks.length, 0)
         test.check("failed peek stops deadline", !missing.deadline || !missing.deadline.running, true)
+
+        // The hunt samples acknowledgment while the receiving listing is still in flight.
+        var loadingPane = test.pane("/tmp/before-list")
+        loadingPane.openWithoutHistory = function (path, options) {
+            loadingPane.listInFlight = true
+            loadingPane.listed.push(path)
+            loadingPane.backend.listRequests++
+        }
+        var loading = test.receiver(loadingPane)
+        var sourcePane = BarFixture.pair("/tmp/awaiting-list")
+        var sourceBar = BarFixture.bar(sourcePane)
+        sourceBar.tabLiftBegan(1)
+        var sourceToken = sourceBar.outToken
+        sourceBar.outFinished(Qt.IgnoreAction)
+        loading.onTaken = function (token) { sourceBar.take(token) }
+        test.offer(loading, sourceToken, "/tmp/awaiting-list")
+        test.check("unacknowledged drop keeps both source tabs", Tabs.count(sourcePane), 2)
+        test.answer(loadingPane, "/tmp/awaiting-list", false)
+        test.check("successful peek starts the receiving list", loadingPane.listInFlight, true)
+        test.check("a successful peek acknowledges the drop once", loading.acks.length, 1)
+        test.check("the acknowledged tab leaves the source strip", Tabs.count(sourcePane), 1)
         console.log("tabreceive: " + test.checked + " checks, " + test.failed + " failed")
         Qt.exit(test.failed === 0 ? 0 : 1)
     }

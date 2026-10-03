@@ -360,4 +360,61 @@ function run(check) {
     check("and under a link offer", Drag.dropVerb(helperMarker, Qt.LinkAction, 56), "move")
     check("a foreign move offer still moves with no marker", Drag.dropVerb("", Qt.MoveAction, 0), "move")
     check("a foreign copy offer still copies with no marker", Drag.dropVerb("", Qt.CopyAction, 0), "copy")
+
+    // LF in a Unix directory name must not shift a foreign marker's device and modifier fields.
+    var newlineSource = pane([], [], rows)
+    newlineSource.path = "/source\nfolder"
+    newlineSource.backend.dirDev = 56
+    var newlineMove = Drag.mimeFor(newlineSource, [2], false, true)
+    var newlineLink = Drag.mimeFor(newlineSource, [2], true, true)
+    var newlineCopy = Drag.mimeFor(newlineSource, [2], true, false)
+    var newlinePlain = Drag.mimeFor(newlineSource, [2], false, false)
+    var moveMarker = "other-flea" + newlineMove[Drag.ROWS_MIME].substring(newlineMove[Drag.ROWS_MIME].indexOf("\n"))
+    var linkMarker = "other-flea" + newlineLink[Drag.ROWS_MIME].substring(newlineLink[Drag.ROWS_MIME].indexOf("\n"))
+    var copyMarker = "other-flea" + newlineCopy[Drag.ROWS_MIME].substring(newlineCopy[Drag.ROWS_MIME].indexOf("\n"))
+    var plainMarker = "other-flea" + newlinePlain[Drag.ROWS_MIME].substring(newlinePlain[Drag.ROWS_MIME].indexOf("\n"))
+    var movedNewline = []
+    var linkedNewline = []
+    var copiedNewline = []
+    var plainNewline = []
+    Drag.dropInto(pane(movedNewline, [], rows), moveMarker,
+        [Drag.uriFor("/source\nfolder/a.txt")], "/target", 32, "", "", Qt.MoveAction)
+    Drag.dropInto(pane(linkedNewline, [], rows), linkMarker,
+        [Drag.uriFor("/source\nfolder/a.txt")], "/target", 32, "", "", Qt.LinkAction)
+    check("cross-window LF source folder preserves Shift move", movedNewline.length === 1 ? movedNewline[0].op : "nothing sent", "move")
+    check("cross-window LF source folder preserves Ctrl Shift link", linkedNewline.length === 1 ? linkedNewline[0].c : "nothing sent", "link")
+    Drag.dropInto(pane(copiedNewline, [], rows), copyMarker,
+        [Drag.uriFor("/source\nfolder/a.txt")], "/target", 32, "", "", Qt.CopyAction)
+    Drag.dropInto(pane(plainNewline, [], rows), plainMarker,
+        [Drag.uriFor("/source\nfolder/a.txt")], "/target", 32, "", "", Qt.CopyAction)
+    check("cross-window LF source folder preserves Ctrl copy", copiedNewline.length === 1 ? copiedNewline[0].op : "nothing sent", "copy")
+    check("cross-window LF source folder copies across devices without Shift", plainNewline.length === 1 ? plainNewline[0].op : "nothing sent", "copy")
+
+    // Each legal separator byte and a literal percent must round-trip without changing the lift intent.
+    var pathBytes = [["LF", "\n"], ["CR", "\r"], ["tab", "\t"], ["percent", "%"]]
+    for (var b = 0; b < pathBytes.length; b++) {
+        var special = pane([], [], rows)
+        special.path = "/source" + pathBytes[b][1] + "folder"
+        special.backend.dirDev = 56
+        var specialWire = Drag.mimeFor(special, [2], true, false)[Drag.ROWS_MIME]
+        check(pathBytes[b][0] + " source round-trips through marker", Drag.markerSource(specialWire), special.path)
+        check(pathBytes[b][0] + " source keeps seven marker fields", specialWire.split("\n").length, 7)
+        check(pathBytes[b][0] + " source encodes its path field", specialWire.split("\n")[3], encodeURIComponent(special.path))
+        var foreignSpecial = "other-flea" + specialWire.substring(specialWire.indexOf("\n"))
+        var specialRequests = []
+        Drag.dropInto(pane(specialRequests, [], rows), foreignSpecial,
+            [Drag.uriFor(special.path + "/a.txt")], "/target", 56, "", "", Qt.MoveAction)
+        check(pathBytes[b][0] + " source preserves Ctrl copy across windows",
+            specialRequests.length ? specialRequests[0].op : "nothing sent", "copy")
+    }
+    var badEncoding = helperMarker.split("\n")
+    badEncoding[3] = "%broken"
+    var malformed = [helperMarker + "\nextra", helperMarker.split("\n").slice(0, 4).join("\n"),
+        badEncoding.join("\n")]
+    for (var m = 0; m < malformed.length; m++) {
+        var badRequests = []
+        check("malformed marker " + m + " refuses path transfer",
+            Drag.dropInto(pane(badRequests, [], rows), malformed[m], ["file:///source/a.txt"], "/target", 56), false)
+        check("malformed marker " + m + " sends no request", badRequests.length, 0)
+    }
 }

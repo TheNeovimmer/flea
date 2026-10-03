@@ -24,6 +24,12 @@ function restingPath(pane) {
 
 var nextTabIdentity = 0
 
+// Only the held cursor row can name a file; a search's row never belongs to its resting folder.
+function cursorFile(pane) {
+    var row = pane.rowFor && pane.cursorIndex >= 0 ? pane.rowFor(pane.cursorIndex) : null
+    return row && typeof row.n === "string" ? row.n : ""
+}
+
 function snapshot(pane, path, identity) {
     var where = path === undefined ? restingPath(pane) : path
     // A cursor and a selection read off a search's own listing name nothing in the directory the
@@ -35,6 +41,7 @@ function snapshot(pane, path, identity) {
         history: pane.history.slice(),
         forwardHistory: (pane.forwardHistory || []).slice(),
         cursorIndex: elsewhere ? 0 : pane.cursorIndex,
+        cursorName: elsewhere ? "" : cursorFile(pane),
         viewMode: pane.viewMode,
         showHidden: pane.showHidden,
         selected: elsewhere ? [] : pane.selectedIndices().slice(),
@@ -54,6 +61,8 @@ function pack(items, index) {
         items: items,
         index: index,
         pendingCursor: -1,
+        pendingCursorName: null,
+        pendingLocatePath: "",
         pendingSortBy: "",
         pendingSortDesc: false
     }
@@ -149,9 +158,10 @@ function restoreSelection(pane, selected, follows) {
         pane.selectionVersion++
 }
 
-function apply(pane, item, dropped) {
+function apply(pane, item, dropped, cursor) {
     // Issue 93: a search dropped onto the scope it walked leaves rows that are not that directory's.
-    var same = pane.path === item.path && pane.showHidden === item.showHidden && dropped !== true
+    var same = pane.path === item.path && pane.showHidden === item.showHidden && dropped !== true && cursor === undefined
+    if (pane.tabs) pane.tabs.pendingCursorName = cursor === undefined ? null : cursor
     var viewChanged = pane.viewMode !== item.viewMode
     pane.history = item.history.slice()
     pane.forwardHistory = (item.forwardHistory || []).slice()
@@ -173,7 +183,7 @@ function apply(pane, item, dropped) {
         pane.clearSelection()
         return
     }
-    pane.tabs.pendingCursor = item.cursorIndex
+    pane.tabs.pendingCursor = cursor === undefined ? item.cursorIndex : 0
     pane.tabs.pendingSortBy = item.sortBy
     pane.tabs.pendingSortDesc = item.sortDesc
     // The tab's own dotfile answer is restored above, so the listing keeps it rather than taking the
@@ -198,11 +208,53 @@ function applyPending(pane) {
             return
         }
     }
+    if (t.pendingCursorName) {
+        var name = t.pendingCursorName
+        t.pendingCursorName = null
+        var first = pane.held || 0
+        var end = Math.min(pane.total, first + (pane.rows ? pane.rows.length : pane.windowSize))
+        var found = false
+        for (var i = first; i < end; i++) {
+            var row = pane.rowFor(i)
+            if (row && row.n === name) {
+                t.pendingCursor = i
+                found = true
+                break
+            }
+        }
+        if (!found && pane.total > 0 && pane.backend && pane.backend.send) {
+            t.pendingLocatePath = (pane.path === "/" ? "/" : pane.path + "/") + name
+            t.pendingCursor = -1
+            pane.backend.send({ c: "locate", path: t.pendingLocatePath })
+            return
+        }
+    }
     if (t.pendingCursor >= 0) {
         var last = pane.total > 0 ? pane.total - 1 : 0
         pane.setCursor(Math.min(t.pendingCursor, last))
         t.pendingCursor = -1
     }
+}
+
+// A fresh receiver index comes from its own name-only listing, never from the source window.
+function locatedCursor(pane, message) {
+    var t = pane.tabs
+    if (!t || !t.pendingLocatePath || message.path !== t.pendingLocatePath || message.directory !== pane.path)
+        return
+    t.pendingLocatePath = ""
+    if (pane.listInFlight) return
+    var index = message.index >= 0 && message.index < pane.total ? message.index : 0
+    pane.setCursor(index)
+    if (pane.total > 0 && !pane.rowFor(index)) pane.backend.window(index, pane.windowSize)
+}
+
+// The desktop launch carries the same filename through the existing environment seam.
+function prepareCursor(pane, cursor) {
+    if (!cursor) return
+    if (!pane.tabs) pane.tabs = pack([snapshot(pane)], 0)
+    pane.tabs.pendingCursor = 0
+    pane.tabs.pendingCursorName = cursor
+    pane.tabs.pendingLocatePath = ""
 }
 
 function currentItems(pane, here) {
@@ -424,11 +476,7 @@ function tabInfo(pane, index) {
     if (index === current) {
         path = here
         view = pane.viewMode
-        if (pane.rowFor && pane.cursorIndex >= 0) {
-            var row = pane.rowFor(pane.cursorIndex)
-            if (row && typeof row.n === "string")
-                cursor = row.n
-        }
+        if (here === pane.path) cursor = cursorFile(pane)
     } else {
         var items = currentItems(pane, here)
         var item = items[index] || {}
@@ -560,7 +608,7 @@ function receiveTab(pane, payload, at) {
     var place = at >= 0 && at <= items.length ? at : items.length
     items.splice(place, 0, snap)
     pane.tabs = pack(items, place)
-    apply(pane, snap, dropped)
+    apply(pane, snap, dropped, info.cursor)
     return true
 }
 
