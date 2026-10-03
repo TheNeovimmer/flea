@@ -76,14 +76,17 @@ impl Replay {
         Self { op, steps: steps.into_iter().map(|(step, input, parent)| ReplayStep { step, input, parent }).collect() }
     }
     pub fn rebase(&mut self, old: &ItemIdentity, new: &ItemIdentity) {
+        self.rebase_with(
+            &mut |identity| if identity.unchanged_for_move(old) { *identity = new.clone(); },
+            &mut |identity| if identity.same_item(old) { *identity = new.clone(); },
+        );
+    }
+    // `moved` rewrites an input or a step's identity; `item` rewrites the parent folder's, which is judged looser.
+    pub(crate) fn rebase_with(&mut self, moved: &mut impl FnMut(&mut ItemIdentity), item: &mut impl FnMut(&mut ItemIdentity)) {
         for saved in &mut self.steps {
-            if saved.input.as_ref().is_some_and(|identity| identity.unchanged_for_move(old)) { saved.input = Some(new.clone()); }
-            if let Some((_, identity)) = &mut saved.parent {
-                if identity.same_item(old) { *identity = new.clone(); }
-            }
-            let mut entry = Entry { op: String::new(), steps: vec![saved.step.clone()] };
-            entry.rebase(old, new);
-            saved.step = entry.steps.remove(0);
+            if let Some(identity) = &mut saved.input { moved(identity); }
+            if let Some((_, identity)) = &mut saved.parent { item(identity); }
+            super::undorebase::rebase_step(&mut saved.step, moved);
         }
     }
     fn check(saved: &ReplayStep, vacated: bool) -> Result<(), FleaError> {
