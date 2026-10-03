@@ -1,4 +1,5 @@
 .import "../../ui/js/Markdown.js" as Markdown
+.import "../../ui/js/MdInline.js" as Inline
 .import "sourcefixture.js" as Source
 
 function run(check) {
@@ -170,6 +171,20 @@ function run(check) {
         "See &#91;a&#93;(https&#58;&#47;&#47;example&#46;com&#47;x) here.")
     check("emphasis cannot form inside a link label",
         linked("See [*hi*](https://example.com/x) here.").indexOf("&#42;hi&#42;") >= 0, true)
+
+    var barelinks = [
+        { text: "See https://example.com/x. here.", url: "https://example.com/x" },
+        { text: "See https://example.com/a(b)). here.", url: "https://example.com/a(b)" },
+        { text: "See http://example.com/x?!.,;: here.", url: "http://example.com/x" },
+        { text: "See www.example.com/x)). here.", url: "www.example.com/x" }
+    ]
+    for (var bareIndex = 0; bareIndex < barelinks.length; bareIndex++) {
+        var bare = barelinks[bareIndex]
+        var bareStart = "See ".length
+        var read = Inline.readBarelink(bare.text, bareStart)
+        check("barelink URL and end offset " + bareIndex,
+            read && read.url === bare.url && read.end === bareStart + bare.url.length, true)
+    }
 
     function lists(doc) {
         return Markdown.blocks(doc, dir).filter(function (b) { return b.type === "list" })

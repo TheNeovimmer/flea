@@ -1,18 +1,98 @@
 .pragma library
 
 var STRING_METHODS = ["charAt", "charCodeAt", "indexOf", "lastIndexOf", "slice", "substring",
-    "match", "replace", "split", "search", "trim", "toLowerCase", "repeat"]
+    "match", "replace", "split", "search", "trim", "toLowerCase", "toUpperCase", "repeat"]
 var REGEX_METHODS = ["exec", "test"]
 var ARRAY_METHODS = ["slice", "join", "map"]
 var CONSTANT_TIME_METHODS = ["push", "pop", "hasOwnProperty"]
 var CONSTANT_TIME_CALLS = ["Math.max", "Math.min", "String.fromCharCode", "String.fromCodePoint"]
 // This local writer method runs parser functions whose internal operations are instrumented.
 var PARSER_OBJECT_CALLS = ["writer.finish"]
+var COMMENT_PREFIX_LENGTH = "//".length
 var work = 0
+
+// Sample input: (/["/*]/, text.slice(0) / scale, text.untrackedScan()).
+function stripLiterals(code) {
+    var out = []
+    var kept = 0
+    var i = 0
+    var canRegex = true
+    var token = ""
+    var controlParens = []
+    while (i < code.length) {
+        var c = code.charAt(i)
+        var next = code.charAt(i + 1)
+        if (/\s/.test(c)) {
+            i++
+            continue
+        }
+        var start = i
+        var comment = c === "/" && (next === "/" || next === "*")
+        var literal = c === '"' || c === "'" || (c === "/" && canRegex && !comment)
+        if (comment || literal) {
+            if (comment) {
+                var end = next === "/" ? code.indexOf("\n", i + COMMENT_PREFIX_LENGTH)
+                    : code.indexOf("*/", i + COMMENT_PREFIX_LENGTH)
+                i = end < 0 ? code.length : end + (next === "/" ? 0 : "*/".length)
+            } else {
+                var inClass = false
+                i++
+                while (i < code.length) {
+                    var ch = code.charAt(i)
+                    i++
+                    if (ch === "\\") {
+                        i++
+                        continue
+                    }
+                    if (c === "/" && ch === "[")
+                        inClass = true
+                    else if (c === "/" && ch === "]")
+                        inClass = false
+                    else if (ch === c && !inClass)
+                        break
+                }
+                if (c === "/") {
+                    while (/[A-Za-z]/.test(code.charAt(i)) && i < code.length)
+                        i++
+                }
+                canRegex = false
+                token = ""
+            }
+            out.push(code.slice(kept, start))
+            out.push(" ")
+            kept = i
+            continue
+        }
+        if (c === "`")
+            throw new Error("unsupported template literal in parser coverage")
+        if (/[A-Za-z0-9_$]/.test(c)) {
+            i++
+            while (/[A-Za-z0-9_$]/.test(code.charAt(i)) && i < code.length)
+                i++
+            token = code.slice(start, i)
+            canRegex = /^(return|throw|case|delete|void|typeof|new|in|instanceof|yield|await|else|do)$/.test(token)
+            continue
+        }
+        if (c === "(")
+            controlParens.push(/^(if|while|for|with|switch|catch)$/.test(token))
+        if (c === ")")
+            canRegex = controlParens.pop() === true
+        else if (c === "]" || c === "}" || c === ".")
+            canRegex = false
+        else if ((c === "+" || c === "-") && next === c)
+            i++
+        else
+            canRegex = true
+        token = ""
+        i++
+    }
+    out.push(code.slice(kept))
+    return out.join("")
+}
 
 // Sample input: text.substring(i).lastIndexOf("z"), or Leaf.tableBlock(...).
 function checkMethods(code, aliases, name) {
-    code = code.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, "")
+    code = stripLiterals(code)
     var calls = /([A-Za-z_$][\w$]*)?\.\s*([A-Za-z_$][\w$]*)\s*\(/g
     var match
     while ((match = calls.exec(code)) !== null) {

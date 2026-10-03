@@ -276,17 +276,16 @@ function readBarelink(text, i) {
     var j = i
     while (j < text.length && !isSpace(text.charAt(j)) && text.charAt(j) !== "<")
         j++
-    var url = text.slice(i, j)
     var parens = 0
-    for (var at = 0; at < url.length; at++)
-        parens += url.charAt(at) === "(" ? 1 : url.charAt(at) === ")" ? -1 : 0
-    while (url.length > 0) {
-        var tail = url.charAt(url.length - 1)
+    for (var at = i; at < j; at++)
+        parens += text.charAt(at) === "(" ? 1 : text.charAt(at) === ")" ? -1 : 0
+    while (j > i) {
+        var tail = text.charAt(j - 1)
         if ("?!.,;:".indexOf(tail) < 0 && !(tail === ")" && parens < 0))
             break
         parens += tail === ")" ? 1 : 0
-        url = url.slice(0, -1)
         j--
     }
+    var url = text.slice(i, j)
     return url.length < MIN_BARELINK_LENGTH ? null : { url: url, end: j }
 }

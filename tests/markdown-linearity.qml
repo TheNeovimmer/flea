@@ -204,17 +204,47 @@ QtObject {
         return exports;
     }
 
-    function runMeasurements() {
-        try {
-            var coverage = Work.checkFiles(Qt.application.arguments, readSource);
+    function coverageChecks() {
+        var probes = [
+            { name: "plain", source: "source.untrackedScan()" },
+            { name: "regex quote", source: '(/[\"]/, source.untrackedScan("payload"))' },
+            { name: "regex line comment", source: "(/[//]/, source.untrackedScan())" },
+            { name: "regex block comment", source: "(/[/*]/, source.untrackedScan()) /* closed */" },
+            { name: "division after call", source: "source.slice(0) / source.untrackedScan() / divisor" },
+            { name: "division after number", source: "10 / source.untrackedScan() / divisor" }
+        ];
+        var failures = 0;
+        for (var p = 0; p < probes.length; p++) {
             var refused = false;
             try {
-                Work.checkMethods("source.untrackedScan()", [], "coverage probe");
+                Work.checkMethods(probes[p].source, [], "coverage probe");
             } catch (error) {
                 refused = String(error).indexOf("uncounted parser method") >= 0;
             }
+            console.log((refused ? "ok " : "FAIL ") + "coverage " + probes[p].name + " refuses unknown method");
             if (!refused)
-                throw new Error("untracked parser method accepted");
+                failures++;
+        }
+        try {
+            Work.checkMethods('(/["/\\\\]\\.untrackedScan\\(\\)/).test(source)', [], "regex body probe");
+            Work.checkMethods('if (ready) /[//]\\.untrackedScan\\(\\)/.test(source)', [], "control regex probe");
+            Work.checkMethods('return /[/*]\\.untrackedScan\\(\\)/.test(source)', [], "return regex probe");
+            Work.checkMethods('"source.untrackedScan()" /* source.untrackedScan() */', [], "literal probe");
+            console.log("ok coverage ignores methods inside literals and comments");
+        } catch (error) {
+            console.log("FAIL coverage literal contents: " + error);
+            failures++;
+        }
+        return failures === 0;
+    }
+
+    function runMeasurements() {
+        if (!coverageChecks()) {
+            Qt.exit(1);
+            return;
+        }
+        try {
+            var coverage = Work.checkFiles(Qt.application.arguments, readSource);
             console.log("ok static method coverage for " + coverage + " parser files, unknown method refused");
         } catch (error) {
             console.log("FAIL " + error);
@@ -312,6 +342,13 @@ QtObject {
                 var half = Math.floor(n / 2);
                 return "- parent\n" + "\n".repeat(half) + " ".repeat(half) + "x";
             },
+            punctTail: function (n) {
+                var url = "https://example.com/x";
+                var tailLength = n - url.length;
+                var tailParts = 2;
+                var parenLength = Math.floor(tailLength / tailParts);
+                return url + ")".repeat(parenLength) + ".".repeat(tailLength - parenLength);
+            },
             backtickRun: function (n) {
                 var s = "";
                 while (s.length < n)
@@ -320,8 +357,18 @@ QtObject {
             }
         };
         var names = ["codeDense", "codeOnly", "bangOpen", "bracketOpen", "angleOpen",
-            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent"];
+            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent", "punctTail"];
         Work.install();
+        Work.work = 0;
+        var uppercaseInput = "Note";
+        var uppercaseCode = Work.instrument("return source.toUpperCase()", [], "uppercase probe");
+        var uppercaseResult = new Function("source", uppercaseCode)(uppercaseInput);
+        if (uppercaseResult !== "NOTE" || Work.work !== uppercaseInput.length) {
+            console.log("FAIL toUpperCase work=" + Work.work);
+            Qt.exit(1);
+            return;
+        }
+        console.log("ok toUpperCase counted work=" + Work.work);
         var sizeRatio = 8;
         var marginNumerator = 3;
         var marginDenominator = 2;
