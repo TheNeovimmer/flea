@@ -5,12 +5,21 @@ import Quickshell
 ShellRoot {
     id: root
     readonly property int startupObjectLimit: 706
+    readonly property int sectorsWrittenField: 6
+    readonly property int deadlineProbeMs: 1200
+    readonly property int sectorChangeDelayMs: 600
+    readonly property int deadlineSlackMs: 200
+    readonly property int reloadWaitMs: 2000
     property bool finished: false
     property int stableSamples: 0
     property int lastTotal: -1
     property int phase: 0
     property var device: null
     property var reader: null
+    property var chainTimer: null
+    property double chainStartedAt: 0
+    property double pollStartedAt: 0
+    property double chainExpiredAt: 0
 
     function finish(ok, reason) {
         if (finished) return
@@ -26,6 +35,7 @@ ShellRoot {
         function walk(object) {
             if (!object || seen.indexOf(object) >= 0) return
             seen.push(object)
+            // Sample input: "PowerSectorsReader_QMLTYPE_42(0x1234)" becomes "PowerSectorsReader".
             var type = String(object).split("(")[0].replace(/_QML(TYPE)?_\d+/g, "")
             counts[type] = (counts[type] || 0) + 1
             var groups = [object.children, object.data, object.resources]
@@ -53,24 +63,33 @@ ShellRoot {
                 return finish(false, "reader lost its owner or disk path")
             phase = 2
         } else if (phase === 2 && device._powerSectors.length > 0) {
-            if (device._powerSectors !== String(reader.text()).trim().split(/\s+/)[6])
+            // Sample input: "1 0 2 3 0 0 42 0 0 0 0 0 0 0 0", field 6 is sectors written ("42").
+            if (device._powerSectors !== String(reader.text()).trim().split(/\s+/)[sectorsWrittenField])
                 return finish(false, "disk write count did not reach the host")
+            if (Date.now() - chainStartedAt < sectorChangeDelayMs || device._streamPending) return
             device._powerSectors = "not-a-sector-count"
-            reader.reload()
             phase = 3
-        } else if (phase === 3 && device._powerSectors !== "not-a-sector-count") {
-            var timers = census(device).objects.filter(function (object) {
-                return String(object).indexOf("QQmlTimer") === 0 && object.interval === device.powerOffWaitMs && object.running
-            })
-            if (timers.length !== 1)
-                return finish(false, "a changed sector count did not restart the chain deadline")
-            device._powerOffDisk = ""
+            pollStartedAt = Date.now()
+            var listingsBefore = device._listingsStarted
+            device.poll()
+            if (device._listingsStarted !== listingsBefore + 1)
+                return finish(false, "production poll did not start while the chain was active")
+        } else if (phase === 3) {
+            if (device._powerSectors !== "not-a-sector-count") phase = 4
+            else if (Date.now() - pollStartedAt >= reloadWaitMs)
+                return finish(false, "production poll did not reload the disk write count")
+        } else if (phase === 4 && chainExpiredAt > 0) {
+            if (chainExpiredAt < pollStartedAt + deadlineProbeMs - deadlineSlackMs)
+                return finish(false, "a changed sector count did not rearm the running chain deadline")
+            console.log("STARTUP_OBJECTS DEADLINE initial=" + deadlineProbeMs + " changeAfter="
+                + (pollStartedAt - chainStartedAt) + " expiredAfter=" + (chainExpiredAt - chainStartedAt))
             if (reader.path !== "" || census().counts.PowerSectorsReader !== 1)
                 return finish(false, "reader was not retained and idle after the chain")
+            chainTimer.interval = device.powerOffWaitMs
             device._powerSectors = ""
             device._powerOffDisk = Quickshell.env("STARTUP_OBJECTS_DISK")
-            phase = 4
-        } else if (phase === 4 && device._powerSectors.length > 0) {
+            phase = 5
+        } else if (phase === 5 && device._powerSectors.length > 0) {
             var next = census().objects.filter(function (object) {
                 return String(object).indexOf("PowerSectorsReader_") === 0
             })
@@ -79,6 +98,11 @@ ShellRoot {
             device._powerOffDisk = ""
             finish(true, "total=" + lastTotal + " limit=" + startupObjectLimit + " reader=0->1 retained=1 reload=ok deadline=ok")
         }
+    }
+
+    Connections {
+        target: root.chainTimer
+        function onTriggered() { root.chainExpiredAt = Date.now() }
     }
 
     FloatingWindow {
@@ -124,6 +148,17 @@ ShellRoot {
                 return root.finish(false, "disk-write FileView exists before first power-off")
             root.phase = 1
             root.device._powerOffDisk = Quickshell.env("STARTUP_OBJECTS_DISK")
+            root.device._powerOffQueue = []
+            root.device.powerOffNext()
+            var timers = root.census(root.device).objects.filter(function (object) {
+                return String(object).indexOf("QQmlTimer") === 0 && object.interval === root.device.powerOffWaitMs && object.running
+            })
+            if (timers.length !== 1)
+                return root.finish(false, "powerOffNext did not arm exactly one chain deadline")
+            root.chainTimer = timers[0]
+            // Shorten the real chain's timer before sampling progress, then observe its actual expiry.
+            root.chainTimer.interval = root.deadlineProbeMs
+            root.chainStartedAt = Date.now()
         }
     }
     Timer { id: retire; interval: 200; onTriggered: Quickshell.execDetached(["kill", String(Quickshell.processId)]) }

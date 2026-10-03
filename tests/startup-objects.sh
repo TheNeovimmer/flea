@@ -8,7 +8,7 @@ test_root="$FIXTURE_ROOT/flea-startup-objects-$$"
 sandbox_make "$test_root"
 cleanup() { sandbox_remove "$test_root"; }
 trap cleanup EXIT
-mkdir -p "$test_root"/{config,home,state/flea,cache,runtime,fixture} || exit 1
+mkdir -p "$test_root"/{config,home,state/flea,cache,runtime,fixture,bin} || exit 1
 chmod 700 "$test_root/runtime" || exit 1
 printf '{}\n' > "$test_root/state/flea/ui.json"
 touch "$test_root/fixture/a.txt" "$test_root/fixture/b.txt" "$test_root/fixture/c.txt"
@@ -23,13 +23,25 @@ for stat_file in /sys/block/*/stat; do
     break
 done
 [ -n "$power_disk" ] || { printf 'FAIL startup-objects: no readable disk stat\n'; exit 1; }
+probe_timeout_seconds=20
+leg_timeout_seconds=$((probe_timeout_seconds + 1))
+cat > "$test_root/bin/gio" <<'SH'
+#!/usr/bin/env bash
+# Sample input: gio mount -t /dev/sda, held without touching the device.
+case "${1-} ${2-}" in
+    'mount -t'|'mount -u') exec sleep "$STARTUP_OBJECTS_LEG_TIMEOUT_SECONDS" ;;
+    *) exec /usr/bin/gio "$@" ;;
+esac
+SH
+chmod +x "$test_root/bin/gio" || exit 1
 log="$test_root/startup.log"
 ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$PWD/target/debug/flea" \
     FLEA_PATH="$test_root/fixture" STARTUP_OBJECTS_UI="$PWD/ui" STARTUP_OBJECTS_DISK="$power_disk" \
+    PATH="$test_root/bin:$PATH" STARTUP_OBJECTS_LEG_TIMEOUT_SECONDS="$leg_timeout_seconds" \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
-    timeout 20 qs -p "$test_root/config" > "$log" 2>&1 ) 2>/dev/null
+    timeout "$probe_timeout_seconds" qs -p "$test_root/config" > "$log" 2>&1 ) 2>/dev/null
 status=$?
 grep -a 'STARTUP_OBJECTS' "$log" || true
 if [ "$status" -ne 0 ] && [ "$status" -ne 143 ]; then
