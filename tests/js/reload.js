@@ -144,7 +144,9 @@ function run(check) {
 function sidebarReplyOrder(check) {
     var source = Source.source("tests/sidebar-flows.qml")
     var steps = Source.slice(source, "function reloadChecks(mode) {", "\n    Timer {")
+    // Sample input: function onReloadFromChanged() { if (pane.reloadFrom >= 0) root.reloadNotice = { from: 0, total: 1 } }
     var observer = source.match(/function onReloadFromChanged\(\) \{([^\n]*)\}/)
+    // Sample input: function ready(path) { return !pane.listInFlight && pane.path === path }
     var readySource = source.match(/function ready\(path\) \{([^\n]*)\}/)[1]
     function scenario(inline, omitCtrlArm) {
         var root = { fixture: "/fixture", reloadStage: 0, beforeLists: 0,
