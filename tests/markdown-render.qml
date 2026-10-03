@@ -56,7 +56,7 @@ ShellRoot {
         { suffix: ".second.md", text: "# Identical\n", name: "second identical Markdown" }
     ]
     property int loadStep: 0
-    property var loadFailures: []
+    property int loadSeq: 0
     // Match the existing render settle allowance for each native FileView load.
     readonly property int settleMs: 1200
 
@@ -80,7 +80,10 @@ ShellRoot {
                 anchors.right: parent.right
                 height: 1060
                 active: true
-                path: shell.fixture + shell.loadCases[0].suffix
+                Component.onCompleted: {
+                    shell.loadSeq = md.parseSeq
+                    md.path = shell.fixture + shell.loadCases[0].suffix
+                }
                 size: 1
                 view: "rendered"
             }
@@ -251,19 +254,16 @@ ShellRoot {
         onTriggered: {
             if (shell.loadStep < shell.loadCases.length) {
                 var test = shell.loadCases[shell.loadStep]
-                var ready = md.contentReady && md.rawText === test.text
+                var ready = md.contentReady && md.rawText === test.text && md.appliedSeq > shell.loadSeq
                 shell.log((ready ? "ok " : "FAIL ") + test.name + " contentReady=" + md.contentReady
                     + " status=" + md.status + " parseSeq=" + md.parseSeq + " appliedSeq=" + md.appliedSeq)
-                if (!ready)
-                    shell.loadFailures.push(test.name)
-                shell.loadStep++
-                if (shell.loadStep < shell.loadCases.length)
-                    md.path = shell.fixture + shell.loadCases[shell.loadStep].suffix
-                else if (shell.loadFailures.length > 0) {
-                    shell.fail("load completion missed " + shell.loadFailures.join(", "))
+                if (!ready) {
+                    shell.fail("load completion missed " + test.name)
                     return
-                } else
-                    md.path = shell.fixture
+                }
+                shell.loadStep++
+                shell.loadSeq = md.parseSeq
+                md.path = shell.fixture + (shell.loadCases[shell.loadStep] || { suffix: "" }).suffix
                 settle.restart()
                 return
             }
@@ -382,7 +382,7 @@ ShellRoot {
             Flea.ViewState.state = shell.savedState
             if (shell.failures > 0)
                 return shell.fail(shell.failures + " geometry checks failed")
-            return shell.pass("three load completions, run, chip, markers at two sizes, rules, fence, box, bar and links all read")
+            return shell.pass(shell.loadStep + " load completions, run, chip, markers at two sizes, rules, fence, box, bar and links all read")
         }
 
         // The chrome chip behind the inline code, confined to its line, never full-bleed.

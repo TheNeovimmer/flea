@@ -122,7 +122,10 @@ if [ -n "${FLEA_CI_SUITE_LOGS:-}" ] && [ -n "$shot" ]; then
     mkdir -p "$FLEA_CI_SUITE_LOGS" || exit 1
     cp "$shot" "$FLEA_CI_SUITE_LOGS/markdown-render.png" || exit 1
     large_shot=$(ls "$test_root/runtime"/markdown-render-*-large.png 2>/dev/null | head -1)
-    [ -n "$large_shot" ] || exit 1
+    if [ -z "$large_shot" ]; then
+        printf 'FAIL markdown-render: large shot expected %s/runtime/markdown-render-*-large.png; arrived [<missing>]\n' "$test_root" >&2
+        exit 1
+    fi
     cp "$large_shot" "$FLEA_CI_SUITE_LOGS/markdown-render-large.png" || exit 1
     printf 'shot %s\n' "$FLEA_CI_SUITE_LOGS/markdown-render.png"
 elif [ -n "$shot" ]; then
@@ -139,7 +142,11 @@ source_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNAT
 printf '%s\n' "$source_output" | grep -oE 'MARKDOWN_SOURCE .*'
 check_warnings "$source_output" 0 || exit 1
 expected_source_checks=15
-printf '%s\n' "$source_output" | grep -qF "MARKDOWN_SOURCE $expected_source_checks checks, 0 failed" || exit 1
+# Sample input: MARKDOWN_SOURCE 15 checks, 0 failed
+if ! printf '%s\n' "$source_output" | grep -qF "MARKDOWN_SOURCE $expected_source_checks checks, 0 failed"; then
+    printf 'FAIL markdown-render: Source expected %s checks, 0 failed for %s/notes.md; arrived [%s]\n' "$expected_source_checks" "$test_root" "${source_output:-<empty>}" >&2
+    exit 1
+fi
 if [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then
     cp "$test_root/runtime/markdown-source.png" "$FLEA_CI_SUITE_LOGS/markdown-source.png" || exit 1
 fi

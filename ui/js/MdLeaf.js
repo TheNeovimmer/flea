@@ -4,7 +4,6 @@
 .import "MdUrl.js" as MdUrl
 .import "MdHtml.js" as MdHtml
 .import "MdInline.js" as Md
-.import "MdRun.js" as Run
 
 // Sample input: "[x] done" draws a checked GFM task box; "[ ] pending" draws an empty one.
 function taskText(text) {
@@ -95,7 +94,7 @@ function delimAligns(line) {
     return aligns
 }
 
-// Sample input: "| a | b \| c |"; split on unescaped pipes, preserving backslashes for the inline scanner.
+// Sample input: "| a | b \| c |"; unescape pipes in cells and preserve other backslash pairs for the inline scanner.
 function splitRow(line) {
     var text = String(line).trim().replace(/^\||\|$/g, "")
     var cells = []
@@ -103,7 +102,7 @@ function splitRow(line) {
     for (var i = 0; i < text.length; i++) {
         var ch = text.charAt(i)
         if (ch === "\\" && i + 1 < text.length && /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/.test(text.charAt(i + 1))) {
-            cell += ch + text.charAt(i + 1)
+            cell += text.charAt(i + 1) === "|" ? "|" : ch + text.charAt(i + 1)
             i++
         } else if (ch === "|") {
             cells.push(cell)
@@ -120,7 +119,6 @@ function splitRow(line) {
 
 // The board's table as data for ui/PreviewMarkdown.qml: Qt's Markdown importer drops style attributes.
 function tableBlock(head, aligns, rows, inlineOf) {
-    inlineOf = inlineOf || function (text) { return Run.parseInline(text, "", {}, {}, "", "", [], undefined, true) }
     var cols = head.length
     for (var i = 0; i < rows.length; i++)
         cols = Math.max(cols, rows[i].length)

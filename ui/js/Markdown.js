@@ -139,10 +139,6 @@ function splitRow(line) {
     return Leaf.splitRow(line)
 }
 
-function tableBlock(head, aligns, rows) {
-    return Leaf.tableBlock(head, aligns, rows)
-}
-
 function blocks(source, dir, chrome, ink) {
     return Blocks.blocks(source, dir, chrome, ink)
 }

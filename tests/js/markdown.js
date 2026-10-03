@@ -1,4 +1,5 @@
 .import "../../ui/js/Markdown.js" as Markdown
+.import "../../ui/js/MdLeaf.js" as Leaf
 .import "sourcefixture.js" as Source
 
 function run(check) {
@@ -12,6 +13,25 @@ function run(check) {
         check("Quick Look Markdown binds " + input + " before activation",
             bindingAt >= 0 && bindingAt < activeAt, true)
     }
+
+    var loadBody = Source.slice(Source.source("tests/markdown-render.qml"),
+        "if (shell.loadStep < shell.loadCases.length) {", "if (shell.fixture.length === 0)")
+    var settleLoad = new Function("shell", "md", "settle", loadBody)
+    function loadMock(text, fresh) {
+        var before = 7
+        var shell = { loadStep: 1, loadSeq: before, fixture: "/notes.md", loadFailures: [],
+            loadCases: [{ text: "", suffix: ".empty" }, { text: text, suffix: ".second" }, { text: "", suffix: ".last" }],
+            log: function () {}, fail: function (why) { this.failure = why }, failure: "" }
+        var md = { contentReady: true, rawText: text, status: "ready", parseSeq: before + (fresh ? 1 : 0),
+            appliedSeq: before + (fresh ? 1 : 0), path: "/notes.md.first" }
+        settleLoad(shell, md, { restart: function () {} })
+        return shell
+    }
+    check("stale identical load is rejected", loadMock("# Identical\n", false).failure.length > 0, true)
+    check("stale empty load is rejected", loadMock("", false).failure.length > 0, true)
+    check("stale load is not counted as a completion", loadMock("", false).loadStep, 1)
+    check("fresh identical load is counted", loadMock("# Identical\n", true).loadStep, 2)
+    check("fresh empty load is counted", loadMock("", true).loadStep, 2)
 
     check("rendered and source are the only views", Markdown.isView("rendered") && Markdown.isView("source"), true)
     check("a hand edit is not a view", Markdown.isView("html"), false)
@@ -163,6 +183,25 @@ function run(check) {
     check("a cell cannot form markup", tabled[0].rows[0][0].indexOf("<") < 0
         && tabled[0].head[0].indexOf("|") < 0, true)
     check("pipes without a delimiter stay a run", kinds("a | b\nc | d\n"), "run")
+
+    // GFM example 200: escaped pipes remain cell text in prose, code spans and strong emphasis.
+    var escapedTable = Markdown.blocks("| f\\|oo |\n| ------ |\n| b `\\|` az |\n| b **\\|** im |\n", dir, chrome)[0]
+    check("GFM 200 header unescapes pipe", escapedTable.head[0], "f&#124;oo")
+    check("GFM 200 code span unescapes pipe", escapedTable.rows[0][0],
+        'b <code style="background-color:#181825">&#124;</code> az')
+    check("GFM 200 strong row unescapes pipe", escapedTable.rows[1][0], "b **|** im")
+    check("table splitting keeps other backslash pairs", Leaf.splitRow("| \\*literal\\* | \\`code\\` |").join("|"),
+        "\\*literal\\*|\\`code\\`")
+    var missingInlineRejected = false
+    try {
+        Leaf.tableBlock(["head"], ["left"], [["cell"]])
+    } catch (error) {
+        missingInlineRejected = true
+    }
+    check("tableBlock requires the document inline callback", missingInlineRejected, true)
+    check("unused public tableBlock wrapper is absent", typeof Markdown.tableBlock, "undefined")
+    var callbackTable = Leaf.tableBlock(["head"], ["left"], [["cell"]], function (text) { return "inline:" + text })
+    check("table callback renders header and body", callbackTable.head[0] + "|" + callbackTable.rows[0][0], "inline:head|inline:cell")
 
     var cellSources = ["**bold**", "*emphasis*", "`a & <b>`", "[guide](https://example.com/?a=1&b=2)",
         "\\*literal\\*", "a \\| b", "\\`literal\\`", "\\[literal\\]", "<script>secret</script>safe",
