@@ -10,6 +10,36 @@ Item {
     id: root
 
     property var picker: null
+    property var submissionFocus: null
+
+    function submissionChanged() {
+        var window = root.Window.window
+        if (root.picker.submitting) {
+            var before = window ? window.activeFocusItem : null
+            root.submissionFocus = null
+            root.picker.stepFocus(null, false)
+            root.submissionFocus = {before: before, stepped: window ? window.activeFocusItem : null}
+            return
+        }
+        var pending = root.submissionFocus
+        // Replies clear submitting before they answer and before disabled controls re-enable.
+        Qt.callLater(function() {
+            if (!pending || root.submissionFocus !== pending) return
+            root.submissionFocus = null
+            if (root.picker.answered || root.picker.submitting) return
+            var before = pending.before
+            if (before && before.visible && before.enabled && pending.stepped && pending.stepped.activeFocus)
+                before.forceActiveFocus()
+        })
+    }
+
+    Connections {
+        target: root.Window.window
+        function onActiveFocusItemChanged() {
+            if (root.submissionFocus && root.Window.window.activeFocusItem !== root.submissionFocus.stepped)
+                root.submissionFocus = null
+        }
+    }
 
     signal cancelRequested()
     signal acceptRequested()
@@ -39,6 +69,7 @@ Item {
         property bool available: true
         // A mark that is live but not the one in force, like the picker's inactive view mark.
         property bool dimmed: false
+        opacity: available ? 1 : Theme.disabledOpacity
         enabled: available
         activeFocusOnTab: available
         Keys.onTabPressed: function(event) { root.picker.stepFocus(control, (event.modifiers & Qt.ShiftModifier) !== 0) }
@@ -64,16 +95,14 @@ Item {
             NumberAnimation { duration: 150; easing.type: Easing.OutQuad }
         }
 
-        // Muted is the resting frame of a neutral control, the role ThemeRoles.html gives an inactive
-        // one, and an unavailable control stays there: a frame may recede only when the control is
-        // inert. ui/DialogButton.qml has drawn its own frames this way all along.
-        readonly property color frame: control.available && control.primary
+        // A disabled primary keeps its frame and wash under the control's disabled opacity.
+        readonly property color frame: control.primary
             ? Theme.color.accentFrame : Theme.color.muted
 
         // The primary control carries its wash at rest, because it is the one action the request is
         // asking for; every other control earns one under the pointer or the keyboard.
-        readonly property real wash: !control.available ? 0
-            : (control.activeFocus || press.pressed || control.primary) ? Theme.washActive
+        readonly property real wash: control.primary ? Theme.washActive : !control.available ? 0
+            : (control.activeFocus || press.pressed) ? Theme.washActive
             : hover.hovered ? Theme.washHover : 0
         // The wash carries the role now that the label does not, so only a primary's is accent.
         readonly property color washInk: control.primary ? Theme.color.accent : Theme.color.foreground
@@ -255,8 +284,8 @@ Item {
         // The view marks keep the far right, so the chips give way through their anchor.
         Flickable {
             id: types
-            anchors.right: views.left
-            anchors.rightMargin: Theme.spacing.gap
+            anchors.right: parent.right
+            anchors.rightMargin: views.width + Theme.spacing.rowPaddingX + Theme.spacing.gap
             anchors.verticalCenter: parent.verticalCenter
             // The chips take room first and the path gives way through its anchor, keeping its minimum.
             width: Picker.chipStripWidth(where.width - moves.width - views.width - 2 * Theme.spacing.rowPaddingX - 3 * Theme.spacing.gap, chipRow.width, Picker.CHIP_PATH_MIN)
@@ -300,7 +329,7 @@ Item {
         id: views
         anchors.right: parent.right
         anchors.rightMargin: Theme.spacing.rowPaddingX
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenter: where.verticalCenter
         spacing: Theme.spacing.gap
 
         Framed {

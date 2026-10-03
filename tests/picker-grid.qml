@@ -63,6 +63,7 @@ ShellRoot {
             property string storageClass: ""
             property string path: "/probe"
             property var marks: []
+            property bool marksAllowed: true
             property bool folderMode: false
             property int windowSize: 60
             property int coalesceMs: 16
@@ -74,6 +75,7 @@ ShellRoot {
             }
             function stepFocus(item, back) {}
             function toggleMark(index) {}
+            function endRange() {}
             function setView(mode) {}
             function activate(index) {}
             function doubleActivate(index, rowPath, firstPath) {}

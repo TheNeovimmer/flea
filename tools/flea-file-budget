@@ -64,7 +64,8 @@ tests/js/focus.js 745
 tests/js/mounts.js 262
 tests/js/menu.js 508
 tests/js/nav.js 361
-tests/picker-grid.qml 448
+tests/picker-grid.qml 450
+tests/picker-hunt.qml 445
 tests/js/network.js 306
 tests/js/ops.js 511
 tests/js/settings.js 337

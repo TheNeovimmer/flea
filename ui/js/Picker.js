@@ -104,7 +104,7 @@ function hints(req) {
     if (req.mode === "save") {
         return "Enter save · Esc cancel"
     }
-    var pick = req.directory ? "Enter open · Space mark folder" : "Space select · Enter open/send"
+    var pick = req.multiple ? (req.directory ? "Enter open · Space mark folder" : "Space select · Enter open/send") : "Enter open"
     return pick + " · Esc cancel"
 }
 
@@ -197,8 +197,8 @@ function validName(name) {
 // What both the strip and the status line say about a name validName() refuses, in ops.rs's words.
 var NAME_REFUSED = "a name cannot be empty, . or .. , or contain a separator"
 
-// A file double click marks the row when unmarked, then accepts; a multiple accept sends every mark.
 var DOUBLE_OPEN = "open"
+var DOUBLE_MARK = "mark"
 var DOUBLE_ACCEPT = "accept"
 var DOUBLE_MARK_ACCEPT = "markAccept"
 var DOUBLE_NONE = "none"
@@ -208,7 +208,7 @@ function sameTap(firstPath, rowPath) {
     return !!rowPath && rowPath === firstPath
 }
 
-// Sample input: doubleAction({mode:"open",multiple:false,directory:false}, {d:false}, "/a/b.txt", "/a/b.txt", []) answers "markAccept".
+// Sample input: doubleAction({mode:"open",multiple:false}, {d:false}, "/a/b.txt", "/a/b.txt", []) answers "markAccept"; multiple:true answers "mark" for either mark state.
 function doubleAction(req, row, rowPath, firstPath, marks) {
     if (!row) {
         return DOUBLE_NONE
@@ -220,11 +220,11 @@ function doubleAction(req, row, rowPath, firstPath, marks) {
     if (req.mode === "save" || req.directory || req.mode === "savefiles") {
         return DOUBLE_NONE
     }
-    // The row path names the file, so a list rebuilt between the taps never sends another row.
+    // The row path names the file, so a list rebuilt between the taps never marks or sends another row.
     if (!sameTap(firstPath, rowPath)) {
         return DOUBLE_NONE
     }
-    return marked(marks, rowPath) ? DOUBLE_ACCEPT : DOUBLE_MARK_ACCEPT
+    return req.multiple ? DOUBLE_MARK : marked(marks, rowPath) ? DOUBLE_ACCEPT : DOUBLE_MARK_ACCEPT
 }
 
 // The picker never renames, so Return/Enter still activates and other rename keys stay unhandled.

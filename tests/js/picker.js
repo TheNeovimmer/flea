@@ -54,6 +54,7 @@ function run(check) {
     check("what is checked and what it weighs", Picker.statusLine(3, 2100000), "3 selected · 2.1 MB")
     check("and a four-figure check groups", Picker.statusLine(1204, 2100000), "1,204 selected · 2.1 MB")
     check("the open hints name Space and Enter", Picker.hints(req), "Space select · Enter open/send · Esc cancel")
+    check("one-file hints advertise no marking", Picker.hints(Picker.request("{}")), "Enter open · Esc cancel")
     check("the save hints name neither", Picker.hints(Picker.request('{"mode":"save"}')), "Enter save · Esc cancel")
 
     var chips = Picker.chips(req)
@@ -130,18 +131,21 @@ function run(check) {
     check("S reverses an inherited kind order rather than refusing it",
           order(Sort.reverseOrder("kind", true)), "kind asc")
 
-    // A file double click marks the row when unmarked, then accepts; a multiple accept sends every mark.
+    // One-file double clicks accept; several-file double clicks toggle the file's mark.
     var single = Picker.request('{"mode":"open","multiple":false}')
     var multi = Picker.request('{"mode":"open","multiple":true}')
     var file = {d: false, p: 0, s: 1, m: 1, i: "text"}
     var folder = {d: true, p: 0, s: 0, m: 1, i: "folder"}
     check("a double click on an unmarked file marks then sends it", Picker.doubleAction(single, file, "/a/b.txt", "/a/b.txt", []), "markAccept")
     check("a double click on a marked file sends it", Picker.doubleAction(single, file, "/a/b.txt", "/a/b.txt", [{path: "/a/b.txt", bytes: 3}]), "accept")
-    check("a multiple double click on an unmarked file marks then sends", Picker.doubleAction(multi, file, "/a/c.txt", "/a/c.txt", [{path: "/a/b.txt", bytes: 3}]), "markAccept")
-    check("a multiple double click on a marked file sends the marks", Picker.doubleAction(multi, file, "/a/b.txt", "/a/b.txt", [{path: "/a/b.txt", bytes: 3}]), "accept")
+    check("a multiple double click on an unmarked file toggles its mark", Picker.doubleAction(multi, file, "/a/c.txt", "/a/c.txt", [{path: "/a/b.txt", bytes: 3}]), "mark")
+    check("a multiple double click on a marked file toggles its mark", Picker.doubleAction(multi, file, "/a/b.txt", "/a/b.txt", [{path: "/a/b.txt", bytes: 3}]), "mark")
     check("a double click on a folder still opens it", Picker.doubleAction(single, folder, "/a/sub", "/a/sub", []), "open")
+    check("a multiple double click on a folder still opens it", Picker.doubleAction(multi, folder, "/a/sub", "/a/sub", []), "open")
+    check("a multiple second tap on another path changes nothing", Picker.doubleAction(multi, file, "/a/b.txt", "/a/c.txt", []), "none")
     check("a folder request never sends on double click", Picker.doubleAction(Picker.request('{"directory":true}'), file, "/a/b.txt", "/a/b.txt", []), "none")
     check("save mode never sends on double click", Picker.doubleAction(Picker.request('{"mode":"save"}'), file, "/a/b.txt", "/a/b.txt", []), "none")
+    check("savefiles mode never sends on double click", Picker.doubleAction(Picker.request('{"mode":"savefiles","multiple":true}'), file, "/a/b.txt", "/a/b.txt", []), "none")
     check("a second tap on another row sends nothing", Picker.doubleAction(single, file, "/a/b.txt", "/a/c.txt", []), "none")
     check("a double click with no first tap sends nothing", Picker.doubleAction(single, file, "/a/b.txt", "", []), "none")
     check("a double click on no row sends nothing", Picker.doubleAction(single, null, "/a/b.txt", "/a/b.txt", []), "none")
@@ -222,4 +226,41 @@ function run(check) {
         winSrc.indexOf("Picker.windowSize(list.visibleRows, grid.visibleTileRows, grid.columns)") >= 0, true)
     check("a view switch reshows the grid", winSrc.indexOf('if (next === "grid") grid.reshow(') >= 0, true)
     check("and the list", winSrc.indexOf("else list.reshow(") >= 0, true)
+
+    // Sample input: function paths(rows, request) queues local tokens before writing protocol requests.
+    var listingSrc = Source.source("ui/PickerListing.qml")
+    var pathsSrc = Source.slice(listingSrc, "    function paths(rows", "    // Storage class")
+    var requestPaths = new Function("current", "quitting", "rows", "request",
+        pathsSrc.slice(pathsSrc.indexOf("{") + 1, pathsSrc.lastIndexOf("}")))
+    var worker = {running: true, obsolete: false, pathRequests: [], writes: [],
+        write: function(line) { this.writes.push(JSON.parse(line)) }}
+    check("F33 first paths request starts", requestPaths(worker, false, [0], 1), true)
+    check("F33 retry paths request starts", requestPaths(worker, false, [1], 2), true)
+    check("F33 worker retains reply tokens in order", JSON.stringify(worker.pathRequests), "[1,2]")
+    check("F33 local tokens do not change backend protocol", JSON.stringify(worker.writes),
+        '[{"c":"paths","rows":[0]},{"c":"paths","rows":[1]}]')
+    // Sample input: onRead receives {"t":"paths","paths":["/b/late"]} before the retry's paths reply.
+    var parserMarker = "                onRead: function(line) {"
+    var parserSrc = Source.slice(listingSrc, parserMarker, "                }\n            }\n            onExited:")
+    var readReply = new Function("root", "process", "line", parserSrc.slice(parserMarker.length))
+    var listing = {current: worker, quitting: false, replies: [], messages: [],
+        pathsResolved: function(paths, request) { this.replies.push([request, paths]) },
+        message: function(message) { this.messages.push(message) },
+        failed: function(reason) { throw new Error(reason) }}
+    readReply(listing, worker, '{"t":"paths","paths":["/b/late"]}')
+    readReply(listing, worker, '{"t":"paths","paths":["/b/fresh"]}')
+    check("F33 late and fresh replies keep their own tokens", JSON.stringify(listing.replies),
+        '[[1,["/b/late"]],[2,["/b/fresh"]]]')
+    readReply(listing, worker, '{"t":"paths","paths":["/b/unsolicited"]}')
+    check("F33 unsolicited reply gets no selection token", listing.replies.length, 2)
+    readReply(listing, worker, '{"t":"listed","n":2}')
+    check("F33 other listing messages still forward", JSON.stringify(listing.messages), '[{"t":"listed","n":2}]')
+    // Queue a live request so only the obsolete guard can block its late reply.
+    var obsoleteRequest = 3
+    check("F43 paths request starts before worker becomes obsolete", requestPaths(worker, false, [0], obsoleteRequest), true)
+    check("F43 obsolete reply has a queued token", JSON.stringify(worker.pathRequests), JSON.stringify([obsoleteRequest]))
+    worker.obsolete = true
+    readReply(listing, worker, '{"t":"paths","paths":["/b/obsolete"]}')
+    check("F43 obsolete worker forwards nothing", listing.replies.length, 2)
+    check("F33 obsolete worker accepts no paths request", requestPaths(worker, false, [0], obsoleteRequest), false)
 }

@@ -108,10 +108,13 @@ ShellRoot {
         readonly property bool saveReady: win.saveReview.key === win.saveKey
         readonly property bool saveCollision: win.saveReady && win.saveReview.collision
         readonly property bool submitting: win.acceptMarks || win.reviewRequest > 0
-        // Submission disables its initiating control; keep cancellation on the enabled focus path.
-        onSubmittingChanged: if (win.submitting) win.stepFocus(null, false)
+        // Submission keeps Cancel reachable and restores its initiating control only on refusal.
+        onSubmittingChanged: chrome.submissionChanged()
+        readonly property bool marksAllowed: win.req.multiple && !win.saving
+        readonly property var cursorRow: win.rowFor(win.cursorIndex)
+        readonly property bool cursorFile: win.listingState === "ready" && !win.listingFailed && win.cursorRow !== null && !Picker.directory(win.cursorRow)
         readonly property bool canAccept: !win.backendUnavailable && !win.submitting && !win.markRequest && (win.saving
-            ? win.saveReady : win.marks.length > 0 || (win.folderMode && !win.recent && win.listingState !== "loading"))
+            ? win.saveReady : win.marks.length > 0 || (!win.folderMode && win.cursorFile) || (win.folderMode && !win.recent && win.listingState !== "loading"))
 
         // SendPicker.html draws every rule and control frame in one ink, a lift over whatever plane
         // it sits on. Theme.color.surface is a drop on these palettes and vanishes against the chrome
@@ -167,6 +170,7 @@ ShellRoot {
 
         // Rows are named by index, so a replaced listing is dropped whole; emptying the model returns the viewport to the top.
         function clearListing() {
+            selection.reset()
             win.total = 0
             win.held = 0
             win.rows = []
@@ -204,13 +208,7 @@ ShellRoot {
             return request.id
         }
 
-        function validateMarks(accepting) {
-            if (win.backendUnavailable) return
-            if (!win.marks.length && !win.markRequest) return
-            if (win.markRequest) { win.marksDirty = true; return }
-            win.acceptMarks = accepting
-            win.markRequest = win.check({op: "validate"})
-        }
+        function validateMarks(accepting) { selection.validate(accepting) }
 
         function invalidateSave() {
             win.saveReview = ({})
@@ -244,20 +242,12 @@ ShellRoot {
                 win.open(up)
         }
 
-        // Space. A directory is markable only when the request asked for one, and a file only when
-        // it did not: the board draws no check at all on the rows the caller cannot receive.
-        function toggleMark(index) {
-            if (win.backendUnavailable) return
-            if (win.markRequest || win.submitting) { win.say("Selection is still being checked."); return }
-            var row = win.rowFor(index)
-            if (!row || Picker.directory(row) !== win.folderMode)
-                return
-            win.markRequest = win.check({op: "mark", path: Picker.rowPath(win.path, row.n), directory: win.folderMode, multiple: win.req.multiple})
-        }
+        function toggleMark(index) { selection.toggle(index) }
+        function markRange(was, index) { selection.range(was, index) }
+        function selectAll() { selection.all() }
+        function endRange() { selection.endRange() }
 
-        // Enter. A directory is always walked into, even in the folder request the board draws it
-        // marked in, and a file submits what is checked: nothing checked is nothing to submit, which
-        // is the board's own rule and what keeps a stray Enter from sending.
+        // Enter walks folders and submits the checked files, or the cursor file when none are checked.
         function activate(index) {
             var row = win.rowFor(index)
             if (!row)
@@ -269,12 +259,16 @@ ShellRoot {
             win.accept()
         }
 
-        // A file double click marks the row when unmarked, then accepts; a multiple accept sends every mark.
+        // File double clicks toggle marks in several-file requests; one-file requests mark when needed, then accept.
         function doubleActivate(index, rowPath, firstPath) {
             var row = win.rowFor(index)
             var choice = Picker.doubleAction(win.req, row, rowPath, firstPath, win.marks)
             if (choice === Picker.DOUBLE_OPEN) {
                 win.open(Picker.rowPath(win.path, row.n))
+                return
+            }
+            if (choice === Picker.DOUBLE_MARK) {
+                win.toggleMark(index)
                 return
             }
             if (choice !== Picker.DOUBLE_ACCEPT && choice !== Picker.DOUBLE_MARK_ACCEPT) {
@@ -323,7 +317,9 @@ ShellRoot {
                 return
             }
             if (win.marks.length === 0) {
-                win.say("Press Space to select a file first")
+                if (!win.cursorFile) return
+                win.acceptMarks = true
+                win.markRequest = win.check({op: "mark", path: Picker.rowPath(win.path, win.cursorRow.n), directory: false, multiple: false})
                 return
             }
             win.validateMarks(true)
@@ -447,10 +443,12 @@ ShellRoot {
                     return
                 }
                 if (where === "scan" || where === "sort") {
+                    selection.reset()
                     win.pendingListings = 0
                     win.listingFailed = true
                 }
-                win.listingState = "empty"
+                // A worker lost over held rows keeps them and the footer error; only a listing that holds nothing reads as empty.
+                if (win.total === 0) win.listingState = "empty"
                 win.say(msg, true)
             }
             onChanged: function (path) {
@@ -459,16 +457,7 @@ ShellRoot {
             onPickerResult: function (message) {
                 if (win.answered || win.backendUnavailable) return
                 if (message.id === win.markRequest) {
-                    win.markRequest = 0
-                    var accepting = win.acceptMarks
-                    win.acceptMarks = false
-                    if (!message.ok) { win.say(message.error, true); return }
-                    win.marks = Picker.reviewedMarks(win.marks, message.marks)
-                    if (message.removed) win.say(message.removed === 1
-                        ? "1 selected item moved or changed; select it again."
-                        : message.removed + " selected items moved or changed; select them again.", true)
-                    else if (accepting && win.marks.length) { win.finish(Picker.RESPONSE_OK, win.marks); return }
-                    if (win.marksDirty) { win.marksDirty = false; win.validateMarks(false) }
+                    selection.received(message)
                 } else if (message.id === win.saveRequest) {
                     win.saveRequest = 0
                     if (win.probeKey !== win.saveKey) { win.probeSave(); return }
@@ -484,6 +473,13 @@ ShellRoot {
                     win.finish(Picker.RESPONSE_OK, [message.path])
                 }
             }
+        }
+
+        Flea.PickerSelection {
+            id: selection
+            picker: win
+            listing: listing
+            backend: backend
         }
 
         // The history the Recent location lists, read only when that location is opened. The listing
@@ -537,7 +533,7 @@ ShellRoot {
                 anchors.top: chrome.bottom
                 picker: win
                 backend: backend
-                leadingSlot: list.checkSize + Theme.spacing.gap
+                leadingSlot: win.marksAllowed ? list.checkSize + Theme.spacing.gap : 0
                 // The save form keeps the room it had before this header, which yields when it and one row do not fit.
                 visible: save.y - chrome.height >= implicitHeight + Theme.rowHeight
                 height: visible ? implicitHeight : 0
@@ -580,6 +576,7 @@ ShellRoot {
 
             // The same empty hero the browser window draws, over the list area alone.
             Flea.EmptyState {
+                id: hero
                 x: list.x
                 y: list.y
                 width: list.width
@@ -656,7 +653,7 @@ ShellRoot {
                     anchors.right: statusHints.left
                     anchors.rightMargin: Theme.spacing.gap
                     anchors.verticalCenter: parent.verticalCenter
-                    text: win.message.length > 0 ? win.message : Picker.statusLine(win.marks.length, Picker.totalBytes(win.marks))
+                    text: win.message.length > 0 ? win.message : !win.marksAllowed ? "" : Picker.statusLine(win.marks.length, Picker.totalBytes(win.marks))
                     color: win.messageError ? Theme.color.error : Theme.color.foreground
                     font.family: Theme.font.family
                     font.pixelSize: Theme.font.caption
@@ -740,7 +737,7 @@ ShellRoot {
             function snapshot(): string {
                 return JSON.stringify({path: win.path, total: win.total, held: win.held, rows: win.rows,
                     cursor: win.cursorIndex, cursorName: win.rowFor(win.cursorIndex) ? win.rowFor(win.cursorIndex).n : "",
-                    marks: win.marks, state: win.listingState, listingFailed: win.listingFailed, sortBy: backend.sortBy, sortDesc: backend.sortDesc, sortable: win.sortable, filter: win.filterIndex, history: win.history,
+                    marks: win.marks, state: win.listingState, emptyHero: hero.visible, listingFailed: win.listingFailed, sortBy: backend.sortBy, sortDesc: backend.sortDesc, sortable: win.sortable, filter: win.filterIndex, history: win.history,
                     view: win.viewMode, thumbPending: Object.keys(win.thumbState.file).filter(function(index) { return win.thumbState.file[index] === null || win.thumbState.file[index] === "cache-asked" }).length,
                     marksBusy: win.markRequest > 0, saveBusy: win.saveRequest > 0, submitting: win.submitting, backendUnavailable: win.backendUnavailable,
                     canAccept: win.canAccept, saveReady: win.saveReady, collision: win.saveCollision,

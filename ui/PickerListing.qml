@@ -7,6 +7,7 @@ import Quickshell.Io
 Item {
     id: root
     signal message(var value)
+    signal pathsResolved(var paths, int request)
     signal failed(string reason)
     signal quitReady()
     property var current: null
@@ -40,6 +41,13 @@ Item {
     function window(start, count) {
         if (current && current.running && !current.obsolete && !quitting)
             current.write(JSON.stringify({c: "window", start: start, count: count}) + "\n")
+    }
+    // Resolve names without asking metadata for rows outside the held window.
+    function paths(rows, request) {
+        if (!current || !current.running || current.obsolete || quitting) return false
+        current.pathRequests = current.pathRequests.concat([request])
+        current.write(JSON.stringify({c: "paths", rows: rows}) + "\n")
+        return true
     }
     // Storage class for the grid planner, asked after the listing lands.
     function fsinfo() {
@@ -88,6 +96,7 @@ Item {
             property var request
             property bool obsolete: false
             property bool started: false
+            property var pathRequests: []
             command: [Quickshell.env("FLEA_BIN") || "flea", "--backend"]
             stdinEnabled: true
             onStarted: {
@@ -98,7 +107,14 @@ Item {
             stdout: SplitParser {
                 onRead: function(line) {
                     if (process.obsolete || root.quitting || root.current !== process || !line) return
-                    try { root.message(JSON.parse(line)) }
+                    // Sample reply: {"t":"paths","paths":["/folder/file.txt"]}; replies follow request order on this worker.
+                    try {
+                        var message = JSON.parse(line)
+                        if (message.t === "paths") {
+                            var request = process.pathRequests.shift()
+                            if (request !== undefined) root.pathsResolved(message.paths, request)
+                        } else root.message(message)
+                    }
                     catch (error) { root.failed("The listing backend sent an invalid reply.") }
                 }
             }

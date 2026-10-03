@@ -25,6 +25,11 @@ OBJECT = "/org/freedesktop/portal/desktop"
 DEADLINE = 20
 # A refused sort draws nothing to wait for, and a key that lands later still changes the order the next Back checks.
 NO_EVENT_WAIT_S = 0.5
+# Hyprland reports a window's goal geometry while it still animates there, so a capture shoots until a shot repeats.
+SETTLE_SHOT_INTERVAL_S = 0.1
+SETTLE_MAX_SHOTS = 10
+# A moving window never repeats a shot and a caret only alternates two, so a still window matches by its third shot whatever a shot costs.
+SETTLE_MEMORY_SHOTS = 2
 checks = 0
 processes = []
 current = None
@@ -121,7 +126,7 @@ def check_build_inputs():
         check("dep-info from a checkout nested in the tree is a foreign binary", build_inputs(binary, repo)[1] == "another tree")
 
 def run(args, env=None):
-    return subprocess.run([str(arg) for arg in args], env=env, text=True, capture_output=True, check=True, timeout=30).stdout.strip()
+    return subprocess.run([str(arg) for arg in args], env=env, text=True, capture_output=True, check=True, timeout=30, close_fds=True).stdout.strip()
 
 
 def check(label, condition, observed=None):
@@ -156,6 +161,17 @@ def drive(*args):
     return run(["omarchy-drive", *args], drive_env)
 
 
+def settled_picture(name, shoot, sleep=time.sleep):
+    recent = []
+    for _ in range(SETTLE_MAX_SHOTS):
+        picture = shoot()
+        if picture in recent:
+            return picture
+        recent = (recent + [picture])[-SETTLE_MEMORY_SHOTS:]
+        sleep(SETTLE_SHOT_INTERVAL_S)
+    raise AssertionError(f"{name}: the picture kept changing across {SETTLE_MAX_SHOTS} shots")
+
+
 def windows():
     # The normalized driver payload omits PID; Hyprland supplies the process identity used before every mutation.
     result = json.loads(run(["hyprctl", "clients", "-j"], drive_env))
@@ -183,7 +199,7 @@ def move(source, target):
 
 def start(args, name, environment):
     log = guard(root / f"{name}.log").open("w")
-    child = subprocess.Popen([str(arg) for arg in args], env=environment, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    child = subprocess.Popen([str(arg) for arg in args], env=environment, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, close_fds=True)
     log.close()
     processes.append(child)
     return child
@@ -346,7 +362,13 @@ class Request:
         output = guard(root / f"{self.name}-{label}.png")
         if output.exists():
             raise AssertionError(f"screenshot would reuse {output}")
-        drive("shot", output, self.title)
+        scratch = guard(root / f"{self.name}-{label}.settling.png")
+        def shoot():
+            scratch.unlink(missing_ok=True)
+            drive("shot", scratch, self.title)
+            return scratch.read_bytes()
+        settled_picture(f"{self.name}-{label}", shoot)
+        move(scratch, output)
         check(f"{self.name}: fresh native screenshot", output.is_file() and output.stat().st_size > 0, str(output))
         write(root / f"{self.name}-{label}.json", json.dumps(self.state()))
 
@@ -370,23 +392,27 @@ class Request:
 
 def test_single():
     single = Request("SP01-single").opened()
-    check("SP01 zero checked Open disabled", not single.state()["canAccept"], single.state())
-    single.row("alpha.txt")
-    single.key("-k", "Return")
-    check("SP01 zero checked Enter stays open", single.result is None and single.state()["marks"] == [])
-    single.mark("alpha.txt")
-    single.mark("beta.txt")
-    single.until("single mark replaced", lambda state: [mark["path"] for mark in state["marks"]] == [str(fixture / "beta.txt")])
     single.row("folder")
+    state = single.state()
+    check("SP01 folder cursor disables Open", not state["canAccept"] and not single.control("Open")["enabled"], state)
+    check("SP01 one-file hints advertise cursor choice", state["hints"] == "Enter open · Esc cancel", state["hints"])
     single.key("-k", "Return")
-    single.until("Enter navigated", lambda state: state["path"] == str(fixture / "folder"))
+    single.until("Enter navigated", lambda state: state["path"] == str(fixture / "folder") and state["state"] != "loading")
     single.click("Back")
-    single.until("Back retained mark and restored listing focus", lambda state: state["path"] == str(fixture)
-                 and len(state["marks"]) == 1 and state["listFocus"])
-    single.capture("checked")
+    single.until("Back restored listing focus without marks", lambda state: state["path"] == str(fixture)
+                 and state["state"] == "ready" and state["marks"] == [] and state["listFocus"])
     single.row("alpha.txt")
+    state = single.state()
+    check("SP01 file cursor enables Open without marks", state["canAccept"] and state["marks"] == []
+          and single.control("Open")["enabled"], state)
+    single.key("-k", "space")
+    time.sleep(NO_EVENT_WAIT_S)
+    state = single.state()
+    check("SP01 Space leaves cursor choice unmarked", state["marks"] == [] and not state["marksBusy"]
+          and state["cursorName"] == "alpha.txt" and state["canAccept"] and single.result is None, state)
+    single.capture("cursor-choice")
     single.key("-k", "Return")
-    single.answered(0, [(fixture / "beta.txt").as_uri()])
+    single.answered(0, [(fixture / "alpha.txt").as_uri()])
 
 
 def test_multiple():
@@ -407,7 +433,7 @@ def test_multiple():
 
 
 def test_directory():
-    directory = Request("SP03-directory", directory=GLib.Variant("b", True)).opened()
+    directory = Request("SP03-directory", directory=GLib.Variant("b", True), multiple=GLib.Variant("b", True)).opened()
     directory.mark("folder")
     directory.key("-k", "Return")
     directory.until("marked directory navigated", lambda state: state["path"] == str(fixture / "folder"))
@@ -433,8 +459,7 @@ def test_filters():
     filtered.until("Tab enters listing", lambda state: state["listFocus"])
     filtered.key("-k", "End")
     filtered.until("last window loads", lambda state: state["cursor"] == 150 and state["held"] > 0 and state["cursorName"] == "zz-last.png")
-    filtered.key("-k", "space")
-    filtered.until("last window checked", lambda state: not state["marksBusy"] and len(state["marks"]) == 1)
+    filtered.until("last window cursor choice enables Open without marks", lambda state: state["canAccept"] and state["marks"] == [])
     filtered.click("Open")
     result = filtered.answered(0, [(large / "zz-last.png").as_uri()])
     check("SP04 selected filter returned", result["results"].get("current_filter") == ("All files", [(0, "*")]), result)
@@ -452,7 +477,7 @@ def test_changed():
     changed.capture("changed-identity")
     changed.cancel()
 
-    missing = Request("SP05-missing").opened()
+    missing = Request("SP05-missing", multiple=GLib.Variant("b", True)).opened()
     missing.mark("beta.txt")
     move(fixture / "beta.txt", fixture / "beta-retained")
     missing.click("Open")
@@ -461,7 +486,7 @@ def test_changed():
     move(fixture / "beta-retained", fixture / "beta.txt")
 
     guard(fixture / "linked-folder").symlink_to(fixture / "folder")
-    linked = Request("SP05-directory-link", directory=GLib.Variant("b", True)).opened()
+    linked = Request("SP05-directory-link", directory=GLib.Variant("b", True), multiple=GLib.Variant("b", True)).opened()
     linked.mark("linked-folder")
     linked.click("Choose folder")
     linked.answered(0, [(fixture / "linked-folder").as_uri()])
@@ -520,23 +545,23 @@ def test_failure():
     denied.row(target.name)
     guard(parent).chmod(0)
     try:
-        denied.key("-k", "space")
+        denied.key("-k", "Return")
         expected = f"Could not inspect {target}: permission denied"
         refused = denied.until("kernel permission refusal is plain and retains the picker", lambda state:
                                not state["marksBusy"] and state["messageError"] and state["message"] == expected)
-        check("refused selection has no accepted URI", not refused["marks"] and not refused["canAccept"], refused["marks"])
+        check("refused cursor choice has no accepted URI", not refused["marks"] and denied.result is None, refused["marks"])
         denied.capture("permission-denied")
     finally:
         guard(parent).chmod(0o700)
-    denied.mark(target.name)
-    denied.until("restored permissions allow the same item", lambda state: state["canAccept"] and len(state["marks"]) == 1)
-    denied.click("Open")
+    denied.row(target.name)
+    denied.until("restored cursor choice enables Open without marks", lambda state: state["canAccept"] and state["marks"] == [])
+    denied.key("-k", "Return")
     denied.answered(0, [target.as_uri()])
     check("permission recovery keeps the original file contents", target.read_text() == "retained picker contents")
 
     for mode in ["open", "save"]:
         lost = Request(f"SP09-backend-{mode}", "SaveFile" if mode == "save" else "OpenFile",
-                       **({"current_name": GLib.Variant("s", "draft.txt")} if mode == "save" else {})).opened()
+                       **({"current_name": GLib.Variant("s", "draft.txt")} if mode == "save" else {"multiple": GLib.Variant("b", True)})).opened()
         if mode == "open": lost.mark("alpha.txt")
         else: lost.until("draft reviewed before backend loss", lambda state: state["saveReady"])
         before = lost.state()
@@ -563,6 +588,8 @@ def test_failure():
         check("backend loss advertises only cancellation", after["hints"] == "Esc cancel", after["hints"])
         check("backend loss keeps enabled Cancel focused", any(
             control["name"] == "Cancel" and control["focused"] and control["enabled"] for control in after["controls"]), after["controls"])
+        held = lost.until("a lost listing worker keeps the rows and draws no empty hero", lambda state: state["listingFailed"] and state["total"] > 0 and not state["emptyHero"])
+        check("backend loss draws no empty hero over retained rows", held["rows"] and not held["emptyHero"], held["emptyHero"])
         lost.capture("unavailable")
         if mode == "open": lost.key("-k", "Escape")
         else: lost.click("Cancel")
@@ -796,6 +823,36 @@ def test_sorting():
     guard(ordered / "report.txt").unlink()
 
 
+
+# Sample input: FLEA_DISPLAY_LOCK_FD=9 names the runner's already locked open descriptor.
+def take_display_lock(runtime_dir):
+    raw = os.environ.get("FLEA_DISPLAY_LOCK_FD")
+    expected = Path(runtime_dir) / "flea-display.lock"
+    try:
+        if raw is None:
+            held = open(expected, "a")
+        else:
+            if re.fullmatch(r"[0-9]+", raw) is None:
+                raise ValueError("expected a decimal open fd")
+            held = os.fdopen(os.dup(int(raw)), "a")
+        try:
+            if raw is not None:
+                inherited = os.fstat(held.fileno())
+                runtime = expected.stat()
+                if (inherited.st_dev, inherited.st_ino) != (runtime.st_dev, runtime.st_ino):
+                    actual = os.readlink("/proc/self/fd/" + str(held.fileno()))
+                    raise ValueError("inherited descriptor " + raw + " (" + actual + ") is not " + str(expected))
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except Exception:
+            held.close()
+            raise
+        return held
+    except (OSError, ValueError, OverflowError) as error:
+        message = "FAIL display lock FLEA_DISPLAY_LOCK_FD=" + repr(raw) + " expected " + str(expected) + ": " + str(error)
+        print(message, flush=True)
+        raise AssertionError(message) from error
+
+
 def main():
     groups = {"single": test_single, "multiple": test_multiple, "directory": test_directory,
               "filters": test_filters, "changed": test_changed, "save": test_save,
@@ -832,8 +889,7 @@ try:
     check("strict input socket", drive_env["YDOTOOL_SOCKET"] == drive_env["XDG_RUNTIME_DIR"] + "/.ydotool_socket")
     check("strict OEM path", drive_env["OMARCHY_PATH"] == "/usr/share/omarchy")
     check("native accessibility enabled", drive_env["QT_LINUX_ACCESSIBILITY_ALWAYS_ON"] == "1")
-    display_lock = open(Path(drive_env["XDG_RUNTIME_DIR"]) / "flea-display.lock", "a")
-    fcntl.flock(display_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    display_lock = take_display_lock(drive_env["XDG_RUNTIME_DIR"])
     if not drive_env.get("QT_QPA_PLATFORMTHEME"):
         session = run(["systemctl", "--user", "show-environment"], drive_env)
         for line in session.splitlines():
@@ -871,7 +927,7 @@ try:
     write(root / "portals/flea.portal", "[portal]\nDBusName=org.freedesktop.impl.portal.desktop.flea\nInterfaces=org.freedesktop.impl.portal.FileChooser;\n")
     write(root / "portals/portals.conf", "[preferred]\norg.freedesktop.impl.portal.FileChooser=flea\n")
     picker_env["XDG_DESKTOP_PORTAL_DIR"] = str(root / "portals")
-    daemon = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1"], env=picker_env, stdout=subprocess.PIPE, stderr=guard(root / "bus.log").open("w"), text=True, start_new_session=True)
+    daemon = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1"], env=picker_env, stdout=subprocess.PIPE, stderr=guard(root / "bus.log").open("w"), text=True, start_new_session=True, close_fds=True)
     processes.append(daemon)
     address = daemon.stdout.readline().strip()
     check("private bus address", address.startswith("unix:"), address)
