@@ -37,14 +37,17 @@ if [ ! -x "$BIN" ]; then
   printf 'xwsettings.sh: build it (cargo build); refusing to report on nothing\n' >&2
   exit 1
 fi
-python3 tests/xwsettings-drain.py "$BIN"
-check "quitReady observers finish before shutdown" 0 "$?"
 python3 tests/ui-process-ownership.py || fail=1
+
+sandbox_make "$SANDBOX" || exit 1
+# The drain probe's run dir lives in the sandbox, so the guard's removal at the end takes it too.
+sandbox_scratch "$SANDBOX/drain" || exit 1
+TMPDIR=$SANDBOX/drain python3 tests/xwsettings-drain.py "$BIN"
+check "quitReady observers finish before shutdown" 0 "$?"
 
 # The singleton and the libraries it imports, copied the way tests/uiwriter.sh copies them:
 # importing ui/ whole makes Quickshell scan every file in it and warn about the two OEM symlinks
 # a headless run has no session for.
-sandbox_make "$SANDBOX" || exit 1
 mkdir -p "$QMLDIR/js" || exit 1
 cp ui/ViewState.qml "$QMLDIR/ViewState.qml" || exit 1
 # Sample import: import "js/Settings.js" as Settings; transitive libraries use .import "Places.js" as Places.
