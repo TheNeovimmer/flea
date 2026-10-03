@@ -130,18 +130,29 @@ pub fn parse_kde_cut(bytes: &[u8]) -> bool {
 }
 
 pub fn build_flea(op: &str, token: &str) -> Vec<u8> {
-    format!("{} {}", op, token).into_bytes()
+    format!("{} {} {}", op, token, std::process::id()).into_bytes()
 }
 
 // The token is 32 hex chars; anything else is another owner's bytes, not a refusal.
 pub fn parse_flea(bytes: &[u8]) -> Option<(String, String)> {
     let s = std::str::from_utf8(bytes).ok()?;
     let s = s.trim_matches(|c: char| c == '\0' || c.is_whitespace());
-    let (op, token) = s.split_once(' ')?;
+    let (op, rest) = s.split_once(' ')?;
+    let token = rest.split_once(' ').map_or(rest, |(token, _)| token);
     if !is_op(op) || token.len() != TOKEN_HEX_LEN || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
     Some((op.to_string(), token.to_string()))
+}
+
+// Old owners omit the pid; an invalid pid never turns a readable token into an empty selection.
+pub(crate) fn flea_pid(bytes: &[u8]) -> Option<u32> {
+    parse_flea(bytes)?;
+    let s = std::str::from_utf8(bytes).ok()?.trim_matches(|c: char| c == '\0' || c.is_whitespace());
+    let (_, rest) = s.split_once(' ')?;
+    let (_, pid) = rest.split_once(' ')?;
+    let pid: u32 = pid.parse().ok()?;
+    (pid > 0 && pid <= i32::MAX as u32).then_some(pid)
 }
 
 // Shared by both list shapes: refused URIs count as skipped, never fail the read.

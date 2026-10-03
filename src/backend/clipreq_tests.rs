@@ -68,7 +68,7 @@ fn a_silent_set_owner_never_holds_the_request_loop_and_still_refuses() {
             entered.send(()).unwrap();
             proceed.recv_timeout(TEST_HOLD_WATCHDOG).unwrap();
             Err(RecvTimeoutError::Timeout)
-        }, None));
+        }));
         returned.send(()).unwrap();
     });
     running.recv_timeout(TEST_WATCHDOG).unwrap();

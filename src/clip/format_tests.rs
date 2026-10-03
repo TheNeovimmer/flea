@@ -91,6 +91,21 @@ fn kde_and_flea_tokens_decide_cut_and_identity() {
 }
 
 #[test]
+fn flea_owner_pids_are_optional_and_do_not_change_the_token() {
+    let token = "ab12cd34ab12cd34ab12cd34ab12cd34";
+    let old = format!("cut {}", token);
+    assert_eq!(flea_pid(old.as_bytes()), None);
+    let bytes = build_flea("cut", token);
+    assert_eq!(parse_flea(&bytes), parse_flea(old.as_bytes()));
+    assert_eq!(flea_pid(&bytes), Some(std::process::id()));
+    for pid in ["0", "-1", "2147483648", "no-pid", "23 24"] {
+        let bytes = format!("cut {} {}", token, pid).into_bytes();
+        assert_eq!(parse_flea(&bytes), parse_flea(old.as_bytes()));
+        assert_eq!(flea_pid(&bytes), None);
+    }
+}
+
+#[test]
 fn clip_paths_are_absolute_without_nul_or_parent_climbs() {
     assert!(validate_clip_paths(&["/a/b".to_string()]).is_ok());
     assert!(validate_clip_paths(&["relative".to_string()]).is_err());

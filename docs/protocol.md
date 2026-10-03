@@ -924,12 +924,37 @@ once at start and later ones answer nothing. No reply of its own: file selection
 as `clip` lines with `op` of `changed`, an empty or text-only selection as `none`, and
 two identical selections in a row emit once. No compositor or manager ends the thread
 after one `changed` `none` line carrying the error; a dropped connection reconnects at
-most once a second, at most 5 times. A backend that has started this watcher also
-sends `changed` with `clip:"none"` and an empty token when its own clipboard owner
-ends, while that token is the last reported selection and no later owner has been
-spawned by this backend. Hyprland gives data-control clients no event for an empty
-selection. The owner-end line shares the watcher's dedupe state: a repeated empty
-selection emits nothing, and a later real selection still emits. See `clip` below.
+most once a second, at most 5 times.
+
+Flea's private `application/x-flea-clip` payload is `copy|cut TOKEN PID`, where TOKEN
+is 32 hex characters and PID is the detached owner's process id. The older
+`copy|cut TOKEN` payload remains readable but supplies no owner-exit trigger.
+Every watching backend, including windows that did not start the owner, holds a
+pidfd for a reported Flea selection's live owner. A pid already gone at report time
+(pidfd open returns ESRCH or the pidfd is already readable) triggers the same single
+guarded fresh read as a later exit. A missing pid, a live process whose executable
+or arguments do not identify this Flea binary's `--clip-own`, or another pidfd open
+failure supplies no trigger and no report.
+The watcher uses one reusable waiter thread and replaces its pidfd wait slot when
+the reported selection changes; dropping the watching connection closes the slot
+and stops the waiter. No per-copy thread or descriptor accumulates.
+
+An owner's exit triggers a fresh connection and the same selection-reading path
+as `clipGet`. It is never evidence that the clipboard is empty: a clipboard manager
+may still be re-serving that owner's token. The reading shares the watcher's
+deduping emitter and is applied only if that owner's token is still the last
+reported token when the reading returns. A newer watcher report wins in either
+reply order. A watcher offer read captures the report generation before receiving
+bytes and is discarded if an exit read reports while those bytes are pending,
+so a delayed offer cannot restore an ended token.
+Reading the same token emits nothing; a failed reading emits nothing
+and is not retried. The spawning backend's reaper only reaps, with no separate
+clipboard notification hook.
+
+Hyprland gives data-control clients no event when a selection is emptied. The
+pidfd trigger covers Flea owners; a selection owned by another program and emptied
+on Hyprland reports nothing until the next selection. Paste always reads fresh,
+so no file operation can act on that stale watcher state. See `clip` below.
 
 ### quit
 

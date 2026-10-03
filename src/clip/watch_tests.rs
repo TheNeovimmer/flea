@@ -367,3 +367,6 @@ fn a_primary_selection_retires_only_its_offer_and_keeps_the_clipboard() {
 
 #[path = "watch_loss_tests.rs"]
 mod loss;
+
+#[path = "watch_end_tests.rs"]
+mod end;

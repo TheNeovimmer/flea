@@ -130,10 +130,6 @@ fn split_payload(payload: &[u8]) -> Result<(String, String, Vec<String>), String
 
 // One copy's owner, detached into its own session; the copy outlives the window that made it.
 pub fn spawn_owner(op: &str, paths: &[String]) -> Result<String, String> {
-    spawn_owner_watched(op, paths, None)
-}
-
-pub(crate) fn spawn_owner_watched(op: &str, paths: &[String], observed: Option<super::watch::OwnerWatch>) -> Result<String, String> {
     if !format::is_op(op) {
         return Err("the clipboard operation is copy or cut".to_string());
     }
@@ -142,7 +138,7 @@ pub(crate) fn spawn_owner_watched(op: &str, paths: &[String], observed: Option<s
         return Err("the clipboard names no path".to_string());
     }
     let exe = std::env::current_exe().map_err(|e| format!("the clipboard owner could not start ({})", e))?;
-    spawn_owner_with(&exe, op, paths, |rx| rx.recv_timeout(OWNER_READY_WAIT), observed)
+    spawn_owner_with(&exe, op, paths, |rx| rx.recv_timeout(OWNER_READY_WAIT))
 }
 
 const OWNER_READY_WAIT: Duration = Duration::from_secs(2);
@@ -153,7 +149,6 @@ type Ready = (bool, String);
 pub(crate) fn spawn_owner_with(
     exe: &std::path::Path, op: &str, paths: &[String],
     ready: impl FnOnce(&std::sync::mpsc::Receiver<Ready>) -> Result<Ready, std::sync::mpsc::RecvTimeoutError>,
-    observed: Option<super::watch::OwnerWatch>,
 ) -> Result<String, String> {
     let token = format::make_token()?;
     let spawn = || unsafe {
@@ -170,10 +165,7 @@ pub(crate) fn spawn_owner_with(
         })
         .spawn()
     };
-    let mut child = match &observed {
-        Some(watch) => watch.spawn(&token, spawn),
-        None => spawn(),
-    }.map_err(|e| format!("the clipboard owner could not start ({})", e))?;
+    let mut child = spawn().map_err(|e| format!("the clipboard owner could not start ({})", e))?;
     // Every exit after a spawn kills then reaps the child once, so no path leaves a zombie.
     let abandon = |mut child: std::process::Child| {
         let _ = child.kill();
@@ -228,18 +220,14 @@ pub(crate) fn spawn_owner_with(
             return Err(error.unwrap_or_else(|| "the clipboard owner did not answer".to_string()));
         }
     }
-    start_reaper(child, token.clone(), observed);
+    start_reaper(child, token.clone());
     Ok(token)
 }
 
 // A thread reaps the owner after it runs until replaced, so the caller never waits on it.
-pub(crate) fn start_reaper(child: std::process::Child, token: String, observed: Option<super::watch::OwnerWatch>) -> std::thread::JoinHandle<()> {
+pub(crate) fn start_reaper(child: std::process::Child, token: String) -> std::thread::JoinHandle<()> {
     remember(&token, child.id());
-    std::thread::spawn(move || reap_owner(child, &token, || {
-        if let Some(watch) = observed {
-            watch.ended(&token);
-        }
-    }))
+    std::thread::spawn(move || reap_owner(child, &token, || {}))
 }
 
 // waitid with WNOWAIT sees an exit without reaping it, so the pid stays unrecyclable until forget.
