@@ -11542,7 +11542,7 @@ sys.exit(1 if contains(json.load(sys.stdin)) else 0)
     [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: own-strip drop changed the tab count"
     [[ "$(flea_pids | tr '\n' ' ')" == "$esc_before" ]] || fail "xwtab: own-strip drop opened a window"
     printf 'XWTAB own-strip ok\n'
-    # B's window DropArea is off with two tabs, so its listing refuses the drop without an enter; keys go by address.
+    # A drop on B's listing is refused without an enter: B's window DropArea is off with two tabs; keys go by address.
     xwtab_key "$bpid" t
     settle
     [[ "$(xwdrag_qs "$bid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: t did not open a second tab on B"
@@ -11556,7 +11556,7 @@ sys.exit(1 if contains(json.load(sys.stdin)) else 0)
     [[ "$(xwdrag_qs "$aid" tabCount 2>/dev/null)" == "2" ]] || fail "xwtab: A lost its tab to a refused drop"
     [[ "$(flea_pids | tr '\n' ' ')" == "$esc_before" ]] || fail "xwtab: a refused drop opened a window"
     printf 'XWTAB listing-refused ok\n'
-    # A foreign receiver takes uri-list and plain text only, so it refuses the tab; its enter receipt is still required.
+    # A drop onto a foreign receiver is refused: it takes uri-list and plain text only; its enter receipt is still required.
     : > "$dir/.flea-test-sandbox"
     local recv_log="$dir/receiver.log" recv_pid="" recv_addr="" rcx rcy
     : > "$recv_log"
