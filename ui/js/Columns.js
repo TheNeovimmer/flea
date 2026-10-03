@@ -54,7 +54,7 @@ function dualSet(width, t, hidden) {
     return {mode: false, kind: false, location: false, size: showSize, date: showDate}
 }
 
-// Recent protects its list or dual name floor and reserves only drawn metadata widths.
+// Recent protects its pane's name floor and reserves every non-hidden metadata width for Location.
 function recentSet(width, t, hidden, dual) {
     var base = 2 * t.rowPaddingX + t.iconSize + t.gap + t.nameMin
     var metadataGap = dual ? 0 : t.gap
@@ -62,8 +62,8 @@ function recentSet(width, t, hidden, dual) {
     var showSize = h.indexOf("size") < 0 && width >= base + t.size + metadataGap
     var sizeSlot = showSize ? t.size + metadataGap : 0
     var showDate = h.indexOf("date") < 0 && width >= base + sizeSlot + t.date + metadataGap
-    var dateSlot = showDate ? t.date + metadataGap : 0
-    var locationFloor = base + sizeSlot + dateSlot + t.location + t.gap
+    var locationFloor = base + (h.indexOf("size") < 0 ? t.size + metadataGap : 0)
+        + (h.indexOf("date") < 0 ? t.date + metadataGap : 0) + t.location + t.gap
     return {mode: false, kind: false,
         size: showSize,
         date: showDate,

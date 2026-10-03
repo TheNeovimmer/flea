@@ -7,6 +7,7 @@ Item {
     id: root
     readonly property int paneWidth: 800
     readonly property int locationWidth: 150
+    readonly property int wideDateWidth: 220
     readonly property int belowFloor: 1
     readonly property int hiddenLocationFloor: 375
     readonly property int hiddenUsedFloor: 350
@@ -150,7 +151,37 @@ Item {
         }
     }
 
+    // Sweep every pixel so Location cannot appear before configured metadata or disappear while widening.
+    function wideningRecent(check) {
+        var panes = [{name: "List", dual: false}, {name: "Dual", dual: true}]
+        var hiddenSets = [[], ["size"], ["date"], ["size", "date"]]
+        for (var p = 0; p < panes.length; p++) {
+            for (var h = 0; h < hiddenSets.length; h++) {
+                var hidden = hiddenSets[h]
+                var label = panes[p].name + " Recent hidden=" + hidden.join(",")
+                var locationSeen = false
+                var missingMetadataWidth = -1
+                var disappearedWidth = -1
+                for (var width = 0; width <= root.paneWidth; width++) {
+                    var cols = Flea.Theme.columns(width, hidden, root.wideDateWidth, true, panes[p].dual)
+                    if (cols.location && missingMetadataWidth < 0
+                        && ((hidden.indexOf("size") < 0 && !cols.size)
+                            || (hidden.indexOf("date") < 0 && !cols.date)))
+                        missingMetadataWidth = width
+                    if (locationSeen && !cols.location && disappearedWidth < 0)
+                        disappearedWidth = width
+                    if (cols.location)
+                        locationSeen = true
+                }
+                check(label + " Location never precedes configured metadata (first bad px)", missingMetadataWidth, -1)
+                check(label + " Location stays drawn while widening (first bad px)", disappearedWidth, -1)
+                check(label + " sweep reaches drawn Location", locationSeen, true)
+            }
+        }
+    }
+
     function run(check, walk) {
+        root.wideningRecent(check)
         root.transitions(check, walk)
         root.dualRecent(check, walk)
         check("Hidden Size and Used release Location at 375px", Columns.recentSet(root.hiddenLocationFloor, root.premiseTokens, ["size", "date"]).location, true)
