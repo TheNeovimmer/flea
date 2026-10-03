@@ -363,7 +363,10 @@ Item {
         var action = root.loneFlyoutAction || (entry ? entry.action : "")
         if (root.loneFlyoutAction.length > 0) {
             var lonePick = Menu.loneChoice(root.loneFlyoutAction, id, root.forRail, root.forHeader, root.hasRow, root.openedIdentity, root.selectionIdentity)
-            if (lonePick.kind !== "fire") { root.validateChoice(action, id); return }
+            if (lonePick.kind !== "fire") {
+                root.refuseLone(lonePick.kind)
+                return
+            }
         }
         if (!action || !root.validateChoice(action, id)) return
         root.close()
@@ -428,6 +431,12 @@ Item {
         root.refreshProviderRows()
     }
 
+    function refuseLone(kind) {
+        root.close()
+        root.refused(kind === "moved" ? "Selected items changed; reopen the menu."
+                                     : "That action is no longer available; reopen the menu.")
+    }
+
     // Rebuild only to validate; rows stay fixed while the menu is open under the pointer.
     function validateChoice(action, subId) {
         var identityChanged = !root.forRail && !root.forHeader && root.hasRow
@@ -441,9 +450,7 @@ Item {
             for (var j = 0; j < sub.length; j++)
                 if (sub[j].id === subId && sub[j].disabled !== true) return true
         }
-        root.close()
-        root.refused(identityChanged ? "Selected items changed; reopen the menu."
-                                     : "That action is no longer available; reopen the menu.")
+        root.refuseLone(identityChanged ? "moved" : "unavailable")
         return false
     }
 

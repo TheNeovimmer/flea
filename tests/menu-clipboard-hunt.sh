@@ -18,6 +18,7 @@ ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/menu-clipboard-hunt.qml "$test_root/config/shell.qml" || exit 1
 printf 'alpha contents\n' > "$test_root/source/alpha.txt"
 printf 'beta contents\n' > "$test_root/source/beta.txt"
+python3 tests/menu-clipboard-checks.py record fixture "$test_root/source" "$test_root/source-bytes.json" || exit 1
 for link_dest in pasteas pasteas-absolute pasteas-hard; do
     printf 'canary contents\n' > "$test_root/$link_dest-dest/canary.txt"
 done
@@ -70,12 +71,14 @@ for action in copy paste cut copyas-list copyas-grid copyas-columns terminal pas
         printf 'file://%s/source/alpha.txt\nfile://%s/source/beta.txt\n' "$test_root" "$test_root" > "$test_root/clipboard"
     fi
     : > "$test_root/clipboard.calls"
+    : > "$test_root/clipboard.terminals"
     output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
         HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CONFIG_HOME="$test_root/home/config" \
         XDG_DATA_HOME="$test_root/data" XDG_CACHE_HOME="$test_root/cache" XDG_RUNTIME_DIR="$test_root/runtime" \
         PATH="$test_root/bin:$PATH" FLEA_BIN="$test_root/bin/flea-hunt" FLEA_HUNT_REAL_BIN="$PWD/target/debug/flea" FLEA_PATH="$start" \
         FLEA_HUNT_ACTION="$action" FLEA_HUNT_DEST="$dest" FLEA_HUNT_CLIPBOARD="$test_root/clipboard" \
         FLEA_HUNT_SOURCE="$test_root/source" FLEA_HUNT_CHECKS="$PWD/tests/menu-clipboard-checks.py" \
+        FLEA_HUNT_SOURCE_BYTES="$test_root/source-bytes.json" \
         QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 timeout 30 qs -p "$test_root/config" 2>&1)
     code=$?
     printf '%s\n' "$output" | grep -a 'CLIPHUNT'
@@ -114,7 +117,13 @@ if calls != expected:
 print("PASS six Copy as leaves and Ctrl+Shift+C copied both selected files")
 PY
         if [ "$?" -ne 0 ]; then failed=1; failures=$((failures + 1)); fi
-    elif [[ "$action" != terminal && "$action" != original ]]; then
+    elif [[ "$action" == terminal ]]; then
+        checks=$((checks + 1))
+        if ! python3 tests/menu-clipboard-checks.py terminals "$action" "$test_root/clipboard.terminals" "$start" "$dest"; then
+            failed=1
+            failures=$((failures + 1))
+        fi
+    elif [[ "$action" != original ]]; then
         for file in alpha.txt beta.txt; do
             checks=$((checks + 1))
             if [ ! -f "$test_root/$action-dest/$file" ]; then
@@ -123,12 +132,10 @@ PY
                 failures=$((failures + 1))
             fi
         done
-        if [[ "$action" == cut || "$action" == pasteas* ]]; then
-            checks=$((checks + 1))
-            if ! python3 tests/menu-clipboard-checks.py files "$action" "$test_root/source" "$dest"; then
-                failed=1
-                failures=$((failures + 1))
-            fi
+        checks=$((checks + 1))
+        if ! python3 tests/menu-clipboard-checks.py files "$action" "$test_root/source" "$dest" "$test_root/source-bytes.json"; then
+            failed=1
+            failures=$((failures + 1))
         fi
     fi
     # Offscreen cannot set window masks; every other runtime error is significant.

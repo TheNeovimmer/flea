@@ -24,7 +24,18 @@ def publication(action, calls_path, source):
             raise ValueError("publication lacks the file clipboard MIME type")
 
 
-def files(action, source, destination):
+def record_bytes(source, snapshot):
+    snapshot.write_text(json.dumps({name: (source / name).read_bytes().hex() for name in SELECTED_NAMES}))
+
+
+def terminals(calls_path, source, destination):
+    # Sample input: /fixture/source\n/fixture/copy-dest\n records the directory argv of two opens.
+    calls = calls_path.read_text().splitlines()
+    if calls != [str(source), str(destination)]:
+        raise ValueError("terminal argv must open the background directory then the selected place exactly once")
+
+
+def files(action, source, destination, source_bytes):
     for name in SELECTED_NAMES:
         src, dest = source / name, destination / name
         if action.startswith("pasteas"):
@@ -44,6 +55,8 @@ def files(action, source, destination):
                     raise ValueError(name + " does not resolve to the selected source")
         elif not dest.is_file() or dest.is_symlink():
             raise ValueError(name + " is not a destination file")
+        if dest.read_bytes() != source_bytes[name]:
+            raise ValueError(name + " destination bytes differ from the recorded source")
         if action == "copy" and not (src.exists() or src.is_symlink()):
             raise ValueError(name + " is missing from the Copy source")
         if action == "cut" and (src.exists() or src.is_symlink()):
@@ -51,18 +64,26 @@ def files(action, source, destination):
 
 
 def main():
-    kind, action, first, second = sys.argv[1:]
+    kind, action, first, second = sys.argv[1:5]
     try:
         if kind == "publication":
             publication(action, Path(first), Path(second))
         elif kind == "files":
-            files(action, Path(first), Path(second))
+            # Sample input: {"alpha.txt":"616c7068610a","beta.txt":"626574610a"} stores the fixture bytes as hex.
+            recorded = json.loads(Path(sys.argv[5]).read_text())
+            source_bytes = {name: bytes.fromhex(recorded[name]) for name in SELECTED_NAMES}
+            files(action, Path(first), Path(second), source_bytes)
+        elif kind == "record":
+            record_bytes(Path(first), Path(second))
+        elif kind == "terminals":
+            terminals(Path(first), Path(second), Path(sys.argv[5]))
         else:
             raise ValueError("unknown check " + kind)
-    except (ValueError, KeyError, TypeError, OSError) as error:
+    except (ValueError, KeyError, TypeError, OSError, IndexError) as error:
         print("FAIL " + action + " " + kind + ": " + str(error))
         return 1
-    print("PASS " + action + " " + kind + " verified both selected files")
+    targets = "directories" if kind == "terminals" else "files"
+    print("PASS " + action + " " + kind + " verified both selected " + targets)
     return 0
 
 

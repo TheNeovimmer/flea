@@ -6,6 +6,16 @@
 .import "sourcefixture.js" as Source
 
 function executable(check, state, entry, actions) {
+    var menuSource = Source.source("ui/js/Menu.js")
+    var eligibility = Source.slice(menuSource, "function canMakeExecutable(", "function copyAsEntries(")
+    var shebang = Source.slice(Source.source("ui/Pane.qml"), "function shebangTarget()", "function checkShebang()")
+    var formatSource = Source.source("ui/js/Format.js")
+    check("regular-file type has one Format constant", formatSource.indexOf("var S_IFREG = 0o100000") >= 0, true)
+    var formatNames = ["S_IFMT", "S_IFREG", "ANY_EXECUTE_BIT"]
+    formatNames.forEach(function (name) {
+        check("Make executable uses Format." + name, eligibility.indexOf("Format." + name) >= 0, true)
+        check("shebang target uses Format." + name, shebang.indexOf("Format." + name) >= 0, true)
+    })
     // A logical row can land before its delegate; Paste as still needs the row's snapshot.
     var entrance = Source.slice(Source.source("ui/Pane.qml"), "function openPasteAs()", "function invertSelection")
     var openPasteAs = eval("(function(root, menu) {" + entrance + "\nopenPasteAs();})")

@@ -405,6 +405,39 @@ function providerRefresh(check) {
         return sourceText.substring(brace + 1, scan - 1)
     }
     var selfText = Source.source("tests/js/menu.js")
+    var chooseSub = eval("(function (root, id) {" + functionBody(contextSrc, "function chooseSub(") + "})")
+    var refusalBody = contextSrc.indexOf("function refuseLone(") >= 0
+        ? functionBody(contextSrc, "function refuseLone(") : ""
+    var refuseLone = eval("(function (root, kind) {" + refusalBody + "})")
+    var validateChoice = eval("(function (root, action, subId) {" + functionBody(contextSrc, "function validateChoice(") + "})")
+    var refusalCases = [
+        { id: "copyPath", identity: "changed", reason: "Selected items changed; reopen the menu." },
+        { id: "unknown", identity: "original", reason: "That action is no longer available; reopen the menu." }
+    ]
+    refusalCases.forEach(function (test) {
+        var menu = { entries: [], openSubmenuRow: -1, loneFlyoutAction: "copyAs", forRail: false,
+            forHeader: false, hasRow: true, openedIdentity: "original", selectionIdentity: test.identity,
+            opened: true, validations: 0, reasons: [], fired: [] }
+        menu.close = function () { menu.opened = false }
+        menu.refused = function (reason) { menu.reasons.push(reason) }
+        menu.chosen = function (action) { menu.fired.push(action) }
+        menu.refuseLone = function (kind) { refuseLone(menu, kind) }
+        menu.validateChoice = function () {
+            menu.validations += 1
+            return true
+        }
+        chooseSub(menu, test.id)
+        check("lone " + test.id + " closes without validator side effects", menu.opened, false)
+        check("lone " + test.id + " refuses with its named reason", menu.reasons.join("|"), test.reason)
+        check("lone " + test.id + " never validates an already refused choice", menu.validations, 0)
+        check("lone " + test.id + " fires nothing", menu.fired.length, 0)
+        menu.opened = true
+        menu.reasons = []
+        menu.buildEntries = function () { return [] }
+        check("normal " + test.id + " validation refuses", validateChoice(menu, "copyAs", test.id), false)
+        check("normal " + test.id + " shares the lone refusal sentence", menu.reasons.join("|"), test.reason)
+        check("normal " + test.id + " validation closes", menu.opened, false)
+    })
     check("the brace scan lives in one helper, not three inline loops", selfText.split("Depth +=" + " 1").length - 1, 0)
     var linkText = Source.source("ui/PaneWire.qml")
     var onLinkTarget = eval("(function (pane, path, directory, name, id) {"

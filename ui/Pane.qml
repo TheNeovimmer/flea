@@ -507,7 +507,7 @@ FocusScope {
         var row = root.cursorRow
         if (!row || row.d) return ""
         var bits = Number(row.p) || 0
-        if ((bits & 0o170000) !== 0o100000 || (bits & 0o111) !== 0) return ""
+        if ((bits & Format.S_IFMT) !== Format.S_IFREG || (bits & Format.ANY_EXECUTE_BIT) !== 0) return ""
         return root.join(root.path, row.n)
     }
     function checkShebang() {

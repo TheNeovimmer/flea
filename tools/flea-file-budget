@@ -60,7 +60,7 @@ tests/js/devices.js 303
 tests/js/previewswap.js 386
 tests/js/focus.js 728
 tests/js/mounts.js 262
-tests/js/menu.js 493
+tests/js/menu.js 508
 tests/js/nav.js 361
 tests/picker-grid.qml 448
 tests/js/network.js 306
@@ -82,7 +82,7 @@ tests/touchpad.qml 747
 ui/Backend.qml 466
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 477
-ui/ContextMenu.qml 682
+ui/ContextMenu.qml 689
 ui/ConvertDialog.qml 433
 ui/GridArea.qml 411
 ui/Ipc.qml 835

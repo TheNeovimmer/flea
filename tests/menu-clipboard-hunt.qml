@@ -43,7 +43,8 @@ ShellRoot {
     }
     Process {
         id: artifactCheck
-        command: ["python3", Quickshell.env("FLEA_HUNT_CHECKS"), "files", shell.action, shell.source, shell.destination]
+        command: ["python3", Quickshell.env("FLEA_HUNT_CHECKS"), "files", shell.action, shell.source,
+                  shell.destination, Quickshell.env("FLEA_HUNT_SOURCE_BYTES")]
         stdout: StdioCollector { onStreamFinished: shell.log(this.text.trim()) }
         onExited: function(exitCode, exitStatus) {
             shell.log((exitCode === 0 ? "PASS" : "FAIL") + " local-" + shell.action + " filesystem-result")

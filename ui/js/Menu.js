@@ -271,14 +271,14 @@ function availableRail(e, entry) {
 function permissionsEntry(mode, count, modes) {
     if (modes !== undefined && modes !== null && modes.length > 0) {
         for (var i = 0; i < modes.length; i++) {
-            var kind = (Number(modes[i]) || 0) & 0o170000
-            if (!(kind === 0o100000 || kind === 0o040000))
+            var kind = (Number(modes[i]) || 0) & Format.S_IFMT
+            if (!(kind === Format.S_IFREG || kind === 0o040000))
                 return { label: "Permissions", action: "permissions", glyph: "lock", disabled: true, errored: true }
         }
         return { label: "Permissions", action: "permissions", glyph: "lock", disabled: false, errored: false }
     }
-    var kind = (Number(mode) || 0) & 0o170000
-    var allowed = count >= 1 && (kind === 0o100000 || kind === 0o040000)
+    var kind = (Number(mode) || 0) & Format.S_IFMT
+    var allowed = count >= 1 && (kind === Format.S_IFREG || kind === 0o040000)
     return { label: "Permissions", action: "permissions", glyph: "lock", disabled: !allowed, errored: !allowed }
 }
 
@@ -286,8 +286,8 @@ function permissionsEntry(mode, count, modes) {
 function canMakeExecutable(mode, count, hasShebang, cursorIsTarget) {
     if (count !== 1 || hasShebang !== true || cursorIsTarget !== true) return false
     var bits = Number(mode) || 0
-    if ((bits & 0o170000) !== 0o100000) return false
-    return (bits & 0o111) === 0
+    if ((bits & Format.S_IFMT) !== Format.S_IFREG) return false
+    return (bits & Format.ANY_EXECUTE_BIT) === 0
 }
 
 // The Copy as flyout: six leaves in board order, letters on keyHint.
