@@ -5,6 +5,7 @@ use std::sync::mpsc::{channel, Receiver};
 const TOKEN: &str = "038a038a038a038a038a038a038a038a";
 const CHILD_TEST: &str = "clip::watch::tests::end::stand_in_owner";
 const OWNER_WATCHDOG: Duration = Duration::from_secs(15);
+const SIGKILL: i32 = 9;
 
 struct Child(std::process::Child);
 
@@ -38,7 +39,7 @@ fn isolated(name: &str) -> bool {
     });
     let status = ended.recv_timeout(OWNER_WATCHDOG);
     if status.is_err() {
-        unsafe { pidfd_send_signal(pidfd.as_raw_fd(), 9, std::ptr::null(), 0); }
+        unsafe { pidfd_send_signal(pidfd.as_raw_fd(), SIGKILL, std::ptr::null(), 0); }
     }
     worker.join().unwrap();
     assert!(status.expect("the isolated owner-exit watchdog").success());

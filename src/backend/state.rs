@@ -46,7 +46,7 @@ pub struct State {
     pub generation: u64,
     // The clipboard watcher runs once per backend; a second clipWatch is a no-op.
     pub clip_watching: bool,
-    // The watcher and owner reapers serialize their last selection and replies through this state.
+    // The watcher and owner-end waiter (src/clip/end.rs) serialize selections and replies here; the reaper only reaps.
     pub clip_watch: crate::clip::watch::Shared,
 }
 

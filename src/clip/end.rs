@@ -50,11 +50,14 @@ pub(super) struct OwnerEnd {
     replies: Sender<OpMsg>,
     state: watch::Shared,
     socket: Option<PathBuf>,
+    eventfd_failed: bool,
+    spawn_failed: bool,
 }
 
 impl OwnerEnd {
     pub fn new(replies: Sender<OpMsg>, state: watch::Shared, socket: Option<PathBuf>) -> Self {
-        Self { mail: Arc::new(Mutex::new(Mail::default())), wake: None, worker: None, replies, state, socket }
+        Self { mail: Arc::new(Mutex::new(Mail::default())), wake: None, worker: None, replies, state, socket,
+            eventfd_failed: false, spawn_failed: false }
     }
 
     pub fn tracks(&self, token: &str) -> bool {
@@ -65,13 +68,30 @@ impl OwnerEnd {
         let owner = pid.and_then(owner_fd);
         if owner.is_some() && self.wake.is_none() {
             let raw = unsafe { eventfd(0, CLOEXEC_NONBLOCK) };
-            if raw < 0 { return; }
+            if raw < 0 {
+                if !self.eventfd_failed {
+                    eprintln!("flea: clipboard owner-end eventfd failed: {}", std::io::Error::last_os_error());
+                    self.eventfd_failed = true;
+                }
+                return;
+            }
+            self.eventfd_failed = false;
             let wake = Arc::new(unsafe { OwnedFd::from_raw_fd(raw) });
             let (mail, signal, replies, state, socket) =
                 (self.mail.clone(), wake.clone(), self.replies.clone(), self.state.clone(), self.socket.clone());
             let worker = std::thread::Builder::new().name("flea-clip-end".into())
                 .spawn(move || wait(mail, signal, replies, state, socket));
-            let Ok(worker) = worker else { return; };
+            let worker = match worker {
+                Ok(worker) => worker,
+                Err(error) => {
+                    if !self.spawn_failed {
+                        eprintln!("flea: clipboard owner-end thread spawn failed: {}", error);
+                        self.spawn_failed = true;
+                    }
+                    return;
+                }
+            };
+            self.spawn_failed = false;
             self.wake = Some(wake);
             self.worker = Some(worker);
         }
@@ -129,7 +149,9 @@ fn wait(mail: Arc<Mutex<Mail>>, wake: Arc<OwnedFd>, replies: Sender<OpMsg>, stat
         ];
         let timeout = if ended { POLL_NOW } else { POLL_FOREVER };
         if unsafe { poll(fds.as_mut_ptr(), fds.len(), timeout) } < 0 {
-            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted { continue; }
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted { continue; }
+            eprintln!("flea: clipboard owner-end poll failed: {}", error);
             return;
         }
         if fds[0].revents != 0 {
@@ -186,10 +208,19 @@ fn is_owner(pid: u32) -> bool {
     let Ok(other) = std::fs::metadata(format!("/proc/{}/exe", pid)) else { return false; };
     if (own.dev(), own.ino()) != (other.dev(), other.ino()) { return false; }
     let Ok(command) = std::fs::read(format!("/proc/{}/cmdline", pid)) else { return false; };
+    // Sample input: /usr/bin/flea\0--clip-own\0.
     let Some(command) = command.strip_suffix(&[0]) else { return false; };
     let args: Vec<_> = command.split(|byte| *byte == 0).collect();
-    if matches!(args.as_slice(), [_, b"--clip-own"]) { return true; }
+    owner_args(&args)
+}
+
+fn owner_args(args: &[&[u8]]) -> bool {
+    if matches!(args, [_, b"--clip-own"]) { return true; }
     #[cfg(test)]
-    if matches!(args.as_slice(), [_, b"--exact", b"clip::watch::tests::end::stand_in_owner", b"--nocapture"]) { return true; }
+    if matches!(args, [_, b"--exact", b"clip::watch::tests::end::stand_in_owner", b"--nocapture"]) { return true; }
     false
 }
+
+#[cfg(test)]
+#[path = "end_tests.rs"]
+mod tests;

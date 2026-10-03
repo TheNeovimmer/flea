@@ -62,14 +62,13 @@ fn report_end(observed: &Observer, token: &str, op: &str, read_token: &str) {
 }
 
 #[test]
-fn the_current_owners_end_reports_exactly_one_none() {
+fn rereading_a_reported_end_of_the_current_owner_emits_exactly_one_none() {
     const TOKEN: &str = "038a038a038a038a038a038a038a038a";
     let (observed, incoming) = observer();
-    let child = spawn();
     report_cut(&observed, &incoming, TOKEN);
-    end(child, TOKEN);
     report_end(&observed, TOKEN, "none", "");
     assert_eq!(line(&incoming), NONE);
+    report_end(&observed, TOKEN, "none", "");
     no_line(&incoming);
 }
 
