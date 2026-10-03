@@ -1,4 +1,5 @@
 .import "../../ui/js/Markdown.js" as Markdown
+.import "sourcefixture.js" as Source
 
 function run(check) {
     check("rendered and source are the only views", Markdown.isView("rendered") && Markdown.isView("source"), true)
@@ -62,6 +63,18 @@ function run(check) {
     check("a local img tag resolves", Markdown.prepare(htmlLocal, dir).indexOf('src="file:///home/gm/notes/shot.png"') >= 0, true)
 
     check("an empty file counts no lines", Markdown.lineCount(""), 0)
+    check("a final newline ends the second line", Markdown.lineCount("a\nb\n"), 2)
+    check("an unterminated second line still counts", Markdown.lineCount("a\nb"), 2)
+    check("a newline alone is one empty line", Markdown.lineCount("\n"), 1)
+    check("CRLF ends each line once", Markdown.lineCount("a\r\nb\r\n"), 2)
+    var capture = Source.source("tests/ui-captures-markdown.sh")
+    var fixture = capture.match(/cat > "\$dir\/listing\/notes\.md" <<'EOF'\n([\s\S]*?)\nEOF/)
+    check("the native capture fixture exists", fixture !== null, true)
+    var fixtureText = fixture ? fixture[1] + "\n" : ""
+    // src/backend/linecount.rs: LF bytes plus an unterminated final line, with zero for an empty file.
+    var backendCount = (fixtureText.match(/\n/g) || []).length + (fixtureText.length > 0 && !fixtureText.endsWith("\n") ? 1 : 0)
+    check("the native capture backend count is 48", backendCount, 48)
+    check("the capture header agrees with the backend", Markdown.countLine(Markdown.lineCount(fixtureText)), Markdown.countLine(backendCount))
     check("lines count the breaks plus one", Markdown.lineCount("a\nb\nc"), 3)
     check("one line reads singular", Markdown.countLine(1), "1 line")
     check("many lines read grouped", Markdown.countLine(1200), "1,200 lines")

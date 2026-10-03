@@ -97,6 +97,15 @@ EOF
     goto_row "$(row_index_of notes.md)"
     settle
     shot "cap-markdown-column"
-    printf 'CAPMARKDOWN quicklook=ok source=ok column=ok\n'
+    key -k Space >/dev/null
+    for _attempt in $(seq 1 40); do [[ "$(ipc previewOpen)" == "true" ]] && break; sleep 0.1; done
+    [[ "$(ipc previewOpen)" == "true" ]] || fail "capmarkdown: Space did not reopen Quick Look from columns"
+    key r >/dev/null
+    settle
+    key -k Escape >/dev/null
+    settle
+    [[ "$(ipc previewOpen)" == "false" ]] || fail "capmarkdown: Escape did not close Source Quick Look"
+    shot "cap-markdown-column-source"
+    printf 'CAPMARKDOWN quicklook=ok source=ok column=ok column-source=ok\n'
     kill_flea
 }

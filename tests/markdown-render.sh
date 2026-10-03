@@ -112,3 +112,16 @@ elif [ -n "$shot" ]; then
     printf 'shot %s\n' "$shot"
 fi
 printf '%s\n' "$output" | grep -oE 'MARKDOWN_RENDER (CHECK|body=|PASS).*'
+
+cp tests/markdown-source-render.qml "$test_root/config/shell.qml" || exit 1
+source_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIXTURE="$test_root/notes.md" \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 20 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+printf '%s\n' "$source_output" | grep -oE 'MARKDOWN_SOURCE .*'
+check_warnings "$source_output" 0 || exit 1
+printf '%s\n' "$source_output" | grep -qE 'MARKDOWN_SOURCE [0-9]+ checks, 0 failed' || exit 1
+if [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then
+    cp "$test_root/runtime/markdown-source.png" "$FLEA_CI_SUITE_LOGS/markdown-source.png" || exit 1
+fi

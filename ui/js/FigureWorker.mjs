@@ -335,6 +335,29 @@ function tightenVertical(svg) {
     return svg.replace(root[0], head);
 }
 
+// QtSvg's polyline end tangent uses last-to-last; a path uses its actual final segment at any angle.
+function markerPaths(svg) {
+    return svg.replace(/<polyline\b[^<>]*\/>/g, function (tag) {
+        if (!/\smarker-(?:start|mid|end)=/.test(tag))
+            return tag;
+        var found = tag.match(/\spoints="([^"]*)"/);
+        var numbers = found ? found[1].match(/[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:[eE][-+]?\d+)?/g) : null;
+        if (!numbers || numbers.length < 4 || numbers.length % 2 !== 0)
+            return tag;
+        var points = [];
+        for (var i = 0; i < numbers.length; i += 2) {
+            if (i > 0 && Number(numbers[i]) === Number(numbers[i - 2])
+                    && Number(numbers[i + 1]) === Number(numbers[i - 1]))
+                continue;
+            points.push(numbers[i] + " " + numbers[i + 1]);
+        }
+        if (points.length < 2)
+            return tag;
+        return tag.replace(/^<polyline\b/, "<path")
+            .replace(/\spoints="[^"]*"/, ' d="M' + points.join(" L") + '"');
+    });
+}
+
 export function postMermaid(svg, t) {
     var table = baseVars(t);
     // Library-defined derivations (--_text etc. plus per-chart vars such as
@@ -381,6 +404,7 @@ export function postMermaid(svg, t) {
     // A click directive unwraps to its content; the link never ships.
     out = out.replace(/<a\s[^<>]*>/g, "").replace(/<\/a>/g, "");
     out = tightenVertical(forceText(out, t.font || "sans-serif", t.bodyPx || 14, t.fg));
+    out = markerPaths(out);
     var bad = checkSafe(out);
     if (bad)
         throw new Error("unsafe diagram: " + bad);

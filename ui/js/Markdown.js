@@ -40,7 +40,8 @@ function placeholder(host) {
 
 function lineCount(text) {
     var body = String(text)
-    return body.length === 0 ? 0 : body.split("\n").length
+    // Match src/backend/linecount.rs: a trailing LF ends a line; only an unterminated tail adds one.
+    return body.length === 0 ? 0 : body.split("\n").length - (body.endsWith("\n") ? 1 : 0)
 }
 
 function countLine(n) {

@@ -4,12 +4,8 @@ import "." as Flea
 import "js/Icons.js" as Icons
 import "js/Markdown.js" as Markdown
 
-// A Markdown file under the cursor, read once and on demand like every other text preview.
-// Rendered draws ui/js/Markdown.js's blocks: ordinary runs through Qt's own Markdown support,
-// fenced code verbatim on the chrome surface, quotes behind a muted bar, remote images as the
-// board's box and same-folder images as the image. Source is the file verbatim. Every image
-// URL is resolved before Qt sees any text, so a remote image is a box and only a file beside
-// the document loads; links carry no handler and never leave.
+// Active-file Markdown preview: Rendered blocks and verbatim Source share the board's document inset.
+// Resolve images before Qt sees text: remote images become placeholders; only files beside the document load.
 Item {
     id: root
 
@@ -244,7 +240,7 @@ Item {
         anchors.fill: parent
         clip: true
         contentWidth: width
-        contentHeight: Math.max(height, sourceText.implicitHeight)
+        contentHeight: Math.max(height, sourceText.implicitHeight + 2 * root.insetY)
         visible: (!root.tooLarge && !root.readFailed && root.parseError === "")
             && root.view === Markdown.SOURCE
 
@@ -261,7 +257,9 @@ Item {
 
         Text {
             id: sourceText
-            width: parent.width
+            x: root.insetX
+            y: root.insetY
+            width: sourceFlick.width - 2 * root.insetX
             text: root.rawText
             textFormat: Text.PlainText
             wrapMode: Text.Wrap
