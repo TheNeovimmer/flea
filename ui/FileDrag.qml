@@ -33,6 +33,7 @@ Item {
         if (root.pane.cancelSlowClick) root.pane.cancelSlowClick()
         root.buttonUp = false
         root.awaitingPaths = false
+        if (root.pane) root.pane.awaitingPaths = false
         root.dragRows = DragOps.carried(root.pane, index)
         root.dragListing = root.pane.backend ? root.pane.backend.heldListing : 0
         root.dropIndex = -1
@@ -50,6 +51,7 @@ Item {
             return
         }
         root.awaitingPaths = true
+        if (root.pane) root.pane.awaitingPaths = true
         var dev = root.pane.backend.dirDev || 0
         root.feedback = { own: true, copy: root.dragCopy, shift: root.dragShift, dev: dev,
                           deletable: DragOps.listingDeletable(root.pane), count: root.dragRows.length, canLeave: true }
@@ -81,12 +83,14 @@ Item {
         root.feedback = DragOps.feedbackFor(root.dragMime[DragOps.ROWS_MIME],
             (root.dragMime["text/uri-list"] || "").split("\r\n"))
         root.showTarget("", root.feedback.dev)
-        // This enters the platform event loop; every payload field must already be fixed.
+        // Drag.Automatic runs QDrag::exec synchronously, so a finish inside it must not overwrite the hold: arm the watch first.
+        if (root.pane) root.pane.dragHolding = true
         root.Drag.active = true
     }
 
     function deliverPaths(list, pending) {
         root.awaitingPaths = false
+        if (root.pane) root.pane.awaitingPaths = false
         var held = root.pane && root.pane.backend ? root.pane.backend.heldListing : 0
         if (root.buttonUp || held !== pending.listing || !list || list.length !== pending.rows.length) {
             root.cannotLeave()
@@ -126,6 +130,7 @@ Item {
 
     function liftEnded() {
         root.Drag.active = false
+        if (root.pane) { root.pane.dragHolding = false; root.pane.awaitingPaths = false }
         root.dragRows = []
         root.dragListing = 0
         root.dragMime = ({})

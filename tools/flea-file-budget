@@ -11,7 +11,7 @@ known_over_cap="shelf/Model.js 669
 shelf/Panel.qml 430
 shelf/ShelfCard.qml 443
 shelf/ShelfService.qml 481
-src/backend/copyfile.rs 696
+src/backend/copyfile.rs 694
 src/backend/copyfile_tests.rs 607
 src/backend/durable.rs 662
 src/backend/durable_tests.rs 1248
@@ -19,8 +19,8 @@ src/backend/fsinforeq.rs 407
 src/backend/jump_tests.rs 406
 src/backend/renamecompat.rs 762
 src/backend/gvfslist.rs 549
-src/backend/imagesize.rs 475
-src/backend/iomount.rs 549
+src/backend/imagesize.rs 473
+src/backend/iomount.rs 572
 src/backend/localsend.rs 405
 src/backend/menu_actions.rs 560
 src/backend/menu_registry.rs 563
@@ -31,8 +31,8 @@ src/backend/movebatch_tests.rs 751
 src/backend/opsdispatch.rs 2204
 src/backend/opsreq.rs 551
 src/backend/opsreq/tests.rs 471
-src/backend/permissions.rs 732
-src/backend/run.rs 662
+src/backend/permissions.rs 719
+src/backend/run.rs 715
 src/backend/ops.rs 427
 src/backend/thumbs.rs 460
 src/backend/dirsizeworker.rs 574
@@ -56,7 +56,7 @@ src/uistate.rs 659
 src/uistore.rs 540
 src/vulkan.rs 728
 tests/js/columns.js 666
-tests/js/drag.js 402
+tests/js/drag.js 405
 tests/js/devices.js 303
 tests/js/previewswap.js 386
 tests/js/focus.js 735
@@ -70,9 +70,10 @@ tests/js/settings.js 337
 tests/js/tap.js 333
 tests/js/uistate.js 370
 tests/js/watch.js 354
+tests/js/xwwatch.js 310
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
-tests/columnsfolder.qml 396
+tests/columnsfolder.qml 399
 tests/preview-settle-live.qml 457
 tests/preview-decode.qml 507
 tests/js/status.js 354
@@ -80,7 +81,7 @@ tests/rename-grid-bottom.qml 424
 tests/rename-grid-bottom.js 305
 tests/rename-lifecycle-check.js 356
 tests/touchpad.qml 747
-tests/xwsettings-tabs.qml 403
+tests/xwsettings-tabs.qml 416
 ui/Backend.qml 466
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 480
@@ -96,9 +97,9 @@ ui/NetworkDialog.qml 445
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 849
 ui/OpenWithDialog.qml 608
-ui/Pane.qml 1015
+ui/Pane.qml 1018
 ui/PaneMenuActions.qml 464
-ui/PaneWire.qml 559
+ui/PaneWire.qml 579
 ui/PermissionsDialog.qml 629
 ui/PickerWindow.qml 781
 ui/Preview.qml 723
@@ -109,13 +110,14 @@ ui/Row.qml 480
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
 ui/Sidebar.qml 681
-ui/StatusBar.qml 460
-ui/Theme.qml 415
+ui/StatusBar.qml 456
+ui/Theme.qml 414
 ui/TrashView.qml 475
 ui/ViewState.qml 538
-ui/WindowBody.qml 576
+ui/WindowBody.qml 575
+ui/js/Anchor.js 405
 ui/js/Devices.js 366
-ui/js/Filter.js 253
+ui/js/Filter.js 257
 ui/js/Focus.js 435
 ui/js/Keymap.js 338
 ui/js/Markdown.js 527
@@ -124,7 +126,7 @@ ui/js/Drag.js 316
 ui/js/Ops.js 439
 ui/js/Picker.js 328
 ui/js/Settings.js 455
-ui/js/Tabs.js 387
+ui/js/Tabs.js 386
 ui/js/UiState.js 447"
 
 status=0

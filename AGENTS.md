@@ -258,24 +258,39 @@ A name that is gone from both falls back to the clamped old index, which keeps t
 user left it. The filter query is put
 back too: it narrows the rows the pane holds rather than choosing which directory it holds.
 
-**The selection is not re-anchored; the re-read waits for it instead.** `ui/js/Selection.js` is a set
+**The selection is re-anchored by file identity; the re-read no longer waits for it.** `ui/js/Selection.js` is a set
 of row indices and its own rule is that a new listing clears them, because an index into a directory
 that has changed names another file. Re-pointing a selection at other files is how a delete hits the
-wrong ones, so `PaneWire`'s `watchBusy`, decided by `ui/js/Anchor.js busy`, defers the re-read while
-a selection stands, and with it while a rename editor is open, the context menu is up, a filter is
-being typed, a search listing is showing, a list is already in flight or a transfer waits on the
-collision card. A preference re-list is the one re-list that re-marks instead of clearing:
-a settings change to hidden, sort or grouping captures `Anchor.preference` before it re-lists and
-`ui/PaneSwap.qml` re-marks cursor and marks by name when the rows land, following each name to its
-new index. When any selected row lies outside the held window the preference re-list clears the whole
-selection instead of keeping its in-window subset, because a subset would silently drop files from a
-delete or move. The preference anchor resolves only on the rows reply for the window it asked for; a
-scroll elsewhere or a cursor move drops it, so a later unrelated reply never yanks the cursor. The debt is kept, not dropped: `onWatchBusyChanged` starts the 400 ms timer the moment
-the last of those clears, and `ui/CollideHost.qml decide` writes its transfer before it clears
-`pending`, so the transfer reaches the backend ahead of any re-read the card held back. A user holding a selection therefore sees the same stale
-listing 0.1.4 always showed, for as long as they hold it. **The debt does not travel**: leaving the
-directory clears it, because the pane's own `onPathChanged` fires before the navigation clears the
-selection that was holding it, and without that a change in the folder being left was paid for by a
+wrong ones, so the watched re-read carries the marks across by NAME instead (`ui/js/Anchor.js`
+`selectedMarks`, recorded in `watched()` and restored in `apply()`): every mark stays on the same
+file, a removed file's mark goes, the cursor stays on its file or on the clamped old index when its
+file went, and the held window is asked for again with no scroll, so the viewport does not jump.
+`PaneWire`'s `watchBusy`, decided by `ui/js/Anchor.js busy`, still defers the re-read while
+a rename editor is open (the re-read would kill it), the context menu is up or a menu action waits
+on its reply (the re-read flips `menuSelectionIdentity` and the reply is refused), a filter is
+being typed (the re-read closes the query line), a search listing is showing (the walk owns the
+rows outright), a rubber-band drag runs, a file drag runs or waits on its paths reply (the rows
+must not shift under a live pointer), any paths asker resolves (clipboard, drag, compress, Copy as,
+permissions or the anchor's own tagged ask, so two replies never cross), an
+unfinished anchor for the open directory, a list is already in flight
+or a transfer waits on the collision card (`ui/CollideHost.qml decide` writes its transfer before
+it clears `pending`, so the transfer reaches the backend ahead of any re-read the card held back).
+A bare selection, and the path-keyed copy and cut marks which never named a row index, are not a
+reason to hold: another window's change shows at once with the same files marked. Marks outside the
+held window resolve through one batched `paths` round trip before the swap and one batched `locate`
+after it, each tagged to its asker (`ui/PaneWire.qml onPaths` routes only the anchor's tag to
+`Anchor.fillPaths`, `Anchor.takeLocated` matches the directory, the anchor's own locate id and
+`transferId` 0), and with no backend that can answer either the re-read waits instead.
+A preference re-list also re-marks by name: a
+settings change to hidden, sort or grouping captures `Anchor.preference` before it re-lists, and
+`ui/PaneSwap.qml` applies `Anchor.applyPreference` after the watched anchor. When any selected row
+lies outside the held window, the preference re-list clears the whole selection rather than silently
+keeping its in-window subset. Its anchor resolves only on the rows reply for the asked window; a
+scroll elsewhere or a cursor move drops it. The debt is kept, not dropped: `onWatchBusyChanged`
+starts the 400 ms timer the moment
+the last of those clears. **The debt does not travel**: leaving the
+directory clears it, because the pane's own `onPathChanged` fires before the navigation clears
+whatever was holding it, and without that a change in the folder being left was paid for by a
 full re-list of the folder being opened. `ui/Backend.qml`'s `listRequests` counter is what makes
 that assertable, the same idiom as `thumbRequests` and `dirSizeRequests`: `tests/ui.sh watch` counts
 from before the navigation and requires exactly one listing for it.
@@ -3185,6 +3200,30 @@ expose the live drag state used by the existing slow-click tests. Global limits 
 
 The sg1 merge into int re-derives three ceilings with `wc -l`: `src/backend/undoshare_tests.rs` 533 and
 `ui/Pane.qml` 1015 add sg1's line splits and wire alias to the stage4 sizes, and `ui/OpenWithDialog.qml` 608 keeps sg1's helper import.
+
+The xw5r2 merge into int re-derives every exception ceiling with `wc -l`, one row per file. The
+joined watch keeps marks by identity, the failed paths and locate anchors still list and end, and
+the reload requests changed-row counts only when asked. `ui/Pane.qml` is 1018 lines for the writable
+`dragHolding` and awaiting-paths holds beside the readonly `dragActive`, true while a drag is held or the live view reports one;
+`ui/PaneWire.qml` is 577 for tagged anchor replies and the count-free watch caller.
+`tests/js/drag.js` is 405 with both sides' drag pins, and `tests/js/xwwatch.js` is 312 with every
+cross-window case. `ui/js/Anchor.js` is recorded at 393, over the 300 hard cap, because the joined
+file owns the watched, delete and preference anchor contracts together; `ui/js/AnchorHold.js` is
+119, keeping the count request and reload notice across deferred paths resolution.
+`tests/js/xwrl4.js` is 263, over soft and under hard, with the row-height, clamp, grid and delayed
+counted-reload pins. `ui/PaneSwap.qml` is 186, applying the watched anchor with row height before
+the preference anchor. `tests/xwsettings-tabs.qml` is 416 for the native immediate-reload, kept-file and selection-clear pins, preserving the two-window watch coverage under xw5. Global limits and checks remain unchanged.
+
+The x5m round 3 fixes re-derive the touched ceilings with `wc -l`: `ui/js/Anchor.js` is 405 for
+request-scoped locate IDs, separate send statements and the unfinished-anchor hold;
+`ui/PaneWire.qml` is 575 and `tests/js/xwwatch.js` is 310 after folding the cited comment blocks
+and updating the locate reply fixture. The new `tests/js/xwanchor-races.js` is 129 lines and
+needs no exception. `tests/xwsettings-tabs.qml` remains 416. Global limits and all checks remain intact.
+
+The x5m round 4 fixes record `ui/PaneWire.qml` at 579 lines, re-derived with `wc -l`, for
+ending the open directory's anchor after a window refusal without losing the error line or cursor.
+The race suite is 183 lines inside both budgets, with locate-ID range and window-refusal pins.
+Global limits and all checks remain intact.
 
 ## The key table is generated
 

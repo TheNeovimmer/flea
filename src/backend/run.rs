@@ -574,6 +574,59 @@ mod tests {
     const THUMB_TEST_WORKERS: usize = 1;
 
     #[test]
+    fn a_remote_window_error_names_window_and_the_exact_listed_path() {
+        const REMOTE_PATH: &str = "/run/user/flea-window-test/gvfs/smb-share:server=test,share=wire/folder \"café\"\\name/../";
+        const NO_WATCH: i32 = -1;
+        let tb = Tables::load();
+        let (events, _events_rx) = channel();
+        let mut st = State::new(super::super::dirsizeworker::Worker::new(events.clone()));
+        let (results, _done) = channel();
+        let cache_root = std::env::temp_dir().join("flea-window-error-cache");
+        let pool = Pool::new(THUMB_TEST_WORKERS, results, cache_root.clone(), Arc::clone(&tb.aliases), Arc::clone(&tb.thumbs));
+        let cache = Cache::at(cache_root);
+        let (tx, _rx) = channel();
+        let mut ops = Ops::new(tx);
+        let mut watch = Watch::start(events.clone());
+        let mut fsinfo = FsInfo::new(events.clone());
+        let poller = super::super::watchpoll::Poller::new(events.clone());
+        let done = super::super::iomount::ListOut {
+            listing: Listing::new(),
+            read_ms: 0.0,
+            sort_ms: 0.0,
+            sized: Vec::new(),
+            dev: 0,
+            writable: true,
+            first_metas: Vec::new(),
+            first_ms: 0.0,
+            watch_wd: NO_WATCH,
+        };
+        let mut out = Vec::new();
+        adopt_listed(&mut out, &mut st, &pool, &tb, REMOTE_PATH, done, false);
+        let listed = String::from_utf8(std::mem::take(&mut out)).expect("the listing wire is UTF-8");
+        let header = listed.lines().next().expect("the listing has a header");
+        assert_eq!(crate::json::field_str(header, "t").as_deref(), Some("listed"));
+        let listed_path = crate::json::field_str(header, "path").expect("the header names its directory");
+        assert_eq!(listed_path.as_bytes(), REMOTE_PATH.as_bytes(), "the listing preserves the input spelling");
+        assert!(super::super::iomount::is_remote(&st.base, ""), "the fixture takes the remote window branch");
+        let mount = super::super::iomount::mount_key(&st.base, "");
+        let _stuck = super::super::iomount::test_hold_stuck(mount);
+        let calls_before = super::super::iomount::test_calls();
+        assert!(handle_line(r#"{"c":"window","start":0,"count":1}"#, &mut out,
+            &mut st, &tb, &pool, &cache, &mut ops, &mut watch, &mut fsinfo, &poller,
+            &events) == Control::Continue);
+        assert!(super::super::iomount::test_calls() > calls_before, "the window reaches the real mount bound");
+        let response = String::from_utf8(out).expect("the error wire is UTF-8");
+        let mut lines = response.lines();
+        let error = lines.next().expect("the refused window emits an error");
+        assert_eq!(crate::json::field_str(error, "t").as_deref(), Some("error"), "{error}");
+        assert_eq!(crate::json::field_str(error, "where").as_deref(), Some("window"), "the window emitter identifies its operation: {error}");
+        let error_path = crate::json::field_str(error, "path").expect("the error names its directory");
+        assert_eq!(error_path.as_bytes(), listed_path.as_bytes(), "the window error path must be byte-equal to the listed path; error={error_path:?}, listed={listed_path:?}");
+        assert!(crate::json::field_str(error, "msg").expect("the error carries its cause").contains("not responding"));
+        assert!(lines.next().is_none(), "a refused window emits no rows: {response}");
+    }
+
+    #[test]
     fn a_held_link_keeps_requests_responsive_and_holds_the_operation_slot() {
         let d = TestDir::new("heldlink");
         let src = d.dir("src");

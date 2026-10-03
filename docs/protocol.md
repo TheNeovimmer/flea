@@ -1479,8 +1479,10 @@ Example: `{"t":"error","where":"scan","path":"/root","msg":"permission denied","
 `where` names the failing operation, `path` names the input that failed, `msg` is the
 underlying message. Over `--backend`'s stdout, `where` is `scan` (a `list` whose path
 failed to read), `sort` (a `sort` whose key names no order this wire defines; `path`
-carries the key as sent), `stale` (a row-indexed request naming a numbering the listing has
-left; `path` carries the command, see "listing"), or `read` (the
+carries the key as sent), `window` (a remote metadata window whose mount did not
+respond or whose worker stopped; `path` matches the current listing header's `path`
+byte for byte, including its original spelling), `stale` (a row-indexed request naming
+a numbering the listing has left; `path` carries the command, see "listing"), or `read` (the
 stdin stream itself could not be decoded; the loop stops right after emitting this
 line, because the framing cannot be trusted past that point; thumbnail work already
 running is still drained after it, so a `thumbed` line can follow). The write

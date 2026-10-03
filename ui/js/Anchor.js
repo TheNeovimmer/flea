@@ -1,42 +1,46 @@
 .pragma library
 
-// Re-reading the open listing without moving the user off it. Two callers with one mechanism: a
-// change another program made under the listing (ui/PaneWire.qml's watch) and Flea's own delete.
-// Split out of ui/js/Nav.js, which sits at the 300-line JS cap, the same way tests/js/watch.js was
-// split out of tests/js/nav.js; ui/js/Nav.js keeps navigation and this keeps the return.
+.import "AnchorHold.js" as Hold
 
-// ui/PaneWire.qml watchBusy: a re-read renumbers rows, so it waits while anything names one, including a menu reply in flight.
-function busy(pane) {
+// Anchor locate IDs sit above QML's signed-int menu IDs, keeping the reply askers disjoint.
+var LOCATE_ID_FLOOR = 2147483648
+var locateSeq = LOCATE_ID_FLOOR
+
+// Re-reading the open listing without moving the user off it, for a foreign change and Flea's own delete.
+
+// A re-read renumbers every row, so it waits while an interaction owns the rows, while any paths asker resolves, or while unheld marks have no resolver.
+function busy(pane, anchor) {
     if (!pane)
+        return true
+    if (anchor && anchor.path === pane.path)
         return true
     if (pane.menuActions && (pane.menuActions.pendingAction || pane.menuActions.pendingActivation === true))
         return true
+    if (pane.dragActive === true || pane.awaitingPaths === true)
+        return true
+    if (pane.pathsPending)
+        return true
+    if (pane.clipPending !== undefined && pane.clipPending !== null)
+        return true
+    // F2 fallback: a mark outside the held window needs a paths resolve; without a backend that answers it the re-read waits. Empty listings hold nothing.
+    if (pane.total > 0 && Hold.hasUnheld(pane) && !Hold.canResolve(pane))
+        return true
     return pane.listInFlight || pane.renamingIndex >= 0 || pane.renamePending
         || pane.menuVisible || (pane.menuActions && pane.menuActions.opened) || pane.filterTyping || pane.searchMode.length > 0
-        || pane.selectionCount() > 0 || pane.selectionBand !== null || (pane.collide && pane.collide.pending !== null)
+        || pane.selectionBand !== null || (pane.collide && pane.collide.pending !== null)
 }
 
-// A change another program made under the open listing, unlike ui/js/Nav.js refresh() which follows
-// Flea's own write. The rows are read again and the cursor is put back on the file it was on by name,
-// because a create above it renumbers every row below and a listing that jumped back to the top
-// would move the user while they were reading it. Returns the anchor apply() resolves, or null.
-function watched(pane, wantChanged) {
-    return anchoredRefresh(pane, false, wantChanged)
+function watched(pane, wantChanged, rowH) {
+    return anchoredRefresh(pane, false, selectedMarks(pane), wantChanged, rowH)
 }
 
-// Flea's own delete. The rows that were marked are gone, so there is usually no name to return to:
-// the anchor is the cursor row that was deleted and apply()'s own fallback then lands on
-// whatever took its place, which is Finder's rule. It selects that row as well, so the next delete
-// follows without reaching for the mouse; reported 2026-09-11, "deleting one refreshes the entire
-// file list and loses my selection, so I have to start over". A delete that failed leaves the row
-// standing, and then the name matches and the cursor goes back exactly where it was.
+// Flea's own delete: the anchor is the deleted cursor row and apply()'s fallback lands on whatever took its place, which is Finder's rule. A failed delete matches by name instead.
+// Sample input: afterDelete(pane, true) with pane.trashedFirst set by Ops.trash.
 function afterDelete(pane, landed) {
-    // A block leaves as a block, so the cursor belongs on the row the block left rather than on the
-    // row below wherever it sat inside it; a delete that failed keeps the row it was already on.
     if (landed && pane.trashedFirst >= 0)
         pane.cursorIndex = pane.trashedFirst
     pane.trashedFirst = -1
-    return anchoredRefresh(pane, true)
+    return anchoredRefresh(pane, true, null, false)
 }
 
 // A listing past its wait stops loading the pane: late rows are dropped as replaced.
@@ -94,56 +98,244 @@ function leaf(path) {
     return cut < 0 ? text : text.substring(cut + 1)
 }
 
-function anchoredRefresh(pane, select, wantChanged) {
+function anchoredRefresh(pane, select, marks, wantChanged, rowH) {
     if (pane.listInFlight) {
         return null
     }
     var row = pane.rowFor(pane.cursorIndex)
-    // The path rides along because the anchor can outlive one rows reply: a navigation between the
-    // two below would otherwise put this directory's cursor row onto the next directory's listing.
+    var lone = pane.selection && typeof pane.selection.follows === "function" ? !!pane.selection.follows() : false
+    var rh = Hold.rowHeight(pane, rowH)
+    var view = Hold.viewRow(pane)
+    var area = pane.listArea || null
+    var contentY = area && typeof area.contentY === "number" ? area.contentY : 0
+    var originY = area && typeof area.originY === "number" ? area.originY : 0
+    // The path rides along because the anchor can outlive one rows reply: a navigation between the two below would otherwise put this directory's cursor row onto the next directory's listing.
     var anchor = { name: row ? String(row.n) : "", index: pane.cursorIndex, start: pane.held,
-                   path: pane.path, select: select === true }
-    // A filter narrows the rows the pane holds rather than choosing which directory it holds, so it
-    // survives a re-read of the same directory; every other caller of openWithoutHistory drops it.
-    pane.openWithoutHistory(pane.path, { keptQuery: pane.filterQuery, wantChanged: wantChanged === true })
-    // The re-read answers from row 0, so a cursor deep in a large directory needs its own window back
-    // before the anchor's name can be looked for anywhere near where it was.
-    if (anchor.start > 0) {
-        pane.backend.window(anchor.start, pane.windowSize)
+                   path: pane.path, select: select === true, wantChanged: wantChanged === true, reloadFrom: pane.total,
+                   marks: marks || null, kept: [], hadMarks: marks !== null && marks.length > 0,
+                   lone: lone, offset: view * rh + originY - contentY, rowH: rh, view: view }
+    // F2: names outside the held window come from one batched paths request before the swap, tagged so the reply reaches only this asker.
+    if (anchor.marks) {
+        var need = []
+        for (var i = 0; i < anchor.marks.length; i++) {
+            if (anchor.marks[i].name === null)
+                need.push(anchor.marks[i].index)
+        }
+        if (need.length > 0 && !pane.pathsPending && (pane.clipPending === undefined || pane.clipPending === null)) {
+            var sent = false
+            try {
+                if (pane.backend && pane.backend.send) { pane.backend.send({ c: "paths", rows: need }); sent = true }
+                else if (pane.backend && pane.backend.askPaths) { pane.backend.askPaths(need); sent = true }
+            } catch (e) { console.warn("flea: anchor paths ask failed, listing without unheld names") }
+            if (sent) {
+                anchor.needPaths = need
+                pane.pathsPending = { kind: "anchor" }
+                return anchor
+            }
+        }
     }
+    Hold.startList(pane, anchor)
     return anchor
 }
 
-// Runs on each rows reply while an anchor stands. The name can arrive in the listing's own first
-// window or in the one asked for above, so a miss in the first is not yet a miss. A name that is
-// gone from both leaves the old index, which keeps the view where the user left it.
-function apply(pane, anchor) {
+// The batched paths answer for F2: fills unheld names, then starts the list the swap holds.
+function fillPaths(pane, anchor, list) {
+    return Hold.fillPaths(pane, anchor, list)
+}
+
+// True only for the anchor's own tagged reply; a clipboard, drag or compress reply takes nothing.
+function takesPaths(pane, anchor) {
+    return !!(anchor && anchor.needPaths && pane.pathsPending && pane.pathsPending.kind === "anchor")
+}
+
+// A failed paths ask keeps the anchor so the shifted listing lands it by name; a refused locate ends it.
+// Sample input: failAnchor(pane, { name: "b", index: 1, marks: [], kept: [] }) keeps the anchor for rows ["NEW","a","b","c"].
+function failAnchor(pane, anchor, rowH) {
+    if (!anchor)
+        return null
+    var hadPaths = !!anchor.needPaths
+    anchor.needPaths = null
+    anchor.locateDone = true
+    if (pane.pathsPending && pane.pathsPending.kind === "anchor")
+        pane.pathsPending = null
+    if (hadPaths) {
+        if (pane.path !== anchor.path)
+            return null
+        // Land by name on the held rows before the re-list renumbers them; a miss waits for the shifted listing.
+        var at = indexOf(pane, anchor.name)
+        if (pane.total > 0 && at >= 0) {
+            landOn(pane, at, anchor)
+            Hold.restoreView(pane, anchor, rowH)
+        }
+        // A failed ask still owes the listing that draws the outside change, unless one is already out.
+        if (!pane.listInFlight)
+            Hold.startList(pane, anchor)
+        // Keep the target across the renumber so apply() re-lands it; ending here would strand the pre-list index.
+        return anchor
+    }
+    var found = indexOf(pane, anchor.name)
+    if (pane.total > 0) {
+        landOn(pane, found >= 0 ? found : Math.min(anchor.index, pane.total - 1), anchor)
+        Hold.restoreView(pane, anchor, rowH)
+    }
+    finishMarks(pane, anchor)
+    return null
+}
+
+// PaneWire's located guard consumes only this anchor's request; a refused own reply ends the anchor.
+// Sample input: { directory: "/d", id: 2147483649, transferId: 0, ok: true, matches: [{ path: "/d/a", index: 3 }] }.
+function takeLocated(pane, anchor, message, rowH) {
+    if (!anchor || !anchor.locateSent || anchor.locateDone)
+        return { handled: false, anchor: anchor }
+    if (!message || message.directory !== pane.path || message.id !== anchor.locateId || message.transferId !== 0)
+        return { handled: false, anchor: anchor }
+    if (message.ok === false)
+        return { handled: true, anchor: failAnchor(pane, anchor, rowH) }
+    return { handled: true, anchor: fillLocated(pane, anchor, message.matches || [], rowH) }
+}
+
+// The marks the re-read carries across by file identity: an index renumbers under a fresh list, so each marked row's name is recorded and looked up again when the rows land. A gone name loses its mark rather than re-pointing at another file.
+function selectedMarks(pane) {
+    if (!pane.selectedIndices)
+        return []
+    var out = []
+    var indices = pane.selectedIndices()
+    for (var i = 0; i < indices.length; i++) {
+        var row = pane.rowFor(indices[i])
+        out.push({ index: indices[i], name: row ? String(row.n) : null })
+    }
+    return out
+}
+
+// The listing row holding a name in the window the pane holds now, or -1.
+function indexOf(pane, name) {
+    for (var i = 0; i < pane.rows.length; i++) {
+        if (String(pane.rows[i].n) === name)
+            return pane.held + i
+    }
+    return -1
+}
+
+// Moves whatever the held window holds from pending to kept, naming nothing on screen: the take lands once, when the anchor resolves, so no rows reply in between draws a half-restored set.
+function sweepMarks(pane, anchor) {
+    if (!anchor.marks)
+        return
+    var pending = []
+    for (var m = 0; m < anchor.marks.length; m++) {
+        var mark = anchor.marks[m]
+        if (mark.name === null)
+            continue
+        var at = indexOf(pane, mark.name)
+        if (at >= 0)
+            anchor.kept.push(at)
+        else
+            pending.push(mark)
+    }
+    anchor.marks = pending
+}
+
+// The one take, on the anchor resolving: the rows the re-read cleared are marked again on the same files, and whatever is gone stays gone. A lone selection restores with only(), the way Tabs.restoreSelection does, so a plain click never turns sticky behind the re-read.
+function finishMarks(pane, anchor) {
+    var kept = anchor.kept || []
+    anchor.kept = []
+    anchor.marks = []
+    if (!anchor.hadMarks)
+        return
+    if (anchor.lone === true && kept.length === 1) {
+        pane.selection.only(kept[0])
+        pane.selectionAnchor = pane.cursorIndex
+        pane.selectionVersion += 1
+        return
+    }
+    for (var i = 0; i < kept.length; i++)
+        pane.selection.toggle(kept[i])
+    pane.selectionAnchor = pane.cursorIndex
+    if (kept.length > 0)
+        pane.selectionVersion += 1
+}
+
+// Runs on each rows reply while an anchor stands. A miss in the listing's first window is not yet a miss when the anchor asked for its own window above. A gone name falls back to the clamped old index, which keeps the view where the user left it.
+function apply(pane, anchor, rowH) {
     if (!anchor) {
         return null
     }
     if (pane.path !== anchor.path) {
         return null
     }
-    for (var i = 0; i < pane.rows.length; i++) {
-        if (String(pane.rows[i].n) === anchor.name) {
-            landOn(pane, pane.held + i, anchor)
-            return null
+    if (anchor.needPaths)
+        return anchor
+    sweepMarks(pane, anchor)
+    // F3: past the first window the cursor name alone must not finish held marks past it.
+    if (anchor.start > 0 && pane.held !== anchor.start && pane.total > anchor.start)
+        return anchor
+    var at = indexOf(pane, anchor.name)
+    // F2: marks past the held window resolve through one batched locate after.
+    if (anchor.marks && anchor.marks.length > 0 && !anchor.locateDone && Hold.canResolve(pane)) {
+        var paths = []
+        for (var m = 0; m < anchor.marks.length; m++) {
+            if (anchor.marks[m].name !== null)
+                paths.push(pane.join(pane.path, anchor.marks[m].name))
         }
+        if (paths.length > 0 && !anchor.locateSent) {
+            var sent = false
+            anchor.locateId = ++locateSeq
+            try {
+                if (pane.backend && pane.backend.send) {
+                    pane.backend.send({ c: "locate", paths: paths, id: anchor.locateId })
+                    sent = true
+                } else if (pane.backend && pane.backend.askLocate) {
+                    pane.backend.askLocate(paths, anchor.locateId)
+                    sent = true
+                }
+            } catch (e) { console.warn("flea: anchor locate ask failed, landing on the clamped index") }
+            if (!sent)
+                return failAnchor(pane, anchor, rowH)
+            anchor.locateSent = true
+            anchor.locatePaths = paths
+            // A gone cursor file still lands on the clamped old index while its marks resolve.
+            if (pane.total > 0) {
+                landOn(pane, at >= 0 ? at : Math.min(anchor.index, pane.total - 1), anchor)
+                Hold.restoreView(pane, anchor, rowH)
+            }
+            return anchor
+        }
+        if (anchor.locateSent && !anchor.locateDone)
+            return anchor
     }
-    // Still the first window rather than the one asked for above, so keep waiting, but only while that
-    // window can still exist: a listing that shrank past the offset comes back clamped to row 0 instead.
+    if (at >= 0) {
+        landOn(pane, at, anchor)
+        Hold.restoreView(pane, anchor, rowH)
+        finishMarks(pane, anchor)
+        return null
+    }
+    // Still the first window rather than the one asked for above, so keep waiting, but only while that window can still exist: a listing that shrank past the offset comes back clamped to row 0 instead.
     if (anchor.start > 0 && pane.held === 0 && pane.total > anchor.start) {
         return anchor
     }
     if (pane.total > 0) {
         landOn(pane, Math.min(anchor.index, pane.total - 1), anchor)
+        Hold.restoreView(pane, anchor, rowH)
     }
+    finishMarks(pane, anchor)
     return null
 }
 
-// A watch's anchor only moves the cursor, because the operator's own selection belongs to them and a
-// change another program made must not rewrite it. A delete's anchor selects, because the rows that
-// were selected no longer exist and a cursor with nothing marked is a keyboard that has to start over.
+// The batched locate answer for F2: indices outside the held window join kept, the gone stay gone, and the cursor lands found-or-clamped either way.
+// Sample input: fillLocated(pane, anchor, [{ path: "/d/a", index: 3 }]) keeps 3 and lands the cursor.
+function fillLocated(pane, anchor, matches, rowH) {
+    if (!anchor)
+        return null
+    Hold.fillLocated(pane, anchor, matches)
+    var at = indexOf(pane, anchor.name)
+    if (pane.total > 0) {
+        landOn(pane, at >= 0 ? at : Math.min(anchor.index, pane.total - 1), anchor)
+        Hold.restoreView(pane, anchor, rowH)
+    }
+    finishMarks(pane, anchor)
+    return null
+}
+
+// A watch's anchor moves the cursor and re-marks the same files: the operator's marks belong to them, and a change another program made must not move those marks onto other files. A delete's anchor selects instead, because its rows no longer exist and a bare cursor would restart the keyboard.
 function landOn(pane, index, anchor) {
     if (anchor.select)
         pane.selectOnly(index, 0)

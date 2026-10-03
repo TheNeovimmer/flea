@@ -1,5 +1,6 @@
 .import "../../ui/js/Drag.js" as Drag
 .import "dragfixture.js" as Fixture
+.import "sourcefixture.js" as Source
 
 function run(check) {
     var rows = [{ n: "omarchy", d: true }, { n: "flea", d: true }, { n: "a.txt", d: false }, { n: "b.txt", d: false }]
@@ -396,4 +397,9 @@ function run(check) {
                   Drag.label(Drag.copyingFor(back, into), Drag.linkingFor(back, into)), badge)
         }
     }
+    // F16: startOffer arms pane.dragHolding before Drag.active, or a QDrag.exec finish handler overwrites the hold.
+    var offer = Source.slice(Source.source("ui/FileDrag.qml"), "function startOffer()", "function deliverPaths")
+    var arm = offer.indexOf("root.pane.dragHolding = true")
+    var exec = offer.indexOf("root.Drag.active = true")
+    check("startOffer arms the watch before entering the platform drag", arm >= 0 && exec >= 0 && arm < exec, true)
 }
