@@ -196,6 +196,40 @@ fi
 fi
 printf '%s\n' "$output" | grep -oE 'MARKDOWN_FIGRENDER (CHECK|far top=|x\^2 ink|PASS).*'
 
+cat > "$test_root/mathgap.md" <<'EOF'
+Before consecutive formulas.
+
+$$x^2$$
+
+$$
+\frac{a}{b}
+$$
+
+```js
+var next = true;
+```
+
+Before a single formula.
+
+$$x^2$$
+
+After a single formula.
+EOF
+cp tests/markdown-mathgap.qml "$test_root/config/shell.qml" || exit 1
+mathgap_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIGURE_FIXTURE="$test_root/mathgap.md" \
+    FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 25 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+printf '%s\n' "$mathgap_output" | grep -oE 'MARKDOWN_MATHGAP .*'
+warnings=$(printf '%s\n' "$mathgap_output" | grep -aE 'TypeError|ReferenceError|WARN|invalid nullptr parameter' | grep -vF "$platform_warning")
+[ -z "$warnings" ] || { printf 'FAIL maths gap harness warning: %s\n' "$warnings"; exit 1; }
+if [ -n "${FLEA_CI_SUITE_LOGS:-}" ] && [ -f "$test_root/runtime/markdown-mathgap.png" ]; then
+    cp "$test_root/runtime/markdown-mathgap.png" "$FLEA_CI_SUITE_LOGS/markdown-mathgap.png" || exit 1
+fi
+printf '%s\n' "$mathgap_output" | grep -qF 'MARKDOWN_MATHGAP 31 checks, 0 failed' || exit 1
+
 [ "$mode" = real ] || { echo 'FAIL arrow pixels require the real figure helper'; exit 1; }
 paths_output=$("$qjs" tests/markdown-figures-render-paths.mjs) || exit 1
 printf '%s\n' "$paths_output" | head -1

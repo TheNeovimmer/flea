@@ -109,7 +109,8 @@ ShellRoot {
     function figuresSettled() {
         for (var i = 1; i <= 3; i++) {
             var info = md.figureInfo(i)
-            if (!info || !info.ready)
+            var image = Checks.imageOf(Checks.figure(md, i))
+            if (!info || !info.ready || !image || image.status !== Image.Ready || info.imgW <= 0 || info.imgH <= 0)
                 return false
         }
         var bad = md.figureInfo(4)

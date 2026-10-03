@@ -481,17 +481,19 @@ Item {
                         }
                     }
 
-                    // Only a failed figure keeps the fenced source surface and inset.
+                    // Display maths use the figure fallback's vertical inset; the list owns the block gap.
                     Item {
                         id: figureBox
                         objectName: "figureBox"
                         visible: block.type === "figure"
                         width: parent.width
-                        height: figureItem.implicitHeight
+                        readonly property int figureInset: figureItem.ready && figureItem.kind === "math" && figureItem.fitHeight > 0 ? root.fencePadY : 0
+                        height: figureItem.implicitHeight + 2 * figureInset
 
                         Flea.MarkdownFigure {
                             id: figureItem
                             objectName: "figureItem"
+                            y: parent.figureInset
                             width: parent.width
                             kind: block.type === "figure" ? block.kind : "math"
                             source: block.type === "figure" ? block.source : ""

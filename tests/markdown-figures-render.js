@@ -112,3 +112,42 @@ function spacingError(previous, figure, next, ink, paragraphGap) {
     return Math.abs(above - paragraphGap) <= 2 && Math.abs(below - paragraphGap) <= 2 ? ""
         : "figure gaps " + above + "/" + below + "px, paragraph gap " + paragraphGap + "px";
 }
+
+// Read the drawn SVG image, including its live size after asynchronous decoding.
+function imageOf(figure) {
+    if (figure)
+        for (var i = 0; i < figure.children.length; i++) {
+            var image = figure.children[i];
+            if (image.visible && image.status !== undefined && image.source !== undefined)
+                return image;
+        }
+    return null;
+}
+
+// Figure block bounds include the same vertical inset as the fenced figure fallback.
+function drawnBlockRect(md, index, target, inset) {
+    var block = md.blockItem(index);
+    if (!block)
+        return null;
+    var image = md.blockList[index].type === "figure" ? imageOf(figure(md, index)) : null;
+    var item = image;
+    if (!item)
+        for (var i = 0; i < block.children.length; i++) {
+            var child = block.children[i];
+            if (child.visible && (child.objectName === "fenceBox" || child.box !== undefined))
+                item = child;
+        }
+    if (!item)
+        return null;
+    var at = item.mapToItem(target, 0, 0);
+    return { x: at.x, y: at.y - (image ? inset : 0), w: item.width,
+        h: item.height + (image ? 2 * inset : 0) };
+}
+
+function blockGapError(previous, next, gap) {
+    if (!previous || !next)
+        return "a drawn block is missing";
+    var seen = next.y - previous.y - previous.h;
+    return Math.abs(seen - gap) <= 0.5 ? ""
+        : "drawn block gap " + seen + "px, want " + gap + "px";
+}
