@@ -12928,7 +12928,10 @@ case_clipboard() {
     xwdrag_row_point "$bid" "$bpid" f1 >/dev/null || fail "clipboard: copied row never appeared"
     clipboard_press "$bpid" -k m
     clipboard_menu_wait "$bid" true
-    [[ "|$(clipboard_ipc "$bid" contextMenuEntries)|" == *"|Paste|"* ]] || fail "clipboard: file copy has no Paste row"
+    state=$(clipboard_ipc "$bid" menuState) || fail "clipboard: no menu model"
+    # Sample input: {"entries":[{"action":"paste","disabled":false}]}
+    jq -e 'any(.entries[]; .action == "paste" and .disabled == false)' <<< "$state" >/dev/null \
+        || fail "clipboard: file copy left Paste disabled or missing"
     clipboard_press "$bpid" -k Escape
     clipboard_menu_wait "$bid" false
     printf 'CLIPBOARD copy ok\n'
@@ -12989,7 +12992,7 @@ case_clipboard() {
     state=$(clipboard_ipc "$bid" menuState) || fail "clipboard: no menu model"
     # Sample input: {"entries":[{"action":"paste","disabled":true}]}
     jq -e 'any(.entries[]; .action == "paste" and .disabled == true)' <<< "$state" >/dev/null \
-        || fail "clipboard: Paste present and disabled"
+        || fail "clipboard: text-only clipboard left Paste enabled or missing"
     clipboard_press "$bpid" -k Escape
     clipboard_menu_wait "$bid" false
     clipboard_text_no_paste "$bid" "$bpid" "$textdir"
