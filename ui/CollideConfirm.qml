@@ -23,7 +23,7 @@ FocusScope {
     signal chosen(string choice)
     readonly property var cardItem: card
     readonly property bool titleTruncated: title.truncated
-    readonly property bool buttonsFit: buttons.width <= body.width
+    readonly property bool buttonsFit: buttons.width <= body.holderWidth
     readonly property int explainLines: explain.lineCount
     function buttonItem(name) { return ({cancel: cancelButton, skip: skipButton, keep: keepButton, replace: replaceButton})[name] || null }
     function open(heading, list, more) {
@@ -81,13 +81,14 @@ FocusScope {
         }
         Flea.CardScroll {
             id: body
+            bleed: Theme.ringClearance
             anchors.fill: parent
-            anchors.leftMargin: root.cardPadding + Theme.spacing.hairline
-            anchors.rightMargin: root.cardPadding + Theme.spacing.hairline
-            anchors.topMargin: root.cardPadding + Theme.spacing.hairline
-            anchors.bottomMargin: root.cardBottomPadding + Theme.spacing.hairline
+            anchors.leftMargin: root.cardPadding + Theme.spacing.hairline - Theme.ringClearance
+            anchors.rightMargin: root.cardPadding + Theme.spacing.hairline - Theme.ringClearance
+            anchors.topMargin: root.cardPadding + Theme.spacing.hairline - Theme.ringClearance
+            anchors.bottomMargin: root.cardBottomPadding + Theme.spacing.hairline - Theme.ringClearance
             Column {
-                width: body.width
+                width: body.holderWidth
                 spacing: Theme.spacing.gap
                 Text {
                     id: title

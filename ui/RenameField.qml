@@ -25,6 +25,8 @@ Item {
     readonly property real errorHeight: errorText.length > 0 ? errorLabel.implicitHeight + Theme.spacing.gap : 0
     readonly property real fieldHeight: height - errorHeight
     readonly property alias inputItem: field
+    // The focus ring, so a test measures it against the row, tile or column that hosts the editor.
+    readonly property alias ring: focusRing
     implicitHeight: Theme.rowHeight - 2 * Theme.spacing.rowPaddingY + errorHeight
 
     signal committed(string newName)
@@ -231,6 +233,7 @@ Item {
         border.width: Theme.spacing.hairline
         border.color: root.errorText.length > 0 ? Theme.color.error : Theme.color.muted
         Rectangle {
+            id: focusRing
             anchors.fill: parent
             anchors.margins: -Buttons.RING
             color: "transparent"

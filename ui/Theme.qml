@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import QtQuick
 import qs.Commons
+import "js/Buttons.js" as Buttons
 import "js/Columns.js" as Columns
 import "js/Contrast.js" as Contrast
 import "js/Density.js" as Density
@@ -168,6 +169,11 @@ Singleton {
     // What is left of the strip once its rule and both insets are taken off. The hit box stays the
     // whole strip, so a press still clears hitMin however small the frame gets.
     readonly property int chromeControlHeight: root.chromeHeight - root.spacing.hairline - 2 * root.chromeControlInset
+    // What a side of a host leaves a field so its 2 px focus ring, drawn outside the frame, ends one hairline
+    // inside the host: the window's edge above a strip, a strip's rule, a clipped row's top and bottom.
+    readonly property int ringClearance: Buttons.RING + root.spacing.hairline
+    // A field in the strip keeps the strip's control height, or the room its ring needs where that is more.
+    readonly property int chromeFieldInset: Math.max(root.chromeControlInset, root.ringClearance)
     // The two steps of that fill, in whichever role the control carries: the pointer's and the
     // keyboard's. The second is the weight the rail's own active row and the segmented chooser's
     // active segment already take, so a control under the keyboard reads at the same strength.

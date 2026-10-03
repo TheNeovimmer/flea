@@ -1922,6 +1922,15 @@ failure fails the check rather than passing it.
 - `ui/TabBar.qml` is the window's tab strip, hidden with no height until a second tab exists.
 - `ui/ChromeBar.qml` renders the top chrome, and owns the path bar: the same strip typed into
   rather than drawn, opened by `:`, `Ctrl+L` or a double click on the path.
+  A field hosted in the 27 px strip keeps the host's control height (ButtonSystem040 A), so its 2 px focus
+  ring lies inside the strip: `Theme.chromeFieldInset` leaves `Theme.ringClearance` (the ring plus one
+  hairline) above and below the frame, clear of the window's top edge and of the strip's rule. The same
+  rule holds wherever a ring meets a clip: a `CardScroll` carries `bleed`, room inside its clip that the
+  caller's margins give back, and the column rename editor keeps `ringClearance` inside its row.
+  `tests/ring-bounds.sh` pins all of it from the real window at every text stop, and `tests/ui.sh`
+  `case_click` reads the ring's four sides from the native chrome capture. Open limit, Tight density only:
+  a column row is 20 px at text size 12, so the column rename frame (row less `ringClearance` each side) is
+  shorter than the 16 px glyph line, and `ring-bounds` exempts that one combination from its glyph check.
 - `ui/PathJump.qml` is the path bar's folder jump, the Jump board: a name typed into the bar lists
   matching folders from Flea's favourites, zoxide's ranking and `recently-used.xbel` in one ranked
   dropdown under the field, and Enter opens the cursor row. `ui/JumpPath.qml` draws one row's path.

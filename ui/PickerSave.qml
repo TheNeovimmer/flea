@@ -26,8 +26,9 @@ Item {
     Rectangle { anchors.fill: parent; color: Theme.color.surface }
     Flea.CardScroll {
         id: body
+        bleed: Theme.ringClearance
         anchors.fill: parent
-        anchors.margins: Theme.spacing.rowPaddingX
+        anchors.margins: Theme.spacing.rowPaddingX - Theme.ringClearance
         Column {
             id: column
             width: parent.width

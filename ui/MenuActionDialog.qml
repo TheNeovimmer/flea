@@ -182,10 +182,11 @@ FocusScope {
         }
         Flea.CardScroll {
             id: body
+            bleed: Theme.ringClearance
             anchors.fill: parent
-            anchors.margins: Theme.spacing.rowPaddingX
+            anchors.margins: Theme.spacing.rowPaddingX - Theme.ringClearance
             Column {
-                width: body.width
+                width: body.holderWidth
                 spacing: Theme.spacing.gap
                 Flea.DialogTitle {
                     width: parent.width
@@ -246,7 +247,7 @@ FocusScope {
                     ].concat(root.facts.symlink ? [["Link target", root.facts.target]] : []) : []
                     Column {
                         required property var modelData
-                        width: body.width
+                        width: body.holderWidth
                         Text { width: parent.width; text: parent.modelData[0]; textFormat: Text.PlainText; color: Theme.color.muted; font { family: Theme.font.family; pixelSize: Theme.font.caption } }
                         Text { width: parent.width; text: parent.modelData[1]; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
                     }

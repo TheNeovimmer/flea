@@ -14,12 +14,18 @@ Flickable {
     property bool highlightSteps: false
     property real stepRowHeight: 0
     property var stepBy: null
+    // Room kept inside the clip on every side, for a 2 px focus ring drawn outside a full-width field; callers
+    // grow their own margins by the same, so the content stays where it was on screen.
+    property int bleed: 0
+    // The two axes apart, for a body whose rows already run to the card's side edges.
+    property int bleedX: bleed
+    property int bleedY: bleed
     // The holder's drawn width, so a probe reads it without walking children.
     readonly property real holderWidth: holder.width
 
     clip: true
     contentWidth: width
-    contentHeight: root.wanted
+    contentHeight: root.wanted + 2 * root.bleedY
     boundsBehavior: Flickable.StopAtBounds
     // A highlight-stepped menu follows through reveal(); the Flickable takes no wheel itself.
     interactive: !root.highlightSteps
@@ -28,7 +34,7 @@ Flickable {
     function reveal(item) {
         if (!item || root.contentHeight <= root.height || !root.holds(item))
             return
-        var top = item.mapToItem(holder, 0, 0).y
+        var top = item.mapToItem(root.contentItem, 0, 0).y
         var bottom = top + item.height
         if (top < root.contentY)
             root.contentY = Math.max(0, top)
@@ -64,6 +70,8 @@ Flickable {
     Item {
         id: holder
         // No lane: rows fill to the frame's padding on every surface using this.
-        width: Math.max(0, root.width)
+        x: root.bleedX
+        y: root.bleedY
+        width: Math.max(0, root.width - 2 * root.bleedX)
     }
 }

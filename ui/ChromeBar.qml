@@ -56,6 +56,10 @@ Item {
     // What the seam reads: the line as it stands, and the box a test double-clicks to open the bar.
     readonly property alias editText: field.text
     readonly property alias pathArea: pathArea
+    // The open field, its frame and its focus ring, so a test measures where they lie in the strip.
+    readonly property alias pathFrame: editFrame
+    readonly property alias pathRing: editRing
+    readonly property alias pathField: field
     // The collapsed middle's own crumb, so a test can press the one segment that names no directory. Its index moves with the room, because the crumbs nearest the root are put back before it.
     readonly property int elisionIndex: {
         for (var i = 0; i < crumbs.model.length; i++)
@@ -305,18 +309,19 @@ Item {
 
         }
 
-        // The rename editor's own frame covers the two Texts underneath at chrome scale.
+        // The path field keeps the strip's control height, so its ring lies wholly inside the strip (ButtonSystem040).
         Rectangle {
+            id: editFrame
             visible: root.editing
             anchors.fill: parent
-            anchors.topMargin: Theme.spacing.hairline * 2
-            // One below against two above centres the field in the strip, which is the flush dropdown the Jump board draws.
-            anchors.bottomMargin: Theme.spacing.hairline
+            anchors.topMargin: Theme.chromeFieldInset
+            anchors.bottomMargin: Theme.chromeFieldInset
             color: Theme.color.background
             radius: Style.cornerRadius
             border.width: Theme.spacing.hairline
             border.color: Theme.color.muted
             Rectangle {
+                id: editRing
                 anchors.fill: parent
                 anchors.margins: -Buttons.RING
                 color: "transparent"

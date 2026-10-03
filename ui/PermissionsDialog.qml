@@ -374,12 +374,13 @@ FocusScope {
             anchors.right: parent.right
             anchors.top: chrome.bottom
             anchors.bottom: parent.bottom
-            anchors.leftMargin: root.bodyInset
-            anchors.rightMargin: root.bodyInset
-            anchors.topMargin: Theme.spacing.rowPaddingX
-            anchors.bottomMargin: root.bodyInset
+            bleed: Theme.ringClearance
+            anchors.leftMargin: root.bodyInset - Theme.ringClearance
+            anchors.rightMargin: root.bodyInset - Theme.ringClearance
+            anchors.topMargin: Theme.spacing.rowPaddingX - Theme.ringClearance
+            anchors.bottomMargin: root.bodyInset - Theme.ringClearance
             Column {
-                width: body.width
+                width: body.holderWidth
                 spacing: 0
                 Row {
                     width: parent.width
@@ -398,7 +399,7 @@ FocusScope {
                     Item { width: root.labelWidth; height: parent.height }
                     Repeater {
                         model: ["READ", "WRITE", root.isMulti || !root.facts.directory ? "EXEC" : "ENTER"]
-                        Text { required property string modelData; width: (body.width - root.labelWidth) / 3; height: parent.height; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; text: modelData; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.caption; letterSpacing: Theme.font.caption / 10 } }
+                        Text { required property string modelData; width: (body.holderWidth - root.labelWidth) / 3; height: parent.height; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; text: modelData; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.caption; letterSpacing: Theme.font.caption / 10 } }
                     }
                 }
                 Repeater {
@@ -409,7 +410,7 @@ FocusScope {
                         required property string modelData
                         required property int index
                         readonly property alias checks: checks
-                        width: body.width
+                        width: body.holderWidth
                         height: root.controlHeight
                         Text { width: root.labelWidth; anchors.verticalCenter: parent.verticalCenter; text: permissionRow.modelData; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
                         Repeater {
@@ -421,7 +422,7 @@ FocusScope {
                                 readonly property int bit: 1 << (8 - permissionRow.index * 3 - index)
                                 readonly property bool checked: root.isMulti ? root.multiChecked(bit)
                                     : (root.modeValue >= 0 ? root.modeValue : parseInt(root.facts.mode || "0", 8)) & bit
-                                width: (body.width - root.labelWidth) / 3
+                                width: (body.holderWidth - root.labelWidth) / 3
                                 height: permissionRow.height
                                 activeFocusOnTab: true
                                 enabled: root.editable
@@ -466,7 +467,7 @@ FocusScope {
                     visible: !root.isMulti
                     Text { width: root.labelWidth; anchors.verticalCenter: parent.verticalCenter; text: "Octal"; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
                     Rectangle {
-                        width: body.width - root.labelWidth - parent.spacing
+                        width: body.holderWidth - root.labelWidth - parent.spacing
                         height: parent.height
                         color: Theme.color.background
                         border.color: Theme.color.muted
@@ -507,11 +508,11 @@ FocusScope {
                         required property int index
                         // Permissions040: for several items Owner and Group drop out.
                         visible: !root.isMulti
-                        width: body.width
+                        width: body.holderWidth
                         height: root.controlHeight
                         spacing: Theme.spacing.gap
                         Text { width: root.labelWidth; anchors.verticalCenter: parent.verticalCenter; text: parent.modelData; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
-                        Text { width: body.width - root.labelWidth - identity.width - 2 * parent.spacing; anchors.verticalCenter: parent.verticalCenter; text: root.facts.ok ? ((parent.index === 0 ? root.facts.owner : root.facts.group) || "Unknown") + " · read-only" : ""; textFormat: Text.PlainText; elide: Text.ElideRight; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
+                        Text { width: body.holderWidth - root.labelWidth - identity.width - 2 * parent.spacing; anchors.verticalCenter: parent.verticalCenter; text: root.facts.ok ? ((parent.index === 0 ? root.facts.owner : root.facts.group) || "Unknown") + " · read-only" : ""; textFormat: Text.PlainText; elide: Text.ElideRight; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
                         Text { id: identity; anchors.verticalCenter: parent.verticalCenter; text: root.facts.ok ? (parent.index === 0 ? "uid " + root.facts.uid : "gid " + root.facts.gid) : ""; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.caption } }
                     }
                 }
