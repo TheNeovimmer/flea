@@ -22,10 +22,7 @@ cap_resize() {
     fail "captures: viewport did not reach ${target_width}x${target_height}, it is ${width}x${height}"
 }
 
-# Tabs040: three tabs with one held mid-drag, then Settings View Opening on Last folder.
-# Board specimens: the 900x541 tab-drag window, and the Opening excerpt with the Last
-# folder hint, New tabs open in, Open items with and Click a selected name to rename;
-# the tail shot scrolls that excerpt, hint included, into frame.
+# Tabs040: three tabs with one held mid-drag, then Settings View Opening on Last folder, and its tail scrolled into frame with the hint.
 case_cap_tabs() {
     local dir="$fixture_root/cap-tabs"
     sandbox_scratch "$dir"
@@ -256,9 +253,7 @@ case_cap_menus() {
     kill_flea
 }
 
-# MenuAdditions040 and SettingsMenus, the states the first set leaves out: Make executable on a 0644 script and the
-# two-file menu at defaults, the Copy as and Paste as flyouts with key hints off, Settings > Menus at its tail, and the
-# Places row menu with only the place menu on, then with Copy path on beside it.
+# MenuAdditions040 and SettingsMenus states the first set leaves out: Make executable, the two-file menu, both flyouts with hints off, Settings > Menus at its tail, the Places row menu with and without Copy path.
 case_cap_menus2() {
     local dir="$fixture_root/cap-menus2" attempt favourite_index
     local makeexec_polls=40 menu_hidden_file menu_hidden_place
@@ -311,8 +306,7 @@ case_cap_menus2() {
     settle
     key -k Escape >/dev/null
     settle
-    click_row "$(row_index_of one.txt)" left
-    settle
+    # No second click: one.txt is already the sole selection under the cursor, and a click there is a slow click.
     key y >/dev/null
     settle
     [[ "$(ipc keyDeliveryState | jq -er '.clipboard.paths | length')" == "1" ]] \

@@ -2827,8 +2827,7 @@ case_placemenu() {
     : > "$dir/Work/one.txt"
     : > "$dir/plain.txt"
     local state="$fixture_root/placemenu-state"
-    # The switch on, and one favourite to open the menu over. Everything else is the shipped set.
-    # Open in terminal and Copy path (the Copy as switch) are on too: a row switched off in Settings is off on this menu as well.
+    # The place menu on over one favourite, with Open in terminal and Copy path (the Copy as switch) on: a row switched off in Settings is off on this menu too.
     seed_ui_state "$state" "$(printf '{"menu":{"hidden":["delete","moveto","copyto","properties","permissions","runScript","pasteAs","invertSelection","extThumbs"]},"places":{"favourites":[{"label":"Work","path":"%s/Work"}]}}' "$dir")"
 
     launch "$dir"
