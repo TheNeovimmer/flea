@@ -3699,14 +3699,20 @@ case_reload() {
         printf 'RELOAD key=%s lists=%s-to-%s unchanged=quiet log=clean\n' "$chord" "$before" "$after"
     done
 
-    # A selection holds watcher debt, so only the manual reload can first see this added row.
-    key v >/dev/null
-    settle
-    [[ "$(ipc selectionCount)" == 1 ]] || fail "reload: v did not hold the watcher with a selection"
+    # A bare selection no longer holds the watcher and a live rubber band still does, so only the manual reload can first see this added row.
+    local marquee_checks=0 marquee_button_down=false marquee_ctrl_down=false ax ay aw ah
+    export YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-$XDG_RUNTIME_DIR/.ydotool_socket}"
+    [[ -S "$YDOTOOL_SOCKET" ]] || fail "reload: no ydotoold socket at $YDOTOOL_SOCKET"
+    trap '( marquee_release ) >/dev/null 2>&1 || true' EXIT
+    marquee_begin_below 0
+    read -r ax ay aw ah <<< "$(ipc listAreaRect)"
+    [[ "$ax $ay $aw $ah" =~ ^[0-9]+(\ [0-9]+){3}$ ]] || fail "reload: listing geometry unavailable"
+    marquee_to "$((ax + aw / 2))" "$((ay + ah / 2))"
+    marquee_state '.active and .tracking' "reload holds the watcher with a live rubber band"
     before=$(ipc listRequests)
     : > "$dir/b.txt"
     sleep 1
-    [[ "$(ipc total)" == 1 && "$(ipc listRequests)" == "$before" ]] || fail "reload: the watcher re-listed while a selection stood"
+    [[ "$(ipc total)" == 1 && "$(ipc listRequests)" == "$before" ]] || fail "reload: the watcher re-listed while a rubber band stood"
     key -k F5 >/dev/null
     settle
     errors=$(grep -E 'TypeError|ReferenceError' "$flea_log" | grep -E 'Reload\.js|Focus\.js|Pane\.qml' || true)
@@ -3719,6 +3725,7 @@ case_reload() {
     [[ "$message" == "Reloaded · 1 row changed" ]] || fail "reload: changed-row F5 said '$message', expected 'Reloaded · 1 row changed'"
     [[ "$(ipc path)" == "$dir" ]] || fail "reload: changed-row F5 left the listing path"
     [[ "$(ipc rowAt 1)" == b.txt\|* ]] || fail "reload: changed-row F5 did not draw b.txt"
+    marquee_release
     printf 'RELOAD changed-row F5=ok notice=%s log=clean\n' "$message"
     kill_flea
 }
@@ -3930,21 +3937,25 @@ case_watch() {
     (( during > before )) \
         || fail "watch: nothing re-read while the directory was still being written, total stayed $before"
 
-    # A debt owed by this directory must not be paid by re-listing the next one. A bare selection
-    # no longer holds the re-read, so the debt is held with the menu open instead, which still does
-    # and survives the navigation; without the onPathChanged guard that debt is paid by a full
-    # re-list of the folder being opened.
+    # A debt owed here must not be paid by re-listing the next folder: the open menu holds it and takes every key, so its own Open on the folder row is the navigation.
+    key -k Home >/dev/null
+    settle
+    [[ "$(ipc rowAt 0)" == brand-new-folder\|dir\|* ]] || fail "watch: row 0 is not the folder the menu opens: $(ipc rowAt 0)"
     key m >/dev/null
     settle
+    local held_total
+    held_total=$(ipc total)
     printf 'owed\n' > "$dir/CCC-owed-on-leaving.txt"
-    sleep 0.5
+    sleep 1
+    [[ "$(ipc total)" == "$held_total" ]] || fail "watch: the open menu did not hold the re-read, total $held_total to $(ipc total)"
     # Counted from before the navigation, not from after it: the menu still holds the debt at the
     # navigation, so without the guard the timer pays it with a re-list of the folder being opened,
     # which wait_path polling would otherwise count as the navigation itself.
     local before_nav after_nav
     before_nav=$(ipc listRequests)
-    key -k Backspace >/dev/null
-    wait_path "$fixture_root"
+    menus_seek open
+    key -k Return >/dev/null
+    wait_path "$dir/brand-new-folder"
     sleep 1.5
     after_nav=$(ipc listRequests)
     printf 'WATCH carried lists %s to %s, one navigation and nothing else\n' "$before_nav" "$after_nav"
