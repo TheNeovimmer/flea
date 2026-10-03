@@ -77,7 +77,7 @@ launch() {
         timeout 90 qs -p "$box/ui/boot" > "$box/$1.log" 2>&1
 }
 call() {
-    env XDG_RUNTIME_DIR="$box/runtime" timeout 5 qs ipc --pid "$1" call hunt "$2"
+    env XDG_RUNTIME_DIR="$box/runtime" timeout 5 qs ipc --pid "$1" call hunt "$2" "${@:3}"
 }
 await_state() {
     local pid=$1 predicate=$2 attempt snapshot
@@ -128,13 +128,42 @@ call "$a_pid" selectSource >/dev/null || broken "could not retain A's source row
 call "$a_pid" cutSource >/dev/null || broken "could not cut A's row"
 await_state "$a_pid" '.clipboard.moving and (.clipboard.paths | length == 1)' \
     || broken "cut did not resolve the cursor row"
-a_clip=$(call "$a_pid" state | jq -c .clipboard)
 check "cut draws A's clipboard mark" scissors "$(call "$a_pid" state | jq -r .mark)"
-await_state "$b_pid" '.clipboard.moving and (.clipboard.paths | length == 1)' || true
-check "cross-window clipboard cut reaches window B" "$a_clip" "$(call "$b_pid" state | jq -c .clipboard)"
+# Offscreen there is no clipboard to share, so the cut stays in A; the native clipboard case covers two windows.
+await_state "$a_pid" '.notices | length > 0' || true
+check "A says the cut is kept in this window only, once" \
+    '["Copied in this window only: WAYLAND_DISPLAY is not set, so there is no clipboard to use"]' \
+    "$(call "$a_pid" state | jq -c .notices)"
+# B answering a read of its own listing is the positive signal; its clipboard is read only after that.
+await_state "$b_pid" '.loading == false and (.path | endswith("/b"))' || broken "window B stopped answering"
+check "A's cut does not reach window B" 0 "$(call "$b_pid" state | jq -r '.clipboard.paths | length')"
+
+# A pastes its own cut into the other fixture folder; the file moves and A's spent mark clears.
+call "$a_pid" openFixture b >/dev/null || broken "could not open the paste folder in A"
+await_state "$a_pid" '.loading == false and (.path | endswith("/b"))' || broken "A never listed the paste folder"
+call "$a_pid" pasteCut >/dev/null || broken "could not paste in A"
+await_state "$a_pid" '.clipboard.paths | length == 0' || true
+for attempt in $(seq 1 60); do
+    [ -f "$box/b/alpha.txt" ] && [ ! -e "$box/a/alpha.txt" ] && break
+    sleep 0.05
+done
+check "A's paste of its own cut moves the actual file" moved \
+    "$([ -f "$box/b/alpha.txt" ] && [ ! -e "$box/a/alpha.txt" ] && echo moved || echo missing)"
+check "A's spent cut empties A's clipboard" 0 "$(call "$a_pid" state | jq -r '.clipboard.paths | length')"
+# Put the file and A's folder back so the return leg below starts from the original fixture.
+call "$a_pid" undoLast >/dev/null || broken "could not undo A's paste"
+for attempt in $(seq 1 60); do
+    [ -f "$box/a/alpha.txt" ] && [ ! -e "$box/b/alpha.txt" ] && break
+    sleep 0.05
+done
+[ -f "$box/a/alpha.txt" ] && [ ! -e "$box/b/alpha.txt" ] || broken "A's paste was not undone"
+call "$a_pid" openFixture a >/dev/null || broken "could not return A to its folder"
+await_state "$a_pid" '.loading == false and (.path | endswith("/a"))' || broken "A never listed its folder again"
+# The mark reads alpha.txt under A's own folder, so it is only meaningful back there, where the cut had drawn it.
+check "A's spent cut clears A's mark" '' "$(call "$a_pid" state | jq -r .mark)"
 
 # Isolate the return leg as well: supply B the same cut, then paste through its real collision,
-# transfer and reply path. A must clear the spent cut even if it holds another row selected.
+# transfer and reply path.
 call "$b_pid" seedCut >/dev/null || broken "could not seed return-leg control"
 call "$b_pid" pasteCut >/dev/null || broken "could not paste in B"
 await_state "$b_pid" '.clipboard.paths | length == 0' || broken "B did not spend the cut"
@@ -144,7 +173,6 @@ for attempt in $(seq 1 60); do
 done
 check "B's paste control moves the actual file" moved \
     "$([ -f "$box/b/alpha.txt" ] && [ ! -e "$box/a/alpha.txt" ] && echo moved || echo missing)"
-check "cross-window spent cut clears A's mark" '' "$(call "$a_pid" state | jq -r .mark)"
 
 # Remove B's previous local operation before asking it to undo A's later one.
 call "$b_pid" undoLast >/dev/null || broken "could not undo B's paste control"
