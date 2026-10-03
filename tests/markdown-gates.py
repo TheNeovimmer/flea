@@ -110,14 +110,14 @@ case_cap_markdown
         env["MD_GATE_COLUMN_VIEW"] = view
         result = subprocess.run(["/bin/bash", str(capture)], env=env, text=True,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=PROBE_TIMEOUT_SECONDS)
-        if view == "rendered":
-            check(result.returncode != 0 and "SHOT cap-markdown-column-source" not in result.stdout
-                  and "column-source=ok" not in result.stdout,
-                  "md3z F5 Rendered column refused before Source capture")
+        if view == "source":
+            check(result.returncode != 0 and "SHOT cap-markdown-column-after-flip" not in result.stdout
+                  and "column-after-flip=ok" not in result.stdout,
+                  "md3z F5 Source column refused before the after-flip capture")
         else:
-            check(result.returncode == 0 and "SHOT cap-markdown-column-source" in result.stdout
-                  and "column-source=ok" in result.stdout,
-                  "md3z F5 Source column captured after IPC proof")
+            check(result.returncode == 0 and "SHOT cap-markdown-column-after-flip" in result.stdout
+                  and "column-after-flip=ok" in result.stdout,
+                  "md3z F5 Rendered column captured after IPC proof")
 
 print(f"MARKDOWN_GATES {checks} checks, {failures} failed")
 raise SystemExit(1 if failures else 0)

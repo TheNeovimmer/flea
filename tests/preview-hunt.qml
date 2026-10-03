@@ -18,6 +18,8 @@ ShellRoot {
     property bool scrollFramePending: false
     readonly property int fileAScrollY: 120
     readonly property int fileBScrollY: 240
+    // The size-key case ends one settle after its chord check, on a stage the source-key case never reaches.
+    readonly property int sizeKeySettleStage: 9
     readonly property bool overlayCase: scenario === "scroll" || scenario === "source-key" || scenario === "size-key"
 
     function check(label, actual, expected) {
@@ -151,22 +153,49 @@ ShellRoot {
                         nativeKeys.keyClick(Qt.Key_Plus, Qt.ControlModifier | Qt.ShiftModifier, -1)
                         // 0.3.7 behaviour (ruled): preview context refuses the listing size chord, so the size stays 14.
                         root.check("text-size chord is refused while Markdown Quick Look is shown", Flea.ViewState.textSize.mode, 14)
-                        root.stage = 3
+                        root.stage = sizeKeySettleStage
                         root.stamp = Date.now()
                         return
                     }
-                    root.check("Quick Look starts rendered", Flea.ViewState.markdownView, "rendered")
+                    root.check("Quick Look starts rendered", quick.markdownView(), "rendered")
                     nativeKeys.keyClickChar("r", Qt.NoModifier, -1)
-                    root.check("real r key switches Quick Look to Source", Flea.ViewState.markdownView, "source")
+                    root.check("real r key switches Quick Look to Source", quick.markdownView(), "source")
                     liveMarkdown = root.descendants(quick).filter(function(node) {
                         return node.blockList !== undefined && node.active === true
                     })[0]
                     root.check("Source is drawn by the live pane", liveMarkdown.view, "source")
+                    root.check("the flip is kept nowhere in the state", Flea.ViewState.preview.markdownView, undefined)
+                    // The flip lives in the open Quick Look, so the cursor moving to another Markdown file keeps it.
+                    var fromRow = nativePane.rowFor(nativePane.cursorIndex)
+                    root.check("the cursor sits on the file Quick Look shows", fromRow ? fromRow.n : null, "a.md")
+                    nativeKeys.keyClick(Qt.Key_Down, Qt.NoModifier, -1)
                     root.stage = 3
                     root.stamp = Date.now()
                     return
                 }
-                if (stage === 3 && Date.now() - root.stamp > 600) root.finish()
+                if (stage === 3 && quick.status === "ready" && quick.path === root.fixture + "/b.md" && Date.now() - root.stamp > 300) {
+                    var toRow = nativePane.rowFor(nativePane.cursorIndex)
+                    root.check("the cursor key moved to the next Markdown file", toRow ? toRow.n : null, "b.md")
+                    root.check("moving the cursor to another Markdown file keeps the flip", quick.markdownView(), "source")
+                    quick.open(root.fixture + "/a.md", "text-x-generic", 2000, "Markdown document", "")
+                    root.stage = 4
+                    root.stamp = Date.now()
+                    return
+                }
+                if (stage === 4 && quick.status === "ready" && quick.path === root.fixture + "/a.md" && Date.now() - root.stamp > 300) {
+                    root.check("opening another Markdown file keeps the flip", quick.markdownView(), "source")
+                    // Closing forgets it: the next Quick Look opens rendered.
+                    quick.close()
+                    quick.open(root.fixture + "/a.md", "text-x-generic", 2000, "Markdown document", "")
+                    root.stage = 5
+                    root.stamp = Date.now()
+                    return
+                }
+                if (stage === 5 && quick.status === "ready" && Date.now() - root.stamp > 300) {
+                    root.check("a Quick Look opened after a flipped one was closed is rendered", quick.markdownView(), "rendered")
+                    root.finish()
+                }
+                if (stage === sizeKeySettleStage && Date.now() - root.stamp > 600) root.finish()
                 return
             }
             if (!root.overlayCase) {

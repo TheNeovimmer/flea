@@ -52,8 +52,8 @@ src/tui/actions.rs 1067
 src/tui/input.rs 449
 src/tui/model.rs 1247
 src/tui/render.rs 889
-src/uischema.rs 501
-src/uistate.rs 659
+src/uischema.rs 499
+src/uistate.rs 674
 src/uistore.rs 540
 src/vulkan.rs 728
 tests/js/columns.js 666
@@ -79,7 +79,7 @@ tests/js/tabs.js 686
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 399
-tests/markdown-render.qml 628
+tests/markdown-render.qml 643
 tests/markdown-linearity.qml 555
 tests/preview-settle-live.qml 457
 tests/preview-decode.qml 507
@@ -109,8 +109,8 @@ ui/PaneMenuActions.qml 465
 ui/PaneWire.qml 584
 ui/PermissionsDialog.qml 634
 ui/PickerWindow.qml 779
-ui/Preview.qml 646
-ui/PreviewColumn.qml 585
+ui/Preview.qml 645
+ui/PreviewColumn.qml 582
 ui/DeviceMounts.qml 496
 ui/PreviewMarkdown.qml 784
 ui/Row.qml 482
@@ -120,7 +120,7 @@ ui/Sidebar.qml 668
 ui/StatusBar.qml 456
 ui/Theme.qml 416
 ui/TrashView.qml 475
-ui/ViewState.qml 538
+ui/ViewState.qml 536
 ui/WindowBody.qml 631
 ui/js/Anchor.js 405
 ui/js/Devices.js 366

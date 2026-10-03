@@ -11,7 +11,7 @@ Item {
     property bool active: false
     property string path: ""
     property int size: 0
-    // "rendered" or "source"; anything else reads as rendered, the board's default.
+    // "rendered" or "source"; anything else reads as rendered. Only the Quick Look's r asks for source.
     property string view: Markdown.RENDERED
 
     // FileView reads whole files, so refuse above maxBytes, with remote storage keeping its smaller 256 KiB gate.

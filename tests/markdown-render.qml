@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 import "markdown-render.js" as Checks
+import "markdown-bar.js" as Bar
 
 // tests/markdown-render.sh's harness: the real ui/PreviewMarkdown.qml over a fixture
 // document, grabbed and judged on pixel facts, offscreen. Quits itself, pass or fail.
@@ -14,6 +15,7 @@ ShellRoot {
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
 
     property string fixture: Quickshell.env("FLEA_MARKDOWN_FIXTURE")
+    property string longFixture: Quickshell.env("FLEA_MARKDOWN_LONG")
     property string shotPath: Quickshell.env("XDG_RUNTIME_DIR") + "/markdown-render-" + Quickshell.processId
         + (shell.larger ? "-large.png" : "-base.png")
     property bool done: false
@@ -117,6 +119,17 @@ ShellRoot {
             path: shell.fixture
             size: 1
             view: "rendered"
+        }
+
+        // A name too long for any bar, so it elides and the room the name may take is tested.
+        Flea.MarkdownPane {
+            id: longNamePane
+            width: 900
+            height: 1000
+            visible: false
+            active: true
+            path: shell.longFixture
+            size: 1
         }
 
         Flea.MarkdownFigure {
@@ -226,8 +239,10 @@ ShellRoot {
         var qlFence = pane.blockItem ? Checks.fenceOf(pane.blockItem(shell.blockIndex("fence"))) : null
         shell.check(Checks.surfaceError(qlFence, String(Flea.Theme.color.background), String(Flea.Theme.color.surface)), "Quick Look fence surface")
         var g = pane.barGeometry ? pane.barGeometry() : null
-        shell.check(Checks.barError(g, { chromeMark: Flea.Theme.chromeMarkSize, padX: Flea.Theme.spacing.rowPaddingX,
+        shell.check(Bar.barError(g, { chromeMark: Flea.Theme.chromeMarkSize, padX: Flea.Theme.spacing.rowPaddingX,
             gap: Flea.Theme.spacing.gap, chromeHeight: Flea.Theme.chromeHeight }), "Quick Look bar order")
+        shell.check(Bar.nameRoomError(longNamePane.barGeometry ? longNamePane.barGeometry() : null,
+            { gap: Flea.Theme.spacing.gap }), "Quick Look name takes the freed room")
     }
 
     function fail(why) {
@@ -269,7 +284,7 @@ ShellRoot {
             }
             if (shell.fixture.length === 0)
                 shell.fail("no fixture arrived in FLEA_MARKDOWN_FIXTURE")
-            else if (!md.contentReady || !pane.contentReady)
+            else if (!md.contentReady || !pane.contentReady || !longNamePane.contentReady)
                 shell.fail("the document never loaded")
             else if (md.flickContentHeight > md.height)
                 shell.fail("the fixture overflowed its frame")

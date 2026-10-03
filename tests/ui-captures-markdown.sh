@@ -15,14 +15,14 @@ capmarkdown_wait_figures() {
     done
     fail "capmarkdown: figures never settled, last saw [$figs]"
 }
-capmarkdown_wait_column_source() {
-    local view="" source_poll_attempts=40 source_poll_seconds=0.1
-    for _attempt in $(seq 1 "$source_poll_attempts"); do
+capmarkdown_wait_column_rendered() {
+    local view="" rendered_poll_attempts=40 rendered_poll_seconds=0.1
+    for _attempt in $(seq 1 "$rendered_poll_attempts"); do
         view="$(ipc columnMarkdownView)"
-        [[ "$view" == "source" ]] && return 0
-        sleep "$source_poll_seconds"
+        [[ "$view" == "rendered" ]] && return 0
+        sleep "$rendered_poll_seconds"
     done
-    fail "capmarkdown: column Markdown never entered Source, last saw [$view]"
+    fail "capmarkdown: column Markdown never rendered after the Quick Look flip, last saw [$view]"
 }
 case_cap_markdown() {
     local dir="$fixture_root/capmarkdown" figs=""
@@ -113,8 +113,8 @@ EOF
     key -k Escape >/dev/null
     settle
     [[ "$(ipc previewOpen)" == "false" ]] || fail "capmarkdown: Escape did not close Source Quick Look"
-    capmarkdown_wait_column_source
-    shot "cap-markdown-column-source"
-    printf 'CAPMARKDOWN quicklook=ok source=ok column=ok column-source=ok\n'
+    capmarkdown_wait_column_rendered
+    shot "cap-markdown-column-after-flip"
+    printf 'CAPMARKDOWN quicklook=ok source=ok column=ok column-after-flip=ok\n'
     kill_flea
 }

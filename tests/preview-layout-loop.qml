@@ -32,8 +32,14 @@ ShellRoot {
     property bool toggled: false
     property bool preludeDone: false
     property string expectedPath: ""
-    readonly property bool columnHost: scenario < 4
-    readonly property string view: scenario % 2 === 0 ? "rendered" : "source"
+    // Scenarios 0 and 1 are the column at two widths, which only renders; 2 to 5 are Quick Look, rendered then flipped to Source.
+    readonly property int columnScenarios: 2
+    readonly property int lastScenario: 5
+    readonly property int quickScenarioFirst: 2
+    readonly property int quickScenarioLarge: 4
+    readonly property bool columnHost: scenario < columnScenarios
+    // Before the first scenario the prelude flips a standalone pane to Source, and that cell reads the same view.
+    readonly property string view: scenario < 0 || (!columnHost && scenario % 2 === 1) ? "source" : "rendered"
 
     function log(line) { console.log("PREVIEW_LAYOUT " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
@@ -61,6 +67,8 @@ ShellRoot {
         return null
     }
     function markdown() { return shell.find(shell.columnHost ? column : look, "PreviewMarkdown") }
+    // The view the host draws, read the way the ipc does: Quick Look's shownView, the column item's own view.
+    function drawnView(md) { return shell.columnHost ? md.view : look.markdownView() }
     function flick(item) { return shell.find(item, "Flickable") }
     // Rendered is the lazy list itself, Source the first Flickable; a list's margins sit outside its content.
     function mdFlick(md) { return md.view === "source" ? shell.flick(md) : md.bodyItem }
@@ -149,16 +157,17 @@ ShellRoot {
     function showCount(n) { shell.count = n; shell.show("edge-" + n + ".md", "text-plain") }
     function begin() {
         shell.scenario++
-        if (shell.scenario === 8) {
+        if (shell.scenario > shell.lastScenario) {
             shell.nextSibling()
             return
         }
         look.close()
         column.row = null
-        column.width = shell.scenario < 2 ? 380 : 760
-        lookHost.width = shell.scenario < 6 ? 500 : 1000
-        lookHost.height = shell.scenario < 6 ? 400 : 800
-        Flea.ViewState.changeLeaf("preview", { markdownView: shell.view })
+        column.width = shell.scenario < 1 ? 380 : 760
+        lookHost.width = shell.scenario < shell.quickScenarioLarge ? 500 : 1000
+        lookHost.height = shell.scenario < shell.quickScenarioLarge ? 400 : 800
+        // The flip lives in the open Quick Look, so the host sets it after the close that forgot the last one.
+        look.markdownSource = shell.view === "source"
         shell.low = 1
         shell.high = 96
         shell.below = 0
@@ -179,7 +188,8 @@ ShellRoot {
         var f = shell.mdFlick(md)
         var h = shell.extent(md)
         var inset = md.view === "source" ? 0 : 2 * md.insetX
-        if (!shell.check(md.view === shell.view, "reader is in " + md.view + ", not the requested " + shell.view)) return
+        if (!shell.check(shell.drawnView(md) === shell.view && md.view === shell.view,
+            label + " measured the " + shell.drawnView(md) + " layout, not the scenario's " + shell.view)) return
         if (!shell.check(md.width === f.width + inset && md.height === f.height, "reader left its viewport")) return
         if (md.view === "source") {
             var text = shell.sourceText(md)
@@ -204,11 +214,14 @@ ShellRoot {
     }
     function advanceMarkdown() {
         var md = shell.markdown()
-        if (!md || !md.contentReady || md.path !== shell.expectedPath || md.view !== shell.view) {
+        if (!md || !md.contentReady || md.path !== shell.expectedPath) {
             if (shell.ticks === 10) shell.log("WAIT markdown=" + md + " ready=" + (md ? md.contentReady : false)
                 + " path=" + (md ? md.path : "") + " view=" + (md ? md.view : "") + " column=" + column.previewState)
             return
         }
+        // The document under measure is in, so a view that is not the scenario's is a lost flip, not a wait.
+        if (!shell.check(shell.drawnView(md) === shell.view, "scenario " + shell.scenario + " draws the "
+            + shell.drawnView(md) + " layout, not its " + shell.view)) return
         if (shell.stage < 3 && md.rawText.indexOf("edge " + shell.count + "\n") !== 0) return
         if (shell.stage === 3 && md.rawText.indexOf("# Overflow edge") !== 0) return
         var h = shell.extent(md)
@@ -256,7 +269,7 @@ ShellRoot {
     }
     function nextSibling() {
         shell.sibling++
-        shell.scenario = shell.sibling < 4 ? 0 : 4
+        shell.scenario = shell.sibling < 4 ? 0 : shell.quickScenarioFirst
         look.close()
         column.row = null
         column.width = 380

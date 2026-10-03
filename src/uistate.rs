@@ -402,6 +402,21 @@ mod tests {
         assert_eq!(merged.get("places").and_then(|p| p.get("newLeaf")).and_then(Json::as_f64), Some(7.0));
     }
 
+    // GM 2026-10-03: preview.markdownView never shipped in a release and is no stored choice; a file that carries it still loads.
+    #[test]
+    fn a_state_file_holding_the_retired_markdown_view_loads_and_a_patch_for_it_is_refused() {
+        let merged = from_file(r#"{"preview":{"markdownView":"source","thumbSize":"large"},"view":"columns"}"#);
+        assert_eq!(merged.get("view").and_then(Json::as_str), Some("columns"));
+        let preview = merged.get("preview").expect("preview");
+        assert_eq!(preview.get("thumbSize").and_then(Json::as_str), Some("large"));
+        assert_eq!(preview.get("markdownView").and_then(Json::as_str), Some("source"), "kept as an unknown key");
+        let shipped = crate::uischema::defaults();
+        assert!(shipped.get("preview").and_then(|p| p.get("markdownView")).is_none());
+        let patch = jsondoc::parse(r#"{"preview":{"markdownView":"source"}}"#).expect("patch parses");
+        let message = patched(&from_file("{}"), &patch).expect_err("the patch must be refused");
+        assert!(message.contains("markdownView"), "got {}", message);
+    }
+
     #[test]
     fn a_patch_merges_one_nested_leaf_without_clobbering_its_siblings() {
         // Onto a half a document, so the merge cannot be relying on the caller having a full one.

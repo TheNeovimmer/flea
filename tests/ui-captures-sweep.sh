@@ -50,7 +50,7 @@ sweep_launch() {
     # Sample input: {"view":"grid","preview":{"thumbSize":"large"}}, merged into the default state.
     seed_ui_state "$sweep_root/state" "$(jq -cn --arg path "$sweep_root/views" --argjson patch "$patch" '
         {keys:"default",view:"list",hidden:false,columnsLimit:3,display:{textSize:{mode:14}},
-         preview:{column:true,loadOn:"automatic",markdownView:"rendered",thumbSize:"medium"},
+         preview:{column:true,loadOn:"automatic",thumbSize:"medium"},
          menu:{hidden:[]},places:{favourites:[{label:"Sweep",path:$path}]}} * $patch')"
     launch "$path"
     count=$(find "$path" -mindepth 1 -maxdepth 1 ! -name '.*' | wc -l)
@@ -224,11 +224,12 @@ sweep_previews() {
         key -k Escape >/dev/null
         sweep_wait previewOpen false
         if [[ "$tag" == markdown ]]; then
-            sweep_wait columnMarkdownText "$(cat "$sweep_root/previews/notes.md")"
-            sweep_shot column-markdown-source
+            # The flip lived in the closed Quick Look: the column renders and the next Quick Look opens rendered.
+            sweep_text columnMarkdownText 'Release notes'
+            sweep_wait columnMarkdownView rendered
+            sweep_shot column-markdown-rendered-after-flip
             key -k Space >/dev/null
             sweep_wait previewOpen true
-            key r >/dev/null
             sweep_wait previewMarkdownView rendered
             key -k Escape >/dev/null
             sweep_wait previewOpen false

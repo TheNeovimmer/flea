@@ -259,25 +259,3 @@ function fencePadError(fence, padX, padY) {
             + (fence.height - text.y - text.height) + " left, want " + padX + "," + padY;
     return "";
 }
-
-// ql_bar: the mark, the name, the muted count right after it, then the segments and close.
-function barError(g, tokens) {
-    if (!g)
-        return "the pane exposes no bar geometry";
-    if (g.markName !== "markdown")
-        return "the bar mark is " + g.markName + ", want markdown";
-    if (g.mark.width !== tokens.chromeMark || g.mark.x !== tokens.padX)
-        return "the mark is " + g.mark.width + " px at " + g.mark.x + ", want " + tokens.chromeMark + " at " + tokens.padX;
-    if (g.height !== tokens.chromeHeight)
-        return "the bar is " + g.height + " px tall, want " + tokens.chromeHeight;
-    if (!g.ready)
-        return "the count never became ready";
-    if (!(g.mark.x < g.name.x && g.name.x < g.lines.x && g.lines.x < g.segment.x && g.segment.x < g.close.x))
-        return "order by x is mark " + g.mark.x + " name " + g.name.x + " count " + g.lines.x
-            + " segments " + g.segment.x + " close " + g.close.x;
-    if (g.name.x - (g.mark.x + g.mark.width) !== tokens.gap)
-        return "the name starts " + (g.name.x - (g.mark.x + g.mark.width)) + " px after the mark, want " + tokens.gap;
-    if (g.lines.x - g.nameEnd !== tokens.gap)
-        return "the count starts " + (g.lines.x - g.nameEnd) + " px after the name's text, want " + tokens.gap;
-    return "";
-}
