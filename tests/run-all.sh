@@ -76,7 +76,7 @@ for suite in tests/*.sh; do
     name=${name%.sh}
     [ "$name" = run-all ] && continue
     # These acceptance suites belong to other release units and keep their assertions outside this battery.
-    case "$name" in picker-040|preview-hunt) continue ;; esac
+    case "$name" in picker-040) continue ;; esac
     case " $headless $named " in
         *" $name "*) continue ;;
     esac

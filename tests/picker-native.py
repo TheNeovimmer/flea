@@ -121,7 +121,7 @@ def check_build_inputs():
         check("dep-info from a checkout nested in the tree is a foreign binary", build_inputs(binary, repo)[1] == "another tree")
 
 def run(args, env=None):
-    return subprocess.run([str(arg) for arg in args], env=env, text=True, capture_output=True, check=True, timeout=30).stdout.strip()
+    return subprocess.run([str(arg) for arg in args], env=env, text=True, capture_output=True, check=True, timeout=30, close_fds=True).stdout.strip()
 
 
 def check(label, condition, observed=None):
@@ -183,7 +183,7 @@ def move(source, target):
 
 def start(args, name, environment):
     log = guard(root / f"{name}.log").open("w")
-    child = subprocess.Popen([str(arg) for arg in args], env=environment, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    child = subprocess.Popen([str(arg) for arg in args], env=environment, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, close_fds=True)
     log.close()
     processes.append(child)
     return child
@@ -796,6 +796,29 @@ def test_sorting():
     guard(ordered / "report.txt").unlink()
 
 
+
+# Sample input: FLEA_DISPLAY_LOCK_FD=9 names the runner's already locked open descriptor.
+def take_display_lock(runtime_dir):
+    raw = os.environ.get("FLEA_DISPLAY_LOCK_FD")
+    try:
+        if raw is None:
+            held = open(Path(runtime_dir) / "flea-display.lock", "a")
+        else:
+            if re.fullmatch(r"[0-9]+", raw) is None:
+                raise ValueError("expected a decimal open fd")
+            held = os.fdopen(os.dup(int(raw)), "a")
+        try:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except Exception:
+            held.close()
+            raise
+        return held
+    except (OSError, ValueError, OverflowError) as error:
+        message = "FAIL display lock FLEA_DISPLAY_LOCK_FD=" + repr(raw) + ": " + str(error)
+        print(message, flush=True)
+        raise AssertionError(message) from error
+
+
 def main():
     groups = {"single": test_single, "multiple": test_multiple, "directory": test_directory,
               "filters": test_filters, "changed": test_changed, "save": test_save,
@@ -832,8 +855,7 @@ try:
     check("strict input socket", drive_env["YDOTOOL_SOCKET"] == drive_env["XDG_RUNTIME_DIR"] + "/.ydotool_socket")
     check("strict OEM path", drive_env["OMARCHY_PATH"] == "/usr/share/omarchy")
     check("native accessibility enabled", drive_env["QT_LINUX_ACCESSIBILITY_ALWAYS_ON"] == "1")
-    display_lock = open(Path(drive_env["XDG_RUNTIME_DIR"]) / "flea-display.lock", "a")
-    fcntl.flock(display_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    display_lock = take_display_lock(drive_env["XDG_RUNTIME_DIR"])
     if not drive_env.get("QT_QPA_PLATFORMTHEME"):
         session = run(["systemctl", "--user", "show-environment"], drive_env)
         for line in session.splitlines():
@@ -871,7 +893,7 @@ try:
     write(root / "portals/flea.portal", "[portal]\nDBusName=org.freedesktop.impl.portal.desktop.flea\nInterfaces=org.freedesktop.impl.portal.FileChooser;\n")
     write(root / "portals/portals.conf", "[preferred]\norg.freedesktop.impl.portal.FileChooser=flea\n")
     picker_env["XDG_DESKTOP_PORTAL_DIR"] = str(root / "portals")
-    daemon = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1"], env=picker_env, stdout=subprocess.PIPE, stderr=guard(root / "bus.log").open("w"), text=True, start_new_session=True)
+    daemon = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1"], env=picker_env, stdout=subprocess.PIPE, stderr=guard(root / "bus.log").open("w"), text=True, start_new_session=True, close_fds=True)
     processes.append(daemon)
     address = daemon.stdout.readline().strip()
     check("private bus address", address.startswith("unix:"), address)

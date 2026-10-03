@@ -214,3 +214,23 @@ fn batch_selection_follows_folder_links_and_preserves_marks_on_failure() {
     assert_eq!(state.marks.len(), 1);
     assert_eq!(state.marks[0].path, link);
 }
+
+#[test]
+fn batch_selection_drops_retained_marks_of_the_other_kind() {
+    let dir = TestDir::new("picker-retained-kind");
+    let file = dir.file("file", "one");
+    let folder = dir.dir("folder");
+    let mut state = State::default();
+    let cancel = Cancellation::default();
+    let mark = format!(r#"{{"op":"mark","id":1,"path":"{}","multiple":true}}"#, escape(&file.to_string_lossy()));
+    state.handle(&mark, &cancel).unwrap();
+    let select = format!(r#"{{"op":"select","id":2,"directory":true,"paths":["{}","{}"]}}"#,
+        escape(&file.to_string_lossy()), escape(&folder.to_string_lossy()));
+    state.handle(&select, &cancel).unwrap();
+    assert_eq!(state.marks.iter().map(|held| &held.path).collect::<Vec<_>>(), vec![&folder],
+        "a directory selection cannot retain a file mark");
+    let select = format!(r#"{{"op":"select","id":3,"paths":["{}","{}"]}}"#,
+        escape(&folder.to_string_lossy()), escape(&file.to_string_lossy()));
+    state.handle(&select, &cancel).unwrap();
+    assert_eq!(state.marks.iter().map(|held| &held.path).collect::<Vec<_>>(), vec![&file]);
+}

@@ -15,6 +15,7 @@ ShellRoot {
     property double stamp: Date.now()
     property int failures: 0
     property int checks: 0
+    readonly property int burstSteps: 3
 
     function check(label, got, want) {
         checks++
@@ -34,6 +35,15 @@ ShellRoot {
             for (var j = 0; j < kids.length; j++) out.push(kids[j])
         }
         return out
+    }
+    function pressOpen() {
+        var button = descendants(win.contentItem).filter(function(item) {
+            return item.primary === true && item.name.indexOf("Open") === 0
+        })[0]
+        check("real Open button exists", !!button, true)
+        if (!button) return
+        check("real Open button available", button.available, true)
+        keys.mouseClick(button, button.width / 2, button.height / 2, Qt.LeftButton, Qt.NoModifier, -1)
     }
     function press(key, modifiers) { keys.keyClick(key, modifiers || Qt.NoModifier, -1) }
 
@@ -90,7 +100,7 @@ ShellRoot {
                     root.check("cursor file enables Open", win.canAccept, true)
                     console.log("PICKER_HUNT INPUT Return action="
                         + Keymap.lookup(Qt.Key_Return, "", Qt.NoModifier, "listing"))
-                    if (scenario === "cursor-button") win.accept()
+                    if (scenario === "cursor-button") root.pressOpen()
                     else root.press(scenario === "cursor-enter" ? Qt.Key_Enter : Qt.Key_Return, scenario === "cursor-enter" ? Qt.KeypadModifier : Qt.NoModifier)
                 } else if ((scenario === "all" || scenario === "all-wide")) {
                     root.check("Ctrl+A maps to selectAll", Keymap.lookup(Qt.Key_A, "a", Qt.ControlModifier, "listing"), "selectAll")
@@ -105,9 +115,7 @@ ShellRoot {
                         keys.mouseClick(cell, cell.width - 5, cell.height / 2, Qt.LeftButton, Qt.ShiftModifier, -1)
                     }
                 } else if (scenario === "range-burst") {
-                    root.press(Qt.Key_Down, Qt.ShiftModifier)
-                    root.press(Qt.Key_Down, Qt.ShiftModifier)
-                    root.press(Qt.Key_Up, Qt.ShiftModifier)
+                    for (var burst = 0; burst < root.burstSteps; burst++) root.press(Qt.Key_Down, Qt.ShiftModifier)
                 } else if (scenario === "range" || scenario === "range-shrink") {
                     root.check("Shift+Down maps to extendDown", Keymap.lookup(Qt.Key_Down, "", Qt.ShiftModifier, "listing"), "extendDown")
                     root.press(Qt.Key_Down, Qt.ShiftModifier)
@@ -140,7 +148,8 @@ ShellRoot {
                     root.check("Enter walks into cursor folder", win.path.slice(-9), "/z-folder")
                     root.check("folder navigation does not answer", win.answered, false)
                 } else if (scenario === "range" || scenario === "range-burst" || scenario === "range-shrink") {
-                    var rangeCount = win.viewMode === "grid" ? win.viewItem().columns + 1 : 2
+                    var stride = win.viewMode === "grid" ? win.viewItem().columns : 1
+                    var rangeCount = scenario === "range-burst" ? root.burstSteps * stride + 1 : stride + 1
                     root.check("Shift+Down marks cursor range", win.marks.length, rangeCount)
                     if (scenario === "range-shrink") {
                         root.press(Qt.Key_Up, Qt.ShiftModifier)
@@ -158,6 +167,9 @@ ShellRoot {
                 } else if (scenario === "control" || (scenario === "marked-open" || scenario === "marked-enter")) {
                     root.check("Space marks one real file", win.marks.length, 1)
                     if ((scenario === "marked-open" || scenario === "marked-enter")) {
+                        root.check("marked file is b.txt", win.marks[0].path.split("/").pop(), "b.txt")
+                        root.press(win.viewMode === "grid" ? Qt.Key_Right : Qt.Key_Down)
+                        root.check("cursor moves off marked file", win.rowFor(win.cursorIndex).n, "c.txt")
                         var preset = Flea.ViewState.keysPreset
                         root.check("Return follows current preset", Keymap.lookup(Qt.Key_Return, "", Qt.NoModifier, "listing"), preset === "mac" ? "rename" : "open")
                         root.press(scenario === "marked-enter" ? Qt.Key_Enter : Qt.Key_Return, scenario === "marked-enter" ? Qt.KeypadModifier : Qt.NoModifier)

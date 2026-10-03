@@ -130,9 +130,15 @@ impl State {
             Some("select") => {
                 let paths: Vec<PathBuf> = field_str_array(line, "paths").into_iter().map(PathBuf::from).collect();
                 let directory = field_bool(line, "directory");
-                let wanted: HashSet<_> = paths.iter().collect();
+                let mut wanted: HashSet<_> = paths.iter().collect();
                 for held in &self.marks {
-                    if wanted.contains(&held.path) { held.current()?; }
+                    if !wanted.contains(&held.path) { continue; }
+                    let metadata = held.current()?;
+                    let is_dir = match &held.target {
+                        Some(target) => target.metadata().map_err(|error| io_message(&error))?.is_dir(),
+                        None => metadata.is_dir(),
+                    };
+                    if is_dir != directory { wanted.remove(&held.path); }
                 }
                 let mut seen: HashSet<_> = self.marks.iter().map(|held| held.path.clone()).collect();
                 let mut added = Vec::new();

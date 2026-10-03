@@ -41,7 +41,10 @@ PY
         phases=$((phases+1))
         printf 'PICKER_HUNT CASE %s %s exit=%s\n' "$view" "$scenario" "$code"
         printf '%s\n' "$output" | sed -n '/PICKER_HUNT/p'
-        if printf '%s\n' "$output" | grep -q 'PICKER_HUNT FAIL'; then
+        if [ "$code" -ne 0 ]; then
+            printf 'FAIL picker phase %s %s %s exit=%s\n' "${preset:-default}" "$view" "$scenario" "$code"
+            failures=$((failures+1))
+        elif grep -q 'PICKER_HUNT FAIL' <<< "$output"; then
             failures=$((failures+1))
         elif [ "$scenario" = cursor-open ] || [ "$scenario" = marked-open ]; then
             if ! python3 - "$phase/reply.json" <<'PY'
@@ -51,7 +54,7 @@ except (OSError,ValueError):sys.exit(1)
 sys.exit(0 if r.get('response')==0 and len(r.get('uris',[]))==1 else 1)
 PY
             then echo 'FAIL file activation did not write a successful portal reply'; failures=$((failures+1)); fi
-        elif ! printf '%s\n' "$output" | grep -q 'PICKER_HUNT DONE.*0 failed'; then
+        elif ! grep -q 'PICKER_HUNT DONE.*0 failed' <<< "$output"; then
             echo 'FAIL picker hunt did not reach a clean verdict'
             printf '%s\n' "$output" | tail -8
             failures=$((failures+1))

@@ -8,13 +8,27 @@ test_root=$(mktemp -d "$SANDBOX_ROOT/flea-picker-hunt.XXXXXXXX") || exit 1
 : > "$test_root/$SANDBOX_MARKER"
 trap 'sandbox_remove "$test_root"' EXIT
 mkdir -p "$test_root/config" "$test_root/fixture"
-ln -s "$PWD/ui" "$test_root/config/flea"
+cp -a ui "$test_root/config/flea"
+# The probe exits normally after the same saved reply and two worker exits that end the real chooser.
+python3 - "$test_root/config/flea/PickerWindow.qml" <<'PYCODE'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+# Sample input: onStopped: Quickshell.execDetached(["kill", String(Quickshell.processId)])
+stopped = 'onStopped: Quickshell.execDetached(["kill", String(Quickshell.processId)])'
+if source.count(stopped) != 1:
+    sys.exit("FAIL picker hunt could not identify the owned teardown")
+path.write_text(source.replace(stopped, 'onStopped: Qt.exit(0)'))
+PYCODE
+[ "$?" -eq 0 ] || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons"
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui"
 cp tests/picker-hunt.qml "$test_root/config/shell.qml"
 for name in {a..l}; do printf '%s\n' "$name" > "$test_root/fixture/$name.txt"; done
 failures=0
 phases=0
+burst_extra_files=64
 for preset in default mac vim windows; do
 for view in list grid; do
     for scenario in control marked-open marked-enter remember cursor-open cursor-enter cursor-multi cursor-button all all-wide range range-up range-click range-burst range-shrink save-marks single-marks folder empty; do
@@ -31,6 +45,12 @@ for view in list grid; do
         printf '{"pickerView":"%s","keys":"%s"}' "$view" "$preset" > "$phase/state/flea/ui.json"
         fixture="$test_root/fixture"
         case "$scenario" in
+            range-burst)
+                fixture="$phase/fixture"
+                mkdir -p "$fixture"
+                cp "$test_root/fixture/"*.txt "$fixture/"
+                for i in $(seq 1 "$burst_extra_files"); do printf '%s\n' "$i" > "$fixture/z-extra-$i.txt"; done
+                ;;
             all-wide)
                 fixture="$phase/fixture"
                 mkdir -p "$fixture/folder"
@@ -62,7 +82,10 @@ PY
         phases=$((phases+1))
         printf 'PICKER_HUNT CASE %s %s %s exit=%s\n' "$preset" "$view" "$scenario" "$code"
         printf '%s\n' "$output" | sed -n '/PICKER_HUNT/p'
-        if printf '%s\n' "$output" | grep -q 'PICKER_HUNT FAIL'; then
+        if [ "$code" -ne 0 ]; then
+            printf 'FAIL picker phase %s %s %s exit=%s\n' "${preset:-default}" "$view" "$scenario" "$code"
+            failures=$((failures+1))
+        elif grep -q 'PICKER_HUNT FAIL' <<< "$output"; then
             failures=$((failures+1))
         elif [[ "$scenario" = cursor-* || "$scenario" = marked-* ]]; then
             if ! python3 - "$phase/reply.json" "$fixture" "$scenario" <<'PY'
@@ -74,7 +97,7 @@ chosen='b.txt' if sys.argv[3].startswith('marked-') else 'a.txt'
 sys.exit(0 if r.get('response')==0 and r.get('uris')==[(Path(sys.argv[2])/chosen).as_uri()] else 1)
 PY
             then echo 'FAIL file activation did not write a successful portal reply'; failures=$((failures+1)); fi
-        elif ! printf '%s\n' "$output" | grep -q 'PICKER_HUNT DONE.*0 failed'; then
+        elif ! grep -q 'PICKER_HUNT DONE.*0 failed' <<< "$output"; then
             echo 'FAIL picker hunt did not reach a clean verdict'
             printf '%s\n' "$output" | tail -8
             failures=$((failures+1))

@@ -8,13 +8,13 @@ Item {
     required property var picker
     required property var listing
     required property var backend
-    property var base: null
+    property var rangeState: null
     property int anchor: 0
     property int last: -1
     property var pending: null
     property var queued: null
 
-    function endRange() { base = null }
+    function endRange() { rangeState = null }
     function reset() {
         endRange()
         pending = null
@@ -37,23 +37,23 @@ Item {
     function all() {
         if (!permitted()) return
         endRange()
-        resolve(Marks.range(picker.shownTotal), [])
+        resolve(Marks.range(picker.shownTotal), null)
     }
     function range(was, index) {
         if (!permitted()) return
-        if (base === null || was !== last) {
-            base = Picker.paths(picker.marks)
+        if (rangeState === null || was !== last) {
+            rangeState = {base: null}
             anchor = was
         }
         last = index
         var lo = Math.min(anchor, index), hi = Math.max(anchor, index)
         var indices = []
         for (var i = lo; i <= hi; i++) indices.push(i)
-        resolve(indices, base)
+        resolve(indices, rangeState)
     }
-    function resolve(indices, keep) {
-        if (picker.markRequest || picker.submitting) { queued = {indices: indices, keep: keep.slice()}; return }
-        pending = keep.slice()
+    function resolve(indices, range) {
+        if (picker.markRequest || picker.submitting) { queued = {indices: indices, range: range}; return }
+        pending = {range: range}
         picker.markRequest = -1
         listing.paths(indices)
     }
@@ -69,6 +69,10 @@ Item {
         picker.acceptMarks = false
         if (!message.ok) { endRange(); queued = null; picker.say(message.error, true); return }
         picker.marks = Picker.reviewedMarks(picker.marks, message.marks)
+        if (message.removed && rangeState && rangeState.base !== null) {
+            var surviving = Picker.paths(picker.marks)
+            rangeState.base = rangeState.base.filter(function(path) { return surviving.indexOf(path) >= 0 })
+        }
         if (message.removed) picker.say(message.removed === 1
             ? "1 selected item moved or changed; select it again."
             : message.removed + " selected items moved or changed; select them again.", true)
@@ -76,7 +80,7 @@ Item {
         if (queued) {
             var next = queued
             queued = null
-            resolve(next.indices, next.keep)
+            resolve(next.indices, next.range)
         }
         if (picker.marksDirty) { picker.marksDirty = false; validate(false) }
     }
@@ -84,7 +88,9 @@ Item {
         target: root.backend
         function onPaths(paths) {
             if (root.pending === null || root.picker.markRequest !== -1) return
-            var desired = root.pending.concat(paths)
+            var range = root.pending.range
+            if (range && range.base === null) range.base = Picker.paths(root.picker.marks)
+            var desired = (range ? range.base : []).concat(paths)
             root.pending = null
             root.picker.markRequest = root.picker.check({op: "select", paths: desired, directory: root.picker.folderMode})
         }
