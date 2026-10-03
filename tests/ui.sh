@@ -11072,7 +11072,8 @@ xwtab_wait_enter() {
     for i in $(seq 1 30); do
         source_lines=$(xwtab_trace_lines | grep -a "TABDRAG .* pid=$xwtab_source " || true)
         if grep -aq 'TABDRAG drag-finished' <<< "$source_lines"; then fail "xwtab: source $xwtab_source ended the drag before target $bpid entered"; fi
-        lines=$(xwtab_trace_lines | grep -a "TABDRAG .* pid=$bpid " || true)
+        # Sample input: TABDRAG enter-window pid=202 (the foreign receiver ends its line at the pid).
+        lines=$(xwtab_trace_lines | grep -aE "TABDRAG .* pid=$bpid( |$)" || true)
         numbered=$(printf '%s\n' "$lines" | grep -a -n -E 'TABDRAG (enter-window|enter-strip|leave-window|leave-strip)' || true)
         enter_no=$(printf '%s\n' "$numbered" | grep -a -E 'TABDRAG (enter-window|enter-strip)' | tail -1 | cut -d: -f1 || true)
         if [[ -n "$enter_no" ]]; then
