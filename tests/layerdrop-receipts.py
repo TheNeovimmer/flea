@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Exercise the shipped pre-release gesture with each receiver's own hover receipt.
+import ast
 import json
 import pathlib
 import re
@@ -33,15 +34,35 @@ def function(name):
 
 reader = '        lines=$(tail -n +"$((drag_mark + 1))" "$work/flea.log"'
 previous = PROBE[:PROBE.index(reader)].splitlines()[-1]
-# Sample input: # Sample input: TABDRAG catcher-enter pid=1154634 global=1280,720.
 check('TABDRAG reader has an immediate sample-input comment',
+      # Sample input: # Sample input: TABDRAG catcher-enter pid=1154634 global=1280,720
       re.fullmatch(r'\s*# Sample input: TABDRAG \S+ pid=\d+ .+', previous) is not None,
       'preceding line: ' + previous)
 
 panel = PROBE[PROBE.index('            DropArea {'):PROBE.index('\nEOF')]
+# Sample input: onEntered: function (drag) {\n                    Quickshell.execDetached(["sh", "-c", "printf 'PANEL-ENTER\\\\n' >> '$log'"])\n                }
 entered = re.search(r'onEntered: function\s*\(\w+\)\s*\{(.*?)\n\s*\}', panel, re.S)
 check('fixture panel logs PANEL-ENTER on entered',
       entered is not None and 'PANEL-ENTER' in entered.group(1) and '$log' in entered.group(1))
+
+for relative in ('tests/layerdrop-receipts.py', 'tests/xwinput-safety.py'):
+    source = (ROOT / relative).read_text()
+    lines = source.splitlines()
+    # Sample input: entered = re.search(r'onEntered: function\s*\(\w+\)\s*\{(.*?)\n\s*\}', panel, re.S)
+    for node in ast.walk(ast.parse(source)):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == 're'):
+            continue
+        comment = lines[node.lineno - 2].strip()
+        check(relative + ':' + str(node.lineno) + ' regex has an immediate sample-input comment',
+              comment.startswith('# Sample input: '), comment)
+        if any(isinstance(argument, ast.Name) and argument.id == 'panel'
+               for argument in node.args):
+            check('fixture onEntered sample quotes the exact PANEL-ENTER handler',
+                  entered is not None
+                  and comment == '# Sample input: ' + entered.group(0).replace('\n', r'\n'),
+                  comment)
+
 gesture_start = PROBE.index('move_to "$sx" "$sy"\ndrag_mark=')
 gesture_end = PROBE.index('# Wait for an observed panel receipt', gesture_start)
 gesture = PROBE[gesture_start:gesture_end]
@@ -56,9 +77,9 @@ with tempfile.TemporaryDirectory() as temporary:
     result = subprocess.run(['bash', '-uc', setup + '\n' + PROBE[panel_start:panel_end]],
                             capture_output=True, text=True, timeout=SHELL_TIMEOUT_SECONDS)
     generated = (scratch / 'panel.qml').read_text()
-    # Sample input: onEntered: function (drag) { Quickshell.execDetached(["sh", "-c", "printf 'PANEL-ENTER\\n'"]) }.
+    # Sample input: onEntered: function (drag) {\n                    Quickshell.execDetached(["sh", "-c", "printf 'PANEL-ENTER\\n' >> '/fixture/panel.log'"])\n                }
     handler = re.search(r'onEntered: function\s*\(\w+\)\s*\{(.*?)\n\s*\}', generated, re.S)
-    # Sample input: Quickshell.execDetached(["sh", "-c", "printf 'PANEL-ENTER\\n' >> '/fixture/panel.log'"]).
+    # Sample input: Quickshell.execDetached(["sh", "-c", "printf 'PANEL-ENTER\\n' >> '/fixture/panel.log'"])
     command = re.search(r'Quickshell\.execDetached\((\[.*\])\)', handler.group(1)) if handler else None
     if command:
         result = subprocess.run(json.loads(command.group(1)), capture_output=True, text=True,
