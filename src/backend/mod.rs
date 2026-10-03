@@ -98,6 +98,7 @@ pub mod link;
 pub mod watch;
 // Network folders inotify cannot see, re-statted at a named interval for the open folder only.
 pub mod watchpoll;
+pub mod clipreq;
 // Test-only: the failing-first manifest behaviour for undo of a failed tree copy.
 #[cfg(test)]
 mod undomanifest_tests;

@@ -314,6 +314,12 @@ pub(crate) fn run_transfer_checked(
         let src = PathBuf::from(raw);
         let name = base_name(&src);
         let dst = dest.join(&name);
+        // Refuse relative sources so they cannot resolve against the backend's own working directory.
+        if !src.is_absolute() {
+            failed += 1;
+            let _ = tx.send(OpMsg::Item { id, index, name, ok: false, err: "a source must be an absolute path".into() });
+            continue;
+        }
         let checked = if let Some(items) = &selection {
             items.get(index).filter(|item| item.path == src)
                 .ok_or_else(|| "Menu selection no longer matches this transfer.".to_string())

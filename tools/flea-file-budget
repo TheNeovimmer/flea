@@ -29,10 +29,10 @@ src/backend/metareq.rs 416
 src/backend/movebatch.rs 470
 src/backend/movebatch_tests.rs 751
 src/backend/opsdispatch.rs 2204
-src/backend/opsreq.rs 551
-src/backend/opsreq/tests.rs 471
+src/backend/opsreq.rs 557
+src/backend/opsreq/tests.rs 484
 src/backend/permissions.rs 719
-src/backend/run.rs 715
+src/backend/run.rs 719
 src/backend/ops.rs 427
 src/backend/thumbs.rs 460
 src/backend/dirsizeworker.rs 574
@@ -43,6 +43,7 @@ src/backend/undo_tests.rs 423
 src/backend/undoshare.rs 431
 src/backend/undoshare_tests.rs 533
 src/backend/collide_replace_tests.rs 487
+src/backend/proto.rs 378
 src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 779
 src/backend/trashdelete.rs 916
@@ -82,7 +83,7 @@ tests/rename-grid-bottom.js 305
 tests/rename-lifecycle-check.js 356
 tests/touchpad.qml 747
 tests/xwsettings-tabs.qml 416
-ui/Backend.qml 466
+ui/Backend.qml 468
 ui/ChromeBar.qml 478
 ui/ColumnsArea.qml 480
 ui/ContextMenu.qml 682

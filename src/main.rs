@@ -1,5 +1,6 @@
 mod backend;
 mod chooser;
+mod clip;
 mod defaults;
 mod error;
 mod gui;
@@ -85,6 +86,7 @@ fn usage(message: &str) -> ! {
     eprintln!("       flea --picker [off]");
     eprintln!("       flea --ui-state [<json patch>]");
     eprintln!("       flea --update [check]");
+    eprintln!("       flea --clip get|set copy|cut|clear TOKEN");
     eprintln!("       flea --version");
     exit(2)
 }
@@ -262,6 +264,28 @@ fn main() {
     }
     if args.get(1).map(String::as_str) == Some("--pick") {
         usage("--pick takes one reply file");
+    }
+
+    // flea --clip-own: the detached owner behind one clipboard copy, reading its payload on stdin.
+    if args.len() == 2 && args[1] == "--clip-own" {
+        exit(clip::own::run());
+    }
+    if args.get(1).map(String::as_str) == Some("--clip-own") {
+        usage("--clip-own takes nothing");
+    }
+
+    // flea --clip get|set copy|cut|clear TOKEN: the terminal and test seam over the clipboard.
+    if args.len() == 3 && args[1] == "--clip" && args[2] == "get" {
+        exit(clip::cli::get());
+    }
+    if args.len() == 4 && args[1] == "--clip" && args[2] == "set" && (args[3] == "copy" || args[3] == "cut") {
+        exit(clip::cli::set(&args[3]));
+    }
+    if args.len() == 4 && args[1] == "--clip" && args[2] == "clear" {
+        exit(clip::cli::clear(&args[3]));
+    }
+    if args.get(1).map(String::as_str) == Some("--clip") {
+        usage("--clip takes get, set copy|cut, or clear TOKEN");
     }
 
     // flea --ui-state [<json patch>]: the shared ui.json read and update path, see AGENTS.md "The state file".

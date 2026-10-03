@@ -1248,6 +1248,23 @@ still prints its line and adds one sentence on stderr. `--update` alone has `--t
 one merges that JSON object through the shared update path, and anything more is a usage error. See
 "The state file".
 
+`--clip` and `--clip-own` are matched in their exact shapes. A malformed `--clip` leaves by the usage
+error `--clip takes get, set copy|cut, or clear TOKEN` and `--clip-own` with anything after it by
+`--clip-own takes nothing`, both with exit `2`. `--clip` is the terminal and test seam over the system
+clipboard the backend's `clipSet`, `clipGet` and `clipClear` requests use (docs/protocol.md has their
+shapes). `--clip get` prints the `clip` reply line on stdout and exits `0`; a failure prints the same
+line with `ok:false` and an `error` sentence and exits `2`. `--clip set copy|cut` reads NUL-separated
+absolute paths on stdin (at most 64 MiB), prints the 32-hex-char token and exits `0`; a refusal prints
+one `flea: <sentence>` line on stderr, nothing on stdout, and exits `2`. `--clip clear TOKEN` has
+`--clip get`'s shape with the `clear` reply line (`cleared` says whether anything was cleared), and an
+empty TOKEN is a `flea:` sentence on stderr with exit `2`. There is no `--clip watch`: the watcher is
+the backend's `clipWatch` request alone. `--clip-own` is the detached owner behind one copy and not for
+direct use: it reads `<op> NUL <token> NUL <path> NUL ...` on stdin, offers every clipboard type,
+prints `ready`, then points its stdio at /dev/null so the copy outlives the pipes of the process that
+started it (`setsid` gives it a session of its own). It exits `0` when a newer copy cancels it, and
+`2` for a payload it refuses (one `flea:` sentence on stderr, before `ready`) or a compositor
+connection that is lost.
+
 `--default` and `--default off` are matched the same way, in their own exact shape
 (`args.len() == 2`, and `args.len() == 3` with `args[2] == "off"`), dispatching to `main.rs`'s own
 `claim_both()` and `release_both()` rather than straight into `defaults`: a box updating from 0.1.3

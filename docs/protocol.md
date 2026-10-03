@@ -939,6 +939,68 @@ the next open skips what it names rather than wedge behind it: its whole mount w
 anywhere else. A dead share therefore holds at most one thread per source for good, not more per open, and a
 check merely slow inside its budget is run again rather than skipped.
 
+### clipSet
+
+`{"c":"clipSet","op":"copy"|"cut","paths":[<string>,...]}`
+
+Owns the system clipboard for those files, so another Flea window (or Nautilus, or
+Thunar) pastes what this one copied. `paths` are absolute; anything relative, holding a
+NUL or climbing through `..` is refused with an `ok:false` clip line and nothing is
+owned. The backend makes a token, spawns a detached `flea --clip-own` holding the same
+binary, writes it the payload and waits up to 2 s for its `ready`. Runs off the request
+thread, the way `clipGet` does, so an owner that never answers holds up no other request.
+Answers one `clip` line with `op` of `set`; see `clip` below.
+
+### clipGet
+
+`{"c":"clipGet"}`
+
+Reads the current system selection as files. Runs off the request thread, the way other
+slow reads do, because a foreign source can take up to 2 s to close its pipe. The
+owner's own token type is read first, then GNOME's copied-files shape, then the
+uri-list with KDE's cut marker; an empty or text-only selection answers `none`. Answers
+one `clip` line with `op` of `get`; see `clip` below.
+
+### clipClear
+
+`{"c":"clipClear","token":<string>}` or `{"c":"clipClear","cut":[<string>,...]}`
+
+Clears the selection only while it still carries that token, the one `clipSet`
+answered with or `clipGet` read from another Flea process. A live owner started by
+this backend is withdrawn first. Otherwise, including when that owner has exited,
+the token form uses the same token check, queued-selection drain and null selection
+as `flea --clip clear`, so it can clear a selection another Flea process owns.
+`cleared:true` means a live owner was signalled or the verified clear sent the null
+selection. Both clear forms run on the clipboard mutation queue, off the request
+thread. The `cut` form is a spent cut from another application, which
+Nautilus and Thunar clear after pasting: it clears only when the current selection is
+still a cut whose path list equals the given one exactly, same order, and never
+clears a copy. The verified token clear, `cut` form and `flea --clip clear` check the
+selection, then drain what the compositor queued behind it with one more round trip,
+and send the null selection only while the checked offer is still the current one;
+a newer copy answers `cleared:false`. The protocol has no compare-and-clear request,
+so a copy made after that last round trip and before the null selection lands can
+still be wiped. Answers one `clip` line with `op` of `clear`, saying whether it
+cleared; see `clip` below.
+
+### clipWatch
+
+`{"c":"clipWatch"}`
+
+Starts the clipboard watcher: one thread holding one data-control connection, reporting
+every clipboard selection (never the primary one, so a text highlight changes nothing)
+as files the same way `clipGet` reads them. Idempotent; the UI sends it
+once at start and later ones answer nothing. No reply of its own: file selections arrive
+as `clip` lines with `op` of `changed`, an empty or text-only selection as `none`, and
+two identical selections in a row emit once. No compositor or manager ends the thread
+after one `changed` `none` line carrying the error; a dropped connection reconnects at
+most once a second, at most 5 times. A backend that has started this watcher also
+sends `changed` with `clip:"none"` and an empty token when its own clipboard owner
+ends, while that token is the last reported selection and no later owner has been
+spawned by this backend. Hyprland gives data-control clients no event for an empty
+selection. The owner-end line shares the watcher's dedupe state: a repeated empty
+selection emits nothing, and a later real selection still emits. See `clip` below.
+
 ### quit
 
 `{"c":"quit"}`
@@ -1282,6 +1344,23 @@ all a client's card lists before its "and N more" line, so the answer stays smal
 selection. `n` is the incoming item's name, `d` whether it is a directory and `i` the same icon name a
 `rows` row carries, for the card's kind mark. A `total` of 0 means nothing collides; the shipped client
 then sends its transfer with `collide` `refuse`, so a name that appears in the meantime is still refused.
+
+### clip
+
+`{"t":"clip","op":"set","ok":<bool>,"token":<string>}`
+`{"t":"clip","op":"get","ok":<bool>,"clip":"copy"|"cut"|"none","paths":[<string>,...],"token":<string>,"skipped":<uint>}`
+`{"t":"clip","op":"clear","ok":<bool>,"cleared":<bool>}`
+`{"t":"clip","op":"changed","clip":"copy"|"cut"|"none","paths":[<string>,...],"token":<string>,"skipped":<uint>}`
+
+One shape for all three clipboard requests, read by `clipResult`. A refusal carries
+`ok:false` and an `error` sentence instead of the success fields. A `get` with no
+files on the clipboard answers `clip:none` with empty `paths` and `token`; `skipped`
+counts the offered URIs that were refused (bad escapes, NUL, relative paths, `.` or
+`..` parts, non-UTF-8, duplicates, other schemes) rather than failing the read. The
+`token` on a `get` names Flea's own copy when the selection carries it, which is what
+a later `clipClear` hands back; a foreign selection answers an empty one. `changed`
+is the watcher's line and carries no `ok`: it reports the selection as files, with the
+same fields as `get`, and a failed watch reports `none` with an `error` sentence.
 
 ### transferprogress
 

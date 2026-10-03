@@ -56,6 +56,10 @@ pub struct State {
     pub generation: u64,
     // The source of the held listing, set by the arm that answered it.
     pub held: Held,
+    // The clipboard watcher runs once per backend; a second clipWatch is a no-op.
+    pub clip_watching: bool,
+    // The watcher and owner reapers serialize their last selection and replies through this state.
+    pub clip_watch: crate::clip::watch::Shared,
 }
 
 impl Tables {
@@ -75,6 +79,8 @@ impl State {
             window_meta: HashMap::new(),
             dirsizes: HashMap::new(), dirsize_queue: Vec::new(), dirsize_worker,
             search: None, search_reported: Instant::now(), generation: FIRST_LISTING - 1, held: Held::List,
+            clip_watching: false,
+            clip_watch: crate::clip::watch::shared(),
         }
     }
 }

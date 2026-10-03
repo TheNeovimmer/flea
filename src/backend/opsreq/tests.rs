@@ -160,6 +160,19 @@ fn a_destination_that_is_not_an_existing_directory_is_refused_before_any_item_is
 }
 
 #[test]
+fn a_relative_source_is_refused_rather_than_read_from_the_working_directory() {
+    let d = TestDir::new("relative-source");
+    let dest = d.dir("dest");
+    let (tx, rx) = channel();
+    run_transfer_checked(1, false, vec!["relative/a.txt".to_string()], dest.clone(),
+        Arc::new(AtomicBool::new(false)), tx, None, None, Policy::default());
+    let results: Vec<_> = rx.iter().collect();
+    assert!(results.iter().any(|message| matches!(message, OpMsg::Item { ok: false, err, .. } if err == "a source must be an absolute path")));
+    assert!(results.iter().any(|message| matches!(message, OpMsg::TransferDone { ok: 0, failed: 1, .. })));
+    assert!(!dest.join("a.txt").exists(), "a refused source lands nothing");
+}
+
+#[test]
 fn a_folder_is_refused_into_itself_and_into_its_own_subtree_while_a_lookalike_sibling_lands() {
     let d = TestDir::new("intoitself");
     let src = d.dir("x");
