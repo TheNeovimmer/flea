@@ -1,6 +1,7 @@
 //@ pragma ShellId flea-preview-layout-loop-test
 
 import QtQuick
+import QtTest
 import Quickshell
 import "flea" as Flea
 
@@ -18,6 +19,13 @@ ShellRoot {
     property int below: 0
     property int above: 0
     property real belowHeight: 0
+    property bool scrolling: false
+    // One downward wheel notch, delivered inside the preview rather than its scrollbar lane.
+    readonly property int wheelAngleUnits: -120
+    readonly property int wheelHorizontalUnits: 0
+    readonly property int wheelDelayMs: 1
+    readonly property real wheelCenter: 0.5
+    readonly property real scrollTop: 0
     property int sibling: -1
     property bool done: false
     property bool toggled: false
@@ -56,6 +64,7 @@ ShellRoot {
         implicitWidth: 1400
         implicitHeight: 920
         color: Flea.Theme.color.background
+        TestEvent { id: driver }
         Flea.PreviewMarkdown {
             id: firstToggle
             x: 1020
@@ -106,6 +115,7 @@ ShellRoot {
         shell.below = 0
         shell.above = 0
         shell.stage = 0
+        shell.scrolling = false
         shell.showCount(48)
     }
     function cell(label, md) {
@@ -149,12 +159,21 @@ ShellRoot {
             shell.cell("short", md)
             shell.stage = 2
             shell.showCount(shell.above)
-        } else if (shell.stage === 2) {
+        } else if (shell.stage === 2 && !shell.scrolling) {
             if (!shell.check(h > md.height && h - shell.belowHeight < 40, "tall document missed overflow edge")) return
             shell.cell("tall", md)
+            if (shell.done) return
             var f = shell.flick(md)
-            f.contentY = f.contentHeight - f.height
-            if (!shell.check(f.contentY > 0, "overflow could not scroll")) return
+            if (!shell.check(f.contentY === shell.scrollTop, "overflow scroll did not start at the top")) return
+            driver.mouseWheel(f, f.width * shell.wheelCenter, f.height * shell.wheelCenter,
+                Qt.NoButton, Qt.NoModifier, shell.wheelHorizontalUnits, shell.wheelAngleUnits, shell.wheelDelayMs)
+            shell.scrolling = true
+        } else if (shell.stage === 2) {
+            var f = shell.flick(md)
+            if (f.moving) return
+            if (!shell.check(f.contentY > shell.scrollTop, "overflow could not scroll")) return
+            if (!shell.check(f.contentY <= f.contentHeight - f.height, "overflow scrolled past its content bounds")) return
+            shell.scrolling = false
             shell.stage = 3
             shell.show("mixed.md", "text-plain")
         } else {
