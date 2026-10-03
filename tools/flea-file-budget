@@ -118,10 +118,7 @@ budget_for() {
 }
 
 while IFS= read -r file; do
-  # Generated vendor output (pinned bundles plus the assembled classic
-  # workers) is versioned for audit, not authored: Keymap.js stays a recorded
-  # ceiling because it is generated into the tree it measures, while vendor
-  # output is excluded outright.
+  # Pinned vendor bundles are excluded as generated output; the generated Keymap.js keeps its recorded ceiling.
   case "$file" in
     ui/vendor/*) continue ;;
   esac

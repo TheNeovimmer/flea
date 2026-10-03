@@ -4,10 +4,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// One figure request channel to the sandboxed quickjs-ng helper. The helper
-// loads its own bundles, so maths alone never pays for the diagram bytes.
-// Each answer lands here by ticket: a helper cannot be interrupted, so a
-// render past renderMs is killed and its answer is dropped.
+// A lazy sandboxed quickjs-ng helper answers by ticket and loads only the requested bundles; an overdue render kills its generation.
 Item {
     id: root
 
@@ -19,11 +16,9 @@ Item {
     property int idleExitMs: 30000
     // Revisits and theme flips back answer from here, never re-rendered.
     readonly property int cacheMax: 64
-    // Answers that arrived through the helper; the suite reads this as the
-    // proof the work happened off the thread.
+    // Helper answers prove the work happened off the GUI thread.
     property int workerAnswers: 0
-    // Latched false when the helper exits 127 or never starts: every figure
-    // then shows its fenced source, with one log line and no retry storm.
+    // A 127 exit or failed spawn latches the fenced-source fallback with one log line and no retry storm.
     property bool available: true
 
     property int seq: 0
@@ -33,28 +28,30 @@ Item {
     property var answerOrder: []
     property var pending: []
     property bool starting: false
+    property bool stopping: false
+    property int generation: 0
+    readonly property int killSignal: 9
+    readonly property int deadlinePollMs: 250
     // The suite reads this to prove the idle exit stopped the helper.
     readonly property bool helperRunning: helper.running
     // The helper's pid, so the suite reads its peak RSS while it runs.
     readonly property var helperPid: helper.processId
-    // The deadline timer runs only while waiting holds a ticket, so an idle
-    // session wakes for nothing; the suite reads this the same way.
+    // The deadline timer stops between tickets so an idle session wakes for nothing.
     readonly property bool deadlineRunning: deadlineTimer.running
 
-    // Mirrors ui/js/FigureWorker.mjs themeKey and cacheKey, the key the two
-    // sides agree on; the module itself is an ES import this QML never loads.
-    function cacheKeyOf(kind, source, t) {
+    // Mirrors FigureWorker.cacheKey, including the display mode that changes formula layout.
+    function cacheKeyOf(kind, source, t, display) {
         var key = [t.bg, t.fg, t.accent || "", t.font || "", t.bodyPx || 0].join("|");
-        return kind + "\n" + key + "\n" + source;
+        return kind + "\n" + key + "\n" + !!display + "\n" + source;
     }
 
-    function cached(kind, source, theme) {
-        var key = root.cacheKeyOf(kind, source, theme);
+    function cached(kind, source, theme, display) {
+        var key = root.cacheKeyOf(kind, source, theme, display);
         return root.answerCache[key];
     }
 
-    function store(kind, source, theme, svg) {
-        var key = root.cacheKeyOf(kind, source, theme);
+    function store(kind, source, theme, display, svg) {
+        var key = root.cacheKeyOf(kind, source, theme, display);
         var at = root.answerOrder.indexOf(key);
         if (at >= 0)
             root.answerOrder.splice(at, 1);
@@ -78,14 +75,19 @@ Item {
 
         onStarted: {
             root.starting = false;
-            for (var i = 0; i < root.pending.length; i++)
-                root.writeLine(root.pending[i]);
+            if (root.stopping) {
+                helper.signal(root.killSignal);
+                return;
+            }
+            var pending = root.pending;
             root.pending = [];
+            for (var i = 0; i < pending.length; i++)
+                root.writeLine(pending[i]);
         }
 
         // A spawn that fails raises runningChanged and never exited, measured, so it reports here.
         onRunningChanged: {
-            if (!helper.running && root.starting) {
+            if (!helper.running && root.starting && !root.stopping) {
                 root.starting = false;
                 root.refuse("figure engine did not start");
             }
@@ -93,27 +95,35 @@ Item {
 
         onExited: function (exitCode, exitStatus) {
             root.starting = false;
-            if (exitCode === 127) {
-                root.refuse("figure engine did not start");
-                return;
-            }
-            // A deliberate kill or idle stop leaves the waiting to their own
-            // deadlines; the next ask starts a fresh helper.
+            root.stopping = true;
+            var error = "figure engine exited " + exitCode + " (status " + exitStatus + ")";
+            if (exitCode === 127)
+                root.refuse(error);
+            else
+                root.failGeneration(root.generation, error);
+            root.stopping = false;
+            if (root.pending.length > 0)
+                root.ensureHelper();
         }
     }
 
     Timer {
         id: deadlineTimer
-        interval: 250
+        interval: root.deadlinePollMs
         repeat: true
         running: false
         onTriggered: {
             var now = Date.now();
             for (var id in root.waiting) {
-                if (now > root.waiting[id].deadline) {
-                    delete root.waiting[id];
-                    root.done(Number(id), "", "render timed out");
-                    root.killHelper();
+                var asked = root.waiting[id];
+                if (asked !== undefined && now > asked.deadline) {
+                    if (asked.generation === 0) {
+                        delete root.waiting[id];
+                        root.pending = root.pending.filter(function (ticket) { return ticket !== Number(id); });
+                        root.done(Number(id), "", "render timed out");
+                    } else {
+                        root.killHelper(asked.generation);
+                    }
                 }
             }
             // The tick that finds waiting empty arms the idle exit, then stops.
@@ -128,23 +138,41 @@ Item {
         id: idleTimer
         interval: root.idleExitMs
         onTriggered: {
-            if (Object.keys(root.waiting).length === 0 && helper.running)
+            if (Object.keys(root.waiting).length === 0 && helper.running) {
+                root.stopping = true;
                 helper.running = false;
+            }
         }
     }
 
     function armIdle() {
-        if (Object.keys(root.waiting).length === 0 && helper.running)
+        if (Object.keys(root.waiting).length === 0 && helper.running && !root.stopping)
             idleTimer.restart();
     }
 
-    function killHelper() {
-        if (helper.running)
-            helper.signal(9);
+    function failGeneration(generation, error) {
+        var failed = [];
+        for (var id in root.waiting) {
+            if (root.waiting[id].generation === generation) {
+                failed.push(Number(id));
+                delete root.waiting[id];
+            }
+        }
+        root.pending = root.pending.filter(function (id) { return failed.indexOf(id) < 0; });
+        for (var i = 0; i < failed.length; i++)
+            root.done(failed[i], "", error);
     }
 
-    // Every waiting request fails the same way a render failure fails: the
-    // figure shows its fenced source, and nothing is ever retried.
+    function killHelper(generation) {
+        var ownsHelper = generation === root.generation && (helper.running || root.starting);
+        if (ownsHelper)
+            root.stopping = true;
+        root.failGeneration(generation, "render timed out");
+        if (ownsHelper && helper.running)
+            helper.signal(root.killSignal);
+    }
+
+    // Refusal fails every ticket into its fenced source without retries.
     function refuse(error) {
         if (!root.available)
             return;
@@ -168,13 +196,14 @@ Item {
             return;
         }
         var id = message.id;
-        if (root.waiting[id] === undefined)
+        if (root.waiting[id] === undefined || root.stopping
+                || root.waiting[id].generation !== root.generation)
             return;
         root.workerAnswers++;
         var asked = root.waiting[id];
         delete root.waiting[id];
         if (message.svg !== undefined) {
-            root.store(asked.kind, asked.source, asked.theme, message.svg);
+            root.store(asked.kind, asked.source, asked.theme, asked.display, message.svg);
             root.done(id, message.svg, "");
         } else {
             root.done(id, "", message.error || "render failed");
@@ -185,8 +214,9 @@ Item {
     function ensureHelper() {
         if (!root.available)
             return false;
-        if (helper.running || root.starting)
+        if (root.stopping || helper.running || root.starting)
             return true;
+        root.generation++;
         root.starting = true;
         idleTimer.stop();
         helper.running = true;
@@ -195,8 +225,9 @@ Item {
 
     function writeLine(id) {
         var w = root.waiting[id];
-        if (w === undefined)
+        if (w === undefined || root.stopping || !helper.running)
             return;
+        w.generation = root.generation;
         // Sample input: {"id":3,"kind":"math","source":"\\frac{a}{b}","display":true,"theme":{"bg":"#101315"}}.
         var line = JSON.stringify({ id: id, kind: w.kind, source: w.source, display: w.display, theme: w.theme }) + "\n";
         root.sends++;
@@ -207,7 +238,7 @@ Item {
         root.seq++;
         var id = root.seq;
         // A revisit or a theme flip back never reaches the helper at all.
-        var hit = root.cached(kind, source, theme);
+        var hit = root.cached(kind, source, theme, display);
         if (hit !== undefined) {
             // Deferred past this return, so the caller's ticket is set before its answer lands.
             Qt.callLater(function () { root.done(id, hit, ""); });
@@ -218,14 +249,14 @@ Item {
             return id;
         }
         root.waiting[id] = { kind: kind, source: source, display: display,
-            theme: theme, deadline: Date.now() + root.renderMs };
+            theme: theme, generation: 0, deadline: Date.now() + root.renderMs };
         idleTimer.stop();
         deadlineTimer.start();
-        if (root.ensureHelper()) {
-            if (helper.running)
-                root.writeLine(id);
-            else
-                root.pending.push(id);
+        if (helper.running && !root.starting && !root.stopping) {
+            root.writeLine(id);
+        } else {
+            root.pending.push(id);
+            root.ensureHelper();
         }
         return id;
     }

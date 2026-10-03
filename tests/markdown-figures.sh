@@ -9,6 +9,7 @@ cd "$(dirname "$0")/.." || exit 1
 
 fleabin="$PWD/target/debug/flea"
 [ -x "$fleabin" ] || { echo "markdown-figures.sh: no debug binary at $fleabin, run cargo build first"; exit 1; }
+python3 tests/figure-helper-start.py "$fleabin" || exit 1
 # FLEA_QJS names the engine: an absolute executable path wins, then the Arch system binary, then the dev tree copy.
 resolve_qjs() {
     if [ -n "${FLEA_QJS:-}" ] && [ "${FLEA_QJS#/}" != "${FLEA_QJS}" ] && [ -x "${FLEA_QJS}" ]; then
@@ -129,11 +130,8 @@ missing_rc=$?
 echo "PASS missing qjs exits 127 with one stderr line"
 
 # Byte identity against node, the engine the bundles were built for. Loud skip when absent.
-if ! command -v node >/dev/null; then
-    echo "markdown-figures.sh: SKIP node is absent, so the byte-identity check did not run"
-    echo "MARKDOWN_FIGURES DONE failures=0"
-    exit 0
-fi
+if command -v node >/dev/null; then
+node tests/figure-cache.mjs || exit 1
 cat > "$test_root/identity.mjs" <<'EOF'
 import { readFileSync, writeFileSync } from "node:fs";
 import { renderFigure } from "/PLACEHOLDER/ui/js/FigureWorker.mjs";
@@ -155,6 +153,10 @@ got = json.load(open(sys.argv[2]))
 assert want == got, "qjs and node disagree on rendered bytes"
 print("PASS qjs renders the bundles byte-identical to node")
 EOF
+
+else
+    echo "markdown-figures.sh: SKIP node is absent, so the byte-identity check did not run"
+fi
 
 # FigureService against the real helper: cache, idle exit, timeout restart,
 # the 127 latch and the fence. Loud skip where qs is absent.
@@ -178,6 +180,7 @@ if [ "\$1" = "--figure-helper" ]; then
     phase=\$(cat "$test_root/phase" 2>/dev/null)
     case "\$phase" in
         hang) sleep 30 ;;
+        exit42) exit 42 ;;
         refused) echo "flea: stub has no engine" >&2; exit 127 ;;
         *) exec "$fleabin" --figure-helper ;;
     esac
@@ -245,5 +248,6 @@ if [ "$verdict" -ne 0 ]; then
     printf '%s\n' "$output" | grep -a 'MARKDOWN_FIGURES FAIL' | head -30
     exit 1
 fi
+printf 'MARKDOWN_FIGURES %s check(s), %s failed\n' "$pass_count" "$fail_count"
 printf '%s\n' "$output" | grep -o 'MARKDOWN_FIGURES DONE.*'
 echo "MARKDOWN_FIGURES DONE failures=0"

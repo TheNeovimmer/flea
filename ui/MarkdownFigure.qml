@@ -1,12 +1,6 @@
 import QtQuick
 
-// One rendered figure: a maths formula or a Mermaid diagram, drawn from the
-// SVG the shared figure worker answers. Block mode sizes to the natural size,
-// scales down to fit the width and never up; a display formula centres, a
-// diagram sits left like a fenced block. Inline mode sizes to the line height
-// for $...$ beside text. Pending reserves no height and draws nothing; an
-// error draws the source as the board's fenced block, so a figure is never
-// worse than the code it came from.
+// One rendered figure: a maths formula or a Mermaid diagram, drawn from the SVG the shared figure worker answers. Block mode sizes to the natural size, scales down to fit the width and never up; a display formula centres, a diagram sits left like a fenced block. Inline mode sizes to the line height for $...$ beside text. Pending reserves no height and draws nothing; an error draws the source as the board's fenced block, so a figure is never worse than the code it came from.
 Item {
     id: root
 
@@ -68,8 +62,7 @@ Item {
         }
     }
 
-    // Data URLs keep figures out of the filesystem entirely; Qt SVG takes
-    // them through Image like any other URL (proven in tests/markdown-figures).
+    // Data URLs keep figures out of the filesystem entirely; Qt SVG takes them through Image like any other URL (proven in tests/markdown-figures).
     readonly property string dataUrl: root.svg === "" ? ""
         : "data:image/svg+xml," + encodeURIComponent(root.svg)
 
@@ -100,9 +93,7 @@ Item {
         fillMode: Image.PreserveAspectFit
     }
 
-    // The board's fenced block: chrome surface, plain source text. A refused
-    // source many kilobytes long elides to its head, so one fallback can
-    // never size the column past what a frame can hold.
+    // The board's fenced block: chrome surface, plain source text. A refused source many kilobytes long elides to its head, so one fallback can never size the column past what a frame can hold.
     readonly property string fallbackBody: root.source.length > 2000
         ? root.source.slice(0, 2000) + "… (" + (root.source.length - 2000) + " more)"
         : root.source
@@ -130,16 +121,14 @@ Item {
     readonly property bool centred: root.kind === "math" && root.display && !root.inline
     readonly property real naturalWidth: !root.inline && figure.implicitWidth > 0 ? figure.implicitWidth : 0
     readonly property real naturalHeight: !root.inline && figure.implicitHeight > 0 ? figure.implicitHeight : 0
-    // Integer geometry keeps the raster 1:1: a fractional item size would
-    // resample the whole figure and blend every flat fill.
+    // Integer geometry keeps the raster 1:1: a fractional item size would resample the whole figure and blend every flat fill.
     readonly property real fitWidth: root.naturalWidth <= 0 ? 0 : Math.round(Math.min(root.naturalWidth, root.width))
     readonly property real fitHeight: root.naturalWidth <= 0 ? 0 : Math.round(root.naturalHeight * (root.fitWidth / root.naturalWidth))
     readonly property real inlineWidth: root.inline && inlineFigure.implicitHeight > 0
         ? Math.round(inlineFigure.implicitWidth * (root.bodyPx / inlineFigure.implicitHeight)) : 0
 
     implicitWidth: root.inline ? root.inlineWidth : root.width
-    // A failed inline still draws its fence, so it sizes to the fence
-    // rather than the line it never became.
+    // A failed inline still draws its fence, so it sizes to the fence rather than the line it never became.
     implicitHeight: root.inline ? (root.failed ? fallback.height : root.bodyPx)
         : root.failed ? fallback.height : root.fitHeight
     height: root.implicitHeight

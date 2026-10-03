@@ -16,6 +16,7 @@ import "dragout.js" as DragOutSuite
 import "dst.js" as DstSuite
 import "errors.js" as ErrorsSuite
 import "facts.js" as FactsSuite
+import "figureservice.js" as FigureServiceSuite
 import "filter.js" as FilterSuite
 import "filter-cursor.js" as FilterCursorSuite
 import "foldersorts.js" as FolderSortsSuite
@@ -121,7 +122,7 @@ Item {
             ["dirsizes", DirSizesSuite], ["drag", DragSuite], ["dragout", DragOutSuite], ["dst", DstSuite], ["ddtarget", DdtargetSuite],
             ["copyas", CopyAsSuite], ["invert", InvertSuite],
             ["edmonton", DstSuite],
-            ["errors", ErrorsSuite], ["facts", FactsSuite], ["filter", FilterSuite], ["filter-cursor", FilterCursorSuite],
+            ["errors", ErrorsSuite], ["facts", FactsSuite], ["figureservice", FigureServiceSuite], ["filter", FilterSuite], ["filter-cursor", FilterCursorSuite],
             ["focus", FocusSuite], ["focus-grid", FocusGridSuite], ["focus-forward", FocusForwardSuite],
             ["foldersorts", FolderSortsSuite],
             ["gridgeometry", GridGeometrySuite], ["density", DensitySuite],

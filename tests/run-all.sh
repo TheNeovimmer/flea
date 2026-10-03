@@ -21,6 +21,7 @@ cargo build -q --release || { printf 'run-all: release build failed, nothing els
 
 headless="js keymap-gen charts budget aurpush aur-versions pkgrel-check signalarity empty-state sandbox capability-ownership gio-auth gvfs ops modes update protocol portal archive thumbs thumbs-exec network-open-share network-keyless mount-listing lazy-objects connections-style pdf-turn pdf-first preview-decode preview-swap preview-settle-live preview-select uistate uiwriter media filemanager1 dragwire shellload settings-columns preview-frame preview-geometry jump-ui jump-gap picker-recent picker-stall grid-gap rowcost columnscost columnrow-geom columndividers columnsfolder columnspeekgate headercost headerhandles menu-settle menu-snapshot-retire markdown-render markdown-figures lockedmenu arm-prompt acceptance-matrix counts listcost listnamebudget clickedge-origin ui-fixture-home menu-scroll-width scroll-fill columnclip-empty listhidden gridhidden gridcaption statusbar-hint touchpad"
 failed=0
+headless="$headless figure-package"
 ran=0
 
 for name in $headless; do
