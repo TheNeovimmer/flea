@@ -389,5 +389,15 @@ for layer in '1 desktop-widget' '3 overlay-widget' '3 qs-launcher' '1 qs-launche
 done
 # Keep the live shell helpers under the same deterministic regression gate.
 if python3 "$repo/tests/xwtab-safety.py"; then ok "live shell safety regressions"; else bad "live shell safety regressions"; fi
+if python3 "$repo/tests/layerdrop-receipts.py"; then
+    ok "layer receiver receipts"
+else
+    bad "layer receiver receipts"
+fi
+if python3 "$repo/tests/xwinput-safety.py"; then
+    ok "cross-window input routing"
+else
+    bad "cross-window input routing"
+fi
 printf '%s checks, %s failed\n' "$((pass+fail))" "$fail"
 exit "$((fail>0))"

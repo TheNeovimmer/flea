@@ -10756,8 +10756,7 @@ case_xwdrag() {
     [[ -L "$bdir/link.txt" ]] || fail "xwdrag: $bdir/link.txt is not a symlink"
     [[ -e "$adir/link.txt" ]] || fail "xwdrag: link drag deleted its source"
     printf 'XWDRAG link ok\n'
-    xwdrag_focus "$bpid"
-    key -M ctrl -k z -m ctrl >/dev/null
+    xwtab_key "$bpid" -M ctrl -k z -m ctrl
     for i in $(seq 1 40); do [[ ! -L "$bdir/link.txt" ]] && break; sleep 0.25; done
     [[ ! -L "$bdir/link.txt" ]] || fail "xwdrag: undo left the link in place"
     printf 'XWDRAG undo ok\n'
@@ -10874,10 +10873,12 @@ xwdrag_fail_unfocused() {
 
 # A keystroke aimed at one owned window by address, after the focus wait proves it is active.
 xwtab_key() {
-    local pid="$1"; shift
+    local pid="$1"
+    shift
     local addr
     addr=$(hyprctl clients -j | python3 -c '
 import json, sys
+# Sample input: [{"pid":101,"address":"0xa"},{"pid":202,"address":"0xb"}].
 hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
 print(hits[0]["address"] if len(hits) == 1 else "")
 ' "$pid") || fail "xwtab: no window for pid $pid"
@@ -10993,11 +10994,10 @@ xwdrag_wait_row_gone() {
 
 xwdrag_navigate_second() {
     local want="$1"
-    xwdrag_focus "$bpid"
-    key -M ctrl -k l -m ctrl >/dev/null
+    xwtab_key "$bpid" -M ctrl -k l -m ctrl
     for _attempt in $(seq 1 100); do [[ "$(xwdrag_qs "$bid" pathBarOpen 2>/dev/null)" == true ]] && break; sleep 0.05; done
-    omarchy-drive key --window flea "$want" >/dev/null
-    key -k Return >/dev/null
+    xwtab_key "$bpid" "$want"
+    xwtab_key "$bpid" -k Return
     for _attempt in $(seq 1 100); do
         [[ "$(xwdrag_qs "$bid" path 2>/dev/null)" == "$want" && "$(xwdrag_qs "$bid" listInFlight 2>/dev/null)" == false ]] && return 0
         sleep 0.05
@@ -11447,6 +11447,14 @@ case_xwtab() {
     esc_before=$(flea_pids | tr '\n' ' ')
     # Escape mid-drag over A cancels with no move, no tear-off and no new window.
     read -r sx sy < <(xwtab_tab_point "$aid" "$apid" 1) || fail "xwtab: A's second tab has no centre"
+    local addr
+    addr=$(hyprctl clients -j | python3 -c '
+import json, sys
+# Sample input: [{"pid":1154634,"address":"0x62e8374a53d0"}].
+hits = [c for c in json.load(sys.stdin) if str(c.get("pid")) == sys.argv[1]]
+print(hits[0]["address"] if len(hits) == 1 else "")
+' "$apid") || fail "xwtab: no window for pid $apid before Escape drag"
+    [[ -n "$addr" ]] || fail "xwtab: no address for pid $apid before Escape drag"
     local awx awy aww awh
     read -r awx awy aww awh < <(xwdrag_geometry "$apid") || fail "xwtab: no geometry for A"
     xwtab_source=$apid; xwtab_target=$apid; xwtab_gesture="Escape press=$sx,$sy"
@@ -11461,7 +11469,7 @@ case_xwtab() {
     xwdrag_glide "$((sx + 6))" "$sy"
     xwdrag_glide "$sx" "$sy"
     # The catcher never takes keyboard focus, so Escape reaches the source drag filter.
-    key -k Escape >/dev/null
+    omarchy-drive key --window "$addr" -k Escape >/dev/null || fail "xwtab: Escape did not reach $apid"
     xwtab_wait_cancel
     xwtab_release || fail "xwtab: pointer release failed"
     hyprctl layers -j | python3 -c '

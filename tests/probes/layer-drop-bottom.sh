@@ -78,6 +78,9 @@ ShellRoot {
             DropArea {
                 anchors.fill: parent
                 keys: ["application/x-flea-tab"]
+                onEntered: function (drag) {
+                    Quickshell.execDetached(["sh", "-c", "printf 'PANEL-ENTER\\\\n' >> '$log'"])
+                }
                 onDropped: function (drop) {
                     Quickshell.execDetached(["sh", "-c", "printf 'PANEL-DROP\\\\n' >> '$log'"])
                 }
@@ -250,10 +253,11 @@ layerdrop_outside_y=60
 layerdrop_target_nudge=6
 layerdrop_drag_attempts=40
 layerdrop_drag_poll=0.1
-# Require platform start, mapped catcher and catcher enter while the pointer remains held.
+# Require platform start, mapped catcher and either receiver's hover while the pointer remains held.
 layerdrop_wait_drag() {
     local stage="$1" attempt lines
     for attempt in $(seq 1 "$layerdrop_drag_attempts"); do
+        # Sample input: TABDRAG catcher-enter pid=1154634 global=1280,720
         lines=$(tail -n +"$((drag_mark + 1))" "$work/flea.log" | grep -a "TABDRAG .* pid=$flea_pid " || true)
         if grep -aq 'TABDRAG drag-finished' <<< "$lines"; then
             refuse "drag ended before $stage while pointer held"
@@ -269,8 +273,8 @@ layerdrop_wait_drag() {
                     return 0
                 fi
                 ;;
-            catcher)
-                if grep -aq 'TABDRAG catcher-enter' <<< "$lines"; then
+            receiver)
+                if grep -aq 'TABDRAG catcher-enter' <<< "$lines" || grep -aq '^PANEL-ENTER$' "$log"; then
                     return 0
                 fi
                 ;;
@@ -293,7 +297,7 @@ layerdrop_wait_drag mapped
 move_to "$dx" "$dy"
 move_to "$((dx + layerdrop_target_nudge))" "$dy"
 move_to "$dx" "$dy"
-layerdrop_wait_drag catcher
+layerdrop_wait_drag receiver
 ydotool click 0x80 >/dev/null 2>&1 || refuse "pointer release failed"
 layerdrop_button_down=false
 # Wait for an observed panel receipt or a new Flea process before evaluating either route.

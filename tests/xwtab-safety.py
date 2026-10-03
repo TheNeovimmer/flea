@@ -184,14 +184,15 @@ exit "$status"
         log.write_text('')
 
     wait_cancel = function(UI, 'xwtab_wait_cancel') if 'xwtab_wait_cancel() {' in UI else ''
-    start = UI.index('    key -k Escape >/dev/null', UI.index('case_xwtab()'))
+    start = UI.index('    # The catcher never takes keyboard focus', UI.index('case_xwtab()'))
     end = UI.index('    hyprctl layers -j', start)
     escape_leg = UI[start:end]
     result = shell(wait_cancel + '''
 xwtab_cancel_attempts=30; xwtab_cancel_poll=0.1
 xwtab_source=101; apid=101
+addr=0xa
 fail() { echo "FAIL $*"; exit 1; }
-key() { :; }
+omarchy-drive() { :; }
 sleep() { :; }
 xwtab_release() { released=true; }
 xwtab_trace_lines() { [[ "${released:-false}" == true ]] && echo 'TABDRAG drag-finished pid=101 action=0'; }
@@ -287,13 +288,14 @@ ydotool() {
 }
 ''' + gesture)
     expected = ['motion 348 81', 'press', 'motion 240 600', 'motion 8 1432', 'motion 14 1432', 'motion 8 1432', 'release']
-    check('layer probe waits for catcher after platform start before release', result.returncode == 0 and log.read_text().splitlines() == expected, result.stdout + result.stderr + log.read_text())
+    check('layer probe waits for receiver after platform start before release', result.returncode == 0 and log.read_text().splitlines() == expected, result.stdout + result.stderr + log.read_text())
     for trace in ('TABDRAG drag-start pid=101 path=/fixture mime=application/x-flea-tab\nTABDRAG drag-finished pid=101 action=0\n', 'TABDRAG drag-start pid=101 path=/fixture mime=application/x-flea-tab\n'):
         (scratch / 'flea.log').write_text(trace)
         result = shell(waits + f"\nwork='{scratch}'\n" + '''
 flea_pid=101
 srcdir=/fixture
 drag_mark=0
+log=/dev/null
 layerdrop_drag_attempts=2
 layerdrop_drag_poll=0.1
 refuse() {
@@ -301,9 +303,9 @@ refuse() {
     exit 1
 }
 sleep() { :; }
-layerdrop_wait_drag catcher
+layerdrop_wait_drag receiver
 ''')
-        check('layer probe refuses release without a held catcher receipt', result.returncode != 0, result.stdout + result.stderr)
+        check('layer probe refuses release without a held receiver receipt', result.returncode != 0, result.stdout + result.stderr)
     block = probe[probe.index('    if layerdrop_path_matches "$seen" "$lifted_path"; then'):]
     check('catcher outcome never masquerades as fixture PANEL-DROP PASS', 'out "PASS"' not in block)
 
