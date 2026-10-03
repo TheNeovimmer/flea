@@ -20,6 +20,13 @@ Item {
         selection.received({ok: true, marks: paths(names).map(function(path) { return {path: path, bytes: 1} }), removed: removed || 0})
     }
     function deliver(names) { backend.paths(paths(names)) }
+    function settleQueued() {
+        if (picker.markRequest !== -1) return
+        deliver(indices.map(function(index) { return picker.rowFor(index).n }))
+        var desired = requests[requests.length - 1].paths
+        var unique = desired.filter(function(path, index) { return desired.indexOf(path) === index })
+        reply(unique.map(function(path) { return path.slice("/virtual/".length) }))
+    }
     function selected(label, names) {
         check(label, requests[requests.length - 1].paths, paths(names))
         reply(requests[requests.length - 1].paths.map(function(path) { return path.slice("/virtual/".length) }))
@@ -94,8 +101,32 @@ Item {
         selection.range(3, 2)
         selection.range(2, 1)
         reply(["A", "B", "C", "D"])
+        check("queued shrink dispatches first action", indices, [0, 1, 2])
+        settleQueued()
+        check("queued shrink dispatches second action", indices, [0, 1])
         deliver(["A", "B"])
         selected("queued shrink keeps original base", ["A", "B"])
+
+        reset()
+        reply(["A"])
+        selection.range(1, 2)
+        deliver(["B", "C"])
+        selection.range(2, 3)
+        selection.endRange()
+        reply(["B", "C"], 1)
+        deliver(["B", "C", "D"])
+        selected("ended queued range excludes rejected A", ["B", "C", "D"])
+
+        reset()
+        selection.toggle(0)
+        selection.all()
+        selection.range(2, 3)
+        reply(["A"])
+        check("queued Select All dispatches before later range", indices, [0, 1, 2, 3, 4])
+        settleQueued()
+        check("later range dispatches after Select All", indices, [2, 3])
+        settleQueued()
+        check("Select All then range preserves A to E", picker.marks.map(function(mark) { return mark.path }), paths(["A", "B", "C", "D", "E"]))
         console.log("picker-selection QML: " + checks + " checks, " + failures + " failed")
         Qt.exit(failures ? 1 : 0)
     }

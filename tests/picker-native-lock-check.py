@@ -12,7 +12,10 @@ import sys
 import tempfile
 
 source = ast.parse(Path(__file__).with_name("picker-native.py").read_text())
-namespace = dict(os=os, fcntl=fcntl, Path=Path, re=re)
+namespace = dict(os=os, fcntl=fcntl, Path=Path, re=re, subprocess=subprocess, processes=[])
+# Sample input: def start(...): child = subprocess.Popen(..., close_fds=True).
+launchers = [node for node in source.body if isinstance(node, ast.FunctionDef) and node.name in {"run", "start", "guard"}]
+exec(compile(ast.Module(body=launchers, type_ignores=[]), "picker-native.py", "exec"), namespace)
 helper = next((node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == "take_display_lock"), None)
 if helper:
     exec(compile(ast.Module(body=[helper], type_ignores=[]), "picker-native.py", "exec"), namespace)
@@ -30,6 +33,19 @@ else:
 
 checks = 0
 failures = 0
+CHILD_TIMEOUT_SECONDS = 5
+FD_PROBE = '''import errno
+import os
+import sys
+try:
+    os.fstat(int(sys.argv[1]))
+except OSError as error:
+    if error.errno != errno.EBADF:
+        raise
+    print("closed")
+else:
+    print("inherited")
+'''
 
 def check(label, action):
     global checks, failures
@@ -42,6 +58,8 @@ def check(label, action):
         print("FAIL " + label + ": " + str(error))
 
 with tempfile.TemporaryDirectory(prefix="picker-native-lock-") as runtime:
+    namespace["root"] = Path(runtime)
+    (Path(runtime) / ".flea-test-sandbox").write_text("")
     os.environ.pop("FLEA_DISPLAY_LOCK_FD", None)
     def unset():
         with take_lock(runtime):
@@ -55,15 +73,29 @@ with tempfile.TemporaryDirectory(prefix="picker-native-lock-") as runtime:
     with open(Path(runtime) / "flea-display.lock", "a") as owned:
         fcntl.flock(owned, fcntl.LOCK_EX | fcntl.LOCK_NB)
         os.environ["FLEA_DISPLAY_LOCK_FD"] = str(owned.fileno())
+        os.set_inheritable(owned.fileno(), True)
         def inherited():
             with take_lock(runtime) as held:
                 assert held.fileno() != owned.fileno(), "runner must retain its own duplicate"
-                os.set_inheritable(owned.fileno(), True)
-                child = subprocess.run([sys.executable, "-c", "import os,sys; os.fstat(int(sys.argv[1]))", str(owned.fileno())],
-                                       capture_output=True, close_fds=True, check=False)
-                assert child.returncode != 0, "child inherited display lock fd"
             os.fstat(owned.fileno())
-        check("inherited lock stays owned and children close fd", inherited)
+        check("inherited lock stays owned", inherited)
+        arguments = [sys.executable, "-c", FD_PROBE, str(owned.fileno())]
+        def run_child():
+            result = namespace["run"](arguments)
+            assert result == "closed", "run() child inherited display lock fd"
+        check("production run() closes inherited lock fd", run_child)
+        def start_child():
+            child = namespace["start"](arguments, "lock-child", dict(os.environ))
+            try:
+                status = child.wait(timeout=CHILD_TIMEOUT_SECONDS)
+                result = (Path(runtime) / "lock-child.log").read_text().strip()
+                assert status == 0, "start() probe failed: " + result
+                assert result == "closed", "start() child inherited display lock fd"
+            finally:
+                if child.poll() is None:
+                    child.kill()
+                    child.wait(timeout=CHILD_TIMEOUT_SECONDS)
+        check("production start() closes inherited lock fd", start_child)
         for value in ["", "9x", "-1", "999999", "9" * 100]:
             os.environ["FLEA_DISPLAY_LOCK_FD"] = value
             def invalid():

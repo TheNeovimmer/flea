@@ -12,6 +12,10 @@ mkdir -p "$scratch/selection/js"
 cp ui/PickerSelection.qml "$scratch/selection/"
 cp ui/js/*.js "$scratch/selection/js/"
 cp tests/picker-selection.qml "$scratch/"
-output=$(env QT_QPA_PLATFORM=offscreen QML_XHR_ALLOW_FILE_READ=1 QT_FORCE_STDERR_LOGGING=1 timeout 15 qml6 "$scratch/picker-selection.qml" 2>&1)
+status=0
+output=$(env QT_QPA_PLATFORM=offscreen QML_XHR_ALLOW_FILE_READ=1 QT_FORCE_STDERR_LOGGING=1 timeout 15 qml6 "$scratch/picker-selection.qml" 2>&1) || status=$?
 printf '%s\n' "$output"
+if [ "$status" -ne 0 ]; then
+    exit "$status"
+fi
 grep -q 'picker-selection QML: .* checks, 0 failed' <<< "$output"
