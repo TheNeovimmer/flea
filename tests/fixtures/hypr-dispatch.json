@@ -967,5 +967,16 @@
       2
     ],
     "calls": 0
+  },
+  {
+    "name": "round12-rule-a-alone-refuses-a-tool-identifier-line",
+    "code": "real_hyprctl dispatch focuswindow x\necho clients",
+    "issues": [
+      "hypr-window-reply"
+    ],
+    "issue_lines": [
+      1
+    ],
+    "calls": 0
   }
 ]
