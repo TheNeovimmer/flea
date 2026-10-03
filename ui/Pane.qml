@@ -171,7 +171,6 @@ FocusScope {
     readonly property var emptyState: paneStates.emptyItem
     readonly property var stateMessageItem: paneStates.messageItem
     readonly property alias retrySelectionText: wire.retrySelectionText
-    readonly property alias wire: wire
     // The listing swap, ui/PaneSwap.qml: ui/js/Nav.js starts a hold through it and the views read holding.
     readonly property alias swap: wire.swap
     readonly property alias wire: wire
