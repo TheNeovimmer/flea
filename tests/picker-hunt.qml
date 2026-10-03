@@ -17,6 +17,10 @@ ShellRoot {
     property int failures: 0
     property int checks: 0
     readonly property int burstSteps: 3
+    readonly property int pickerWidthPx: 800
+    readonly property int pickerHeightPx: 410
+    readonly property real chromeCenterTolerancePx: 1
+    property bool chromeChecked: false
     property var initiatingFocus: null
     property var movedFocus: null
 
@@ -38,6 +42,30 @@ ShellRoot {
             for (var j = 0; j < kids.length; j++) out.push(kids[j])
         }
         return out
+    }
+    function sceneRect(item) {
+        var point = item.mapToItem(null, 0, 0)
+        return Qt.rect(point.x, point.y, item.width, item.height)
+    }
+    function intersects(a, b) {
+        return a.x < b.x + b.width && b.x < a.x + a.width
+            && a.y < b.y + b.height && b.y < a.y + a.height
+    }
+    function checkChromeGeometry() {
+        var viewButton = descendants(win.contentItem).filter(function(item) { return item.name === "List view" })[0]
+        check("real view marks exist", !!viewButton, true)
+        if (!viewButton) return
+        var views = sceneRect(viewButton.parent)
+        var controls = viewButton.parent.parent.focusItems()
+        var pathStrip = sceneRect(controls[2].parent.parent)
+        var openButton = sceneRect(controls[1])
+        var titleStrip = sceneRect(controls[1].parent.parent)
+        console.log("PICKER_HUNT GEOMETRY views=" + JSON.stringify(views) + " path=" + JSON.stringify(pathStrip))
+        check("view marks stay inside path strip", views.x >= pathStrip.x && views.x + views.width <= pathStrip.x + pathStrip.width
+            && views.y >= pathStrip.y && views.y + views.height <= pathStrip.y + pathStrip.height, true)
+        check("view marks centre within one pixel", Math.abs(views.y + views.height / 2 - pathStrip.y - pathStrip.height / 2) <= chromeCenterTolerancePx, true)
+        check("view marks do not intersect title strip", intersects(views, titleStrip), false)
+        check("view marks do not intersect Open button", intersects(views, openButton), false)
     }
     function pressOpen() {
         var button = descendants(win.contentItem).filter(function(item) {
@@ -145,6 +173,8 @@ ShellRoot {
         }
         pickerShell = comp.createObject(root)
         win = pickerShell.pickerWin
+        win.width = root.pickerWidthPx
+        win.height = root.pickerHeightPx
         keys = Qt.createQmlObject("import QtTest; TestEvent {}", win.contentItem)
     }
 
@@ -157,6 +187,11 @@ ShellRoot {
                 root.check("probe completes", "timeout stage " + stage, "complete")
                 root.finish()
                 return
+            }
+            if (!root.chromeChecked) {
+                if (!win || win.contentItem.width !== root.pickerWidthPx || win.contentItem.height !== root.pickerHeightPx) return
+                root.checkChromeGeometry()
+                root.chromeChecked = true
             }
             if (scenario.indexOf("refuse-") === 0) { root.focusRefusal(); return }
             if (win && scenario === "empty" && win.listingState === "empty") {

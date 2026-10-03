@@ -329,7 +329,7 @@ Item {
         id: views
         anchors.right: parent.right
         anchors.rightMargin: Theme.spacing.rowPaddingX
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenter: where.verticalCenter
         spacing: Theme.spacing.gap
 
         Framed {
