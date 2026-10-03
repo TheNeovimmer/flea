@@ -1,8 +1,14 @@
 # Shared by the native harnesses; Hyprland can warn about a missing window and exit zero.
+# Sample input: hl[.]dsp[.](focus[(]|window[.])\n(^|[,{])\s*window\s*=\s*"(address|class|title):\n
+{
+    IFS= read -r HYPR_DISPATCH_WINDOW_CALL
+    IFS= read -r HYPR_DISPATCH_WINDOW_SELECTOR
+} < "$(dirname "${BASH_SOURCE[0]}")/hypr-dispatch.regex" || return 1
+
 # Sample input: hl.dsp.focus({ window = "address:0xabc" })
 hypr_dispatch() {
-    local answer window_field='window[[:space:]]*='
-    if [[ "$1" =~ $window_field && "$1" != *address:* && "$1" != *class:* && "$1" != *title:* ]]; then
+    local answer
+    if [[ "$1" =~ $HYPR_DISPATCH_WINDOW_CALL && ! "$1" =~ $HYPR_DISPATCH_WINDOW_SELECTOR ]]; then
         printf 'Refused unscoped compositor dispatch: %s\n' "$1" >&2
         return 1
     fi

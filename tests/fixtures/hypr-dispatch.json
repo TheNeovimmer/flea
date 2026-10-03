@@ -1,5 +1,67 @@
 [
   {
+    "name": "round3-no-window-field",
+    "dispatch": "hl.dsp.window.close()",
+    "code": "hypr_dispatch 'hl.dsp.window.close()' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "round3-selector-in-unrelated-text",
+    "dispatch": "hl.dsp.focus({ note = \"address:0xabc\", window = \"0xabc\" })",
+    "code": "hypr_dispatch 'hl.dsp.focus({ note = \"address:0xabc\", window = \"0xabc\" })' || fail nope",
+    "issues": [
+      "hypr-window-selector"
+    ]
+  },
+  {
+    "name": "round3-valid-address-whitespace",
+    "dispatch": "hl.dsp.focus({ window\t =\t\"address:0xabc\" })",
+    "code": "hypr_dispatch 'hl.dsp.focus({ window\t =\t\"address:0xabc\" })' || fail nope",
+    "issues": []
+  },
+  {
+    "name": "round3-raw-doubled-spaces",
+    "code": "hyprctl  dispatch anything",
+    "issues": [
+      "hypr-window-reply"
+    ]
+  },
+  {
+    "name": "round3-raw-tab",
+    "code": "hyprctl\tdispatch anything",
+    "issues": [
+      "hypr-window-reply"
+    ]
+  },
+  {
+    "name": "round3-raw-json-flag",
+    "code": "hyprctl -j dispatch anything",
+    "issues": [
+      "hypr-window-reply"
+    ]
+  },
+  {
+    "name": "round3-raw-batch-flags",
+    "code": "hyprctl -j\t--batch anything",
+    "issues": [
+      "hypr-window-reply"
+    ]
+  },
+  {
+    "name": "round3-raw-instance-flag",
+    "code": "hyprctl -i 0 -j dispatch anything",
+    "issues": [
+      "hypr-window-reply"
+    ]
+  },
+  {
+    "name": "round3-raw-command-word-boundary",
+    "code": "hyprctl -j dispatching anything",
+    "issues": []
+  },
+  {
     "name": "bare-focus",
     "code": "hypr_dispatch 'hl.dsp.focus({ window = \"0xabc\" })' || fail nope",
     "issues": [

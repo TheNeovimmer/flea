@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run the real harness helpers against a shell fake, without a compositor."""
 import ast
+import json
 import os
 import re
 import shlex
@@ -14,6 +15,9 @@ REFUSAL = "Refused unscoped compositor dispatch: "
 PARSER_SAMPLE_PREFIX = "# Sample input: "
 HELPER_TIMEOUT_SECONDS = 10
 PLACEMENT_FIRST_WINDOW_CALL = 2
+SHARED_HELPER_FILE = "tests/lib/hypr-dispatch.sh"
+SOURCE_COMMAND = re.compile(r"^[ \t]*(?:[.]|source)[ \t]+")
+HELPER_DEFINITION = re.compile(r"^[ \t]*(?:function[ \t]+hypr_dispatch(?:[ \t]*\([ \t]*\))?|hypr_dispatch[ \t]*\([ \t]*\))[ \t]*(?:\{|$)", re.MULTILINE)
 FAKE = r'''#!/usr/bin/env bash
 set -u
 case "$1" in
@@ -46,15 +50,35 @@ def functions(text, names):
     return "\n".join(match.group() for match in re.finditer(pattern, text))
 
 
+# Sample input: . "$(dirname "$0")/lib/hypr-dispatch.sh"
+def sources_shared_helper(text):
+    for line in text.splitlines():
+        if not SOURCE_COMMAND.match(line):
+            continue
+        try:
+            _, *arguments = shlex.split(line, comments=True)
+        except ValueError:
+            continue
+        if arguments and arguments[0].endswith("/lib/hypr-dispatch.sh"):
+            return True
+    return False
+
+
+# Sample input: function hypr_dispatch() { return 0; }
+def helper_definitions(text):
+    return HELPER_DEFINITION.findall(text)
+
+
 def main():
     root = Path(__file__).resolve().parent.parent
     source = Path(sys.argv[1]) if len(sys.argv) > 1 else root / "tests/ui.sh"
     text = source.read_text()
-    shared_helper = functions((root / "tests/lib/hypr-dispatch.sh").read_text(), ["hypr_dispatch"])
+    shared_helper = ". " + shlex.quote(str(root / SHARED_HELPER_FILE))
     ui_helper = functions(text, ["hypr_dispatch"]) or shared_helper
     helpers = ui_helper + "\n" + functions(text, ["fail", "xwdrag_addr", "xwdrag_focus", "xwdrag_assert_focus", "xwdrag_place"])
     drag_text = (root / "tests/drag.sh").read_text()
     drag_helper = functions(drag_text, ["hypr_dispatch"]) or shared_helper
+    fixtures = json.loads((root / "tests/fixtures/hypr-dispatch.json").read_text())
     failures, checks = [], 0
     with tempfile.TemporaryDirectory(prefix="hypr-proof-", dir=os.environ.get("TMPDIR")) as directory:
         scratch = Path(directory)
@@ -84,10 +108,24 @@ def main():
                 print(f"FAIL hypr-dispatch-proof {name}: {output.strip()}")
 
         for owner, harness in (("ui", text), ("drag", drag_text)):
-            check(owner + " sources the shared dispatch helper", "lib/hypr-dispatch.sh\"" in harness, owner)
+            check(owner + " sources the shared dispatch helper", sources_shared_helper(harness), owner)
+            commented = "\n".join("# " + line if sources_shared_helper(line) else line for line in harness.splitlines())
+            copy = scratch / (owner + ".sh")
+            copy.write_text(commented)
+            check(owner + " rejects a commented helper source", not sources_shared_helper(copy.read_text()), owner)
+            alternate = ' \tsource "' + str(root / SHARED_HELPER_FILE) + '"'
+            check(owner + " accepts the source keyword with whitespace", sources_shared_helper(alternate), owner)
+            unrelated = '. "unrelated.sh" # "' + str(root / SHARED_HELPER_FILE) + '"'
+            check(owner + " rejects a helper path in a source comment", not sources_shared_helper(unrelated), owner)
+
+        definition_owners = []
+        for path in sorted((root / "tests").rglob("*.sh")):
+            harness = text if path == root / "tests/ui.sh" else path.read_text()
+            definition_owners.extend(path.relative_to(root).as_posix() for _ in helper_definitions(harness))
+        check("hypr_dispatch is defined only in the shared helper", definition_owners == [SHARED_HELPER_FILE], ", ".join(definition_owners))
 
         for relative, names in (("tests/hyprdispatch.py", ("scan",)),
-                                ("tests/hypr-dispatch-proof.py", ("functions",))):
+                                ("tests/hypr-dispatch-proof.py", ("functions", "sources_shared_helper", "helper_definitions"))):
             parser_source = (root / relative).read_text()
             source_lines = parser_source.splitlines()
             definitions = {node.name: node for node in ast.walk(ast.parse(parser_source))
@@ -131,6 +169,13 @@ def main():
                 dispatch = expression.replace("address:0xabc", bare)
                 rc, output, calls = run("hypr_dispatch " + shlex.quote(dispatch), code=code)
                 check(owner + " refuses a bare selector before calling the compositor", rc == 1 and output == REFUSAL + dispatch + "\n" and not calls, output)
+            for fixture in (fixture for fixture in fixtures if "dispatch" in fixture):
+                dispatch = fixture["dispatch"]
+                rc, output, calls = run("hypr_dispatch " + shlex.quote(dispatch), code=code)
+                if fixture["issues"]:
+                    check(owner + " refuses " + fixture["name"], rc == 1 and output == REFUSAL + dispatch + "\n" and not calls, output)
+                else:
+                    check(owner + " accepts " + fixture["name"], rc == 0 and not output and calls == [dispatch], output)
             dispatch = "hl.dsp.cursor.move({x = 2, y = 3})"
             rc, output, calls = run("hypr_dispatch " + shlex.quote(dispatch), code=code)
             check(owner + " accepts a cursor move", rc == 0 and not output and calls == [dispatch], output)

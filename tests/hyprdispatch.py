@@ -5,9 +5,10 @@ import re
 import sys
 from pathlib import Path
 
-WINDOW_CALL = re.compile(r"hl\.dsp\.(?:focus\(|window\.)")
-SELECTORS = ("address:", "class:", "title:")
-RAW_DISPATCHES = ("hyprctl" + " dispatch", "hyprctl" + " --batch")
+# Sample input: 'hl[.]dsp[.](focus[(]|window[.])\n(^|[,{])\s*window\s*=\s*"(address|class|title):\n'
+WINDOW_CALL, WINDOW_SELECTOR = (re.compile(pattern) for pattern in
+                                (Path(__file__).parent / "lib/hypr-dispatch.regex").read_text().splitlines())
+RAW_DISPATCH = re.compile(r"\bhyprctl\s+(?:-\S+\s+(?:\S+\s+)*?)?(?:dispatch|--batch)\b")
 HELPER_FILE = "tests/lib/hypr-dispatch.sh"
 SOURCE_SUFFIXES = (".sh", ".py", ".qml")
 
@@ -22,11 +23,11 @@ def scan(text, helper_file=False):
             continue
         if helper_file and line == "hypr_dispatch() {":
             in_helper = True
-        if not in_helper and any(command in line for command in RAW_DISPATCHES):
+        if not in_helper and RAW_DISPATCH.search(line):
             issues.append((number, "hypr-window-reply"))
         matches = len(WINDOW_CALL.findall(line))
         count += matches
-        if matches and not any(selector in line for selector in SELECTORS):
+        if matches and not WINDOW_SELECTOR.search(line.replace('\\"', '"')):
             issues.append((number, "hypr-window-selector"))
         if line == "}":
             in_helper = False
