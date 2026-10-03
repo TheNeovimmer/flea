@@ -44,8 +44,8 @@ pub fn put_null_string(out: &mut Vec<u8>) {
 
 // One request: the 8-byte header ahead of the payload, host byte order.
 pub fn request(obj: u32, opcode: u16, payload: &[u8]) -> Vec<u8> {
-    let size = (8 + payload.len()) as u32;
-    let mut out = Vec::with_capacity(8 + payload.len());
+    let size = (HEADER_BYTES + payload.len()) as u32;
+    let mut out = Vec::with_capacity(HEADER_BYTES + payload.len());
     put_u32(&mut out, obj);
     put_u32(&mut out, (size << 16) | opcode as u32);
     out.extend_from_slice(payload);
@@ -76,6 +76,8 @@ pub fn get_string(body: &[u8], at: &mut usize) -> Option<String> {
 
 // The largest message accepted; a lying size would otherwise grow the buffer waiting for bytes that never come.
 pub const MAX_MESSAGE: usize = 64 * 1024 * 1024;
+// The header holds the object id plus the size and opcode word.
+const HEADER_BYTES: usize = 8;
 
 // One decoded event: who sent it, which one it is, and the body after the header.
 pub struct RawEvent {
@@ -157,19 +159,19 @@ impl Conn {
         }
     }
 
-    // The next event, skipping nothing: unknown ones are skipped by size by the caller.
+    // Sample event: object 6, (12 << 16) | 1, then selection id 10; unknown events are skipped by size by the caller.
     pub fn next_raw(&mut self, timeout_ms: u32) -> Result<Option<RawEvent>, String> {
         loop {
-            if self.buf.len() >= 8 {
+            if self.buf.len() >= HEADER_BYTES {
                 let sender = u32::from_ne_bytes(self.buf[0..4].try_into().unwrap());
-                let word = u32::from_ne_bytes(self.buf[4..8].try_into().unwrap());
+                let word = u32::from_ne_bytes(self.buf[4..HEADER_BYTES].try_into().unwrap());
                 let size = (word >> 16) as usize;
                 let opcode = (word & 0xffff) as u16;
-                if !(8..=MAX_MESSAGE).contains(&size) {
+                if !(HEADER_BYTES..=MAX_MESSAGE).contains(&size) {
                     return Err("the compositor sent a message this client will not hold".to_string());
                 }
                 if self.buf.len() >= size {
-                    let body = self.buf[8..size].to_vec();
+                    let body = self.buf[HEADER_BYTES..size].to_vec();
                     self.buf.drain(..size);
                     return Ok(Some(RawEvent { sender, opcode, body }));
                 }

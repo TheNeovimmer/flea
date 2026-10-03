@@ -188,6 +188,12 @@ fn a_dropped_connection_reconnects_once() {
     let line = changed(&rx);
     assert_eq!(field_str(&line, "clip").as_deref(), Some("cut"));
     assert_eq!(field_str_array(&line, "paths"), vec!["/tmp/b.txt".to_string()]);
+    // Failed reconnects must keep their cause in the final changed line.
+    drop(listener);
+    drop(conn);
+    let error = field_str(&changed(&rx), "error").expect("the lost connection cause");
+    assert!(error.starts_with("the clipboard connection was lost: the compositor at "), "{}", error);
+    assert!(error.contains("did not answer"), "{}", error);
 }
 
 // One cut-form clear against the fake: the null source follows only an exact cut match.
@@ -296,22 +302,36 @@ fn a_thousand_superseded_offers_are_destroyed() {
 }
 
 #[test]
-fn an_over_cap_selection_is_refused_not_broadcast() {
+fn a_capped_refusal_does_not_dedup_the_previous_selection() {
+    const COPY_OFFER: u32 = 10;
+    const CAPPED_OFFER: u32 = 11;
+    const REPEATED_OFFER: u32 = 12;
     let (_dir, listener, path) = serve("clip-watch-cap");
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || watch_loop(tx, Some(path), NO_RETRY_WAIT));
     let stream = crate::clip::testutil::accept(&listener, TEST_WATCHDOG).unwrap();
     let mut conn = over(stream);
     hello(&mut conn);
-    let paths: Vec<String> = (0..100001).map(|i| format!("/tmp/f{:06}.txt", i)).collect();
     let mut answers = HashMap::new();
+    let selection = format::build_gnome("copy", &["/tmp/a.txt".to_string()]);
+    answers.insert(format::GNOME.to_string(), selection.clone());
+    offer(&mut conn, COPY_OFFER, &[format::GNOME]);
+    serve_n(&mut conn, &answers, 1);
+    let first = changed(&rx);
+    assert_eq!(field_str(&first, "clip").as_deref(), Some("copy"));
+    assert_eq!(field_str_array(&first, "paths"), vec!["/tmp/a.txt"]);
+    let paths: Vec<String> = (0..=format::MAX_CLIP_PATHS).map(|i| format!("/tmp/f{:06}.txt", i)).collect();
     answers.insert(format::GNOME.to_string(), format::build_gnome("copy", &paths));
-    offer(&mut conn, 10, &[format::GNOME]);
-    assert_eq!(serve_n(&mut conn, &answers, 1), vec![(10, format::GNOME.to_string())]);
+    offer(&mut conn, CAPPED_OFFER, &[format::GNOME]);
+    assert_eq!(serve_n(&mut conn, &answers, 1), vec![(CAPPED_OFFER, format::GNOME.to_string())]);
     // Refused out loud, never as a 100001-path changed line.
     let line = changed(&rx);
     assert_eq!(field_str(&line, "clip").as_deref(), Some("none"));
     assert!(line.contains("past the 100000 cap"), "an honest error line: {}", line);
+    answers.insert(format::GNOME.to_string(), selection);
+    offer(&mut conn, REPEATED_OFFER, &[format::GNOME]);
+    serve_n(&mut conn, &answers, 1);
+    assert_eq!(changed(&rx), first, "the selection before the refusal must emit again");
 }
 
 #[test]
@@ -344,3 +364,6 @@ fn a_primary_selection_retires_only_its_offer_and_keeps_the_clipboard() {
     assert_eq!(field_str(&sentinel, "clip").as_deref(), Some("cut"));
     assert_eq!(field_str_array(&sentinel, "paths"), vec!["/tmp/sentinel"]);
 }
+
+#[path = "watch_loss_tests.rs"]
+mod loss;

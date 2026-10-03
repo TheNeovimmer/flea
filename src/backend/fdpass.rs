@@ -203,10 +203,10 @@ pub fn recv_stream(sock: RawFd) -> std::io::Result<Option<(Vec<u8>, Vec<OwnedFd>
     if got == 0 {
         return Ok(None);
     }
-    if msg.flags & MSG_CTRUNC != 0 {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "the descriptors did not fit"));
-    }
     let fds = descriptors(&control.0, msg.controllen);
+    if msg.flags & MSG_CTRUNC != 0 {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "the descriptors did not fit; the connection must close"));
+    }
     Ok(Some((bytes[..got as usize].to_vec(), fds)))
 }
 
@@ -288,5 +288,55 @@ mod tests {
         let got = recv(right.as_raw_fd()).unwrap().unwrap();
         assert_eq!(got.payload, b"S");
         assert!(got.fds.is_empty());
+    }
+
+    #[test]
+    fn truncated_stream_descriptors_are_closed() {
+        const CHILD_ENV: &str = "FLEA_FD_TRUNC_CHILD";
+        const TEST_NAME: &str = "backend::fdpass::tests::truncated_stream_descriptors_are_closed";
+        // A child owns the fd count, so parallel tests cannot open or close descriptors beside it.
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([TEST_NAME, "--exact", "--nocapture"])
+                .env(CHILD_ENV, "1")
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+            return;
+        }
+        const TRUNCATED_FDS: usize = STREAM_MAX_FDS + 1;
+        #[repr(C)]
+        struct OversizedControl {
+            len: usize,
+            level: c_int,
+            kind: c_int,
+            fds: [RawFd; TRUNCATED_FDS],
+        }
+        let (left, right) = std::os::unix::net::UnixStream::pair().unwrap();
+        let file = std::fs::File::open("/dev/null").unwrap();
+        let mut control = OversizedControl {
+            len: CMSG_HEADER + TRUNCATED_FDS * std::mem::size_of::<RawFd>(),
+            level: SOL_SOCKET,
+            kind: SCM_RIGHTS,
+            fds: [file.as_raw_fd(); TRUNCATED_FDS],
+        };
+        let mut byte = b'x';
+        let mut iov = IoVec { base: &mut byte as *mut u8 as *mut c_void, len: std::mem::size_of_val(&byte) };
+        let msg = MsgHdr {
+            name: std::ptr::null_mut(),
+            namelen: 0,
+            iov: &mut iov,
+            iovlen: 1,
+            control: &mut control as *mut OversizedControl as *mut c_void,
+            controllen: std::mem::size_of_val(&control),
+            flags: 0,
+        };
+        let before = std::fs::read_dir("/proc/self/fd").unwrap().count();
+        assert_eq!(unsafe { sendmsg(left.as_raw_fd(), &msg, MSG_NOSIGNAL) }, iov.len as isize);
+        let error = recv_stream(right.as_raw_fd()).expect_err("a truncated control buffer");
+        let after = std::fs::read_dir("/proc/self/fd").unwrap().count();
+        assert_eq!(after, before, "truncated descriptors must not leak");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("connection must close"), "{}", error);
     }
 }

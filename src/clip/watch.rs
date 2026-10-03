@@ -24,21 +24,20 @@ pub fn request_watch(replies: Sender<OpMsg>) {
 fn watch_loop(replies: Sender<OpMsg>, socket: Option<PathBuf>, retry_every: Duration) {
     let mut last: Option<Key> = None;
     // The first connection never retries: no compositor or no manager is one line and the end.
-    match connect_and_watch(&replies, &mut last, &socket) {
-        Ok(WatchEnd::Dropped) => {}
+    let mut cause = match connect_and_watch(&replies, &mut last, &socket) {
+        Ok(WatchEnd::Dropped(cause)) => cause,
         Err(e) => {
             say(&replies, &none_error(&e));
             return;
         }
-    }
+    };
     for _ in 0..RETRIES {
         std::thread::sleep(retry_every);
-        match connect_and_watch(&replies, &mut last, &socket) {
-            Ok(WatchEnd::Dropped) => {}
-            Err(_) => {}
-        }
+        cause = match connect_and_watch(&replies, &mut last, &socket) {
+            Ok(WatchEnd::Dropped(cause)) | Err(cause) => cause,
+        };
     }
-    say(&replies, &none_error("the clipboard connection was lost"));
+    say(&replies, &none_error(&format!("the clipboard connection was lost: {}", cause)));
 }
 
 fn say(replies: &Sender<OpMsg>, line: &str) {
@@ -66,7 +65,7 @@ fn changed(op: &str, paths: &[String], token: &str, skipped: usize) -> String {
 }
 
 enum WatchEnd {
-    Dropped,
+    Dropped(String),
 }
 
 // Reports selections until the connection drops; only the initial handshake is an Err.
@@ -84,10 +83,11 @@ fn connect_and_watch(replies: &Sender<OpMsg>, last: &mut Option<Key>, socket: &O
     loop {
         let event = match conn.next_raw(super::owner::WAIT_FOREVER) {
             Ok(Some(event)) => event,
-            Ok(None) | Err(_) => return Ok(WatchEnd::Dropped),
+            Ok(None) => return Ok(WatchEnd::Dropped("the compositor closed the connection".to_string())),
+            Err(e) => return Ok(WatchEnd::Dropped(e)),
         };
-        if check_error(&event).is_some() {
-            return Ok(WatchEnd::Dropped);
+        if let Some(e) = check_error(&event) {
+            return Ok(WatchEnd::Dropped(e));
         }
         if event.sender == READER_DEVICE && event.opcode == DEVICE_DATA_OFFER {
             let mut at = 0;
@@ -109,7 +109,10 @@ fn connect_and_watch(replies: &Sender<OpMsg>, last: &mut Option<Key>, socket: &O
                     None => emit(replies, last, "none", &[], "", 0),
                     Some(types) => match read_offer(&mut conn, id, types) {
                         // An over-cap selection is refused out loud, never broadcast to every window.
-                        Err(ReadFail::Capped(e)) => say(replies, &none_error(&e)),
+                        Err(ReadFail::Capped(e)) => {
+                            *last = None;
+                            say(replies, &none_error(&e));
+                        }
                         Ok(read) => emit(replies, last, &read.op, &read.paths, &read.token, read.skipped),
                     },
                 },
