@@ -1,13 +1,15 @@
 //@ pragma ShellId flea-scroll-bounds-test
 
 import QtQuick
+import QtTest
 import Quickshell
 import "flea" as Flea
 import "flea/js/Scroll.js" as Scroll
 
 // tp2-r2: grid margin lanes and axis lanes on bare views, offscreen. A grid rests at -gap on
 // both axes and never reads overscrolled there; an axis with no scroll range takes no delta,
-// so a diagonal on a vertical list coasts exactly like the pure vertical stroke.
+// so a diagonal on a vertical list coasts exactly like the pure vertical stroke. The scroll bar
+// measures a list's content plus its margins, so a list with margins reads true at both ends.
 // tests/scroll-bounds.sh drives it.
 ShellRoot {
     id: root
@@ -15,10 +17,25 @@ ShellRoot {
     property var failures: []
     property double fakeT: 1000
     property real gap: Flea.Theme.spacing.gap
+    // Bar fixtures: a list whose content is shorter than the view by less than its two margins, a long one, and a bare one.
+    readonly property real barTop: 40
+    readonly property real barBottom: 30
+    readonly property real barRow: 28
+    readonly property int shortRows: 10
+    readonly property int longRows: 40
+    readonly property real barViewHeight: 300
+    readonly property real barViewWidth: 200
+    readonly property real barViewGap: 250
+    readonly property real barViewY: 500
+    // The proportional checks and the drag land within half a pixel, the bar's own overflow tolerance.
+    readonly property real barTolerance: 0.5
+    // The drag ends this many track lengths past the end of the lane, so it can only stop at the bound.
+    readonly property real overDrag: 2
+    readonly property int noDelay: 0
 
     FloatingWindow {
         implicitWidth: 900
-        implicitHeight: 500
+        implicitHeight: root.barViewY + root.barViewHeight
         color: Flea.Theme.color.background
 
         GridView {
@@ -48,6 +65,51 @@ ShellRoot {
             boundsBehavior: Flickable.StopAtBounds
             delegate: Rectangle { required property int index; width: list.width; height: 28 }
             Flea.FastScrollHandler { parent: list; flickable: list }
+        }
+
+        TestEvent { id: driver }
+
+        ListView {
+            id: shortList
+            x: 0
+            y: root.barViewY
+            width: root.barViewWidth
+            height: root.barViewHeight
+            model: root.shortRows
+            topMargin: root.barTop
+            bottomMargin: root.barBottom
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            delegate: Rectangle { required property int index; width: shortList.width; height: root.barRow }
+            Flea.ViewportScrollBar { id: shortBar; parent: shortList; anchors { top: parent.top; right: parent.right } flickable: shortList }
+        }
+
+        ListView {
+            id: longList
+            x: root.barViewGap
+            y: root.barViewY
+            width: root.barViewWidth
+            height: root.barViewHeight
+            model: root.longRows
+            topMargin: root.barTop
+            bottomMargin: root.barBottom
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            delegate: Rectangle { required property int index; width: longList.width; height: root.barRow }
+            Flea.ViewportScrollBar { id: longBar; parent: longList; anchors { top: parent.top; right: parent.right } flickable: longList }
+        }
+
+        ListView {
+            id: bareList
+            x: 2 * root.barViewGap
+            y: root.barViewY
+            width: root.barViewWidth
+            height: root.barViewHeight
+            model: root.longRows
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            delegate: Rectangle { required property int index; width: bareList.width; height: root.barRow }
+            Flea.ViewportScrollBar { id: bareBar; parent: bareList; anchors { top: parent.top; right: parent.right } flickable: bareList }
         }
     }
 
@@ -199,12 +261,58 @@ ShellRoot {
             fail("diagonal coasted " + coast.toFixed(1) + ", want the pure stroke " + control.toFixed(1))
         console.log("LANES diag control=" + control.toFixed(1) + " coast=" + coast.toFixed(1)
             + " contentX=" + list.contentX)
+        root.checkBars()
+    }
+
+    // The scrollable range the flickable itself reports: content plus both margins, less the view.
+    function trueTop(view) { return view.originY - view.topMargin }
+    function trueEnd(view) { return view.originY + view.contentHeight - view.height + view.bottomMargin }
+
+    // Knob geometry from the flickable's measured numbers alone, never from the bar's own readers.
+    function checkKnob(label, view, bar) {
+        var track = bar.height
+        var content = view.contentHeight + view.topMargin + view.bottomMargin
+        var span = content - view.height
+        if (!bar.overflow) { fail(label + " bar reads no overflow though the view scrolls " + span.toFixed(1)); return }
+        var length = Math.min(track, Math.max(Flea.Theme.hitMin, track * view.height / content))
+        var travel = track - length
+        if (Math.abs(bar.handleLength - length) > root.barTolerance)
+            fail(label + " knob length " + bar.handleLength.toFixed(1) + ", want " + length.toFixed(1))
+        var top = root.trueTop(view)
+        var marks = [[0, "top"], [1 / 3, "third"], [1, "end"]]
+        for (var i = 0; i < marks.length; i++) {
+            view.contentY = top + span * marks[i][0]
+            var want = travel * marks[i][0]
+            if (Math.abs(bar.handleOffset - want) > root.barTolerance)
+                fail(label + " knob offset at the " + marks[i][1] + " " + bar.handleOffset.toFixed(2) + ", want " + want.toFixed(2))
+        }
+        view.contentY = top
+        var x = bar.width / 2
+        driver.mousePress(bar, x, bar.handleOffset + bar.handleLength / 2, Qt.LeftButton, Qt.NoModifier, root.noDelay)
+        driver.mouseMove(bar, x, track * root.overDrag, root.noDelay, Qt.LeftButton, Qt.NoModifier)
+        driver.mouseRelease(bar, x, track * root.overDrag, Qt.LeftButton, Qt.NoModifier, root.noDelay)
+        var end = root.trueEnd(view)
+        if (Math.abs(view.contentY - end) > root.barTolerance)
+            fail(label + " knob drag landed at " + view.contentY.toFixed(1) + ", want the true end " + end.toFixed(1))
+        console.log("LANES bar " + label + " span=" + span.toFixed(1) + " knob=" + length.toFixed(1) + " dragged=" + view.contentY.toFixed(1))
+    }
+
+    function checkBars() {
+        if (shortList.contentHeight >= shortList.height)
+            fail("the short fixture is not shorter than its view: " + shortList.contentHeight)
+        if (shortList.contentHeight + shortList.topMargin + shortList.bottomMargin <= shortList.height)
+            fail("the short fixture does not scroll by its margins")
+        root.checkKnob("short", shortList, shortBar)
+        root.checkKnob("long", longList, longBar)
+        root.checkKnob("bare", bareList, bareBar)
+        if (bareBar.contentLength !== bareList.contentHeight || bareBar.origin !== bareList.originY)
+            fail("a list without margins reads " + bareBar.origin + "+" + bareBar.contentLength + ", want its bare content")
         root.report()
     }
 
     function report() {
         if (root.failures.length === 0)
-            console.log("SCROLL_BOUNDS PASS grid diag")
+            console.log("SCROLL_BOUNDS PASS grid diag bars")
         for (var f = 0; f < root.failures.length; f++)
             console.log("SCROLL_BOUNDS FAIL " + root.failures[f])
         Quickshell.execDetached(["kill", String(Quickshell.processId)])

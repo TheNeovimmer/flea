@@ -74,8 +74,9 @@ ShellRoot {
         shell.fail("source text is absent")
         return null
     }
+    // What the view can scroll: Source text plus its inset, Rendered content plus the list's own margins.
     function extent(md) {
-        if (md.view !== "source") return md.bodyItem.contentHeight
+        if (md.view !== "source") return md.bodyItem.contentHeight + md.bodyItem.topMargin + md.bodyItem.bottomMargin
         var text = shell.sourceText(md)
         return text ? text.height + 2 * md.insetY : 0
     }
@@ -88,10 +89,24 @@ ShellRoot {
         }
         return null
     }
-    // A few blocks are all instantiated, so the last delegate's bottom is the content the list reports.
-    function laidOutHeight(md) {
-        var last = md.blockItem(md.blockList.length - 1)
-        return last ? last.y + last.height : -1
+    // Every block is instantiated at these sizes: the content is each delegate's own height plus the spacing between them.
+    function stackedHeight(md) {
+        var total = 0
+        for (var i = 0; i < md.blockList.length; i++) {
+            var item = md.blockItem(i)
+            if (!item) { shell.fail("block " + i + " is not instantiated"); return -1 }
+            total += item.height
+        }
+        return total + Math.max(0, md.blockList.length - 1) * md.bodyItem.spacing
+    }
+    // Each instantiated block delegate is exactly as wide as the list it sits in.
+    function delegatesFitList(md) {
+        for (var i = 0; i < md.blockList.length; i++) {
+            var item = md.blockItem(i)
+            if (!item) { shell.fail("block " + i + " is not instantiated"); return false }
+            if (item.width !== md.bodyItem.width) return false
+        }
+        return true
     }
 
     FloatingWindow {
@@ -166,17 +181,26 @@ ShellRoot {
         var inset = md.view === "source" ? 0 : 2 * md.insetX
         if (!shell.check(md.view === shell.view, "reader is in " + md.view + ", not the requested " + shell.view)) return
         if (!shell.check(md.width === f.width + inset && md.height === f.height, "reader left its viewport")) return
-        if (!shell.check(md.bodyItem.width === md.width - 2 * md.insetX, "rendered text width changed")) return
         if (md.view === "source") {
+            var text = shell.sourceText(md)
+            if (!text) return
+            if (!shell.check(text.x === md.insetX && text.width === f.width - 2 * md.insetX, "source text width changed")) return
             if (!shell.check(Math.abs(f.contentHeight - Math.max(f.height, h)) < 0.1, "content height is stale")) return
-        } else if (!shell.check(Math.abs(f.contentHeight - shell.laidOutHeight(md)) < 0.1, "content height is stale")) return
+        } else {
+            if (!shell.check(md.bodyItem.width === md.width - 2 * md.insetX, "rendered text width changed")) return
+            if (!shell.check(shell.delegatesFitList(md), "a block delegate is not as wide as the list")) return
+            var stacked = shell.stackedHeight(md)
+            if (stacked < 0) return
+            if (!shell.check(Math.abs(f.contentHeight - stacked) < 0.1, "content height is stale")) return
+        }
         var bar = shell.barFor(md, f)
         if (!shell.check(bar && bar.width === Flea.Theme.spacing.rowPaddingX,
             "scroll lane changed its fixed overlay geometry")) return
         if (!shell.check(bar.overflow === (h - f.height > 0.5), "overflow disagrees with laid-out content")) return
         shell.cases++
         shell.log("CASE " + shell.cases + " " + (shell.columnHost ? "column" : "quicklook")
-            + " " + md.view + " " + label + " frame=" + md.width + "x" + md.height + " content=" + h)
+            + " " + md.view + " " + label + " frame=" + md.width + "x" + md.height + " content=" + h
+            + " bare=" + f.contentHeight + " overflow=" + bar.overflow)
     }
     function advanceMarkdown() {
         var md = shell.markdown()

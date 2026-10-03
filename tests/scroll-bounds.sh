@@ -28,7 +28,7 @@ output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
     timeout 60 qs -p "$test_root/config" 2>&1)
 
-# Sample input, one probe line: "  INFO qml: SCROLL_BOUNDS PASS grid diag"
+# Sample input, one probe line: "  INFO qml: SCROLL_BOUNDS PASS grid diag bars"
 pass_count=$(printf '%s\n' "$output" | grep -c 'SCROLL_BOUNDS PASS')
 fail_count=$(printf '%s\n' "$output" | grep -c 'SCROLL_BOUNDS FAIL')
 if [ "$pass_count" -ne 1 ] || [ "$fail_count" -ne 0 ]; then

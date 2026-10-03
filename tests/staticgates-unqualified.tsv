@@ -729,7 +729,7 @@ ui/PreviewLines.qml	74	root	Declared QML id; component context access is valid a
 ui/PreviewLines.qml	75	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewLines.qml	76	index	Declared QML property; enclosing component context supplies it.
 ui/PreviewLines.qml	87	modelData	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	223	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	221	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	423	modelData	Delegate context supplies this model role at runtime.
 ui/PreviewMarkdown.qml	424	index	Delegate context supplies this model role at runtime.
 ui/PreviewMarkdown.qml	446	block	Declared QML property; enclosing component context supplies it.
@@ -1062,7 +1062,7 @@ ui/ViewState.qml	462	reload	Enclosing Quickshell StdioCollector, Process or File
 ui/ViewState.qml	466	text	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
 ui/ViewState.qml	475	FileViewError	Quickshell import exports this runtime singleton or enum.
 ui/ViewState.qml	527	root	Declared QML id; component context access is valid at runtime.
-ui/ViewportScrollBar.qml	130	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/ViewportScrollBar.qml	134	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/WindowBody.qml	47	Quickshell	Quickshell import exports this runtime singleton or enum.
 ui/WindowBody.qml	48	Quickshell	Quickshell import exports this runtime singleton or enum.
 ui/WindowBody.qml	82	Quickshell	Quickshell import exports this runtime singleton or enum.
@@ -1885,7 +1885,7 @@ ui/PreviewLines.qml	75	gutterMetrics	Declared QML id; component context access i
 ui/PreviewLines.qml	75	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewLines.qml	76	index	Declared QML property; enclosing component context supplies it.
 ui/PreviewLines.qml	87	modelData	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	223	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	221	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	423	modelData	Delegate context supplies this model role at runtime.
 ui/PreviewMarkdown.qml	424	index	Delegate context supplies this model role at runtime.
 ui/PreviewMarkdown.qml	446	block	Declared QML property; enclosing component context supplies it.
@@ -2362,7 +2362,7 @@ ui/TrashView.qml	460	root	Declared QML id; component context access is valid at 
 ui/TrashView.qml	460	root	Declared QML id; component context access is valid at runtime.
 ui/TrashView.qml	460	root	Declared QML id; component context access is valid at runtime.
 ui/ViewState.qml	62	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/ViewportScrollBar.qml	130	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/ViewportScrollBar.qml	134	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/WindowBody.qml	294	view	Declared QML id; component context access is valid at runtime.
 ui/WindowBody.qml	300	primaryPane	Declared QML id; component context access is valid at runtime.
 ui/WindowBody.qml	301	primaryPane	Declared QML id; component context access is valid at runtime.

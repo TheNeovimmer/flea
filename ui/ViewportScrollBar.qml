@@ -13,9 +13,13 @@ Item {
     property real endInset: 0
 
     readonly property bool vertical: root.orientation === Qt.Vertical
-    readonly property real contentLength: root.vertical ? root.flickable.contentHeight : root.flickable.contentWidth
+    // A flickable scrolls from origin less its leading margin to its content end plus the trailing margin, so the bar measures that span.
+    readonly property real leadMargin: root.vertical ? root.flickable.topMargin : root.flickable.leftMargin
+    readonly property real trailMargin: root.vertical ? root.flickable.bottomMargin : root.flickable.rightMargin
+    readonly property real contentLength: (root.vertical ? root.flickable.contentHeight : root.flickable.contentWidth)
+                                          + root.leadMargin + root.trailMargin
     readonly property real viewportLength: root.vertical ? root.flickable.height : root.flickable.width
-    readonly property real origin: root.vertical ? root.flickable.originY : root.flickable.originX
+    readonly property real origin: (root.vertical ? root.flickable.originY : root.flickable.originX) - root.leadMargin
     readonly property real contentPosition: root.vertical ? root.flickable.contentY : root.flickable.contentX
     readonly property real trackLength: Math.max(0, (root.vertical ? root.height : root.width) - root.endInset)
     readonly property real handleLength: Scroll.handleLength(root.trackLength, root.contentLength,
