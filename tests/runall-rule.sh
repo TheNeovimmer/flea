@@ -49,9 +49,14 @@ last=${names##* }
 first=${names% *}
 
 # Only the two headless= lines change, so the rule lines below are the shipped bytes.
-awk -v first="$first" -v last="$last" '
-    /^headless=/ { n++; if (n == 1) print "headless=\"" first "\""; else print "headless=\"$headless " last "\""; next }
-    { print }' tests/run-all.sh > "$box/tests/run-all.sh"
+seen=0
+while IFS= read -r line; do
+    if [[ "$line" == headless=* ]]; then
+        seen=$((seen + 1))
+        if [ "$seen" -eq 1 ]; then line="headless=\"$first\""; else line="headless=\"\$headless $last\""; fi
+    fi
+    printf '%s\n' "$line"
+done < tests/run-all.sh > "$box/tests/run-all.sh"
 chmod +x "$box/tests/run-all.sh"
 [ "$(grep -c '^headless=' "$box/tests/run-all.sh")" -eq 2 ] && check ok "the copy has its two headless= lines" \
     || check bad "the copy has its two headless= lines"
