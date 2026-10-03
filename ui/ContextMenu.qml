@@ -144,7 +144,7 @@ Item {
     property bool hasFolderSort: false
 
     // Menu.js builds entries from the context shared by the row menu and query.
-    function buildEntries() {
+    function buildEntries(flyoutAction) {
         // Rail rows arrive built with their own release verdicts.
         if (root.forRail)
             return root.railEntries
@@ -153,9 +153,9 @@ Item {
         // Locked rows address the denied folder rather than its covered parent.
         if (root.forLocked)
             return LockedMenu.lockedEntries({ lockedMode: root.lockedMode, hiddenActions: ViewState.menuHidden })
-        return Menu.listingEntries(root.listingContext())
+        return Menu.listingEntries(root.listingContext(flyoutAction))
     }
-    function listingContext() {
+    function listingContext(flyoutAction) {
         var view = MenuRefresh.providerView(root.lastProviderAnswer, MenuRefresh.live(root))
         return {
             showHidden: root.showHidden,
@@ -185,7 +185,7 @@ Item {
             hasShebang: root.rowHasShebang, cursorIsTarget: root.cursorIsTarget,
             scripts: Flea.Scripts.entries, localSendInstalled: root.localSend.installed, localSendPeers: root.localSend.peers, localSendChecking: view.localSendChecking,
             // The Menus settings section's stored set; ui/js/Menu.js applyHidden is what reads it.
-            hiddenActions: ViewState.menuHidden,
+            hiddenActions: ViewState.menuHidden.filter(function(id) { return id !== flyoutAction }),
             // ExtThumbs: the class row's presence and label read these, never "this drive".
             storageClass: root.storageClass, thumbPreview: ViewState.preview,
             updateVersion: UpdateCheck.menuVersion, hasFolderSort: root.hasFolderSort
@@ -205,8 +205,8 @@ Item {
     // A wheel over the main frame closes the flyout first, the same path moving the pointer
     // onto a plain row takes, and then steps; the highlight never moves where it is not drawn.
     function stepMain(delta) {
-        if (root.submenuOpen)
-            root.openSubmenuRow = -1
+        root.openSubmenuRow = -1
+        root.loneFlyoutAction = ""
         root.cursor = root.stepCursor(root.cursor, delta)
     }
 
@@ -359,23 +359,18 @@ Item {
 
     // One signal covers every submenu: the row's own action, a colon, and the entry chosen inside it.
     function chooseSub(id) {
-        // A lone flyout answers through Menu.loneChoice, refusing on an unknown leaf or a moved selection.
+        var entry = root.entries[root.openSubmenuRow]
+        var action = root.loneFlyoutAction || (entry ? entry.action : "")
         if (root.loneFlyoutAction.length > 0) {
             var lonePick = Menu.loneChoice(root.loneFlyoutAction, id, root.forRail, root.forHeader, root.hasRow, root.openedIdentity, root.selectionIdentity)
             if (lonePick.kind !== "fire") {
-                root.close()
-                root.refused(lonePick.kind === "moved" ? "Selected items changed; reopen the menu." : "That action is no longer available; reopen the menu.")
+                root.refuseLone(lonePick.kind)
                 return
             }
-            root.close()
-            root.chosen(lonePick.fired)
-            return
         }
-        var entry = root.entries[root.openSubmenuRow]
-        if (!entry || !root.validateChoice(entry.action, id)) return
+        if (!action || !root.validateChoice(action, id)) return
         root.close()
-        if (entry)
-            root.chosen(entry.action + ":" + id)
+        root.chosen(action + ":" + id)
     }
 
     function openSubmenu(index) {
@@ -388,6 +383,14 @@ Item {
 
     // c and P open Copy as and Paste as with the flyout already open.
     function openSubmenuFor(action) {
+        var leaves = Menu.flyoutEntries(action)
+        if (!leaves.length) return false
+        if (action === "pasteAs" && !root.clipboardAvailable) {
+            root.close()
+            root.refused(Menu.EMPTY_CLIPBOARD)
+            return false
+        }
+        if (!root.validateChoice(action, leaves[0].id)) return false
         var pick = Menu.submenuFor(action, root.entries, root.clipboardAvailable)
         if (pick.kind === "row") {
             root.cursor = pick.index
@@ -428,12 +431,18 @@ Item {
         root.refreshProviderRows()
     }
 
+    function refuseLone(kind) {
+        root.close()
+        root.refused(kind === "moved" ? "Selected items changed; reopen the menu."
+                                     : "That action is no longer available; reopen the menu.")
+    }
+
     // Rebuild only to validate; rows stay fixed while the menu is open under the pointer.
     function validateChoice(action, subId) {
         var identityChanged = !root.forRail && !root.forHeader && root.hasRow
                               && root.openedIdentity !== root.selectionIdentity
         root.preparing = true
-        var live = root.buildEntries()
+        var live = root.buildEntries(subId && Menu.flyoutEntries(action).length ? action : "")
         root.preparing = false
         for (var i = 0; !identityChanged && i < live.length; i++) {
             var entry = live[i]
@@ -443,9 +452,7 @@ Item {
             for (var j = 0; j < sub.length; j++)
                 if (sub[j].id === subId && sub[j].disabled !== true) return true
         }
-        root.close()
-        root.refused(identityChanged ? "Selected items changed; reopen the menu."
-                                     : "That action is no longer available; reopen the menu.")
+        root.refuseLone(identityChanged ? "moved" : "unavailable")
         return false
     }
 

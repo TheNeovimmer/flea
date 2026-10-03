@@ -337,6 +337,29 @@ ShellRoot {
             shell.check("reopen:notch-dropped", mh5.notchAccum === 0, String(mh5.notchAccum))
             shell.check("reopen:pixel-dropped", mh5.pixelAccum === 0, String(mh5.pixelAccum))
             shell.check("reopen:touch-dropped", mh5.stepAccum === 0, String(mh5.stepAccum))
+            // The main frame closes the hidden Copy as flyout before spending its wheel step.
+            menu.openAt(Qt.point(20, 20))
+            var loneOpened = menu.openSubmenuFor("copyAs")
+            shell.check("hunt:lone-copy-opens", loneOpened && menu.loneFlyoutAction === "copyAs",
+                        "opened=" + loneOpened + " lone=" + menu.loneFlyoutAction)
+            shell.resetStepsOf(main5)
+            mh5.handleWheel(shell.notch(true))
+            shell.check("hunt:lone-main-wheel-closes", menu.submenuOpen === false,
+                        "lone=" + menu.loneFlyoutAction + " submenuOpen=" + menu.submenuOpen)
+            shell.check("hunt:lone-main-wheel-draws-highlight", menu.itemFor(menu.cursor).current === true,
+                        "cursor=" + menu.cursor + " current=" + menu.itemFor(menu.cursor).current)
+            // Hidden parents still obey the filesystem and writability inventory gates.
+            menu.clipboardAvailable = true
+            menu.canLink = false
+            menu.openAt(Qt.point(20, 20))
+            shell.check("hunt:hidden-paste-refuses-no-links", !menu.openSubmenuFor("pasteAs") && !menu.submenuOpen,
+                        "submenuOpen=" + menu.submenuOpen)
+            menu.canLink = true
+            menu.dirWritable = false
+            menu.openAt(Qt.point(20, 20))
+            shell.check("hunt:hidden-paste-refuses-read-only", !menu.openSubmenuFor("pasteAs") && !menu.submenuOpen,
+                        "submenuOpen=" + menu.submenuOpen)
+            menu.dirWritable = true
             // A shut menu keeps nothing standing.
             menu.close()
             shell.check("shut", menu.opened === false, "still open")

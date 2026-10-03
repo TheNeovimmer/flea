@@ -1,3 +1,5 @@
+.import "menuhunt.js" as MenuHunt
+.import "../../ui/js/Clipboard.js" as Clipboard
 .import "../../ui/js/Ops.js" as Ops
 .import "../../ui/js/Transfer.js" as Transfer
 
@@ -120,6 +122,7 @@ function run(check) {
             join: function (a, b) { return a + "/" + b },
             sticky: function () {}, collide: { ask: function (msg) { asked.push(msg); return true } },
             backend: {
+                heldListing: 1,
                 send: function (msg) { sent.push(msg) },
                 askPaths: function (rows) { sent.push({ c: "paths", rows: rows }) },
                 mkdir: function (path) { sent.push({ c: "mkdir", path: path }) },
@@ -129,6 +132,8 @@ function run(check) {
             },
             message: function () {},
             clipPending: null,
+            clipQueue: [], clipSequence: 0,
+            clipboardState: Clipboard.state(), clipboardWatchFailed: false, listInFlight: false,
             pathsPending: null,
             clipboard: null
         }
@@ -167,7 +172,7 @@ function run(check) {
     // The condition on opening Pane.qml: one paths reply now has two possible askers, and the
     // clipboard is the one that already worked. An unclaimed reply must still land where it always did.
     var clipPane = windowedPane([])
-    clipPane.clipPending = true
+    Ops.clip(clipPane, true)
     Ops.pathsResolved(clipPane, ["/d/a", "/d/b"])
     check("a paths reply with nothing pending still reaches the clipboard",
           clipPane.clipboard ? clipPane.clipboard.paths.length + "/" + clipPane.clipboard.moving : "lost",
@@ -218,16 +223,10 @@ function run(check) {
     check("Copy as refuses while a drag claim is waiting",
           heldSent.length + "|" + heldPane.pathsPending.kind + "|" + JSON.stringify(heldPane.said),
           "0|drag|[[\"Still resolving the last selection; try again.\",false]]")
-    var cutSent = []
-    var cutPane = pathsPane(cutSent)
-    cutPane.pathsPending = { kind: "drag" }
-    Ops.clip(cutPane, true)
-    check("a cut refuses out loud while a drag claim is waiting",
-          cutSent.length + "|" + String(cutPane.clipPending) + "|" + JSON.stringify(cutPane.said),
-          "0|null|[[\"Still resolving the last selection; try again.\",false]]")
+    MenuHunt.clipboard(check, pathsPane)
     var zipSent = []
     var zipBusy = pathsPane(zipSent)
-    zipBusy.clipPending = true
+    zipBusy.clipPending = { sequence: 1, moving: true }
     Ops.compress(zipBusy, "zip")
     check("a compress refuses out loud while a cut is waiting",
           zipSent.length + "|" + String(zipBusy.pathsPending) + "|" + JSON.stringify(zipBusy.said),

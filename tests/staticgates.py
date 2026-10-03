@@ -461,6 +461,10 @@ def closing(code, start, left, right):
 def stub_allowances():
     # Only test observation fields belong here; production Pane writes can never use this list.
     return {
+        ('tests/js/clipboard.js', 'asked'): 'Records collision requests and captured cut snapshots.',
+        ('tests/js/clipboard.js', 'localAtSend'): 'Records the local clipboard when the backend request is sent.',
+        ('tests/js/clipboard.js', 'said'): 'Records messages emitted by the stub message signal.',
+        ('tests/js/clipboard.js', 'sent'): 'Records system clipboard requests emitted by the stub backend.',
         ('tests/js/columns.js', 'refreshed'): 'Records refresh calls through stub methods.',
         ('tests/js/columns.js', 'said'): 'Records messages emitted by the stub message signal.',
         ('tests/js/columns.js', 'sent'): 'Records backend requests emitted by stub methods.',
@@ -477,6 +481,7 @@ def stub_allowances():
         ('tests/js/filterfixture.js', 'scrolled'): 'Records the row requested through showRow.',
         ('tests/js/focus-forward.js', 'rowsRead'): 'Records rowFor inputs.',
         ('tests/js/focus-forward.js', 'said'): 'Records messages emitted by the stub message signal.',
+        ('tests/js/focus.js', 'clipRequests'): 'Records system clipboard requests dispatched by menu actions.',
         ('tests/js/focus-lines.js', 'picked'): 'Stores the stub selection behind selection methods.',
         ('tests/js/focus-lines.js', 'said'): 'Records messages emitted by the stub message signal.',
         ('tests/js/focus-lines.js', 'walked'): 'Records backend.search calls through stub methods.',

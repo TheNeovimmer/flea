@@ -12,12 +12,24 @@ ShellRoot {
     property int ticks: 0
     property int phase: 0
     property int refreshes: 0
+    property int changes: 0
+    readonly property int titleRuleCount: 1
+    readonly property int singleRuleCount: 4
+    readonly property real sectionRuleOpacity: 0.4
 
     function log(line) { console.log("PERMADV " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
     function check(name, cond, detail) {
         if (cond) shell.log("PASS " + name)
         else shell.failures.push(name + " got " + detail)
+    }
+
+    function visibleSections(item, result) {
+        if (!item.visible) return result
+        if (item.text === "WILL CHANGE") result.headers += 1
+        if (item.height === Flea.Theme.spacing.hairline && item.opacity === sectionRuleOpacity) result.rules += 1
+        for (var i = 0; i < item.children.length; i++) visibleSections(item.children[i], result)
+        return result
     }
 
     Item {
@@ -150,7 +162,7 @@ ShellRoot {
             dialog.multiToggle(256)
             dialog.applyMany()
             var marked = shell.sent.length
-            dialog.receiveMany({op: "applyMany", ok: false, error: "Could not change mode: refused. 1 of 2 items were changed; undo restores them."})
+            dialog.receiveMany({op: "applyMany", id: dialog.requestId, ok: false, error: "Could not change mode: refused. 1 of 2 items were changed; undo restores them."})
             shell.check("failure-asks-owner-refresh", shell.refreshes === 1, String(shell.refreshes))
             var reinspects = 0
             for (var i = 0; i < shell.sent.length; i++)
@@ -175,10 +187,56 @@ ShellRoot {
             shell.check("summary-lands-once", dialog.multiModes.length === 3 && dialog.multiPending === 0, dialog.multiModes.join(",") + "/" + dialog.multiPending)
             shell.phase = 9
         } else if (shell.phase === 9) {
+            var marked9 = shell.sent.length
+            dialog.openMany(["/a", "/b"], holder)
+            shell.answerInspects(marked9, "0644", "", "0644", "")
+            // Make executable replies arriving after another card opens belong to neither its inspect nor its Apply.
+            var changes9 = shell.changes
+            dialog.receive({op: "applyMany", id: dialog.requestId, ok: true})
+            shell.check("hunt:matching-id-without-apply-keeps-card", dialog.opened && shell.changes === changes9,
+                        "opened=" + dialog.opened + " changes=" + (shell.changes - changes9))
+            dialog.receive({op: "applyMany", ok: true})
+            shell.check("hunt:untagged-batch-reply-keeps-card", dialog.opened && shell.changes === changes9,
+                        "opened=" + dialog.opened + " changes=" + (shell.changes - changes9))
+            dialog.receive({op: "applyMany", id: 1000001, ok: true})
+            shell.check("hunt:unrelated-make-executable-reply-keeps-card",
+                dialog.opened && shell.changes === changes9,
+                "opened=" + dialog.opened + " changes=" + (shell.changes - changes9))
+            shell.phase = 10
+        } else if (shell.phase === 10) {
+            var marked10 = shell.sent.length
+            dialog.openMany(["/a", "/b"], holder)
+            shell.answerInspects(marked10, "0644", "", "0644", "")
+            dialog.applyMany()
+            var applyingId = dialog.requestId
+            dialog.receive({op: "applyMany", id: applyingId - 1, ok: false, error: "old batch refused"})
+            shell.check("hunt:stale-batch-refusal-keeps-current-apply",
+                dialog.opened && dialog.applyingMany && dialog.multiPending === 0 && dialog.errorText === "",
+                "applying=" + dialog.applyingMany + " pending=" + dialog.multiPending + " error=" + dialog.errorText)
+            dialog.receive({op: "applyMany", id: applyingId, ok: true})
+            shell.check("hunt:matching-batch-reply-closes-card", !dialog.opened, "opened=" + dialog.opened)
+            shell.phase = 11
+        } else if (shell.phase === 11) {
+            var marked11 = shell.sent.length
+            dialog.openMany(["/a", "/b", "/c"], holder)
+            for (var fi = marked11; fi < shell.sent.length; fi++)
+                dialog.receiveMany({op: "inspect", id: shell.sent[fi].id, ok: true, mode: "0644", reason: ""})
+            shell.phase = 12
+        } else if (shell.phase === 12) {
+            var multiSections = visibleSections(dialog.cardItem, {headers: 0, rules: 0})
+            shell.check("r1:multi-has-no-preview-header", multiSections.headers === 0, JSON.stringify(multiSections))
+            shell.check("r1:multi-keeps-only-title-rule", multiSections.rules === titleRuleCount, JSON.stringify(multiSections))
+            dialog.open("/a", holder)
+            dialog.receive({op: "inspect", id: dialog.requestId, ok: true, mode: "0644", reason: ""})
+            shell.phase = 13
+        } else if (shell.phase === 13) {
+            var singleSections = visibleSections(dialog.cardItem, {headers: 0, rules: 0})
+            shell.check("r1:single-keeps-preview-header", singleSections.headers === 1, JSON.stringify(singleSections))
+            shell.check("r1:single-keeps-section-rules", singleSections.rules === singleRuleCount, JSON.stringify(singleSections))
             for (var i = 0; i < shell.failures.length; i++)
                 shell.log("FAIL " + shell.failures[i])
             shell.log("DONE failures=" + shell.failures.length)
-            shell.phase = 10
+            shell.phase = 14
             shell.quit()
         }
     }
@@ -186,5 +244,6 @@ ShellRoot {
     Component.onCompleted: {
         dialog.requested.connect(function (m) { shell.sent.push(m) })
         dialog.refreshNeeded.connect(function () { shell.refreshes += 1 })
+        dialog.changed.connect(function () { shell.changes += 1 })
     }
 }

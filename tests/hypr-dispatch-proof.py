@@ -17,7 +17,7 @@ FAKE_EXECUTABLE_MODE = 0o755
 FAILED_COMMAND_STATUS = 7
 PLACEMENT_FIRST_WINDOW_CALL = 2
 PLACEMENT_CALL_COUNT = 4
-STANDALONE_HARNESS_COUNT = 2
+STANDALONE_HARNESS_COUNT = 3
 PLACEMENT_FLOAT_INDEX = 1
 PLACEMENT_RESIZE_INDEX = 2
 TEST_PID = 111
@@ -151,7 +151,7 @@ def main():
                 return False, output
             return origins == dict.fromkeys(ENTRY_POINTS, helper), output
 
-        check("both standalone shell harnesses have a helper source", len(harnesses) == STANDALONE_HARNESS_COUNT)
+        check("all standalone shell harnesses have a helper source", len(harnesses) == STANDALONE_HARNESS_COUNT)
         for harness in harnesses:
             valid, output = source_check(harness)
             check(harness.name + " executes its own source and defines repository entry points", valid, output)

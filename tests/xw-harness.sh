@@ -2,7 +2,8 @@
 # Headless pins for the two-window UI case's pointer targeting and exit cleanup.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
-repo=$PWD
+repo=$(cd "$(dirname "$0")/.." && pwd) || exit 1
+. "$repo/tests/lib/hypr-dispatch.sh"
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 source_file=${XW_HARNESS_SOURCE:-$repo/tests/ui.sh}
@@ -31,7 +32,9 @@ mkdir -p "$fixture_root" "$run_root"
 hyprctl() {
     if [[ "$*" == 'clients -j' ]]; then
         printf '[{"address":"%s","class":"com.thisisgm.flea","pid":111,"at":[100,200],"size":[880,620]},{"address":"%s","class":"com.thisisgm.flea","pid":222,"at":[1000,200],"size":[880,620]}]\n' "$addr_a" "$addr_b"
-    elif [[ "$*" != "dispatch hl.dsp.focus({ window = \"address:$addr_a\" })" ]]; then
+    elif [[ "$#" == 2 && "$2" == *".focus({ window = \"address:$addr_a\" })" ]]; then
+        printf 'ok\n'
+    else
         fail "unexpected compositor arguments: $*"
     fi
 }

@@ -1,4 +1,5 @@
 .import "../../ui/js/Focus.js" as Focus
+.import "../../ui/js/Clipboard.js" as Clipboard
 .import "../../ui/js/Eject.js" as Eject
 .import "../../ui/js/Keymap.js" as Keymap
 .import "../../ui/js/Selection.js" as Selection
@@ -585,12 +586,19 @@ function run(check) {
     var menu = listPane(true)
     var menuRequests = []
     menu.path = "/d"
+    menu.clipPending = null
+    menu.clipQueue = []
+    menu.clipSequence = 0
+    menu.clipboardState = Clipboard.state()
+    menu.clipboardWatchFailed = false
+    menu.listInFlight = false
     menu.cursorIndex = 0
     menu.rowFor = function () { return {n: "selected.txt"} }
     menu.selectedIndices = function () { return [] }
     menu.join = function (parent, name) { return parent + "/" + name }
     menu.sticky = function () {}
     menu.backend = {
+        heldListing: 1,
         send: function (request) { menu.clipRequests.push(request) },
         duplicate: function (path, id) { menuRequests.push("duplicate:" + id) },
         trash: function (rows, id) { menuRequests.push("trash:" + id) },

@@ -212,14 +212,31 @@ case_cap_menus() {
     shot cap-menus-symlink
     key -k Escape >/dev/null
     settle
+    kill_flea
+    seed_ui_state "$fixture_root/cap-menus-background-state" '{"keys":"default","view":"list","keyHints":true,"menu":{"hidden":["delete","openTerminal","placeMenu","runScript","moveto","copyto","properties","permissions","copyAs","pasteAs","extThumbs"]}}'
+    launch "$dir"
+    wait_listing 2
+    click_row "$(row_index_of target.txt)" left
+    settle
+    local background_selection_count
+    background_selection_count=$(ipc selectionCount)
+    [[ "$background_selection_count" == "1" ]] \
+        || fail "cap_menus: background specimen needs one selected row, got $background_selection_count"
+    key y >/dev/null
+    settle
     click_background
     settle
     [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_menus: the background menu never opened"
-    [[ "|$(ipc contextMenuEntries)|" == *"|New Folder|"* ]] \
-        || fail "cap_menus: the background menu offers $(ipc contextMenuEntries)"
+    local background_labels='New Folder|New File|-|Paste|Select all|Invert selection|-|Open in terminal|Add to Favorites|-|Sort by|Show hidden files|-|Settings'
+    [[ "$(ipc contextMenuEntries)" == "$background_labels" ]] \
+        || fail "cap_menus: background specimen drew $(ipc contextMenuEntries), want $background_labels"
     shot cap-menus-background
     key -k Escape >/dev/null
     settle
+    kill_flea
+    seed_ui_state "$fixture_root/cap-menus-state" '{"keys":"default","view":"list","keyHints":true,"menu":{"hidden":["delete","openTerminal","moveto","copyto","properties","permissions","invertSelection"]}}'
+    launch "$dir"
+    wait_listing 2
     settings_open_key
     settle
     settings_section menus

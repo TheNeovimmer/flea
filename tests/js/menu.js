@@ -1,3 +1,4 @@
+.import "menuhunt.js" as MenuHunt
 .import "../../ui/js/Menu.js" as Menu
 .import "../../ui/js/MenuRefresh.js" as MenuRefresh
 .import "../../ui/js/LockedMenu.js" as LockedMenu
@@ -155,26 +156,7 @@ function run(check) {
         entry(Menu.listingEntries(state({})), "openTerminal").action, undefined)
     check("with the switch off the file menu shows it too",
         entry(Menu.listingEntries(state({ hiddenActions: ["delete"] })), "openTerminal").action, "openTerminal")
-    // MenuAdditions040 callout 10 and Permissions040 callout 3: Make executable shows only on a
-    // regular file with a shebang and no owner execute bit, cursor row only, no key.
-    check("Make executable shows on a script missing its bit",
-        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, "makeExecutable")
-    check("and wears the play mark no neighbour wears",
-        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, hasShebang: true, cursorIsTarget: true })), "makeExecutable").glyph, "play")
-    check("without a shebang it is absent",
-        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, cursorIsTarget: true })), "makeExecutable").action, undefined)
-    check("with the execute bit already set it is absent too",
-        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100744, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, undefined)
-    check("on a directory it is absent",
-        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o040755, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, undefined)
-    check("on a multi-selection it is absent",
-        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, selectionCount: 2, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, undefined)
-    check("on a single selection that is not the cursor row it is absent",
-        entry(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, hasShebang: true, cursorIsTarget: false })), "makeExecutable").action, undefined)
-    check("and the Menus switch takes it away like any other row",
-        entry(Menu.listingEntries(state({ hiddenActions: ["makeExecutable"], rowMode: 0o100644, hasShebang: true, cursorIsTarget: true })), "makeExecutable").action, undefined)
-    check("it sits where hidden Permissions would sit before it",
-        actions(Menu.listingEntries(state({ hiddenActions: [], rowMode: 0o100644, hasShebang: true, cursorIsTarget: true, selectionModes: [0o100644] }))).indexOf("permissions,makeExecutable") >= 0, true)
+    MenuHunt.executable(check, state, entry, actions)
     check("missing converter removes Convert", entry(Menu.listingEntries(state({ canConvert: false })), "convert").action, undefined)
     check("missing archiver removes Compress", entry(Menu.listingEntries(state({ archiveFormats: [] })), "compress").action, undefined)
     var noReader = entry(Menu.listingEntries(state({ rowIsArchive: true, canExtract: false, archiveFormats: ["zip", "tar"] })), "extract")
@@ -423,6 +405,39 @@ function providerRefresh(check) {
         return sourceText.substring(brace + 1, scan - 1)
     }
     var selfText = Source.source("tests/js/menu.js")
+    var chooseSub = eval("(function (root, id) {" + functionBody(contextSrc, "function chooseSub(") + "})")
+    var refusalBody = contextSrc.indexOf("function refuseLone(") >= 0
+        ? functionBody(contextSrc, "function refuseLone(") : ""
+    var refuseLone = eval("(function (root, kind) {" + refusalBody + "})")
+    var validateChoice = eval("(function (root, action, subId) {" + functionBody(contextSrc, "function validateChoice(") + "})")
+    var refusalCases = [
+        { id: "copyPath", identity: "changed", reason: "Selected items changed; reopen the menu." },
+        { id: "unknown", identity: "original", reason: "That action is no longer available; reopen the menu." }
+    ]
+    refusalCases.forEach(function (test) {
+        var menu = { entries: [], openSubmenuRow: -1, loneFlyoutAction: "copyAs", forRail: false,
+            forHeader: false, hasRow: true, openedIdentity: "original", selectionIdentity: test.identity,
+            opened: true, validations: 0, reasons: [], fired: [] }
+        menu.close = function () { menu.opened = false }
+        menu.refused = function (reason) { menu.reasons.push(reason) }
+        menu.chosen = function (action) { menu.fired.push(action) }
+        menu.refuseLone = function (kind) { refuseLone(menu, kind) }
+        menu.validateChoice = function () {
+            menu.validations += 1
+            return true
+        }
+        chooseSub(menu, test.id)
+        check("lone " + test.id + " closes without validator side effects", menu.opened, false)
+        check("lone " + test.id + " refuses with its named reason", menu.reasons.join("|"), test.reason)
+        check("lone " + test.id + " never validates an already refused choice", menu.validations, 0)
+        check("lone " + test.id + " fires nothing", menu.fired.length, 0)
+        menu.opened = true
+        menu.reasons = []
+        menu.buildEntries = function () { return [] }
+        check("normal " + test.id + " validation refuses", validateChoice(menu, "copyAs", test.id), false)
+        check("normal " + test.id + " shares the lone refusal sentence", menu.reasons.join("|"), test.reason)
+        check("normal " + test.id + " validation closes", menu.opened, false)
+    })
     check("the brace scan lives in one helper, not three inline loops", selfText.split("Depth +=" + " 1").length - 1, 0)
     var linkText = Source.source("ui/PaneWire.qml")
     var onLinkTarget = eval("(function (pane, path, directory, name, id) {"

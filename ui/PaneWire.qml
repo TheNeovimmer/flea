@@ -380,11 +380,11 @@ Item {
             // A stale or foreign id is ignored, so a late reply never yanks a navigation.
             if (!pane.linkTargetPendingId || id !== pane.linkTargetPendingId) return
             pane.linkTargetPendingId = 0
-            if (directory.length === 0 || name.length === 0) {
+            if (directory.length === 0 || (name.length === 0 && directory !== "/")) {
                 pane.message("That link points nowhere to reveal.", true)
                 return
             }
-            pane.pendingSelect = directory === "/" ? "/" + name : directory + "/" + name
+            pane.pendingSelect = name.length === 0 ? "" : directory === "/" ? "/" + name : directory + "/" + name
             pane.open(directory)
         }
 
@@ -524,7 +524,7 @@ Item {
                         root.pane.pathsPending = null
                     if (!listingEnded) return
                 } else if (claim) pane.pathsPending = null
-                else pane.clipPending = null
+                else Ops.clipFailed(pane)
             }
             if (!listingEnded) {
                 // A refused window ends its directory's anchor so the owed re-read can run.

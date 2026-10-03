@@ -9,8 +9,9 @@
 
 function pane() {
     var p = { path: "/dest", clipboard: Clipboard.empty(), clipboardState: Clipboard.state(),
-        clipboardWatchFailed: false, clipPending: null, sent: [], said: [], asked: [], listInFlight: false, recentMode: "" }
-    p.backend = { send: function (m) {
+        clipboardWatchFailed: false, clipPending: null, clipQueue: [], clipSequence: 0,
+        pathsPending: null, sent: [], said: [], asked: [], listInFlight: false, recentMode: "" }
+    p.backend = { heldListing: 1, send: function (m) {
         p.sent.push(m)
         p.localAtSend = p.clipboard
     } }
@@ -22,7 +23,35 @@ function changed(p, kind, paths, token) {
     Clipboard.receive(p, { op: "changed", clip: kind, paths: paths || [], token: token || "" })
 }
 function watchError(p) { Clipboard.receive(p, { op: "changed", clip: "none", error: "no data-control" }) }
+// Each untagged reply or failure releases A before B publishes exactly one system clipboard choice.
+function orderedPicks(check) {
+    var outcomes = [false, true]
+    outcomes.forEach(function (failed) {
+        var p = pane(), at = 0, asks = [], label = failed ? "paths error" : "paths reply"
+        p.selectedIndices = function () { return [at] }
+        p.backend.askPaths = function (rows) { asks.push(rows.slice()) }
+        Ops.clip(p, false)
+        at = 1
+        Ops.clip(p, true)
+        check(label + ": Cut B waits behind Copy A", JSON.stringify(asks), "[[0]]")
+        if (failed) Ops.clipFailed(p)
+        else Ops.pathsResolved(p, ["/dest/A"])
+        check(label + ": A never publishes to the system clipboard", p.sent.length, 0)
+        check(label + ": B keeps its own rows after A ends", JSON.stringify(asks), "[[0],[1]]")
+        Ops.pathsResolved(p, ["/dest/B"])
+        check(label + ": only Cut B reaches backend as one clipSet", JSON.stringify(p.sent),
+              JSON.stringify([{ c: "clipSet", op: "cut", paths: ["/dest/B"] }]))
+        check(label + ": B is the local clipboard", JSON.stringify(p.clipboard),
+              JSON.stringify({ paths: ["/dest/B"], moving: true, token: "" }))
+        check(label + ": B releases pending request and queue", String(p.clipPending) + "/" + p.clipQueue.length, "null/0")
+        var other = pane()
+        Clipboard.receive(p, {op: "set", ok: true, token: "B-owner"})
+        changed(other, "cut", ["/dest/B"], "B-owner")
+        check(label + ": second window reads Cut B", JSON.stringify(other.clipboard), JSON.stringify(p.clipboard))
+    })
+}
 function run(check) {
+    orderedPicks(check)
     var p = pane()
     Ops.clip(p, false, ["/a/f1"])
     var local = p.clipboard
@@ -75,7 +104,9 @@ function run(check) {
     check("failed watcher cannot enable Paste into read-only folder", readOnlyRows.some(function (r) { return r.action === "paste" && r.disabled === true }), true)
 
     p = pane()
-    p.clipPending = true
+    p.selectedIndices = function () { return [0] }
+    p.backend.askPaths = function () {}
+    Ops.clip(p, true)
     Ops.clipResolved(p, ["/a/f2"])
     check("resolved cut lands locally", p.localAtSend.moving, true)
     check("resolved cut sends clipSet", p.sent[0].op, "cut")

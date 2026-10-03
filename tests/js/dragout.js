@@ -85,7 +85,7 @@ function run(check) {
           busy.clipPending === null ? "held" : "asked", "held")
 
     var cutting = pane(sent)
-    cutting.clipPending = true
+    cutting.clipPending = { sequence: 1, moving: true }
     Ops.compress(cutting, "zip")
     check("a compress does not ask paths while a cut is waiting",
           cutting.pathsPending === null ? "held" : "asked", "held")
