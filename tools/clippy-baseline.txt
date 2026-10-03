@@ -7,7 +7,7 @@ clippy::cmp_owned|perf|1
 clippy::collapsible_match|style|1
 clippy::comparison_to_empty|style|2
 clippy::field_reassign_with_default|style|1
-clippy::io_other_error|style|7
+clippy::io_other_error|style|6
 clippy::items_after_test_module|style|1
 clippy::len_zero|style|1
 clippy::manual_pattern_char_comparison|style|1

@@ -60,6 +60,8 @@ env HOME="$probe/home" XDG_STATE_HOME="$probe/state" "$bin" --ui-state \
 ln -s "$PWD/ui" "$probe/config/flea"
 ln -s "$(readlink -f ui/boot/Commons)" "$probe/config/Commons"
 ln -s "$(readlink -f ui/boot/Ui)" "$probe/config/Ui"
+# The window loads its tab catcher from the shell directory, so the probe ships it as the product does.
+ln -s "$PWD/ui/boot/fleatab.qml" "$probe/config/fleatab.qml"
 cp tests/sidebar-flows.qml "$probe/config/shell.qml"
 cp tests/sidebar-flows-extra.js "$probe/config/sidebar-flows-extra.js"
 log="$probe/qs.log"

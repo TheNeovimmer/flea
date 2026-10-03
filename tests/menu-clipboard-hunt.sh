@@ -20,6 +20,8 @@ chmod 700 "$test_root/runtime" || exit 1
 ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
+# The window loads its tab catcher from the shell directory, so the probe ships it as the product does.
+ln -s "$PWD/ui/boot/fleatab.qml" "$test_root/config/fleatab.qml" || exit 1
 cp tests/menu-clipboard-hunt.qml "$test_root/config/shell.qml" || exit 1
 printf 'alpha contents\n' > "$test_root/source/alpha.txt"
 printf 'beta contents\n' > "$test_root/source/beta.txt"

@@ -15,6 +15,8 @@ printf '{}\n' > "$test_root/state/flea/ui.json"
 touch "$test_root/fixture/a.txt" "$test_root/fixture/b.txt" "$test_root/fixture/c.txt"
 ln -s "$(readlink -m ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -m ui/boot/Ui)" "$test_root/config/Ui" || exit 1
+# The window loads its tab catcher from the shell directory at startup, so the probe ships it as the product does.
+ln -s "$PWD/ui/boot/fleatab.qml" "$test_root/config/fleatab.qml" || exit 1
 cp tests/startup-objects.qml "$test_root/config/shell.qml" || exit 1
 power_disk=""
 for stat_file in /sys/block/*/stat; do
