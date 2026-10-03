@@ -5,6 +5,10 @@ var RGBA_CHANNELS = 4;
 var LINK_BLUE_MIN = 200;
 var LINK_RED_MAX = 110;
 var LINK_GREEN_MAX = 170;
+var MATH_INK_MIN_BODY_RATIO = 1.04; // Minimum painted x^2 height relative to the body font.
+var MATH_INK_MAX_BODY_RATIO = 1.25; // Maximum painted x^2 height relative to the body font.
+var FIGURE_GAP_TOLERANCE_PX = 2; // Painted figure gaps may differ from paragraph gaps by this many pixels.
+var BLOCK_GAP_TOLERANCE_PX = 0.5; // Drawn block edges may differ from the token gap by this many pixels.
 
 function figure(md, index) {
     var block = md.blockItem(index);
@@ -151,8 +155,8 @@ function defaultLinkBlue(pixel, ground, accent) {
 }
 
 function mathError(rows, bodyPx) {
-    var minimum = Math.ceil(bodyPx * 1.04);
-    var maximum = Math.ceil(bodyPx * 1.25);
+    var minimum = Math.ceil(bodyPx * MATH_INK_MIN_BODY_RATIO);
+    var maximum = Math.ceil(bodyPx * MATH_INK_MAX_BODY_RATIO);
     return rows >= minimum && rows <= maximum ? ""
         : "x^2 paints " + rows + " rows at body " + bodyPx + "px, want " + minimum + ".." + maximum;
 }
@@ -160,7 +164,7 @@ function mathError(rows, bodyPx) {
 function spacingError(previous, figure, next, ink, paragraphGap) {
     var above = figure.y - previous.y - previous.h + ink.top - figure.y;
     var below = next.y - figure.y - figure.h + figure.y + figure.h - 1 - ink.bottom;
-    return Math.abs(above - paragraphGap) <= 2 && Math.abs(below - paragraphGap) <= 2 ? ""
+    return Math.abs(above - paragraphGap) <= FIGURE_GAP_TOLERANCE_PX && Math.abs(below - paragraphGap) <= FIGURE_GAP_TOLERANCE_PX ? ""
         : "figure gaps " + above + "/" + below + "px, paragraph gap " + paragraphGap + "px";
 }
 
@@ -199,6 +203,6 @@ function blockGapError(previous, next, gap) {
     if (!previous || !next)
         return "a drawn block is missing";
     var seen = next.y - previous.y - previous.h;
-    return Math.abs(seen - gap) <= 0.5 ? ""
+    return Math.abs(seen - gap) <= BLOCK_GAP_TOLERANCE_PX ? ""
         : "drawn block gap " + seen + "px, want " + gap + "px";
 }

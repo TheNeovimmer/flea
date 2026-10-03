@@ -15,6 +15,9 @@ ShellRoot {
     property var liveFlick: null
     property var nativePane: null
     property var nativeKeys: null
+    property bool scrollFramePending: false
+    readonly property int fileAScrollY: 120
+    readonly property int fileBScrollY: 240
     readonly property bool overlayCase: scenario === "scroll" || scenario === "source-key"
 
     function check(label, actual, expected) {
@@ -89,6 +92,10 @@ ShellRoot {
         }
     }
     Flea.Backend { id: realBackend }
+    Connections {
+        target: quick.Window.window
+        function onFrameSwapped() { root.scrollFramePending = false }
+    }
     Component {
         id: paneComponent
         Flea.Pane {
@@ -184,21 +191,35 @@ ShellRoot {
                 })[0]
                 liveFlick = root.flickOf(liveMarkdown)
                 root.check("Quick Look has a scrolling Markdown frame", liveFlick.contentHeight > liveFlick.height + 300, true)
-                liveFlick.contentY = 120
-                root.check("file A scrolls", Math.round(liveFlick.contentY), 120)
-                quick.open(root.fixture + "/b.md", "text-x-generic", 2000, "Markdown document", "")
+                root.scrollFramePending = true
+                liveFlick.contentY = root.fileAScrollY
                 root.stage = 2
+                return
+            }
+            if (stage === 2 && !root.scrollFramePending) {
+                root.check("file A scrolls after the next frame within its range", liveFlick.contentY === root.fileAScrollY
+                    && liveFlick.contentY >= -liveFlick.topMargin
+                    && liveFlick.contentY <= liveFlick.contentHeight - liveFlick.height + liveFlick.bottomMargin, true)
+                quick.open(root.fixture + "/b.md", "text-x-generic", 2000, "Markdown document", "")
+                root.stage = 3
                 root.stamp = Date.now()
                 return
             }
-            if (stage === 2 && quick.status === "ready" && Date.now() - root.stamp > 300) {
+            if (stage === 3 && quick.status === "ready" && Date.now() - root.stamp > 300) {
                 root.check("new file B starts at its own position", Math.round(liveFlick.contentY), -liveFlick.topMargin)
                 var firstBlock = liveMarkdown.blockItem(0)
                 var firstTop = firstBlock ? firstBlock.mapToItem(liveFlick, 0, 0).y : -1
                 root.check("first block starts inside the visible frame at rest", firstBlock !== null
                     && firstTop >= 0 && firstTop < liveFlick.height, true)
-                liveFlick.contentY = 240
-                root.check("file B scrolls independently", Math.round(liveFlick.contentY), 240)
+                root.scrollFramePending = true
+                liveFlick.contentY = root.fileBScrollY
+                root.stage = 4
+                return
+            }
+            if (stage === 4 && !root.scrollFramePending) {
+                root.check("file B scrolls after the next frame within its range", liveFlick.contentY === root.fileBScrollY
+                    && liveFlick.contentY >= -liveFlick.topMargin
+                    && liveFlick.contentY <= liveFlick.contentHeight - liveFlick.height + liveFlick.bottomMargin, true)
                 root.finish()
             }
         }

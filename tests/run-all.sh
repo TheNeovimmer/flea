@@ -44,7 +44,7 @@ done
 # Named, not run: each needs something this script cannot assume it has. One list, read twice: it
 # is printed here and it is what the audit below checks, so a suite cannot be quietly excluded.
 not_run="
-preview-040|is 0.3.10's TallPreviews acceptance suite, expected red until session scroll restoration lands
+preview-040|exits 0 only on its known per-file scroll restoration failure and exits 1 on any other result, unexpected green included
 ui|needs the display, and refuses beside a Flea it did not start
 drag|needs the display and a real pointer through uinput
 cardsizes|needs the display, a real pointer through uinput, and Hyprland to resize the window

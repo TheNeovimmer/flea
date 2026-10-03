@@ -21,6 +21,7 @@ ShellRoot {
             + " got=" + JSON.stringify(actual) + " expected=" + JSON.stringify(expected))
     }
     function finish() {
+        poll.stop()
         console.log("PREVIEW_040 DONE " + checks + " checks, " + failures + " failed")
         Qt.exit(failures ? 1 : 0)
     }
@@ -45,6 +46,7 @@ ShellRoot {
     }
 
     Timer {
+        id: poll
         interval: 20
         running: true
         repeat: true

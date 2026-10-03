@@ -60,10 +60,71 @@ function run(check) {
     check("md3z F4 runner requires all 15 Source checks", renderRunner.indexOf("expected_source_checks=15") >= 0
         && renderRunner.indexOf("MARKDOWN_SOURCE $expected_source_checks checks, 0 failed") >= 0, true)
 
+    var preview040 = Source.source("tests/preview-040.qml")
+    var finish040 = new Function("poll", "console", "Qt", "checks", "failures",
+        Source.slice(preview040, "function finish()", "function descendants(") + "\nfinish()")
+    var exitEvents = []
+    finish040({ stop: function () { exitEvents.push("stop") } }, { log: function () {} },
+        { exit: function () { exitEvents.push("exit") } }, 4, 1)
+    check("md3z r4 F12 repeating timer stops before exit", exitEvents.join(","), "stop,exit")
+
+    var hunt = Source.source("tests/preview-hunt.qml")
+    // Sample input: onTriggered: { ... } is compiled as function triggered() { ... }.
+    var huntTick = new Function("root", "quick", "Date", "stage", "scenario", "liveFlick", "liveMarkdown",
+        Source.slice(hunt, "onTriggered: {", "\n    }\n}").replace("onTriggered: {", "function triggered() {")
+            + "\ntriggered()")
+    function scrollCase(file, defect) {
+        var scrollChecks = []
+        var finished = false
+        var injected = false
+        var flick = { contentY: 0, contentHeight: 1000, height: 400, topMargin: 0, bottomMargin: 0 }
+        var document = { active: true, blockList: [], blockItem: function () {
+            return { mapToItem: function () { return { y: 0 } } }
+        } }
+        var root = { stage: 1, stamp: 0, overlayCase: true, fixture: "fixture", scrollFramePending: false,
+            fileAScrollY: 120, fileBScrollY: 240,
+            descendants: function () { return [document] },
+            flickOf: function () { return flick },
+            finish: function () { finished = true },
+            check: function (label, actual, expected) {
+                if (label.indexOf("file " + file + " scrolls") === 0)
+                    scrollChecks.push(actual === expected)
+            } }
+        var quick = { status: "ready", open: function () { flick.contentY = 0 } }
+        var expectedOffset = file === "A" ? root.fileAScrollY : root.fileBScrollY
+        var maxTicks = 8
+        for (var tick = 0; tick < maxTicks && !finished; tick++) {
+            huntTick(root, quick, { now: function () { return (tick + 1) * 1000 } }, root.stage, "scroll", flick, document)
+            if (defect === "frame" && scrollChecks.length > 0)
+                return [false]
+            if (!injected && flick.contentY === expectedOffset) {
+                injected = true
+                if (defect === "frame") {
+                    huntTick(root, quick, { now: function () { return (tick + 1) * 1000 } }, root.stage, "scroll", flick, document)
+                    return [scrollChecks.length === 0 && root.scrollFramePending]
+                }
+                if (defect === "offset")
+                    flick.contentY = 0
+                if (defect === "range")
+                    flick.contentHeight = flick.height + expectedOffset - 1
+            }
+            root.scrollFramePending = false
+        }
+        return scrollChecks
+    }
+    for (var file of ["A", "B"]) {
+        check("md3z r4 F16 " + file + " offset lost after frame rejected", scrollCase(file, "offset").indexOf(false) >= 0, true)
+        check("md3z r4 F16 " + file + " offset outside scroll range rejected", scrollCase(file, "range").indexOf(false) >= 0, true)
+        check("md3z r4 F16 " + file + " scroll check waits for frame", scrollCase(file, "frame").join(","), "true")
+        check("md3z r4 F16 " + file + " scroll survives frame accepted", scrollCase(file, "").join(","), "true")
+    }
+
     var figureSource = Source.source("tests/markdown-figures-render.qml")
     check("md3t F5 one QML header", !/\/\/[^\n]*\n\/\/[^\n]*\nShellRoot/.test(figureSource), true)
     var drive = new Function("shell", "md", "Flea", "Checks", "poll", "grabRoot",
         Source.slice(figureSource, "function drive()", "function grabbed(") + "\ndrive()")
+    var checkHistory = new Function("shell", "md", "Flea", "Checks",
+        Source.slice(figureSource, "function checkHistory()", "function drive()") + "\nreturn checkHistory()")
     function figureCase(mode, imgW, history, step) {
         var failure = ""
         var shell = { step: step, figMode: mode, farIndex: 9, requestHistory: history, t0: Date.now(),
@@ -78,12 +139,7 @@ function run(check) {
             figure: function () { return { svg: "" } },
             bodyFont: function () { return {} }, labelError: function () { return "" }, paletteError: function () { return "" } }
         shell.checkHistory = function () {
-            var error = Figures.farRequestError(shell.requestHistory, farSource, history.length)
-            if (error !== "") {
-                shell.fail(error)
-                return false
-            }
-            return true
+            return checkHistory(shell, md, { FigureService: { sends: history.length } }, checks)
         }
         drive(shell, md, { FigureService: { sends: history.length }, Theme: { color: {} } }, checks,
             { stop: function () {} }, { grabToImage: function () {} })

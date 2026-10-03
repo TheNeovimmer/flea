@@ -96,15 +96,14 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 120 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
-# Sample input, the verdict line: "  INFO qml: MARKDOWN_FIGRENDER PASS three figures, one mono fallback, widths fit, far figure unasked"
+# Sample input: MARKDOWN_FIGRENDER PASS (real) three figures, one mono fallback, widths fit, far figure unasked
 if [ "$(printf '%s\n' "$output" | grep -c 'MARKDOWN_FIGRENDER PASS')" -ne 1 ] || printf '%s\n' "$output" | grep -q 'MARKDOWN_FIGRENDER FAIL'; then
     printf 'FAIL the figure preview missed a check\n'
     printf '%s\n' "$output" | grep -aE 'MARKDOWN_FIGRENDER|FigureService|ERROR|error|flea:' | head -20
     exit 1
 fi
-# The offscreen platform itself says it cannot mask a FloatingWindow; that one line is the platform's, never the probe's.
-# The QJSEngine connect line is a failure here, never filtered: an invalid
-# nullptr connect at singleton creation would mean FigureService done never lands.
+# Sample input: This plugin does not support setting window masks
+# Only the platform mask line is filtered; the QJSEngine connect line fails this harness.
 platform_warning='This plugin does not support setting window masks'
 warnings=$(printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|WARN|invalid nullptr parameter' | grep -vF "$platform_warning")
 if [ -n "$warnings" ]; then
@@ -154,9 +153,19 @@ warnings=$(printf '%s\n' "$mathgap_output" | grep -aE 'TypeError|ReferenceError|
 if [ -n "${FLEA_CI_SUITE_LOGS:-}" ] && [ -f "$test_root/runtime/markdown-mathgap.png" ]; then
     cp "$test_root/runtime/markdown-mathgap.png" "$FLEA_CI_SUITE_LOGS/markdown-mathgap.png" || exit 1
 fi
-printf '%s\n' "$mathgap_output" | grep -qF 'MARKDOWN_MATHGAP 31 checks, 0 failed' || exit 1
+expected_mathgap_checks=31
+# Sample input: MARKDOWN_MATHGAP 31 checks, 0 failed
+if ! printf '%s\n' "$mathgap_output" | grep -qE "(^|: )MARKDOWN_MATHGAP $expected_mathgap_checks checks, 0 failed$"; then
+    printf 'FAIL markdown-figures-render: mathgap expected %s checks, 0 failed; arrived [%s]\n' "$expected_mathgap_checks" "${mathgap_output:-<empty>}" >&2
+    exit 1
+fi
 
-paths_output=$("$qjs" tests/markdown-figures-render-paths.mjs) || exit 1
+paths_output=$("$qjs" tests/markdown-figures-render-paths.mjs 2>&1)
+paths_status=$?
+if [ "$paths_status" -ne 0 ]; then
+    printf 'FAIL markdown-figures-render: paths expected generated arrow cases; helper exited %s; arrived [%s]\n' "$paths_status" "${paths_output:-<empty>}" >&2
+    exit 1
+fi
 printf '%s\n' "$paths_output" | head -1
 printf '%s\n' "$paths_output" | tail -1 > "$test_root/arrow-cases.json" || exit 1
 cp tests/markdown-figures-render-arrows.qml "$test_root/config/shell.qml" || exit 1
@@ -169,7 +178,12 @@ arrow_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATU
 printf '%s\n' "$arrow_output" | grep -oE 'MARKDOWN_ARROWS .*'
 warnings=$(printf '%s\n' "$arrow_output" | grep -aE 'TypeError|ReferenceError|WARN|invalid nullptr parameter' | grep -vF "$platform_warning")
 [ -z "$warnings" ] || { printf 'FAIL arrow harness warning: %s\n' "$warnings"; exit 1; }
-printf '%s\n' "$arrow_output" | grep -qE 'MARKDOWN_ARROWS [0-9]+ checks, 0 failed' || exit 1
+expected_arrow_checks=80 # Four checks for each of 16 synthetic paths and four helper figures.
+# Sample input: MARKDOWN_ARROWS 80 checks, 0 failed
+if ! printf '%s\n' "$arrow_output" | grep -qE "(^|: )MARKDOWN_ARROWS $expected_arrow_checks checks, 0 failed$"; then
+    printf 'FAIL markdown-figures-render: arrows expected %s checks, 0 failed; arrived [%s]\n' "$expected_arrow_checks" "${arrow_output:-<empty>}" >&2
+    exit 1
+fi
 if [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then
     cp "$test_root/runtime/markdown-arrows.png" "$FLEA_CI_SUITE_LOGS/markdown-arrows.png" || exit 1
 fi
@@ -181,9 +195,13 @@ md3u_native=$(QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QML_XHR_ALLOW_
     XDG_RUNTIME_DIR="$test_root/runtime" timeout 25 qml6 tests/markdown-advfix-md3u.qml -- "file://$test_root/md3u-cases.json" 2>&1)
 md3u_status=$?
 printf '%s\n' "$md3u_native" | grep -E 'MD3U_GEOMETRY|MARKDOWN_MD3U_NATIVE|FAIL'
-if [ "$md3u_status" -ne 0 ] || ! printf '%s\n' "$md3u_native" | grep -qE 'MARKDOWN_MD3U_NATIVE [0-9]+ checks, 0 failed'; then
-    printf 'FAIL native md3u geometry exited %s\n' "$md3u_status"
-    printf '%s\n' "$md3u_native"
+expected_md3u_native_checks=12 # Four heading checks, six F2 geometry checks, decode and capture across six cases.
+expected_md3u_native_cases=6 # Three body sizes for each of F2 and F7.
+# Sample input: MD3U_GEOMETRY {"id":"F2","bodyPx":12,"labelInkWidth":86}
+md3u_native_cases=$(printf '%s\n' "$md3u_native" | grep -cE '(^|: )MD3U_GEOMETRY ')
+# Sample input: MARKDOWN_MD3U_NATIVE 12 checks, 0 failed
+if [ "$md3u_status" -ne 0 ] || [ "$md3u_native_cases" -ne "$expected_md3u_native_cases" ] || ! printf '%s\n' "$md3u_native" | grep -qE "(^|: )MARKDOWN_MD3U_NATIVE $expected_md3u_native_checks checks, 0 failed$"; then
+    printf 'FAIL markdown-figures-render: md3u native expected %s cases, %s checks, 0 failed; exited %s; arrived %s cases [%s]\n' "$expected_md3u_native_cases" "$expected_md3u_native_checks" "$md3u_status" "$md3u_native_cases" "${md3u_native:-<empty>}" >&2
     exit 1
 fi
 if [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then

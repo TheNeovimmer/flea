@@ -2,8 +2,7 @@
 # list: it runs only by name. Opens a markdown fixture in Quick Look rendered, flips to
 # Source and back with r, closes, then shoots the preview column with the file under the
 # cursor. All fixtures and writes stay in its marked sandbox.
-# Figures render through the helper after the preview opens; shooting before they
-# settle captures a blank band and calls it a rendering. Prints the settled states.
+# Figures settle after the preview opens, so the shot waits for them.
 capmarkdown_wait_figures() {
     local figs=""
     for _attempt in $(seq 1 60); do
