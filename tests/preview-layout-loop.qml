@@ -20,6 +20,7 @@ ShellRoot {
     property int above: 0
     property real belowHeight: 0
     property bool scrolling: false
+    property bool wheeling: false
     // One downward wheel notch, delivered inside the preview rather than its scrollbar lane.
     readonly property int wheelAngleUnits: -120
     readonly property int wheelHorizontalUnits: 0
@@ -118,11 +119,13 @@ ShellRoot {
         shell.scrolling = false
         shell.showCount(48)
     }
-    // The flag is set before the wheel goes out: the event's delay runs the event loop, and a tick must not send a second notch.
+    // The wheel call can run the event loop: ticks stand aside until it returns, and only then do the scroll checks open.
     function wheelDown(f) {
-        shell.scrolling = true
+        shell.wheeling = true
         driver.mouseWheel(f, f.width * shell.wheelCenter, f.height * shell.wheelCenter,
             Qt.NoButton, Qt.NoModifier, shell.wheelHorizontalUnits, shell.wheelAngleUnits, shell.wheelDelayMs)
+        shell.wheeling = false
+        shell.scrolling = true
     }
     function cell(label, md) {
         var f = shell.flick(md)
@@ -264,6 +267,7 @@ ShellRoot {
         running: !shell.done
         repeat: true
         onTriggered: {
+            if (shell.wheeling) return
             shell.ticks++
             // Keep this reader loaded across its first toggle; clearing it first primes Qt's lazy getter on empty text.
             if (!shell.preludeDone) {
