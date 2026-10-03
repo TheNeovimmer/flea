@@ -143,6 +143,7 @@ QtObject {
         const drain = new Function('started', 'md', 'fixture', 'Url', 'Html', 'Resolve',
             'validationFailures', 'log', 'Qt', 'control', 'counter', 'XMLHttpRequest', 'root',
             'imagesSettled', 'resourceUrls', 'resourceProbes', 'finishDrain',
+            'referenceResolution', 'expectedReferences', 'fail',
             body('function startDrain()', security));
         function tryDrain() {
             drain(false, { contentReady: true, blockList: ['corpus'] }, '/doc/a.md',
@@ -153,7 +154,8 @@ QtObject {
                     this.open = () => {};
                     this.send = () => {};
                 }, corpus, settled,
-                () => {}, { model: [] }, () => { control.text = 'control'; });
+                () => {}, { model: [] }, () => { control.text = 'control'; },
+                () => ({ total: 0, resolved: 0 }), 0, () => { control.text = 'failed'; });
         }
         tryDrain();
         check(control.text === '', 'R2 control waits for every Loading corpus Image');
