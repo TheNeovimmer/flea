@@ -11,7 +11,7 @@ import sys
 import tempfile
 import tarfile
 
-GATES = ('conflict-marker', 'fused-line', 'paneprops', 'del-printable', 'qml-undeclared-read')
+GATES = ('conflict-marker', 'fused-line', 'paneprops', 'del-printable', 'qml-undeclared-read', 'qml-duplicate-member')
 SUFFIXES = {'.rs', '.qml', '.js', '.sh'}
 # Bound alias propagation so pathological chains cannot keep a source gate running.
 ALIAS_FIXPOINT_CAP = 8
@@ -42,14 +42,81 @@ def inventory(root, tracked=False):
     return sorted(paths)
 
 
-def masked(source, suffix):
+def regex_start(prefix):
+    prefix = prefix.rstrip(' \t\r\n~')
+    if prefix.endswith(('++', '--')):
+        return False
+    if re.search(r'(?:^|[=(,:!\[{};?&|+*/%^<>-]|\b(?:return|throw|case|yield|await|typeof|void|delete|in|instanceof|else|do))$', prefix):
+        return True
+    if not prefix.endswith(')'):
+        return False
+    depth = 1
+    for at in range(len(prefix) - 2, -1, -1):
+        depth += (prefix[at] == ')') - (prefix[at] == '(')
+        if depth == 0:
+            return bool(re.search(r'\b(?:if|while|for|with|switch|catch)[\s~]*$', prefix[:at]))
+    return False
+
+
+def template_end(source, start):
+    # Nested templates and quoted interpolation values remain one opaque string token.
+    stack = ['`']
+    starts = [start]
+    i = start + 1
+    prefix = list(source)
+    while i < len(source) and stack:
+        char = source[i]
+        if isinstance(stack[-1], str):
+            quote = stack[-1]
+            if char == '\\':
+                i += 2
+                continue
+            if quote == '`' and source.startswith('${', i):
+                stack.append(1)
+                starts.append(i)
+                i += 2
+                continue
+            if char == quote:
+                stack.pop()
+                at = starts.pop()
+                prefix[at:i + 1] = '0' + '~' * (i - at)
+        elif source.startswith('//', i) or source.startswith('/*', i):
+            line_comment = source.startswith('//', i)
+            end = source.find('\n' if line_comment else '*/', i + 2)
+            end = len(source) if end < 0 else end + (0 if line_comment else 2)
+            prefix[i:end] = '~' * (end - i)
+            i = end
+            continue
+        elif char in '\'"`':
+            stack.append(char)
+            starts.append(i)
+        elif char == '/' and regex_start(''.join(prefix[:i])):
+            match = re.match(r'/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\n])*/[A-Za-z]*', source[i:])
+            if match:
+                prefix[i:i + len(match[0])] = '0' + '~' * (len(match[0]) - 1)
+                i += len(match[0])
+                continue
+        elif char == '{':
+            stack[-1] += 1
+        elif char == '}':
+            stack[-1] -= 1
+            if not stack[-1]:
+                stack.pop()
+                starts.pop()
+        i += 1
+    return i
+
+
+def masked(source, suffix, literal_tokens=False):
     # Keep offsets and newlines so diagnostics always point at the original source.
     out = list(source)
     i = 0
     while i < len(source):
         start = i
+        literal = False
         raw = re.match(r'r(\#*)"', source[i:]) if suffix == '.rs' else None
         if raw:
+            literal = True
             end = source.find('"' + raw[1], i + len(raw[0]))
             i = len(source) if end < 0 else end + 1 + len(raw[1])
         elif source.startswith('//', i) and suffix != '.sh' or source[i] == '#' and suffix == '.sh' and (i == 0 or source[i - 1].isspace()):
@@ -72,6 +139,7 @@ def masked(source, suffix):
             # Sample input: echo \' ; x    y keeps the quote literal and the following code visible.
             i += 2
         elif source[i] in '"\'`' and not (suffix == '.rs' and source[i] == "'" and not re.match(r"'(?:\\.|[^'\\\n])'", source[i:])):
+            literal = True
             quote = source[i]
             # Sample input: $'it\'s' is ANSI-C; \$'a\' keeps its backslash literal.
             literal_backslash = suffix == '.sh' and quote == "'"
@@ -82,8 +150,12 @@ def masked(source, suffix):
                     backslashes += 1
                     at -= 1
                 literal_backslash = backslashes % 2 != 0
-            i += 1
-            while i < len(source):
+            if literal_tokens and quote == '`':
+                i = template_end(source, i)
+                quote = None
+            else:
+                i += 1
+            while quote is not None and i < len(source):
                 if source[i] == '\\' and not literal_backslash:
                     i += 2
                 elif source[i] == quote:
@@ -91,7 +163,10 @@ def masked(source, suffix):
                     break
                 else:
                     i += 1
-        elif source[i] == '/' and suffix in ('.js', '.qml') and re.search(r'(?:^|[=(,:!\[{};?]|\breturn)\s*$', source[:i]):
+        elif (source[i] == '/' and suffix in ('.js', '.qml')
+              and (regex_start(''.join(out[:i])) if literal_tokens else
+                   re.search(r'(?:^|[=(,:!\[{};?]|\breturn)\s*$', source[:i]))):
+            literal = True
             # A regex literal is data, including its character classes and escaped slashes.
             i += 1
             bracket = False
@@ -115,6 +190,9 @@ def masked(source, suffix):
         for at in range(start, min(i, len(source))):
             if source[at] != '\n':
                 out[at] = '~'
+        if literal_tokens and literal:
+            # A value token lets a following newline end its binding without exposing literal contents.
+            out[start] = '0'
     text = ''.join(out)
     if suffix == '.sh':
         # Literal heredoc bodies are fixture data or child-script strings, not shell tokens.
@@ -667,7 +745,76 @@ def qml_undeclared_read(root, files, sample=False):
         return len(qml), errors
 
 
-CHECKS = dict(zip(GATES, (conflict_marker, fused_line, paneprops, del_printable, qml_undeclared_read)))
+def duplicate_members(code, suffix):
+    # Sample input: QtObject { readonly property alias wire: wire; readonly property alias wire: wire }
+    identifier = r'[A-Za-z_$][\w$]*'
+    space = r'[\s~]*'
+    type_name = identifier + r'(?:\.' + identifier + r')*'
+    declaration = re.compile(
+        r'property[\s~]+' + type_name + r'(?:' + space + '<' + space + type_name + space + '>)?'
+        r'[\s~]+(?P<property>' + identifier + r')(?![\w$])|'
+        r'(?:signal|function)[\s~]+(?P<callable>' + identifier + r')(?![\w$])|(?P<id>id)' + space + ':')
+    tokens = list(re.finditer(identifier + r'|[^\s~]', code))
+    stack, top, duplicates = [], {}, []
+
+    def starts_member(index):
+        while index and tokens[index - 1][0] in ('readonly', 'default', 'required'):
+            index -= 1
+        if not index or tokens[index - 1][0] in ('{', '}', ';'):
+            return True
+        previous = tokens[index - 1]
+        return ('\n' in code[previous.end():tokens[index].start()]
+                and previous[0] not in (':', '=', '.', ',', '?', '+', '-', '*', '/', '%', '&', '|',
+                                       '^', '!', '<', '>', '(', '[', 'return', 'async', 'new', 'yield'))
+
+    for index, token in enumerate(tokens):
+        value = token[0]
+        members = top if suffix == '.js' and not stack else stack[-1][1] if stack else None
+        if members is not None and starts_member(index):
+            match = declaration.match(code, token.start())
+            if match and (suffix == '.qml' or value == 'function'):
+                name = match['property'] or match['callable'] or match['id']
+                if value != 'function' or re.match(space + r'\(', code[match.end():]):
+                    line = code.count('\n', 0, token.start()) + 1
+                    if name in members:
+                        duplicates.append((line, name, members[name]))
+                    else:
+                        members[name] = line
+        if value in ('{', '(', '['):
+            is_object = False
+            qml_context = suffix == '.qml' and (not stack or stack[-1][0] in ('object', 'array'))
+            if value == '{' and qml_context and index and re.fullmatch(r'[A-Z][\w$]*', tokens[index - 1][0]):
+                start = index - 1
+                while start >= 2 and tokens[start - 1][0] == '.' and re.fullmatch(identifier, tokens[start - 2][0]):
+                    start -= 2
+                binding_type = (start and tokens[start - 1][0] == ':'
+                                and (start < 2 or tokens[start - 2][0] != ')'))
+                is_object = (starts_member(start) or binding_type
+                             or stack and stack[-1][0] == 'array' and tokens[start - 1][0] in ('[', ','))
+            kind = 'object' if is_object else 'array' if value == '[' and qml_context else value
+            stack.append((kind, {} if is_object else None))
+        elif value in ('}', ')', ']') and stack:
+            stack.pop()
+    return duplicates
+
+
+def qml_duplicate_member(root, files):
+    errors = []
+    scanned = 0
+    for file in files:
+        path = root / file
+        qml = path.suffix == '.qml' and file.startswith(('ui/', 'tests/'))
+        js = path.suffix == '.js' and file.startswith('ui/')
+        if not (qml or js) or not path.is_file():
+            continue
+        scanned += 1
+        code = masked(path.read_text(), path.suffix, literal_tokens=True)
+        errors.extend(f'{file}:{line}: {name} declared again (first at {first})'
+                      for line, name, first in duplicate_members(code, path.suffix))
+    return scanned, errors
+
+
+CHECKS = dict(zip(GATES, (conflict_marker, fused_line, paneprops, del_printable, qml_undeclared_read, qml_duplicate_member)))
 
 
 def negative_controls(root):
@@ -677,12 +824,17 @@ def negative_controls(root):
         'paneprops': ('ui/js/Sample.js', 'function broken(pane) { pane.removedProperty = true }\n'),
         'del-printable': ('ui/js/Sample.js', 'function key(event) { return event.text.length === 1 && event.text >= " " }\n'),
         'qml-undeclared-read': ('ui/Sample.qml', 'import QtQuick\nItem { function readRecent() { return asker } }\n'),
+        'qml-duplicate-member': ('ui/Pane.qml', 'import QtQuick\nFocusScope {\n'
+                                 '    readonly property alias wire: wire\n'
+                                 '    readonly property alias wire: wire\n}\n'),
     }
     errors = []
     script = root / 'tests/staticgates.py'
     with tempfile.TemporaryDirectory(prefix='staticgates-controls-') as scratch:
-        for gate, (file, text) in samples.items():
-            sample = Path(scratch) / gate
+        cases = list(samples.items()) + [('qml-duplicate-member', ('ui/js/Sample.js',
+                                         '.pragma library\nfunction wire() {}\nfunction wire() {}\n'))]
+        for gate, (file, text) in cases:
+            sample = Path(scratch) / gate / Path(file).stem
             path = sample / file
             path.parent.mkdir(parents=True)
             path.write_text(text)
@@ -692,11 +844,14 @@ def negative_controls(root):
             diagnostic = next((line for line in result.stdout.splitlines() if line.startswith(f'STATICGATE {gate} FAIL ')), '')
             expected = {'conflict-marker': 'unresolved conflict marker', 'fused-line': 'fused code gap',
                         'paneprops': 'pane.removedProperty absent', 'del-printable': 'printable event.text decision',
-                        'qml-undeclared-read': 'new unqualified read asker'}[gate]
-            if result.returncode != 1 or expected not in diagnostic or 'STATICGATES FAIL gates=1' not in result.stdout:
+                        'qml-undeclared-read': 'new unqualified read asker',
+                        'qml-duplicate-member': 'wire declared again (first at ' + ('2)' if file.endswith('.js') else '3)')}[gate]
+            if (result.returncode != 1 or expected not in diagnostic or file + ':' not in diagnostic
+                    or 'STATICGATES FAIL gates=1' not in result.stdout):
                 errors.append(f'{gate}: planted defect was not rejected: {result.stdout} {result.stderr}')
             else:
-                print(f'STATICGATE {gate} RED exit=1 diagnostic={diagnostic}')
+                # The planted defect's verdict word is dropped, so a passing run prints no FAIL token for CI.
+                print(f'STATICGATE {gate} RED exit=1 rejected={diagnostic.split(" FAIL ", 1)[-1]}')
     return errors
 
 
@@ -711,14 +866,14 @@ def main():
         files = sorted(str(p.relative_to(root)) for p in root.rglob('*') if p.is_file()) if args.sample else inventory(root)
     except (OSError, ValueError, tarfile.TarError) as error:
         print(f'STATICGATE inventory FAIL {error}')
-        print('STATICGATES FAIL gates=5')
+        print(f'STATICGATES FAIL gates={1 if args.gate else len(GATES)}')
         return 1
     controls = [] if args.gate or args.sample else negative_controls(root)
     for error in controls:
         print(f'STATICGATE negative-control FAIL {error}')
     failed = len(controls)
     for name in ((args.gate,) if args.gate else GATES):
-        selected = inventory(root, tracked=True) if name == 'conflict-marker' and not args.sample else files
+        selected = inventory(root, tracked=True) if name in ('conflict-marker', 'qml-duplicate-member') and not args.sample else files
         try:
             kwargs = {'sample': True} if args.sample and name in ('paneprops', 'qml-undeclared-read') else {}
             count, errors = CHECKS[name](root, selected, **kwargs)
