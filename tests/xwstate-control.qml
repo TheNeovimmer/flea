@@ -10,8 +10,7 @@ Item {
     property var view: null
     // Every window-only clipboard notice the current pane raised, kept so a check can count them.
     property var notices: []
-    // Test-only controls in a private copy of the shipped boot entry. Product objects,
-    // action routing, backend processes and reply handlers remain the shipped ones.
+    // Test-only controls in a private copy of the shipped boot entry; everything they drive is shipped code.
     Component.onCompleted: console.log("HUNT pid=" + Quickshell.processId)
     Connections {
         target: root.view ? root.view.currentPane : null
@@ -37,6 +36,10 @@ Item {
             Flea.ViewState.changeSetting("places.favourites", [{label: "Shared", path: "/tmp/shared"}])
             return true
         }
+        function changeFavouritesAgain(): bool {
+            Flea.ViewState.changeSetting("places.favourites", [{label: "Second", path: "/tmp/second"}])
+            return true
+        }
         function seedCut(): bool {
             root.view.currentPane.clipboard = {paths: [Quickshell.env("FLEA_HUNT_ROOT") + "/a/alpha.txt"], moving: true}
             return true
@@ -57,6 +60,5 @@ Item {
                 favourites: (Flea.ViewState.state.places || {}).favourites || [],
                 message: pane.statusBar.transient_, error: pane.statusBar.transientIsError})
         }
-        function close(): bool { root.view.quitBackends(); return true }
     }
 }
