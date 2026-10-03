@@ -190,7 +190,9 @@ function run(check) {
     check("GFM 200 code span unescapes pipe", escapedTable.rows[0][0],
         'b <code style="background-color:#181825">&#124;</code> az')
     check("GFM 200 strong row unescapes pipe", escapedTable.rows[1][0], "b **&#124;** im")
-    check("a pipe outside a table stays prose", Markdown.prepare("b **|** im", dir), "b **|** im")
+    // The backtick sends prose down the scan path, where only a table cell turns its pipe into an entity.
+    var scannedProse = Markdown.prepare("a | `b`", dir, undefined, chrome)
+    check("a pipe outside a table stays prose", scannedProse.indexOf("a | ") === 0 && scannedProse.indexOf("&#124;") < 0, true)
     check("table splitting keeps other backslash pairs", Leaf.splitRow("| \\*literal\\* | \\`code\\` |").join("|"),
         "\\*literal\\*|\\`code\\`")
     var missingInlineRejected = false
