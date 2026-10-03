@@ -111,6 +111,7 @@ ShellRoot {
     function cell(label, md) {
         var f = shell.flick(md)
         var h = shell.extent(md)
+        if (!shell.check(md.view === shell.view, "reader is in " + md.view + ", not the requested " + shell.view)) return
         if (!shell.check(md.width === f.width && md.height === f.height, "reader left its viewport")) return
         if (!shell.check(md.bodyItem.width === f.width, "rendered text width changed")) return
         if (!shell.check(Math.abs(f.contentHeight - Math.max(f.height, h)) < 0.1, "content height is stale")) return
@@ -124,9 +125,9 @@ ShellRoot {
     }
     function advanceMarkdown() {
         var md = shell.markdown()
-        if (!md || !md.contentReady || md.path !== shell.expectedPath) {
+        if (!md || !md.contentReady || md.path !== shell.expectedPath || md.view !== shell.view) {
             if (shell.ticks === 10) shell.log("WAIT markdown=" + md + " ready=" + (md ? md.contentReady : false)
-                + " path=" + (md ? md.path : "") + " column=" + column.previewState)
+                + " path=" + (md ? md.path : "") + " view=" + (md ? md.view : "") + " column=" + column.previewState)
             return
         }
         if (shell.stage < 3 && md.rawText.indexOf("edge " + shell.count + "\n") !== 0) return
