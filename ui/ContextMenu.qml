@@ -509,6 +509,9 @@ Item {
         // Mirrors hyprland decoration:rounding, same as NetworkDialog; 0 on a stock box stays square.
         radius: Style.cornerRadius
 
+        // The card takes every press no row takes (padding, separator, disabled row); a stepped body is no Flickable, so the closing ground would.
+        MouseArea { anchors.fill: parent; acceptedButtons: Qt.LeftButton | Qt.RightButton }
+
         Flea.CardScroll {
             id: scroll
             // A menu steps the highlight, never pixel scrolls: one row a notch, one row per
@@ -579,6 +582,9 @@ Item {
         border.width: Theme.spacing.hairline
         border.color: Theme.color.muted
         radius: Style.cornerRadius
+
+        // The flyout takes its dead presses the same way.
+        MouseArea { anchors.fill: parent; acceptedButtons: Qt.LeftButton | Qt.RightButton }
 
         Flea.CardScroll {
             id: subScroll
