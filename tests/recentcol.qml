@@ -68,10 +68,38 @@ Item {
         recenting: true
         hiddenCols: []
     }
+    Flea.Header {
+        id: dualNarrowHeader
+        width: root.dualLocationFloor - root.belowFloor + Flea.Theme.spacing.rowPaddingX
+        dualMode: true
+        recent: true
+        hiddenCols: []
+    }
+    Flea.Row {
+        id: dualNarrowRow
+        width: dualNarrowHeader.contentWidth
+        row: root.file
+        dualMode: true
+        recenting: true
+        hiddenCols: []
+    }
     Component {
         id: mouseControl
         Item {
             MouseArea { anchors.fill: parent }
+        }
+    }
+    Component {
+        id: siblingControl
+        Item {
+            width: parent.width
+            height: parent.height
+            property alias buttons: tap.acceptedButtons
+            property alias inputEnabled: tap.enabled
+            TapHandler {
+                id: tap
+                acceptedButtons: Qt.LeftButton
+            }
         }
     }
 
@@ -82,6 +110,50 @@ Item {
                 count += 1
         })
         return count
+    }
+
+    // Include sibling and ancestor handlers whose enabled hit area overlaps any part of the title.
+    function titleInputHandlers(headerItem, title, button, walk) {
+        var count = 0
+        walk(headerItem, function (o) {
+            if (!(o instanceof PointerHandler || o instanceof MouseArea))
+                return
+            if (!o.enabled || !(o.acceptedButtons & button))
+                return
+            var area = o instanceof MouseArea ? o : o.parent
+            if (!area || !area.visible || !area.enabled || area.width <= 0 || area.height <= 0)
+                return
+            var start = title.mapToItem(area, 0, 0)
+            var end = title.mapToItem(area, title.width, title.height)
+            var margin = o.margin === undefined ? 0 : o.margin
+            if (start.x < area.width + margin && end.x > -margin
+                && start.y < area.height + margin && end.y > -margin)
+                count += 1
+        })
+        return count
+    }
+
+    function locationInput(check, walk, title) {
+        check("No header left-button handler covers Location", root.titleInputHandlers(header, title, Qt.LeftButton, walk), 0)
+        check("Whole-header right-button menu covers Location", root.titleInputHandlers(header, title, Qt.RightButton, walk), 1)
+        var control = siblingControl.createObject(header)
+        check("Synthetic sibling TapHandler was built", control !== null, true)
+        if (!control)
+            return
+        check("Synthetic sibling left-button handler makes Location exclusion fail", root.titleInputHandlers(header, title, Qt.LeftButton, walk), 1)
+        control.buttons = Qt.RightButton
+        check("Synthetic sibling right-button handler allows Location exclusion", root.titleInputHandlers(header, title, Qt.LeftButton, walk), 0)
+        check("Synthetic sibling right-button handler is inspected", root.titleInputHandlers(header, title, Qt.RightButton, walk), 2)
+        control.buttons = Qt.LeftButton
+        control.inputEnabled = false
+        check("Disabled sibling handler allows Location exclusion", root.titleInputHandlers(header, title, Qt.LeftButton, walk), 0)
+        control.inputEnabled = true
+        control.visible = false
+        check("Hidden sibling handler allows Location exclusion", root.titleInputHandlers(header, title, Qt.LeftButton, walk), 0)
+        control.visible = true
+        control.x = header.width
+        check("Sibling handler outside Location allows exclusion", root.titleInputHandlers(header, title, Qt.LeftButton, walk), 0)
+        control.destroy()
     }
 
     // Count built Location texts independently of their value and visibility; look up drawn texts separately.
@@ -125,7 +197,16 @@ Item {
         check("Dual Recent transition keeps Location", changingHeader.cell("location").visible, true)
         check("Dual Recent transition reports its drawn Location", changingHeader.columnSet().indexOf("location") >= 0, changingHeader.cell("location").visible)
         changingHeader.recent = false
+        changingHeader.dualMode = false
+        changingHeader.hiddenCols = []
+        check("Ordinary header uses the single-pane path", changingHeader.dualMode, false)
         check("Ordinary header has boolean Location", changingHeader.cols.location, false)
+        check("Ordinary header keeps its Mode cell reader", changingHeader.cell("mode") !== null, true)
+        check("Ordinary header Mode cell stays visible", changingHeader.cell("mode").visible, true)
+        check("Ordinary header Mode cell keeps its title", changingHeader.cell("mode").text, "Mode")
+        check("Ordinary header exposes no Location cell", changingHeader.cell("location"), null)
+        changingHeader.dualMode = true
+        check("Dual header uses the dual-pane path", changingHeader.dualMode, true)
         check("Dual header has boolean Location", changingHeader.cols.location, false)
     }
 
@@ -140,6 +221,11 @@ Item {
         check("Dual Recent draws Location at its exact floor", dualFloorHeader.columnSet(), "name,location,size,date")
         check("Dual Recent exact-floor row matches its header", dualFloorRow.columnSet(), dualFloorHeader.columnSet())
         check("Dual Recent builds both drawn path cells", full.name !== null && full.location !== null, true)
+        var below = root.texts(dualNarrowRow, walk)
+        check("Dual Recent drops Location one pixel below its floor", dualNarrowHeader.cols.location, false)
+        check("Dual Recent below-floor row drops Location", dualNarrowRow.columnSet().indexOf("location"), -1)
+        check("Dual Recent below-floor header and row sets agree", dualNarrowRow.columnSet(), dualNarrowHeader.columnSet())
+        check("Dual Recent below-floor row draws no Location", below.location !== null, false)
         check("Dual Recent uses the dual Size width", dualFloorRow.cell("size").width, Flea.Theme.dualColumn.size)
         check("Dual Recent Size header matches its row", dualFloorHeader.cell("size").width, dualFloorRow.cell("size").width)
         if (full.name && full.location) {
@@ -195,6 +281,7 @@ Item {
         check("Recent header names its drawn columns", header.columnSet(), "name,location,size,date")
         check("Recent row names its drawn columns", recent.columnSet(), header.columnSet())
         check("Recent exposes its Location header", h !== null, true)
+        check("Recent exposes no Mode header", header.cell("mode"), null)
         check("Location header is visible with non-zero width", h !== null && h.visible && h.width > 0, true)
         check("Recent builds its name and location", r.name !== null && r.location !== null, true)
         if (r.name && r.location) {
@@ -216,6 +303,7 @@ Item {
             check("Location header shares title ink", String(h.color), String(header.cell("name").color))
             check("Location header shares title weight", h.font.weight, header.cell("name").font.weight)
             check("Location header has no input handler", root.inputHandlers(h, walk), 0)
+            root.locationInput(check, walk, h)
             var control = mouseControl.createObject(h)
             check("Synthetic MouseArea control was built", control !== null, true)
             check("Synthetic MouseArea makes Location exclusion fail", root.inputHandlers(h, walk) === 0, false)

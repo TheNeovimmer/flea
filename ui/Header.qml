@@ -381,7 +381,7 @@ Item {
         switch (key) {
         case "name": return headerName
         case "location": return root.recent ? headerMode : null
-        case "mode": return headerMode
+        case "mode": return root.recent ? null : headerMode
         case "size": return headerSize
         case "date": return headerDate
         case "kind": return headerKind
