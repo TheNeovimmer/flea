@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import "js/Columns.js" as Columns
 import "js/Drag.js" as DragOps
 import "js/Format.js" as Format
 import "js/Icons.js" as Icons
@@ -74,7 +75,7 @@ Item {
 
     // The columns this row's width affords. A column that is not drawn takes neither its width nor its gap, so the chain collapses onto its right neighbour.
     property var assignedCols: null // Set by List.qml; null keeps the local default below.
-    readonly property var cols: root.assignedCols !== null ? root.assignedCols : root.recenting ? Theme.columns(root.width, root.hiddenCols, root.dateWidth, true) : root.dualMode ? Theme.dualColumns(root.width, root.hiddenCols) : Theme.columns(root.width, root.hiddenCols, root.dateWidth)
+    readonly property var cols: root.assignedCols !== null ? root.assignedCols : root.recenting ? Theme.columns(root.width, root.hiddenCols, root.dateWidth, true, root.dualMode) : root.dualMode ? Theme.dualColumns(root.width, root.hiddenCols) : Theme.columns(root.width, root.hiddenCols, root.dateWidth)
     readonly property bool modeShown: !root.locating && root.cols.mode
     readonly property bool sizeShown: root.cols.size
     readonly property bool dateShown: (!root.searching || root.recenting) && root.cols.date
@@ -446,7 +447,7 @@ Item {
     }
 
     // The drawn columns and cells, shared with Header's geometry seam.
-    function columnSet() { return Theme.columnNames(root.width, root.hiddenCols, root.dateWidth, root.recenting) }
+    function columnSet() { return Columns.names(root.cols) }
     function cell(key) {
         switch (key) {
         case "location": return locatingLoader.item ? locatingLoader.item.location : null

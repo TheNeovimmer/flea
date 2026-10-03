@@ -58,7 +58,7 @@ Item {
     // The columns this width affords, less the hidden ones; rows draw lane-narrow like this header.
     property var hiddenCols: ViewState.hiddenCols
     readonly property real contentWidth: Math.max(0, root.width - Theme.spacing.rowPaddingX)
-    readonly property var cols: root.recent ? Theme.columns(root.contentWidth, root.hiddenCols, root.dateWidth, true) : root.dualMode ? Theme.dualColumns(root.contentWidth, root.hiddenCols) : Theme.columns(root.contentWidth, root.hiddenCols, root.dateWidth)
+    readonly property var cols: root.recent ? Theme.columns(root.contentWidth, root.hiddenCols, root.dateWidth, true, root.dualMode) : root.dualMode ? Theme.dualColumns(root.contentWidth, root.hiddenCols) : Theme.columns(root.contentWidth, root.hiddenCols, root.dateWidth)
 
     implicitHeight: Theme.chromeHeight
 

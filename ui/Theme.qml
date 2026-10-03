@@ -244,8 +244,14 @@ Singleton {
         nameMin: root.column.nameMin, mode: root.column.mode,
         size: root.column.size, date: root.column.date, kind: root.column.kind, location: root.column.location
     })
-    function columnSet(dateWidth) { return dateWidth === undefined ? root.columnTokens : Object.assign({}, root.columnTokens, {date: dateWidth}); }
-    function columns(width, hidden, dateWidth, recent) { return recent ? Columns.recentSet(width, root.columnSet(dateWidth), hidden) : Columns.set(width, root.columnSet(dateWidth), hidden); }
+    function columnSet(dateWidth, dual) {
+        if (dual)
+            return Object.assign({}, root.columnTokens, {iconSize: root.markSize,
+                nameMin: root.dualColumn.nameMin, size: root.dualColumn.size,
+                date: dateWidth === undefined ? root.dualColumn.date : dateWidth});
+        return dateWidth === undefined ? root.columnTokens : Object.assign({}, root.columnTokens, {date: dateWidth});
+    }
+    function columns(width, hidden, dateWidth, recent, dual) { return recent ? Columns.recentSet(width, root.columnSet(dateWidth, dual), hidden, dual) : Columns.set(width, root.columnSet(dateWidth), hidden); }
 
     // The same set as one string, which is what the seam in ui/Ipc.qml compares across the two.
     function columnNames(width, hidden, dateWidth, recent) {

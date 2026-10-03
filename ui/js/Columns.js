@@ -54,16 +54,19 @@ function dualSet(width, t, hidden) {
     return {mode: false, kind: false, location: false, size: showSize, date: showDate}
 }
 
-// Recent drops Location first, then Used and Size, protecting the same name floor as a list.
-function recentSet(width, t, hidden) {
+// Recent protects its list or dual name floor and reserves only drawn metadata widths.
+function recentSet(width, t, hidden, dual) {
     var base = 2 * t.rowPaddingX + t.iconSize + t.gap + t.nameMin
-    var sizeFloor = base + t.size + t.gap
-    var dateFloor = sizeFloor + t.date + t.gap
-    var locationFloor = dateFloor + t.location + t.gap
+    var metadataGap = dual ? 0 : t.gap
     var h = hidden || []
+    var showSize = h.indexOf("size") < 0 && width >= base + t.size + metadataGap
+    var sizeSlot = showSize ? t.size + metadataGap : 0
+    var showDate = h.indexOf("date") < 0 && width >= base + sizeSlot + t.date + metadataGap
+    var dateSlot = showDate ? t.date + metadataGap : 0
+    var locationFloor = base + sizeSlot + dateSlot + t.location + t.gap
     return {mode: false, kind: false,
-        size: width >= sizeFloor && h.indexOf("size") < 0,
-        date: width >= dateFloor && h.indexOf("date") < 0,
+        size: showSize,
+        date: showDate,
         location: width >= locationFloor}
 }
 

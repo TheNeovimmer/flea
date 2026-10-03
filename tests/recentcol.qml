@@ -1,5 +1,6 @@
 import QtQuick
 import "flea" as Flea
+import "flea/js/Columns.js" as Columns
 
 // Sidebar040: inspect the actual Header and Row items, including the lazy path split.
 Item {
@@ -7,12 +8,25 @@ Item {
     readonly property int paneWidth: 800
     readonly property int locationWidth: 150
     readonly property int belowFloor: 1
+    readonly property int hiddenLocationFloor: 375
+    readonly property int hiddenUsedFloor: 350
+    readonly property var premiseTokens: ({rowPaddingX: 14, gap: 9, iconSize: 23, nameMin: 156, size: 70, date: 125, location: root.locationWidth})
     readonly property real nameFloor: 2 * Flea.Theme.spacing.rowPaddingX + Flea.Theme.iconSize + Flea.Theme.spacing.gap + Flea.Theme.column.nameMin
     readonly property real locationFloor: root.nameFloor + Flea.Theme.column.size + Flea.Theme.column.date + root.locationWidth + 3 * Flea.Theme.spacing.gap
+    readonly property real dualNameFloor: 2 * Flea.Theme.spacing.rowPaddingX + Flea.Theme.markSize + Flea.Theme.spacing.gap + Flea.Theme.dualColumn.nameMin
+    readonly property real dualLocationFloor: root.dualNameFloor + Flea.Theme.dualColumn.size + Flea.Theme.dualColumn.date + root.locationWidth + Flea.Theme.spacing.gap
     readonly property var file: ({n: "Documents/a-very-long-parent-directory/another-long-parent-directory/notes.txt", p: 33188, d: false, s: 18000, m: 1758835200})
     readonly property var longFile: Object.assign({}, root.file, {n: "Documents/a-very-long-parent-directory/another-long-parent-directory/a-very-long-filename-that-must-use-the-whole-name-column-and-keep-its-extension.txt"})
 
-    Flea.Header { id: header; width: root.paneWidth; recent: true; hiddenCols: []; sortBy: "mtime"; sortDesc: true }
+    Flea.Header {
+        id: header
+        width: root.paneWidth
+        recent: true
+        hiddenCols: []
+        sortBy: "mtime"
+        sortDesc: true
+        pane: ({rows: [root.file], kindNames: []})
+    }
     Flea.Row { id: recent; width: header.contentWidth; row: root.file; recenting: true; hiddenCols: [] }
     Flea.Row { id: longRecent; width: recent.width; row: root.longFile; recenting: true; hiddenCols: [] }
     Flea.Header { id: floorHeader; width: root.locationFloor + Flea.Theme.spacing.rowPaddingX; recent: true; hiddenCols: [] }
@@ -23,6 +37,51 @@ Item {
     Flea.Row { id: plain; width: recent.width; row: root.file; hiddenCols: [] }
     Flea.Header { id: changingHeader; width: root.paneWidth; hiddenCols: [] }
     Flea.Row { id: changing; row: root.file; hiddenCols: []; assignedCols: Flea.Theme.columns(width, hiddenCols) }
+    Flea.Header {
+        id: dualHeader
+        width: floorHeader.width
+        dualMode: true
+        recent: true
+        hiddenCols: []
+    }
+    Flea.Row {
+        id: dualRow
+        width: dualHeader.contentWidth
+        row: root.file
+        dualMode: true
+        recenting: true
+        hiddenCols: []
+    }
+    Flea.Header {
+        id: dualFloorHeader
+        width: root.dualLocationFloor + Flea.Theme.spacing.rowPaddingX
+        dualMode: true
+        recent: true
+        hiddenCols: []
+    }
+    Flea.Row {
+        id: dualFloorRow
+        width: dualFloorHeader.contentWidth
+        row: root.file
+        dualMode: true
+        recenting: true
+        hiddenCols: []
+    }
+    Component {
+        id: mouseControl
+        Item {
+            MouseArea { anchors.fill: parent }
+        }
+    }
+
+    function inputHandlers(item, walk) {
+        var count = 0
+        walk(item, function (o) {
+            if (o instanceof PointerHandler || o instanceof MouseArea)
+                count += 1
+        })
+        return count
+    }
 
     // Count built Location texts independently of their value and visibility; look up drawn texts separately.
     function texts(row, walk) {
@@ -46,24 +105,56 @@ Item {
             changing.assignedCols = sets[i]
             changing.recenting = true
             check("Recent transition " + i + " keeps old Location boolean", changing.cols.location, false)
+            check("Recent transition " + i + " reports the old assignment", changing.columnSet(), Columns.names(sets[i]))
+            check("Recent transition " + i + " seam agrees with hidden Location", changing.columnSet().indexOf("location") >= 0, root.texts(changing, walk).location !== null)
             check("Recent transition " + i + " builds its location text", root.texts(changing, walk).locations, 1)
             changing.assignedCols = Flea.Theme.columns(changing.width, i % 2 ? hidden : [], undefined, true)
             check("Recent transition " + i + " rebuilds Location", changing.cols.location, true)
             check("Recent transition " + i + " draws Location", root.texts(changing, walk).location !== null, true)
+            check("Recent transition " + i + " reports the Recent assignment", changing.columnSet(), Columns.names(changing.assignedCols))
+            check("Recent transition " + i + " seam agrees with drawn Location", changing.columnSet().indexOf("location") >= 0, root.texts(changing, walk).location !== null)
             changing.recenting = false
         }
         changingHeader.recent = true
         check("Header transition draws Location", changingHeader.cols.location, true)
         changingHeader.hiddenCols = hidden
         check("Hidden metadata keeps Recent Location", changingHeader.cols.location, true)
+        changingHeader.dualMode = true
+        check("Dual Recent transition keeps Recent on", changingHeader.recent, true)
+        check("Dual Recent transition keeps Location", changingHeader.cell("location").visible, true)
+        check("Dual Recent transition reports its drawn Location", changingHeader.columnSet().indexOf("location") >= 0, changingHeader.cell("location").visible)
         changingHeader.recent = false
         check("Ordinary header has boolean Location", changingHeader.cols.location, false)
-        changingHeader.dualMode = true
         check("Dual header has boolean Location", changingHeader.cols.location, false)
+    }
+
+    function dualRecent(check, walk) {
+        var short = root.texts(dualRow, walk)
+        check("Dual Recent drops Location at the single-pane floor", dualHeader.cols.location, false)
+        check("Dual Recent header and row sets agree", dualRow.columnSet(), dualHeader.columnSet())
+        check("Dual Recent builds its name", short.name !== null, true)
+        if (short.name)
+            check("Dual Recent name stays above the dual floor", short.name.width >= Flea.Theme.dualColumn.nameMin, true)
+        var full = root.texts(dualFloorRow, walk)
+        check("Dual Recent draws Location at its exact floor", dualFloorHeader.columnSet(), "name,location,size,date")
+        check("Dual Recent exact-floor row matches its header", dualFloorRow.columnSet(), dualFloorHeader.columnSet())
+        check("Dual Recent builds both drawn path cells", full.name !== null && full.location !== null, true)
+        check("Dual Recent uses the dual Size width", dualFloorRow.cell("size").width, Flea.Theme.dualColumn.size)
+        check("Dual Recent Size header matches its row", dualFloorHeader.cell("size").width, dualFloorRow.cell("size").width)
+        if (full.name && full.location) {
+            var locationX = full.location.mapToItem(dualFloorRow, 0, 0).x
+            check("Dual Recent Location header aligns with its row", dualFloorHeader.cell("location").x, locationX)
+            check("Dual Recent keeps the zero Location-to-Size gap", locationX + full.location.width, dualFloorRow.cell("size").x)
+            check("Dual Recent location keeps the board width", full.location.width, root.locationWidth)
+            check("Dual Recent exact-floor name stays above the dual minimum", full.name.width >= Flea.Theme.dualColumn.nameMin, true)
+        }
     }
 
     function run(check, walk) {
         root.transitions(check, walk)
+        root.dualRecent(check, walk)
+        check("Hidden Size and Used release Location at 375px", Columns.recentSet(root.hiddenLocationFloor, root.premiseTokens, ["size", "date"]).location, true)
+        check("Hidden Size releases Used at 350px", Columns.recentSet(root.hiddenUsedFloor, root.premiseTokens, ["size"]).date, true)
         var r = root.texts(recent, walk)
         var l = root.texts(longRecent, walk)
         var s = root.texts(search, walk)
@@ -93,10 +184,21 @@ Item {
             check("Location header is left aligned", h.horizontalAlignment, Text.AlignLeft)
             check("Location header shares title ink", String(h.color), String(header.cell("name").color))
             check("Location header shares title weight", h.font.weight, header.cell("name").font.weight)
-            var handlers = 0
-            walk(h, function (o) { if (String(o).indexOf("QQuickTapHandler") === 0) handlers += 1 })
-            check("Location header has no click handler", handlers, 0)
+            check("Location header has no input handler", root.inputHandlers(h, walk), 0)
+            var control = mouseControl.createObject(h)
+            check("Synthetic MouseArea control was built", control !== null, true)
+            check("Synthetic MouseArea makes Location exclusion fail", root.inputHandlers(h, walk) === 0, false)
+            if (control)
+                control.destroy()
         }
+        var modeHandle = null
+        walk(header, function (o) {
+            if (o.columnKey === "mode")
+                modeHandle = o
+        })
+        check("Recent builds its Mode resize handle for inspection", modeHandle !== null, true)
+        if (modeHandle)
+            check("Recent Mode resize handle is hidden", modeHandle.visible, false)
         check("Used alone has the descending arrow", header.cell("date").text, "Used ▾")
         if (r.location && l.location) {
             check("Location never follows name length", l.location.mapToItem(longRecent, 0, 0).x, r.location.mapToItem(recent, 0, 0).x)
