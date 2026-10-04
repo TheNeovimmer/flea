@@ -75,19 +75,27 @@ control_report() {
 }
 control_all=$(control_report)
 check_report "$control_all" >/dev/null || { echo "FAIL the gate refused blocks at their limits"; exit 1; }
+# A control passes only when check_report refuses the report with the branch's own message.
+expect_refusal() {
+    local report=$1 reason=$2 said
+    if said=$(check_report "$report"); then
+        printf 'FAIL the gate accepted a report it must refuse for: %s\n' "$reason"
+        exit 1
+    fi
+    case $said in
+        *"$reason"*) ;;
+        *) printf 'FAIL the gate refused for another reason than "%s": %s\n' "$reason" "$said"; exit 1 ;;
+    esac
+}
 for kind in $kinds; do
     limit=$(limit_for "$kind")
     part=$(forbidden_for "$kind" | cut -d'|' -f1)
-    over=$(printf '%s\n' "$control_all" | sed "s/kind=$kind objects=$limit /kind=$kind objects=$((limit + 1)) /")
-    mixed=$(printf '%s\n' "$control_all" | sed "s/kind=$kind objects=$limit foreign=none/kind=$kind objects=$limit foreign=Text+$part/")
-    blank=$(printf '%s\n' "$control_all" | sed "s/kind=$kind objects=$limit /kind=$kind objects= /")
-    if check_report "$over" >/dev/null; then echo "FAIL the gate accepted a $kind block over its count"; exit 1; fi
-    if check_report "$mixed" >/dev/null; then echo "FAIL the gate accepted a $kind block holding $part"; exit 1; fi
-    if check_report "$blank" >/dev/null; then echo "FAIL the gate accepted a $kind block with no count"; exit 1; fi
-    nolist=$(printf '%s\n' "$control_all" | sed "s/kind=$kind objects=$limit foreign=none/kind=$kind objects=$limit foreign= /")
-    unknown=$(printf '%s\n' "$control_all" | sed "s/kind=$kind objects=$limit foreign=none/kind=$kind objects=$limit foreign=Loader/")
-    if check_report "$nolist" >/dev/null; then echo "FAIL the gate accepted a $kind block with no part list"; exit 1; fi
-    if check_report "$unknown" >/dev/null; then echo "FAIL the gate accepted a $kind block naming an unknown part"; exit 1; fi
+    at="kind=$kind objects=$limit foreign=none"
+    expect_refusal "$(printf '%s\n' "$control_all" | sed "s/$at/kind=$kind objects=$((limit + 1)) foreign=none/")" "objects, the limit is"
+    expect_refusal "$(printf '%s\n' "$control_all" | sed "s/$at/kind=$kind objects=$limit foreign=$part/")" "builds the parts of other kinds"
+    expect_refusal "$(printf '%s\n' "$control_all" | sed "s/$at/kind=$kind objects= foreign=none/")" "reported no object count"
+    expect_refusal "$(printf '%s\n' "$control_all" | sed "s/$at/kind=$kind objects=$limit foreign= /")" "reported no part list"
+    expect_refusal "$(printf '%s\n' "$control_all" | sed "s/$at/kind=$kind objects=$limit foreign=Loader/")" "a part the probe never names"
 done
 printf 'ok the gate refuses every kind over its count, with a foreign or unknown part, or with no count or part list\n'
 
