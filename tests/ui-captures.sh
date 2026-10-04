@@ -208,7 +208,7 @@ cap_seek_named() {
     local want="$1" n
     [[ "$(ipc viewMode)" == grid ]] || { seek_row_named "$want"; return; }
     n=$(ipc total)
-    [[ "$n" =~ ^[0-9]+$ ]] || fail "cap_rename: the grid reported no row total, got [$n]"
+    [[ "$n" =~ ^[0-9]+$ ]] || fail "cap_seek_named: the grid reported no row total, got [$n]"
     key g >/dev/null
     settle
     for _ in $(seq 0 "$n"); do
@@ -216,7 +216,7 @@ cap_seek_named() {
         key l >/dev/null
         settle
     done
-    fail "cap_rename: could not put the grid cursor on $want"
+    fail "cap_seek_named: could not put the grid cursor on $want"
 }
 
 # The cursor on a named row, F2, and a shot once the editor holds the caret; Escape closes it unless the caller goes on to type.
