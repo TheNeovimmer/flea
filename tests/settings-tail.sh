@@ -5,7 +5,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 if ! command -v qs >/dev/null; then
-    echo "settings-tail.sh: qs is not installed, cannot measure a menu"
+    echo "settings-tail.sh: qs is not installed, cannot measure the Settings pane"
     exit 1
 fi
 
@@ -57,7 +57,7 @@ fi
 platform_warning='This plugin does not support setting window masks'
 warnings=$(printf '%s\n' "$output" | grep -aE 'TypeError|ReferenceError|WARN|ERROR' | grep -vF "$platform_warning")
 if [ -n "$warnings" ]; then
-    printf 'FAIL the menu harness logged a warning\n'
+    printf 'FAIL the Settings harness logged a warning\n'
     printf '%s\n' "$warnings"
     verdict=1
 fi

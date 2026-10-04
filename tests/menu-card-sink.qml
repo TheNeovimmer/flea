@@ -88,6 +88,7 @@ ShellRoot {
             Flea.MenuRow { id: liveKeyRow; width: parent.width; entry: ({ label: "Copy", glyph: "copy", action: "copy", hint: "y" }) }
             Flea.MenuRow { id: dangerKeyRow; width: parent.width; entry: ({ label: "Move to Trash", glyph: "trash", action: "trash", danger: true, hint: "d" }) }
             Flea.MenuRow { id: litKeyRow; width: parent.width; current: true; entry: ({ label: "Open", glyph: "folder-open", action: "open", hint: "enter" }) }
+            Flea.MenuRow { id: squareKeyRow; width: parent.width; entry: ({ label: "Update Flea", glyph: "download", action: "updateFlea", hint: "0.3.8", hintSquare: true }) }
             Flea.MenuRow { id: reasonRow; width: parent.width; entry: ({ label: "Extract", glyph: "archive-out", action: "extract", disabled: true, hint: "bsdtar is not installed", hintWrap: true }) }
         }
         Flea.Glyph { id: invertGlyph; width: 19; height: 19; name: "contrast"; color: "#ff0000" }
@@ -266,7 +267,11 @@ ShellRoot {
         shell.check("hint:danger-key-hint-is-muted", String(dangerHint.color), String(Flea.Theme.color.muted))
         var litLabel = shell.textDrawn(litKeyRow, "Open"), litHint = shell.textDrawn(litKeyRow, "enter")
         shell.check("hint:lit-row-is-lit", litKeyRow.current, true)
+        shell.check("hint:lit-label-is-not-muted-so-the-test-can-tell", String(litLabel.color) !== String(Flea.Theme.color.muted), true)
         shell.check("hint:lit-key-hint-is-muted", String(litHint.color), String(Flea.Theme.color.muted))
+        var squareLabel = shell.textDrawn(squareKeyRow, "Update Flea"), squareHint = shell.textDrawn(squareKeyRow, "0.3.8")
+        shell.check("hint:update-label-is-foreground-so-the-test-can-tell", String(squareLabel.color), String(Flea.Theme.color.foreground))
+        shell.check("hint:update-version-keeps-the-row-ink", String(squareHint.color), String(squareLabel.color))
         shell.check("hint:key-hint-is-caption-size", liveHint.font.pixelSize, Flea.Theme.font.caption)
         shell.check("hint:live-key-hint-is-full-opacity", liveHint.opacity, 1)
         var reason = shell.textDrawn(reasonRow, "bsdtar is not installed")

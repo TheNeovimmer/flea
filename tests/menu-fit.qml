@@ -32,6 +32,8 @@ ShellRoot {
     readonly property int roundingSlack: 1
     // The pointer's distance from the window corner for the edge scenes.
     readonly property int edgeMargin: 2
+    // Where a scene that is not at the window edge opens its menu.
+    readonly property point openPoint: Qt.point(100, 40)
 
     function log(line) { console.log("MENUFIT " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
@@ -115,7 +117,7 @@ ShellRoot {
         // A flyout taller than its frame, so it scrolls.
         if (s.edges === "flyout")
             for (var n = 0; n < shell.overflowApps; n++) menu.openWithApps.push({ id: "x" + n, label: "Application " + n })
-        var at = s.edge ? Qt.point(shell.windowWidth - shell.edgeMargin, shell.windowHeight - shell.edgeMargin) : Qt.point(100, 40)
+        var at = s.edge ? Qt.point(shell.windowWidth - shell.edgeMargin, shell.windowHeight - shell.edgeMargin) : shell.openPoint
         if (s.kind === "file") menu.openAt(at)
         else menu.openBackground(at)
         if (s.flyout) {
@@ -215,16 +217,17 @@ ShellRoot {
             var mid = row.height / 2
             // Flush under the top padding: the separator's centre sits pad plus half its height below the frame's edge.
             var topY = row.y
-            if (topY >= 0 && topY <= maxY) {
+            // Only a scrolled card cuts its top and only an unfinished one its bottom, so each fade must be shown where it is read.
+            if (topY > 0 && topY <= maxY) {
                 card.contentY = topY
                 separators++
-                if (shell.fadeAlpha(fades.top, pad + mid) < shell.minSeparatorAlpha) faint.push("top " + i)
+                if (!fades.top.visible || shell.fadeAlpha(fades.top, pad + mid) < shell.minSeparatorAlpha) faint.push("top " + i)
             }
             var bottomY = row.y + row.height - card.height
-            if (bottomY >= 0 && bottomY <= maxY) {
+            if (bottomY >= 0 && bottomY < maxY) {
                 card.contentY = bottomY
                 separators++
-                if (shell.fadeAlpha(fades.bottom, pad + mid) < shell.minSeparatorAlpha) faint.push("bottom " + i)
+                if (!fades.bottom.visible || shell.fadeAlpha(fades.bottom, pad + mid) < shell.minSeparatorAlpha) faint.push("bottom " + i)
             }
         }
         shell.check(tag + ": a separator beside an edge is drawn under a fade at least half opaque", faint, [])

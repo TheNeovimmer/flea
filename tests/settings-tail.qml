@@ -94,7 +94,7 @@ ShellRoot {
 
     function checkTail(pane, fade, tag) {
         var below = pane.contentHeight - pane.contentY - pane.height
-        shell.check(tag + ": the pane is revealed to its end", below <= shell.endTolerance, true)
+        shell.check(tag + ": the pane is revealed to its end, not past it", Math.abs(below) <= shell.endTolerance, true)
         shell.check(tag + ": no lower-edge fade lies over it", fade.visible, false)
         shell.check(tag + ": the cursor row is inside the pane", shell.cursorInside(pane), true)
     }
