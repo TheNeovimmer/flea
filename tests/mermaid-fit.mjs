@@ -1,7 +1,8 @@
 // No Mermaid label overflows: each label, measured as characters times the font's advance times its size, fits its shape and its lifelines.
-import { ADVANCES, ARROW_LABEL_PAD, bounds, extent, groups, labelWidth, layered, load, num, others, sequences, text, texts, view } from "./mermaid-corpus.mjs";
+import { ARROW_LABEL_PAD, FACES, bounds, extent, groups, labelWidth, layered, lifelines, load, notes, num, others, sequences, text, texts, view } from "./mermaid-corpus.mjs";
+import { argv, finish } from "./js-runtime.mjs";
 
-const render = await load(process.argv[2]);
+const render = await load(argv[0]);
 let checks = 0;
 let failures = 0;
 function check(ok, why) {
@@ -25,13 +26,13 @@ const SELF_LABEL_GAP = 8;
 
 function width(rect) { return rect[2] - rect[0]; }
 
-for (const advance of ADVANCES) {
-    const tag = ` at ${advance} em`;
-    for (const [name, source] of [...layered, ...sequences, ...others]) {
-        const svg = render(source, advance);
+for (const face of FACES) {
+    const tag = ` on ${face.name}`;
+    for (const [name, source] of [...layered, ...sequences, notes, ...others]) {
+        const svg = render(source, face);
         const canvas = view(svg);
         for (const t of texts(svg)) {
-            const [left, right] = extent(t, advance);
+            const [left, right] = extent(t, face);
             check(left >= canvas[0] - EPSILON && right <= canvas[0] + canvas[2] + EPSILON, `${name}${tag}: "${t.string}" stays inside the canvas, ${left.toFixed(1)} to ${right.toFixed(1)} of ${canvas[0]} to ${canvas[0] + canvas[2]}`);
         }
         // A box or a pill is drawn whole: the canvas holds every rect, less its stroke.
@@ -43,37 +44,38 @@ for (const advance of ADVANCES) {
         for (const node of groups(svg, "node")) {
             const rect = bounds(node.body);
             for (const t of texts(node.body))
-                check(labelWidth(t.string, t.size, advance) + 2 * NODE_PAD <= width(rect) + EPSILON, `${name}${tag}: node "${t.string}" fits its shape ${width(rect).toFixed(1)} wide`);
+                check(labelWidth(t.string, t.size, face, t.bold) + 2 * NODE_PAD <= width(rect) + EPSILON, `${name}${tag}: node "${t.string}" fits its shape ${width(rect).toFixed(1)} wide`);
         }
         for (const label of groups(svg, "edge-label")) {
             const rect = bounds(label.body);
             for (const t of texts(label.body))
-                check(labelWidth(t.string, t.size, advance) + 2 * ARROW_LABEL_PAD <= width(rect) + EPSILON, `${name}${tag}: edge label "${t.string}" fits its pill ${width(rect).toFixed(1)} wide`);
+                check(labelWidth(t.string, t.size, face, t.bold) + 2 * ARROW_LABEL_PAD <= width(rect) + EPSILON, `${name}${tag}: edge label "${t.string}" fits its pill ${width(rect).toFixed(1)} wide`);
         }
         for (const group of groups(svg, "subgraph")) {
             const rect = bounds(group.body);
             for (const t of texts(group.body))
-                check(extent(t, advance)[1] <= rect[2] + EPSILON, `${name}${tag}: subgraph title "${t.string}" fits its frame`);
+                check(extent(t, face)[1] <= rect[2] + EPSILON, `${name}${tag}: subgraph title "${t.string}" fits its frame`);
         }
         for (const actor of groups(svg, "actor")) {
             const rect = bounds(actor.body);
             for (const t of texts(actor.body))
-                check(labelWidth(t.string, t.size, advance) + 2 * ACTOR_PAD <= width(rect) + EPSILON, `${name}${tag}: participant "${t.string}" fits its box ${width(rect)} wide`);
+                check(labelWidth(t.string, t.size, face, t.bold) + 2 * ACTOR_PAD <= width(rect) + EPSILON, `${name}${tag}: participant "${t.string}" fits its box ${width(rect)} wide`);
         }
         for (const note of groups(svg, "note")) {
             const rect = bounds(note.body);
             for (const t of texts(note.body))
-                check(labelWidth(t.string, t.size, advance) + 2 * NOTE_PAD <= width(rect) + EPSILON, `${name}${tag}: note "${t.string}" fits its box ${width(rect)} wide`);
+                check(labelWidth(t.string, t.size, face, t.bold) + 2 * NOTE_PAD <= width(rect) + EPSILON, `${name}${tag}: note "${t.string}" fits its box ${width(rect)} wide`);
         }
-        const lifelines = [...svg.matchAll(/<line class="lifeline"([^>]*)>/g)].map((m) => num(m[1], "x1")).sort((a, b) => a - b);
+        const lifelineXs = lifelines(svg).map((l) => l.x).sort((a, b) => a - b);
         for (const m of groups(svg, "message")) {
             const label = texts(m.body)[0];
             if (!label)
                 continue;
-            const w = labelWidth(label.string, label.size, advance);
+            const w = labelWidth(label.string, label.size, face, label.bold);
             if (text(m.attrs, "data-self") === "true") {
-                const loopX = lifelines.find((x) => Math.abs(x - num(m.body.match(/<path\b[^>]*>/)[0].replace(/ d="M([\d.]+) .*"/, ' x="$1"'), "x")) < EPSILON);
-                const next = lifelines.find((x) => x > loopX + EPSILON);
+                // Sample input: <path d="M140 120 L170 120 L170 140 L140 140" fill="none"/> is a loop leaving the lifeline at x 140.
+                const loopX = lifelineXs.find((x) => Math.abs(x - num(m.body.match(/<path\b[^>]*>/)[0].replace(/ d="M([\d.]+) .*"/, ' x="$1"'), "x")) < EPSILON);
+                const next = lifelineXs.find((x) => x > loopX + EPSILON);
                 check(label.x === loopX + SELF_LOOP_WIDTH + SELF_LABEL_GAP, `${name}${tag}: self message "${label.string}" starts beside its loop`);
                 check(next === undefined || label.x + w + ARROW_LABEL_PAD <= next + EPSILON, `${name}${tag}: self message "${label.string}" ends before the next lifeline ${next}`);
                 continue;
@@ -88,7 +90,7 @@ for (const advance of ADVANCES) {
                 const rect = bounds(box.body);
                 const rows = new Map();
                 for (const t of texts(box.body)) {
-                    const [left, right] = extent(t, advance);
+                    const [left, right] = extent(t, face);
                     check(left >= rect[0] - EPSILON && right <= rect[2] + EPSILON, `${name}${tag}: ${kind} "${t.string}" stays inside its box ${rect[0].toFixed(1)} to ${rect[2].toFixed(1)}`);
                     rows.set(t.y, [...(rows.get(t.y) ?? []), [left, right, t.string]]);
                 }
@@ -102,4 +104,4 @@ for (const advance of ADVANCES) {
     }
 }
 console.log(`mermaid-fit: ${checks} check(s), ${failures} failed`);
-process.exitCode = failures > 0 ? 1 : 0;
+finish(failures);

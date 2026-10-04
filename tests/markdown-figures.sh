@@ -144,6 +144,24 @@ if not fails:
 print("DONE failures=%d" % len(fails))
 sys.exit(1 if fails else 0)
 EOF
+
+# The figure tests run under quickjs-ng, the product's engine and the only one the CI image has; node runs them again where it exists.
+js_runners=("$qjs")
+command -v node >/dev/null && js_runners+=(node)
+for runner in "${js_runners[@]}"; do
+    for figure_test in figure-cache figure-worker mermaid-syntax mermaid-layout mermaid-fit; do
+        echo "markdown-figures.sh: $figure_test under $(basename "$runner")"
+        "$runner" "tests/$figure_test.mjs" || exit 1
+    done
+    # A checkout path with a space must not break module resolution, so one test runs from a scratch copy at such a path.
+    spaced="$test_root/a tree"
+    mkdir -p "$spaced/ui/js" "$spaced/ui/vendor" "$spaced/tests" || exit 1
+    cp ui/js/FigureWorker.mjs "$spaced/ui/js/" && cp ui/vendor/mermaid.mjs "$spaced/ui/vendor/" || exit 1
+    cp tests/js-runtime.mjs tests/mermaid-corpus.mjs tests/mermaid-layout.mjs "$spaced/tests/" || exit 1
+    echo "markdown-figures.sh: mermaid-layout from a path with a space under $(basename "$runner")"
+    "$runner" "$spaced/tests/mermaid-layout.mjs" || exit 1
+done
+
 if ! FLEA_QJS="$qjs" python3 "$test_root/drive.py" "${engine[@]}" "$test_root"; then
     echo "markdown-figures.sh: the helper run failed"
     exit 1
@@ -189,10 +207,6 @@ echo "PASS $sandbox_expected (exit 127)"
 
 # Byte identity against node, the engine the bundles were built for. Loud skip when absent.
 if command -v node >/dev/null; then
-node tests/figure-cache.mjs || exit 1
-node tests/figure-worker.mjs || exit 1
-node tests/mermaid-layout.mjs || exit 1
-node tests/mermaid-fit.mjs || exit 1
 # Build identity imports as file URLs so checkout punctuation cannot affect substitution or module resolution.
 identity_root=$(python3 -c 'import pathlib
 import sys

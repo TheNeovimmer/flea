@@ -1,10 +1,36 @@
 // The Mermaid test corpus, and the readers the layout and fit checks share: one render through the real figure path, SVG parts as numbers.
-import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { absolute, importFile, prepareEngine, repoRoot, resolve } from "./js-runtime.mjs";
 
 export const ARROW_LABEL_PAD = 8;
-// Em advances the fit checks run at: JetBrains Mono, and a narrower monospace face.
-export const ADVANCES = [0.6, 0.5];
+// A face is a per-character advance table for printable ASCII, 32 to 126, in thousandths of an em, regular and bold.
+const TABLE_FIRST = 32;
+const TABLE_LENGTH = 95;
+const THOUSAND = 1000;
+function flat(em) {
+    return Array(TABLE_LENGTH).fill(Math.round(em * THOUSAND));
+}
+// A proportional face: narrow strokes, narrow punctuation, wide capitals and the widest letters, so a mean over the table fits none of them.
+const NARROW_GLYPHS = "il.,:;'|!`jI";
+const SLIM_GLYPHS = "frt()[]{} -\"/\\";
+const WIDEST_GLYPHS = "mwMW@%";
+const GLYPH_EM = { narrow: 0.25, slim: 0.36, widest: 0.92, capital: 0.68, digit: 0.62, other: 0.56 };
+const BOLD_WIDENING = 1.1;
+function proportional() {
+    return Array.from({ length: TABLE_LENGTH }, (unused, i) => {
+        const ch = String.fromCharCode(TABLE_FIRST + i);
+        const em = NARROW_GLYPHS.includes(ch) ? GLYPH_EM.narrow : SLIM_GLYPHS.includes(ch) ? GLYPH_EM.slim : WIDEST_GLYPHS.includes(ch) ? GLYPH_EM.widest
+            : /[A-Z]/.test(ch) ? GLYPH_EM.capital : /[0-9]/.test(ch) ? GLYPH_EM.digit : GLYPH_EM.other;
+        return Math.round(em * THOUSAND);
+    });
+}
+// The faces the fit checks run at: JetBrains Mono, a narrower monospace, a monospace whose bold is wider, and a proportional face.
+const regularProportional = proportional();
+export const FACES = [
+    { name: "mono 0.6", regular: flat(0.6), bold: flat(0.6) },
+    { name: "mono 0.5", regular: flat(0.5), bold: flat(0.5) },
+    { name: "mono 0.6 bold 0.7", regular: flat(0.6), bold: flat(0.7) },
+    { name: "proportional", regular: regularProportional, bold: regularProportional.map((v) => Math.round(v * BOLD_WIDENING)) }
+];
 const theme = { bg: "#101315", fg: "#c0caf5", accent: "#7aa2f7", font: "monospace", bodyPx: 13 };
 
 // Graphs whose edges the layering check reads back; fixture 10 is first, then mermaid's own docs examples, cycles, and the state, class and ER layouts.
@@ -19,6 +45,8 @@ export const layered = [
     ["bottom to top triangle", "flowchart BT\nX --> Y\nY --> Z\nZ --> X\nY --> W"],
     ["two loops one entry", "flowchart RL\nIn --> P\nP --> Q\nQ --> P\nQ --> R\nR --> S\nS --> Q\nS --> Out"],
     ["plain dag", "flowchart TD\nA --> B\nA --> C\nB --> D\nC --> D"],
+    ["docs link length", "flowchart TD\nA[Start] --> B{Is it?}\nB -->|Yes| C[OK]\nC --> D[Rethink]\nD --> B\nB ----->|No| E[End]"],
+    ["wide and narrow glyphs", "flowchart LR\nA[WWW MMM WWW] --> B[illi lilii lil]\nB --> C[你好 世界]\nC --> A"],
     ["state loop", "stateDiagram-v2\nStart --> Check\nCheck --> Ship\nCheck --> Debug\nDebug --> Check\nShip --> End"],
     ["state late source", "stateDiagram-v2\nB --> C\nC --> D\nD --> B\nA --> C"],
     ["class loop", "classDiagram\nA --> B\nB --> C\nB --> D\nD --> B\nC --> E"],
@@ -27,26 +55,34 @@ export const layered = [
     ["er late source", "erDiagram\nB ||--o{ C : a\nC ||--o{ D : b\nD ||--o{ B : c\nA ||--o{ C : d"]
 ];
 
+// Notes in every form, over two and three lifelines, beside the first and the last, and over one.
+export const notes = ["notes in every form",
+    "sequenceDiagram\nparticipant A as Alice\nparticipant B as Bob\nparticipant C as Carol\nA->>C: hello\nNote over A,C: spans all three\nNote over A,B: spans two\nNote left of A: left of Alice\nNote right of C: right of Carol\nNote over B: only Bob\nNote right of A: right of Alice\nNote over B,C: a long note over two lifelines that needs them far apart"];
+
 export const sequences = [
     ["fixture 11", "sequenceDiagram\nparticipant A as Alice\nparticipant B as Bob\nA->>B: Hello Bob, how are you?\nB-->>A: Fine, thanks\nA->>B: See you later"],
     ["long message and a note", "sequenceDiagram\nparticipant A as Alice\nparticipant B as Bob\nA->>B: A very long message that needs the lifelines far apart\nNote over A,B: A note over both lifelines\nB-->>A: ok"],
+    ["wide and narrow glyphs", "sequenceDiagram\nparticipant W as WWW MMM\nparticipant I as illi lilii\nW->>I: WMWMW MWMWM WMWM\nI-->>W: iiiiillll lllii\nNote over W,I: WMWM MWMW iiii llll"],
     ["three participants and a self message", "sequenceDiagram\nparticipant U as User\nparticipant S as Server\nparticipant D as Database\nU->>S: request the report\nS->>S: validate the session token\nS->>D: select rows\nD-->>U: rows straight back to the user"]
 ];
 
 // Other kinds join the fit check only; the layering reference is flowchart syntax.
 export const others = [
     ["state", "stateDiagram-v2\n[*] --> Still\nStill --> Moving: go and keep going\nMoving --> Still\nMoving --> Crash\nCrash --> [*]"],
+    ["bold headers", "classDiagram\nclass AVeryLongClassNameWiderThanTheMinimumBox {\n+id\n}\nAVeryLongClassNameWiderThanTheMinimumBox --> B"],
+    ["bold entity header", "erDiagram\nA_VERY_LONG_ENTITY_NAME_FOR_THE_HEADER ||--o{ B : has\nA_VERY_LONG_ENTITY_NAME_FOR_THE_HEADER {\nint id PK\n}"],
+    ["bold subgraph title", "flowchart TD\nsubgraph t [A subgraph title much wider than its one small node]\nx\nend"],
     ["class", "classDiagram\nclass Animal {\n+String name\n+makeSound() void\n}\nclass Duck {\n+swim() void\n}\nAnimal <|-- Duck : extends"],
     ["er", "erDiagram\nCUSTOMER ||--o{ ORDER : places\nCUSTOMER {\nstring name PK\nstring email\n}\nORDER {\nint number PK\n}"]
 ];
 
 // Load the renderer pair of one tree, so the same checks run on a scratch copy of an older commit.
 export async function load(root) {
-    globalThis.global = globalThis;
-    const base = resolve(root || new URL("..", import.meta.url).pathname);
-    const worker = await import(pathToFileURL(resolve(base, "ui/js/FigureWorker.mjs")));
-    const api = await import(pathToFileURL(resolve(base, "ui/vendor/mermaid.mjs")));
-    return (source, advance) => worker.renderFigure("mermaid", source, false, { ...theme, advance, boldAdvance: advance }, api);
+    prepareEngine();
+    const base = root ? absolute(root) : repoRoot(import.meta.url);
+    const worker = await importFile(resolve(base, "ui/js/FigureWorker.mjs"));
+    const api = await importFile(resolve(base, "ui/vendor/mermaid.mjs"));
+    return (source, face) => worker.renderFigure("mermaid", source, false, { ...theme, advances: face.regular, boldAdvances: face.bold }, api);
 }
 
 // Sample input: &lt;b&gt; reads <b>.
@@ -58,6 +94,7 @@ export function num(tag, name) {
     const found = tag.match(new RegExp("\\s" + name + '="([^"]*)"'));
     return found ? Number(found[1]) : NaN;
 }
+// Sample input: <g data-label="a &amp; b"> answers "a & b" for "data-label", or an empty string.
 export function text(tag, name) {
     const found = tag.match(new RegExp("\\s" + name + '="([^"]*)"'));
     return found ? decode(found[1]) : "";
@@ -68,20 +105,32 @@ export function groups(svg, cls) {
     svg.replace(new RegExp('<g class="' + cls + '"([^>]*)>([\\s\\S]*?)\\n</g>', "g"), (all, attrs, body) => found.push({ attrs, body }));
     return found;
 }
-// The text elements of a body with their anchor, font size and plain content.
+// The text elements of a body with their anchor, font size, weight and plain content.
+// Sample input: <text x="10" y="20" text-anchor="middle" font-size="13" font-weight="700">Animal</text> reads anchor middle, size 13, bold.
 export function texts(body) {
     const found = [];
     body.replace(/<text\b([^>]*)>([\s\S]*?)<\/text>/g, (all, attrs, content) => {
-        found.push({ x: num(attrs, "x"), y: num(attrs, "y"), size: num(attrs, "font-size"), anchor: text(attrs, "text-anchor") || "start",
-            string: decode(content.replace(/<[^>]*>/g, "")) });
+        found.push({ x: num(attrs, "x"), y: num(attrs, "y"), size: num(attrs, "font-size"), bold: num(attrs, "font-weight") >= BOLD_WEIGHT,
+            anchor: text(attrs, "text-anchor") || "start", string: decode(content.replace(/<[^>]*>/g, "")) });
     });
     return found;
 }
-// Sample input: a 5 character label at 0.6 em and 13 px reaches 39, the library's measure with no padding.
-export function labelWidth(string, size, advance) {
-    return Array.from(string).length * advance * size;
+// The weight from which the library measures with the bold table.
+const BOLD_WEIGHT = 600;
+// Sample input: "WM" at 10 px on a face whose W and M are 0.92 em reaches 18.4; a character past ASCII counts the table's mean, a CJK one twice that.
+export function labelWidth(string, size, face, bold) {
+    const table = bold ? face.bold : face.regular;
+    const mean = table.reduce((sum, v) => sum + v, 0) / table.length;
+    const CJK_FIRST = 0x2e80;
+    let total = 0;
+    for (const ch of string) {
+        const code = ch.codePointAt(0);
+        total += code >= TABLE_FIRST && code < TABLE_FIRST + TABLE_LENGTH ? table[code - TABLE_FIRST] : code >= CJK_FIRST ? 2 * mean : mean;
+    }
+    return total / THOUSAND * size;
 }
 // The bounding box [left, top, right, bottom] of the first shape in a body, or null.
+// Sample input: <rect x="3" y="4" width="40" height="20"/> reads [3, 4, 43, 24]; a polygon reads its points' extremes, a circle its radius.
 export function bounds(body) {
     const rect = body.match(/<rect\b[^>]*>/);
     if (rect) {
@@ -101,11 +150,27 @@ export function bounds(body) {
     return [circles[0][0] - r, circles[0][1] - r, circles[0][0] + r, circles[0][1] + r];
 }
 // A text's [left, right] by anchor and measured width.
-export function extent(t, advance) {
-    const w = labelWidth(t.string, t.size, advance);
+export function extent(t, face) {
+    const w = labelWidth(t.string, t.size, face, t.bold);
     return t.anchor === "middle" ? [t.x - w / 2, t.x + w / 2] : t.anchor === "end" ? [t.x - w, t.x] : [t.x, t.x + w];
 }
+// The drawn edges of a flowchart-like diagram with their points; the library writes a polyline, and the figure path turns an arrowed one into a path.
+// Sample input: <path class="edge" data-from="A" data-to="B" d="M187 81.9 L187 105.9" /> or <polyline class="edge" data-from="A" data-to="B" points="187,81.9 187,105.9" /> reads A to B through [[187, 81.9], [187, 105.9]].
+export function edgePaths(svg, cls = "edge", ends = ["data-from", "data-to"]) {
+    return [...svg.matchAll(new RegExp('<(?:path|polyline) class="' + cls + '"([^>]*)>', "g"))].map((m) => {
+        const d = m[1].match(/\sd="([^"]*)"/);
+        const raw = d ? d[1].replace(/[ML]/g, " ") : m[1].match(/\spoints="([^"]*)"/)[1].replace(/,/g, " ");
+        const n = raw.trim().split(/\s+/).map(Number);
+        return { from: text(m[1], ends[0]), to: text(m[1], ends[1]), points: n.filter((v, i) => i % 2 === 0).map((x, i) => [x, n[2 * i + 1]]) };
+    });
+}
+// The lifelines of a sequence diagram.
+// Sample input: <line class="lifeline" data-actor="A" x1="140" y1="70" x2="140" y2="199" stroke="#c0caf5" /> reads [{ id: "A", x: 140, end: 199 }].
+export function lifelines(svg) {
+    return [...svg.matchAll(/<line class="lifeline"([^>]*)>/g)].map((m) => ({ id: text(m[1], "data-actor"), x: num(m[1], "x1"), end: num(m[1], "y2") }));
+}
 // The viewBox [x, y, width, height] of a figure.
+// Sample input: <svg width="300" height="200" viewBox="0 0 300 200"> reads [0, 0, 300, 200].
 export function view(svg) {
     return svg.match(/<svg\b[^>]*>/)[0].match(/viewBox="([^"]*)"/)[1].split(/\s+/).map(Number);
 }

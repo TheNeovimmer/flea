@@ -37,21 +37,27 @@ Item {
         id: diagram
         kind: "mermaid"
         source: "A --> B"
-        fontFamily: "monospace"
+        fontFamily: "sans-serif"
         bodyPx: 14
         askArmed: false
         width: 300
     }
-    // The advance of a monospace face by an independent ruler: ten digits, each one cell.
-    readonly property int rulerCells: 10
+    // The advance of one character by an independent ruler, regular or bold, in thousandths of an em.
+    readonly property int tableFirst: 32
+    readonly property int tableLength: 95
+    readonly property int thousand: 1000
     TextMetrics {
         id: ruler
         font.family: diagram.fontFamily
         font.pixelSize: diagram.bodyPx
-        text: "0000000000"
     }
-    // A measured advance matches the ruler's to a hundredth of an em, so the helper sizes labels for the font that is drawn.
-    readonly property real advanceTolerance: 0.01
+    function rulerAdvance(code, bold) {
+        ruler.font.bold = bold;
+        ruler.text = String.fromCharCode(code);
+        return ruler.advanceWidth / diagram.bodyPx * probe.thousand;
+    }
+    // A measured advance matches the ruler's to a thousandth of an em plus the table's own rounding.
+    readonly property real advanceTolerance: 1
     // Each stage verifies after the figure's next ask run, or at once when it queued none, so no stage times a wait.
     property int stage: 0
     readonly property var stages: [probe.created, probe.verify, probe.verifyDrop, probe.verifyHeld,
@@ -125,7 +131,7 @@ Item {
     function verifySent() {
         probe.check(FigureService.requests.length === 1 && FigureService.requests[0].bg === "#555555",
             "a change on a created figure requests=" + FigureService.requests.length + ", want 1 carrying #555555");
-        probe.check(FigureService.requests[0].advance === 0 && FigureService.requests[0].boldAdvance === 0, "a formula request carries no advance");
+        probe.check((FigureService.requests[0].advances || []).length === 0 && (FigureService.requests[0].boldAdvances || []).length === 0, "a formula request carries no advance table");
         FigureService.done(figure.ticket, "", "inline render failed");
         var gap = Theme.spacing.gap;
         var want = measure.implicitWidth + probe.fenceSides * gap;
@@ -136,13 +142,40 @@ Item {
         diagram.askArmed = true;
         probe.wait(true);
     }
+    // The table's worst distance from the ruler, and how many of its entries differ from the other weight's table.
+    function worstGap(table, bold) {
+        var worst = 0;
+        for (var i = 0; i < probe.tableLength; i++)
+            worst = Math.max(worst, Math.abs(table[i] - probe.rulerAdvance(probe.tableFirst + i, bold)));
+        return worst;
+    }
+    function differing(a, b) {
+        var count = 0;
+        for (var i = 0; i < probe.tableLength; i++)
+            count += a[i] !== b[i] ? 1 : 0;
+        return count;
+    }
     function verifyAdvance() {
         var theme = FigureService.requests.length === 1 ? FigureService.requests[0] : {};
-        var cell = ruler.advanceWidth / (probe.rulerCells * diagram.bodyPx);
-        probe.check(theme.advance > 0 && Math.abs(theme.advance - cell) < probe.advanceTolerance,
-            "a diagram request carries the font's advance " + theme.advance + ", want " + cell);
-        probe.check(theme.boldAdvance > 0 && Math.abs(theme.boldAdvance - cell) < probe.advanceTolerance,
-            "a diagram request carries the bold advance " + theme.boldAdvance + ", want " + cell);
+        var regular = theme.advances || [];
+        var bold = theme.boldAdvances || [];
+        probe.check(regular.length === probe.tableLength && bold.length === probe.tableLength,
+            "a diagram request carries a table of " + probe.tableLength + " advances, regular " + regular.length + " and bold " + bold.length);
+        if (regular.length !== probe.tableLength || bold.length !== probe.tableLength) {
+            probe.finish();
+            return;
+        }
+        var regularGap = probe.worstGap(regular, false);
+        var boldGap = probe.worstGap(bold, true);
+        probe.check(regularGap < probe.advanceTolerance, "every regular advance is the ruler's, worst gap " + regularGap + " thousandths");
+        probe.check(boldGap < probe.advanceTolerance, "every bold advance is the bold ruler's, worst gap " + boldGap + " thousandths");
+        // The face must be one whose bold advances differ from its regular ones, or the bold gap above could not tell the two tables apart.
+        var rulerBold = regular.map(function (v, i) { return Math.round(probe.rulerAdvance(probe.tableFirst + i, true)); });
+        var differs = probe.differing(regular, rulerBold);
+        probe.check(differs > 0, "the face's bold advances differ from its regular ones in " + differs + " of " + probe.tableLength + " entries");
+        probe.finish();
+    }
+    function finish() {
         console.log("figure-component: " + probe.checks + " check(s), " + probe.failures + " failed");
         Qt.quit();
     }
