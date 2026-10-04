@@ -78,8 +78,7 @@ function checkHeadingInk(shell, tag, card, inkUnderLineTop, stop) {
     shell.same(tag + " heading ink starts on the board's row " + BOARD_HEAD_INK_TOP, Math.round(top) - PROBE_ROW_BIAS, BOARD_HEAD_INK_TOP)
 }
 
-// ButtonSystem040 A: the Octal field is DialogField's height at every text size, centred in its row, where the row's pitch is the card's own.
-// The field is read off a live DialogField (its one bordered child), so a change to that field's height moves this pin with it.
+// ButtonSystem040 A: the Octal field is a live DialogField's height at every text size, centred in its row at the card's pitch.
 function checkOctalHeight(shell, tag, card, dialogField) {
     var frame = card.octalFrame
     var box = dialogField.children.find(function (child) { return child.border !== undefined })
