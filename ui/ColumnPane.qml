@@ -269,10 +269,10 @@ Item {
             // Read off the normalised row above: subscripting rows again hands a shrunk listing's undefined to a bool.
             lifted: root.liftedName.length > 0 && row !== null && row.n === root.liftedName
             dim: root.dim && !lifted
-            // The column's own budget, so no row measures its own text to elide it.
             // The renaming row is always the cursor row; it hides its own name under the editor, as ui/Row.qml does.
             renaming: cell.cursor && root.renaming
             errorGrowth: cell.cursor && root.renameErrorHeight > 0 ? Math.max(root.renameErrorHeight, renameLoader.y + renameLoader.height - root.renameTop - Theme.fileRowHeight) : 0
+            // The column's own budget, so no row measures its own text to elide it.
             nameBudget: cell.showChevron ? root.nameBudgetChevron : root.nameBudgetPlain
 
             TapHandler {
