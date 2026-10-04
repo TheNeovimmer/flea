@@ -252,8 +252,11 @@ function run(check) {
         check("R2 container fence ends " + f, Blocks.collectReferences(endedFences[f]).defs.img, "pic.png")
     check("R2 lookahead fence never a destination", JSON.stringify(Blocks.collectReferences(
         "[foo]:\n```\n[a]: b\n```").defs), "{}")
-    check("R2 lookahead code never a destination", JSON.stringify(Blocks.collectReferences(
-        "[foo]:\n    pic.png").defs), "{}")
+    // CommonMark 0.31.2 example 193: an indented line straight after "[foo]:" continues that paragraph, so it is the destination.
+    check("R2 lookahead indented line is the destination", JSON.stringify(Blocks.collectReferences(
+        "[foo]:\n    pic.png").defs), "{\"foo\":\"pic.png\"}")
+    check("R2 lookahead code after a blank line is not a destination", JSON.stringify(Blocks.collectReferences(
+        "[foo]:\n\n    pic.png").defs), "{}")
     check("F16 prose not consumed", Blocks.collectReferences("[foo]:\nHello world").dropped.length, 0)
     check("F16 title accepted", Blocks.collectReferences('[foo]:\nbar "title"').defs.foo, 'bar')
     check("F17 four spaces", Blocks.collectReferences("[^1]: a\n    more").notes['1'].text, 'a\nmore')

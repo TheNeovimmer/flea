@@ -6,6 +6,8 @@
 .import "MdInline.js" as Md
 .import "MdRefs.js" as Refs
 .import "MdResolve.js" as Res
+.import "MdEmph.js" as Emph
+.import "MdBreak.js" as Brk
 
 var hasOwn = Object.prototype.hasOwnProperty
 // The work gate replaces this no-op to count each frame visited.
@@ -15,11 +17,13 @@ var countFrameStep = function () {}
 function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, literalPlain) {
     var body = MdHtml.documentText(text)
     // Plain prose returns directly; plain table cells use the bulk escaper before any markup is emitted.
-    if (!/[`$[\]<>\\!]|https?:\/\/|www\./.test(body)
+    if (!/[`$[\]<>\\!*_]| {2}\n|https?:\/\/|www\./.test(body)
             && (!literalPlain || !/[*_~]|&(?:#(?:[0-9]+|[xX][0-9a-fA-F]+)|[A-Za-z][A-Za-z0-9]*);/.test(body)))
         return literalPlain ? Md.escapeHtmlText(body) : body
     var spans = Md.spanIntervals(body)
     var out = []
+    var delims = []
+    delims.bottom = 0
     var citationTokens = {}
     var frames = []
     var activeLinks = []
@@ -38,6 +42,50 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
     var dead = { tagDead: -1, commentDead: false }
     var i = 0
     var sp = 0
+    var lastQuote = -1
+
+    // Join strings, -1-index token references and emphasis marks; inside an emphasis tag or a label a newline is a space, which the renderer would drop.
+    function renderFrom(from, flat, alt) {
+        var parts = []
+        var depth = flat ? 1 : 0
+        for (var k = from; k < out.length; k++) {
+            var piece = out[k]
+            if (typeof piece === "string") {
+                parts.push(depth > 0 && piece === "\n" ? " " : piece)
+                continue
+            }
+            if (typeof piece === "object") {
+                depth -= piece.closes
+                parts.push(piece.before + Emph.literal(piece) + piece.after)
+                depth += piece.opens
+                continue
+            }
+            var tokenIndex = -1 - piece
+            if (alt === true && citationTokens.hasOwnProperty(tokenIndex)) {
+                parts.push("[^" + citationTokens[tokenIndex] + "]")
+                continue
+            }
+            if (citationTokens.hasOwnProperty(tokenIndex)) {
+                var id = citationTokens[tokenIndex]
+                if (cited !== undefined && numbers[id] === 0) {
+                    cited.push(id)
+                    numbers[id] = cited.length
+                }
+                tokens[tokenIndex] = "<sup>" + numbers[id] + "</sup>"
+            }
+            parts.push(tokens[tokenIndex])
+        }
+        return parts.join("")
+    }
+
+    // The label of the bracket pair opened at out[mark], its emphasis resolved first.
+    function labelHtml(mark, alt) {
+        var from = delims.length
+        while (from > 0 && delims[from - 1].at > mark)
+            from--
+        Emph.process(delims, from)
+        return renderFrom(mark + 1, true, alt)
+    }
 
     while (i < body.length) {
         if (sp < spans.length && i === spans[sp]) {
@@ -68,7 +116,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
                     sp += Md.INTERVAL_STRIDE
                     continue
                 }
-                var innerText = body.slice(innerStart, innerEnd)
+                var innerText = body.slice(innerStart, innerEnd).replace(/\n/g, " ")
                 if (innerText.length > 0 && innerText.charAt(0) === " "
                         && innerText.charAt(innerText.length - 1) === " ")
                     innerText = innerText.slice(1, -1)
@@ -101,9 +149,27 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
             i += 2
             continue
         }
+        if (c === "\n" || (c === "\\" && body.charAt(i + 1) === "\n")) {
+            i = Brk.lineBreak(body, i, out, delims)
+            continue
+        }
         if (c === "`" || c === "$") {
             out.push(c)
             i++
+            continue
+        }
+        if ((c === "*" || c === "_") && Brk.isRuleLine(body, i)) {
+            var ruleEnd = body.indexOf("\n", i)
+            ruleEnd = ruleEnd < 0 ? body.length : ruleEnd
+            out.push(c + c + c)
+            i = ruleEnd
+            continue
+        }
+        if (c === "*" || c === "_") {
+            var mark = Emph.runAt(body, i, out.length)
+            delims.push(mark)
+            out.push(mark)
+            i = mark.end
             continue
         }
         if (c === "!" && body.charAt(i + 1) === "[") {
@@ -152,33 +218,17 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
                 i++
                 continue
             }
-            frame.rawEnd = i
-            var raw = body.slice(frame.rawStart, frame.rawEnd)
+            var raw = body.slice(frame.rawStart, i)
             var j = i + 1
             var made = null
             if (frame.active) {
-                var inline = null
-                if (body.charAt(j) === "(")
-                    inline = Md.readInlineTarget(body, j)
-                if (inline !== null) {
-                    made = Res.resolvePair(raw, inline.url, frame.bang, dir, ink, tokens)
-                    j = inline.end
-                } else if (body.charAt(j) === "[") {
-                    var ref = Md.readLabelRef(body, j)
-                    if (ref !== null) {
-                        var label = ref.label.length > 0 ? ref.label : raw
-                        if (label.length > 0) {
-                            var key = Md.normalizeLabel(label)
-                            if (hasOwn.call(defs, key)) {
-                                made = Res.resolvePair(raw, defs[key], frame.bang, dir, ink, tokens)
-                                j = ref.end
-                            }
-                        }
-                    }
-                } else if (raw.length > 0) {
-                    var skey = Md.normalizeLabel(raw)
-                    if (hasOwn.call(defs, skey))
-                        made = Res.resolvePair(raw, defs[skey], frame.bang, dir, ink, tokens)
+                var found = Res.readDestination(body, j, raw, defs)
+                if (found !== null) {
+                    // Emphasis inside the label pairs now, so the link or image takes the label's own markup.
+                    made = Res.resolvePair(raw, found.url, frame.bang, dir, ink, tokens, function () {
+                        return labelHtml(frame.mark, frame.bang)
+                    })
+                    j = found.end
                 }
                 if (made !== null && !frame.bang) {
                     while (activeLinks.length > 0) {
@@ -189,6 +239,8 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
             }
             if (made !== null) {
                 out.length = frame.bang ? frame.mark - 1 : frame.mark
+                while (delims.length > 0 && delims[delims.length - 1].at >= out.length)
+                    delims.pop()
                 out.push(made)
                 i = j
             } else {
@@ -207,31 +259,20 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
             continue
         }
         if (c === "h" || c === "w") {
-            var bare = Md.readBarelink(body, i)
-            if (bare !== null && !Res.isLinkTarget(bare.url))
-                bare = null
-            if (bare !== null) {
-                if (!styleLinks) {
-                    out.push(Md.escapeHtmlText(bare.url))
-                    i = bare.end
-                    continue
-                }
-                var bhtml = Md.linkHtml(bare.url, bare.url, ink)
-                if (bhtml === null) {
-                out.push(Md.escapeHtmlText(bare.url))
+            var bareEnd = Res.bareAt(body, i, ink, styleLinks, tokens, out)
+            if (bareEnd < 0) {
+                out.push(c)
+                i++
             } else {
-                tokens.push(bhtml)
-                out.push(-1 - (tokens.length - 1))
+                i = bareEnd
             }
-                i = bare.end
-                continue
-            }
-            out.push(c)
-            i++
             continue
         }
         if (c === ">") {
-            out.push("&#62;")
+            // A mark that opens a quote inside a list item stays for the renderer; table cells never hold one.
+            var quoting = !literalPlain && Brk.quoteMarkAt(body, i, lastQuote)
+            lastQuote = quoting ? i : lastQuote
+            out.push(quoting ? ">" : "&#62;")
             i++
             continue
         }
@@ -244,23 +285,6 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
         out.push(c)
         i++
     }
-    // Join strings and -1-index token references without per-span objects or another interpreted output scan.
-    var parts = new Array(out.length)
-    for (var k = 0; k < out.length; k++) {
-        if (typeof out[k] === "string") {
-            parts[k] = out[k]
-            continue
-        }
-        var tokenIndex = -1 - out[k]
-        if (citationTokens.hasOwnProperty(tokenIndex)) {
-            var id = citationTokens[tokenIndex]
-            if (cited !== undefined && numbers[id] === 0) {
-                cited.push(id)
-                numbers[id] = cited.length
-            }
-            tokens[tokenIndex] = "<sup>" + numbers[id] + "</sup>"
-        }
-        parts[k] = tokens[tokenIndex]
-    }
-    return parts.join("")
+    Emph.process(delims, delims.bottom)
+    return renderFrom(0, false)
 }

@@ -6,12 +6,13 @@
 .import "MdContainer.js" as Container
 .import "MdDocument.js" as Document
 .import "MdHtml.js" as Html
+.import "MdMath.js" as Maths
 
 var CODE_INDENT = 4
 var MIN_RULE_MARKS = 3
 var MAX_RULE_INDENT = 3
-var DISPLAY_DELIMITER_LENGTH = 2
 var LIST_INTERRUPT_START = 1
+var SETEXT_MARK = /^(\s*)([=-])/
 var hasOwn = Object.prototype.hasOwnProperty
 
 function listMarker(line) {
@@ -67,10 +68,12 @@ function blockPass(lines, state, emit, collect) {
     var pending = null
     var serial = 0
     var lastQuote = -1
+    // Leading frames now open that share frame 0's type (items or quotes), where the line's text starts after them, and the frames found open.
+    var lead = { n: 0, here: 0, lazy: false, retained: 0, at: 0, pad: 0, raw: "" }
     function send(kind, index, text, top, display, info) {
         if (emit !== undefined)
             emit({ type: "line", kind: kind, index: index, text: text,
-                outer: top, display: display, info: info || "",
+                outer: top, display: display, info: info || "", chain: frames, lead: lead,
                 figureKind: kind === "fenceOpen" ? figureKind(info) : "" })
     }
     function finishNote() {
@@ -83,6 +86,8 @@ function blockPass(lines, state, emit, collect) {
         var view = { at: 0, padding: 0, column: 0 }
         var rawBlank = raw.trim().length === 0
         var matched = 0
+        var leadHere = 0
+        lead = { n: lead.n, here: 0, lazy: false, retained: 0, at: 0, pad: 0, raw: raw }
         var display = raw
         var rule = ruleSuffix(raw)
         var previousTop = frames.length > 0 ? frames[0] : null
@@ -106,14 +111,18 @@ function blockPass(lines, state, emit, collect) {
                     break
                 }
             }
+            if (frame.type === frames[0].type && leadHere === matched) {
+                lead.here = ++leadHere
+                lead.at = view.at
+                lead.pad = view.padding
+            }
             if (matched === 0)
                 display = Container.textAt(raw, view)
         }
         var unmatchedText = Container.textAt(raw, view)
         var startsQuote = Container.quoteAt(raw, view) >= 0
         var startsList = Container.listAt(raw, view)
-        var siblingList = matched < frames.length && frames[matched].type === "list"
-            && startsList !== null && frames[matched].ordered === startsList.ordered
+        var siblingList = matched < frames.length && frames[matched].type === "list" && startsList !== null
         var listInterrupts = startsList !== null && (siblingList || ((!startsList.ordered
             || startsList.start === LIST_INTERRUPT_START) && raw.slice(startsList.markerEnd).trim().length > 0))
         var startsFence = Leaf.fenceOpen(unmatchedText)
@@ -124,6 +133,7 @@ function blockPass(lines, state, emit, collect) {
             && !/^ {0,3}#{1,6}(?:\s|$)/.test(unmatchedText)
         if (matched < frames.length && !lazy) {
             frames.length = matched
+            lead.n = Math.min(lead.n, matched)
             lastQuote = -1
             for (var q = 0; q < frames.length; q++) {
                 if (frames[q].type === "quote")
@@ -133,6 +143,8 @@ function blockPass(lines, state, emit, collect) {
         }
         var owner = frames.length > 0 ? frames[frames.length - 1].id : 0
         var fenced = leaf !== null && leaf.kind === "fence" && leaf.owner === owner
+        lead.retained = frames.length
+        lead.lazy = lazy && matched < frames.length
         if (!fenced && !lazy && !setext) {
             while (true) {
                 var quoteIndent = Container.quoteAt(raw, view)
@@ -148,11 +160,18 @@ function blockPass(lines, state, emit, collect) {
                 } else {
                     next.contentCol = marker.contentCol
                     next.ordered = marker.ordered
+                    next.mark = marker.mark
                     next.start = marker.start
                     next.group = frames.length === 0 && previousTop !== null
-                        && previousTop.type === "list" && previousTop.ordered === marker.ordered
+                        && previousTop.type === "list" && previousTop.mark === marker.mark
                         ? previousTop.group : next.id
                     Container.takeList(raw, view, marker)
+                }
+                if (lead.n === frames.length && (frames.length === 0 || next.type === frames[0].type)) {
+                    lead.here = ++lead.n
+                    leadHere = lead.n
+                    lead.at = view.at
+                    lead.pad = view.padding
                 }
                 frames.push(next)
                 owner = next.id
@@ -163,11 +182,16 @@ function blockPass(lines, state, emit, collect) {
         }
         var top = frames.length > 0 ? frames[0] : null
         var text = Container.textAt(raw, view)
+        // Sample: "> foo\nbar\n===" keeps its lazy "===" as text, so the renderer cannot take it for a setext underline.
+        if (lazy && matched < frames.length && Leaf.isSetext(unmatchedText)) {
+            text = text.replace(SETEXT_MARK, "$1\\$2")
+            display = display.replace(SETEXT_MARK, "$1\\$2")
+        }
         if (fenced) {
             var closer = Leaf.fenceOpen(text)
             var closed = closer !== null && closer.info === "" && closer.tick === leaf.tick && closer.len >= leaf.len
             state.code[i] = true
-            send(closed ? "fenceClose" : "fenceBody", i, text, top, display)
+            send(closed ? "fenceClose" : "fenceBody", i, closed ? text : Container.unindent(text, leaf.indent), top, display)
             if (closed)
                 leaf = null
             continue
@@ -180,14 +204,13 @@ function blockPass(lines, state, emit, collect) {
                 send("hidden", i, text, top, display)
                 continue
             }
-            if (collect && pending.owner === owner && pending.ref !== undefined
-                    && Container.indentationAt(raw, view).width < CODE_INDENT && Leaf.fenceOpen(text) === null) {
+            if (collect && pending.owner === owner && pending.ref !== undefined && Leaf.fenceOpen(text) === null) {
                 // Sample: '[cover].png "Title"' accepts a destination only when the complete line parses.
-                var destination = Refs.readDefinitionTarget(text.trim())
-                if (destination !== "") {
-                    if (!hasOwn.call(state.defs, pending.ref.key))
-                        state.defs[pending.ref.key] = destination
+                var destination = Refs.readDefinitionParts(text.trim())
+                if (destination.target !== "") {
+                    Refs.storeDefinition(state.defs, pending.ref.key, destination.target)
                     hideDefinition(state, pending.index, i)
+                    Refs.hideTitle(lines, i + 1, state, owner === 0 && !destination.titled)
                     // Replay the opener's paragraph state so its lazy destination keeps the same containers.
                     state.hidden[pending.index] = "paragraph"
                     pending = null
@@ -222,55 +245,30 @@ function blockPass(lines, state, emit, collect) {
         }
         var open = Leaf.fenceOpen(text)
         if (open !== null) {
-            leaf = { kind: "fence", owner: owner, tick: open.tick, len: open.len }
+            leaf = { kind: "fence", owner: owner, tick: open.tick, len: open.len, indent: open.indent }
             state.code[i] = true
             send("fenceOpen", i, text, top, display, open.info)
             continue
         }
         // Sample input: "$$x^2$$" and "$$\nx^2\n$$" emit figures, with trailing prose retained.
-        var disp = top === null ? /^ {0,3}\$\$(.*)$/.exec(text) : null
-        if (disp !== null) {
-            var rest = disp[1]
-            var closeAt = rest.indexOf("$$")
-            var mathSource = ""
-            var mathTail = ""
-            var mathTo = i
-            if (closeAt >= 0) {
-                mathSource = rest.slice(0, closeAt).trim()
-                mathTail = rest.slice(closeAt + DISPLAY_DELIMITER_LENGTH)
-            } else {
-                // The closer search stops at the paragraph's blank line, so no later opener scans these lines again.
-                var mathEnd = -1
-                for (var at = i + 1; mathEnd < 0 && at < lines.length && lines[at].trim().length > 0; at++) {
-                    if (lines[at].indexOf("$$") >= 0)
-                        mathEnd = at
-                }
-                if (mathEnd > i) {
-                    var endAt = lines[mathEnd].indexOf("$$")
-                    mathSource = [rest].concat(lines.slice(i + 1, mathEnd),
-                        [lines[mathEnd].slice(0, endAt)]).join("\n").trim()
-                    mathTail = lines[mathEnd].slice(endAt + DISPLAY_DELIMITER_LENGTH)
-                    mathTo = mathEnd
-                }
-            }
-            if (mathSource.length > 0) {
-                for (var m = i; m <= mathTo; m++)
-                    state.code[m] = true
-                if (emit !== undefined)
-                    emit({ type: "figure", kind: "math", source: mathSource, display: true })
-                i = mathTo
-                if (mathTail.length > 0)
-                    send("run", i, mathTail, null, mathTail)
-                leaf = mathTail.trim().length > 0 ? { kind: "paragraph", owner: owner } : null
-                continue
-            }
+        var math = top === null ? Maths.displayAt(lines, i, text) : null
+        if (math !== null) {
+            for (var m = i; m <= math.to; m++)
+                state.code[m] = true
+            if (emit !== undefined)
+                emit({ type: "figure", kind: "math", source: math.source, display: true })
+            i = math.to
+            if (math.tail.length > 0)
+                send("run", i, math.tail, null, math.tail)
+            leaf = math.tail.trim().length > 0 ? { kind: "paragraph", owner: owner } : null
+            continue
         }
         var blank = text.trim().length === 0
         var width = Container.indentationAt(raw, view).width
         if (leaf !== null && leaf.kind === "code" && (blank || width >= CODE_INDENT)) {
             state.code[i] = true
             Container.takeIndent(raw, view, CODE_INDENT)
-            send("codeLine", i, blank ? "" : Container.textAt(raw, view), top, display)
+            send("codeLine", i, Container.textAt(raw, view), top, display)
             continue
         }
         if (leaf !== null && leaf.kind === "code") {
@@ -300,9 +298,9 @@ function blockPass(lines, state, emit, collect) {
             }
             if (ref !== null) {
                 if (ref.target !== "") {
-                    if (!hasOwn.call(state.defs, ref.key))
-                        state.defs[ref.key] = ref.target
+                    Refs.storeDefinition(state.defs, ref.key, ref.target)
                     hideDefinition(state, i, i)
+                    Refs.hideTitle(lines, i + 1, state, owner === 0 && !ref.titled)
                     send("hidden", i, text, top, display)
                     continue
                 }
@@ -316,13 +314,13 @@ function blockPass(lines, state, emit, collect) {
             leaf = null
             continue
         }
-        var aligns = top === null && text.indexOf("|") >= 0 && i + 1 < lines.length
-            ? Leaf.delimAligns(lines[i + 1]) : null
-        if (aligns !== null) {
-            var header = Leaf.splitRow(text)
+        var aligns = top === null && text.indexOf("|") >= 0 && i + 1 < lines.length ? Leaf.delimAligns(lines[i + 1]) : null
+        var header = aligns === null ? null : Leaf.splitRow(text)
+        // The delimiter row must match the header's cell count; a row ends the table at a blank line or another block.
+        if (header !== null && header.length === aligns.length) {
             var rows = []
             i += 2
-            while (i < lines.length && lines[i].trim().length > 0 && lines[i].indexOf("|") >= 0)
+            while (i < lines.length && lines[i].trim().length > 0 && !Container.startsBlock(lines[i]))
                 rows.push(Leaf.splitRow(lines[i++]))
             if (emit !== undefined)
                 emit({ type: "table", head: header, aligns: aligns, rows: rows })
@@ -332,7 +330,7 @@ function blockPass(lines, state, emit, collect) {
         }
         if (Refs.killDefinition(text) !== text)
             state.escaped[i] = true
-        send("run", i, text, top, display)
+        send(setext && top === null ? "setext" : "run", i, text, top, display)
         leaf = blank || setext || Leaf.isThematic(text) || /^ {0,3}#{1,6}(?:\s|$)/.test(text) ? null : { kind: "paragraph", owner: owner }
     }
     finishNote()
