@@ -103,8 +103,7 @@ function linkOf(open) {
 }
 
 // Sample input: lines ['<p>', 'note', '</p>', '</div>'] from 0 for "div" answer { rest: ['<p>', 'note', '</p>'], end: 3 }; a blank line or a missing closer answers null.
-// The lines after a wrapper's image up to the closer of the wrapper's own tag, nested openers of that tag counted, none blank.
-// A line holding another image answers null on the spot (the block is a row the splitter draws whole), so each opener's scan stops at the next image.
+// The lines after a wrapper's image up to its own tag's closer, nested openers counted; a line holding another image answers null at once (the splitter draws that row whole).
 function wrapperTail(lines, from, name) {
     var rest = []
     var depth = 1
