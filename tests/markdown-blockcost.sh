@@ -4,27 +4,32 @@ set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
 
-kinds="run heading table list quote fence remote image"
+kinds="run maths heading table list quote fence remote image"
 # The parts the probe can name (foreignParts in tests/markdown-blockcost.qml); any other name in a report is refused.
 known_parts='Repeater|Column|Row|Rectangle|Image|MarkdownFigure|TextMetrics|Glyph'
 # Object counts of one block, measured on the shipped delegate in this fixture: the remote box's dashes follow the pane width.
+# The inline-maths component is one more resource on every delegate (+1 each; quote also +1 for its bar Repeater, 14 to 16).
 limit_for() {
     case $1 in
-        run|heading|fence) echo 12 ;;
-        table) echo 38 ;;
-        list) echo 23 ;;
-        quote) echo 14 ;;
-        remote) echo 322 ;;
-        image) echo 11 ;;
+        run|heading|fence) echo 13 ;;
+        maths) echo 23 ;;
+        table) echo 39 ;;
+        list) echo 24 ;;
+        quote) echo 16 ;;
+        remote) echo 323 ;;
+        image) echo 12 ;;
     esac
 }
 # Parts each kind never draws, as an extended regex over the report's foreign list.
 forbidden_for() {
     case $1 in
         run|heading) echo 'Repeater|Column|Row|Rectangle|Image|MarkdownFigure|TextMetrics|Glyph' ;;
+        # A run with inline formulas builds one figure per distinct formula, and so its Repeater, Images and fallback Rectangle.
+        maths) echo 'Column|Row|TextMetrics|Glyph' ;;
         table) echo 'Image|MarkdownFigure|TextMetrics|Glyph' ;;
         list) echo 'Rectangle|Image|MarkdownFigure|Glyph' ;;
-        quote) echo 'Repeater|Column|Image|MarkdownFigure|TextMetrics|Glyph' ;;
+        # A quote draws one bar per level, so it may hold a Repeater beside its Row and Rectangle.
+        quote) echo 'Column|Image|MarkdownFigure|TextMetrics|Glyph' ;;
         fence) echo 'Repeater|Column|Row|Image|MarkdownFigure|TextMetrics|Glyph' ;;
         remote) echo 'Image|MarkdownFigure|TextMetrics' ;;
         image) echo 'Repeater|Column|Row|Rectangle|MarkdownFigure|TextMetrics|Glyph' ;;
@@ -135,6 +140,10 @@ cat > "$test_root/docs/kinds.md" <<'MD'
 
 A paragraph with `code` and [a link](https://example.com/guide).
 
+## A second heading
+
+An inline formula $x^2$ in a line.
+
 | Kind | Asks for |
 | :--- | :--- |
 | rows | the cursor |
@@ -161,7 +170,7 @@ probe_timeout_margin=10
 probe_timeout=$((watchdog_ms / 1000 + probe_timeout_margin))
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
-    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BLOCKCOST_LIST="$test_root/docs/kinds.md" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BLOCKCOST_LIST="$test_root/docs/kinds.md" FLEA_BIN=/bin/false \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout "$probe_timeout" qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 

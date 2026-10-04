@@ -43,8 +43,8 @@ if (process.argv[2] === "cycle") {
     // The exPx path is exact up to the hundredth-pixel rounding of the drawn height, so one percent leaves the 1.2 em rule (3.6% off at 12 and 14) red.
     const EX_PATH_TOLERANCE = 0.01;
     // The ex the drawn formula uses, read back from its height, or NaN when the helper wrote no pixel height.
-    function drawnExPx(theme, display) {
-        const match = postMath(formula, theme, display).match(/height="([\d.]+)px"/);
+    function drawnExPx(theme) {
+        const match = postMath(formula, theme).match(/height="([\d.]+)px"/);
         return match ? Number(match[1]) / (894.9 / MATH_UNITS_PER_EX) : NaN;
     }
     function exMatches(drawn, expected) {
@@ -52,16 +52,17 @@ if (process.argv[2] === "cycle") {
     }
     // The helper receives the body font's measured x-height, and a display formula's ex is that height at any body size.
     for (const [bodyPx, xHeight] of [[12, 6.6], [14, 7.7], [14, 9]]) {
-        const exPx = drawnExPx({ fg: "#ffffff", bodyPx, exPx: xHeight }, true);
-        check(exMatches(exPx, xHeight), `display maths ex ${exPx.toFixed(2)}px follows the body x-height ${xHeight}px at body ${bodyPx}px`);
+        const exPx = drawnExPx({ fg: "#ffffff", bodyPx, exPx: xHeight });
+        check(exMatches(exPx, xHeight), `maths ex ${exPx.toFixed(2)}px follows the body x-height ${xHeight}px at body ${bodyPx}px`);
     }
-    // Only a display formula takes the measured height, and a display formula without one keeps the em rule.
+    // An inline formula takes the same measured height as a display one, so both stand level with the prose; without one the em rule stays.
     const EM_BODY_PX = 14;
     const EM_RULE_EX_PX = EM_BODY_PX * EX_PER_EM;
-    const inlineEx = drawnExPx({ fg: "#ffffff", bodyPx: EM_BODY_PX, exPx: 9 }, false);
-    check(exMatches(inlineEx, EM_RULE_EX_PX), `inline maths ex ${inlineEx.toFixed(2)}px keeps the em rule ${EM_RULE_EX_PX.toFixed(2)}px beside a measured x-height`);
-    const fallbackEx = drawnExPx({ fg: "#ffffff", bodyPx: EM_BODY_PX }, true);
-    check(exMatches(fallbackEx, EM_RULE_EX_PX), `display maths ex ${fallbackEx.toFixed(2)}px falls back to the em rule ${EM_RULE_EX_PX.toFixed(2)}px without a measured x-height`);
+    const MEASURED_EX_PX = 9;
+    const measuredEx = drawnExPx({ fg: "#ffffff", bodyPx: EM_BODY_PX, exPx: MEASURED_EX_PX });
+    check(exMatches(measuredEx, MEASURED_EX_PX), `inline maths ex ${measuredEx.toFixed(2)}px follows the measured x-height ${MEASURED_EX_PX}px`);
+    const fallbackEx = drawnExPx({ fg: "#ffffff", bodyPx: EM_BODY_PX });
+    check(exMatches(fallbackEx, EM_RULE_EX_PX), `maths ex ${fallbackEx.toFixed(2)}px falls back to the em rule ${EM_RULE_EX_PX.toFixed(2)}px without a measured x-height`);
     console.log(`figure-worker: ${checks} check(s), ${failures} failed`);
     process.exitCode = failures > 0 ? 1 : 0;
 }

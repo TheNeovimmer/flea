@@ -78,7 +78,8 @@ ShellRoot {
             var c = shell.census(item)
             built++
             total += c.total
-            var kind = blocks[i].type
+            // A run with inline formulas builds its own component, so it is counted as its own kind.
+            var kind = blocks[i].type === "run" && blocks[i].maths !== undefined ? "maths" : blocks[i].type
             var foreign = shell.foreignParts.filter(function (part) { return c.counts[part] > 0 }).join("+")
             if (!kinds[kind] || kinds[kind].objects < c.total)
                 kinds[kind] = { objects: c.total, foreign: foreign || "none", counts: c.counts }

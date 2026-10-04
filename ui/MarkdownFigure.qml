@@ -8,6 +8,8 @@ Item {
     property string source: ""
     property bool display: true
     property bool inline: false
+    // A bare figure asks and settles but draws nothing: its host puts the SVG in its own text.
+    property bool bare: false
     property string bgHex: "#101315"
     property string fgHex: "#c0caf5"
     property string accentHex: "#7aa2f7"
@@ -17,7 +19,7 @@ Item {
     property color fallbackColor: Theme.color.surface
     property string fontFamily: Theme.font.family
     property int bodyPx: Theme.font.body
-    // The body font's x-height at bodyPx: a display formula draws its ex at this height, so maths and prose letters stand level.
+    // The body font's x-height at bodyPx: a formula draws its ex at this height, so maths and prose letters stand level.
     property real xHeight: bodyMetrics.xHeight
     // The helper receives the x-height in hundredths of a pixel, so a font that settles late changes the request.
     readonly property int xHeightRounding: 100
@@ -142,7 +144,7 @@ Item {
         id: inlineFigure
         visible: root.inline && root.svg !== ""
         anchors.top: parent.top
-        source: root.dataUrl
+        source: root.bare ? "" : root.dataUrl
         cache: false
         asynchronous: true
         height: root.bodyPx

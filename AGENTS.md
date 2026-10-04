@@ -4918,8 +4918,8 @@ same, so md3 wires figures into the Markdown view later without touching this un
 
 mathsize 2026-10-04: a display formula's ex equals the body font's x-height, so maths and prose letters stand level.
 `ui/MarkdownFigure.qml` measures `FontMetrics.xHeight` on its own family at `bodyPx` and sends it in the theme as `exPx`;
-`postMath` in `ui/js/FigureWorker.mjs` converts a display formula's ex units at that height (the one scale), and the
-em rule (`bodyPx` times 0.442) stays for inline maths and a figure that reports no height. `exPx` is in both cache
+`postMath` in `ui/js/FigureWorker.mjs` converts a formula's ex units at that height, display or inline (the one scale, as
+a browser's 1ex does for Obsidian and GitHub), and the em rule (`bodyPx` times 0.442) stays only for a figure that reports no height. `exPx` is in both cache
 keys, so a text size or font change re-renders instead of serving the old size. `tests/markdown-mathsize.qml` pins it.
 
 Measured on this Debian box through direct qjs, whose bwrap cannot run Arch's jail: cold

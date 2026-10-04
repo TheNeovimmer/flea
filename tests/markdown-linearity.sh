@@ -85,14 +85,17 @@ if [ "${1:-}" != "--probe" ]; then
     # Import the shipped text component without Quickshell's Theme dependency in the marker-column probe.
     text_module="$probe_root/markdown-text"
     mkdir -p "$text_module" || exit 1
-    cp ui/MarkdownText.qml "$text_module/" || exit 1
-    printf 'MarkdownText 1.0 MarkdownText.qml\nsingleton Theme 1.0 Theme.qml\n' > "$text_module/qmldir" || exit 1
+    mkdir -p "$text_module/js" || exit 1
+    cp ui/MarkdownText.qml ui/MarkdownList.qml "$text_module/" || exit 1
+    cp ui/js/MarkdownLists.js "$text_module/js/" || exit 1
+    printf 'MarkdownText 1.0 MarkdownText.qml\nMarkdownList 1.0 MarkdownList.qml\nsingleton Theme 1.0 Theme.qml\n' > "$text_module/qmldir" || exit 1
     cat > "$text_module/Theme.qml" <<'THEME'
 pragma Singleton
 import QtQuick
 QtObject {
     property var color: ({ foreground: "#ffffff" })
     property var font: ({ family: "sans-serif", body: 16 })
+    property var spacing: ({ gap: 8 })
 }
 THEME
     TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \

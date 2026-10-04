@@ -480,7 +480,8 @@ Item {
             // A block builds only the parts its own kind draws, and they sit on the delegate so a reader of the block finds them there.
             Loader {
                 id: kind
-                sourceComponent: block.type === "run" || block.type === "heading" ? textBlock
+                sourceComponent: block.type === "run" && block.maths !== undefined ? mathsBlock
+                    : block.type === "run" || block.type === "heading" ? textBlock
                     : block.type === "fence" ? fenceBlock
                     : block.type === "figure" ? figureBlock
                     : block.type === "quote" ? quoteBlock
@@ -501,6 +502,26 @@ Item {
                     font.bold: block.type === "heading"
                     // h1 and h2 take the bright foreground; deeper levels and body stay the foreground.
                     color: block.type === "heading" && block.level <= root.boardHeadings.length ? Theme.color.foregroundBright : Theme.color.foreground
+                }
+            }
+
+            // A run with inline formulas draws each in its line once the helper answers; the other runs build none of its parts.
+            Component {
+                id: mathsBlock
+                Flea.MarkdownMathsText {
+                    objectName: "mathsText"
+                    linkGate: Markdown.isExternalLink
+                    width: blockDelegate.width
+                    source: block.text
+                    maths: block.maths
+                    askArmed: root.figuresArmed
+                    inView: blockDelegate.inView
+                    bgHex: root.hexOf(Theme.color.background)
+                    fgHex: root.inkHex
+                    accentHex: root.accentHex
+                    mutedHex: root.mutedHex
+                    surfaceHex: root.surfaceHex
+                    font.pixelSize: root.bodyPx
                 }
             }
 
@@ -674,70 +695,31 @@ Item {
                 }
             }
 
+            // A quote draws one bar per level, and a joined block sits flush under the one above so the outer bars run on.
             Component {
                 id: quoteBlock
-                Row {
+                Flea.MarkdownQuote {
+                    objectName: "quoteRow"
+                    y: block.joined === true ? -root.blockGap : 0
                     width: blockDelegate.width
-                    spacing: Theme.spacing.gap
-
-                    Rectangle {
-                        width: 2
-                        height: quoteText.implicitHeight
-                        color: Theme.color.muted
-                    }
-
-                    Flea.MarkdownText {
-                        id: quoteText
-                        linkGate: Markdown.isExternalLink
-                        width: parent.width - 2 - parent.spacing
-                        bodyPx: root.bodyPx
-                        text: block.text
-                    }
+                    levels: block.depth !== undefined ? block.depth : 1
+                    linkGate: Markdown.isExternalLink
+                    bodyPx: root.bodyPx
+                    text: block.text
                 }
             }
 
-            // Draw top-level list markers at the text edge with text after each marker using plain Column/Row, keeping QtQuick.Layouts unloaded.
+            // A chunk after the first sits flush under its predecessor, across the gap the list puts between blocks.
             Component {
                 id: listBlock
-                Column {
-                    id: listGrid
-                    // A chunk after the first sits flush under its predecessor, across the gap the list puts between blocks.
+                Flea.MarkdownList {
+                    objectName: "listColumn"
                     y: block.joined === true ? -root.blockGap : 0
                     width: blockDelegate.width
-                    spacing: 0
-
-                    TextMetrics {
-                        id: listMarkerMetrics
-                        text: block.ordered ? (block.last !== undefined ? block.last : block.start + block.items.length - 1) + "." : "•"
-                        font.family: Theme.font.family
-                        font.pixelSize: root.bodyPx
-                    }
-
-                    Repeater {
-                        model: block.items.length
-                        delegate: Row {
-                            width: listGrid.width
-                            spacing: Theme.spacing.gap
-
-                            Flea.MarkdownText {
-                                id: marker
-                                width: listMarkerMetrics.advanceWidth
-                                bodyPx: root.bodyPx
-                                text: block.ordered ? (block.start + index) + "." : "•"
-                                // The marker shares the item's line box and first-line leading.
-                                textFormat: Text.RichText
-                                height: marker.box
-                                wrapMode: Text.NoWrap
-                            }
-
-                            Flea.MarkdownText {
-                                linkGate: Markdown.isExternalLink
-                                width: parent.width - marker.width - parent.spacing
-                                bodyPx: root.bodyPx
-                                text: block.items[index]
-                            }
-                        }
-                    }
+                    list: block
+                    gap: root.blockGap
+                    linkGate: Markdown.isExternalLink
+                    bodyPx: root.bodyPx
                 }
             }
 

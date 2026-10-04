@@ -4,6 +4,7 @@
 .import "MdLeaf.js" as Leaf
 .import "MdRun.js" as Run
 .import "MdItems.js" as Items
+.import "MdChunks.js" as Chunks
 .import "MdResolve.js" as Res
 .import "MdMath.js" as Maths
 .import "MdEntity.js" as Ent
@@ -101,7 +102,7 @@ function writer(state, dir, chrome, ink) {
         } else if (event.type === "list") {
             var list = Items.listBlock(event, state, inlineOf)
             if (list.items.length > 0)
-                pushAll(Leaf.chunkList(list))
+                pushAll(Chunks.chunkList(list))
         } else {
             out.push(event)
         }
