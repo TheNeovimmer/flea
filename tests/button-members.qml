@@ -89,8 +89,7 @@ ShellRoot {
         ]
     }
 
-    // A is one ladder: the frame never changes, hover is 8% and press 14% of the ink laid inside the frame, press scales, focus is the ring, disabled dims.
-    // A set member (GM 2026-10-04) swaps the ring for its own accent hairline frame on focus: pass that frame as focusFrame.
+    // A is one ladder (hover 8% and press 14% inside the frame, press scales, disabled dims); focus is the ring, or a set member's focusFrame.
     function ladder(key, ink, frame, focusFrame) {
         var member = focusFrame !== undefined
         var r = shell.readings[key]
