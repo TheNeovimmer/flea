@@ -103,7 +103,7 @@ sheet_rows() {
                 fl-no-place) printf ' Open mix.flac\n' ;;
                 fl-order) printf ' Open mix.flac\n Open flea\n' ;;
                 # The recent row stands only while the case's own history survives in its fixture home.
-                *) printf ' Open flea\n'; [[ -f "$fixture_root/cap-sheet-home/.local/share/recently-used.xbel" ]] && printf ' Open mix.flac\n' ;;
+                *) printf ' Open flea\n'; if [[ -f "$fixture_root/cap-sheet-home/.local/share/recently-used.xbel" ]]; then printf ' Open mix.flac\n'; fi ;;
             esac ;;
         comp)
             if [[ "$scenario" == comp-cap ]]; then printf ' Compress to .zip\nz Compress to .tar\n'
