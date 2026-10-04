@@ -534,8 +534,8 @@ ShellRoot {
                 picker: win
                 backend: backend
                 leadingSlot: win.marksAllowed ? list.checkSize + Theme.spacing.gap : 0
-                // The save form keeps the room it had before this header, which yields when it and one row do not fit.
-                visible: save.y - chrome.height >= implicitHeight + Theme.rowHeight
+                // Only the list heads columns; the save form keeps its old room, so the header yields when it and one row do not fit.
+                visible: win.viewMode === "list" && save.y - chrome.height >= implicitHeight + Theme.rowHeight
                 height: visible ? implicitHeight : 0
             }
 
