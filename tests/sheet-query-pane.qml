@@ -5,9 +5,7 @@ import Quickshell
 import "flea" as Flea
 import "flea/js/SheetQuery.js" as SheetQuery
 
-// tests/sheet-query.sh's pane half: the real WindowBody, Pane, ContextMenu and PaneMenuActions behind the real sheet.
-// A menu-only row Enter runs must reach the surface the menu row reaches, with no menu ever opened.
-// The profile is the shipped defaults, so Permissions, Move to, Delete permanently and Copy as are hidden rows the sheet lists.
+// tests/sheet-query.sh's pane half: under shipped defaults, Enter on a hidden menu row in the real sheet reaches that row's own surface with no menu opened.
 ShellRoot {
     id: root
     readonly property var pane: body.currentPane
@@ -40,6 +38,7 @@ ShellRoot {
     readonly property var current: cases[caseIndex]
     readonly property string hiddenAction: "permissions"
     readonly property string rightClickName: "Right-click menu"
+    readonly property string refusedText: "That action is no longer available; reopen the menu."
     readonly property string copierMarker: "wl-copy"
     readonly property int copierTextArg: 4
     readonly property real menuPointX: 120
@@ -169,6 +168,15 @@ ShellRoot {
             check("the menu still omits the hidden row", shown.indexOf(hiddenAction) >= 0, false)
             check("the menu still refuses the hidden row", menu.validateChoice(hiddenAction, ""), false)
             menu.close()
+            // A pick from outside the sheet carries no sheet request, so the backend's reply must refuse the row too.
+            lastMessage = ""
+            pane.menuActions.snapshot()
+            pane.menuActions.activate(hiddenAction, true)
+            next("pointer")
+        } else if (stage === "pointer") {
+            if (lastMessage.length === 0 && !permissionsOpen() && !timedOut) return
+            check("a pick outside the sheet is refused", lastMessage, refusedText)
+            check("and opens no Permissions dialog", permissionsOpen(), false)
             finish()
         }
     }

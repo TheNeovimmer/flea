@@ -79,7 +79,7 @@ ln -s "$(readlink -f ui/boot/Ui)" "$pane_root/config/Ui" || exit 1
 ln -s "$PWD/ui/boot/fleatab.qml" "$pane_root/config/fleatab.qml" || exit 1
 cp tests/sheet-query-pane.qml "$pane_root/config/shell.qml" || exit 1
 pane_log="$pane_root/qs.log"
-readonly paneLimitSeconds=60 paneChecks=31 paneQsStatus=143
+readonly paneLimitSeconds=60 paneChecks=33 paneQsStatus=143
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
     HOME="$pane_root/home" XDG_STATE_HOME="$pane_root/state" XDG_CONFIG_HOME="$pane_root/config" \
     XDG_DATA_HOME="$pane_root/data" XDG_CACHE_HOME="$pane_root/cache" XDG_RUNTIME_DIR="$pane_root/runtime" \
@@ -87,7 +87,7 @@ env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT 
     QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
     timeout "$paneLimitSeconds" dbus-run-session -- qs -p "$pane_root/config" > "$pane_log" 2>&1
 pane_status=$?
-# Sample input: "  INFO qml: SHEETPANE ok  Permissions the query reads back whole: got perm, expected perm" and "SHEETPANE DONE checks=21 failed=0".
+# Sample input: "  INFO qml: SHEETPANE ok  Permissions the query reads back whole: got perm, expected perm" and "SHEETPANE DONE checks=33 failed=0".
 pane_verdict=0
 [[ "$pane_status" == "$paneQsStatus" ]] || { printf 'FAIL pane half: qs exit %s, expected %s after backend drain\n' "$pane_status" "$paneQsStatus"; pane_verdict=1; }
 rg -q "SHEETPANE DONE checks=$paneChecks failed=0" "$pane_log" || { echo 'FAIL pane half: tally is not every check passed'; pane_verdict=1; }
