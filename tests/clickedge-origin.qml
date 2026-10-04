@@ -47,6 +47,7 @@ ShellRoot {
             property int total: 60
             property int held: 0
             property int cursorIndex: 0
+            property int cursorSeq: 0
             property int renamingIndex: -1
             property string renameError: ""
             property bool renamePending: false
@@ -123,9 +124,10 @@ ShellRoot {
         repeat: true
         onTriggered: {
             if (root.step === 0) root.openRename()
-            else if (root.step === 1) root.expandAndScroll()
-            else if (root.step === 2) root.collapseAndAim()
-            else if (root.step === 3) root.clickWholeRow()
+            else if (root.step === 1) root.expandRow()
+            else if (root.step === 2) root.scrollToEnd()
+            else if (root.step === 3) root.collapseAndAim()
+            else if (root.step === 4) root.clickWholeRow()
             root.step++
         }
     }
@@ -141,7 +143,7 @@ ShellRoot {
         root.stubPane.renamingIndex = 0
     }
 
-    function expandAndScroll() {
+    function expandRow() {
         var cell = list.itemAtIndex(0)
         if (cell === null || cell.renaming !== true || cell.editorField === null) {
             root.fail("rename builds no real editor on row 0")
@@ -153,6 +155,17 @@ ShellRoot {
         var grown = list.itemAtIndex(0)
         if (grown === null || grown.height <= Flea.Theme.fileRowHeight) {
             root.fail("the error did not expand row 0")
+            root.report()
+            return
+        }
+    }
+
+    // A turn after the error: the row holds its own height while the editor opens, so the error line is
+    // the only growth, and a scroll in the same turn runs before Qt lays that growth out and shifts no origin.
+    function scrollToEnd() {
+        var grown = list.itemAtIndex(0)
+        if (grown === null || grown.height <= Flea.Theme.fileRowHeight) {
+            root.fail("row 0 is not grown when the scroll starts")
             root.report()
             return
         }
