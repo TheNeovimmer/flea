@@ -19,7 +19,6 @@ function find(item, name) {
     return null
 }
 
-// How many items under one draw a border, so a frameless mark is proved by finding none.
 // The bordered items a viewer can see now: a focus ring that is not showing does not count.
 function shownBordered(item) {
     var stack = [item]
@@ -33,6 +32,7 @@ function shownBordered(item) {
     return out
 }
 
+// How many items under one draw a border, so a frameless mark is proved by finding none.
 function bordered(item) {
     var stack = [item]
     var out = 0
