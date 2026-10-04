@@ -127,6 +127,26 @@ menu_dialog_state() {
         "$count" "$confirm_danger" "$count"
 }
 
+# Sample input: [{"keys":"m","label":"mute","where":" in Preview","disabled":false}], the sheet's result rows with the where each delegate draws.
+sheet_results() {
+    local mix_where=" in ~/Documents/claude" flea_where=" in Favorites" mute_where=" in Preview"
+    [[ "$scenario" == mute-no-where ]] && mute_where=""
+    [[ "$scenario" == mute-wrong-where ]] && mute_where=" in Places"
+    [[ "$scenario" == fl-no-fav-where ]] && flea_where=""
+    [[ "$scenario" == fl-recent-where-moved ]] && mix_where=" in ~/Documents"
+    case "$typed_query" in
+        mute) [[ "$scenario" == mute-missing ]] && printf '[]\n' \
+            || printf '[{"keys":"m","label":"mute","where":"%s","disabled":false}]\n' "$mute_where" ;;
+        fl)
+            printf '[{"keys":"","label":"Open flea","where":"%s","disabled":false}' "$flea_where"
+            if [[ -f "$fixture_root/cap-sheet-home/.local/share/recently-used.xbel" ]]; then
+                printf ',{"keys":"","label":"Open mix.flac","where":"%s","disabled":false}' "$mix_where"
+            fi
+            printf ']\n' ;;
+        *) printf '[]\n' ;;
+    esac
+}
+
 # What keymapSheetOpen answers after an Escape, by scenario; relative to the Escape, so each close is judged alone.
 sheet_open_reply() {
     if [[ "$escape_at" -lt 0 ]]; then
@@ -148,6 +168,7 @@ ipc() {
     case "$1" in
         keymapSheetOpen) sheet_open_reply ;;
         keymapSheetRows) sheet_rows ;;
+        keymapSheetResults) sheet_results ;;
         keymapQuery) printf '%s\n' "$typed_query" ;;
         menuDialogState) menu_dialog_state ;;
         permissionsState) printf '{"opened":%s,"busy":false}\n' "$dialog_open" ;;
@@ -232,6 +253,10 @@ check_case comp-cap 1 0 0 "the comp query lists a row with a cap"
 check_case comp-parent-only 1 0 0 "the comp query lists no Compress to .zip leaf row"
 check_case comp-parent-last 1 0 0 "the comp query lists the Compress parent"
 check_case mute-missing 1 0 "$deadline_s" "the mute query lists no m mute row"
+check_case mute-no-where 1 0 "$deadline_s" "the mute row draws no where Preview"
+check_case mute-wrong-where 1 0 "$deadline_s" "the mute row draws no where Preview"
+check_case fl-no-fav-where 1 0 "$deadline_s" "the favourite flea draws no where Favorites"
+check_case fl-recent-where-moved 1 0 "$deadline_s" "the recent mix.flac draws no where ~/Documents/claude"
 check_case fl-no-recent 1 0 "$deadline_s" "the fl query lists no recent file mix.flac"
 check_case fl-no-place 1 0 0 "the fl query lists no favourite flea"
 check_case fl-order 1 0 0 "the fl query does not lead with the favourite"

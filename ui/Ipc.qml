@@ -648,6 +648,8 @@ QtObject {
         function keymapSheetOpen(): bool { return root.keymapSheet ? root.keymapSheet.opened : false }
         // One row per line, "<cap> <wording>", so a test asserts the sheet without OCR.
         function keymapSheetRows(): string { return root.keymapSheet ? root.keymapSheet.rows() : "" }
+        // The result rows as JSON with keys, label, where (the drawn muted text) and disabled, so a test asserts the where on screen.
+        function keymapSheetResults(): string { return root.keymapSheet ? root.keymapSheet.resultState() : "[]" }
         // Sidebar040: the query the typed keys narrowed the sheet to, "" at rest.
         function keymapQuery(): string { return root.keymapSheet ? root.keymapSheet.query : "" }
         // Sidebar040: the main window's Recent place, "" off and "results" once the history answered.

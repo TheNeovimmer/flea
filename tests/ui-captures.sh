@@ -373,6 +373,12 @@ cap_sheet_expect() {
     fail "cap_sheet: $what, last value '$got'"
 }
 
+# Waits until the result row with the given label draws the given muted where, the text its delegate shows beside the name.
+cap_sheet_where() {
+    local label="$1" where="$2" what="$3"
+    cap_sheet_expect keymapSheetResults "$where" "$what" "[.[] | select(.label == \"$label\")][0].where // \"none\""
+}
+
 # CommandPalette: the sheet at rest, then its query with a place, a place beside a recent file, leaves alone, a key that works in one place, the cursor on a file, and the delete card.
 case_cap_sheet() {
     local dir="$fixture_root/cap-sheet"
@@ -425,6 +431,8 @@ EOS
     flea_at=$(grep -Fxn ' Open flea' <<< "$sheet_rows" | head -n 1 | cut -d: -f1)
     mix_at=$(grep -Fxn ' Open mix.flac' <<< "$sheet_rows" | head -n 1 | cut -d: -f1)
     (( flea_at < mix_at )) || fail "cap_sheet: the fl query does not lead with the favourite: ${sheet_rows//$'\n'/ | }"
+    cap_sheet_where "Open flea" " in Favorites" "the favourite flea draws no where Favorites"
+    cap_sheet_where "Open mix.flac" " in ~/Documents/claude" "the recent mix.flac draws no where ~/Documents/claude"
     shot cap-sheet-query-fl
     key -k Escape >/dev/null
     cap_sheet_expect keymapSheetOpen false "Escape did not close the sheet after fl"
@@ -445,6 +453,7 @@ EOS
     cap_sheet_expect keymapSheetOpen true "? did not reopen the sheet"
     cap_sheet_type mute
     cap_sheet_rows_hold 'm mute' "the mute query lists no m mute row"
+    cap_sheet_where mute " in Preview" "the mute row draws no where Preview"
     shot cap-sheet-query-mute
     key -k Escape >/dev/null
     cap_sheet_expect keymapSheetOpen false "Escape did not close the sheet after mute"

@@ -266,6 +266,17 @@ Item {
         return out.join("\n")
     }
 
+    // The query results as JSON, each row's cap, wording and the muted where its delegate draws, for a test that reads the screen.
+    function resultState() {
+        var out = []
+        for (var r = 0; r < resultRepeater.count; r++) {
+            var item = resultRepeater.itemAt(r)
+            if (item)
+                out.push({ keys: item.modelData.keys, label: item.modelData.label, where: item.whereShown, disabled: item.modelData.disabled === true })
+        }
+        return JSON.stringify(out)
+    }
+
     // A dimmed ground, and a click on it closes, the same shape ui/ConvertDialog.qml uses.
     Rectangle {
         anchors.fill: parent
@@ -408,6 +419,7 @@ Item {
                 width: parent.width
                 visible: root.query.length > 0
                 Repeater {
+                    id: resultRepeater
                     model: root.queryResults
                     delegate: Flea.KeymapSheetResult {
                         width: parent.width

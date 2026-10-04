@@ -23,6 +23,8 @@ Item {
     // What a row has left of its width after the cap column.
     readonly property real labelColumn: hit.width - hit.capWidth - hit.capGap
     readonly property string whereText: String(hit.modelData.where || "")
+    // The muted where as drawn, "" when the row shows none, so a test reads the screen and not the model.
+    readonly property string whereShown: hitWhere.visible ? hitWhere.text : ""
     // The lift runs across the card's inner width, past the text's padding on both sides.
     Rectangle {
         x: -hit.textInset
