@@ -262,6 +262,16 @@ too): the re-list's count passes through 0 and resets the view, and without the 
 bottom-aligned the clicked row, 58 px up on a list that End had scrolled into its footer, which left the row below it
 under the status bar. `AnchorHold.viewport` names the scrolling surface, the active column's list in the columns view.
 
+**A column's directory is watched through a second inotify descriptor.** Issue 244 asked why a listing
+does not follow another program, and the open folder always did; the neighbour columns did not, because a
+`peek` reads a directory the pane is not on and nothing watched it. `src/backend/peekwatch.rs` holds the
+watches a `peek` carrying `"watch":true` arms (only `ui/ColumnsArea.qml` sends it), at most eight, on
+their own descriptor so evicting one can never remove the listed folder's. A fire answers the ordinary
+`changed` line for that directory, and `ColumnsArea.onChanged` re-asks it with `ask(path, true)`, which
+keeps the rows drawn until the reply replaces them. `tests/watch-views.sh` drives the real window offscreen
+through list, columns (middle, child and parent column), grid and both dual panes with a create, a rename
+and a delete from another process, and was red on the child and parent columns before this.
+
 **The selection is re-anchored by file identity; the re-read no longer waits for it.** `ui/js/Selection.js` is a set
 of row indices and its own rule is that a new listing clears them, because an index into a directory
 that has changed names another file. Re-pointing a selection at other files is how a delete hits the
@@ -3464,11 +3474,11 @@ case `click` then drives real clicks at the window, which is the half a JavaScri
 reach: it is what says a delegate hands `Tap.tapped` the tap count and the modifiers the click
 actually carried.
 
-The last three rows landed with issues 20 and 45 and are not `Tap.js`'s. `window` is the mouse's
-two side buttons, which belong to no row: `ui/WindowBody.qml` carries one handler for both and
-`ui/js/Nav.js` decides, `mouseBack` between the history and the climb and `mouseForward` retracing a
-back, both behind the same context-menu and collision-card refusal (`mouseRefused`), and forward never
-while Trash is open, as `Pane.goForward` refuses there. `chrome` is the path above the listing and,
+The last two places landed with issues 20 and 45 and are not `Tap.js`'s. `window` is the mouse's
+two side buttons, which belong to no row: `ui/WindowBody.qml` carries one handler for both, `ui/js/Nav.js`
+`mouseBack` decides between the history and the climb and `ui/js/MouseNav.js` `forward` hands a press
+to `Pane.goForward`, which is the key's own entry and so refuses in Trash and in Recent. Both go
+through `MouseNav.refused`, the context-menu and collision-card refusal. `chrome` is the path above the listing and,
 in the dual view, each pane's own path, whose segments `ui/Crumb.qml` draws as their own click
 targets for both, placed by `ui/ChromeBar.qml` and by `ui/PanePath.qml`, from `ui/js/Crumbs.js`.
 Until 0.3.2 a dual pane's path was one `Text` answering only the double click, so a tap on a parent
@@ -3495,7 +3505,8 @@ branch and the climb branch of `mouseBack` are each pressed through the shipped 
 is pressed the same way, from `crumbCentre`, which is the seam `ui/Ipc.qml` grew for it. Between the
 two back presses the case sends `ydotool click 0xC4`, button 4, which Qt reports as `Qt.ForwardButton`,
 requires the path forward again, and backs once more so the climb still finds the history spent;
-`tests/js/navmouse.js` drives `mouseForward` itself, because `tests/js/nav.js` is at its hard cap.
+`tests/js/navmouse.js` drives `MouseNav.forward` and the window's own handler (sliced from `ui/WindowBody.qml`, every
+overlay in turn, Trash and Recent), because `tests/js/nav.js` is at its hard cap.
 
 A crumb click answers on the first tap, GM's ruling of 2026-09-22. `ui/Crumb.qml` used to carry
 `exclusiveSignals: TapHandler.SingleTap | TapHandler.DoubleTap`, which makes the tap count decide by
@@ -5827,7 +5838,9 @@ there. Four triggers send only `rename` and its undo down one compatibility path
 rclone 1.75 returns `EINVAL` for `RENAME_NOREPLACE` on a directory under a mount identified exactly
 as `fuse.rclone` in `/proc/self/mountinfo`, and GVFS returns `EIO` for a rename under a
 `/run/user/*/gvfs/dav:` WebDAV mount; `fuse.megafs` answers `EINVAL` the same way, and a rename or
-its undo that crosses filesystems answers `EXDEV`.
+its undo that crosses filesystems answers `EXDEV`. Every other mount that answers `EINVAL`, a kernel nfs or nfs4
+export among them (PR 245), never copies: `noreplace_fallback` refuses a taken name, links a file or plain-renames a folder, and
+`src/backend/renamecompat_tests.rs` pins that the folder keeps its inode, a taken name or empty folder still refuses, and nfs stays off the copy fallback.
 corner: the lstat-then-rename window can replace a destination created in between; copy-fallback mounts never reach it because rename_noreplace keeps their EINVAL.
 Ordinary rclone directory rename is never used because it was
 proven to replace even a non-empty target. `renamecompat::rename_path` instead builds the target
@@ -5976,7 +5989,7 @@ capture, with its identities still checked per item. Move to Dropbox lost its ow
 Dropbox" sticky with this, because a move waiting on the card would have left it standing after a
 Cancel; transferstarted names the move a moment later. The shelf's own `flea shelf` actions and the
 TUI pass no choice and refuse as before. **The pane does not navigate behind the card**:
-`ui/js/Nav.js` `mouseBack` and `mouseForward` refuse while `pane.collide.opened`, the way they refuse
+`ui/js/MouseNav.js` `refused` stops `mouseBack` and `forward` while `pane.collide.opened`, the way it stops them
 behind the context menu, since the transfer waiting on the card names the folder it asked about; the
 keyboard and the chrome's own back and up buttons are covered by the card's focus and backdrop.
 `tests/ui-operations-design.sh` and `tests/ui-providers.sh`

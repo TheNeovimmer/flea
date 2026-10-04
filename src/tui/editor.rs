@@ -147,8 +147,7 @@ impl Editor {
         self.editable_end = self.editable_end + self.value.len() - old_length;
         self.error.clear();
     }
-    /// Render a clipped editor line, filtering unsafe value characters without changing byte offsets.
-    /// The style arguments are trusted terminal sequences; the stored filesystem spelling is retained.
+    /// A clipped editor line with unsafe value characters filtered at paint time, so byte offsets and the stored name are untouched.
     pub fn line(
         &self,
         prefix: &str,

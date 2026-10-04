@@ -90,11 +90,12 @@ Item {
         return root.peekVersion >= 0 && path.length > 0 && root.peeked[key] !== undefined
     }
 
-    function ask(path) {
+    // again re-asks a column already held, the rows staying until the reply replaces them.
+    function ask(path, again) {
         var key = root.peekKey(path), sent = Columns.sentKey(key, root.pane.windowSize)
-        if (path.length > 0 && !root.peeked[key] && !Columns.hasAsk(root.pending, sent)) {
+        if (path.length > 0 && (again === true || !root.peeked[key]) && !Columns.hasAsk(root.pending, sent)) {
             root.pending = Columns.trackAsk(root.pending, sent)
-            root.pane.backend.peek(path, root.pane.windowSize, root.pane.showHidden)
+            root.pane.backend.peek(path, root.pane.windowSize, root.pane.showHidden, undefined, true)
         }
     }
 
@@ -296,6 +297,9 @@ Item {
 
     Connections {
         target: root.pane.backend
+
+        // The backend watches each column's directory and says so with the line the listed folder gets; the pane's own path is PaneWire's.
+        function onChanged(path) { if (root.peeked[root.peekKey(path)] !== undefined) root.ask(path, true) }
 
         // hidden, hiddenLast and first are the request's own, echoed; first keeps a 1 or 512 repair peek out of a column waiting on the window size.
         function onPeeked(path, hidden, total, rows, readFailed, mode, hiddenLast, first) {

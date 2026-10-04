@@ -1563,6 +1563,13 @@ directory still listed nothing at all: its watch was never removed, and the desc
 events carry is still the current one. `search` and `listpaths` both stop watching, because a set of
 matches and a set of named paths are not directories.
 
+**A column's directory is watched too, and answers this same line.** A `peek` that carries
+`"watch":true`, which only the columns view sends, arms a non-recursive watch on its directory before
+it scans, on a second inotify descriptor of its own so that removing one can never remove the listed
+folder's watch. The watch fires the `changed` line with `path` naming the peeked directory, and the
+client re-asks that column; a client on another path drops the line as it always did. The set is
+capped at eight directories, the oldest dropped first, and a peek without the flag watches nothing.
+
 The mechanism is one inotify watch on that one directory, non-recursive, with the mask
 `IN_ATTRIB | IN_CLOSE_WRITE | IN_MOVED_FROM | IN_MOVED_TO | IN_CREATE | IN_DELETE | IN_MOVE_SELF`,
 which is exactly the set of events that changes what a listing says: which names are in it, and the

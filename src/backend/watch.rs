@@ -70,7 +70,7 @@ impl Watch {
             eprintln!("flea: the open folder will not follow outside changes, inotify is unavailable");
             return Watch { fd: -1, wd: -1, incoming: -1, mount: std::path::PathBuf::new(), incoming_mount: std::path::PathBuf::new() };
         }
-        thread::spawn(move || pump(fd, tx));
+        thread::spawn(move || pump(fd, tx, false));
         Watch { fd, wd: -1, incoming: -1, mount: std::path::PathBuf::new(), incoming_mount: std::path::PathBuf::new() }
     }
 
@@ -179,7 +179,7 @@ impl Watch {
 }
 
 // Sample input: wd 1, mask 0x00000100, cookie 0, len 16, then "NEWFILE.txt\0\0\0\0\0".
-fn pump(fd: c_int, tx: Sender<Event>) {
+pub(crate) fn pump(fd: c_int, tx: Sender<Event>, peek: bool) {
     let mut buf = [0u8; BUF];
     loop {
         let n = unsafe { read(fd, buf.as_mut_ptr() as *mut c_void, BUF) };
@@ -198,11 +198,11 @@ fn pump(fd: c_int, tx: Sender<Event>) {
         }
         let (changed, unmounted) = classify_burst(&buf[..n as usize]);
         for wd in changed {
-            if tx.send(Event::Changed(wd)).is_err() {
+            if tx.send(if peek { Event::PeekChanged(wd) } else { Event::Changed(wd) }).is_err() {
                 return;
             }
         }
-        for wd in unmounted {
+        for wd in unmounted.into_iter().filter(|_| !peek) {
             if tx.send(Event::Unmounted(wd)).is_err() {
                 return;
             }
