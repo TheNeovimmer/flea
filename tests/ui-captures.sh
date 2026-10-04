@@ -412,8 +412,7 @@ cap_permissions_special_single() {
 
 # Permissions040: from the file menu on the cursor row (right click), open the card and wait for it to settle idle.
 cap_permissions_open() {
-    local row="$1" end state
-    local settle_limit_s=15
+    local row="$1"
     click_row "$row" right
     settle
     [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_permissions: the menu on row $row never opened"
@@ -421,6 +420,11 @@ cap_permissions_open() {
         || fail "cap_permissions: Permissions is not live on row $row"
     menu_seek "Permissions"
     key -k Return >/dev/null
+    cap_permissions_settled
+}
+# Permissions040: wait until the card is open and idle.
+cap_permissions_settled() {
+    local end state settle_limit_s=15
     end=$((SECONDS + settle_limit_s))
     while (( SECONDS < end )); do
         state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
@@ -429,12 +433,41 @@ cap_permissions_open() {
     done
     fail "cap_permissions: Permissions never settled open and idle, last $state"
 }
+# Permissions040: a selected file removed after the menu opened and before Permissions asked about it, so its inspect fails with the backend's own words (the "other" note).
+cap_permissions_vanished() {
+    local row="$1" gone="$2"
+    local want="zz-gone.txt keeps its mode: Could not inspect permissions: file or folder not found."
+    [[ "$gone" == /?*/zz-gone.txt && "$gone" == "$fixture_root"/* ]] || fail "cap_permissions: the vanishing file is not inside the case's fixture"
+    click_row "$row" right
+    settle
+    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_permissions: the menu on row $row never opened"
+    [[ "$(ipc menuState | jq -er '[.entries[] | select(.action == "permissions")][0].disabled')" == "false" ]] \
+        || fail "cap_permissions: Permissions is not live on row $row before the file goes"
+    mapfile -t pids < <(backend_pids)
+    [[ "${#pids[@]}" == 1 ]] || fail "cap_permissions: the vanished-file shot needs one owned backend"
+    pid="${pids[0]}"
+    permissions_stopped="$pid"
+    trap 'permissions_resume_stopped "$permissions_stopped"; kill_flea' EXIT
+    convert_pause_backend "$pid"
+    rm -f -- "$gone" || fail "cap_permissions: the fixture file could not be removed"
+    menu_seek "Permissions"
+    key -k Return >/dev/null
+    permissions_resume_stopped "$pid" || fail "cap_permissions: the owned backend did not resume"
+    permissions_stopped=""
+    trap - EXIT
+    cap_permissions_settled
+    cap_permissions_expect ".displayedError == \"$want\"" "the vanished file draws another note than the backend's own words"
+    shot cap-permissions-other-note
+    key -k Escape >/dev/null
+    settle
+}
 
 # Permissions040: Apply on a selection that holds skips, the status line it leaves and the card that stays when every file is skipped, then a file this user does not own.
 cap_permissions_skips() {
-    local applied="Permissions changed for 1 of 2, and special.txt keeps its mode because its setuid bit is set."
-    local all="Permissions changed for 0 of 2, and 2 items keep their modes because a special bit is set: special.txt, x-special.txt."
+    local applied="special.txt kept its mode."
     local foreign="y-foreign.txt keeps its mode because you do not own it."
+    local foreign_applied="y-foreign.txt kept its mode."
+    local note="2 items keep their modes because a special bit is set: special.txt, x-special.txt."
     click_row 0 left
     settle
     click_row 5 left --mods ctrl
@@ -450,12 +483,10 @@ cap_permissions_skips() {
     click_row 6 left --mods ctrl
     settle
     cap_permissions_open 5
-    cap_permissions_expect ".displayedError == \"2 items keep their modes because a special bit is set: special.txt, x-special.txt.\"" "the two setuid files draw another note than the card note"
+    cap_permissions_expect ".displayedError == \"$note\"" "the two setuid files draw another note than the card note"
+    # Permissions040: a box shows the files' bit, so two 4644 files read rw-r--r-- at the disabled opacity and Apply cannot be pressed.
+    cap_permissions_expect '([.controls[] | select(.bit != null and .enabled == false)] | length == 9) and ([.controls[] | select(.bit != null and .value == "on")] | length == 4) and ([.controls[] | select(.name == "Apply")][0] | .enabled | not)' "the all-skipped card is not nine disabled boxes holding the files' rw-r--r-- with Apply disabled"
     shot cap-permissions-all-skipped-note
-    cap_permissions_focus Apply forward
-    key -k Return >/dev/null
-    cap_permissions_await ".opened and (.busy | not) and .displayedError == \"$all\"" "Apply over two skipped files does not leave the card with $all"
-    shot cap-permissions-all-skipped
     key -k Escape >/dev/null
     settle
     click_row 0 left
@@ -468,7 +499,7 @@ cap_permissions_skips() {
     cap_permissions_focus Apply forward
     key -k Return >/dev/null
     cap_permissions_closed
-    [[ "$(ipc statusPrimary)" == "Permissions changed for 1 of 2, and $foreign" ]] || fail "cap_permissions: the status line after Apply reads $(ipc statusPrimary) beside a foreign file"
+    [[ "$(ipc statusPrimary)" == "$foreign_applied" ]] || fail "cap_permissions: the status line after Apply reads $(ipc statusPrimary) beside a foreign file"
     shot cap-permissions-applied-foreign
 }
 # Permissions040: Apply held in flight by a paused owned backend leaves Cancel and the close mark disabled, then the backend resumes.
@@ -505,6 +536,7 @@ case_cap_permissions() {
     printf 'special\n' > "$dir/special.txt"
     printf 'second special\n' > "$dir/x-special.txt"
     printf 'foreign\n' > "$dir/y-foreign.txt"
+    printf 'gone\n' > "$dir/zz-gone.txt"
     printf '#!/bin/sh\necho run\n' > "$dir/run.sh"
     chmod 0644 "$dir/run.sh" || fail "cap_permissions: the shebang fixture mode failed"
     ln -s a.txt "$dir/link.txt" || fail "cap_permissions: the symlink fixture failed"
@@ -518,7 +550,7 @@ case_cap_permissions() {
     [[ "$(stat -c '%u' "$dir/y-foreign.txt")" != "$(id -u)" ]] || fail "cap_permissions: the foreign fixture is still owned by this user"
     seed_ui_state "$fixture_root/cap-permissions-state" '{"keys":"default","view":"list","menu":{"hidden":["delete","openTerminal","moveto","copyto","properties","copyAs","pasteAs","invertSelection"]}}'
     launch "$dir"
-    wait_listing 8
+    wait_listing 9
     cap_resize 904 699
     click_row 0 left
     settle
@@ -601,8 +633,13 @@ case_cap_permissions() {
     key -k Escape >/dev/null
     settle
     cap_permissions_skips
+    click_row 0 left
+    settle
+    click_row 8 left --mods ctrl
+    settle
+    cap_permissions_vanished 0 "$dir/zz-gone.txt"
     cap_permissions_inflight
-    printf 'CAP_PERMISSIONS mixed=3rows boxes=on,mixed,off,hover,pressed,click1,click2 single=apply,octal,error,disabled,close,special,pointer symlink=errored note=setuid menu=makeexec skips=applied,note,all,foreign inflight=disabled closemark=rest,hover,pressed,focus\n'
+    printf 'CAP_PERMISSIONS mixed=3rows boxes=on,mixed,off,hover,pressed,click1,click2 single=apply,octal,error,disabled,close,special,pointer symlink=errored note=setuid menu=makeexec skips=applied,note,foreign other=note inflight=disabled closemark=rest,hover,pressed,focus\n'
     kill_flea
 }
 

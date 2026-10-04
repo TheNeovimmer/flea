@@ -34,7 +34,8 @@ FocusScope {
     property int multiApplySent: 0
     readonly property bool isMulti: multiPaths.length > 1
     readonly property var multiSummary: isMulti ? Permissions.summarize(multiModes, multiStore.reasons) : null
-    readonly property bool editable: isMulti ? !busy && !transportFailed
+    // Several items: a selection where no file can change shows the files' bits and is not editable, as one unchangeable file is.
+    readonly property bool editable: isMulti ? !busy && !transportFailed && !!multiSummary && multiSummary.changeable
                                               : facts.ok === true && !facts.reason && !busy && !transportFailed
     readonly property int modeValue: Permissions.parse(modeText)
     readonly property bool applying: busy && facts.ok === true
@@ -57,7 +58,7 @@ FocusScope {
     function bitWidth(column) { return root.bitStart(column + 1) - root.bitStart(column) }
     // The box sits at the rounded exact centre of its third, so it lands on whole pixels where the board's does.
     function boxLead(column, box) { return Math.floor((2 * column * root.bitSpan + root.bitSpan - 3 * box + 3) / 6) - root.bitStart(column) }
-    // lib.py note(): a caption's line box is 1.5 x its size and its glyphs sit centred in it; the note and the column headings share it.
+    // lib.py note(): a caption's line box is 1.5 x its size and its glyphs sit centred in it.
     readonly property int captionLineBox: Math.round(root.noteLineRatio * Theme.font.caption)
     readonly property int captionLead: Math.round((root.captionLineBox - noteFont.height) / 2)
     // Permissions040's strip draws the title and "esc" glyphs one row above where Qt's line box seats them (board rows 7-16 and 10-16, the build's 8-17 and 11-17 once centred above the rule).
@@ -194,7 +195,7 @@ FocusScope {
         if (message.op === "applyMany") {
             applyingMany = false
             if (message.ok === true) {
-                changed(Permissions.multiResult(multiApplySent, multiPaths.length, multiApplySkipped))
+                changed(Permissions.multiResult(multiApplySkipped))
                 close()
                 return
             }
@@ -218,9 +219,9 @@ FocusScope {
         // Accumulated in place through noteMode, which answers true once per selection.
         if (Permissions.noteMode(multiStore, at, multiPaths[at], message)) {
             multiPending = 0
-            busy = false
-            // The single assignment lands with the last reply.
+            // The single assignment lands with the last reply, before busy clears, so editable never reads the previous selection's summary.
             multiModes = multiStore.modes.slice()
+            busy = false
             var note = Permissions.inspectNote(multiStore, multiPaths)
             if (note.length > 0 && errorText.length === 0) errorText = note
             cancelFocus.forceActiveFocus()
@@ -290,7 +291,7 @@ FocusScope {
         if (paths.length === 0) {
             applyingMany = false
             busy = false
-            errorText = Permissions.multiResult(0, multiPaths.length, skipped)
+            errorText = Permissions.multiResult(skipped)
             cancelFocus.forceActiveFocus()
             return
         }
@@ -424,25 +425,7 @@ FocusScope {
                     Text { id: kindLabel; anchors.verticalCenter: parent.verticalCenter; text: root.facts.ok ? (root.facts.directory ? "directory" : "file") : ""; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.caption } }
                 }
                 Rectangle { width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4; visible: !root.isMulti }
-                Row {
-                    width: parent.width
-                    height: root.headingHeight
-                    Item { width: root.labelWidth; height: parent.height }
-                    Repeater {
-                        model: ["READ", "WRITE", root.isMulti || !root.facts.directory ? "EXEC" : "ENTER"]
-                        // The board's row centres a one-line box in the heading and the glyphs in that box, so a floor, not Qt's half pixel, sets its top.
-                        Text {
-                            required property string modelData
-                            required property int index
-                            width: root.bitWidth(index); height: root.captionLineBox
-                            y: Math.floor((parent.height - height) / 2)
-                            lineHeight: height; lineHeightMode: Text.FixedHeight; topPadding: root.captionLead
-                            horizontalAlignment: Text.AlignHCenter
-                            text: modelData; textFormat: Text.PlainText; color: Theme.color.foreground
-                            font { family: Theme.font.family; pixelSize: Theme.font.caption; letterSpacing: Theme.font.caption / 10 }
-                        }
-                    }
-                }
+                Flea.PermissionsHeadings { width: parent.width; card: root; enter: !root.isMulti && root.facts.directory === true }
                 Repeater {
                     id: permissionRows
                     model: ["Owner", "Group", "Everyone"]

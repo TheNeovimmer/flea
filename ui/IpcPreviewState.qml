@@ -62,7 +62,7 @@ QtObject {
                 visible: control.visible, centre: root.fleaWindow.centreOf(control) } }) })
     }
     function previewExpanded(): string { var p = root.pane.preview.pdfItem; return p ? String(p.expanded) : "" }
-    function previewSwapState(): string { return JSON.stringify({ column: root.columns ? root.columns.swapState() : null, look: root.pane.preview.swapState() }) }
+    function previewSwapState(): string { return JSON.stringify({ column: root.columns ? root.columns.swapState() : null, look: root.pane.preview.swapState(), lookVisible: root.pane.preview.visible }) }
     function previewSurfaceRect(): string { return root.fleaWindow.rectOf(root.pane.preview.surfaceItem()) }
     function previewPictureRect(): string { var p = root.pane.preview; if (!p) return ""; if (p.isImage) { var im = p.surfaceItem(); return im ? root.fleaWindow.rectOf(im.pictureItem) : "" } if (p.isMedia) { var me = p.surfaceItem(); return me ? root.fleaWindow.rectOf(me.contentItem) : "" } return "" }
     function previewMediaLoaded(): bool { return root.pane.preview.mediaLoaded() }

@@ -16,6 +16,8 @@ Item {
     // DragThreshold lets a drag that starts on a chrome bar button move the window; an overlay's instance passes ReleaseWithinBounds.
     property int gesturePolicy: TapHandler.DragThreshold
     property real glyphSize: Theme.chromeMarkSize
+    // Rows at the bottom of the hit box that a strip's own rule takes; the ring keeps a hairline clear of them and the glyph stays put.
+    property int ruleRows: 0
 
     signal activated()
 
@@ -60,16 +62,22 @@ Item {
     }
 
     // ButtonSystem040 A: the keyboard rings the mark, 24 square, trimmed to leave a hairline in a short strip and to the glyph's parity so both land whole.
-    Rectangle {
-        id: ring
-        readonly property int room: Math.min(Math.max(Theme.hitMin, root.glyphSize), root.height - 2 * Theme.spacing.hairline)
-        anchors.centerIn: parent
-        width: ring.room - (ring.room - root.glyphSize) % 2
-        height: width
-        color: "transparent"
-        border.width: Buttons.RING
-        border.color: Theme.color.foreground
-        visible: root.keyboardFocused && root.enabled
+    // The ring centres in the rows above a strip's rule, so it keeps a clear row each side of itself, and the glyph never moves.
+    Item {
+        id: ringBand
+        width: root.width
+        height: root.height - root.ruleRows
+        Rectangle {
+            id: ring
+            readonly property int room: Math.min(Math.max(Theme.hitMin, root.glyphSize), ringBand.height - 2 * Theme.spacing.hairline)
+            anchors.centerIn: parent
+            width: ring.room - (ring.room - root.glyphSize) % 2
+            height: width
+            color: "transparent"
+            border.width: Buttons.RING
+            border.color: Theme.color.foreground
+            visible: root.keyboardFocused && root.enabled
+        }
     }
 
     Flea.Glyph {

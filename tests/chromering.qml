@@ -51,6 +51,20 @@ ShellRoot {
             Flea.ChromeButton { id: muted; glyph: "x"; keyboardFocused: true; restingColor: Flea.Theme.color.muted }
             Flea.ChromeButton { id: lit; glyph: "x"; active: true; keyboardFocused: true }
         }
+
+        // A strip that draws its rule in the hit box's last row, as the PDF and Markdown Quick Look strips do.
+        Item {
+            id: strip
+            y: 60
+            width: 120
+            height: Flea.Theme.chromeHeight
+            Rectangle { id: stripRule; anchors.bottom: parent.bottom; width: parent.width; height: Flea.Theme.spacing.hairline; color: Flea.Theme.color.foreground }
+            Row {
+                spacing: 12
+                Flea.ChromeButton { id: ruled; glyph: "x"; keyboardFocused: true; ruleRows: Flea.Theme.spacing.hairline }
+                Flea.ChromeButton { id: bare; glyph: "x"; keyboardFocused: true }
+            }
+        }
     }
 
     Timer {
@@ -104,9 +118,16 @@ ShellRoot {
             check(tag + "the mark is the icon token scaled to the stop", markRead(hot, function (mark) { return mark.width }), root.wantMark(root.stops[i]))
             check(tag + "the hit box is as wide as the larger of the 24 floor and the mark", hot.width, Math.max(root.ringBoard, root.wantMark(root.stops[i])))
             check(tag + "the hit box is the strip's height off the row", hot.height, root.wantStrip(root.stops[i]))
+            var ruledRing = ringRead(ruled, function (ring) { return ring.y + "," + (ring.y + ring.height) })
+            var rows = ruledRing.split(",")
+            check(tag + "a ring over a strip rule keeps a clear row above it", Number(rows[0]) >= Flea.Theme.spacing.hairline, true)
+            check(tag + "a ring over a strip rule keeps a clear row between it and the rule", stripRule.y - Number(rows[1]) >= Flea.Theme.spacing.hairline, true)
+            check(tag + "the rule's room moves the ring and never the glyph", markRead(ruled, function (mark) { return mark.y }), markRead(bare, function (mark) { return mark.y }))
             marks[root.wantMark(root.stops[i])] = true
             strips[root.wantStrip(root.stops[i])] = true
         }
+        root.stopState(root.boardStop)
+        check("a ring over a strip rule is still the board's 24 square", ringRead(ruled, function (ring) { return ring.width + "x" + ring.height }), root.ringBoard + "x" + root.ringBoard)
         check("the stops draw more than one mark size", Object.keys(marks).length > 1, true)
         check("the stops draw more than one hit box height", Object.keys(strips).length > 1, true)
         report()

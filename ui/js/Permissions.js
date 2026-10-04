@@ -18,15 +18,30 @@ function toggle(text, bit) {
     return value < 0 ? text : octal(value ^ bit)
 }
 
+// The nine rwx bits of a mode, below the special bits.
+var PERMISSION_BITS = 0x1ff
+
+// Sample input: "4644" answers 420 (0o644), "0755" answers 493, "" answers -1; the nine permission bits of a mode that carries special bits too.
+function shownBits(text) {
+    return /^[0-7]{3,4}$/.test(String(text)) ? parseInt(text, 8) & PERMISSION_BITS : -1
+}
+
 // Sample input: (["0644", "4644"], ["", "Read-only: setuid bit is present."]); one row per permission bit, in grid order.
-// A file the card skips (a mode parse refuses, or a reason) neither sets nor mixes a bit.
+// A file the card skips (a mode parse refuses, or a reason) neither sets nor mixes a bit; when every file is skipped the boxes show their own bits and changeable is false.
 function summarize(modes, reasons) {
     var values = []
+    var shown = []
     for (var i = 0; i < modes.length; i++) {
         var value = parse(modes[i])
         if (value >= 0 && !(reasons && reasons[i]))
             values.push(value)
+        var bits9 = shownBits(modes[i])
+        if (bits9 >= 0)
+            shown.push(bits9)
     }
+    var changeable = values.length > 0
+    if (!changeable)
+        values = shown
     var bits = []
     var anyMixed = false
     for (var b = 0; b < 9; b++) {
@@ -44,7 +59,7 @@ function summarize(modes, reasons) {
             anyMixed = true
         bits.push({ mask: mask, on: values.length > 0 && on, mixed: mixed })
     }
-    return { bits: bits, mixed: anyMixed }
+    return { bits: bits, mixed: anyMixed, changeable: changeable }
 }
 
 function mixedNote() { return "Mixed boxes keep each file's own bit unless you change them." }
@@ -136,11 +151,11 @@ function skipNote(skipped) {
     return list.length + " items keep their modes because " + cause + ": " + names.join(", ") + tail + "."
 }
 
-// Sample input: (1, 2, [{ path: "/d/special.txt", why: "Read-only: setuid bit is present." }]) answers "Permissions changed for 1 of 2, and special.txt keeps its mode because its setuid bit is set."
-// A batch with a skip is one sentence carrying every count and the card note's own words, never a plain success.
-function multiResult(changed, total, skipped) {
+// Sample input: one file answers "special.txt kept its mode."; three answer "3 items kept their modes."; the reason is the card note's, said before Apply.
+// The status bar's room beside the counts and the disk is about 320 px at 800 wide, so the line holds no count of what changed, which the card closing already said.
+function multiResult(skipped) {
     var list = skipped || []
     if (list.length === 0)
         return "Permissions changed."
-    return "Permissions changed for " + changed + " of " + total + ", and " + skipNote(list)
+    return list.length === 1 ? leafOf(list[0].path) + " kept its mode." : list.length + " items kept their modes."
 }

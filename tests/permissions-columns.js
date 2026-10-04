@@ -9,8 +9,8 @@ var BOARD_HEAD_X = [113, 230, 346]
 var BOARD_HEAD_WIDTH = [117, 116, 117]
 var BOARD_BOX_X = [162, 279, 396]
 var COLUMNS = 3
-// The note's line box is 1.5 x the caption, and the heading takes the same box.
-var LINE_RATIO = 1.5
+// The board's headings inherit the body's line-height of 1.6, so their line box is 1.6 x the caption, not the note's 1.5.
+var LINE_RATIO = 1.6
 // Text.FixedHeight, which a library cannot name.
 var FIXED_HEIGHT = 1
 
@@ -52,14 +52,31 @@ function checkColumns(shell, tag, card, stop) {
         shell.same(tag + " boxes start at the board's card x 162, 279 and 396", boxes.join(","), BOARD_BOX_X.join(","))
 }
 
-// The heading's line box is centred in its row as the board's flex row centres it, and its glyphs are centred in the box as the note's are.
-function checkHeading(shell, tag, card, captionHeight, caption) {
+// The heading's 1.6 line box is centred in its row as the board's flex row centres it, and its glyphs are centred in the box as the note's are.
+function checkHeading(shell, tag, card, captionHeight, caption, inkUnderLineTop, stop) {
     var head = textsNamed(card.bodyItem, "READ", [])[0]
     if (!head) { shell.check(tag + " heading is reachable", false, "no READ"); return }
     var box = Math.round(LINE_RATIO * caption)
     var got = head.lineHeight + "/" + (head.lineHeightMode === FIXED_HEIGHT) + "/" + head.topPadding + "/" + head.y
     shell.same(tag + " heading line box is centred in its row and holds its glyphs centred", got,
         box + "/true/" + Math.round((box - captionHeight) / 2) + "/" + Math.floor((card.headingHeight - box) / 2))
+    checkHeadingInk(shell, tag, card, inkUnderLineTop, stop)
+}
+
+// Permissions040 at 14, several items: the READ, WRITE and EXEC glyphs span rows 49 to 57 from the card top, read off the board's render.
+// The probe reads the font's tight box off its ascent, which lands one row under where the raster draws the ink (the 0.3.8 build read 51 here and drew 50 in the capture).
+var PROBE_ROW_BIAS = 1
+var BOARD_HEAD_INK_TOP = 49
+
+// Sample input: a heading at card y 45 with a 1 px lead and ink 4 px under the line top answers 50, which is board row 49 once the probe's bias is taken off.
+// The caller reads the ink's offset from the font, never the dialog: a tight box sits on the baseline, one ascent under the line box's top.
+// The heading's ink top in card px is its box top, its top padding and that offset; it holds on the board's row at its own stop.
+function checkHeadingInk(shell, tag, card, inkUnderLineTop, stop) {
+    if (stop !== BOARD_STOP || !card.isMulti) return
+    var head = textsNamed(card.bodyItem, "READ", [])[0]
+    if (!head) { shell.check(tag + " heading ink is reachable", false, "no READ"); return }
+    var top = head.mapToItem(card.cardItem, 0, 0).y + head.topPadding + inkUnderLineTop
+    shell.same(tag + " heading ink starts on the board's row " + BOARD_HEAD_INK_TOP, Math.round(top) - PROBE_ROW_BIAS, BOARD_HEAD_INK_TOP)
 }
 
 // A focused field is its own frame in the accent, the error role where its error line shows, and the muted rule once the keyboard leaves.

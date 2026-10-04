@@ -19,8 +19,19 @@ function run(check) {
         Permissions.summarize(["0644", "0755"], ["", "Read-only: you are not the owner."]).mixed, false)
     check("a reasoned row leaves the other file's bits as they are",
         Permissions.summarize(["0644", "0755"], ["", "Read-only: you are not the owner."]).bits[2].on, false)
-    check("a selection of only skipped files shows every box off",
-        Permissions.summarize(["4644", "2755"]).bits.every(function (b) { return !b.on && !b.mixed }), true)
+    // Permissions040: when no selected file can change, the boxes show the files' own bits and the card is not editable.
+    var allSkipped = Permissions.summarize(["4644", "4644"], ["Read-only: setuid bit is present.", "Read-only: setuid bit is present."])
+    check("two setuid files both 4644 read rw-r--r-- and change nothing",
+        allSkipped.bits.map(function (b) { return b.on ? "on" : b.mixed ? "some" : "off" }).join(",") + "|" + allSkipped.changeable,
+        "on,on,off,on,off,off,on,off,off|false")
+    var mixedSkipped = Permissions.summarize(["4644", "2755"])
+    check("skipped files that differ show a bar where they differ",
+        mixedSkipped.bits.map(function (b) { return b.on ? "on" : b.mixed ? "some" : "off" }).join(",") + "|" + mixedSkipped.mixed + "|" + mixedSkipped.changeable,
+        "on,on,some,on,off,some,on,off,some|true|false")
+    check("a refused inspect shows no bit and changes nothing",
+        Permissions.summarize(["", ""]).bits.every(function (b) { return !b.on && !b.mixed }) + "|" + Permissions.summarize(["", ""]).changeable, "true|false")
+    check("one changeable file keeps the card editable and shows only its bits",
+        Permissions.summarize(["0644", "4755"]).changeable + "|" + Permissions.summarize(["0644", "4755"]).bits[2].on, "true|false")
     // The words a skip line composes hold at most one colon; a lone other reason is quoted after it as the backend wrote it.
     var setuid = "Read-only: setuid bit is present."
     var owner = "Read-only: you are not the owner."
@@ -54,28 +65,26 @@ function run(check) {
                  Permissions.skipNote([{ path: "/d/a", why: owner }, { path: "/d/b", why: setuid }]),
                  Permissions.skipNote([{ path: "/d/a", why: "Gone." }]),
                  Permissions.skipNote([{ path: "/d/a", why: "Gone" }]),
-                 Permissions.multiResult(1, 2, [{ path: "/d/special.txt", why: setuid }]),
-                 Permissions.multiResult(1, 5, [{ path: "/d/a", why: setuid }, { path: "/d/b", why: setuid }, { path: "/d/c", why: setuid }, { path: "/d/d", why: setuid }])]
+                 Permissions.multiResult([{ path: "/d/special.txt", why: setuid }]),
+                 Permissions.multiResult([{ path: "/d/a", why: setuid }, { path: "/d/b", why: setuid }, { path: "/d/c", why: setuid }, { path: "/d/d", why: setuid }])]
     check("every skip line holds at most one colon and ends in one period",
         lines.every(function (line) { return line.split(":").length - 1 <= 1 && line.split(". ").length === 1 && /[^.]\.$/.test(line) }), true)
-    // The post-Apply line is one sentence whose skip clause is the card note's own words.
-    check("a lone special-bit skip after Apply reads as the card note does",
-        Permissions.multiResult(1, 2, [{ path: "/d/special.txt", why: setuid }]),
-        "Permissions changed for 1 of 2, and special.txt keeps its mode because its setuid bit is set.")
-    check("a lone foreign file after Apply reads as the card note does",
-        Permissions.multiResult(1, 2, [{ path: "/d/a.txt", why: owner }]),
-        "Permissions changed for 1 of 2, and a.txt keeps its mode because you do not own it.")
-    check("three skips after Apply list all three names and end with a period",
-        Permissions.multiResult(1, 4, [{ path: "/d/a", why: setuid }, { path: "/d/b", why: setuid }, { path: "/d/c", why: setuid }]),
-        "Permissions changed for 1 of 4, and 3 items keep their modes because a special bit is set: a, b, c.")
-    check("more than three skips after Apply count the rest",
-        Permissions.multiResult(1, 5, [{ path: "/d/a", why: setuid }, { path: "/d/b", why: setuid }, { path: "/d/c", why: setuid }, { path: "/d/d", why: setuid }]),
-        "Permissions changed for 1 of 5, and 4 items keep their modes because a special bit is set: a, b, c and 1 more.")
-    check("a backend reason with a path colon is quoted verbatim after Apply",
-        Permissions.multiResult(1, 2, [{ path: "/d/a.txt", why: "Could not read /mnt/c:d." }]),
-        "Permissions changed for 1 of 2, and a.txt keeps its mode: Could not read /mnt/c:d.")
-    check("a lone backend reason without a period still ends the line with one",
-        Permissions.multiResult(0, 1, [{ path: "/d/a.txt", why: "Gone" }]),
-        "Permissions changed for 0 of 1, and a.txt keeps its mode: Gone.")
-    check("an untouched batch is still the plain success", Permissions.multiResult(2, 2, []), "Permissions changed.")
+    // The post-Apply line names what was kept and never why or how many changed: the card's note said the reason before Apply, and the status bar cuts a long line in the middle.
+    check("a lone special-bit skip after Apply names the file kept",
+        Permissions.multiResult([{ path: "/d/special.txt", why: setuid }]),
+        "special.txt kept its mode.")
+    check("a lone foreign file after Apply names the file kept",
+        Permissions.multiResult([{ path: "/d/a.txt", why: owner }]),
+        "a.txt kept its mode.")
+    check("several skips after Apply count the items kept",
+        Permissions.multiResult([{ path: "/d/a", why: setuid }, { path: "/d/b", why: setuid }, { path: "/d/c", why: setuid }]),
+        "3 items kept their modes.")
+    check("a backend reason is never quoted after Apply, so no colon of its own rides the line",
+        Permissions.multiResult([{ path: "/d/a.txt", why: "Could not read /mnt/c:d." }]),
+        "a.txt kept its mode.")
+    check("a line never carries a changed-for clause, even when nothing changed",
+        Permissions.multiResult([{ path: "/d/a.txt", why: "Gone" }]) + "|"
+        + Permissions.multiResult([{ path: "/d/special.txt", why: setuid }, { path: "/d/x-special.txt", why: setuid }]),
+        "a.txt kept its mode.|2 items kept their modes.")
+    check("an untouched batch is still the plain success", Permissions.multiResult([]), "Permissions changed.")
 }

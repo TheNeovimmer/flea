@@ -134,4 +134,14 @@ function run(check) {
     check("the strip groups no border properties, where a width would hide from the reader", /\bborder\s*\{/.test(chrome), false)
     check("the reader sees a border width inside a one-line item", valuesOf("Rectangle { border.width: 2; color: x }", "border.width").join("|"), "2")
     check("the block reader finds a nested block whole", blockOf("A { id: x; B { y: 1 } } C { z: 2 }", "id: x"), "{ id: x; B { y: 1 } }")
+
+    // A ChromeButton under a strip rule drawn in its own last row takes the rule's row off its ring; the Permissions title band and the inline PDF strip draw no such rule.
+    var ruled = { "ui/PdfViewer.qml": 6, "ui/MarkdownPane.qml": 1, "ui/PermissionsDialog.qml": 0, "ui/PreviewColumn.qml": 0 }
+    for (var host in ruled) {
+        var hostText = Source.source(host)
+        var wanted = ruled[host]
+        var drawn = hostText.split("Flea.ChromeButton {").length - 1
+        check(host + " gives every strip rule's row to its ring", hostText.split("ruleRows: Theme.spacing.hairline").length - 1, wanted)
+        check(host + " hosts the buttons the pin counts", wanted === 0 || drawn === wanted, true)
+    }
 }

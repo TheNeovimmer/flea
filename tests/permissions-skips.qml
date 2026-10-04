@@ -17,6 +17,9 @@ ShellRoot {
     readonly property var gridBits: [256, 128, 64, 32, 16, 8, 4, 2, 1]
     readonly property int ownerExecute: 64
     // Permissions040 draws the title glyphs on rows 7-16 from the card top, esc on 10-16 and the lock on 7-20; at base 14 the 17 px line boxes and the 16 px lock sit at these tops.
+    // Text size 14 in a window 800 px wide, the narrowest the post-Apply line must fit whole in, with a 20-character name.
+    readonly property int statusWindowWidth: 800
+    readonly property string longestName: "twenty-char-name.txt"
     readonly property var boardStripTops: ({ lock: 5, title: 4, esc: 4 })
 
     function log(line) { console.log("PERMSKIP " + line) }
@@ -52,6 +55,28 @@ ShellRoot {
     }
 
     Item { id: holder }
+
+    // The real StatusBar, which draws the line the dialog's changed note becomes and elides its middle when it does not fit.
+    Item {
+        width: shell.statusWindowWidth
+        height: bar.implicitHeight
+        Flea.StatusBar {
+            id: bar
+            width: shell.statusWindowWidth
+            path: "/d"
+            total: 5
+            listingState: "ready"
+            fsName: "overlay"
+            fsFree: 142300000000
+        }
+    }
+    // The note the dialog's Apply hands the status bar, as ui/WindowBody.qml says it.
+    property string appliedNote: ""
+    function checkStatusLine() {
+        shell.check("status-bar-shows-the-one-skip-line-whole",
+            shell.appliedNote.indexOf(shell.longestName) >= 0 && bar.primaryItem.text === shell.appliedNote && !bar.primaryItem.truncated,
+            bar.primaryItem.text + "|truncated=" + bar.primaryItem.truncated + "|width=" + bar.primaryItem.width + "/" + bar.primaryItem.implicitWidth)
+    }
 
     FloatingWindow {
         implicitWidth: 904
@@ -89,19 +114,50 @@ ShellRoot {
             shell.check("foreign-file-is-named-in-one-sentence", dialog.displayedError === "b.txt keeps its mode because you do not own it.", dialog.displayedError)
             shell.phase = 3
         } else if (shell.phase === 3) {
-            Flea.ViewState.load(JSON.stringify({ display: { textSize: { mode: shell.boardStop } } }))
-            shell.open(["/d/a.txt", "/d/b.txt", "/d/c.txt"], [["0644", ""], ["0600", ""], ["0755", ""]])
+            // Permissions040: two files that are both 4644 draw rw-r--r-- at the disabled opacity, with Apply disabled and the note kept, as one unchangeable file does.
+            shell.open(["/d/special.txt", "/d/x-special.txt"], [["4644", setuid], ["4644", setuid]])
+            shell.check("all-skipped-boxes-show-the-files-bits", shell.reads() === "on,on,off,on,off,off,on,off,off", shell.reads())
+            var controls = dialog.controls()
+            var boxes = controls.filter(function (control) { return control.bit !== undefined })
+            var apply = controls.filter(function (control) { return control.name === "Apply" })[0]
+            shell.check("all-skipped-card-is-not-editable-and-apply-is-disabled",
+                !dialog.editable && boxes.length === shell.gridBits.length && boxes.every(function (control) { return !control.enabled }) && !apply.enabled,
+                dialog.editable + "/" + boxes.length + "/" + apply.enabled)
+            var before = shell.sent.length
+            dialog.apply()
+            shell.check("all-skipped-apply-sends-nothing", shell.sent.length === before && !dialog.applyingMany, shell.sent.length + "/" + before)
+            shell.check("all-skipped-card-keeps-its-note", dialog.displayedError === "2 items keep their modes because a special bit is set: special.txt, x-special.txt.", dialog.displayedError)
+            shell.open(["/d/special.txt", "/d/y.txt"], [["4644", setuid], ["4755", setuid]])
+            shell.check("all-skipped-files-that-differ-show-a-bar", dialog.multiValue(shell.ownerExecute) === "some" && !dialog.editable, shell.reads() + "/" + dialog.editable)
+            shell.open(["/d/a.txt", "/d/special.txt"], [["0644", ""], ["4644", setuid]])
+            shell.check("one-changeable-file-keeps-the-card-editable", dialog.editable && dialog.multiSummary.changeable, String(dialog.editable))
             shell.phase = 4
         } else if (shell.phase === 4) {
-            shell.checkStrip()
+            Flea.ViewState.load(JSON.stringify({ display: { textSize: { mode: shell.boardStop } } }))
+            shell.open(["/d/a.txt", "/d/b.txt", "/d/c.txt"], [["0644", ""], ["0600", ""], ["0755", ""]])
             shell.phase = 5
         } else if (shell.phase === 5) {
+            shell.checkStrip()
+            shell.phase = 6
+        } else if (shell.phase === 6) {
+            // One file changes and the 20-character one is skipped; the backend's ok reply closes the card and the note rides to the status bar.
+            shell.open(["/d/a.txt", "/d/" + shell.longestName], [["0644", ""], ["4644", setuid]])
+            dialog.applyMany()
+            dialog.receiveMany({ op: "applyMany", id: dialog.requestId, ok: true })
+            shell.phase = 7
+        } else if (shell.phase === 7) {
+            shell.checkStatusLine()
+            shell.phase = 8
+        } else if (shell.phase === 8) {
             for (var i = 0; i < shell.failures.length; i++) shell.log("FAIL " + shell.failures[i])
             shell.log("DONE failures=" + shell.failures.length)
-            shell.phase = 6
+            shell.phase = 9
             shell.quit()
         }
     }
 
-    Component.onCompleted: dialog.requested.connect(function (m) { shell.sent.push(m) })
+    Component.onCompleted: {
+        dialog.requested.connect(function (m) { shell.sent.push(m) })
+        dialog.changed.connect(function (note) { shell.appliedNote = note; bar.say(note, false) })
+    }
 }
