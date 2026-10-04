@@ -8,14 +8,34 @@ import "flea/js/TextSize.js" as TextSize
 
 // Every row each settings section builds, drawn by the real ui/SettingsRow.qml at the pane's width:
 // a hint and the Display ruler start on their control's label column, HANDOFF rules 3 and 8, and
-// only the pane's footer line starts at the row's own edge. tests/settings-columns.sh drives it.
+// only the pane's footer line starts at the row's own edge. The hint band and a caption's baseline are
+// measured against the boards' own numbers at GM's text size 14. tests/settings-columns.sh drives it.
 ShellRoot {
     id: root
 
     // A state every section's rows() accepts; no value in it moves a column, only which rows exist.
-    readonly property var probeState: ({ data: {}, home: "/probe", favouriteStatuses: {}, pins: [], selectedFavourite: "",
+    readonly property var probeState: ({ data: { startIn: "last" }, home: "/probe", favouriteStatuses: {}, pins: [], selectedFavourite: "",
         about: {}, saveStatus: "", textSize: TextSize.follow(), hidden: [], keyHints: false, preset: "default",
         baseSize: 14, monitorScale: 1, cornerRadius: 8, presetKeys: {} })
+
+    // The size the boards are drawn at, GM's own, which Omarchy's stock 12 is not.
+    readonly property int boardTextSize: 14
+    // Tabs040.html data-flea="hint": padding 4px 14px 2px 42px, 12px type, line-height 1.5, so 4 + 18 + 2 and one 18 px line.
+    readonly property int boardHintTop: 4
+    readonly property int boardHintLine: 18
+    readonly property int boardHintBottom: 2
+    // KeyboardFlows board, "View, Cursor at defaults", measured at 3x in ClickAndRefresh F7: the "Wrap at list ends" ink spans rows 1406..1419 and its caption's rows 1407..1417.
+    readonly property int boardLabelTop: 1406
+    readonly property int boardLabelBottom: 1419
+    readonly property int boardCaptionTop: 1407
+    readonly property int boardCaptionBottom: 1417
+
+    // The footer line's band at 14 with the pinned font, measured on 585c9a5c before the hint band moved.
+    readonly property int footerBand: 49
+    readonly property int footerTop: 21
+
+    FontMetrics { id: bodyMetrics; font.family: Flea.Theme.font.family; font.pixelSize: Flea.Theme.font.body }
+    FontMetrics { id: captionMetrics; font.family: Flea.Theme.font.family; font.pixelSize: Flea.Theme.font.caption }
 
     Item {
         id: holder
@@ -39,8 +59,35 @@ ShellRoot {
         return null
     }
 
+    // The visible Text drawing exactly this string under an item, depth first; null when none does.
+    function findText(item, text) {
+        if (!item.visible)
+            return null
+        if (item.text === text && item.elide !== undefined)
+            return item
+        for (var i = 0; i < item.children.length; i++) {
+            var found = root.findText(item.children[i], text)
+            if (found !== null)
+                return found
+        }
+        return null
+    }
+
+    // A Text's own y in the row it sits in, whatever it is nested in.
+    function yIn(item, text) {
+        var y = 0
+        for (var at = text; at !== item; at = at.parent)
+            y += at.y
+        return y
+    }
+
+    // The whole pixel row a Text's baseline is drawn on.
+    function baselineIn(item, text) {
+        return Math.round(root.yIn(item, text) + text.baselineOffset)
+    }
+
     function measure() {
-        var out = { label: [], hint: [], ruler: [], footer: [], failures: [] }
+        var out = { label: [], hint: [], ruler: [], footer: [], bands: [], captions: [], failures: [] }
         var sections = Settings.SECTIONS.map(function (section) { return section.id }).concat(["columns"])
         for (var s = 0; s < sections.length; s++) {
             var rows = []
@@ -56,10 +103,67 @@ ShellRoot {
                          : row.kind === "ruler" ? "ruler" : item.isGroup || item.isHero || item.isFavourite || item.isKeyPreview ? "" : "label"
                 if (kind !== "")
                     out[kind].push({ at: sections[s] + ": " + (row.label || row.id), x: root.textX(item, row) })
+                if (kind === "hint" || kind === "footer") {
+                    var line = root.findText(item, row.label)
+                    out.bands.push({ at: sections[s] + ": " + row.label, footer: kind === "footer", height: item.height,
+                                     y: line.y, lineHeight: line.height, lines: line.lineCount, baseline: root.baselineIn(item, line) })
+                }
+                if (kind === "label" && row.caption !== undefined) {
+                    var label = root.findText(item, row.label)
+                    var caption = root.findText(item, row.caption)
+                    out.captions.push({ at: sections[s] + ": " + row.label, text: row.label, captionText: row.caption,
+                                        label: root.baselineIn(item, label), caption: root.baselineIn(item, caption) })
+                }
                 item.destroy()
             }
         }
         return out
+    }
+
+    // Every hint draws the board's band, 4 above a line box of 1.5 times the caption and 2 below, per wrapped line,
+    // and the first baseline sits where a browser puts it: half the line's leftover above the rounded ascent.
+    function checkBands(found, failures) {
+        var ascent = Math.round(captionMetrics.ascent)
+        var content = ascent + Math.round(captionMetrics.descent)
+        var lead = Math.round((root.boardHintLine - content) / 2)
+        var baseline = root.boardHintTop + lead + ascent
+        var plain = found.bands.filter(function (band) { return !band.footer })
+        var footer = found.bands.filter(function (band) { return band.footer })
+        for (var i = 0; i < plain.length; i++) {
+            var band = plain[i]
+            var want = root.boardHintTop + band.lines * root.boardHintLine + root.boardHintBottom
+            if (band.baseline !== baseline)
+                failures.push(band.at + " draws its baseline on row " + band.baseline + ", the board's line puts it on " + baseline)
+            if (band.height !== want || band.y !== root.boardHintTop + lead || band.lineHeight !== band.lines * root.boardHintLine)
+                failures.push(band.at + " is a " + band.height + " px band with its text at " + band.y + " and " + band.lineHeight
+                              + " tall, the board draws " + want + " with the text at " + (root.boardHintTop + lead) + " and " + band.lines * root.boardHintLine + " tall")
+        }
+        // The pane's footer line is not a board hint: its 49 px band is what 585c9a5c measured at this font, and it stays put.
+        for (var f = 0; f < footer.length; f++) {
+            if (footer[f].height !== root.footerBand || footer[f].y !== root.footerTop)
+                failures.push(footer[f].at + " footer band is " + footer[f].height + " with its text at " + footer[f].y + ", not " + root.footerBand + " and " + root.footerTop)
+        }
+        if (plain.length === 0 || footer.length === 0 || !plain.some(function (band) { return band.at.indexOf("Last folder reopens") >= 0 }))
+            failures.push("nothing to compare: " + plain.length + " hints, " + footer.length + " footers, and the Tabs040 sentence among them is "
+                          + plain.some(function (band) { return band.at.indexOf("Last folder reopens") >= 0 }))
+    }
+
+    // The board centres a caption's glyphs in the row beside the label's, so the baseline gap follows the two fonts' ink, never the product's own formula.
+    function checkCaptions(found, failures) {
+        var label = bodyMetrics.tightBoundingRect("Wrap at list ends")
+        var caption = captionMetrics.tightBoundingRect("arrow-up at the top")
+        var gap = (root.boardCaptionTop - root.boardLabelTop) - (caption.y - label.y)
+        var bottomGap = (root.boardLabelBottom - root.boardCaptionBottom) - ((label.y + label.height) - (gap + caption.y + caption.height))
+        if (bottomGap !== 0)
+            failures.push("the fonts' ink disagrees with the board's own bottoms by " + bottomGap + " px, so the baseline gap " + gap + " proves nothing")
+        var wrap = found.captions.filter(function (entry) { return entry.text === "Wrap at list ends" })
+        if (wrap.length !== 1 || found.captions.length < 3)
+            failures.push("nothing to compare: " + found.captions.length + " captioned rows, " + wrap.length + " Wrap at list ends")
+        for (var i = 0; i < found.captions.length; i++) {
+            var entry = found.captions[i]
+            if (entry.caption - entry.label !== gap)
+                failures.push(entry.at + " caption baseline is " + (entry.caption - entry.label) + " px from its label's, the board's is " + gap)
+        }
     }
 
     // Every visible Text under an item, depth first; a favourite row's path is one of them.
@@ -88,10 +192,21 @@ ShellRoot {
     }
 
     Component.onCompleted: {
+        var failures = []
+        // Assigned only once the state file is proved under the harness state home, because the store may write on assignment.
+        var state = Quickshell.env("XDG_STATE_HOME") || ""
+        if (state === "" || Flea.ViewState.store.path.indexOf(state + "/") !== 0)
+            failures.push("the state file " + Flea.ViewState.store.path + " is not under the harness state home " + state)
+        else
+            Flea.ViewState.state = { display: { textSize: { mode: TextSize.nearest(root.boardTextSize) } } }
+        if (Flea.Theme.baseSize !== root.boardTextSize)
+            failures.push("the probe draws at " + Flea.Theme.baseSize + ", the boards at " + root.boardTextSize)
         var found = root.measure()
+        root.checkBands(found, failures)
+        root.checkCaptions(found, failures)
         var paths = root.favouritePaths()
         var labelX = found.label.length > 0 ? found.label[0].x : null
-        var failures = found.failures
+        failures = failures.concat(found.failures)
         function expect(list, x, what) {
             for (var i = 0; i < list.length; i++) {
                 if (list[i].x === null || list[i].x !== x)

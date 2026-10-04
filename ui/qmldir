@@ -5,6 +5,7 @@ singleton Scripts 1.0 Scripts.qml
 singleton ViewState 1.0 ViewState.qml
 singleton UpdateCheck 1.0 UpdateCheck.qml
 singleton DefaultClaim 1.0 DefaultClaim.qml
+singleton SettingsMetrics 1.0 SettingsMetrics.qml
 Backend 1.0 Backend.qml
 CheckBox 1.0 CheckBox.qml
 ChromeBar 1.0 ChromeBar.qml
@@ -39,6 +40,7 @@ SettingsPane 1.0 SettingsPane.qml
 SettingsRail 1.0 SettingsRail.qml
 SettingsRow 1.0 SettingsRow.qml
 SettingsGroup 1.0 SettingsGroup.qml
+SettingsHint 1.0 SettingsHint.qml
 SettingsRuler 1.0 SettingsRuler.qml
 SettingsSegment 1.0 SettingsSegment.qml
 MediaStrip 1.0 MediaStrip.qml
