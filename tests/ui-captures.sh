@@ -279,6 +279,17 @@ cap_permissions_expect() {
     state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
     jq -e "$filter" <<< "$state" >/dev/null || fail "cap_permissions: $message, state $state"
 }
+# Permissions040: poll the permissions reader until one jq predicate holds, to a deadline, and name the last state when it never does.
+cap_permissions_await() {
+    local filter="$1" message="$2" state="" settle_limit_s=15 end
+    end=$((SECONDS + settle_limit_s))
+    while (( SECONDS < end )); do
+        state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
+        jq -e "$filter" <<< "$state" >/dev/null && return 0
+        sleep 0.05
+    done
+    fail "cap_permissions: $message, last state $state"
+}
 # Permissions040: wait until the card has closed, as a result arrives and Apply dismisses it.
 cap_permissions_closed() {
     local end=$((SECONDS + 15))
@@ -443,7 +454,7 @@ cap_permissions_skips() {
     shot cap-permissions-all-skipped-note
     cap_permissions_focus Apply forward
     key -k Return >/dev/null
-    cap_permissions_expect ".opened and (.busy | not) and .displayedError == \"$all\"" "Apply over two skipped files does not leave the card with $all"
+    cap_permissions_await ".opened and (.busy | not) and .displayedError == \"$all\"" "Apply over two skipped files does not leave the card with $all"
     shot cap-permissions-all-skipped
     key -k Escape >/dev/null
     settle
@@ -469,11 +480,12 @@ cap_permissions_inflight() {
     [[ "${#pids[@]}" == 1 ]] || fail "cap_permissions: the in-flight shot needs one owned backend"
     pid="${pids[0]}"
     permissions_stopped="$pid"
+    # Each case runs in a subshell whose EXIT trap is cleared (tests/ui.sh:14560), so this trap owns EXIT.
     trap 'permissions_resume_stopped "$permissions_stopped"; kill_flea' EXIT
     convert_pause_backend "$pid"
     cap_permissions_focus Apply forward
     key -k Return >/dev/null
-    cap_permissions_expect '.opened and .busy and ([.controls[] | select(.name == "Cancel" or .name == "Close")] | length == 2 and all(.enabled | not))' "Cancel and the close mark stay live while Apply is in flight"
+    cap_permissions_await '.opened and .busy and ([.controls[] | select(.name == "Cancel" or .name == "Close")] | length == 2 and all(.enabled | not))' "Cancel and the close mark stay live while Apply is in flight"
     settle
     shot cap-permissions-apply-inflight
     permissions_resume_stopped "$pid" || fail "cap_permissions: the owned backend did not resume"

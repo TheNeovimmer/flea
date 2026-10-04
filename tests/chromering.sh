@@ -28,11 +28,13 @@ output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
     timeout 20 qs -p "$test_root/config" 2>&1)
 
-# Sample input, one probe line: "  INFO qml: CHROMERING PASS 24 checks"
+# Sample input, one probe line: "  INFO qml: CHROMERING PASS 63 checks"
+expected_checks=63
 pass_count=$(printf '%s\n' "$output" | grep -c 'CHROMERING PASS')
 fail_count=$(printf '%s\n' "$output" | grep -c 'CHROMERING FAIL')
-if [ "$pass_count" -ne 1 ] || [ "$fail_count" -ne 0 ]; then
-    printf 'FAIL the chrome button ring broke\n'
+ran_checks=$(printf '%s\n' "$output" | grep -ao 'CHROMERING PASS [0-9]* checks' | grep -o '[0-9]*')
+if [ "$pass_count" -ne 1 ] || [ "$fail_count" -ne 0 ] || [ "${ran_checks:-0}" -ne "$expected_checks" ]; then
+    printf 'FAIL the chrome button ring broke, or ran %s checks and not %s\n' "${ran_checks:-0}" "$expected_checks"
     printf '%s\n' "$output" | grep -a 'CHROMERING FAIL'
     printf '%s\n' "$output" | grep -aE 'ERROR|error' | grep -av 'CHROMERING' | head -20
     exit 1

@@ -112,8 +112,7 @@ function closed(text) {
     return /\.$/.test(text) ? text : text + "."
 }
 
-// One sentence per skip set, ending in a period, whose own words hold at most one colon: "special.txt keeps its mode because its setuid bit is set."
-// or "2 items keep their modes because a special bit is set: a, b."; any other lone reason follows its colon as the backend wrote it.
+// Sample input: one setuid file answers "special.txt keeps its mode because its setuid bit is set."; two answer "2 items keep their modes because a special bit is set: a, b.".
 function skipNote(skipped) {
     var list = skipped || []
     if (list.length === 0)

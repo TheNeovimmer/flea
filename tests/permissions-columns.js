@@ -1,9 +1,12 @@
 .pragma library
 
 // Where the Permissions card's bit columns, their headings and its octal frame sit, read off the live dialog by tests/permissions-adv.qml.
-// The board lays READ, WRITE and EXEC in three flex:1 thirds of what the 96 px label column leaves, and each 18 px box at its third's centre.
+
+// Permissions040 at 14: a 480 card, its READ, WRITE and EXEC headings in thirds of the 350 the label leaves, an 18 px box centred in each, in card px.
 var BOARD_STOP = 14
 var BOARD_CARD_WIDTH = 480
+var BOARD_HEAD_X = [113, 230, 346]
+var BOARD_HEAD_WIDTH = [117, 116, 117]
 var BOARD_BOX_X = [162, 279, 396]
 var COLUMNS = 3
 // The note's line box is 1.5 x the caption, and the heading takes the same box.
@@ -39,6 +42,12 @@ function checkColumns(shell, tag, card, stop) {
     var boxes = firstRow.map(function (control) { return boxOf(control).mapToItem(card.cardItem, 0, 0).x })
     shell.same(tag + " boxes sit at the rounded exact centre of each third", boxes.join(","),
         columns.map(function (i) { return left + card.labelWidth + Math.floor((2 * i * span + span - 3 * boxWidth + 3) / 6) }).join(","))
+    if (stop === BOARD_STOP && card.isMulti) {
+        shell.same(tag + " card is the board's 480 wide", card.cardItem.width, BOARD_CARD_WIDTH)
+        shell.same(tag + " headings start at the board's card x 113, 230 and 346",
+            heads.map(function (head) { return head ? head.mapToItem(card.cardItem, 0, 0).x : -1 }).join(","), BOARD_HEAD_X.join(","))
+        shell.same(tag + " headings are the board's 117, 116 and 117 wide", heads.map(function (head) { return head ? head.width : -1 }).join(","), BOARD_HEAD_WIDTH.join(","))
+    }
     if (stop === BOARD_STOP && card.cardItem.width === BOARD_CARD_WIDTH)
         shell.same(tag + " boxes start at the board's card x 162, 279 and 396", boxes.join(","), BOARD_BOX_X.join(","))
 }
@@ -58,6 +67,8 @@ function checkOctalFrame(shell, tag, card, theme) {
     var frame = card.octalFrame
     if (!frame) { shell.check(tag + " octal frame is reachable", false, "no octalFrame"); return }
     var octal = card.controls().find(function (control) { return control.name === "Octal" }).item
+    var originalMode = card.modeText
+    var holder = card.controls().find(function (control) { return control.item && control.item.activeFocus })
     octal.forceActiveFocus()
     card.modeText = "0644"
     shell.same(tag + " valid octal draws no error", card.displayedError, "")
@@ -70,5 +81,12 @@ function checkOctalFrame(shell, tag, card, theme) {
     card.stepFocus(false)
     card.modeText = "0649"
     shell.same(tag + " an unfocused octal frame stays muted", frame.border.color, theme.color.muted)
-    card.modeText = "0644"
+    // The card goes back as it was found: its own mode text, and focus on what held it or on nothing.
+    card.modeText = originalMode
+    var stepped = card.controls().filter(function (control) { return control.item && control.item.activeFocus })
+    for (var i = 0; i < stepped.length; i++) stepped[i].item.focus = false
+    if (holder) holder.item.forceActiveFocus()
+    shell.same(tag + " the octal check leaves the card's own mode", card.modeText, originalMode)
+    var holding = card.controls().filter(function (control) { return control.item && control.item.activeFocus })
+    shell.same(tag + " the octal check leaves focus where it found it", holding.map(function (control) { return control.name }).join(","), holder ? holder.name : "")
 }
