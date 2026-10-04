@@ -211,13 +211,20 @@ Item {
     }
     // The content height last seen, which is where the end was before a block grew.
     property real seenHeight: 0
+    // Whether the last block had a delegate at the last height change, so the end then was a drawn end and no estimate.
+    property bool endBuilt: false
     // The snap below sets contentY itself, and the height can settle again under it.
     property bool snappingToEnd: false
-    // A picture decodes after its block was built at no height, and the view does not follow content that grows under its end.
+    function noteEnd() {
+        root.endBuilt = root.blockItem(root.blockList.length - 1) !== null
+    }
+    // A picture decodes after its block was built at no height; only a reader at the drawn end follows it, never one in unbuilt blocks.
     function holdEnd() {
         var was = root.seenHeight
+        var builtBefore = root.endBuilt
         root.seenHeight = body.contentHeight
-        if (root.snappingToEnd || !(body.contentHeight > was))
+        root.noteEnd()
+        if (root.snappingToEnd || !builtBefore || !(body.contentHeight > was))
             return
         var wasEnd = body.originY + was - body.height + body.bottomMargin
         var tallerThanView = wasEnd > body.originY - body.topMargin

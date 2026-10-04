@@ -171,8 +171,7 @@ if ! printf '%s\n' "$headink_output" | grep -qF "MARKDOWN_HEADINK $expected_head
     exit 1
 fi
 
-# The last block's picture decodes late, held open by a named pipe the loader blocks on until the harness feeds it; the same
-# document holds the board's pixels at text size 14. The sandbox root holds the pipe, the document and the picture bytes.
+# The last block's picture decodes late through a named pipe the harness feeds, over a document judged at text size 14, all in the sandbox root.
 endfit_dir="$test_root/endfit"
 mkdir -p "$endfit_dir" || exit 1
 mkfifo "$endfit_dir/late.png" || exit 1

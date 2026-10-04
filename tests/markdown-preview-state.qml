@@ -179,7 +179,10 @@ QtObject {
     readonly property real endRoundingPx: 0.5
     function endStub(source) {
         var list = { originY: 0, topMargin: endInsetPx, bottomMargin: endInsetPx, contentHeight: endContentPx, height: endViewPx, contentY: 0 }
-        var root = { seenHeight: 0, snappingToEnd: false, samePlacePx: 1 }
+        var root = { seenHeight: 0, endBuilt: false, lastBuilt: true, snappingToEnd: false, samePlacePx: 1, blockList: ["first", "last"] }
+        root.blockItem = function () { return root.lastBuilt ? {} : null }
+        var note = new Function("root", body(source, "function noteEnd()"))
+        root.noteEnd = function () { note(root) }
         var hold = new Function("root", "body", body(source, "function holdEnd()"))
         root.holdEnd = function () { hold(root, list) }
         // The list's own height change: the new height is seen by the shipped handler, as onContentHeightChanged does.
@@ -223,6 +226,47 @@ QtObject {
         shrunk.list.contentY = end
         shrunk.root.grow(-endGrowPx)
         check(shrunk.list.contentY === end, "N1 a list that shrinks moves nothing")
+
+        var unbuilt = endStub(source)
+        unbuilt.root.lastBuilt = false
+        unbuilt.root.holdEnd()
+        unbuilt.list.contentY = end
+        unbuilt.root.grow(endGrowPx)
+        check(unbuilt.list.contentY === end, "N1 a reader at an estimated end, the last block unbuilt, is not run to the new end (got " + unbuilt.list.contentY + ")")
+
+        var building = endStub(source)
+        building.root.lastBuilt = false
+        building.root.holdEnd()
+        building.list.contentY = end
+        building.root.lastBuilt = true
+        building.root.grow(endGrowPx)
+        check(building.list.contentY === end, "N1 the growth that builds the last block does not carry the reader to it (got " + building.list.contentY + ")")
+        building.list.contentY = end + endGrowPx
+        building.root.grow(endGrowPx)
+        check(building.list.contentY === end + 2 * endGrowPx, "N1 once the reader is at the drawn end, the next growth is followed (got " + building.list.contentY + ")")
+    }
+
+    // A refill that grows the list on every contentY write must not recurse: the snap writes once and the settling height is only seen.
+    function reentryChecks(source) {
+        var held = endStub(source)
+        var writes = 0
+        var stored = endContentPx - endViewPx + endInsetPx
+        Object.defineProperty(held.list, "contentY", {
+            get: function () { return stored },
+            set: function (value) {
+                stored = value
+                writes++
+                held.list.contentHeight += endGrowPx
+                held.root.holdEnd()
+            }
+        })
+        var error = ""
+        try {
+            held.root.grow(endGrowPx)
+        } catch (thrown) {
+            error = String(thrown)
+        }
+        check(error === "" && writes === 1 && !held.root.snappingToEnd, "N1 a height that settles under the snap does not re-enter it (writes " + writes + " " + error + ")")
     }
 
     function lazyChecks() {
@@ -341,6 +385,7 @@ QtObject {
         stateChecks(source)
         holdChecks(source)
         endChecks(source)
+        reentryChecks(source)
         lazyChecks()
         bindingChecks(source)
         commentChecks(source)

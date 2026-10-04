@@ -170,8 +170,7 @@ sound(message, 'real sequence with a long CJK message');
 check(box(message)[0] > 0, 'real sequence with a long CJK message: trimmed off the library margin, got ' + box(message)[0]);
 check(box(message)[0] <= reachLeft(message), 'real sequence with a long CJK message: no glyph cut, canvas ' + box(message)[0] + ' reach ' + reachLeft(message));
 
-// QtSvg ignores every dy, so a label sits where its y attribute puts it: the library's y is the box centre and its dy of 0.35 em carries the glyphs down to a baseline.
-// The cap height of DejaVu Sans, Liberation Sans and Noto Sans at 1000 px, 0.729, 0.716 and 0.714 em, taken at its lowest.
+// QtSvg ignores every dy, so a label sits at its y, the box centre; the cap height is the lowest of DejaVu Sans, Liberation Sans and Noto Sans at 1000 px.
 const CAP_HEIGHT_EM = 0.714;
 const CENTRE_TOLERANCE_PX = 1;
 // Sample input: <rect x="20" y="25" width="100" height="50"/> answers {x: 20, y: 25, w: 100, h: 50}.

@@ -7,10 +7,7 @@ import "flea" as Flea
 import "markdown-render.js" as Checks
 import "markdown-board.js" as Board
 
-// The real ui/PreviewMarkdown.qml over a document whose last block is a local picture that decodes late: a reader who reached the
-// end before it grew must still see the last block's bottom and the bottom inset. The picture is a named pipe the loader blocks on
-// until this test feeds it, so the late decode is held open by the test rather than by a clock. The same document, at the board's
-// text size 14, holds the board's own pixels: block gaps, fence padding, headings, the table header ink and the column's sizes.
+// The real PreviewMarkdown over a document whose last picture decodes late (a named pipe this test feeds), judged at the board's text size 14.
 ShellRoot {
     id: shell
 
@@ -28,6 +25,8 @@ ShellRoot {
     readonly property int quietFrames: 6
     // The last block's bottom plus the bottom inset may sit this far past the viewport, the rounding of a fractional height.
     readonly property real endSlackPx: 1
+    // The test gives up on its own verdict after this long, so a hung stage fails and the run ends.
+    readonly property int watchdogMs: 30000
     property int checks: 0
     property int failures: 0
     property bool done: false
@@ -214,7 +213,7 @@ ShellRoot {
     }
 
     Timer {
-        interval: 30000
+        interval: shell.watchdogMs
         running: !shell.done
         onTriggered: {
             shell.log("FAIL the watchdog outlived the verdict at stage " + shell.stage)
