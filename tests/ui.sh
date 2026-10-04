@@ -768,7 +768,8 @@ menu_seek() {
     for ((step = 0; step <= steps; step++)); do
         cursor=$(ipc contextMenuCursor)
         [[ "$cursor" == "$target" ]] && return 0
-        key -k Down >/dev/null
+        # A row above the cursor is reached with Up, since Down stops at the last row.
+        if (( cursor > target )); then key -k Up >/dev/null; else key -k Down >/dev/null; fi
         settle
     done
     fail "menu_seek: could not reach $want, cursor stalled at $(ipc contextMenuCursor)"

@@ -79,6 +79,13 @@ Item {
 
     height: root.isSeparator ? root.separatorHeight : Theme.rowHeight
 
+    // The width this row needs to draw whole, from the layout's own terms below; a wrapped caption takes what the label leaves.
+    readonly property real wantedWidth: root.isSeparator ? 0
+        : Math.ceil(2 * Theme.spacing.rowPaddingX + root.slotSize + 2 * Theme.spacing.gap + label.implicitWidth
+                    + (root.entry.hintWrap === true ? 0 : hintText.implicitWidth)
+                    + (statusSquare.visible ? statusSquare.width + statusSquare.anchors.rightMargin : 0)
+                    + chevronSlot.width + hintText.anchors.rightMargin)
+
     Rectangle {
         anchors.fill: parent
         visible: !root.isSeparator
@@ -229,8 +236,9 @@ Item {
                : implicitWidth
         wrapMode: root.entry.hintWrap === true ? Text.WordWrap : Text.NoWrap
         horizontalAlignment: Text.AlignRight
-        // A dead row dims as a whole, so its key hint takes the label's ink and opacity; only a wrapped reason sentence stays readable.
-        color: root.available || root.entry.hintWrap !== true ? root.labelColor : Theme.color.foreground
+        // MenuAdditions040: every key hint is muted on a live, lit or dead row; a dead row dims it with the label, a wrapped reason stays readable.
+        color: root.entry.hintSquare === true ? root.labelColor
+             : root.available || root.entry.hintWrap !== true ? Theme.color.muted : Theme.color.foreground
         opacity: root.available || root.entry.hintWrap === true ? 1 : label.opacity
         font.family: Theme.font.family
         font.pixelSize: Theme.font.caption

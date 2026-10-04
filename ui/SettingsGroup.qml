@@ -20,6 +20,8 @@ Item {
     // SettingsRest rule 3: a group whose one action governs the whole list carries it here instead.
     readonly property bool hasAction: (root.row.action || "") !== ""
 
+    // Where the heading's own ink starts, under the rule and the padding above its label.
+    readonly property real inkTop: label.y
     implicitHeight: label.y + Math.max(label.height, root.hasMaster || root.hasAction ? box.implicitHeight : 0) + root.paddingBottom
 
     Text {

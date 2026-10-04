@@ -495,9 +495,22 @@ Item {
         onWheel: function (wheel) { wheel.accepted = true }
     }
 
+    // How far an edge fade reaches past the card's padding, as a share of a row, so it covers the first cut row without washing a whole one.
+    readonly property real fadeRowShare: 0.7
+    readonly property real fadeReach: Math.round(Theme.rowHeight * root.fadeRowShare)
+    // The widest row's wanted width in a card's column; a binding that calls it follows every row's own text.
+    function widestRow(column) {
+        var widest = 0
+        for (var i = 0; i < column.children.length; i++)
+            widest = Math.max(widest, column.children[i].wantedWidth || 0)
+        return widest
+    }
+
     Rectangle {
         id: frame
-        width: Math.max(0, Math.min(root.workArea.width, Theme.menuWidth))
+        // Theme.menuWidth, or the widest row's own width when a label and its hint need more, never past the work area.
+        width: Math.max(0, Math.min(root.workArea.width, Math.max(Theme.menuWidth, root.widestRow(rows))))
+        onWidthChanged: if (root.opened) root.clampFrame()
         // The vertical inset keeps the first and last row's square highlight off the rounded corners.
         height: Math.max(0, Math.min(rows.implicitHeight + 2 * Theme.spacing.rowPaddingY,
                                     root.workArea.height - 2 * root.workAreaInset))
@@ -517,8 +530,8 @@ Item {
             // A menu steps the highlight, never pixel scrolls: one row a notch, one row per
             // row height of gained touchpad travel, and reveal() follows. No bar, no lane.
             highlightSteps: true
-            stepRowHeight: Theme.rowHeight
             stepBy: function (delta) { root.stepMain(delta) }
+            revealClearY: root.fadeReach
             anchors.fill: parent
             anchors.topMargin: Theme.spacing.rowPaddingY
             anchors.bottomMargin: Theme.spacing.rowPaddingY
@@ -557,10 +570,14 @@ Item {
         }
         Flea.MenuEdgeFade {
             anchors.top: parent.top
+            inset: Theme.spacing.rowPaddingY
+            reach: root.fadeReach
             visible: scroll.contentY > 0
         }
         Flea.MenuEdgeFade {
             anchors.bottom: parent.bottom
+            inset: Theme.spacing.rowPaddingY
+            reach: root.fadeReach
             visible: scroll.contentY + scroll.height < scroll.contentHeight
             rotation: 180
         }
@@ -575,7 +592,7 @@ Item {
         // peers.y already carries the inset, so the flyout frame itself stays on the row grid.
         y: Math.max(root.workArea.y + root.workAreaInset,
                     Math.min(frame.y + root.submenuOffset(), root.workArea.y + root.workArea.height - root.workAreaInset - height))
-        width: Math.max(0, Math.min(Theme.menuWidth, root.workArea.width))
+        width: Math.max(0, Math.min(Math.max(Theme.menuWidth, root.widestRow(peers)), root.workArea.width))
         height: Math.max(0, Math.min(peers.implicitHeight + 2 * Theme.spacing.rowPaddingY,
                                     root.workArea.height - 2 * root.workAreaInset))
         color: Theme.color.surface
@@ -590,8 +607,8 @@ Item {
             id: subScroll
             // The flyout steps like the main frame, through its own cursor and reveal.
             highlightSteps: true
-            stepRowHeight: Theme.rowHeight
             stepBy: function (delta) { root.submenuCursor = root.stepSubmenu(root.submenuCursor, delta) }
+            revealClearY: root.fadeReach
             anchors.fill: parent
             anchors.topMargin: Theme.spacing.rowPaddingY
             anchors.bottomMargin: Theme.spacing.rowPaddingY
@@ -633,6 +650,19 @@ Item {
                 }
             }
         }
+        }
+        Flea.MenuEdgeFade {
+            anchors.top: parent.top
+            inset: Theme.spacing.rowPaddingY
+            reach: root.fadeReach
+            visible: subScroll.contentY > 0
+        }
+        Flea.MenuEdgeFade {
+            anchors.bottom: parent.bottom
+            inset: Theme.spacing.rowPaddingY
+            reach: root.fadeReach
+            visible: subScroll.contentY + subScroll.height < subScroll.contentHeight
+            rotation: 180
         }
     }
 

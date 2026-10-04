@@ -59,6 +59,7 @@ Flickable {
     // which is what scrolls; a fully transparent stop is written in the ground's own channels,
     // because "transparent" is black at zero alpha and ramps through grey on the way there.
     Rectangle {
+        id: tailFade
         parent: root
         anchors.left: parent.left
         anchors.right: parent.right
@@ -71,8 +72,25 @@ Flickable {
         }
     }
 
+    // How much of the fade's height the next row's first ink is drawn under, in the revealed state.
+    readonly property real cutShare: 0.5
+
     // The row item at an index of the chosen section, or null before the columns exist.
     function rowItem(index) { return root.current ? root.current.rows.itemAt(index) : null }
+
+    // The viewport bottom that clears the fade under the cursor row and still shows a cut of the row after it, so the fade reads as more following and not as padding.
+    function revealedBottom(index, item) {
+        var bottom = item.y + item.height + tailFade.height
+        var next = root.rowItem(index + 1)
+        return next ? Math.max(bottom, next.y + root.inkTop(next) + Math.round(tailFade.height * root.cutShare)) : bottom
+    }
+
+    // Where a row's first ink starts: a heading's label sits under its rule and padding, any other row's content under the row's own padding.
+    function inkTop(row) {
+        for (var i = 0; row.isGroup && i < row.children.length; i++)
+            if (row.children[i].inkTop !== undefined) return row.children[i].inkTop
+        return Theme.spacing.rowPaddingY
+    }
 
     // The Column inside the Flickable holds rows of two different heights, so the visible window is
     // moved onto the row itself rather than derived from an index times a row height.
@@ -89,10 +107,14 @@ Flickable {
             root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, item.y))
             return
         }
-        if (item.y < root.contentY)
+        // The lower-edge fade must lie over a cut: scroll while the cursor row, or the cut after it, is not clear of it, and stop at the content's end where none is drawn.
+        if (item.y < root.contentY) {
             root.contentY = item.y
-        else if (item.y + item.height > root.contentY + root.height)
-            root.contentY = item.y + item.height - root.height
+            return
+        }
+        var bottom = root.revealedBottom(index, item)
+        if (bottom > root.contentY + root.height)
+            root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, bottom - root.height))
     }
 
     Repeater {
