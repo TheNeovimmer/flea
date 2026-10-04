@@ -69,6 +69,9 @@ function run(check) {
     check("the submenu is the probed table and never a fixed list",
           Archive.formatEntries(["zip", "tar.zst"]).map(function (e) { return e.id + "=" + e.label }).join("|"),
           "zip=.zip|tar.zst=.tar.zst")
+    check("each leaf carries the sheet's own wording beside the flyout's",
+          Archive.formatEntries(["zip", "tar.zst"]).map(function (e) { return e.sheetLabel }).join("|"),
+          "Compress to .zip|Compress to .tar.zst")
     check("an empty table offers nothing at all",
           Archive.formatEntries([]).length, 0)
 

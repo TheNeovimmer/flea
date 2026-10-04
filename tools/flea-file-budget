@@ -136,7 +136,7 @@ ui/js/Drag.js 342
 ui/js/Ops.js 426
 ui/js/Picker.js 328
 ui/js/Settings.js 455
-ui/js/SheetQuery.js 322
+ui/js/SheetQuery.js 324
 ui/js/Tabs.js 719
 ui/js/UiState.js 447
 ui/TabBar.qml 632

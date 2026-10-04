@@ -136,6 +136,23 @@ function run(check) {
           "compress:zip|compress:tar|openWith:a.desktop|openWith:b.desktop")
     check("flyout leaves survive the dedupe", merged.filter(function (row) { return row.where === "Compress" }).length,
           realMenus.filter(function (row) { return row.where === "Compress" }).length)
+    // CommandPalette "After typing comp": the Compress flyout's leaves list as rows under the parent, in archive.rs's order, with no muted suffix.
+    var archiveOrder = ["zip", "tar", "tar.gz", "tar.bz2", "tar.xz", "tar.zst", "7z"]
+    var compressContext = {}
+    for (var field in cursorOnFile) compressContext[field] = cursorOnFile[field]
+    compressContext.archiveFormats = archiveOrder
+    compressContext.openWithApps = [{ id: "alpha.desktop", label: "Alpha" }]
+    var compressRows = SheetQuery.menuCandidates(Menu.listingEntries(compressContext), function (a) { return Keymap.hintFor(a) })
+    var comp = SheetQuery.rank(SheetQuery.actionCandidates(Keymap.sheetFor("default", "gui", false)).concat(compressRows), "comp")
+    var compressWanted = ["Compress"].concat(archiveOrder.map(function (fmt) { return "Compress to ." + fmt }))
+    check("comp lists the parent row then every leaf in archive.rs's order",
+          comp.map(function (row) { return row.label }).join("|"), compressWanted.join("|"))
+    check("a Compress leaf carries no muted suffix", comp.length > 1 && comp.slice(1).every(function (row) { return row.where === "" }), true)
+    check("and no cap", comp.every(function (row) { return row.keys === "" }), true)
+    check("a Compress leaf still runs its format", comp.length > 1 ? comp[1].menuAction : "none", "compress:zip")
+    var openWithLeaf = compressRows.filter(function (row) { return row.label === "Alpha" })[0]
+    check("an Open with leaf keeps its own label", openWithLeaf !== undefined, true)
+    check("and its muted flyout suffix", openWithLeaf ? openWithLeaf.where : "none", "Open with")
     // Availability is the menu's own answer for the pane's real cursor: on a regular file Permissions runs, on nothing it is refused.
     function permissionsRow(context) {
         var rows = SheetQuery.menuCandidates(Menu.listingEntries(context), function (a) { return Keymap.hintFor(a) })

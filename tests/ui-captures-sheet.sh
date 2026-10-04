@@ -83,6 +83,7 @@ sheet_rows() {
         trash) printf ' Open Trash\nd trash\n' ;;
         comp)
             if [[ "$scenario" == comp-cap ]]; then printf 'z Compress\n Compress to .zip\n'
+            elif [[ "$scenario" == comp-parent-only ]]; then printf ' Compress\n'
             else printf ' Compress\n Compress to .zip\n'; fi ;;
     esac
 }
@@ -180,6 +181,7 @@ check_case ipc-failure 1 0 0 "keymapSheetOpen failed"
 check_case dup-delete 1 0 0 "delete permanently is listed more than once"
 check_case perm-disabled 1 0 0 "Permissions reads unavailable"
 check_case comp-cap 1 0 0 "the comp query lists a row with a cap"
+check_case comp-parent-only 1 0 0 "the comp query lists no Compress to .zip leaf row"
 check_case rank-moved 1 0 0 "the second perm row is not Permissions"
 check_case dialog-never 1 0 "$deadline_s" "Enter on Permissions opened no dialog"
 check_case dialog-stays 1 0 "$deadline_s" "Escape did not close the Permissions dialog"

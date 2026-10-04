@@ -88,7 +88,12 @@ ShellRoot {
             root.phase = 4
         } else if (root.phase === 4) {
             root.checkLongName()
+            sheet.open(holder)
+            sheet.query = "comp"
             root.phase = 5
+        } else if (root.phase === 5) {
+            root.checkCompress()
+            root.phase = 6
             root.report()
         }
     }
@@ -200,6 +205,18 @@ ShellRoot {
         root.expect("the suffix keeps its whole width", where.width === where.implicitWidth, where.width + " of " + where.implicitWidth)
         root.expect("the suffix lies inside the card", painted.x >= 0 && painted.x + where.width <= sheet.cardItem.width, painted.x + " + " + where.width + " of " + sheet.cardItem.width)
         root.expect("and starts where the name ends", Math.abs(where.x - (label.x + label.width)) <= 1, where.x + " vs " + (label.x + label.width))
+    }
+
+    // CommandPalette "After typing comp": the Compress leaf draws as its own row, capless and with no muted "in Compress".
+    function checkCompress() {
+        var rows = root.rowsOf()
+        root.expect("the comp query lists the Compress leaf as its own row", rows.indexOf(" Compress to .zip") >= 0, rows.join("|"))
+        root.expect("no leaf row carries a cap", rows.filter(function (row) { return row.indexOf("Compress to .") >= 0 && row.charAt(0) !== " " }).length === 0, rows.join("|"))
+        var suffixes = root.walk(sheet.cardItem, []).filter(function (item) {
+            return item.visible && typeof item.text === "string" && item.text.indexOf(" in Compress") >= 0 })
+        root.expect("the leaf draws no in Compress suffix", suffixes.length === 0, suffixes.length)
+        var drawn = root.walk(sheet.cardItem, []).filter(function (item) { return item.visible && item.text === "Compress to .zip" })
+        root.expect("the leaf's wording is drawn once", drawn.length === 1, drawn.length)
     }
 
     function report() {

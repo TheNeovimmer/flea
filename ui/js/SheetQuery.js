@@ -52,8 +52,10 @@ function menuCandidates(entries, hintFor) {
                 continue
             }
             var leafId = String(sub[j].id || "")
-            out.push({ label: String(sub[j].label || ""), keys: "",
-                section: 1, where: String(entry.label || ""),
+            // A leaf with its own sheet wording reads whole, with no muted flyout suffix.
+            var sheetLabel = String(sub[j].sheetLabel || "")
+            out.push({ label: sheetLabel.length > 0 ? sheetLabel : String(sub[j].label || ""), keys: "",
+                section: 1, where: sheetLabel.length > 0 ? "" : String(entry.label || ""),
                 menuAction: actionWithSub(action, leafId),
                 disabled: entry.disabled === true || sub[j].disabled === true,
                 danger: entry.danger === true })

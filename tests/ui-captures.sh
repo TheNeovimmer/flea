@@ -391,7 +391,8 @@ case_cap_sheet() {
     cap_sheet_expect keymapSheetOpen true "? did not reopen the sheet"
     cap_sheet_type comp
     sheet_rows=$(ipc keymapSheetRows)
-    grep -q 'Compress' <<< "$sheet_rows" || fail "cap_sheet: the comp query lists no Compress row: ${sheet_rows//$'\n'/ | }"
+    grep -Fxq ' Compress to .zip' <<< "$sheet_rows" \
+        || fail "cap_sheet: the comp query lists no Compress to .zip leaf row: ${sheet_rows//$'\n'/ | }"
     ! grep -q '^[^ ]' <<< "$sheet_rows" || fail "cap_sheet: the comp query lists a row with a cap: ${sheet_rows//$'\n'/ | }"
     shot cap-sheet-query-comp
     key -k Escape >/dev/null

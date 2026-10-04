@@ -21,7 +21,7 @@ ShellRoot {
         { name: "Permissions", query: "perm", label: "Permissions" },
         { name: "Move to", query: "move to", label: "Move to" },
         { name: "Delete permanently confirm", action: "deletePermanently" },
-        { name: "Compress leaf", query: ".", where: "Compress" }
+        { name: "Compress leaf", query: "compress to .", label: "Compress to .zip" }
     ]
     property int caseIndex: 0
     property string stage: "ready"
