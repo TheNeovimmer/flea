@@ -20,9 +20,6 @@ Item {
     property bool expanded: false
     property int pdfControlIndex: -1
     readonly property var pdfControls: [previous, next, zoomOut, zoomIn, expand, close]
-    // Containers Tier A: a keyboard walk says where it is by brightness, so the control it is on keeps the foreground and the rest of the strip dims.
-    readonly property color controlRest: root.activeFocus && root.pdfControlIndex >= 0
-        ? Theme.color.muted : Theme.color.foreground
     // The page count signal arrives before the control bindings settle.
     function focusInitialControl() {
         if (root.activeFocus && root.pageCount > 0 && root.pdfControlIndex < 0)
@@ -144,13 +141,13 @@ Item {
 
             Flea.ChromeButton {
                 gesturePolicy: TapHandler.ReleaseWithinBounds
+                ruleRows: Theme.spacing.hairline
                 id: previous
                 glyph: "chevron-left"
                 accessName: "Previous page"
                 visible: root.pageCount > 1
                 width: visible ? implicitWidth : 0
                 keyboardFocused: root.activeFocus && root.pdfControlIndex === 0
-                restingColor: root.controlRest
                 enabled: root.page > 0
                 onActivated: root.turn(-1)
             }
@@ -168,13 +165,13 @@ Item {
 
             Flea.ChromeButton {
                 gesturePolicy: TapHandler.ReleaseWithinBounds
+                ruleRows: Theme.spacing.hairline
                 id: next
                 glyph: "chevron-right"
                 accessName: "Next page"
                 visible: root.pageCount > 1
                 width: visible ? implicitWidth : 0
                 keyboardFocused: root.activeFocus && root.pdfControlIndex === 1
-                restingColor: root.controlRest
                 enabled: root.page + 1 < root.pageCount
                 onActivated: root.turn(1)
             }
@@ -189,44 +186,44 @@ Item {
 
             Flea.ChromeButton {
                 gesturePolicy: TapHandler.ReleaseWithinBounds
+                ruleRows: Theme.spacing.hairline
                 id: zoomOut
                 glyph: "minus"
                 accessName: "Zoom out"
                 keyboardFocused: root.activeFocus && root.pdfControlIndex === 2
-                restingColor: root.controlRest
                 enabled: root.pageCount > 0 && root.zoom > root.minZoom
                 onActivated: root.zoomBy(-1)
             }
 
             Flea.ChromeButton {
                 gesturePolicy: TapHandler.ReleaseWithinBounds
+                ruleRows: Theme.spacing.hairline
                 id: zoomIn
                 glyph: "plus"
                 accessName: "Zoom in"
                 keyboardFocused: root.activeFocus && root.pdfControlIndex === 3
-                restingColor: root.controlRest
                 enabled: root.pageCount > 0 && root.zoom < root.maxZoom
                 onActivated: root.zoomBy(1)
             }
 
             Flea.ChromeButton {
                 gesturePolicy: TapHandler.ReleaseWithinBounds
+                ruleRows: Theme.spacing.hairline
                 id: expand
                 glyph: "maximize"
                 accessName: "Expand"
                 keyboardFocused: root.activeFocus && root.pdfControlIndex === 4
-                restingColor: root.controlRest
                 active: root.expanded
                 onActivated: root.toggleExpand()
             }
 
             Flea.ChromeButton {
                 gesturePolicy: TapHandler.ReleaseWithinBounds
+                ruleRows: Theme.spacing.hairline
                 id: close
                 glyph: "x"
                 accessName: "Close"
                 keyboardFocused: root.activeFocus && root.pdfControlIndex === 5
-                restingColor: root.controlRest
                 onActivated: root.closed()
             }
         }

@@ -124,6 +124,7 @@ KindStack 1.0 KindStack.qml
 AboutFacts 1.0 AboutFacts.qml
 SelectionPreview 1.0 SelectionPreview.qml
 PermissionsDialog 1.0 PermissionsDialog.qml
+PermissionsHeadings 1.0 PermissionsHeadings.qml
 singleton Favourites 1.0 Favourites.qml
 singleton RailPlaces 1.0 RailPlaces.qml
 singleton ShelfPins 1.0 ShelfPins.qml

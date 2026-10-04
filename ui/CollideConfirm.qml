@@ -66,9 +66,10 @@ FocusScope {
     }
     Rectangle {
         id: card
-        anchors.centerIn: parent
-        width: Math.max(0, Math.min(root.contentWidth + 2 * root.cardPadding + 2 * Theme.spacing.hairline, root.width - 2 * Theme.spacing.gap))
-        height: Math.max(0, Math.min(body.wanted + root.cardPadding + root.cardBottomPadding + 2 * Theme.spacing.hairline, root.height - 2 * Theme.spacing.gap))
+        x: Theme.cardOrigin(root.width, width)
+        y: Theme.cardOrigin(root.height, height)
+        width: Theme.cardSpan(root.contentWidth + 2 * root.cardPadding + 2 * Theme.spacing.hairline, root.width - 2 * Theme.spacing.gap)
+        height: Theme.cardSpan(body.wanted + root.cardPadding + root.cardBottomPadding + 2 * Theme.spacing.hairline, root.height - 2 * Theme.spacing.gap)
         color: Theme.color.surface
         border.color: Theme.color.muted
         border.width: Theme.spacing.hairline

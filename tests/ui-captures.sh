@@ -610,19 +610,301 @@ case_cap_menus3() {
     kill_flea
 }
 
-# Permissions040: the Permissions dialog over a three-row selection with mixed modes.
+# Permissions040: Tab or Shift+Tab until the dialog's focused control has this name, within the whole ring of controls.
+cap_permissions_focus() {
+    local want="$1" direction="$2" state tabs
+    local focus_limit=16
+    for ((tabs = 0; tabs <= focus_limit; tabs++)); do
+        state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
+        [[ "$(jq -r --arg want "$want" '[.controls[] | select(.focused and .name == $want)] | length' <<< "$state")" == "1" ]] && return 0
+        if [[ "$direction" == back ]]; then key -M shift -k Tab -m shift >/dev/null; else key -k Tab >/dev/null; fi
+        settle
+    done
+    fail "cap_permissions: Tab never reached $want, last $state"
+}
+
+# Permissions040: a focused check box in the state its bit holds, off, on or mixed ("some" in the control state).
+cap_permissions_box() {
+    local name="$1" value="$2" shot_name="$3"
+    cap_permissions_focus "$name" forward
+    [[ "$(ipc permissionsState | jq -r --arg want "$name" '[.controls[] | select(.name == $want)][0].value')" == "$value" ]] \
+        || fail "cap_permissions: $name does not hold $value in the fixture"
+    shot "$shot_name"
+}
+
+# Permissions040: one jq predicate over the permissions reader, asserted before a shot is taken.
+cap_permissions_expect() {
+    local filter="$1" message="$2" state
+    state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
+    jq -e "$filter" <<< "$state" >/dev/null || fail "cap_permissions: $message, state $state"
+}
+# Permissions040: poll the permissions reader until one jq predicate holds, to a deadline, and name the last state when it never does.
+cap_permissions_await() {
+    local filter="$1" message="$2" state="" settle_limit_s=15 end
+    end=$((SECONDS + settle_limit_s))
+    while (( SECONDS < end )); do
+        state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
+        jq -e "$filter" <<< "$state" >/dev/null && return 0
+        sleep 0.05
+    done
+    fail "cap_permissions: $message, last state $state"
+}
+# Permissions040: wait until the card has closed, as a result arrives and Apply dismisses it.
+cap_permissions_closed() {
+    local end=$((SECONDS + 15))
+    while (( SECONDS < end )); do
+        [[ "$(ipc permissionsState | jq -r .opened)" == "false" ]] && return 0
+        sleep 0.05
+    done
+    fail "cap_permissions: the card never closed after Apply"
+}
+# Permissions040 pointer states: a hover or a held press proven through ipc, the press let go off the control so nothing acts; an optional jq predicate holds before the shot.
+cap_permissions_pointer() {
+    local name="$1" mode="$2" shot_name="$3" expect="${4:-}" centre cx cy wx wy ww wh
+    local settle_limit_s=5 away_px=150 nudge_px=1
+    centre=$(ipc permissionsState | jq -er --arg name "$name" '.controls[] | select(.name == $name and .visible) | .centre') \
+        || fail "cap_permissions: no visible $name control to point at"
+    read -r cx cy <<< "$centre"
+    read -r wx wy ww wh < <(window_box) || fail "cap_permissions: native window coordinates unavailable"
+    assert_focus
+    # Two moves so the first lands as the resting point, then a seat nudge there and back, since Hyprland's cursor move sends Qt no pointer frame.
+    omarchy-drive move "$((wx + cx - nudge_px * 6))" "$((wy + cy))" >/dev/null || fail "cap_permissions: pointer approach to $name failed"
+    omarchy-drive move "$((wx + cx))" "$((wy + cy))" >/dev/null || fail "cap_permissions: pointer move onto $name failed"
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x "$nudge_px" -y 0 >/dev/null 2>&1 || fail "cap_permissions: pointer nudge failed"
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x "-$nudge_px" -y 0 >/dev/null 2>&1 || fail "cap_permissions: pointer nudge back failed"
+    cap_permissions_wait_pointer "$name" hovered true "$settle_limit_s"
+    if [[ "$mode" == hover ]]; then
+        settle
+        [[ -z "$expect" ]] || cap_permissions_expect "$expect" "$name hover state before $shot_name"
+        shot "$shot_name"
+        return 0
+    fi
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 || fail "cap_permissions: pointer press on $name failed"
+    cap_permissions_wait_pointer "$name" pressed true "$settle_limit_s"
+    settle
+    [[ -z "$expect" ]] || cap_permissions_expect "$expect" "$name press state before $shot_name"
+    shot "$shot_name"
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 0 -y "-$away_px" >/dev/null 2>&1 || fail "cap_permissions: pointer move off $name failed"
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 || fail "cap_permissions: pointer release failed"
+    cap_permissions_wait_pointer "$name" pressed false "$settle_limit_s"
+}
+cap_permissions_wait_pointer() {
+    local name="$1" field="$2" want="$3" limit="$4" end state
+    end=$((SECONDS + limit))
+    while (( SECONDS < end )); do
+        state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
+        [[ "$(jq -r --arg name "$name" --arg field "$field" '[.controls[] | select(.name == $name)][0][$field]' <<< "$state")" == "$want" ]] && return 0
+        sleep 0.05
+    done
+    fail "cap_permissions: $name never reported $field=$want, last $state"
+}
+# One pointer click on a grid box, asserted to land on the value the cycle names (mixed, on, off, mixed).
+cap_permissions_click_box() {
+    local name="$1" want="$2" shot_name="$3" centre end
+    local settle_limit_s=5
+    centre=$(ipc permissionsState | jq -er --arg name "$name" '.controls[] | select(.name == $name and .visible) | .centre') \
+        || fail "cap_permissions: no visible $name box to click"
+    permissions_click_at "$centre"
+    end=$((SECONDS + settle_limit_s))
+    while (( SECONDS < end )); do
+        [[ "$(ipc permissionsState | jq -r --arg name "$name" '[.controls[] | select(.name == $name)][0].value')" == "$want" ]] && break
+        sleep 0.05
+    done
+    [[ "$(ipc permissionsState | jq -r --arg name "$name" '[.controls[] | select(.name == $name)][0].value')" == "$want" ]] \
+        || fail "cap_permissions: $name did not reach $want after the click"
+    # The click leaves the pointer over the box, so the shot is the box as it reads after that click.
+    settle
+    shot "$shot_name"
+}
+permissions_click_at() {
+    local centre="$1" cx cy wx wy ww wh
+    read -r cx cy <<< "$centre"
+    [[ "$cx" =~ ^[0-9]+$ && "$cy" =~ ^[0-9]+$ ]] || fail "cap_permissions: control has no centre"
+    read -r wx wy ww wh < <(window_box) || fail "cap_permissions: native window coordinates unavailable"
+    assert_focus
+    omarchy-drive click "$((wx + cx))" "$((wy + cy))" left >/dev/null || fail "cap_permissions: pointer click failed"
+}
+# Sample output: live, disabled or absent; a live entry carries no disabled key at all, so a missing one reads live.
+cap_permissions_makeexec_state() {
+    ipc menuState | jq -r '[.entries[] | select(.action == "makeExecutable")][0] | if . == null then "absent" elif (.disabled // false) then "disabled" else "live" end'
+}
+
+# Permissions040 callout 3: the file menu on a shebang script at 0644 with Permissions unhidden offers Make executable beside its glyph.
+cap_permissions_menu_specimen() {
+    local entries="" end
+    local settle_limit_s=15
+    click_row 0 left
+    settle
+    click_row 4 right
+    end=$((SECONDS + settle_limit_s))
+    # The row goes live when the two-byte shebang read answers, so the wait is on the live row, not on its label.
+    while (( SECONDS < end )); do
+        entries=$(ipc contextMenuEntries)
+        [[ "$entries" == *"Make executable"* && "$(cap_permissions_makeexec_state)" == "live" ]] && break
+        sleep 0.1
+    done
+    [[ "$entries" == *"Make executable"* && "$entries" == *"Permissions"* ]] \
+        || fail "cap_permissions: the shebang script's menu lacks Make executable or Permissions, got $entries"
+    [[ "$(cap_permissions_makeexec_state)" == "live" ]] \
+        || fail "cap_permissions: Make executable is not live on the shebang script, it reads $(cap_permissions_makeexec_state)"
+    shot cap-permissions-makeexec-menu
+    key -k Escape >/dev/null
+    settle
+}
+# Permissions040: the single-item card on a setuid file keeps its values and dims every box to the disabled opacity.
+cap_permissions_special_single() {
+    local state
+    click_row 0 left
+    settle
+    cap_permissions_open 5
+    state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed on the setuid file"
+    [[ "$(jq -r '.displayedError' <<< "$state")" == "Read-only: setuid bit is present." ]] \
+        || fail "cap_permissions: the setuid card names no reason, state $state"
+    [[ "$(jq -r '[.controls[] | select(.bit != null and .enabled == false)] | length' <<< "$state")" == "9" ]] \
+        || fail "cap_permissions: the setuid card leaves a box enabled, state $state"
+    [[ "$(jq -r '[.controls[] | select(.bit != null and .value == "on")] | length' <<< "$state")" == "4" ]] \
+        || fail "cap_permissions: the setuid card lost its 4644 values, state $state"
+    shot cap-permissions-special-single
+    key -k Escape >/dev/null
+    settle
+}
+
+# Permissions040: from the file menu on the cursor row (right click), open the card and wait for it to settle idle.
+cap_permissions_open() {
+    local row="$1"
+    click_row "$row" right
+    settle
+    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_permissions: the menu on row $row never opened"
+    [[ "$(ipc menuState | jq -er '[.entries[] | select(.action == "permissions")][0].disabled')" == "false" ]] \
+        || fail "cap_permissions: Permissions is not live on row $row"
+    menu_seek "Permissions"
+    key -k Return >/dev/null
+    cap_permissions_settled
+}
+# Permissions040: wait until the card is open and idle.
+cap_permissions_settled() {
+    local end state settle_limit_s=15
+    end=$((SECONDS + settle_limit_s))
+    while (( SECONDS < end )); do
+        state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
+        [[ "$(jq -r .opened <<< "$state")" == "true" && "$(jq -r .busy <<< "$state")" == "false" ]] && return 0
+        sleep 0.05
+    done
+    fail "cap_permissions: Permissions never settled open and idle, last $state"
+}
+# Permissions040: a selected file removed under the open card, so Apply fails on it, the card names the file in the backend's own words, and a second Apply changes the rest and names the one it left.
+cap_permissions_vanished() {
+    local row="$1" gone="$2" listed_after="$3"
+    local want="zz-gone.txt keeps its mode: Could not inspect permissions: file or folder not found."
+    local left="zz-gone.txt kept its mode."
+    [[ "$gone" == /?*/zz-gone.txt && "$gone" == "$fixture_root"/* ]] || fail "cap_permissions: the vanishing file is not inside the case's fixture"
+    cap_permissions_open "$row"
+    rm -f -- "$gone" || fail "cap_permissions: the fixture file could not be removed"
+    # The watch refresh lands before Apply, so the batch is the only thing left to fail.
+    wait_listing "$listed_after"
+    cap_permissions_focus "Owner execute" forward
+    key -k Space >/dev/null
+    cap_permissions_await '[.controls[] | select(.name == "Owner execute")][0].value == "on"' "Owner execute did not turn on before Apply"
+    cap_permissions_focus Apply forward
+    key -k Return >/dev/null
+    cap_permissions_await ".opened and (.busy | not) and .displayedError == \"$want\"" "the vanished file draws another line than the note naming it"
+    shot cap-permissions-other-note
+    cap_permissions_focus Apply forward
+    key -k Return >/dev/null
+    cap_permissions_closed
+    [[ "$(ipc statusPrimary)" == "$left" ]] || fail "cap_permissions: the status line after the second Apply reads $(ipc statusPrimary), not $left"
+    shot cap-permissions-other-reapply
+}
+
+# Permissions040: Apply on a selection that holds skips, the status line it leaves and the card that stays when every file is skipped, then a file this user does not own.
+cap_permissions_skips() {
+    local applied="special.txt kept its mode."
+    local foreign="y-foreign.txt keeps its mode because you do not own it."
+    local foreign_applied="y-foreign.txt kept its mode."
+    local note="2 items keep their modes because a special bit is set: special.txt, x-special.txt."
+    click_row 0 left
+    settle
+    click_row 5 left --mods ctrl
+    settle
+    cap_permissions_open 0
+    cap_permissions_focus Apply forward
+    key -k Return >/dev/null
+    cap_permissions_closed
+    [[ "$(ipc statusPrimary)" == "$applied" ]] || fail "cap_permissions: the status line after Apply reads $(ipc statusPrimary), not $applied"
+    shot cap-permissions-applied-skip
+    click_row 5 left
+    settle
+    click_row 6 left --mods ctrl
+    settle
+    cap_permissions_open 5
+    cap_permissions_expect ".displayedError == \"$note\"" "the two setuid files draw another note than the card note"
+    # Permissions040: a box shows the files' bit, so two 4644 files read rw-r--r-- at the disabled opacity and Apply cannot be pressed.
+    cap_permissions_expect '([.controls[] | select(.bit != null and .enabled == false)] | length == 9) and ([.controls[] | select(.bit != null and .value == "on")] | length == 4) and ([.controls[] | select(.name == "Apply")][0] | .enabled | not)' "the all-skipped card is not nine disabled boxes holding the files' rw-r--r-- with Apply disabled"
+    shot cap-permissions-all-skipped-note
+    key -k Escape >/dev/null
+    settle
+    click_row 0 left
+    settle
+    click_row 7 left --mods ctrl
+    settle
+    cap_permissions_open 0
+    cap_permissions_expect ".displayedError == \"$foreign\"" "the foreign file draws no ownership note"
+    shot cap-permissions-multi-note-foreign
+    cap_permissions_focus Apply forward
+    key -k Return >/dev/null
+    cap_permissions_closed
+    [[ "$(ipc statusPrimary)" == "$foreign_applied" ]] || fail "cap_permissions: the status line after Apply reads $(ipc statusPrimary) beside a foreign file"
+    shot cap-permissions-applied-foreign
+}
+# Permissions040: Apply held in flight by a paused owned backend leaves Cancel and the close mark disabled, then the backend resumes.
+cap_permissions_inflight() {
+    click_row 1 left
+    settle
+    cap_permissions_open 1
+    mapfile -t pids < <(backend_pids)
+    [[ "${#pids[@]}" == 1 ]] || fail "cap_permissions: the in-flight shot needs one owned backend"
+    pid="${pids[0]}"
+    permissions_stopped="$pid"
+    # Each case runs in a subshell whose EXIT trap is cleared (tests/ui.sh:14560), so this trap owns EXIT.
+    trap 'permissions_resume_stopped "$permissions_stopped"; kill_flea' EXIT
+    convert_pause_backend "$pid"
+    cap_permissions_focus Apply forward
+    key -k Return >/dev/null
+    cap_permissions_await '.opened and .busy and ([.controls[] | select(.name == "Cancel" or .name == "Close")] | length == 2 and all(.enabled | not))' "Cancel and the close mark stay live while Apply is in flight"
+    settle
+    shot cap-permissions-apply-inflight
+    permissions_resume_stopped "$pid" || fail "cap_permissions: the owned backend did not resume"
+    permissions_stopped=""
+    trap - EXIT
+    cap_permissions_closed
+}
+
+# Permissions040: the several-items card with a focused check box in each state, the single-item card with an invalid octal, the errored symlink row and the note.
 case_cap_permissions() {
-    local dir="$fixture_root/cap-permissions"
+    local dir="$fixture_root/cap-permissions" permissions_listing="$fixture_root/cap-permissions" state pid permissions_stopped=""
+    local -a pids
     sandbox_scratch "$dir"
     printf 'one\n' > "$dir/a.txt"
     printf 'two\n' > "$dir/b.txt"
     printf 'three\n' > "$dir/c.txt"
+    printf 'special\n' > "$dir/special.txt"
+    printf 'second special\n' > "$dir/x-special.txt"
+    printf 'foreign\n' > "$dir/y-foreign.txt"
+    printf 'gone\n' > "$dir/zz-gone.txt"
+    printf '#!/bin/sh\necho run\n' > "$dir/run.sh"
+    chmod 0644 "$dir/run.sh" || fail "cap_permissions: the shebang fixture mode failed"
+    ln -s a.txt "$dir/link.txt" || fail "cap_permissions: the symlink fixture failed"
     chmod 0644 "$dir/a.txt" || fail "cap_permissions: the 644 fixture mode failed"
     chmod 0600 "$dir/b.txt" || fail "cap_permissions: the 600 fixture mode failed"
     chmod 0755 "$dir/c.txt" || fail "cap_permissions: the 755 fixture mode failed"
+    chmod 4644 "$dir/special.txt" "$dir/x-special.txt" || fail "cap_permissions: the setuid fixture mode failed"
+    chmod 0644 "$dir/y-foreign.txt" || fail "cap_permissions: the foreign fixture mode failed"
+    # A file another uid owns, made inside this fixture by a rootless user namespace: its owner maps to a sub-uid, so this user cannot change its mode.
+    unshare --map-auto --map-root-user chown 1:1 "$dir/y-foreign.txt" || fail "cap_permissions: unshare could not give the foreign fixture another owner"
+    [[ "$(stat -c '%u' "$dir/y-foreign.txt")" != "$(id -u)" ]] || fail "cap_permissions: the foreign fixture is still owned by this user"
     seed_ui_state "$fixture_root/cap-permissions-state" '{"keys":"default","view":"list","menu":{"hidden":["delete","openTerminal","moveto","copyto","properties","copyAs","pasteAs","invertSelection"]}}'
     launch "$dir"
-    wait_listing 3
+    wait_listing 9
     cap_resize 904 699
     click_row 0 left
     settle
@@ -631,25 +913,87 @@ case_cap_permissions() {
     click_row 2 left --mods ctrl
     settle
     [[ "$(ipc selectionCount)" == "3" ]] || fail "cap_permissions: three ctrl clicks selected $(ipc selectionCount), not 3"
-    click_row 0 right
-    settle
-    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_permissions: the multi-row menu never opened"
-    [[ "$(ipc menuState | jq -er '[.entries[] | select(.action == "permissions")][0].disabled')" == "false" ]] \
-        || fail "cap_permissions: Permissions is not live over three regular files"
-    menu_seek "Permissions"
-    key -k Return >/dev/null
-    local end=$((SECONDS + 15)) state
-    while (( SECONDS < end )); do
-        state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
-        [[ "$(jq -r .opened <<< "$state")" == "true" && "$(jq -r .busy <<< "$state")" == "false" ]] && break
-        sleep 0.05
-    done
-    [[ "$(jq -r .opened <<< "$state")" == "true" && "$(jq -r .busy <<< "$state")" == "false" ]] \
-        || fail "cap_permissions: Permissions never settled open and idle, last $state"
+    cap_permissions_open 0
     shot cap-permissions-multi
+    # Tab from Cancel runs Apply, Close, then the grid: Owner read is on, Owner execute mixed, Group write off.
+    cap_permissions_box "Owner read" on cap-permissions-box-on
+    cap_permissions_box "Owner execute" some cap-permissions-box-mixed
+    cap_permissions_box "Group write" off cap-permissions-box-off
+    cap_permissions_pointer "Owner read" hover cap-permissions-box-hover
+    cap_permissions_pointer "Owner read" press cap-permissions-box-pressed
+    # Mixed, one click on, a second click off: the Owner execute bit differs across the three files.
+    cap_permissions_click_box "Owner execute" on cap-permissions-box-mixed-click1
+    cap_permissions_click_box "Owner execute" off cap-permissions-box-mixed-click2
     key -k Escape >/dev/null
     settle
-    printf 'CAP_PERMISSIONS mixed=3rows dialog=open\n'
+    click_row 0 left
+    settle
+    cap_permissions_open 0
+    cap_permissions_focus Apply forward
+    shot cap-permissions-apply-focus
+    cap_permissions_focus Close forward
+    cap_permissions_expect '([.controls[] | select(.name == "Close")][0] | .focused and .ring) and ([.controls[] | select(.name != "Close" and .ring)] | length == 0)' "the focused close mark draws no ring"
+    shot cap-permissions-close-focus
+    cap_permissions_focus Octal back
+    shot cap-permissions-octal-focus
+    key -M ctrl -k a -m ctrl -k 9 >/dev/null
+    settle
+    [[ "$(ipc permissionsState | jq -r '.displayedError | length')" != "0" ]] || fail "cap_permissions: an invalid octal drew no error"
+    shot cap-permissions-octal-error
+    cap_permissions_focus Cancel forward
+    state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed before the disabled-Apply shot"
+    [[ "$(jq -r '[.controls[] | select(.name == "Apply")][0].enabled' <<< "$state")" == "false" ]] \
+        || fail "cap_permissions: Apply is not disabled over the invalid octal, state $state"
+    [[ "$(jq -r '.mode | test("9")' <<< "$state")" == "true" ]] \
+        || fail "cap_permissions: the invalid octal left the field before the disabled-Apply shot, mode $(jq -r .mode <<< "$state")"
+    shot cap-permissions-apply-disabled
+    cap_permissions_pointer Cancel hover cap-permissions-cancel-hover
+    cap_permissions_pointer Cancel press cap-permissions-cancel-pressed
+    key -k Escape >/dev/null
+    settle
+    # Apply is live over a valid octal, so its hover and press are shot on a fresh card.
+    click_row 0 left
+    settle
+    cap_permissions_open 0
+    cap_permissions_pointer Apply hover cap-permissions-apply-hover
+    cap_permissions_pointer Apply press cap-permissions-apply-pressed
+    # The keyboard moves to Apply, so Cancel and the close mark are shot hovered and pressed with no ring of their own.
+    cap_permissions_focus Apply forward
+    cap_permissions_expect '[.controls[] | select(.name == "Close")][0] | (.hovered | not) and (.ring | not)' "the close mark is not at rest before its rest shot"
+    shot cap-permissions-close-rest
+    cap_permissions_pointer Cancel hover cap-permissions-cancel-hover-apply-focus '([.controls[] | select(.name == "Apply")][0].focused) and ([.controls[] | select(.name == "Cancel")][0] | .hovered and (.focused | not))'
+    cap_permissions_pointer Cancel press cap-permissions-cancel-pressed-apply-focus '([.controls[] | select(.name == "Apply")][0].focused) and ([.controls[] | select(.name == "Cancel")][0] | .pressed and (.focused | not))'
+    cap_permissions_pointer Close hover cap-permissions-close-hover '[.controls[] | select(.name == "Close")][0] | .hovered and (.focused | not) and (.ring | not)'
+    cap_permissions_pointer Close press cap-permissions-close-pressed '[.controls[] | select(.name == "Close")][0] | .pressed and (.focused | not) and (.ring | not)'
+    key -k Escape >/dev/null
+    settle
+    click_row 3 right
+    settle
+    [[ "$(ipc menuState | jq -er '[.entries[] | select(.action == "permissions")][0].disabled')" == "true" ]] \
+        || fail "cap_permissions: Permissions is not the errored row on a symlink"
+    shot cap-permissions-symlink-menu
+    key -k Escape >/dev/null
+    settle
+    cap_permissions_menu_specimen
+    cap_permissions_special_single
+    click_row 0 left
+    settle
+    click_row 5 left --mods ctrl
+    settle
+    [[ "$(ipc selectionCount)" == "2" ]] || fail "cap_permissions: the setuid pair selected $(ipc selectionCount), not 2"
+    cap_permissions_open 0
+    [[ "$(ipc permissionsState | jq -r '.displayedError | length')" != "0" ]] || fail "cap_permissions: the setuid file drew no note for several items"
+    shot cap-permissions-multi-note
+    key -k Escape >/dev/null
+    settle
+    cap_permissions_skips
+    click_row 0 left
+    settle
+    click_row 8 left --mods ctrl
+    settle
+    cap_permissions_vanished 0 "$dir/zz-gone.txt" 8
+    cap_permissions_inflight
+    printf 'CAP_PERMISSIONS mixed=3rows boxes=on,mixed,off,hover,pressed,click1,click2 single=apply,octal,error,disabled,close,special,pointer symlink=errored note=setuid menu=makeexec skips=applied,note,foreign other=note inflight=disabled closemark=rest,hover,pressed,focus\n'
     kill_flea
 }
 

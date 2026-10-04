@@ -20,6 +20,10 @@ Item {
     // Hosted in the chrome strip: a Theme.chromeHeight press area around a Theme.chromeControlHeight frame at caption size, and Tab reaches it.
     property bool inStrip: false
 
+    // The pointer's own state, read by the native capture harness before it shoots a hover or a press.
+    readonly property bool hovered: hover.hovered
+    readonly property bool pressed: tap.pressed
+
     signal activated()
     // The form owns the order; a button only reports that Tab happened inside it.
     signal tabbed(var from, bool back)

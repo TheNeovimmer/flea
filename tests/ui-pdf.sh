@@ -9,6 +9,18 @@ pdf_expect() {
     fail "PDF $label: $observed"
 }
 
+# Quick Look closes on a fade that outlives previewOpen, so a shot of the listing waits until the overlay no longer draws.
+# Sample input: previewSwapState {"column":null,"look":{...},"lookVisible":false}.
+pdf_overlay_gone() {
+    local label="$1" observed="" deadline=$((SECONDS + 10))
+    while (( SECONDS < deadline )); do
+        observed=$(ipc previewSwapState)
+        if jq -e '.lookVisible == false' <<< "$observed" >/dev/null; then return; fi
+        sleep 0.1
+    done
+    fail "PDF $label: Quick Look still draws after Escape: $observed"
+}
+
 pdf_controls() {
     local overlay="$1" before ignored
     pdf_expect "$overlay" '.pages == 3 and .focused and .control == 1 and (.controls[0].enabled | not)' "initial focus"
@@ -191,6 +203,7 @@ case_pdffocus() {
         [[ "$(ipc path)" == "$dir" && "$(ipc viewMode)" == "$mode" ]] \
             || fail "PDF $mode pointer zoom in reached the chrome beneath: path $(ipc path), view $(ipc viewMode)"
         key -k Escape >/dev/null
+        pdf_overlay_gone "$mode"
         if [[ "$mode" != columns ]]; then
             [[ "$(ipc pdfState false)" == null ]] || fail "PDF $mode unexpectedly has an inline preview"
             shot "pdf-listing-$mode-800x480"

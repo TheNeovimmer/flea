@@ -3,6 +3,7 @@
 import QtQuick
 import Quickshell
 import "flea" as Flea
+import "permissions-columns.js" as Columns
 
 // tests/permissions-adv.sh's harness: the multi-row Permissions card's advloop findings, red first.
 ShellRoot {
@@ -16,12 +17,118 @@ ShellRoot {
     readonly property int titleRuleCount: 1
     readonly property int singleRuleCount: 4
     readonly property real sectionRuleOpacity: 0.4
+    // Every stop the Display section offers; the window is odd so a centred card exposes a half pixel.
+    readonly property var textStops: [9, 10, 11, 12, 14, 16, 20]
+    readonly property int boardStop: 14
+    readonly property int windowWidth: 801
+    readonly property int windowHeight: 601
+    // The board's bar at an 18 px box: 8 x 2, centred, and the box's 13 px bodySmall reference.
+    readonly property int boardBarWidth: 8
+    readonly property int boardBarHeight: 2
+    readonly property int boardBarX: 5
+    readonly property int boardBarY: 8
+    // The several-items fixture reads 0644 and 0755, so the Owner execute bit (1 << 6) differs across the files.
+    readonly property int mixedBit: 64
+    readonly property real boardBodySmall: 13
+    // lib.py note(): the note's line box is 1.5 x its font size, and the board's several-items card is 275 tall at 14.
+    readonly property real noteLineRatio: 1.5
+    readonly property int boardSeveralHeight: 275
+    // Odd and even rooms and spans that a card centres in: the helper's whole size and origin are read from each.
+    readonly property var helperRooms: [800, 801]
+    readonly property var helperWants: [472.5, 473, 551.25, 480]
+    readonly property int helperMargin: 16
+    property int stopIndex: 0
+    property int cardKind: 0
 
     function log(line) { console.log("PERMADV " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
     function check(name, cond, detail) {
         if (cond) shell.log("PASS " + name)
         else shell.failures.push(name + " got " + detail)
+    }
+
+    function stopState(stop) {
+        Flea.ViewState.load(JSON.stringify({ display: { textSize: { mode: stop } } }))
+    }
+    function whole(value) { return value === Math.round(value) }
+    function sceneRect(item) {
+        var r = item.mapToItem(null, 0, 0, item.width, item.height)
+        return [r.x, r.y, r.width, r.height]
+    }
+    // The card's mapped rectangle has no fractional part, so every one of its four edges is one device pixel.
+    function checkWholeCard(tag, item) {
+        var r = shell.sceneRect(item)
+        shell.check(tag + " card rect is whole pixels", r.every(shell.whole), r.join(","))
+    }
+    // Every check box of the grid sits on whole pixels too, because its 2 px frame is a hairline pair.
+    function checkWholeBoxes(tag, card) {
+        var bad = []
+        var controls = card.controls()
+        for (var i = 0; i < controls.length; i++) {
+            if (controls[i].bit === undefined) continue
+            var box = controls[i].item.children.find(function (child) { return typeof child.value === "string" })
+            var r = shell.sceneRect(box)
+            if (!r.every(shell.whole)) bad.push(controls[i].name + " " + r.join(","))
+        }
+        shell.check(tag + " check boxes are whole pixels", bad.length === 0, bad.join(" | "))
+    }
+    // The note is a whole-pixel line box of 1.5 x caption per line, its glyphs centred in it as CSS line-height centres them.
+    function checkNote(tag, card) {
+        var note = card.noteItem
+        if (!note) { shell.check(tag + " note is reachable", false, "no noteItem"); shell.check(tag + " note glyphs are centred", false, "no noteItem"); return }
+        var box = Math.round(shell.noteLineRatio * Flea.Theme.font.caption)
+        // contentHeight is what the text layout laid out, so it moves with lineHeight or the font and not with the height binding.
+        shell.check(tag + " note lays out lines of 1.5 x caption", note.lineCount > 0 && note.contentHeight === note.lineCount * box, note.contentHeight + " for " + note.lineCount + " lines of " + box)
+        shell.check(tag + " note box holds its laid-out lines", note.height === note.contentHeight, note.height + " against " + note.contentHeight)
+        var lead = (box - probeNote.implicitHeight) / 2
+        shell.check(tag + " note glyphs are centred in the line box", Math.abs(note.topPadding - lead) <= 0.5, "topPadding " + note.topPadding + " want " + lead)
+    }
+    // check() takes a verdict; same() compares what was read with what the board draws and names both on a miss.
+    function same(name, actual, expected) { shell.check(name, String(actual) === String(expected), String(actual) + " want " + String(expected)) }
+    // Theme.cardSpan and cardOrigin give every card a whole size inside its room and a whole origin, in odd and even rooms.
+    function checkHelper() {
+        var ready = typeof Flea.Theme.cardSpan === "function" && typeof Flea.Theme.cardOrigin === "function"
+        for (var r = 0; r < shell.helperRooms.length; r++) {
+            var room = shell.helperRooms[r]
+            for (var w = 0; w < shell.helperWants.length; w++) {
+                var want = shell.helperWants[w]
+                var span = ready ? Flea.Theme.cardSpan(want, room - 2 * shell.helperMargin) : -1
+                var origin = ready ? Flea.Theme.cardOrigin(room, span) : -1
+                shell.check("helper room " + room + " want " + want + " is whole", ready && shell.whole(span) && shell.whole(origin) && span >= want && span < want + 1 && origin >= 0 && origin + span <= room, span + " at " + origin)
+            }
+            var clamped = ready ? Flea.Theme.cardSpan(room * 2, room - 2 * shell.helperMargin) : -1
+            shell.check("helper room " + room + " clamps to the room", ready && clamped === room - 2 * shell.helperMargin, String(clamped))
+        }
+    }
+    // The check box the several-items fixture leaves mixed, read from the open card's own grid.
+    function mixedBoxOf(card) {
+        var controls = card.controls()
+        for (var i = 0; i < controls.length; i++) {
+            if (controls[i].bit !== shell.mixedBit) continue
+            return controls[i].item.children.find(function (child) { return typeof child.value === "string" })
+        }
+        return undefined
+    }
+    // The mixed bar is a rectangle in the check's cut-out ink, the board's 8 x 2 scaled with the box, on whole pixels.
+    function checkMixedBar(tag, card, stop) {
+        var box = shell.mixedBoxOf(card)
+        shell.check(tag + " card has a mixed Owner execute box showing the bar", !!box && box.value === "some" && !!box.barItem && box.barItem.visible, box ? box.value : "no box")
+        if (!box) return
+        var bar = box.barItem
+        var scale = Flea.Theme.font.bodySmall / shell.boardBodySmall
+        var wantWidth = Math.round(shell.boardBarWidth * scale)
+        var wantHeight = Math.max(1, Math.round(shell.boardBarHeight * scale))
+        shell.check(tag + " mixed bar is a rectangle", !!bar && String(bar).indexOf("QQuickRectangle") === 0, String(bar))
+        var size = bar ? bar.width + "x" + bar.height : "none"
+        shell.check(tag + " mixed bar size scales with the box", size === wantWidth + "x" + wantHeight, size + " want " + wantWidth + "x" + wantHeight)
+        var at = bar ? bar.x + "," + bar.y : "none"
+        shell.check(tag + " mixed bar sits on whole pixels", !!bar && shell.whole(bar.x) && shell.whole(bar.y), at)
+        shell.check(tag + " mixed bar is centred in the box",
+            !!bar && Math.abs(2 * bar.x + bar.width - box.width) <= 1 && Math.abs(2 * bar.y + bar.height - box.height) <= 1, at)
+        shell.check(tag + " mixed bar draws in the check's ink", !!bar && Qt.colorEqual(bar.color, Flea.Theme.color.background) && bar.opacity === 1, bar ? String(bar.color) : "none")
+        if (stop === shell.boardStop)
+            shell.check(tag + " mixed bar is the board's 8 x 2 at 5,8", !!bar && size === shell.boardBarWidth + "x" + shell.boardBarHeight
+                && bar.x === shell.boardBarX && bar.y === shell.boardBarY, size + " at " + at)
     }
 
     function visibleSections(item, result) {
@@ -37,13 +144,24 @@ ShellRoot {
     }
 
     FloatingWindow {
-        implicitWidth: 640
-        implicitHeight: 480
+        implicitWidth: shell.windowWidth
+        implicitHeight: shell.windowHeight
         color: "#303030"
 
-        Flea.PermissionsDialog {
-            id: dialog
+        // One caption line at the note's font, whose natural height is what the line box centres its glyphs against.
+        Text {
+            id: probeNote
+            visible: false
+            text: "Hg"
+            font { family: Flea.Theme.font.family; pixelSize: Flea.Theme.font.caption }
         }
+
+        FontMetrics { id: probeFont; font { family: Flea.Theme.font.family; pixelSize: Flea.Theme.font.caption } }
+        TextMetrics { id: probeInk; text: "READ"; font { family: Flea.Theme.font.family; pixelSize: Flea.Theme.font.caption } }
+
+        // A live DialogField, whose box height the Octal field must match at every text size.
+        Flea.DialogField { id: probeField; visible: false }
+        Flea.PermissionsDialog { id: dialog }
     }
 
     // Sample backend: {"c":"permissions","op":"inspect","id":1000,"path":"/a"} answers mode and reason.
@@ -132,7 +250,7 @@ ShellRoot {
             dialog.openMany(["/a", "/b"], holder)
             shell.answerInspects(marked5, "0644", "", "0644", "Read-only: you are not the owner.")
             shell.check("reasoned-row-keeps-grid-editable", dialog.editable === true, String(dialog.editable))
-            shell.check("reasoned-row-is-named", dialog.displayedError.indexOf("not the owner") >= 0, dialog.displayedError)
+            shell.check("reasoned-row-is-named", dialog.displayedError === "b keeps its mode because you do not own it.", dialog.displayedError)
             var beforeApply = shell.sent.length
             dialog.applyMany()
             var batch5 = null
@@ -233,10 +351,43 @@ ShellRoot {
             var singleSections = visibleSections(dialog.cardItem, {headers: 0, rules: 0})
             shell.check("r1:single-keeps-preview-header", singleSections.headers === 1, JSON.stringify(singleSections))
             shell.check("r1:single-keeps-section-rules", singleSections.rules === singleRuleCount, JSON.stringify(singleSections))
+            shell.phase = 14
+        } else if (shell.phase === 14) {
+            // One stop at a time: the text size first, then the single card, then the several-items card.
+            shell.stopState(shell.textStops[shell.stopIndex])
+            if (shell.cardKind === 0) {
+                dialog.open("/a", holder)
+                dialog.receive({op: "inspect", id: dialog.requestId, ok: true, mode: "0644", reason: ""})
+            } else {
+                var markedSize = shell.sent.length
+                dialog.openMany(["/a", "/b"], holder)
+                shell.answerInspects(markedSize, "0644", "", "0755", "")
+            }
+            shell.phase = 15
+        } else if (shell.phase === 15) {
+            var stop = shell.textStops[shell.stopIndex]
+            var tag = "stop" + stop + (shell.cardKind === 0 ? ":single" : ":several")
+            shell.checkWholeCard(tag, dialog.cardItem)
+            shell.checkWholeBoxes(tag, dialog)
+            shell.checkNote(tag, dialog)
+            Columns.checkColumns(shell, tag, dialog, stop)
+            Columns.checkHeading(shell, tag, dialog, probeNote.implicitHeight, Flea.Theme.font.caption, probeFont.ascent + probeInk.tightBoundingRect.y, stop)
+            if (shell.cardKind === 0) Columns.checkOctalFrame(shell, tag, dialog, Flea.Theme, probeField)
+            if (shell.cardKind === 1 && stop === shell.boardStop)
+                shell.check(tag + " card is the board's 275", dialog.cardItem.height === shell.boardSeveralHeight, String(dialog.cardItem.height))
+            if (shell.cardKind === 1) shell.checkMixedBar(tag, dialog, stop)
+            dialog.close()
+            shell.cardKind = (shell.cardKind + 1) % 2
+            if (shell.cardKind === 0) shell.stopIndex += 1
+            shell.phase = shell.stopIndex < shell.textStops.length ? 14 : 16
+        } else if (shell.phase === 16) {
+            shell.checkHelper()
+            shell.phase = 17
+        } else if (shell.phase === 17) {
             for (var i = 0; i < shell.failures.length; i++)
                 shell.log("FAIL " + shell.failures[i])
             shell.log("DONE failures=" + shell.failures.length)
-            shell.phase = 14
+            shell.phase = 18
             shell.quit()
         }
     }

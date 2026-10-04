@@ -289,6 +289,19 @@ ShellRoot {
         root.pinsCompared[key] = (root.pinsCompared[key] || 0) + 1
         root.check(JSON.stringify(got) === JSON.stringify(want), key + " content moved: " + JSON.stringify(got) + " against " + JSON.stringify(want))
     }
+    // A card lands on whole pixels (a half-pixel hairline is two half-strength rows); a subject listed without a card exposes none.
+    function checkWholeRect(tag, dialog, noCardWhy) {
+        var exposed = !!dialog && !!dialog.cardItem
+        if (noCardWhy !== undefined) {
+            root.check(!exposed, tag + " is listed without a card (" + noCardWhy + ") and also exposes a cardItem")
+            return
+        }
+        root.check(exposed, tag + " exposes no cardItem, so its card rect cannot be measured")
+        if (!exposed) return
+        var r = dialog.cardItem.mapToItem(null, 0, 0, dialog.cardItem.width, dialog.cardItem.height)
+        var parts = [r.x, r.y, r.width, r.height]
+        root.check(parts.every(function (v) { return v === Math.round(v) }), tag + " card rect " + parts.join(",") + " is not whole pixels")
+    }
     // Every pinned key was compared exactly once by the end of the run, so a renamed entry or a changed key format cannot compare nothing.
     function checkPinsCompared() {
         var keys = Object.keys(Pins.PINS)
@@ -325,7 +338,7 @@ ShellRoot {
         last.forceActiveFocus()
         root.checkRevealed(tag + " last again", card, last, end)
     }
-    // Every visible button holds one ring, and a check box one only while it is focused and empty (its frame then is the ring).
+    // Every visible button holds one ring, and a check box one that shows exactly while it is focused, on or off or mixed.
     function checkRingCounts(tag, dialog) {
         var buttons = root.ofType(dialog, "DialogButton", [])
         for (var b = 0; b < buttons.length; b++) {
@@ -334,12 +347,50 @@ ShellRoot {
         }
         var boxes = root.ofType(dialog, "CheckBox", [])
         for (var c = 0; c < boxes.length; c++) {
-            var want = boxes[c].focused && !boxes[c].filled ? 1 : 0
             var found = root.rings(boxes[c], [])
-            root.check(found.length === want, tag + " check box " + c + " holds " + found.length + " rings, not " + want)
+            root.check(found.length === 1, tag + " check box " + c + " holds " + found.length + " rings, not one")
+            if (found.length === 1) root.check(found[0].visible === boxes[c].focused, tag + " check box " + c + " ring shows " + found[0].visible + " while focused is " + boxes[c].focused)
         }
     }
-    function measureDialog(tag, key, dialog, wantsField, unpinnedWhy) {
+    // The Permissions grid's nine boxes, each given the keyboard in turn: a 2 px foreground ring one ring outside the unchanged frame, whole inside every clip.
+    function measureGridFocus(tag, dialog) {
+        var controls = dialog.controls()
+        var seen = 0
+        for (var i = 0; i < controls.length; i++) {
+            if (controls[i].bit === undefined) continue
+            var host = controls[i].item
+            host.forceActiveFocus()
+            var box = root.find(host, "CheckBox")
+            var name = tag + " grid box " + controls[i].name + " (" + (box ? box.value : "none") + ")"
+            root.check(!!box && box.focused, name + " is not focused")
+            if (!box) continue
+            var own = root.rings(box, [])
+            root.check(own.length === 1, name + " holds " + own.length + " rings, not one")
+            seen++
+            if (own.length !== 1) continue
+            var ring = own[0]
+            var edge = ring.mapToItem(null, 0, 0, ring.width, ring.height)
+            var frameItem = box.frameItem || box.children[0]
+            var frame = frameItem.mapToItem(null, 0, 0, frameItem.width, frameItem.height)
+            root.check(ring.visible, name + " ring is not showing")
+            root.check(edge.x === frame.x - root.ringWidth && edge.y === frame.y - root.ringWidth
+                       && edge.width === frame.width + 2 * root.ringWidth && edge.height === frame.height + 2 * root.ringWidth,
+                       name + " ring " + edge.x + "," + edge.y + " " + edge.width + "x" + edge.height + " is not " + root.ringWidth + " px outside the frame " + frame.x + "," + frame.y + " " + frame.width + "x" + frame.height)
+            // Focus never moves the frame: rule 14's colours, on or mixed foreground and off muted.
+            var wantFrame = box.filled ? Flea.Theme.color.foreground : Flea.Theme.color.muted
+            root.check(Qt.colorEqual(frameItem.border.color, wantFrame), name + " frame is " + frameItem.border.color + " under focus")
+            root.check(frameItem.border.width === box.borderWidth, name + " frame is " + frameItem.border.width + " px wide under focus")
+            root.clipChain(name + " ring", ring)
+        }
+        root.check(seen === 9, tag + " grid focused " + seen + " boxes, not nine")
+    }
+    function dialogNamed(name) {
+        for (var i = 0; i < root.dialogs.length; i++)
+            if (root.dialogs[i].name === name) return root.dialogs[i]
+        return null
+    }
+    function measureDialog(tag, key, dialog, wantsField, unpinnedWhy, noCardWhy) {
+        root.checkWholeRect(tag, dialog, noCardWhy)
         var all = root.rings(dialog, [])
         console.log("RINGBOUNDS DIALOG " + tag + " rings=" + all.length)
         root.checkRingCounts(tag, dialog)
@@ -380,19 +431,19 @@ ShellRoot {
           item: function () { return pane.menuActions.item }, ready: function (d) { return d.opened }, close: function (d) { d.opened = false } },
         { name: "permissions", open: function () { pane.permissionsRequested(root.fixture + "/a.txt") },
           item: function () { return root.ipcItem().permissionsDialog }, ready: function (d) { return d.opened && d.facts.ok === true && !d.busy }, close: function (d) { d.opened = false } },
-        { name: "save picker", open: function () { fakePicker.saving = true },
+        { name: "save picker", noCard: "a strip the picker places, not a centred card", open: function () { fakePicker.saving = true },
           item: function () { return saveCard }, ready: function (d) { return d.visible }, close: function (d) { fakePicker.saving = false } },
         { name: "convert", field: false, open: function () { pane.convertSource = { path: root.fixture + "/a.txt", name: "a.png", menuId: 0 }; pane.convertRequested("a.png") },
           item: function () { return root.ipcItem().convertDialog }, ready: function (d) { return d.opened }, close: function (d) { d.opened = false } },
-        { name: "window", field: false, unpinned: "the whole window, not a dialog's content", open: function () {},
+        { name: "window", noCard: "the whole window", field: false, unpinned: "the whole window, not a dialog's content", open: function () {},
           item: function () { return body }, ready: function (d) { return true }, close: function (d) {} },
         { name: "network", open: function () { pane.sidebar.addRequested() },
           item: function () { return root.ipcItem().networkDialog }, ready: function (d) { return d.opened }, close: function (d) { d.opened = false } },
         { name: "trash confirm", field: false, open: function () { pane.menuActions.dialogFor = "newFile"; pane.menuActions.active = true; pane.menuActions.item.open("newFile", 1, root.fixture, pane.listArea); root.trashConfirm().open({ all: false, count: 3, bytes: 0, token: 1 }) },
           item: function () { return pane.menuActions.item ? root.trashConfirm() : null }, ready: function (d) { return d.opened }, close: function (d) { d.opened = false; pane.menuActions.item.opened = false } },
-        { name: "transfer card", field: false, unpinned: "its place is the probe's own x and y", open: function () { transferCard.transfer = root.runningTransfer },
+        { name: "transfer card", noCard: "the status bar hosts it at the probe's own x and y", field: false, unpinned: "its place is the probe's own x and y", open: function () { transferCard.transfer = root.runningTransfer },
           item: function () { return transferCard }, ready: function (d) { return d.visible }, close: function (d) { d.transfer = Ops.emptyTransfer() } },
-        { name: "scroll card", field: false, unpinned: "a probe card, not a product dialog", open: function () { scrollCard.visible = true },
+        { name: "scroll card", noCard: "a probe card, not a product dialog", field: false, unpinned: "a probe card, not a product dialog", open: function () { scrollCard.visible = true },
           item: function () { return scrollCard }, ready: function (d) { return d.visible }, close: function (d) { d.visible = false },
           after: function (tag, d) { root.measureScrollCard(tag, d) } }
     ].concat(Settings.SECTIONS.map(function (section) { return root.settingsEntry(section.id) }))
@@ -442,7 +493,7 @@ ShellRoot {
             if (root.viewIndex >= root.views.length) {
                 root.dialogIndex = 0
                 root.dialogOpened = false
-                root.stage = combo.dialogs ? 5 : 6
+                root.stage = 7
                 return true
             }
             var mode = root.views[root.viewIndex]
@@ -475,11 +526,23 @@ ShellRoot {
             if (!root.dialogOpened) { dlg.open(); root.dialogOpened = true; return false }
             var item = dlg.item()
             if (!item || !dlg.ready(item)) return false
-            root.measureDialog(tag + " " + dlg.name, "stop " + combo.stop + " " + dlg.name, item, dlg.field !== false, dlg.unpinned)
+            root.measureDialog(tag + " " + dlg.name, "stop " + combo.stop + " " + dlg.name, item, dlg.field !== false, dlg.unpinned, dlg.noCard)
             if (dlg.after) dlg.after(tag + " " + dlg.name, item)
             dlg.close(item)
             root.dialogOpened = false
             root.dialogIndex++
+            return true
+        }
+        if (root.stage === 7) {
+            // The grid's boxes take the keyboard at every text stop, whether or not the stop sweeps the other dialogs.
+            var permissions = root.dialogNamed("permissions")
+            if (!root.dialogOpened) { permissions.open(); root.dialogOpened = true; return false }
+            var card = permissions.item()
+            if (!card || !permissions.ready(card)) return false
+            root.measureGridFocus(tag + " permissions", card)
+            permissions.close(card)
+            root.dialogOpened = false
+            root.stage = combo.dialogs ? 5 : 6
             return true
         }
         if (root.stage === 6) {

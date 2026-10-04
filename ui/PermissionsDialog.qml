@@ -29,25 +29,51 @@ FocusScope {
     property int explicitSet: 0
     property int explicitClear: 0
     property bool applyingMany: false
+    // A failed batch's own error until its re-read lands, so the held note may replace it when it names that refusal.
+    property string failedBatchError: ""
     // The Apply skips, carried to the applyMany reply for the final message.
     property var multiApplySkipped: []
     property int multiApplySent: 0
     readonly property bool isMulti: multiPaths.length > 1
-    readonly property var multiSummary: isMulti ? Permissions.summarize(multiModes) : null
-    readonly property bool editable: isMulti ? !busy && !transportFailed
+    readonly property var multiSummary: isMulti ? Permissions.summarize(multiModes, multiStore.reasons) : null
+    // Several items: a selection where no file can change shows the files' bits and is not editable, as one unchangeable file is.
+    readonly property bool editable: isMulti ? !busy && !transportFailed && !!multiSummary && multiSummary.changeable
                                               : facts.ok === true && !facts.reason && !busy && !transportFailed
     readonly property int modeValue: Permissions.parse(modeText)
     readonly property bool applying: busy && facts.ok === true
     // Permissions040: a multi Apply cannot be cancelled either.
     readonly property bool applyLocked: applying || applyingMany
     readonly property real labelWidth: Math.round(96 * Theme.font.bodySmall / 13)
+    // ButtonSystem040 A: a text field is DialogField's height (ui/DialogField.qml's box), centred in its row.
+    readonly property int fieldHeight: Theme.rowHeight - Theme.spacing.rowPaddingY
     readonly property int controlHeight: Math.max(Theme.rowHeight, Math.ceil(Theme.font.body * Theme.lineBoxRatio) + 2 * Theme.spacing.rowPaddingY)
-    readonly property real bodyInset: 16 * Theme.font.bodySmall / 13 + Theme.spacing.hairline
+    // The board is drawn at base size 14, whose bodySmall is 13; every board pixel below scales from it and lands whole.
+    readonly property real boardScale: Theme.font.bodySmall / 13
+    readonly property int boardCardWidth: 480
+    // lib.py note(): the note's line box is 1.5 x its font size, and its glyphs sit centred in it.
+    readonly property real noteLineRatio: 1.5
+    readonly property int bodyInset: Math.round(16 * root.boardScale) + Theme.spacing.hairline
     readonly property int headingHeight: Math.round(26 * Theme.font.bodySmall / 13)
     // Permissions040, several items: the surface's one 8 px gap, and the 6 px its button row adds above itself.
     readonly property int multiGap: Theme.spacing.rowPaddingY + Theme.spacing.hairline
-    readonly property real buttonLead: Theme.settings.railPaddingY / 2 + Theme.spacing.hairline
+    // The board's three flex:1 columns are exact thirds of this span; whole-number arithmetic rounds each start half up, as the board's paint does.
+    readonly property real bitSpan: body.holderWidth - root.labelWidth
+    function bitStart(column) { return Math.floor((2 * column * root.bitSpan + 3) / 6) }
+    function bitWidth(column) { return root.bitStart(column + 1) - root.bitStart(column) }
+    // The box sits at the rounded exact centre of its third, so it lands on whole pixels where the board's does.
+    function boxLead(column, box) { return Math.floor((2 * column * root.bitSpan + root.bitSpan - 3 * box + 3) / 6) - root.bitStart(column) }
+    // lib.py note(): a caption's line box is 1.5 x its size and its glyphs sit centred in it.
+    readonly property int captionLineBox: Math.round(root.noteLineRatio * Theme.font.caption)
+    readonly property int captionLead: Math.round((root.captionLineBox - noteFont.height) / 2)
+    // Permissions040's strip draws the title and "esc" glyphs one row above where Qt's line box seats them (board rows 7-16 and 10-16, the build's 8-17 and 11-17 once centred above the rule).
+    readonly property int stripTextRise: Theme.spacing.hairline
+    readonly property int railHalf: Math.round(Theme.settings.railPaddingY / 2)
+    readonly property int buttonLead: root.railHalf + Theme.spacing.hairline
     readonly property var cardItem: card
+    // The title strip's four marks, so a probe reads where each sits against the board's rows.
+    readonly property var stripItems: ({ lock: lockMark, title: title, esc: escHint, close: closeMark })
+    readonly property var noteItem: scopeLabel
+    readonly property var octalFrame: octalBox
     readonly property var bodyItem: body
     readonly property string displayedError: errorLabel.text
     readonly property string displayedSummary: (isMulti ? "" : changeSummary.text + "\n") + scopeLabel.text
@@ -79,6 +105,7 @@ FocusScope {
         multiPending = 0
         multiApplySkipped = []
         multiApplySent = 0
+        failedBatchError = ""
         explicitSet = 0
         explicitClear = 0
         applyingMany = false
@@ -104,6 +131,7 @@ FocusScope {
         multiPending = paths.length
         multiApplySkipped = []
         multiApplySent = 0
+        failedBatchError = ""
         explicitSet = 0
         explicitClear = 0
         applyingMany = false
@@ -173,7 +201,7 @@ FocusScope {
         if (message.op === "applyMany") {
             applyingMany = false
             if (message.ok === true) {
-                changed(Permissions.multiResult(multiApplySent, multiPaths.length, multiApplySkipped))
+                changed(Permissions.multiResult(multiApplySkipped))
                 close()
                 return
             }
@@ -181,6 +209,7 @@ FocusScope {
             if (multiApplySkipped.length > 0)
                 errorText += "\n" + Permissions.skipNote(multiApplySkipped)
             // A failed batch re-reads every mode so the grid and a retry start from disk.
+            failedBatchError = message.error || ""
             multiStore = ({ modes: [], reasons: [], skipped: [], pending: multiPaths.length })
             multiModes = []
             multiPending = multiPaths.length
@@ -197,11 +226,14 @@ FocusScope {
         // Accumulated in place through noteMode, which answers true once per selection.
         if (Permissions.noteMode(multiStore, at, multiPaths[at], message)) {
             multiPending = 0
-            busy = false
-            // The single assignment lands with the last reply.
+            // The single assignment lands with the last reply, before busy clears, so editable never reads the previous selection's summary.
             multiModes = multiStore.modes.slice()
+            busy = false
             var note = Permissions.inspectNote(multiStore, multiPaths)
-            if (note.length > 0 && errorText.length === 0) errorText = note
+            // A batch refused for a file the re-read cannot inspect is named by the held note, which quotes that refusal; any other batch error stays.
+            var refused = failedBatchError.length > 0 && multiStore.skipped.some(function (skip) { return skip.why === failedBatchError })
+            if (note.length > 0 && (errorText.length === 0 || refused)) errorText = note
+            failedBatchError = ""
             cancelFocus.forceActiveFocus()
         } else {
             multiPending = multiStore.pending
@@ -269,7 +301,7 @@ FocusScope {
         if (paths.length === 0) {
             applyingMany = false
             busy = false
-            errorText = Permissions.multiResult(0, multiPaths.length, skipped)
+            errorText = Permissions.multiResult(skipped)
             cancelFocus.forceActiveFocus()
             return
         }
@@ -293,6 +325,7 @@ FocusScope {
         items[next].forceActiveFocus()
         body.reveal(items[next])
     }
+    FontMetrics { id: noteFont; font { family: Theme.font.family; pixelSize: Theme.font.caption } }
     Keys.onTabPressed: function(event) { root.stepFocus((event.modifiers & Qt.ShiftModifier) !== 0); event.accepted = true }
     Keys.onBacktabPressed: function(event) { root.stepFocus(true); event.accepted = true }
     Keys.onPressed: function(event) { event.accepted = true }
@@ -311,10 +344,10 @@ FocusScope {
     }
     Rectangle {
         id: card
-        anchors.centerIn: parent
-        // The board's 420 content width shares the Settings board's 560 scale.
-        width: Math.max(0, Math.min(Theme.settings.panelWidth * 3 / 4 + 2 * Theme.spacing.hairline, root.width - 2 * Theme.spacing.gap))
-        height: Math.max(0, Math.min(chrome.height + body.wanted + Theme.spacing.rowPaddingX + root.bodyInset, root.height - 2 * Theme.spacing.gap))
+        x: Theme.cardOrigin(root.width, width)
+        y: Theme.cardOrigin(root.height, height)
+        width: Theme.cardSpan(Math.round(root.boardCardWidth * root.boardScale), root.width - 2 * Theme.spacing.gap)
+        height: Theme.cardSpan(Theme.spacing.hairline + chrome.height + body.wanted + Theme.spacing.rowPaddingX + root.bodyInset, root.height - 2 * Theme.spacing.gap)
         color: Theme.color.surface
         border.color: Theme.color.muted
         border.width: Theme.spacing.hairline
@@ -328,32 +361,42 @@ FocusScope {
         }
         Item {
             id: chrome
+            // The strip sits inside the card's border, as the board's title does, so its rule and marks start a hairline in.
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
+            anchors.margins: Theme.spacing.hairline
             height: Theme.chromeHeight
-            Row {
-                anchors.left: parent.left
-                anchors.leftMargin: Theme.spacing.rowPaddingX
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Theme.spacing.gap
-                Flea.Glyph { width: Theme.chromeMarkSize; height: title.height; name: "lock"; color: Theme.color.accent }
-                    Text { id: title; text: root.isMulti ? "Permissions for " + root.multiPaths.length + " items" : "Permissions"; color: Theme.color.foreground; textFormat: Text.PlainText; font { family: Theme.font.family; pixelSize: Theme.font.caption; bold: true } }
+            // The board centres the marks and title in the strip above its rule, so the rule's row is never part of the centring band.
+            Item { id: titleBand; anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; height: parent.height - Theme.spacing.hairline }
+            Flea.Glyph {
+                id: lockMark
+                x: Theme.spacing.rowPaddingX
+                y: Math.floor((titleBand.height - height) / 2)
+                width: Theme.chromeMarkSize; height: title.height; name: "lock"; color: Theme.color.accent
+            }
+            Text {
+                id: title
+                x: lockMark.x + lockMark.width + Theme.spacing.gap
+                y: Math.floor((titleBand.height - height) / 2) - root.stripTextRise
+                text: root.isMulti ? "Permissions for " + root.multiPaths.length + " items" : "Permissions"
+                color: Theme.color.foreground; textFormat: Text.PlainText; font { family: Theme.font.family; pixelSize: Theme.font.caption; bold: true }
             }
             // Dialogs rule 7: the way out is named beside the mark that performs it, the settings panel's own corner.
             Flea.EscapeHint {
+                id: escHint
                 anchors.right: closeMark.left
                 anchors.rightMargin: Theme.spacing.gap
-                anchors.verticalCenter: closeMark.verticalCenter
+                y: Math.floor((titleBand.height - height) / 2) - root.stripTextRise
             }
 
             Flea.ChromeButton {
                 id: closeMark
                 anchors.right: parent.right
                 anchors.rightMargin: Theme.spacing.rowPaddingX
-                anchors.verticalCenter: parent.verticalCenter
+                anchors.verticalCenter: titleBand.verticalCenter
                 glyph: "x"; gesturePolicy: TapHandler.ReleaseWithinBounds
-                // The one chrome control here, so brightness is all it has to say where the keyboard is: muted at rest, foreground under focus.
+                // Muted at rest as the board draws the strip; the keyboard adds ChromeButton's own ring.
                 restingColor: Theme.color.muted
                 enabled: !root.applyLocked
                 accessName: "Close permissions"
@@ -392,15 +435,7 @@ FocusScope {
                     Text { id: kindLabel; anchors.verticalCenter: parent.verticalCenter; text: root.facts.ok ? (root.facts.directory ? "directory" : "file") : ""; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.caption } }
                 }
                 Rectangle { width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4; visible: !root.isMulti }
-                Row {
-                    width: parent.width
-                    height: root.headingHeight
-                    Item { width: root.labelWidth; height: parent.height }
-                    Repeater {
-                        model: ["READ", "WRITE", root.isMulti || !root.facts.directory ? "EXEC" : "ENTER"]
-                        Text { required property string modelData; width: (body.holderWidth - root.labelWidth) / 3; height: parent.height; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; text: modelData; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.caption; letterSpacing: Theme.font.caption / 10 } }
-                    }
-                }
+                Flea.PermissionsHeadings { width: parent.width; card: root; enter: !root.isMulti && root.facts.directory === true }
                 Repeater {
                     id: permissionRows
                     model: ["Owner", "Group", "Everyone"]
@@ -421,10 +456,13 @@ FocusScope {
                                 readonly property int bit: 1 << (8 - permissionRow.index * 3 - index)
                                 readonly property bool checked: root.isMulti ? root.multiChecked(bit)
                                     : (root.modeValue >= 0 ? root.modeValue : parseInt(root.facts.mode || "0", 8)) & bit
-                                width: (body.holderWidth - root.labelWidth) / 3
+                                width: root.bitWidth(index)
                                 height: permissionRow.height
                                 activeFocusOnTab: true
                                 enabled: root.editable
+                                // The pointer's own state, read by the native capture harness before it shoots a hover or a press.
+                                readonly property bool hovered: boxHover.hovered
+                                readonly property bool pressed: boxTap.pressed
                                 Accessible.role: Accessible.CheckBox
                                 Accessible.name: permissionRow.modelData + " " + ["read", "write", root.facts.directory ? "enter" : "execute"][index]
                                 Accessible.checked: checked
@@ -440,23 +478,25 @@ FocusScope {
                                 Keys.onTabPressed: function(event) { root.stepFocus((event.modifiers & Qt.ShiftModifier) !== 0) }
                                 Keys.onBacktabPressed: root.stepFocus(true)
                                 Flea.CheckBox {
-                                    anchors.centerIn: parent
+                                    x: root.boxLead(checkbox.index, width)
+                                    y: Math.round((parent.height - height) / 2)
                                     // A bit differing across the files shows a bar until it is clicked.
                                     value: root.isMulti ? root.multiValue(bit) : checkbox.checked ? "on" : "off"
                                     focused: checkbox.activeFocus
                                     // A disabled row stays checked, so the box dims and keeps its value.
                                     available: root.editable
                                 }
-                                TapHandler { gesturePolicy: TapHandler.ReleaseWithinBounds; onTapped: checkbox.toggle() }
+                                HoverHandler { id: boxHover }
+                                TapHandler { id: boxTap; gesturePolicy: TapHandler.ReleaseWithinBounds; onTapped: checkbox.toggle() }
                             }
                         }
                     }
                 }
                 Item {
                     width: parent.width
-                    height: Theme.spacing.rowPaddingY + Theme.settings.railPaddingY / 2 + Theme.spacing.hairline
+                    height: Theme.spacing.rowPaddingY + root.railHalf + Theme.spacing.hairline
                     visible: !root.isMulti
-                    Rectangle { y: Theme.settings.railPaddingY / 2; width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4 }
+                    Rectangle { y: root.railHalf; width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4 }
                 }
                 Row {
                     width: parent.width
@@ -466,10 +506,13 @@ FocusScope {
                     visible: !root.isMulti
                     Text { width: root.labelWidth; anchors.verticalCenter: parent.verticalCenter; text: "Octal"; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
                     Rectangle {
+                        id: octalBox
                         width: body.holderWidth - root.labelWidth - parent.spacing
-                        height: parent.height
+                        height: root.fieldHeight
+                        y: Math.round((parent.height - height) / 2)
                         color: Theme.color.background
-                        border.color: octal.activeFocus ? Theme.color.accent : Theme.color.muted
+                        // A focused field is its own frame in the accent, and the error role where its line reports an error, as RenameField draws it.
+                        border.color: octal.activeFocus ? (errorLabel.visible && !root.busy ? Theme.color.error : Theme.color.accent) : Theme.color.muted
                         TextInput {
                             id: octal
                             anchors.fill: parent
@@ -550,7 +593,7 @@ FocusScope {
                 Text {
                     text: "WILL CHANGE"
                     visible: !root.isMulti
-                    bottomPadding: Theme.spacing.rowPaddingY / 2
+                    bottomPadding: Math.round(Theme.spacing.rowPaddingY / 2)
                     textFormat: Text.PlainText
                     color: Theme.color.foreground
                     font { family: Theme.font.family; pixelSize: Theme.font.caption; letterSpacing: Theme.font.caption / 10 }
@@ -572,6 +615,11 @@ FocusScope {
                 Text {
                     id: scopeLabel
                     width: parent.width
+                    // Fixed line boxes put the spare height under the glyphs, so the top padding centres them as CSS line-height does.
+                    height: lineCount * root.captionLineBox
+                    lineHeight: root.captionLineBox
+                    lineHeightMode: Text.FixedHeight
+                    topPadding: root.captionLead
                     // A box whose bit differs across the files shows a bar until it is clicked.
                     text: root.isMulti ? Permissions.mixedNote() : root.scopeText
                     textFormat: Text.PlainText

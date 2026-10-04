@@ -191,11 +191,12 @@ Item {
 
     Rectangle {
         id: card
-        anchors.centerIn: parent
-        width: Math.max(0, Math.min(Math.round(Theme.space(480) * Theme.dialogWidthRatio), root.width - 2 * root.clampMargin))
+        x: Theme.cardOrigin(root.width, width)
+        y: Theme.cardOrigin(root.height, height)
+        width: Theme.cardSpan(Theme.space(480) * Theme.dialogWidthRatio, root.width - 2 * root.clampMargin)
         // Clamped to the window; the body scrolls whatever the clamp cut, so a short screen cannot
         // put Cancel and Open past the bottom edge with no way to reach them.
-        height: Math.max(0, Math.min(body.wanted + 2 * Theme.spacing.rowPaddingX, root.height - 2 * root.clampMargin))
+        height: Theme.cardSpan(body.wanted + 2 * Theme.spacing.rowPaddingX, root.height - 2 * root.clampMargin)
         color: Theme.color.surface
         border.width: Theme.spacing.hairline
         border.color: Theme.color.muted

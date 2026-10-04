@@ -104,6 +104,7 @@ Item {
         Flea.ChromeButton {
             id: barClose
             gesturePolicy: TapHandler.ReleaseWithinBounds
+            ruleRows: Theme.spacing.hairline
             anchors.right: parent.right
             anchors.rightMargin: Theme.spacing.rowPaddingX
             anchors.verticalCenter: parent.verticalCenter

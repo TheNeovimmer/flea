@@ -307,12 +307,12 @@ Item {
 
     Rectangle {
         id: card
-        anchors.horizontalCenter: parent.horizontalCenter
+        x: Theme.cardOrigin(root.width, width)
         // The rest card centres, and a query grows or shrinks it from its bottom, so the title never moves.
         y: Math.round((root.height - root.restCardHeight) / 2)
-        width: Math.max(0, Math.min(Theme.space(root.sheetWidth) * Theme.dialogWidthRatio, root.width - 2 * root.clampMargin))
+        width: Theme.cardSpan(Theme.space(root.sheetWidth) * Theme.dialogWidthRatio, root.width - 2 * root.clampMargin)
         // Clamped to the window below its top; the body scrolls whatever the clamp cut, see ui/CardScroll.qml.
-        height: Math.min(body.wanted + 2 * Theme.spacing.rowPaddingX, root.height - card.y - root.clampMargin)
+        height: Theme.cardSpan(body.wanted + 2 * Theme.spacing.rowPaddingX, root.height - card.y - root.clampMargin)
         color: Theme.color.surface
         border.width: Theme.spacing.hairline
         border.color: Theme.color.muted
