@@ -35,7 +35,7 @@ CONF
 # Sample input, one line: "JetBrainsMono Nerd Font,JetBrainsMono NF"; the pinned face must lead what monospace resolves to.
 resolved=$(FONTCONFIG_FILE="$test_root/fonts.conf" fc-match -f '%{family}' monospace 2>&1)
 case $resolved in
-    "$BOARD_FONT"*) ;;
+    "$BOARD_FONT" | "$BOARD_FONT",*) ;;
     *) printf 'FAIL fonts.conf: monospace resolves to "%s", the boards draw "%s", so every metric would be another font\n' "$resolved" "$BOARD_FONT"; exit 1 ;;
 esac
 cp tests/settings-columns.qml "$test_root/config/shell.qml" || exit 1
