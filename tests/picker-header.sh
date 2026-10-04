@@ -36,6 +36,7 @@ def emit(o):
 rows = [{"n": "photo%d.jpg" % i, "d": False, "s": 20480, "m": 1758835200, "p": 33188, "i": "image-x-generic", "t": True, "k": 0} for i in range(60)]
 served_path = ""
 for line in sys.stdin:
+    # Sample input, one request per line: {"c":"list","path":"/winprobe","by":"name"}, {"c":"sort","by":"size","desc":false}, {"c":"window","start":0,"count":40}.
     try:
         req = json.loads(line)
     except ValueError:
@@ -45,6 +46,8 @@ for line in sys.stdin:
         served_path = req.get("path", "")
         emit({"t": "listed", "n": 60, "read": 1.0, "sort": 1.0, "v": 1, "w": True, "path": served_path})
         emit({"t": "rows", "start": 0, "rows": rows, "ms": 1.0, "kinds": []})
+    elif kind == "sort":
+        emit({"t": "listed", "n": 60, "read": 0.0, "sort": 1.0, "v": 1, "w": True, "path": served_path})
     elif kind == "window":
         try:
             start = max(0, int(req.get("start", 0)))
@@ -58,7 +61,9 @@ for line in sys.stdin:
         break
 PYEND
 chmod +x "$test_root/stub-backend" || exit 1
-probe_timeout=30
+# The probe's own timeout is 30 s (probeTimeoutMs), so the shell waits a margin longer and a hung stage reports itself.
+probe_timeout_margin=10
+probe_timeout=$((30 + probe_timeout_margin))
 output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
     FLEA_BIN="$test_root/stub-backend" \
