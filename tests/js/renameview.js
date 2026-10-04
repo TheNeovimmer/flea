@@ -1,4 +1,5 @@
 .import "../../ui/js/Anchor.js" as Anchor
+.import "../../ui/js/Nav.js" as Nav
 .import "watch.js" as Fixture
 
 // A rename commit puts the viewport back where it was: the re-list resets the view to its top, so only the anchor's restore can.
@@ -81,7 +82,9 @@ function makeList(start, cursor, contentY, topMargin, bottomMargin) {
 
 // What a rows reply does in ui/PaneSwap.qml: the pending select first, then the anchor, once per window the listing delivers.
 function deliver(p, wire) {
-    if (p.pendingSelect.length > 0) {
+    // A pane that models marks takes the production landing, so the selection after the commit is what Nav.applyPendingSelect and Hold.landRenamed made of it.
+    if (p.listArea.modelsMarks) Nav.applyPendingSelect(p)
+    else if (p.pendingSelect.length > 0) {
         var target = p.pendingSelect
         p.pendingSelect = ""
         var at = Anchor.matchListed(p, target)
@@ -90,15 +93,67 @@ function deliver(p, wire) {
     wire.anchor = Anchor.apply(p, wire.anchor, ROW_H)
 }
 
+// Rows marked on the pane before a rename commit, kept in a model of the pane's Selection (clear, toggle, only) so what survives the commit is what the production code did, never what a stub wrote.
+function markRows(p, marks) {
+    var view = p.listArea
+    view.modelsMarks = true
+    view.marks = marks.slice()
+    p.selectionVersion = 0
+    p.selectedIndices = function () { return view.marks.slice() }
+    p.selection = {
+        clear: function () { view.marks = [] },
+        only: function (index) { view.marks = [index]; view.selectedAt = index },
+        toggle: function (index) {
+            var at = view.marks.indexOf(index)
+            if (at >= 0) view.marks.splice(at, 1)
+            else view.marks.push(index)
+        }
+    }
+    // ui/Pane.qml clearSelection and selectOnly, whose callers (Nav.forget, Hold.landRenamed) are the code under test.
+    p.clearSelection = function () { p.selection.clear(); p.selectionVersion++ }
+    p.selectOnly = function (index, context) {
+        p.setCursor(index, context)
+        p.selection.only(p.cursorIndex)
+        p.selectionAnchor = p.cursorIndex
+        p.selectionVersion++
+    }
+    p.pendingMenu = false
+    view.primeSettle = function () {}
+    var relist = p.refresh
+    p.refresh = function (select) {
+        Nav.forget(p, "")
+        // The listed reply restores the count the reset zeroed.
+        p.total = TOTAL
+        relist(select)
+    }
+}
+
+// What the pane marked before the commit and what the anchor refreshRename left standing holds, read before a landing spends it: a landing clears its marks field either way.
+function standingOf(p, anchor, marked) {
+    return { marked: marked, busy: Anchor.busy(p, anchor), carriesMarks: anchor.marks !== undefined || anchor.hadMarks === true }
+}
+
+// The rename's anchor holds no marks, so no locate carries one, a watched re-read waits while it stands, and the commit ends with the renamed row the only one marked.
+function checkMarked(check, label, p, standing, spec) {
+    check(label + ": three rows are marked on the pane before the commit", standing.marked, 3)
+    check(label + ": the rename's anchor carries no marks", standing.carriesMarks, false)
+    check(label + ": a watched re-read waits while the rename's anchor stands", standing.busy, true)
+    check(label + ": no locate carries a mark", p.listArea.sent.every(function (m) { return m.paths.length === 1 && m.paths[0] === "/dir/" + spec.to }), true)
+    check(label + ": the commit leaves the renamed row the only one marked", p.listArea.marks.join(","), String(spec.sortTo))
+}
+
 function commit(check, label, refresh, spec) {
     var p = makeList(spec.start, spec.cursor, spec.contentY, spec.topMargin || 0, spec.bottomMargin || 0)
     var view = p.listArea
     var wire = { stale: false, anchor: null }
+    if (spec.marks) markRows(p, spec.marks)
+    var marked = p.selectedIndices ? p.selectedIndices().length : 0
     var before = p.cursorIndex * ROW_H - view.contentY
     var request = { source: "/dir/" + view.names[spec.from], destination: "/dir/" + spec.to, folder: "/dir" }
     view.names[spec.from] = spec.to
     if (spec.sortTo !== undefined) view.names.splice(spec.sortTo, 0, view.names.splice(spec.from, 1)[0])
     refresh(wire, p, Anchor, { stop: function () {} }, request, spec.name, spec.pointer)
+    view.standing = standingOf(p, wire.anchor, marked)
     if (view.asked !== undefined) {
         deliver(p, wire)
         fill(p, view.asked)
@@ -114,6 +169,7 @@ function commit(check, label, refresh, spec) {
 function commitNear(check, label, refresh, spec) {
     var p = commit(check, label, refresh, spec)
     var view = p.listArea
+    if (spec.marks) checkMarked(check, label, p, p.listArea.standing, spec)
     check(label + ": the backend is never asked where the row sorted", view.sent.length, 0)
     check(label + ": the cursor lands on the renamed row", p.cursorIndex, spec.sortTo)
     check(label + ": and so does the selection", view.selectedAt, spec.sortTo)
@@ -124,10 +180,13 @@ function commitFar(check, label, refresh, spec) {
     var p = makeList(spec.start, spec.cursor, spec.contentY, 0, 0)
     var view = p.listArea
     var wire = { stale: false, anchor: null }
+    if (spec.marks) markRows(p, spec.marks)
+    var marked = p.selectedIndices ? p.selectedIndices().length : 0
     var request = { source: "/dir/" + view.names[spec.from], destination: "/dir/" + spec.to, folder: "/dir" }
     view.names.splice(spec.sortTo, 0, view.names.splice(spec.from, 1)[0])
     view.names[spec.sortTo] = spec.to
     refresh(wire, p, Anchor, { stop: function () {} }, request, "/dir/" + spec.to, false)
+    var standing = standingOf(p, wire.anchor, marked)
     if (view.asked !== undefined) {
         deliver(p, wire)
         fill(p, view.asked)
@@ -145,6 +204,7 @@ function commitFar(check, label, refresh, spec) {
     check(label + ": and the row is revealed", top >= view.contentY && top + ROW_H <= view.contentY + AREA_H, true)
     check(label + ": and the window holding it is asked for", view.asked !== undefined && view.asked <= spec.sortTo && spec.sortTo < view.asked + WINDOW, true)
     check(label + ": and the anchor is spent", wire.anchor, null)
+    if (spec.marks) checkMarked(check, label, p, standing, spec)
 }
 
 function run(check) {
@@ -180,4 +240,11 @@ function run(check) {
         { start: 0, cursor: 300, contentY: 290 * ROW_H, from: 300, to: "zzz.txt", sortTo: last })
     commitFar(check, "an Enter deep in the list whose row sorts to the top", refresh,
         { start: 900, cursor: 1100, contentY: 1090 * ROW_H, from: 1100, to: "000.txt", sortTo: 0 })
+    // Rows marked before the commit: F2 or r renames the cursor row while the marks stand, and the commit drops them whole, near or far.
+    commitNear(check, "an Enter with three rows marked whose row re-sorts inside the held window", refresh,
+        { start: 900, cursor: 1100, contentY: 1090 * ROW_H, from: 1100, to: "f1105-new", sortTo: 1105, pointer: false, name: "/dir/f1105-new", marks: [1050, 1100, 1107] })
+    commitFar(check, "an Enter with three rows marked whose row sorts past the held window", refresh,
+        { start: 0, cursor: 300, contentY: 290 * ROW_H, from: 300, to: "zzz.txt", sortTo: last, marks: [250, 300, 320] })
+    commitFar(check, "an Enter with three rows marked whose row sorts to the top", refresh,
+        { start: 900, cursor: 1100, contentY: 1090 * ROW_H, from: 1100, to: "000.txt", sortTo: 0, marks: [1000, 1100, 1190] })
 }

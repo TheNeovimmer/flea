@@ -9,6 +9,9 @@ rename_far_rect_s=0.05
 rename_far_page_presses=200
 # The first two rows of the fixture are a-original.md and b-existing.md, so f0000.txt is row 2.
 rename_far_first_file_row=2
+# The settle after the last commit polls at most this many times, 50 ms apart; wait_listing is not used because it reads row 0, which a list parked deep never builds.
+rename_far_settle_polls=300
+rename_far_settle_s=0.05
 
 # Pages down until the cursor is at least the wanted row, and leaves the cursor row's file name in rename_far_name.
 rename_far_deepen() {
@@ -66,6 +69,21 @@ rename_far_commit() {
     menus_shot "rename-$mode-$label"
 }
 
+# The listing is whole when its count is back, no listing is out and the cursor stands on its known row; row 0 is not asked, for a deep list holds no delegate there.
+rename_far_settled() {
+    local want_total="$1" want_name="$2" want_row="$3" polls total="" state=""
+    for polls in $(seq 1 "$rename_far_settle_polls"); do
+        total=$(ipc total 2>/dev/null || printf unavailable)
+        state=$(ipc renameState 2>/dev/null || printf '{}')
+        if [[ "$total" == "$want_total" && "$(ipc listInFlight 2>/dev/null)" == false ]] \
+                && jq -e --arg n "$want_name" --argjson r "$want_row" '.cursor == $r and .cursorName == $n and (.loading | not)' <<< "$state" >/dev/null 2>&1; then
+            return
+        fi
+        sleep "$rename_far_settle_s"
+    done
+    fail "renamefar: the listing did not settle at total $want_total with the cursor on $want_name at row $want_row, got total=$total state=$state"
+}
+
 # A deep file renamed past the end and back, then another renamed to the top and back: each commit lands where the file sorted.
 rename_design_far() {
     local mode="$1" total name row rename_far_name
@@ -83,7 +101,7 @@ rename_design_far() {
     row=$((rename_far_first_file_row + 10#${BASH_REMATCH[1]}))
     rename_far_commit far-top "$name" 0000-far.txt 0
     rename_far_commit far-return 0000-far.txt "$name" "$row"
-    wait_listing "$total"
+    rename_far_settled "$total" "$name" "$row"
 }
 
 case_renamefar() { case_renamedesign far; }
