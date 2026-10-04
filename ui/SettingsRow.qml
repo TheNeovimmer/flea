@@ -58,7 +58,7 @@ Item {
             : root.isKeyPreview ? keyPreview.implicitHeight + 2 * Theme.spacing.rowPaddingY
             : root.isRuler ? ruler.implicitHeight + 2 * Theme.spacing.rowPaddingY
             : root.isHint ? hint.y + hint.implicitHeight + (root.isFooter
-                ? Theme.settings.railPaddingY + 2 * Theme.spacing.hairline : Theme.spacing.rowPaddingY) : Theme.rowHeight
+                ? Theme.settings.railPaddingY + 2 * Theme.spacing.hairline : SettingsMetrics.hintBottom - SettingsMetrics.hintLead) : Theme.rowHeight
 
     Grid {
         id: keyPreview
@@ -189,19 +189,17 @@ Item {
         first: root.firstGroup
     }
 
-    Text {
+    Flea.SettingsHint {
         id: hint
         visible: root.isHint
+        footer: root.isFooter
         x: root.isFooter ? Theme.spacing.rowPaddingX : markSlot.x + markSlot.width + Theme.spacing.gap
-        y: root.isFooter ? 2 * Theme.settings.railPaddingY + Theme.spacing.hairline : Theme.spacing.rowPaddingY
+        y: root.isFooter ? 2 * Theme.settings.railPaddingY + Theme.spacing.hairline : SettingsMetrics.hintTop + SettingsMetrics.hintLead
         width: parent.width - x - Theme.spacing.rowPaddingX
         text: root.row.label || ""
         color: root.row.role === "error" ? Theme.color.error
              : root.row.role === "accent" ? Theme.color.accent
              : root.row.role === "foreground" ? Theme.color.foreground : Theme.color.muted
-        font.family: Theme.font.family
-        font.pixelSize: Theme.font.caption
-        textFormat: Text.PlainText
         wrapMode: root.row.elide === "right" ? Text.NoWrap : Text.WordWrap
         elide: root.row.elide === "right" ? Text.ElideRight : Text.ElideNone
     }
@@ -327,7 +325,8 @@ Item {
             id: caption
             visible: !!root.row.caption && width > 0
             height: Theme.markSize
-            verticalAlignment: Text.AlignVCenter
+            // The boards centre each line box on the row, so the baseline sits a fixed shift from the label's, on a whole pixel; a Row sets x only, so y is ours.
+            y: Math.round(rowLabel.y + rowLabel.baselineOffset) + SettingsMetrics.captionShift - Math.round(caption.baselineOffset) - trailing.y
             text: root.row.caption || ""
             color: Theme.color.muted
             font.family: Theme.font.family
