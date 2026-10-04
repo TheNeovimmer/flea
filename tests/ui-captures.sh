@@ -273,7 +273,6 @@ cap_permissions_box() {
     shot "$shot_name"
 }
 
-# Permissions040: from the file menu on the cursor row (right click), open the card and wait for it to settle idle.
 # Permissions040 pointer states: moves onto a control, asserts the pointer reached it through ipc, then shoots it
 # hovered or held pressed. A press is let go outside the control, so the shot never acts (no toggle, no Apply).
 cap_permissions_pointer() {
@@ -383,6 +382,8 @@ cap_permissions_special_single() {
     key -k Escape >/dev/null
     settle
 }
+
+# Permissions040: from the file menu on the cursor row (right click), open the card and wait for it to settle idle.
 cap_permissions_open() {
     local row="$1" end state
     local settle_limit_s=15

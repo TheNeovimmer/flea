@@ -35,6 +35,8 @@ function run(check) {
         Permissions.skipNote([{ path: "/d/a.txt", why: owner }]), "a.txt keeps its mode because you do not own it.")
     check("an unnamed reason keeps its one colon",
         Permissions.skipNote([{ path: "/d/a.txt", why: "Gone." }]), "a.txt keeps its mode: Gone.")
+    check("a backend reason's own colon reads as a comma",
+        Permissions.skipNote([{ path: "/d/a.txt", why: "Read-only: mount is read-only." }]), "a.txt keeps its mode: Read-only, mount is read-only.")
     check("several special-bit skips share one cause and list the names",
         Permissions.skipNote([{ path: "/d/a", why: setuid }, { path: "/d/b", why: "Read-only: sticky bit is present." }]),
         "2 items keep their modes because a special bit is set: a, b")

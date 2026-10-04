@@ -107,6 +107,11 @@ function skipKind(why) {
     return why === "Read-only: you are not the owner." ? "owner" : "other"
 }
 
+// Sample input: "Read-only: mount is read-only." answers "Read-only, mount is read-only.", so a reason never adds a colon of its own.
+function oneClause(why) {
+    return String(why).replace(/:\s*/g, ", ")
+}
+
 // One sentence per skip line with at most one colon: "special.txt keeps its mode because its setuid bit is set."
 // or "2 items keep their modes because a special bit is set: a, b".
 function skipNote(skipped) {
@@ -121,7 +126,7 @@ function skipNote(skipped) {
             return leaf + " keeps its mode because its " + specialLabel(list[0].why) + " bit is set."
         if (kinds[0] === "owner")
             return leaf + " keeps its mode because you do not own it."
-        return leaf + " keeps its mode: " + list[0].why
+        return leaf + " keeps its mode: " + oneClause(list[0].why)
     }
     var names = []
     for (var i = 0; i < list.length && i < SKIP_NAMES_SHOWN; i++)

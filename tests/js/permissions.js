@@ -158,7 +158,6 @@ function run(check) {
         Permissions.multiResult(0, 1, [{ path: "/d/secret.txt", why: "Read-only: setgid bit is present." }]),
         "Permissions changed for 0 of 1; 1 left alone: secret.txt: Read-only: setgid bit is present.")
 
-    // One skip reads singular, and four show three with an and-1-more tail.
     check("four skips ride multiResult with the same tail",
         Permissions.multiResult(1, 5, [{ path: "/d/a.txt", why: "r1" }, { path: "/d/b.txt", why: "r2" },
                                        { path: "/d/c.txt", why: "r3" }, { path: "/d/d.txt", why: "r4" }]),
