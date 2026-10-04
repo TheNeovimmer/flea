@@ -2,8 +2,9 @@
 import QtQuick
 import Quickshell
 import "flea" as Flea
+import "flea/js/Settings.js" as Settings
 
-// tests/settings-tail.sh's harness: Settings > Menus walked by keyboard to its last row reveals the pane to its end, so no lower-edge fade lies over that row.
+// tests/settings-tail.sh's harness: Settings > Menus walked by keyboard to its last row reveals the pane to its end, so no lower-edge fade lies over that row; then every section with a heading after a row is swept across host heights, so a heading never lies under a fade that shows only padding.
 ShellRoot {
     id: shell
 
@@ -28,6 +29,15 @@ ShellRoot {
     readonly property real endTolerance: 0.5
     // The fade is a cut, so the row after the cursor must have ink under it: at least this share of the fade's height of that ink is drawn above the pane's edge.
     readonly property real minCutShare: 0.5
+
+    // After the walk, the sweep takes each section in turn and, at every host height in a span, puts the cursor on each row that a heading follows.
+    // About starts the update check, which spawns the flea binary this harness does not have, so it is not shown.
+    readonly property string updateCheckSection: "about"
+    property var sweepSections: []
+    property int sweepIndex: -1
+    property bool sweeping: false
+    property int sweptHeights: 0
+    property int sweptTargets: 0
 
     function log(line) { console.log("SETTAIL " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
@@ -109,9 +119,90 @@ ShellRoot {
         shell.check(tag + ": the cursor row is inside the pane", shell.cursorInside(pane), true)
     }
 
+    // The cursor rows a heading follows, in the section the panel shows: the cursor stops there and the heading's own ink is the first thing a cut can show.
+    function headingTargets(rows) {
+        var out = []
+        for (var i = 0; i + 1 < rows.length; i++)
+            if (Settings.focusable(rows[i]) && rows[i + 1].kind === "group") out.push(i)
+        return out
+    }
+
+    // Host heights from a row plus a heading below the walk's height to the same above it, so every offset of a heading against the fade's edge is met at 1 px.
+    function sweepHeights(pane) {
+        var rowHeight = Infinity
+        var headingHeight = 0
+        for (var i = 0; i < panel.rows.length; i++) {
+            var item = pane.rowItem(i)
+            if (!item) continue
+            if (panel.rows[i].kind === "group") headingHeight = Math.max(headingHeight, item.height)
+            else rowHeight = Math.min(rowHeight, item.height)
+        }
+        var span = rowHeight + headingHeight
+        var out = []
+        for (var h = shell.windowHeight - span; h <= shell.windowHeight + span; h++) out.push(h)
+        return out
+    }
+
+    // One section: at each height the pane is rewound and the cursor put on each target; a height whose reveal leaves a fade over the cursor row, or over padding, is named once.
+    function sweepSection(id) {
+        panel.showSection(id)
+        var pane = shell.findType(panel, "SettingsPane")
+        var fade = shell.fadeOf(pane)
+        var targets = shell.headingTargets(panel.rows)
+        var heights = shell.sweepHeights(pane)
+        var inside = []
+        var clear = []
+        var cuts = []
+        var follows = []
+        var previous = -1
+        for (var k = 0; k < heights.length; k++) {
+            shell.hostHeight = heights[k]
+            panel.showSection(id)
+            if (previous >= 0 && pane.height !== previous + 1) follows.push(heights[k])
+            previous = pane.height
+            for (var t = 0; t < targets.length; t++) {
+                panel.cursor = targets[t]
+                panel.showCursor()
+                if (!shell.cursorInside(pane)) inside.push(heights[k] + "/" + targets[t])
+                if (!shell.fadeClear(pane, fade)) clear.push(heights[k] + "/" + targets[t])
+                if (!shell.cutShows(pane, fade)) cuts.push(heights[k] + "/" + targets[t])
+                shell.sweptTargets++
+            }
+            shell.sweptHeights++
+        }
+        shell.check("sweep " + id + ": the pane height follows the host one px at a time", follows, [])
+        shell.check("sweep " + id + ": the cursor row is inside the pane (height/row)", inside, [])
+        shell.check("sweep " + id + ": no fade lies over the cursor row (height/row)", clear, [])
+        shell.check("sweep " + id + ": a cut of the heading after the cursor row shows under the fade (height/row)", cuts, [])
+    }
+
+    // The sections that have a cursor row followed by a heading, found once the walk is over.
+    function startSweep() {
+        var found = []
+        for (var i = 0; i < Settings.SECTIONS.length; i++) {
+            var id = Settings.SECTIONS[i].id
+            if (id !== shell.updateCheckSection && shell.headingTargets(Settings.rows(id, panel.settingsState)).length > 0) found.push(id)
+        }
+        shell.sweepSections = found
+        shell.check("the sweep covers Menus and another section", found.indexOf("menus") >= 0 && found.length >= 2, true)
+        shell.sweeping = true
+        shell.sweepIndex = 0
+    }
+
+    function advanceSweep() {
+        if (shell.sweepIndex >= shell.sweepSections.length) {
+            shell.log("swept " + shell.sweepSections.join(",") + ": " + shell.sweptHeights + " heights, " + shell.sweptTargets + " cursor rows")
+            shell.report()
+            return
+        }
+        shell.sweepSection(shell.sweepSections[shell.sweepIndex])
+        shell.sweepIndex++
+    }
+
     function advance() {
         if (shell.done) return
         shell.ticks++
+        if (shell.sweeping) { shell.advanceSweep(); return }
         if (shell.step < 0) {
             if (shell.ticks < shell.settleTicks) return
             panel.open(null)
@@ -132,7 +223,7 @@ ShellRoot {
         if (panel.cursor === before) {
             // The keyboard cannot go further: this is the last row, nothing follows it.
             shell.checkTail(pane, fade, "the last row at host height " + shell.hostHeight)
-            if (shell.heightIndex + 1 >= shell.heights.length) { shell.report(); return }
+            if (shell.heightIndex + 1 >= shell.heights.length) { shell.startSweep(); return }
             shell.heightIndex++
             shell.hostHeight = shell.heights[shell.heightIndex]
             shell.ticks = 0

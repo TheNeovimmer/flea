@@ -838,15 +838,15 @@ ui/Row.qml	295	root	Declared QML id; component context access is valid at runtim
 ui/Row.qml	296	root	Declared QML id; component context access is valid at runtime.
 ui/Scripts.qml	16	Quickshell	Quickshell import exports this runtime singleton or enum.
 ui/Scripts.qml	48	text	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
-ui/SettingsPane.qml	126	root	Declared QML id; component context access is valid at runtime.
-ui/SettingsPane.qml	136	column	Declared QML id; component context access is valid at runtime.
+ui/SettingsPane.qml	129	root	Declared QML id; component context access is valid at runtime.
 ui/SettingsPane.qml	139	column	Declared QML id; component context access is valid at runtime.
-ui/SettingsPane.qml	140	root	Declared QML id; component context access is valid at runtime.
-ui/SettingsPane.qml	141	root	Declared QML id; component context access is valid at runtime.
-ui/SettingsPane.qml	142	root	Declared QML id; component context access is valid at runtime.
+ui/SettingsPane.qml	142	column	Declared QML id; component context access is valid at runtime.
 ui/SettingsPane.qml	143	root	Declared QML id; component context access is valid at runtime.
 ui/SettingsPane.qml	144	root	Declared QML id; component context access is valid at runtime.
 ui/SettingsPane.qml	145	root	Declared QML id; component context access is valid at runtime.
+ui/SettingsPane.qml	146	root	Declared QML id; component context access is valid at runtime.
+ui/SettingsPane.qml	147	root	Declared QML id; component context access is valid at runtime.
+ui/SettingsPane.qml	148	root	Declared QML id; component context access is valid at runtime.
 ui/SettingsPanel.qml	42	Quickshell	Quickshell import exports this runtime singleton or enum.
 ui/SettingsPanel.qml	294	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/SettingsRail.qml	64	root	Declared QML id; component context access is valid at runtime.
@@ -2041,19 +2041,19 @@ ui/Row.qml	283	root	Declared QML id; component context access is valid at runtim
 ui/Row.qml	295	root	Declared QML id; component context access is valid at runtime.
 ui/Row.qml	296	root	Declared QML id; component context access is valid at runtime.
 ui/SelectionBand.qml	130	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/SettingsPane.qml	126	root	Declared QML id; component context access is valid at runtime.
-ui/SettingsPane.qml	127	root	Declared QML id; component context access is valid at runtime.
-ui/SettingsPane.qml	131	root	Declared QML id; component context access is valid at runtime.
-ui/SettingsPane.qml	136	column	Declared QML id; component context access is valid at runtime.
+ui/SettingsPane.qml	129	root	Declared QML id; component context access is valid at runtime.
+ui/SettingsPane.qml	130	root	Declared QML id; component context access is valid at runtime.
+ui/SettingsPane.qml	134	root	Declared QML id; component context access is valid at runtime.
 ui/SettingsPane.qml	139	column	Declared QML id; component context access is valid at runtime.
-ui/SettingsPane.qml	139	root	Declared QML id; component context access is valid at runtime.
-ui/SettingsPane.qml	139	root	Declared QML id; component context access is valid at runtime.
-ui/SettingsPane.qml	140	root	Declared QML id; component context access is valid at runtime.
-ui/SettingsPane.qml	141	root	Declared QML id; component context access is valid at runtime.
+ui/SettingsPane.qml	142	root	Declared QML id; component context access is valid at runtime.
+ui/SettingsPane.qml	142	column	Declared QML id; component context access is valid at runtime.
 ui/SettingsPane.qml	142	root	Declared QML id; component context access is valid at runtime.
 ui/SettingsPane.qml	143	root	Declared QML id; component context access is valid at runtime.
 ui/SettingsPane.qml	144	root	Declared QML id; component context access is valid at runtime.
 ui/SettingsPane.qml	145	root	Declared QML id; component context access is valid at runtime.
+ui/SettingsPane.qml	146	root	Declared QML id; component context access is valid at runtime.
+ui/SettingsPane.qml	147	root	Declared QML id; component context access is valid at runtime.
+ui/SettingsPane.qml	148	root	Declared QML id; component context access is valid at runtime.
 ui/SettingsPanel.qml	54	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/SettingsPanel.qml	294	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/SettingsRail.qml	64	root	Declared QML id; component context access is valid at runtime.

@@ -107,11 +107,14 @@ Flickable {
             root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, item.y))
             return
         }
-        // A row revealed from below clears the lower-edge fade, or stops at the content's end where none is drawn.
-        if (item.y < root.contentY)
+        // The lower-edge fade must lie over a cut: scroll while the cursor row, or the cut after it, is not clear of it, and stop at the content's end where none is drawn.
+        if (item.y < root.contentY) {
             root.contentY = item.y
-        else if (item.y + item.height > root.contentY + root.height - tailFade.height)
-            root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, root.revealedBottom(index, item) - root.height))
+            return
+        }
+        var bottom = root.revealedBottom(index, item)
+        if (bottom > root.contentY + root.height)
+            root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, bottom - root.height))
     }
 
     Repeater {

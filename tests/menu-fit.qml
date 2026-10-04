@@ -2,6 +2,7 @@
 import QtQuick
 import Quickshell
 import "flea" as Flea
+import "flea/js/Menu.js" as Menu
 
 // tests/menu-fit.sh's harness: the real ui/ContextMenu.qml with every row shown and key hints on is as wide as its widest row, so no label elides.
 ShellRoot {
@@ -290,13 +291,25 @@ ShellRoot {
         var tag = s.tag, frameItem = menu.frameItem
         var card = shell.cardUnder(frameItem), fades = shell.fadesOf(frameItem)
         shell.check(tag + ": the card scrolls", card.contentHeight > card.height, true)
-        var actions = ["copyAs", "pasteAs", "copyAs"], washed = []
+        var actions = ["copyAs", "pasteAs", "copyAs"], washed = [], notRows = [], parked = [], unscrolled = [], pastFold = 0
         for (var i = 0; i < actions.length; i++) {
             menu.cursor = 0
+            card.contentY = 0
+            // The row the flyout hangs from, read before the key: a row that sits under a fade at rest must be scrolled clear by it.
+            var pick = Menu.submenuFor(actions[i], menu.entries, menu.clipboardAvailable)
+            if (pick.kind !== "row") { notRows.push(actions[i] + ":" + pick.kind); continue }
+            var sat = shell.washedBy(frameItem, fades, menu.itemFor(pick.index)).length > 0
+            if (sat) pastFold++
             shell.check(tag + ": " + actions[i] + " opens by its key", menu.openSubmenuFor(actions[i]), true)
+            if (menu.cursor !== pick.index || menu.cursor === 0) parked.push(actions[i] + ":" + menu.cursor + " of " + pick.index)
+            if (sat && card.contentY <= 0) unscrolled.push(actions[i] + ":" + card.contentY)
             var by = shell.washedBy(frameItem, fades, menu.itemFor(menu.cursor))
             if (by.length > 0) washed.push(actions[i] + ":" + by.join("+"))
         }
+        shell.check(tag + ": each flyout key picks a row of the card to hang from", notRows, [])
+        shell.check(tag + ": the cursor moves onto the row a flyout hangs from, past the first", parked, [])
+        shell.check(tag + ": a flyout row that sat past the fold is scrolled into the card", unscrolled, [])
+        shell.check(tag + ": at least one flyout row sits past the fold at rest", pastFold > 0, true)
         shell.check(tag + ": the row a flyout hangs from clears both fades", washed, [])
     }
 
