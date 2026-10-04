@@ -83,7 +83,7 @@ ShellRoot {
     function settled() { return root.waited >= root.settleTicks }
 
     // Each entry is [ready, run]: run fires once ready answers true, and a step that never gets ready fails by name.
-    readonly property var flow: root.baseFlow.concat(root.mode === "grid" ? root.parkedTail : []).concat([[function () { return true }, function () { root.finish("") }]])
+    readonly property var flow: root.baseFlow.concat(root.mode === "grid" ? root.parkedTail.concat(root.countTail) : []).concat([[function () { return true }, function () { root.finish("") }]])
     readonly property var baseFlow: [
         [function () { return root.cellNow() !== null }, function () {
             root.baseGeometry = root.geometryNow()
@@ -173,6 +173,31 @@ ShellRoot {
         }],
         [function () { return root.settled() }, function () {
             root.check(root.view.contentY === root.parkedY, "the pane's own reveal parks the last row again")
+        }]
+    ]
+
+    // A grid filling from empty reveals its cursor tile on the count change, since Qt no longer follows the current item.
+    readonly property int deepTile: 600
+    function tileWhole(index) {
+        var tile = root.view.itemAtIndex(index)
+        return tile !== null && tile.y >= root.view.contentY && tile.y + root.view.cellHeight <= root.view.contentY + root.view.height
+    }
+    // The view the checks read is replaced by one created over a pane whose cursor is already deep, as a new window or tab is.
+    function recreateView() {
+        var props = { pane: root.stubPane, menu: root.stubPane.menu, width: 1000, height: 619 }
+        root.view.visible = false
+        root.view.destroy()
+        root.view = gridComponent.createObject(win.contentItem, props)
+        root.stubPane.listArea = root.view
+    }
+    readonly property var countTail: [
+        [function () { return root.settled() }, function () {
+            root.stubPane.cursorIndex = root.deepTile
+            root.recreateView()
+        }],
+        [function () { return root.view.count === root.totalRows && root.settled() }, function () {
+            root.check(root.view.currentIndex === root.deepTile, "the new grid holds the deep cursor")
+            root.check(root.tileWhole(root.deepTile), "a grid filling from empty reveals a deep cursor tile whole")
         }]
     ]
 
