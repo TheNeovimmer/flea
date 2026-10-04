@@ -24,15 +24,16 @@ sandbox_require "$test_root" || exit 1
 cleanup() { sandbox_remove "$test_root"; }
 trap cleanup EXIT
 
-# The sweep first proves itself on wrappers of its own: no fill and a border-only colour are reported, a fill is not, on the brace line or a child row.
+# The sweep first proves itself on wrappers of its own: no fill and a border-only colour are reported, a fill is not, on the brace line or a child row, and a grandchild's colour is no fill.
 mkdir -p "$test_root/sweep" || exit 1
 printf '%s\n' 'Item {' '    Rectangle { id: bare' '        Flea.CheckBox {' '        }' '    }' '}' > "$test_root/sweep/Bare.qml"
 printf '%s\n' 'Item {' '    Rectangle { border.color: "red"' '        Flea.CheckBox {' '        }' '    }' '}' > "$test_root/sweep/Border.qml"
 printf '%s\n' 'Item {' '    Rectangle { color: "black"' '        Flea.CheckBox {' '        }' '    }' '}' > "$test_root/sweep/Filled.qml"
 printf '%s\n' 'Item {' '    Rectangle {' '        border.color: "red"' '        Flea.CheckBox {' '        }' '    }' '}' > "$test_root/sweep/RowBorder.qml"
 printf '%s\n' 'Item {' '    Rectangle {' '        color: "black"' '        Flea.CheckBox {' '        }' '    }' '}' > "$test_root/sweep/RowFilled.qml"
+printf '%s\n' 'Item {' '    Rectangle {' '        Text {' '            color: "black"' '        }' '        Flea.CheckBox {' '        }' '    }' '}' > "$test_root/sweep/Nested.qml"
 proof=$(python3 -B tests/dialog-board-sweep.py "$test_root/sweep" | sed "s|^$test_root/sweep/||" | tr '\n' ' ')
-[ "$proof" = "Bare.qml:2 Border.qml:2 RowBorder.qml:2 " ] || fail "the static sweep reported '$proof' on its own fixture, want 'Bare.qml:2 Border.qml:2 RowBorder.qml:2 '"
+[ "$proof" = "Bare.qml:2 Border.qml:2 Nested.qml:2 RowBorder.qml:2 " ] || fail "the static sweep reported '$proof' on its own fixture, want 'Bare.qml:2 Border.qml:2 Nested.qml:2 RowBorder.qml:2 '"
 # A Rectangle without its own colour paints Qt's default white, so none may enclose a Flea.CheckBox; a script, not a grep, since it follows nesting by indent.
 colourless=$(python3 -B tests/dialog-board-sweep.py ui)
 sweep_status=$?
