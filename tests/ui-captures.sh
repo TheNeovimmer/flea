@@ -347,9 +347,10 @@ cap_permissions_menu_specimen() {
     settle
     click_row 4 right
     end=$((SECONDS + settle_limit_s))
+    # The row goes live when the two-byte shebang read answers, so the wait is on the live row, not on its label.
     while (( SECONDS < end )); do
         entries=$(ipc contextMenuEntries)
-        [[ "$entries" == *"Make executable"* ]] && break
+        [[ "$entries" == *"Make executable"* && "$(ipc menuState | jq -r '[.entries[] | select(.action == "makeExecutable")][0].disabled')" == "false" ]] && break
         sleep 0.1
     done
     [[ "$entries" == *"Make executable"* && "$entries" == *"Permissions"* ]] \
