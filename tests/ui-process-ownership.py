@@ -100,7 +100,7 @@ kill() {{
 sleep() {{ :; }}
 fail() {{ printf 'FAIL %s\\n' "$*" >&2; exit 1; }}
 hyprctl() {{ printf '%s\\n' "$client_payload"; }}
-ipc() {{ printf '10 20\\n'; }}
+ipc() {{ case "$1" in listAreaRect) printf '0 0 880 620\\n' ;; *) printf '10 20\\n' ;; esac; }}
 omarchy-drive() {{ printf 'SIMULATED_CLICK %s\\n' "$*" >&2; }}
 sandbox_remove() {{ printf 'SIMULATED_DELETE %s\\n' "$1"; }}
 cache_restore() {{ :; }}

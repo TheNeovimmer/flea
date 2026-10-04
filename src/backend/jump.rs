@@ -22,14 +22,16 @@ const ZOXIDE_BYTES: u64 = 1 << 20;
 const ZOXIDE_ROWS: usize = 1000;
 // One budget for every existence check: a wedged stat costs its own source's later rows, never the answer.
 const CHECK_LIMIT: Duration = Duration::from_secs(1);
+// A zoxide ranking: each path with its score.
+type Ranking = Vec<(String, f64)>;
 // One zoxide at a time; checks in flight carry their open's deadline, and the next open skips a wedged key.
 static ZOXIDE_RUNNING: AtomicBool = AtomicBool::new(false);
 static CHECKING: Mutex<BTreeMap<String, Vec<(u64, Instant)>>> = Mutex::new(BTreeMap::new());
 static TICKETS: AtomicU64 = AtomicU64::new(0);
 // The last ranking a run answered before its limit, drawn while a later run is still in flight.
-static LAST_ZOXIDE: Mutex<Vec<(String, f64)>> = Mutex::new(Vec::new());
+static LAST_ZOXIDE: Mutex<Ranking> = Mutex::new(Vec::new());
 // The ranking the newest run that answered fresh computed, with the ask it answered, for the whole ask that follows it.
-static KEPT_RANKING: Mutex<Option<(usize, Vec<(String, f64)>)>> = Mutex::new(None);
+static KEPT_RANKING: Mutex<Option<(usize, Ranking)>> = Mutex::new(None);
 // Where the mount table is read, once per answer, and never through the filesystems it lists.
 const MOUNTINFO: &str = "/proc/self/mountinfo";
 
