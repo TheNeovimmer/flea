@@ -252,10 +252,11 @@ case_renamedesign() (
         mapfile -t pids < <(backend_pids)
         [[ "${#pids[@]}" == 1 ]] || fail 'rename: pending click requires one owned backend'
         click_pid="${pids[0]}"
-        rename_stopped="$click_pid"
-        convert_pause_backend "$click_pid"
+        # The r key opens the editor on the backend's menu snapshot reply, so open it before the pause.
         rename_design_open r a-original.md
         rename_design_draft a-pending-click.md
+        rename_stopped="$click_pid"
+        convert_pause_backend "$click_pid"
         key -k Return >/dev/null
         menus_expect renameState '.index >= 0 and .pending' "$mode rename waits while backend paused"
         click_row "$(row_index_of b-existing.md)" left

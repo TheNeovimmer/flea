@@ -81,15 +81,16 @@ function matchListed(pane, target) {
     return at >= 0 ? pane.held + at : -1
 }
 
-// A rename commit keeps the pointer's row on click-away or the renamed row on Enter, mapping the source leaf to the destination.
+// A rename commit keeps the renamed row (source leaf mapped to destination) unless moved: a click or key took the cursor to another row.
 function pointerRow(pane, request) {
     var row = pane.rowFor(pane.cursorIndex)
     var name = row ? String(row.n) : ""
     var src = leaf(request.source)
     var dst = request.destination ? leaf(request.destination) : ""
+    var moved = name.length > 0 && name !== src && name !== dst
     if (name === src && dst.length > 0)
         name = dst
-    return { name: name, index: pane.cursorIndex, start: pane.held, path: pane.path, select: true }
+    return { name: name, index: pane.cursorIndex, start: pane.held, path: pane.path, select: true, moved: moved }
 }
 
 function leaf(path) {
