@@ -307,8 +307,7 @@ Item {
 
         }
 
-        // The rename editor's own frame, at chrome scale: the accent says which strip has the
-        // keyboard, and the fill covers the two Texts underneath rather than relying on their visible.
+        // The rename editor's own frame, at chrome scale: the accent marks the strip with the keyboard, and its fill covers the two Texts beneath.
         Rectangle {
             id: editFrame
             visible: root.editing

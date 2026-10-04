@@ -3,23 +3,21 @@ import QtQuick
 import QtTest
 import Quickshell
 import "flea" as Flea
+import "flea/js/Buttons.js" as Buttons
 import "flea/js/Ops.js" as Ops
 import "flea/js/Settings.js" as Settings
 import "flea/js/TextSize.js" as TextSize
 import "ring-bounds.js" as Pins
 
-// A focused field is its own hairline frame in the accent (the error role in the error state) with no ring, and every
-// 2 px button ring lies inside the clip that hosts it. Fields: the chrome path field in the real WindowBody's ChromeBar,
-// the rename editor in a list row, a column row and a grid tile at each text stop, and every dialog field. Rings: every
-// dialog, card and the Settings sections. A dialog's content stays where 13506d08 drew it (ring-bounds.js).
+// A focused field is its own accent hairline with no ring (the error role only on the rename editor, the one field with an error frame); every button ring lies inside its host's clip.
 ShellRoot {
     id: root
     readonly property string fixture: Quickshell.env("HOME") + "/fixture"
     readonly property var pane: body.currentPane
     // The least room a ring keeps from a host's edge, a strip's rule and the window's edge.
     readonly property int edgeClear: 1
-    // The ring is drawn this wide outside its frame, ui/js/Buttons.js RING; a field draws none of it.
-    readonly property int ringWidth: 2
+    // The ring is drawn this wide outside its frame; a field draws none of it.
+    readonly property int ringWidth: Buttons.RING
     // A field's own frame is one hairline wide.
     readonly property int hairline: Flea.Theme.spacing.hairline
     // A list row's top and height before the editor opens, so opening it is seen to move nothing.
@@ -27,6 +25,17 @@ ShellRoot {
     property bool renameMeasured: false
     // The fixture's one name with an extension, whose muted run is patched over the field.
     readonly property string extensionName: "a.txt"
+    // Where the transfer card sits in the test window: the status bar hosts it in the product, with the bar's right margin.
+    readonly property int transferX: 600
+    readonly property int transferY: 100
+    // The probe card for CardScroll's reveal: its place, a body shorter than its buttons, and how many buttons it holds.
+    readonly property int scrollCardX: 20
+    readonly property int scrollCardY: 100
+    readonly property int scrollCardWidth: 240
+    readonly property int scrollCardHeight: 100
+    readonly property int scrollButtons: 6
+    // A scroll offset or a ring edge read from float layout is whole to within this many pixels.
+    readonly property real layoutEpsilon: 0.01
     // A step that waits gives up after this many ticks of the stepper, so a stuck probe fails instead of hanging.
     readonly property int stallTicks: 200
     // The text stops the default density is swept at, and the stops the other densities are swept at.
@@ -39,6 +48,8 @@ ShellRoot {
     property int stageTicks: 0
     property int checks: 0
     property var failures: []
+    // How many times each pinned key was compared, read back at the end of the run.
+    property var pinsCompared: ({})
 
     function check(cond, label) {
         root.checks++
@@ -173,11 +184,16 @@ ShellRoot {
         if (viewMode === "list") {
             // The editor lives inside the row, so opening it moves no row and grows none, at every density.
             var after = root.rowGeometry()
+            var compared = 0
+            var visibleRows = 0
             for (var i = 0; i < after.length; i++) {
+                if (after[i]) visibleRows++
                 if (!root.rowsBefore[i] || !after[i]) continue
+                compared++
                 root.check(after[i].y === root.rowsBefore[i].y && after[i].height === root.rowsBefore[i].height,
                            tag + " list row " + i + " moved from " + root.rowsBefore[i].y + "+" + root.rowsBefore[i].height + " to " + after[i].y + "+" + after[i].height + " when the editor opened")
             }
+            root.check(compared >= 1 && compared === visibleRows, tag + " list compared " + compared + " of " + visibleRows + " visible rows")
         }
         root.renameMeasured = true
         return false
@@ -206,7 +222,6 @@ ShellRoot {
         for (var i = 0; i < kids.length; i++) root.ofType(kids[i], type, out)
         return out
     }
-    // Every ancestor that clips must hold the whole ring; the first one that does not is the ring cut by its host.
     // The button or check box a ring belongs to, or null for a ring drawn by anything else.
     function ownerOf(item) {
         for (var it = item; it; it = it.parent) {
@@ -215,8 +230,7 @@ ShellRoot {
         }
         return null
     }
-    // A box (a CheckBox draws inside its own bounds) needs no ring room. A scrolling body holds the item whole in its content, which
-    // is where the bleed gives a ring room at the scroll ends, and in its viewport only at the sides; so do the clips outside it.
+    // Every clipping ancestor must hold the whole ring (a scrolling body in its content and, in its viewport, at the sides only); a box needs no ring room.
     function clipChain(tag, ring, isBox) {
         var owner = root.ownerOf(ring)
         if (owner && !owner.visible) return
@@ -246,11 +260,14 @@ ShellRoot {
         var b = item.mapToItem(null, 0, 0, item.width, item.height)
         return [b.x, b.y, b.width, b.height].map(function (v) { return v.toFixed(2) }).join(",")
     }
-    // Sample input: a dialog with one field and a Cancel and Create button reads "field 301.00,157.00,397.50,30.00", then two "button" lines.
+    // Sample input: a dialog with one field, a Cancel and a Create button reads "field 301.00,157.00,397.50,30.00", "DialogButton 594.25,361.00,61.13,26.00" twice (a check box reads "CheckBox x,y,w,h").
     function pinsOf(dialog) {
         var out = []
         var list = root.inputs(dialog, [])
-        for (var i = 0; i < list.length; i++) out.push("field " + root.rectText(root.frameOf(list[i])))
+        for (var i = 0; i < list.length; i++) {
+            var frame = root.frameOf(list[i])
+            out.push("field " + (frame ? root.rectText(frame) : "has no frame"))
+        }
         var kinds = ["DialogButton", "CheckBox"]
         for (var k = 0; k < kinds.length; k++) {
             var found = root.ofType(dialog, kinds[k], [])
@@ -258,12 +275,18 @@ ShellRoot {
         }
         return out
     }
-    // A dialog's content lies where 13506d08 drew it: the ring room is given back by the caller's margins.
-    function checkPins(key, dialog) {
+    // A pinned dialog is compared once; an unpinned one names its reason and must not also be pinned.
+    function checkPins(key, dialog, unpinnedWhy) {
         var got = root.pinsOf(dialog)
         console.log("RINGBOUNDS POS " + key + " " + JSON.stringify(got))
         var want = Pins.PINS[key]
+        if (unpinnedWhy !== undefined) {
+            root.check(want === undefined, key + " is listed unpinned (" + unpinnedWhy + ") and also pinned")
+            return
+        }
+        root.check(want !== undefined, key + " has no pin in ring-bounds.js and is not listed unpinned")
         if (want === undefined) return
+        root.pinsCompared[key] = (root.pinsCompared[key] || 0) + 1
         root.check(JSON.stringify(got) === JSON.stringify(want), key + " content moved: " + JSON.stringify(got) + " against " + JSON.stringify(want))
     }
     // A card lands on whole pixels, x, y, width and height, so no hairline of its frame is two half-strength rows.
@@ -273,28 +296,77 @@ ShellRoot {
         var parts = [r.x, r.y, r.width, r.height]
         root.check(parts.every(function (v) { return v === Math.round(v) }), tag + " card rect " + parts.join(",") + " is not whole pixels")
     }
-    function measureDialog(tag, key, dialog, wantsField) {
+    // Every pinned key was compared exactly once by the end of the run, so a renamed entry or a changed key format cannot compare nothing.
+    function checkPinsCompared() {
+        var keys = Object.keys(Pins.PINS)
+        for (var i = 0; i < keys.length; i++) {
+            var n = root.pinsCompared[keys[i]] || 0
+            root.check(n === 1, "pin " + keys[i] + " was compared " + n + " times, not once")
+        }
+        var seen = Object.keys(root.pinsCompared)
+        for (var j = 0; j < seen.length; j++)
+            root.check(Pins.PINS[seen[j]] !== undefined, "pin " + seen[j] + " was compared but is not in ring-bounds.js")
+    }
+    // A focused button is revealed with its whole ring inside the viewport, at the offset the content's end or start asks for.
+    function checkRevealed(tag, card, button, wantY) {
+        root.check(Math.abs(card.contentY - wantY) < root.layoutEpsilon, tag + " card scrolled to " + card.contentY + ", not " + wantY)
+        var own = root.rings(button, [])
+        root.check(own.length === 1, tag + " button draws " + own.length + " rings, not one")
+        if (own.length !== 1) return
+        var box = own[0].mapToItem(card, 0, 0, own[0].width, own[0].height)
+        root.clear(tag + " ring in the viewport", box, card.width, card.height, 0)
+    }
+    // Last button, first, last again: each focus move reveals its button with the ring whole, and the ends land on the content's ends.
+    function measureScrollCard(tag, card) {
+        var buttons = root.ofType(card, "DialogButton", [])
+        root.check(buttons.length === root.scrollButtons, tag + " card holds " + buttons.length + " buttons, not " + root.scrollButtons)
+        root.check(card.contentHeight > card.height, tag + " card content " + card.contentHeight + " does not overflow its " + card.height + " body")
+        if (buttons.length < 2) return
+        var first = buttons[0]
+        var last = buttons[buttons.length - 1]
+        var end = card.contentHeight - card.height
+        last.forceActiveFocus()
+        root.checkRevealed(tag + " last", card, last, end)
+        first.forceActiveFocus()
+        root.checkRevealed(tag + " first", card, first, 0)
+        last.forceActiveFocus()
+        root.checkRevealed(tag + " last again", card, last, end)
+    }
+    // Every visible button holds one ring, and a check box one only while it is focused and empty (its frame then is the ring).
+    function checkRingCounts(tag, dialog) {
+        var buttons = root.ofType(dialog, "DialogButton", [])
+        for (var b = 0; b < buttons.length; b++) {
+            var own = root.rings(buttons[b], [])
+            root.check(own.length === 1, tag + " button " + b + " (" + buttons[b].label + ") holds " + own.length + " rings, not one")
+        }
+        var boxes = root.ofType(dialog, "CheckBox", [])
+        for (var c = 0; c < boxes.length; c++) {
+            var want = boxes[c].focused && !boxes[c].filled ? 1 : 0
+            var found = root.rings(boxes[c], [])
+            root.check(found.length === want, tag + " check box " + c + " holds " + found.length + " rings, not " + want)
+        }
+    }
+    function measureDialog(tag, key, dialog, wantsField, unpinnedWhy) {
         root.checkWholeRect(tag, dialog)
         var all = root.rings(dialog, [])
         console.log("RINGBOUNDS DIALOG " + tag + " rings=" + all.length)
+        root.checkRingCounts(tag, dialog)
         for (var r = 0; r < all.length; r++) root.clipChain(tag + " ring " + r, all[r])
         // A CheckBox draws inside its own box, and the box is the thing a clip must not cut.
         var boxes = root.ofType(dialog, "CheckBox", [])
         for (var b = 0; b < boxes.length; b++) root.clipChain(tag + " checkbox " + b, boxes[b], true)
-        root.checkPins(key, dialog)
         var list = root.inputs(dialog, [])
+        var frames = list.map(function (input) { return root.frameOf(input) })
+        for (var f = 0; f < frames.length; f++) root.check(frames[f] !== null, tag + " field " + f + " has no frame")
+        root.checkPins(key, dialog, unpinnedWhy)
         root.check(!wantsField || list.length > 0, tag + " dialog shows no field")
         for (var i = 0; i < list.length; i++) {
             list[i].forceActiveFocus()
-            var frame = root.frameOf(list[i])
-            root.check(frame !== null, tag + " field " + i + " has no frame")
-            if (frame === null) continue
-            root.checkFieldFrame(tag + " field " + i, frame, Flea.Theme.color.accent, "accent", dialog)
+            if (frames[i] === null) continue
+            root.checkFieldFrame(tag + " field " + i, frames[i], Flea.Theme.color.accent, "accent", dialog)
             // The fields that do not hold the caret keep the muted frame 0.3.6 drew.
-            for (var j = 0; j < list.length; j++) {
-                var other = root.frameOf(list[j])
-                if (j !== i && other) root.check(Qt.colorEqual(other.border.color, Flea.Theme.color.muted), tag + " unfocused field " + j + " frame is " + other.border.color + ", not muted")
-            }
+            for (var j = 0; j < list.length; j++)
+                if (j !== i && frames[j]) root.check(Qt.colorEqual(frames[j].border.color, Flea.Theme.color.muted), tag + " unfocused field " + j + " frame is " + frames[j].border.color + ", not muted")
         }
     }
 
@@ -320,14 +392,17 @@ ShellRoot {
           item: function () { return saveCard }, ready: function (d) { return d.visible }, close: function (d) { fakePicker.saving = false } },
         { name: "convert", field: false, open: function () { pane.convertSource = { path: root.fixture + "/a.txt", name: "a.png", menuId: 0 }; pane.convertRequested("a.png") },
           item: function () { return root.ipcItem().convertDialog }, ready: function (d) { return d.opened }, close: function (d) { d.opened = false } },
-        { name: "window", field: false, open: function () {},
+        { name: "window", field: false, unpinned: "the whole window, not a dialog's content", open: function () {},
           item: function () { return body }, ready: function (d) { return true }, close: function (d) {} },
         { name: "network", open: function () { pane.sidebar.addRequested() },
           item: function () { return root.ipcItem().networkDialog }, ready: function (d) { return d.opened }, close: function (d) { d.opened = false } },
         { name: "trash confirm", field: false, open: function () { pane.menuActions.dialogFor = "newFile"; pane.menuActions.active = true; pane.menuActions.item.open("newFile", 1, root.fixture, pane.listArea); root.trashConfirm().open({ all: false, count: 3, bytes: 0, token: 1 }) },
           item: function () { return pane.menuActions.item ? root.trashConfirm() : null }, ready: function (d) { return d.opened }, close: function (d) { d.opened = false; pane.menuActions.item.opened = false } },
-        { name: "transfer card", field: false, open: function () { transferCard.transfer = root.runningTransfer },
-          item: function () { return transferCard }, ready: function (d) { return d.visible }, close: function (d) { d.transfer = Ops.emptyTransfer() } }
+        { name: "transfer card", field: false, unpinned: "its place is the probe's own x and y", open: function () { transferCard.transfer = root.runningTransfer },
+          item: function () { return transferCard }, ready: function (d) { return d.visible }, close: function (d) { d.transfer = Ops.emptyTransfer() } },
+        { name: "scroll card", field: false, unpinned: "a probe card, not a product dialog", open: function () { scrollCard.visible = true },
+          item: function () { return scrollCard }, ready: function (d) { return d.visible }, close: function (d) { d.visible = false },
+          after: function (tag, d) { root.measureScrollCard(tag, d) } }
     ].concat(Settings.SECTIONS.map(function (section) { return root.settingsEntry(section.id) }))
 
     // The trash confirmation card the file menu's dialog hosts for a permanent delete.
@@ -337,7 +412,7 @@ ShellRoot {
                                               done: 0, bytes: 1024, total: 4096, moved: 0, writing: false, drive: "" })
     // One Settings section, opened through the chrome bar's own request so the panel loads as it does for the comma key.
     function settingsEntry(id) {
-        return { name: "settings " + id, field: false,
+        return { name: "settings " + id, field: false, unpinned: "a settings section's rows are the section's own, not a dialog's content",
                  open: function () { root.find(body, "ChromeBar").settingsRequested(); root.ipcItem().settingsPanel.showSection(id) },
                  item: function () { var d = root.ipcItem().settingsPanel; return d && d.opened && d.section === id ? d : null },
                  ready: function (d) { return d.opened }, close: function (d) { d.close() } }
@@ -408,7 +483,8 @@ ShellRoot {
             if (!root.dialogOpened) { dlg.open(); root.dialogOpened = true; return false }
             var item = dlg.item()
             if (!item || !dlg.ready(item)) return false
-            root.measureDialog(tag + " " + dlg.name, "stop " + combo.stop + " " + dlg.name, item, dlg.field !== false)
+            root.measureDialog(tag + " " + dlg.name, "stop " + combo.stop + " " + dlg.name, item, dlg.field !== false, dlg.unpinned)
+            if (dlg.after) dlg.after(tag + " " + dlg.name, item)
             dlg.close(item)
             root.dialogOpened = false
             root.dialogIndex++
@@ -424,6 +500,7 @@ ShellRoot {
 
     function report() {
         stepper.running = false
+        root.checkPinsCompared()
         console.log("RINGBOUNDS DONE checks=" + root.checks + " failed=" + root.failures.length)
         Quickshell.execDetached(["kill", String(Quickshell.processId)])
     }
@@ -441,7 +518,20 @@ ShellRoot {
         // The save picker's answer area, which lives in its own window in the product, at the picker's 840 px.
         Flea.PickerSave { id: saveCard; picker: fakePicker; width: 840; z: 100 }
         // The transfer card, which the status bar hosts in the product, with the status bar's right margin.
-        Flea.TransferCard { id: transferCard; x: 600; y: 100; z: 100 }
+        Flea.TransferCard { id: transferCard; x: root.transferX; y: root.transferY; z: 100 }
+        // A card taller than its body, hosted as every dialog hosts its CardScroll: the ring bleed, a column of real buttons.
+        Flea.CardScroll {
+            id: scrollCard
+            visible: false
+            x: root.scrollCardX; y: root.scrollCardY; z: 100
+            width: root.scrollCardWidth; height: root.scrollCardHeight
+            bleed: Flea.Theme.ringClearance
+            Column {
+                width: parent.width
+                spacing: Flea.Theme.spacing.gap
+                Repeater { model: root.scrollButtons; Flea.DialogButton { label: "Button " + index } }
+            }
+        }
     }
 
     QtObject {

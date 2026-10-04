@@ -87,11 +87,11 @@ tests/js/status.js 354
 tests/rename-grid-bottom.qml 424
 tests/rename-grid-bottom.js 305
 tests/rename-lifecycle-check.js 356
-tests/ring-bounds.qml 494
+tests/ring-bounds.qml 584
 tests/touchpad.qml 747
 tests/xwsettings-tabs.qml 416
 ui/Backend.qml 469
-ui/ChromeBar.qml 473
+ui/ChromeBar.qml 472
 ui/ColumnsArea.qml 479
 ui/ContextMenu.qml 703
 ui/ConvertDialog.qml 435

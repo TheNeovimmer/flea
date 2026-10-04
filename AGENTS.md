@@ -1935,9 +1935,16 @@ failure fails the check rather than passing it.
   inside the frame so all four sides are whole. A button's ring is never cut: `CardScroll` carries `bleed`,
   room inside its clip that the caller's margins give back, on every dialog that holds a `Flea.DialogButton`
   or `Flea.CheckBox` (all of them: Collide, Trash, menu action, open with, convert, permissions, network and
-  the save picker). `tests/ring-bounds.sh` pins all of it from the real window at every text stop, with the
-  content positions 13506d08 drew in `tests/ring-bounds.js`, and `tests/ui.sh` `case_click` reads the open
-  path field's accent frame, its four sides and the rows a ring would reach from the native chrome capture.
+  the save picker). `CardScroll.reveal()` keeps `bleedY` of clearance on the side an item is revealed from, so
+  the first control returns the view to the top and the last to the end with the ring whole (a menu sets no
+  bleed and lands flush as before). `tests/ring-bounds.sh` pins all of it from the real window at every text
+  stop: the content positions 13506d08 drew in `tests/ring-bounds.js` (every key compared once, every other
+  dialog listed unpinned with its reason), exactly one ring per button, and a scrolled probe card revealed
+  last, first, last. Only the rename editor has an error frame, so only it is driven in the error role.
+  `tests/ui.sh` `case_click` reads the open path field's accent frame, its four sides and the two pixels
+  outside each side from the native chrome capture, counting a pixel as an ink within `chrome_ink_tolerance`
+  of its theme hex (the window composites over a translucent ground) after asserting accent, foreground and
+  the ground are further apart than twice that.
 - A dialog card lands on whole device pixels, because a hairline drawn at a half pixel renders at half strength.
   Every card that centres itself (`ui/MenuActionDialog.qml`, `ConvertDialog`, `NetworkDialog`, `OpenWithDialog`,
   `TrashConfirm`, `CollideConfirm`, `KeymapSheet`, `SettingsPanel`, `PermissionsDialog` and the `Preview` surface) takes

@@ -9,7 +9,7 @@ ui/ChromeBar.qml	277	root	Declared QML id; component context access is valid at 
 ui/ChromeBar.qml	280	crumbSlot	Declared QML id; component context access is valid at runtime.
 ui/ChromeBar.qml	281	root	Declared QML id; component context access is valid at runtime.
 ui/ChromeBar.qml	282	root	Declared QML id; component context access is valid at runtime.
-ui/ChromeBar.qml	320	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/ChromeBar.qml	319	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/ChromeModes.qml	34	root	Declared QML id; component context access is valid at runtime.
 ui/ChromeModes.qml	35	root	Declared QML id; component context access is valid at runtime.
 ui/ChromeModes.qml	36	root	Declared QML id; component context access is valid at runtime.
@@ -702,7 +702,7 @@ ui/PickerRecent.qml	54	status	XmlListModel status property in its own onStatusCh
 ui/PickerRecent.qml	76	history	Declared QML id; component context access is valid at runtime.
 ui/PickerSave.qml	37	parent	Inherited QtQuick Item property in the enclosing item scope.
 ui/PickerSave.qml	48	Layout	Imported Qt module supplies this type or attached property.
-ui/PickerSave.qml	86	Layout	Imported Qt module supplies this type or attached property.
+ui/PickerSave.qml	84	Layout	Imported Qt module supplies this type or attached property.
 ui/PickerWindow.qml	22	Quickshell	Quickshell import exports this runtime singleton or enum.
 ui/PickerWindow.qml	23	Quickshell	Quickshell import exports this runtime singleton or enum.
 ui/PickerWindow.qml	122	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
@@ -1114,7 +1114,7 @@ ui/ChromeBar.qml	277	root	Declared QML id; component context access is valid at 
 ui/ChromeBar.qml	280	crumbSlot	Declared QML id; component context access is valid at runtime.
 ui/ChromeBar.qml	281	root	Declared QML id; component context access is valid at runtime.
 ui/ChromeBar.qml	282	root	Declared QML id; component context access is valid at runtime.
-ui/ChromeBar.qml	320	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/ChromeBar.qml	319	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/ChromeModes.qml	34	root	Declared QML id; component context access is valid at runtime.
 ui/ChromeModes.qml	35	root	Declared QML id; component context access is valid at runtime.
 ui/ChromeModes.qml	36	root	Declared QML id; component context access is valid at runtime.

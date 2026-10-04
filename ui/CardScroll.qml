@@ -29,12 +29,13 @@ Flickable {
     // A highlight-stepped menu follows through reveal(); the Flickable takes no wheel itself.
     interactive: !root.highlightSteps
 
-    // Tab into a field below the fold scrolls it into view, so a form is never typed into blind.
+    // Tab into a field below the fold scrolls it into view with bleedY of clearance, so a form is never typed into blind and a ring is never cut; the ends clamp to the content.
     function reveal(item) {
         if (!item || root.contentHeight <= root.height || !root.holds(item))
             return
-        var top = item.mapToItem(root.contentItem, 0, 0).y
-        var bottom = top + item.height
+        var y = item.mapToItem(root.contentItem, 0, 0).y
+        var top = y - root.bleedY
+        var bottom = y + item.height + root.bleedY
         if (top < root.contentY)
             root.contentY = Math.max(0, top)
         else if (bottom > root.contentY + root.height)
