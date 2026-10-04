@@ -10490,21 +10490,39 @@ EOS
     sandbox_remove "$fixture_home"
 }
 
-# Show unmounted off governs internal partitions only: a stick keeps its unmounted rows (Devices.js
-# collectVolumes, pulls), marked unmounted, and no hidden partition of its disk joins them.
-fsdevice_switch_off() {
-    local layout="$1" expected="$2" label dev pk disk="" others want
+# The expected rows sit on one disk and no other row of that disk is on the rail; both switch legs share this check.
+fsdevice_same_disk() {
+    local expected="$1" label dev pk disk="" others want
     for label in $expected; do
-        [[ "$(fs_row_mounted "$label")" == "false" ]] \
-            || fail "fsdevice: $label is not a rail row marked unmounted with showUnmounted off, rows are: $(fs_rail_labels | tr '\n' ',')"
         dev=$(fs_row_device "$label")
-        [[ -n "$dev" && "$dev" != "null" ]] || fail "fsdevice: $label carries no device node with showUnmounted off"
-        pk=$(lsblk -no PKNAME "$dev" 2>/dev/null) || fail "fsdevice: lsblk cannot name the parent of $dev"
+        [[ -n "$dev" && "$dev" != "null" ]] || fail "fsdevice: $label carries no device node"
+        # A whole-disk device (the isohybrid layout) has no parent, so it is its own disk.
+        pk=$(lsblk -dno PKNAME "$dev" 2>/dev/null) || fail "fsdevice: lsblk cannot name the parent of $dev"
+        if [[ -z "$pk" ]]; then pk=$(lsblk -dno KNAME "$dev" 2>/dev/null) || fail "fsdevice: lsblk cannot name the disk $dev"; fi
         if [[ -z "$disk" ]]; then disk="$pk"; elif [[ "$disk" != "$pk" ]]; then fail "fsdevice: expected rows span two disks, $disk and $pk"; fi
     done
-    others=$(ipc railEntries | jq -r --arg d "/dev/$disk" '[.[] | select(.group == "device" and (.device | startswith($d))) | .label] | sort | join(",")')
-    want=$(sort <<< "$expected" | paste -sd, -)
-    [[ "$others" == "$want" ]] || fail "fsdevice: disk $disk carries [$others] with showUnmounted off, not just [$want]"
+    # Both sides go through jq, so one byte order sorts them; a row with no device counts as none.
+    others=$(ipc railEntries | jq -r --arg d "/dev/$disk" '[.[] | select(.group == "device" and ((.device // "") | startswith($d))) | .label] | sort | join(",")')
+    want=$(printf '%s\n' "$expected" | jq -R . | jq -sr 'sort | join(",")')
+    [[ "$others" == "$want" ]] || fail "fsdevice: disk $disk carries [$others], not just [$want]"
+}
+
+# Show unmounted off keeps a stick's unmounted rows (Devices.js collectVolumes), and no hidden partition of its disk joins them.
+fsdevice_switch_off() {
+    local layout="$1" expected="$2" label end mounted
+    for label in $expected; do
+        # A row can be absent for a poll after the unmount, so read it until it reads false or the wait runs out.
+        end=$((SECONDS + unmount_wait_s)); mounted=""
+        while :; do
+            mounted=$(fs_row_mounted "$label")
+            [[ "$mounted" == "false" ]] && break
+            (( SECONDS < end )) || break
+            sleep 0.5
+        done
+        [[ "$mounted" == "false" ]] \
+            || fail "fsdevice: $label is not a rail row marked unmounted with showUnmounted off, last mounted value '$mounted', rows are: $(fs_rail_labels | tr '\n' ',')"
+    done
+    fsdevice_same_disk "$expected"
     printf 'FSDEVICE %s switch-off=ok\n' "$layout"
 }
 
@@ -10549,7 +10567,7 @@ case_fsdevice() {
     launch "$dir"
     export HOME="$real_home"
     wait_listing 1
-    local label dev mnt
+    local label mnt
     for label in $expected; do
         mnt=$(fs_row_path "$label")
         if [[ -n "$mnt" && "$mnt" != "null" && "$mnt" != "" ]]; then
@@ -10572,20 +10590,19 @@ case_fsdevice() {
     launch "$dir"
     export HOME="$real_home"
     wait_listing 1
-    local disk pk
-    disk=""
+    local rows
     for label in $expected; do
-        fs_rail_labels | grep -Fxq "$label" || fail "fsdevice: $label is no row with showUnmounted on, rows are: $(fs_rail_labels | tr '\n' ',')"
-        dev=$(fs_row_device "$label")
-        [[ -n "$dev" && "$dev" != "null" ]] || fail "fsdevice: $label carries no device node"
-        pk=$(lsblk -no PKNAME "$dev" 2>/dev/null) || fail "fsdevice: lsblk cannot name the parent of $dev"
-        if [[ -z "$disk" ]]; then disk="$pk"; elif [[ "$disk" != "$pk" ]]; then fail "fsdevice: expected rows span two disks, $disk and $pk"; fi
+        # The row arrives on the 5 s device poll after launch, so poll for it; the failure names the rows last seen.
+        end=$((SECONDS + unmount_wait_s))
+        rows=$(fs_rail_labels)
+        until grep -Fxq "$label" <<< "$rows"; do
+            (( SECONDS < end )) || fail "fsdevice: $label is no row with showUnmounted on, rows are: $(tr '\n' ',' <<< "$rows")"
+            sleep 0.5
+            rows=$(fs_rail_labels)
+        done
     done
-    local others
-    others=$(ipc railEntries | jq -r --arg d "/dev/$disk" '[.[] | select(.group == "device" and (.device | startswith($d))) | .label] | join(",")')
-    [[ "$others" == "$(tr '\n' ',' <<< "$expected" | sed 's/,$//')" ]] \
-        || fail "fsdevice: disk $disk carries [$others], not just the expected rows"
-    printf 'FSDEVICE %s switch-on rows=%s\n' "$layout" "$others"
+    fsdevice_same_disk "$expected"
+    printf 'FSDEVICE %s switch-on rows=%s\n' "$layout" "$(tr '\n' ',' <<< "$expected" | sed 's/,$//')"
 
     # Mount on activation: the row opens at its mountpoint with no false timer message.
     seek_row_named copy-me.bin
@@ -10600,17 +10617,17 @@ case_fsdevice() {
     done
     [[ -n "$mnt" && "$mnt" != "null" ]] || fail "fsdevice: activating $want1 mounted nothing"
     wait_path "$mnt"
-    wait_listing 1
+    # The window now shows the stick root, which holds the seeded tree, so the listing settles at ls -A's count.
+    local want_sorted="$dir/ls-want" want_n have_n vis cap i row built built_names
+    ls -A "$mnt" | sort > "$want_sorted"
+    want_n=$(wc -l < "$want_sorted" | tr -d ' ')
+    wait_listing "$want_n"
     [[ "$(ipc lastMessage)" != *"mounted but never reported"* ]] \
         || fail "fsdevice: the 15 s timer fired over a mount that landed: $(ipc lastMessage)"
     [[ -f "$mnt/thumb.png" ]] || fail "fsdevice: $mnt holds no seeded tree, refusing to run against the wrong disk"
     printf 'FSDEVICE %s mount=%s\n' "$layout" "$mnt"
 
     # Open and list against ls: total matches ls -A, built first-screen rows are members.
-    local want_sorted="$dir/ls-want" want_n have_n vis cap i row built built_names
-    ls -A "$mnt" | sort > "$want_sorted"
-    want_n=$(wc -l < "$want_sorted" | tr -d ' ')
-    wait_listing "$want_n"
     have_n=$(ipc total)
     [[ "$have_n" == "$want_n" ]] || fail "fsdevice: the listing holds $have_n rows, ls -A holds $want_n"
     vis=$(ipc visibleRows)
