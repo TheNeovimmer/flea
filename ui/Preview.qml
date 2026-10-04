@@ -116,6 +116,16 @@ Item {
     // The 0.3.6 swap additions, null until the first open builds them below; every reader guards it.
     readonly property var swap: swapLoader.item
     readonly property bool swapBuilt: swapLoader.active
+    // The compiled Markdown pane, held from the first idle after the window settles and never instantiated, so the first Space loads no unit.
+    property var markdownUnit: null
+    readonly property int unitWarmMs: 1000
+    readonly property bool windowSettled: root.pane !== null && root.pane.listingState === "ready" && !root.pane.listInFlight
+    Timer {
+        running: root.windowSettled && root.markdownUnit === null
+        interval: root.unitWarmMs
+        onTriggered: root.markdownUnit = Qt.createComponent("MarkdownPane.qml", Component.Asynchronous)
+    }
+    Flea.QuickLookPrepare { pane: root.pane; resting: !root.active; restMs: root.followSettleMs }
     // The memory suite asserts both Markdown loader items are null without a Markdown file.
     readonly property var markdownItem: markdownLoader.item
     // Exposes the eager panes for the live swap gate, so it can pin the wiring.
@@ -491,6 +501,8 @@ Item {
                 active: root.isMarkdown
                 source: "MarkdownPane.qml"
                 onLoaded: {
+                    // Local storage only: a share or a phone never blocks the window on a read.
+                    item.blockSmall = Qt.binding(function () { return root.pane ? !ExtThumbs.present(root.pane.storageClass) : false })
                     item.path = Qt.binding(function () { return root.path })
                     item.size = Qt.binding(function () { return root.size })
                     item.view = Qt.binding(function () { return root.markdownSource ? "source" : "rendered" })

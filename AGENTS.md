@@ -566,6 +566,31 @@ mutates under the picture and then calls `start(isPdf)`, held j joins the hold w
 staying, and `close()` calls `cancel()` so nothing queued runs. Space's own open has no hold and draws
 as it builds.
 
+**Quick Look on a Markdown file shows its content in the first frame (038-qlopen, 2026-10-04).** Space's own open has
+no hold, so the card and the document's first blocks must land in one event-loop turn or the card draws empty first.
+Three parts, each measured headless (offscreen, software, warm QML disk cache, medians of n=10 processes, key to the
+first frame that holds block 0; the clock is `Date.now()`, 1 ms). (a) `ui/Preview.qml` hands `blockSmall` to the
+Markdown pane on local storage, and `ui/PreviewMarkdown.qml` turns it into `FileView.blockLoading` for a file at or
+under `workerThreshold` (64 KiB): the read, the parse and the model reset happen inside the key handler. A share or a
+phone keeps the async read, because a blocking read there could freeze the window. It saves no headless time (the same
+work now runs before the frame, 7 ms either way for a 0.6 KB file); what it removes is the frame the read hop could lose
+to vsync. (b) `Preview.markdownUnit` holds `Qt.createComponent("MarkdownPane.qml", Component.Asynchronous)` one second
+after the first listing is ready, never an instance: the first Space of a session loads no compilation unit (first open
+12 ms against 14 ms, pane created at 4 ms against 6 ms) and the window PSS did not move (medians 28438 against 28465 KB,
+n=6). (c) The column's parse is not reusable: it is parsed against the column's chrome (`Theme.color.surface`) and Quick
+Look's against `Theme.color.background`, and the chrome is baked into every inline code span, so a shared parse would draw
+the wrong code ground. Instead `ui/QuickLookPrepare.qml` reads and parses the Markdown file under a cursor that rested for
+`followSettleMs` (a moving cursor only restarts a timer, no read, no figures, no subprocess) into the one entry of
+`ui/js/MarkdownPrepared.js`, and Quick Look's own parse is stored there too, so a reopen also hits. A hit needs the same
+path, folder, chrome, ink and the same text, which the Space read supplies, so an edited file can never show a stale
+parse. Key to frame against the same tree with all three parts off (n=10 processes cold, 20 opens warm): a 0.6 KB
+document is unchanged warm (7 to 8 ms) and 14 to 11 cold, a 9 KB document 16.5 to 9 warm and 22.5 to 16 cold, a 37 KB
+document 37.5 to 14 warm and 44 to 18 cold. The parse moves to the rest, so a rest on a 37 KB document holds the UI thread for about 23 ms once. Window PSS with a
+62 KB entry held: medians 60612 against 60779 KB, n=7 (spread 400 KB), so no cost above the 0.3 MB bar.
+`tests/quicklook-firstframe.sh` pins it: the key's function returns with the card active and the blocks in the model
+(before the fix: card=true and 0 blocks), frame 1 holds block 0, no frame draws the card without it, the parse was taken
+from the entry, and twenty cursor moves in one turn read no file; both motion legs.
+
 `columnReady` waits for LOADING never, an image for its cache file, or with none coming the original
 `frameThumb` decodes itself, drawn or refused (Ready or Error), a video for its poster or none coming,
 a PDF for `shownPage >= 0` or failure, text and code for `PreviewLines.loading` false, an archive for
@@ -7688,6 +7713,7 @@ Pickfix records `tests/picker-grid.qml` 448 to 450 for the real grid stub's mark
 038-setfocus 2026-10-04 (a focused protocol chip draws its own accent frame where the accent has a hue, A's ring where it has none) moves one ceiling, re-derived with `wc -l`: `ui/Theme.qml` 427 to 433 for the named `hueFloor`, the `accentHasHue` role and its `applyColors` line; the hueless checks sit in the new `tests/button-hueless.qml` at 97 lines, inside the global QML cap.
 
 038-mdline 2026-10-04 (Markdown lines centred in their 1.7 box, the Quick Look pane inside its frame) moves two ceilings, each re-derived with `wc -l`: `tests/markdown-render.qml` 718 to 793 for the centred-line probes, the real-block checks and the probe-overlap check (their helpers sit in the new `tests/markdown-centre.js` at 74, within the JS budget, copied by `tests/markdown-render.sh`), and `ui/Preview.qml` 659 to 661 for the Markdown pane's hairline margin and its comment.
+038-qlopen 2026-10-04 (Quick Look on a Markdown file shows its content in the first frame) moves two ceilings, each re-derived with `wc -l`: `ui/Preview.qml` 661 to 673 for the held compiled pane unit with its timer, the `QuickLookPrepare` instance and the `blockSmall` hand-off, and `ui/PreviewMarkdown.qml` 778 to 787 for `blockSmall`, `shareParse`, `reusedParses`, the entry take and store in `parseNow`, less the hex helpers that moved to the new `ui/js/MarkdownPrepared.js` at 29. `ui/QuickLookPrepare.qml` is 69, `tests/quicklook-firstframe.qml` 184 and `tests/js/mdprepared.js` 21, all inside their budgets.
 
 md3 brings the Markdown view to the RenderedPreviews board's rhythm, each re-derived with `wc -l`:
 `tests/markdown-render.qml` 422 to 493 for the inset, rhythm, heading, line-box, surface, fence-padding and bar

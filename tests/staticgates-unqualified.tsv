@@ -737,7 +737,7 @@ ui/PickerWindow.qml	686	win	Declared QML id; component context access is valid a
 ui/PickerWindow.qml	687	places	Declared QML id; component context access is valid at runtime.
 ui/PickerWindow.qml	688	places	Declared QML id; component context access is valid at runtime.
 ui/PowerSectorsReader.qml	9	text	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
-ui/Preview.qml	452	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Preview.qml	462	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/PreviewArchive.qml	29	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewArchive.qml	30	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewArchive.qml	37	modelData	Declared QML property; enclosing component context supplies it.
@@ -752,79 +752,79 @@ ui/PreviewLines.qml	74	root	Declared QML id; component context access is valid a
 ui/PreviewLines.qml	75	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewLines.qml	76	index	Declared QML property; enclosing component context supplies it.
 ui/PreviewLines.qml	87	modelData	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	264	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	467	modelData	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	468	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	483	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	498	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	499	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	500	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	501	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	503	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	513	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	268	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	476	modelData	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	477	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	492	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	507	blockDelegate	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	508	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	509	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	510	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	512	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMarkdown.qml	522	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	525	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	526	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	528	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	529	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	531	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	534	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	535	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	537	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	541	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	545	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	547	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	548	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	555	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	558	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	559	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	561	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	562	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	568	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	571	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	582	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	585	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	590	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	592	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	598	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	600	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	624	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	625	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	626	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	631	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	632	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	633	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	538	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	546	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	550	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	554	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	556	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	557	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	564	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	567	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	568	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	570	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	571	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	577	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	580	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	591	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	594	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	599	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	601	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	607	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	609	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	633	blockDelegate	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	634	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	635	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	635	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	640	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	651	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	660	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	661	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	663	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	664	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	665	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	666	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	667	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	668	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	669	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	670	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	641	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	642	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	643	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	644	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	649	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	660	blockDelegate	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	669	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	670	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMarkdown.qml	672	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	680	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	693	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	694	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	705	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	706	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	711	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	713	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	717	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	719	listGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	724	listMarkerMetrics	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	725	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	673	blockDelegate	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	674	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	675	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	676	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	677	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	678	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	679	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	681	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	689	blockDelegate	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	702	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	703	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	714	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	715	blockDelegate	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	720	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	722	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	726	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	736	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	737	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	747	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	748	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	728	listGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	733	listMarkerMetrics	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	734	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	735	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	745	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	746	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMarkdown.qml	756	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	760	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	763	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	757	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	765	blockDelegate	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	769	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	772	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMedia.qml	88	anchors	Inherited QtQuick Item property in the enclosing item scope.
 ui/PreviewMedia.qml	88	parent	Inherited QtQuick Item property in the enclosing item scope.
 ui/PreviewPdf.qml	175	anchors	Inherited QtQuick Item property in the enclosing item scope.
@@ -1907,7 +1907,7 @@ ui/PickerWindow.qml	122	Style	qs.Commons exports this singleton; qmllint cannot 
 ui/PickerWindow.qml	686	win	Declared QML id; component context access is valid at runtime.
 ui/PickerWindow.qml	687	places	Declared QML id; component context access is valid at runtime.
 ui/PickerWindow.qml	688	places	Declared QML id; component context access is valid at runtime.
-ui/Preview.qml	452	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/Preview.qml	462	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/PreviewArchive.qml	29	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewArchive.qml	30	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewArchive.qml	37	modelData	Declared QML property; enclosing component context supplies it.
@@ -1934,114 +1934,114 @@ ui/PreviewLines.qml	75	gutterMetrics	Declared QML id; component context access i
 ui/PreviewLines.qml	75	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewLines.qml	76	index	Declared QML property; enclosing component context supplies it.
 ui/PreviewLines.qml	87	modelData	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	264	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	467	modelData	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	468	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	483	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	483	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	484	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	485	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	486	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	487	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	488	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	489	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	498	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	499	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	500	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	500	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	500	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	500	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	501	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	503	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	503	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	503	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	513	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	513	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	268	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	476	modelData	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	477	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	492	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	492	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	493	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	494	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	495	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	496	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	497	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	498	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	507	blockDelegate	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	508	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	509	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	509	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	509	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	509	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	510	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	512	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	512	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	512	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	522	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	525	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	525	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	526	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	528	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	528	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	529	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	529	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	522	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	531	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	534	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	534	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	535	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	537	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	541	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	545	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	547	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	548	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	555	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	558	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	558	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	559	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	561	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	561	row	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	561	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	562	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	562	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	568	tableGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	571	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	582	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	582	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	582	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	582	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	585	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	590	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	592	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	592	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	598	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	600	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	600	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	600	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	624	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	625	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	626	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	631	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	632	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	633	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	537	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	538	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	538	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	546	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	550	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	554	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	556	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	557	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	564	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	567	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	567	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	568	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	570	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	570	row	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	570	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	571	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	571	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	577	tableGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	580	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	591	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	591	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	591	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	591	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	594	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	599	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	601	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	601	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	607	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	609	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	609	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	609	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	633	blockDelegate	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	634	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	635	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	635	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	640	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	651	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	660	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	661	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	663	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	664	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	665	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	666	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	667	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	668	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	669	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	670	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	641	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	642	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	643	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	644	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	649	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	660	blockDelegate	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	669	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	670	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMarkdown.qml	672	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	680	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	693	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	694	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	705	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	705	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	706	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	711	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	711	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	711	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	711	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	711	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	713	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	717	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	719	listGrid	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	724	listMarkerMetrics	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	725	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	673	blockDelegate	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	674	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	675	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	676	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	677	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	678	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	679	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	681	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	689	blockDelegate	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	702	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	703	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	714	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	714	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	715	blockDelegate	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	720	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	720	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	720	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	720	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	720	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	722	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	726	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	726	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	726	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	736	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	737	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	737	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	747	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	748	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	728	listGrid	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	733	listMarkerMetrics	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	734	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	735	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	735	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	735	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	745	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	746	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	746	index	Delegate context supplies this model role at runtime.
 ui/PreviewMarkdown.qml	756	blockDelegate	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	760	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	763	block	Declared QML property; enclosing component context supplies it.
-ui/PreviewMarkdown.qml	763	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	757	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	765	blockDelegate	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	769	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	772	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	772	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewSwap.qml	191	content	Declared QML id; component context access is valid at runtime.
 ui/PreviewSwap.qml	191	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewSwap.qml	191	root	Declared QML id; component context access is valid at runtime.

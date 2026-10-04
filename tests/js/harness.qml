@@ -35,6 +35,7 @@ import "jump-heldout.js" as JumpHeldoutSuite
 import "keymap.js" as KeymapSuite
 import "localsend.js" as LocalSendSuite
 import "markdown.js" as MarkdownSuite
+import "mdprepared.js" as MdPreparedSuite
 import "mdstructure.js" as MdStructureSuite
 import "mdhtml.js" as MdHtmlSuite
 import "mdgates.js" as MdGatesSuite
@@ -149,7 +150,7 @@ Item {
             ["palette", PaletteSuite], ["pathbar", PathBarSuite], ["places", PlacesSuite], ["placemenu", PlaceMenuSuite], ["rail", RailSuite], ["scripts", ScriptsSuite],
             ["phones", PhonesSuite],
             ["picker", PickerSuite],
-            ["previewkeys", PreviewKeysSuite], ["previewswap", PreviewSwapSuite],
+            ["previewkeys", PreviewKeysSuite], ["mdprepared", MdPreparedSuite], ["previewswap", PreviewSwapSuite],
             ["protocols", ProtocolsSuite], ["railkeys", RailKeysSuite],
             ["recent", RecentSuite],
             ["recentmode", RecentModeSuite],

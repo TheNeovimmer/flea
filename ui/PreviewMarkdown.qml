@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell.Io
 import "." as Flea
 import "js/Markdown.js" as Markdown
+import "js/MarkdownPrepared.js" as Prepared
 
 // Rendered and Source previews share document insets, and only images beside the document can load.
 Item {
@@ -19,15 +20,16 @@ Item {
     property bool truncate: false
     readonly property bool tooLarge: root.size > root.maxBytes
     property bool readFailed: false
+    // Quick Look only: a document under workerThreshold reads on the open itself, so the card and its blocks share a frame.
+    property bool blockSmall: false
+    // Quick Look only: a small document's blocks are taken from, and kept in, the one parsed entry a resting cursor prepares.
+    property bool shareParse: false
+    // Parses a request took from the shared entry instead of running, so a suite can tell a reuse from a parse.
+    property int reusedParses: 0
 
     readonly property string rawText: file.text()
-    // QML color components read 0..1, so the hex a style attribute needs is assembled, never coerced.
-    function hexByte(v) {
-        var s = Math.round(v * 255).toString(16)
-        return s.length < 2 ? "0" + s : s
-    }
     function hexOf(c) {
-        return "#" + hexByte(c.r) + hexByte(c.g) + hexByte(c.b)
+        return Prepared.hexOf(c)
     }
     // The host supplies the code surface colour for its page.
     property color codeSurface: Theme.color.surface
@@ -140,6 +142,8 @@ Item {
         id: file
         path: (root.active && !root.tooLarge) ? root.path : ""
         printErrors: false
+        // A page-cache read of 64 KiB costs less than the frame the async hop would lose.
+        blockLoading: root.blockSmall && root.size <= root.workerThreshold
         // The one watcher is on the shown file; a path change re-points it, so an old file never reloads here.
         watchChanges: true
         // The first event opens the window and the rest land inside it: a restart would starve a file written without pause.
@@ -315,9 +319,12 @@ Item {
 
     // The synchronous parse of one request, landed like a worker reply: the small-file path and the worker's recovery both end here.
     function parseNow(text, dir, chrome, ink) {
-        var blocks
+        var blocks = root.shareParse ? Prepared.take(root.path, text, dir, chrome, ink) : null
+        if (blocks !== null)
+            root.reusedParses++
         try {
-            blocks = Markdown.blocks(text, dir, chrome, ink)
+            if (blocks === null)
+                blocks = Markdown.blocks(text, dir, chrome, ink)
         } catch (e) {
             root.parseError = String(e.message || e)
             root.appliedSeq = root.parseSeq
@@ -325,6 +332,8 @@ Item {
             root.askedAny = false
             return
         }
+        if (root.shareParse)
+            Prepared.store(root.path, text, dir, chrome, ink, blocks)
         // Taken once the parse is good and before the model reset, like the worker landing: a parse that throws takes no place.
         root.rememberScroll()
         root.settingBlocks = true
