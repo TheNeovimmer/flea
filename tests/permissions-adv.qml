@@ -159,9 +159,9 @@ ShellRoot {
         FontMetrics { id: probeFont; font { family: Flea.Theme.font.family; pixelSize: Flea.Theme.font.caption } }
         TextMetrics { id: probeInk; text: "READ"; font { family: Flea.Theme.font.family; pixelSize: Flea.Theme.font.caption } }
 
-        Flea.PermissionsDialog {
-            id: dialog
-        }
+        // A live DialogField, whose box height the Octal field must match at every text size.
+        Flea.DialogField { id: probeField; visible: false }
+        Flea.PermissionsDialog { id: dialog }
     }
 
     // Sample backend: {"c":"permissions","op":"inspect","id":1000,"path":"/a"} answers mode and reason.
@@ -372,7 +372,7 @@ ShellRoot {
             shell.checkNote(tag, dialog)
             Columns.checkColumns(shell, tag, dialog, stop)
             Columns.checkHeading(shell, tag, dialog, probeNote.implicitHeight, Flea.Theme.font.caption, probeFont.ascent + probeInk.tightBoundingRect.y, stop)
-            if (shell.cardKind === 0) Columns.checkOctalFrame(shell, tag, dialog, Flea.Theme)
+            if (shell.cardKind === 0) Columns.checkOctalFrame(shell, tag, dialog, Flea.Theme, probeField)
             if (shell.cardKind === 1 && stop === shell.boardStop)
                 shell.check(tag + " card is the board's 275", dialog.cardItem.height === shell.boardSeveralHeight, String(dialog.cardItem.height))
             if (shell.cardKind === 1) shell.checkMixedBar(tag, dialog, stop)

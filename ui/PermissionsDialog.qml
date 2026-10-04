@@ -44,6 +44,8 @@ FocusScope {
     // Permissions040: a multi Apply cannot be cancelled either.
     readonly property bool applyLocked: applying || applyingMany
     readonly property real labelWidth: Math.round(96 * Theme.font.bodySmall / 13)
+    // ButtonSystem040 A: a text field is DialogField's height (ui/DialogField.qml's box), centred in its row.
+    readonly property int fieldHeight: Theme.rowHeight - Theme.spacing.rowPaddingY
     readonly property int controlHeight: Math.max(Theme.rowHeight, Math.ceil(Theme.font.body * Theme.lineBoxRatio) + 2 * Theme.spacing.rowPaddingY)
     // The board is drawn at base size 14, whose bodySmall is 13; every board pixel below scales from it and lands whole.
     readonly property real boardScale: Theme.font.bodySmall / 13
@@ -506,7 +508,8 @@ FocusScope {
                     Rectangle {
                         id: octalBox
                         width: body.holderWidth - root.labelWidth - parent.spacing
-                        height: parent.height
+                        height: root.fieldHeight
+                        y: Math.round((parent.height - height) / 2)
                         color: Theme.color.background
                         // A focused field is its own frame in the accent, and the error role where its line reports an error, as RenameField draws it.
                         border.color: octal.activeFocus ? (errorLabel.visible && !root.busy ? Theme.color.error : Theme.color.accent) : Theme.color.muted

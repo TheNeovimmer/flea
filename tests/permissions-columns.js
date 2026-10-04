@@ -78,8 +78,21 @@ function checkHeadingInk(shell, tag, card, inkUnderLineTop, stop) {
     shell.same(tag + " heading ink starts on the board's row " + BOARD_HEAD_INK_TOP, Math.round(top) - PROBE_ROW_BIAS, BOARD_HEAD_INK_TOP)
 }
 
+// ButtonSystem040 A: the Octal field is DialogField's height at every text size, centred in its row, where the row's pitch is the card's own.
+// The field is read off a live DialogField (its one bordered child), so a change to that field's height moves this pin with it.
+function checkOctalHeight(shell, tag, card, dialogField) {
+    var frame = card.octalFrame
+    var box = dialogField.children.find(function (child) { return child.border !== undefined })
+    if (!frame || !box) { shell.check(tag + " octal field and DialogField box are reachable", false, "frame=" + !!frame + " box=" + !!box); return }
+    shell.same(tag + " octal field is DialogField's height", frame.height, box.height)
+    var row = frame.parent
+    shell.same(tag + " octal field is centred in its row", frame.y, Math.round((row.height - frame.height) / 2))
+    shell.check(tag + " octal row keeps the card's control pitch", row.height === card.controlHeight, row.height + " vs " + card.controlHeight)
+}
+
 // A focused field is its own frame in the accent, the error role where its error line shows, and the muted rule once the keyboard leaves.
-function checkOctalFrame(shell, tag, card, theme) {
+function checkOctalFrame(shell, tag, card, theme, dialogField) {
+    checkOctalHeight(shell, tag, card, dialogField)
     var frame = card.octalFrame
     if (!frame) { shell.check(tag + " octal frame is reachable", false, "no octalFrame"); return }
     var octal = card.controls().find(function (control) { return control.name === "Octal" }).item
