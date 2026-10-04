@@ -268,7 +268,7 @@ QtObject {
         } catch (thrown) {
             error = String(thrown)
         }
-        check(primed && error === "" && writes === 1 && !held.root.snappingToEnd, "N1 a height that settles under the snap does not re-enter it (writes " + writes + " " + error + ")")
+        check(primed && error === "" && writes === 1 && !held.root.snappingToEnd, "N1 a height that settles under the snap does not re-enter it (primed " + primed + ", endBuilt " + held.root.endBuilt + ", seenHeight " + held.root.seenHeight + " of " + endContentPx + ", writes " + writes + " " + error + ")")
     }
 
     function lazyChecks() {
