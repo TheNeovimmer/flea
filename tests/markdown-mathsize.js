@@ -1,6 +1,6 @@
 // Display maths size checks over the drawn SVG, shared by the mathsize shell.
 var MATH_UNITS_PER_EX = 442; // MathJax's TeX SVG draws one ex as 442 viewBox units.
-var MATH_EX_TOLERANCE = 0.1; // A formula's ex may differ from the body font's x-height by this share.
+var MATH_EX_TOLERANCE = 0.005; // The helper sets the measured x-height exactly (hundredth-pixel rounding), so the 1.2 em rule, 0.9% to 1.1% off the real font, still fails.
 var MATH_ROUNDING_PX = 1; // Integer geometry may move a fitted formula's height by this many pixels.
 
 // Sample input: <svg width="2.28px" height="15.04px" viewBox="0 -883.9 1008.6 894.9"> draws one ex at 7.43 px, its height over its viewBox height in ex.

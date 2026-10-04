@@ -39,14 +39,29 @@ if (process.argv[2] === "cycle") {
     // Sample input: MathJax's x^2 SVG, 2.025ex tall over a 894.9 unit viewBox at 442 units per ex.
     const formula = '<svg width="2.282ex" height="2.025ex" viewBox="0 -883.9 1008.6 894.9"><path fill="currentColor"/></svg>';
     const MATH_UNITS_PER_EX = 442;
-    const EX_TOLERANCE = 0.1;
+    const EX_PER_EM = 0.442;
+    // The exPx path is exact up to the hundredth-pixel rounding of the drawn height, so one percent leaves the 1.2 em rule (3.6% off at 12 and 14) red.
+    const EX_PATH_TOLERANCE = 0.01;
+    // The ex the drawn formula uses, read back from its height, or NaN when the helper wrote no pixel height.
+    function drawnExPx(theme, display) {
+        const match = postMath(formula, theme, display).match(/height="([\d.]+)px"/);
+        return match ? Number(match[1]) / (894.9 / MATH_UNITS_PER_EX) : NaN;
+    }
+    function exMatches(drawn, expected) {
+        return Math.abs(drawn - expected) <= EX_PATH_TOLERANCE * expected;
+    }
     // The helper receives the body font's measured x-height, and a display formula's ex is that height at any body size.
     for (const [bodyPx, xHeight] of [[12, 6.6], [14, 7.7], [14, 9]]) {
-        const drawn = postMath(formula, { fg: "#ffffff", bodyPx, exPx: xHeight }, true);
-        const height = Number(drawn.match(/height="([\d.]+)px"/)[1]);
-        const exPx = height / (894.9 / MATH_UNITS_PER_EX);
-        check(Math.abs(exPx - xHeight) <= EX_TOLERANCE * xHeight, `display maths ex ${exPx.toFixed(2)}px follows the body x-height ${xHeight}px at body ${bodyPx}px`);
+        const exPx = drawnExPx({ fg: "#ffffff", bodyPx, exPx: xHeight }, true);
+        check(exMatches(exPx, xHeight), `display maths ex ${exPx.toFixed(2)}px follows the body x-height ${xHeight}px at body ${bodyPx}px`);
     }
+    // Only a display formula takes the measured height, and a display formula without one keeps the em rule.
+    const EM_BODY_PX = 14;
+    const EM_RULE_EX_PX = EM_BODY_PX * EX_PER_EM;
+    const inlineEx = drawnExPx({ fg: "#ffffff", bodyPx: EM_BODY_PX, exPx: 9 }, false);
+    check(exMatches(inlineEx, EM_RULE_EX_PX), `inline maths ex ${inlineEx.toFixed(2)}px keeps the em rule ${EM_RULE_EX_PX.toFixed(2)}px beside a measured x-height`);
+    const fallbackEx = drawnExPx({ fg: "#ffffff", bodyPx: EM_BODY_PX }, true);
+    check(exMatches(fallbackEx, EM_RULE_EX_PX), `display maths ex ${fallbackEx.toFixed(2)}px falls back to the em rule ${EM_RULE_EX_PX.toFixed(2)}px without a measured x-height`);
     console.log(`figure-worker: ${checks} check(s), ${failures} failed`);
     process.exitCode = failures > 0 ? 1 : 0;
 }
