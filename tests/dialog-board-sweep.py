@@ -17,7 +17,8 @@ def indent_of(line):
 def has_direct_colour(lines, back, match):
     # True when the opener at `back` sets its own colour on the brace line or on a direct child row.
     indent = len(match.group(1))
-    if re.search(r"\b(color|gradient)\s*:", match.group(3)):
+    # Sample input: "Rectangle { color: x" sets a fill, "Rectangle { border.color: x" does not.
+    if re.search(r"(?<![\w.])(color|gradient)\s*:", match.group(3)):
         return True
     rows = []
     child = None
