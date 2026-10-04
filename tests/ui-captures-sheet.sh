@@ -12,8 +12,8 @@ trap 'sandbox_remove "$scratch"' EXIT
 deadline_s=10
 advance_s=1
 delayed_clear_s=2
-# The case closes the sheet with Escape after trash, fl and comp, and each close waits out the delay once.
-sheet_escapes=3
+# The case closes the sheet with Escape after trash, fl, comp and mute, and each close waits out the delay once.
+sheet_escapes=4
 failed=0
 checks=0
 
@@ -97,6 +97,8 @@ sheet_rows() {
                 *) printf 'shift-delete delete permanently\n Permissions\n' ;;
             esac ;;
         trash) printf ' Open Trash\nd trash\n' ;;
+        # The mute row stands in the Preview context only, so a stub that drops it must fail the case's row check.
+        mute) [[ "$scenario" == mute-missing ]] || printf 'm mute\n' ;;
         fl)
             case "$scenario" in
                 fl-no-recent) printf ' Open flea\n' ;;
@@ -160,11 +162,12 @@ omarchy-drive() {
     [[ "$out" == *"$7"* ]]
 }
 
-# The shots a clean run takes, in order: the sheet at rest, then the query with a place, a place beside a recent file, leaves alone, a live row, and the delete card on Cancel and on Delete.
+# The shots a clean run takes, in order: the sheet at rest, then the query with a place, a place beside a recent file, leaves alone, a key that works in one place, a live row, and the delete card on Cancel and on Delete.
 expected_shots='cap-sheet-rest
 cap-sheet-query-trash
 cap-sheet-query-fl
 cap-sheet-query-comp
+cap-sheet-query-mute
 cap-sheet-query
 cap-sheet-query-perm-file
 cap-sheet-delete-card
@@ -193,7 +196,7 @@ check_case() {
     rc=$?
     elapsed=$(cat "$case_dir/elapsed")
     checks=$((checks + 1))
-    # Sample input: CAP_SHEET rest=ok queries=trash,fl,comp,perm permissions=opened delete=cancel-then-delete
+    # Sample input: CAP_SHEET rest=ok queries=trash,fl,comp,mute,perm permissions=opened delete=cancel-then-delete
     if [[ "$rc" != "$expected_rc" || "$elapsed" != "$expected_elapsed" ]]; then
         printf 'FAIL %s: expected exit %s at %s s, got exit %s at %s s\n' \
             "$scenario" "$expected_rc" "$expected_elapsed" "$rc" "$elapsed"
@@ -201,7 +204,7 @@ check_case() {
     elif [[ -n "$diagnostic" ]] && ! grep -Fq -- "$diagnostic" "$case_dir/log"; then
         printf 'FAIL %s: missing diagnostic %s\n' "$scenario" "$diagnostic"
         failed=$((failed + 1))
-    elif [[ "$rc" == 0 ]] && ! grep -Fxq 'CAP_SHEET rest=ok queries=trash,fl,comp,perm permissions=opened delete=cancel-then-delete' "$case_dir/log"; then
+    elif [[ "$rc" == 0 ]] && ! grep -Fxq 'CAP_SHEET rest=ok queries=trash,fl,comp,mute,perm permissions=opened delete=cancel-then-delete' "$case_dir/log"; then
         printf 'FAIL %s: capture reported no success\n' "$scenario"
         failed=$((failed + 1))
     elif [[ "$rc" == 0 && "$(cat "$case_dir/shots")" != "$expected_shots" ]]; then
@@ -228,6 +231,7 @@ check_case perm-disabled 1 0 0 "Permissions reads unavailable"
 check_case comp-cap 1 0 0 "the comp query lists a row with a cap"
 check_case comp-parent-only 1 0 0 "the comp query lists no Compress to .zip leaf row"
 check_case comp-parent-last 1 0 0 "the comp query lists the Compress parent"
+check_case mute-missing 1 0 "$deadline_s" "the mute query lists no m mute row"
 check_case fl-no-recent 1 0 "$deadline_s" "the fl query lists no recent file mix.flac"
 check_case fl-no-place 1 0 0 "the fl query lists no favourite flea"
 check_case fl-order 1 0 0 "the fl query does not lead with the favourite"

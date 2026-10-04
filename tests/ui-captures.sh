@@ -373,7 +373,7 @@ cap_sheet_expect() {
     fail "cap_sheet: $what, last value '$got'"
 }
 
-# CommandPalette: the sheet at rest, then its query with a place, a place beside a recent file, leaves alone, the cursor on a file, and the delete card.
+# CommandPalette: the sheet at rest, then its query with a place, a place beside a recent file, leaves alone, a key that works in one place, the cursor on a file, and the delete card.
 case_cap_sheet() {
     local dir="$fixture_root/cap-sheet"
     local places="$fixture_root/cap-sheet-places"
@@ -440,6 +440,14 @@ EOS
     shot cap-sheet-query-comp
     key -k Escape >/dev/null
     cap_sheet_expect keymapSheetOpen false "Escape did not close the sheet after comp"
+    # A key that works in one place only lists its action row, and the sheet draws the muted where beside it.
+    key '?' >/dev/null
+    cap_sheet_expect keymapSheetOpen true "? did not reopen the sheet"
+    cap_sheet_type mute
+    cap_sheet_rows_hold 'm mute' "the mute query lists no m mute row"
+    shot cap-sheet-query-mute
+    key -k Escape >/dev/null
+    cap_sheet_expect keymapSheetOpen false "Escape did not close the sheet after mute"
     # The cursor stays on a.txt: Delete permanently lists once under its key, and Permissions is a live row.
     key '?' >/dev/null
     cap_sheet_expect keymapSheetOpen true "? did not reopen the sheet"
@@ -479,7 +487,7 @@ EOS
     key -k Escape >/dev/null
     cap_sheet_expect menuDialogState false "Escape did not close the delete card" .confirmation.opened
     [[ -e "$dir/a.txt" ]] || fail "cap_sheet: Escape on the delete card still deleted a.txt"
-    printf 'CAP_SHEET rest=ok queries=trash,fl,comp,perm permissions=opened delete=cancel-then-delete\n'
+    printf 'CAP_SHEET rest=ok queries=trash,fl,comp,mute,perm permissions=opened delete=cancel-then-delete\n'
     kill_flea
 }
 
