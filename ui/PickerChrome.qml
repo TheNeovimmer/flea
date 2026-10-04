@@ -55,8 +55,7 @@ Item {
 
     implicitHeight: ask.height + where.height
 
-    // The picker's answers are the one control (ButtonSystem040 A): 30 tall at body 14, the primary fixed, a disabled
-    // one a muted frame and label at the disabled opacity, the 2 px ring on the keyboard's own focus. The picker owns Tab.
+    // The picker's answers are ButtonSystem040 A's one control; the picker owns Tab.
     component Answer: Flea.DialogButton {
         id: answer
         property string name: answer.label

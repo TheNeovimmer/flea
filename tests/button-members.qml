@@ -46,6 +46,7 @@ ShellRoot {
     property var script: []
     property int cancels: 0
     property int accepts: 0
+    property int plains: 0
     property var stepped: []
 
     function log(line) { console.log("MEMBERS " + line) }
@@ -151,7 +152,7 @@ ShellRoot {
             y: 1000
             width: 460
             height: 60
-            Flea.DialogButton { id: plain; x: 20; y: 10; label: "Plain"; primary: true }
+            Flea.DialogButton { id: plain; x: 20; y: 10; label: "Plain"; primary: true; onActivated: shell.plains += 1 }
         }
 
         // The Copy to dialog fills this host while it is open, and is shut when the pointer series run.
@@ -328,7 +329,7 @@ ShellRoot {
         var accept = chrome.focusItems()[1]
         steps = steps.concat(shell.seriesFor("cancel", cancel, function (on) { if (cancel.available !== undefined) cancel.available = on }, function () { return shell.cancels }))
         steps = steps.concat(shell.seriesFor("accept", accept, function (on) { picker.canAccept = on }, function () { return shell.accepts }))
-        steps = steps.concat(shell.seriesFor("plain", plain, function (on) { plain.available = on }, function () { return 0 }))
+        steps = steps.concat(shell.seriesFor("plain", plain, function (on) { plain.available = on }, function () { return shell.plains }))
         steps.push({ item: parking, name: "check", act: function () {}, record: function () {
             shell.check("the harness draws at GM's text size", Flea.Theme.baseSize, shell.pinnedSize)
             shell.check("the harness runs with motion on, so the press scale is drawn", Flea.Theme.reducedMotion, false)
