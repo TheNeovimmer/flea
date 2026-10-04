@@ -187,6 +187,9 @@ function failedClipboard(check, pathsPane) {
     Messages.route(backend, {t: "error", where: "stale", path: "paths", msg: "rows out of date"})
     check("stale Permissions ask releases its paths claim", pane.pathsPending, null)
     check("stale Permissions ask tells the user nothing was done", JSON.stringify(pane.said.slice(saidBefore)), JSON.stringify([["The listing changed before that arrived, so nothing was done.", true]]))
+    var sentBeforeAsk = sent.length
     Ops.copyAs(pane, "path", null)
     check("the next ask after a stale Permissions refusal is not busy", pane.said.length, saidBefore + 1)
+    check("the next ask after a stale Permissions refusal claims the paths", JSON.stringify(pane.pathsPending), JSON.stringify({kind: "copyAs", format: "path"}))
+    check("the next ask after a stale Permissions refusal is sent", sent.length, sentBeforeAsk + 1)
 }

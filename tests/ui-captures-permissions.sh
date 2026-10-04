@@ -33,7 +33,8 @@ convert_pause_backend() { printf 'pause %s\n' "$1" >> "$log"; }
 permissions_resume_stopped() { [[ -z "$1" ]] || { printf 'resume %s\n' "$1" >> "$log"; printf '1\n' > "$sdir/resumed"; }; }
 cap_permissions_focus() { :; }
 menu_seek() { :; }
-wait_listing() { printf 'listing %s\n' "$1" >> "$log"; }
+# The listing wait logs whether the file was already gone, so the order rm then wait is proven.
+wait_listing() { local state=present; [[ -e "$fixture_root/zz-gone.txt" ]] || state=removed; printf 'listing %s %s\n' "$1" "$state" >> "$log"; }
 # A sleep advances the shell's own clock, so a wait's deadline passes without a wall-clock second.
 sleep() { SECONDS=$((SECONDS + 1)); }
 # Each Return is one Apply and each open one card, which is what picks the state the reader answers.
@@ -135,7 +136,7 @@ run skips-live liveapply cap_permissions_skips
 expect "skips fail when the all-skipped card keeps a live Apply or an enabled box" "$rc $(grep -c 'is not nine disabled boxes holding the files' "$sdir/out")" "1 1"
 
 # One call of the helper against the file the stub's fixture would hold, named after the 8 rows left once it goes.
-vanish_case() { : > "$fixture_root/zz-gone.txt"; cap_permissions_vanished 0 "$fixture_root/zz-gone.txt" 8; local rc=$?; [[ ! -e "$fixture_root/zz-gone.txt" ]] && printf 'removed\n' >> "$log"; return $rc; }
+vanish_case() { : > "$fixture_root/zz-gone.txt"; cap_permissions_vanished 0 "$fixture_root/zz-gone.txt" 8; }
 run vanished vanish vanish_case
 expect "a file removed under the open card, the listing waited at 8 rows, then the Apply error line settles with no paused backend" "$rc $(tr '\n' ' ' < "$log")" "0 listing 8 removed "
 run vanished-wrong vanishwrong vanish_case
