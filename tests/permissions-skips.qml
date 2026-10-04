@@ -17,10 +17,10 @@ ShellRoot {
     readonly property var gridBits: [256, 128, 64, 32, 16, 8, 4, 2, 1]
     readonly property int ownerExecute: 64
     // Permissions040 draws the title glyphs on rows 7-16 from the card top, esc on 10-16 and the lock on 7-20; at base 14 the 17 px line boxes and the 16 px lock sit at these tops.
+    readonly property var boardStripTops: ({ lock: 5, title: 4, esc: 4 })
     // Text size 14 in a window 800 px wide, the narrowest the post-Apply line must fit whole in, with a 20-character name.
     readonly property int statusWindowWidth: 800
     readonly property string longestName: "twenty-char-name.txt"
-    readonly property var boardStripTops: ({ lock: 5, title: 4, esc: 4 })
 
     function log(line) { console.log("PERMSKIP " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }

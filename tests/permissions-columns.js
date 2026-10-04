@@ -63,14 +63,13 @@ function checkHeading(shell, tag, card, captionHeight, caption, inkUnderLineTop,
     checkHeadingInk(shell, tag, card, inkUnderLineTop, stop)
 }
 
-// Permissions040 at 14, several items: the READ, WRITE and EXEC glyphs span rows 49 to 57 from the card top, read off the board's render.
-// The probe reads the font's tight box off its ascent, which lands one row under where the raster draws the ink (the 0.3.8 build read 51 here and drew 50 in the capture).
+// The probe reads the font's tight box off its ascent, one row under where the raster draws the ink (the 0.3.8 build read 51 here and drew 50 in the capture).
 var PROBE_ROW_BIAS = 1
+// Permissions040 at 14, several items: the READ, WRITE and EXEC glyphs span rows 49 to 57 from the card top, read off the board's render.
 var BOARD_HEAD_INK_TOP = 49
 
 // Sample input: a heading at card y 45 with a 1 px lead and ink 4 px under the line top answers 50, which is board row 49 once the probe's bias is taken off.
-// The caller reads the ink's offset from the font, never the dialog: a tight box sits on the baseline, one ascent under the line box's top.
-// The heading's ink top in card px is its box top, its top padding and that offset; it holds on the board's row at its own stop.
+// The ink top in card px is the heading's box top, its top padding and the font's own ink offset, which the caller reads from the font, never the dialog.
 function checkHeadingInk(shell, tag, card, inkUnderLineTop, stop) {
     if (stop !== BOARD_STOP || !card.isMulti) return
     var head = textsNamed(card.bodyItem, "READ", [])[0]

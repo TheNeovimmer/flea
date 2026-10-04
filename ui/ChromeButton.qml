@@ -61,8 +61,7 @@ Item {
         NumberAnimation { duration: 150; easing.type: Easing.OutQuad }
     }
 
-    // ButtonSystem040 A: the keyboard rings the mark, 24 square, trimmed to leave a hairline in a short strip and to the glyph's parity so both land whole.
-    // The ring centres in the rows above a strip's rule, so it keeps a clear row each side of itself, and the glyph never moves.
+    // ButtonSystem040 A: the keyboard rings the mark, 24 square, centred in the rows above a strip's rule and trimmed to a hairline clear and the glyph's parity.
     Item {
         id: ringBand
         width: root.width
