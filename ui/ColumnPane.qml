@@ -86,13 +86,12 @@ Item {
             view.contentY = Math.max(view.originY, Math.min(view.contentHeight - view.height + view.originY, rel + view.originY))
             return
         }
-        var visibleRows = ScrollOff.fullyVisible(view.height, rowH)
-        var first = Math.floor((view.contentY - view.originY) / rowH)
+        var rel = view.contentY - view.originY
         // No pane yet: the column's own rows are the listing, the same fallback its model uses.
         var total = root.pane ? root.pane.shownTotal : root.rows.length
-        var want = ScrollOff.firstFor(first, visibleRows, viewIndex, total, context)
-        if (want !== first || ScrollOff.needsAlign(viewIndex, want, visibleRows, view.contentY - view.originY, view.height, rowH))
-            view.contentY = Math.max(view.originY, Math.min(view.contentHeight - view.height + view.originY, want * rowH + view.originY))
+        var to = ScrollOff.keyY(ScrollOff.fullyVisible(view.height, rowH), viewIndex, total, context, rowH, rel, view.height, view.contentHeight)
+        if (to !== rel)
+            view.contentY = view.originY + to
     }
     readonly property alias scrollBar: verticalScroll
     function restartSettle() { settle.restart() }

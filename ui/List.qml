@@ -313,11 +313,10 @@ ListView {
             root.contentY = Math.max(root.originY, Math.min(root.contentHeight - root.height + root.originY, rel + root.originY))
             return
         }
-        var first = Math.floor((root.contentY - root.originY) / rowH)
-        var visible = ScrollOff.fullyVisible(root.height, rowH)
-        var want = ScrollOff.firstFor(first, visible, view, root.pane.shownTotal, context)
-        if (want !== first || ScrollOff.needsAlign(view, want, visible, root.contentY - root.originY, root.height, rowH))
-            root.contentY = Math.max(root.originY, Math.min(root.contentHeight - root.height + root.originY, want * rowH + root.originY))
+        var rel = root.contentY - root.originY
+        var to = ScrollOff.keyY(ScrollOff.fullyVisible(root.height, rowH), view, root.pane.shownTotal, context, rowH, rel, root.height, root.contentHeight)
+        if (to !== rel)
+            root.contentY = root.originY + to
     }
 
     // Resize and filter changes can change the visible work without moving contentY.

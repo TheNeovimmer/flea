@@ -104,4 +104,34 @@ function run(check) {
         check("an explicit context 3 matches the default",
               ScrollOff.firstFor(0, 42, 42, 150, 3), ScrollOff.firstFor(0, 42, 42, 150))
     }
+
+    // The keyboard move in pixels: row-aligned in the middle, the last row flush on the bottom edge when the wanted first row is the last one.
+    check("the keyboard pixel rule exists", typeof ScrollOff.keyY, "function")
+    if (typeof ScrollOff.keyY === "function") {
+        // Sample input: keyY(22, 79, 80, 3, 31, 0, 700, 2510) is 1780, the 80 rows (2480) less the 700 px view, with a 30 px footer past it.
+        var rowH = 31, view = 700, rows = 80, tail = 30, vis = ScrollOff.fullyVisible(view, rowH)
+        var content = rows * rowH + tail
+        var end = rows * rowH - view
+        check("the 700 px fixture is not a multiple of the row", view % rowH !== 0, true)
+        check("the row boundary leaves ground under the last row", (rows - vis) * rowH + view - rows * rowH, 18)
+        check("End parks the last row flush, not on the row boundary before it", ScrollOff.keyY(vis, 79, rows, 3, rowH, 0, view, content), end)
+        check("one above the last row parks there too", ScrollOff.keyY(vis, 78, rows, 3, rowH, 0, view, content), end)
+        check("a second End is a no-op", ScrollOff.keyY(vis, 79, rows, 3, rowH, end, view, content), end)
+        check("Up keeps the end while the context holds", ScrollOff.keyY(vis, 76, rows, 3, rowH, end, view, content), end)
+        check("Up three rows keeps the end", ScrollOff.keyY(vis, 75, rows, 3, rowH, end, view, content), end)
+        check("a wheel position inside the footer is kept", ScrollOff.keyY(vis, 77, rows, 3, rowH, end + tail, view, content), end + tail)
+        check("Home returns to the origin", ScrollOff.keyY(vis, 0, rows, 3, rowH, end, view, content), 0)
+        check("a middle cursor stays row aligned", ScrollOff.keyY(vis, 40, rows, 3, rowH, 0, view, content), 22 * rowH)
+        check("a middle cursor inside its context moves nothing", ScrollOff.keyY(vis, 10, rows, 3, rowH, 0, view, content), 0)
+        check("a cursor far above the end pulls the view up row aligned", ScrollOff.keyY(vis, 50, rows, 3, rowH, end, view, content), 47 * rowH)
+        check("a short listing stays at the origin", ScrollOff.keyY(vis, 9, 10, 3, rowH, 0, view, 10 * rowH + tail), 0)
+        check("a listing of exactly the visible rows stays at the origin", ScrollOff.keyY(vis, vis - 1, vis, 3, rowH, 0, view, vis * rowH + tail), 0)
+        // At 35 px a 700 px view holds 20 rows exactly, so the flush end and the row boundary are one place.
+        var rowE = 35, visE = ScrollOff.fullyVisible(view, rowE), contentE = rows * rowE + tail
+        check("the exact multiple fixture divides evenly", view % rowE, 0)
+        check("End at an exact multiple parks flush", ScrollOff.keyY(visE, 79, rows, 3, rowE, 0, view, contentE), rows * rowE - view)
+        check("Home at an exact multiple returns to the origin", ScrollOff.keyY(visE, 0, rows, 3, rowE, rows * rowE - view, view, contentE), 0)
+        // A short footer cannot carry the end past the content.
+        check("a footer-less listing parks on its last row", ScrollOff.keyY(vis, 79, rows, 3, rowH, 0, view, rows * rowH), end)
+    }
 }

@@ -2635,6 +2635,21 @@ case_clickedge() {
             sleep "$end_poll_s"
         done
         [[ "$band_settled" == true ]] || fail "clickedge: $mode End never settled on row $band_last, contentY $band_now"
+        # End parks the last row flush; one wheel notch over it goes on to the true end of travel, where the footer is the bare ground the band starts from.
+        local band_flush=$band_now band_wx band_wy band_wcx band_wcy
+        read -r band_wx band_wy _ _ < <(window_box) || fail "clickedge: $mode owned window is unavailable"
+        read -r band_wcx band_wcy <<< "$(ipc rowCentre "$band_last")"
+        [[ "$band_wcx $band_wcy" =~ ^[0-9]+\ [0-9]+$ ]] || fail "clickedge: $mode row $band_last has no centre for the wheel, got [$band_wcx $band_wcy]"
+        omarchy-drive move "$((band_wx + band_wcx))" "$((band_wy + band_wcy))" >/dev/null || fail "clickedge: $mode the pointer could not move onto row $band_last"
+        omarchy-drive scroll down 1 >/dev/null || fail "clickedge: $mode the wheel notch was rejected"
+        band_settled=false
+        for _attempt in $(seq 1 "$end_polls"); do
+            band_now=$(ipc viewContentY)
+            if [[ "$band_now" =~ ^[0-9]+$ ]] && (( band_now > band_flush )) && [[ "$band_now" == "$band_prev" ]]; then band_settled=true; break; fi
+            band_prev=$band_now
+            sleep "$end_poll_s"
+        done
+        [[ "$band_settled" == true ]] || fail "clickedge: $mode the wheel never settled past the flush end $band_flush, contentY $band_now"
         read -r ax ay aw ah <<< "$(ipc listAreaRect)"
         read -r brx bry brw brh <<< "$(ipc rowRect "$band_last")"
         [[ "$ax $ay $aw $ah $brx $bry $brw $brh" =~ ^[0-9]+(\ [0-9]+){7}$ ]] || fail "clickedge: $mode band geometry unavailable"
