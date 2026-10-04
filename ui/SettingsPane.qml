@@ -72,8 +72,25 @@ Flickable {
         }
     }
 
+    // How much of the fade's height the next row's first ink is drawn under, in the revealed state.
+    readonly property real cutShare: 0.5
+
     // The row item at an index of the chosen section, or null before the columns exist.
     function rowItem(index) { return root.current ? root.current.rows.itemAt(index) : null }
+
+    // The viewport bottom that clears the fade under the cursor row and still shows a cut of the row after it, so the fade reads as more following and not as padding.
+    function revealedBottom(index, item) {
+        var bottom = item.y + item.height + tailFade.height
+        var next = root.rowItem(index + 1)
+        return next ? Math.max(bottom, next.y + root.inkTop(next) + Math.round(tailFade.height * root.cutShare)) : bottom
+    }
+
+    // Where a row's first ink starts: a heading's label sits under its rule and padding, any other row's content under the row's own padding.
+    function inkTop(row) {
+        for (var i = 0; row.isGroup && i < row.children.length; i++)
+            if (row.children[i].inkTop !== undefined) return row.children[i].inkTop
+        return Theme.spacing.rowPaddingY
+    }
 
     // The Column inside the Flickable holds rows of two different heights, so the visible window is
     // moved onto the row itself rather than derived from an index times a row height.
@@ -94,7 +111,7 @@ Flickable {
         if (item.y < root.contentY)
             root.contentY = item.y
         else if (item.y + item.height > root.contentY + root.height - tailFade.height)
-            root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, item.y + item.height + tailFade.height - root.height))
+            root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, root.revealedBottom(index, item) - root.height))
     }
 
     Repeater {

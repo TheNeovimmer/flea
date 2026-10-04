@@ -12,13 +12,15 @@ Flickable {
     // Menus step the highlight instead of pixel scrolling: one row a notch through stepBy, one
     // row per stepRowHeight of gained touchpad travel, with no tail. See FastScrollHandler.
     property bool highlightSteps: false
-    property real stepRowHeight: 0
+    property real stepRowHeight: Theme.rowHeight
     property var stepBy: null
     // Room kept inside the clip on every side for a button's 2 px ring; callers grow their margins by the same, so nothing moves.
     property int bleed: 0
     // The two axes apart, for a body whose rows already run to the card's side edges.
     property int bleedX: bleed
     property int bleedY: bleed
+    // Room reveal() keeps between the row and a clip edge an overlay fade covers while more content lies past it; the content's own ends clamp it away.
+    property real revealClearY: 0
     // The holder's drawn width, so a probe reads it without walking children.
     readonly property real holderWidth: holder.width
 
@@ -34,8 +36,8 @@ Flickable {
         if (!item || root.contentHeight <= root.height || !root.holds(item))
             return
         var y = item.mapToItem(root.contentItem, 0, 0).y
-        var top = y - root.bleedY
-        var bottom = y + item.height + root.bleedY
+        var top = y - root.bleedY - root.revealClearY
+        var bottom = y + item.height + root.bleedY + root.revealClearY
         if (top < root.contentY)
             root.contentY = Math.max(0, top)
         else if (bottom > root.contentY + root.height)

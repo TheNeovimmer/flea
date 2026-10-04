@@ -385,7 +385,7 @@ case_cap_menus2() {
 
 # MenuAdditions040 states the first two menu cases leave out: board a as drawn (defaults plus Copy as and Paste as, a file on the clipboard, hints on, both flyouts), c and P at shipped defaults (the lone flyout), board f (Invert on, hints off, empty clipboard) and Show original's result.
 case_cap_menus3() {
-    local dir="$fixture_root/cap-menus3" hidden_board_a hidden_board_f copyas_leaves pasteas_leaves cursor_row polls
+    local dir="$fixture_root/cap-menus3" hidden_board_a hidden_board_f copyas_leaves pasteas_leaves cursor_row polls clip_types
     local show_original_polls=100
     sandbox_scratch "$dir"
     mkdir -p "$dir/orig"
@@ -458,7 +458,10 @@ case_cap_menus3() {
     kill_flea
     # The y presses above left plain.txt on the session clipboard, so it is emptied for board f's dead Paste.
     wl-copy --clear || fail "cap_menus3: wl-copy could not empty the clipboard for board f"
-    [[ -z "$(wl-paste --list-types 2>/dev/null)" ]] || fail "cap_menus3: the clipboard still offers a type after wl-copy --clear"
+    # wl-clipboard 2.3, minipc's, answers an empty clipboard with "Nothing is copied"; a connection failure prints something else.
+    clip_types=$(wl-paste --list-types 2>&1)
+    [[ -z "$clip_types" || "$clip_types" == "Nothing is copied" ]] \
+        || fail "cap_menus3: wl-paste did not report an empty clipboard after wl-copy --clear, it printed: $clip_types"
     # DEFAULTS' twelve less Invert selection, which board f switches on, with hints off and nothing on the clipboard.
     hidden_board_f='"delete","openTerminal","placeMenu","runScript","moveto","copyto","properties","permissions","copyAs","pasteAs","extThumbs"'
     seed_ui_state "$fixture_root/cap-menus3-f-state" "$(printf '{"keys":"default","view":"list","keyHints":false,"menu":{"hidden":[%s]}}' "$hidden_board_f")"

@@ -78,8 +78,12 @@ ShellRoot {
             out.push({ stop: shell.stops[s], density: "compact", hints: true, all: true, kind: "file", flyout: "copyAs", edge: false, narrow: true })
         }
         // A scrolled menu and a scrolled flyout, read at both edges and at every separator beside an edge.
-        out.push({ stop: 14, density: "compact", hints: true, all: true, kind: "file", flyout: "", edge: false, narrow: false, edges: "frame" })
-        out.push({ stop: 14, density: "compact", hints: true, all: true, kind: "file", flyout: "openWith", edge: false, narrow: false, edges: "flyout" })
+        for (var e = 0; e < shell.stops.length; e++) {
+            out.push({ stop: shell.stops[e], density: "compact", hints: true, all: true, kind: "file", flyout: "", edge: false, narrow: false, edges: "frame" })
+            out.push({ stop: shell.stops[e], density: "compact", hints: true, all: true, kind: "file", flyout: "openWith", edge: false, narrow: false, edges: "flyout" })
+        }
+        // The row a flyout hangs from, opened by its key on a scrolled menu, is revealed clear of the fades too.
+        out.push({ stop: 14, density: "compact", hints: true, all: true, kind: "file", flyout: "", edge: false, narrow: false, edges: "hang" })
         for (var i = 0; i < out.length; i++)
             out[i].tag = out[i].kind + "/" + out[i].stop + "/" + out[i].density + (out[i].hints ? "/hints" : "/plain")
                        + (out[i].all ? "/all" : "/default") + (out[i].flyout ? "/" + out[i].flyout : "")
@@ -232,9 +236,72 @@ ShellRoot {
         }
         shell.check(tag + ": a separator beside an edge is drawn under a fade at least half opaque", faint, [])
         shell.check(tag + ": a separator was placed at an edge", separators > 0, true)
+        shell.checkBorderWhole(tag, frameItem, fades)
+        card.contentY = 0
+        if (s.edges === "frame")
+            shell.sweepCursor(tag, frameItem, fades, rowAt, count, function (i) { menu.cursor = i })
+        else
+            shell.sweepCursor(tag, frameItem, fades, rowAt, count, function (i) { menu.submenuCursor = i })
+    }
+
+    // A row's top and bottom in the frame's own coordinates, where the fades live.
+    function bandIn(frameItem, row) {
+        var top = row.mapToItem(frameItem, 0, 0).y
+        return { top: top, bottom: top + row.height }
+    }
+    // Which edge a drawn fade covers the row at: its whole height is the row's ink band, so any overlap washes it.
+    function washedBy(frameItem, fades, row) {
+        var band = shell.bandIn(frameItem, row), out = []
+        if (fades.top.visible && band.top < fades.top.y + fades.top.height) out.push("top")
+        if (fades.bottom.visible && band.bottom > fades.bottom.y) out.push("bottom")
+        return out
+    }
+    // The cursor lands on every row going down and then up, so each reveal runs from both directions, and no revealed row sits under a drawn fade.
+    function sweepCursor(tag, frameItem, fades, rowAt, count, setCursor) {
+        var washed = []
+        var order = []
+        for (var i = 0; i < count; i++) order.push(i)
+        for (var j = count - 2; j >= 0; j--) order.push(j)
+        for (var n = 0; n < order.length; n++) {
+            var row = rowAt(order[n])
+            if (!row || row.isSeparator) continue
+            setCursor(order[n])
+            var by = shell.washedBy(frameItem, fades, row)
+            if (by.length > 0) washed.push(order[n] + ":" + by.join("+"))
+        }
+        shell.check(tag + ": a revealed cursor row clears both fades", washed, [])
+    }
+    // The frame's hairline stays whole: each fade lies inside the border, and its outer corners follow the border's inner curve.
+    function checkBorderWhole(tag, frameItem, fades) {
+        var edge = frameItem.border.width
+        var bad = []
+        var all = [{ name: "top", fade: fades.top }, { name: "bottom", fade: fades.bottom }]
+        for (var i = 0; i < all.length; i++) {
+            var f = all[i].fade
+            if (f.x < edge || f.x + f.width > frameItem.width - edge) bad.push(all[i].name + " crosses a side border")
+            if (all[i].name === "top" && f.y < edge) bad.push("top crosses the top border")
+            if (all[i].name === "bottom" && f.y + f.height > frameItem.height - edge) bad.push("bottom crosses the bottom border")
+            if (f.radius !== Math.max(0, frameItem.radius - edge)) bad.push(all[i].name + " corner is not concentric")
+        }
+        shell.check(tag + ": the edge fades leave the frame's hairline whole", bad, [])
+    }
+
+    function runHang(s) {
+        var tag = s.tag, frameItem = menu.frameItem
+        var card = shell.cardUnder(frameItem), fades = shell.fadesOf(frameItem)
+        shell.check(tag + ": the card scrolls", card.contentHeight > card.height, true)
+        var actions = ["copyAs", "pasteAs", "copyAs"], washed = []
+        for (var i = 0; i < actions.length; i++) {
+            menu.cursor = 0
+            shell.check(tag + ": " + actions[i] + " opens by its key", menu.openSubmenuFor(actions[i]), true)
+            var by = shell.washedBy(frameItem, fades, menu.itemFor(menu.cursor))
+            if (by.length > 0) washed.push(actions[i] + ":" + by.join("+"))
+        }
+        shell.check(tag + ": the row a flyout hangs from clears both fades", washed, [])
     }
 
     function run(s) {
+        if (s.edges === "hang") { shell.runHang(s); return }
         if (s.edges) { shell.runEdges(s); return }
         var tag = s.tag
         var main = shell.readCard(menu.frameItem, menu.entries.length, menu.itemFor)

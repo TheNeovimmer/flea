@@ -530,8 +530,8 @@ Item {
             // A menu steps the highlight, never pixel scrolls: one row a notch, one row per
             // row height of gained touchpad travel, and reveal() follows. No bar, no lane.
             highlightSteps: true
-            stepRowHeight: Theme.rowHeight
             stepBy: function (delta) { root.stepMain(delta) }
+            revealClearY: root.fadeReach
             anchors.fill: parent
             anchors.topMargin: Theme.spacing.rowPaddingY
             anchors.bottomMargin: Theme.spacing.rowPaddingY
@@ -607,8 +607,8 @@ Item {
             id: subScroll
             // The flyout steps like the main frame, through its own cursor and reveal.
             highlightSteps: true
-            stepRowHeight: Theme.rowHeight
             stepBy: function (delta) { root.submenuCursor = root.stepSubmenu(root.submenuCursor, delta) }
+            revealClearY: root.fadeReach
             anchors.fill: parent
             anchors.topMargin: Theme.spacing.rowPaddingY
             anchors.bottomMargin: Theme.spacing.rowPaddingY

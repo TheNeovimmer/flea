@@ -26,6 +26,8 @@ ShellRoot {
     property int heightIndex: -1
     // The pane's own tolerance: a fade shows only more than one hairline of content below.
     readonly property real endTolerance: 0.5
+    // The fade is a cut, so the row after the cursor must have ink under it: at least this share of the fade's height of that ink is drawn above the pane's edge.
+    readonly property real minCutShare: 0.5
 
     function log(line) { console.log("SETTAIL " + line) }
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
@@ -92,6 +94,14 @@ ShellRoot {
         return !fade.visible || (!!item && item.y + item.height - pane.contentY <= fade.y + shell.endTolerance)
     }
 
+    // The row after the cursor row, when a fade is drawn: its first ink starts inside the pane, under the fade, and at least a cut's depth above the pane's edge.
+    function cutShows(pane, fade) {
+        var next = pane.rowItem(panel.cursor + 1)
+        if (!fade.visible || !next) return true
+        var depth = pane.height - (next.y + pane.inkTop(next) - pane.contentY)
+        return depth >= Math.round(fade.height * shell.minCutShare)
+    }
+
     function checkTail(pane, fade, tag) {
         var below = pane.contentHeight - pane.contentY - pane.height
         shell.check(tag + ": the pane is revealed to its end, not past it", Math.abs(below) <= shell.endTolerance, true)
@@ -116,6 +126,7 @@ ShellRoot {
         if (shell.step === 0) shell.check("the pane scrolls at this window height", pane.contentHeight > pane.height, true)
         shell.check("step " + shell.step + ": the cursor row is inside the pane", shell.cursorInside(pane), true)
         shell.check("step " + shell.step + ": no fade lies over the cursor row", shell.fadeClear(pane, fade), true)
+        shell.check("step " + shell.step + ": what follows the cursor row shows under the fade", shell.cutShows(pane, fade), true)
         var before = panel.cursor
         panel.moveCursor(1)
         if (panel.cursor === before) {
