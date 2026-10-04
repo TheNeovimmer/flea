@@ -288,11 +288,17 @@ const MERMAID_PADDING = 1;
 const CANVAS_MARGIN = 1;
 // The drawing starts on the canvas's left edge, the content column's, like an image; the library's own 30 unit left margin goes.
 const LEFT_MARGIN = 0;
-// A label's glyph advance in em: the monospace cell's, which most glyphs stay inside.
-const TEXT_ADVANCE_EM = 0.6;
-// A full-width glyph, or a W or M in a proportional face, advances up to one em, so the left reach never under-reads them.
-const WIDE_ADVANCE_EM = 1;
-const WIDE_ASCII = "WMwm@%";
+// The wide class: "@" 1.015, W 0.989, m 0.974, % 0.95, M 0.907 (DejaVu, Liberation, Noto Sans maxima, PIL at 1000 px), and any non-ASCII glyph at one em.
+const WIDE_ADVANCE_EM = 1.02;
+const WIDE_GLYPHS = "@Wm%M";
+// The symbol class: "#+<=>^~" 0.838 and w 0.818.
+const SYMBOL_ADVANCE_EM = 0.84;
+const SYMBOL_GLYPHS = "#+<=>^~w";
+// The capital class: O and Q 0.787, & 0.78, G 0.778, D 0.77, N 0.76, H 0.752, down to E K P S Y 0.667; the other capitals sit below it.
+const CAPITAL_ADVANCE_EM = 0.79;
+const CAPITAL_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ&";
+// The rest: digits, "$", "{" and "}" 0.636, lowercase at most 0.635, punctuation below.
+const TEXT_ADVANCE_EM = 0.64;
 const ASCII_LIMIT = 0x7f;
 // A centred label reaches half its width left of its x.
 const MIDDLE_SHARE = 0.5;
@@ -329,11 +335,13 @@ function shift(tag, font) {
     return dy ? Number(dy[1]) * (dy[2] === "em" ? font : dy[2] === "%" ? font / PERCENT_SCALE : 1) : 0;
 }
 
-// Sample input: "WMi" advances 2.6 em, the two wide glyphs at one em and the narrow one at a monospace cell.
+// Sample input: "WOi" advances 2.45 em, the wide glyph at 1.02, the capital at 0.79 and the narrow one at 0.64.
 function advance(words) {
     var em = 0;
     Array.from(words).forEach(function (glyph) {
-        em += glyph.codePointAt(0) > ASCII_LIMIT || WIDE_ASCII.indexOf(glyph) >= 0 ? WIDE_ADVANCE_EM : TEXT_ADVANCE_EM;
+        em += glyph.codePointAt(0) > ASCII_LIMIT || WIDE_GLYPHS.indexOf(glyph) >= 0 ? WIDE_ADVANCE_EM
+            : SYMBOL_GLYPHS.indexOf(glyph) >= 0 ? SYMBOL_ADVANCE_EM
+            : CAPITAL_GLYPHS.indexOf(glyph) >= 0 ? CAPITAL_ADVANCE_EM : TEXT_ADVANCE_EM;
     });
     return em;
 }

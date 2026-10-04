@@ -110,12 +110,14 @@ function run(check) {
     check("a newline alone is one empty line", Markdown.lineCount("\n"), 1)
     check("CRLF ends each line once", Markdown.lineCount("a\r\nb\r\n"), 2)
     var capture = Source.source("tests/ui-captures-markdown.sh")
-    var fixture = capture.match(/cat > "\$dir\/listing\/notes\.md" <<'EOF'\n([\s\S]*?)\nEOF/)
-    check("the native capture fixture exists", fixture !== null, true)
-    var fixtureText = fixture ? fixture[1] + "\n" : ""
+    // The fixture is a head heredoc, one blank line and one text line per note, then a tail heredoc.
+    var fixture = capture.match(/cat > "\$dir\/listing\/notes\.md" <<'EOF'\n([\s\S]*?)\nEOF\n[\s\S]*?cat >> "\$dir\/listing\/notes\.md" <<'EOF'\n([\s\S]*?)\nEOF/)
+    var notes = capture.match(/^capmarkdown_notes=(\d+)/m)
+    check("the native capture fixture exists", fixture !== null && notes !== null, true)
+    var fixtureText = fixture && notes ? fixture[1] + "\n" + "\nNote\n".repeat(Number(notes[1])) + fixture[2] + "\n" : ""
     // src/backend/linecount.rs: LF bytes plus an unterminated final line, with zero for an empty file.
     var backendCount = (fixtureText.match(/\n/g) || []).length + (fixtureText.length > 0 && !fixtureText.endsWith("\n") ? 1 : 0)
-    check("the native capture backend count is 48", backendCount, 48)
+    check("the native capture backend count is 170", backendCount, 170)
     check("the capture header agrees with the backend", Markdown.countLine(Markdown.lineCount(fixtureText)), Markdown.countLine(backendCount))
     check("lines count the breaks plus one", Markdown.lineCount("a\nb\nc"), 3)
     check("one line reads singular", Markdown.countLine(1), "1 line")

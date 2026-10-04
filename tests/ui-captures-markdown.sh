@@ -49,9 +49,11 @@ capmarkdown_scroll() {
 }
 # 14 px of rowPaddingX plus half of the 24 px hit box.
 capmarkdown_close_inset=26
-# A notch is 288 px; three reach the table and quote region of the fixture, then the tail with the picture and the placeholder.
+# A notch is 288 px: three reach the figures region below the quote and tables, twelve more clamp at the tail with the picture and the placeholder.
 capmarkdown_notches_mid=3
 capmarkdown_notches_end=12
+# Paragraphs of about 40 px rendered and two source lines each, so both views overflow a 2560 x 1440 card by more than the mid notches.
+capmarkdown_notes=60
 case_cap_markdown() {
     local dir="$fixture_root/capmarkdown" figs=""
     sandbox_scratch "$dir"
@@ -99,6 +101,13 @@ $$x^2$$
 ```mermaid
 not a diagram {{{
 ```
+
+## Notes
+EOF
+    for _note in $(seq 1 "$capmarkdown_notes"); do
+        printf '\nNote %s of the fixture, plain text that only gives the document and its source some height.\n' "$_note" >> "$dir/listing/notes.md"
+    done
+    cat >> "$dir/listing/notes.md" <<'EOF'
 
 A paragraph with $x^2$ inline maths and $5 and $10 prices.
 
