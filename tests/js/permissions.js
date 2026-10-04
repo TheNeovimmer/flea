@@ -269,5 +269,9 @@ function run(check) {
     check("a grouped centerIn is the card's own", cardOwnBindings(grouped, "card").indexOf("centerIn") >= 0, true)
     check("a centerIn after a child is the card's own", cardOwnBindings(afterChild, "card").indexOf("centerIn") >= 0, true)
     check("a centerIn inside a child is not the card's", cardOwnBindings(inChild, "card").indexOf("centerIn"), -1)
-    check("a brace in a comment or a string moves nothing", cardOwnBindings(inChild, "card").indexOf("x: 1") >= 0, true)
+    // Unstripped, the comment's brace would end the card before y and the string's brace before width.
+    var braces = "Rectangle {\n id: card\n x: 1 // }\n y: 2\n property string s: \"}\"\n width: 3\n}"
+    var braceOwn = cardOwnBindings(braces, "card")
+    check("a brace in a comment moves nothing", braceOwn.indexOf("y: 2") >= 0, true)
+    check("a brace in a string moves nothing", braceOwn.indexOf("width: 3") >= 0, true)
 }
