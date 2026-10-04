@@ -119,7 +119,7 @@ ShellRoot {
         else shell.advance()
     }
 
-    readonly property int watchdogMs: 100000
+    readonly property int watchdogMs: 50000
     Timer {
         interval: shell.watchdogMs
         repeat: false

@@ -1,72 +1,85 @@
 #!/usr/bin/env bash
-# Gate that a Markdown block builds only its own kind: a text block holds no table, list, quote, fence, figure or image parts, and every kind stays under its object count.
+# Gate that a Markdown block builds only its own kind: no block holds another kind's parts, and every kind stays under its object count.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
 
-# Object counts of one block, measured on the shipped delegate: a bare text block, and a two by two table with its measurers.
-run_object_limit=12
-heading_object_limit=12
-table_object_limit=38
-# Parts a table never draws.
-table_foreign='Image|MarkdownFigure|TextMetrics|Glyph'
+kinds="run heading table list quote fence remote image"
+# Object counts of one block, measured on the shipped delegate in this fixture: the remote box's dashes follow the pane width.
+limit_for() {
+    case $1 in
+        run|heading|fence) echo 12 ;;
+        table) echo 38 ;;
+        list) echo 23 ;;
+        quote) echo 14 ;;
+        remote) echo 322 ;;
+        image) echo 11 ;;
+    esac
+}
+# Parts each kind never draws, as an extended regex over the report's foreign list.
+forbidden_for() {
+    case $1 in
+        run|heading) echo 'Repeater|Column|Row|Rectangle|Image|MarkdownFigure|TextMetrics|Glyph' ;;
+        table) echo 'Image|MarkdownFigure|TextMetrics|Glyph' ;;
+        list) echo 'Rectangle|Image|MarkdownFigure|Glyph' ;;
+        quote) echo 'Repeater|Column|Image|MarkdownFigure|TextMetrics|Glyph' ;;
+        fence) echo 'Repeater|Column|Row|Image|MarkdownFigure|TextMetrics|Glyph' ;;
+        remote) echo 'Image|MarkdownFigure|TextMetrics' ;;
+        image) echo 'Repeater|Column|Row|Rectangle|MarkdownFigure|TextMetrics|Glyph' ;;
+    esac
+}
 
 check_report() {
     local output=$1 kind line objects foreign limit
-    for kind in run heading table list quote fence remote image; do
+    for kind in $kinds; do
         # Sample input: MARKDOWN_BLOCKCOST kind=run objects=9 foreign=none parts={"MarkdownText":1}.
         line=$(printf '%s\n' "$output" | grep -aE "MARKDOWN_BLOCKCOST kind=$kind objects=" | head -1)
         if [ -z "$line" ]; then
             printf 'FAIL the harness never reported a %s block\n' "$kind"
             return 1
         fi
-        objects=$(printf '%s\n' "$line" | grep -aoE 'objects=[0-9]+' | grep -aoE '[0-9]+')
+        objects=$(printf '%s\n' "$line" | grep -aoE 'objects=[0-9]*' | cut -d= -f2)
         foreign=$(printf '%s\n' "$line" | grep -aoE 'foreign=[A-Za-z+]+' | cut -d= -f2)
-        limit=""
-        case $kind in
-            run) limit=$run_object_limit ;;
-            heading) limit=$heading_object_limit ;;
-            table) limit=$table_object_limit ;;
+        case $objects in
+            ''|*[!0-9]*) printf 'FAIL a %s block reported no object count: %s\n' "$kind" "$line"; return 1 ;;
         esac
-        if [ -n "$limit" ] && [ "$objects" -gt "$limit" ]; then
+        limit=$(limit_for "$kind")
+        if [ "$objects" -gt "$limit" ]; then
             printf 'FAIL a %s block builds %s objects, the limit is %s\n' "$kind" "$objects" "$limit"
             return 1
         fi
-        case $kind in
-            run|heading)
-                if [ "$foreign" != none ]; then
-                    printf 'FAIL a %s block builds the parts of other kinds: %s\n' "$kind" "$foreign"
-                    return 1
-                fi ;;
-            table)
-                if printf '%s\n' "$foreign" | grep -qE "$table_foreign"; then
-                    printf 'FAIL a table block builds the parts of other kinds: %s\n' "$foreign"
-                    return 1
-                fi ;;
-        esac
+        if [ -z "$foreign" ]; then
+            printf 'FAIL a %s block reported no part list: %s\n' "$kind" "$line"
+            return 1
+        fi
+        if printf '%s\n' "$foreign" | tr '+' '\n' | grep -qxE "$(forbidden_for "$kind")"; then
+            printf 'FAIL a %s block builds the parts of other kinds: %s\n' "$kind" "$foreign"
+            return 1
+        fi
     done
     printf 'PASS each block kind builds only its own parts within its object count\n'
 }
 
-# Controls: a report inside every limit passes, and a text block with table parts or a table over its count is refused.
-control_limit=10
-control_all=$(for kind in run heading table list quote fence remote image; do
-    printf 'MARKDOWN_BLOCKCOST kind=%s objects=%s foreign=none parts={}\n' "$kind" "$control_limit"
-done)
-control_check() {
-    ( run_object_limit=$control_limit heading_object_limit=$control_limit table_object_limit=$control_limit
-      check_report "$1" ) >/dev/null
+# Controls: a report at every limit passes, and each kind is refused over its count, with a forbidden part, or with no count.
+control_report() {
+    local kind
+    for kind in $kinds; do
+        printf 'MARKDOWN_BLOCKCOST kind=%s objects=%s foreign=none parts={}\n' "$kind" "$(limit_for "$kind")"
+    done
 }
-control_check "$control_all" || { echo "FAIL the gate refused a block inside its limits"; exit 1; }
-if control_check "$(printf '%s\n' "$control_all" | sed 's/kind=run objects=10 foreign=none/kind=run objects=10 foreign=Column+Row/')"; then
-    echo "FAIL the gate accepted a text block holding table parts"
-    exit 1
-fi
-if control_check "$(printf '%s\n' "$control_all" | sed 's/kind=table objects=10/kind=table objects=11/')"; then
-    echo "FAIL the gate accepted a table over its object count"
-    exit 1
-fi
-printf 'ok the gate rejects foreign parts and a count over the limit\n'
+control_all=$(control_report)
+check_report "$control_all" >/dev/null || { echo "FAIL the gate refused blocks at their limits"; exit 1; }
+for kind in $kinds; do
+    limit=$(limit_for "$kind")
+    part=$(forbidden_for "$kind" | cut -d'|' -f1)
+    over=$(printf '%s\n' "$control_all" | sed "s/kind=$kind objects=$limit /kind=$kind objects=$((limit + 1)) /")
+    mixed=$(printf '%s\n' "$control_all" | sed "s/kind=$kind objects=$limit foreign=none/kind=$kind objects=$limit foreign=Text+$part/")
+    blank=$(printf '%s\n' "$control_all" | sed "s/kind=$kind objects=$limit /kind=$kind objects= /")
+    if check_report "$over" >/dev/null; then echo "FAIL the gate accepted a $kind block over its count"; exit 1; fi
+    if check_report "$mixed" >/dev/null; then echo "FAIL the gate accepted a $kind block holding $part"; exit 1; fi
+    if check_report "$blank" >/dev/null; then echo "FAIL the gate accepted a $kind block with no count"; exit 1; fi
+done
+printf 'ok the gate refuses every kind over its count, with a foreign part, or with no count\n'
 
 if ! command -v qs >/dev/null; then
     echo "markdown-blockcost.sh: qs is not installed, cannot build the blocks"
@@ -118,11 +131,16 @@ var fenced = true;
 ![local](kinds.png)
 MD
 
+# Sample input: '    readonly property int watchdogMs: 50000'; qs gets a margin past it so a stuck load names itself.
+watchdog_ms=$(sed -n 's/.*readonly property int watchdogMs: *\([0-9][0-9]*\).*/\1/p' tests/markdown-blockcost.qml)
+[ -n "$watchdog_ms" ] || { echo "markdown-blockcost.sh: watchdogMs not found in tests/markdown-blockcost.qml"; exit 1; }
+probe_timeout_margin=10
+probe_timeout=$((watchdog_ms / 1000 + probe_timeout_margin))
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BLOCKCOST_LIST="$test_root/docs/kinds.md" \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
-    timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+    timeout "$probe_timeout" qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
 printf '%s\n' "$output" | grep -aE 'MARKDOWN_BLOCKCOST (doc|kind)=' | sed 's/ parts=.*//'
 if printf '%s\n' "$output" | grep -q 'MARKDOWN_BLOCKCOST FAIL'; then
