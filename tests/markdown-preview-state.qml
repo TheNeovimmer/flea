@@ -355,10 +355,11 @@ QtObject {
     }
 
     function geometryChecks(source) {
-        var marker = "                    Column {\n                        id: listGrid"
+        var marker = "                Column {\n                    id: listGrid"
         var column = "Column {" + body(source, marker) + "}"
         // The pane's Markdown module is not imported by the probe, so its link gate reads as a closed one.
         column = column.replace(/Theme\./g, "theme.").replace(/Markdown\.isExternalLink/g, "(function () { return false })")
+            .replace(/blockDelegate\.width/g, "parent.width")
         // The runner supplies the shipped text component beside a local Theme for pure qml6.
         var textModule = Qt.resolvedUrl(Qt.application.arguments[Qt.application.arguments.length - 1])
         var probe = Qt.createQmlObject('import QtQuick\nimport "' + textModule + '" as Flea\nItem {\nwidth: ' + geometryWidth + '\n'

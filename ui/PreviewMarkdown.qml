@@ -1,7 +1,6 @@
 import QtQuick
 import Quickshell.Io
 import "." as Flea
-import "js/Icons.js" as Icons
 import "js/Markdown.js" as Markdown
 
 // Rendered and Source previews share document insets, and only images beside the document can load.
@@ -59,9 +58,6 @@ Item {
     readonly property int bodyPx: root.compact ? Theme.font.bodySmall : Theme.font.body
     // The faint rule wash the Quick Look bar's bottom hairline draws, shared by the table's header and row rules.
     readonly property real ruleOpacity: 0.12
-    // RenderedPreviews' remote box is a 1 px CSS dashed border: 3 px dashes with 3 px gaps.
-    readonly property int dashPx: 3
-    readonly property int dashPitch: 2 * root.dashPx
     function headingPx(level) {
         return level >= 1 && level <= root.boardHeadings.length ? root.boardPx(root.boardHeadings[level - 1]) : root.bodyPx
     }
@@ -478,358 +474,296 @@ Item {
                     return true
                 return (y + height >= v.contentY) && (y <= v.contentY + v.height)
             }
-            // Only the drawn child lends its height; the rest hold no geometry that matters.
-            height: block.type === "run" || block.type === "heading" ? runText.height
-                : block.type === "fence" ? fenceBox.height
-                : block.type === "figure" ? figureBox.height
-                : block.type === "quote" ? quoteRow.height
-                : block.type === "remote" ? remoteBox.height
-                : block.type === "list" ? listGrid.height + listGrid.y
-                : block.type === "table" ? tableGrid.height + tableGrid.y : localImage.height
+            // Only the drawn block lends its height, and a list or table chunk lies flush by its own negative y.
+            height: kind.item ? kind.item.height + kind.item.y : 0
 
-                    // Headings use the prescribed bold text size and line box.
-                    Flea.MarkdownText {
-                        id: runText
-                        linkGate: Markdown.isExternalLink
-                        visible: block.type === "run" || block.type === "heading"
-                        width: parent.width
-                        text: block.type === "run" || block.type === "heading" ? block.text : ""
-                        font.pixelSize: block.type === "heading" ? root.headingPx(block.level) : root.bodyPx
-                        font.bold: block.type === "heading"
-                        // h1 and h2 take the bright foreground; deeper levels and body stay the foreground.
-                        color: block.type === "heading" && block.level <= root.boardHeadings.length ? Theme.color.foregroundBright : Theme.color.foreground
-                    }
+            // A block builds only the parts its own kind draws, and they sit on the delegate so a reader of the block finds them there.
+            Loader {
+                id: kind
+                sourceComponent: block.type === "run" || block.type === "heading" ? textBlock
+                    : block.type === "fence" ? fenceBlock
+                    : block.type === "figure" ? figureBlock
+                    : block.type === "quote" ? quoteBlock
+                    : block.type === "remote" ? remoteBlock
+                    : block.type === "list" ? listBlock
+                    : block.type === "table" ? tableBlock : imageBlock
+                onLoaded: kind.item.parent = blockDelegate
+            }
 
-                    // Tables hug their cells with Grid, Column and Row, never QtQuick.Layouts, so the preview never loads it.
-                    Column {
-                        id: tableGrid
-                        visible: block.type === "table"
-                        // A chunk after the first sits flush under its predecessor, across the gap the list puts between blocks.
-                        y: block.joined === true ? -root.blockGap : 0
-                        width: tableGrid.tableWidth()
+            // Headings use the prescribed bold text size and line box.
+            Component {
+                id: textBlock
+                Flea.MarkdownText {
+                    linkGate: Markdown.isExternalLink
+                    width: blockDelegate.width
+                    text: block.text
+                    font.pixelSize: block.type === "heading" ? root.headingPx(block.level) : root.bodyPx
+                    font.bold: block.type === "heading"
+                    // h1 and h2 take the bright foreground; deeper levels and body stay the foreground.
+                    color: block.type === "heading" && block.level <= root.boardHeadings.length ? Theme.color.foregroundBright : Theme.color.foreground
+                }
+            }
+
+            // Tables hug their cells with Grid, Column and Row, never QtQuick.Layouts, so the preview never loads it.
+            Component {
+                id: tableBlock
+                Column {
+                    id: tableGrid
+                    // A chunk after the first sits flush under its predecessor, across the gap the list puts between blocks.
+                    y: block.joined === true ? -root.blockGap : 0
+                    width: tableGrid.tableWidth()
+                    spacing: 0
+
+                    Row {
+                        id: headerRow
                         spacing: 0
 
-                        Row {
-                            id: headerRow
+                        Repeater {
+                            model: block.head.length
+                            delegate: Flea.MarkdownText {
+                                linkGate: Markdown.isExternalLink
+                                width: tableGrid.colWidth(index)
+                                bodyPx: root.bodyPx
+                                cellPad: 2
+                                text: block.head[index]
+                                horizontalAlignment: tableGrid.alignAt(index)
+                                font.bold: true
+                                color: Theme.color.foregroundBright
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        visible: block.head.length > 0
+                        width: tableGrid.tableWidth()
+                        height: Theme.spacing.hairline
+                        color: Theme.color.foreground
+                        opacity: root.ruleOpacity
+                    }
+
+                    Repeater {
+                        model: block.rows.length
+                        delegate: Column {
+                            readonly property int row: index
+                            width: tableGrid.tableWidth()
                             spacing: 0
 
-                            Repeater {
-                                model: block.type === "table" ? block.head.length : 0
-                                delegate: Flea.MarkdownText {
-                                    linkGate: Markdown.isExternalLink
-                                    width: tableGrid.colWidth(index)
-                                    bodyPx: root.bodyPx
-                                    cellPad: 2
-                                    text: block.head[index]
-                                    horizontalAlignment: tableGrid.alignAt(index)
-                                    font.bold: true
-                                    color: Theme.color.foregroundBright
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            visible: block.type === "table" && block.head.length > 0
-                            width: tableGrid.tableWidth()
-                            height: Theme.spacing.hairline
-                            color: Theme.color.foreground
-                            opacity: root.ruleOpacity
-                        }
-
-                        Repeater {
-                            model: block.type === "table" ? block.rows.length : 0
-                            delegate: Column {
-                                readonly property int row: index
-                                width: tableGrid.tableWidth()
+                            Row {
                                 spacing: 0
 
-                                Row {
-                                    spacing: 0
-
-                                    Repeater {
-                                        model: tableGrid.columns
-                                        delegate: Flea.MarkdownText {
-                                            linkGate: Markdown.isExternalLink
-                                            width: tableGrid.colWidth(index)
-                                            bodyPx: root.bodyPx
-                                            cellPad: 2
-                                            text: tableGrid.cellAt(row, index)
-                                            horizontalAlignment: tableGrid.alignAt(index)
-                                        }
+                                Repeater {
+                                    model: tableGrid.columns
+                                    delegate: Flea.MarkdownText {
+                                        linkGate: Markdown.isExternalLink
+                                        width: tableGrid.colWidth(index)
+                                        bodyPx: root.bodyPx
+                                        cellPad: 2
+                                        text: tableGrid.cellAt(row, index)
+                                        horizontalAlignment: tableGrid.alignAt(index)
                                     }
                                 }
-
-                                Rectangle {
-                                    width: tableGrid.tableWidth()
-                                    height: Theme.spacing.hairline
-                                    color: Theme.color.foreground
-                                    opacity: root.ruleOpacity
-                                }
                             }
-                        }
 
-                        // Helpers over the block, so delegates read cells and alignment by place.
-                        readonly property int columns: block.type === "table" ? Math.max(1, block.cols) : 1
-                        function alignName(i) {
-                            var names = block.type === "table" ? block.aligns : []
-                            return i < names.length ? names[i] : "left"
-                        }
-                        function alignAt(i) {
-                            var name = alignName(i)
-                            return name === "center" ? Text.AlignHCenter : name === "right" ? Text.AlignRight : Text.AlignLeft
-                        }
-                        readonly property int cellCount: block.type === "table" ? block.rows.length * tableGrid.columns : 0
-                        function cellAt(r, c) {
-                            var rows = block.type === "table" ? block.rows : []
-                            return r < rows.length && c < rows[r].length ? rows[r][c] : ""
-                        }
-                        function colWidth(col) {
-                            if (block.type !== "table")
-                                return 0
-                            // Count and implicitWidth notify when a measurer arrives and lays out; itemAt alone notifies nothing.
-                            if (measurers.count <= col)
-                                return 0
-                            var measured = measurers.itemAt(col)
-                            return (measured ? measured.implicitWidth : 0) + 14
-                        }
-                        function tableWidth() {
-                            if (block.type !== "table")
-                                return 0
-                            var total = 0
-                            for (var c = 0; c < tableGrid.columns; c++)
-                                total += tableGrid.colWidth(c)
-                            return total
+                            Rectangle {
+                                width: tableGrid.tableWidth()
+                                height: Theme.spacing.hairline
+                                color: Theme.color.foreground
+                                opacity: root.ruleOpacity
+                            }
                         }
                     }
 
                     // Invisible measurers carry each column's longest cell, measured by the parser over the whole table, so chunks of one table share widths.
                     Repeater {
                         id: measurers
-                        model: block.type === "table" ? tableGrid.columns : 0
+                        model: tableGrid.columns
                         delegate: Text {
                             visible: false
-                            text: block.type === "table" && index < block.measure.length ? block.measure[index] : ""
+                            text: index < block.measure.length ? block.measure[index] : ""
                             textFormat: Text.MarkdownText
                             font.family: Theme.font.family
                             font.pixelSize: root.bodyPx
                         }
                     }
 
-                    // A fenced block is a filled block on the code surface with no border.
-                    Rectangle {
-                        id: fenceBox
-                        objectName: "fenceBox"
-                        visible: block.type === "fence"
-                        width: parent.width
-                        height: fenceText.implicitHeight + 2 * root.fencePadY
-                        color: root.codeSurface
-
-                        Text {
-                            id: fenceText
-                            anchors.fill: parent
-                            anchors.leftMargin: root.fencePadX
-                            anchors.rightMargin: root.fencePadX
-                            anchors.topMargin: root.fencePadY
-                            anchors.bottomMargin: root.fencePadY
-                            text: block.type === "fence" ? block.text : ""
-                            textFormat: Text.PlainText
-                            wrapMode: Text.Wrap
-                            color: Theme.color.foreground
-                            font.family: Theme.font.family
-                            font.pixelSize: root.bodyPx
-                        }
+                    // Helpers over the block, so delegates read cells and alignment by place.
+                    readonly property int columns: Math.max(1, block.cols)
+                    function alignName(i) {
+                        return i < block.aligns.length ? block.aligns[i] : "left"
                     }
-
-                    // Display maths use the figure fallback's vertical inset; the list owns the block gap.
-                    Item {
-                        id: figureBox
-                        objectName: "figureBox"
-                        visible: block.type === "figure"
-                        width: parent.width
-                        readonly property int figureInset: figureItem.ready && figureItem.kind === "math" && figureItem.fitHeight > 0 ? Theme.spacing.gap : 0
-                        height: figureItem.implicitHeight + 2 * figureInset
-
-                        Flea.MarkdownFigure {
-                            id: figureItem
-                            objectName: "figureItem"
-                            y: parent.figureInset
-                            width: parent.width
-                            kind: block.type === "figure" ? block.kind : "math"
-                            source: block.type === "figure" ? block.source : ""
-                            display: true
-                            askArmed: root.figuresArmed
-                            inView: blockDelegate.inView
-                            bgHex: root.hexOf(Theme.color.background)
-                            fgHex: root.inkHex
-                            accentHex: root.accentHex
-                            mutedHex: root.mutedHex
-                            surfaceHex: root.surfaceHex
-                            fallbackColor: root.codeSurface
-                            fontFamily: Theme.font.family
-                            bodyPx: root.bodyPx
-                        }
+                    function alignAt(i) {
+                        var name = alignName(i)
+                        return name === "center" ? Text.AlignHCenter : name === "right" ? Text.AlignRight : Text.AlignLeft
                     }
-
-                    Row {
-                        id: quoteRow
-                        visible: block.type === "quote"
-                        width: parent.width
-                        spacing: Theme.spacing.gap
-
-                        Rectangle {
-                            width: 2
-                            height: quoteText.implicitHeight
-                            color: Theme.color.muted
-                        }
-
-                        Flea.MarkdownText {
-                            id: quoteText
-                            linkGate: Markdown.isExternalLink
-                            width: parent.width - 2 - parent.spacing
-                            bodyPx: root.bodyPx
-                            text: block.type === "quote" ? block.text : ""
-                        }
+                    readonly property int cellCount: block.rows.length * tableGrid.columns
+                    function cellAt(r, c) {
+                        return r < block.rows.length && c < block.rows[r].length ? block.rows[r][c] : ""
                     }
-
-                    // Draw top-level list markers at the text edge with text after each marker using plain Column/Row, keeping QtQuick.Layouts unloaded.
-                    Column {
-                        id: listGrid
-                        visible: block.type === "list"
-                        // A chunk after the first sits flush under its predecessor, across the gap the list puts between blocks.
-                        y: block.joined === true ? -root.blockGap : 0
-                        width: parent.width
-                        spacing: 0
-
-                        TextMetrics {
-                            id: listMarkerMetrics
-                            text: block.type !== "list" ? "" : block.ordered
-                                ? (block.last !== undefined ? block.last : block.start + block.items.length - 1) + "." : "•"
-                            font.family: Theme.font.family
-                            font.pixelSize: root.bodyPx
-                        }
-
-                        Repeater {
-                            model: block.type === "list" ? block.items.length : 0
-                            delegate: Row {
-                                width: listGrid.width
-                                spacing: Theme.spacing.gap
-
-                                Flea.MarkdownText {
-                                    id: marker
-                                    width: listMarkerMetrics.advanceWidth
-                                    bodyPx: root.bodyPx
-                                    text: block.ordered ? (block.start + index) + "." : "•"
-                                    // The marker shares the item's line box and first-line leading.
-                                    textFormat: Text.RichText
-                                    height: marker.box
-                                    wrapMode: Text.NoWrap
-                                }
-
-                                Flea.MarkdownText {
-                                    linkGate: Markdown.isExternalLink
-                                    width: parent.width - marker.width - parent.spacing
-                                    bodyPx: root.bodyPx
-                                    text: block.items[index]
-                                }
-                            }
-                        }
+                    function colWidth(col) {
+                        // Count and implicitWidth notify when a measurer arrives and lays out; itemAt alone notifies nothing.
+                        if (measurers.count <= col)
+                            return 0
+                        var measured = measurers.itemAt(col)
+                        return (measured ? measured.implicitWidth : 0) + 14
                     }
-
-                    // The board's placeholder spans the content with a dashed muted box around a left-aligned muted image glyph and sentence on one line.
-                    Item {
-                        id: remoteBox
-                        visible: block.type === "remote"
-                        width: parent.width
-                        height: remoteRow.implicitHeight + 2 * Theme.spacing.gap
-
-                        Row {
-                            anchors.top: parent.top
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            spacing: root.dashPx
-                            Repeater {
-                                model: Math.max(1, Math.floor((remoteBox.width + root.dashPx) / root.dashPitch))
-                                delegate: Rectangle { width: root.dashPx; height: Theme.spacing.hairline; color: Theme.color.muted }
-                            }
-                        }
-
-                        Row {
-                            anchors.bottom: parent.bottom
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            spacing: root.dashPx
-                            Repeater {
-                                model: Math.max(1, Math.floor((remoteBox.width + root.dashPx) / root.dashPitch))
-                                delegate: Rectangle { width: root.dashPx; height: Theme.spacing.hairline; color: Theme.color.muted }
-                            }
-                        }
-
-                        Column {
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            anchors.left: parent.left
-                            spacing: root.dashPx
-                            Repeater {
-                                model: Math.max(1, Math.floor((remoteBox.height + root.dashPx) / root.dashPitch))
-                                delegate: Rectangle { width: Theme.spacing.hairline; height: root.dashPx; color: Theme.color.muted }
-                            }
-                        }
-
-                        Column {
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            anchors.right: parent.right
-                            spacing: root.dashPx
-                            Repeater {
-                                model: Math.max(1, Math.floor((remoteBox.height + root.dashPx) / root.dashPitch))
-                                delegate: Rectangle { width: Theme.spacing.hairline; height: root.dashPx; color: Theme.color.muted }
-                            }
-                        }
-
-                        Row {
-                            id: remoteRow
-                            anchors.left: parent.left
-                            anchors.leftMargin: Theme.spacing.gap
-                            anchors.right: parent.right
-                            anchors.rightMargin: Theme.spacing.gap
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: Theme.spacing.gap
-
-                            Flea.Glyph {
-                                id: remoteMark
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: Theme.chromeMarkSize
-                                height: Theme.chromeMarkSize
-                                maxSize: Theme.chromeMarkSize
-                                name: Icons.glyphFor("image-x-generic")
-                                color: Theme.color.muted
-                            }
-
-                            Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: parent.width - remoteMark.width - parent.spacing
-                                text: block.type === "remote" ? Markdown.placeholder(block.host) : ""
-                                color: Theme.color.muted
-                                font.family: Theme.font.family
-                                font.pixelSize: Theme.font.caption
-                                textFormat: Text.PlainText
-                                elide: Text.ElideRight
-                            }
-                        }
-                    }
-
-                    Image {
-                        id: localImage
-                        visible: block.type === "image"
-                        width: parent.width
-                        fillMode: Image.PreserveAspectFit
-                        // A picture narrower than the content sits on the text's left edge, as the board's stand-in does.
-                        horizontalAlignment: Image.AlignLeft
-                        asynchronous: true
-                        autoTransform: true
-                        source: block.type === "image" ? block.url : ""
+                    function tableWidth() {
+                        var total = 0
+                        for (var c = 0; c < tableGrid.columns; c++)
+                            total += tableGrid.colWidth(c)
+                        return total
                     }
                 }
+            }
+
+            // A fenced block is a filled block on the code surface with no border.
+            Component {
+                id: fenceBlock
+                Rectangle {
+                    id: fenceBox
+                    objectName: "fenceBox"
+                    width: blockDelegate.width
+                    height: fenceText.implicitHeight + 2 * root.fencePadY
+                    color: root.codeSurface
+
+                    Text {
+                        id: fenceText
+                        anchors.fill: parent
+                        anchors.leftMargin: root.fencePadX
+                        anchors.rightMargin: root.fencePadX
+                        anchors.topMargin: root.fencePadY
+                        anchors.bottomMargin: root.fencePadY
+                        text: block.text
+                        textFormat: Text.PlainText
+                        wrapMode: Text.Wrap
+                        color: Theme.color.foreground
+                        font.family: Theme.font.family
+                        font.pixelSize: root.bodyPx
+                    }
+                }
+            }
+
+            // Display maths use the figure fallback's vertical inset; the list owns the block gap.
+            Component {
+                id: figureBlock
+                Item {
+                    id: figureBox
+                    objectName: "figureBox"
+                    width: blockDelegate.width
+                    readonly property int figureInset: figureItem.ready && figureItem.kind === "math" && figureItem.fitHeight > 0 ? Theme.spacing.gap : 0
+                    height: figureItem.implicitHeight + 2 * figureInset
+
+                    Flea.MarkdownFigure {
+                        id: figureItem
+                        objectName: "figureItem"
+                        y: parent.figureInset
+                        width: parent.width
+                        kind: block.kind
+                        source: block.source
+                        display: true
+                        askArmed: root.figuresArmed
+                        inView: blockDelegate.inView
+                        bgHex: root.hexOf(Theme.color.background)
+                        fgHex: root.inkHex
+                        accentHex: root.accentHex
+                        mutedHex: root.mutedHex
+                        surfaceHex: root.surfaceHex
+                        fallbackColor: root.codeSurface
+                        fontFamily: Theme.font.family
+                        bodyPx: root.bodyPx
+                    }
+                }
+            }
+
+            Component {
+                id: quoteBlock
+                Row {
+                    width: blockDelegate.width
+                    spacing: Theme.spacing.gap
+
+                    Rectangle {
+                        width: 2
+                        height: quoteText.implicitHeight
+                        color: Theme.color.muted
+                    }
+
+                    Flea.MarkdownText {
+                        id: quoteText
+                        linkGate: Markdown.isExternalLink
+                        width: parent.width - 2 - parent.spacing
+                        bodyPx: root.bodyPx
+                        text: block.text
+                    }
+                }
+            }
+
+            // Draw top-level list markers at the text edge with text after each marker using plain Column/Row, keeping QtQuick.Layouts unloaded.
+            Component {
+                id: listBlock
+                Column {
+                    id: listGrid
+                    // A chunk after the first sits flush under its predecessor, across the gap the list puts between blocks.
+                    y: block.joined === true ? -root.blockGap : 0
+                    width: blockDelegate.width
+                    spacing: 0
+
+                    TextMetrics {
+                        id: listMarkerMetrics
+                        text: block.ordered ? (block.last !== undefined ? block.last : block.start + block.items.length - 1) + "." : "•"
+                        font.family: Theme.font.family
+                        font.pixelSize: root.bodyPx
+                    }
+
+                    Repeater {
+                        model: block.items.length
+                        delegate: Row {
+                            width: listGrid.width
+                            spacing: Theme.spacing.gap
+
+                            Flea.MarkdownText {
+                                id: marker
+                                width: listMarkerMetrics.advanceWidth
+                                bodyPx: root.bodyPx
+                                text: block.ordered ? (block.start + index) + "." : "•"
+                                // The marker shares the item's line box and first-line leading.
+                                textFormat: Text.RichText
+                                height: marker.box
+                                wrapMode: Text.NoWrap
+                            }
+
+                            Flea.MarkdownText {
+                                linkGate: Markdown.isExternalLink
+                                width: parent.width - marker.width - parent.spacing
+                                bodyPx: root.bodyPx
+                                text: block.items[index]
+                            }
+                        }
+                    }
+                }
+            }
+
+            Component {
+                id: remoteBlock
+                Flea.MarkdownRemote {
+                    width: blockDelegate.width
+                    host: block.host
+                }
+            }
+
+            Component {
+                id: imageBlock
+                Image {
+                    id: localImage
+                    width: blockDelegate.width
+                    fillMode: Image.PreserveAspectFit
+                    // A picture narrower than the content sits on the text's left edge, as the board's stand-in does.
+                    horizontalAlignment: Image.AlignLeft
+                    visible: block.type === "image"
+                    asynchronous: true
+                    autoTransform: true
+                    source: block.type === "image" ? block.url : ""
+                }
+            }
+        }
     }
 
     Text {
