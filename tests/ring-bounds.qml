@@ -266,7 +266,15 @@ ShellRoot {
         if (want === undefined) return
         root.check(JSON.stringify(got) === JSON.stringify(want), key + " content moved: " + JSON.stringify(got) + " against " + JSON.stringify(want))
     }
+    // A card lands on whole pixels, x, y, width and height, so no hairline of its frame is two half-strength rows.
+    function checkWholeRect(tag, dialog) {
+        if (!dialog || dialog.cardItem === undefined) return
+        var r = dialog.cardItem.mapToItem(null, 0, 0, dialog.cardItem.width, dialog.cardItem.height)
+        var parts = [r.x, r.y, r.width, r.height]
+        root.check(parts.every(function (v) { return v === Math.round(v) }), tag + " card rect " + parts.join(",") + " is not whole pixels")
+    }
     function measureDialog(tag, key, dialog, wantsField) {
+        root.checkWholeRect(tag, dialog)
         var all = root.rings(dialog, [])
         console.log("RINGBOUNDS DIALOG " + tag + " rings=" + all.length)
         for (var r = 0; r < all.length; r++) root.clipChain(tag + " ring " + r, all[r])

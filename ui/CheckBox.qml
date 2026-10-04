@@ -14,6 +14,11 @@ Item {
     property bool focused: false
 
     readonly property bool filled: root.value !== "off"
+    // The board's mixed bar is 8 x 2 in an 18 px box, and the box scales from bodySmall 13 as its check does.
+    readonly property int barBaseWidth: 8
+    readonly property int barBaseHeight: 2
+    readonly property real boxScale: Theme.font.bodySmall / 13
+    readonly property Item barItem: bar
     readonly property int borderWidth: 2 * Theme.spacing.hairline
 
     // A 14px interior inside two 2px borders, so 18px outer at bodySmall 13.
@@ -36,8 +41,19 @@ Item {
             width: Theme.font.bodySmall * 10 / 13
             height: width
             strokeWidth: 3
-            visible: root.filled
-            name: root.value === "some" ? "minus" : "check"
+            visible: root.value === "on"
+            name: "check"
+            color: Theme.color.background
+        }
+
+        // A mixed box cuts the board's bar, a rectangle on whole pixels and not a glyph stroke spread over two rows.
+        Rectangle {
+            id: bar
+            width: Math.round(root.barBaseWidth * root.boxScale)
+            height: Math.max(1, Math.round(root.barBaseHeight * root.boxScale))
+            x: Math.round((parent.width - width) / 2)
+            y: Math.round((parent.height - height) / 2)
+            visible: root.value === "some"
             color: Theme.color.background
         }
     }

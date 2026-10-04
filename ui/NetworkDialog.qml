@@ -304,20 +304,21 @@ Item {
     // The house dialog shape read off ConfirmDialog.qml: BorderSurface, an accent border, cornerRadius.
     BorderSurface {
         id: card
-        width: Math.max(0, Math.min(Theme.space(380) * Theme.dialogWidthRatio, root.width - 2 * root.clampMargin))
+        width: Theme.cardSpan(Theme.space(380) * Theme.dialogWidthRatio, root.width - 2 * root.clampMargin)
         // Clamped to the window; the body scrolls whatever the clamp cut, see ui/CardScroll.qml.
-        height: Math.min(body.wanted + contentTopInset + contentBottomInset, root.height - 2 * root.clampMargin)
-        anchors.centerIn: parent
+        height: Theme.cardSpan(body.wanted + contentTopInset + contentBottomInset, root.height - 2 * root.clampMargin)
+        x: Theme.cardOrigin(root.width, width)
+        y: Theme.cardOrigin(root.height, height) + card.rise
         // Open rises into place; close does not translate (enabled: root.opened only), only fades,
         // faster than the open animation. root.opened itself already flipped above, synchronously.
-        anchors.verticalCenterOffset: root.opened ? 0 : Motion.translateUpPx
+        property real rise: root.opened ? 0 : Motion.translateUpPx
         opacity: root.opened ? 1 : 0
         color: Theme.color.surface
         borderSpec: Border.flat(Theme.color.accent, Style.normalBorderWidth)
         radius: Style.cornerRadius
         padding: Style.space(16)
 
-        Behavior on anchors.verticalCenterOffset {
+        Behavior on rise {
             enabled: root.opened && !Theme.reducedMotion
             NumberAnimation { duration: Motion.durMs.open; easing.type: Easing.OutCubic }
         }

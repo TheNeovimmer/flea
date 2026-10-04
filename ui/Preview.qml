@@ -423,21 +423,22 @@ Item {
 
     Rectangle {
         id: surface
-        anchors.centerIn: parent
+        x: Theme.cardOrigin(parent.width, width)
+        y: Theme.cardOrigin(parent.height, height) + surface.rise
         border.width: Theme.spacing.hairline
         border.color: Theme.color.muted
         // Open rises into place and close only fades, faster, because the translation is enabled: root.active.
-        anchors.verticalCenterOffset: root.active ? 0 : Motion.translateUpPx
+        property real rise: root.active ? 0 : Motion.translateUpPx
         opacity: root.active ? 1 : 0
         // Expand drops the Quick Look inset, which is the whole of the canvas's "expand fills the window".
         readonly property real inset: root.pdfExpanded ? 1 : Theme.preview.fraction
-        width: parent.width * surface.inset
-        height: parent.height * surface.inset
+        width: Theme.cardSpan(parent.width * surface.inset, parent.width)
+        height: Theme.cardSpan(parent.height * surface.inset, parent.height)
         color: Theme.color.surface
         // Mirrors hyprland decoration:rounding; media fills the surface and keeps square corners, a visible corner only shows on text and audio panes.
         radius: Style.cornerRadius
 
-        Behavior on anchors.verticalCenterOffset {
+        Behavior on rise {
             enabled: root.active && !Theme.reducedMotion
             NumberAnimation { duration: Motion.durMs.open; easing.type: Easing.OutCubic }
         }

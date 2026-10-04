@@ -222,6 +222,9 @@ Singleton {
 
     // GM's September 8 sizing override gives dialog cards more room without enlarging context menus.
     readonly property real dialogWidthRatio: 9 / 8
+    // A card's whole size inside its room and a whole centred origin, so no hairline of its frame lands on a half pixel.
+    function cardSpan(want, room) { return Math.max(0, Math.min(Math.ceil(want), Math.floor(room))) }
+    function cardOrigin(room, span) { return Math.round((room - span) / 2) }
 
     // The Settings board's anatomy, resolved at base-size 14: a border-box panel 560 wide whose two
     // outer hairlines leave 558 inside, split into a 150 rail and a 408 pane. 480 and 350 are those

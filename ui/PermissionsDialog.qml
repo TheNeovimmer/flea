@@ -42,12 +42,21 @@ FocusScope {
     readonly property bool applyLocked: applying || applyingMany
     readonly property real labelWidth: Math.round(96 * Theme.font.bodySmall / 13)
     readonly property int controlHeight: Math.max(Theme.rowHeight, Math.ceil(Theme.font.body * Theme.lineBoxRatio) + 2 * Theme.spacing.rowPaddingY)
-    readonly property real bodyInset: 16 * Theme.font.bodySmall / 13 + Theme.spacing.hairline
+    // The board is drawn at base size 14, whose bodySmall is 13; every board pixel below scales from it and lands whole.
+    readonly property real boardScale: Theme.font.bodySmall / 13
+    readonly property int boardCardWidth: 480
+    // lib.py note(): the note's line box is 1.5 x its font size, and its glyphs sit centred in it.
+    readonly property real noteLineRatio: 1.5
+    readonly property int bodyInset: Math.round(16 * root.boardScale) + Theme.spacing.hairline
     readonly property int headingHeight: Math.round(26 * Theme.font.bodySmall / 13)
     // Permissions040, several items: the surface's one 8 px gap, and the 6 px its button row adds above itself.
     readonly property int multiGap: Theme.spacing.rowPaddingY + Theme.spacing.hairline
-    readonly property real buttonLead: Theme.settings.railPaddingY / 2 + Theme.spacing.hairline
+    // A bit column is a whole third of what the label column leaves, so each check box lands on whole pixels.
+    readonly property int bitWidth: Math.floor((body.holderWidth - root.labelWidth) / 3)
+    readonly property int railHalf: Math.round(Theme.settings.railPaddingY / 2)
+    readonly property int buttonLead: root.railHalf + Theme.spacing.hairline
     readonly property var cardItem: card
+    readonly property var noteItem: scopeLabel
     readonly property var bodyItem: body
     readonly property string displayedError: errorLabel.text
     readonly property string displayedSummary: (isMulti ? "" : changeSummary.text + "\n") + scopeLabel.text
@@ -293,6 +302,7 @@ FocusScope {
         items[next].forceActiveFocus()
         body.reveal(items[next])
     }
+    FontMetrics { id: noteFont; font { family: Theme.font.family; pixelSize: Theme.font.caption } }
     Keys.onTabPressed: function(event) { root.stepFocus((event.modifiers & Qt.ShiftModifier) !== 0); event.accepted = true }
     Keys.onBacktabPressed: function(event) { root.stepFocus(true); event.accepted = true }
     Keys.onPressed: function(event) { event.accepted = true }
@@ -311,10 +321,10 @@ FocusScope {
     }
     Rectangle {
         id: card
-        anchors.centerIn: parent
-        // The board's 420 content width shares the Settings board's 560 scale.
-        width: Math.max(0, Math.min(Theme.settings.panelWidth * 3 / 4 + 2 * Theme.spacing.hairline, root.width - 2 * Theme.spacing.gap))
-        height: Math.max(0, Math.min(chrome.height + body.wanted + Theme.spacing.rowPaddingX + root.bodyInset, root.height - 2 * Theme.spacing.gap))
+        x: Theme.cardOrigin(root.width, width)
+        y: Theme.cardOrigin(root.height, height)
+        width: Theme.cardSpan(Math.round(root.boardCardWidth * root.boardScale), root.width - 2 * Theme.spacing.gap)
+        height: Theme.cardSpan(Theme.spacing.hairline + chrome.height + body.wanted + Theme.spacing.rowPaddingX + root.bodyInset, root.height - 2 * Theme.spacing.gap)
         color: Theme.color.surface
         border.color: Theme.color.muted
         border.width: Theme.spacing.hairline
@@ -328,9 +338,11 @@ FocusScope {
         }
         Item {
             id: chrome
+            // The strip sits inside the card's border, as the board's title does, so its rule and marks start a hairline in.
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
+            anchors.margins: Theme.spacing.hairline
             height: Theme.chromeHeight
             Row {
                 anchors.left: parent.left
@@ -398,7 +410,7 @@ FocusScope {
                     Item { width: root.labelWidth; height: parent.height }
                     Repeater {
                         model: ["READ", "WRITE", root.isMulti || !root.facts.directory ? "EXEC" : "ENTER"]
-                        Text { required property string modelData; width: (body.holderWidth - root.labelWidth) / 3; height: parent.height; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; text: modelData; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.caption; letterSpacing: Theme.font.caption / 10 } }
+                        Text { required property string modelData; width: root.bitWidth; height: parent.height; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; text: modelData; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.caption; letterSpacing: Theme.font.caption / 10 } }
                     }
                 }
                 Repeater {
@@ -421,7 +433,7 @@ FocusScope {
                                 readonly property int bit: 1 << (8 - permissionRow.index * 3 - index)
                                 readonly property bool checked: root.isMulti ? root.multiChecked(bit)
                                     : (root.modeValue >= 0 ? root.modeValue : parseInt(root.facts.mode || "0", 8)) & bit
-                                width: (body.holderWidth - root.labelWidth) / 3
+                                width: root.bitWidth
                                 height: permissionRow.height
                                 activeFocusOnTab: true
                                 enabled: root.editable
@@ -440,7 +452,8 @@ FocusScope {
                                 Keys.onTabPressed: function(event) { root.stepFocus((event.modifiers & Qt.ShiftModifier) !== 0) }
                                 Keys.onBacktabPressed: root.stepFocus(true)
                                 Flea.CheckBox {
-                                    anchors.centerIn: parent
+                                    x: Math.round((parent.width - width) / 2)
+                                    y: Math.round((parent.height - height) / 2)
                                     // A bit differing across the files shows a bar until it is clicked.
                                     value: root.isMulti ? root.multiValue(bit) : checkbox.checked ? "on" : "off"
                                     focused: checkbox.activeFocus
@@ -454,9 +467,9 @@ FocusScope {
                 }
                 Item {
                     width: parent.width
-                    height: Theme.spacing.rowPaddingY + Theme.settings.railPaddingY / 2 + Theme.spacing.hairline
+                    height: Theme.spacing.rowPaddingY + root.railHalf + Theme.spacing.hairline
                     visible: !root.isMulti
-                    Rectangle { y: Theme.settings.railPaddingY / 2; width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4 }
+                    Rectangle { y: root.railHalf; width: parent.width; height: Theme.spacing.hairline; color: Theme.color.muted; opacity: 0.4 }
                 }
                 Row {
                     width: parent.width
@@ -550,7 +563,7 @@ FocusScope {
                 Text {
                     text: "WILL CHANGE"
                     visible: !root.isMulti
-                    bottomPadding: Theme.spacing.rowPaddingY / 2
+                    bottomPadding: Math.round(Theme.spacing.rowPaddingY / 2)
                     textFormat: Text.PlainText
                     color: Theme.color.foreground
                     font { family: Theme.font.family; pixelSize: Theme.font.caption; letterSpacing: Theme.font.caption / 10 }
@@ -572,6 +585,12 @@ FocusScope {
                 Text {
                     id: scopeLabel
                     width: parent.width
+                    // Fixed line boxes put the spare height under the glyphs, so the top padding centres them as CSS line-height does.
+                    readonly property int lineBox: Math.round(root.noteLineRatio * Theme.font.caption)
+                    height: lineCount * lineBox
+                    lineHeight: lineBox
+                    lineHeightMode: Text.FixedHeight
+                    topPadding: Math.round((lineBox - noteFont.height) / 2)
                     // A box whose bit differs across the files shows a bar until it is clicked.
                     text: root.isMulti ? Permissions.mixedNote() : root.scopeText
                     textFormat: Text.PlainText

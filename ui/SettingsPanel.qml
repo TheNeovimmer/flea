@@ -281,12 +281,13 @@ Item {
 
     Rectangle {
         id: card
-        anchors.centerIn: parent
-        width: Math.min(root.panelWidth, Math.max(0, root.width - 2 * root.clampMargin))
+        x: Theme.cardOrigin(root.width, width)
+        y: Theme.cardOrigin(root.height, height)
+        width: Theme.cardSpan(root.panelWidth, root.width - 2 * root.clampMargin)
         // Settings.html gives the rail and pane separate vertical insets.
-        height: Math.min(root.chromeAndBorder + Math.max(rail.implicitHeight + 2 * Theme.settings.railPaddingY,
-                                                          pane.compactHeight + root.paneBottomPadding),
-                         Math.max(0, root.height - 2 * root.clampMargin))
+        height: Theme.cardSpan(root.chromeAndBorder + Math.max(rail.implicitHeight + 2 * Theme.settings.railPaddingY,
+                                                                pane.compactHeight + root.paneBottomPadding),
+                               root.height - 2 * root.clampMargin)
         color: Theme.color.surface
         border.width: Theme.spacing.hairline
         border.color: Theme.color.muted

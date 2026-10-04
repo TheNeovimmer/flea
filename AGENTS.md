@@ -1938,6 +1938,19 @@ failure fails the check rather than passing it.
   the save picker). `tests/ring-bounds.sh` pins all of it from the real window at every text stop, with the
   content positions 13506d08 drew in `tests/ring-bounds.js`, and `tests/ui.sh` `case_click` reads the open
   path field's accent frame, its four sides and the rows a ring would reach from the native chrome capture.
+- A dialog card lands on whole device pixels, because a hairline drawn at a half pixel renders at half strength.
+  Every card that centres itself (`ui/MenuActionDialog.qml`, `ConvertDialog`, `NetworkDialog`, `OpenWithDialog`,
+  `TrashConfirm`, `CollideConfirm`, `KeymapSheet`, `SettingsPanel`, `PermissionsDialog` and the `Preview` surface) takes
+  its size from `Theme.cardSpan(want, room)` (the want rounded up, inside the room) and its origin from
+  `Theme.cardOrigin(room, span)`, set as `x` and `y` and never `anchors.centerIn`; NetworkDialog and Preview add their
+  `rise` to `y`. `tests/permissions-adv.sh` reads the helpers in odd and even rooms and the Permissions card's mapped
+  rectangle at every text stop in an odd window, `tests/ring-bounds.sh` reads every opened card's mapped rectangle in
+  its even 1000 x 650 window, and `tests/js/permissions.js` pins that each card uses the helpers.
+  The Permissions card is the board's 480 at base size 14 (`round(480 * bodySmall / 13)`), its strip sits inside the
+  card's border like the board's title, its bit columns are whole thirds, and its note is a 1.5 x caption line box
+  with the glyphs centred in it (`lineHeightMode: Text.FixedHeight` plus a top padding, as CSS line-height centres).
+  The mixed check box draws the board's bar as a rectangle (8 x 2 at an 18 px box, whole pixels, the check's cut-out
+  ink), not the `minus` glyph at stroke 3.
 - `ui/PathJump.qml` is the path bar's folder jump, the Jump board: a name typed into the bar lists
   matching folders from Flea's favourites, zoxide's ranking and `recently-used.xbel` in one ranked
   dropdown under the field, and Enter opens the cursor row. `ui/JumpPath.qml` draws one row's path.

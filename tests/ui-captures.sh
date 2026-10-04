@@ -251,19 +251,65 @@ case_cap_menus() {
     kill_flea
 }
 
-# Permissions040: the Permissions dialog over a three-row selection with mixed modes.
+# Permissions040: Tab or Shift+Tab until the dialog's focused control has this name, within the whole ring of controls.
+cap_permissions_focus() {
+    local want="$1" direction="$2" state tabs
+    local focus_limit=16
+    for ((tabs = 0; tabs <= focus_limit; tabs++)); do
+        state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
+        [[ "$(jq -r --arg want "$want" '[.controls[] | select(.focused and .name == $want)] | length' <<< "$state")" == "1" ]] && return 0
+        if [[ "$direction" == back ]]; then key -M shift -k Tab -m shift >/dev/null; else key -k Tab >/dev/null; fi
+        settle
+    done
+    fail "cap_permissions: Tab never reached $want, last $state"
+}
+
+# Permissions040: a focused check box in the state its bit holds, off, on or mixed ("some" in the control state).
+cap_permissions_box() {
+    local name="$1" value="$2" shot_name="$3"
+    cap_permissions_focus "$name" forward
+    [[ "$(ipc permissionsState | jq -r --arg want "$name" '[.controls[] | select(.name == $want)][0].value')" == "$value" ]] \
+        || fail "cap_permissions: $name does not hold $value in the fixture"
+    shot "$shot_name"
+}
+
+# Permissions040: from the file menu on the cursor row (right click), open the card and wait for it to settle idle.
+cap_permissions_open() {
+    local row="$1" end state
+    local settle_limit_s=15
+    click_row "$row" right
+    settle
+    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_permissions: the menu on row $row never opened"
+    [[ "$(ipc menuState | jq -er '[.entries[] | select(.action == "permissions")][0].disabled')" == "false" ]] \
+        || fail "cap_permissions: Permissions is not live on row $row"
+    menu_seek "Permissions"
+    key -k Return >/dev/null
+    end=$((SECONDS + settle_limit_s))
+    while (( SECONDS < end )); do
+        state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
+        [[ "$(jq -r .opened <<< "$state")" == "true" && "$(jq -r .busy <<< "$state")" == "false" ]] && return 0
+        sleep 0.05
+    done
+    fail "cap_permissions: Permissions never settled open and idle, last $state"
+}
+
+# Permissions040: the card over a three-row selection with mixed modes and a check box focused in each state; the
+# single-item card with Apply, the octal field and an invalid octal; the errored menu row on a symlink; the several-items note.
 case_cap_permissions() {
     local dir="$fixture_root/cap-permissions"
     sandbox_scratch "$dir"
     printf 'one\n' > "$dir/a.txt"
     printf 'two\n' > "$dir/b.txt"
     printf 'three\n' > "$dir/c.txt"
+    printf 'special\n' > "$dir/special.txt"
+    ln -s a.txt "$dir/link.txt" || fail "cap_permissions: the symlink fixture failed"
     chmod 0644 "$dir/a.txt" || fail "cap_permissions: the 644 fixture mode failed"
     chmod 0600 "$dir/b.txt" || fail "cap_permissions: the 600 fixture mode failed"
     chmod 0755 "$dir/c.txt" || fail "cap_permissions: the 755 fixture mode failed"
+    chmod 4644 "$dir/special.txt" || fail "cap_permissions: the setuid fixture mode failed"
     seed_ui_state "$fixture_root/cap-permissions-state" '{"keys":"default","view":"list","menu":{"hidden":["delete","openTerminal","moveto","copyto","properties","copyAs","pasteAs","invertSelection"]}}'
     launch "$dir"
-    wait_listing 3
+    wait_listing 5
     cap_resize 904 699
     click_row 0 left
     settle
@@ -272,25 +318,47 @@ case_cap_permissions() {
     click_row 2 left --mods ctrl
     settle
     [[ "$(ipc selectionCount)" == "3" ]] || fail "cap_permissions: three ctrl clicks selected $(ipc selectionCount), not 3"
-    click_row 0 right
-    settle
-    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_permissions: the multi-row menu never opened"
-    [[ "$(ipc menuState | jq -er '[.entries[] | select(.action == "permissions")][0].disabled')" == "false" ]] \
-        || fail "cap_permissions: Permissions is not live over three regular files"
-    menu_seek "Permissions"
-    key -k Return >/dev/null
-    local end=$((SECONDS + 15)) state
-    while (( SECONDS < end )); do
-        state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
-        [[ "$(jq -r .opened <<< "$state")" == "true" && "$(jq -r .busy <<< "$state")" == "false" ]] && break
-        sleep 0.05
-    done
-    [[ "$(jq -r .opened <<< "$state")" == "true" && "$(jq -r .busy <<< "$state")" == "false" ]] \
-        || fail "cap_permissions: Permissions never settled open and idle, last $state"
+    cap_permissions_open 0
     shot cap-permissions-multi
+    # Tab from Cancel runs Apply, Close, then the grid: Owner read is on, Owner execute mixed, Group write off.
+    cap_permissions_box "Owner read" on cap-permissions-box-on
+    cap_permissions_box "Owner execute" some cap-permissions-box-mixed
+    cap_permissions_box "Group write" off cap-permissions-box-off
     key -k Escape >/dev/null
     settle
-    printf 'CAP_PERMISSIONS mixed=3rows dialog=open\n'
+    click_row 0 left
+    settle
+    cap_permissions_open 0
+    cap_permissions_focus Apply forward
+    shot cap-permissions-apply-focus
+    cap_permissions_focus Octal back
+    shot cap-permissions-octal-focus
+    key -M ctrl -k a -m ctrl -k 9 >/dev/null
+    settle
+    [[ "$(ipc permissionsState | jq -r '.displayedError | length')" != "0" ]] || fail "cap_permissions: an invalid octal drew no error"
+    shot cap-permissions-octal-error
+    cap_permissions_focus Cancel forward
+    shot cap-permissions-apply-disabled
+    key -k Escape >/dev/null
+    settle
+    click_row 3 right
+    settle
+    [[ "$(ipc menuState | jq -er '[.entries[] | select(.action == "permissions")][0].disabled')" == "true" ]] \
+        || fail "cap_permissions: Permissions is not the errored row on a symlink"
+    shot cap-permissions-symlink-menu
+    key -k Escape >/dev/null
+    settle
+    click_row 0 left
+    settle
+    click_row 4 left --mods ctrl
+    settle
+    [[ "$(ipc selectionCount)" == "2" ]] || fail "cap_permissions: the setuid pair selected $(ipc selectionCount), not 2"
+    cap_permissions_open 0
+    [[ "$(ipc permissionsState | jq -r '.displayedError | length')" != "0" ]] || fail "cap_permissions: the setuid file drew no note for several items"
+    shot cap-permissions-multi-note
+    key -k Escape >/dev/null
+    settle
+    printf 'CAP_PERMISSIONS mixed=3rows boxes=on,mixed,off single=apply,octal,error,disabled symlink=errored note=setuid\n'
     kill_flea
 }
 

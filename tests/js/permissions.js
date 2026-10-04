@@ -173,4 +173,15 @@ function run(check) {
         "2 items cannot be changed: b.txt: Read-only: you are not the owner.; c.txt: Gone.")
     check("and an applicable selection names nothing",
         Permissions.inspectNote({ modes: ["0644"], reasons: [""], skipped: [], pending: 0 }, ["/d/a.txt"]), "")
+    // Every card that centres itself takes a whole size and origin from Theme, so none sits on a half pixel in an odd or an even window.
+    var cards = ["MenuActionDialog", "ConvertDialog", "NetworkDialog", "OpenWithDialog", "TrashConfirm", "CollideConfirm", "KeymapSheet", "SettingsPanel", "PermissionsDialog"]
+    for (var c = 0; c < cards.length; c++) {
+        var cardSource = Source.source("ui/" + cards[c] + ".qml")
+        // The card's own bindings open the block, before its first child object.
+        var cardStart = cardSource.indexOf("id: card")
+        var cardBlock = cardSource.substring(cardStart, cardSource.indexOf("{", cardStart))
+        check(cards[c] + " sizes its card through Theme.cardSpan", cardBlock.indexOf("Theme.cardSpan(") >= 0, true)
+        check(cards[c] + " places its card through Theme.cardOrigin", cardBlock.indexOf("Theme.cardOrigin(") >= 0, true)
+        check(cards[c] + " leaves no centred anchor on its card", cardBlock.indexOf("anchors.centerIn") < 0, true)
+    }
 }
