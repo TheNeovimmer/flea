@@ -286,7 +286,7 @@ Item {
                 Keys.forwardTo: [keys]
                 Accessible.onPressAction: if (root.editable) root.strip = !root.strip
 
-                Rectangle {
+                Item {
                     id: box
                     anchors.left: parent.left
                     anchors.leftMargin: Theme.spacing.rowPaddingX

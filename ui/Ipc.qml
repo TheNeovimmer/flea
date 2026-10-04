@@ -222,6 +222,8 @@ QtObject {
                 }),
                 rect: root.fleaWindow.rectOf(dialog.cardItem),
                 rowHeight: Theme.rowHeight, eyebrowHeight: dialog.eyebrowHeight,
+                titleRuleRect: root.fleaWindow.rectOf(dialog.titleRuleItem), searchRect: root.fleaWindow.rectOf(dialog.searchItem),
+                gap: Theme.spacing.gap, searchTrail: dialog.searchTrail,
                 listRect: root.fleaWindow.rectOf(dialog.applicationsItem),
                 rowRect: root.fleaWindow.rectOf(dialog.applicationItem(dialog.cursor)),
                 controls: [root.controlState("Field", dialog.fieldItem), root.controlState("Applications", dialog.applicationsItem),

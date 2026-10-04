@@ -6,7 +6,6 @@ import "js/Format.js" as Format
 import "js/Icons.js" as Icons
 import "js/Keymap.js" as Keymap
 import "js/Ops.js" as Ops
-import "js/Buttons.js" as Buttons
 import "js/Tap.js" as Tap
 import "js/TrashDates.js" as Trash
 import "js/Trash.js" as TrashKeys
@@ -316,30 +315,18 @@ FocusScope {
                 anchors.leftMargin: Theme.spacing.rowPaddingX
                 anchors.rightMargin: Theme.spacing.rowPaddingX
                 spacing: Theme.spacing.gap
-                Flea.Glyph {
+                Flea.ChromeButton {
                     id: backButton
-                    width: Theme.hitMin; height: parent.height; maxSize: Theme.chromeMarkSize
-                    name: "arrow-left"; color: Theme.color.foreground
-                    scale: backTap.pressed && !Theme.reducedMotion ? Buttons.PRESS_SCALE : 1
-                    Accessible.role: Accessible.Button
-                    Accessible.name: "Back"
-                    Accessible.onPressAction: root.close()
-                    Behavior on scale {
-                        enabled: !Theme.reducedMotion
-                        NumberAnimation { duration: Buttons.PRESS_MS; easing.type: Easing.OutQuad }
-                    }
-                    TapHandler { id: backTap; onTapped: root.close() }
+                    glyph: "arrow-left"
+                    onActivated: root.close()
                 }
-                Flea.Glyph {
+                Flea.ChromeButton {
                     id: upButton
-                    width: Theme.hitMin; height: parent.height; maxSize: Theme.chromeMarkSize
-                    name: "arrow-up"; color: Theme.color.muted
-                    // Dead by design: a history has no parent, so it dims like any disabled control.
-                    opacity: Theme.disabledOpacity
-                    Accessible.role: Accessible.Button
-                    Accessible.name: "Up unavailable in Trash"
-                    Accessible.ignored: false
+                    glyph: "arrow-up"
+                    accessName: "Up unavailable in Trash"
+                    // Dead by design: a history has no parent, so ChromeButton dims it like any disabled control.
                     enabled: false
+                    Accessible.ignored: false
                 }
                 Text {
                     id: trashTitle
