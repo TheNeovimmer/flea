@@ -39,7 +39,7 @@ Item {
     signal completeRequested(string dir, bool hidden)
     signal said(string text)
     // The folder jump's one read per open, carried to the pane's backend like Tab's peek; see ui/PathJump.qml.
-    signal jumpRequested(int id, var favourites, var recent)
+    signal jumpRequested(int id, int ranking, var favourites, var recent)
     // Built by the first edit and kept for the window's life, so a bar never opened compiles none of it.
     property bool jumpBuilt: false
     readonly property var jump: jumpLoader.item
@@ -394,7 +394,7 @@ Item {
         }
         Connections {
             target: jumpLoader.item
-            function onRequested(id, favourites, recent) { root.jumpRequested(id, favourites, recent) }
+            function onRequested(id, ranking, favourites, recent) { root.jumpRequested(id, ranking, favourites, recent) }
             function onDeclined() { root.commitEdit() }
             function onDismissed() { root.closeEdit() }
             function onChosen(path) { root.closeEdit(); if (PathBar.shouldNavigate(path, root.path, root.pathFailed)) root.pathEntered(path) }

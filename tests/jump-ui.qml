@@ -73,6 +73,7 @@ ShellRoot {
         function () {
             root.check("a stale history still asks at once, with what is kept", root.asked[0].recent, [])
             root.check("with the favourites as the rail holds them", root.asked[0].favourites, root.sources.favourites)
+            root.check("the provisional ask names no ranking", root.asked[0].ranking, 0)
             root.type("o")
             root.check("no answer yet, so no dropdown", chrome.jump.shown, false)
             root.press(Qt.Key_Return)
@@ -92,6 +93,7 @@ ShellRoot {
         function () {
             root.check("the read history's files, newest first, on the whole ask", root.asked[1].recent,
                        [root.home + "/Pictures/screenshots/shot.png", root.home + "/Work/field/notes.md"])
+            root.check("the whole ask names the provisional ask, so the backend runs zoxide once", root.asked[1].ranking, root.asked[0].id)
             root.answer(0)
             root.check("this open's whole answer takes the held Enter to the first row", root.entered, [root.home + "/Projects"])
             root.check("and the bar closes", chrome.editing, false)
@@ -215,6 +217,7 @@ ShellRoot {
             var before = root.asked.length
             chrome.startEdit()
             root.check("an open with the history unchanged asks at once, from what it kept", root.asked.length, before + 1)
+            root.check("and sends one ask that names no ranking", [root.asked[before].ranking, root.asked.length], [0, before + 1])
             root.check("so the history was read once, by the first open", chrome.jump.historyReads, 1)
             root.check("closing and reopening keeps the same jump", chrome.jump === root.firstJump, true)
             root.press(Qt.Key_Escape)
@@ -235,6 +238,7 @@ ShellRoot {
         function () {
             root.check("the next open reads the replaced history, once", chrome.jump.historyReads, 2)
             root.check("and asks with its newest file first", root.asked[11].recent[0], root.home + "/Music/new.flac")
+            root.check("naming the open's own provisional ask, and no older one", [root.asked[10].ranking, root.asked[11].ranking], [0, root.asked[10].id])
             root.press(Qt.Key_Escape)
             history.command = ["sh", "-c", "rm -f -- \"$1\"", "sh", root.xbel]
             history.running = true
@@ -284,7 +288,7 @@ ShellRoot {
             anchors.top: parent.top
             path: root.here
             home: root.home
-            onJumpRequested: function (id, favourites, recent) { root.asked = root.asked.concat([{ id: id, favourites: favourites, recent: recent }]) }
+            onJumpRequested: function (id, ranking, favourites, recent) { root.asked = root.asked.concat([{ id: id, ranking: ranking, favourites: favourites, recent: recent }]) }
             onPathEntered: function (path) { root.entered = root.entered.concat([path]) }
             onCompleteRequested: function (dir, hidden) { root.peeked = root.peeked.concat([{ dir: dir, hidden: hidden }]) }
         }

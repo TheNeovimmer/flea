@@ -913,9 +913,11 @@ nothing recording which half, except a `Mode` step, which is skipped with a note
 
 ### jump
 
-`{"c":"jump","id":<uint>,"favourites":[<string>,...],"recent":[<string>,...]}`
+`{"c":"jump","id":<uint>,"ranking":<uint>,"favourites":[<string>,...],"recent":[<string>,...]}`
 
 Example: `{"c":"jump","id":3,"favourites":["/home/gm/Projects"],"recent":["/home/gm/Pictures/screenshots/shot.png"]}`
+
+A whole ask that follows a provisional one names it: `{"c":"jump","id":4,"ranking":3,"favourites":["/home/gm/Projects"],"recent":["/home/gm/Pictures/screenshots/shot.png"]}`.
 
 The path bar's folder jump, asked **once per open of the bar**, never per keystroke: the client filters
 the answer itself as the line changes. `favourites` are Flea's own favourites in their rail order, and
@@ -923,7 +925,13 @@ the answer itself as the line changes. `favourites` are Flea's own favourites in
 because the backend has none, and keeps until the file changes. The backend adds the third source,
 zoxide's ranking, from one `zoxide query --list --all --score`, and answers one `jumped` line from a thread, because zoxide is a subprocess
 and a stat can block on a network mount. `id` is the client's own number for this open and comes back
-on the answer, so an answer to an earlier open is told apart from this one's.
+on the answer, so an answer to an earlier open is told apart from this one's. `ranking` is optional (absent
+or 0 names none): an open whose recent history is stale asks twice, a provisional ask with what the client
+has kept and then the whole ask under a new `id`, and the whole ask's `ranking` is the provisional ask's `id`.
+The backend keeps the zoxide ranking of the newest run that answered in time, with the `id` it answered, and
+answers a `ranking` naming that id from it with no second zoxide run, so every open runs zoxide exactly once;
+the cross-source dedup still happens in each answer. A `ranking` naming any other id, or one no run kept
+(zoxide still running or past its limit, the ranking replaced by a newer ask), runs zoxide as an ask with none does.
 
 **Nothing is written.** `--all` is what keeps zoxide from pruning its own database on a query Flea made:
 without it zoxide deletes entries missing for 90 days and saves. zoxide is optional: absent, it is an

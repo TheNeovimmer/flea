@@ -23,6 +23,11 @@ fn reaped() {
     }
 }
 
+// What an open draws from one run: its own ranking, or the last kept one when no run of its own answered.
+fn ranked_by(program: &str, limit: Duration) -> Vec<(String, f64)> {
+    zoxide(program, limit).unwrap_or_else(last_ranking)
+}
+
 fn strings(paths: &[&str]) -> Vec<String> {
     paths.iter().map(|path| path.to_string()).collect()
 }
@@ -34,7 +39,7 @@ fn script(dir: &TestDir, name: &str, body: &str) -> String {
 #[test]
 fn a_zoxide_that_is_not_installed_is_an_empty_source() {
     let _turn = serial();
-    assert!(zoxide("/nonexistent/flea-test-zoxide", ZOXIDE_LIMIT).is_empty());
+    assert!(ranked_by("/nonexistent/flea-test-zoxide", ZOXIDE_LIMIT).is_empty());
     assert!(!ZOXIDE_RUNNING.load(Ordering::SeqCst), "a spawn that failed must not hold the one zoxide slot");
 }
 
@@ -43,7 +48,7 @@ fn zoxide_is_asked_for_every_folder_and_its_ranking_is_kept() {
     let _turn = serial();
     let dir = TestDir::new("jump-zoxide");
     let fake = script(&dir, "zoxide", r#"[ "$*" = "query --list --all --score" ] || exit 3; printf '  12.5 /b\n   1.0 relative\n   nan /c\n   3.0 /a\n'"#);
-    assert_eq!(zoxide(&fake, ZOXIDE_LIMIT), vec![("/b".to_string(), 12.5), ("/a".to_string(), 3.0)]);
+    assert_eq!(ranked_by(&fake, ZOXIDE_LIMIT), vec![("/b".to_string(), 12.5), ("/a".to_string(), 3.0)]);
 }
 
 #[test]
@@ -54,7 +59,7 @@ fn a_wedged_zoxide_is_ended_at_the_limit_and_draws_nothing() {
     let dir = TestDir::new("jump-wedged");
     let fake = script(&dir, "zoxide", &format!("echo $$ > '{}/pid'; printf '/a\\n'; exec sleep 30", dir.path().display()));
     let started = Instant::now();
-    assert!(zoxide(&fake, Duration::from_millis(200)).is_empty());
+    assert!(ranked_by(&fake, Duration::from_millis(200)).is_empty());
     assert!(started.elapsed() < Duration::from_secs(5), "took {:?}", started.elapsed());
     // The kill is pinned: the slot is released and the fake process is gone, both within a bound.
     let pid: String = std::fs::read_to_string(dir.path().join("pid")).unwrap().trim().to_string();
@@ -66,6 +71,20 @@ fn a_wedged_zoxide_is_ended_at_the_limit_and_draws_nothing() {
     assert!(!PathBuf::from(format!("/proc/{}", pid)).exists(), "the fake zoxide process is gone");
 }
 
+// Runs per check of the free slot: one run can win the race against its reaper by luck, twenty cannot.
+const FREE_SLOT_RUNS: usize = 20;
+
+#[test]
+fn a_run_that_answered_whole_leaves_the_slot_free_when_it_returns() {
+    let _turn = serial();
+    let dir = TestDir::new("jump-slot");
+    let fake = script(&dir, "zoxide", "printf '  2.0 /a\\n'");
+    for run in 0..FREE_SLOT_RUNS {
+        assert!(zoxide(&fake, ZOXIDE_LIMIT).is_some(), "run {} answered", run);
+        assert!(!ZOXIDE_RUNNING.load(Ordering::SeqCst), "run {} left the one zoxide slot held after its answer", run);
+    }
+}
+
 #[test]
 fn a_run_past_its_limit_keeps_the_ranking_that_answered_in_time() {
     let _turn = serial();
@@ -73,9 +92,9 @@ fn a_run_past_its_limit_keeps_the_ranking_that_answered_in_time() {
     let full = script(&dir, "full", "printf '   2.0 /a\\n'");
     // Two rows, so a cut read would keep one: an empty or kept answer then comes from the limit, never from the cut.
     let wedged = script(&dir, "wedged", "printf '   9.0 /b\\n   8.0 /c\\n'; exec sleep 30");
-    assert_eq!(zoxide(&full, ZOXIDE_LIMIT), vec![("/a".to_string(), 2.0)], "a run inside its limit keeps its ranking");
+    assert_eq!(ranked_by(&full, ZOXIDE_LIMIT), vec![("/a".to_string(), 2.0)], "a run inside its limit keeps its ranking");
     reaped();
-    assert_eq!(zoxide(&wedged, Duration::from_millis(200)), vec![("/a".to_string(), 2.0)], "a run past its limit draws the ranking that answered in time");
+    assert_eq!(ranked_by(&wedged, Duration::from_millis(200)), vec![("/a".to_string(), 2.0)], "a run past its limit draws the ranking that answered in time");
     reaped();
     assert_eq!(last_ranking(), vec![("/a".to_string(), 2.0)], "and never overwrites it");
     *LAST_ZOXIDE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Vec::new();
@@ -88,12 +107,12 @@ fn a_second_open_while_zoxide_is_still_wedged_starts_no_second_one() {
     let dir = TestDir::new("jump-second");
     let counted = script(&dir, "counted", &format!("printf x >> '{}/spawned'; printf '   2.0 /a\\n'", dir.path().display()));
     ZOXIDE_RUNNING.store(true, Ordering::SeqCst);
-    let taken = zoxide(&counted, ZOXIDE_LIMIT);
+    let taken = ranked_by(&counted, ZOXIDE_LIMIT);
     // Released before any assert, so a failure here cannot hold the slot for the tests after it.
     ZOXIDE_RUNNING.store(false, Ordering::SeqCst);
     assert!(taken.is_empty(), "with no ranking kept, the wedged open draws no zoxide");
     assert!(!dir.path().join("spawned").exists(), "and it spawned nothing");
-    assert_eq!(zoxide(&counted, ZOXIDE_LIMIT), vec![("/a".to_string(), 2.0)], "a free slot runs it");
+    assert_eq!(ranked_by(&counted, ZOXIDE_LIMIT), vec![("/a".to_string(), 2.0)], "a free slot runs it");
     assert!(dir.path().join("spawned").exists());
     *LAST_ZOXIDE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Vec::new();
 }
@@ -105,11 +124,11 @@ fn a_slow_zoxide_answers_the_last_ranking_and_starts_nothing() {
     let dir = TestDir::new("jump-cached");
     let counted = script(&dir, "counted", &format!("printf x >> '{}/spawned'; printf '   2.0 /b\\n'", dir.path().display()));
     let full = script(&dir, "full", "printf '   2.0 /a\\n'");
-    assert_eq!(zoxide(&full, ZOXIDE_LIMIT), vec![("/a".to_string(), 2.0)], "a run inside its limit keeps its ranking");
+    assert_eq!(ranked_by(&full, ZOXIDE_LIMIT), vec![("/a".to_string(), 2.0)], "a run inside its limit keeps its ranking");
     // The first run's reaper frees the slot on its own thread, so it must finish before this test takes the slot.
     reaped();
     ZOXIDE_RUNNING.store(true, Ordering::SeqCst);
-    let taken = zoxide(&counted, ZOXIDE_LIMIT);
+    let taken = ranked_by(&counted, ZOXIDE_LIMIT);
     // Released before any assert, so a failure here cannot hold the slot for the tests after it.
     ZOXIDE_RUNNING.store(false, Ordering::SeqCst);
     assert_eq!(taken, vec![("/a".to_string(), 2.0)], "the open behind a slow run draws the kept ranking");
@@ -124,7 +143,7 @@ fn a_database_past_the_byte_cap_is_cut_at_its_ranked_head() {
     // One process that never stops writing, so the cap and not the pipe's end is what stops the read.
     let fake = script(&dir, "zoxide", "exec yes '   1.0 /home/gm/a-folder-name'");
     let started = Instant::now();
-    let rows = zoxide(&fake, ZOXIDE_LIMIT);
+    let rows = ranked_by(&fake, ZOXIDE_LIMIT);
     assert_eq!(rows.len(), ZOXIDE_ROWS);
     assert!(started.elapsed() < ZOXIDE_LIMIT, "the cap answers before the limit, took {:?}", started.elapsed());
 }
@@ -207,7 +226,7 @@ fn recent_files_sharing_one_parent_answer_their_folder_once() {
     let fake = script(&dir, "zoxide", "exit 0");
     let recent = strings(&[&format!("{}/shared/a.txt", root), &format!("{}/shared/b.txt", root),
         &format!("{}/shared", root), &format!("{}/shared/gone.txt", root), &format!("{}/gone/gone.txt", root)]);
-    let line = answer(&fake, 9, &[], &recent);
+    let line = answer(&fake, 9, 0, &[], &recent);
     let expected = format!(r#"{{"t":"jumped","id":9,"favourites":[],"zoxide":[],"recent":["{}/shared"],"frecency":{{}},"ms":"#, root);
     assert!(line.starts_with(&expected), "{}", line);
 }
@@ -251,7 +270,7 @@ fn a_stuck_recent_file_returns_within_the_limit_with_the_other_sources() {
     let limit = Duration::from_millis(300);
     let stuck_before = STUCK_RECENT_CALLS.load(Ordering::SeqCst);
     let started = Instant::now();
-    let line = answer_checked(&fake, 11, &strings(&[&root]), &recent, limit, stuck_recent_check);
+    let line = answer_checked(&fake, 11, 0, &strings(&[&root]), &recent, limit, stuck_recent_check);
     assert!(started.elapsed() < STUCK_FOR, "the budget answers, took {:?}", started.elapsed());
     assert!(STUCK_RECENT_CALLS.load(Ordering::SeqCst) > stuck_before, "the wedged file was reached, so the budget and not a pre-filter answered");
     let expected = format!(r#"{{"t":"jumped","id":11,"favourites":["{}"],"zoxide":["{}/ranked"],"recent":["{}/kept"],"frecency":{{"{}/ranked":8}},"ms":"#, root, root, root, root);
@@ -329,10 +348,70 @@ fn one_answer_joins_the_three_sources_in_order() {
     std::fs::create_dir(dir.path().join("ranked")).unwrap();
     let fake = script(&dir, "zoxide", &format!("printf '  %s %s\\n' 8.0 '{}/ranked' 2.5 '{}'", root, root));
     let recent = strings(&[&format!("{}/ranked/file.txt", root), &format!("{}/other.txt", root)]);
-    let line = answer(&fake, 3, &strings(&[&root]), &recent);
+    let line = answer(&fake, 3, 0, &strings(&[&root]), &recent);
     // The recent file's folder is already zoxide's row and its second file's is the favourite, so recent draws nothing.
     let expected = format!(r#"{{"t":"jumped","id":3,"favourites":["{}"],"zoxide":["{}/ranked"],"recent":[],"frecency":{{"{}":2.5,"{}/ranked":8}},"ms":"#, root, root, root, root);
     assert!(line.starts_with(&expected), "{}", line);
+}
+
+// A zoxide that appends one line to a counter file per run, so a test counts the runs an ask sequence made.
+fn counting_zoxide(dir: &TestDir, rows: &str) -> (String, PathBuf) {
+    let counter = dir.path().join("runs");
+    (script(dir, "zoxide", &format!("echo run >> '{}'; printf '{}'", counter.display(), rows)), counter)
+}
+
+fn runs(counter: &Path) -> usize {
+    std::fs::read_to_string(counter).map(|text| text.lines().count()).unwrap_or(0)
+}
+
+// Each test names its own ids, so a ranking another test kept can never stand in for one this test asks for.
+#[test]
+fn a_whole_ask_naming_its_provisional_ask_runs_zoxide_once_and_carries_the_same_rows() {
+    let _turn = serial();
+    let dir = TestDir::new("jump-once");
+    let root = dir.path().to_string_lossy().into_owned();
+    std::fs::create_dir(dir.path().join("ranked")).unwrap();
+    let (fake, counter) = counting_zoxide(&dir, &format!("  8.0 {}/ranked\\n", root));
+    let provisional = answer(&fake, 101, 0, &[], &[]);
+    reaped();
+    let whole = answer(&fake, 102, 101, &[], &[]);
+    assert_eq!(runs(&counter), 1, "the open ran zoxide once across both asks");
+    let rows = format!(r#""zoxide":["{}/ranked"],"recent":[],"frecency":{{"{}/ranked":8}}"#, root, root);
+    assert!(provisional.starts_with(r#"{"t":"jumped","id":101,"#) && provisional.contains(&rows), "{}", provisional);
+    assert!(whole.starts_with(r#"{"t":"jumped","id":102,"#) && whole.contains(&rows), "{}", whole);
+}
+
+#[test]
+fn an_ask_naming_an_unknown_or_superseded_ranking_runs_zoxide() {
+    let _turn = serial();
+    let dir = TestDir::new("jump-unknown");
+    let (fake, counter) = counting_zoxide(&dir, "  1.0 /a\\n");
+    answer(&fake, 111, 0, &[], &[]);
+    reaped();
+    answer(&fake, 112, 999, &[], &[]);
+    reaped();
+    assert_eq!(runs(&counter), 2, "an id nothing kept runs zoxide");
+    answer(&fake, 113, 111, &[], &[]);
+    reaped();
+    assert_eq!(runs(&counter), 3, "a ranking a newer run replaced is not reused");
+    answer(&fake, 114, 113, &[], &[]);
+    assert_eq!(runs(&counter), 3, "the newest ranking still is");
+}
+
+#[test]
+fn a_provisional_ask_that_drew_a_stand_in_keeps_no_ranking_for_the_whole_ask() {
+    let _turn = serial();
+    *LAST_ZOXIDE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Vec::new();
+    let dir = TestDir::new("jump-standin");
+    let (fake, counter) = counting_zoxide(&dir, "  2.0 /a\\n");
+    // An earlier run still holds the one slot, so the provisional ask draws the kept ranking, never a run of its own.
+    ZOXIDE_RUNNING.store(true, Ordering::SeqCst);
+    answer(&fake, 121, 0, &[], &[]);
+    ZOXIDE_RUNNING.store(false, Ordering::SeqCst);
+    assert_eq!(runs(&counter), 0, "the provisional ask started nothing");
+    answer(&fake, 122, 121, &[], &[]);
+    assert_eq!(runs(&counter), 1, "the whole ask runs zoxide as it always did");
+    *LAST_ZOXIDE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Vec::new();
 }
 
 // Blocks on every path under a /wedged folder, the shape of a remote mount that stopped answering.
