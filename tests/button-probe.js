@@ -2,6 +2,12 @@
 
 // The readers tests/button-members.qml holds the controls to A's numbers with: pure, over the items themselves.
 
+// Sample input: the colors.toml body Theme.applyColors reads, as stock tokyo-night sets its accent, muted, background and foreground; the sandbox has no theme and its own accent is grey, so a harness pins this one.
+var COLOURED_THEME = 'accent = "#7aa2f7"\nmuted = "#414868"\nbackground = "#1a1b26"\nforeground = "#a9b1d6"\n'
+// Sample input: the same four roles of stock kanagawa (accent equal to foreground) and stock white (a grey accent), the themes whose accent carries no colour.
+var KANAGAWA_THEME = 'accent = "#dcd7ba"\nmuted = "#54546D"\nbackground = "#1f1f28"\nforeground = "#dcd7ba"\n'
+var WHITE_THEME = 'accent = "#6e6e6e"\nmuted = "#808080"\nbackground = "#ffffff"\nforeground = "#000000"\n'
+
 // Sample input: rgba(Qt.rgba(1, 0.5, 0, 0.14)) answers "1,0.5,0,0.14".
 function rgba(c) { return [c.r, c.g, c.b, c.a].map(function (v) { return Math.round(v * 1000) / 1000 }).join(",") }
 function alphaOf(c) { return Math.round(c.a * 1000) / 1000 }

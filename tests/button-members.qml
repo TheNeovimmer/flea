@@ -380,6 +380,7 @@ ShellRoot {
             shell.check("sandbox: the state file and HOME lie under the harness root", inside, true)
             if (!inside) { shell.finish(); return }
             Flea.ViewState.state = { display: { textSize: { mode: TextSize.nearest(shell.pinnedSize) } } }
+            Flea.Theme.applyColors(Probe.COLOURED_THEME)
             shell.buildScript()
             return
         }
