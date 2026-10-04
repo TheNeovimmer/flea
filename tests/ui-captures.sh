@@ -382,6 +382,8 @@ case_cap_sheet() {
     sandbox_scratch "$dir"
     : > "$dir/a.txt"
     : > "$dir/b.txt"
+    # fixture_home_make wipes the home it makes, so the history and the recent file go in after it.
+    fixture_home_make "$fixture_home"
     # The favourite flea and the recent file mix.flac stand in the case's own fixture home, so no other bookmark moves the rows.
     mkdir -p "$places/flea" "$fixture_home/Documents/claude" "$fixture_home/.local/share"
     : > "$fixture_home/Documents/claude/mix.flac"
@@ -391,7 +393,6 @@ case_cap_sheet() {
   <bookmark href="file://$fixture_home/Documents/claude/mix.flac" added="2026-09-26T10:00:00Z" modified="2026-09-26T10:00:00Z" visited="2026-09-26T10:00:00Z"/>
 </xbel>
 EOS
-    fixture_home_make "$fixture_home"
     seed_ui_state "$fixture_root/cap-sheet-state" "$(printf '{"keys":"default","view":"list","places":{"favourites":[{"label":"flea","path":"%s/flea"}]}}' "$places")"
     export HOME="$fixture_home" XDG_DATA_HOME="$fixture_home/.local/share"
     launch "$dir"

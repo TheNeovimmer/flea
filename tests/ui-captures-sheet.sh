@@ -22,17 +22,13 @@ fail() {
     exit 1
 }
 
-sandbox_scratch() {
-    mkdir -p -- "$1"
-}
-
 seed_ui_state() {
     :
 }
 
-# The real helper copies the box's theme into a fixture home; the stub only needs the directory.
+# The real helper wipes the fixture home and copies the box's theme into it; the stub keeps the wipe.
 fixture_home_make() {
-    mkdir -p -- "$1"
+    sandbox_scratch "$1"
 }
 
 launch() {
@@ -106,7 +102,8 @@ sheet_rows() {
                 fl-no-recent) printf ' Open flea\n' ;;
                 fl-no-place) printf ' Open mix.flac\n' ;;
                 fl-order) printf ' Open mix.flac\n Open flea\n' ;;
-                *) printf ' Open flea\n Open mix.flac\n' ;;
+                # The recent row stands only while the case's own history survives in its fixture home.
+                *) printf ' Open flea\n'; [[ -f "$fixture_root/cap-sheet-home/.local/share/recently-used.xbel" ]] && printf ' Open mix.flac\n' ;;
             esac ;;
         comp)
             if [[ "$scenario" == comp-cap ]]; then printf ' Compress to .zip\nz Compress to .tar\n'
@@ -177,6 +174,7 @@ check_case() {
     local scenario="$1" expected_rc="$2" clear_after_s="$3" expected_elapsed="$4" diagnostic="$5"
     local case_dir="$scratch/$scenario" rc elapsed
     mkdir -p -- "$case_dir"
+    : > "$case_dir/$SANDBOX_MARKER"
     printf '0\n' > "$case_dir/elapsed"
     (
         fixture_root="$case_dir"
@@ -230,7 +228,7 @@ check_case perm-disabled 1 0 0 "Permissions reads unavailable"
 check_case comp-cap 1 0 0 "the comp query lists a row with a cap"
 check_case comp-parent-only 1 0 0 "the comp query lists no Compress to .zip leaf row"
 check_case comp-parent-last 1 0 0 "the comp query lists the Compress parent"
-check_case fl-no-recent 1 0 0 "the fl query lists no recent file mix.flac"
+check_case fl-no-recent 1 0 "$deadline_s" "the fl query lists no recent file mix.flac"
 check_case fl-no-place 1 0 0 "the fl query lists no favourite flea"
 check_case fl-order 1 0 0 "the fl query does not lead with the favourite"
 check_case rank-moved 1 0 0 "the second perm row is not Permissions"
