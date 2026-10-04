@@ -267,14 +267,22 @@ ShellRoot {
         var h1 = md.blockItem(shell.blockIndex("heading"))
         var quote = md.blockItem(shell.blockIndex("quote"))
         var para = md.blockItem(shell.blockIndex("run"))
-        var cells = Centre.cellsOf(md.blockItem(shell.blockIndex("table")))
+        var table = md.blockItem(shell.blockIndex("table"))
+        var cells = Centre.cellsOf(table)
         var real = [{ name: "heading", text: Checks.textOf(h1) }, { name: "paragraph", text: Checks.textOf(para) },
-            { name: "quote", text: Centre.quoteTextOf(quote) }, { name: "table header cell", text: cells[0] }, { name: "table body cell", text: cells[3] }]
+            { name: "quote", text: Centre.quoteTextOf(quote) }, { name: "table header cell", text: cells[0] }, { name: "table body cell", text: Centre.bodyCellOf(table, cells) }]
         for (var r = 0; r < real.length; r++) {
             var t = real[r].text
             shell.check(t ? Centre.lineCentreError(t, grabRoot, inkAt, 1, shell.centredBaseline(t), "real " + real[r].name) : "real " + real[r].name + " is absent",
                 "centred first line of the real " + real[r].name)
         }
+    }
+
+    // The probes and the reference column live in the grab below the document, so a long document must never reach them.
+    function probesClear() {
+        var last = md.blockItem(md.blockList.length - 1)
+        var bottom = last ? last.mapToItem(grabRoot, 0, 0).y + last.height : 0
+        shell.check(Centre.probeOverlapError(centreProbes.mapToItem(grabRoot, 0, 0).y, bottom), "probe grid lies below the document's last block")
     }
 
     // The board's geometry against the live tree: insets, rhythm, headings, line boxes, the code surface and the bar.
@@ -500,6 +508,7 @@ ShellRoot {
         }
         shell.listBaselines(inkAt)
         shell.lineCentres(inkAt)
+        shell.probesClear()
         if (shell.larger) {
             shell.check(Flea.Theme.font.body > shell.suiteBody ? "" : "text size did not grow", "larger text size")
             Flea.ViewState.state = shell.savedState

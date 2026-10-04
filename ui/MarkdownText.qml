@@ -1,6 +1,6 @@
 import QtQuick
 
-// The padding places the text's baseline where CSS puts it, half the leading above the font's ascent, on every wrapped line.
+// The padding sets the baseline as CSS does: on every wrapped line of rich text, on the first line of plain text.
 Text {
     id: root
 

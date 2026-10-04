@@ -7679,7 +7679,7 @@ Pickfix records `tests/picker-grid.qml` 448 to 450 for the real grid stub's mark
 
 038-stage8 2026-10-04 sets seven ceilings back to their files' `wc -l`, because a merge that keeps the larger side's ceiling loosens a row whose file the other side shrank: `ui/TrashView.qml` 475 to 466, `ui/ViewState.qml` 538 to 536, `ui/PermissionsDialog.qml` 680 to 674, `ui/PreviewColumn.qml` 585 to 583, `ui/SettingsRow.qml` 410 to 409, `src/backend/undo.rs` 612 to 606 and `src/backend/undoshare.rs` 431 to 403. `ui/ColumnPane.qml` is 400 lines, inside the global QML cap, so it carries no row.
 
-038-mdline 2026-10-04 (Markdown lines centred in their 1.7 box, the Quick Look pane inside its frame) moves two ceilings, each re-derived with `wc -l`: `tests/markdown-render.qml` 718 to 783 for the centred-line probes and the real-block checks (their helpers sit in the new `tests/markdown-centre.js` at 56, within the JS budget, copied by `tests/markdown-render.sh`), and `ui/Preview.qml` 659 to 661 for the Markdown pane's hairline margin and its comment.
+038-mdline 2026-10-04 (Markdown lines centred in their 1.7 box, the Quick Look pane inside its frame) moves two ceilings, each re-derived with `wc -l`: `tests/markdown-render.qml` 718 to 792 for the centred-line probes, the real-block checks and the probe-overlap check (their helpers sit in the new `tests/markdown-centre.js` at 74, within the JS budget, copied by `tests/markdown-render.sh`), and `ui/Preview.qml` 659 to 661 for the Markdown pane's hairline margin and its comment.
 
 md3 brings the Markdown view to the RenderedPreviews board's rhythm, each re-derived with `wc -l`:
 `tests/markdown-render.qml` 422 to 493 for the inset, rhythm, heading, line-box, surface, fence-padding and bar
