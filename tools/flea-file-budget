@@ -80,7 +80,7 @@ tests/js/tabs.js 686
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 399
-tests/markdown-render.qml 718
+tests/markdown-render.qml 793
 tests/markdown-linearity.qml 555
 tests/preview-settle-live.qml 457
 tests/preview-decode.qml 507
@@ -111,7 +111,7 @@ ui/PaneMenuActions.qml 467
 ui/PaneWire.qml 586
 ui/PermissionsDialog.qml 674
 ui/PickerWindow.qml 779
-ui/Preview.qml 659
+ui/Preview.qml 661
 ui/PreviewColumn.qml 583
 ui/DeviceMounts.qml 496
 ui/PreviewMarkdown.qml 844

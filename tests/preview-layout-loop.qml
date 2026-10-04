@@ -27,6 +27,8 @@ ShellRoot {
     readonly property int wheelDelayMs: 1
     readonly property real wheelCenter: 0.5
     readonly property real scrollTop: 0
+    // Rows a focused close ring keeps clear of the surface frame above it and of the bar's rule below it.
+    readonly property int ringClearRows: 1
     property int sibling: -1
     property bool done: false
     property bool toggled: false
@@ -184,6 +186,27 @@ ShellRoot {
         shell.wheeling = false
         shell.scrolling = true
     }
+    // The Markdown pane lies inside the surface's own hairline frame, and the focused close ring keeps a clear row from that frame and from the bar's rule.
+    function quickLookFrame(label) {
+        var pane = look.markdownItem
+        var surface = look.panesItem.parent
+        var edge = surface.border.width
+        var at = pane.mapToItem(surface, 0, 0)
+        if (!shell.check(at.x === edge && at.y === edge && at.x + pane.width === surface.width - edge && at.y + pane.height === surface.height - edge,
+            label + " Markdown pane fills " + at.x + "," + at.y + " " + pane.width + "x" + pane.height + " of the " + surface.width + "x" + surface.height
+            + " surface, want a " + edge + " px frame clear on every side")) return
+        look.markdownCloseFocus = true
+        var ring = pane.barGeometry().close.ringItem
+        var bar = pane.barGeometry().bar
+        var rect = ring.mapToItem(surface, 0, 0, ring.width, ring.height)
+        var rule = bar.mapToItem(surface, 0, bar.height).y - Flea.Theme.spacing.hairline
+        var shown = ring.visible
+        look.markdownCloseFocus = false
+        if (!shell.check(shown, label + " close ring is not drawn while focused")) return
+        shell.check(rect.y - edge >= shell.ringClearRows && rule - (rect.y + rect.height) >= shell.ringClearRows,
+            label + " close ring rows " + rect.y + ".." + (rect.y + rect.height) + " keep " + (rect.y - edge) + " clear under the frame and "
+            + (rule - (rect.y + rect.height)) + " above the bar rule at row " + rule + ", want " + shell.ringClearRows)
+    }
     function cell(label, md) {
         var f = shell.mdFlick(md)
         var h = shell.extent(md)
@@ -203,6 +226,8 @@ ShellRoot {
             if (stacked < 0) return
             if (!shell.check(Math.abs(f.contentHeight - stacked) < 0.1, "content height is stale")) return
         }
+        if (!shell.columnHost) shell.quickLookFrame(label)
+        if (shell.done) return
         var bar = shell.barFor(md, f)
         if (!shell.check(bar && bar.width === Flea.Theme.spacing.rowPaddingX,
             "scroll lane changed its fixed overlay geometry")) return

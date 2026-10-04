@@ -69,7 +69,7 @@ chmod 700 "$test_root/runtime" || exit 1
 ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
-cp tests/markdown-render.js tests/markdown-board.js tests/markdown-bar.js "$test_root/config/" || exit 1
+cp tests/markdown-render.js tests/markdown-centre.js tests/markdown-board.js tests/markdown-bar.js "$test_root/config/" || exit 1
 cp tests/markdown-render.qml "$test_root/config/shell.qml" || exit 1
 
 cat > "$test_root/notes.md" <<'EOF'

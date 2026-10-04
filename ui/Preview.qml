@@ -486,6 +486,8 @@ Item {
             Loader {
                 id: markdownLoader
                 anchors.fill: parent
+                // The pane lies inside the surface's own frame, as the column's does; media fills it on purpose.
+                anchors.margins: Theme.spacing.hairline
                 active: root.isMarkdown
                 source: "MarkdownPane.qml"
                 onLoaded: {
