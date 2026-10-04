@@ -227,11 +227,10 @@ Item {
     Loader {
         id: renameLoader
         active: root.renaming
-        anchors.left: icon.right
-        anchors.leftMargin: Theme.spacing.gap
-        anchors.right: mode.left
-        anchors.rightMargin: root.modeShown ? Theme.spacing.gap : 0
-        anchors.verticalCenter: parent.verticalCenter
+        // The label slot on whole pixels: a dual pane's width and mark slot are fractional, and the frame is a hairline.
+        x: Math.round(icon.x + icon.width) + Theme.spacing.gap
+        y: Math.round((root.height - renameLoader.height) / 2)
+        width: Math.round(mode.x - (root.modeShown ? Theme.spacing.gap : 0)) - x
         sourceComponent: Flea.RenameField {
             height: implicitHeight
             pane: root.renamePane

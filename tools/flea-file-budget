@@ -114,7 +114,7 @@ ui/Preview.qml 645
 ui/PreviewColumn.qml 582
 ui/DeviceMounts.qml 496
 ui/PreviewMarkdown.qml 784
-ui/Row.qml 483
+ui/Row.qml 482
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
 ui/Sidebar.qml 669

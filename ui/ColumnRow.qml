@@ -54,9 +54,12 @@ Item {
     // The cut dim lives in the ink, so no child carries its own opacity binding.
     readonly property color ink: root.dimmed(root.cursor ? Theme.color.accent : root.dim ? Theme.color.muted : Theme.color.foreground)
 
-    // One height for every row: ui/ColumnPane.qml draws the editor over the row rather than inside
-    // it, so no row grows and the overlay's own y is plain arithmetic on this height.
-    implicitHeight: Theme.fileRowHeight
+    // ui/ColumnPane.qml sets it on the renaming (cursor) row: the error line pushes the rows below down as ui/Row.qml's does.
+    property real errorGrowth: 0
+    // Set by ui/ColumnPane.qml while its editor stands over this row, so the name under it is not drawn twice.
+    property bool renaming: false
+    // The editor is drawn over the row by ui/ColumnPane.qml, so its y is plain arithmetic on this row height.
+    implicitHeight: Theme.fileRowHeight + root.errorGrowth
 
     Rectangle {
         width: root.paintWidth > 0 ? root.paintWidth : parent.width
@@ -91,11 +94,18 @@ Item {
         }
     }
 
+    // The row's first line: its content centres here, so an error line that grows the row never moves the name.
+    Item {
+        id: line
+        width: parent.width
+        height: Theme.fileRowHeight
+    }
+
     Item {
         id: markSlot
         anchors.left: parent.left
         anchors.leftMargin: Theme.spacing.rowPaddingX
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenter: line.verticalCenter
         width: Theme.iconSize
         height: Theme.iconSize
 
@@ -130,7 +140,8 @@ Item {
         anchors.leftMargin: Theme.spacing.gap
         anchors.right: sizeCell.left
         anchors.rightMargin: (root.showSize ? Theme.spacing.gap : 0) + (root.clipMark.length > 0 ? Theme.spacing.gap + root.clipPx : 0)
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenter: line.verticalCenter
+        visible: !root.renaming
         text: root.row && root.nameBudget >= 0 ? Format.middleElide(root.row.n, Math.max(0, root.nameBudget - (root.clipMark.length > 0 ? Math.ceil((Theme.spacing.gap + root.clipPx) / Theme.bodyAdvance) : 0))) : (root.row ? root.row.n : "")
         color: root.ink
         font.family: Theme.font.family
@@ -144,7 +155,7 @@ Item {
         id: sizeCell
         anchors.right: parent.right
         anchors.rightMargin: Theme.spacing.rowPaddingX + chevronSlot.width + (root.showSize ? Theme.spacing.gap : 0)
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenter: line.verticalCenter
         visible: root.showSize && !root.dropTarget
         width: visible ? Theme.column.size : 0
         text: root.showSize && root.row ? root.sizeText() : ""
@@ -160,7 +171,7 @@ Item {
     Loader {
         id: dropClipLoader
         active: root.dropTarget || root.clipMark.length > 0
-        anchors.fill: parent
+        anchors.fill: line
         sourceComponent: Item {
             property alias label: dropLabel
             property alias mark: clipMarkGlyph
@@ -205,7 +216,7 @@ Item {
         id: chevronSlot
         anchors.right: parent.right
         anchors.rightMargin: Theme.spacing.rowPaddingX
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenter: line.verticalCenter
         width: root.dropTarget && dropClipLoader.item && dropClipLoader.item.label ? dropClipLoader.item.label.implicitWidth : root.showChevron ? Theme.font.caption : 0
         height: root.dropTarget && dropClipLoader.item && dropClipLoader.item.label ? dropClipLoader.item.label.implicitHeight : Theme.font.caption
 
