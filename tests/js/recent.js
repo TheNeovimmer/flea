@@ -130,7 +130,7 @@ function run(check) {
     check("Location is a function of the path and home", typeof Recent.locationUnder, "function")
     if (typeof Recent.locationUnder === "function") {
         var gm = "/home/gm"
-        check("a nested folder drops home and its slash", Recent.locationUnder("home/gm/Documents/claude/a.md", gm), "Documents/claude")
+        check("a nested folder drops home and its slash", Recent.locationUnder("/home/gm/Documents/claude/a.md", gm), "Documents/claude")
         check("a first-level folder is its own name", Recent.locationUnder("/home/gm/Downloads/receipt.pdf", gm), "Downloads")
         check("a file directly in home reads as home", Recent.locationUnder("/home/gm/a.txt", gm), "~")
         check("a path outside home keeps its absolute parent", Recent.locationUnder("/srv/data/a.txt", gm), "/srv/data")

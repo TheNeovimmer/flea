@@ -478,7 +478,10 @@ EOS
         [[ "$mode" == "results" && "$total" == "6" && "$(ipc listInFlight 2>/dev/null)" == "false" ]] && break
         sleep 0.05
     done
-    [[ "$mode" == "results" && "$total" == "6" ]] || fail "cap_sidebar: clicking Recent listed mode [$mode] total [$total], not results and 6"
+    local inflight
+    inflight=$(ipc listInFlight 2>/dev/null || printf unavailable)
+    [[ "$mode" == "results" && "$total" == "6" && "$inflight" == "false" ]] \
+        || fail "cap_sidebar: clicking Recent listed mode [$mode] total [$total] in flight [$inflight], not results, 6 and settled"
     [[ "$(ipc headerTitles)" == "Name|Location|Size|Used" ]] \
         || fail "cap_sidebar: the Recent header reads $(ipc headerTitles)"
     [[ "$(ipc railCursor)" == "$(rail_row_of "Recent")" ]] || fail "cap_sidebar: Recent is not the lit rail row"
