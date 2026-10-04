@@ -44,12 +44,11 @@ function stripExtension(name) {
     return cut > 0 ? text.substring(0, cut) : text
 }
 
-// The compress submenu is exactly the table the backend probed, never a fixed list, so a box with
-// no 7zip installed simply never offers .7z.
+// The compress submenu is the table the backend probed, so no 7zip means no .7z; the sheet reads each leaf "Compress to .zip".
 function formatEntries(formats) {
     var out = []
     for (var i = 0; i < formats.length; i++) {
-        out.push({ id: formats[i], label: "." + formats[i] })
+        out.push({ id: formats[i], label: "." + formats[i], sheetLabel: "Compress to ." + formats[i] })
     }
     return out
 }

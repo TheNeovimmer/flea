@@ -8628,7 +8628,7 @@ case_networkauth() {
             contextMenuEntries contextMenuGlyphs contextMenuSubmenuGlyphs contextMenuSubmenuEntries \
             renameEditorText railRenameEditorText previewKind previewState previewPdfZoom previewExpanded \
             previewPdfPage headerTitles sortMark previewSliderCentre headerLeft viewMode archiveFormats \
-            keymapSheetRows convertFormat previewFacts previewColumnState columnPlayCentre columnStripCentre \
+            keymapSheetRows keymapSheetResults convertFormat previewFacts previewColumnState columnPlayCentre columnStripCentre \
             tabLabels pathBarText pathCentre \
             headerTop networkProtocol networkPort networkUri networkPathLabel networkTitle networkFields \
             networkFocus networkHostPortWidths networkPasswordState networkNote networkAction networkStatus \

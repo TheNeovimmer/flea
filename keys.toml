@@ -587,10 +587,13 @@ action = "tabMoveRight"
 [[text]]
 char = "["
 action = "tabPrevious"
+# CommandPalette draws the tab rows by their chords alone, so [ and ] stay bound but off the sheet.
+sheet = false
 
 [[text]]
 char = "]"
 action = "tabNext"
+sheet = false
 
 # KeymapSheet.html rule 1: a binding gets a group and the sheet reads it. The group is named by
 # action rather than written on every binding, because one action is spelled four different ways

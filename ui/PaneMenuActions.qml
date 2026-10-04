@@ -125,6 +125,8 @@ Loader {
     property string pendingAction: ""
     property bool pendingActivation: false
     property bool activationUsed: false
+    // The request a keymap sheet activation runs under, which lists hidden rows; the next snapshot moves requestId past it.
+    property int sheetRequest: 0
     // Which row a keyboard rename was asked for, so its reply cannot open the editor over another.
     property int pendingRenameIndex: -1
     // The pointer rename's own reveal context beside it, so a slow click never scrolls; -1 keeps the keyboard's.
@@ -266,7 +268,7 @@ Loader {
         pendingActivation = false
         var split = action.indexOf(":")
         if (providerAction(action) && !pane.contextMenu().validateChoice(split < 0 ? action : action.substring(0, split),
-                split < 0 ? "" : action.substring(split + 1))) return
+                split < 0 ? "" : action.substring(split + 1), sheetRequest === requestId)) return
         // OpenWith.html rule 2: the flyout is a one-off override that writes nothing, so a chosen
         // application launches through the same registry op the dialog submits, and the tail row is
         // the only way into the dialog, which stays the one place a default is written.
@@ -409,7 +411,7 @@ Loader {
                 var split = message.action.indexOf(":")
                 var action = split < 0 ? message.action : message.action.substring(0, split)
                 var subId = split < 0 ? "" : message.action.substring(split + 1)
-                if (root.pane.contextMenu().validateChoice(action, subId)) {
+                if (root.pane.contextMenu().validateChoice(action, subId, root.sheetRequest === message.id)) {
                     if (action === "addFavourite") {
                         if (!message.paths || message.paths.length !== 1) { root.pane.message("The selected folder could not be read.", true); return }
                         root.addFavourite(message.paths[0])

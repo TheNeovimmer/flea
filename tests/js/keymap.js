@@ -246,6 +246,19 @@ function run(check) {
     check("while m still opens the menu in the listing and mutes in a media preview", menuStillM, true)
     check("the sheet group that claims it is Look", Keymap.SHEET_GROUPS.look.indexOf("mute") >= 0, true)
 
+    // CommandPalette "At rest": the tab rows read the chord alone, whichever the preset, while [ and ] stay bound and hinted.
+    var tabCaps = []
+    for (var tp = 0; tp < Keymap.PRESETS.length; tp++) {
+        var tabSheet = Keymap.sheetFor(Keymap.PRESETS[tp], "gui")
+        var tabNext = tabSheet.filter(function (row) { return row.action === "tabNext" })[0]
+        var tabPrevious = tabSheet.filter(function (row) { return row.action === "tabPrevious" })[0]
+        tabCaps.push(Keymap.PRESETS[tp] + ":" + (tabNext ? tabNext.keys : "none") + ";" + (tabPrevious ? tabPrevious.keys : "none"))
+    }
+    check("next tab and prev tab read as the board draws them on every preset", tabCaps.join(" "),
+          Keymap.PRESETS.map(function (name) { return name + ":ctrl-pagedown;ctrl-pageup" }).join(" "))
+    check("] still steps to the next tab", Keymap.lookupFor("default", 0, "]", 0, "listing", "gui"), "tabNext")
+    check("[ still steps to the previous tab", Keymap.lookupFor("default", 0, "[", 0, "listing", "gui"), "tabPrevious")
+    check("and the menu hint for next tab stays ]", Keymap.hintFor("tabNext"), "]")
     check("no cap in any preset outgrows its half of the card", widestCap <= 18, true)
     check("no row prints an action id where its wording belongs", identifierLabel, "")
     check("pointer contract remains populated", Keymap.POINTER.length > 10, true)
