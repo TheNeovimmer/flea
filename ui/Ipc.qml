@@ -522,6 +522,8 @@ QtObject {
                 previewReady: column !== null && column.frameStatus === Image.Ready})
         }
         function viewContentY(): int { return Math.round(root.pane.viewMode === "columns" && root.columns ? root.columns.activeContentY() : root.pane.listArea.contentY) }
+        // The true end of travel in contentY terms: the column view or the list area, origin plus content minus viewport, whole pixels.
+        function viewEndY(): int { var v = root.pane.viewMode === "columns" && root.columns ? root.columns.activeColumn().viewport : root.pane.listArea; return Math.round(v.originY + v.contentHeight - v.height) }
         function listAreaRect(): string { return root.fleaWindow.rectOf(root.pane.listArea) }
         function listingDropActive(): bool { return root.previewReaders.listingDropActive() }
         function rowRect(i: int): string { return root.fleaWindow.rectOf(root.pane.visibleItemFor(i)) }

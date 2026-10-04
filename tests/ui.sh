@@ -2441,7 +2441,7 @@ case_clickedge() {
     local bindir="$fixture_root/clickedge-bin"
     # The band block drives the pointer through tests/ui-marquee.sh, whose helpers read these; a fail must not leave the button down.
     local marquee_checks=0 marquee_button_down=false marquee_ctrl_down=false before_band after_band
-    local band_rows=4 end_polls=100 end_poll_s=0.05 band_tail_min=3 band_glide_px=0 band_tail
+    local band_rows=4 end_polls=100 end_poll_s=0.05 band_tail_min=3 band_glide_px=0 band_tail band_end band_end_tol=1
     export YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-$XDG_RUNTIME_DIR/.ydotool_socket}"
     [[ -S "$YDOTOOL_SOCKET" ]] || fail "clickedge: no ydotoold socket at $YDOTOOL_SOCKET"
     trap '( marquee_release ) >/dev/null 2>&1 || true' EXIT
@@ -2650,6 +2650,10 @@ case_clickedge() {
             sleep "$end_poll_s"
         done
         [[ "$band_settled" == true ]] || fail "clickedge: $mode the wheel never settled past the flush end $band_flush, contentY $band_now"
+        # The notch must reach the true end of travel, not stop part way into the footer or clamp short of it.
+        band_end=$(ipc viewEndY)
+        [[ "$band_end" =~ ^-?[0-9]+$ ]] || fail "clickedge: $mode the view's end of travel is unreadable, got [$band_end]"
+        (( band_now - band_end <= band_end_tol && band_end - band_now <= band_end_tol )) || fail "clickedge: $mode the wheel settled at contentY $band_now, not the end of travel $band_end"
         read -r ax ay aw ah <<< "$(ipc listAreaRect)"
         read -r brx bry brw brh <<< "$(ipc rowRect "$band_last")"
         [[ "$ax $ay $aw $ah $brx $bry $brw $brh" =~ ^[0-9]+(\ [0-9]+){7}$ ]] || fail "clickedge: $mode band geometry unavailable"
