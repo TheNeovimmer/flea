@@ -478,11 +478,11 @@ Item {
                     return true
                 return (y + height >= v.contentY) && (y <= v.contentY + v.height)
             }
-            // Only the drawn child lends its height; the rest hold no geometry that matters.
-            height: block.type === "run" || block.type === "heading" ? runText.height
+            // Only the drawn child lends its height, so an empty heading or quote has none and takes only the gap a browser gives it.
+            height: block.type === "run" || block.type === "heading" ? (block.type === "heading" && block.text === "" ? 0 : runText.height)
                 : block.type === "fence" ? fenceBox.height
                 : block.type === "figure" ? figureBox.height
-                : block.type === "quote" ? quoteRow.height
+                : block.type === "quote" ? (block.text === "" ? 0 : quoteRow.height)
                 : block.type === "remote" ? remoteBox.height
                 : block.type === "list" ? listGrid.height + listGrid.y
                 : block.type === "table" ? tableGrid.height + tableGrid.y : localImage.height
@@ -491,7 +491,7 @@ Item {
                     Flea.MarkdownText {
                         id: runText
                         linkGate: Markdown.isExternalLink
-                        visible: block.type === "run" || block.type === "heading"
+                        visible: block.type === "run" || (block.type === "heading" && block.text !== "")
                         width: parent.width
                         text: block.type === "run" || block.type === "heading" ? block.text : ""
                         font.pixelSize: block.type === "heading" ? root.headingPx(block.level) : root.bodyPx
@@ -672,7 +672,7 @@ Item {
 
                     Row {
                         id: quoteRow
-                        visible: block.type === "quote"
+                        visible: block.type === "quote" && block.text !== ""
                         width: parent.width
                         spacing: Theme.spacing.gap
 

@@ -7,7 +7,7 @@ var HARD_BREAK_SPACES = 2
 var MAX_MARKER_LENGTH = 10
 
 // Sample input: "foo  \nbar" and "foo\\\nbar" break the line; "foo \nbar" and a paragraph's last newline do not.
-function lineBreak(body, i, out, delims) {
+function lineBreak(body, i, out, delims, endParagraph) {
     var slash = body.charAt(i) === "\\"
     var next = slash ? i + 2 : i + 1
     var spaces = 0
@@ -17,10 +17,11 @@ function lineBreak(body, i, out, delims) {
     }
     while (next < body.length && (body.charAt(next) === " " || body.charAt(next) === "\t"))
         next++
-    // A blank line ends the paragraph, and no emphasis mark pairs across it.
+    // A blank line ends the paragraph, and no emphasis mark pairs and no bracket pair closes across it.
     if (next < body.length && body.charAt(next) === "\n") {
         Emph.process(delims, delims.bottom)
         delims.bottom = delims.length
+        endParagraph()
     }
     if (next < body.length && body.charAt(next) !== "\n" && (slash || spaces >= HARD_BREAK_SPACES)) {
         out.push("<br />")

@@ -1,6 +1,7 @@
 .import "../../ui/js/Markdown.js" as Markdown
 .import "../../ui/js/MdLeaf.js" as Leaf
 .import "../../ui/js/MdInline.js" as Inline
+.import "../../ui/js/MdLink.js" as Link
 .import "../../ui/js/MdUrl.js" as Url
 .import "../../ui/js/MdRun.js" as Run
 .import "sourcefixture.js" as Source
@@ -25,7 +26,7 @@ function run(assert) {
     check("R12 md2a F48 dead escape helper removed", /function escapeChar\(/.test(inlineSource), false)
     check("R12 md2a F52 dead fence closer removed", /function fenceClose\(/.test(Source.source("ui/js/MdLeaf.js")), false)
     check("R12 md2a F53 named punctuation bounds", /code\s*[<>]=\s*\d/.test(Source.source("ui/js/MdEscape.js")), false)
-    check("R12 md2a F53 named prefix lengths", /text\.slice\(i, i \+ \d+\)/.test(Source.slice(inlineSource, "function readBarelink(", "return url.length")), false)
+    check("R12 md2a F53 named prefix lengths", /text\.slice\(i, i \+ \d+\)/.test(Source.slice(Source.source("ui/js/MdLink.js"), "function readBarelink(", "return url.length")), false)
     check("R12 md2b F53 named driver stride", /sp \+= \d/.test(Source.source("ui/js/MdRun.js")), false)
     var strideSites = ["out[out.length - INTERVAL_STRIDE]", "out.length -= INTERVAL_STRIDE",
         "codeAt += INTERVAL_STRIDE", "ai += fromA ? INTERVAL_STRIDE : 0", "bi += fromA ? 0 : INTERVAL_STRIDE"]
@@ -37,12 +38,15 @@ function run(assert) {
     var lineEnds = ["\n", "\r", "\r\n"]
     for (var e = 0; e < lineEnds.length; e++) {
         check("md2a F42 escaped destination line ending " + e,
-            Inline.readInlineTarget("(a\\" + lineEnds[e] + "b.png)", 0), null)
-        check("md2a F42 escaped title line ending " + e,
-            Inline.readInlineTarget('(a "title\\' + lineEnds[e] + 'continued")', 0), null)
+            Link.readInlineTarget("(a\\" + lineEnds[e] + "b.png)", 0), null)
+        var spanning = '(a "title\\' + lineEnds[e] + 'continued")'
+        check("md2a F42 a title spans a line ending after a backslash " + e,
+            Link.readInlineTarget(spanning, 0), { url: "a", end: spanning.length })
+        check("md2a F42 a title never spans a blank line " + e,
+            Link.readInlineTarget('(a "title' + lineEnds[e] + lineEnds[e] + 'continued")', 0), null)
     }
-    check("md2a F42 escaped destination control", Inline.readInlineTarget("(a\\)b.png)", 0).url, "a\\)b.png")
-    check("md2a F42 escaped title control", Inline.readInlineTarget('(a "title\\\"continued")', 0).url, "a")
+    check("md2a F42 escaped destination control", Link.readInlineTarget("(a\\)b.png)", 0).url, "a\\)b.png")
+    check("md2a F42 escaped title control", Link.readInlineTarget('(a "title\\\"continued")', 0).url, "a")
 
     check("md2b F34 comparison keeps text", blocks("a < b > c"), [{ type: "run", text: "a &#60; b &#62; c" }])
     check("md2b F34 digit-led keeps text", blocks("I <3 you > them"), [{ type: "run", text: "I &#60;3 you &#62; them" }])
@@ -90,7 +94,7 @@ function run(assert) {
     check("md2b F41 HTML badge corpus", corpus.indexOf('[<img src="{H}/{p}/badge.png">](local.md)') >= 0, true)
     var parsers = [
         ["md2a F44", "ui/js/MdLeaf.js", ["isThematic", "fenceOpen", "alertTitle", "taskText"]],
-        ["md2a F44", "ui/js/MdInline.js", ["normalizeLabel"]],
+        ["md2a F44", "ui/js/MdLink.js", ["normalizeLabel"]],
         ["md2b F43", "ui/js/MdHtml.js", ["tagHead"]],
         ["md2b F43", "ui/js/MdRefs.js", ["readFootnoteRef"]],
         ["md2b F43", "ui/js/MdResolve.js", ["parseAngle"]],

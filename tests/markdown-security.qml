@@ -8,7 +8,8 @@ import "flea/js/MdUrl.js" as Url
 import "flea/js/MdResolve.js" as Resolve
 import "flea/js/MdHtml.js" as Html
 import "flea/js/MdBlocks.js" as Blocks
-import "flea/js/MdInline.js" as Inline
+import "flea/js/MdLink.js" as Link
+import "mdfence.js" as Fence
 
 // Render the preview and every emitted block offscreen; the shell checks the counter after the control GET handshake.
 ShellRoot {
@@ -47,12 +48,12 @@ ShellRoot {
         return true
     }
 
-    // Sample: ![x](file:///pic.png) and <img src="file:///pic.png"> expose Text image resources, unless inside a closed fence (code).
+    // Sample: ![x](file:///pic.png) and <img src="file:///pic.png"> expose Text image resources, unless inside a fence (code).
     function resourceUrls(item, urls) {
         if (item.textFormat === Text.MarkdownText) {
             var re = /!\[[^\]]*\]\(([^)]+)\)|<img\b[^>]*\bsrc=["']([^"']*)["']/g
             var hit = null
-            var drawnText = String(item.text).replace(/^```[^\n]*\n[\s\S]*?\n```$/gm, "")
+            var drawnText = Fence.withoutFences(item.text)
             while ((hit = re.exec(drawnText)) !== null)
                 urls.push(hit[1] || hit[2])
         }
@@ -74,7 +75,7 @@ ShellRoot {
             if (use === null)
                 continue
             var label = use[2] || use[1]
-            var key = Inline.normalizeLabel(label)
+            var key = Link.normalizeLabel(label)
             var path = /(f[0-9]+c[0-9]+)$/.exec(key)
             var expected = path === null ? "" : counter + "/" + path[1] + "/x.png"
             if (expected === "" || defs[key] !== expected)
@@ -127,6 +128,14 @@ ShellRoot {
         for (var l = 0; l < links.length; l++) {
             if (links[l].indexOf("[") >= 0 || links[l].indexOf("<a ") >= 0)
                 validationFailures.push("rejected target emitted anchor syntax " + l)
+        }
+        // A destination spelled through references reads as a refused scheme after one decode or several, so none becomes a link, even around an image.
+        var spelled = ["&amp;#106;avascript:alert(1)", "javascript&amp;colon;alert(1)", "&amp;#x6a;avascript&amp;colon;alert(1)", "java&amp;Tab;script:alert(1)",
+            "javascript&amp;amp;colon;alert(1)", "data&amp;colon;text/html,x"]
+        for (var sp = 0; sp < spelled.length; sp++) {
+            var spelledText = JSON.stringify(Blocks.blocks("[![a](p.png)](" + spelled[sp] + ")\n[b](" + spelled[sp] + ")\n", dir, "#181825", "#c0caf5"))
+            if (spelledText.indexOf("](") >= 0 || spelledText.indexOf("<a ") >= 0)
+                validationFailures.push("refused scheme spelled through references became a link " + sp)
         }
         log("blocks=" + md.blockList.length)
         // Build resource probes after delegates, then wait for their native Image completion signals.

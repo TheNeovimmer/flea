@@ -46,7 +46,8 @@ var GLOBAL_ATTRS = { align: 1, alt: 1, width: 1, height: 1, title: 1,
 
 // Void tags never take a closing tag.
 var VOID = { br: 1, hr: 1, img: 1, source: 1 }
-
+// Qt draws a raw s tag struck on every build but drops del and strike, so all three are emitted as s.
+var STRIKE_AS = { del: "s", strike: "s" }
 function isNameChar(c) {
     return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9")
 }
@@ -234,7 +235,7 @@ function sanitizeTag(tag, dir, tokens) {
         return holdToken(tokens, html)
     }
     var head = tagHead(tag)
-    var name = head.name
+    var name = STRIKE_AS.hasOwnProperty(head.name) ? STRIKE_AS[head.name] : head.name
     if (name.length === 0)
         return { emit: "&#60;", drop: null }
     if (DROP_CONTENT.hasOwnProperty(name))

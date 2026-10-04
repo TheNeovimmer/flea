@@ -1,5 +1,6 @@
 .import "../../ui/js/Markdown.js" as Markdown
 .import "../../ui/js/MdInline.js" as MdInline
+.import "../../ui/js/MdLink.js" as MdLink
 .import "../../ui/js/MdBlocks.js" as MdBlocks
 .import "../../ui/js/MdContainer.js" as MdContainer
 .import "../../ui/js/MdLeaf.js" as MdLeaf
@@ -203,7 +204,7 @@ function run(check) {
     check("seven hashes is prose", kinds("####### Seven\n"), "run")
     check("a hash tag is prose", kinds("#hashtag\n"), "run")
     check("four spaces make code, not a heading", kinds("Text\n\n    # code\n"), "run,fence")
-    check("an empty heading draws nothing", kinds("#\n\nText\n"), "run")
+    check("an empty heading is a block with no text", kinds("#\n\nText\n"), "heading,run")
     check("a closing run glued to the text stays text",
         Markdown.blocks("# foo#\n", dir, chrome, ink)[0].text, "foo#")
     check("a heading ends a list it follows", kinds("- a\n- b\n# Next\n"), "list,heading")
@@ -318,7 +319,6 @@ function run(check) {
     check("an alert titles itself", alert.text.indexOf("<strong>Note</strong>") === 0, true)
     var warn = Markdown.blocks("> [!WARNING] Careful.\n", dir, chrome, ink)[0]
     check("a warning titles itself", warn.text.indexOf("<strong>Warning</strong>") === 0, true)
-
     check("R12 md2a F49 lowercase note title", Markdown.blocks("> [!note] Read this.", dir, chrome, ink)[0].text, "<strong>Note</strong> Read this.")
     check("R12 md2a F49 mixed warning title", Markdown.blocks("> [!wARNING] Careful.", dir, chrome, ink)[0].text, "<strong>Warning</strong> Careful.")
 
@@ -346,7 +346,7 @@ function run(check) {
     for (var bareIndex = 0; bareIndex < bareCases.length; bareIndex++) {
         var bareCase = bareCases[bareIndex]
         check("R12 md2a F51 punctuation and parens " + bareIndex,
-            MdInline.readBarelink(bareCase.source, bareCase.source.indexOf("https://")).url, bareCase.url)
+            MdLink.readBarelink(bareCase.source, bareCase.source.indexOf("https://")).url, bareCase.url)
         check("R12 md2a F51 emitted href " + bareIndex,
             styled(bareCase.source).indexOf('href="' + bareCase.url + '"') >= 0, true)
     }
@@ -424,7 +424,7 @@ function run(check) {
         styled('![p](shot.png "t")').indexOf("![p](file:///home/gm/notes/shot.png)") >= 0, true)
     var targetScanLimit = 8192
     check("a title beyond the target scan limit stays literal",
-        MdInline.readInlineTarget('(b "' + "x".repeat(targetScanLimit) + '")', 0), null)
+        MdLink.readInlineTarget('(b "' + "x".repeat(targetScanLimit) + '")', 0), null)
     var titleUnit = "[a](b ("
     var titleRepeats = 3000
     var titleSamples = 16
@@ -446,7 +446,7 @@ function run(check) {
     }
     try {
         for (var titleSample = 0; titleSample < titleSamples; titleSample++)
-            MdInline.readInlineTarget(countedTitles, titleSample * titleUnit.length + "[a]".length)
+            MdLink.readInlineTarget(countedTitles, titleSample * titleUnit.length + "[a]".length)
     } catch (error) {
         if (error !== readLimitHit)
             throw error

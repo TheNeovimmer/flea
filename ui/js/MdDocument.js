@@ -2,6 +2,7 @@
 
 // Serialize the block reader's events; all container and code decisions belong to MdBlocks.
 .import "MdLeaf.js" as Leaf
+.import "MdContainer.js" as Container
 .import "MdRun.js" as Run
 .import "MdItems.js" as Items
 .import "MdResolve.js" as Res
@@ -13,12 +14,13 @@ function writer(state, dir, chrome, ink) {
     var run = []
     var tokens = []
     var cited = []
-    function inlineOf(text, citations, literalPlain) {
+    function inlineOf(text, citations, literalPlain, bareText) {
         return Run.parseInline(text, dir, state.defs, state.numbers, chrome, ink, tokens,
-            citations === false ? undefined : cited, literalPlain)
+            citations === false ? undefined : cited, literalPlain, bareText)
     }
+    // Prose outside every container: a ">" in it, even after a formula's figure, is text and never a quote mark.
     function pushText(text) {
-        var html = inlineOf(text)
+        var html = inlineOf(text, undefined, false, true)
         if (html.trim().length === 0)
             return
         var block = { type: "run", text: html }
@@ -65,7 +67,7 @@ function writer(state, dir, chrome, ink) {
     // The underline of a setext heading takes the paragraph above it out of the pending run and draws it as a heading.
     function setext(event) {
         var at = run.length
-        while (at > 0 && run[at - 1].trim().length > 0)
+        while (at > 0 && run[at - 1].trim().length > 0 && !Leaf.isThematic(run[at - 1]))
             at--
         var paragraph = run.slice(at)
         run.length = at
@@ -91,8 +93,7 @@ function writer(state, dir, chrome, ink) {
             else
                 out.push({ type: "fence", text: source, info: Ent.decodeReferences(event.info) })
         } else if (event.type === "heading") {
-            if (event.text !== "")
-                out.push({ type: "heading", level: event.level, text: inlineOf(Leaf.headingSafe(event.text)) })
+            out.push({ type: "heading", level: event.level, text: inlineOf(Leaf.headingSafe(event.text)) })
         } else if (event.type === "table") {
             pushAll(Leaf.chunkTable(Leaf.tableBlock(event.head, event.aligns, event.rows,
                 function (text) { return inlineOf(text, true, true) })))
@@ -109,7 +110,8 @@ function writer(state, dir, chrome, ink) {
     // The line's text once the list markers and indents around it are gone; a lazy line has none to remove.
     function leadText(event) {
         var lead = event.lead
-        return lead.here === lead.n && !lead.lazy ? " ".repeat(lead.pad) + lead.raw.slice(lead.at) : event.text
+        return lead.here === lead.n && !lead.lazy
+            ? " ".repeat(lead.pad) + Container.expandLead(lead.raw.slice(lead.at), lead.col + lead.pad) : event.text
     }
     // A delimiter row the block reader refused as a table keeps its first dash from the renderer, which would make a table of it.
     function tableless(text) {
@@ -151,7 +153,7 @@ function writer(state, dir, chrome, ink) {
             if (event.kind === "codeEnd")
                 return
             if (top.type === "quote")
-                outer.lines.push({ text: leadText(event), index: event.index, depth: event.lead.n, raw: Items.isFence(event.kind) })
+                outer.lines.push({ text: leadText(event), index: event.index, depth: event.lead.n, raw: Items.isRaw(event.kind) })
             else
                 outer.builder.add(event, leadText(event))
             return

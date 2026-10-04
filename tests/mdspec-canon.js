@@ -1,7 +1,6 @@
 .pragma library
 
-// The spec harness's normaliser: HTML to the structure a reader sees, so two serialisations of one drawing compare equal.
-// Inline markup flattens to runs (nesting order and tag names vanish), whitespace collapses, entities decode, attributes sort.
+// The spec harness's normaliser: HTML to the structure a reader sees, inline markup flattened to runs, so two serialisations compare equal.
 
 var BLOCK_TAGS = { blockquote: 1, ul: 1, ol: 1, li: 1, p: 1, h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1,
     pre: 1, hr: 1, table: 1, thead: 1, tbody: 1, tr: 1, th: 1, td: 1 }
@@ -33,7 +32,7 @@ function readAttrs(rest) {
     return attrs
 }
 
-// A forgiving tree: unbalanced closers are ignored and open elements close at the end, as a browser would settle them.
+// Sample input: "<ul><li>a</li></ul>" answers { tag: "", kids: [{ tag: "ul", kids: [{ tag: "li", kids: [{ text: "a" }] }] }] }.
 function parse(html) {
     var root = { tag: "", attrs: {}, kids: [] }
     var stack = [root]
@@ -218,7 +217,7 @@ function blockOf(n, design) {
     return "<" + t + attrs + ">" + flow(n.kids, loose, design) + "</" + t + ">"
 }
 
-// The canonical form of an HTML string; design maps what Flea deliberately never draws (active content) out of the expected side.
+// Sample input: "<p>a  <em>b</em></p>" answers "<p>a ⟦i|b⟧</p>"; design maps what Flea never draws out of the expected side.
 function canon(html, design) {
     return flow(parse(html).kids, false, design === true)
 }

@@ -5,9 +5,9 @@
 // MdItems: one top-level list as flat entries (depth, marker, loose flag per list), and the quote and list blocks built from them.
 var BULLET = "•"
 
-// Sample input: "fenceBody" is a line inside a fence; "run" is prose.
-function isFence(kind) {
-    return kind === "fenceOpen" || kind === "fenceBody" || kind === "fenceClose"
+// Sample input: "fenceBody" and "codeLine" are lines inside a fence or an indented block; "run" is prose.
+function isRaw(kind) {
+    return kind === "fenceOpen" || kind === "fenceBody" || kind === "fenceClose" || kind === "codeLine"
 }
 
 // Sample input: item "a" holding a nested list "b" answers entries a (depth 0, marker bullet) and b (depth 1).
@@ -52,7 +52,7 @@ function builder() {
     function add(event, text) {
         var chain = event.chain
         var lead = event.lead
-        var line = { text: text, index: event.index, raw: isFence(event.kind) }
+        var line = { text: text, index: event.index, raw: isRaw(event.kind) }
         var last = lead.n - 1
         var from = Math.min(lead.retained, lead.n)
         // A blank line opens no item; "-" alone opens an empty one.
@@ -87,7 +87,7 @@ function builder() {
     return { add: add, entries: entries }
 }
 
-// The text of the lines that draw; kept.raw[k] marks a fence line, which the renderer reads as code and the inline pass never sees.
+// The text of the lines that draw; kept.raw[k] marks a code line, which the renderer reads as code and the inline pass never sees.
 function visibleLines(lines, state) {
     var kept = []
     kept.raw = []
@@ -106,7 +106,7 @@ function visibleLines(lines, state) {
     return kept
 }
 
-// Prose lines go through the inline pass, a fence inside an item or a quote stays verbatim for the renderer's own code block.
+// Prose goes through the inline pass; a fence or indented code in an item or quote stays verbatim for the renderer.
 function inlineLines(kept, inlineOf) {
     var parts = []
     var prose = []
@@ -132,17 +132,16 @@ function quoteBlocks(all, state, inlineOf) {
         while (to < all.length && all[to].depth === all[at].depth)
             to++
         var quote = visibleLines(all.slice(at, to), state)
-        if (quote.join("\n").trim().length > 0) {
-            var title = at === 0 && !quote.raw[0] ? Leaf.alertTitle(quote[0]) : null
-            if (title !== null)
-                quote[0] = title
-            var block = { type: "quote", text: inlineLines(quote, inlineOf) }
-            if (all[at].depth > 1)
-                block.depth = all[at].depth
-            if (at > 0)
-                block.joined = true
-            out.push(block)
-        }
+        // A quote with nothing to draw is still a block: a browser gives it its margin.
+        var title = at === 0 && !quote.raw[0] ? Leaf.alertTitle(quote[0]) : null
+        if (title !== null)
+            quote[0] = title
+        var block = { type: "quote", text: quote.join("\n").trim().length > 0 ? inlineLines(quote, inlineOf) : "" }
+        if (all[at].depth > 1)
+            block.depth = all[at].depth
+        if (at > 0)
+            block.joined = true
+        out.push(block)
         at = to
     }
     return out

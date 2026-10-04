@@ -1943,6 +1943,7 @@ ui/PreviewMarkdown.qml	471	modelData	Delegate context supplies this model role a
 ui/PreviewMarkdown.qml	472	index	Delegate context supplies this model role at runtime.
 ui/PreviewMarkdown.qml	494	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMarkdown.qml	494	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	494	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMarkdown.qml	496	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMarkdown.qml	496	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMarkdown.qml	496	block	Declared QML property; enclosing component context supplies it.
@@ -2024,6 +2025,7 @@ ui/PreviewMarkdown.qml	665	root	Declared QML id; component context access is val
 ui/PreviewMarkdown.qml	666	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	667	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	669	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	675	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMarkdown.qml	675	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMarkdown.qml	689	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	690	block	Declared QML property; enclosing component context supplies it.

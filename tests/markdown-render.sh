@@ -102,6 +102,7 @@ EOF
 : > "$test_root/notes.md.empty.md"
 printf '# Identical\n' > "$test_root/notes.md.first.md" || exit 1
 cp "$test_root/notes.md.first.md" "$test_root/notes.md.second.md" || exit 1
+printf 'before\n\n## \n\n>\n\nafter\n' > "$test_root/notes.md.gaps.md" || exit 1
 # A name far past any bar width, so the bar must elide it and the room it may take is measured.
 long_name_digits=200
 long_fixture="$test_root/long-$(printf "%0${long_name_digits}d" 0).md"

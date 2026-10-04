@@ -1,29 +1,44 @@
 .pragma library
 
-// MdEntity: backslash escapes and character references inside a link destination or an info string, which no renderer reads for us.
+// MdEntity: backslash escapes and character references in destinations, info strings and running text, decoded here.
+.import "MdEntityTable.js" as Names
+
 var REPLACEMENT_CHARACTER = 0xfffd
 var MAX_CODE_POINT = 0x10ffff
-var LATIN1_START = 0xa0
-var LATIN1_NAMES = ("nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr deg plusmn sup2 sup3 acute micro para "
-    + "middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc "
-    + "Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig "
-    + "agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve oacute ocirc "
-    + "otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml").split(" ")
-var NAMED = { amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'" }
-for (var n = 0; n < LATIN1_NAMES.length; n++)
-    NAMED[LATIN1_NAMES[n]] = String.fromCharCode(LATIN1_START + n)
+var SURROGATE_START = 0xd800
+var SURROGATE_END = 0xdfff
+// The longest reference is "&CounterClockwiseContourIntegral;" (33 characters), so a window this long holds any one.
+var REFERENCE_WINDOW = 34
 var REFERENCE = /\\([!-\/:-@\[-`{-~])|&(?:#([0-9]{1,7})|#[xX]([0-9a-fA-F]{1,6})|([A-Za-z][A-Za-z0-9]{1,31}));/g
+var REFERENCE_HERE = /^&(?:#([0-9]{1,7})|#[xX]([0-9a-fA-F]{1,6})|([A-Za-z][A-Za-z0-9]{1,31}));/
 
-// Sample input: "f&ouml;o\*" answers "föo*"; an unknown name such as "&nosuch;" stays as written.
+// Sample input: 10 and 0x1F600 answer their characters; 0, a surrogate and a value past U+10FFFF answer U+FFFD.
+function codePointText(code) {
+    var valid = code > 0 && code <= MAX_CODE_POINT && (code < SURROGATE_START || code > SURROGATE_END)
+    return String.fromCodePoint(valid ? code : REPLACEMENT_CHARACTER)
+}
+
+// Sample input: "f&ouml;o\\*" answers "f\u00f6o*"; an unknown name such as "&nosuch;" stays as written.
 function decodeReferences(text) {
     if (text.indexOf("\\") < 0 && text.indexOf("&") < 0)
         return text
     return text.replace(REFERENCE, function (all, escaped, dec, hex, name) {
         if (escaped !== undefined)
             return escaped
-        if (name !== undefined)
-            return NAMED.hasOwnProperty(name) ? NAMED[name] : all
-        var code = dec !== undefined ? parseInt(dec, 10) : parseInt(hex, 16)
-        return String.fromCodePoint(code > 0 && code <= MAX_CODE_POINT ? code : REPLACEMENT_CHARACTER)
+        if (name !== undefined) {
+            var named = Names.namedValue(name)
+            return named === null ? all : named
+        }
+        return codePointText(dec !== undefined ? parseInt(dec, 10) : parseInt(hex, 16))
     })
+}
+
+// Sample input: "a &copy; b" at index 2 answers { text: "\u00a9", end: 8 }; "&nosuch;" and a bare "&" answer null.
+function referenceAt(text, i) {
+    var hit = REFERENCE_HERE.exec(text.slice(i, i + REFERENCE_WINDOW))
+    if (hit === null)
+        return null
+    var decoded = hit[3] !== undefined ? Names.namedValue(hit[3])
+        : codePointText(hit[1] !== undefined ? parseInt(hit[1], 10) : parseInt(hit[2], 16))
+    return decoded === null ? null : { text: decoded, end: i + hit[0].length }
 }

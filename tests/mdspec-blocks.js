@@ -12,14 +12,13 @@ function unwrap(html) {
 var TASK_OPEN = "☐ "
 var TASK_DONE = "☑ "
 
-// One item as list-item content: a task glyph becomes a checkbox, and a tight item keeps its first paragraph bare.
+// One item as list-item content: a task glyph becomes a checkbox, and a tight item keeps every paragraph bare.
 function itemHtml(text, qt, dir, loose) {
     var html = Qt.fromExport(qt(text), dir, text)
     var done = text.indexOf(TASK_DONE) === 0
     var box = done || text.indexOf(TASK_OPEN) === 0
-    var first = /^<p>([\s\S]*?)<\/p>/.exec(html)
-    if (first !== null && !loose)
-        html = first[1] + html.slice(first[0].length)
+    if (!loose)
+        html = html.replace(/<p>([\s\S]*?)<\/p>/g, "$1")
     if (box)
         html = html.replace(done ? "☑ " : "☐ ", "<input " + (done ? "checked=\"\" " : "") + "disabled=\"\" type=\"checkbox\"> ")
     return html
