@@ -273,8 +273,7 @@ cap_permissions_box() {
     shot "$shot_name"
 }
 
-# Permissions040 pointer states: moves onto a control, asserts the pointer reached it through ipc, then shoots it
-# hovered or held pressed. A press is let go outside the control, so the shot never acts (no toggle, no Apply).
+# Permissions040 pointer states: a hover or a held press proven through ipc, the press let go off the control so nothing acts.
 cap_permissions_pointer() {
     local name="$1" mode="$2" shot_name="$3" centre cx cy wx wy ww wh
     local settle_limit_s=5 away_px=150 nudge_px=1

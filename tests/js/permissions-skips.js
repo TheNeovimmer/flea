@@ -21,7 +21,7 @@ function run(check) {
         Permissions.summarize(["0644", "0755"], ["", "Read-only: you are not the owner."]).bits[2].on, false)
     check("a selection of only skipped files shows every box off",
         Permissions.summarize(["4644", "2755"]).bits.every(function (b) { return !b.on && !b.mixed }), true)
-    // The skipped-item line is one sentence with at most one colon, composed here and never from the backend's own colons.
+    // The words a skip line composes hold at most one colon; a lone other reason is quoted after it as the backend wrote it.
     var setuid = "Read-only: setuid bit is present."
     var owner = "Read-only: you are not the owner."
     check("one special-bit skip reads as one sentence",
@@ -35,8 +35,8 @@ function run(check) {
         Permissions.skipNote([{ path: "/d/a.txt", why: owner }]), "a.txt keeps its mode because you do not own it.")
     check("an unnamed reason keeps its one colon",
         Permissions.skipNote([{ path: "/d/a.txt", why: "Gone." }]), "a.txt keeps its mode: Gone.")
-    check("a backend reason's own colon reads as a comma",
-        Permissions.skipNote([{ path: "/d/a.txt", why: "Read-only: mount is read-only." }]), "a.txt keeps its mode: Read-only, mount is read-only.")
+    check("any other reason is quoted as the backend wrote it, path colons included",
+        Permissions.skipNote([{ path: "/d/a.txt", why: "Could not read /mnt/c:d." }]), "a.txt keeps its mode: Could not read /mnt/c:d.")
     check("several special-bit skips share one cause and list the names",
         Permissions.skipNote([{ path: "/d/a", why: setuid }, { path: "/d/b", why: "Read-only: sticky bit is present." }]),
         "2 items keep their modes because a special bit is set: a, b")
