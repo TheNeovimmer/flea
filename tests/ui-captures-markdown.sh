@@ -24,7 +24,7 @@ capmarkdown_wait_column_rendered() {
     done
     fail "capmarkdown: column Markdown never rendered after the Quick Look flip, last saw [$view]"
 }
-# Window pixels: the pointer goes to the document's centre (previewSurfaceRect's "x y w h", the body under the bar) or to the close button's own centre.
+# Sample input: previewSurfaceRect "0 54 1268 1240" (the body under the bar), previewCloseState {"hovered":false,"pressed":false,"centre":"1244 40"}; window pixels to the document's centre or the close button's.
 capmarkdown_pointer() {
     local where="$1" sx sy sw sh wx wy _ww _wh px py
     read -r wx wy _ww _wh < <(window_box) || fail "capmarkdown: native window coordinates unavailable"
@@ -196,6 +196,8 @@ PY
     key r >/dev/null
     settle
     shot "cap-markdown-source"
+    # The close click left the pointer on the bar, so the wheel goes back over the document first.
+    capmarkdown_pointer document
     capmarkdown_scroll down "$capmarkdown_notches_mid"
     shot "cap-markdown-source-scrolled"
     key r >/dev/null
