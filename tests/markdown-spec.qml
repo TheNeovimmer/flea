@@ -48,7 +48,7 @@ Item {
         "GFM autolink": 11,
         "GFM tagfilter": 0,
         "GFM table forms": 13,
-        "Entity forms": 7,
+        "Entity forms": 8,
         "Definition forms": 1
     })
 
@@ -129,15 +129,20 @@ Item {
         return { state: rule === "" ? "fail" : "exception", rule: rule, got: got, want: want }
     }
 
-    // The adapter's own checks: a tight item keeps the paragraphs of a list or quote nested in its text, and loses only its own.
+    // The adapter's own checks, from the parser's own block model: a tight item keeps the paragraphs of a nested loose list or quote, and loses only its own.
     function adapterFailures() {
-        var texts = ["a\n\n- b\n\n  b2\n\n- c", "a\n\n> q\n>\n> r"]
-        var wants = ["<ul><li>a<ul><li>b<p>b2</p></li><li>c</li></ul></li></ul>", "<ul><li>a<blockquote><p>q</p><p>r</p></blockquote></li></ul>"]
+        var quote = { type: "list", ordered: false, start: 0, items: ["a\n\n> q\n>\n> r"], depths: [0], markers: ["\u2022"], gaps: [false] }
+        var cases = [
+            { blocks: Markdown.blocks("- a\n  - b\n\n    b2\n\n  - c\n", gate.dir, gate.chrome, gate.ink),
+                want: "<ul><li>a<ul><li><p>b</p><p>b2</p></li><li><p>c</p></li></ul></li></ul>" },
+            { blocks: Markdown.blocks("- a\n\n  - b\n\n    b2\n\n  - c\n", gate.dir, gate.chrome, gate.ink),
+                want: "<ul><li><p>a</p><ul><li><p>b</p><p>b2</p></li><li><p>c</p></li></ul></li></ul>" },
+            { blocks: [quote], want: "<ul><li>a<blockquote><p>q</p><p>r</p></blockquote></li></ul>" }
+        ]
         var failures = 0
-        for (var t = 0; t < texts.length; t++) {
-            var nested = { type: "list", ordered: false, start: 0, items: [texts[t]], depths: [0], markers: ["\u2022"], gaps: [false] }
-            var got = Blocks.blocksHtml([nested], gate.exported, gate.dir)
-            if (got !== wants[t]) {
+        for (var t = 0; t < cases.length; t++) {
+            var got = Blocks.blocksHtml(cases[t].blocks, gate.exported, gate.dir)
+            if (got !== cases[t].want) {
                 console.log("FAIL adapter: a tight item holding a nested block drew " + got)
                 failures++
             }

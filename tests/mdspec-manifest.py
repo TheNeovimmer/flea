@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""The Markdown spec examples as files for the capture suite: <work>/md/<n>.md for each, and <work>/md/manifest.json listing them in order.
-
-Usage: mdspec-manifest.py WORK [LIMIT]; an entry holds markdown, html, section, example, n, group (its contact-sheet group) and state (pass, or its rule).
-"""
+"""Usage: mdspec-manifest.py WORK [LIMIT]; writes <work>/md/<n>.md per spec example and <work>/md/manifest.json (markdown, html, section, example, n, group, state) in order."""
 import json
 import os
 import re

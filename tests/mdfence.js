@@ -5,6 +5,13 @@ var FENCE_CLOSE = /^ {0,3}(`+|~+)[ \t]*$/
 var QUOTE_MARK = /^ {0,3}> ?/
 // Sample input: "  - ```js" answers ["  - ", ...]; the marker and its spaces are the width the item's lines must keep.
 var ITEM_MARKER = /^( *(?:[-*+]|\d{1,9}[.)]) +)(?=\S)/
+// Sample input: "# h", "---" and "***" are blocks that end a paragraph and are not text of one.
+var HEADING_OR_RULE = /^ {0,3}(?:#{1,6}(?: |$)|([-*_])(?: *\1){2,} *$)/
+
+// Sample input: "b" and "  text" are lazy continuation text; "- b", "```" and "# h" start a block of their own.
+function startsBlock(rest) {
+    return ITEM_MARKER.test(rest) || FENCE_OPEN.test(rest) || HEADING_OR_RULE.test(rest)
+}
 
 // Sample input: "> - ```" answers { quotes: 1, rest: "- ```" }; a line in no quote answers quotes 0 and the line itself.
 function stripQuotes(line) {
@@ -31,20 +38,28 @@ function insideContainer(line, quotes, indent) {
 }
 
 // Sample input: a line "- ```" over an empty stack answers { quotes: 0, indent: 2, rest: "```" } and pushes the item; "  ```" under it answers the same.
+// An item whose last block is an open paragraph (para) keeps a dedented line of paragraph text, as CommonMark's lazy continuation does.
 function openerOf(line, items) {
     var inner = stripQuotes(line)
     var rest = inner.rest
-    if (rest.trim().length > 0) {
+    var blank = rest.trim().length === 0
+    var top = items.length > 0 ? items[items.length - 1] : null
+    if (!blank) {
         var lead = /^ */.exec(rest)[0].length
-        while (items.length > 0 && (items[items.length - 1].quotes > inner.quotes || (items[items.length - 1].quotes === inner.quotes && lead < items[items.length - 1].indent)))
+        var lazy = top !== null && top.para && top.quotes === inner.quotes && !startsBlock(rest)
+        while (!lazy && items.length > 0 && (items[items.length - 1].quotes > inner.quotes || (items[items.length - 1].quotes === inner.quotes && lead < items[items.length - 1].indent)))
             items.pop()
+        top = items.length > 0 ? items[items.length - 1] : null
+    } else if (top !== null) {
+        top.para = false
     }
     var marker = ITEM_MARKER.exec(rest)
     if (marker !== null) {
-        items.push({ quotes: inner.quotes, indent: marker[1].length })
+        items.push({ quotes: inner.quotes, indent: marker[1].length, para: !HEADING_OR_RULE.test(rest.slice(marker[1].length)) })
         return { quotes: inner.quotes, indent: marker[1].length, rest: rest.slice(marker[1].length) }
     }
-    var top = items.length > 0 ? items[items.length - 1] : null
+    if (top !== null && !blank)
+        top.para = !HEADING_OR_RULE.test(rest)
     if (top !== null && top.quotes === inner.quotes && /^ */.exec(rest)[0].length >= top.indent)
         return { quotes: inner.quotes, indent: top.indent, rest: rest.slice(top.indent) }
     return { quotes: inner.quotes, indent: 0, rest: rest }
@@ -74,6 +89,8 @@ function withoutFences(text) {
             close++
         }
         out.push("")
+        if (items.length > 0)
+            items[items.length - 1].para = false
         // A closing fence belongs to the fence; a line that left the container is read again as ordinary text.
         i = close < lines.length && insideContainer(lines[close], box.quotes, box.indent) === null ? close - 1 : close
     }

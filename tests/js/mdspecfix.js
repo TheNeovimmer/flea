@@ -162,4 +162,14 @@ function run(check) {
     check("a definition with a title that breaks on a blank line is text", blocks("[foo]: /url 'title\n\nwith blank line'\n\n[foo]\n")[0].text.indexOf("&#91;foo&#93;: /url 'title") >= 0, true)
     check("a destination on the next line defines", blocks("[foo]:\n/url\n\n[foo]\n")[0].text.indexOf("href=\"/url\"") >= 0, true)
     check("an inline destination breaks after its parenthesis", blocks("[link](\n/uri\n\"title\")\n")[0].text.indexOf("href=\"/uri\"") >= 0, true)
+    // A run of space references is one unit: dropped whole at a line start or end, otherwise one raw space, whatever its length.
+    var spaceRef = "&#32;"
+    var floodLength = 40
+    check("a run of space references before a line break is no hard break", blocks("x" + spaceRef.repeat(3) + "\ny\n")[0].text, "x\ny\n")
+    check("two space references before a line break are no hard break", blocks("a" + spaceRef.repeat(2) + "\nb\n")[0].text, "a\nb\n")
+    check("a run of twelve space references opens no indented code", blocks(spaceRef.repeat(12) + "x\n")[0].text, "x\n")
+    check("a run of forty space references opens no indented code", blocks(spaceRef.repeat(floodLength) + "x\n")[0].text, "x\n")
+    check("a run of space references inside a line is one raw space", blocks("a" + spaceRef.repeat(floodLength) + "b\n")[0].text, "a b\n")
+    check("a run of space references ends with the text", blocks("x" + spaceRef.repeat(floodLength))[0].text, "x")
+    check("space and tab references join one run", blocks("x" + spaceRef + "&Tab;&#10;\ny\n")[0].text, "x\ny\n")
 }

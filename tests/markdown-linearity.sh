@@ -25,7 +25,7 @@ sample=0
 [ ! -f "$LINEARITY_COUNTER" ] || read -r sample < "$LINEARITY_COUNTER"
 sample=$((sample + 1))
 echo "$sample" > "$LINEARITY_COUNTER"
-for name in codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun tagCost tagAttrs linkFrames blankList blankIndent punctTail; do
+for name in codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun tagCost tagAttrs linkFrames blankList blankIndent spaceFlood spaceAlternate punctTail; do
     [ "$LINEARITY_CASE" != missing ] || [ "$name" != listDeep ] || continue
     [ "$LINEARITY_CASE" != short ] || [ "$sample" != 2 ] || [ "$name" != listDeep ] || continue
     large=8
@@ -64,7 +64,7 @@ STUB
             unknown) expected_message='FAIL invalid work sample in run 1: bogus' ;;
             diagnostics)
                 expected_status=0
-                expected_message='PASS 15 pathological inputs, 3 complete repetitions'
+                expected_message='PASS 17 pathological inputs, 3 complete repetitions'
                 ;;
         esac
         if [ "$status" -ne "$expected_status" ] || ! grep -qF "$expected_message" "$probe_root/output"; then
@@ -115,7 +115,7 @@ run_once() {
     printf '%s\n' "$output" | sed -n 's/^qml: WORK //p'
 }
 
-expected=(codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun tagCost tagAttrs linkFrames blankList blankIndent punctTail)
+expected=(codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun tagCost tagAttrs linkFrames blankList blankIndent spaceFlood spaceAlternate punctTail)
 repetitions=3
 size_ratio=8
 margin_numerator=3

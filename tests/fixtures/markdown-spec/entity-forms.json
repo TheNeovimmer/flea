@@ -36,6 +36,12 @@
   "html": "<p>a  \nb</p>\n"
  },
  {
+  "example": "space-run-is-not-a-break",
+  "section": "Entity forms",
+  "markdown": "x&#32;&#32;&#32;\ny\n",
+  "html": "<p>x   \ny</p>\n"
+ },
+ {
   "example": "quote-and-list-marks",
   "section": "Entity forms",
   "markdown": "&#62; q\n\n&#45; i\n",

@@ -46,8 +46,9 @@ function referenceAt(text, i) {
 
 // Sample input: "", " " or "  " is a piece with nothing drawn on its line.
 var BLANK_PIECE = /^ *$/
-// Pieces of output looked back over, so a flood of references stays linear.
+// Pieces of output looked back over, so a flood of blanks stays linear.
 var BLANK_WINDOW = 8
+var WHITESPACE_REFERENCE = /[\t\n\r\f]/g
 
 // Sample input: out ["a", "\n", " "] is blank after its last newline; ["a ", "b"] is not; longer than the window answers false, a long leading run is code already.
 function blankLineTail(out) {
@@ -63,9 +64,22 @@ function blankLineTail(out) {
     return floor === 0
 }
 
-// A decoded reference reaches Qt as numeric entities; Qt drops an entity space, so a space stays raw unless it would open indented code or end a line as a hard break, where it is dropped.
-function decodedReference(text, out, next) {
-    if (text === " " && (next === " " || next === "\n" || next === "" || blankLineTail(out)))
-        return ""
-    return Md.escapeHtmlText(text)
+// Sample input: "&#9;" and "&#10;" are drawn as one space, any other text is unchanged.
+function drawnText(text) {
+    return text.replace(WHITESPACE_REFERENCE, " ")
+}
+
+// Sample input: "x&#32;&#32;\ny" at 1 answers { text: "", end: 13 } (line end), "x&#32;&#32;y" answers { text: " ", end: 13 }, "&copy;" answers null.
+// Qt drops an entity space, so a run of references that draw a space is one unit: dropped whole where it would open indented code or end a line as a hard break, else one raw space.
+function spaceRunAt(text, i, out) {
+    var end = i
+    var hit = referenceAt(text, end)
+    while (hit !== null && drawnText(hit.text) === " ") {
+        end = hit.end
+        hit = referenceAt(text, end)
+    }
+    if (end === i)
+        return null
+    var atLineEnd = end >= text.length || text.charAt(end) === "\n"
+    return { text: atLineEnd || blankLineTail(out) ? "" : " ", end: end }
 }

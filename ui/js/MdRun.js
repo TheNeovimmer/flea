@@ -12,7 +12,6 @@
 .import "MdHold.js" as Hold
 
 var hasOwn = Object.prototype.hasOwnProperty
-var WHITESPACE_REFERENCE = /[\t\n\r\f]/g
 // The work gate replaces this no-op to count each frame visited.
 var countFrameStep = function () {}
 
@@ -248,9 +247,15 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
             continue
         }
         if (c === "&") {
+            var spaces = Ent.spaceRunAt(body, i, out)
+            if (spaces !== null) {
+                out.push(spaces.text)
+                i = spaces.end
+                continue
+            }
+            // Qt's own table is short and keeps a newline reference, so the character is decoded here.
             var reference = Ent.referenceAt(body, i)
-            // Qt's own table is short and keeps a newline reference, so the character is decoded here; a drawn line break is a space.
-            out.push(reference === null ? c : Ent.decodedReference(reference.text.replace(WHITESPACE_REFERENCE, " "), out, body.charAt(reference.end)))
+            out.push(reference === null ? c : Md.escapeHtmlText(reference.text))
             i = reference === null ? i + 1 : reference.end
             continue
         }

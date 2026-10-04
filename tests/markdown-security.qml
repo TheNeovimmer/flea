@@ -137,11 +137,17 @@ ShellRoot {
             if (spelledText.indexOf("](") >= 0 || spelledText.indexOf("<a ") >= 0)
                 validationFailures.push("refused scheme spelled through references became a link " + sp)
         }
-        // A character a reference spells reaches Qt as an entity, never as the syntax mark: no link, emphasis or indented code forms from it.
-        var entitySpelled = ["&#91;x&#93;&#40;javascript&#58;alert&#40;1&#41;&#41;", "&ast;a&ast;", "&#32;&#32;&#32;&#32;code"]
+        // A character a reference spells reaches Qt as an entity, never as the syntax mark: no link, emphasis, indented code or hard break forms from it.
+        var entitySpelled = ["&#91;x&#93;&#40;javascript&#58;alert&#40;1&#41;&#41;", "&ast;a&ast;", "&#32;&#32;&#32;&#32;code",
+            "x&#32;&#32;&#32;\ny", "&#32;".repeat(12) + "x", "&#32;".repeat(40) + "x", "x" + "&#32;".repeat(40)]
+        function formsCode(input) {
+            return Blocks.blocks(input + "\n", dir, "#181825", "#c0caf5").some(function (block) { return block.type === "fence" })
+        }
+        if (!formsCode("    code"))
+            validationFailures.push("the indented code check does not see a literal four-space code block")
         for (var es = 0; es < entitySpelled.length; es++) {
             var entityRuns = Blocks.blocks(entitySpelled[es] + "\n", dir, "#181825", "#c0caf5").map(function (block) { return block.text }).join("")
-            if (/[\[\]*]|<a |^ /.test(entityRuns))
+            if (/[\[\]*]|<a /.test(entityRuns) || / {2,}\n|(^|\n) /.test(entityRuns) || formsCode(entitySpelled[es]))
                 validationFailures.push("a reference-spelled mark reached Qt as syntax " + es)
         }
         log("blocks=" + md.blockList.length)
@@ -189,7 +195,9 @@ ShellRoot {
         var fenceCases = [{ text: "- ```\n  code\nafter ![x](u)\n", drawn: true }, { text: "> ```\n> code\nafter ![x](u)\n", drawn: true },
             { text: "1. a\n   - ```\n     code\n   after ![x](u)\n", drawn: true }, { text: "- ```\n  ![x](u)\n\n  ![y](v)\n  ```\nafter\n", drawn: false },
             { text: "> ```\n> ![x](u)\n> ```\nafter\n", drawn: false }, { text: "- a\n  ```\n  code\nafter ![x](u)\n", drawn: true },
-            { text: "- a\n  ```\n  code\n  ```\nmore ![x](u)\n", drawn: true }]
+            { text: "- a\n  ```\n  code\n  ```\nmore ![x](u)\n", drawn: true }, { text: "- a\nb\n  ```\n  code\nafter ![x](u)\n", drawn: true },
+            { text: "- a\n  - b\nc\n  ```\n  code\nafter ![x](u)\n", drawn: true }, { text: "- a\n\nb\n  ```\n  code\nafter ![x](u)\n", drawn: false },
+            { text: "- a\nb\n  ```\n  ![x](u)\n  ```\n", drawn: false }]
         for (var fc = 0; fc < fenceCases.length; fc++) {
             if ((Fence.withoutFences(fenceCases[fc].text).indexOf("![x](u)") >= 0) !== fenceCases[fc].drawn)
                 validationFailures.push("container fence extent wrong for case " + fc)

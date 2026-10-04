@@ -465,6 +465,14 @@ QtObject {
                 var half = Math.floor(n / 2);
                 return "- parent\n" + "\n".repeat(half) + " ".repeat(half) + "x";
             },
+            spaceFlood: function (n) {
+                var unit = "&#32;";
+                return "x" + unit.repeat(Math.floor(n / unit.length)) + "y";
+            },
+            spaceAlternate: function (n) {
+                var unit = "&#32; ";
+                return unit.repeat(Math.floor(n / unit.length)) + "y";
+            },
             punctTail: function (n) {
                 var url = "https://example.com/x";
                 var tailLength = n - url.length;
@@ -480,7 +488,7 @@ QtObject {
             }
         };
         var names = ["codeDense", "codeOnly", "bangOpen", "bracketOpen", "angleOpen",
-            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent", "punctTail"];
+            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent", "spaceFlood", "spaceAlternate", "punctTail"];
         Work.install();
         Work.work = 0;
         var uppercaseInput = "Note";
