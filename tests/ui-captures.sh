@@ -339,6 +339,11 @@ permissions_click_at() {
     assert_focus
     omarchy-drive click "$((wx + cx))" "$((wy + cy))" left >/dev/null || fail "cap_permissions: pointer click failed"
 }
+# Sample output: live, disabled or absent; a live entry carries no disabled key at all, so a missing one reads live.
+cap_permissions_makeexec_state() {
+    ipc menuState | jq -r '[.entries[] | select(.action == "makeExecutable")][0] | if . == null then "absent" elif (.disabled // false) then "disabled" else "live" end'
+}
+
 # Permissions040 callout 3: the file menu on a shebang script at 0644 with Permissions unhidden offers Make executable beside its glyph.
 cap_permissions_menu_specimen() {
     local entries="" end
@@ -350,13 +355,13 @@ cap_permissions_menu_specimen() {
     # The row goes live when the two-byte shebang read answers, so the wait is on the live row, not on its label.
     while (( SECONDS < end )); do
         entries=$(ipc contextMenuEntries)
-        [[ "$entries" == *"Make executable"* && "$(ipc menuState | jq -r '[.entries[] | select(.action == "makeExecutable")][0].disabled')" == "false" ]] && break
+        [[ "$entries" == *"Make executable"* && "$(cap_permissions_makeexec_state)" == "live" ]] && break
         sleep 0.1
     done
     [[ "$entries" == *"Make executable"* && "$entries" == *"Permissions"* ]] \
         || fail "cap_permissions: the shebang script's menu lacks Make executable or Permissions, got $entries"
-    [[ "$(ipc menuState | jq -er '[.entries[] | select(.action == "makeExecutable")][0].disabled')" == "false" ]] \
-        || fail "cap_permissions: Make executable is not live on the shebang script"
+    [[ "$(cap_permissions_makeexec_state)" == "live" ]] \
+        || fail "cap_permissions: Make executable is not live on the shebang script, it reads $(cap_permissions_makeexec_state)"
     shot cap-permissions-makeexec-menu
     key -k Escape >/dev/null
     settle
