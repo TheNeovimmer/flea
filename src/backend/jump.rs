@@ -143,12 +143,14 @@ fn zoxide(program: &str, limit: Duration) -> Option<Vec<(String, f64)>> {
     Some(ranked)
 }
 
-// True once the child has exited and been reaped within the grace; a child still running after it is the reaper thread's.
+// True once the child has exited and been reaped within the grace; a child still running after it, or one try_wait cannot read, is the reaper thread's.
 fn reaped_within(child: &mut std::process::Child, grace: Duration) -> bool {
     let deadline = Instant::now() + grace;
     loop {
-        if !matches!(child.try_wait(), Ok(None)) {
-            return true;
+        match child.try_wait() {
+            Ok(Some(_)) => return true,
+            Ok(None) => {}
+            Err(_) => return false,
         }
         if Instant::now() >= deadline {
             return false;
