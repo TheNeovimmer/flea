@@ -1,7 +1,6 @@
 import QtQuick
 import qs.Commons
 import "." as Flea
-import "js/Buttons.js" as Buttons
 import "js/OpenWith.js" as OpenWith
 import "js/Input.js" as Input
 
@@ -206,9 +205,10 @@ Item {
 
         Flea.CardScroll {
             id: body
+            bleedY: Theme.ringClearance
             anchors.fill: parent
-            anchors.topMargin: Theme.spacing.rowPaddingX
-            anchors.bottomMargin: Theme.spacing.rowPaddingX
+            anchors.topMargin: Theme.spacing.rowPaddingX - Theme.ringClearance
+            anchors.bottomMargin: Theme.spacing.rowPaddingX - Theme.ringClearance
 
         Column {
             width: parent.width
@@ -251,17 +251,7 @@ Item {
                     height: Theme.rowHeight - Theme.spacing.rowPaddingY
                     color: Theme.color.background
                     border.width: Theme.spacing.hairline
-                    // Focus is a ring outside the unchanged frame, never an accent frame.
-                    border.color: Theme.color.muted
-
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.margins: -Buttons.RING
-                        color: "transparent"
-                        border.width: Buttons.RING
-                        border.color: Theme.color.foreground
-                        visible: field.activeFocus
-                    }
+                    border.color: field.activeFocus ? Theme.color.accent : Theme.color.muted
 
                     Flea.Glyph {
                         id: lens

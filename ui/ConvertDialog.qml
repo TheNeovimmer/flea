@@ -211,9 +211,10 @@ Item {
 
         Flea.CardScroll {
             id: body
+            bleedY: Theme.ringClearance
             anchors.fill: parent
-            anchors.topMargin: Theme.spacing.rowPaddingX
-            anchors.bottomMargin: Theme.spacing.rowPaddingX
+            anchors.topMargin: Theme.spacing.rowPaddingX - Theme.ringClearance
+            anchors.bottomMargin: Theme.spacing.rowPaddingX - Theme.ringClearance
 
         Column {
             width: parent.width
@@ -248,7 +249,7 @@ Item {
                 delegate: Flea.MenuRow {
                     required property string modelData
                     required property int index
-                    width: body.width
+                    width: body.holderWidth
                     enabled: root.editable
                     entry: ({ label: root.formatLabel(modelData), action: modelData, glyph: "image",
                         labelColor: Theme.color.foreground, disabled: !root.editable })

@@ -1,7 +1,6 @@
 import QtQuick
 import qs.Commons
 import "." as Flea
-import "js/Buttons.js" as Buttons
 import "js/Format.js" as Format
 
 // Menu-only actions share the existing card, field and button language.
@@ -182,10 +181,11 @@ FocusScope {
         }
         Flea.CardScroll {
             id: body
+            bleed: Theme.ringClearance
             anchors.fill: parent
-            anchors.margins: Theme.spacing.rowPaddingX
+            anchors.margins: Theme.spacing.rowPaddingX - Theme.ringClearance
             Column {
-                width: body.width
+                width: body.holderWidth
                 spacing: Theme.spacing.gap
                 Flea.DialogTitle {
                     width: parent.width
@@ -205,16 +205,8 @@ FocusScope {
                     width: parent.width
                     height: Theme.rowHeight
                     color: Theme.color.background
-                    border.color: Theme.color.muted
+                    border.color: field.activeFocus ? Theme.color.accent : Theme.color.muted
                     border.width: Theme.spacing.hairline
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.margins: -Buttons.RING
-                        color: "transparent"
-                        border.width: Buttons.RING
-                        border.color: Theme.color.foreground
-                        visible: field.activeFocus
-                    }
                     TextInput {
                         id: field
                         anchors.fill: parent
@@ -246,7 +238,7 @@ FocusScope {
                     ].concat(root.facts.symlink ? [["Link target", root.facts.target]] : []) : []
                     Column {
                         required property var modelData
-                        width: body.width
+                        width: body.holderWidth
                         Text { width: parent.width; text: parent.modelData[0]; textFormat: Text.PlainText; color: Theme.color.muted; font { family: Theme.font.family; pixelSize: Theme.font.caption } }
                         Text { width: parent.width; text: parent.modelData[1]; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
                     }

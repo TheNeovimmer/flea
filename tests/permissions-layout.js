@@ -38,7 +38,7 @@ function parts(card, theme) {
         items: items,
         rules: items.filter(function (item) {
             return String(item).indexOf("QQuickRectangle") === 0
-                && item.height === theme.spacing.hairline && item.width === card.bodyItem.width
+                && item.height === theme.spacing.hairline && item.width === card.bodyItem.holderWidth
         }),
         headings: items.filter(function (item) { return item.text === HEADING }),
         lastRow: items.find(function (item) { return item.text === "Everyone" }).parent,
@@ -47,7 +47,8 @@ function parts(card, theme) {
     }
 }
 
-function top(card, item) { return item.mapToItem(card.bodyItem, 0, 0).y }
+// The holder sits bleedY inside the body, so a row's top is read from the holder's own origin.
+function top(card, item) { return item.mapToItem(card.bodyItem, 0, 0).y - card.bodyItem.bleedY }
 function bottom(card, item) { return top(card, item) + item.height }
 
 // One item keeps its three rules and its heading; several items keep neither, and the hint and buttons follow the board's gaps.

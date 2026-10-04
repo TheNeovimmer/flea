@@ -1,6 +1,5 @@
 import QtQuick
 import qs.Commons
-import "js/Buttons.js" as Buttons
 
 // The row becoming its own editor, per the States artboard: an accent frame around the name, the
 // extension muted inside that frame, enter commits and escape abandons.
@@ -25,6 +24,9 @@ Item {
     readonly property real errorHeight: errorText.length > 0 ? errorLabel.implicitHeight + Theme.spacing.gap : 0
     readonly property real fieldHeight: height - errorHeight
     readonly property alias inputItem: field
+    // The editor's frame and the extension's patch, so a test measures the patch against the frame's four sides.
+    readonly property alias frame: editFrame
+    readonly property alias extensionPatch: mutedExtension
     implicitHeight: Theme.rowHeight - 2 * Theme.spacing.rowPaddingY + errorHeight
 
     signal committed(string newName)
@@ -225,19 +227,12 @@ Item {
     }
 
     Rectangle {
+        id: editFrame
         width: parent.width
         height: root.fieldHeight
         color: Theme.color.background
         border.width: Theme.spacing.hairline
-        border.color: root.errorText.length > 0 ? Theme.color.error : Theme.color.muted
-        Rectangle {
-            anchors.fill: parent
-            anchors.margins: -Buttons.RING
-            color: "transparent"
-            border.width: Buttons.RING
-            border.color: Theme.color.foreground
-            visible: field.activeFocus && root.errorText.length === 0
-        }
+        border.color: root.errorText.length > 0 ? Theme.color.error : Theme.color.accent
     }
 
     TextInput {
@@ -303,9 +298,10 @@ Item {
         // that text existed, came back 0, and the patch covered the stem instead of the extension.
         // Every view drew a rename as a bare ".txt" until the first keystroke moved the selection.
         x: field.contentWidth >= 0 ? field.x + field.positionToRectangle(root.stemEnd).x : field.x
-        y: field.y
+        // One hairline in from the frame's top and bottom, so the patch never covers the frame's sides.
+        y: field.y + Theme.spacing.hairline
         width: Math.max(0, field.width - (x - field.x))
-        height: field.height
+        height: field.height - 2 * Theme.spacing.hairline
         clip: true
 
         Rectangle {

@@ -72,13 +72,14 @@ FocusScope {
         }
         Flea.CardScroll {
             id: body
+            bleed: Theme.ringClearance
             anchors.fill: parent
-            anchors.leftMargin: root.cardPadding + Theme.spacing.hairline
-            anchors.rightMargin: root.cardPadding + Theme.spacing.hairline
-            anchors.topMargin: root.cardPadding + Theme.spacing.hairline
-            anchors.bottomMargin: root.cardBottomPadding + Theme.spacing.hairline
+            anchors.leftMargin: root.cardPadding + Theme.spacing.hairline - Theme.ringClearance
+            anchors.rightMargin: root.cardPadding + Theme.spacing.hairline - Theme.ringClearance
+            anchors.topMargin: root.cardPadding + Theme.spacing.hairline - Theme.ringClearance
+            anchors.bottomMargin: root.cardBottomPadding + Theme.spacing.hairline - Theme.ringClearance
             Column {
-                width: body.width
+                width: body.holderWidth
                 spacing: Theme.spacing.gap
                 Row {
                     width: parent.width

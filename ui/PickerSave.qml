@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import "." as Flea
-import "js/Buttons.js" as Buttons
 import "js/Format.js" as Format
 import "js/Picker.js" as Picker
 
@@ -26,8 +25,9 @@ Item {
     Rectangle { anchors.fill: parent; color: Theme.color.surface }
     Flea.CardScroll {
         id: body
+        bleed: Theme.ringClearance
         anchors.fill: parent
-        anchors.margins: Theme.spacing.rowPaddingX
+        anchors.margins: Theme.spacing.rowPaddingX - Theme.ringClearance
         Column {
             id: column
             width: parent.width
@@ -49,16 +49,8 @@ Item {
                     implicitHeight: Math.max(Theme.hitMin, field.implicitHeight + 2 * Theme.spacing.rowPaddingY)
                     color: Theme.color.background
                     border.width: Theme.spacing.hairline
-                    // Focus is a ring outside the unchanged frame, never an accent frame.
-                    border.color: Theme.color.muted
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.margins: -Buttons.RING
-                        color: "transparent"
-                        border.width: Buttons.RING
-                        border.color: Theme.color.foreground
-                        visible: field.activeFocus
-                    }
+                    // Muted at rest, accent on focus: the frame DialogField, MenuActionDialog, OpenWithDialog and PermissionsDialog draw.
+                    border.color: field.activeFocus ? Theme.color.accent : Theme.color.muted
                     TextInput {
                         id: field
                         anchors.fill: parent

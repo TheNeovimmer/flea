@@ -139,6 +139,42 @@ ipc_call_kill_after=1s
 chrome_band_inset=2
 # Wide enough to hold the elided head's opaque fill and the hairline either side of it; that gap measured at x 80 to 86.
 chrome_edge_sample_width=200
+# The open field's frame is one hairline, and ui/js/Buttons.js RING is the button ring's width, which a field never draws.
+chrome_hairline=1
+chrome_ring_width=2
+# A drawn pixel sits within this many units per channel of its theme hex (the window composites over a translucent ground: 1 to 2 measured), and it must stay under half the smallest channel distance between accent, foreground and the bar's ground, which the band check asserts.
+chrome_ink_tolerance=3
+# Sample input: chrome_hex_distance d08840 c8ccd0 sets chrome_hex_gap to 144, the largest per-channel difference of two 6-digit hexes; a variable, so a per-pixel caller forks nothing.
+chrome_hex_distance() {
+    local a=$1 b=$2 i d
+    chrome_hex_gap=0
+    for i in 0 2 4; do
+        d=$(( 16#${a:i:2} - 16#${b:i:2} )); d=${d#-}
+        if (( d > chrome_hex_gap )); then chrome_hex_gap=$d; fi
+    done
+}
+# Sample input: chrome_ink click-chrome-band-2 1x1+300+3 c8ccd0 sets chrome_ink_count to how many of the crop's pixels have every channel within chrome_ink_tolerance of that hex; a variable, so its failures end the suite and not a caller's subshell.
+chrome_ink() {
+    local png="$evidence_dir/$1.png" geometry=$2 want=${3,,} cw ch cx cy iw="" ih="" txt line pixels=0
+    chrome_ink_count=0
+    [[ "$want" =~ ^[0-9a-f]{6}$ ]] || fail "chrome_ink: the ink $3 asked of $1.png is not a 6-digit hex"
+    # Sample input: "1x1+300+3" is a crop 1 wide and 1 tall at x 300, y 3.
+    [[ "$geometry" =~ ^([0-9]+)x([0-9]+)\+(-?[0-9]+)\+(-?[0-9]+)$ ]] || fail "chrome_ink: the crop $geometry of $1.png is not WxH+X+Y"
+    cw=${BASH_REMATCH[1]} ch=${BASH_REMATCH[2]} cx=${BASH_REMATCH[3]} cy=${BASH_REMATCH[4]}
+    # Sample input: "1280 720", the capture's width and height; the format ends in a newline, without which read returns 1 at end of input on a good answer.
+    read -r iw ih < <(magick identify -format '%w %h\n' "$png") || true
+    [[ "$iw" =~ ^[0-9]+$ && "$ih" =~ ^[0-9]+$ ]] || fail "chrome_ink: magick could not read the size of $png, got '$iw $ih'"
+    (( cx >= 0 && cy >= 0 && cx + cw <= iw && cy + ch <= ih )) || fail "chrome_ink: the crop $geometry of $1.png lies outside its ${iw}x${ih} capture"
+    txt=$(magick "$png" -crop "$geometry" +repage -depth 8 txt:-) || fail "chrome_ink: magick could not crop $1.png at $geometry"
+    # Sample input: one pixel line of magick's txt output, "300,3: (208,136,65)  #D08841  srgb(208,136,65)"; its first 6 hex digits are the 8-bit channels.
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[0-9]+,[0-9]+:.*#([0-9A-Fa-f]{6}) ]] || continue
+        pixels=$(( pixels + 1 ))
+        chrome_hex_distance "${BASH_REMATCH[1],,}" "$want"
+        if (( chrome_hex_gap <= chrome_ink_tolerance )); then chrome_ink_count=$(( chrome_ink_count + 1 )); fi
+    done <<< "$txt"
+    (( pixels == cw * ch )) || fail "chrome_ink: the crop $geometry of $1.png read $pixels pixels, not $(( cw * ch ))"
+}
 # The rule is the house hairline, foreground at 12 percent, so a crumb glyph under it shows through: measured 2 of 255 on this box, against 23 for the surface an opaque fill would expose in its place.
 chrome_edge_max_spread=8
 # The Hyprland corner arc shows wallpaper through the window's own top-left pixels, so start past it.
@@ -426,6 +462,9 @@ real_user_shell_toml="$HOME/.config/omarchy/shell.toml"
 # foreground        = "#c8ccd0"   # content ink
 real_foreground=$(grep -E '^foreground' "$real_state_dir/theme/colors.toml" | grep -oE '#[0-9A-Fa-f]{6}')
 [[ -n "$real_foreground" ]] || fail "no foreground in $real_state_dir/theme/colors.toml, so no shot could be checked against the live palette"
+# Sample input, one line of the live colors.toml: accent = "#d4a017"
+real_accent=$(grep -E '^accent' "$real_state_dir/theme/colors.toml" | grep -oE '#[0-9A-Fa-f]{6}')
+[[ -n "$real_accent" ]] || fail "no accent in $real_state_dir/theme/colors.toml, so no focused field could be checked against the live palette"
 
 # Theme.stateDir is built from $HOME, so a window under a fixture HOME paints Theme's own fallback
 # palette rather than the live theme, which is how two README shots shipped Catppuccin colours.
@@ -2213,6 +2252,17 @@ case_click() {
     band_crumb=$(( $(ipc crumbCount) - 1 ))
     read -r band_x _band_y <<< "$(ipc crumbCentre "$band_crumb")"
     [[ -n "$band_x" ]] || fail "click: crumb $band_crumb has no on-screen centre, so no band of the strip can be pressed over one"
+    # Accent, foreground and the bar's ground must be told apart by more than twice the tolerance, or a low-chroma theme would match everything.
+    local ground_hex pair pair_a pair_an pair_b pair_bn pair_gap
+    ground_hex=$(grep -E '^background[[:space:]]*=' "$real_state_dir/theme/colors.toml" | grep -oE '#[0-9A-Fa-f]{6}')
+    [[ -n "$ground_hex" ]] || fail "click: no background in $real_state_dir/theme/colors.toml, so the strip's ground cannot be told from the accent"
+    for pair in "${real_accent#\#} accent ${real_foreground#\#} foreground" "${real_accent#\#} accent ${ground_hex#\#} ground" "${real_foreground#\#} foreground ${ground_hex#\#} ground"; do
+        read -r pair_a pair_an pair_b pair_bn <<< "$pair"
+        chrome_hex_distance "$pair_a" "$pair_b"
+        pair_gap=$chrome_hex_gap
+        (( pair_gap > 2 * chrome_ink_tolerance )) \
+            || fail "click: the $pair_an $pair_a and the $pair_bn $pair_b differ by $pair_gap per channel at most, within twice the ink tolerance $chrome_ink_tolerance, so this theme cannot be checked by colour"
+    done
     for band in "$chrome_band_inset" "$(( chrome_h - 1 - chrome_band_inset ))"; do
         omarchy-drive click "$((band_x + wx))" "$((band + wy))" --double >/dev/null \
             || fail "click: omarchy-drive refused the double click at y $band of the strip"
@@ -2223,6 +2273,44 @@ case_click() {
         [[ "$(ipc pathBarOpen)" == "true" ]] \
             || fail "click: a double click at y $band of the ${chrome_h}px strip did not open the path bar"
         [[ "$(ipc path)" == "$deep" ]] || fail "click: the double click at y $band navigated to $(ipc path)"
+        # Sample input: "74 3 592 20", the open field's frame, one hairline in the accent with no ring around it.
+        local fx fy fw fh span ink accent
+        read -r fx fy fw fh <<< "$(ipc pathFrameRect)"
+        span=$(( fw + 2 * chrome_ring_width ))
+        ink=${real_foreground#\#}
+        accent=${real_accent#\#}
+        # Neither the accent nor the foreground (a ring's ink) lies on the window's first row or on the strip's rule row.
+        local edge_row edge_ink
+        for edge_row in 0 $(( chrome_h - 1 )); do
+            for edge_ink in "$accent" "$ink"; do
+                chrome_ink "click-chrome-band-$band" "${span}x1+$(( fx - chrome_ring_width ))+$edge_row" "$edge_ink"
+                [[ "$chrome_ink_count" == 0 ]] \
+                    || fail "click: ink $edge_ink lies on row $edge_row of the strip beside the open path field (band y $band)"
+            done
+        done
+        # Each side is one accent pixel at its middle, where the corner radius cannot soften it, with none just outside or inside it.
+        local cx cy side sides sx sy ox oy ix iy step
+        cx=$(( fx + fw / 2 )); cy=$(( fy + fh / 2 ))
+        # Sample input: "300 3 0 -1 0 1", the top side's pixel, then the step outward and the step inward.
+        sides=("$cx $fy 0 -1 0 1" "$cx $(( fy + fh - chrome_hairline )) 0 1 0 -1"
+               "$fx $cy -1 0 1 0" "$(( fx + fw - chrome_hairline )) $cy 1 0 -1 0")
+        for side in "${sides[@]}"; do
+            read -r sx sy ox oy ix iy <<< "$side"
+            chrome_ink "click-chrome-band-$band" "1x1+$sx+$sy" "$accent"
+            [[ "$chrome_ink_count" == 1 ]] \
+                || fail "click: the open path field's frame is not the accent at $sx,$sy (band y $band)"
+            # A restored ring is 2 px of foreground just outside the frame, so it puts that ink on both pixels beside a side, where the bar's ground carries neither ink.
+            for (( step = 1; step <= chrome_ring_width; step++ )); do
+                for edge_ink in "$accent" "$ink"; do
+                    chrome_ink "click-chrome-band-$band" "1x1+$(( sx + ox * step ))+$(( sy + oy * step ))" "$edge_ink"
+                    [[ "$chrome_ink_count" == 0 ]] \
+                        || fail "click: ink $edge_ink lies $step px outside the open path field at $sx,$sy, a ring or a wider frame (band y $band)"
+                done
+            done
+            chrome_ink "click-chrome-band-$band" "1x1+$(( sx + ix ))+$(( sy + iy ))" "$accent"
+            [[ "$chrome_ink_count" == 0 ]] \
+                || fail "click: the open path field's accent is wider than one hairline inside $sx,$sy (band y $band)"
+        done
         key -k Escape >/dev/null
         settle
         [[ "$(ipc pathBarOpen)" == "false" ]] || fail "click: Escape did not close the path bar opened at y $band"
