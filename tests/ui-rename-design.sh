@@ -2,7 +2,7 @@
 # Sourced by ui.sh; retained rename state is exercised through native keys and row menus.
 # shellcheck disable=SC2154 # ui.sh supplies the owned fixture and native driver settings.
 
-# A still listing reads the same twice in a row, polled every 50 ms for up to 2 s.
+# A still listing reads the same twice in a row: up to 40 reads, with a 50 ms sleep after each.
 rename_design_still_polls=40
 rename_design_still_s=0.05
 
@@ -34,8 +34,8 @@ rename_design_still() {
 
 rename_design_open() {
     local input="$1" name="$2" index polls
-    index=$(row_index_of "$name") || fail "rename: no row named $name to open"
     rename_design_still
+    index=$(row_index_of "$name") || fail "rename: no row named $name to open"
     click_row "$index" left
     # The click must select the row it aimed at, or the key below would rename the row the cursor was on.
     for polls in $(seq 1 "$rename_design_still_polls"); do
@@ -43,8 +43,10 @@ rename_design_open() {
         sleep "$rename_design_still_s"
     done
     [[ "$(ipc selectedIndices)" == "$index" ]] || fail "rename: the click on $name (row $index) selected [$(ipc selectedIndices)]"
+    # The selected row must still be the named file, so a relist that renumbered the rows under the click goes red.
+    [[ "$(row_index_of "$name")" == "$index" ]] || fail "rename: $name left row $index while it was clicked"
     if [[ "$input" == menu ]]; then
-        click_row "$(row_index_of "$name")" right
+        click_row "$index" right
         menus_expect menuState '.opened and .snapshotReady' 'native row menu captures rename source'
         menus_choose rename pointer
     else
