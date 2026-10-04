@@ -71,6 +71,20 @@ fn a_wedged_zoxide_is_ended_at_the_limit_and_draws_nothing() {
     assert!(!PathBuf::from(format!("/proc/{}", pid)).exists(), "the fake zoxide process is gone");
 }
 
+// Runs per check of the free slot: one run can win the race against its reaper by luck, twenty cannot.
+const FREE_SLOT_RUNS: usize = 20;
+
+#[test]
+fn a_run_that_answered_whole_leaves_the_slot_free_when_it_returns() {
+    let _turn = serial();
+    let dir = TestDir::new("jump-slot");
+    let fake = script(&dir, "zoxide", "printf '  2.0 /a\\n'");
+    for run in 0..FREE_SLOT_RUNS {
+        assert!(zoxide(&fake, ZOXIDE_LIMIT).is_some(), "run {} answered", run);
+        assert!(!ZOXIDE_RUNNING.load(Ordering::SeqCst), "run {} left the one zoxide slot held after its answer", run);
+    }
+}
+
 #[test]
 fn a_run_past_its_limit_keeps_the_ranking_that_answered_in_time() {
     let _turn = serial();

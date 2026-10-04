@@ -970,13 +970,13 @@ check "with no zoxide installed its source is empty and nothing else changes" \
   "{\"t\":\"jumped\",\"id\":7,\"favourites\":[\"$D/sub\"],\"zoxide\":[],\"recent\":[\"$D\"],\"frecency\":{}" \
   "$(jump_run "$NO_ZOXIDE")"
 
-# An open's provisional ask and the whole ask naming it run zoxide once; an ask naming no ranking runs it again.
+# One zoxide run per open, one ranking for both asks; a second run answers another folder so a rerun shows in the rows.
 COUNT_BIN="$SB/count-bin"
 mkdir -p "$COUNT_BIN"
 cat > "$COUNT_BIN/zoxide" <<EOF
 #!/bin/sh
 echo run >> '$SB/zoxide-runs'
-printf '  %s %s\n' 9.5 '$D/ranked'
+[ "\$(wc -l < '$SB/zoxide-runs')" = 1 ] && printf '  %s %s\n' 9.5 '$D/ranked' || printf '  %s %s\n' 3.5 '$D/sub'
 EOF
 chmod +x "$COUNT_BIN/zoxide"
 # Each ask waits for the previous answer, as the client's whole ask waits for the provisional one.

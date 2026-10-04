@@ -13,6 +13,9 @@ use std::time::{Duration, Instant};
 
 // zoxide answers from one local file in milliseconds, so past this it is wedged and draws nothing.
 const ZOXIDE_LIMIT: Duration = Duration::from_secs(2);
+// A zoxide whose pipe closed is exiting; this is how long the answer waits to reap it, polled in steps of REAP_POLL.
+const REAP_GRACE: Duration = Duration::from_millis(100);
+const REAP_POLL: Duration = Duration::from_millis(5);
 // About ten thousand paths, far past any ranking a person reads; a larger database is cut at its tail.
 const ZOXIDE_BYTES: u64 = 1 << 20;
 // The ranked head kept for the existence checks, already more than a dropdown ever draws.
@@ -121,11 +124,16 @@ fn zoxide(program: &str, limit: Duration) -> Option<Vec<(String, f64)>> {
     if !whole {
         let _ = child.kill();
     }
-    // A zoxide blocked in the kernel outlives even SIGKILL until its read returns, so the reap has a thread of its own.
-    std::thread::spawn(move || {
-        let _ = child.wait();
+    // A closed pipe means zoxide is exiting, so the slot is free before the answer leaves and the next ask runs its own.
+    if whole && reaped_within(&mut child, REAP_GRACE) {
         ZOXIDE_RUNNING.store(false, Ordering::SeqCst);
-    });
+    } else {
+        // A zoxide blocked in the kernel outlives even SIGKILL until its read returns, so the reap has a thread of its own.
+        std::thread::spawn(move || {
+            let _ = child.wait();
+            ZOXIDE_RUNNING.store(false, Ordering::SeqCst);
+        });
+    }
     // A run past its limit draws the ranking that answered in time, as an open behind a run in flight does.
     if !text.0 {
         return None;
@@ -133,6 +141,20 @@ fn zoxide(program: &str, limit: Duration) -> Option<Vec<(String, f64)>> {
     let ranked = ranked_paths(&String::from_utf8_lossy(&text.1), whole);
     *LAST_ZOXIDE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = ranked.clone();
     Some(ranked)
+}
+
+// True once the child has exited and been reaped within the grace; a child still running after it is the reaper thread's.
+fn reaped_within(child: &mut std::process::Child, grace: Duration) -> bool {
+    let deadline = Instant::now() + grace;
+    loop {
+        if !matches!(child.try_wait(), Ok(None)) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(REAP_POLL);
+    }
 }
 
 // The ranking kept from the last run that answered before its limit, empty on a first-ever open.
