@@ -26,8 +26,11 @@ function refreshRename(source) {
 
 // The list's scrolling surface and the rows it holds, kept apart from the pane stub so the stub carries only the pane's own members.
 function makeView(contentY) {
-    var view = { contentY: contentY, originY: 0, height: AREA_H, forceLayout: function () {}, asked: undefined, names: [] }
-    view.contentHeight = TOTAL * ROW_H + FOOTER_H
+    var view = { contentY: contentY, originY: 0, height: AREA_H, asked: undefined, names: [] }
+    view.laidOutHeight = TOTAL * ROW_H + FOOTER_H
+    view.contentHeight = view.laidOutHeight
+    // A re-list leaves contentHeight at the empty count's until the view lays out, as a ListView does before its next polish.
+    view.forceLayout = function () { view.contentHeight = view.laidOutHeight }
     for (var i = 0; i < TOTAL; i++)
         view.names.push("f" + (1000 + i))
     return view
@@ -53,6 +56,7 @@ function makeList(start, cursor, contentY) {
     p.refresh = function (select) {
         p.pendingSelect = select
         view.contentY = 0
+        view.contentHeight = FOOTER_H
         fill(p, 0)
     }
     function clamp(y) { return Math.max(0, Math.min(view.contentHeight - AREA_H, y)) }
