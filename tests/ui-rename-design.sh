@@ -32,6 +32,24 @@ rename_design_still() {
     fail "rename: the listing never held still before a click, last [$now]"
 }
 
+# A directory's names are unique, so the walk starts at the cursor and goes outward: a deep row costs a few reads, not one per row above it.
+rename_design_index_of() {
+    local want="$1" total cursor d i row
+    total=$(ipc total)
+    cursor=$(ipc cursor)
+    (( cursor >= 0 && cursor < total )) || cursor=0
+    for (( d = 0; d < total; d++ )); do
+        for i in $((cursor + d)) $((cursor - d)); do
+            (( i >= 0 && i < total )) && (( d > 0 || i == cursor )) || continue
+            row=$(ipc rowAt "$i")
+            [[ "$row" == "$want|"* ]] && { printf '%s' "$i"; return; }
+            # Grid and columns leave the list view's delegate unbuilt; read the row the shown view draws.
+            [[ "$row" == loading && "$(ipc visibleRowName "$i")" == "$want" ]] && { printf '%s' "$i"; return; }
+        done
+    done
+    fail "no row named $want in a listing of $total"
+}
+
 # The window-relative top of a row's rectangle, read before and after a commit to prove the view did not move.
 rename_design_y_of() {
     local rect
@@ -51,7 +69,7 @@ rename_design_stays() {
 rename_design_open() {
     local input="$1" name="$2" index polls
     rename_design_still
-    index=$(row_index_of "$name") || fail "rename: no row named $name to open"
+    index=$(rename_design_index_of "$name") || fail "rename: no row named $name to open"
     click_row "$index" left
     # The click must select the row it aimed at, or the key below would rename the row the cursor was on.
     for polls in $(seq 1 "$rename_design_still_polls"); do
@@ -60,7 +78,7 @@ rename_design_open() {
     done
     [[ "$(ipc selectedIndices)" == "$index" ]] || fail "rename: the click on $name (row $index) selected [$(ipc selectedIndices)]"
     # The selected row must still be the named file, so a relist that renumbered the rows under the click goes red.
-    [[ "$(row_index_of "$name")" == "$index" ]] || fail "rename: $name left row $index while it was clicked"
+    [[ "$(rename_design_index_of "$name")" == "$index" ]] || fail "rename: $name left row $index while it was clicked"
     if [[ "$input" == menu ]]; then
         click_row "$index" right
         menus_expect menuState '.opened and .snapshotReady' 'native row menu captures rename source'
@@ -171,8 +189,8 @@ case_renamedesign() (
         key -k Escape >/dev/null
         menus_expect renameState '.index == -1 and .error == "" and (.pending | not)' "$mode Escape restores ordinary row"
         menus_expect renameState ".currentRowHeight == $before" "$mode dismissal restores released row height"
-        click_row "$(row_index_of b-existing.md)" left
-        menus_equal "$mode pointer selection works after refusal dismissal" "$(row_index_of b-existing.md)" "$(ipc cursor)"
+        click_row "$(rename_design_index_of b-existing.md)" left
+        menus_equal "$mode pointer selection works after refusal dismissal" "$(rename_design_index_of b-existing.md)" "$(ipc cursor)"
 
         rename_design_open F2 a-original.md
         menus_guard "$menu_dir"
@@ -265,12 +283,12 @@ case_renamedesign() (
         menus_expect renameState '.cursor == 0' "$mode click-away setup at top"
         rename_design_open r a-original.md
         rename_design_draft a-clickaway-top.md
-        click_at=$(row_index_of b-existing.md)
+        click_at=$(rename_design_index_of b-existing.md)
         click_y=$(rename_design_y_of "$click_at")
         click_row "$click_at" left
         menus_expect renameState '.index == -1 and (.pending | not) and (.loading | not) and .cursorName == "b-existing.md"' "$mode click-away keeps clicked neighbour at top"
         rename_design_stays "$mode click-away at top leaves the clicked row where it was" "$click_y"
-        menus_equal "$mode click-away cursor at top" "$(row_index_of b-existing.md)" "$(ipc cursor)"
+        menus_equal "$mode click-away cursor at top" "$(rename_design_index_of b-existing.md)" "$(ipc cursor)"
         menus_guard "$menu_dir/a-clickaway-top.md"
         [[ -f "$menu_dir/a-clickaway-top.md" ]] || fail 'rename: click-away did not write top draft'
         rename_design_open r a-clickaway-top.md
@@ -284,12 +302,12 @@ case_renamedesign() (
         menus_expect renameState '.cursorName == "f1199.txt"' "$mode click-away setup at bottom"
         rename_design_open F2 f1199.txt
         rename_design_draft f1199-clickaway.txt
-        click_at=$(row_index_of f1198.txt)
+        click_at=$(rename_design_index_of f1198.txt)
         click_y=$(rename_design_y_of "$click_at")
         click_row "$click_at" left
         menus_expect renameState '.index == -1 and (.pending | not) and (.loading | not) and .cursorName == "f1198.txt"' "$mode click-away keeps clicked neighbour at bottom"
         rename_design_stays "$mode deep click-away leaves the clicked row where it was" "$click_y"
-        menus_equal "$mode deep click-away cursor" "$(row_index_of f1198.txt)" "$(ipc cursor)"
+        menus_equal "$mode deep click-away cursor" "$(rename_design_index_of f1198.txt)" "$(ipc cursor)"
         rename_design_open F2 f1199-clickaway.txt
         rename_design_draft f1199.txt
         click_y=$(rename_design_y_of "$(ipc cursor)")
@@ -311,14 +329,14 @@ case_renamedesign() (
         convert_pause_backend "$click_pid"
         key -k Return >/dev/null
         menus_expect renameState '.index >= 0 and .pending' "$mode rename waits while backend paused"
-        click_row "$(row_index_of b-existing.md)" left
-        click_row "$(row_index_of f0000.txt)" left
+        click_row "$(rename_design_index_of b-existing.md)" left
+        click_row "$(rename_design_index_of f0000.txt)" left
         click_y=$(rename_design_y_of "$(ipc cursor)")
         permissions_resume_stopped "$click_pid" || fail 'rename: owned backend did not resume'
         rename_stopped=""
         menus_expect renameState '.index == -1 and (.pending | not) and (.loading | not) and .cursorName == "f0000.txt"' "$mode second click while pending wins"
         rename_design_stays "$mode pending click-away leaves the clicked row where it was" "$click_y"
-        menus_equal "$mode pending-click cursor" "$(row_index_of f0000.txt)" "$(ipc cursor)"
+        menus_equal "$mode pending-click cursor" "$(rename_design_index_of f0000.txt)" "$(ipc cursor)"
         rename_design_open r a-pending-click.md
         rename_design_draft a-original.md
         click_y=$(rename_design_y_of "$(ipc cursor)")
