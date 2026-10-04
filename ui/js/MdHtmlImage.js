@@ -4,11 +4,12 @@
 .import "MdUrl.js" as MdUrl
 .import "MdHtml.js" as MdHtml
 
-// A width attribute draws at most this wide, whatever the file or the pane.
-var MAX_IMAGE_WIDTH = 4096
-// Sample input: '<p align="center"><img src="a.png"></p>' splits into the wrapper, the image and the closer.
-var IMAGE_LINE = /^(<(?:p|div)\b[^<>]*>)?\s*(<img\b[^<>]*>)\s*(<\/(?:p|div)>)?$/i
+// Sample input: '<p align="center"><a href="https://x"><img src="a.png"></a></p>' splits into wrapper, link, image, link end and closer.
+var IMAGE_LINE = /^(<(?:p|div)\b[^<>]*>)?\s*(<a\b[^<>]*>)?\s*(<img\b[^<>]*>)\s*(<\/a>)?\s*(<\/(?:p|div)>)?$/i
 var WRAPPER_OPEN = /^<(?:p|div)\b[^<>]*>$/i
+var WRAPPER_CLOSE = /^<\/(?:p|div)>$/i
+// Sample input: "<br>" or "<br />" at the start of a line; the image above it already ends its line.
+var LEADING_BREAK = /^\s*(?:<br\s*\/?>\s*)+/i
 // Sample input: " 64", "64px" and "64 " are widths; "50%", "6.4" and "abc" are not.
 var WIDTH_VALUE = /^\s*(\d{1,4})(?:px)?\s*$/i
 
@@ -52,38 +53,79 @@ function rawImage(text, dir) {
     var block = { type: "image", url: cls.url, alt: alt === null ? "" : alt }
     var sized = width === null ? null : WIDTH_VALUE.exec(width)
     if (sized !== null && Number(sized[1]) > 0)
-        block.width = Math.min(Number(sized[1]), MAX_IMAGE_WIDTH)
+        block.width = Number(sized[1])
     return block
 }
 
-// Sample input: lines ['<p align="center">', '  <img src="a.png">', '</p>'] at 0 answers { block, end: 2 }; a line that is no image unit answers null.
+// Sample input: '<a href="https://x/y">' answers "https://x/y"; a javascript: or relative target answers null.
+function linkOf(open) {
+    var attributes = MdHtml.tagHead(open).attributes
+    for (var i = 0; i < attributes.length; i++) {
+        if (attributes[i].name === "href" && attributes[i].value !== null) {
+            var url = MdHtml.normalizedTarget(MdUrl.canonicalUrl(attributes[i].value))
+            return /^(?:https?|mailto):/i.test(url) ? url : null
+        }
+    }
+    return null
+}
+
+// The lines after a wrapper's image up to its closer, none blank: { rest, end }, or null when the closer is missing.
+function wrapperTail(lines, from) {
+    var rest = []
+    for (var j = from; j < lines.length; j++) {
+        var line = lines[j].trim()
+        if (WRAPPER_CLOSE.test(line))
+            return { rest: rest, end: j }
+        if (line === "")
+            return null
+        rest.push(line)
+    }
+    return null
+}
+
+// Sample input: lines ['<p align="center">', '  <img src="a.png">', '</p>'] at 0 answers { block, end: 2, wrapper: [] }; a line that is no image unit answers null.
+// wrapper holds the opener, the lines between the image and the closer, and the closer on one line, to draw under the image; empty when none.
 function imageUnit(lines, at, dir) {
     var first = IMAGE_LINE.exec(lines[at].trim())
     var open = null
+    var parts = null
     var last = at
-    var image = null
     if (first !== null && first[1] !== undefined) {
         open = first[1]
-        image = first[2]
+        parts = first
     } else if (first === null && WRAPPER_OPEN.test(lines[at].trim()) && at + 1 < lines.length) {
-        var inner = IMAGE_LINE.exec(lines[at + 1].trim())
-        if (inner === null || inner[1] !== undefined)
+        parts = IMAGE_LINE.exec(lines[at + 1].trim())
+        if (parts === null || parts[1] !== undefined)
             return null
         open = lines[at].trim()
-        image = inner[2]
         last = at + 1
-        if (inner[3] === undefined) {
-            if (at + 2 >= lines.length || !/^<\/(?:p|div)>$/i.test(lines[at + 2].trim()))
-                return null
-            last = at + 2
-        }
     } else {
         return null
     }
-    var block = rawImage(image, dir)
+    if ((parts[2] === undefined) !== (parts[4] === undefined))
+        return null
+    var rest = []
+    if (parts[5] === undefined) {
+        var tail = wrapperTail(lines, last + 1)
+        if (tail === null)
+            return null
+        rest = tail.rest
+        last = tail.end
+    }
+    var block = rawImage(parts[3], dir)
     if (block === null)
         return null
     if (isCentred(open))
         block.align = "center"
-    return { block: block, end: last }
+    if (parts[2] !== undefined && block.type === "image" && linkOf(parts[2]) !== null)
+        block.link = linkOf(parts[2])
+    if (rest.length > 0)
+        rest[0] = rest[0].replace(LEADING_BREAK, "")
+    var shown = []
+    for (var r = 0; r < rest.length; r++) {
+        if (rest[r].length > 0)
+            shown.push(rest[r])
+    }
+    var name = MdHtml.tagHead(open).name
+    return { block: block, end: last, wrapper: shown.length === 0 ? [] : [open + shown.join("\n") + "</" + name + ">"] }
 }

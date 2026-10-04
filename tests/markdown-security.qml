@@ -109,8 +109,13 @@ ShellRoot {
         var inertText = corpusText.toLowerCase()
         if (/\bon(click|mouseover|error)\s*=/.test(inertText) || inertText.indexOf("javascript:") >= 0)
             validationFailures.push("an on* attribute or a javascript: target reached the preview")
-        if (corpusText.indexOf("R13ONTEXT") < 0 || corpusText.indexOf("R13JSTEXT") < 0)
-            validationFailures.push("the text an on* attribute or a javascript: link wrapped was lost")
+        // Each form carries its own token, so one surviving form cannot vouch for the others; an image block's own alt is not the sanitizer's.
+        var proseText = JSON.stringify(md.blockList.filter(function (b) { return b.type !== "image" }))
+        var wrappedTokens = ["R13CLICKTEXT", "R13ERRORTEXT", "R13JSTEXT"]
+        for (var w = 0; w < wrappedTokens.length; w++) {
+            if (proseText.indexOf(wrappedTokens[w]) < 0)
+                validationFailures.push("the text " + wrappedTokens[w] + " an on* attribute or a javascript: link wrapped was lost")
+        }
         var paths = ["file://" + dir + "/../x.png", dir + "/notes/../../x.png",
             "file://" + dir + "/%2e%2e/x.png", dir + "/notes/%2e%2e/%2e%2e/x.png"]
         for (var i = 0; i < paths.length; i++) {

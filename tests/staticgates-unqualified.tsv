@@ -835,6 +835,9 @@ ui/PreviewMarkdown.qml	840	block	Declared QML property; enclosing component cont
 ui/PreviewMarkdown.qml	842	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMarkdown.qml	844	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMarkdown.qml	850	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	853	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	853	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	854	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMedia.qml	88	anchors	Inherited QtQuick Item property in the enclosing item scope.
 ui/PreviewMedia.qml	88	parent	Inherited QtQuick Item property in the enclosing item scope.
 ui/PreviewPdf.qml	175	anchors	Inherited QtQuick Item property in the enclosing item scope.
@@ -2078,6 +2081,10 @@ ui/PreviewMarkdown.qml	844	block	Declared QML property; enclosing component cont
 ui/PreviewMarkdown.qml	844	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMarkdown.qml	850	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewMarkdown.qml	850	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	853	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	853	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	853	block	Declared QML property; enclosing component context supplies it.
+ui/PreviewMarkdown.qml	854	block	Declared QML property; enclosing component context supplies it.
 ui/PreviewSwap.qml	191	content	Declared QML id; component context access is valid at runtime.
 ui/PreviewSwap.qml	191	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewSwap.qml	191	root	Declared QML id; component context access is valid at runtime.

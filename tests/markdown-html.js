@@ -11,11 +11,28 @@ var SIZE_SLACK = 2;
 var BOLD_RATIO = 1.12;
 // A key cap fills far more than a stray antialiased pixel.
 var MIN_CAP_PIXELS = 100;
+// A second line starts at the text column, within this many pixels of the block's left edge (a collapsed break leaves no space).
+var LEADING_SLACK = 2;
 // The mark and the word are two clusters; the mark is narrower than this.
 var MARK_MAX_WIDTH = 14;
 // A raised glyph's foot sits this far above a baseline one.
 var RAISE_PX = 2;
-var FACT_BLOCKS = 4;
+// The harness captures geometry for this many leading blocks, and every verdict below reads exactly those.
+var CAPTURED_BLOCKS = 8;
+// A pixel within this summed distance of a colour counts as that colour.
+var COLOUR_TOLERANCE = 3;
+// A picture pixel has its channels this far apart; grey text, even antialiased, does not.
+var SATURATION_SPREAD = 40;
+// A picture row holds a run of such pixels this long (link text and its underline never do), and a logo holds this many rows.
+var MIN_PICTURE_RUN = 48;
+var MIN_PICTURE_ROWS = 20;
+// The documents the verdicts below judge; one missing from the run fails by name.
+var REQUIRED = ["07-rawhtml.md", "15-pathological.md", "16-sub-base.md", "16-sub-low.md", "16-sub-high.md",
+    "17-plain-title.md", "18-bold-title.md", "19-key.md", "19-nokey.md", "20-summary.md",
+    "21-linked-logo.md", "22-table-logo.md", "23-open-wrapper.md", "24-empty-closer.md", "25-wide-logo.md", "26-readme-header.md", "27-break.md"];
+// Local images inside raw HTML that must draw as a picture in place, and whether their wrapper centres them.
+var PICTURE_DOCS = { "21-linked-logo.md": true, "22-table-logo.md": false, "23-open-wrapper.md": true,
+    "24-empty-closer.md": true, "25-wide-logo.md": false };
 // The block types whose delegates draw text or a picture the moment they are built, and so are never empty.
 var DRAWN_TYPES = ["heading", "run", "quote", "list", "table", "image", "remote"];
 
@@ -51,11 +68,27 @@ function colourCount(px, w, h, rgb, rect) {
     for (var y = Math.max(0, Math.floor(rect.y)); y < Math.min(h, Math.ceil(rect.y + rect.h)); y++) {
         for (var x = Math.max(0, Math.floor(rect.x)); x < Math.min(w, Math.ceil(rect.x + rect.w)); x++) {
             var o = (y * w + x) * 4;
-            if (Math.abs(px[o] - rgb[0]) + Math.abs(px[o + 1] - rgb[1]) + Math.abs(px[o + 2] - rgb[2]) <= 3)
+            if (Math.abs(px[o] - rgb[0]) + Math.abs(px[o + 1] - rgb[1]) + Math.abs(px[o + 2] - rgb[2]) <= COLOUR_TOLERANCE)
                 n++;
         }
     }
     return n;
+}
+
+// Rows of the rectangle holding a run of MIN_PICTURE_RUN pixels whose channels spread past SATURATION_SPREAD: a picture's rows.
+function pictureRows(px, w, h, rect) {
+    var rows = 0;
+    for (var y = Math.max(0, Math.floor(rect.y)); y < Math.min(h, Math.ceil(rect.y + rect.h)); y++) {
+        var run = 0, best = 0;
+        for (var x = Math.max(0, Math.floor(rect.x)); x < Math.min(w, Math.ceil(rect.x + rect.w)); x++) {
+            var o = (y * w + x) * 4;
+            run = Math.max(px[o], px[o + 1], px[o + 2]) - Math.min(px[o], px[o + 1], px[o + 2]) > SATURATION_SPREAD ? run + 1 : 0;
+            best = Math.max(best, run);
+        }
+        if (best >= MIN_PICTURE_RUN)
+            rows++;
+    }
+    return rows;
 }
 
 // Runs of ink columns, each as {x0, x1}, split where a gap of CLUSTER_GAP empty columns opens.
@@ -81,19 +114,28 @@ function clusters(px, w, h, ground, rect) {
 function facts(px, geo) {
     var pane = { x: 0, y: 0, w: geo.w, h: geo.h };
     var f = { geo: geo, ink: inkBox(px, geo.w, geo.h, geo.ground, pane), chrome: colourCount(px, geo.w, geo.h, geo.chrome, pane), blocks: [] };
-    for (var i = 0; i < geo.blocks.length && i < FACT_BLOCKS; i++) {
+    for (var i = 0; i < geo.blocks.length && i < CAPTURED_BLOCKS; i++) {
         var b = geo.blocks[i];
-        var one = { box: null, first: null, clusters: [], right: null };
+        var one = { box: null, first: null, second: null, clusters: [], right: null, picture: 0 };
         if (b.w > 0) {
             one.box = inkBox(px, geo.w, geo.h, geo.ground, b);
+            one.picture = pictureRows(px, geo.w, geo.h, b);
             var line = { x: b.x, y: b.y, w: b.w, h: Math.min(b.h, geo.lineBox) };
             one.first = inkBox(px, geo.w, geo.h, geo.ground, line);
+            one.second = inkBox(px, geo.w, geo.h, geo.ground, { x: b.x, y: b.y + geo.lineBox, w: b.w, h: geo.lineBox });
             one.clusters = clusters(px, geo.w, geo.h, geo.ground, line);
             one.right = inkBox(px, geo.w, geo.h, geo.ground, { x: b.x + geo.hAdvance, y: b.y, w: b.w - geo.hAdvance, h: b.h });
         }
         f.blocks.push(one);
     }
     f.notice = geo.notice === null ? null : inkBox(px, geo.w, geo.h, geo.ground, geo.notice);
+    f.noticeBand = null;
+    f.below = null;
+    if (geo.notice !== null) {
+        var bottom = geo.notice.y + geo.notice.h;
+        f.noticeBand = inkBox(px, geo.w, geo.h, geo.ground, { x: 0, y: geo.notice.y, w: geo.w, h: geo.notice.h });
+        f.below = inkBox(px, geo.w, geo.h, geo.ground, { x: 0, y: bottom, w: geo.w, h: geo.h - bottom });
+    }
     return f;
 }
 
@@ -108,6 +150,8 @@ function blockOf(f, type) {
 function verdict(all) {
     var out = [];
     function check(label, ok) { out.push([label, ok === true]); }
+    for (var r = 0; r < REQUIRED.length; r++)
+        check("fixture " + REQUIRED[r] + " was loaded and captured", all[REQUIRED[r]] !== undefined);
     var names = Object.keys(all);
     for (var n = 0; n < names.length; n++) {
         var f = all[names[n]];
@@ -122,30 +166,35 @@ function verdict(all) {
     var raw = all["07-rawhtml.md"];
     if (raw !== undefined) {
         var img = blockOf(raw, "image");
+        var run = blockOf(raw, "run");
+        var captured = raw.geo.blocks.length;
+        // The pixel checks index into the captured blocks, so a document that outgrows the cap fails here by name.
+        check("07 has no more blocks than the harness captures", raw.geo.texts.length <= CAPTURED_BLOCKS);
         var box = img < 0 ? null : raw.blocks[img].box;
         var pane = raw.geo.w / 2;
-        check("07 the logo is an image block", img >= 0);
+        check("07 the logo is an image block", img >= 0 && img < captured);
         check("07 the logo is as wide as its width attribute",
             box !== null && Math.abs((box.x1 - box.x0 + 1) - raw.geo.blocks[img].width) <= SIZE_SLACK);
         check("07 the logo is centred", box !== null && Math.abs((box.x0 + box.x1 + 1) / 2 - pane) <= CENTRE_SLACK);
-        var run = blockOf(raw, "run");
+        check("07 the centred title is a run block", run >= 0 && run < captured);
         var title = run < 0 ? null : raw.blocks[run].first;
         check("07 the centred title is centred", title !== null && Math.abs((title.x0 + title.x1 + 1) / 2 - pane) <= CENTRE_SLACK);
         var plain = all["17-plain-title.md"], bold = all["18-bold-title.md"];
         if (plain !== undefined && bold !== undefined && title !== null)
             check("07 the centred title is bold", Math.abs(title.count - bold.ink.count) < Math.abs(title.count - plain.ink.count));
-        for (var i = 0; i < raw.geo.blocks.length; i++) {
-            var text = String(raw.geo.blocks[i].text);
+        // geo.texts holds every block of the document, not only the captured ones.
+        for (var i = 0; i < raw.geo.texts.length; i++) {
+            var text = raw.geo.texts[i];
             check("07 block " + i + " carries no script, style or on* text",
                 text.indexOf("alert") < 0 && text.indexOf("not allowed") < 0 && text.indexOf("color: red") < 0 && text.indexOf("onclick") < 0);
         }
-        var all07 = raw.geo.blocks.map(function (b) { return String(b.text); }).join("|");
+        var all07 = raw.geo.texts.join("|");
         check("07 the div text stays", all07.indexOf("A div with a style attribute") >= 0);
         check("07 the details body is drawn", all07.indexOf("Hidden body text inside details.") >= 0);
         var bodyAt = -1, divAt = -1;
-        raw.geo.blocks.forEach(function (b, k) {
-            if (String(b.text).indexOf("Hidden body text") >= 0) bodyAt = k;
-            if (String(b.text).indexOf("A div with a style attribute") >= 0) divAt = k;
+        raw.geo.texts.forEach(function (t, k) {
+            if (t.indexOf("Hidden body text") >= 0) bodyAt = k;
+            if (t.indexOf("A div with a style attribute") >= 0) divAt = k;
         });
         check("07 the div text starts its own block, never joined to the paragraph above", bodyAt >= 0 && divAt > bodyAt);
     }
@@ -165,12 +214,81 @@ function verdict(all) {
         check("details draws its summary behind a disclosure mark and the body open",
             c.length === 2 && c[0].x1 - c[0].x0 + 1 <= MARK_MAX_WIDTH && String(sum.geo.blocks[0].text).indexOf("Body") >= 0);
     }
+    pictureChecks(all, check);
+    headerChecks(all["26-readme-header.md"], all["27-break.md"], check);
     var deep = all["15-pathological.md"];
     if (deep !== undefined) {
         check("15 the pane switched to its source", deep.geo.tooDeep === true);
         check("15 the notice is drawn", deep.notice !== null && deep.notice.count > 0);
         check("15 the notice names the limit", String(deep.geo.noticeText).indexOf("32") >= 0);
-        check("15 the source is drawn under the notice", deep.ink !== null && deep.notice !== null && deep.ink.count > deep.notice.count);
+        // The notice's band holds the notice alone, and the source starts below it across the block gap.
+        var noticeBottom = deep.geo.notice === null ? 0 : deep.geo.notice.y + deep.geo.notice.h;
+        check("15 the notice band holds only the notice's ink",
+            deep.notice !== null && deep.noticeBand !== null && deep.noticeBand.count === deep.notice.count);
+        check("15 the source is drawn under the notice, across the block gap",
+            deep.notice !== null && deep.below !== null && deep.below.y0 > deep.notice.y1
+            && deep.below.y0 >= noticeBottom + deep.geo.blockGap);
     }
     return out;
+}
+
+// A local image inside raw HTML draws as a picture in place, with no Markdown image text and no stray closing tag drawn.
+function pictureChecks(all, check) {
+    Object.keys(PICTURE_DOCS).forEach(function (name) {
+        var f = all[name];
+        if (f === undefined)
+            return;
+        var rows = 0, literal = false, closer = false, img = blockOf(f, "image");
+        for (var k = 0; k < f.blocks.length; k++) {
+            rows += f.blocks[k].picture;
+            var plain = String(f.geo.blocks[k].plain);
+            literal = literal || plain.indexOf("![") >= 0 || plain.indexOf("file:///") >= 0;
+            closer = closer || plain.indexOf("</") >= 0;
+        }
+        check(name + " draws its picture", rows >= MIN_PICTURE_ROWS);
+        check(name + " draws no literal image text", !literal);
+        check(name + " draws no stray closing tag", !closer);
+        check(name + " holds its picture in an image block", img >= 0);
+        var box = img < 0 ? null : f.blocks[img].box;
+        if (PICTURE_DOCS[name])
+            check(name + " centres its picture", box !== null && Math.abs((box.x0 + box.x1 + 1) / 2 - f.geo.w / 2) <= CENTRE_SLACK);
+    });
+    var wide = all["25-wide-logo.md"];
+    var wideAt = wide === undefined ? -1 : blockOf(wide, "image");
+    // Unclamped, the picture sits half its 5000 px width off the left edge and none of it shows.
+    var wideBox = wideAt < 0 ? null : wide.blocks[wideAt].box;
+    check("25 a width past the pane is clamped to the pane, the picture drawn inside it",
+        wideBox !== null && wideBox.x0 >= wide.geo.blocks[wideAt].x && wideBox.x1 < wide.geo.blocks[wideAt].x + wide.geo.blocks[wideAt].w);
+    var open = all["23-open-wrapper.md"];
+    var name = open === undefined ? -1 : blockOf(open, "run");
+    var line = name < 0 ? null : open.blocks[name].first;
+    check("23 what the wrapper held under the image is centred under it",
+        line !== null && Math.abs((line.x0 + line.x1 + 1) / 2 - open.geo.w / 2) <= CENTRE_SLACK);
+}
+
+// The README header: each top-level block of an HTML run draws as its own block, and a break's next line starts at the text column.
+function headerChecks(f, broken, check) {
+    if (f === undefined)
+        return;
+    function holding(needle) {
+        for (var i = 0; i < f.geo.blocks.length; i++)
+            if (String(f.geo.blocks[i].text).indexOf(needle) >= 0)
+                return i;
+        return -1;
+    }
+    var h = holding("Flea</h1>"), p = holding("A file manager"), after = holding("A line after a break.");
+    check("26 the heading and the paragraph are blocks of their own", h >= 0 && p >= 0 && h !== p);
+    check("26 the paragraph sits below the heading across a gap",
+        h >= 0 && p >= 0 && f.geo.blocks[p].y > f.geo.blocks[h].y + f.geo.blocks[h].h);
+    [h, p].forEach(function (k) {
+        var line = k < 0 ? null : f.blocks[k].first;
+        check("26 block " + k + " is centred", line !== null && Math.abs((line.x0 + line.x1 + 1) / 2 - f.geo.w / 2) <= CENTRE_SLACK);
+    });
+    var second = after < 0 ? null : f.blocks[after].second;
+    check("26 the line after a break starts at the text column",
+        second !== null && second.x0 - f.geo.blocks[after].x <= LEADING_SLACK);
+    // The same break alone, so the line it checks is the second one whatever the blocks above it hold.
+    var line = broken === undefined || broken.blocks.length === 0 ? null : broken.blocks[0].second;
+    check("27 the line after a break starts at the text column, not after a space",
+        line !== null && line.x0 - broken.geo.blocks[0].x <= LEADING_SLACK);
 }

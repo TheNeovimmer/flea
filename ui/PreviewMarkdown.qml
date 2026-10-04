@@ -848,6 +848,10 @@ Item {
                         asynchronous: true
                         autoTransform: true
                         source: block.type === "image" ? block.url : ""
+
+                        // A logo wrapped in a link opens it through the pane's link gate.
+                        TapHandler { enabled: block.link !== undefined; onTapped: if (Markdown.isExternalLink(block.link)) Qt.openUrlExternally(block.link) }
+                        HoverHandler { enabled: block.link !== undefined; cursorShape: Qt.PointingHandCursor }
                     }
                 }
     }

@@ -139,8 +139,8 @@ forms = [
     ("svg-unquoted-slash", lambda p: f'<svg a=b/>![x]({H}/{p}/x.png)</svg>'),
     ("bodybg", lambda p: f'<body background="{H}/{p}/x.png">hi</body>'),
     ("dataimg", lambda p: "![pic](data:image/png;base64,iVBORw0KGgo=)"),
-    ("onclick-attr", lambda p: f'<p onclick="alert(1)" onmouseover="alert(2)">R13ONTEXT {p}</p>'),
-    ("onerror-attr", lambda p: '<img src="x.png" onerror="alert(1)" alt="R13ONTEXT">'),
+    ("onclick-attr", lambda p: f'<p onclick="alert(1)" onmouseover="alert(2)">R13CLICKTEXT {p}</p>'),
+    ("onerror-attr", lambda p: '<img src="x.png" onerror="alert(1)" alt="R13ERRORTEXT">'),
     ("js-link-html", lambda p: '<a href="javascript:alert(1)">R13JSTEXT</a>'),
     ("js-link-md", lambda p: '[R13JSTEXT](javascript:alert(1))'),
 ]

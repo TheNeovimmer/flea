@@ -18,6 +18,8 @@ ShellRoot {
     readonly property int paneW: 560
     readonly property int paneH: 1060
     readonly property color ground: "#101315"
+    // The pane draws a run on a line box this many times its text size (MarkdownText.boxRatio).
+    readonly property real lineBoxRatio: 1.7
     // Each document gets this long to settle before it is declared stuck, and a poll runs once a frame.
     readonly property int docWatchdogMs: 90000
     readonly property int pollMs: 16
@@ -64,6 +66,13 @@ ShellRoot {
                 height: shell.paneH
                 opacity: 0
                 onPaint: if (shell.armed && !shell.done) shell.analyze(getContext("2d"))
+            }
+
+            // The importer the pane's text uses, read back as plain text: a literal "![" here is an image Markdown never drew.
+            TextEdit {
+                id: plainProbe
+                visible: false
+                textFormat: TextEdit.MarkdownText
             }
 
             TextMetrics {
@@ -144,15 +153,21 @@ ShellRoot {
 
     function capture() {
         var blocks = []
-        for (var i = 0; i < md.blockList.length && i < 8; i++) {
+        var texts = []
+        // Every block's text is kept for the content checks; geometry and ink are read only for the first CAPTURED_BLOCKS.
+        for (var t = 0; t < md.blockList.length; t++)
+            texts.push(String(md.blockList[t].text))
+        for (var i = 0; i < md.blockList.length && i < Checks.CAPTURED_BLOCKS; i++) {
             var b = md.blockList[i]
             var r = rectOf(i)
-            blocks.push({ type: b.type, text: b.text, width: b.width, align: b.align, x: r.x, y: r.y, w: r.w, h: r.h })
+            plainProbe.text = b.type === "run" ? String(b.text) : ""
+            blocks.push({ type: b.type, text: b.text, width: b.width, align: b.align, x: r.x, y: r.y, w: r.w, h: r.h,
+                plain: plainProbe.getText(0, plainProbe.length) })
         }
         var notice = md.noticeItem === undefined ? null : md.noticeItem
         var noticeRect = notice !== null && notice.visible ? { x: notice.x, y: notice.y, w: notice.width, h: notice.height } : null
         geo = { name: names[step], w: shell.paneW, h: shell.paneH, ground: rgb(shell.ground), chrome: hexRgb(String(md.chromeHex)),
-            blocks: blocks, lineBox: Math.round(Flea.Theme.font.body * 1.7), hAdvance: Math.floor(hMetrics.advanceWidth),
+            blocks: blocks, texts: texts, blockGap: md.blockGap, lineBox: Math.round(Flea.Theme.font.body * shell.lineBoxRatio), hAdvance: Math.floor(hMetrics.advanceWidth),
             tooDeep: md.tooDeep, notice: noticeRect, noticeText: notice === null ? "" : notice.text }
         grabRoot.grabToImage(function (result) {
             var path = shell.shotBase + "-" + shell.step + ".png"

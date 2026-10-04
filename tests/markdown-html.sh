@@ -34,6 +34,35 @@ printf '<b>A centred title</b>\n' > "$docs/18-bold-title.md"
 printf 'Press <kbd>Ctrl</kbd> now\n' > "$docs/19-key.md"
 printf 'Press Ctrl now\n' > "$docs/19-nokey.md"
 printf '<details>\n<summary>Open</summary>\n\nBody\n\n</details>\n' > "$docs/20-summary.md"
+# A local logo inside an HTML block the image rule does not take, and inside a wrapper whose closer is on a later line.
+printf '<p align="center">\n<a href="https://example.com/x"><img src="img/logo.png" width="64" alt="logo"></a>\n</p>\n\nAfter\n' > "$docs/21-linked-logo.md"
+printf '<table><tr><td><img src="img/logo.png" width="64" alt="logo"></td></tr></table>\n\nAfter\n' > "$docs/22-table-logo.md"
+printf '<p align="center"><img src="img/logo.png" width="64" alt="logo">\n<br><b>Name</b>\n</p>\n\nAfter\n' > "$docs/23-open-wrapper.md"
+printf '<p align=center><img src="img/logo.png" width="64" alt="logo">\n</p>\n\nAfter\n' > "$docs/24-empty-closer.md"
+printf '<p align="center"><img src="img/logo.png" width="5000" alt="logo"></p>\n\nAfter\n' > "$docs/25-wide-logo.md"
+# The flea-ci-visual README header: a heading and a paragraph on adjacent lines, and a line after a break.
+cat > "$docs/26-readme-header.md" <<'MD'
+<p align="center">
+  <img src="img/logo.png" width="64" alt="logo">
+</p>
+<h1 align="center">Flea</h1>
+<p align="center"><b>A file manager</b> for <i>Omarchy</i></p>
+
+Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy. Water is H<sub>2</sub>O and area is r<sup>2</sup>.<br>
+A line after a break.
+
+<details open>
+<summary>More</summary>
+
+Hidden body text.
+
+</details>
+
+<script>alert(1)</script>
+<!-- a comment -->
+<div align="right">Right aligned</div>
+MD
+printf 'Line one.<br>\nA line after a break.\n' > "$docs/27-break.md"
 doc_list=$(cd "$docs" && ls -- *.md | paste -sd, -)
 
 # The harness ends itself with a kill, so the subshell keeps bash's "Terminated" notice out of the report.

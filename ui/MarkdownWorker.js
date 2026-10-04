@@ -3,6 +3,7 @@ Qt.include("js/Format.js");
 Qt.include("js/MdUrl.js");
 Qt.include("js/MdHtml.js");
 Qt.include("js/MdHtmlImage.js");
+Qt.include("js/MdHtmlBlock.js");
 Qt.include("js/MdEscape.js");
 Qt.include("js/MdInline.js");
 Qt.include("js/MdContainer.js");
@@ -16,7 +17,8 @@ Qt.include("js/MdBlocks.js");
 var Format = { date: date, fileUri: fileUri };
 var MdUrl = { canonicalUrl: canonicalUrl, classifyImage: classifyImage, placeholder: placeholder, srcsetPick: srcsetPick };
 var MdHtml = { closeToken: closeToken, openToken: openToken, documentText: documentText, normalizedTarget: normalizedTarget, readTag: readTag, sanitizeTag: sanitizeTag, tagHead: tagHead };
-var MdHtmlImage = { imageUnit: imageUnit, rawImage: rawImage };
+var MdHtmlImage = { imageUnit: imageUnit, rawImage: rawImage, isCentred: isCentred, linkOf: linkOf, LEADING_BREAK: LEADING_BREAK };
+var MdHtmlBlock = { splitHtmlImages: splitHtmlImages, separateBlocks: separateBlocks };
 var MdEscape = { escapeText: escapeText, isAsciiPunct: isAsciiPunct };
 var MdInline = { INTERVAL_STRIDE: INTERVAL_STRIDE, codeHtml: codeHtml, escapeHtmlText: escapeHtmlText, isPunct: isPunct, linkHtml: linkHtml, normalizeLabel: normalizeLabel, readAutolink: readAutolink, readBarelink: readBarelink, readInlineTarget: readInlineTarget, readLabelRef: readLabelRef, spanIntervals: spanIntervals };
 var MdRefs = { readDefinition: readDefinition, readDefinitionTarget: readDefinitionTarget, readFootnoteDefinition: readFootnoteDefinition, killDefinition: killDefinition, readFootnoteRef: readFootnoteRef, skipDropContent: skipDropContent };
@@ -37,6 +39,7 @@ var Container = MdContainer;
 var Document = MdDocument;
 var Html = MdHtml;
 var HtmlImage = MdHtmlImage;
+var HtmlBlock = MdHtmlBlock;
 
 WorkerScript.onMessage = function (msg) {
     var blocks = [];

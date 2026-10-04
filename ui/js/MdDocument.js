@@ -4,10 +4,14 @@
 .import "MdLeaf.js" as Leaf
 .import "MdRun.js" as Run
 .import "MdHtmlImage.js" as HtmlImage
+.import "MdHtmlBlock.js" as HtmlBlock
 
 // The importer joins an HTML block onto the paragraph above it, so a block-level raw tag after a blank line starts its own run.
 // Sample input: "Body.\n\n<div>x</div>" splits before the div; "<table>\n<tr>" keeps its rows together.
 var HTML_BLOCK_AFTER_BLANK = /\n[ \t]*\n+(?= {0,3}<(?:p|div|h[1-6]|hr|table|ul|ol|blockquote|pre)(?=[\s>\/]))/i
+
+// Sample input: "one<br />\n  two" collapses to "one<br />two"; a blank line after the break stays a paragraph break.
+var BREAK_SOFT_NEWLINE = /(<br \/>)[ \t]*\n(?![ \t]*\n)[ \t]*/g
 
 function visibleLines(lines, state) {
     var kept = []
@@ -34,11 +38,22 @@ function writer(state, dir, chrome, ink) {
         return Run.parseInline(text, dir, state.defs, state.numbers, chrome, ink, tokens,
             citations === false ? undefined : cited, literalPlain)
     }
-    function pushRun(lines) {
-        var pieces = inlineOf(lines.join("\n")).split(HTML_BLOCK_AFTER_BLANK)
+    function pushPiece(lines) {
+        // A soft break after a line break collapses, as in a browser, so the next line starts at the text column.
+        var pieces = inlineOf(HtmlBlock.separateBlocks(lines).join("\n")).replace(BREAK_SOFT_NEWLINE, "$1").split(HTML_BLOCK_AFTER_BLANK)
         for (var p = 0; p < pieces.length; p++) {
             if (pieces[p].trim().length > 0)
                 out.push({ type: "run", text: pieces[p] })
+        }
+    }
+    // An image inside an HTML block leaves it as an image block, since the importer draws no Markdown there.
+    function pushRun(lines) {
+        var parts = HtmlBlock.splitHtmlImages(lines, dir)
+        for (var p = 0; p < parts.length; p++) {
+            if (parts[p].block !== undefined)
+                out.push(parts[p].block)
+            else
+                pushPiece(parts[p].lines)
         }
     }
     function pushAll(blocks) {
@@ -57,8 +72,11 @@ function writer(state, dir, chrome, ink) {
                 pushRun(plain)
                 plain = []
                 out.push(image !== null ? image : unit.block)
-                if (unit !== null)
+                if (unit !== null) {
                     i = unit.end
+                    // What its wrapper held under the image is drawn centred under it.
+                    plain = unit.wrapper.slice()
+                }
             } else {
                 plain.push(run[i])
             }
