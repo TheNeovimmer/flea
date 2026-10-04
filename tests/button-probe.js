@@ -62,3 +62,11 @@ function read(button) {
         ringOutset: thousandth(-corner.x), scale: button.scale, opacity: button.opacity
     }
 }
+
+// Keyboard focus on the item, then what it draws and how many borders show; read() with the focus given first.
+function focusRead(item) {
+    item.forceActiveFocus()
+    var out = read(item)
+    out.borders = shownBordered(item)
+    return out
+}

@@ -31,9 +31,8 @@ Item {
     // The form owns the order; a button only reports that Tab happened inside it.
     signal tabbed(var from, bool back)
 
-    // The canvas draws a secondary button as a hairline rule carrying live text, so only the frame
-    // takes muted, the role ThemeRoles.html gives borders and inactive controls; the label is alive.
-    readonly property color frame: root.setMember ? (root.current ? Theme.color.foreground : Theme.color.muted)
+    // A secondary frame takes muted, ThemeRoles' border role, under a live label; a focused set member takes the accent, as a field.
+    readonly property color frame: root.setMember ? (root.focused && root.available ? Theme.color.accent : root.current ? Theme.color.foreground : Theme.color.muted)
         : root.primary && root.available ? Theme.color.accentFrame : Theme.color.muted
     readonly property color ink: !root.available || root.setMember && !root.current ? Theme.color.muted
         : root.destructive ? Theme.color.error : Theme.color.foreground
@@ -95,7 +94,7 @@ Item {
             textFormat: Text.PlainText
         }
 
-        // Focus never moves the frame: the ring says where the keyboard is.
+        // The ring says where the keyboard is without moving the frame; a set member shows focus in its frame instead.
         Rectangle {
             objectName: "buttonRing"
             anchors.fill: parent
@@ -103,7 +102,7 @@ Item {
             color: "transparent"
             border.width: Buttons.RING
             border.color: Theme.color.foreground
-            visible: root.focused && root.available
+            visible: root.focused && root.available && !root.setMember
         }
     }
 
