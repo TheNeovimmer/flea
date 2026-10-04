@@ -160,6 +160,35 @@ if ! printf '%s\n' "$mathgap_output" | grep -qE "(^|: )MARKDOWN_MATHGAP $expecte
     exit 1
 fi
 
+# A display formula's ex equals the body font's x-height at text sizes 14 and 12, and a formula wider than the pane still fits.
+wide_terms=$(for n in $(seq 1 60); do printf 'a_{%s}+' "$n"; done)
+{
+echo 'Display maths beside prose.'
+echo ''
+echo '$$x^2$$'
+echo ''
+echo '$$\frac{a}{b}$$'
+echo ''
+printf '$$%s0$$\n' "$wide_terms"
+} > "$test_root/mathsize.md"
+cp tests/markdown-mathsize.js "$test_root/config/" || exit 1
+cp tests/markdown-mathsize.qml "$test_root/config/shell.qml" || exit 1
+mathsize_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIGURE_FIXTURE="$test_root/mathsize.md" \
+    FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 45 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+printf '%s\n' "$mathsize_output" | grep -oE 'MARKDOWN_MATHSIZE .*'
+warnings=$(printf '%s\n' "$mathsize_output" | grep -aE 'TypeError|ReferenceError|WARN|invalid nullptr parameter' | grep -vF "$platform_warning")
+[ -z "$warnings" ] || { printf 'FAIL maths size harness warning: %s\n' "$warnings"; exit 1; }
+expected_mathsize_checks=10 # Per text size: the x-height read, two formula ex checks and one fit check, then two for the forced 9 px x-height.
+# Sample input: MARKDOWN_MATHSIZE 10 checks, 0 failed
+if ! printf '%s\n' "$mathsize_output" | grep -qE "(^|: )MARKDOWN_MATHSIZE $expected_mathsize_checks checks, 0 failed$"; then
+    printf 'FAIL markdown-figures-render: mathsize expected %s checks, 0 failed; arrived [%s]\n' "$expected_mathsize_checks" "${mathsize_output:-<empty>}" >&2
+    exit 1
+fi
+
 # Every figure starts flush on the content column: a flowchart and a sequence diagram, whose own canvas padding the helper trims.
 cat > "$test_root/figflush.md" <<'EOF'
 # Flush figures

@@ -17,6 +17,16 @@ Item {
     property color fallbackColor: Theme.color.surface
     property string fontFamily: Theme.font.family
     property int bodyPx: Theme.font.body
+    // The body font's x-height at bodyPx: a display formula draws its ex at this height, so maths and prose letters stand level.
+    property real xHeight: bodyMetrics.xHeight
+    // The helper receives the x-height in hundredths of a pixel, so a font that settles late changes the request.
+    readonly property int xHeightRounding: 100
+
+    FontMetrics {
+        id: bodyMetrics
+        font.family: root.fontFamily
+        font.pixelSize: root.bodyPx
+    }
 
     readonly property bool failed: root.error !== ""
     readonly property bool ready: root.svg !== ""
@@ -32,6 +42,7 @@ Item {
     function hexTheme() {
         return { bg: root.bgHex, fg: root.fgHex, accent: root.accentHex,
             font: root.fontFamily, bodyPx: root.bodyPx,
+            exPx: Math.round(root.xHeight * root.xHeightRounding) / root.xHeightRounding,
             muted: root.mutedHex, surface: root.surfaceHex };
     }
     // Nothing is asked until the figure is created, so its construction-time assignments cost no request.
@@ -76,6 +87,7 @@ Item {
     onSurfaceHexChanged: root.schedule()
     onFontFamilyChanged: root.schedule()
     onBodyPxChanged: root.schedule()
+    onXHeightChanged: root.schedule()
     onAskArmedChanged: root.schedule()
     // Entering the viewport requests an unsettled figure after layout.
     onInViewChanged: if (root.created && root.inView && root.askArmed && root.source !== "" && root.ticket === 0 && root.svg === "" && root.error === "") root.ask()
