@@ -456,6 +456,8 @@ case_cap_menus3() {
     key -k Escape >/dev/null
     settle
     kill_flea
+    # The y presses above left plain.txt on the session clipboard, so it is emptied for board f's dead Paste.
+    wl-copy --clear || fail "cap_menus3: wl-copy could not empty the clipboard for board f"
     # DEFAULTS' twelve less Invert selection, which board f switches on, with hints off and nothing on the clipboard.
     hidden_board_f='"delete","openTerminal","placeMenu","runScript","moveto","copyto","properties","permissions","copyAs","pasteAs","extThumbs"'
     seed_ui_state "$fixture_root/cap-menus3-f-state" "$(printf '{"keys":"default","view":"list","keyHints":false,"menu":{"hidden":[%s]}}' "$hidden_board_f")"
