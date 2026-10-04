@@ -970,6 +970,33 @@ check "with no zoxide installed its source is empty and nothing else changes" \
   "{\"t\":\"jumped\",\"id\":7,\"favourites\":[\"$D/sub\"],\"zoxide\":[],\"recent\":[\"$D\"],\"frecency\":{}" \
   "$(jump_run "$NO_ZOXIDE")"
 
+# An open's provisional ask and the whole ask naming it run zoxide once; an ask naming no ranking runs it again.
+COUNT_BIN="$SB/count-bin"
+mkdir -p "$COUNT_BIN"
+cat > "$COUNT_BIN/zoxide" <<EOF
+#!/bin/sh
+echo run >> '$SB/zoxide-runs'
+printf '  %s %s\n' 9.5 '$D/ranked'
+EOF
+chmod +x "$COUNT_BIN/zoxide"
+# Each ask waits for the previous answer, as the client's whole ask waits for the provisional one.
+jump_pair() {
+  rm -f "$SB/zoxide-runs"
+  coproc BACKEND { PATH="$COUNT_BIN:$PATH" $BIN --backend 2>/dev/null; }
+  printf '{"c":"jump","id":7,"favourites":[],"recent":[]}\n' >&"${BACKEND[1]}"
+  IFS= read -r first <&"${BACKEND[0]}"
+  printf '%s\n' "$1" >&"${BACKEND[1]}"
+  IFS= read -r second <&"${BACKEND[0]}"
+  printf '{"c":"quit"}\n' >&"${BACKEND[1]}"
+  wait "$BACKEND_PID"
+  printf '%s\n%s\n' "$first" "$second"
+}
+pair_answers=$(jump_pair '{"c":"jump","id":8,"ranking":7,"favourites":[],"recent":[]}')
+check "a whole ask naming its provisional ask runs zoxide once" "1" "$(wc -l < "$SB/zoxide-runs" | tr -d ' ')"
+check "and both asks answer with the same ranking" "2" "$(printf '%s\n' "$pair_answers" | grep -c "\"zoxide\":\[\"$D/ranked\"\],\"recent\":\[\],\"frecency\":{\"$D/ranked\":9.5}")"
+jump_pair '{"c":"jump","id":8,"favourites":[],"recent":[]}' > /dev/null
+check "an ask naming no ranking runs zoxide itself" "2" "$(wc -l < "$SB/zoxide-runs" | tr -d ' ')"
+
 # No per-key cleanup: the cache is inside the sandbox, so it goes when the sandbox does.
 sandbox_remove "$SB"
 exit $fail

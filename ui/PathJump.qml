@@ -67,7 +67,8 @@ Item {
     }
 
     // ui/WindowBody.qml carries these to the pane's backend and back, the way it carries the bar's Tab.
-    signal requested(int id, var favourites, var recent)
+    // ranking is the provisional ask this whole ask follows, or 0: the backend answers it from that ask's zoxide run.
+    signal requested(int id, int ranking, var favourites, var recent)
     signal chosen(string path)
     // Enter that the dropdown did not take after all: nothing matched, so the bar resolves the line as a path.
     signal declined()
@@ -119,10 +120,10 @@ Item {
         }
         if (root.historyKept && root.historyReadAt === root.historyChanges) {
             root.wholeAsked = true
-            root.ask()
+            root.ask(0)
         } else {
             root.provisionalId = root.asked
-            root.ask()
+            root.ask(0)
             root.readHistory()
         }
     }
@@ -138,8 +139,8 @@ Item {
     // How many times the history has been parsed; tests/jump-ui.sh reads it.
     property int historyReads: 0
 
-    function ask() {
-        root.requested(root.asked, root.favouritePaths(), root.recentPaths)
+    function ask(ranking) {
+        root.requested(root.asked, ranking, root.favouritePaths(), root.recentPaths)
     }
 
     function askWhole() {
@@ -154,7 +155,7 @@ Item {
         }
         root.wholeAsked = true
         root.asked += 1
-        root.ask()
+        root.ask(root.provisionalId)
     }
 
     // The watch starts before the read, so a change landing while it runs is counted and read next time.

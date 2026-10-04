@@ -16,7 +16,7 @@ src/backend/copyfile_tests.rs 607
 src/backend/durable.rs 790
 src/backend/durable_tests.rs 1305
 src/backend/fsinforeq.rs 407
-src/backend/jump_tests.rs 408
+src/backend/jump_tests.rs 473
 src/backend/renamecompat.rs 762
 src/backend/gvfslist.rs 549
 src/backend/imagesize.rs 473
@@ -91,7 +91,7 @@ tests/ring-bounds.qml 576
 tests/sidebar-flows.qml 401
 tests/touchpad.qml 747
 tests/xwsettings-tabs.qml 444
-ui/Backend.qml 469
+ui/Backend.qml 472
 ui/ChromeBar.qml 472
 ui/ColumnsArea.qml 479
 ui/ContextMenu.qml 739

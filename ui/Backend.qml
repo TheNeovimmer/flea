@@ -293,8 +293,11 @@ Item {
 
     // op is "peers" for the flyout's list and "send" for the transfer it chooses; both answer late.
     // Once per open of the path bar: the client's favourites and recent files, joined there with zoxide; id comes back on the answer.
-    function jump(id, favourites, recent) {
-        root.send({ c: "jump", id: id, favourites: favourites, recent: recent })
+    function jump(id, ranking, favourites, recent) {
+        var message = { c: "jump", id: id, favourites: favourites, recent: recent }
+        // A whole ask names its provisional ask so the backend runs zoxide once for the open; any other ask names none.
+        if (ranking !== 0) message.ranking = ranking
+        root.send(message)
     }
 
     function localSend(op, peer, paths) {

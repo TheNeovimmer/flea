@@ -168,7 +168,7 @@ Rectangle {
         onEditClosed: view.currentPane.forceActiveFocus()
         // Tab peeks in name order with dotfiles first; the columns view asked nothing, so it drops the reply.
         onCompleteRequested: function (dir, hidden) { view.currentPane.backend.peek(dir, view.currentPane.windowSize, hidden, false) }
-        onJumpRequested: function (id, favourites, recent) { view.currentPane.backend.jump(id, favourites, recent) }
+        onJumpRequested: function (id, ranking, favourites, recent) { view.currentPane.backend.jump(id, ranking, favourites, recent) }
         onSaid: function (text) { bar.say(text, false) }
         onSettingsRequested: settingsPanel.open(view.currentPane)
     }
