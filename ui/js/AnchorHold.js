@@ -101,6 +101,34 @@ function cursorView(pane) {
     return at < 0 ? 0 : at
 }
 
+// A renamed row that sorts outside the held window is asked of the backend, which alone knows where it landed; the anchor waits for the reply.
+// Sample output: {"c":"locate","paths":["/d/zzz.txt"],"id":2147483649}
+function locateRenamed(pane, anchor) {
+    if (!anchor.renamed || anchor.locateDone || pane.total <= 0)
+        return false
+    if (anchor.locateSent)
+        return true
+    if (!pane.backend || !pane.backend.send)
+        return false
+    pane.backend.send({ c: "locate", paths: [pane.join(pane.path, anchor.name)], id: anchor.locateId })
+    anchor.locateSent = true
+    return true
+}
+
+// The located renamed row takes the cursor and the selection and is revealed, with its own window asked for when the rows are not held.
+function landRenamed(pane, anchor, found) {
+    if (found === undefined || !(found >= 0 && found < pane.total))
+        return
+    // The reveal clamps against the laid-out height, and the count that just passed through 0 has not laid out yet.
+    var area = viewport(pane)
+    if (area && typeof area.forceLayout === "function")
+        area.forceLayout()
+    pane.selectOnly(found)
+    if (!pane.rowFor(found))
+        pane.backend.window(found, pane.windowSize)
+    anchor.landed = true
+}
+
 function fillLocated(pane, anchor, matches) {
     if (!anchor)
         return null
@@ -110,6 +138,8 @@ function fillLocated(pane, anchor, matches) {
         var item = matches[i]
         byPath[String(item.path || "")] = Number(item.index)
     }
+    if (anchor.renamed)
+        landRenamed(pane, anchor, byPath[pane.join(pane.path, anchor.name)])
     var pending = []
     for (var m = 0; m < (anchor.marks || []).length; m++) {
         var mark = anchor.marks[m]

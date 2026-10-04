@@ -30,7 +30,7 @@ function refreshRename(source) {
 
 // The list's scrolling surface and the rows it holds, kept apart from the pane stub so the stub carries only the pane's own members.
 function makeView(contentY, topMargin, bottomMargin) {
-    var view = { contentY: contentY, originY: 0, topMargin: topMargin, bottomMargin: bottomMargin, height: AREA_H, asked: undefined, names: [] }
+    var view = { contentY: contentY, originY: 0, topMargin: topMargin, bottomMargin: bottomMargin, height: AREA_H, asked: undefined, selectedAt: -1, sent: [], names: [] }
     view.laidOutHeight = TOTAL * ROW_H + FOOTER_H
     view.contentHeight = view.laidOutHeight
     // A re-list leaves contentHeight at the empty count's until the view lays out, as a ListView does before its next polish.
@@ -71,8 +71,10 @@ function makeList(start, cursor, contentY, topMargin, bottomMargin) {
         if (top < view.contentY + low) view.contentY = clamp(top - low)
         else if (top + ROW_H > view.contentY + AREA_H - low) view.contentY = clamp(top + ROW_H + low - AREA_H)
     }
-    p.selectOnly = function (index, context) { p.setCursor(index, context) }
+    p.selectOnly = function (index, context) { view.selectedAt = index; p.setCursor(index, context) }
     p.selectionAnchor = 0
+    p.join = function (base, name) { return base + "/" + name }
+    p.backend.send = function (message) { view.sent.push(message) }
     p.backend.window = function (from) { view.asked = from }
     return p
 }
@@ -108,6 +110,34 @@ function commit(check, label, refresh, spec) {
     return p
 }
 
+// A rename whose new name sorts outside the held window: the backend's locate answers where it landed, and the cursor, the selection and the view follow it.
+function commitFar(check, label, refresh, spec) {
+    var p = makeList(spec.start, spec.cursor, spec.contentY, 0, 0)
+    var view = p.listArea
+    var wire = { stale: false, anchor: null }
+    var request = { source: "/dir/" + view.names[spec.from], destination: "/dir/" + spec.to, folder: "/dir" }
+    view.names.splice(spec.sortTo, 0, view.names.splice(spec.from, 1)[0])
+    view.names[spec.sortTo] = spec.to
+    refresh(wire, p, Anchor, { stop: function () {} }, request, "/dir/" + spec.to, false)
+    if (view.asked !== undefined) {
+        deliver(p, wire)
+        fill(p, view.asked)
+        view.asked = undefined
+    }
+    deliver(p, wire)
+    var ask = view.sent.length ? view.sent[0] : { c: "", paths: [] }
+    check(label + ": the miss asks the backend where the renamed file sorted", ask.c + " " + ask.paths.join(","), "locate /dir/" + spec.to)
+    var taken = Anchor.takeLocated(p, wire.anchor, { directory: "/dir", id: ask.id, transferId: 0, ok: true,
+        matches: [{ path: "/dir/" + spec.to, index: spec.sortTo }] }, ROW_H)
+    wire.anchor = taken.anchor
+    var top = spec.sortTo * ROW_H
+    check(label + ": the cursor lands on the renamed row", p.cursorIndex, spec.sortTo)
+    check(label + ": and so does the selection", view.selectedAt, spec.sortTo)
+    check(label + ": and the row is revealed", top >= view.contentY && top + ROW_H <= view.contentY + AREA_H, true)
+    check(label + ": and the window holding it is asked for", view.asked !== undefined && view.asked <= spec.sortTo && spec.sortTo < view.asked + WINDOW, true)
+    check(label + ": and the anchor is spent", wire.anchor, null)
+}
+
 function run(check) {
     var refresh = refreshRename(wireSource())
     var last = TOTAL - 1
@@ -133,4 +163,8 @@ function run(check) {
         { start: 900, cursor: last - 1, contentY: bottom + BOTTOM_MARGIN, bottomMargin: BOTTOM_MARGIN, from: last, to: "f9999", pointer: true, name: "" })
     commit(check, "an Enter at the top of a view with a top margin", refresh,
         { start: 0, cursor: 0, contentY: -GRID_TOP_MARGIN, topMargin: GRID_TOP_MARGIN, from: 0, to: "f1000-new", pointer: false, name: "/dir/f1000-new" })
+    commitFar(check, "an Enter whose row sorts past the held window", refresh,
+        { start: 0, cursor: 300, contentY: 290 * ROW_H, from: 300, to: "zzz.txt", sortTo: last })
+    commitFar(check, "an Enter deep in the list whose row sorts to the top", refresh,
+        { start: 900, cursor: 1100, contentY: 1090 * ROW_H, from: 1100, to: "000.txt", sortTo: 0 })
 }

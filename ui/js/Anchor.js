@@ -92,7 +92,7 @@ function pointerRow(pane, request, rowH) {
         name = dst
     var place = Hold.viewFields(pane, rowH)
     return { name: name, index: pane.cursorIndex, start: pane.held, path: pane.path, select: true, moved: moved,
-             offset: place.offset, rowH: place.rowH, view: place.view }
+             offset: place.offset, rowH: place.rowH, view: place.view, renamed: !moved && dst.length > 0 && name === dst }
 }
 
 function leaf(path) {
@@ -311,6 +311,8 @@ function apply(pane, anchor, rowH) {
     if (anchor.start > 0 && pane.held === 0 && pane.total > anchor.start) {
         return anchor
     }
+    if (anchor.renamed && !anchor.locateSent) anchor.locateId = ++locateSeq
+    if (Hold.locateRenamed(pane, anchor)) return anchor
     if (pane.total > 0) {
         landOn(pane, Math.min(anchor.index, pane.total - 1), anchor)
         Hold.restoreView(pane, anchor, rowH)
@@ -326,7 +328,7 @@ function fillLocated(pane, anchor, matches, rowH) {
         return null
     Hold.fillLocated(pane, anchor, matches)
     var at = indexOf(pane, anchor.name)
-    if (pane.total > 0) {
+    if (pane.total > 0 && !anchor.landed) {
         landOn(pane, at >= 0 ? at : Math.min(anchor.index, pane.total - 1), anchor)
         Hold.restoreView(pane, anchor, rowH)
     }
