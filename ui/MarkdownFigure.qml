@@ -28,6 +28,26 @@ Item {
         font.pixelSize: root.bodyPx
     }
 
+    // A diagram sizes labels by the font's em advance, the mean over printable ASCII, exact for monospace; maths sends none.
+    readonly property string advanceSample: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+    // The helper receives the advances in thousandths of an em, so a font that settles late changes the request.
+    readonly property int advanceRounding: 1000
+    property real advance: root.kind !== "mermaid" ? 0 : Math.round(regularAdvance.advanceWidth / (root.advanceSample.length * root.bodyPx) * root.advanceRounding) / root.advanceRounding
+    property real boldAdvance: root.kind !== "mermaid" ? 0 : Math.round(boldedAdvance.advanceWidth / (root.advanceSample.length * root.bodyPx) * root.advanceRounding) / root.advanceRounding
+    TextMetrics {
+        id: regularAdvance
+        font.family: root.fontFamily
+        font.pixelSize: root.bodyPx
+        text: root.kind === "mermaid" ? root.advanceSample : ""
+    }
+    TextMetrics {
+        id: boldedAdvance
+        font.family: root.fontFamily
+        font.pixelSize: root.bodyPx
+        font.bold: true
+        text: root.kind === "mermaid" ? root.advanceSample : ""
+    }
+
     readonly property bool failed: root.error !== ""
     readonly property bool ready: root.svg !== ""
     readonly property bool working: root.ticket > 0
@@ -43,6 +63,7 @@ Item {
         return { bg: root.bgHex, fg: root.fgHex, accent: root.accentHex,
             font: root.fontFamily, bodyPx: root.bodyPx,
             exPx: Math.round(root.xHeight * root.xHeightRounding) / root.xHeightRounding,
+            advance: root.advance, boldAdvance: root.boldAdvance,
             muted: root.mutedHex, surface: root.surfaceHex };
     }
     // Nothing is asked until the figure is created, so its construction-time assignments cost no request.
@@ -88,6 +109,8 @@ Item {
     onFontFamilyChanged: root.schedule()
     onBodyPxChanged: root.schedule()
     onXHeightChanged: root.schedule()
+    onAdvanceChanged: root.schedule()
+    onBoldAdvanceChanged: root.schedule()
     onAskArmedChanged: root.schedule()
     // Entering the viewport requests an unsettled figure after layout.
     onInViewChanged: if (root.created && root.inView && root.askArmed && root.source !== "" && root.ticket === 0 && root.svg === "" && root.error === "") root.ask()

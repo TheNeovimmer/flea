@@ -10,6 +10,9 @@ pinned packages plus the entry files in tools/vendor-js/.
 2. beautiful-mermaid 1.1.3 (https://www.npmjs.com/package/beautiful-mermaid),
    MIT. Licence text: ui/vendor/LICENSES/MIT-beautiful-mermaid.txt.
    Used for: mermaidToSvg(source, bg, fg) in ui/vendor/mermaid.mjs.
+   Modified: Flea patches dist/index.js (cycle breaking, label measurement,
+   sequence diagram layout) with tools/vendor-js/patches/beautiful-mermaid+1.1.3.patch,
+   applied by tools/vendor-js/build.sh; the patch is the modification record.
 
 3. elkjs 0.11.1 (https://github.com/kieler/elkjs), EPL-2.0.
    elkjs is a dependency of beautiful-mermaid and is bundled into

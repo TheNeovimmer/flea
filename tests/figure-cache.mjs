@@ -11,7 +11,7 @@ const match = /function cacheKeyOf\([^)]*\)\s*\{([^}]+)\}/.exec(service);
 if (!match)
     throw new Error("FigureService cache-key function is missing");
 const qmlKey = new Function("kind", "source", "t", "display", match[1]);
-const themes = [{ bg: "#101315", fg: "#c0caf5", accent: "#7aa2f7", font: "monospace", bodyPx: 14, exPx: 7.7 },
+const themes = [{ bg: "#101315", fg: "#c0caf5", accent: "#7aa2f7", font: "monospace", bodyPx: 14, exPx: 7.7, advance: 0.6, boldAdvance: 0.6 },
     { bg: "#fff", fg: "#000" }];
 let checks = 0;
 let failures = 0;
@@ -26,8 +26,8 @@ for (const theme of themes) {
         failures++;
         console.log("FAIL one source has separate inline and display cache keys");
     }
-    for (const role of ["bg", "fg", "accent", "muted", "line", "surface", "border", "font", "bodyPx", "exPx"]) {
-        const changed = { ...theme, [role]: role === "bodyPx" || role === "exPx" ? 20 : "changed " + role };
+    for (const role of ["bg", "fg", "accent", "muted", "line", "surface", "border", "font", "bodyPx", "exPx", "advance", "boldAdvance"]) {
+        const changed = { ...theme, [role]: ["bodyPx", "exPx", "advance", "boldAdvance"].includes(role) ? 20 : "changed " + role };
         checks++;
         if (cacheKey("mermaid", "A --> B", theme, true) === cacheKey("mermaid", "A --> B", changed, true)) {
             failures++;

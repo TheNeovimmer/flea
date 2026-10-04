@@ -27,7 +27,7 @@ const BYTE_MASK = 255;
 
 export function themeKey(t) {
     return [t.bg, t.fg, t.accent || "", t.muted || "", t.line || "", t.surface || "",
-        t.border || "", t.font || "", t.bodyPx || 0, t.exPx || 0].join("|");
+        t.border || "", t.font || "", t.bodyPx || 0, t.exPx || 0, t.advance || 0, t.boldAdvance || 0].join("|");
 }
 
 export function cacheKey(kind, source, t, display) {
@@ -625,5 +625,7 @@ export function renderFigure(kind, source, display, theme, apis) {
         throw new Error("diagram over 32 KiB");
     if (kind === "math")
         return postMath(apis.texToSvg(source, !!display), theme, !!display);
-    return postMermaid(apis.mermaidToSvg(source, theme.bg, theme.fg, { font: theme.font, padding: MERMAID_PADDING }), theme);
+    // The advances are the theme font's own, in em, so the library sizes every label from the font that is drawn.
+    return postMermaid(apis.mermaidToSvg(source, theme.bg, theme.fg, { font: theme.font, padding: MERMAID_PADDING,
+        charAdvance: theme.advance, boldCharAdvance: theme.boldAdvance }), theme);
 }

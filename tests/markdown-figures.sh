@@ -191,6 +191,8 @@ echo "PASS $sandbox_expected (exit 127)"
 if command -v node >/dev/null; then
 node tests/figure-cache.mjs || exit 1
 node tests/figure-worker.mjs || exit 1
+node tests/mermaid-layout.mjs || exit 1
+node tests/mermaid-fit.mjs || exit 1
 # Build identity imports as file URLs so checkout punctuation cannot affect substitution or module resolution.
 identity_root=$(python3 -c 'import pathlib
 import sys

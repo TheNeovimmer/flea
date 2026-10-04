@@ -32,14 +32,43 @@ Item {
         accentHex: "#445566"
         width: 300
     }
+    // A diagram asks nothing until its stage arms it, so the counts of the stages before it stay exact.
+    MarkdownFigure {
+        id: diagram
+        kind: "mermaid"
+        source: "A --> B"
+        fontFamily: "monospace"
+        bodyPx: 14
+        askArmed: false
+        width: 300
+    }
+    // The advance of a monospace face by an independent ruler: ten digits, each one cell.
+    readonly property int rulerCells: 10
+    TextMetrics {
+        id: ruler
+        font.family: diagram.fontFamily
+        font.pixelSize: diagram.bodyPx
+        text: "0000000000"
+    }
+    // A measured advance matches the ruler's to a hundredth of an em, so the helper sizes labels for the font that is drawn.
+    readonly property real advanceTolerance: 0.01
     // Each stage verifies after the figure's next ask run, or at once when it queued none, so no stage times a wait.
     property int stage: 0
     readonly property var stages: [probe.created, probe.verify, probe.verifyDrop, probe.verifyHeld,
-        probe.verifyQuiet, probe.verifySent]
+        probe.verifyQuiet, probe.verifySent, probe.verifyAdvance]
     Connections {
         target: figure
         function onAskRunsChanged() {
             Qt.callLater(probe.next);
+        }
+    }
+    // The diagram's ask runs count only once its stage armed it; its creation run answers nothing.
+    property bool diagramArmed: false
+    Connections {
+        target: diagram
+        function onAskRunsChanged() {
+            if (probe.diagramArmed)
+                Qt.callLater(probe.next);
         }
     }
     // A stage that queued an ask waits for its run; one that queued none verifies on the next turn.
@@ -96,11 +125,24 @@ Item {
     function verifySent() {
         probe.check(FigureService.requests.length === 1 && FigureService.requests[0].bg === "#555555",
             "a change on a created figure requests=" + FigureService.requests.length + ", want 1 carrying #555555");
+        probe.check(FigureService.requests[0].advance === 0 && FigureService.requests[0].boldAdvance === 0, "a formula request carries no advance");
         FigureService.done(figure.ticket, "", "inline render failed");
         var gap = Theme.spacing.gap;
         var want = measure.implicitWidth + probe.fenceSides * gap;
         probe.check(figure.failed && measure.implicitWidth > 0 && figure.implicitWidth === want,
             "failed inline implicitWidth=" + figure.implicitWidth + ", want " + want + " (text " + measure.implicitWidth + " plus two gaps of " + gap + ")");
+        FigureService.requests = [];
+        probe.diagramArmed = true;
+        diagram.askArmed = true;
+        probe.wait(true);
+    }
+    function verifyAdvance() {
+        var theme = FigureService.requests.length === 1 ? FigureService.requests[0] : {};
+        var cell = ruler.advanceWidth / (probe.rulerCells * diagram.bodyPx);
+        probe.check(theme.advance > 0 && Math.abs(theme.advance - cell) < probe.advanceTolerance,
+            "a diagram request carries the font's advance " + theme.advance + ", want " + cell);
+        probe.check(theme.boldAdvance > 0 && Math.abs(theme.boldAdvance - cell) < probe.advanceTolerance,
+            "a diagram request carries the bold advance " + theme.boldAdvance + ", want " + cell);
         console.log("figure-component: " + probe.checks + " check(s), " + probe.failures + " failed");
         Qt.quit();
     }

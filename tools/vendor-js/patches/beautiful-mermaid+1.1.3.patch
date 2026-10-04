@@ -1,0 +1,304 @@
+Flea's changes to beautiful-mermaid 1.1.3 (MIT), applied by tools/vendor-js/build.sh after npm ci with patch -p1 from the package directory:
+dagre's cycle breaking in every ELK graph, label measurement from the drawn font's advance (options.charAdvance, options.boldCharAdvance),
+and the mirrored bottom actor row and message-fitted actor spacing of sequence diagrams.
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -234,6 +234,12 @@
+   if (code >= 48 && code <= 57) return 1;
+   return 1;
+ }
++var fontAdvance = { regular: 0, bold: 0 };
++var BOLD_WEIGHT = 600;
++function setFontAdvance(options) {
++  const regular = options.charAdvance > 0 ? options.charAdvance : 0;
++  fontAdvance = { regular, bold: options.boldCharAdvance > 0 ? options.boldCharAdvance : regular };
++}
+ function measureTextWidth(text, fontSize, fontWeight) {
+   const baseRatio = fontWeight >= 600 ? 0.6 : fontWeight >= 500 ? 0.57 : 0.54;
+   let totalWidth = 0;
+@@ -241,6 +247,14 @@
+     totalWidth += getCharWidth(char);
+   }
+   const minPadding = fontSize * 0.15;
++  if (fontAdvance.regular > 0) {
++    let cells = 0;
++    for (const char of text) {
++      const w = getCharWidth(char);
++      cells += w === 0 ? 0 : w === 2 ? 2 : 1;
++    }
++    return cells * (fontWeight >= BOLD_WEIGHT ? fontAdvance.bold : fontAdvance.regular) * fontSize + minPadding;
++  }
+   return totalWidth * fontSize * baseRatio + minPadding;
+ }
+ var LINE_HEIGHT_RATIO = 1.3;
+@@ -5895,7 +5909,7 @@
+   return measureTextWidth(text, fontSize, fontWeight);
+ }
+ function estimateMonoTextWidth(text, fontSize) {
+-  return text.length * fontSize * 0.6;
++  return text.length * fontSize * (fontAdvance.regular > 0 ? fontAdvance.regular : 0.6);
+ }
+ var MONO_FONT = "'JetBrains Mono'";
+ var MONO_FONT_STACK = `${MONO_FONT}, 'SF Mono', 'Fira Code', ui-monospace, monospace`;
+@@ -6120,6 +6134,39 @@
+   height = Math.max(height, 36);
+   return { width, height };
+ }
++var CYCLE_HINT_STEP = 100;
++var EDGE_LABEL_PILL_PAD = 16;
++function dagreCycleHints(ids, edges, direction) {
++  const out = /* @__PURE__ */ new Map();
++  for (const id of ids) out.set(id, []);
++  for (const [from, to] of edges) {
++    if (!out.has(from)) out.set(from, []);
++    if (!out.has(to)) out.set(to, []);
++    if (from !== to) out.get(from).push(to);
++  }
++  const visited = /* @__PURE__ */ new Set();
++  const finished = [];
++  for (const root of out.keys()) {
++    if (visited.has(root)) continue;
++    visited.add(root);
++    const stack = [[root, 0]];
++    while (stack.length > 0) {
++      const top = stack[stack.length - 1];
++      const next = out.get(top[0])[top[1]++];
++      if (next === void 0) {
++        stack.pop();
++        finished.push(top[0]);
++      } else if (!visited.has(next)) {
++        visited.add(next);
++        stack.push([next, 0]);
++      }
++    }
++  }
++  const sign = direction === "BT" || direction === "RL" ? -1 : 1;
++  const hints = /* @__PURE__ */ new Map();
++  finished.reverse().forEach((id, i) => hints.set(id, sign * i * CYCLE_HINT_STEP));
++  return hints;
++}
+ function mermaidToElk(graph, opts) {
+   const subgraphNodeIds = /* @__PURE__ */ new Set();
+   const subgraphIds = /* @__PURE__ */ new Set();
+@@ -6147,6 +6194,8 @@
+     }
+   }
+   const hasDirectionOverride = graph.subgraphs.some((sg) => sg.direction !== void 0);
++  const hinted = graph.subgraphs.length === 0;
++  const hints = hinted ? dagreCycleHints([...graph.nodes.keys()], graph.edges.map((e) => [e.source, e.target]), graph.direction) : /* @__PURE__ */ new Map();
+   const elkGraph = {
+     id: "root",
+     layoutOptions: {
+@@ -6166,6 +6215,7 @@
+       "elk.layered.highDegreeNodes.threshold": "8",
+       "elk.layered.compaction.postCompaction.strategy": "LEFT_RIGHT_CONSTRAINT_LOCKING",
+       "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
++      "elk.layered.cycleBreaking.strategy": hinted ? "INTERACTIVE" : "DEPTH_FIRST",
+       "elk.layered.wrapping.strategy": "OFF",
+       // Use SEPARATE when subgraphs have direction overrides (enables proper direction handling)
+       // Use INCLUDE_CHILDREN otherwise (simpler cross-hierarchy edge routing)
+@@ -6208,6 +6258,8 @@
+       const size = estimateNodeSize(id, node.label, node.shape);
+       elkGraph.children.push({
+         id,
++        x: hints.get(id) ?? 0,
++        y: hints.get(id) ?? 0,
+         width: size.width,
+         height: size.height,
+         labels: [{ text: node.label }]
+@@ -6227,8 +6279,8 @@
+       const metrics = measureMultilineText(edge.label, FONT_SIZES.edgeLabel, FONT_WEIGHTS.edgeLabel);
+       elkEdge.labels = [{
+         text: edge.label,
+-        width: metrics.width + 8,
+-        height: metrics.height + 6,
++        width: metrics.width + EDGE_LABEL_PILL_PAD,
++        height: metrics.height + EDGE_LABEL_PILL_PAD,
+         layoutOptions: {
+           "elk.edgeLabels.inline": "true",
+           "elk.edgeLabels.placement": "CENTER"
+@@ -6247,8 +6299,8 @@
+       const metrics = measureMultilineText(edge.label, FONT_SIZES.edgeLabel, FONT_WEIGHTS.edgeLabel);
+       elkEdge.labels = [{
+         text: edge.label,
+-        width: metrics.width + 8,
+-        height: metrics.height + 6,
++        width: metrics.width + EDGE_LABEL_PILL_PAD,
++        height: metrics.height + EDGE_LABEL_PILL_PAD,
+         layoutOptions: {
+           "elk.edgeLabels.inline": "true",
+           "elk.edgeLabels.placement": "CENTER"
+@@ -6270,6 +6322,7 @@
+     "elk.layered.spacing.edgeEdgeBetweenLayers": "12",
+     "elk.layered.spacing.edgeNodeBetweenLayers": "12",
+     "elk.layered.nodePlacement.bk.fixedAlignment": "BALANCED",
++    "elk.layered.cycleBreaking.strategy": "DEPTH_FIRST",
+     "elk.layered.spacing.nodeNodeBetweenLayers": String(opts.layerSpacing),
+     "elk.spacing.nodeNode": String(opts.nodeSpacing)
+   };
+@@ -6316,8 +6369,8 @@
+       const metrics = measureMultilineText(edge.label, FONT_SIZES.edgeLabel, FONT_WEIGHTS.edgeLabel);
+       elkEdge.labels = [{
+         text: edge.label,
+-        width: metrics.width + 8,
+-        height: metrics.height + 6,
++        width: metrics.width + EDGE_LABEL_PILL_PAD,
++        height: metrics.height + EDGE_LABEL_PILL_PAD,
+         layoutOptions: {
+           "elk.edgeLabels.inline": "true",
+           "elk.edgeLabels.placement": "CENTER"
+@@ -7319,7 +7372,11 @@
+   noteWidth: 60,
+   notePadX: 12,
+   notePadY: 6,
+-  noteGap: 10
++  noteGap: 10,
++  /** Room between a message label and either lifeline it sits between */
++  messagePadX: 8,
++  /** A self message label starts this far right of its lifeline: the loop width 30 plus the label gap 8 */
++  selfLabelOffset: 38
+ };
+ function layoutSequenceDiagram(diagram, _options = {}) {
+   if (diagram.actors.length === 0) {
+@@ -7329,13 +7386,31 @@
+     const textW = estimateTextWidth(a.label, FONT_SIZES.nodeLabel, FONT_WEIGHTS.nodeLabel);
+     return Math.max(textW + SEQ.actorPadX * 2, 80);
+   });
++  const actorGaps = diagram.actors.map((a, i) => i === 0 ? 0 : Math.max(SEQ.actorGap, (actorWidths[i - 1] + actorWidths[i]) / 2 + 40));
++  const gapIndex = new Map(diagram.actors.map((a, i) => [a.id, i]));
++  const gapNeeds = [];
++  for (const msg of diagram.messages) {
++    if (!msg.label) continue;
++    const from = gapIndex.get(msg.from) ?? 0;
++    const to = gapIndex.get(msg.to) ?? 0;
++    const labelW = estimateTextWidth(msg.label, FONT_SIZES.edgeLabel, FONT_WEIGHTS.edgeLabel);
++    if (from !== to) {
++      gapNeeds.push([Math.min(from, to), Math.max(from, to), labelW + SEQ.messagePadX * 2]);
++    } else if (from + 1 < diagram.actors.length) {
++      gapNeeds.push([from, from + 1, SEQ.selfLabelOffset + labelW + SEQ.messagePadX]);
++    }
++  }
++  gapNeeds.sort((a, b) => a[1] - a[0] - (b[1] - b[0]));
++  for (const [low, high, need] of gapNeeds) {
++    let have = 0;
++    for (let k = low + 1; k <= high; k++) have += actorGaps[k];
++    if (have >= need) continue;
++    for (let k = low + 1; k <= high; k++) actorGaps[k] += (need - have) / (high - low);
++  }
+   const actorCenterX = [];
+   let currentX = SEQ.padding + actorWidths[0] / 2;
+   for (let i = 0; i < diagram.actors.length; i++) {
+-    if (i > 0) {
+-      const minGap = Math.max(SEQ.actorGap, (actorWidths[i - 1] + actorWidths[i]) / 2 + 40);
+-      currentX += minGap;
+-    }
++    currentX += actorGaps[i];
+     actorCenterX.push(currentX);
+   }
+   const actorIndex = /* @__PURE__ */ new Map();
+@@ -7517,7 +7592,7 @@
+     };
+   });
+   const notes = positionedNotes;
+-  const diagramBottom = messageY + SEQ.padding;
++  const diagramBottom = messageY + SEQ.actorHeight + SEQ.padding;
+   let globalMinX = SEQ.padding;
+   let globalMaxX = 0;
+   for (const a of actors) {
+@@ -7559,14 +7634,16 @@
+     actorId: a.id,
+     x: actorCenterX[i],
+     topY: actorY + SEQ.actorHeight,
+-    bottomY: diagramBottom - SEQ.padding
++    bottomY: messageY
+   }));
++  const footerActors = actors.map((a) => ({ ...a, y: messageY }));
+   const diagramWidth = globalMaxX + shiftX + SEQ.padding;
+   const diagramHeight = diagramBottom;
+   return {
+     width: Math.max(diagramWidth, 200),
+     height: Math.max(diagramHeight, 100),
+     actors,
++    footerActors,
+     lifelines,
+     messages,
+     activations,
+@@ -7601,6 +7678,9 @@
+   for (const actor of diagram.actors) {
+     parts.push(renderActor(actor));
+   }
++  for (const actor of diagram.footerActors ?? []) {
++    parts.push(renderActor(actor));
++  }
+   parts.push("</svg>");
+   return parts.join("\n");
+ }
+@@ -7800,17 +7880,19 @@
+     const headerHeight = cls.annotation ? CLS.headerBaseHeight + CLS.annotationHeight : CLS.headerBaseHeight;
+     const attrHeight = cls.attributes.length > 0 ? cls.attributes.length * CLS.memberRowHeight + CLS.sectionPadY : CLS.emptySectionHeight;
+     const methodHeight = cls.methods.length > 0 ? cls.methods.length * CLS.memberRowHeight + CLS.sectionPadY : CLS.emptySectionHeight;
+-    const headerTextW = estimateTextWidth(cls.label, FONT_SIZES.nodeLabel, FONT_WEIGHTS.nodeLabel);
++    const headerTextW = estimateTextWidth(cls.label, FONT_SIZES.nodeLabel, BOLD_WEIGHT);
+     const maxAttrW = maxMemberWidth(cls.attributes);
+     const maxMethodW = maxMemberWidth(cls.methods);
+     const width = Math.max(CLS.minWidth, headerTextW + CLS.boxPadX * 2, maxAttrW + CLS.boxPadX * 2, maxMethodW + CLS.boxPadX * 2);
+     const height = headerHeight + attrHeight + methodHeight;
+     classSizes.set(cls.id, { width, height, headerHeight, attrHeight, methodHeight });
+   }
++  const hints = dagreCycleHints(diagram.classes.map((c) => c.id), diagram.relationships.map((r) => [r.from, r.to]), "TD");
+   const elkGraph = {
+     id: "root",
+     layoutOptions: {
+       "elk.algorithm": "layered",
++      "elk.layered.cycleBreaking.strategy": "INTERACTIVE",
+       "elk.direction": "DOWN",
+       "elk.spacing.nodeNode": String(CLS.nodeSpacing),
+       "elk.layered.spacing.nodeNodeBetweenLayers": String(CLS.layerSpacing),
+@@ -7823,7 +7905,7 @@
+   };
+   for (const cls of diagram.classes) {
+     const size = classSizes.get(cls.id);
+-    elkGraph.children.push({ id: cls.id, width: size.width, height: size.height });
++    elkGraph.children.push({ id: cls.id, x: hints.get(cls.id) ?? 0, y: hints.get(cls.id) ?? 0, width: size.width, height: size.height });
+   }
+   for (let i = 0; i < diagram.relationships.length; i++) {
+     const rel = diagram.relationships[i];
+@@ -8167,7 +8249,7 @@
+ function buildErElkGraph(diagram, _options) {
+   const entitySizes = /* @__PURE__ */ new Map();
+   for (const entity of diagram.entities) {
+-    const headerTextW = estimateTextWidth(entity.label, FONT_SIZES.nodeLabel, FONT_WEIGHTS.nodeLabel);
++    const headerTextW = estimateTextWidth(entity.label, FONT_SIZES.nodeLabel, BOLD_WEIGHT);
+     let maxAttrW = 0;
+     for (const attr of entity.attributes) {
+       const attrText = `${attr.type}  ${attr.name}${attr.keys.length > 0 ? "  " + attr.keys.join(",") : ""}`;
+@@ -8178,10 +8260,12 @@
+     const height = ER.headerHeight + Math.max(entity.attributes.length, 1) * ER.rowHeight;
+     entitySizes.set(entity.id, { width, height });
+   }
++  const hints = dagreCycleHints(diagram.entities.map((e) => e.id), diagram.relationships.map((r) => [r.entity1, r.entity2]), "LR");
+   const elkGraph = {
+     id: "root",
+     layoutOptions: {
+       "elk.algorithm": "layered",
++      "elk.layered.cycleBreaking.strategy": "INTERACTIVE",
+       "elk.direction": "RIGHT",
+       "elk.spacing.nodeNode": String(ER.nodeSpacing),
+       "elk.layered.spacing.nodeNodeBetweenLayers": String(ER.layerSpacing),
+@@ -8194,7 +8278,7 @@
+   };
+   for (const entity of diagram.entities) {
+     const size = entitySizes.get(entity.id);
+-    elkGraph.children.push({ id: entity.id, width: size.width, height: size.height });
++    elkGraph.children.push({ id: entity.id, x: hints.get(entity.id) ?? 0, y: hints.get(entity.id) ?? 0, width: size.width, height: size.height });
+   }
+   for (let i = 0; i < diagram.relationships.length; i++) {
+     const rel = diagram.relationships[i];
+@@ -9241,6 +9325,7 @@
+   };
+ }
+ function renderMermaidSVG(text, options = {}) {
++  setFontAdvance(options);
+   text = decodeXML(text);
+   const colors = buildColors(options);
+   const font = options.font ?? "Inter";
