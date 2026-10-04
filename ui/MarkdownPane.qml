@@ -16,7 +16,7 @@ Item {
 
     readonly property var bodyItem: doc.bodyItem
     readonly property real scrollY: doc.scrollY
-    readonly property var closeState: ({ hovered: barClose.hovered, pressed: barClose.pressed })
+    function closeState() { var c = barClose.mapToItem(null, barClose.width / 2, barClose.height / 2); return { hovered: barClose.hovered, pressed: barClose.pressed, centre: Math.round(c.x) + " " + Math.round(c.y) } }
     readonly property string rawText: doc.rawText
     readonly property string status: doc.status
     readonly property string lineLabel: doc.lineLabel

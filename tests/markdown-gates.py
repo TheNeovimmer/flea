@@ -84,7 +84,7 @@ shot() { printf 'SHOT %s\\n' "$1"; }
 switch_view() { :; }
 kill_flea() { :; }
 window_box() { echo '0 0 800 600'; }
-# Sample input: omarchy-drive move 714 50 puts the pointer on the 24 px close button the surface rect and chrome height imply.
+# Sample input: omarchy-drive move 714 50 puts the pointer on the 24 px close button at MD_GATE_CLOSE_X, whatever centre the reader reports.
 hit=false
 held=false
 scroll_y=0
@@ -133,7 +133,7 @@ ipc() {
         columnMarkdownView) echo "$MD_GATE_COLUMN_VIEW" ;;
         previewSurfaceRect) echo '40 40 700 500' ;;
         chromeHeight) echo 20 ;;
-        previewCloseState) printf '{"hovered":%s,"pressed":%s}\\n' "$hit" "$held" ;;
+        previewCloseState) if [ -n "${MD_GATE_NO_CENTRE:-}" ]; then printf '{"hovered":%s,"pressed":%s}\\n' "$hit" "$held"; else printf '{"hovered":%s,"pressed":%s,"centre":"%s 50"}\\n' "$hit" "$held" "${MD_GATE_CENTRE_X:-$MD_GATE_CLOSE_X}"; fi ;;
         previewScrollY) echo "$scroll_y" ;;
     esac
 }
@@ -165,7 +165,8 @@ case_cap_markdown
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=PROBE_TIMEOUT_SECONDS)
         check(result.returncode != 0 and ("REFUSED " + text) in result.stdout and "CAPMARKDOWN quicklook=ok" not in result.stdout, label)
 
-    refusal({"MD_GATE_CLOSE_X": "600"}, "capmarkdown: the close button never reported hovered=true", "mdfid B2 a pointer that misses the close button is refused")
+    refusal({"MD_GATE_CENTRE_X": "600"}, "capmarkdown: the close button never reported hovered=true", "mdfid B2 a pointer that misses the close button is refused")
+    refusal({"MD_GATE_NO_CENTRE": "1"}, "capmarkdown: the close button never reported its centre", "mdfid B2 a close button with no centre is refused")
     refusal({"MD_GATE_PRESS_DEAD": "1"}, "capmarkdown: the close button never reported pressed=true", "mdfid B2 a press the close button never takes is refused")
     refusal({"MD_GATE_CLOSE_DEAD": "1"}, "capmarkdown: a press and release on the close button did not close Quick Look", "mdfid B2 a close button that never closes is refused")
     refusal({"MD_GATE_NO_SCROLL": "1"}, "capmarkdown: the wheel did not move the view", "mdfid B4 a scroll that moves nothing is refused")

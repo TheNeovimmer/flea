@@ -24,18 +24,19 @@ capmarkdown_wait_column_rendered() {
     done
     fail "capmarkdown: column Markdown never rendered after the Quick Look flip, last saw [$view]"
 }
-# Window pixels, from previewSurfaceRect's "x y w h": the pointer goes to the surface's centre or to its close button.
+# Window pixels: the pointer goes to the document's centre (previewSurfaceRect's "x y w h", the body under the bar) or to the close button's own centre.
 capmarkdown_pointer() {
     local where="$1" sx sy sw sh wx wy _ww _wh px py
-    read -r sx sy sw sh <<< "$(ipc previewSurfaceRect)"
-    [[ -n "${sh:-}" ]] || fail "capmarkdown: the Quick Look surface never reported its rect"
     read -r wx wy _ww _wh < <(window_box) || fail "capmarkdown: native window coordinates unavailable"
     if [[ "$where" == close ]]; then
-        # The bar's close sits rowPaddingX in from the right and its 24 px hit box is centred on the bar's height.
-        px=$((wx + sx + sw - capmarkdown_close_inset)); py=$((wy + sy + $(ipc chromeHeight) / 2))
+        read -r px py <<< "$(ipc previewCloseState | jq -r '.centre // empty' 2>/dev/null)"
+        [[ -n "${py:-}" ]] || fail "capmarkdown: the close button never reported its centre"
     else
-        px=$((wx + sx + sw / 2)); py=$((wy + sy + sh / 2))
+        read -r sx sy sw sh <<< "$(ipc previewSurfaceRect)"
+        [[ -n "${sh:-}" ]] || fail "capmarkdown: the Quick Look surface never reported its rect"
+        px=$((sx + sw / 2)); py=$((sy + sh / 2))
     fi
+    px=$((wx + px)); py=$((wy + py))
     # Two moves so the first lands as the resting point, then a seat nudge there and back, since Hyprland's cursor move sends Qt no pointer frame.
     omarchy-drive move "$((px - capmarkdown_nudge_px * capmarkdown_approach_nudges))" "$py" >/dev/null || fail "capmarkdown: pointer approach to the $where failed"
     omarchy-drive move "$px" "$py" >/dev/null || fail "capmarkdown: pointer move to the $where failed"
@@ -64,8 +65,6 @@ capmarkdown_scroll() {
     after="$(ipc previewScrollY)"
     [[ -n "$after" && "$after" != "$before" ]] || fail "capmarkdown: the wheel did not move the view, scrollY stayed [$before] after scroll $direction $notches"
 }
-# 14 px of rowPaddingX plus half of the 24 px hit box.
-capmarkdown_close_inset=26
 # One px each way is enough for Hyprland to send Qt a pointer frame.
 capmarkdown_nudge_px=1
 # The approach starts this many nudges short of the target, so the second move is a real motion onto it.
