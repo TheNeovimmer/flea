@@ -65,8 +65,12 @@ Item {
     function headingPx(level) {
         return level >= 1 && level <= root.boardHeadings.length ? root.boardPx(root.boardHeadings[level - 1]) : root.bodyPx
     }
+    // A document past the nesting limit parses to one sentinel block, and the pane then shows its source behind a notice.
+    readonly property bool tooDeep: root.blockList.length === 1 && root.blockList[0].type === "deep"
+    readonly property string shownView: root.tooDeep ? Markdown.SOURCE : root.view
+    readonly property Item noticeItem: deepNotice
     // Only the active file in Rendered view may request figures.
-    readonly property bool figuresArmed: root.active && root.view !== Markdown.SOURCE
+    readonly property bool figuresArmed: root.active && root.shownView !== Markdown.SOURCE
     // Parse sequence numbers reject replies for an older file.
     property var blockList: []
     property int parseSeq: 0
@@ -101,7 +105,7 @@ Item {
 
     readonly property Item bodyItem: body
     // The offset the wheel moved, in whichever view shows, for Quick Look's IPC.
-    readonly property real scrollY: root.view === Markdown.SOURCE ? sourceFlick.contentY : body.contentY
+    readonly property real scrollY: root.shownView === Markdown.SOURCE ? sourceFlick.contentY : body.contentY
     // The render suite reads live delegate geometry; only visible blocks plus the cache exist, so offscreen blocks answer null.
     function blockItem(i) {
         var kids = body.contentItem.children
@@ -402,9 +406,9 @@ Item {
         anchors.fill: parent
         clip: true
         contentWidth: width
-        contentHeight: Math.max(height, sourceText.measuredHeight + 2 * root.insetY)
+        contentHeight: Math.max(height, sourceText.measuredHeight + sourceText.y + root.insetY)
         visible: (!root.tooLarge && !root.readFailed && root.parseError === "")
-            && root.view === Markdown.SOURCE
+            && root.shownView === Markdown.SOURCE
 
         FastScrollHandler {
             parent: sourceFlick
@@ -419,10 +423,10 @@ Item {
             id: sourceText
             // Measure Source outside the scroll-height binding, where Text's lazy getter can relayout and notify.
             property real measuredHeight: 0
-            onImplicitHeightChanged: if (root.view === Markdown.SOURCE) sourceText.measuredHeight = sourceText.implicitHeight
-            onVisibleChanged: if (root.view === Markdown.SOURCE) sourceText.measuredHeight = sourceText.implicitHeight
+            onImplicitHeightChanged: if (root.shownView === Markdown.SOURCE) sourceText.measuredHeight = sourceText.implicitHeight
+            onVisibleChanged: if (root.shownView === Markdown.SOURCE) sourceText.measuredHeight = sourceText.implicitHeight
             x: root.insetX
-            y: root.insetY
+            y: root.insetY + (root.tooDeep ? deepNotice.height + root.blockGap : 0)
             width: sourceFlick.width - 2 * root.insetX
             text: root.rawText
             textFormat: Text.PlainText
@@ -430,6 +434,19 @@ Item {
             color: Theme.color.foreground
             font.family: Theme.font.family
             font.pixelSize: root.bodyPx
+        }
+        Text {
+            id: deepNotice
+            visible: root.tooDeep
+            x: root.insetX
+            y: root.insetY
+            width: sourceFlick.width - 2 * root.insetX
+            text: Markdown.deepNotice()
+            textFormat: Text.PlainText
+            elide: Text.ElideRight
+            color: Theme.color.muted
+            font.family: Theme.font.family
+            font.pixelSize: Theme.font.caption
         }
     }
 
@@ -441,7 +458,7 @@ Item {
         anchors.rightMargin: root.insetX
         clip: true
         visible: (!root.tooLarge && !root.readFailed && root.parseError === "")
-            && root.view !== Markdown.SOURCE
+            && root.shownView !== Markdown.SOURCE
         model: root.blockList
         // A new model resets the view to its origin, so the saved place is restored once that reset is done.
         onModelChanged: root.restoreScroll()
@@ -821,7 +838,10 @@ Item {
                     Image {
                         id: localImage
                         visible: block.type === "image"
-                        width: parent.width
+                        // An HTML width attribute sets the picture's width; its paragraph's align="center" centres it.
+                        readonly property real wantWidth: block.type === "image" && block.width > 0 ? Math.min(block.width, parent.width) : 0
+                        width: localImage.wantWidth > 0 ? localImage.wantWidth : parent.width
+                        x: block.type === "image" && block.align === "center" ? Math.round((parent.width - localImage.width) / 2) : 0
                         fillMode: Image.PreserveAspectFit
                         // A picture narrower than the content sits on the text's left edge, as the board's stand-in does.
                         horizontalAlignment: Image.AlignLeft

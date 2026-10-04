@@ -203,7 +203,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
             continue
         }
         if (c === "<") {
-            i = Res.parseAngle(body, i, dir, ink, styleLinks, dead, tokens, out)
+            i = Res.parseAngle(body, i, dir, ink, styleLinks, dead, tokens, out, chrome)
             continue
         }
         if (c === "h" || c === "w") {

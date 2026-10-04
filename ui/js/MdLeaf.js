@@ -4,6 +4,7 @@
 .import "MdUrl.js" as MdUrl
 .import "MdHtml.js" as MdHtml
 .import "MdInline.js" as Md
+.import "MdHtmlImage.js" as HtmlImage
 
 // The limits MdContainer names for list markers; the worker bundle shares only functions between files, so each holds its own.
 var MAX_MARKER_INDENT = 3
@@ -224,30 +225,8 @@ function standaloneImage(line, dir, defs) {
         }
         return imageBlock(alt, target, dir)
     }
-    if (/^<img\b[^<>]*>$/i.test(text)) {
-        var tag = MdHtml.readTag(text, 0)
-        if (tag === null)
-            return null
-        var head = MdHtml.tagHead(tag.tag)
-        if (head.name !== "img" || head.closing || !head.validAttrs)
-            return null
-        // First attributes win even when their values are empty or absent.
-        var src = null
-        var alt = null
-        for (var a = 0; a < head.attributes.length; a++) {
-            var attr = head.attributes[a]
-            if (attr.name === "src" && src === null)
-                src = attr.value === null ? "" : attr.value
-            if (attr.name === "alt" && alt === null)
-                alt = attr.value === null ? "" : attr.value
-        }
-        var cls = MdUrl.classifyImage(src === null ? "" : src, dir)
-        if (cls.kind === "remote")
-            return { type: "remote", host: cls.host }
-        if (cls.kind === "local")
-            return { type: "image", url: cls.url, alt: alt === null ? "" : alt }
-        return null
-    }
+    if (/^<img\b[^<>]*>$/i.test(text))
+        return HtmlImage.rawImage(text, dir)
     return null
 }
 

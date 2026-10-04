@@ -47,6 +47,10 @@ var GLOBAL_ATTRS = { align: 1, alt: 1, width: 1, height: 1, title: 1,
 // Void tags never take a closing tag.
 var VOID = { br: 1, hr: 1, img: 1, source: 1 }
 
+// The chip kbd and code tags wear, the same recipe as an inline code span.
+var CHROME_PATTERN = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i
+var DISCLOSURE_OPEN = "\u25be"
+
 function isNameChar(c) {
     return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9")
 }
@@ -205,31 +209,17 @@ function attrKept(name, value, tagName) {
     return GLOBAL_ATTRS.hasOwnProperty(name)
 }
 
+// The opening of an inline code chip; an unusable chrome leaves a plain code tag.
+function chipOpen(chrome) {
+    return CHROME_PATTERN.test(String(chrome || "")) ? '<code style="background-color:' + chrome + '">' : "<code>"
+}
+
 function escapeAttr(value) {
     return String(value).replace(/&/g, "&#38;").replace(/"/g, "&#34;").replace(/</g, "&#60;")
 }
 
-// First srcset candidate classifying local, or its remote flag, else null.
-function srcsetPick(value, dir) {
-    var parts = String(value).split(",")
-    var remote = null
-    for (var i = 0; i < parts.length; i++) {
-        var cand = parts[i].replace(/^\s+|\s+$/g, "").split(/\s+/)[0] || ""
-        if (cand.length === 0)
-            continue
-        var seen = MdUrl.classifyImage(cand, dir)
-        if (seen.kind === "local")
-            return { kind: "local", url: seen.url }
-        if (seen.kind === "remote" && remote === null)
-            remote = seen.host
-    }
-    if (remote !== null)
-        return { kind: "remote", host: remote }
-    return null
-}
-
-// Sanitize one tag into {emit, drop}; held image tokens carry resolved URLs, and drop names content to skip.
-function sanitizeTag(tag, dir, tokens) {
+// Sanitize one tag into {emit, drop}; held image tokens carry resolved URLs, and drop names content to skip. chrome fills the key cap.
+function sanitizeTag(tag, dir, tokens, chrome) {
     function hold(html) {
         return holdToken(tokens, html)
     }
@@ -241,11 +231,14 @@ function sanitizeTag(tag, dir, tokens) {
         return { emit: "", drop: head.closing || head.selfClose ? null : name }
     if (!ALLOWED.hasOwnProperty(name))
         return { emit: "", drop: null }
-    // details shows its body; summary draws bold through the markdown parser.
+    // details is drawn open: its summary is a bold line led by the open disclosure mark, and its body follows.
     if (name === "details")
         return { emit: "", drop: null }
     if (name === "summary")
-        return { emit: head.closing ? "**" : "**", drop: null }
+        return { emit: head.closing ? "</b>" : "<b>" + DISCLOSURE_OPEN + " ", drop: null }
+    // kbd and code are the inline code chip, never a bare tag.
+    if (name === "kbd" || name === "code")
+        return { emit: head.closing ? "</code>" : chipOpen(chrome), drop: null }
     if (head.closing)
         return { emit: "</" + name + ">", drop: null }
     if (!head.validAttrs)
@@ -287,9 +280,11 @@ function sanitizeTag(tag, dir, tokens) {
         if (srcSeen !== null)
             picked = MdUrl.classifyImage(srcSeen, dir)
         else if (srcsetSeen !== null)
-            picked = srcsetPick(srcsetSeen, dir)
+            picked = MdUrl.srcsetPick(srcsetSeen, dir)
+        // The importer drops everything after a raw img tag, so a local picture reaches it as a Markdown image.
         if (picked !== null && picked.kind === "local")
-            return { emit: hold('<img src="' + picked.url + '" alt="' + escapeAttr(altSeen === null ? "" : altSeen) + '">'), drop: null }
+            return { emit: hold("![" + MdEscape.escapeText(altSeen === null ? "" : altSeen) + "]("
+                + picked.url.replace(/\(/g, "%28").replace(/\)/g, "%29") + ")"), drop: null }
         if (picked !== null && picked.kind === "remote")
             return { emit: "\n\n" + MdUrl.placeholder(MdEscape.escapeText(picked.host)) + "\n\n", drop: null }
         return { emit: MdUrl.canonicalUrl(altSeen).length > 0 ? MdEscape.escapeText(altSeen) : "", drop: null }

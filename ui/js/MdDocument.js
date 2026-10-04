@@ -3,6 +3,11 @@
 // Serialize the block reader's events; all container and code decisions belong to MdBlocks.
 .import "MdLeaf.js" as Leaf
 .import "MdRun.js" as Run
+.import "MdHtmlImage.js" as HtmlImage
+
+// The importer joins an HTML block onto the paragraph above it, so a block-level raw tag after a blank line starts its own run.
+// Sample input: "Body.\n\n<div>x</div>" splits before the div; "<table>\n<tr>" keeps its rows together.
+var HTML_BLOCK_AFTER_BLANK = /\n[ \t]*\n+(?= {0,3}<(?:p|div|h[1-6]|hr|table|ul|ol|blockquote|pre)(?=[\s>\/]))/i
 
 function visibleLines(lines, state) {
     var kept = []
@@ -30,9 +35,11 @@ function writer(state, dir, chrome, ink) {
             citations === false ? undefined : cited, literalPlain)
     }
     function pushRun(lines) {
-        var text = inlineOf(lines.join("\n"))
-        if (text.trim().length > 0)
-            out.push({ type: "run", text: text })
+        var pieces = inlineOf(lines.join("\n")).split(HTML_BLOCK_AFTER_BLANK)
+        for (var p = 0; p < pieces.length; p++) {
+            if (pieces[p].trim().length > 0)
+                out.push({ type: "run", text: pieces[p] })
+        }
     }
     function pushAll(blocks) {
         for (var b = 0; b < blocks.length; b++)
@@ -44,10 +51,14 @@ function writer(state, dir, chrome, ink) {
             var solo = run[i].trim().length > 0 && (i === 0 || run[i - 1].trim().length === 0)
                 && (i + 1 === run.length || run[i + 1].trim().length === 0)
             var image = solo ? Leaf.standaloneImage(run[i], dir, state.defs) : null
-            if (image !== null) {
+            // A raw image inside its own paragraph or div, on one line or three, is an image block too.
+            var unit = image === null ? HtmlImage.imageUnit(run, i, dir) : null
+            if (image !== null || unit !== null) {
                 pushRun(plain)
                 plain = []
-                out.push(image)
+                out.push(image !== null ? image : unit.block)
+                if (unit !== null)
+                    i = unit.end
             } else {
                 plain.push(run[i])
             }

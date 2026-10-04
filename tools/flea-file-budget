@@ -114,7 +114,7 @@ ui/PickerWindow.qml 779
 ui/Preview.qml 661
 ui/PreviewColumn.qml 583
 ui/DeviceMounts.qml 496
-ui/PreviewMarkdown.qml 844
+ui/PreviewMarkdown.qml 864
 ui/Row.qml 482
 ui/SettingsPanel.qml 543
 ui/SettingsRow.qml 409
@@ -131,7 +131,7 @@ ui/js/Focus.js 435
 ui/js/Keymap.js 355
 ui/js/Nav.js 308
 ui/js/Markdown.js 155
-ui/js/MdBlocks.js 361
+ui/js/MdBlocks.js 369
 ui/js/MdInline.js 295
 ui/js/Menu.js 454
 ui/js/Drag.js 342

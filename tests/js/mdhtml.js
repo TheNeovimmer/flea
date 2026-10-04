@@ -168,10 +168,10 @@ function run(check) {
             JSON.stringify(Leaf.standaloneImage(duplicate.tag, dir, {})), JSON.stringify(duplicate.expected))
     }
     var inlineDuplicates = [
-        { tag: '<img src="a.png" src="b.png" alt="first" alt="last">', output: '<img src="file://' + dir + '/a.png" alt="first">' },
-        { tag: '<img src="a.png" src="https://later.example/b.png">', output: '<img src="file://' + dir + '/a.png" alt="">' },
-        { tag: '<img srcset="a.png 1x" srcset="b.png 1x">', output: '<img src="file://' + dir + '/a.png" alt="">' },
-        { tag: '<img srcset="a.png 1x" srcset="https://later.example/b.png 1x">', output: '<img src="file://' + dir + '/a.png" alt="">' },
+        { tag: '<img src="a.png" src="b.png" alt="first" alt="last">', output: "![first](file://" + dir + "/a.png)" },
+        { tag: '<img src="a.png" src="https://later.example/b.png">', output: "![](file://" + dir + "/a.png)" },
+        { tag: '<img srcset="a.png 1x" srcset="b.png 1x">', output: "![](file://" + dir + "/a.png)" },
+        { tag: '<img srcset="a.png 1x" srcset="https://later.example/b.png 1x">', output: "![](file://" + dir + "/a.png)" },
         { tag: '<img src="" src="b.png" alt="first" alt="last">', output: "first" },
         { tag: '<img src src="b.png" alt alt="last">', output: "" },
         { tag: '<img srcset srcset="b.png 1x" alt="first">', output: "first" }

@@ -102,7 +102,8 @@ function run(check) {
         "Before \n\nRemote image not loaded \u00b7 cdn&#46;example&#46;com\n\n after\n")
     check("no remote img tag survives", /<img[^>]*https?:/i.test(Markdown.prepare(html, dir)), false)
     var htmlLocal = 'See <img src="shot.png" alt="art"> here\n'
-    check("a local img tag resolves", Markdown.prepare(htmlLocal, dir).indexOf('src="file:///home/gm/notes/shot.png"') >= 0, true)
+    check("a local img tag resolves to a Markdown image", Markdown.prepare(htmlLocal, dir).indexOf("![art](file:///home/gm/notes/shot.png)") >= 0, true)
+    check("no local img tag survives", Markdown.prepare(htmlLocal, dir).indexOf("<img"), -1)
 
     check("an empty file counts no lines", Markdown.lineCount(""), 0)
     check("a final newline ends the second line", Markdown.lineCount("a\nb\n"), 2)

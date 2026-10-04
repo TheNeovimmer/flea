@@ -178,3 +178,22 @@ function containedLocal(path, dir) {
         return { kind: "dropped" }
     return { kind: "local", url: Format.fileUri("/" + collapsed) }
 }
+
+// First srcset candidate classifying local, or its remote flag, else null.
+function srcsetPick(value, dir) {
+    var parts = String(value).split(",")
+    var remote = null
+    for (var i = 0; i < parts.length; i++) {
+        var cand = parts[i].replace(/^\s+|\s+$/g, "").split(/\s+/)[0] || ""
+        if (cand.length === 0)
+            continue
+        var seen = classifyImage(cand, dir)
+        if (seen.kind === "local")
+            return { kind: "local", url: seen.url }
+        if (seen.kind === "remote" && remote === null)
+            remote = seen.host
+    }
+    if (remote !== null)
+        return { kind: "remote", host: remote }
+    return null
+}

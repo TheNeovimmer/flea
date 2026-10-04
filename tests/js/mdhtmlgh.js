@@ -1,0 +1,92 @@
+.import "../../ui/js/Markdown.js" as Markdown
+
+// GitHub's sanitized raw HTML subset and the nesting cap, as the parser hands them to the pane.
+function run(check) {
+    var dir = "/home/u/docs"
+    var chrome = "#181825"
+    var ink = "#c0caf5"
+    var logoUrl = "file://" + dir + "/img/logo.png"
+    function blocks(source, withChrome) { return Markdown.blocks(source, dir, withChrome === undefined ? chrome : withChrome, ink) }
+    // A missing block reads as an empty one, so a parser that drops it fails the check instead of throwing.
+    function at(list, index) { return list[index] === undefined ? {} : list[index] }
+    function types(source) { return blocks(source).map(function (b) { return b.type }).join(",") }
+    function runs(source, withChrome) {
+        return blocks(source, withChrome).filter(function (b) { return b.type === "run" })
+            .map(function (b) { return b.text }).join("|")
+    }
+    var logo = blocks('<p align="center"><img src="img/logo.png" width="64" alt="logo"></p>\n<p align="center"><b>A centred title</b></p>\n\nLine one<br>line two')
+    check("H1 logo line is an image block between heading and text", logo.map(function (b) { return b.type }).join(","), "image,run")
+    check("H1 logo keeps its width attribute", at(logo, 0).width, 64)
+    check("H1 logo is centred by its paragraph", at(logo, 0).align, "center")
+    check("H1 logo points beside the document", at(logo, 0).url, logoUrl)
+    check("H1 logo keeps its alt", at(logo, 0).alt, "logo")
+    check("H1 title stays a centred bold paragraph", String(at(logo, 1).text).indexOf('<p align="center"><b>A centred title</b></p>') >= 0, true)
+    check("H1 line break survives", String(at(logo, 1).text).indexOf("Line one<br />line two") >= 0, true)
+    var wrapped = blocks('<p align="center">\n  <img src="img/logo.png" width="128">\n</p>\n\ntext')
+    check("H2 a wrapper on its own lines leaves only the image and the text", wrapped.map(function (b) { return b.type }).join(","), "image,run")
+    check("H2 wrapped image is centred at its width", at(wrapped, 0).align + ":" + at(wrapped, 0).width, "center:128")
+    check("H2 no wrapper tag is left drawn", String(at(wrapped, 1).text).indexOf("<p") < 0 && String(at(wrapped, 1).text).indexOf("</p") < 0, true)
+    var bare = blocks('<img src="img/logo.png" width="64">')
+    check("H3 a bare image keeps its width and sits at the left", JSON.stringify(bare), JSON.stringify([{ type: "image", url: logoUrl, alt: "", width: 64 }]))
+    var widths = { abc: 0, "0": 0, "-5": 0, "50%": 0, "12.5": 0, "99999": 0, "64px": 64, " 48 ": 48 }
+    for (var attr in widths) {
+        var shown = at(blocks('<img src="img/logo.png" width="' + attr + '">'), 0)
+        check("H4 width attribute '" + attr + "'", shown.width === undefined ? 0 : shown.width, widths[attr])
+    }
+    var inlineImage = runs('text <img src="img/logo.png" alt="x"> tail')
+    check("H5 an inline raw image never reaches the importer as HTML", inlineImage.indexOf("<img"), -1)
+    check("H5 an inline raw image becomes a Markdown image", inlineImage.indexOf("![x](" + logoUrl + ")") >= 0, true)
+    check("H5 a picture never reaches the importer as HTML", runs('a <picture><source srcset="img/logo.png"><img src="img/logo.png"></picture> b').indexOf("<img"), -1)
+    var keys = runs("Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy.")
+    check("H6 kbd draws as the inline code chip", keys,
+        'Press <code style="background-color:#181825">Ctrl</code>+<code style="background-color:#181825">C</code> to copy.')
+    check("H6 a raw code tag wears the same chip", runs("a <code>x</code> b"), 'a <code style="background-color:#181825">x</code> b')
+    check("H6 without chrome kbd stays a plain code tag", runs("a <kbd>x</kbd> b", ""), "a <code>x</code> b")
+    check("H6 a hostile chrome never reaches the tag", runs("a <kbd>x</kbd> b", 'red;"><b>'), "a <code>x</code> b")
+    check("H7 sub and sup pass through", runs("H<sub>2</sub>O and mc<sup>2</sup>."), "H<sub>2</sub>O and mc<sup>2</sup>.")
+    var details = runs("<details>\n<summary>Click to expand</summary>\n\nHidden body.\n\n</details>")
+    check("H8 the summary is a bold line with the open disclosure mark", details.indexOf("<b>▾ Click to expand</b>") >= 0, true)
+    check("H8 the body is drawn open", details.indexOf("Hidden body.") >= 0, true)
+    check("H8 no details or summary tag is left", details.indexOf("<details") < 0 && details.indexOf("summary") < 0, true)
+    var div = runs('<div style="color: red" class="x" id="y">A div</div>')
+    check("H9 a div keeps its text and loses its attributes", div, "<div>A div</div>")
+    var inert = ['<script>alert(1)</script>', "<style>p{color:red}</style>", '<iframe src="https://x.example/">frame</iframe>',
+        '<object data="x.swf">obj</object>', '<embed src="x"></embed>', "<template>tmpl</template>", "<noscript>ns</noscript>"]
+    for (var i = 0; i < inert.length; i++)
+        check("H10 inert " + inert[i], runs("before " + inert[i] + " after").replace(/\s+/g, " "), "before after")
+    check("H10 an on* attribute is dropped", runs('<p onclick="steal()" align="center">hi</p>'), '<p align="center">hi</p>')
+    check("H10 a javascript: link loses its target", runs('<a href="javascript:alert(1)">x</a>').indexOf("javascript"), -1)
+    check("H10 an onerror attribute never survives on an image", JSON.stringify(blocks('<img src="img/logo.png" onerror="alert(1)">')).indexOf("onerror"), -1)
+    check("H12 a block-level raw tag after a paragraph starts its own run", types("Body text.\n\n<div>A div</div>"), "run,run")
+    check("H12 a raw table keeps its rows in one run", types("<table>\n<tr>\n<td>x</td>\n</tr>\n</table>"), "run")
+    check("H12 a paragraph after an HTML block stays with it", types('<p align="center"><b>T</b></p>\n\nafter'), "run")
+    check("H13 a lone angle bracket stays text", runs("1 < 2 and <3 here"), "1 &#60; 2 and &#60;3 here")
+    check("H13 HTML in a code span stays literal", runs("use `<b>x</b>` here"),
+        'use <code style="background-color:#181825">&#60;b&#62;x&#60;&#47;b&#62;</code> here')
+    check("H13 HTML in a fence stays verbatim", JSON.stringify(blocks('```html\n<div onclick="x">hi</div>\n```')),
+        JSON.stringify([{ type: "fence", text: '<div onclick="x">hi</div>', info: "html" }]))
+    check("H13 an escaped entity stays text", runs("x &lt;b&gt; y"), "x &lt;b&gt; y")
+    function quote(depth) {
+        var lines = []
+        for (var d = 1; d <= depth; d++)
+            lines.push("> ".repeat(d) + "level " + d)
+        return lines.join("\n")
+    }
+    function list(depth) {
+        var lines = []
+        for (var d = 0; d < depth; d++)
+            lines.push("  ".repeat(d) + "- item " + d)
+        return lines.join("\n")
+    }
+    check("H11 the nesting limit is 32", Markdown.NESTING_LIMIT, 32)
+    check("H11 a quote at the limit still renders", types(quote(32)), "quote")
+    check("H11 a quote past the limit is the nesting sentinel", JSON.stringify(blocks(quote(33))), JSON.stringify([{ type: "deep", limit: 32 }]))
+    check("H11 400 nested quotes are the sentinel", types(quote(400)), "deep")
+    check("H11 a list at the limit still renders", types(list(32)), "list")
+    check("H11 a list past the limit is the sentinel", types(list(33)), "deep")
+    check("H11 markers on one line count", types("- ".repeat(33) + "x"), "deep")
+    check("H11 deep indentation inside a fence is code, never nesting", types("```\n" + list(60) + "\n```"), "fence")
+    check("H11 deep indentation of plain text is not nesting", types(" ".repeat(200) + "word") !== "deep", true)
+    check("H11 a heading before the deep part is not drawn", types("# Title\n\n" + quote(40)), "deep")
+    check("H11 the notice names the limit", typeof Markdown.deepNotice === "function" ? Markdown.deepNotice() : "", "Rendered preview skipped: nesting is deeper than 32 levels. Showing the source.")
+}
