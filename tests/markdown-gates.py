@@ -87,8 +87,11 @@ window_box() { echo '0 0 800 600'; }
 # Sample input: omarchy-drive move 714 50 puts the pointer on the 24 px close button at MD_GATE_CLOSE_X, whatever centre the reader reports.
 hit=false
 held=false
+focused=false
 scroll_y=0
 scroll_max=5760
+# The capture scrolls 15 notches of 288 px, 4320, and the stub builds the last block from here on.
+end_reach=4000
 close_reach=12
 bar_reach=10
 omarchy-drive() {
@@ -122,6 +125,7 @@ fail() {
 }
 key() {
     case "$*" in
+        "-k Tab") [ -n "${MD_GATE_TAB_DEAD:-}" ] || { if $focused; then focused=false; else focused=true; fi; } ;;
         "-k Space") opened=true ;;
         "-k Escape") opened=false ;;
     esac
@@ -133,7 +137,8 @@ ipc() {
         columnMarkdownView) echo "$MD_GATE_COLUMN_VIEW" ;;
         previewSurfaceRect) echo '40 40 700 500' ;;
         chromeHeight) echo 20 ;;
-        previewCloseState) if [ -n "${MD_GATE_NO_CENTRE:-}" ]; then printf '{"hovered":%s,"pressed":%s}\\n' "$hit" "$held"; else printf '{"hovered":%s,"pressed":%s,"centre":"%s 50"}\\n' "$hit" "$held" "${MD_GATE_CENTRE_X:-$MD_GATE_CLOSE_X}"; fi ;;
+        previewCloseState) if [ -n "${MD_GATE_NO_CENTRE:-}" ]; then printf '{"hovered":%s,"pressed":%s,"focused":%s}\\n' "$hit" "$held" "$focused"; else printf '{"hovered":%s,"pressed":%s,"focused":%s,"centre":"%s 50"}\\n' "$hit" "$held" "${MD_GATE_FOCUS_STUCK:-$focused}" "${MD_GATE_CENTRE_X:-$MD_GATE_CLOSE_X}"; fi ;;
+        previewEndGap) if [ "$scroll_y" -ge "$end_reach" ]; then echo "${MD_GATE_END_CUT:-0}"; else echo -1; fi ;;
         previewScrollY) echo "$scroll_y" ;;
     esac
 }
@@ -171,6 +176,9 @@ case_cap_markdown
     refusal({"MD_GATE_CLOSE_DEAD": "1"}, "capmarkdown: a press and release on the close button did not close Quick Look", "mdfid B2 a close button that never closes is refused")
     refusal({"MD_GATE_NO_SCROLL": "1"}, "capmarkdown: the wheel did not move the view", "mdfid B4 a scroll that moves nothing is refused")
     refusal({"MD_GATE_SCROLL_FAIL": "1"}, "capmarkdown: scroll down", "mdfid B4 a failed scroll call is refused")
+    refusal({"MD_GATE_END_CUT": "80"}, "capmarkdown: the last block is cut at the end of the document", "mdfid N1 a picture that grew below the end is refused")
+    refusal({"MD_GATE_TAB_DEAD": "1"}, "capmarkdown: the close button never reported focused=true", "mdfid N2 a Tab that never reaches the close mark is refused")
+    refusal({"MD_GATE_FOCUS_STUCK": "true"}, "capmarkdown: the close button never reported focused=false", "mdfid N2 a close mark focused at rest is refused")
 
 print(f"MARKDOWN_GATES {checks} checks, {failures} failed")
 raise SystemExit(1 if failures else 0)

@@ -65,6 +65,17 @@ capmarkdown_scroll() {
     after="$(ipc previewScrollY)"
     [[ -n "$after" && "$after" != "$before" ]] || fail "capmarkdown: the wheel did not move the view, scrollY stayed [$before] after scroll $direction $notches"
 }
+# At the end of the document the last block and the inset under it lie inside the viewport, at most this many px past it (rounding).
+capmarkdown_end_slack_px=1
+# Sample input: previewEndGap answers 0 when the last block and its inset are whole in the view, 80 when a picture grew 80 px below it, -1 when the last block is not built.
+capmarkdown_end_fit() {
+    local before after
+    before="$(ipc previewEndGap)"
+    settle
+    after="$(ipc previewEndGap)"
+    [[ "$before" =~ ^[0-9]+$ && "$after" =~ ^[0-9]+$ && "$before" -le "$capmarkdown_end_slack_px" && "$after" -le "$capmarkdown_end_slack_px" ]] \
+        || fail "capmarkdown: the last block is cut at the end of the document, previewEndGap read [$before] then [$after]"
+}
 # One px each way is enough for Hyprland to send Qt a pointer frame.
 capmarkdown_nudge_px=1
 # The approach starts this many nudges short of the target, so the second move is a real motion onto it.
@@ -160,11 +171,13 @@ PY
     [[ "$(printf '%s' "$figs" | grep -o 'ready' | wc -l | tr -d ' ')" == "4" ]] || fail "capmarkdown: want 4 ready figures, saw [$figs]"
     [[ "$(printf '%s' "$figs" | grep -o 'failed' | wc -l | tr -d ' ')" == "1" ]] || fail "capmarkdown: want 1 failed figure, saw [$figs]"
     shot "cap-markdown-rendered"
+    capmarkdown_wait_close focused false
     # Rendered scrolled: the wheel shows the scroll bar on use, so each shot holds it.
     capmarkdown_pointer document
     capmarkdown_scroll down "$capmarkdown_notches_mid"
     shot "cap-markdown-rendered-scrolled"
     capmarkdown_scroll down "$capmarkdown_notches_end"
+    capmarkdown_end_fit
     shot "cap-markdown-rendered-end"
     capmarkdown_scroll up "$((capmarkdown_notches_mid + capmarkdown_notches_end))"
     # The close button in each state the bar can show: hover, keyboard focus after Tab, then pressed and released off the button.
@@ -173,7 +186,10 @@ PY
     capmarkdown_pointer document
     key -k Tab >/dev/null
     settle
+    capmarkdown_wait_close focused true
     shot "cap-markdown-close-focus"
+    key -k Tab >/dev/null
+    capmarkdown_wait_close focused false
     capmarkdown_pointer close
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 || fail "capmarkdown: pointer press on the close button failed"
     settle

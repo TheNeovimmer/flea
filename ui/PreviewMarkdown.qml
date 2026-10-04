@@ -41,10 +41,19 @@ Item {
     readonly property string surfaceHex: hexOf(Theme.color.surface)
     readonly property int insetX: Theme.spacing.rowPaddingX + Theme.spacing.rowPaddingY - Theme.spacing.hairline
     readonly property int insetY: Theme.spacing.gap + Theme.spacing.rowPaddingY
-    // The 6 px gap above every block after the first is rowPaddingY (7), and the fence's 8 12 padding is gap (9) and rowPaddingX (14).
-    readonly property int blockGap: Theme.spacing.rowPaddingY
-    readonly property int fencePadX: Theme.spacing.rowPaddingX
-    readonly property int fencePadY: Theme.spacing.gap
+    // RenderedPreviews resolves its pixels at body 14, and each one follows the body from there: no spacing token equals them at any size.
+    readonly property int boardBody: 14
+    readonly property int boardBlockGap: 6
+    readonly property int boardFencePadX: 12
+    readonly property int boardFencePadY: 8
+    // Headings are 20 and 15 px at body 14 in both surfaces, over the body the surface sets; deeper levels are body bold.
+    readonly property var boardHeadings: [20, 15]
+    function boardPx(px) {
+        return Math.round(px * Theme.font.body / root.boardBody)
+    }
+    readonly property int blockGap: root.boardPx(root.boardBlockGap)
+    readonly property int fencePadX: root.boardPx(root.boardFencePadX)
+    readonly property int fencePadY: root.boardPx(root.boardFencePadY)
     // The preview column sets the document one token under Quick Look's body (RenderedPreviews 13 against 14).
     property bool compact: false
     readonly property int bodyPx: root.compact ? Theme.font.bodySmall : Theme.font.body
@@ -53,10 +62,8 @@ Item {
     // RenderedPreviews' remote box is a 1 px CSS dashed border: 3 px dashes with 3 px gaps.
     readonly property int dashPx: 3
     readonly property int dashPitch: 2 * root.dashPx
-    // Headings are 20 and 15 px over the 14 px body, kept as ratios so every text size scales them; deeper levels are body bold.
-    readonly property var headingRatio: [20 / 14, 15 / 14]
     function headingPx(level) {
-        return Math.round(root.bodyPx * (level >= 1 && level <= root.headingRatio.length ? root.headingRatio[level - 1] : 1))
+        return level >= 1 && level <= root.boardHeadings.length ? root.boardPx(root.boardHeadings[level - 1]) : root.bodyPx
     }
     // Only the active file in Rendered view may request figures.
     readonly property bool figuresArmed: root.active && root.view !== Markdown.SOURCE
@@ -201,6 +208,29 @@ Item {
         body.contentY = at
         if (settled)
             root.keepScroll = false
+    }
+    // The content height last seen, which is where the end was before a block grew.
+    property real seenHeight: 0
+    // The snap below sets contentY itself, and the height can settle again under it.
+    property bool snappingToEnd: false
+    // A picture decodes after its block was built at no height, and the view does not follow content that grows under its end.
+    function holdEnd() {
+        var was = root.seenHeight
+        root.seenHeight = body.contentHeight
+        if (root.snappingToEnd || !(body.contentHeight > was))
+            return
+        var wasEnd = body.originY + was - body.height + body.bottomMargin
+        var tallerThanView = wasEnd > body.originY - body.topMargin
+        if (!tallerThanView || body.contentY < wasEnd - root.samePlacePx)
+            return
+        root.snappingToEnd = true
+        body.contentY = body.originY + body.contentHeight - body.height + body.bottomMargin
+        root.snappingToEnd = false
+    }
+    // How far the last block's bottom and the inset under it lie past the viewport, 0 when whole, -1 when the last block is not built.
+    function endGap() {
+        var last = root.blockItem(root.blockList.length - 1)
+        return last === null ? -1 : Math.max(0, Math.round(last.mapToItem(body, 0, last.height).y + body.bottomMargin - body.height))
     }
     function reloadFromDisk() {
         if (!root.active || root.tooLarge)
@@ -409,6 +439,7 @@ Item {
         // A new model resets the view to its origin, so the saved place is restored once that reset is done.
         onModelChanged: root.restoreScroll()
         onContentYChanged: root.releaseHeldPlace()
+        onContentHeightChanged: root.holdEnd()
         spacing: root.blockGap
         topMargin: root.insetY
         bottomMargin: root.insetY
@@ -459,7 +490,7 @@ Item {
                         font.pixelSize: block.type === "heading" ? root.headingPx(block.level) : root.bodyPx
                         font.bold: block.type === "heading"
                         // h1 and h2 take the bright foreground; deeper levels and body stay the foreground.
-                        color: block.type === "heading" && block.level <= root.headingRatio.length ? Theme.color.foregroundBright : Theme.color.foreground
+                        color: block.type === "heading" && block.level <= root.boardHeadings.length ? Theme.color.foregroundBright : Theme.color.foreground
                     }
 
                     // Tables hug their cells with Grid, Column and Row, never QtQuick.Layouts, so the preview never loads it.
@@ -485,6 +516,7 @@ Item {
                                     text: block.head[index]
                                     horizontalAlignment: tableGrid.alignAt(index)
                                     font.bold: true
+                                    color: Theme.color.foregroundBright
                                 }
                             }
                         }
@@ -607,7 +639,7 @@ Item {
                         objectName: "figureBox"
                         visible: block.type === "figure"
                         width: parent.width
-                        readonly property int figureInset: figureItem.ready && figureItem.kind === "math" && figureItem.fitHeight > 0 ? root.fencePadY : 0
+                        readonly property int figureInset: figureItem.ready && figureItem.kind === "math" && figureItem.fitHeight > 0 ? Theme.spacing.gap : 0
                         height: figureItem.implicitHeight + 2 * figureInset
 
                         Flea.MarkdownFigure {

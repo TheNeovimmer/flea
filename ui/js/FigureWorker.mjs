@@ -335,6 +335,39 @@ function shift(tag, font) {
     return dy ? Number(dy[1]) * (dy[2] === "em" ? font : dy[2] === "%" ? font / PERCENT_SCALE : 1) : 0;
 }
 
+// QtSvg ignores every dy, so a baseline lands on its y alone; the library centres a label with a dy of 0.35 em, which is the whole of the centring.
+const BAKED_DECIMALS = 3;
+// Sample input: <text x="31" y="19.45" font-size="13" dy="4.55">A</text> reads <text y="24" x="31" font-size="13">A</text>, and a tspan's dy becomes its own y.
+function bakeDy(svg) {
+    function put(tag, y) {
+        var rest = tag.replace(/\sdy="[^"]*"/, "").replace(/\sy="[^"]*"/, "");
+        return rest.replace(/^<(text|tspan)/, '<$1 y="' + Number(y.toFixed(BAKED_DECIMALS)) + '"');
+    }
+    function attr(tag, name) {
+        var found = tag.match(new RegExp("\\s" + name + '="([^"]*)"'));
+        return found ? Number(found[1]) : NaN;
+    }
+    return svg.replace(/<text\b([^<>]*)>((?:[^<]|<tspan\b[^<>]*>[^<]*<\/tspan>)*)<\/text>/g, function (all, attrs, content) {
+        var head = "<text" + attrs + ">";
+        var font = attr(head, "font-size");
+        var baseline = attr(head, "y");
+        // A text whose size or baseline cannot be read stays as the library drew it.
+        if (!Number.isFinite(baseline) || !Number.isFinite(font))
+            return all;
+        var textShift = shift(head, font);
+        var lines = 0;
+        var body = content.replace(/<tspan\b[^<>]*>/g, function (tag) {
+            var size = Number.isFinite(attr(tag, "font-size")) ? attr(tag, "font-size") : font;
+            var pen = Number.isFinite(attr(tag, "y")) ? attr(tag, "y") : baseline;
+            // The nearest element naming a dy supplies it, so the text's own moves only a first line that names none.
+            baseline = pen + (/\sdy=/.test(tag) ? shift(tag, size) : lines === 0 ? textShift : 0);
+            lines++;
+            return put(tag, baseline);
+        });
+        return lines === 0 ? put(head, baseline + textShift) + content + "</text>" : put(head, attr(head, "y")) + body + "</text>";
+    });
+}
+
 // Sample input: "WOi" advances 2.45 em, the wide glyph at 1.02, the capital at 0.79 and the narrow one at 0.64.
 function advance(words) {
     var em = 0;
@@ -558,7 +591,7 @@ export function postMermaid(svg, t) {
     out = out.replace(/<svg([^<>]*?)\sstyle="[^"]*"/, "<svg$1");
     // A click directive unwraps to its content; the link never ships.
     out = out.replace(/<a\s[^<>]*>/g, "").replace(/<\/a>/g, "");
-    out = scaleCanvas(tightenCanvas(forceText(out, t.font || "sans-serif", t.fg)), t.bodyPx || MERMAID_FALLBACK_BODY_PX);
+    out = scaleCanvas(tightenCanvas(bakeDy(forceText(out, t.font || "sans-serif", t.fg))), t.bodyPx || MERMAID_FALLBACK_BODY_PX);
     out = markerPaths(out);
     var bad = checkSafe(out);
     if (bad)

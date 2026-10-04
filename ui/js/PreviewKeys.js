@@ -81,6 +81,14 @@ function act(action, root) {
     case "markdownView":
         if (root.preview.isMarkdown) root.preview.toggleMarkdownView()
         return
+    // The Markdown bar's close mark is its one control: Tab and Shift+Tab take the keyboard onto it and off it, and Return on it closes.
+    case "focusNext":
+    case "focusPrevious":
+        if (root.preview.isMarkdown) root.preview.toggleMarkdownClose()
+        return
+    case "open":
+        if (root.preview.isMarkdown && root.preview.markdownCloseFocused) root.preview.close()
+        return
     }
 }
 

@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 import "markdown-render.js" as Checks
+import "markdown-board.js" as Board
 import "markdown-bar.js" as Bar
 
 // tests/markdown-render.sh's harness: the real ui/PreviewMarkdown.qml over a fixture
@@ -121,6 +122,19 @@ ShellRoot {
             view: "rendered"
         }
 
+        // The preview column's own setting of the document, one token under Quick Look's body, built beside the grab and not under it.
+        Flea.PreviewMarkdown {
+            id: colMd
+            x: window.implicitWidth
+            width: 560
+            height: 600
+            active: true
+            compact: true
+            path: shell.fixture
+            size: 1
+            view: "rendered"
+        }
+
         // A name too long for any bar, so it elides and the room the name may take is tested.
         Flea.MarkdownPane {
             id: longNamePane
@@ -222,7 +236,7 @@ ShellRoot {
             else if (type === "run" && para === null) para = text
         }
         shell.check(Checks.insetError(rects, md.width, md.insetX, md.insetY, body), "document inset")
-        shell.check(Checks.rhythmError(rects, Flea.Theme.spacing.rowPaddingY), "block rhythm")
+        shell.check(Checks.rhythmError(rects, Board.boardPx(Board.BOARD_BLOCK_GAP, Flea.Theme.font.body)), "block rhythm")
         shell.check(Checks.headingError(h1, h2, para, body, ink, String(Flea.Theme.color.foregroundBright)), "heading sizes and ink")
         shell.check(Checks.lineBoxError(texts), "line boxes")
         var ruleTable = md.blockItem(shell.blockIndex("table"))
@@ -238,7 +252,28 @@ ShellRoot {
             "figure fallback padding")
         var fence = Checks.fenceOf(md.blockItem(shell.blockIndex("fence")))
         shell.check(Checks.surfaceError(fence, String(Flea.Theme.color.surface), String(Flea.Theme.color.background)), "column fence surface")
-        shell.check(Checks.fencePadError(fence, md.fencePadX, md.fencePadY), "fence padding")
+        shell.check(Checks.fencePadError(fence, Board.boardPx(Board.BOARD_FENCE_PAD_X, body), Board.boardPx(Board.BOARD_FENCE_PAD_Y, body)), "fence padding")
+        shell.check(Board.headerInkError(md.blockItem(shell.blockIndex("table")), String(Flea.Theme.color.foregroundBright), ink),
+            "table header cells take the heading ink")
+        var columnHeads = { h1: null, h2: null, para: null }
+        for (var c = 0; c < colMd.blockList.length; c++) {
+            var colType = colMd.blockList[c].type
+            var colText = colMd.blockItem(c) ? Checks.textOf(colMd.blockItem(c)) : null
+            if (colText === null)
+                continue
+            if (colType === "heading" && colMd.blockList[c].level === 1) columnHeads.h1 = colText
+            else if (colType === "heading" && colMd.blockList[c].level === 2) columnHeads.h2 = colText
+            else if (colType === "run" && columnHeads.para === null) columnHeads.para = colText
+        }
+        shell.check(Board.compactHeadingError(columnHeads.h1, columnHeads.h2, columnHeads.para, body, Flea.Theme.font.bodySmall),
+            "column headings keep the board's sizes over the smaller body")
+        // The close mark carries the keyboard's state out to the IPC, and rests unfocused.
+        var restFocus = pane.closeState().focused
+        pane.closeFocused = true
+        var keyFocus = pane.closeState().focused && pane.barGeometry().close.keyboardFocused
+        pane.closeFocused = false
+        shell.check(restFocus === false && keyFocus === true && pane.closeState().focused === false ? ""
+            : "focused at rest " + restFocus + ", with the keyboard " + keyFocus, "the close mark reports the keyboard focus")
         var qlFence = pane.blockItem ? Checks.fenceOf(pane.blockItem(shell.blockIndex("fence"))) : null
         shell.check(Checks.surfaceError(qlFence, String(Flea.Theme.color.background), String(Flea.Theme.color.surface)), "Quick Look fence surface")
         var g = pane.barGeometry ? pane.barGeometry() : null
@@ -287,7 +322,7 @@ ShellRoot {
             }
             if (shell.fixture.length === 0)
                 shell.fail("no fixture arrived in FLEA_MARKDOWN_FIXTURE")
-            else if (!md.contentReady || !pane.contentReady || !longNamePane.contentReady)
+            else if (!md.contentReady || !pane.contentReady || !longNamePane.contentReady || !colMd.contentReady)
                 shell.fail("the document never loaded")
             else if (md.flickContentHeight > md.height)
                 shell.fail("the fixture overflowed its frame")

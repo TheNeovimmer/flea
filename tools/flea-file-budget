@@ -79,7 +79,7 @@ tests/js/tabs.js 686
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 399
-tests/markdown-render.qml 683
+tests/markdown-render.qml 718
 tests/markdown-linearity.qml 555
 tests/preview-settle-live.qml 457
 tests/preview-decode.qml 507
@@ -96,7 +96,7 @@ ui/ColumnsArea.qml 479
 ui/ContextMenu.qml 709
 ui/ConvertDialog.qml 434
 ui/GridArea.qml 412
-ui/Ipc.qml 868
+ui/Ipc.qml 869
 ui/KeymapSheet.qml 523
 ui/List.qml 437
 tests/touchpad-edge.qml 438
@@ -110,10 +110,10 @@ ui/PaneMenuActions.qml 465
 ui/PaneWire.qml 584
 ui/PermissionsDialog.qml 626
 ui/PickerWindow.qml 779
-ui/Preview.qml 647
+ui/Preview.qml 658
 ui/PreviewColumn.qml 583
 ui/DeviceMounts.qml 496
-ui/PreviewMarkdown.qml 805
+ui/PreviewMarkdown.qml 837
 ui/Row.qml 482
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410

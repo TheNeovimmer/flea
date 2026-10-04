@@ -112,9 +112,10 @@ ShellRoot {
                 var node = live ? liveText(live)[0] : null
                 if (node) sizes.push([doc.blockList[b].type + (doc.blockList[b].level || ""), node.font.pixelSize])
             }
-            var expected = [["heading1", Math.round(want * root.h1Ratio)], ["heading2", Math.round(want * root.h2Ratio)],
+            // The headings keep the board's 20 and 15 over Quick Look's body, whatever the column sets its text at.
+            var expected = [["heading1", Math.round(Flea.Theme.font.body * root.h1Ratio)], ["heading2", Math.round(Flea.Theme.font.body * root.h2Ratio)],
                 ["run", want], ["list", want], ["table", want], ["fence", want]]
-            root.check("the column document sets every block at its own scale", sizes, expected)
+            root.check("the column document sets its text at its own scale and its headings at the board's", sizes, expected)
             root.check("Quick Look's document keeps the body token under its heading", liveText(md.blockItem(0))[0].font.pixelSize,
                 Math.round(Flea.Theme.font.body * root.h1Ratio))
             root.finish()

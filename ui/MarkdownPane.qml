@@ -12,11 +12,15 @@ Item {
     property int maxBytes: 1048576
     property bool truncate: false
 
+    // The keyboard is on the close mark; Quick Look's key handler owns the walk, as the PDF viewer's controls do.
+    property bool closeFocused: false
+
     signal closeRequested
 
     readonly property var bodyItem: doc.bodyItem
     readonly property real scrollY: doc.scrollY
-    function closeState() { var c = barClose.mapToItem(null, barClose.width / 2, barClose.height / 2); return { hovered: barClose.hovered, pressed: barClose.pressed, centre: Math.round(c.x) + " " + Math.round(c.y) } }
+    function endGap() { return doc.endGap() }
+    function closeState() { var c = barClose.mapToItem(null, barClose.width / 2, barClose.height / 2); return { hovered: barClose.hovered, pressed: barClose.pressed, focused: barClose.keyboardFocused, centre: Math.round(c.x) + " " + Math.round(c.y) } }
     readonly property string rawText: doc.rawText
     readonly property string status: doc.status
     readonly property string lineLabel: doc.lineLabel
@@ -104,6 +108,7 @@ Item {
             anchors.rightMargin: Theme.spacing.rowPaddingX
             anchors.verticalCenter: parent.verticalCenter
             glyph: "x"
+            keyboardFocused: root.closeFocused
             accessName: "Close"
             onActivated: root.closeRequested()
         }

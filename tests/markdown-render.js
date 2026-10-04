@@ -186,7 +186,7 @@ function insetError(rects, frameW, insetX, insetY, body) {
     return "";
 }
 
-// Every drawn gap equals Theme.spacing.rowPaddingY independently of the renderer's blockGap.
+// Every drawn gap equals the board's margin at the text size, independently of the renderer's blockGap.
 function rhythmError(rects, gap) {
     if (!(gap > 0))
         return "the pane declares no block gap";

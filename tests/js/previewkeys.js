@@ -88,6 +88,50 @@ function run(check) {
         quickSrc.indexOf("root.markdownSource = !root.markdownSource") >= 0 && quickSrc.indexOf("markdownView:") < 0, true)
     check("r stays rename in the listing",
         Keymap.lookupFor("default", 0, "r", Qt.NoModifier, "listing", "gui"), "rename")
+    // ButtonSystem040: Tab and Shift+Tab put the keyboard on the Markdown bar's close mark and take it off; Return or Space on it closes.
+    function closePane(markdown) {
+        var pane = { closed: 0 }
+        pane.preview = {
+            isMarkdown: markdown,
+            markdownCloseFocused: false,
+            revealStrip: function () {},
+            toggleMarkdownClose: function () { pane.preview.markdownCloseFocused = !pane.preview.markdownCloseFocused },
+            close: function () { pane.closed += 1 }
+        }
+        return pane
+    }
+    var bar = closePane(true)
+    PreviewKeys.act("focusNext", bar)
+    check("Tab focuses the Markdown close mark", bar.preview.markdownCloseFocused, true)
+    PreviewKeys.act("focusPrevious", bar)
+    check("Shift+Tab takes the focus off it", bar.preview.markdownCloseFocused, false)
+    PreviewKeys.act("open", bar)
+    check("Return on a close mark that holds no focus closes nothing", bar.closed, 0)
+    PreviewKeys.act("focusPrevious", bar)
+    check("Shift+Tab also reaches the close mark", bar.preview.markdownCloseFocused, true)
+    PreviewKeys.act("open", bar)
+    check("Return on the focused close mark closes", bar.closed, 1)
+    PreviewKeys.act("preview", bar)
+    check("Space still closes", bar.closed, 2)
+    PreviewKeys.act("escape", bar)
+    check("Escape still closes", bar.closed, 3)
+    var plain = closePane(false)
+    PreviewKeys.act("focusNext", plain)
+    PreviewKeys.act("focusPrevious", plain)
+    PreviewKeys.act("open", plain)
+    check("Tab and Return mean nothing to a preview with no Markdown bar", plain.preview.markdownCloseFocused + plain.closed, 0)
+    check("Tab maps to focusNext in the preview context",
+        Keymap.lookupFor("default", Qt.Key_Tab, "\t", Qt.NoModifier, "preview", "gui"), "focusNext")
+    check("Shift+Tab maps to focusPrevious in the preview context",
+        Keymap.lookupFor("default", Qt.Key_Backtab, "", Qt.ShiftModifier, "preview", "gui"), "focusPrevious")
+    check("Return maps to open in the preview context",
+        Keymap.lookupFor("default", Qt.Key_Return, "\r", Qt.NoModifier, "preview", "gui"), "open")
+    var paneSrc = Source.source("ui/MarkdownPane.qml")
+    check("the close mark takes its keyboard state from the pane",
+        Source.slice(paneSrc, "id: barClose", "onActivated").indexOf("keyboardFocused: root.closeFocused") >= 0, true)
+    check("previewCloseState reports focused", paneSrc.indexOf("focused: barClose.keyboardFocused") >= 0, true)
+    check("the Quick Look hands the toggle to the pane",
+        quickSrc.indexOf("function toggleMarkdownClose()") >= 0 && quickSrc.indexOf("readonly property bool markdownCloseFocused") >= 0, true)
     runThumbThreading(check)
 }
 

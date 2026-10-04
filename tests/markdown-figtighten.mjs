@@ -170,6 +170,40 @@ sound(message, 'real sequence with a long CJK message');
 check(box(message)[0] > 0, 'real sequence with a long CJK message: trimmed off the library margin, got ' + box(message)[0]);
 check(box(message)[0] <= reachLeft(message), 'real sequence with a long CJK message: no glyph cut, canvas ' + box(message)[0] + ' reach ' + reachLeft(message));
 
+// QtSvg ignores every dy, so a label sits where its y attribute puts it: the library's y is the box centre and its dy of 0.35 em carries the glyphs down to a baseline.
+// The cap height of DejaVu Sans, Liberation Sans and Noto Sans at 1000 px, 0.729, 0.716 and 0.714 em, taken at its lowest.
+const CAP_HEIGHT_EM = 0.714;
+const CENTRE_TOLERANCE_PX = 1;
+// Sample input: <rect x="20" y="25" width="100" height="50"/> answers {x: 20, y: 25, w: 100, h: 50}.
+function boxes(svg) {
+    const out = [];
+    for (const tag of svg.match(/<rect\b[^<>]*>/g) || []) {
+        const n = (name) => Number((tag.match(new RegExp('\\s' + name + '="([^"]*)"')) || [0, NaN])[1]);
+        out.push({ x: n('x'), y: n('y'), w: n('width'), h: n('height') });
+    }
+    return out;
+}
+// The ink centre of a one-line label's capitals as QtSvg draws it, less its box's centre: Sample input: <text x="70" y="50" font-size="13" dy="4.55">A</text> in a box 25 to 75 answers 50 - 4.6 - 50.
+function inkOffset(svg, label) {
+    const text = svg.match(new RegExp('<text\\b([^<>]*)>' + label + '</text>'));
+    if (!text) return NaN;
+    const n = (name) => Number((text[1].match(new RegExp('\\s' + name + '="([^"]*)"')) || [0, NaN])[1]);
+    const x = n('x');
+    const y = n('y');
+    const home = boxes(svg).find((b) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+    return home ? y - CAP_HEIGHT_EM * n('font-size') / 2 - (home.y + home.h / 2) : NaN;
+}
+for (const [name, source] of [['flowchart', 'flowchart TD\n    A --> B'], ['sequence', 'sequenceDiagram\n    A->>B: hi']]) {
+    const out = real(source);
+    check(!/\sdy=/.test(out), name + ' labels carry no dy, which QtSvg ignores');
+    const offset = inkOffset(out, 'A');
+    check(Math.abs(offset) <= CENTRE_TOLERANCE_PX, name + ' label A: its ink centre sits ' + offset + ' px from its box centre, want within ' + CENTRE_TOLERANCE_PX);
+}
+// A two line label's lines stack on their own baselines, never on one: Sample input: dy="-3.9" then dy="16.9" from y="27.9" are baselines 24 and 40.9.
+const stacked = real('flowchart TD\n    A["line one<br>line two"] --> B').match(/<text\b[^<>]*>(?:<tspan\b[^<>]*>[^<]*<\/tspan>)+<\/text>/)[0];
+const lineYs = (stacked.match(/<tspan\b[^<>]*>/g) || []).map((tag) => Number((tag.match(/\sy="([^"]*)"/) || [0, NaN])[1]));
+check(lineYs.length === 2 && lineYs.every(Number.isFinite) && lineYs[1] - lineYs[0] > LABEL_FONT_PX, 'a two line label stacks its lines on their own baselines, got [' + lineYs.join(' ') + ']');
+
 console.log('MARKDOWN_FIGTIGHTEN ' + checks + ' checks, ' + failures.length + ' failed');
 failures.forEach(why => console.log('FAIL ' + why));
 if (failures.length > 0) throw new Error(failures.length + ' figure trim checks failed');
