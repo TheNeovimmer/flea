@@ -55,20 +55,42 @@ Item {
 
     implicitHeight: ask.height + where.height
 
-    // The picker's chrome control: a mark, or a word. GM's 2026-09-11 ruling moved its frame off the
-    // divider's ink, which ui/picker.qml's own comment says the board drew both in: a frame and a
-    // rule in one ink are one line, and the controls dissolved into the chrome as the scale dropped.
-    // The frame carries the role, muted or accent, and the wash inside it carries the state.
+    // The picker's answers are the one control (ButtonSystem040 A): 30 tall at body 14, the primary fixed, a disabled
+    // one a muted frame and label at the disabled opacity, the 2 px ring on the keyboard's own focus. The picker owns Tab.
+    component Answer: Flea.DialogButton {
+        id: answer
+        property string name: answer.label
+        tabHandle: true
+        enabled: answer.available
+        activeFocusOnTab: answer.available
+        onTabbed: function(from, back) { root.picker.stepFocus(answer, back) }
+    }
+
+    // Back, Up and the view marks are Tier A chrome marks, frameless: muted at rest, the keyboard lifts one to the foreground, a lit view stays in it.
+    component Mark: Flea.ChromeButton {
+        id: mark
+        property bool lit: false
+        readonly property bool available: mark.enabled
+        property string name: mark.accessName
+        gesturePolicy: TapHandler.ReleaseWithinBounds
+        restingColor: mark.lit ? Theme.color.foreground : Theme.color.muted
+        activeFocusOnTab: mark.enabled
+        keyboardFocused: mark.activeFocus
+        Keys.onTabPressed: function(event) { root.picker.stepFocus(mark, (event.modifiers & Qt.ShiftModifier) !== 0) }
+        Keys.onBacktabPressed: root.picker.stepFocus(mark, true)
+        Keys.onReturnPressed: if (mark.enabled) mark.activated()
+        Keys.onEnterPressed: if (mark.enabled) mark.activated()
+        Keys.onSpacePressed: if (mark.enabled) mark.activated()
+    }
+
+    // A filter chip (Picker040's dropdown replaces it in 0.3.10): a word in a muted frame, the chosen one an accent frame and wash.
     component Framed: Item {
         id: control
 
-        property string glyph: ""
         property string label: ""
         property string name: control.label
         property bool primary: false
         property bool available: true
-        // A mark that is live but not the one in force, like the picker's inactive view mark.
-        property bool dimmed: false
         opacity: available ? 1 : Theme.disabledOpacity
         enabled: available
         activeFocusOnTab: available
@@ -80,9 +102,9 @@ Item {
 
         signal pressed()
 
-        readonly property color ink: control.dimmed || !control.available ? Theme.color.muted : Theme.color.foreground
+        readonly property color ink: !control.available ? Theme.color.muted : Theme.color.foreground
 
-        implicitWidth: control.glyph.length > 0 ? Theme.hitMin : caption.implicitWidth + 2 * Theme.spacing.gap
+        implicitWidth: caption.implicitWidth + 2 * Theme.spacing.gap
         implicitHeight: Theme.hitMin
         scale: press.pressed && control.available && !Theme.reducedMotion ? 0.96 : 1
 
@@ -95,16 +117,13 @@ Item {
             NumberAnimation { duration: 150; easing.type: Easing.OutQuad }
         }
 
-        // A disabled primary keeps its frame and wash under the control's disabled opacity.
         readonly property color frame: control.primary
             ? Theme.color.accentFrame : Theme.color.muted
 
-        // The primary control carries its wash at rest, because it is the one action the request is
-        // asking for; every other control earns one under the pointer or the keyboard.
+        // The chosen chip carries its wash at rest; every other earns one under the pointer or the keyboard.
         readonly property real wash: control.primary ? Theme.washActive : !control.available ? 0
             : (control.activeFocus || press.pressed) ? Theme.washActive
             : hover.hovered ? Theme.washHover : 0
-        // The wash carries the role now that the label does not, so only a primary's is accent.
         readonly property color washInk: control.primary ? Theme.color.accent : Theme.color.foreground
 
         Rectangle {
@@ -114,19 +133,9 @@ Item {
             border.color: control.frame
         }
 
-        Flea.Glyph {
-            anchors.centerIn: parent
-            visible: control.glyph.length > 0
-            width: Theme.chromeMarkSize
-            height: Theme.chromeMarkSize
-            name: control.glyph
-            color: control.ink
-        }
-
         Text {
             id: caption
             anchors.centerIn: parent
-            visible: control.glyph.length === 0
             text: control.label
             color: control.ink
             font.family: Theme.font.family
@@ -190,28 +199,27 @@ Item {
             }
         }
 
+        // Above the strip's rule: the answers' 2 px ring reaches the strip's own edges, and the rule must not cut it.
         Row {
             id: buttons
+            z: 1
             anchors.right: parent.right
             anchors.rightMargin: Theme.spacing.rowPaddingX
             anchors.verticalCenter: parent.verticalCenter
             spacing: Theme.spacing.gap
 
-            // The board's chrome button is its hit box plus the hairline frame around it, 26 at base-size 14.
-            Framed {
+            Answer {
                 id: cancelButton
-                height: Theme.hitMin + 2 * Theme.spacing.hairline
                 label: "Cancel"
-                onPressed: root.cancelRequested()
+                onActivated: root.cancelRequested()
             }
 
-            Framed {
+            Answer {
                 id: acceptButton
-                height: Theme.hitMin + 2 * Theme.spacing.hairline
                 label: Picker.acceptLabel(root.req, root.picker.marks.length)
                 primary: true
                 available: root.picker.canAccept
-                onPressed: root.acceptRequested()
+                onActivated: root.acceptRequested()
             }
         }
 
@@ -246,21 +254,20 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Theme.spacing.gap
 
-            Framed {
+            Mark {
                 id: backButton
                 glyph: "arrow-left"
-                name: "Back"
-                available: !root.picker.backendUnavailable && root.picker.history.length > 0 && !root.picker.submitting
-                onPressed: root.backRequested()
+                enabled: !root.picker.backendUnavailable && root.picker.history.length > 0 && !root.picker.submitting
+                onActivated: root.backRequested()
             }
 
-            Framed {
+            Mark {
                 id: upButton
                 glyph: "arrow-up"
-                name: root.picker.recent ? "Parent folder unavailable in Recent" : "Parent folder"
+                accessName: root.picker.recent ? "Parent folder unavailable in Recent" : "Parent folder"
                 // The board's own rule, drawn as its disabled Up: a history has no directory above it.
-                available: !root.picker.backendUnavailable && !root.picker.submitting && !root.picker.recent && Picker.parentOf(root.picker.path) !== root.picker.path
-                onPressed: root.upRequested()
+                enabled: !root.picker.backendUnavailable && !root.picker.submitting && !root.picker.recent && Picker.parentOf(root.picker.path) !== root.picker.path
+                onActivated: root.upRequested()
             }
         }
 
@@ -332,22 +339,20 @@ Item {
         anchors.verticalCenter: where.verticalCenter
         spacing: Theme.spacing.gap
 
-        Framed {
+        Mark {
             id: listButton
             glyph: "list"
-            name: "List view"
-            dimmed: root.picker.viewMode !== "list"
+            lit: root.picker.viewMode === "list"
             activeFocusOnTab: false
-            onPressed: root.viewChosen("list")
+            onActivated: root.viewChosen("list")
         }
 
-        Framed {
+        Mark {
             id: gridButton
             glyph: "grid"
-            name: "Grid view"
-            dimmed: root.picker.viewMode !== "grid"
+            lit: root.picker.viewMode === "grid"
             activeFocusOnTab: false
-            onPressed: root.viewChosen("grid")
+            onActivated: root.viewChosen("grid")
         }
     }
 

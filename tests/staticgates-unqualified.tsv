@@ -516,7 +516,7 @@ ui/MatchText.qml	82	root	Declared QML id; component context access is valid at r
 ui/MatchText.qml	83	root	Declared QML id; component context access is valid at runtime.
 ui/MatchText.qml	85	root	Declared QML id; component context access is valid at runtime.
 ui/MenuActionDialog.qml	175	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/MenuActionDialog.qml	241	body	Declared QML id; component context access is valid at runtime.
+ui/MenuActionDialog.qml	244	body	Declared QML id; component context access is valid at runtime.
 ui/MenuRow.qml	75	Util	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/MenuRow.qml	94	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/NetworkDialog.qml	207	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
@@ -532,11 +532,11 @@ ui/NetworkDialog.qml	321	root	Declared QML id; component context access is valid
 ui/NetworkDialog.qml	353	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/NetworkDialog.qml	357	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/NetworkDialog.qml	431	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/NetworkForm.qml	34	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/NetworkForm.qml	197	root	Declared QML id; component context access is valid at runtime.
+ui/NetworkForm.qml	35	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/NetworkForm.qml	198	root	Declared QML id; component context access is valid at runtime.
 ui/NetworkForm.qml	199	root	Declared QML id; component context access is valid at runtime.
-ui/NetworkForm.qml	215	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/NetworkForm.qml	200	root	Declared QML id; component context access is valid at runtime.
+ui/NetworkForm.qml	216	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/NetworkMounts.qml	165	text	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
 ui/NetworkMounts.qml	166	text	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
 ui/NetworkMounts.qml	169	running	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
@@ -660,11 +660,14 @@ ui/PermissionsDialog.qml	505	root	Declared QML id; component context access is v
 ui/PermissionsDialog.qml	506	body	Declared QML id; component context access is valid at runtime.
 ui/PermissionsDialog.qml	506	root	Declared QML id; component context access is valid at runtime.
 ui/PermissionsDialog.qml	507	root	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	75	root	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	76	root	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	317	root	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	318	types	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	320	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	66	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	79	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	80	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	97	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	98	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	324	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	325	types	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	327	root	Declared QML id; component context access is valid at runtime.
 ui/PickerGrid.qml	67	root	Declared QML id; component context access is valid at runtime.
 ui/PickerGrid.qml	68	root	Declared QML id; component context access is valid at runtime.
 ui/PickerGrid.qml	70	root	Declared QML id; component context access is valid at runtime.
@@ -1483,7 +1486,7 @@ ui/MatchText.qml	82	root	Declared QML id; component context access is valid at r
 ui/MatchText.qml	83	root	Declared QML id; component context access is valid at runtime.
 ui/MatchText.qml	85	root	Declared QML id; component context access is valid at runtime.
 ui/MenuActionDialog.qml	175	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/MenuActionDialog.qml	241	body	Declared QML id; component context access is valid at runtime.
+ui/MenuActionDialog.qml	244	body	Declared QML id; component context access is valid at runtime.
 ui/MenuRow.qml	75	Util	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/MenuRow.qml	94	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/NetworkDialog.qml	207	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
@@ -1502,11 +1505,11 @@ ui/NetworkDialog.qml	328	root	Declared QML id; component context access is valid
 ui/NetworkDialog.qml	353	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/NetworkDialog.qml	357	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/NetworkDialog.qml	431	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/NetworkForm.qml	34	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/NetworkForm.qml	197	root	Declared QML id; component context access is valid at runtime.
+ui/NetworkForm.qml	35	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/NetworkForm.qml	198	root	Declared QML id; component context access is valid at runtime.
 ui/NetworkForm.qml	199	root	Declared QML id; component context access is valid at runtime.
-ui/NetworkForm.qml	215	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/NetworkForm.qml	200	root	Declared QML id; component context access is valid at runtime.
+ui/NetworkForm.qml	216	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/OpenWithDialog.qml	195	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/OpenWithDialog.qml	356	list	Declared QML id; component context access is valid at runtime.
 ui/OpenWithDialog.qml	357	root	Declared QML id; component context access is valid at runtime.
@@ -1797,13 +1800,16 @@ ui/PermissionsDialog.qml	506	root	Declared QML id; component context access is v
 ui/PermissionsDialog.qml	507	root	Declared QML id; component context access is valid at runtime.
 ui/PermissionsDialog.qml	507	root	Declared QML id; component context access is valid at runtime.
 ui/PermissionsDialog.qml	507	root	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	75	root	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	76	root	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	316	root	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	317	root	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	317	root	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	318	types	Declared QML id; component context access is valid at runtime.
-ui/PickerChrome.qml	320	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	66	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	79	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	80	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	97	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	98	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	323	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	324	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	324	root	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	325	types	Declared QML id; component context access is valid at runtime.
+ui/PickerChrome.qml	327	root	Declared QML id; component context access is valid at runtime.
 ui/PickerGrid.qml	67	root	Declared QML id; component context access is valid at runtime.
 ui/PickerGrid.qml	68	root	Declared QML id; component context access is valid at runtime.
 ui/PickerGrid.qml	70	root	Declared QML id; component context access is valid at runtime.

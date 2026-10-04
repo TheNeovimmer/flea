@@ -72,6 +72,7 @@ function run(check) {
     // One geometry for every dialog, card and picker button; the label follows Theme.font.body.
     check("one pad", Buttons.PAD, 9)
     check("one gap", Buttons.GAP, 9)
+    check("set members sit four hairlines apart", Buttons.SET_GAP, 4)
     check("the ring is its own signal", Buttons.RING, 2)
     check("a disabled control dims", Buttons.DISABLED_OPACITY, 0.55)
     check("hover is 8 percent of the ink", Buttons.WASH_HOVER, 0.08)

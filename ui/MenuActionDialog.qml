@@ -203,14 +203,17 @@ FocusScope {
                 Rectangle {
                     visible: root.inputAction
                     width: parent.width
-                    height: Theme.rowHeight
+                    height: Theme.rowHeight - Theme.spacing.rowPaddingY
                     color: Theme.color.background
                     border.color: field.activeFocus ? Theme.color.accent : Theme.color.muted
                     border.width: Theme.spacing.hairline
                     TextInput {
                         id: field
-                        anchors.fill: parent
-                        anchors.margins: Theme.spacing.gap
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: Theme.spacing.gap
+                        anchors.rightMargin: Theme.spacing.gap
                         color: Theme.color.foreground
                         selectionColor: Theme.color.accent
                         selectedTextColor: Theme.color.background

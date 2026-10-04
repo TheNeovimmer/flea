@@ -5,6 +5,8 @@
 
 var PAD = 9
 var GAP = 9
+// The members of a set (the protocols) sit this many hairlines apart, 4 px at base size 14.
+var SET_GAP = 4
 var RING = 2
 var DISABLED_OPACITY = 0.55
 var WASH_HOVER = 0.08

@@ -17,6 +17,9 @@ Item {
     property bool focused: root.activeFocus
     // True where the form owns the Tab order and the button only reports through tabbed.
     property bool tabHandle: false
+    // A member of a set (the protocols): its frame and label are foreground while it is the current one and muted otherwise.
+    property bool setMember: false
+    property bool current: false
     // Hosted in the chrome strip: a Theme.chromeHeight press area around a Theme.chromeControlHeight frame at caption size, and Tab reaches it.
     property bool inStrip: false
 
@@ -26,8 +29,9 @@ Item {
 
     // The canvas draws a secondary button as a hairline rule carrying live text, so only the frame
     // takes muted, the role ThemeRoles.html gives borders and inactive controls; the label is alive.
-    readonly property color frame: root.primary && root.available ? Theme.color.accentFrame : Theme.color.muted
-    readonly property color ink: !root.available ? Theme.color.muted
+    readonly property color frame: root.setMember ? (root.current ? Theme.color.foreground : Theme.color.muted)
+        : root.primary && root.available ? Theme.color.accentFrame : Theme.color.muted
+    readonly property color ink: !root.available || root.setMember && !root.current ? Theme.color.muted
         : root.destructive ? Theme.color.error : Theme.color.foreground
     // The frame and this wash say which action is being asked for; an accent label said it by going darker, HANDOFF rule 18.
     readonly property color wash: root.primary && root.available ? Qt.alpha(Theme.color.accent, Buttons.WASH_PRESS) : "transparent"
@@ -67,10 +71,11 @@ Item {
             border.color: root.frame
         }
 
-        // Hover and press lay the control's own ink over the wash a primary carries.
+        // Hover and press lay the control's own ink over the wash a primary carries, inside the frame so the frame never changes.
         Rectangle {
             objectName: "buttonWash"
             anchors.fill: parent
+            anchors.margins: Theme.spacing.hairline
             color: tap.pressed && root.available ? Qt.alpha(root.ink, Buttons.WASH_PRESS)
                 : hover.hovered && root.available ? Qt.alpha(root.ink, Buttons.WASH_HOVER) : "transparent"
         }
