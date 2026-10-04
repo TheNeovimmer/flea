@@ -30,9 +30,9 @@ ShellRoot {
     // The fade is a cut, so the row after the cursor must have ink under it: at least this share of the fade's height of that ink is drawn above the pane's edge.
     readonly property real minCutShare: 0.5
 
-    // After the walk, the sweep takes each section in turn and, at every host height in a span, puts the cursor on each row that a heading follows.
     // About starts the update check, which spawns the flea binary this harness does not have, so it is not shown.
     readonly property string updateCheckSection: "about"
+    // After the walk, the sweep takes each section in turn and, at every host height in a span, puts the cursor on each row that a heading follows.
     property var sweepSections: []
     property int sweepIndex: -1
     property bool sweeping: false
