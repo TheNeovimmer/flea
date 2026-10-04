@@ -2,6 +2,10 @@
 # Sourced by ui.sh; retained rename state is exercised through native keys and row menus.
 # shellcheck disable=SC2154 # ui.sh supplies the owned fixture and native driver settings.
 
+# A still listing reads the same twice in a row, polled every 50 ms for up to 2 s.
+rename_design_still_polls=40
+rename_design_still_s=0.05
+
 rename_design_draft() {
     local draft="$1"
     key -M ctrl -k a -m ctrl -k BackSpace >/dev/null || fail 'rename: clear draft failed'
@@ -16,9 +20,29 @@ rename_design_refusal() {
     printf 'RENAME_STATE %s %s\n' "$label" "$(ipc renameState)"
 }
 
+# A row's centre is read only once the listing holds still: a click aimed during a relist or a scroll lands on a neighbour.
+rename_design_still() {
+    local before="" now polls
+    for polls in $(seq 1 "$rename_design_still_polls"); do
+        now="$(ipc listInFlight) $(ipc viewContentY)"
+        [[ "$now" == "$before" && "$now" == false\ * ]] && return 0
+        before="$now"
+        sleep "$rename_design_still_s"
+    done
+    fail "rename: the listing never held still before a click, last [$now]"
+}
+
 rename_design_open() {
-    local input="$1" name="$2"
-    click_row "$(row_index_of "$name")" left
+    local input="$1" name="$2" index polls
+    index=$(row_index_of "$name") || fail "rename: no row named $name to open"
+    rename_design_still
+    click_row "$index" left
+    # The click must select the row it aimed at, or the key below would rename the row the cursor was on.
+    for polls in $(seq 1 "$rename_design_still_polls"); do
+        [[ "$(ipc selectedIndices)" == "$index" ]] && break
+        sleep "$rename_design_still_s"
+    done
+    [[ "$(ipc selectedIndices)" == "$index" ]] || fail "rename: the click on $name (row $index) selected [$(ipc selectedIndices)]"
     if [[ "$input" == menu ]]; then
         click_row "$(row_index_of "$name")" right
         menus_expect menuState '.opened and .snapshotReady' 'native row menu captures rename source'
