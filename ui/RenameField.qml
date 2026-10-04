@@ -27,7 +27,10 @@ Item {
     // The editor's frame and the extension's patch, so a test measures the patch against the frame's four sides.
     readonly property alias frame: editFrame
     readonly property alias extensionPatch: mutedExtension
-    implicitHeight: Theme.rowHeight - 2 * Theme.spacing.rowPaddingY + errorHeight
+    // The one height every host draws: the row's line box, or the typed line and two hairlines where a small stop's is shorter.
+    readonly property real lineBox: Math.max(Theme.rowHeight - 2 * Theme.spacing.rowPaddingY,
+                                             Math.ceil(typedLine.height) + 2 * Theme.spacing.hairline)
+    implicitHeight: root.lineBox + errorHeight
 
     signal committed(string newName)
     signal abandoned()
@@ -233,6 +236,11 @@ Item {
         color: Theme.color.background
         border.width: Theme.spacing.hairline
         border.color: root.errorText.length > 0 ? Theme.color.error : Theme.color.accent
+    }
+
+    FontMetrics {
+        id: typedLine
+        font: field.font
     }
 
     TextInput {

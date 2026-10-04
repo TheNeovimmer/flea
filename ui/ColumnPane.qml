@@ -209,7 +209,7 @@ Item {
         // G7 needs an empty press target below the final row even when a long column fills the viewport.
         footer: Item {
             width: Scroll.contentWidth(view.width, Theme.spacing.rowPaddingX)
-            height: root.pane ? Theme.spacing.rowPaddingY : 0
+            height: root.pane ? Theme.spacing.rowPaddingY + root.renameErrorHeight : 0
         }
 
         Flea.FastScrollHandler {
@@ -335,10 +335,21 @@ Item {
     readonly property string editorText: renameLoader.item ? renameLoader.item.current : ""
     function commitEditor() { return renameLoader.item ? renameLoader.item.commit() : false }
 
-    // The span ui/ColumnRow.qml draws its name in: the mark slot to its left, the chevron to its
-    // right. The editor covers exactly that, so the row's icon and its chevron stay where they are.
+    // The span ColumnRow draws its name in, one gap after the mark to one gap before its size cell, and nothing beyond it.
     readonly property real renameLeft: Theme.spacing.rowPaddingX + Theme.iconSize + Theme.spacing.gap
-    readonly property real renameRight: Theme.spacing.rowPaddingX + Theme.font.caption + Theme.spacing.gap
+    // Read when the editor is built, as its name is, because rowFor answers only once the row is held.
+    function renamingFolder() {
+        var row = root.pane ? root.pane.rowFor(root.pane.renamingIndex) : null
+        return !!row && row.d === true
+    }
+    // The renaming row is the cursor row, so a folder carries its chevron, and the size cell sits left of it as ColumnRow anchors both.
+    readonly property real renameRight: Theme.spacing.rowPaddingX + (renameLoader.item !== null && root.renamingFolder() ? Theme.font.caption : 0)
+                                        + (root.showsSize ? 2 * Theme.spacing.gap + Theme.column.size : 0)
+    readonly property real renameWidth: Math.max(0, Scroll.contentWidth(view.width, Theme.spacing.rowPaddingX) - root.renameLeft - root.renameRight)
+    readonly property real renameTop: root.renameViewIndex * Theme.fileRowHeight
+    // The editor owns its height, one line box; the column centres it in the row on whole pixels.
+    readonly property real renameY: root.renameTop + Math.round((Theme.fileRowHeight - (renameLoader.item ? renameLoader.item.fieldHeight : 0)) / 2)
+    readonly property real renameErrorHeight: renameLoader.item ? renameLoader.item.errorHeight : 0
 
     // Opaque, and painted in the row's own roles: the row underneath goes on drawing its name, and
     // without this the two texts overprinted each other. The renaming row is always the cursor row.
@@ -346,9 +357,10 @@ Item {
         parent: view.contentItem
         visible: root.renaming
         x: root.renameLeft
-        y: root.renameViewIndex * Theme.fileRowHeight
-        width: Math.max(0, Scroll.contentWidth(view.width, Theme.spacing.rowPaddingX) - root.renameLeft - root.renameRight)
-        height: Theme.fileRowHeight
+        y: root.renameTop
+        width: root.renameWidth
+        // A rename error outgrows the row, so this ground grows over the next row's name with it.
+        height: Math.max(Theme.fileRowHeight, renameLoader.y + renameLoader.height - root.renameTop)
         z: 1
         color: Theme.color.surface
 
@@ -358,6 +370,13 @@ Item {
         }
     }
 
+    // Brings a rename error under the last row into view; the scroll waits a turn because contentHeight follows the footer after layout.
+    onRenameErrorHeightChanged: if (root.renameErrorHeight > 0) Qt.callLater(root.showRenameError)
+    function showRenameError() {
+        var cut = renameLoader.y + renameLoader.height - (view.contentY + view.height)
+        if (renameLoader.item && cut > 0) view.contentY = Math.min(view.contentHeight - view.height + view.originY, view.contentY + cut)
+    }
+
     Loader {
         id: renameLoader
         parent: view.contentItem
@@ -365,12 +384,11 @@ Item {
         // hide at creation, and that hide is an abandon.
         active: root.renaming
         x: root.renameLeft
-        y: root.renameViewIndex * Theme.fileRowHeight
-        width: Math.max(0, Scroll.contentWidth(view.width, Theme.spacing.rowPaddingX) - root.renameLeft - root.renameRight)
-        height: Theme.fileRowHeight
+        y: root.renameY
+        width: root.renameWidth
         z: 2
         sourceComponent: Flea.RenameField {
-            anchors.fill: parent
+            height: implicitHeight
             pane: root.pane
             name: root.pane && root.pane.rowFor(root.pane.renamingIndex)
                   ? String(root.pane.rowFor(root.pane.renamingIndex).n).split("/").pop() : ""

@@ -132,6 +132,98 @@ case_cap_click() {
     kill_flea
 }
 
+# ClickAndRefresh "slow click rename": the one editor in every view at text size 14, GM 2026-10-03. List, columns on a
+# file and on a folder (the folder with a rename error), grid, dual and the rail on a Network place; the rail draws no error.
+case_cap_rename() {
+    local dir="$fixture_root/cap-rename" fixture_home="$fixture_root/cap-rename-home"
+    local real_home="$HOME" saved_path="$PATH" waited
+    sandbox_scratch "$dir"
+    mkdir -p "$dir/bin" "$dir/subdir"
+    printf 'notes\n' > "$dir/notes.txt"
+    : > "$dir/todo.md"
+    printf '#!/bin/sh\nexit 0\n' > "$dir/bin/gio"
+    chmod +x "$dir/bin/gio"
+    fixture_home_make "$fixture_home"
+    mkdir -p "$fixture_home/.config/gtk-3.0"
+    printf 'smb://192.168.1.10/data NAS\n' > "$fixture_home/.config/gtk-3.0/bookmarks"
+    seed_ui_state "$fixture_root/cap-rename-state" '{"keys":"default","view":"list","display":{"textSize":{"mode":14}}}'
+    export PATH="$dir/bin:$PATH"
+    export HOME="$fixture_home"
+    launch "$dir"
+    export HOME="$real_home"
+    export PATH="$saved_path"
+    # bin, subdir, notes.txt and todo.md
+    wait_listing 4
+    cap_resize 1100 700
+    for waited in $(seq 1 100); do
+        [[ "$(ipc networkEntries)" == "NAS|network|share|false" ]] && break
+        sleep 0.05
+    done
+    [[ "$(ipc networkEntries)" == "NAS|network|share|false" ]] || fail "cap_rename: the rail reads $(ipc networkEntries), not the saved NAS"
+    cap_rename_open list notes.txt cap-rename-list
+    click_chrome columns
+    settle
+    cap_rename_open columns notes.txt cap-rename-columns-file
+    cap_rename_open columns subdir cap-rename-columns-folder
+    # A slash is refused in place, so the editor stays up and shows its error line under the frame.
+    key -M ctrl -k a -m ctrl -k BackSpace >/dev/null
+    key "a/b" >/dev/null
+    key -k Return >/dev/null
+    for waited in $(seq 1 100); do
+        [[ "$(ipc renameState | jq -r .error)" == *"cannot"* ]] && break
+        sleep 0.05
+    done
+    [[ "$(ipc renameState | jq -r .error)" == *"cannot"* ]] || fail "cap_rename: the slash name raised no error in the columns"
+    settle
+    shot cap-rename-columns-error
+    key -k Escape >/dev/null
+    settle
+    click_chrome grid
+    settle
+    cap_rename_open grid notes.txt cap-rename-grid
+    click_chrome dual
+    settle
+    cap_rename_open dual notes.txt cap-rename-dual
+    click_chrome list
+    settle
+    key -k Tab >/dev/null
+    settle
+    [[ "$(ipc focusView)" == "rail" ]] || fail "cap_rename: Tab did not reach the rail"
+    rail_seek NAS
+    key -k F2 >/dev/null
+    for waited in $(seq 1 100); do
+        [[ "$(ipc railRenameFieldShown)" == "true" ]] && break
+        sleep 0.05
+    done
+    [[ "$(ipc railRenameFieldShown)" == "true" ]] || fail "cap_rename: F2 on the NAS row opened no rail editor"
+    settle
+    shot cap-rename-rail
+    key -k Escape >/dev/null
+    settle
+    printf 'CAP_RENAME views=list,columns-file,columns-folder,grid,dual,rail error=columns\n'
+    kill_flea
+}
+
+# The cursor on a named row, F2, and a shot once the editor holds the caret; Escape closes it unless the caller goes on to type.
+cap_rename_open() {
+    local view="$1" name="$2" shot_name="$3" waited
+    [[ "$(ipc viewMode)" == "$view" || "$view" == dual ]] || fail "cap_rename: the chrome drew '$(ipc viewMode)', not $view"
+    seek_row_named "$name"
+    key -k F2 >/dev/null
+    for waited in $(seq 1 100); do
+        [[ "$(ipc renameState | jq -r .focused)" == "true" ]] && break
+        sleep 0.05
+    done
+    [[ "$(ipc renameState | jq -r .focused)" == "true" ]] || fail "cap_rename: $view opened no focused editor on $name"
+    [[ "$(ipc renameEditorText)" == "$name" ]] || fail "cap_rename: $view editor holds '$(ipc renameEditorText)', not $name"
+    settle
+    shot "$shot_name"
+    if [[ "$shot_name" != cap-rename-columns-folder ]]; then
+        key -k Escape >/dev/null
+        settle
+    fi
+}
+
 # KeyboardFlows "View, Cursor at defaults": the Cursor group with both rows off.
 case_cap_cursor() {
     local dir="$fixture_root/cap-cursor"

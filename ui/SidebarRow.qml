@@ -146,9 +146,10 @@ Item {
         anchors.leftMargin: Style.spacing.rowGap
         anchors.right: root.detail.length > 0 ? detailText.left : dot.left
         anchors.rightMargin: root.detail.length > 0 || root.showsEject ? Style.spacing.rowGap : 0
-        anchors.verticalCenter: parent.verticalCenter
-        height: Theme.railRowHeight - 2 * Theme.spacing.rowPaddingY
+        // The editor owns its height, one line box; the rail row centres it on whole pixels.
+        y: Math.round((root.height - renameLoader.height) / 2)
         sourceComponent: RenameField {
+            height: implicitHeight
             name: root.modelData.label
             onCommitted: function (newName) { root.renameCommitted(root.index, newName) }
             onAbandoned: root.renameCancelled(root.index)
@@ -158,6 +159,8 @@ Item {
     // What the editor holds right now, for tests through ui/Ipc.qml's railRenameEditorText.
     readonly property string editorText: renameLoader.item ? renameLoader.item.current : ""
     readonly property bool editorShown: renameLoader.item !== null && renameLoader.item.visible
+    // The rail's editor as ui/Row.qml hands its own, so a test measures every host's frame the same way.
+    readonly property Item editorField: renameLoader.item as Item
     // RailEject: a mounted row draws the eject mark in place of the square.
     readonly property bool showsEject: Eject.releasable(root.modelData)
     readonly property real ejectMarkSize: Theme.font.caption
