@@ -1,5 +1,6 @@
 .import "../markdown-render.js" as Render
 .import "../markdown-figures-render.js" as Figures
+.import "../markdown-board.js" as Board
 .import "sourcefixture.js" as Source
 
 // Adversarial fixtures execute the render harness methods with broken live-tree states.
@@ -183,13 +184,18 @@ function run(check) {
     var renderer = Source.source("tests/markdown-render.qml")
     check("md3z F6 board ratio is 1.7", Render.BOARD_LINE_BOX_RATIO, 1.7)
     check("md3z F6 ratio never read from the renderer", renderer.indexOf("Checks.lineBoxError(texts)") >= 0 && renderer.indexOf("boxRatio") < 0, true)
-    check("md3v F3 rhythm read from Theme token", renderer.indexOf("Checks.rhythmError(rects, Flea.Theme.spacing.rowPaddingY)") >= 0, true)
+    check("md3v F3 rhythm read from the board's margin", renderer.indexOf("Checks.rhythmError(rects, Board.boardPx(Board.BOARD_BLOCK_GAP, Flea.Theme.font.body))") >= 0, true)
+    // The board's 6, 8, 12, 20 and 15 are resolved at body 14 and follow the body from there.
+    check("mdfid N6 the board's margin and fence padding at body 14",
+        [Board.BOARD_BLOCK_GAP, Board.BOARD_FENCE_PAD_Y, Board.BOARD_FENCE_PAD_X].map(function (px) { return Board.boardPx(px, 14) }).join(","), "6,8,12")
+    check("mdfid N4 the board's headings at body 14 and 12",
+        [Render.BOARD_H1, Render.BOARD_H2].map(function (px) { return Board.boardPx(px, 14) + "/" + Board.boardPx(px, 12) }).join(" "), "20/17 15/13")
     // Sample input: shell.check(Checks.rhythmError(rects, md.blockGap), "block rhythm").
     var rhythmCall = renderer.match(/shell\.check\(Checks\.rhythmError\([^\n]+/)[0]
-    var rhythm = new Function("rects", "md", "Flea", "Checks", "shell", rhythmCall)
+    var rhythm = new Function("rects", "md", "Flea", "Checks", "Board", "shell", rhythmCall)
     var rhythmError = ""
     rhythm([{ y: 0, h: 24 }, { y: 34, h: 24 }], { blockGap: 10 },
-        { Theme: { spacing: { rowPaddingY: 7 } } }, Render,
+        { Theme: { font: { body: 14 } } }, Render, Board,
         { check: function (error) { rhythmError = error } })
     check("md3v F3 differing renderer gap rejected", rhythmError !== "", true)
 }

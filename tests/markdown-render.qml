@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 import "markdown-render.js" as Checks
+import "markdown-board.js" as Board
 import "markdown-bar.js" as Bar
 
 // tests/markdown-render.sh's harness: the real ui/PreviewMarkdown.qml over a fixture
@@ -121,6 +122,19 @@ ShellRoot {
             view: "rendered"
         }
 
+        // The preview column's own setting of the document, one token under Quick Look's body, built beside the grab and not under it.
+        Flea.PreviewMarkdown {
+            id: colMd
+            x: window.implicitWidth
+            width: 560
+            height: 600
+            active: true
+            compact: true
+            path: shell.fixture
+            size: 1
+            view: "rendered"
+        }
+
         // A name too long for any bar, so it elides and the room the name may take is tested.
         Flea.MarkdownPane {
             id: longNamePane
@@ -222,9 +236,12 @@ ShellRoot {
             else if (type === "run" && para === null) para = text
         }
         shell.check(Checks.insetError(rects, md.width, md.insetX, md.insetY, body), "document inset")
-        shell.check(Checks.rhythmError(rects, Flea.Theme.spacing.rowPaddingY), "block rhythm")
-        shell.check(Checks.headingError(h1, h2, para, body, ink), "heading sizes and ink")
+        shell.check(Checks.rhythmError(rects, Board.boardPx(Board.BOARD_BLOCK_GAP, Flea.Theme.font.body)), "block rhythm")
+        shell.check(Checks.headingError(h1, h2, para, body, ink, String(Flea.Theme.color.foregroundBright)), "heading sizes and ink")
         shell.check(Checks.lineBoxError(texts), "line boxes")
+        var ruleTable = md.blockItem(shell.blockIndex("table"))
+        shell.check(Checks.ruleError(ruleTable, pane.barGeometry ? pane.barGeometry().bar : null, Flea.Theme.spacing.hairline),
+            "table rules take the bar's hairline")
         shell.check(Checks.quoteBoxError(md.blockItem(shell.blockIndex("quote")), md), "quote bar spans line box")
         var tableIndex = shell.blockIndex("table")
         var table = md.blockList[tableIndex]
@@ -235,7 +252,28 @@ ShellRoot {
             "figure fallback padding")
         var fence = Checks.fenceOf(md.blockItem(shell.blockIndex("fence")))
         shell.check(Checks.surfaceError(fence, String(Flea.Theme.color.surface), String(Flea.Theme.color.background)), "column fence surface")
-        shell.check(Checks.fencePadError(fence, md.fencePadX, md.fencePadY), "fence padding")
+        shell.check(Checks.fencePadError(fence, Board.boardPx(Board.BOARD_FENCE_PAD_X, body), Board.boardPx(Board.BOARD_FENCE_PAD_Y, body)), "fence padding")
+        shell.check(Board.headerInkError(md.blockItem(shell.blockIndex("table")), String(Flea.Theme.color.foregroundBright), ink),
+            "table header cells take the heading ink")
+        var columnHeads = { h1: null, h2: null, para: null }
+        for (var c = 0; c < colMd.blockList.length; c++) {
+            var colType = colMd.blockList[c].type
+            var colText = colMd.blockItem(c) ? Checks.textOf(colMd.blockItem(c)) : null
+            if (colText === null)
+                continue
+            if (colType === "heading" && colMd.blockList[c].level === 1) columnHeads.h1 = colText
+            else if (colType === "heading" && colMd.blockList[c].level === 2) columnHeads.h2 = colText
+            else if (colType === "run" && columnHeads.para === null) columnHeads.para = colText
+        }
+        shell.check(Board.compactHeadingError(columnHeads.h1, columnHeads.h2, columnHeads.para, body, Flea.Theme.font.bodySmall),
+            "column headings keep the board's sizes over the smaller body")
+        // The close mark carries the keyboard's state out to the IPC, and rests unfocused.
+        var restFocus = pane.closeState().focused
+        pane.closeFocused = true
+        var keyFocus = pane.closeState().focused && pane.barGeometry().close.keyboardFocused
+        pane.closeFocused = false
+        shell.check(restFocus === false && keyFocus === true && pane.closeState().focused === false ? ""
+            : "focused at rest " + restFocus + ", with the keyboard " + keyFocus, "the close mark reports the keyboard focus")
         var qlFence = pane.blockItem ? Checks.fenceOf(pane.blockItem(shell.blockIndex("fence"))) : null
         shell.check(Checks.surfaceError(qlFence, String(Flea.Theme.color.background), String(Flea.Theme.color.surface)), "Quick Look fence surface")
         var g = pane.barGeometry ? pane.barGeometry() : null
@@ -284,7 +322,7 @@ ShellRoot {
             }
             if (shell.fixture.length === 0)
                 shell.fail("no fixture arrived in FLEA_MARKDOWN_FIXTURE")
-            else if (!md.contentReady || !pane.contentReady || !longNamePane.contentReady)
+            else if (!md.contentReady || !pane.contentReady || !longNamePane.contentReady || !colMd.contentReady)
                 shell.fail("the document never loaded")
             else if (md.flickContentHeight > md.height)
                 shell.fail("the fixture overflowed its frame")
@@ -379,6 +417,11 @@ ShellRoot {
         // off the component beside the border rather than off a hardcoded token.
         var fg = parse(String(md.inkHex).toLowerCase())
         var ground = parse(String(window.color).toLowerCase())
+        // The table's rules are the foreground at the bar's wash, and the grab composites over black, so the pixel is that share of the ink, within the renderer's rounding.
+        var ruleWash = 0.12
+        var rule = [0, 1, 2].map(function (k) { return Math.round(fg[k] * ruleWash) })
+        var ruleSlack = 2
+        function isRule(c) { return Math.abs(c[0] - rule[0]) <= ruleSlack && Math.abs(c[1] - rule[1]) <= ruleSlack && Math.abs(c[2] - rule[2]) <= ruleSlack }
         function inkAt(x, y) {
             if (x < 0 || x >= w || y < 0 || y >= h)
                 return false
@@ -464,7 +507,7 @@ ShellRoot {
         for (var ry = table.y; ry < table.y + table.h; ry++) {
             var span = 0
             for (var rx = table.x; rx < table.x + table.w; rx++)
-                if (same(at(rx, ry), border))
+                if (isRule(at(rx, ry)))
                     span++
             if (span >= 100)
                 rules++
@@ -473,7 +516,7 @@ ShellRoot {
         for (var cx = table.x; cx < table.x + table.w; cx++) {
             var drop = 0
             for (var cy = table.y; cy < table.y + table.h; cy++)
-                if (same(at(cx, cy), border))
+                if (isRule(at(cx, cy)))
                     drop++
             if (drop >= table.h * 0.75)
                 verticals++
@@ -492,7 +535,7 @@ ShellRoot {
             var qfirst = -1
             var qlast = -1
             for (var qx = table.x; qx < table.x + table.w; qx++)
-                if (same(at(qx, qy), border)) {
+                if (isRule(at(qx, qy))) {
                     if (qfirst < 0)
                         qfirst = qx
                     qlast = qx
@@ -607,6 +650,38 @@ ShellRoot {
         var left = dashSpan(false, box.x, box.y, box.y + box.h)
         var right = dashSpan(false, box.x + box.w - 1, box.y, box.y + box.h)
         shell.log("remote top=" + top + " bottom=" + bottom + " left=" + left + " right=" + right)
+        // The runs of one dashed edge over a window short of the opposite corner, first dash on, the window's cut last run dropped.
+        var dashWindow = 60
+        function dashRuns(horizontal, fixed, from, to) {
+            var runs = []
+            var on = null
+            var len = 0
+            for (var i = from; i < to; i++) {
+                var hit = same(horizontal ? at(i, fixed) : at(fixed, i), border)
+                if (on === null && !hit)
+                    continue
+                if (on === null || hit !== on) {
+                    if (on !== null)
+                        runs.push(len)
+                    on = hit
+                    len = 0
+                }
+                len++
+            }
+            return runs
+        }
+        var topRuns = dashRuns(true, box.y, box.x, box.x + Math.min(dashWindow, Math.floor(box.w / 2)))
+        var leftRuns = dashRuns(false, box.x, box.y, box.y + Math.floor(box.h / 2))
+        shell.log("remote dash runs top=" + topRuns.join(",") + " left=" + leftRuns.join(","))
+        var dashFail = Checks.dashError(topRuns, "the top edge") || Checks.dashError(leftRuns, "the left edge")
+        if (dashFail !== "")
+            return shell.fail(dashFail)
+        var deep = 0
+        for (var tx = box.x + 4; tx < box.x + box.w - 4; tx++)
+            if (same(at(tx, box.y + 1), border))
+                deep++
+        if (deep > 0)
+            return shell.fail("the remote box's dashed edge is thicker than one pixel")
         if (top[0] - box.x > 8 || box.x + box.w - 1 - top[1] > 20
                 || bottom[0] - box.x > 8 || box.x + box.w - 1 - bottom[1] > 20
                 || left[0] - box.y > 8 || box.y + box.h - 1 - left[1] > 20

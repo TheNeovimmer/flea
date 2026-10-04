@@ -42,7 +42,8 @@ for (const id of Object.keys(sources)) {
         const rectangles = svg.match(/<rect\b[^>]*>/g) || [];
         const rect = rectangles[rectangles.length - 1];
         const labels = svg.match(/<text\b[^>]*>[^<]*<\/text>/g) || [];
-        check(Math.abs(width - rawWidth * bodyPx / LIBRARY_BODY_PX) < EPSILON,
+        // The canvas is the library's own less the left padding the helper trims (viewBox x), at the body's scale.
+        check(Math.abs(width - (rawWidth - viewBox[0]) * bodyPx / LIBRARY_BODY_PX) < EPSILON,
             id + ' body ' + bodyPx + ': canvas must scale with labels');
         check(labels.every(tag => Number(attr(tag, 'font-size')) === LIBRARY_BODY_PX),
             id + ' body ' + bodyPx + ': keep library label geometry');

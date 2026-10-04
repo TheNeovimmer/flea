@@ -283,9 +283,25 @@ function inlineClasses(svg) {
 const MERMAID_BODY_PX = 13;
 // A diagram scales to the theme's body size; this size in px stands in when the request carries none.
 const MERMAID_FALLBACK_BODY_PX = 14;
-// The padding in px the diagram library lays round the drawing; tightenVertical re-fits the canvas after it.
+// The padding in px the diagram library lays round the drawing; tightenCanvas re-fits the canvas after it.
 const MERMAID_PADDING = 1;
 const CANVAS_MARGIN = 1;
+// The drawing starts on the canvas's left edge, the content column's, like an image; the library's own 30 unit left margin goes.
+const LEFT_MARGIN = 0;
+// The wide class: "@" 1.015, W 0.989, m 0.974, % 0.95, M 0.907 (DejaVu, Liberation, Noto Sans maxima, PIL at 1000 px), and any non-ASCII glyph at one em.
+const WIDE_ADVANCE_EM = 1.02;
+const WIDE_GLYPHS = "@Wm%M";
+// The symbol class: "#+<=>^~" 0.838 and w 0.818.
+const SYMBOL_ADVANCE_EM = 0.84;
+const SYMBOL_GLYPHS = "#+<=>^~w";
+// The capital class: O and Q 0.787, & 0.78, G 0.778, D 0.77, N 0.76, H 0.752, down to E K P S Y 0.667; the other capitals sit below it.
+const CAPITAL_ADVANCE_EM = 0.79;
+const CAPITAL_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ&";
+// The rest: digits, "$", "{" and "}" 0.636, lowercase at most 0.635, punctuation below.
+const TEXT_ADVANCE_EM = 0.64;
+const ASCII_LIMIT = 0x7f;
+// A centred label reaches half its width left of its x.
+const MIDDLE_SHARE = 0.5;
 const BOUNDS_PRECISION = 10;
 const TEXT_DESCENT_RATIO = 0.3;
 const DEFAULT_STROKE_WIDTH = 1;
@@ -313,20 +329,71 @@ function scaleCanvas(svg, px) {
     });
 }
 
-// Trim vertical SVG canvas padding where every painted primitive has explicit bounds.
-function tightenVertical(svg) {
+// Sample input: dy="1.5em" at font 13 shifts a baseline 19.5, and a bare dy="4" shifts 4.
+function shift(tag, font) {
+    var dy = tag.match(/\sdy="(-?[\d.]+)(em|%)?"/);
+    return dy ? Number(dy[1]) * (dy[2] === "em" ? font : dy[2] === "%" ? font / PERCENT_SCALE : 1) : 0;
+}
+
+// QtSvg ignores every dy, so a baseline lands on its y alone; the library centres a label with a dy of 0.35 em, which is the whole of the centring.
+const BAKED_DECIMALS = 3;
+// Sample input: <text x="31" y="19.45" font-size="13" dy="4.55">A</text> reads <text y="24" x="31" font-size="13">A</text>, and a tspan's dy becomes its own y.
+function bakeDy(svg) {
+    function put(tag, y) {
+        var rest = tag.replace(/\sdy="[^"]*"/, "").replace(/\sy="[^"]*"/, "");
+        return rest.replace(/^<(text|tspan)/, '<$1 y="' + Number(y.toFixed(BAKED_DECIMALS)) + '"');
+    }
+    function attr(tag, name) {
+        var found = tag.match(new RegExp("\\s" + name + '="([^"]*)"'));
+        return found ? Number(found[1]) : NaN;
+    }
+    return svg.replace(/<text\b([^<>]*)>((?:[^<]|<tspan\b[^<>]*>[^<]*<\/tspan>)*)<\/text>/g, function (all, attrs, content) {
+        var head = "<text" + attrs + ">";
+        var font = attr(head, "font-size");
+        var baseline = attr(head, "y");
+        // A text whose size or baseline cannot be read stays as the library drew it.
+        if (!Number.isFinite(baseline) || !Number.isFinite(font))
+            return all;
+        var textShift = shift(head, font);
+        var lines = 0;
+        var body = content.replace(/<tspan\b[^<>]*>/g, function (tag) {
+            var size = Number.isFinite(attr(tag, "font-size")) ? attr(tag, "font-size") : font;
+            var pen = Number.isFinite(attr(tag, "y")) ? attr(tag, "y") : baseline;
+            // The nearest element naming a dy supplies it, so the text's own moves only a first line that names none.
+            baseline = pen + (/\sdy=/.test(tag) ? shift(tag, size) : lines === 0 ? textShift : 0);
+            lines++;
+            return put(tag, baseline);
+        });
+        return lines === 0 ? put(head, baseline + textShift) + content + "</text>" : put(head, attr(head, "y")) + body + "</text>";
+    });
+}
+
+// Sample input: "WOi" advances 2.45 em, the wide glyph at 1.02, the capital at 0.79 and the narrow one at 0.64.
+function advance(words) {
+    var em = 0;
+    Array.from(words).forEach(function (glyph) {
+        em += glyph.codePointAt(0) > ASCII_LIMIT || WIDE_GLYPHS.indexOf(glyph) >= 0 ? WIDE_ADVANCE_EM
+            : SYMBOL_GLYPHS.indexOf(glyph) >= 0 ? SYMBOL_ADVANCE_EM
+            : CAPITAL_GLYPHS.indexOf(glyph) >= 0 ? CAPITAL_ADVANCE_EM : TEXT_ADVANCE_EM;
+    });
+    return em;
+}
+
+// Trim the SVG canvas padding above, below and left of the drawing where every painted primitive has explicit bounds.
+function tightenCanvas(svg) {
     var root = svg.match(/<svg\s[^<>]*>/);
     if (!root)
         return svg;
     var view = root[0].match(/viewBox="([^"]+)"/);
     var box = view ? view[1].trim().split(/\s+/).map(Number) : [];
     var body = svg.replace(/<defs>[\s\S]*?<\/defs>/g, "");
-    // Unknown paths, inherited text positions and transforms retain the library's safe canvas.
-    if (box.length !== 4 || !box.every(Number.isFinite) || /\btransform=|<path\b|<tspan\b/.test(body)
+    // Unknown paths and transforms retain the library's safe canvas.
+    if (box.length !== 4 || !box.every(Number.isFinite) || /\btransform=|<path\b/.test(body)
             || /<(?:g|svg)\b[^>]*\sstroke(?:-width)?=|\sstyle="[^"]*stroke/.test(body))
         return svg;
     var top = Infinity;
     var bottom = -Infinity;
+    var left = Infinity;
     var valid = true;
     // Sample input: <rect height="80"/> reads 80 from its height attribute.
     function number(tag, name, fallback) {
@@ -340,6 +407,13 @@ function tightenVertical(svg) {
         }
         top = Math.min(top, low - pad);
         bottom = Math.max(bottom, high + pad);
+    }
+    function includeLeft(x, pad) {
+        if (!Number.isFinite(x) || !Number.isFinite(pad)) {
+            valid = false;
+            return;
+        }
+        left = Math.min(left, x - pad);
     }
     // Sample input: <polygon stroke="#fff" stroke-width="8" stroke-linejoin="miter"/> includes its joins.
     function strokePad(tag, kind) {
@@ -372,40 +446,84 @@ function tightenVertical(svg) {
             pad += MARKER_EXTENT * width;
         return pad;
     }
-    body.replace(/<(rect|line|circle|ellipse|polygon|polyline|text)\b[^<>]*>/g, function (tag, kind) {
+    body.replace(/<(rect|line|circle|ellipse|polygon|polyline)\b[^<>]*>/g, function (tag, kind) {
         var pad = strokePad(tag, kind);
         if (kind === "rect") {
             var y = number(tag, "y", 0);
             include(y, y + number(tag, "height", NaN), pad);
+            includeLeft(number(tag, "x", 0), pad);
         } else if (kind === "line") {
             var y1 = number(tag, "y1", 0), y2 = number(tag, "y2", 0);
             include(Math.min(y1, y2), Math.max(y1, y2), pad);
+            includeLeft(Math.min(number(tag, "x1", 0), number(tag, "x2", 0)), pad);
         } else if (kind === "circle" || kind === "ellipse") {
             var cy = number(tag, "cy", 0);
             var radius = number(tag, kind === "circle" ? "r" : "ry", NaN);
             include(cy - radius, cy + radius, pad);
+            includeLeft(number(tag, "cx", 0) - (kind === "circle" ? radius : number(tag, "rx", NaN)), pad);
         } else if (kind === "polygon" || kind === "polyline") {
             var points = tag.match(/\spoints="([^"]*)"/);
             var numbers = points ? points[1].trim().split(/[\s,]+/).map(Number) : [];
             if (numbers.length < 2 || numbers.length % 2 !== 0)
                 valid = false;
-            for (var i = 1; i < numbers.length; i += 2)
+            for (var i = 1; i < numbers.length; i += 2) {
                 include(numbers[i], numbers[i], pad);
-        } else {
-            var font = number(tag, "font-size", NaN);
-            var baseline = number(tag, "y", NaN);
-            var dy = tag.match(/\sdy="(-?[\d.]+)(em|%)?"/);
-            baseline += dy ? Number(dy[1]) * (dy[2] === "em" ? font : dy[2] === "%" ? font / PERCENT_SCALE : 1) : 0;
-            include(baseline - font, baseline + TEXT_DESCENT_RATIO * font, pad);
+                includeLeft(numbers[i - 1], pad);
+            }
         }
         return tag;
     });
-    if (!valid || !Number.isFinite(top) || !(bottom > top))
+    // Sample input: <text x="70" y="50" font-size="13" text-anchor="middle"><tspan x="70" dy="-4">a</tspan><tspan x="70" dy="17">b</tspan></text> holds two lines.
+    var texts = body.match(/<text\b/g) || [];
+    var read = 0;
+    body.replace(/<text\b([^<>]*)>((?:[^<]|<tspan\b[^<>]*>[^<]*<\/tspan>)*)<\/text>/g, function (all, attrs, content) {
+        read++;
+        var lines = [];
+        content.replace(/<tspan\b([^<>]*)>([^<]*)<\/tspan>/g, function (m, own, words) {
+            lines.push({ attrs: own, words: words });
+            return m;
+        });
+        var bare = content.replace(/<tspan\b[^<>]*>[^<]*<\/tspan>/g, "");
+        // A line of its own sits in a tspan, and a text mixing bare words with tspans has no position the scan can read.
+        if (lines.length === 0)
+            lines.push({ attrs: "", words: content });
+        else if (/\S/.test(bare))
+            valid = false;
+        if (/\sstyle=/.test(attrs))
+            valid = false;
+        var pad = strokePad(attrs, "text");
+        var font = number(attrs, "font-size", NaN);
+        var baseline = number(attrs, "y", NaN);
+        var textShift = shift(attrs, font);
+        lines.forEach(function (line, index) {
+            // Without its own x, only the first line starts at the text's; a later one continues from an unknown pen position.
+            if (/\sstyle=/.test(line.attrs) || (index > 0 && !/\sx=/.test(line.attrs)))
+                valid = false;
+            var size = number(line.attrs, "font-size", font);
+            var pen = /\sy=/.test(line.attrs) ? number(line.attrs, "y", NaN) : baseline;
+            // SVG takes a glyph's dy from the nearest element naming one, so the text's own dy moves only a first line that names none.
+            baseline = pen + (/\sdy=/.test(line.attrs) ? shift(line.attrs, size) : index === 0 ? textShift : 0);
+            var linePad = Math.max(pad, strokePad(line.attrs, "text"));
+            include(baseline - size, baseline + TEXT_DESCENT_RATIO * size, linePad);
+            var anchor = line.attrs.match(/\stext-anchor="([^"]*)"/) || attrs.match(/\stext-anchor="([^"]*)"/);
+            var share = !anchor || anchor[1] === "start" ? 0 : anchor[1] === "middle" ? MIDDLE_SHARE : anchor[1] === "end" ? 1 : NaN;
+            includeLeft(number(line.attrs, "x", number(attrs, "x", NaN)), share * advance(line.words) * size + linePad);
+        });
+        return all;
+    });
+    // A text the scan could not read whole, a self-closing one or one holding another element, keeps the library's canvas.
+    if (read !== texts.length)
+        valid = false;
+    if (!valid || !Number.isFinite(top) || !(bottom > top) || !Number.isFinite(left))
         return svg;
     var y = Math.floor((top - CANVAS_MARGIN) * BOUNDS_PRECISION) / BOUNDS_PRECISION;
     var height = Math.ceil((bottom + CANVAS_MARGIN - y) * BOUNDS_PRECISION) / BOUNDS_PRECISION;
     var head = root[0].replace(/height="[^"]*"/, 'height="' + height + '"');
-    head = head.replace(/viewBox="[^"]*"/, 'viewBox="' + box[0] + ' ' + y + ' ' + box[2] + ' ' + height + '"');
+    // Only ever shrink: a primitive painted left of the library's canvas keeps the canvas it had.
+    var x = Math.max(box[0], Math.floor((left - LEFT_MARGIN) * BOUNDS_PRECISION) / BOUNDS_PRECISION);
+    var width = box[2] - (x - box[0]);
+    head = head.replace(/\swidth="[\d.]+"/, ' width="' + width + '"');
+    head = head.replace(/viewBox="[^"]*"/, 'viewBox="' + x + ' ' + y + ' ' + width + ' ' + height + '"');
     return svg.replace(root[0], head);
 }
 
@@ -473,7 +591,7 @@ export function postMermaid(svg, t) {
     out = out.replace(/<svg([^<>]*?)\sstyle="[^"]*"/, "<svg$1");
     // A click directive unwraps to its content; the link never ships.
     out = out.replace(/<a\s[^<>]*>/g, "").replace(/<\/a>/g, "");
-    out = scaleCanvas(tightenVertical(forceText(out, t.font || "sans-serif", t.fg)), t.bodyPx || MERMAID_FALLBACK_BODY_PX);
+    out = scaleCanvas(tightenCanvas(bakeDy(forceText(out, t.font || "sans-serif", t.fg))), t.bodyPx || MERMAID_FALLBACK_BODY_PX);
     out = markerPaths(out);
     var bad = checkSafe(out);
     if (bad)

@@ -171,6 +171,106 @@ QtObject {
             && failing.root.parseError === "probe parse fault", "F50 a parse that throws takes no place and replaces no model")
     }
 
+    // The reader's place at the end of the list: a block above the end growing must not leave them short of it.
+    readonly property int endContentPx: 3000
+    readonly property int endViewPx: 500
+    readonly property int endInsetPx: 16
+    readonly property int endGrowPx: 80
+    readonly property real endRoundingPx: 0.5
+    function endStub(source) {
+        var list = { originY: 0, topMargin: endInsetPx, bottomMargin: endInsetPx, contentHeight: endContentPx, height: endViewPx, contentY: 0 }
+        var root = { seenHeight: 0, endBuilt: false, lastBuilt: true, snappingToEnd: false, samePlacePx: 1, blockList: ["first", "last"] }
+        root.blockItem = function () { return root.lastBuilt ? {} : null }
+        var note = new Function("root", body(source, "function noteEnd()"))
+        root.noteEnd = function () { note(root) }
+        var hold = new Function("root", "body", body(source, "function holdEnd()"))
+        root.holdEnd = function () { hold(root, list) }
+        // The list's own height change: the new height is seen by the shipped handler, as onContentHeightChanged does.
+        root.grow = function (by) { list.contentHeight += by; root.holdEnd() }
+        root.holdEnd()
+        return { root: root, list: list }
+    }
+
+    function endChecks(source) {
+        var end = endContentPx - endViewPx + endInsetPx
+        var held = endStub(source)
+        held.list.contentY = end
+        held.root.grow(endGrowPx)
+        check(held.list.contentY === end + endGrowPx, "N1 a view that sat at its end follows a block that grows (got " + held.list.contentY + ")")
+        held.root.grow(endGrowPx)
+        check(held.list.contentY === end + 2 * endGrowPx && !held.root.snappingToEnd, "N1 it keeps following the next block that grows")
+
+        var near = endStub(source)
+        near.list.contentY = end - endRoundingPx
+        near.root.grow(endGrowPx)
+        check(near.list.contentY === end + endGrowPx, "N1 a view within a pixel of its end counts as at it (got " + near.list.contentY + ")")
+
+        var away = endStub(source)
+        away.list.contentY = end - endGrowPx
+        away.root.grow(endGrowPx)
+        check(away.list.contentY === end - endGrowPx, "N1 a reader who left the end is not pulled back (got " + away.list.contentY + ")")
+
+        var top = endStub(source)
+        top.list.contentY = -endInsetPx
+        top.root.grow(endGrowPx)
+        check(top.list.contentY === -endInsetPx, "N1 a view at the top stays there when a block grows (got " + top.list.contentY + ")")
+
+        var fits = endStub(source)
+        fits.list.contentHeight = endViewPx - endGrowPx
+        fits.root.holdEnd()
+        fits.list.contentY = -endInsetPx
+        fits.root.grow(2 * endGrowPx)
+        check(fits.list.contentY === -endInsetPx, "N1 a document that fitted the view is not scrolled when it grows past it (got " + fits.list.contentY + ")")
+
+        var shrunk = endStub(source)
+        shrunk.list.contentY = end
+        shrunk.root.grow(-endGrowPx)
+        check(shrunk.list.contentY === end, "N1 a list that shrinks moves nothing")
+
+        var unbuilt = endStub(source)
+        unbuilt.root.lastBuilt = false
+        unbuilt.root.holdEnd()
+        unbuilt.list.contentY = end
+        unbuilt.root.grow(endGrowPx)
+        check(unbuilt.list.contentY === end, "N1 a reader at an estimated end, the last block unbuilt, is not run to the new end (got " + unbuilt.list.contentY + ")")
+
+        var building = endStub(source)
+        building.root.lastBuilt = false
+        building.root.holdEnd()
+        building.list.contentY = end
+        building.root.lastBuilt = true
+        building.root.grow(endGrowPx)
+        check(building.list.contentY === end, "N1 the growth that builds the last block does not carry the reader to it (got " + building.list.contentY + ")")
+        building.list.contentY = end + endGrowPx
+        building.root.grow(endGrowPx)
+        check(building.list.contentY === end + 2 * endGrowPx, "N1 once the reader is at the drawn end, the next growth is followed (got " + building.list.contentY + ")")
+    }
+
+    // A refill that grows the list on every contentY write must not recurse: the snap writes once and the settling height is only seen.
+    function reentryChecks(source) {
+        var held = endStub(source)
+        var writes = 0
+        var stored = endContentPx - endViewPx + endInsetPx
+        Object.defineProperty(held.list, "contentY", {
+            get: function () { return stored },
+            set: function (value) {
+                stored = value
+                writes++
+                held.list.contentHeight += endGrowPx
+                held.root.holdEnd()
+            }
+        })
+        // The stub's own first holdEnd primed these, so the growth below reaches the snap and no earlier exit.
+        var primed = held.root.endBuilt && held.root.seenHeight === endContentPx
+        var error = ""
+        try {
+            held.root.grow(endGrowPx)
+        } catch (thrown) {
+            error = String(thrown)
+        }
+        check(primed && error === "" && writes === 1 && !held.root.snappingToEnd, "N1 a height that settles under the snap does not re-enter it (primed " + primed + ", endBuilt " + held.root.endBuilt + ", seenHeight " + held.root.seenHeight + " of " + endContentPx + ", writes " + writes + ", snappingToEnd " + held.root.snappingToEnd + " " + error + ")")
+    }
+
     function lazyChecks() {
         var source = readSource("markdown-lazy.qml")
         var shell = { done: false, failed: false, log: function () {}, quit: function () {},
@@ -200,7 +300,7 @@ QtObject {
             + 'manualHold: false, rowState: "text", isMarkdownRow: true, textLimit: ' + remoteLimitBytes + ', truncateText: true })\n'
             + 'property var facts: ({ TEXT: "text" })\n'
             + 'property bool active: false\nproperty string path: ""\nproperty int size: 0\n'
-            + 'property int maxBytes: ' + defaultReaderLimitBytes + '\nproperty bool truncate: false\n'
+            + 'property int maxBytes: ' + defaultReaderLimitBytes + '\nproperty bool truncate: false\nproperty bool compact: false\n'
             + 'property var seen: []\nreadonly property bool tooLarge:' + tooLarge + '\n'
             + 'readonly property string readerPath:' + readerPath + '\n'
             + 'onReaderPathChanged: seen.push(readerPath)\n'
@@ -286,6 +386,8 @@ QtObject {
         var source = readSource("../ui/PreviewMarkdown.qml")
         stateChecks(source)
         holdChecks(source)
+        endChecks(source)
+        reentryChecks(source)
         lazyChecks()
         bindingChecks(source)
         commentChecks(source)

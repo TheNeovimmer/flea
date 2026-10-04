@@ -41,14 +41,29 @@ Item {
     readonly property string surfaceHex: hexOf(Theme.color.surface)
     readonly property int insetX: Theme.spacing.rowPaddingX + Theme.spacing.rowPaddingY - Theme.spacing.hairline
     readonly property int insetY: Theme.spacing.gap + Theme.spacing.rowPaddingY
-    // The 6 px gap above every block after the first is rowPaddingY (7), and the fence's 8 12 padding is gap (9) and rowPaddingX (14).
-    readonly property int blockGap: Theme.spacing.rowPaddingY
-    readonly property int fencePadX: Theme.spacing.rowPaddingX
-    readonly property int fencePadY: Theme.spacing.gap
-    // Headings are 20 and 15 px over the 14 px body, kept as ratios so every text size scales them; deeper levels are body bold.
-    readonly property var headingRatio: [20 / 14, 15 / 14]
+    // RenderedPreviews resolves its pixels at body 14, and each one follows the body from there: no spacing token equals them at any size.
+    readonly property int boardBody: 14
+    readonly property int boardBlockGap: 6
+    readonly property int boardFencePadX: 12
+    readonly property int boardFencePadY: 8
+    // Headings are 20 and 15 px at body 14 in both surfaces, over the body the surface sets; deeper levels are body bold.
+    readonly property var boardHeadings: [20, 15]
+    function boardPx(px) {
+        return Math.round(px * Theme.font.body / root.boardBody)
+    }
+    readonly property int blockGap: root.boardPx(root.boardBlockGap)
+    readonly property int fencePadX: root.boardPx(root.boardFencePadX)
+    readonly property int fencePadY: root.boardPx(root.boardFencePadY)
+    // The preview column sets the document one token under Quick Look's body (RenderedPreviews 13 against 14).
+    property bool compact: false
+    readonly property int bodyPx: root.compact ? Theme.font.bodySmall : Theme.font.body
+    // The faint rule wash the Quick Look bar's bottom hairline draws, shared by the table's header and row rules.
+    readonly property real ruleOpacity: 0.12
+    // RenderedPreviews' remote box is a 1 px CSS dashed border: 3 px dashes with 3 px gaps.
+    readonly property int dashPx: 3
+    readonly property int dashPitch: 2 * root.dashPx
     function headingPx(level) {
-        return Math.round(Theme.font.body * (level >= 1 && level <= root.headingRatio.length ? root.headingRatio[level - 1] : 1))
+        return level >= 1 && level <= root.boardHeadings.length ? root.boardPx(root.boardHeadings[level - 1]) : root.bodyPx
     }
     // Only the active file in Rendered view may request figures.
     readonly property bool figuresArmed: root.active && root.view !== Markdown.SOURCE
@@ -85,6 +100,8 @@ Item {
         || (root.active && !root.readFailed && file.loaded && root.rawText.length === 0)
 
     readonly property Item bodyItem: body
+    // The offset the wheel moved, in whichever view shows, for Quick Look's IPC.
+    readonly property real scrollY: root.view === Markdown.SOURCE ? sourceFlick.contentY : body.contentY
     // The render suite reads live delegate geometry; only visible blocks plus the cache exist, so offscreen blocks answer null.
     function blockItem(i) {
         var kids = body.contentItem.children
@@ -191,6 +208,36 @@ Item {
         body.contentY = at
         if (settled)
             root.keepScroll = false
+    }
+    // The content height last seen, which is where the end was before a block grew.
+    property real seenHeight: 0
+    // Whether the last block had a delegate at the last height change, so the end then was a drawn end and no estimate.
+    property bool endBuilt: false
+    // The snap below sets contentY itself, and the height can settle again under it.
+    property bool snappingToEnd: false
+    function noteEnd() {
+        root.endBuilt = root.blockItem(root.blockList.length - 1) !== null
+    }
+    // A picture decodes after its block was built at no height; only a reader at the drawn end follows it, never one in unbuilt blocks.
+    function holdEnd() {
+        var was = root.seenHeight
+        var builtBefore = root.endBuilt
+        root.seenHeight = body.contentHeight
+        root.noteEnd()
+        if (root.snappingToEnd || !builtBefore || !(body.contentHeight > was))
+            return
+        var wasEnd = body.originY + was - body.height + body.bottomMargin
+        var tallerThanView = wasEnd > body.originY - body.topMargin
+        if (!tallerThanView || body.contentY < wasEnd - root.samePlacePx)
+            return
+        root.snappingToEnd = true
+        body.contentY = body.originY + body.contentHeight - body.height + body.bottomMargin
+        root.snappingToEnd = false
+    }
+    // How far the last block's bottom and the inset under it lie past the viewport, 0 when whole, -1 when the last block is not built.
+    function endGap() {
+        var last = root.blockItem(root.blockList.length - 1)
+        return last === null ? -1 : Math.max(0, Math.round(last.mapToItem(body, 0, last.height).y + body.bottomMargin - body.height))
     }
     function reloadFromDisk() {
         if (!root.active || root.tooLarge)
@@ -382,7 +429,7 @@ Item {
             wrapMode: Text.Wrap
             color: Theme.color.foreground
             font.family: Theme.font.family
-            font.pixelSize: Theme.font.body
+            font.pixelSize: root.bodyPx
         }
     }
 
@@ -399,6 +446,7 @@ Item {
         // A new model resets the view to its origin, so the saved place is restored once that reset is done.
         onModelChanged: root.restoreScroll()
         onContentYChanged: root.releaseHeldPlace()
+        onContentHeightChanged: root.holdEnd()
         spacing: root.blockGap
         topMargin: root.insetY
         bottomMargin: root.insetY
@@ -446,8 +494,10 @@ Item {
                         visible: block.type === "run" || block.type === "heading"
                         width: parent.width
                         text: block.type === "run" || block.type === "heading" ? block.text : ""
-                        font.pixelSize: block.type === "heading" ? root.headingPx(block.level) : Theme.font.body
+                        font.pixelSize: block.type === "heading" ? root.headingPx(block.level) : root.bodyPx
                         font.bold: block.type === "heading"
+                        // h1 and h2 take the bright foreground; deeper levels and body stay the foreground.
+                        color: block.type === "heading" && block.level <= root.boardHeadings.length ? Theme.color.foregroundBright : Theme.color.foreground
                     }
 
                     // Tables hug their cells with Grid, Column and Row, never QtQuick.Layouts, so the preview never loads it.
@@ -468,10 +518,12 @@ Item {
                                 delegate: Flea.MarkdownText {
                                     linkGate: Markdown.isExternalLink
                                     width: tableGrid.colWidth(index)
+                                    bodyPx: root.bodyPx
                                     cellPad: 2
                                     text: block.head[index]
                                     horizontalAlignment: tableGrid.alignAt(index)
                                     font.bold: true
+                                    color: Theme.color.foregroundBright
                                 }
                             }
                         }
@@ -480,7 +532,8 @@ Item {
                             visible: block.type === "table" && block.head.length > 0
                             width: tableGrid.tableWidth()
                             height: Theme.spacing.hairline
-                            color: Theme.color.muted
+                            color: Theme.color.foreground
+                            opacity: root.ruleOpacity
                         }
 
                         Repeater {
@@ -498,6 +551,7 @@ Item {
                                         delegate: Flea.MarkdownText {
                                             linkGate: Markdown.isExternalLink
                                             width: tableGrid.colWidth(index)
+                                            bodyPx: root.bodyPx
                                             cellPad: 2
                                             text: tableGrid.cellAt(row, index)
                                             horizontalAlignment: tableGrid.alignAt(index)
@@ -508,7 +562,8 @@ Item {
                                 Rectangle {
                                     width: tableGrid.tableWidth()
                                     height: Theme.spacing.hairline
-                                    color: Theme.color.muted
+                                    color: Theme.color.foreground
+                                    opacity: root.ruleOpacity
                                 }
                             }
                         }
@@ -556,7 +611,7 @@ Item {
                             text: block.type === "table" && index < block.measure.length ? block.measure[index] : ""
                             textFormat: Text.MarkdownText
                             font.family: Theme.font.family
-                            font.pixelSize: Theme.font.body
+                            font.pixelSize: root.bodyPx
                         }
                     }
 
@@ -581,7 +636,7 @@ Item {
                             wrapMode: Text.Wrap
                             color: Theme.color.foreground
                             font.family: Theme.font.family
-                            font.pixelSize: Theme.font.body
+                            font.pixelSize: root.bodyPx
                         }
                     }
 
@@ -591,7 +646,7 @@ Item {
                         objectName: "figureBox"
                         visible: block.type === "figure"
                         width: parent.width
-                        readonly property int figureInset: figureItem.ready && figureItem.kind === "math" && figureItem.fitHeight > 0 ? root.fencePadY : 0
+                        readonly property int figureInset: figureItem.ready && figureItem.kind === "math" && figureItem.fitHeight > 0 ? Theme.spacing.gap : 0
                         height: figureItem.implicitHeight + 2 * figureInset
 
                         Flea.MarkdownFigure {
@@ -611,7 +666,7 @@ Item {
                             surfaceHex: root.surfaceHex
                             fallbackColor: root.codeSurface
                             fontFamily: Theme.font.family
-                            bodyPx: Theme.font.body
+                            bodyPx: root.bodyPx
                         }
                     }
 
@@ -631,6 +686,7 @@ Item {
                             id: quoteText
                             linkGate: Markdown.isExternalLink
                             width: parent.width - 2 - parent.spacing
+                            bodyPx: root.bodyPx
                             text: block.type === "quote" ? block.text : ""
                         }
                     }
@@ -649,7 +705,7 @@ Item {
                             text: block.type !== "list" ? "" : block.ordered
                                 ? (block.last !== undefined ? block.last : block.start + block.items.length - 1) + "." : "•"
                             font.family: Theme.font.family
-                            font.pixelSize: Theme.font.body
+                            font.pixelSize: root.bodyPx
                         }
 
                         Repeater {
@@ -661,6 +717,7 @@ Item {
                                 Flea.MarkdownText {
                                     id: marker
                                     width: listMarkerMetrics.advanceWidth
+                                    bodyPx: root.bodyPx
                                     text: block.ordered ? (block.start + index) + "." : "•"
                                     // The marker shares the item's line box and first-line leading.
                                     textFormat: Text.RichText
@@ -671,6 +728,7 @@ Item {
                                 Flea.MarkdownText {
                                     linkGate: Markdown.isExternalLink
                                     width: parent.width - marker.width - parent.spacing
+                                    bodyPx: root.bodyPx
                                     text: block.items[index]
                                 }
                             }
@@ -688,10 +746,10 @@ Item {
                             anchors.top: parent.top
                             anchors.left: parent.left
                             anchors.right: parent.right
-                            spacing: 6
+                            spacing: root.dashPx
                             Repeater {
-                                model: Math.max(1, Math.floor((remoteBox.width + 6) / 14))
-                                delegate: Rectangle { width: 8; height: Theme.spacing.hairline; color: Theme.color.muted }
+                                model: Math.max(1, Math.floor((remoteBox.width + root.dashPx) / root.dashPitch))
+                                delegate: Rectangle { width: root.dashPx; height: Theme.spacing.hairline; color: Theme.color.muted }
                             }
                         }
 
@@ -699,10 +757,10 @@ Item {
                             anchors.bottom: parent.bottom
                             anchors.left: parent.left
                             anchors.right: parent.right
-                            spacing: 6
+                            spacing: root.dashPx
                             Repeater {
-                                model: Math.max(1, Math.floor((remoteBox.width + 6) / 14))
-                                delegate: Rectangle { width: 8; height: Theme.spacing.hairline; color: Theme.color.muted }
+                                model: Math.max(1, Math.floor((remoteBox.width + root.dashPx) / root.dashPitch))
+                                delegate: Rectangle { width: root.dashPx; height: Theme.spacing.hairline; color: Theme.color.muted }
                             }
                         }
 
@@ -710,10 +768,10 @@ Item {
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
                             anchors.left: parent.left
-                            spacing: 6
+                            spacing: root.dashPx
                             Repeater {
-                                model: Math.max(1, Math.floor((remoteBox.height + 6) / 14))
-                                delegate: Rectangle { width: Theme.spacing.hairline; height: 8; color: Theme.color.muted }
+                                model: Math.max(1, Math.floor((remoteBox.height + root.dashPx) / root.dashPitch))
+                                delegate: Rectangle { width: Theme.spacing.hairline; height: root.dashPx; color: Theme.color.muted }
                             }
                         }
 
@@ -721,10 +779,10 @@ Item {
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
                             anchors.right: parent.right
-                            spacing: 6
+                            spacing: root.dashPx
                             Repeater {
-                                model: Math.max(1, Math.floor((remoteBox.height + 6) / 14))
-                                delegate: Rectangle { width: Theme.spacing.hairline; height: 8; color: Theme.color.muted }
+                                model: Math.max(1, Math.floor((remoteBox.height + root.dashPx) / root.dashPitch))
+                                delegate: Rectangle { width: Theme.spacing.hairline; height: root.dashPx; color: Theme.color.muted }
                             }
                         }
 
@@ -765,6 +823,8 @@ Item {
                         visible: block.type === "image"
                         width: parent.width
                         fillMode: Image.PreserveAspectFit
+                        // A picture narrower than the content sits on the text's left edge, as the board's stand-in does.
+                        horizontalAlignment: Image.AlignLeft
                         asynchronous: true
                         autoTransform: true
                         source: block.type === "image" ? block.url : ""

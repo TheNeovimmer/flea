@@ -544,6 +544,9 @@ QtObject {
         function previewMediaLoaded(): bool { return root.previewReaders.previewMediaLoaded() }
         function previewText(): string { return root.previewReaders.previewText() }
         function previewMarkdownView(): string { return root.previewReaders.previewMarkdownView() }
+        function previewCloseState(): string { return root.previewReaders.previewCloseState() }
+        function previewEndGap(): int { return root.previewReaders.previewEndGap() }
+        function previewScrollY(): int { return root.previewReaders.previewScrollY() }
         function previewTextLength(): int { return root.previewReaders.previewTextLength() }
         function previewTextTail(n: int): string { return root.previewReaders.previewTextTail(n) }
         function previewArchiveNames(): string { return root.previewReaders.previewArchiveNames() }

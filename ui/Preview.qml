@@ -33,6 +33,10 @@ Item {
     readonly property bool isMarkdown: root.kind === "text" && Kinds.isMarkdown(root.path)
     // r flips the open Markdown Quick Look to Source; close() forgets it, and a move to another file keeps it.
     property bool markdownSource: false
+    // Tab put the keyboard on the Markdown bar's close mark; a move off Markdown or a close lets it go.
+    property bool markdownCloseFocus: false
+    readonly property bool markdownCloseFocused: root.active && root.isMarkdown && root.markdownCloseFocus
+    onIsMarkdownChanged: if (!root.isMarkdown) root.markdownCloseFocus = false
     // The backend's meta answer for the open archive, null until it lands; archiveRow is the row it was asked for.
     property var archiveMeta: null
     property int archiveRow: -1
@@ -54,6 +58,9 @@ Item {
     function textShown() { return root.isMarkdown
         ? (markdownLoader.item ? markdownLoader.item.rawText : "") : textPane.shownText() }
     function markdownView() { return root.active && root.isMarkdown && markdownLoader.item ? markdownLoader.item.shownView : "" }
+    function markdownCloseState() { return JSON.stringify(root.active && root.isMarkdown && markdownLoader.item ? markdownLoader.item.closeState() : {}) }
+    function markdownEndGap() { return root.active && root.isMarkdown && markdownLoader.item ? markdownLoader.item.endGap() : -1 }
+    function markdownScrollY() { return root.active && root.isMarkdown && markdownLoader.item ? Math.round(markdownLoader.item.scrollY) : -1 }
     function archiveNames() { return root.archiveMeta && root.archiveMeta.names ? root.archiveMeta.names.map(function (e) { return e.n }).join("|") : "" }
     readonly property bool pdfExpanded: root.isPdf && pdfLoader.item !== null && pdfLoader.item.expanded
     // The PDF surface, null with no document loaded: ui/Ipc.qml answers "" for that, so an unmeasured state never reads as a value.
@@ -182,6 +189,10 @@ Item {
         if (root.isMarkdown) root.markdownSource = !root.markdownSource
     }
 
+    function toggleMarkdownClose() {
+        if (root.isMarkdown) root.markdownCloseFocus = !root.markdownCloseFocus
+    }
+
     // The picture is taken now, so the settled load below changes the panes under it.
     function follow(newPath, newIcon, newSize, newKind, newThumb) {
         var key = newPath + "\n" + newIcon + "\n" + newSize + "\n" + newKind
@@ -235,6 +246,7 @@ Item {
         root.active = false
         root.kind = ""
         root.markdownSource = false
+        root.markdownCloseFocus = false
         mediaLoader.source = ""
         pdfLoader.source = ""
         imageLoader.source = ""
@@ -487,6 +499,7 @@ Item {
                             || root.pane.storageClass === "phone") : false
                     })
                     item.active = Qt.binding(function () { return root.isMarkdown })
+                    item.closeFocused = Qt.binding(function () { return root.markdownCloseFocused })
                     item.closeRequested.connect(root.close)
                 }
             }

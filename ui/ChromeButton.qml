@@ -16,6 +16,10 @@ Item {
     property int gesturePolicy: TapHandler.DragThreshold
     property real glyphSize: Theme.chromeMarkSize
 
+    // The pointer's own state, which Quick Look's IPC reads to prove a driven hover or press landed.
+    readonly property bool hovered: hover.hovered
+    readonly property bool pressed: tap.pressed
+
     signal activated()
 
     // A control with nowhere to go keeps its slot so the bar never reflows, and says so by dimming.
@@ -64,6 +68,7 @@ Item {
     }
 
     HoverHandler {
+        id: hover
         enabled: root.inputLive
         cursorShape: Qt.PointingHandCursor
     }

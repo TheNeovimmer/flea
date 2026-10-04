@@ -69,7 +69,7 @@ chmod 700 "$test_root/runtime" || exit 1
 ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
-cp tests/markdown-render.js tests/markdown-bar.js "$test_root/config/" || exit 1
+cp tests/markdown-render.js tests/markdown-board.js tests/markdown-bar.js "$test_root/config/" || exit 1
 cp tests/markdown-render.qml "$test_root/config/shell.qml" || exit 1
 
 cat > "$test_root/notes.md" <<'EOF'
@@ -153,4 +153,60 @@ if ! printf '%s\n' "$source_output" | grep -qF "MARKDOWN_SOURCE $expected_source
 fi
 if [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then
     cp "$test_root/runtime/markdown-source.png" "$FLEA_CI_SUITE_LOGS/markdown-source.png" || exit 1
+fi
+
+# The heading ink as ui/Theme.qml derives it, over palettes where each source wins and where none does.
+cp tests/markdown-headink.qml "$test_root/config/shell.qml" || exit 1
+headink_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 20 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+printf '%s\n' "$headink_output" | grep -oE 'MARKDOWN_HEADINK .*'
+check_warnings "$headink_output" 0 || exit 1
+expected_headink_checks=9
+# Sample input: MARKDOWN_HEADINK 9 checks, 0 failed
+if ! printf '%s\n' "$headink_output" | grep -qF "MARKDOWN_HEADINK $expected_headink_checks checks, 0 failed"; then
+    printf 'FAIL markdown-render: heading ink expected %s checks, 0 failed; arrived [%s]\n' "$expected_headink_checks" "${headink_output:-<empty>}" >&2
+    exit 1
+fi
+
+# The last block's picture decodes late through a named pipe the harness feeds, over a document judged at text size 14, all in the sandbox root.
+endfit_dir="$test_root/endfit"
+mkdir -p "$endfit_dir" || exit 1
+mkfifo "$endfit_dir/late.png" || exit 1
+endfit_notes=60
+{
+    printf '# Field notes\n\n## What shipped\n\nA paragraph with `thumbCap` inline code and [a guide](https://example.com/guide).\n\n'
+    printf '| Kind | Asks for |\n| :--- | :--- |\n| rows | the cursor |\n\n'
+    printf '```js\nvar fenced = true;\n```\n'
+    for _note in $(seq 1 "$endfit_notes"); do
+        printf '\nNote %s of the fixture, plain text that only gives the document height.\n' "$_note"
+    done
+    printf '\n![late](./late.png)\n'
+} > "$endfit_dir/endfit.md" || exit 1
+# The board's 160 by 80 stand-in, written inside the sandbox only.
+python3 - "$endfit_dir/late.bytes" <<'PY' || exit 1
+import struct, sys, zlib
+def chunk(tag, body):
+    return struct.pack('>I', len(body)) + tag + body + struct.pack('>I', zlib.crc32(tag + body) & 0xffffffff)
+png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 160, 80, 8, 2, 0, 0, 0))
+png += chunk(b'IDAT', zlib.compress((b'\0' + b'\x40\x80\xc0' * 160) * 80)) + chunk(b'IEND', b'')
+open(sys.argv[1], 'wb').write(png)
+PY
+cp tests/markdown-endfit.qml "$test_root/config/shell.qml" || exit 1
+endfit_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_ENDFIT_DOC="$endfit_dir/endfit.md" \
+    FLEA_ENDFIT_BYTES="$endfit_dir/late.bytes" FLEA_ENDFIT_FIFO="$endfit_dir/late.png" \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+printf '%s\n' "$endfit_output" | grep -oE 'MARKDOWN_ENDFIT .*'
+# Qt warns once that a pipe cannot seek, which is what holds the decode open, so that one line is not a defect.
+check_warnings "$(printf '%s\n' "$endfit_output" | grep -vF 'QFile::at: Cannot set file position')" 0 || exit 1
+expected_endfit_checks=12
+# Sample input: MARKDOWN_ENDFIT 12 checks, 0 failed
+if ! printf '%s\n' "$endfit_output" | grep -qF "MARKDOWN_ENDFIT $expected_endfit_checks checks, 0 failed"; then
+    printf 'FAIL markdown-render: end of a late picture expected %s checks, 0 failed; arrived [%s]\n' "$expected_endfit_checks" "${endfit_output:-<empty>}" >&2
+    exit 1
 fi
