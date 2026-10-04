@@ -39,8 +39,9 @@ rename_design_index_of() {
     cursor=$(ipc cursor)
     (( cursor >= 0 && cursor < total )) || cursor=0
     for (( d = 0; d < total; d++ )); do
-        for i in $((cursor + d)) $((cursor - d)); do
-            (( i >= 0 && i < total )) && (( d > 0 || i == cursor )) || continue
+        # At distance 0 both sides are the cursor row, so the lower side is skipped there.
+        for i in $((cursor + d)) $(( d > 0 ? cursor - d : -1 )); do
+            (( i >= 0 && i < total )) || continue
             row=$(ipc rowAt "$i")
             [[ "$row" == "$want|"* ]] && { printf '%s' "$i"; return; }
             # Grid and columns leave the list view's delegate unbuilt; read the row the shown view draws.
