@@ -45,6 +45,8 @@ Item {
     readonly property var closeItem: cancelButton
     readonly property var submitItem: openButton
     readonly property var fieldItem: field
+    readonly property var titleItem: title
+    readonly property var searchItem: searchBox
     readonly property var applicationsItem: list
     readonly property var alwaysItem: alwaysBox
     function applicationItem(index) { return list.itemAtIndex(OpenWith.rowOf(root.rows, index)) }
@@ -55,6 +57,10 @@ Item {
     readonly property int eyebrowHeight: Math.round(Theme.font.caption * 1.6) + Theme.spacing.gap
     property int listHeight: root.viewportRows * Theme.rowHeight
     readonly property int clampMargin: 8
+    // DialogButtons040 at size 14: the field is 18 px under the title rule (two gaps) and 31 px over the eyebrow's ink (the row's own 15 plus 16).
+    readonly property int searchLead: 2 * Theme.spacing.gap
+    readonly property real eyebrowLeadBoard: 16
+    readonly property int searchTrail: Math.round(root.eyebrowLeadBoard * Theme.font.bodySmall / 13)
 
     anchors.fill: parent
     visible: root.opened
@@ -239,7 +245,7 @@ Item {
             // Rule 4: the Network board's field, with the lens beside it and a clear mark once it holds text.
             Item {
                 width: parent.width
-                height: searchBox.height + Theme.spacing.gap
+                height: root.searchLead + searchBox.height + root.searchTrail
 
                 Rectangle {
                     id: searchBox
@@ -248,6 +254,7 @@ Item {
                     anchors.leftMargin: Theme.spacing.rowPaddingX
                     anchors.rightMargin: Theme.spacing.rowPaddingX
                     anchors.bottom: parent.bottom
+                    anchors.bottomMargin: root.searchTrail
                     height: Theme.rowHeight - Theme.spacing.rowPaddingY
                     color: Theme.color.background
                     border.width: Theme.spacing.hairline
@@ -448,7 +455,7 @@ Item {
                     opacity: 0.4
                 }
 
-                Rectangle {
+                Item {
                     id: box
                     anchors.left: parent.left
                     anchors.leftMargin: Theme.spacing.rowPaddingX

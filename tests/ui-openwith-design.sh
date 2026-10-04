@@ -111,6 +111,11 @@ case_openwithdesign() (
     menus_expect openWithState '(.listRect | split(" ")[3] | tonumber) == (7 * .rowHeight + 2 * .eyebrowHeight)' \
         'the list ends on a row boundary at seven applications'
     menus_expect openWithState '(.rect | split(" ")[2] | tonumber) > 0' "the card takes the Convert family's own width"
+    # DialogButtons040: the field is two gaps under the title rule, and the list starts the board's trail under the field.
+    menus_expect openWithState '(.titleRect | split(" ") | map(tonumber)) as $t | (.searchRect | split(" ") | map(tonumber)) as $f | $f[1] - ($t[1] + $t[3]) == 2 * .gap' \
+        'the search field sits two gaps under the title rule'
+    menus_expect openWithState '(.searchRect | split(" ") | map(tonumber)) as $f | (.listRect | split(" ") | map(tonumber)) as $l | $l[1] - ($f[1] + $f[3]) == .searchTrail' \
+        'the list starts the board trail under the search field'
     shot openwith-dialog
 
     # Rule 5: the search filters both groups, and a group that matches nothing takes its eyebrow with it.
