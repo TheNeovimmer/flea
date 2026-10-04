@@ -110,6 +110,15 @@ function commit(check, label, refresh, spec) {
     return p
 }
 
+// A rename whose new name re-sorts inside the held window: the row is found in the rows, so the backend is never asked and the view keeps its screen y.
+function commitNear(check, label, refresh, spec) {
+    var p = commit(check, label, refresh, spec)
+    var view = p.listArea
+    check(label + ": the backend is never asked where the row sorted", view.sent.length, 0)
+    check(label + ": the cursor lands on the renamed row", p.cursorIndex, spec.sortTo)
+    check(label + ": and so does the selection", view.selectedAt, spec.sortTo)
+}
+
 // A rename whose new name sorts outside the held window: the backend's locate answers where it landed, and the cursor, the selection and the view follow it.
 function commitFar(check, label, refresh, spec) {
     var p = makeList(spec.start, spec.cursor, spec.contentY, 0, 0)
@@ -163,6 +172,10 @@ function run(check) {
         { start: 900, cursor: last - 1, contentY: bottom + BOTTOM_MARGIN, bottomMargin: BOTTOM_MARGIN, from: last, to: "f9999", pointer: true, name: "" })
     commit(check, "an Enter at the top of a view with a top margin", refresh,
         { start: 0, cursor: 0, contentY: -GRID_TOP_MARGIN, topMargin: GRID_TOP_MARGIN, from: 0, to: "f1000-new", pointer: false, name: "/dir/f1000-new" })
+    commitNear(check, "an Enter deep in the list whose row re-sorts inside the held window", refresh,
+        { start: 900, cursor: 1100, contentY: 1090 * ROW_H, from: 1100, to: "f1105-new", sortTo: 1105, pointer: false, name: "/dir/f1105-new" })
+    commitNear(check, "an Enter deep in the list whose row re-sorts up inside the held window", refresh,
+        { start: 900, cursor: 1100, contentY: 1090 * ROW_H, from: 1100, to: "f1095-new", sortTo: 1095, pointer: false, name: "/dir/f1095-new" })
     commitFar(check, "an Enter whose row sorts past the held window", refresh,
         { start: 0, cursor: 300, contentY: 290 * ROW_H, from: 300, to: "zzz.txt", sortTo: last })
     commitFar(check, "an Enter deep in the list whose row sorts to the top", refresh,

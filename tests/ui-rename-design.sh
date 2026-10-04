@@ -165,6 +165,10 @@ case_renamedesign() (
             rename_design_backend_loss "$mode"
             continue
         fi
+        if [[ "$proof" == far ]]; then
+            rename_design_far "$mode"
+            continue
+        fi
         key -k Home >/dev/null
         menus_expect renameState '(.loading | not) and .currentRowHeight > 0' "$mode draws actual row before editing"
         before=$(ipc renameState | jq -er .currentRowHeight)
