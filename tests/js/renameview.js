@@ -72,31 +72,24 @@ function makeList(start, cursor, contentY, topMargin, bottomMargin) {
         if (top < view.contentY + low) view.contentY = clamp(top - low)
         else if (top + ROW_H > view.contentY + AREA_H - low) view.contentY = clamp(top + ROW_H + low - AREA_H)
     }
-    p.selectOnly = function (index, context) { view.selectedAt = index; p.setCursor(index, context) }
     p.selectionAnchor = 0
     p.join = function (base, name) { return base + "/" + name }
     p.backend.send = function (message) { view.sent.push(message) }
     p.backend.window = function (from) { view.asked = from }
+    modelSelection(p, [])
     return p
 }
 
 // What a rows reply does in ui/PaneSwap.qml: the pending select first, then the anchor, once per window the listing delivers.
 function deliver(p, wire) {
-    // A pane that models marks takes the production landing, so the selection after the commit is what Nav.applyPendingSelect and Hold.landRenamed made of it.
-    if (p.listArea.modelsMarks) Nav.applyPendingSelect(p)
-    else if (p.pendingSelect.length > 0) {
-        var target = p.pendingSelect
-        p.pendingSelect = ""
-        var at = Anchor.matchListed(p, target)
-        if (at >= 0) p.setCursor(at, 3)
-    }
+    // The production landing, so the selection after the commit is what Nav.applyPendingSelect and Hold.landRenamed made of it.
+    Nav.applyPendingSelect(p)
     wire.anchor = Anchor.apply(p, wire.anchor, ROW_H)
 }
 
-// Rows marked on the pane before a rename commit, kept in a model of the pane's Selection (clear, toggle, only) so what survives the commit is what the production code did, never what a stub wrote.
-function markRows(p, marks) {
+// The pane's Selection (clear, toggle, only) as a model, so the selection after a commit is what the production code did, never what a stub wrote.
+function modelSelection(p, marks) {
     var view = p.listArea
-    view.modelsMarks = true
     view.marks = marks.slice()
     p.selectionVersion = 0
     p.selectedIndices = function () { return view.marks.slice() }
@@ -119,6 +112,11 @@ function markRows(p, marks) {
     }
     p.pendingMenu = false
     view.primeSettle = function () {}
+}
+
+// Rows marked on the pane before a rename commit, and a re-list that forgets them the way PaneSwap's release does.
+function markRows(p, marks) {
+    modelSelection(p, marks)
     var relist = p.refresh
     p.refresh = function (select) {
         Nav.forget(p, "")
@@ -153,7 +151,7 @@ function commit(check, label, refresh, spec) {
     view.names[spec.from] = spec.to
     if (spec.sortTo !== undefined) view.names.splice(spec.sortTo, 0, view.names.splice(spec.from, 1)[0])
     refresh(wire, p, Anchor, { stop: function () {} }, request, spec.name, spec.pointer)
-    view.standing = standingOf(p, wire.anchor, marked)
+    view.standing = spec.marks ? standingOf(p, wire.anchor, marked) : null
     if (view.asked !== undefined) {
         deliver(p, wire)
         fill(p, view.asked)
@@ -186,7 +184,7 @@ function commitFar(check, label, refresh, spec) {
     view.names.splice(spec.sortTo, 0, view.names.splice(spec.from, 1)[0])
     view.names[spec.sortTo] = spec.to
     refresh(wire, p, Anchor, { stop: function () {} }, request, "/dir/" + spec.to, false)
-    var standing = standingOf(p, wire.anchor, marked)
+    var standing = spec.marks ? standingOf(p, wire.anchor, marked) : null
     if (view.asked !== undefined) {
         deliver(p, wire)
         fill(p, view.asked)
