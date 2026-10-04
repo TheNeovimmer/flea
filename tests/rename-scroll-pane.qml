@@ -36,7 +36,7 @@ QtObject {
     property string storageClass: ""
     property bool listInFlight: false
     property string listingState: "ready"
-    property int visibleRows: Math.ceil(listArea.height / Flea.Theme.fileRowHeight)
+    property int visibleRows: listArea ? Math.ceil(listArea.height / Flea.Theme.fileRowHeight) : 0
     property int cacheRows: 0
     property int firstSettleMs: 70
     property int settleMs: 120

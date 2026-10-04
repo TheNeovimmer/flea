@@ -5,8 +5,7 @@ import Quickshell
 import "flea" as Flea
 import "flea/js/Filter.js" as Filter
 
-// The real ui/List.qml with its Row editor, and the real ui/GridArea.qml with its GridTile editor, over a stub pane, in a real Window.
-// RENAME_SCROLL_MODE picks list or grid; tests/rename-scroll.sh runs both and rename-scroll-origin.qml, and sums their tallies.
+// The real ui/List.qml and its Row editor, or ui/GridArea.qml and its GridTile editor (RENAME_SCROLL_MODE), over a stub pane in a real Window.
 ShellRoot {
     id: root
 
@@ -30,6 +29,7 @@ ShellRoot {
     }
 
     function finish(note) {
+        flowTimer.stop()
         if (note.length > 0) {
             root.failures += 1
             console.log("RENAMESCROLL FAIL " + root.mode + " " + note)

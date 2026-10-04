@@ -27,6 +27,7 @@ ShellRoot {
     }
 
     function finish(note) {
+        originTimer.stop()
         if (note.length > 0) {
             root.failures += 1
             console.log("RENAMESCROLL FAIL origin " + note)
