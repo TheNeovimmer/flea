@@ -36,6 +36,7 @@ import "keymap.js" as KeymapSuite
 import "localsend.js" as LocalSendSuite
 import "markdown.js" as MarkdownSuite
 import "mdstructure.js" as MdStructureSuite
+import "mdspecfix.js" as MdSpecFixSuite
 import "mdhtml.js" as MdHtmlSuite
 import "mdgates.js" as MdGatesSuite
 import "mdr7.js" as MdR7Suite
@@ -144,7 +145,7 @@ Item {
             ["focus-lines", FocusLinesSuite], ["focus-wrap", FocusWrapSuite],
             ["format", FormatSuite], ["icons", IconsSuite],
             ["jump", JumpSuite], ["jump-heldout", JumpHeldoutSuite], ["keymap", KeymapSuite], ["localsend", LocalSendSuite], ["listbudget", ListBudgetSuite], ["match", MatchSuite], ["menu", MenuSuite], ["xwnewfile", XwNewFileSuite],
-            ["marks", MarksSuite], ["markdown", MarkdownSuite], ["mdstructure", MdStructureSuite], ["mdhtml", MdHtmlSuite], ["mdr7", MdR7Suite], ["mdround4", MdRound4Suite], ["mounts", MountsSuite], ["motion", MotionSuite], ["names", NamesSuite], ["nav", NavSuite], ["crumbs", CrumbsSuite], ["devices", DevicesSuite], ["network", NetworkSuite],
+            ["marks", MarksSuite], ["markdown", MarkdownSuite], ["mdstructure", MdStructureSuite], ["mdspecfix", MdSpecFixSuite], ["mdhtml", MdHtmlSuite], ["mdr7", MdR7Suite], ["mdround4", MdRound4Suite], ["mounts", MountsSuite], ["motion", MotionSuite], ["names", NamesSuite], ["nav", NavSuite], ["crumbs", CrumbsSuite], ["devices", DevicesSuite], ["network", NetworkSuite],
             ["openwith", OpenWithSuite], ["ops", OpsSuite], ["opstrash", OpsTrashSuite],
             ["palette", PaletteSuite], ["pathbar", PathBarSuite], ["places", PlacesSuite], ["placemenu", PlaceMenuSuite], ["rail", RailSuite], ["scripts", ScriptsSuite],
             ["phones", PhonesSuite],

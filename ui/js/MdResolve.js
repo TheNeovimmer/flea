@@ -5,8 +5,12 @@
 .import "MdHtml.js" as MdHtml
 .import "MdInline.js" as Md
 .import "MdRefs.js" as Refs
+.import "MdEntity.js" as Ent
 
 var MAX_STYLED_SPANS = 1024
+var hasOwn = Object.prototype.hasOwnProperty
+// The bytes a markdown destination cannot hold, as percent escapes.
+var PERCENT_ESCAPE = { " ": "%20", "(": "%28", ")": "%29" }
 
 // Links never fetch, but javascript: and data: hrefs must never be emitted: only http, https, mailto, relative and #anchor targets become anchors.
 function isLinkTarget(url) {
@@ -24,11 +28,41 @@ function isExternalLink(url) {
     return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(seen) && isLinkTarget(url)
 }
 
-// Resolve one bracket pair into text, a -1-i token reference or null; raw is its label and target its destination.
-function resolvePair(raw, target, bang, dir, ink, tokens) {
+// Sample input: "(/u)" after a label answers { url: "/u", end: 4 }; "[ref]" and "[]" read a definition, as does a bare label (raw).
+function readDestination(body, j, raw, defs) {
+    var found = readRawDestination(body, j, raw, defs)
+    return found === null ? null : { url: Ent.decodeReferences(found.url), end: found.end }
+}
+
+function readRawDestination(body, j, raw, defs) {
+    var inline = body.charAt(j) === "(" ? Md.readInlineTarget(body, j) : null
+    if (inline !== null)
+        return { url: inline.url, end: inline.end }
+    if (body.charAt(j) === "[") {
+        var ref = Md.readLabelRef(body, j)
+        var label = ref === null ? "" : ref.label.length > 0 ? ref.label : raw
+        if (label.length > 0 && hasOwn.call(defs, Md.normalizeLabel(label)))
+            return { url: defs[Md.normalizeLabel(label)], end: ref.end }
+        return null
+    }
+    if (raw.length > 0 && hasOwn.call(defs, Md.normalizeLabel(raw)))
+        return { url: defs[Md.normalizeLabel(raw)], end: j }
+    return null
+}
+
+// An alt text is the label's text alone: tags go, numeric entities turn back into characters.
+function plainText(html) {
+    return String(html).replace(/<[^>]*>/g, "").replace(/&#(\d+);/g, function (m, n) {
+        return String.fromCharCode(parseInt(n, 10))
+    })
+}
+
+// Resolve one bracket pair into text, a -1-i token reference or null; raw is its label, label() its resolved markup and target its destination.
+function resolvePair(raw, target, bang, dir, ink, tokens, label) {
     // A backslash before punctuation is consumed by the backslash: the alt and the label display the punctuation, never the escape.
     var clean = String(raw).replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g, "$1")
     if (bang) {
+        clean = label === undefined ? clean : plainText(label())
         var cls = MdUrl.classifyImage(target, dir)
         if (cls.kind === "remote")
             return "\n\n" + MdUrl.placeholder(Md.escapeHtmlText(cls.host)) + "\n\n"
@@ -43,7 +77,11 @@ function resolvePair(raw, target, bang, dir, ink, tokens) {
     target = MdHtml.normalizedTarget(target)
     if (!isLinkTarget(target))
         return Md.escapeHtmlText("[" + clean + "](" + target + ")")
-    var html = Md.linkHtml(clean, target, ink)
+    var shown = label === undefined ? clean : label()
+    // Inside an html link the renderer would draw a linked image's alt text beside it, so its own link syntax carries that label.
+    var html = label !== undefined && shown.indexOf("![") >= 0
+        ? "[" + shown + "](" + target.replace(/[ ()]/g, function (c) { return PERCENT_ESCAPE[c] }) + ")"
+        : Md.linkHtml(shown, target, ink, label !== undefined)
     if (html === null)
         return Md.escapeHtmlText("[" + clean + "](" + target + ")")
     tokens.push(html)
@@ -115,7 +153,7 @@ function styledSpan(kind, content, chrome, cache) {
 // Sample input: '<img src="pic.png">' at its "<" resolves a tag; '<https://a.example>' resolves an autolink.
 function parseAngle(body, i, dir, ink, styleLinks, dead, tokens, out) {
     var auto = Md.readAutolink(body, i)
-    if (auto !== null && !isLinkTarget(auto.url))
+    if (auto !== null && !isLinkTarget(auto.href))
         auto = null
     if (auto !== null) {
         if (!styleLinks) {
@@ -123,7 +161,7 @@ function parseAngle(body, i, dir, ink, styleLinks, dead, tokens, out) {
             i = auto.end
             return i
         }
-        var ahtml = Md.linkHtml(auto.url, auto.url, ink)
+        var ahtml = Md.linkHtml(auto.url, auto.href, ink)
         if (ahtml === null)
             out.push(Md.escapeHtmlText(auto.url))
         else {
@@ -171,4 +209,27 @@ function parseAngle(body, i, dir, ink, styleLinks, dead, tokens, out) {
     if (san.drop !== null)
         i = Refs.skipDropContent(body, i, san.drop, dead)
     return i
+}
+
+// Sample input: "see https://a.example/x now" at the "h" answers the index after the address; no bare address answers -1.
+function bareAt(body, i, ink, styleLinks, tokens, out) {
+    var bare = Md.readBarelink(body, i)
+    if (bare === null || !isLinkTarget(bare.href))
+        return -1
+    var url = bare.url
+    var href = bare.href
+    // GFM leaves a trailing entity reference such as "&hl;" out of the address.
+    var entity = body.charAt(bare.end) === ";" ? /&[A-Za-z0-9]+$/.exec(url) : null
+    if (entity !== null) {
+        url = url.slice(0, entity.index)
+        href = href.slice(0, href.length - (bare.url.length - url.length))
+    }
+    var html = styleLinks ? Md.linkHtml(url, href, ink) : null
+    if (html === null) {
+        out.push(Md.escapeHtmlText(url))
+    } else {
+        tokens.push(html)
+        out.push(-1 - (tokens.length - 1))
+    }
+    return bare.end - (bare.url.length - url.length)
 }

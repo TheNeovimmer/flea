@@ -47,12 +47,13 @@ ShellRoot {
         return true
     }
 
-    // Sample: ![x](file:///pic.png) and <img src="file:///pic.png"> expose the Text image resources.
+    // Sample: ![x](file:///pic.png) and <img src="file:///pic.png"> expose Text image resources, unless inside a closed fence (code).
     function resourceUrls(item, urls) {
         if (item.textFormat === Text.MarkdownText) {
             var re = /!\[[^\]]*\]\(([^)]+)\)|<img\b[^>]*\bsrc=["']([^"']*)["']/g
             var hit = null
-            while ((hit = re.exec(String(item.text))) !== null)
+            var drawnText = String(item.text).replace(/^```[^\n]*\n[\s\S]*?\n```$/gm, "")
+            while ((hit = re.exec(drawnText)) !== null)
                 urls.push(hit[1] || hit[2])
         }
         var children = item.children || []

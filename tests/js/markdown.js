@@ -192,7 +192,7 @@ function run(check) {
     check("GFM 200 header unescapes pipe", escapedTable.head[0], "f&#124;oo")
     check("GFM 200 code span unescapes pipe", escapedTable.rows[0][0],
         'b <code style="background-color:#181825">&#124;</code> az')
-    check("GFM 200 strong row unescapes pipe", escapedTable.rows[1][0], "b **&#124;** im")
+    check("GFM 200 strong row unescapes pipe", escapedTable.rows[1][0], "b <strong>&#124;</strong> im")
     // The backtick sends prose down the scan path, where only a table cell turns its pipe into an entity.
     check("a pipe outside a table stays prose", Markdown.prepare("a | `b`", dir, undefined, chrome),
         'a | <code style="background-color:#181825">b</code>')
@@ -254,8 +254,8 @@ function run(check) {
     check("a bad ink escapes link brackets",
         Markdown.prepare("See [a](https://example.com/x) here.", dir, undefined, chrome, "red"),
         "See &#91;a&#93;(https&#58;&#47;&#47;example&#46;com&#47;x) here.")
-    check("emphasis cannot form inside a link label",
-        linked("See [*hi*](https://example.com/x) here.").indexOf("&#42;hi&#42;") >= 0, true)
+    check("emphasis forms inside a link label",
+        linked("See [*hi*](https://example.com/x) here.").indexOf("<font color=\"#c0caf5\"><em>hi</em></font></a>") >= 0, true)
 
     var barelinks = [
         { text: "See https://example.com/x. here.", url: "https://example.com/x" },
@@ -284,8 +284,8 @@ function run(check) {
     check("a later start survives", lists("3. a\n4. b\n")[0].start, 3)
     check("a marker kind change splits", lists("1. a\n- b\n").length, 2)
     var nested = lists("1. a\n   - sub\n2. b\n")
-    check("a nested marker joins its item", nested.length === 1 && nested[0].items.length === 2, true)
-    check("nested content survives", nested[0].items[0].indexOf("sub") >= 0, true)
+    check("a nested marker joins its list", nested.length === 1 && nested[0].items.length === 3, true)
+    check("a nested item is its own entry one level down", JSON.stringify(nested[0].depths) + " " + nested[0].items[1], "[0,1,0] sub")
     var lazy = lists("1. a\nlazy line\n2. b\n")
     check("a lazy line joins its item", lazy.length === 1 && lazy[0].items[0].indexOf("lazy") >= 0, true)
     check("a blank line between items keeps the list", lists("1. a\n\n2. b\n").length, 1)

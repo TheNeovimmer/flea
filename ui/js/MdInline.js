@@ -134,11 +134,11 @@ function escapeHtmlText(content) {
 }
 
 // A link as a font-wrapped anchor: the importer hardcodes its link blue, but a font tag survives it.
-function linkHtml(label, url, ink) {
+function linkHtml(label, url, ink, markup) {
     if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(ink || "")))
         return null
     var safe = String(url).replace(/&/g, "&#38;").replace(/"/g, "&#34;")
-    return '<a href="' + safe + '"><font color="' + ink + '">' + escapeHtmlText(label) + "</font></a>"
+    return '<a href="' + safe + '"><font color="' + ink + '">' + (markup === true ? label : escapeHtmlText(label)) + "</font></a>"
 }
 
 // Sample input: (b "t") after a label's "]"; answers {url, end} past ")", or null. Same line, balanced parens.
@@ -160,7 +160,7 @@ function readInlineTarget(text, i) {
             var angleChar = text.charAt(j)
             if (angleChar === ">" || angleChar === "\n" || angleChar === "\r")
                 break
-            j++
+            j += angleChar === "\\" ? 2 : 1
         }
         if (j >= text.length || j >= cap || text.charAt(j) !== ">")
             return null
@@ -248,12 +248,15 @@ function readLabelRef(text, i) {
     return { label: text.slice(i + 1, j), end: j + 1 }
 }
 
-// Sample input: "  My\tLabel  " normalizes to "my label" for reference lookup.
+// Sample input: "  My\tLabel  " normalizes to "my label" for reference lookup; the case fold sends sharp s to "ss".
 function normalizeLabel(label) {
-    return String(label).replace(/[\t\n ]+/g, " ").replace(/^ | $/g, "").toLowerCase()
+    return String(label).replace(/[\t\n ]+/g, " ").replace(/^ | $/g, "").toLowerCase().replace(/\u00df/g, "ss")
 }
 
-// A <scheme:...> or <mail> autolink at text[i] === "<"; answers {url, end} or null.
+// CommonMark's email address: its local part set and dot-separated host labels.
+var MAIL_ADDRESS = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$/
+
+// A <scheme:...> or <mail> autolink at text[i] === "<"; answers {url, href, end} or null, href gaining mailto: for an address.
 function readAutolink(text, i) {
     var j = i + 1
     while (j < text.length && j - i < TARGET_SCAN_LIMIT && text.charAt(j) !== ">" && !isSpace(text.charAt(j)))
@@ -261,13 +264,14 @@ function readAutolink(text, i) {
     if (j >= text.length || j - i >= TARGET_SCAN_LIMIT || text.charAt(j) !== ">")
         return null
     var inner = text.slice(i + 1, j)
-    if (/^[a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^<>]*$/.test(inner)
-            || /^[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+$/.test(inner))
-        return { url: inner, end: j + 1 }
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^<>]*$/.test(inner))
+        return { url: inner, href: inner, end: j + 1 }
+    if (MAIL_ADDRESS.test(inner))
+        return { url: inner, href: "mailto:" + inner, end: j + 1 }
     return null
 }
 
-// Sample input: see https://a.example/x. here; answers {url, end} or null, GFM's trailing-punctuation strip.
+// Sample input: see https://a.example/x. here; answers {url, href, end} or null, GFM's trailing-punctuation strip; www. gains http:// in href.
 function readBarelink(text, i) {
     var http = text.slice(i, i + HTTP_PREFIX_LENGTH) === "http://" || text.slice(i, i + HTTPS_PREFIX_LENGTH) === "https://"
     if (!http) {
@@ -291,5 +295,5 @@ function readBarelink(text, i) {
         j--
     }
     var url = text.slice(i, j)
-    return url.length < MIN_BARELINK_LENGTH ? null : { url: url, end: j }
+    return url.length < MIN_BARELINK_LENGTH ? null : { url: url, href: http ? url : "http://" + url, end: j }
 }

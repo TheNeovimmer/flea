@@ -6,10 +6,15 @@ Qt.include("js/MdEscape.js");
 Qt.include("js/MdInline.js");
 Qt.include("js/MdContainer.js");
 Qt.include("js/MdRefs.js");
+Qt.include("js/MdEntity.js");
 Qt.include("js/MdResolve.js");
+Qt.include("js/MdEmph.js");
+Qt.include("js/MdBreak.js");
 Qt.include("js/MdRun.js");
 Qt.include("js/MdLeaf.js");
+Qt.include("js/MdItems.js");
 Qt.include("js/MdDocument.js");
+Qt.include("js/MdMath.js");
 Qt.include("js/MdBlocks.js");
 
 var Format = { date: date, fileUri: fileUri };
@@ -17,22 +22,32 @@ var MdUrl = { canonicalUrl: canonicalUrl, classifyImage: classifyImage, placehol
 var MdHtml = { closeToken: closeToken, openToken: openToken, documentText: documentText, normalizedTarget: normalizedTarget, readTag: readTag, sanitizeTag: sanitizeTag, tagHead: tagHead };
 var MdEscape = { escapeText: escapeText, isAsciiPunct: isAsciiPunct };
 var MdInline = { INTERVAL_STRIDE: INTERVAL_STRIDE, codeHtml: codeHtml, escapeHtmlText: escapeHtmlText, isPunct: isPunct, linkHtml: linkHtml, normalizeLabel: normalizeLabel, readAutolink: readAutolink, readBarelink: readBarelink, readInlineTarget: readInlineTarget, readLabelRef: readLabelRef, spanIntervals: spanIntervals };
-var MdRefs = { readDefinition: readDefinition, readDefinitionTarget: readDefinitionTarget, readFootnoteDefinition: readFootnoteDefinition, killDefinition: killDefinition, readFootnoteRef: readFootnoteRef, skipDropContent: skipDropContent };
-var MdResolve = { isLinkTarget: isLinkTarget, parseAngle: parseAngle, resolvePair: resolvePair, styledSpan: styledSpan };
+var MdRefs = { readDefinition: readDefinition, hideTitle: hideTitle, storeDefinition: storeDefinition, readDefinitionParts: readDefinitionParts, readDefinitionTarget: readDefinitionTarget, titleEnd: titleEnd, readFootnoteDefinition: readFootnoteDefinition, killDefinition: killDefinition, readFootnoteRef: readFootnoteRef, skipDropContent: skipDropContent };
+var MdEntity = { decodeReferences: decodeReferences };
+var MdEmph = { literal: literal, process: process, runAt: runAt };
+var MdBreak = { isRuleLine: isRuleLine, lineBreak: lineBreak, quoteMarkAt: quoteMarkAt };
+var MdResolve = { bareAt: bareAt, isLinkTarget: isLinkTarget, parseAngle: parseAngle, plainText: plainText, readDestination: readDestination, readRawDestination: readRawDestination, resolvePair: resolvePair, styledSpan: styledSpan };
 var MdRun = { parseInline: parseInline };
-var MdLeaf = { alertTitle: alertTitle, atxHeading: atxHeading, chunkList: chunkList, chunkTable: chunkTable, headingSafe: headingSafe, delimAligns: delimAligns, fenceOpen: fenceOpen, indentOf: indentOf, isThematic: isThematic, isSetext: isSetext, splitRow: splitRow, standaloneImage: standaloneImage, tableBlock: tableBlock, taskText: taskText };
-var MdContainer = { readListMarker: readListMarker, indentationAt: indentationAt, takeIndent: takeIndent, quoteAt: quoteAt, takeQuote: takeQuote, listAt: listAt, takeList: takeList, textAt: textAt };
+var MdLeaf = { alertTitle: alertTitle, atxHeading: atxHeading, chunkList: chunkList, chunkTable: chunkTable, headingSafe: headingSafe, delimAligns: delimAligns, fenceOpen: fenceOpen, indentOf: indentOf, isThematic: isThematic, isSetext: isSetext, setextLevel: setextLevel, splitRow: splitRow, standaloneImage: standaloneImage, tableBlock: tableBlock, taskText: taskText };
+var MdContainer = { readListMarker: readListMarker, indentationAt: indentationAt, takeIndent: takeIndent, quoteAt: quoteAt, takeQuote: takeQuote, listAt: listAt, takeList: takeList, startsBlock: startsBlock, textAt: textAt, unindent: unindent };
+var MdItems = { builder: builder, inlineLines: inlineLines, isFence: isFence, listBlock: listBlock, quoteBlocks: quoteBlocks, visibleLines: visibleLines };
+var MdMath = { displayAt: displayAt, inlineSources: inlineSources, splitDisplay: splitDisplay };
 var MdDocument = { writer: writer, preparedText: preparedText };
 var MdBlocks = { blocks: blocks, figureKind: figureKind };
 // Short aliases the libraries use for each other, matching their `.import` names.
 var Md = MdInline;
 var Esc = MdEscape;
 var Run = MdRun;
+var Emph = MdEmph;
+var Ent = MdEntity;
+var Brk = MdBreak;
 var Refs = MdRefs;
 var Leaf = MdLeaf;
 var Res = MdResolve;
 var Container = MdContainer;
 var Document = MdDocument;
+var Items = MdItems;
+var Maths = MdMath;
 var Html = MdHtml;
 
 WorkerScript.onMessage = function (msg) {

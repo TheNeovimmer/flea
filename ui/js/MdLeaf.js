@@ -77,14 +77,19 @@ function isSetext(line) {
     return /^ {0,3}(?:=+|-+)[ \t]*$/.test(String(line))
 }
 
+// Sample input: "===" underlines a level 1 heading, "---" and "--" a level 2.
+function setextLevel(line) {
+    return String(line).trim().charAt(0) === "=" ? 1 : 2
+}
+
 // Sample input: "```js" opens a backtick fence with info "js".
 function fenceOpen(line) {
-    var m = /^ {0,3}(```+|~~~+) *(.*)$/.exec(String(line))
+    var m = /^( {0,3})(```+|~~~+) *(.*)$/.exec(String(line))
     if (m === null)
         return null
-    if (m[1].charAt(0) === "`" && m[2].indexOf("`") >= 0)
+    if (m[2].charAt(0) === "`" && m[3].indexOf("`") >= 0)
         return null
-    return { tick: m[1].charAt(0), len: m[1].length, info: m[2].replace(/\s+$/, "") }
+    return { tick: m[2].charAt(0), len: m[2].length, indent: m[1].length, info: m[3].replace(/\s+$/, "") }
 }
 
 // Sample input: "| :--- | ---: |"; dashes with optional edge colons carry the alignment, anything else is not a table.

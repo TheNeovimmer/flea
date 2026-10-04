@@ -20,11 +20,11 @@ function run(check) {
     // R5 samples follow CommonMark 4.3 examples 92-94: lazy underlines are text unless they start a break.
     var r5Lazy = [
         { name: "example 92", source: "> Foo\n---", blocks: [{ type: "quote", text: "Foo" }, { type: "run", text: "---" }] },
-        { name: "example 93", source: "> foo\nbar\n===", blocks: [{ type: "quote", text: "foo\nbar\n===" }] },
+        { name: "example 93", source: "> foo\nbar\n===", blocks: [{ type: "quote", text: "foo\nbar\n&#61;==" }] },
         { name: "example 94", source: "- Foo\n---", blocks: [{ type: "list", ordered: false, start: 0, items: ["Foo"] }, { type: "run", text: "---" }] },
-        { name: "list equals", source: "- foo\nbar\n===", blocks: [{ type: "list", ordered: false, start: 0, items: ["foo\nbar\n==="] }] },
-        { name: "quote short dash", source: "> foo\n--", blocks: [{ type: "quote", text: "foo\n--" }] },
-        { name: "list short dash", source: "- foo\n--", blocks: [{ type: "list", ordered: false, start: 0, items: ["foo\n--"] }] }
+        { name: "list equals", source: "- foo\nbar\n===", blocks: [{ type: "list", ordered: false, start: 0, items: ["foo\nbar\n&#61;=="] }] },
+        { name: "quote short dash", source: "> foo\n--", blocks: [{ type: "quote", text: "foo\n&#45;-" }] },
+        { name: "list short dash", source: "- foo\n--", blocks: [{ type: "list", ordered: false, start: 0, items: ["foo\n&#45;-"] }] }
     ]
     for (var lazyIndex = 0; lazyIndex < r5Lazy.length; lazyIndex++) {
         var lazyCase = r5Lazy[lazyIndex]
@@ -127,8 +127,8 @@ function run(check) {
     var r4Underlines = ["=", "===", "--", "---"]
     for (var underlineIndex = 0; underlineIndex < r4Underlines.length; underlineIndex++) {
         var underline = r4Underlines[underlineIndex]
-        // CommonMark example 93 keeps lazy underline text; examples 92 and 94 put the break outside.
-        var expectedLazyText = underline === "---" ? "Title" : "Title\n" + underline
+        // CommonMark example 93 keeps lazy underline text, its first mark escaped so no renderer reads a setext heading; examples 92 and 94 put the break outside.
+        var expectedLazyText = underline === "---" ? "Title" : "Title\n&#" + underline.charCodeAt(0) + ";" + underline.slice(1)
         var quoteUnderline = Markdown.blocks("> Title\n" + underline, dir, chrome, ink)
         check("R4 md2a F33 lazy quote " + underline, quoteUnderline[0].text, expectedLazyText)
         var listUnderline = Markdown.blocks("- Title\n" + underline, dir, chrome, ink)
@@ -183,14 +183,14 @@ function run(check) {
     check("R4 md2a F36 continuation keeps hard break",
         MdBlocks.collectReferences(continuedNote).notes.a.text, expectedNote)
     var continuedNoteBlocks = Markdown.blocks(continuedNote, dir, chrome, ink)
-    check("R4 md2a F36 rendered note keeps hard break", continuedNoteBlocks[2].items[0], "<sup>1</sup> " + expectedNote)
+    check("R4 md2a F36 rendered note keeps hard break", continuedNoteBlocks[2].items[0], "<sup>1</sup> first\nsecond<br />third")
 
     var front = Markdown.blocks("---\ntitle: Hi\n---\n\nText\n", dir, chrome, ink)
     check("front matter draws as a fence", front.length === 2 && front[0].type === "fence", true)
     check("front matter keeps its lines", front[0].text, "title: Hi")
     check("no front matter means no fence", kinds("---\n"), "run")
-    check("a setext underline stays a run", kinds("Title\n=====\n"), "run")
-    check("a level-two setext stays a run", kinds("Title\n---\n"), "run")
+    check("a setext underline makes a heading", kinds("Title\n=====\n"), "heading")
+    check("a level-two setext makes a heading", kinds("Title\n---\n"), "heading")
     check("a thematic break stays prose", kinds("Text\n\n***\n\nMore\n"), "run")
     check("dashes break too", kinds("Text\n\n---\n\nMore\n"), "run")
     check("underscores break too", kinds("Text\n\n___\n\nMore\n"), "run")
@@ -217,7 +217,7 @@ function run(check) {
     check("a bullet-looking title stays literal text",
         Markdown.blocks("# - dash\n", dir, chrome, ink)[0].text, "&#45; dash")
     check("an emphasis title keeps its emphasis",
-        Markdown.blocks("# _Hi_\n", dir, chrome, ink)[0].text, "_Hi_")
+        Markdown.blocks("# _Hi_\n", dir, chrome, ink)[0].text, "<em>Hi</em>")
     check("spaced stars stay a thematic break", kinds("Text\n\n* * *\n\nMore\n"), "run")
     check("spaced dashes stay a thematic break", kinds("Text\n\n- - -\n\nMore\n"), "run")
     check("indented code draws verbatim", kinds("Text\n\n    var a = 1;\n\nMore\n"), "run,fence,run")
@@ -315,16 +315,16 @@ function run(check) {
     check("a closed task draws its box", tasks[0].items[1].indexOf("☑ done") >= 0, true)
     var alert = Markdown.blocks("> [!NOTE]\n> Read this.\n", dir, chrome, ink)[0]
     check("an alert stays a quote", alert.type, "quote")
-    check("an alert titles itself", alert.text.indexOf("**Note**") === 0, true)
+    check("an alert titles itself", alert.text.indexOf("<strong>Note</strong>") === 0, true)
     var warn = Markdown.blocks("> [!WARNING] Careful.\n", dir, chrome, ink)[0]
-    check("a warning titles itself", warn.text.indexOf("**Warning**") === 0, true)
+    check("a warning titles itself", warn.text.indexOf("<strong>Warning</strong>") === 0, true)
 
-    check("R12 md2a F49 lowercase note title", Markdown.blocks("> [!note] Read this.", dir, chrome, ink)[0].text, "**Note** Read this.")
-    check("R12 md2a F49 mixed warning title", Markdown.blocks("> [!wARNING] Careful.", dir, chrome, ink)[0].text, "**Warning** Careful.")
+    check("R12 md2a F49 lowercase note title", Markdown.blocks("> [!note] Read this.", dir, chrome, ink)[0].text, "<strong>Note</strong> Read this.")
+    check("R12 md2a F49 mixed warning title", Markdown.blocks("> [!wARNING] Careful.", dir, chrome, ink)[0].text, "<strong>Warning</strong> Careful.")
 
     var interruptionCases = [
         { source: "The year was\n1986. A great season.", expected: [{ type: "run", text: "The year was\n1986. A great season." }] },
-        { source: "foo\n-", expected: [{ type: "run", text: "foo\n-" }] },
+        { source: "foo\n-", expected: [{ type: "heading", level: 2, text: "foo" }] },
         { source: "foo\n1. item", expected: [{ type: "run", text: "foo" }, { type: "list", ordered: true, start: 1, items: ["item"] }] },
         { source: "foo\n1.", expected: [{ type: "run", text: "foo\n1." }] },
         { source: "foo\n+", expected: [{ type: "run", text: "foo\n+" }] },
@@ -477,7 +477,7 @@ function run(check) {
         styled("See [x](data:text/html,hi) here.").indexOf("<a") < 0, true)
 
     check("a www autolink wraps",
-        styled("See www.example.com/x here.").indexOf("<a href=\"www.example.com/x\">") >= 0, true)
+        styled("See www.example.com/x here.").indexOf("<a href=\"http://www.example.com/x\">") >= 0, true)
     check("a bare https autolink wraps",
         styled("See https://example.com/x here.").indexOf("<a href=\"https://example.com/x\">") >= 0, true)
     check("strikethrough passes through",
@@ -565,7 +565,7 @@ function run(check) {
     check("an outdented same-type marker stays in the list", outdent.length === 1 ? outdent[0].items.join("|") : "", "a|b")
     var child = Markdown.blocks("1. a\n   - b", dir, chrome, ink)
     check("a marker at the content column stays nested", child.length, 1)
-    check("a nested marker keeps its dash", child[0].items[0], "a\n- b")
+    check("a nested marker is an entry one level down", JSON.stringify([child[0].items, child[0].depths]), "[[\"a\",\"b\"],[0,1]]")
 
     // Reads are counted per character scanned, so the check holds on any machine and needs no clock.
     function countedScan(source) {
