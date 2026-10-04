@@ -12,6 +12,10 @@ const { mermaidToSvg } = await import('../ui/vendor/mermaid.mjs');
 const theme = { bg: '#101315', fg: '#c0caf5', accent: '#7aa2f7', font: 'sans-serif', bodyPx: 14 };
 // A full-width glyph advances one em, the widest a label's glyph goes.
 const WIDE_ADVANCE_EM = 1;
+// An ASCII glyph other than these advances at most this many em, the monospace cell.
+const NARROW_ADVANCE_EM = 0.6;
+const WIDE_ASCII = 'WMwm@%';
+const ASCII_LIMIT = 0x7f;
 const LABEL_FONT_PX = 13;
 const failures = [];
 let checks = 0;
@@ -30,18 +34,29 @@ function sound(svg, why) {
     check(view.length === 4 && view.every(Number.isFinite) && view[2] > 0 && view[3] > 0
         && Number.isFinite(rootNumber(svg, 'width')) && rootNumber(svg, 'width') > 0, why + ': the canvas stays finite, got [' + view.join(' ') + ']');
 }
-// Sample input: <text x="70" font-size="13" text-anchor="middle"><tspan x="70">ab</tspan></text> reaches 70 less one em a glyph, halved.
+// Sample input: "ab" advances 1.2 em, two narrow glyphs at the monospace cell.
+function glyphEm(content) {
+    return Array.from(content).reduce((em, glyph) => em + (glyph.codePointAt(0) > ASCII_LIMIT || WIDE_ASCII.includes(glyph) ? WIDE_ADVANCE_EM : NARROW_ADVANCE_EM), 0);
+}
+// Sample input: <text x="70" font-size="13" text-anchor="middle"><tspan x="70">ab</tspan></text> reaches 70 less 1.2 em, halved; a tspan inherits both from its text.
 function reachLeft(svg) {
     let left = Infinity;
-    for (const tag of svg.match(/<(?:text|tspan)\b[^<>]*>[^<]*/g) || []) {
+    let parent = '';
+    for (const tag of svg.match(/<\/?(?:text|tspan)\b[^<>]*>[^<]*/g) || []) {
+        if (tag.startsWith('</')) {
+            if (tag.startsWith('</text')) parent = '';
+            continue;
+        }
         const head = tag.match(/^<(?:text|tspan)\b[^<>]*>/)[0];
         const content = tag.slice(head.length);
+        const isText = head.startsWith('<text');
+        if (isText) parent = head;
         const x = head.match(/\sx="([^"]*)"/);
         if (!x || content.trim() === '') continue;
-        const anchor = (head.match(/text-anchor="([^"]*)"/) || [0, 'start'])[1];
+        const anchor = (head.match(/text-anchor="([^"]*)"/) || parent.match(/text-anchor="([^"]*)"/) || [0, 'start'])[1];
         const share = anchor === 'middle' ? 0.5 : anchor === 'end' ? 1 : 0;
-        const size = Number((head.match(/font-size="([^"]*)"/) || [0, LABEL_FONT_PX])[1]);
-        left = Math.min(left, Number(x[1]) - share * Array.from(content).length * size * WIDE_ADVANCE_EM);
+        const size = Number((head.match(/font-size="([^"]*)"/) || parent.match(/font-size="([^"]*)"/) || [0, LABEL_FONT_PX])[1]);
+        left = Math.min(left, Number(x[1]) - share * glyphEm(content) * size);
     }
     return left;
 }
@@ -62,6 +77,15 @@ for (const [name, text] of [
     sound(out, name);
     check(box(out)[0] === 0 && box(out)[2] === 300, name + ': the library canvas is kept, got [' + box(out).join(' ') + ']');
 }
+// With a rect beside it the bounds are finite, so only the count of texts the scan read keeps the canvas.
+for (const [name, text] of [
+    ['a self-closing text beside a rect', '<text x="50" y="40" font-size="13"/>'],
+    ['a text holding a title beside a rect', '<text x="50" y="40" font-size="13"><title>a</title>hi</text>']
+]) {
+    const out = postMermaid(canvas(frame + text), theme);
+    sound(out, name);
+    check(box(out)[0] === 0 && box(out)[2] === 300, name + ': the library canvas is kept, got [' + box(out).join(' ') + ']');
+}
 
 // A text with tspan children bounds the canvas by each tspan's own x and anchor, and a stack of lines by its dy steps.
 const own = postMermaid(canvas(frame + '<text x="125" y="30" font-size="13" text-anchor="middle"><tspan x="20" text-anchor="start" dy="0">a long label here</tspan></text>'), theme);
@@ -71,6 +95,13 @@ const stack = postMermaid(canvas('<text x="125" y="30" font-size="13" text-ancho
 sound(stack, 'two stacked tspans');
 check(box(stack)[1] <= 30 - 30 - LABEL_FONT_PX && box(stack)[1] + box(stack)[3] >= 30 + 10, 'two stacked tspans: the canvas holds both lines, got [' + box(stack).join(' ') + ']');
 
+// A tspan takes its anchor and size from its text: the oracle must read them there, and the trim must reach the label.
+const inherited = postMermaid(canvas(frame + '<text x="125" y="30" font-size="26" text-anchor="middle"><tspan x="125">会議室会議</tspan><tspan x="125" dy="30">会議室会議室会</tspan></text>'), theme);
+sound(inherited, 'tspans inheriting anchor and size');
+const inheritedReach = 125 - 7 * 26 * WIDE_ADVANCE_EM / 2;
+check(reachLeft(inherited) === inheritedReach, 'tspans inheriting anchor and size: the oracle reads the parent, got ' + reachLeft(inherited) + ' want ' + inheritedReach);
+check(box(inherited)[0] <= inheritedReach, 'tspans inheriting anchor and size: no label cut, canvas ' + box(inherited)[0]);
+
 // Mermaid's own multi-line labels are tspans: a sequence diagram with one trims to its drawing like one without.
 const lines = real('sequenceDiagram\n    A->>B: first<br>second line');
 sound(lines, 'real sequence with a two line message');
@@ -79,6 +110,7 @@ check(box(lines)[0] > 0, 'real sequence with a two line message: trimmed off the
 check(box(lines)[0] <= reachLeft(lines), 'real sequence with a two line message: no label cut, canvas ' + box(lines)[0] + ' reach ' + reachLeft(lines));
 const flow = real('flowchart TD\n    A["line one<br>line two longer"] --> B');
 sound(flow, 'real flowchart with a two line node');
+check(box(flow)[0] > 0, 'real flowchart with a two line node: trimmed off the library margin, got ' + box(flow)[0]);
 check(box(flow)[0] <= reachLeft(flow), 'real flowchart with a two line node: no label cut');
 
 // A glyph wider than the monospace cell must not let a centred label be cut.
@@ -94,6 +126,7 @@ check(narrow > 70 && narrow <= 78.2, 'a narrow label keeps the tight monospace e
 // The library leaves a long CJK message inside its canvas between two actors; the trim must not cut it.
 const message = real('sequenceDiagram\n    A->>B: ' + '会議室'.repeat(8));
 sound(message, 'real sequence with a long CJK message');
+check(box(message)[0] > 0, 'real sequence with a long CJK message: trimmed off the library margin, got ' + box(message)[0]);
 check(box(message)[0] <= reachLeft(message), 'real sequence with a long CJK message: no glyph cut, canvas ' + box(message)[0] + ' reach ' + reachLeft(message));
 
 console.log('MARKDOWN_FIGTIGHTEN ' + checks + ' checks, ' + failures.length + ' failed');
