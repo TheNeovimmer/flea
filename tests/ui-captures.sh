@@ -293,10 +293,9 @@ cap_permissions_open() {
     fail "cap_permissions: Permissions never settled open and idle, last $state"
 }
 
-# Permissions040: the card over a three-row selection with mixed modes and a check box focused in each state; the
-# single-item card with Apply, the octal field and an invalid octal; the errored menu row on a symlink; the several-items note.
+# Permissions040: the several-items card with a focused check box in each state, the single-item card with an invalid octal, the errored symlink row and the note.
 case_cap_permissions() {
-    local dir="$fixture_root/cap-permissions"
+    local dir="$fixture_root/cap-permissions" state
     sandbox_scratch "$dir"
     printf 'one\n' > "$dir/a.txt"
     printf 'two\n' > "$dir/b.txt"
@@ -338,6 +337,11 @@ case_cap_permissions() {
     [[ "$(ipc permissionsState | jq -r '.displayedError | length')" != "0" ]] || fail "cap_permissions: an invalid octal drew no error"
     shot cap-permissions-octal-error
     cap_permissions_focus Cancel forward
+    state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed before the disabled-Apply shot"
+    [[ "$(jq -r '[.controls[] | select(.name == "Apply")][0].enabled' <<< "$state")" == "false" ]] \
+        || fail "cap_permissions: Apply is not disabled over the invalid octal, state $state"
+    [[ "$(jq -r '.mode | test("9")' <<< "$state")" == "true" ]] \
+        || fail "cap_permissions: the invalid octal left the field before the disabled-Apply shot, mode $(jq -r .mode <<< "$state")"
     shot cap-permissions-apply-disabled
     key -k Escape >/dev/null
     settle

@@ -1938,7 +1938,7 @@ failure fails the check rather than passing it.
   the save picker). `CardScroll.reveal()` keeps `bleedY` of clearance on the side an item is revealed from, so
   the first control returns the view to the top and the last to the end with the ring whole (a menu sets no
   bleed and lands flush as before). `tests/ring-bounds.sh` pins all of it from the real window at every text
-  stop: the content positions 13506d08 drew in `tests/ring-bounds.js` (every key compared once, every other
+  stop: the content positions on whole pixels after the card snap, in `tests/ring-bounds.js` (every key compared once, every other
   dialog listed unpinned with its reason), exactly one ring per button, and a scrolled probe card revealed
   last, first, last. Only the rename editor has an error frame, so only it is driven in the error role.
   `tests/ui.sh` `case_click` reads the open path field's accent frame, its four sides and the two pixels
@@ -1952,7 +1952,8 @@ failure fails the check rather than passing it.
   `Theme.cardOrigin(room, span)`, set as `x` and `y` and never `anchors.centerIn`; NetworkDialog and Preview add their
   `rise` to `y`. `tests/permissions-adv.sh` reads the helpers in odd and even rooms and the Permissions card's mapped
   rectangle at every text stop in an odd window, `tests/ring-bounds.sh` reads every opened card's mapped rectangle in
-  its even 1000 x 650 window, and `tests/js/permissions.js` pins that each card uses the helpers.
+  its even 1000 x 650 window (a subject with no `cardItem` fails unless it lists why it is no card), and
+  `tests/js/permissions.js` pins that each card's own bindings, children excluded, use the helpers and never `centerIn`.
   The Permissions card is the board's 480 at base size 14 (`round(480 * bodySmall / 13)`), its strip sits inside the
   card's border like the board's title, its bit columns are whole thirds, and its note is a 1.5 x caption line box
   with the glyphs centred in it (`lineHeightMode: Text.FixedHeight` plus a top padding, as CSS line-height centres).

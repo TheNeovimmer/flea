@@ -26,6 +26,8 @@ ShellRoot {
     readonly property int boardBarHeight: 2
     readonly property int boardBarX: 5
     readonly property int boardBarY: 8
+    // The several-items fixture reads 0644 and 0755, so the Owner execute bit (1 << 6) differs across the files.
+    readonly property int mixedBit: 64
     readonly property real boardBodySmall: 13
     // lib.py note(): the note's line box is 1.5 x its font size, and the board's several-items card is 275 tall at 14.
     readonly property real noteLineRatio: 1.5
@@ -74,7 +76,9 @@ ShellRoot {
         var note = card.noteItem
         if (!note) { shell.check(tag + " note is reachable", false, "no noteItem"); shell.check(tag + " note glyphs are centred", false, "no noteItem"); return }
         var box = Math.round(shell.noteLineRatio * Flea.Theme.font.caption)
-        shell.check(tag + " note line box is 1.5 x caption", note.height === note.lineCount * box, note.height + " for " + note.lineCount + " lines of " + box)
+        // contentHeight is what the text layout laid out, so it moves with lineHeight or the font and not with the height binding.
+        shell.check(tag + " note lays out lines of 1.5 x caption", note.lineCount > 0 && note.contentHeight === note.lineCount * box, note.contentHeight + " for " + note.lineCount + " lines of " + box)
+        shell.check(tag + " note box holds its laid-out lines", note.height === note.contentHeight, note.height + " against " + note.contentHeight)
         var lead = (box - probeNote.implicitHeight) / 2
         shell.check(tag + " note glyphs are centred in the line box", Math.abs(note.topPadding - lead) <= 0.5, "topPadding " + note.topPadding + " want " + lead)
     }
@@ -93,8 +97,20 @@ ShellRoot {
             shell.check("helper room " + room + " clamps to the room", ready && clamped === room - 2 * shell.helperMargin, String(clamped))
         }
     }
+    // The check box the several-items fixture leaves mixed, read from the open card's own grid.
+    function mixedBoxOf(card) {
+        var controls = card.controls()
+        for (var i = 0; i < controls.length; i++) {
+            if (controls[i].bit !== shell.mixedBit) continue
+            return controls[i].item.children.find(function (child) { return typeof child.value === "string" })
+        }
+        return undefined
+    }
     // The mixed bar is a rectangle in the check's cut-out ink, the board's 8 x 2 scaled with the box, on whole pixels.
-    function checkMixedBar(tag, box, stop) {
+    function checkMixedBar(tag, card, stop) {
+        var box = shell.mixedBoxOf(card)
+        shell.check(tag + " card has a mixed Owner execute box showing the bar", !!box && box.value === "some" && !!box.barItem && box.barItem.visible, box ? box.value : "no box")
+        if (!box) return
         var bar = box.barItem
         var scale = Flea.Theme.font.bodySmall / shell.boardBodySmall
         var wantWidth = Math.round(shell.boardBarWidth * scale)
@@ -135,14 +151,6 @@ ShellRoot {
             visible: false
             text: "Hg"
             font { family: Flea.Theme.font.family; pixelSize: Flea.Theme.font.caption }
-        }
-
-        // A standalone mixed box on a whole-pixel origin, so its bar is read from the drawn item.
-        Flea.CheckBox {
-            id: probeBox
-            x: 7
-            y: 9
-            value: "some"
         }
 
         Flea.PermissionsDialog {
@@ -358,7 +366,7 @@ ShellRoot {
             shell.checkNote(tag, dialog)
             if (shell.cardKind === 1 && stop === shell.boardStop)
                 shell.check(tag + " card is the board's 275", dialog.cardItem.height === shell.boardSeveralHeight, String(dialog.cardItem.height))
-            if (shell.cardKind === 1) shell.checkMixedBar(tag, probeBox, stop)
+            if (shell.cardKind === 1) shell.checkMixedBar(tag, dialog, stop)
             dialog.close()
             shell.cardKind = (shell.cardKind + 1) % 2
             if (shell.cardKind === 0) shell.stopIndex += 1

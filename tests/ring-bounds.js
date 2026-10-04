@@ -1,6 +1,6 @@
 .pragma library
 
-// Where each dialog's fields, buttons and check boxes lie in the 1000 x 650 test window at 13506d08, before any ring room.
+// Where each dialog's fields, buttons and check boxes lie in the 1000 x 650 test window after the dialog cards snap to whole pixels (Theme.cardSpan and cardOrigin), before any ring room.
 // Sample input: "stop 12 new file" reads field, Cancel and Create as "x,y,width,height" strings in tree order.
 var PINS = ({
     "stop 12 new file": ["field 276.00,322.00,449.00,32.00",

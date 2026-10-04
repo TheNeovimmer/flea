@@ -36,6 +36,84 @@ function countedPermissions(counter) {
         + "\nreturn { noteMode: noteMode, summarize: summarize };")
     return load(counter)
 }
+// Sample input: "Rectangle {\n id: card\n x: 1 // {\n Text { text: \"}\" }\n anchors { centerIn: parent }\n}" keeps "id: card x: 1 anchors { centerIn: parent }" and drops the Text child.
+function cardOwnBindings(src, cardId) {
+    // Comments and string literals go first, so a brace inside either never moves the depth.
+    var clean = ""
+    for (var i = 0; i < src.length; i++) {
+        var ch = src[i]
+        if (ch === "/" && src[i + 1] === "/") {
+            while (i < src.length && src[i] !== "\n") {
+                i += 1
+            }
+            clean += "\n"
+        } else if (ch === "/" && src[i + 1] === "*") {
+            i = src.indexOf("*/", i + 2)
+            i = i < 0 ? src.length : i + 1
+        } else if (ch === '"' || ch === "'") {
+            var quote = ch
+            i += 1
+            while (i < src.length && src[i] !== quote) {
+                i += src[i] === "\\" ? 2 : 1
+            }
+            clean += '""'
+        } else {
+            clean += ch
+        }
+    }
+    var at = clean.search(new RegExp("\\bid:\\s*" + cardId + "\\b"))
+    if (at < 0) {
+        return ""
+    }
+    // The card object opens at the nearest unmatched brace before its id.
+    var open = at
+    for (var back = 0; open >= 0; open--) {
+        if (clean[open] === "}") {
+            back += 1
+        } else if (clean[open] === "{") {
+            if (back === 0) {
+                break
+            }
+            back -= 1
+        }
+    }
+    if (open < 0) {
+        return ""
+    }
+    var own = ""
+    var depth = 0
+    var skipFrom = -1
+    for (var j = open + 1; j < clean.length; j++) {
+        if (clean[j] === "{") {
+            if (depth === 0) {
+                // A child object is a type name before its brace; a group such as anchors or font is the card's own.
+                var header = own.substring(Math.max(own.lastIndexOf("\n"), own.lastIndexOf(";")) + 1)
+                if (/^\s*[A-Z][\w.]*(\s+on\s+[\w.]+)?\s*$/.test(header)) {
+                    skipFrom = j
+                }
+            }
+            depth += 1
+            if (skipFrom < 0) {
+                own += clean[j]
+            }
+        } else if (clean[j] === "}") {
+            if (depth === 0) {
+                return own
+            }
+            depth -= 1
+            if (skipFrom >= 0) {
+                if (depth === 0) {
+                    skipFrom = -1
+                }
+            } else {
+                own += clean[j]
+            }
+        } else if (skipFrom < 0) {
+            own += clean[j]
+        }
+    }
+    return own
+}
 function run(check) {
     RefreshSuite.run(check)
     check("ordinary mode", Permissions.parse("644"), 420)
@@ -174,14 +252,22 @@ function run(check) {
     check("and an applicable selection names nothing",
         Permissions.inspectNote({ modes: ["0644"], reasons: [""], skipped: [], pending: 0 }, ["/d/a.txt"]), "")
     // Every card that centres itself takes a whole size and origin from Theme, so none sits on a half pixel in an odd or an even window.
-    var cards = ["MenuActionDialog", "ConvertDialog", "NetworkDialog", "OpenWithDialog", "TrashConfirm", "CollideConfirm", "KeymapSheet", "SettingsPanel", "PermissionsDialog"]
+    var cards = [["MenuActionDialog", "card"], ["ConvertDialog", "card"], ["NetworkDialog", "card"], ["OpenWithDialog", "card"], ["TrashConfirm", "card"],
+                 ["CollideConfirm", "card"], ["KeymapSheet", "card"], ["SettingsPanel", "card"], ["PermissionsDialog", "card"], ["Preview", "surface"]]
     for (var c = 0; c < cards.length; c++) {
-        var cardSource = Source.source("ui/" + cards[c] + ".qml")
-        // The card's own bindings open the block, before its first child object.
-        var cardStart = cardSource.indexOf("id: card")
-        var cardBlock = cardSource.substring(cardStart, cardSource.indexOf("{", cardStart))
-        check(cards[c] + " sizes its card through Theme.cardSpan", cardBlock.indexOf("Theme.cardSpan(") >= 0, true)
-        check(cards[c] + " places its card through Theme.cardOrigin", cardBlock.indexOf("Theme.cardOrigin(") >= 0, true)
-        check(cards[c] + " leaves no centred anchor on its card", cardBlock.indexOf("anchors.centerIn") < 0, true)
+        var cardName = cards[c][0]
+        // The card object's own bindings, up to its matching brace and without its child objects.
+        var cardBlock = cardOwnBindings(Source.source("ui/" + cardName + ".qml"), cards[c][1])
+        check(cardName + " sizes its card through Theme.cardSpan", cardBlock.indexOf("Theme.cardSpan(") >= 0, true)
+        check(cardName + " places its card through Theme.cardOrigin", cardBlock.indexOf("Theme.cardOrigin(") >= 0, true)
+        check(cardName + " leaves no centred anchor on its card", cardBlock.indexOf("centerIn") < 0, true)
     }
+    // The scan itself: a grouped anchor, a centring after a child and a lookalike inside a child are told apart.
+    var grouped = "Rectangle {\n id: card\n x: Theme.cardOrigin(1, 2)\n anchors { centerIn: parent }\n}"
+    var afterChild = "Rectangle {\n id: card\n Text { text: \"a\" }\n anchors.centerIn: parent\n}"
+    var inChild = "Rectangle {\n id: card\n x: 1 // {\n Text { text: \"}\"; anchors.centerIn: parent }\n Item { anchors { centerIn: parent } }\n}"
+    check("a grouped centerIn is the card's own", cardOwnBindings(grouped, "card").indexOf("centerIn") >= 0, true)
+    check("a centerIn after a child is the card's own", cardOwnBindings(afterChild, "card").indexOf("centerIn") >= 0, true)
+    check("a centerIn inside a child is not the card's", cardOwnBindings(inChild, "card").indexOf("centerIn"), -1)
+    check("a brace in a comment or a string moves nothing", cardOwnBindings(inChild, "card").indexOf("x: 1") >= 0, true)
 }

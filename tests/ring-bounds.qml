@@ -289,9 +289,15 @@ ShellRoot {
         root.pinsCompared[key] = (root.pinsCompared[key] || 0) + 1
         root.check(JSON.stringify(got) === JSON.stringify(want), key + " content moved: " + JSON.stringify(got) + " against " + JSON.stringify(want))
     }
-    // A card lands on whole pixels, x, y, width and height, so no hairline of its frame is two half-strength rows.
-    function checkWholeRect(tag, dialog) {
-        if (!dialog || dialog.cardItem === undefined) return
+    // A card lands on whole pixels (a half-pixel hairline is two half-strength rows); a subject listed without a card exposes none.
+    function checkWholeRect(tag, dialog, noCardWhy) {
+        var exposed = !!dialog && !!dialog.cardItem
+        if (noCardWhy !== undefined) {
+            root.check(!exposed, tag + " is listed without a card (" + noCardWhy + ") and also exposes a cardItem")
+            return
+        }
+        root.check(exposed, tag + " exposes no cardItem, so its card rect cannot be measured")
+        if (!exposed) return
         var r = dialog.cardItem.mapToItem(null, 0, 0, dialog.cardItem.width, dialog.cardItem.height)
         var parts = [r.x, r.y, r.width, r.height]
         root.check(parts.every(function (v) { return v === Math.round(v) }), tag + " card rect " + parts.join(",") + " is not whole pixels")
@@ -346,8 +352,8 @@ ShellRoot {
             root.check(found.length === want, tag + " check box " + c + " holds " + found.length + " rings, not " + want)
         }
     }
-    function measureDialog(tag, key, dialog, wantsField, unpinnedWhy) {
-        root.checkWholeRect(tag, dialog)
+    function measureDialog(tag, key, dialog, wantsField, unpinnedWhy, noCardWhy) {
+        root.checkWholeRect(tag, dialog, noCardWhy)
         var all = root.rings(dialog, [])
         console.log("RINGBOUNDS DIALOG " + tag + " rings=" + all.length)
         root.checkRingCounts(tag, dialog)
@@ -388,19 +394,19 @@ ShellRoot {
           item: function () { return pane.menuActions.item }, ready: function (d) { return d.opened }, close: function (d) { d.opened = false } },
         { name: "permissions", open: function () { pane.permissionsRequested(root.fixture + "/a.txt") },
           item: function () { return root.ipcItem().permissionsDialog }, ready: function (d) { return d.opened && d.facts.ok === true && !d.busy }, close: function (d) { d.opened = false } },
-        { name: "save picker", open: function () { fakePicker.saving = true },
+        { name: "save picker", noCard: "a strip the picker places, not a centred card", open: function () { fakePicker.saving = true },
           item: function () { return saveCard }, ready: function (d) { return d.visible }, close: function (d) { fakePicker.saving = false } },
         { name: "convert", field: false, open: function () { pane.convertSource = { path: root.fixture + "/a.txt", name: "a.png", menuId: 0 }; pane.convertRequested("a.png") },
           item: function () { return root.ipcItem().convertDialog }, ready: function (d) { return d.opened }, close: function (d) { d.opened = false } },
-        { name: "window", field: false, unpinned: "the whole window, not a dialog's content", open: function () {},
+        { name: "window", noCard: "the whole window", field: false, unpinned: "the whole window, not a dialog's content", open: function () {},
           item: function () { return body }, ready: function (d) { return true }, close: function (d) {} },
         { name: "network", open: function () { pane.sidebar.addRequested() },
           item: function () { return root.ipcItem().networkDialog }, ready: function (d) { return d.opened }, close: function (d) { d.opened = false } },
         { name: "trash confirm", field: false, open: function () { pane.menuActions.dialogFor = "newFile"; pane.menuActions.active = true; pane.menuActions.item.open("newFile", 1, root.fixture, pane.listArea); root.trashConfirm().open({ all: false, count: 3, bytes: 0, token: 1 }) },
           item: function () { return pane.menuActions.item ? root.trashConfirm() : null }, ready: function (d) { return d.opened }, close: function (d) { d.opened = false; pane.menuActions.item.opened = false } },
-        { name: "transfer card", field: false, unpinned: "its place is the probe's own x and y", open: function () { transferCard.transfer = root.runningTransfer },
+        { name: "transfer card", noCard: "the status bar hosts it at the probe's own x and y", field: false, unpinned: "its place is the probe's own x and y", open: function () { transferCard.transfer = root.runningTransfer },
           item: function () { return transferCard }, ready: function (d) { return d.visible }, close: function (d) { d.transfer = Ops.emptyTransfer() } },
-        { name: "scroll card", field: false, unpinned: "a probe card, not a product dialog", open: function () { scrollCard.visible = true },
+        { name: "scroll card", noCard: "a probe card, not a product dialog", field: false, unpinned: "a probe card, not a product dialog", open: function () { scrollCard.visible = true },
           item: function () { return scrollCard }, ready: function (d) { return d.visible }, close: function (d) { d.visible = false },
           after: function (tag, d) { root.measureScrollCard(tag, d) } }
     ].concat(Settings.SECTIONS.map(function (section) { return root.settingsEntry(section.id) }))
@@ -483,7 +489,7 @@ ShellRoot {
             if (!root.dialogOpened) { dlg.open(); root.dialogOpened = true; return false }
             var item = dlg.item()
             if (!item || !dlg.ready(item)) return false
-            root.measureDialog(tag + " " + dlg.name, "stop " + combo.stop + " " + dlg.name, item, dlg.field !== false, dlg.unpinned)
+            root.measureDialog(tag + " " + dlg.name, "stop " + combo.stop + " " + dlg.name, item, dlg.field !== false, dlg.unpinned, dlg.noCard)
             if (dlg.after) dlg.after(tag + " " + dlg.name, item)
             dlg.close(item)
             root.dialogOpened = false
