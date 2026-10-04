@@ -338,7 +338,7 @@ ShellRoot {
         last.forceActiveFocus()
         root.checkRevealed(tag + " last again", card, last, end)
     }
-    // Every visible button holds one ring, and a check box one only while it is focused and empty (its frame then is the ring).
+    // Every visible button holds one ring, and a check box one that shows exactly while it is focused, on or off or mixed.
     function checkRingCounts(tag, dialog) {
         var buttons = root.ofType(dialog, "DialogButton", [])
         for (var b = 0; b < buttons.length; b++) {
@@ -347,10 +347,47 @@ ShellRoot {
         }
         var boxes = root.ofType(dialog, "CheckBox", [])
         for (var c = 0; c < boxes.length; c++) {
-            var want = boxes[c].focused && !boxes[c].filled ? 1 : 0
             var found = root.rings(boxes[c], [])
-            root.check(found.length === want, tag + " check box " + c + " holds " + found.length + " rings, not " + want)
+            root.check(found.length === 1, tag + " check box " + c + " holds " + found.length + " rings, not one")
+            if (found.length === 1) root.check(found[0].visible === boxes[c].focused, tag + " check box " + c + " ring shows " + found[0].visible + " while focused is " + boxes[c].focused)
         }
+    }
+    // The Permissions grid's nine boxes, each given the keyboard in turn: a 2 px foreground ring one ring outside the unchanged frame, whole inside every clip.
+    function measureGridFocus(tag, dialog) {
+        var controls = dialog.controls()
+        var seen = 0
+        for (var i = 0; i < controls.length; i++) {
+            if (controls[i].bit === undefined) continue
+            var host = controls[i].item
+            host.forceActiveFocus()
+            var box = root.find(host, "CheckBox")
+            var name = tag + " grid box " + controls[i].name + " (" + (box ? box.value : "none") + ")"
+            root.check(!!box && box.focused, name + " is not focused")
+            if (!box) continue
+            var own = root.rings(box, [])
+            root.check(own.length === 1, name + " holds " + own.length + " rings, not one")
+            seen++
+            if (own.length !== 1) continue
+            var ring = own[0]
+            var edge = ring.mapToItem(null, 0, 0, ring.width, ring.height)
+            var frameItem = box.frameItem || box.children[0]
+            var frame = frameItem.mapToItem(null, 0, 0, frameItem.width, frameItem.height)
+            root.check(ring.visible, name + " ring is not showing")
+            root.check(edge.x === frame.x - root.ringWidth && edge.y === frame.y - root.ringWidth
+                       && edge.width === frame.width + 2 * root.ringWidth && edge.height === frame.height + 2 * root.ringWidth,
+                       name + " ring " + edge.x + "," + edge.y + " " + edge.width + "x" + edge.height + " is not " + root.ringWidth + " px outside the frame " + frame.x + "," + frame.y + " " + frame.width + "x" + frame.height)
+            // Focus never moves the frame: rule 14's colours, on or mixed foreground and off muted.
+            var wantFrame = box.filled ? Flea.Theme.color.foreground : Flea.Theme.color.muted
+            root.check(Qt.colorEqual(frameItem.border.color, wantFrame), name + " frame is " + frameItem.border.color + " under focus")
+            root.check(frameItem.border.width === box.borderWidth, name + " frame is " + frameItem.border.width + " px wide under focus")
+            root.clipChain(name + " ring", ring)
+        }
+        root.check(seen === 9, tag + " grid focused " + seen + " boxes, not nine")
+    }
+    function dialogNamed(name) {
+        for (var i = 0; i < root.dialogs.length; i++)
+            if (root.dialogs[i].name === name) return root.dialogs[i]
+        return null
     }
     function measureDialog(tag, key, dialog, wantsField, unpinnedWhy, noCardWhy) {
         root.checkWholeRect(tag, dialog, noCardWhy)
@@ -456,7 +493,7 @@ ShellRoot {
             if (root.viewIndex >= root.views.length) {
                 root.dialogIndex = 0
                 root.dialogOpened = false
-                root.stage = combo.dialogs ? 5 : 6
+                root.stage = 7
                 return true
             }
             var mode = root.views[root.viewIndex]
@@ -494,6 +531,18 @@ ShellRoot {
             dlg.close(item)
             root.dialogOpened = false
             root.dialogIndex++
+            return true
+        }
+        if (root.stage === 7) {
+            // The grid's boxes take the keyboard at every text stop, whether or not the stop sweeps the other dialogs.
+            var permissions = root.dialogNamed("permissions")
+            if (!root.dialogOpened) { permissions.open(); root.dialogOpened = true; return false }
+            var card = permissions.item()
+            if (!card || !permissions.ready(card)) return false
+            root.measureGridFocus(tag + " permissions", card)
+            permissions.close(card)
+            root.dialogOpened = false
+            root.stage = combo.dialogs ? 5 : 6
             return true
         }
         if (root.stage === 6) {

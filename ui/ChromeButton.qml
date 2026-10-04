@@ -38,6 +38,10 @@ Item {
     }
 
     // The mark stays the chrome token; the hit box is at least 24 px wide and the strip's height.
+    // The pointer's own state, read by the native capture harness before it shoots a hover or a press.
+    readonly property bool hovered: hover.hovered
+    readonly property bool pressed: tap.pressed
+
     implicitWidth: Math.max(Theme.hitMin, Theme.chromeMarkSize)
     implicitHeight: Theme.chromeHeight
     scale: tap.pressed && root.enabled && !Theme.reducedMotion ? 0.96 : 1
@@ -64,6 +68,7 @@ Item {
     }
 
     HoverHandler {
+        id: hover
         enabled: root.inputLive
         cursorShape: Qt.PointingHandCursor
     }

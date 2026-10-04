@@ -33,7 +33,7 @@ FocusScope {
     property var multiApplySkipped: []
     property int multiApplySent: 0
     readonly property bool isMulti: multiPaths.length > 1
-    readonly property var multiSummary: isMulti ? Permissions.summarize(multiModes) : null
+    readonly property var multiSummary: isMulti ? Permissions.summarize(multiModes, multiStore.reasons) : null
     readonly property bool editable: isMulti ? !busy && !transportFailed
                                               : facts.ok === true && !facts.reason && !busy && !transportFailed
     readonly property int modeValue: Permissions.parse(modeText)
@@ -53,9 +53,13 @@ FocusScope {
     readonly property int multiGap: Theme.spacing.rowPaddingY + Theme.spacing.hairline
     // A bit column is a whole third of what the label column leaves, so each check box lands on whole pixels.
     readonly property int bitWidth: Math.floor((body.holderWidth - root.labelWidth) / 3)
+    // Permissions040's strip draws the title and "esc" glyphs one row above where Qt's line box seats them (board rows 7-16 and 10-16, the build's 8-17 and 11-17 once centred above the rule).
+    readonly property int stripTextRise: Theme.spacing.hairline
     readonly property int railHalf: Math.round(Theme.settings.railPaddingY / 2)
     readonly property int buttonLead: root.railHalf + Theme.spacing.hairline
     readonly property var cardItem: card
+    // The title strip's four marks, so a probe reads where each sits against the board's rows.
+    readonly property var stripItems: ({ lock: lockMark, title: title, esc: escHint, close: closeMark })
     readonly property var noteItem: scopeLabel
     readonly property var bodyItem: body
     readonly property string displayedError: errorLabel.text
@@ -344,26 +348,34 @@ FocusScope {
             anchors.top: parent.top
             anchors.margins: Theme.spacing.hairline
             height: Theme.chromeHeight
-            Row {
-                anchors.left: parent.left
-                anchors.leftMargin: Theme.spacing.rowPaddingX
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Theme.spacing.gap
-                Flea.Glyph { width: Theme.chromeMarkSize; height: title.height; name: "lock"; color: Theme.color.accent }
-                    Text { id: title; text: root.isMulti ? "Permissions for " + root.multiPaths.length + " items" : "Permissions"; color: Theme.color.foreground; textFormat: Text.PlainText; font { family: Theme.font.family; pixelSize: Theme.font.caption; bold: true } }
+            // The board centres the marks and title in the strip above its rule, so the rule's row is never part of the centring band.
+            Item { id: titleBand; anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; height: parent.height - Theme.spacing.hairline }
+            Flea.Glyph {
+                id: lockMark
+                x: Theme.spacing.rowPaddingX
+                y: Math.floor((titleBand.height - height) / 2)
+                width: Theme.chromeMarkSize; height: title.height; name: "lock"; color: Theme.color.accent
+            }
+            Text {
+                id: title
+                x: lockMark.x + lockMark.width + Theme.spacing.gap
+                y: Math.floor((titleBand.height - height) / 2) - root.stripTextRise
+                text: root.isMulti ? "Permissions for " + root.multiPaths.length + " items" : "Permissions"
+                color: Theme.color.foreground; textFormat: Text.PlainText; font { family: Theme.font.family; pixelSize: Theme.font.caption; bold: true }
             }
             // Dialogs rule 7: the way out is named beside the mark that performs it, the settings panel's own corner.
             Flea.EscapeHint {
+                id: escHint
                 anchors.right: closeMark.left
                 anchors.rightMargin: Theme.spacing.gap
-                anchors.verticalCenter: closeMark.verticalCenter
+                y: Math.floor((titleBand.height - height) / 2) - root.stripTextRise
             }
 
             Flea.ChromeButton {
                 id: closeMark
                 anchors.right: parent.right
                 anchors.rightMargin: Theme.spacing.rowPaddingX
-                anchors.verticalCenter: parent.verticalCenter
+                anchors.verticalCenter: titleBand.verticalCenter
                 glyph: "x"; gesturePolicy: TapHandler.ReleaseWithinBounds
                 // The one chrome control here, so brightness is all it has to say where the keyboard is: muted at rest, foreground under focus.
                 restingColor: Theme.color.muted
@@ -437,6 +449,9 @@ FocusScope {
                                 height: permissionRow.height
                                 activeFocusOnTab: true
                                 enabled: root.editable
+                                // The pointer's own state, read by the native capture harness before it shoots a hover or a press.
+                                readonly property bool hovered: boxHover.hovered
+                                readonly property bool pressed: boxTap.pressed
                                 Accessible.role: Accessible.CheckBox
                                 Accessible.name: permissionRow.modelData + " " + ["read", "write", root.facts.directory ? "enter" : "execute"][index]
                                 Accessible.checked: checked
@@ -460,7 +475,8 @@ FocusScope {
                                     // A disabled row stays checked, so the box dims and keeps its value.
                                     available: root.editable
                                 }
-                                TapHandler { gesturePolicy: TapHandler.ReleaseWithinBounds; onTapped: checkbox.toggle() }
+                                HoverHandler { id: boxHover }
+                                TapHandler { id: boxTap; gesturePolicy: TapHandler.ReleaseWithinBounds; onTapped: checkbox.toggle() }
                             }
                         }
                     }

@@ -87,7 +87,7 @@ tests/js/status.js 354
 tests/rename-grid-bottom.qml 424
 tests/rename-grid-bottom.js 305
 tests/rename-lifecycle-check.js 356
-tests/ring-bounds.qml 590
+tests/ring-bounds.qml 639
 tests/touchpad.qml 747
 tests/xwsettings-tabs.qml 416
 ui/Backend.qml 469
@@ -108,7 +108,7 @@ ui/OpenWithDialog.qml 599
 ui/Pane.qml 1024
 ui/PaneMenuActions.qml 465
 ui/PaneWire.qml 584
-ui/PermissionsDialog.qml 645
+ui/PermissionsDialog.qml 661
 ui/PickerWindow.qml 779
 ui/Preview.qml 647
 ui/PreviewColumn.qml 585

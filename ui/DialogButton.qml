@@ -18,6 +18,10 @@ Item {
     // True where the form owns the Tab order and the button only reports through tabbed.
     property bool tabHandle: false
 
+    // The pointer's own state, read by the native capture harness before it shoots a hover or a press.
+    readonly property bool hovered: hover.hovered
+    readonly property bool pressed: tap.pressed
+
     signal activated()
     // The form owns the order; a button only reports that Tab happened inside it.
     signal tabbed(var from, bool back)

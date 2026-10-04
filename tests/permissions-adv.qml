@@ -244,7 +244,7 @@ ShellRoot {
             dialog.openMany(["/a", "/b"], holder)
             shell.answerInspects(marked5, "0644", "", "0644", "Read-only: you are not the owner.")
             shell.check("reasoned-row-keeps-grid-editable", dialog.editable === true, String(dialog.editable))
-            shell.check("reasoned-row-is-named", dialog.displayedError.indexOf("not the owner") >= 0, dialog.displayedError)
+            shell.check("reasoned-row-is-named", dialog.displayedError === "b keeps its mode because you do not own it.", dialog.displayedError)
             var beforeApply = shell.sent.length
             dialog.applyMany()
             var batch5 = null

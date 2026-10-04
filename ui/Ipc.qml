@@ -237,9 +237,9 @@ QtObject {
                 bodyRect: root.fleaWindow.rectOf(dialog.bodyItem),
                 editable: dialog.editable, busy: dialog.busy, error: dialog.errorText, rect: root.fleaWindow.rectOf(dialog.cardItem),
                 controls: dialog.controls().map(function(control) {
-                    var box = control.item.children.find(function(child) { return typeof child.value === "string" })
+                    var box = control.item.children.find(function(child) { return typeof child.value === "string" }), point = typeof control.item.hovered === "boolean" ? control.item : control.item.children.find(function(child) { return typeof child.hovered === "boolean" })
                     return Object.assign(root.controlState(control.name, control.item), {checked: control.checked, bit: control.bit,
-                        value: box ? box.value : undefined,
+                        value: box ? box.value : undefined, hovered: !!point && point.hovered, pressed: !!point && point.pressed,
                         enabled: dialog.isMulti || control.enabled === undefined ? control.item.enabled : control.enabled})
                 })})
         }

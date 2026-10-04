@@ -274,6 +274,109 @@ cap_permissions_box() {
 }
 
 # Permissions040: from the file menu on the cursor row (right click), open the card and wait for it to settle idle.
+# Permissions040 pointer states: moves onto a control, asserts the pointer reached it through ipc, then shoots it
+# hovered or held pressed. A press is let go outside the control, so the shot never acts (no toggle, no Apply).
+cap_permissions_pointer() {
+    local name="$1" mode="$2" shot_name="$3" centre cx cy wx wy ww wh
+    local settle_limit_s=5 away_px=150 nudge_px=1
+    centre=$(ipc permissionsState | jq -er --arg name "$name" '.controls[] | select(.name == $name and .visible) | .centre') \
+        || fail "cap_permissions: no visible $name control to point at"
+    read -r cx cy <<< "$centre"
+    read -r wx wy ww wh < <(window_box) || fail "cap_permissions: native window coordinates unavailable"
+    assert_focus
+    # Two moves so the first lands as the resting point, then a seat nudge there and back, since Hyprland's cursor move sends Qt no pointer frame.
+    omarchy-drive move "$((wx + cx - nudge_px * 6))" "$((wy + cy))" >/dev/null || fail "cap_permissions: pointer approach to $name failed"
+    omarchy-drive move "$((wx + cx))" "$((wy + cy))" >/dev/null || fail "cap_permissions: pointer move onto $name failed"
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x "$nudge_px" -y 0 >/dev/null 2>&1 || fail "cap_permissions: pointer nudge failed"
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x "-$nudge_px" -y 0 >/dev/null 2>&1 || fail "cap_permissions: pointer nudge back failed"
+    cap_permissions_wait_pointer "$name" hovered true "$settle_limit_s"
+    if [[ "$mode" == hover ]]; then
+        settle
+        shot "$shot_name"
+        return 0
+    fi
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 || fail "cap_permissions: pointer press on $name failed"
+    cap_permissions_wait_pointer "$name" pressed true "$settle_limit_s"
+    settle
+    shot "$shot_name"
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 0 -y "-$away_px" >/dev/null 2>&1 || fail "cap_permissions: pointer move off $name failed"
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 || fail "cap_permissions: pointer release failed"
+    cap_permissions_wait_pointer "$name" pressed false "$settle_limit_s"
+}
+cap_permissions_wait_pointer() {
+    local name="$1" field="$2" want="$3" limit="$4" end state
+    end=$((SECONDS + limit))
+    while (( SECONDS < end )); do
+        state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
+        [[ "$(jq -r --arg name "$name" --arg field "$field" '[.controls[] | select(.name == $name)][0][$field]' <<< "$state")" == "$want" ]] && return 0
+        sleep 0.05
+    done
+    fail "cap_permissions: $name never reported $field=$want, last $state"
+}
+# One pointer click on a grid box, asserted to land on the value the cycle names (mixed, on, off, mixed).
+cap_permissions_click_box() {
+    local name="$1" want="$2" shot_name="$3" centre end
+    local settle_limit_s=5
+    centre=$(ipc permissionsState | jq -er --arg name "$name" '.controls[] | select(.name == $name and .visible) | .centre') \
+        || fail "cap_permissions: no visible $name box to click"
+    permissions_click_at "$centre"
+    end=$((SECONDS + settle_limit_s))
+    while (( SECONDS < end )); do
+        [[ "$(ipc permissionsState | jq -r --arg name "$name" '[.controls[] | select(.name == $name)][0].value')" == "$want" ]] && break
+        sleep 0.05
+    done
+    [[ "$(ipc permissionsState | jq -r --arg name "$name" '[.controls[] | select(.name == $name)][0].value')" == "$want" ]] \
+        || fail "cap_permissions: $name did not reach $want after the click"
+    # The click leaves the pointer over the box, so the shot is the box as it reads after that click.
+    settle
+    shot "$shot_name"
+}
+permissions_click_at() {
+    local centre="$1" cx cy wx wy ww wh
+    read -r cx cy <<< "$centre"
+    [[ "$cx" =~ ^[0-9]+$ && "$cy" =~ ^[0-9]+$ ]] || fail "cap_permissions: control has no centre"
+    read -r wx wy ww wh < <(window_box) || fail "cap_permissions: native window coordinates unavailable"
+    assert_focus
+    omarchy-drive click "$((wx + cx))" "$((wy + cy))" left >/dev/null || fail "cap_permissions: pointer click failed"
+}
+# Permissions040 callout 3: the file menu on a shebang script at 0644 with Permissions unhidden offers Make executable beside its glyph.
+cap_permissions_menu_specimen() {
+    local entries="" end
+    local settle_limit_s=15
+    click_row 0 left
+    settle
+    click_row 4 right
+    end=$((SECONDS + settle_limit_s))
+    while (( SECONDS < end )); do
+        entries=$(ipc contextMenuEntries)
+        [[ "$entries" == *"Make executable"* ]] && break
+        sleep 0.1
+    done
+    [[ "$entries" == *"Make executable"* && "$entries" == *"Permissions"* ]] \
+        || fail "cap_permissions: the shebang script's menu lacks Make executable or Permissions, got $entries"
+    [[ "$(ipc menuState | jq -er '[.entries[] | select(.action == "makeExecutable")][0].disabled')" == "false" ]] \
+        || fail "cap_permissions: Make executable is not live on the shebang script"
+    shot cap-permissions-makeexec-menu
+    key -k Escape >/dev/null
+    settle
+}
+# Permissions040: the single-item card on a setuid file keeps its values and dims every box to the disabled opacity.
+cap_permissions_special_single() {
+    local state
+    click_row 0 left
+    settle
+    cap_permissions_open 5
+    state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed on the setuid file"
+    [[ "$(jq -r '.displayedError' <<< "$state")" == "Read-only: setuid bit is present." ]] \
+        || fail "cap_permissions: the setuid card names no reason, state $state"
+    [[ "$(jq -r '[.controls[] | select(.bit != null and .enabled == false)] | length' <<< "$state")" == "9" ]] \
+        || fail "cap_permissions: the setuid card leaves a box enabled, state $state"
+    [[ "$(jq -r '[.controls[] | select(.bit != null and .value == "on")] | length' <<< "$state")" == "4" ]] \
+        || fail "cap_permissions: the setuid card lost its 4644 values, state $state"
+    shot cap-permissions-special-single
+    key -k Escape >/dev/null
+    settle
+}
 cap_permissions_open() {
     local row="$1" end state
     local settle_limit_s=15
@@ -301,6 +404,8 @@ case_cap_permissions() {
     printf 'two\n' > "$dir/b.txt"
     printf 'three\n' > "$dir/c.txt"
     printf 'special\n' > "$dir/special.txt"
+    printf '#!/bin/sh\necho run\n' > "$dir/run.sh"
+    chmod 0644 "$dir/run.sh" || fail "cap_permissions: the shebang fixture mode failed"
     ln -s a.txt "$dir/link.txt" || fail "cap_permissions: the symlink fixture failed"
     chmod 0644 "$dir/a.txt" || fail "cap_permissions: the 644 fixture mode failed"
     chmod 0600 "$dir/b.txt" || fail "cap_permissions: the 600 fixture mode failed"
@@ -308,7 +413,7 @@ case_cap_permissions() {
     chmod 4644 "$dir/special.txt" || fail "cap_permissions: the setuid fixture mode failed"
     seed_ui_state "$fixture_root/cap-permissions-state" '{"keys":"default","view":"list","menu":{"hidden":["delete","openTerminal","moveto","copyto","properties","copyAs","pasteAs","invertSelection"]}}'
     launch "$dir"
-    wait_listing 5
+    wait_listing 6
     cap_resize 904 699
     click_row 0 left
     settle
@@ -323,6 +428,11 @@ case_cap_permissions() {
     cap_permissions_box "Owner read" on cap-permissions-box-on
     cap_permissions_box "Owner execute" some cap-permissions-box-mixed
     cap_permissions_box "Group write" off cap-permissions-box-off
+    cap_permissions_pointer "Owner read" hover cap-permissions-box-hover
+    cap_permissions_pointer "Owner read" press cap-permissions-box-pressed
+    # Mixed, one click on, a second click off: the Owner execute bit differs across the three files.
+    cap_permissions_click_box "Owner execute" on cap-permissions-box-mixed-click1
+    cap_permissions_click_box "Owner execute" off cap-permissions-box-mixed-click2
     key -k Escape >/dev/null
     settle
     click_row 0 left
@@ -330,6 +440,8 @@ case_cap_permissions() {
     cap_permissions_open 0
     cap_permissions_focus Apply forward
     shot cap-permissions-apply-focus
+    cap_permissions_focus Close forward
+    shot cap-permissions-close-focus
     cap_permissions_focus Octal back
     shot cap-permissions-octal-focus
     key -M ctrl -k a -m ctrl -k 9 >/dev/null
@@ -343,6 +455,16 @@ case_cap_permissions() {
     [[ "$(jq -r '.mode | test("9")' <<< "$state")" == "true" ]] \
         || fail "cap_permissions: the invalid octal left the field before the disabled-Apply shot, mode $(jq -r .mode <<< "$state")"
     shot cap-permissions-apply-disabled
+    cap_permissions_pointer Cancel hover cap-permissions-cancel-hover
+    cap_permissions_pointer Cancel press cap-permissions-cancel-pressed
+    key -k Escape >/dev/null
+    settle
+    # Apply is live over a valid octal, so its hover and press are shot on a fresh card.
+    click_row 0 left
+    settle
+    cap_permissions_open 0
+    cap_permissions_pointer Apply hover cap-permissions-apply-hover
+    cap_permissions_pointer Apply press cap-permissions-apply-pressed
     key -k Escape >/dev/null
     settle
     click_row 3 right
@@ -352,9 +474,11 @@ case_cap_permissions() {
     shot cap-permissions-symlink-menu
     key -k Escape >/dev/null
     settle
+    cap_permissions_menu_specimen
+    cap_permissions_special_single
     click_row 0 left
     settle
-    click_row 4 left --mods ctrl
+    click_row 5 left --mods ctrl
     settle
     [[ "$(ipc selectionCount)" == "2" ]] || fail "cap_permissions: the setuid pair selected $(ipc selectionCount), not 2"
     cap_permissions_open 0
@@ -362,7 +486,7 @@ case_cap_permissions() {
     shot cap-permissions-multi-note
     key -k Escape >/dev/null
     settle
-    printf 'CAP_PERMISSIONS mixed=3rows boxes=on,mixed,off single=apply,octal,error,disabled symlink=errored note=setuid\n'
+    printf 'CAP_PERMISSIONS mixed=3rows boxes=on,mixed,off,hover,pressed,click1,click2 single=apply,octal,error,disabled,close,special,pointer symlink=errored note=setuid menu=makeexec\n'
     kill_flea
 }
 

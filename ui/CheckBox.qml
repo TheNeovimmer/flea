@@ -1,5 +1,6 @@
 import QtQuick
 import "." as Flea
+import "js/Buttons.js" as Buttons
 
 // The one checkbox every surface draws, Containers rule 14. The box is the control and every member
 // wears it; state is filled against empty, so no palette has to separate accent from foreground.
@@ -10,7 +11,7 @@ Item {
     property string value: "off"
     // Availability is not an off value: an unavailable box keeps whatever it holds and dims.
     property bool available: true
-    // The keyboard reads as brightness on the frame, so it never competes with filled against empty.
+    // The keyboard is the 2 px foreground ring outside the frame, DialogButton's recipe, so the frame never changes with focus.
     property bool focused: false
 
     readonly property bool filled: root.value !== "off"
@@ -19,6 +20,7 @@ Item {
     readonly property int barBaseHeight: 2
     readonly property real boxScale: Theme.font.bodySmall / 13
     readonly property Item barItem: bar
+    readonly property Item frameItem: frame
     readonly property int borderWidth: 2 * Theme.spacing.hairline
 
     // A 14px interior inside two 2px borders, so 18px outer at bodySmall 13.
@@ -30,10 +32,11 @@ Item {
     Accessible.checked: root.value === "on"
 
     Rectangle {
+        id: frame
         anchors.fill: parent
         color: root.filled ? Theme.color.foreground : "transparent"
         border.width: root.borderWidth
-        border.color: root.filled || root.focused ? Theme.color.foreground : Theme.color.muted
+        border.color: root.filled ? Theme.color.foreground : Theme.color.muted
 
         // The mark is the fill cut away, so the control needs no third colour and no accent at all.
         Flea.Glyph {
@@ -56,5 +59,15 @@ Item {
             visible: root.value === "some"
             color: Theme.color.background
         }
+    }
+
+    // Focus never moves the frame: the ring says where the keyboard is, as DialogButton draws it.
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: -Buttons.RING
+        color: "transparent"
+        border.width: Buttons.RING
+        border.color: Theme.color.foreground
+        visible: root.focused
     }
 }

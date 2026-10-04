@@ -3,6 +3,7 @@
 .import "../../ui/js/Menu.js" as Menu
 .import "sourcefixture.js" as Source
 .import "permissions-refresh.js" as RefreshSuite
+.import "permissions-skips.js" as SkipsSuite
 // Sample input: blockAfter("function f() { if (x) { y = 1 } }", "function f") answers the outer braces.
 function blockAfter(src, marker) {
     var at = src.indexOf(marker)
@@ -116,6 +117,7 @@ function cardOwnBindings(src, cardId) {
 }
 function run(check) {
     RefreshSuite.run(check)
+    SkipsSuite.run(check)
     check("ordinary mode", Permissions.parse("644"), 420)
     check("leading zero", Permissions.parse("0644"), 420)
     check("invalid remains rejected", Permissions.parse("0688"), -1)
@@ -157,13 +159,6 @@ function run(check) {
         "Permissions changed for 0 of 1; 1 left alone: secret.txt: Read-only: setgid bit is present.")
 
     // One skip reads singular, and four show three with an and-1-more tail.
-    check("one skip reads singular",
-        Permissions.skipNote([{ path: "/d/a.txt", why: "Gone." }]),
-        "1 item cannot be changed: a.txt: Gone.")
-    check("four skips show three with an and-1-more tail",
-        Permissions.skipNote([{ path: "/d/a.txt", why: "r1" }, { path: "/d/b.txt", why: "r2" },
-                              { path: "/d/c.txt", why: "r3" }, { path: "/d/d.txt", why: "r4" }]),
-        "4 items cannot be changed: a.txt: r1; b.txt: r2; c.txt: r3; and 1 more")
     check("four skips ride multiResult with the same tail",
         Permissions.multiResult(1, 5, [{ path: "/d/a.txt", why: "r1" }, { path: "/d/b.txt", why: "r2" },
                                        { path: "/d/c.txt", why: "r3" }, { path: "/d/d.txt", why: "r4" }]),
@@ -197,7 +192,7 @@ function run(check) {
     check("one write sits inside the noteMode-true branch", noteBlock.indexOf("multiModes =") >= 0, true)
     check("and the other resets the failed batch", failedBlock.indexOf("multiModes =") >= 0, true)
     // The multiSummary binding reruns on a multiModes write, so a summarize call anywhere else is a per-reply cost.
-    var summaryBinding = "readonly property var multiSummary: isMulti ? Permissions.summarize(multiModes) : null"
+    var summaryBinding = "readonly property var multiSummary: isMulti ? Permissions.summarize(multiModes, multiStore.reasons) : null"
     var summarizeCalls = dialog.split("Permissions.summarize(").length - 1
     var allowedCalls = noteBlock.split("Permissions.summarize(").length - 1 + (dialog.indexOf(summaryBinding) >= 0 ? 1 : 0)
     check("the only summarize caller is the multiSummary binding or the noteMode-true branch",
@@ -248,7 +243,7 @@ function run(check) {
     var noted = { modes: ["0644", "0644", ""], reasons: ["", "Read-only: you are not the owner.", "Gone."], skipped: [], pending: 0 }
     check("reasoned and refused rows share one note",
         Permissions.inspectNote(noted, ["/d/a.txt", "/d/b.txt", "/d/c.txt"]),
-        "2 items cannot be changed: b.txt: Read-only: you are not the owner.; c.txt: Gone.")
+        "2 items keep their modes because they cannot be changed: b.txt, c.txt")
     check("and an applicable selection names nothing",
         Permissions.inspectNote({ modes: ["0644"], reasons: [""], skipped: [], pending: 0 }, ["/d/a.txt"]), "")
     // Every card that centres itself takes a whole size and origin from Theme, so none sits on a half pixel in an odd or an even window.
