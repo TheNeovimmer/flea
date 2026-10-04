@@ -108,7 +108,7 @@ omarchy-drive() {
 # Sample input: ydotool click 0x40 presses the left button, 0x80 releases it, 0xC0 does both.
 ydotool() {
     case "$2" in
-        0x40) if $hit; then held=true; fi ;;
+        0x40) if $hit && [ -z "${MD_GATE_PRESS_DEAD:-}" ]; then held=true; fi ;;
         0x80) if $held && $hit && [ -z "${MD_GATE_CLOSE_DEAD:-}" ]; then opened=false; fi; held=false ;;
         0xC0) if $hit && [ -z "${MD_GATE_CLOSE_DEAD:-}" ]; then opened=false; fi ;;
     esac
@@ -133,7 +133,7 @@ ipc() {
         columnMarkdownView) echo "$MD_GATE_COLUMN_VIEW" ;;
         previewSurfaceRect) echo '40 40 700 500' ;;
         chromeHeight) echo 20 ;;
-        previewClosePressed) echo "$held" ;;
+        previewCloseState) printf '{"hovered":%s,"pressed":%s}\\n' "$hit" "$held" ;;
         previewScrollY) echo "$scroll_y" ;;
     esac
 }
@@ -163,7 +163,8 @@ case_cap_markdown
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=PROBE_TIMEOUT_SECONDS)
         check(result.returncode != 0 and ("REFUSED " + text) in result.stdout and "CAPMARKDOWN quicklook=ok" not in result.stdout, label)
 
-    refusal({"MD_GATE_CLOSE_X": "600"}, "capmarkdown: the press did not land on the close button", "mdfid B2 a press that misses the close button is refused")
+    refusal({"MD_GATE_CLOSE_X": "600"}, "capmarkdown: the close button never reported hovered=true", "mdfid B2 a pointer that misses the close button is refused")
+    refusal({"MD_GATE_PRESS_DEAD": "1"}, "capmarkdown: the close button never reported pressed=true", "mdfid B2 a press the close button never takes is refused")
     refusal({"MD_GATE_CLOSE_DEAD": "1"}, "capmarkdown: a press and release on the close button did not close Quick Look", "mdfid B2 a close button that never closes is refused")
     refusal({"MD_GATE_NO_SCROLL": "1"}, "capmarkdown: the wheel did not move the view", "mdfid B4 a scroll that moves nothing is refused")
     refusal({"MD_GATE_SCROLL_FAIL": "1"}, "capmarkdown: scroll down", "mdfid B4 a failed scroll call is refused")

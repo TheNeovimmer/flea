@@ -68,7 +68,7 @@ QtObject {
     function previewMediaLoaded(): bool { return root.pane.preview.mediaLoaded() }
     function previewText(): string { return root.pane.preview.textShown() }
     function previewMarkdownView(): string { return root.pane.preview.markdownView() }
-    function previewClosePressed(): bool { return root.pane.preview.markdownClosePressed() }
+    function previewCloseState(): string { return root.pane.preview.markdownCloseState() }
     function previewScrollY(): int { return root.pane.preview.markdownScrollY() }
     // Length is in UTF-16 code units; the sweep's ASCII fixture has the same byte count.
     function previewTextLength(): int { return root.pane.preview.textShown().length }

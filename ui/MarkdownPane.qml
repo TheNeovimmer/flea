@@ -16,7 +16,7 @@ Item {
 
     readonly property var bodyItem: doc.bodyItem
     readonly property real scrollY: doc.scrollY
-    readonly property bool closePressed: barClose.pressed
+    readonly property var closeState: ({ hovered: barClose.hovered, pressed: barClose.pressed })
     readonly property string rawText: doc.rawText
     readonly property string status: doc.status
     readonly property string lineLabel: doc.lineLabel
