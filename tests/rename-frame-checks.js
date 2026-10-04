@@ -74,6 +74,7 @@ function columnError(root, tag, host, found, label, line) {
     root.check(host.last || below > 0, tag + " drew no row under the renamed one, so none was measured moving")
     // The renamed row's own mark, name, size and chevron keep to its first line, so none sits under its error line.
     var parts = found.cell.children.filter(function (c) { return c.visible && c.width > 0 && c.height > 0 && c.height < found.cell.height - found.cell.errorGrowth })
+    root.check(parts.length > 0, tag + " the renamed row drew no part on its first line, so none was measured against the error line")
     for (var p = 0; p < parts.length; p++)
         root.check(!overlaps(line, sceneBox(parts[p])), tag + " the row's own " + parts[p] + " at " + root.boxText(sceneBox(parts[p])) + " lies under its error line " + root.boxText(line))
     var box = label.mapToItem(found.cell, 0, 0, label.width, label.height)
