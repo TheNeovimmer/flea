@@ -9,8 +9,9 @@ if ! command -v qs >/dev/null; then
     exit 1
 fi
 
-# The probe's showRow stub copies these two Pane.showRow branches, so a Pane that drops them must fail here, loudly.
-for marker in 'else if (root.viewMode === "list") list.showCursor(view, context)' \
+# The probe's showRow stub copies these Pane.showRow branches, so a Pane that drops them must fail here, loudly.
+for marker in 'if (root.viewMode === "columns" && root.columnsArea) root.columnsArea.activeColumn().showCursor(view, context)' \
+              'else if (root.viewMode === "list") list.showCursor(view, context)' \
               'else root.listArea.positionViewAtIndex(view, ListView.Contain)'; do
     if ! grep -qF -- "$marker" ui/Pane.qml; then
         printf 'FAIL ui/Pane.qml no longer carries the showRow branch the probe stubs: %s\n' "$marker"
@@ -34,14 +35,15 @@ cp tests/rename-scroll-pane.qml "$test_root/config/RenamePaneStub.qml" || exit 1
 
 total=0
 bad=0
-for mode in list grid origin; do
-    # The origin probe is its own file, so a view's shell.qml is the one this mode runs.
+for mode in list grid origin far-list far-grid far-columns; do
+    # The origin and far probes are their own files, so a view's shell.qml is the one this mode runs; a far mode names its view after the dash.
     probe=tests/rename-scroll.qml
     [ "$mode" = origin ] && probe=tests/rename-scroll-origin.qml
+    case "$mode" in far-*) probe=tests/rename-scroll-far.qml ;; esac
     cp "$probe" "$test_root/config/shell.qml" || exit 1
     output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
         HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
-        QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 RENAME_SCROLL_MODE="$mode" \
+        QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 RENAME_SCROLL_MODE="${mode#far-}" \
         timeout 60 qs -p "$test_root/config" 2>&1)
     # Sample input, one probe line: "  INFO qml: RENAMESCROLL MODE list checks=13 failed=0"
     line=$(printf '%s\n' "$output" | grep -a 'RENAMESCROLL MODE' | tail -1)

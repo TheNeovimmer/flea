@@ -705,10 +705,15 @@ window_box() {
 
 click_row() {
     local index="$1"; shift
-    local centre cx cy wx wy ww wh
+    local centre cx cy wx wy ww wh ax ay aw ah
     centre=$(ipc rowCentre "$index")
     [[ -n "$centre" ]] || fail "row $index has no on-screen centre"
     read -r cx cy <<< "$centre"
+    # Sample input: 0 54 1000 619 (listAreaRect x y width height); a centre outside it lands on the status bar or an overlay.
+    read -r ax ay aw ah <<< "$(ipc listAreaRect)"
+    [[ "$ax $ay $aw $ah" =~ ^-?[0-9]+(\ -?[0-9]+){3}$ ]] || fail "row $index: the list area has no rectangle to check its centre against"
+    (( cx >= ax && cx < ax + aw && cy >= ay && cy < ay + ah )) \
+        || fail "row $index's centre $cx,$cy lies outside the visible list area $ax,$ay,$aw,$ah, so a click there misses the row"
     read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
     # Everything after the index goes straight to omarchy-drive: the button, --double, --mods.
     omarchy-drive click "$((cx + wx))" "$((cy + wy))" "$@" >/dev/null
@@ -14384,6 +14389,7 @@ case_previewviews() {
 . "$repo/tests/ui-trash.sh"
 . "$repo/tests/ui-menus.sh"
 . "$repo/tests/ui-rename-design.sh"
+. "$repo/tests/ui-rename-far.sh"
 . "$repo/tests/ui-railpointer.sh"
 . "$repo/tests/ui-openwith-design.sh"
 . "$repo/tests/ui-providers.sh"
@@ -14609,7 +14615,7 @@ clipboard_wait() {
 # Native items ui:capsweep and ui:capsweeplow run only by name, outside the default wanted list.
 . "$repo/tests/ui-captures-sweep.sh"
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden xwsettings selection watch xwwatch reload optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject poweroff rename renamefirst renamelife taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare hanglisting hanginspect openwithdesign noblank previewswap transferlive recent middleclick opentab xwundo)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click clickedge ctrlclick viewrestart dd ddclick collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden xwsettings selection watch xwwatch reload optical select colour lifted icons thumbs hashcache stale nosweep oem header columnresize columnautofit overflow focus railpointer preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones trasharm eject poweroff rename renamefirst renamelife renamefar taildrop providers grid columns columnsbackground operations tabs tabdrag openterminal makeexec renderer settings makedefault scrolllane clickthrough wheelunder overlays views formats previewviews reclick colroot hangshare hanglisting hanginspect openwithdesign noblank previewswap transferlive recent middleclick opentab xwundo)
 
 : > "$run_log"
 : > "$flea_log"

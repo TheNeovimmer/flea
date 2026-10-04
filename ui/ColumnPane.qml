@@ -71,6 +71,8 @@ Item {
     function positionViewAtIndex(index, mode) { view.positionViewAtIndex(index, mode) }
     function itemAtIndex(index) { return view.itemAtIndex(index) }
     function contentY() { return view.contentY }
+    // The scrolling list itself, for the anchor that puts the view back after a re-list; see ui/js/AnchorHold.js.
+    readonly property alias viewport: view
     // A platform drag in flight, so a slow click never renames off one; ui/ColumnsArea.qml reads it.
     readonly property bool fileDragActive: dragSession.Drag.active
     // Cursor keeps three rows context above and below; wheel path follows viewport margin-free; click context 0 never moves list.

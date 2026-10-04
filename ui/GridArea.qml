@@ -103,6 +103,13 @@ GridView {
     model: (root.visible || root.pane.renamingIndex >= 0) ? pane.shownTotal : 0
     currentIndex: Filter.viewOf(root.pane.shown, root.pane.renamingIndex >= 0 ? root.pane.renamingIndex : root.pane.cursorIndex)
     clip: true
+    // Qt's own tracking scrolls a flush-parked end to the footer's end on a cursor move; revealCursor's Contain leaves a whole tile alone.
+    highlightFollowsCurrentItem: false
+    onCurrentIndexChanged: root.revealCursor()
+    function revealCursor() {
+        if (root.visible && !root.hiddenHeld && root.count > 0 && root.currentIndex >= 0)
+            root.positionViewAtIndex(root.currentIndex, GridView.Contain)
+    }
     // One gap of bare ground along the left and the top; GridTile's hairline inset stays.
     leftMargin: Theme.spacing.gap
     topMargin: Theme.spacing.gap
@@ -301,6 +308,7 @@ GridView {
     onCountChanged: {
         if (root.hiddenHeld && root.visible && root.count > 0)
             root.restoreCursorView()
+        else root.revealCursor()
     }
     function restoreCursorView() {
         // A queued turn arriving after the hold ended is stale.

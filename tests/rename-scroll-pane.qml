@@ -6,6 +6,12 @@ import "flea/js/Filter.js" as Filter
 QtObject {
     id: pane
     property string mode: "list"
+    // The view mode AnchorHold.viewport and rowHeight read: the stub's probe mode names it, and "origin" is a list.
+    readonly property string viewMode: mode === "origin" ? "list" : mode
+    // The columns view's area, whose active column is the probe's real ColumnPane.
+    property var columnsArea: null
+    // The row the last selectOnly named, the selection a far landing leaves.
+    property int selectedAt: -1
     property int totalRows: 1202
     property string path: "/probe"
     property var listArea: null
@@ -71,9 +77,11 @@ QtObject {
     function isSelected(index) { return false }
     function commitRename(newName) {}
     function setCursor(index, context) { Filter.setCursor(pane, index, context) }
-    // The list and grid branches of Pane.showRow; tests/rename-scroll.sh fails when Pane.qml stops carrying them.
+    function selectOnly(index, context) { selectedAt = index; setCursor(index, context) }
+    // The list, grid and columns branches of Pane.showRow; tests/rename-scroll.sh fails when Pane.qml stops carrying them.
     function showRow(view, context) {
         if (mode === "grid") listArea.positionViewAtIndex(view, GridView.Contain)
+        else if (mode === "columns") columnsArea.activeColumn().showCursor(view, context)
         else listArea.showCursor(view, context)
         listArea.restartCoalesce()
     }

@@ -257,6 +257,10 @@ case where the backend clamps the window to row 0 and the reply being waited for
 A name that is gone from both falls back to the clamped old index, which keeps the view where the
 user left it. The filter query is put
 back too: it narrows the rows the pane holds rather than choosing which directory it holds.
+A rename commit, by click-away or by Enter, anchors the same way (`Anchor.pointerRow` carries the viewport offset
+too): the re-list's count passes through 0 and resets the view, and without the restore `setCursor`'s context-0 reveal
+bottom-aligned the clicked row, 58 px up on a list that End had scrolled into its footer, which left the row below it
+under the status bar. `AnchorHold.viewport` names the scrolling surface, the active column's list in the columns view.
 
 **The selection is re-anchored by file identity; the re-read no longer waits for it.** `ui/js/Selection.js` is a set
 of row indices and its own rule is that a new listing clears them, because an index into a directory

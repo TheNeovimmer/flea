@@ -83,7 +83,8 @@ ShellRoot {
     function settled() { return root.waited >= root.settleTicks }
 
     // Each entry is [ready, run]: run fires once ready answers true, and a step that never gets ready fails by name.
-    readonly property var flow: [
+    readonly property var flow: root.baseFlow.concat(root.mode === "grid" ? root.parkedTail.concat(root.countTail) : []).concat([[function () { return true }, function () { root.finish("") }]])
+    readonly property var baseFlow: [
         [function () { return root.cellNow() !== null }, function () {
             root.baseGeometry = root.geometryNow()
             root.view.forceActiveFocus()
@@ -142,7 +143,61 @@ ShellRoot {
         [function () { return root.editorBegun() }, function () { root.view.visible = false }],
         [function () { return root.settled() }, function () {
             root.check(root.stubPane.renamingIndex === -1 && root.stubPane.renameError === "", "nonpending hide still abandons")
-            root.finish("")
+            root.view.visible = true
+        }]
+    ]
+
+    // End parks the last tile row flush with the viewport bottom, footer hidden; a cursor move inside that row must not scroll it.
+    readonly property int lastTile: root.totalRows - 1
+    property real parkedY: -1
+    readonly property var parkedTail: [
+        [function () { return root.view.visible && root.view.count > 0 }, function () {
+            root.stubPane.setCursor(root.lastTile, 0)
+        }],
+        [function () { return root.settled() }, function () {
+            root.parkedY = root.view.contentY
+            var maxY = root.view.originY + root.view.contentHeight - root.view.height
+            root.check(root.parkedY === maxY - Flea.Theme.chromeHeight, "end parks the last tile row flush with the bottom, footer hidden")
+            root.check(root.view.itemAtIndex(root.lastTile) !== null, "the last tile is held")
+            root.stubPane.cursorIndex = root.lastTile - 1
+        }],
+        [function () { return root.settled() }, function () {
+            root.check(root.view.currentIndex === root.lastTile - 1, "the cursor moved to the neighbouring tile")
+            root.check(root.view.contentY === root.parkedY, "a cursor move inside the parked row leaves the view where it was")
+            root.stubPane.cursorIndex = 0
+        }],
+        [function () { return root.settled() }, function () {
+            var tile = root.view.itemAtIndex(0)
+            root.check(tile !== null && root.view.contentY <= root.view.originY, "a cursor change to an unseen tile reveals it without the pane's help")
+            root.stubPane.setCursor(root.lastTile, 0)
+        }],
+        [function () { return root.settled() }, function () {
+            root.check(root.view.contentY === root.parkedY, "the pane's own reveal parks the last row again")
+        }]
+    ]
+
+    // A grid filling from empty reveals its cursor tile on the count change, since Qt no longer follows the current item.
+    readonly property int deepTile: 600
+    function tileWhole(index) {
+        var tile = root.view.itemAtIndex(index)
+        return tile !== null && tile.y >= root.view.contentY && tile.y + root.view.cellHeight <= root.view.contentY + root.view.height
+    }
+    // The view the checks read is replaced by one created over a pane whose cursor is already deep, as a new window or tab is.
+    function recreateView() {
+        var props = { pane: root.stubPane, menu: root.stubPane.menu, width: 1000, height: 619 }
+        root.view.visible = false
+        root.view.destroy()
+        root.view = gridComponent.createObject(win.contentItem, props)
+        root.stubPane.listArea = root.view
+    }
+    readonly property var countTail: [
+        [function () { return root.settled() }, function () {
+            root.stubPane.cursorIndex = root.deepTile
+            root.recreateView()
+        }],
+        [function () { return root.view.count === root.totalRows && root.settled() }, function () {
+            root.check(root.view.currentIndex === root.deepTile, "the new grid holds the deep cursor")
+            root.check(root.tileWhole(root.deepTile), "a grid filling from empty reveals a deep cursor tile whole")
         }]
     ]
 

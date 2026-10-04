@@ -82,7 +82,7 @@ function matchListed(pane, target) {
 }
 
 // A rename commit keeps the renamed row (source leaf mapped to destination) unless moved: a click or key took the cursor to another row.
-function pointerRow(pane, request) {
+function pointerRow(pane, request, rowH) {
     var row = pane.rowFor(pane.cursorIndex)
     var name = row ? String(row.n) : ""
     var src = leaf(request.source)
@@ -90,7 +90,9 @@ function pointerRow(pane, request) {
     var moved = name.length > 0 && name !== src && name !== dst
     if (name === src && dst.length > 0)
         name = dst
-    return { name: name, index: pane.cursorIndex, start: pane.held, path: pane.path, select: true, moved: moved }
+    var place = Hold.viewFields(pane, rowH)
+    return { name: name, index: pane.cursorIndex, start: pane.held, path: pane.path, select: true, moved: moved,
+             offset: place.offset, rowH: place.rowH, view: place.view, renamed: !moved && dst.length > 0 && name === dst }
 }
 
 function leaf(path) {
@@ -105,16 +107,12 @@ function anchoredRefresh(pane, select, marks, wantChanged, rowH) {
     }
     var row = pane.rowFor(pane.cursorIndex)
     var lone = pane.selection && typeof pane.selection.follows === "function" ? !!pane.selection.follows() : false
-    var rh = Hold.rowHeight(pane, rowH)
-    var view = Hold.viewRow(pane)
-    var area = pane.listArea || null
-    var contentY = area && typeof area.contentY === "number" ? area.contentY : 0
-    var originY = area && typeof area.originY === "number" ? area.originY : 0
+    var place = Hold.viewFields(pane, rowH)
     // The path rides along because the anchor can outlive one rows reply: a navigation between the two below would otherwise put this directory's cursor row onto the next directory's listing.
     var anchor = { name: row ? String(row.n) : "", index: pane.cursorIndex, start: pane.held,
                    path: pane.path, select: select === true, wantChanged: wantChanged === true, reloadFrom: pane.total,
                    marks: marks || null, kept: [], hadMarks: marks !== null && marks.length > 0,
-                   lone: lone, offset: view * rh + originY - contentY, rowH: rh, view: view }
+                   lone: lone, offset: place.offset, rowH: place.rowH, view: place.view }
     // F2: names outside the held window come from one batched paths request before the swap, tagged so the reply reaches only this asker.
     if (anchor.marks) {
         var need = []
@@ -313,6 +311,8 @@ function apply(pane, anchor, rowH) {
     if (anchor.start > 0 && pane.held === 0 && pane.total > anchor.start) {
         return anchor
     }
+    if (anchor.renamed && !anchor.locateSent) anchor.locateId = ++locateSeq
+    if (Hold.locateRenamed(pane, anchor)) return anchor
     if (pane.total > 0) {
         landOn(pane, Math.min(anchor.index, pane.total - 1), anchor)
         Hold.restoreView(pane, anchor, rowH)
@@ -328,7 +328,7 @@ function fillLocated(pane, anchor, matches, rowH) {
         return null
     Hold.fillLocated(pane, anchor, matches)
     var at = indexOf(pane, anchor.name)
-    if (pane.total > 0) {
+    if (pane.total > 0 && !anchor.landed) {
         landOn(pane, at >= 0 ? at : Math.min(anchor.index, pane.total - 1), anchor)
         Hold.restoreView(pane, anchor, rowH)
     }

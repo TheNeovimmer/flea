@@ -114,6 +114,7 @@ import "update.js" as UpdateSuite
 import "watch.js" as WatchSuite
 import "xwwatch.js" as XwWatchSuite
 import "xwanchor-races.js" as XwAnchorRacesSuite
+import "renameview.js" as RenameViewSuite
 import "xwrl4.js" as Xwrl4Suite
 import "gvfsbridge.js" as GvfsBridgeSuite
 
@@ -161,7 +162,7 @@ Item {
             ["trash", TrashSuite], ["tap", TapSuite], ["marquee", MarqueeSuite], ["tabs", TabsSuite], ["tabcatcher", TabCatcherSuite], ["tabs-switch", TabsSwitchSuite], ["tabmove", TabMoveSuite], ["tabrestore", TabRestoreSuite], ["shelfmodel", ShelfModelSuite],
             ["mdgates", MdGatesSuite],
             ["themes", ThemesSuite], ["thumbs", ThumbsSuite], ["extthumbs", ExtThumbsSuite], ["transfer", TransferSuite], ["uistate", UiStateSuite], ["update", UpdateSuite],
-            ["watch", WatchSuite], ["xwwatch", XwWatchSuite], ["xwanchor-races", XwAnchorRacesSuite], ["xwrl4", Xwrl4Suite], ["gvfsbridge", GvfsBridgeSuite]
+            ["watch", WatchSuite], ["xwwatch", XwWatchSuite], ["xwanchor-races", XwAnchorRacesSuite], ["renameview", RenameViewSuite], ["xwrl4", Xwrl4Suite], ["gvfsbridge", GvfsBridgeSuite]
         ]
         var argv = Qt.application.arguments
         var only = ""

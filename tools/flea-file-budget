@@ -96,7 +96,7 @@ ui/ChromeBar.qml 472
 ui/ColumnsArea.qml 479
 ui/ContextMenu.qml 739
 ui/ConvertDialog.qml 435
-ui/GridArea.qml 412
+ui/GridArea.qml 420
 ui/Ipc.qml 878
 ui/KeymapSheet.qml 549
 ui/List.qml 437
