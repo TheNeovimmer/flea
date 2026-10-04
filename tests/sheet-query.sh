@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The real KeymapSheet over a stub pane draws CommandPalette's query states, offscreen with no display or lock.
+# The real KeymapSheet over a stub pane draws CommandPalette's query states, then over the real pane runs its menu rows, offscreen with no display or lock.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
@@ -62,3 +62,42 @@ if [ "$verdict" -ne 0 ]; then
 fi
 printf '%s\n' "$output" | grep -o 'SHEETQUERY PASS.*'
 printf 'SHEETQUERY STATUS qs_exit=%s done=1\n' "$qs_status"
+
+# The pane half: the real WindowBody and backend, so a menu row Enter runs meets the menu's own validation.
+bin=${FLEA_BIN:-$PWD/target/debug/flea}
+command -v dbus-run-session >/dev/null || { echo 'FAIL sheet-query pane half needs private D-Bus'; exit 1; }
+[[ -x "$bin" ]] || { echo 'FAIL sheet-query pane half needs the candidate backend'; exit 1; }
+pane_root="$test_root/pane"
+mkdir -p "$pane_root"/{home,config,state,data,cache,runtime} "$pane_root/home/fixture" || exit 1
+chmod 700 "$pane_root/runtime" || exit 1
+for name in a-special.txt b.txt c.txt d.txt; do printf 'sheet query fixture\n' > "$pane_root/home/fixture/$name"; done
+env HOME="$pane_root/home" XDG_STATE_HOME="$pane_root/state" "$bin" --ui-state \
+    '{"view":"list","keys":"default","menu":{"hidden":[]},"preview":{"column":false,"thumbnails":"off"},"updates":{"autoCheck":false},"display":{"textSize":{"mode":14}}}' >/dev/null || exit 1
+ln -s "$PWD/ui" "$pane_root/config/flea" || exit 1
+ln -s "$(readlink -f ui/boot/Commons)" "$pane_root/config/Commons" || exit 1
+ln -s "$(readlink -f ui/boot/Ui)" "$pane_root/config/Ui" || exit 1
+ln -s "$PWD/ui/boot/fleatab.qml" "$pane_root/config/fleatab.qml" || exit 1
+cp tests/sheet-query-pane.qml "$pane_root/config/shell.qml" || exit 1
+pane_log="$pane_root/qs.log"
+readonly paneLimitSeconds=60 paneChecks=21 paneQsStatus=143
+env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
+    HOME="$pane_root/home" XDG_STATE_HOME="$pane_root/state" XDG_CONFIG_HOME="$pane_root/config" \
+    XDG_DATA_HOME="$pane_root/data" XDG_CACHE_HOME="$pane_root/cache" XDG_RUNTIME_DIR="$pane_root/runtime" \
+    FLEA_PATH="$pane_root/home/fixture" FLEA_BIN="$bin" GIO_USE_VOLUME_MONITOR=unix QT_QPA_PLATFORM=offscreen \
+    QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
+    timeout "$paneLimitSeconds" dbus-run-session -- qs -p "$pane_root/config" > "$pane_log" 2>&1
+pane_status=$?
+# Sample input: "  INFO qml: SHEETPANE ok  Permissions the query reads back whole: got perm, expected perm" and "SHEETPANE DONE checks=21 failed=0".
+pane_verdict=0
+[[ "$pane_status" == "$paneQsStatus" ]] || { printf 'FAIL pane half: qs exit %s, expected %s after backend drain\n' "$pane_status" "$paneQsStatus"; pane_verdict=1; }
+rg -q "SHEETPANE DONE checks=$paneChecks failed=0" "$pane_log" || { echo 'FAIL pane half: tally is not every check passed'; pane_verdict=1; }
+[[ "$(rg -c 'SHEETPANE ok ' "$pane_log")" == "$paneChecks" ]] || { echo 'FAIL pane half: passed count'; pane_verdict=1; }
+if rg 'SHEETPANE FAIL|TypeError|ReferenceError|ERROR|Cannot assign|WARN' "$pane_log" | rg -vF "$platform_warning"; then
+    echo 'FAIL pane half: a failed check or an engine warning'
+    pane_verdict=1
+fi
+if [ "$pane_verdict" -ne 0 ]; then
+    rg 'SHEETPANE' "$pane_log"
+    exit 1
+fi
+printf 'SHEETPANE STATUS qs_exit=%s checks=%s\n' "$pane_status" "$paneChecks"

@@ -49,13 +49,13 @@ kill_flea() {
 key() {
     if [[ "$1" == -k && "$2" == Escape ]]; then
         if [[ "$dialog_open" == true ]]; then
-            dialog_open=false
+            [[ "$scenario" == dialog-stays ]] || dialog_open=false
         else
             escape_at=$SECONDS
         fi
     elif [[ "$1" == -k && "$2" == Return ]]; then
         sheet_open=false
-        dialog_open=true
+        [[ "$scenario" == dialog-never ]] || dialog_open=true
     elif [[ "$1" == '?' ]]; then
         sheet_open=true
         escape_at=-1
@@ -70,12 +70,20 @@ settle() {
     printf '%s\n' "$SECONDS" > "$case_dir/elapsed"
 }
 
-# Sample input: the perm query, answered with the action row and the live Permissions row.
+# Sample input: the perm query, answered with the action row and the live Permissions row; a bad scenario answers one wrong row.
 sheet_rows() {
     case "$typed_query" in
-        perm) printf 'shift-delete delete permanently\n Permissions\n' ;;
+        perm)
+            case "$scenario" in
+                dup-delete) printf 'shift-delete delete permanently\nshift-delete delete permanently\n Permissions\n' ;;
+                perm-disabled) printf 'shift-delete delete permanently\n Permissions (disabled)\n' ;;
+                rank-moved) printf ' Permissions\nshift-delete delete permanently\n' ;;
+                *) printf 'shift-delete delete permanently\n Permissions\n' ;;
+            esac ;;
         trash) printf ' Open Trash\nd trash\n' ;;
-        comp) printf ' Compress\n Compress to .zip\n' ;;
+        comp)
+            if [[ "$scenario" == comp-cap ]]; then printf 'z Compress\n Compress to .zip\n'
+            else printf ' Compress\n Compress to .zip\n'; fi ;;
     esac
 }
 
@@ -168,5 +176,12 @@ check_case delayed 0 "$delayed_clear_s" "$((2 * delayed_clear_s))" ""
 check_case immediate 0 0 0 ""
 check_case late 1 "$((deadline_s + advance_s))" "$deadline_s" "last value 'true'"
 check_case ipc-failure 1 0 0 "keymapSheetOpen failed"
+# Each assertion the case adds has a control: the stub answers the bad value and the case must fail with that assertion's message.
+check_case dup-delete 1 0 0 "delete permanently is listed more than once"
+check_case perm-disabled 1 0 0 "Permissions reads unavailable"
+check_case comp-cap 1 0 0 "the comp query lists a row with a cap"
+check_case rank-moved 1 0 0 "the second perm row is not Permissions"
+check_case dialog-never 1 0 "$deadline_s" "Enter on Permissions opened no dialog"
+check_case dialog-stays 1 0 "$deadline_s" "Escape did not close the Permissions dialog"
 printf 'ui-captures-sheet: %s checks, %s failed\n' "$checks" "$failed"
 (( failed == 0 ))

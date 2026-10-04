@@ -408,6 +408,9 @@ case_cap_sheet() {
     grep -Fxq ' Permissions' <<< "$sheet_rows" \
         || fail "cap_sheet: Permissions reads unavailable with the cursor on a file: ${sheet_rows//$'\n'/ | }"
     shot cap-sheet-query
+    # The cursor opens on row one and Down moves it one row, so Permissions must be row two or the Return below runs another row.
+    [[ "$(sed -n 2p <<< "$sheet_rows")" == ' Permissions' ]] \
+        || fail "cap_sheet: the second perm row is not Permissions: ${sheet_rows//$'\n'/ | }"
     key -k Down >/dev/null
     shot cap-sheet-query-perm-file
     key -k Return >/dev/null

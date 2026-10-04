@@ -501,6 +501,15 @@ FocusScope {
     // The menu's own dispatch lives with the rest of the menu machinery; this is the one seam the
     // rail's place menu and the dialogs still call through.
     function performMenu(action, menuId, paths) { menuActions.perform(action, menuId, paths) }
+    // The sheet runs a row with no menu opened, so stand the menu on the cursor row as openAt does, or validateChoice finds nothing it opened.
+    function sheetMenuAction(action) {
+        menu.clearRail()
+        menu.forHeader = false
+        menu.hasRow = true
+        menu.openedIdentity = root.menuSelectionIdentity
+        menuActions.snapshot()
+        menuActions.activate(action, true)
+    }
 
     function permissionSelection() {
         var indices = Ops.targetIndices(root)

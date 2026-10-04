@@ -1,6 +1,7 @@
 //@ pragma ShellId flea-sheet-query-test
 
 import QtQuick
+import QtTest
 import Quickshell
 import "flea" as Flea
 
@@ -44,10 +45,7 @@ ShellRoot {
         property bool listInFlight: false
         property var cursorRow: ({ n: "a.txt", d: false })
         property var context: root.fileContext
-        property var menuActions: ({
-            snapshot: function () {},
-            activate: function (action, selected) { root.activated.push(action) }
-        })
+        function sheetMenuAction(action) { root.activated.push(action) }
         function checkShebang() {}
         function message(text, sticky) {}
         function contextMenu() { return { listingContext: function () { return holder.context } } }
@@ -58,6 +56,7 @@ ShellRoot {
         implicitHeight: 700
         color: "#303030"
         Flea.KeymapSheet { id: sheet; anchors.fill: parent }
+        Item { anchors.fill: parent; TestEvent { id: driver } }
     }
 
     Timer {
@@ -82,10 +81,20 @@ ShellRoot {
             root.phase = 3
         } else if (root.phase === 3) {
             root.checkPlace()
+            root.checkBackspace()
+            sheet.open(holder)
+            sheet.recentPaths = [root.longRecent]
+            sheet.query = "open"
             root.phase = 4
+        } else if (root.phase === 4) {
+            root.checkLongName()
+            root.phase = 5
             root.report()
         }
     }
+    // A recent file whose name outruns the card, in a folder whose muted suffix must still be read.
+    readonly property string longRecent: "/home/probe/Documents/" + "a-very-long-recent-file-name-".repeat(8) + "end.txt"
+    readonly property int keyDelayMs: -1
     property int restWidth: 0
     property real restLabelX: 0
 
@@ -153,6 +162,44 @@ ShellRoot {
             root.expect("and not at the card's right edge", where.x + where.contentWidth < row.width - sheet.capWidth, where.x + " + " + where.contentWidth + " of " + row.width)
             root.expect("in the muted ink", where.color.toString() === Flea.Theme.color.muted.toString(), where.color)
         }
+    }
+
+    // Backspace through the sheet's own Keys handler: three typed characters come off one at a time.
+    function checkBackspace() {
+        sheet.open(holder)
+        var word = "tag"
+        for (var i = 0; i < word.length; i++)
+            driver.keyClickChar(word.charAt(i), Qt.NoModifier, root.keyDelayMs)
+        root.expect("typing reads back whole", sheet.query === word, sheet.query)
+        var steps = []
+        for (var j = 0; j < word.length; j++) {
+            driver.keyClick(Qt.Key_Backspace, Qt.NoModifier, root.keyDelayMs)
+            steps.push(sheet.query)
+        }
+        root.expect("Backspace empties the query a character at a time", steps.join("|") === "ta|t|", steps.join("|"))
+        root.expect("and the last one leaves the resting sheet open", sheet.opened === true, sheet.opened)
+    }
+
+    // A3: the name elides and the muted suffix keeps its whole width, inside the card.
+    function checkLongName() {
+        var wheres = root.walk(sheet.cardItem, []).filter(function (item) { return item.text === " in ~/Documents" })
+        root.expect("the long recent file carries its suffix", wheres.length === 1, wheres.length)
+        if (wheres.length !== 1)
+            return
+        var where = wheres[0]
+        var row = where.parent
+        var label = null
+        for (var i = 0; i < row.children.length; i++)
+            if (row.children[i].text === "Open " + root.longRecent.split("/").pop())
+                label = row.children[i]
+        root.expect("its name is drawn", label !== null, "no label")
+        if (label === null)
+            return
+        var painted = where.mapToItem(sheet.cardItem, 0, 0)
+        root.expect("the name is elided", label.width < label.implicitWidth, label.width + " of " + label.implicitWidth)
+        root.expect("the suffix keeps its whole width", where.width === where.implicitWidth, where.width + " of " + where.implicitWidth)
+        root.expect("the suffix lies inside the card", painted.x >= 0 && painted.x + where.width <= sheet.cardItem.width, painted.x + " + " + where.width + " of " + sheet.cardItem.width)
+        root.expect("and starts where the name ends", Math.abs(where.x - (label.x + label.width)) <= 1, where.x + " vs " + (label.x + label.width))
     }
 
     function report() {

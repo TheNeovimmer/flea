@@ -111,7 +111,29 @@ function run(check) {
     var trash = SheetQuery.rank(realActions.concat(realMenus), "trash").filter(function (row) {
         return row.action === "trash" || row.menuAction === "trash" })
     check("trash lists the file menu's Move to Trash once", trash.length, 1)
-    // A flyout leaf shares no action with a key, so the dedupe never drops one.
+    check("and keeps the key's own wording when both match", trash[0].label, "trash")
+    // One row per action, but a word only the menu's wording holds still finds it, under its key and in the wording that matched.
+    var trashKey = realActions.filter(function (row) { return row.action === "trash" })[0]
+    var viaMenu = SheetQuery.rank(realActions.concat(realMenus), "move to trash")
+    check("a word only the menu wording holds finds the action once", viaMenu.length, 1)
+    check("under the key row's cap", viaMenu.length === 1 ? viaMenu[0].keys : "none", trashKey.keys)
+    check("as the key row, so Enter runs the key", viaMenu.length === 1 ? viaMenu[0].action : "none", "trash")
+    check("in the menu's wording, the one that matched", viaMenu.length === 1 ? viaMenu[0].label : "none", "Move to Trash")
+    var viaKey = SheetQuery.rank(realActions.concat(realMenus), "trash")
+    check("a word both wordings hold lists the action once", viaKey.filter(function (row) { return row.action === "trash" }).length, 1)
+    // A leaf's run is its flyout action plus its own id (SheetQuery.actionWithSub), so two formats and two apps stay four rows.
+    var leafEntries = [
+        { id: "compress", action: "compress", label: "Compress",
+          submenu: [{ id: "zip", label: ".zip" }, { id: "tar", label: ".tar" }] },
+        { id: "openWith", action: "openWith", label: "Open with",
+          submenu: [{ id: "a.desktop", label: "Alpha" }, { id: "b.desktop", label: "Beta" }] }
+    ]
+    var leaves = SheetQuery.unique(SheetQuery.actionCandidates(Keymap.sheetFor("default", "gui", false)).concat(
+        SheetQuery.menuCandidates(leafEntries, function (a) { return Keymap.hintFor(a) })))
+    var leafRuns = leaves.filter(function (row) { return row.where === "Compress" || row.where === "Open with" })
+        .map(function (row) { return row.menuAction })
+    check("two formats and two apps survive the dedupe as four distinct runs", leafRuns.join("|"),
+          "compress:zip|compress:tar|openWith:a.desktop|openWith:b.desktop")
     check("flyout leaves survive the dedupe", merged.filter(function (row) { return row.where === "Compress" }).length,
           realMenus.filter(function (row) { return row.where === "Compress" }).length)
     // Availability is the menu's own answer for the pane's real cursor: on a regular file Permissions runs, on nothing it is refused.

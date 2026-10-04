@@ -203,6 +203,8 @@ Item {
         text: root.widestLabel
     }
     readonly property real groundOpacity: 0.5
+    // The most of a result's label column its muted suffix may take, so a deep folder elides too and the name keeps the rest.
+    readonly property real whereShare: 0.5
 
     anchors.fill: parent
     visible: root.opened
@@ -322,9 +324,7 @@ Item {
                 }
             }
 
-            // The query line, drawn only while one stands: a muted ? in the cap column and the query in a
-            // field on the label column, as CommandPalette draws it. GM 2026-10-03: the field's focus is its
-            // own hairline accent frame, as 0.3.6 drew fields, never the board's 2 px foreground ring.
+            // The query line, drawn only while one stands: a ? in the cap column, the query in a hairline accent field (GM 2026-10-03: no ring).
             Item {
                 id: queryRow
                 width: parent.width
@@ -393,6 +393,9 @@ Item {
                         width: parent.width
                         height: root.rowPitch
                         clip: true
+                        // What a row has left of its width after the cap column.
+                        readonly property real labelColumn: hit.width - root.capWidth - root.capGap
+                        readonly property string whereText: String(hit.modelData.where || "")
                         Rectangle {
                             anchors.fill: parent
                             visible: hit.index === root.resultCursor
@@ -425,21 +428,21 @@ Item {
                             anchors.left: hitCap.right
                             anchors.leftMargin: root.capGap
                             anchors.verticalCenter: parent.verticalCenter
-                            width: Math.min(implicitWidth, parent.width - hitCap.width - root.capGap)
+                            width: Math.min(implicitWidth, hit.labelColumn - hitWhere.width)
                             text: hit.modelData.label
                             color: hit.modelData.disabled === true ? Theme.color.muted : Theme.color.foreground
                             pixelSize: Theme.font.caption
                             matchStart: SheetQuery.matchOf(hit.modelData.label, root.query) ? SheetQuery.matchOf(hit.modelData.label, root.query).start : -1
                             matchLength: SheetQuery.matchOf(hit.modelData.label, root.query) ? SheetQuery.matchOf(hit.modelData.label, root.query).length : 0
                         }
-                        // Where the result lives, muted and inline right after its name, as the board draws it.
+                        // Where the result lives, muted and inline right after its name, as the board draws it; it keeps its width, so a long name elides instead.
                         Text {
                             id: hitWhere
                             anchors.left: hitLabel.right
-                            anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
-                            visible: String(hit.modelData.where || "").length > 0
-                            text: String(hit.modelData.where || "").length > 0 ? " in " + hit.modelData.where : ""
+                            width: hit.whereText.length > 0 ? Math.min(implicitWidth, hit.labelColumn * root.whereShare) : 0
+                            visible: hit.whereText.length > 0
+                            text: hit.whereText.length > 0 ? " in " + hit.whereText : ""
                             color: Theme.color.muted
                             font.family: Theme.font.family
                             font.pixelSize: Theme.font.caption

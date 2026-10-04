@@ -140,8 +140,8 @@ function matchOf(label, query) {
     return { start: at, length: needle.length }
 }
 
-// Sample input: a key row {action: "trash"} then a menu row {menuAction: "trash"} keeps the key row only.
-// One action, one row: the key row stays, and a disabled menu row's verdict rides on it, so a folder that refuses Rename refuses it here.
+// Sample input: a key row {action: "trash"} then a menu row {menuAction: "trash", label: "Move to Trash"} keeps the key row only, carrying menuLabel "Move to Trash".
+// One action, one row: the key row stays, the menu's wording rides on it to be searched, and a disabled menu row's verdict rides on it too, so a folder that refuses Rename refuses it here.
 function unique(candidates) {
     var at = {}
     var out = []
@@ -153,17 +153,35 @@ function unique(candidates) {
         } else if (at[run] === undefined) {
             at[run] = out.length
             out.push(list[i])
-        } else if (list[i].disabled === true && out[at[run]].section === 0 && out[at[run]].disabled !== true) {
+        } else if (list[i].section === 1 && out[at[run]].section === 0) {
             var held = {}
             for (var field in out[at[run]]) {
                 held[field] = out[at[run]][field]
             }
-            held.disabled = true
+            held.menuLabel = String(list[i].label || "")
             held.menuAction = list[i].menuAction
+            if (list[i].disabled === true) {
+                held.disabled = true
+            }
             out[at[run]] = held
         }
     }
     return out
+}
+
+// The row as the query reads it: the key row's wording when it matches, else the menu's wording that did.
+function worded(row, needle) {
+    var label = String(row.label || "").toLowerCase()
+    var menuLabel = String(row.menuLabel || "")
+    if (label.indexOf(needle) < 0 && menuLabel.toLowerCase().indexOf(needle) >= 0) {
+        var copy = {}
+        for (var field in row) {
+            copy[field] = row[field]
+        }
+        copy.label = menuLabel
+        return copy
+    }
+    return row
 }
 
 function rank(candidates, query) {
@@ -178,15 +196,16 @@ function rank(candidates, query) {
     var keyed = []
     for (var i = 0; i < list.length; i++) {
         var label = String(list[i].label || "").toLowerCase()
+        var menuLabel = String(list[i].menuLabel || "").toLowerCase()
         var keys = String(list[i].keys || "").toLowerCase()
         var name = String(list[i].name || "").toLowerCase()
         // An exact NAME match ranks first, so "? trash Enter" opens Trash.
         if (name.length > 0 && name === needle) {
             exactPlace.push(list[i])
-        } else if (label === needle) {
-            exact.push(list[i])
-        } else if (label.indexOf(needle) >= 0) {
-            matched.push(list[i])
+        } else if (label === needle || menuLabel === needle) {
+            exact.push(worded(list[i], needle))
+        } else if (label.indexOf(needle) >= 0 || menuLabel.indexOf(needle) >= 0) {
+            matched.push(worded(list[i], needle))
         } else if (keys.length > 0 && keys.indexOf(needle) >= 0) {
             keyed.push(list[i])
         }
@@ -229,7 +248,7 @@ function runAction(holder, action, close) {
     else Focus.dispatchAction(action, holder)
 }
 
-// Every menu row resolves its rows through the snapshot, so it refuses while a listing is out, unlike navigations.
+// Every menu row resolves its rows through the snapshot, so it refuses while a listing is out, unlike navigations; the holder runs the row.
 function runMenu(holder, menuAction, close) {
     if (holder.listInFlight === true) {
         holder.message(Swap.LOADING, false)
@@ -237,9 +256,7 @@ function runMenu(holder, menuAction, close) {
     }
     if (typeof close === "function")
         close()
-    if (holder.sheetMenuAction) { holder.sheetMenuAction(menuAction); return }
-    holder.menuActions.snapshot()
-    holder.menuActions.activate(menuAction, true)
+    holder.sheetMenuAction(menuAction)
 }
 
 // Sample input: isPrintable("c") is true, isPrintable("\u007f") is false.

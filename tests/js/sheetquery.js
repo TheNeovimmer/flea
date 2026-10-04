@@ -83,23 +83,17 @@ function run(check) {
     check("a multi-context key names none either", SheetQuery.whereForContext("rail,menu"), "")
     check("a single place is named", SheetQuery.whereForContext("media"), "media")
 
-    // A sheet menu row closes then snapshots and activates, but refuses while a listing is out.
+    // A sheet menu row closes then the holder runs it, but it refuses while a listing is out.
     var calls = []
     var holder = { listInFlight: false,
         message: function (text, sticky) { calls.push("message:" + text + ":" + sticky) },
-        menuActions: {
-            snapshot: function () { calls.push("snapshot") },
-            activate: function (action, selected) { calls.push("activate:" + action + ":" + selected) }
-        } }
+        sheetMenuAction: function (action) { calls.push("run:" + action) } }
     SheetQuery.runMenu(holder, "trash", function () { calls.push("close") })
-    check("the sheet closes before it snapshots", calls.join(","), "close,snapshot,activate:trash:true")
+    check("the sheet closes before its holder runs the row", calls.join(","), "close,run:trash")
     var blocked = []
     var busy = { listInFlight: true,
         message: function (text, sticky) { blocked.push("message:" + text + ":" + sticky) },
-        menuActions: {
-            snapshot: function () { blocked.push("snapshot") },
-            activate: function (action, selected) { blocked.push("activate:" + action + ":" + selected) }
-        } }
+        sheetMenuAction: function (action) { blocked.push("run:" + action) } }
     SheetQuery.runMenu(busy, "trash", function () { blocked.push("close") })
     check("a menu row refuses while a listing is out", blocked.join(","), "message:A directory is already loading.:false")
 
@@ -126,14 +120,7 @@ function run(check) {
     check("the header never reads esc clears", sheetText.indexOf("esc clears"), -1)
     check("the header reads esc closes in every state", sheetText.indexOf('text: "esc closes"') >= 0, true)
     check("the sheet has no clear branch", sheetText.indexOf('decision === "clear"'), -1)
-    // Backspace shortens the query one character at a time; the last one leaves the resting sheet.
-    var typed = "tag"
-    var steps = []
-    while (typed.length > 0 && SheetQuery.sheetKey(typed, 1, 0, Qt.Key_Backspace, "") === "backspace") {
-        typed = typed.substring(0, typed.length - 1)
-        steps.push(typed)
-    }
-    check("Backspace empties the query a character at a time", steps.join("|"), "ta|t|")
+    // Backspace shortening the query a character at a time is driven through the sheet's own handler, in tests/sheet-query.qml.
     check("Up moves the cursor", SheetQuery.sheetKey("c", 3, 1, Qt.Key_Up, ""), "up")
     check("Down moves the cursor", SheetQuery.sheetKey("c", 3, 1, Qt.Key_Down, ""), "down")
     check("Return runs the row", SheetQuery.sheetKey("c", 3, 0, Qt.Key_Return, ""), "activate")
@@ -161,14 +148,11 @@ function run(check) {
     var first = SheetQuery.placeCandidates(dupes).filter(function (row) { return row.railIndex === 0 })[0]
     check("the first src still opens rail row 0", SheetQuery.placeIndex(dupes, SheetQuery.dispatch(first)), 0)
     check("a gone row answers -1", SheetQuery.placeIndex([], SheetQuery.dispatch(second)), -1)
-    // A sheet menu row snapshots first, so the activate meets the selection.
-    var calls2 = []
-    var holder2 = { menuActions: {
-        snapshot: function () { calls2.push("snapshot") },
-        activate: function (action, selected) { calls2.push("activate:" + action + ":" + selected) }
-    } }
-    SheetQuery.runMenu(holder2, "trash")
-    check("the sheet snapshots before it activates", calls2.join(","), "snapshot,activate:trash:true")
+    // The pane's own half of a menu row: it stands the menu on the row, snapshots, then activates, in that order.
+    var paneRun = Source.slice(Source.source("ui/Pane.qml"), "function sheetMenuAction(action)", "function permissionSelection()")
+    var paneOrder = ["menu.openedIdentity = root.menuSelectionIdentity", "menuActions.snapshot()", "menuActions.activate(action, true)"]
+        .map(function (step) { return paneRun.indexOf(step) })
+    check("the pane stands the menu on the row, snapshots, then activates", paneOrder[0] >= 0 && paneOrder[0] < paneOrder[1] && paneOrder[1] < paneOrder[2], true)
     // The sheet action arm lives in SheetQuery.runAction, so a swapped gate stays red.
     function stubHolder(inFlight) {
         var calls = []
@@ -213,8 +197,7 @@ function run(check) {
     var sheetAction = Source.source("ui/KeymapSheet.qml")
     check("activateResult runs through SheetQuery.runAction", Source.slice(sheetAction, "function activateResult()", "// Directive 18").indexOf("SheetQuery.runAction") >= 0, true)
 
-    // CommandPalette "After typing": the board's query line, a muted ? centred in the cap column and the query in a
-    // field on the label column. GM 2026-10-03: the field's focus is its own hairline accent frame, never a ring.
+    // CommandPalette "After typing": a muted ? in the cap column, the query in a field on the label column, its focus a hairline accent frame (GM 2026-10-03).
     var lineSource = Source.slice(sheetText, "// The query line, drawn only while one stands", "// The query results replace")
     check("the query line draws the board's ? prompt", lineSource.indexOf('text: "?"') >= 0, true)
     check("the prompt is centred in the cap column", lineSource.indexOf("width: root.capWidth") >= 0
@@ -226,7 +209,11 @@ function run(check) {
           && lineSource.indexOf("border.color: Theme.color.accent") >= 0, true)
     check("the field draws no foreground ring", lineSource.indexOf("Buttons.RING"), -1)
     check("the field holds a caret after the text", lineSource.indexOf("id: queryCaret") >= 0, true)
-    check("the query reads at body size like a field", lineSource.indexOf("font.pixelSize: Theme.font.body") >= 0, true)
+    // Sample input: "font.pixelSize: Theme.font.body\n" is body size, "font.pixelSize: Theme.font.bodySmall\n" is not.
+    function readsAtBody(block) { return /font\.pixelSize: Theme\.font\.body(?![A-Za-z0-9_])/.test(block) }
+    var queryText = Source.slice(lineSource, "id: queryLine", "id: queryCaret")
+    check("the query reads at body size like a field", readsAtBody(queryText), true)
+    check("and a bodySmall query line would not pass that check", readsAtBody(queryText.replace("Theme.font.body\n", "Theme.font.bodySmall\n")), false)
     // One cap column in every state: the sheet the column is measured over is the whole table, never the query's results.
     var tableSource = Source.slice(sheetText, "readonly property var sheet:", "// The query results across")
     check("the sheet the cap column measures does not narrow with the query", tableSource.indexOf("root.query"), -1)
@@ -236,5 +223,5 @@ function run(check) {
     check("the name does not stop at a right-anchored suffix", hitSource.indexOf("anchors.right: hitWhere.left"), -1)
     var whereSource = Source.slice(sheetText, "id: hitWhere", "visible: root.query.length === 0")
     check("the suffix follows the name", whereSource.indexOf("anchors.left: hitLabel.right") >= 0, true)
-    check("the suffix reads as a space then in, inline with the name", whereSource.indexOf('" in " + hit.modelData.where') >= 0, true)
+    check("the suffix reads as a space then in, inline with the name", whereSource.indexOf('" in " + hit.whereText') >= 0, true)
 }
