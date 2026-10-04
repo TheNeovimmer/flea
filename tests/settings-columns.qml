@@ -6,10 +6,7 @@ import "flea" as Flea
 import "flea/js/Settings.js" as Settings
 import "flea/js/TextSize.js" as TextSize
 
-// Every row each settings section builds, drawn by the real ui/SettingsRow.qml at the pane's width:
-// a hint and the Display ruler start on their control's label column, HANDOFF rules 3 and 8, and
-// only the pane's footer line starts at the row's own edge. The hint band and a caption's baseline are
-// measured against the boards' own numbers at GM's text size 14. tests/settings-columns.sh drives it.
+// Every row each settings section builds, drawn by the real ui/SettingsRow.qml: columns, hint bands and caption baselines against the boards at text size 14, driven by tests/settings-columns.sh.
 ShellRoot {
     id: root
 
@@ -24,6 +21,11 @@ ShellRoot {
     readonly property int boardHintTop: 4
     readonly property int boardHintLine: 18
     readonly property int boardHintBottom: 2
+    // Chromium on Tabs040.html puts the first hint's baseline 17 px below its band top (ink rows 801..809 of Tabs040.png, band top 793), so its text box starts 17 - 12 = 5 px down.
+    readonly property int boardHintBaseline: 17
+    readonly property int boardHintTextTop: 5
+    // ClickAndRefresh F7 at text size 14: a caption's baseline is 1 px above its label's.
+    readonly property int boardCaptionRise: -1
     // KeyboardFlows board, "View, Cursor at defaults", measured at 3x in ClickAndRefresh F7: the "Wrap at list ends" ink spans rows 1406..1419 and its caption's rows 1407..1417.
     readonly property int boardLabelTop: 1406
     readonly property int boardLabelBottom: 1419
@@ -105,14 +107,20 @@ ShellRoot {
                     out[kind].push({ at: sections[s] + ": " + (row.label || row.id), x: root.textX(item, row) })
                 if (kind === "hint" || kind === "footer") {
                     var line = root.findText(item, row.label)
-                    out.bands.push({ at: sections[s] + ": " + row.label, footer: kind === "footer", height: item.height,
-                                     y: line.y, lineHeight: line.height, lines: line.lineCount, baseline: root.baselineIn(item, line) })
+                    if (line === null)
+                        out.failures.push(sections[s] + ": " + row.label + " draws no visible Text for its hint " + JSON.stringify(row.label))
+                    else
+                        out.bands.push({ at: sections[s] + ": " + row.label, footer: kind === "footer", height: item.height,
+                                         y: line.y, lineHeight: line.height, lines: line.lineCount, baseline: root.baselineIn(item, line) })
                 }
                 if (kind === "label" && row.caption !== undefined) {
                     var label = root.findText(item, row.label)
                     var caption = root.findText(item, row.caption)
-                    out.captions.push({ at: sections[s] + ": " + row.label, text: row.label, captionText: row.caption,
-                                        label: root.baselineIn(item, label), caption: root.baselineIn(item, caption) })
+                    if (label === null || caption === null)
+                        out.failures.push(sections[s] + ": " + row.label + " draws no visible Text for its " + (label === null ? "label " + JSON.stringify(row.label) : "caption " + JSON.stringify(row.caption)))
+                    else
+                        out.captions.push({ at: sections[s] + ": " + row.label, text: row.label, captionText: row.caption,
+                                            label: root.baselineIn(item, label), caption: root.baselineIn(item, caption) })
                 }
                 item.destroy()
             }
@@ -120,23 +128,18 @@ ShellRoot {
         return out
     }
 
-    // Every hint draws the board's band, 4 above a line box of 1.5 times the caption and 2 below, per wrapped line,
-    // and the first baseline sits where a browser puts it: half the line's leftover above the rounded ascent.
+    // Every hint draws the board's literal band, 4 + 18 per wrapped line + 2, its first baseline on the board's row and its text box 5 down, never a figure derived from the product.
     function checkBands(found, failures) {
-        var ascent = Math.round(captionMetrics.ascent)
-        var content = ascent + Math.round(captionMetrics.descent)
-        var lead = Math.round((root.boardHintLine - content) / 2)
-        var baseline = root.boardHintTop + lead + ascent
         var plain = found.bands.filter(function (band) { return !band.footer })
         var footer = found.bands.filter(function (band) { return band.footer })
         for (var i = 0; i < plain.length; i++) {
             var band = plain[i]
             var want = root.boardHintTop + band.lines * root.boardHintLine + root.boardHintBottom
-            if (band.baseline !== baseline)
-                failures.push(band.at + " draws its baseline on row " + band.baseline + ", the board's line puts it on " + baseline)
-            if (band.height !== want || band.y !== root.boardHintTop + lead || band.lineHeight !== band.lines * root.boardHintLine)
+            if (band.baseline !== root.boardHintBaseline)
+                failures.push(band.at + " draws its baseline on row " + band.baseline + ", the board's line puts it on " + root.boardHintBaseline)
+            if (band.height !== want || band.y !== root.boardHintTextTop || band.lineHeight !== band.lines * root.boardHintLine)
                 failures.push(band.at + " is a " + band.height + " px band with its text at " + band.y + " and " + band.lineHeight
-                              + " tall, the board draws " + want + " with the text at " + (root.boardHintTop + lead) + " and " + band.lines * root.boardHintLine + " tall")
+                              + " tall, the board draws " + want + " with the text at " + root.boardHintTextTop + " and " + band.lines * root.boardHintLine + " tall")
         }
         // The pane's footer line is not a board hint: its 49 px band is what 585c9a5c measured at this font, and it stays put.
         for (var f = 0; f < footer.length; f++) {
@@ -154,6 +157,8 @@ ShellRoot {
         var caption = captionMetrics.tightBoundingRect("arrow-up at the top")
         var gap = (root.boardCaptionTop - root.boardLabelTop) - (caption.y - label.y)
         var bottomGap = (root.boardLabelBottom - root.boardCaptionBottom) - ((label.y + label.height) - (gap + caption.y + caption.height))
+        if (gap !== root.boardCaptionRise)
+            failures.push("the fonts' ink puts a caption baseline " + gap + " px from its label's, the board's is " + root.boardCaptionRise)
         if (bottomGap !== 0)
             failures.push("the fonts' ink disagrees with the board's own bottoms by " + bottomGap + " px, so the baseline gap " + gap + " proves nothing")
         var wrap = found.captions.filter(function (entry) { return entry.text === "Wrap at list ends" })
@@ -161,8 +166,8 @@ ShellRoot {
             failures.push("nothing to compare: " + found.captions.length + " captioned rows, " + wrap.length + " Wrap at list ends")
         for (var i = 0; i < found.captions.length; i++) {
             var entry = found.captions[i]
-            if (entry.caption - entry.label !== gap)
-                failures.push(entry.at + " caption baseline is " + (entry.caption - entry.label) + " px from its label's, the board's is " + gap)
+            if (entry.caption - entry.label !== root.boardCaptionRise)
+                failures.push(entry.at + " caption baseline is " + (entry.caption - entry.label) + " px from its label's, the board's is " + root.boardCaptionRise)
         }
     }
 
@@ -199,6 +204,8 @@ ShellRoot {
             failures.push("the state file " + Flea.ViewState.store.path + " is not under the harness state home " + state)
         else
             Flea.ViewState.state = { display: { textSize: { mode: TextSize.nearest(root.boardTextSize) } } }
+        if (Flea.Theme.font.family !== "monospace")
+            failures.push("Theme.font.family is " + JSON.stringify(Flea.Theme.font.family) + ", not the monospace alias the harness's fonts.conf pins to the board's face")
         if (Flea.Theme.baseSize !== root.boardTextSize)
             failures.push("the probe draws at " + Flea.Theme.baseSize + ", the boards at " + root.boardTextSize)
         var found = root.measure()
