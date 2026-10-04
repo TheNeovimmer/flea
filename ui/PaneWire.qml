@@ -153,13 +153,13 @@ Item {
         if (pane.listInFlight || pane.searchMode.length > 0) { root.stale = true; return }
         root.stale = false
         watchSettle.stop()
-        var anchor = Anchor.pointerRow(pane, request)
+        var anchor = Anchor.pointerRow(pane, request, pane.anchorRowHeight)
         // A cursor a click or key moved off the renamed row while the write was pending is the operator's, so it wins at any scroll.
         var keepsCursor = pointer || anchor.moved
-        var keep = keepsCursor || anchor.start > 0
-        if (keep) root.anchor = anchor
+        // The re-list resets the view to its top, so every commit keeps the anchor: it puts the cursor row back at its screen y.
+        root.anchor = anchor
         pane.refresh(keepsCursor ? "" : selected)
-        if (keep && anchor.start > 0) pane.backend.window(anchor.start, pane.windowSize)
+        if (anchor.start > 0) pane.backend.window(anchor.start, pane.windowSize)
     }
 
     Connections {

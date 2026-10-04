@@ -416,8 +416,8 @@ function renameReplies(check) {
     var p = editing()
     same("Return sends the rename once", p.sent, ["/fixture/list/before.txt|after.txt|42"])
     p.done("/fixture/list/after.txt")
-    same("a reply with the cursor still on the renamed row re-reveals it under its new name",
-         [p.renamePending, p.renamingIndex, refreshed, p.wire.anchor, windowed], [false, -1, ["/fixture/list/after.txt"], null, []])
+    same("a reply with the cursor still on the renamed row re-reveals it under its new name, anchored with its viewport offset",
+         [p.renamePending, p.renamingIndex, refreshed, anchored(p).name + "|" + anchored(p).offset, windowed], [false, -1, ["/fixture/list/after.txt"], "after.txt|259", []])
 
     // A click or a key that left the renamed row while the write was pending keeps its row, at the top and deep in the list.
     var shapes = [[0, "clicked.txt"], [900, "clicked.txt"], [0, "key-moved.txt"], [900, "key-moved.txt"]]
@@ -445,7 +445,7 @@ function renameReplies(check) {
     p = editing()
     p.cursorOn("after.txt")
     p.done("/fixture/list/after.txt")
-    same("a cursor on the destination name reveals the renamed row", [refreshed, p.wire.anchor], [["/fixture/list/after.txt"], null])
+    same("a cursor on the destination name reveals the renamed row", [refreshed, anchored(p).name], [["/fixture/list/after.txt"], "after.txt"])
     p = editing()
     p.cursorIndex = 900
     p.held = 900

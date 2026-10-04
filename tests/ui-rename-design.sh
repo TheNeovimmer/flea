@@ -32,6 +32,22 @@ rename_design_still() {
     fail "rename: the listing never held still before a click, last [$now]"
 }
 
+# The window-relative top of a row's rectangle, read before and after a commit to prove the view did not move.
+rename_design_y_of() {
+    local rect
+    rect=$(ipc rowRect "$1")
+    # Sample input: 0 584 1000 31 (rowRect x y width height).
+    [[ "$rect" =~ ^-?[0-9]+\ (-?[0-9]+)\ -?[0-9]+\ -?[0-9]+$ ]] || fail "rename: row $1 has no on-screen rectangle"
+    printf '%s' "${BASH_REMATCH[1]}"
+}
+
+# The commit's kept row is the cursor row once the listing holds still, so its top edge must read what it read before.
+rename_design_stays() {
+    local label="$1" before="$2"
+    rename_design_still
+    menus_equal "$label" "$before" "$(rename_design_y_of "$(ipc cursor)")"
+}
+
 rename_design_open() {
     local input="$1" name="$2" index polls
     rename_design_still
@@ -249,27 +265,37 @@ case_renamedesign() (
         menus_expect renameState '.cursor == 0' "$mode click-away setup at top"
         rename_design_open r a-original.md
         rename_design_draft a-clickaway-top.md
-        click_row "$(row_index_of b-existing.md)" left
+        click_at=$(row_index_of b-existing.md)
+        click_y=$(rename_design_y_of "$click_at")
+        click_row "$click_at" left
         menus_expect renameState '.index == -1 and (.pending | not) and (.loading | not) and .cursorName == "b-existing.md"' "$mode click-away keeps clicked neighbour at top"
+        rename_design_stays "$mode click-away at top leaves the clicked row where it was" "$click_y"
         menus_equal "$mode click-away cursor at top" "$(row_index_of b-existing.md)" "$(ipc cursor)"
         menus_guard "$menu_dir/a-clickaway-top.md"
         [[ -f "$menu_dir/a-clickaway-top.md" ]] || fail 'rename: click-away did not write top draft'
         rename_design_open r a-clickaway-top.md
         rename_design_draft a-original.md
+        click_y=$(rename_design_y_of "$(ipc cursor)")
         key -k Return >/dev/null
         menus_expect renameState '.index == -1 and (.pending | not) and (.loading | not) and .cursorName == "a-original.md"' "$mode Enter keeps renamed row at top"
+        rename_design_stays "$mode Enter at top leaves the renamed row where it was" "$click_y"
         key -k Escape >/dev/null
         key -k End >/dev/null
         menus_expect renameState '.cursorName == "f1199.txt"' "$mode click-away setup at bottom"
         rename_design_open F2 f1199.txt
         rename_design_draft f1199-clickaway.txt
-        click_row "$(row_index_of f1198.txt)" left
+        click_at=$(row_index_of f1198.txt)
+        click_y=$(rename_design_y_of "$click_at")
+        click_row "$click_at" left
         menus_expect renameState '.index == -1 and (.pending | not) and (.loading | not) and .cursorName == "f1198.txt"' "$mode click-away keeps clicked neighbour at bottom"
+        rename_design_stays "$mode deep click-away leaves the clicked row where it was" "$click_y"
         menus_equal "$mode deep click-away cursor" "$(row_index_of f1198.txt)" "$(ipc cursor)"
         rename_design_open F2 f1199-clickaway.txt
         rename_design_draft f1199.txt
+        click_y=$(rename_design_y_of "$(ipc cursor)")
         key -k Return >/dev/null
         menus_expect renameState '.index == -1 and (.pending | not) and (.loading | not) and .cursorName == "f1199.txt"' "$mode deep Enter keeps renamed row"
+        rename_design_stays "$mode deep Enter leaves the renamed row where it was" "$click_y"
         [[ "$(ipc cursor)" != "0" ]] || fail 'rename: deep Enter dropped the cursor to row 0'
         key -k Escape >/dev/null
         # One more click while the write is pending: the last clicked row wins.
@@ -287,14 +313,18 @@ case_renamedesign() (
         menus_expect renameState '.index >= 0 and .pending' "$mode rename waits while backend paused"
         click_row "$(row_index_of b-existing.md)" left
         click_row "$(row_index_of f0000.txt)" left
+        click_y=$(rename_design_y_of "$(ipc cursor)")
         permissions_resume_stopped "$click_pid" || fail 'rename: owned backend did not resume'
         rename_stopped=""
         menus_expect renameState '.index == -1 and (.pending | not) and (.loading | not) and .cursorName == "f0000.txt"' "$mode second click while pending wins"
+        rename_design_stays "$mode pending click-away leaves the clicked row where it was" "$click_y"
         menus_equal "$mode pending-click cursor" "$(row_index_of f0000.txt)" "$(ipc cursor)"
         rename_design_open r a-pending-click.md
         rename_design_draft a-original.md
+        click_y=$(rename_design_y_of "$(ipc cursor)")
         key -k Return >/dev/null
         menus_expect renameState '.index == -1 and (.pending | not) and (.loading | not) and .cursorName == "a-original.md"' "$mode pending fixture restored"
+        rename_design_stays "$mode Enter after the pending click leaves the renamed row where it was" "$click_y"
         key -k Escape >/dev/null
     done
     printf 'RENAME_%s_NATIVE_CHECKS=%s\n' "${proof^^}" "$menus_checks"

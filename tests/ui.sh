@@ -705,10 +705,15 @@ window_box() {
 
 click_row() {
     local index="$1"; shift
-    local centre cx cy wx wy ww wh
+    local centre cx cy wx wy ww wh ax ay aw ah
     centre=$(ipc rowCentre "$index")
     [[ -n "$centre" ]] || fail "row $index has no on-screen centre"
     read -r cx cy <<< "$centre"
+    # Sample input: 0 54 1000 619 (listAreaRect x y width height); a centre outside it lands on the status bar or an overlay.
+    read -r ax ay aw ah <<< "$(ipc listAreaRect)"
+    [[ "$ax $ay $aw $ah" =~ ^-?[0-9]+(\ -?[0-9]+){3}$ ]] || fail "row $index: the list area has no rectangle to check its centre against"
+    (( cx >= ax && cx < ax + aw && cy >= ay && cy < ay + ah )) \
+        || fail "row $index's centre $cx,$cy lies outside the visible list area $ax,$ay,$aw,$ah, so a click there misses the row"
     read -r wx wy ww wh < <(window_box) || fail "native window coordinates unavailable"
     # Everything after the index goes straight to omarchy-drive: the button, --double, --mods.
     omarchy-drive click "$((cx + wx))" "$((cy + wy))" "$@" >/dev/null

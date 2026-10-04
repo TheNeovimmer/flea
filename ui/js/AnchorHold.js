@@ -39,6 +39,23 @@ function viewRow(pane) {
     return view
 }
 
+// The surface that scrolls: the active column's own list in the columns view, the pane's list area elsewhere.
+function viewport(pane) {
+    if (pane.viewMode === "columns" && pane.columnsArea)
+        return pane.columnsArea.activeColumn().viewport
+    return pane.listArea || null
+}
+
+// Where the cursor row sits in the viewport, which restoreView puts back once a re-list has reset the view to its top.
+function viewFields(pane, rowH) {
+    var area = viewport(pane)
+    var rh = rowHeight(pane, rowH)
+    var view = viewRow(pane)
+    var contentY = area && typeof area.contentY === "number" ? area.contentY : 0
+    var originY = area && typeof area.originY === "number" ? area.originY : 0
+    return { offset: view * rh + originY - contentY, rowH: rh, view: view }
+}
+
 // Lists the anchor's own directory; a navigation while the anchor waited drops the anchor and lists nothing, so the debt never travels.
 function startList(pane, anchor) {
     if (!anchor || pane.path !== anchor.path)
@@ -108,9 +125,12 @@ function fillLocated(pane, anchor, matches) {
 }
 
 function restoreView(pane, anchor, rowH) {
-    var area = pane.listArea || null
+    var area = viewport(pane)
     if (!area || anchor.offset === undefined)
         return
+    // The count that just passed through 0 has not laid out yet, and a clamp against its stale height pins the view to the top.
+    if (typeof area.forceLayout === "function")
+        area.forceLayout()
     var rh = rowHeight(pane, rowH || anchor.rowH)
     var originY = typeof area.originY === "number" ? area.originY : 0
     var view = viewRow(pane)
