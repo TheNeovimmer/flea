@@ -181,4 +181,12 @@ function failedClipboard(check, pathsPane) {
         JSON.stringify(pane.clipboard), JSON.stringify({paths: ["/d/B"], moving: true, token: ""}))
     check("r2: failed latest Copy releases its pending request", pane.clipPending, null)
     check("r2: failed latest Copy removes only its finished request", pane.clipQueue.length, 0)
+    // A Permissions ask refused as stale (the watch relisted before it arrived) frees the claim and says why, so the next ask is not busy.
+    pane.pathsPending = {kind: "permissions"}
+    var saidBefore = pane.said.length
+    Messages.route(backend, {t: "error", where: "stale", path: "paths", msg: "rows out of date"})
+    check("stale Permissions ask releases its paths claim", pane.pathsPending, null)
+    check("stale Permissions ask tells the user nothing was done", JSON.stringify(pane.said.slice(saidBefore)), JSON.stringify([["The listing changed before that arrived, so nothing was done.", true]]))
+    Ops.copyAs(pane, "path", null)
+    check("the next ask after a stale Permissions refusal is not busy", pane.said.length, saidBefore + 1)
 }

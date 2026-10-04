@@ -433,30 +433,21 @@ cap_permissions_settled() {
     done
     fail "cap_permissions: Permissions never settled open and idle, last $state"
 }
-# Permissions040: a selected file removed after the menu opened and before Permissions asked about it, so its inspect fails with the backend's own words (the "other" note).
+# Permissions040: a selected file removed under the open card, so Apply fails on it and the card draws the backend's own words, with no paused backend.
 cap_permissions_vanished() {
-    local row="$1" gone="$2"
-    local want="zz-gone.txt keeps its mode: Could not inspect permissions: file or folder not found."
+    local row="$1" gone="$2" listed_after="$3"
+    local want="Could not inspect permissions: file or folder not found."
     [[ "$gone" == /?*/zz-gone.txt && "$gone" == "$fixture_root"/* ]] || fail "cap_permissions: the vanishing file is not inside the case's fixture"
-    click_row "$row" right
-    settle
-    [[ "$(ipc contextMenuVisible)" == "true" ]] || fail "cap_permissions: the menu on row $row never opened"
-    [[ "$(ipc menuState | jq -er '[.entries[] | select(.action == "permissions")][0].disabled')" == "false" ]] \
-        || fail "cap_permissions: Permissions is not live on row $row before the file goes"
-    mapfile -t pids < <(backend_pids)
-    [[ "${#pids[@]}" == 1 ]] || fail "cap_permissions: the vanished-file shot needs one owned backend"
-    pid="${pids[0]}"
-    permissions_stopped="$pid"
-    trap 'permissions_resume_stopped "$permissions_stopped"; kill_flea' EXIT
-    convert_pause_backend "$pid"
+    cap_permissions_open "$row"
     rm -f -- "$gone" || fail "cap_permissions: the fixture file could not be removed"
-    menu_seek "Permissions"
+    # The watch refresh lands before Apply, so the batch is the only thing left to fail.
+    wait_listing "$listed_after"
+    cap_permissions_focus "Owner execute" forward
+    key -k Space >/dev/null
+    cap_permissions_await '[.controls[] | select(.name == "Owner execute")][0].value == "on"' "Owner execute did not turn on before Apply"
+    cap_permissions_focus Apply forward
     key -k Return >/dev/null
-    permissions_resume_stopped "$pid" || fail "cap_permissions: the owned backend did not resume"
-    permissions_stopped=""
-    trap - EXIT
-    cap_permissions_settled
-    cap_permissions_expect ".displayedError == \"$want\"" "the vanished file draws another note than the backend's own words"
+    cap_permissions_await ".opened and (.busy | not) and .displayedError == \"$want\"" "the vanished file draws another line than the backend's own words"
     shot cap-permissions-other-note
     key -k Escape >/dev/null
     settle
@@ -637,7 +628,7 @@ case_cap_permissions() {
     settle
     click_row 8 left --mods ctrl
     settle
-    cap_permissions_vanished 0 "$dir/zz-gone.txt"
+    cap_permissions_vanished 0 "$dir/zz-gone.txt" 8
     cap_permissions_inflight
     printf 'CAP_PERMISSIONS mixed=3rows boxes=on,mixed,off,hover,pressed,click1,click2 single=apply,octal,error,disabled,close,special,pointer symlink=errored note=setuid menu=makeexec skips=applied,note,foreign other=note inflight=disabled closemark=rest,hover,pressed,focus\n'
     kill_flea

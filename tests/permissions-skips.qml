@@ -3,6 +3,7 @@
 import QtQuick
 import Quickshell
 import "flea" as Flea
+import "flea/js/Permissions.js" as Permissions
 
 // tests/permissions-skips.sh's harness: the several-items card counts only the files it will change, names the rest in one sentence, and draws its title strip on the board's rows.
 ShellRoot {
@@ -28,12 +29,15 @@ ShellRoot {
         if (cond) shell.log("PASS " + name)
         else shell.failures.push(name + " got " + detail)
     }
-    // Sample backend: {"c":"permissions","op":"inspect","id":1000,"path":"/a"} answers its mode and reason in arrival order.
+    // Sample backend: {"c":"permissions","op":"inspect","id":1000,"path":"/a"} answers its mode and reason in arrival order; a third entry makes that file's inspect fail with it.
     function answer(marked, answers) {
         var order = 0
         for (var i = marked; i < shell.sent.length; i++) {
             if (shell.sent[i].op !== "inspect") continue
-            dialog.receiveMany({op: "inspect", id: shell.sent[i].id, ok: true, mode: answers[order][0], reason: answers[order][1]})
+            if (answers[order].length > 2)
+                dialog.receiveMany({op: "inspect", id: shell.sent[i].id, ok: false, error: answers[order][2]})
+            else
+                dialog.receiveMany({op: "inspect", id: shell.sent[i].id, ok: true, mode: answers[order][0], reason: answers[order][1]})
             order += 1
         }
     }
@@ -76,6 +80,25 @@ ShellRoot {
         shell.check("status-bar-shows-the-one-skip-line-whole",
             shell.appliedNote.indexOf(shell.longestName) >= 0 && bar.primaryItem.text === shell.appliedNote && !bar.primaryItem.truncated,
             bar.primaryItem.text + "|truncated=" + bar.primaryItem.truncated + "|width=" + bar.primaryItem.width + "/" + bar.primaryItem.implicitWidth)
+    }
+
+    // The batch fails on a file that went after the card read it: the Apply error stays on the card, the re-read keeps every box, and zz-gone.txt's own refusal is held beside it.
+    function checkVanished() {
+        var gone = "Could not inspect permissions: file or folder not found."
+        shell.open(["/d/a.txt", "/d/zz-gone.txt"], [["0644", ""], ["0644", ""]])
+        dialog.multiToggle(shell.ownerExecute)
+        var marked = shell.sent.length
+        dialog.applyMany()
+        var batch = shell.sent[marked]
+        shell.check("vanished-apply-names-both-files", !!batch && batch.c === "permissionsBatch" && batch.paths.join(",") === "/d/a.txt,/d/zz-gone.txt", JSON.stringify(batch))
+        var reread = shell.sent.length
+        dialog.receiveMany({ op: "applyMany", id: dialog.requestId, ok: false, error: gone })
+        shell.check("vanished-batch-keeps-the-card-open-and-reads-both-again", dialog.opened && dialog.busy && shell.sent.length - reread === 2, dialog.opened + "/" + dialog.busy + "/" + (shell.sent.length - reread))
+        shell.answer(reread, [["0644", ""], ["", "", gone]])
+        shell.check("vanished-card-draws-the-apply-error-line", dialog.displayedError === gone, dialog.displayedError)
+        shell.check("vanished-card-settles-idle-and-open", dialog.opened && !dialog.busy, dialog.opened + "/" + dialog.busy)
+        var note = Permissions.inspectNote(dialog.multiStore, dialog.multiPaths)
+        shell.check("vanished-card-holds-the-skip-note-as-the-backend-worded-it", note === "zz-gone.txt keeps its mode: " + gone, note)
     }
 
     FloatingWindow {
@@ -149,9 +172,12 @@ ShellRoot {
             shell.checkStatusLine()
             shell.phase = 8
         } else if (shell.phase === 8) {
+            shell.checkVanished()
+            shell.phase = 9
+        } else if (shell.phase === 9) {
             for (var i = 0; i < shell.failures.length; i++) shell.log("FAIL " + shell.failures[i])
             shell.log("DONE failures=" + shell.failures.length)
-            shell.phase = 9
+            shell.phase = 10
             shell.quit()
         }
     }

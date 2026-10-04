@@ -14,7 +14,7 @@ checks=0
 failed=0
 foreign="y-foreign.txt keeps its mode because you do not own it."
 foreign_applied="y-foreign.txt kept its mode."
-other="zz-gone.txt keeps its mode: Could not inspect permissions: file or folder not found."
+other="Could not inspect permissions: file or folder not found."
 applied="special.txt kept its mode."
 note="2 items keep their modes because a special bit is set: special.txt, x-special.txt."
 
@@ -33,6 +33,7 @@ convert_pause_backend() { printf 'pause %s\n' "$1" >> "$log"; }
 permissions_resume_stopped() { [[ -z "$1" ]] || { printf 'resume %s\n' "$1" >> "$log"; printf '1\n' > "$sdir/resumed"; }; }
 cap_permissions_focus() { :; }
 menu_seek() { :; }
+wait_listing() { printf 'listing %s\n' "$1" >> "$log"; }
 # A sleep advances the shell's own clock, so a wait's deadline passes without a wall-clock second.
 sleep() { SECONDS=$((SECONDS + 1)); }
 # Each Return is one Apply and each open one card, which is what picks the state the reader answers.
@@ -77,10 +78,13 @@ ipc() {
         previewSwapState/faded-never) printf '{"look":{},"lookVisible":true}\n' ;;
         contextMenuVisible/*) printf 'true\n' ;;
         menuState/*) printf '{"entries":[{"action":"permissions","disabled":false}]}\n' ;;
-        permissionsState/vanish|permissionsState/vanishwrong)
-            if (( resumed == 0 )); then printf '%s\n' "$flight_state"
-            elif [[ "$mode" == vanish ]]; then printf '{"opened":true,"busy":false,"displayedError":"%s"}\n' "$other"
-            else printf '{"opened":true,"busy":false,"displayedError":"%s"}\n' "$foreign"; fi ;;
+        permissionsState/vanish|permissionsState/vanishwrong|permissionsState/vanishbox)
+            if (( returns == 0 )); then
+                # Before Apply the box reads off, and the Space turns it on unless the key never landed.
+                if [[ "$mode" == vanishbox ]]; then printf '{"opened":true,"busy":false,"displayedError":"","controls":[{"name":"Owner execute","value":"off"}]}\n'
+                else printf '{"opened":true,"busy":false,"displayedError":"","controls":[{"name":"Owner execute","value":"on"}]}\n'; fi
+            elif [[ "$mode" == vanishwrong ]]; then printf '{"opened":true,"busy":false,"displayedError":"zz-gone.txt keeps its mode: %s"}\n' "$other"
+            else printf '{"opened":true,"busy":false,"displayedError":"%s"}\n' "$other"; fi ;;
         permissionsState/flight|permissionsState/flightnow|permissionsState/never)
             if (( resumed == 1 )); then printf '%s\n' "$closed_state"
             elif [[ "$mode" == never ]] || (( returns == 0 )); then printf '%s\n' "$idle_state"
@@ -130,12 +134,14 @@ expect "skips fail at a deadline when the first Apply never closes the card" "$r
 run skips-live liveapply cap_permissions_skips
 expect "skips fail when the all-skipped card keeps a live Apply or an enabled box" "$rc $(grep -c 'is not nine disabled boxes holding the files' "$sdir/out")" "1 1"
 
-# One call of the helper against the file the stub's fixture would hold.
-vanish_case() { cap_permissions_vanished 0 "$fixture_root/zz-gone.txt"; }
+# One call of the helper against the file the stub's fixture would hold, named after the 8 rows left once it goes.
+vanish_case() { : > "$fixture_root/zz-gone.txt"; cap_permissions_vanished 0 "$fixture_root/zz-gone.txt" 8; local rc=$?; [[ ! -e "$fixture_root/zz-gone.txt" ]] && printf 'removed\n' >> "$log"; return $rc; }
 run vanished vanish vanish_case
-expect "a vanished file is removed while the backend is paused, then the backend's own note settles" "$rc $(tr '\n' ' ' < "$log")" "0 pause 4242 resume 4242 "
+expect "a file removed under the open card, the listing waited at 8 rows, then the Apply error line settles with no paused backend" "$rc $(tr '\n' ' ' < "$log")" "0 listing 8 removed "
 run vanished-wrong vanishwrong vanish_case
-expect "a note that is not the backend's own words fails the vanished-file shot" "$rc $(grep -c 'draws another note than the backend' "$sdir/out")" "1 1"
+expect "a line that is not the Apply error fails the vanished-file shot" "$rc $(grep -c 'draws another line than the backend' "$sdir/out")" "1 1"
+run vanished-box vanishbox vanish_case
+expect "a box that never turns on fails before Apply" "$rc $(grep -c 'Owner execute did not turn on before Apply' "$sdir/out")" "1 1"
 
 # The Quick Look wait before a listing shot: it returns once the overlay stops drawing, and fails at its deadline while it still does.
 overlay_gone() { pdf_overlay_gone listing; }
