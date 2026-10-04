@@ -86,6 +86,8 @@ ShellRoot {
             width: 200
             Flea.MenuRow { id: deadKeyRow; width: parent.width; entry: ({ label: "Paste", glyph: "clipboard", action: "paste", disabled: true, hint: "p" }) }
             Flea.MenuRow { id: liveKeyRow; width: parent.width; entry: ({ label: "Copy", glyph: "copy", action: "copy", hint: "y" }) }
+            Flea.MenuRow { id: dangerKeyRow; width: parent.width; entry: ({ label: "Move to Trash", glyph: "trash", action: "trash", danger: true, hint: "d" }) }
+            Flea.MenuRow { id: litKeyRow; width: parent.width; current: true; entry: ({ label: "Open", glyph: "folder-open", action: "open", hint: "enter" }) }
             Flea.MenuRow { id: reasonRow; width: parent.width; entry: ({ label: "Extract", glyph: "archive-out", action: "extract", disabled: true, hint: "bsdtar is not installed", hintWrap: true }) }
         }
         Flea.Glyph { id: invertGlyph; width: 19; height: 19; name: "contrast"; color: "#ff0000" }
@@ -256,7 +258,16 @@ ShellRoot {
         shell.check("hint:dead-key-hint-ink-is-the-label-ink", String(deadHint.color), String(deadLabel.color))
         shell.check("hint:dead-key-hint-opacity-is-the-label-opacity", deadHint.opacity, deadLabel.opacity)
         var liveLabel = shell.textDrawn(liveKeyRow, "Copy"), liveHint = shell.textDrawn(liveKeyRow, "y")
-        shell.check("hint:live-key-hint-keeps-the-label-ink", String(liveHint.color), String(liveLabel.color))
+        // MenuAdditions040 draws every key hint in the muted role, the glyph's own ink, whatever ink the label takes.
+        shell.check("hint:live-label-is-foreground-so-the-test-can-tell", String(liveLabel.color), String(Flea.Theme.color.foreground))
+        shell.check("hint:live-key-hint-is-muted", String(liveHint.color), String(Flea.Theme.color.muted))
+        var dangerLabel = shell.textDrawn(dangerKeyRow, "Move to Trash"), dangerHint = shell.textDrawn(dangerKeyRow, "d")
+        shell.check("hint:danger-label-is-the-error-ink", String(dangerLabel.color), String(Flea.Theme.color.error))
+        shell.check("hint:danger-key-hint-is-muted", String(dangerHint.color), String(Flea.Theme.color.muted))
+        var litLabel = shell.textDrawn(litKeyRow, "Open"), litHint = shell.textDrawn(litKeyRow, "enter")
+        shell.check("hint:lit-row-is-lit", litKeyRow.current, true)
+        shell.check("hint:lit-key-hint-is-muted", String(litHint.color), String(Flea.Theme.color.muted))
+        shell.check("hint:key-hint-is-caption-size", liveHint.font.pixelSize, Flea.Theme.font.caption)
         shell.check("hint:live-key-hint-is-full-opacity", liveHint.opacity, 1)
         var reason = shell.textDrawn(reasonRow, "bsdtar is not installed")
         shell.check("hint:dead-reason-stays-foreground", String(reason.color), String(Flea.Theme.color.foreground))

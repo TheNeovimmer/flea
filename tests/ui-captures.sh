@@ -22,6 +22,17 @@ cap_resize() {
     fail "captures: viewport did not reach ${target_width}x${target_height}, it is ${width}x${height}"
 }
 
+# One menuState read must satisfy a jq expression within a bound before a shot is taken, so every state is asserted, never assumed.
+cap_menu_expect() {
+    local expression="$1" label="$2" observed poll menu_polls=100
+    for poll in $(seq 1 "$menu_polls"); do
+        observed=$(ipc menuState) || fail "captures: the menu observer failed for $label"
+        jq -e "$expression" <<< "$observed" >/dev/null && return 0
+        sleep 0.05
+    done
+    fail "captures: $label: $observed"
+}
+
 # Tabs040: three tabs with one held mid-drag, then Settings View Opening on Last folder, and its tail scrolled into frame with the hint.
 case_cap_tabs() {
     local dir="$fixture_root/cap-tabs"
@@ -369,6 +380,120 @@ case_cap_menus2() {
     key -k Escape >/dev/null
     settle
     printf 'CAP_MENUS2 makeexec=ok two-files=ok nohints=ok settings-tail=ok place=ok\n'
+    kill_flea
+}
+
+# MenuAdditions040 states the first two menu cases leave out: board a as drawn (defaults plus Copy as and Paste as, a file on the clipboard, hints on, both flyouts), c and P at shipped defaults (the lone flyout), board f (Invert on, hints off, empty clipboard) and Show original's result.
+case_cap_menus3() {
+    local dir="$fixture_root/cap-menus3" hidden_board_a hidden_board_f copyas_leaves pasteas_leaves cursor_row polls
+    local show_original_polls=100
+    sandbox_scratch "$dir"
+    mkdir -p "$dir/orig"
+    printf 'target\n' > "$dir/orig/target.txt"
+    printf 'plain\n' > "$dir/plain.txt"
+    ln -s orig/target.txt "$dir/link.txt" || fail "cap_menus3: the symlink fixture could not be made"
+    copyas_leaves='Path|Name|Name without extension|Folder path|File URI|Shell-quoted'
+    pasteas_leaves='Link|Absolute link|Hard link'
+    # DEFAULTS' twelve less Copy as and Paste as, which board a switches on; the other ten stay as shipped.
+    hidden_board_a='"delete","openTerminal","placeMenu","runScript","moveto","copyto","properties","permissions","invertSelection","extThumbs"'
+    seed_ui_state "$fixture_root/cap-menus3-a-state" "$(printf '{"keys":"default","view":"list","keyHints":true,"menu":{"hidden":[%s]}}' "$hidden_board_a")"
+    launch "$dir"
+    wait_listing 3
+    click_row "$(row_index_of plain.txt)" left
+    settle
+    key y >/dev/null
+    settle
+    [[ "$(ipc keyDeliveryState | jq -er '.clipboard.paths | length')" == "1" ]] \
+        || fail "cap_menus3: y put no file on the clipboard for board a"
+    click_row "$(row_index_of plain.txt)" right
+    settle
+    cap_menu_expect '.opened and .hasRow and ([.entries[] | select(.action == "copyAs" or .action == "pasteAs")] | length) == 2 and ([.entries[] | select(.action == "paste")][0].disabled == false)' "board a: the file menu shows Copy as and Paste as with a live Paste"
+    [[ "$(ipc contextMenuHints | tr -d '|')" != "" ]] || fail "cap_menus3: board a drew no key hints"
+    menu_seek "Copy as"
+    key -k Right >/dev/null
+    settle
+    [[ "$(ipc contextMenuSubmenuEntries)" == "$copyas_leaves" ]] \
+        || fail "cap_menus3: board a's Copy as flyout offers $(ipc contextMenuSubmenuEntries), want $copyas_leaves"
+    shot cap-menus3-board-a-copyas
+    key -k Escape >/dev/null
+    settle
+    menu_seek "Paste as"
+    key -k Right >/dev/null
+    settle
+    [[ "$(ipc contextMenuSubmenuEntries)" == "$pasteas_leaves" ]] \
+        || fail "cap_menus3: board a's Paste as flyout offers $(ipc contextMenuSubmenuEntries), want $pasteas_leaves"
+    shot cap-menus3-board-a-pasteas
+    key -k Escape >/dev/null
+    settle
+    key -k Escape >/dev/null
+    settle
+    [[ "$(ipc contextMenuVisible)" == "false" ]] || fail "cap_menus3: board a's menu stayed open"
+    kill_flea
+    seed_ui_state "$fixture_root/cap-menus3-lone-state" '{"keys":"default","view":"list","keyHints":true}'
+    launch "$dir"
+    wait_listing 3
+    click_row "$(row_index_of plain.txt)" left
+    settle
+    key y >/dev/null
+    settle
+    [[ "$(ipc keyDeliveryState | jq -er '.clipboard.paths | length')" == "1" ]] \
+        || fail "cap_menus3: y put no file on the clipboard for the lone Paste as flyout"
+    key c >/dev/null
+    settle
+    cap_menu_expect '.opened and .submenu and ([.entries[] | select(.action == "copyAs")] | length) == 0 and ([.submenuEntries[].label] | join("|")) == "'"$copyas_leaves"'"' "c at defaults opens the lone Copy as flyout"
+    shot cap-menus3-lone-copyas
+    key -k Escape >/dev/null
+    settle
+    key -k Escape >/dev/null
+    settle
+    [[ "$(ipc contextMenuVisible)" == "false" ]] || fail "cap_menus3: the lone Copy as menu stayed open"
+    key P >/dev/null
+    settle
+    cap_menu_expect '.opened and .submenu and ([.entries[] | select(.action == "pasteAs")] | length) == 0 and ([.submenuEntries[].label] | join("|")) == "'"$pasteas_leaves"'"' "P at defaults opens the lone Paste as flyout"
+    shot cap-menus3-lone-pasteas
+    key -k Escape >/dev/null
+    settle
+    key -k Escape >/dev/null
+    settle
+    kill_flea
+    # DEFAULTS' twelve less Invert selection, which board f switches on, with hints off and nothing on the clipboard.
+    hidden_board_f='"delete","openTerminal","placeMenu","runScript","moveto","copyto","properties","permissions","copyAs","pasteAs","extThumbs"'
+    seed_ui_state "$fixture_root/cap-menus3-f-state" "$(printf '{"keys":"default","view":"list","keyHints":false,"menu":{"hidden":[%s]}}' "$hidden_board_f")"
+    launch "$dir"
+    wait_listing 3
+    click_row "$(row_index_of plain.txt)" left
+    settle
+    [[ "$(ipc selectionCount)" == "1" ]] || fail "cap_menus3: board f needs one selected row, got $(ipc selectionCount)"
+    [[ "$(ipc keyDeliveryState | jq -er '.clipboard.paths | length')" == "0" ]] \
+        || fail "cap_menus3: board f needs an empty clipboard, got $(ipc keyDeliveryState)"
+    click_background
+    settle
+    cap_menu_expect '.opened and (.hasRow | not) and ([.entries[] | select(.action == "invertSelection")] | length) == 1 and ([.entries[] | select(.action == "paste")][0].disabled == true)' "board f: Invert selection shows and Paste is dead"
+    [[ "$(ipc contextMenuHints | tr -d '|')" == "" ]] || fail "cap_menus3: board f drew hints with them off: $(ipc contextMenuHints)"
+    shot cap-menus3-board-f
+    key -k Escape >/dev/null
+    settle
+    kill_flea
+    seed_ui_state "$fixture_root/cap-menus3-original-state" '{"keys":"default","view":"list"}'
+    launch "$dir"
+    wait_listing 3
+    click_row "$(row_index_of link.txt)" right
+    settle
+    [[ "|$(ipc contextMenuEntries)|" == *"|Show original|"* ]] \
+        || fail "cap_menus3: the symlink menu offers no Show original, got $(ipc contextMenuEntries)"
+    menu_seek "Show original"
+    key -k Return >/dev/null
+    wait_path "$dir/orig"
+    # The reveal lands the target's row as the sole selection once the listing of its folder arrives.
+    for polls in $(seq 1 "$show_original_polls"); do
+        cursor_row=$(ipc rowAt "$(ipc cursor)" 2>/dev/null || printf none)
+        [[ "$cursor_row" == "target.txt|"* && "$(ipc selectionCount)" == "1" ]] && break
+        sleep 0.05
+    done
+    [[ "$cursor_row" == "target.txt|"* && "$(ipc selectionCount)" == "1" ]] \
+        || fail "cap_menus3: Show original left the cursor on $cursor_row with $(ipc selectionCount) selected, not target.txt alone"
+    shot cap-menus3-show-original
+    printf 'CAP_MENUS3 board-a=ok lone=ok board-f=ok show-original=ok\n'
     kill_flea
 }
 

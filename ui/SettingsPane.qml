@@ -59,6 +59,7 @@ Flickable {
     // which is what scrolls; a fully transparent stop is written in the ground's own channels,
     // because "transparent" is black at zero alpha and ramps through grey on the way there.
     Rectangle {
+        id: tailFade
         parent: root
         anchors.left: parent.left
         anchors.right: parent.right
@@ -89,10 +90,11 @@ Flickable {
             root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, item.y))
             return
         }
+        // A row revealed from below clears the lower-edge fade, or stops at the content's end where none is drawn.
         if (item.y < root.contentY)
             root.contentY = item.y
-        else if (item.y + item.height > root.contentY + root.height)
-            root.contentY = item.y + item.height - root.height
+        else if (item.y + item.height > root.contentY + root.height - tailFade.height)
+            root.contentY = Math.max(0, Math.min(root.contentHeight - root.height, item.y + item.height + tailFade.height - root.height))
     }
 
     Repeater {
