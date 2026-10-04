@@ -1,4 +1,5 @@
 .import "../../ui/js/SheetQuery.js" as SheetQuery
+.import "../../ui/js/SheetKeys.js" as SheetKeys
 .import "../../ui/js/Keymap.js" as Keymap
 .import "../../ui/js/Swap.js" as Swap
 .import "sourcefixture.js" as Source
@@ -46,10 +47,15 @@ function run(check) {
     // Sample input: cap_sheet_type perm
     var typed = capture.match(/^\s*cap_sheet_type [a-z]+$/gm) || []
     var captureQueries = typed.map(function (line) { return line.trim().split(/\s+/)[1] })
-    check("the capture types the place, capless and Permissions specimens in order", captureQueries.join(","), "trash,comp,perm")
-    var captureRows = SheetQuery.rank(SheetQuery.actionCandidates(Keymap.sheetFor("default", "gui", false)), captureQueries[2])
+    check("the capture types the place, place and recent, leaves, Permissions and delete card specimens in order", captureQueries.join(","), "trash,fl,comp,perm,perm")
+    var captureRows = SheetQuery.rank(SheetQuery.actionCandidates(Keymap.sheetFor("default", "gui", false)), captureQueries[3])
     check("the capture query finds its shipped board row",
           captureRows.map(function (row) { return row.keys + " " + row.label }).join("\n"), "shift-delete delete permanently")
+    // CommandPalette "After typing fl": the favourite flea leads the recent file mix.flac, each with its own where.
+    var flRows = SheetQuery.rank(SheetQuery.placeCandidates([{ label: "flea", group: "favourite", kind: "favourite", path: "/home/probe/flea" }]).concat(
+        SheetQuery.recentCandidates(["/home/probe/Documents/claude/mix.flac"], "/home/probe")), captureQueries[1])
+    check("fl lists the favourite then the recent file", flRows.map(function (row) { return row.label + " in " + row.where }).join("|"),
+          "Open flea in Favorites|Open mix.flac in ~/Documents/claude")
     // An exact NAME match ranks first, above an exact action label.
     var trashRows = [
         { label: "trash", keys: "dd", section: 0, where: "", action: "trash" },
@@ -73,6 +79,14 @@ function run(check) {
         many.push(candidate("open " + i, "", i % 4))
     }
     check("the list is bounded", SheetQuery.rank(many, "open").length <= SheetQuery.RESULT_LIMIT, true)
+    // A flyout parent whose leaf is listed leaves the list, so the cursor starts on the leaf (CommandPalette "After typing comp").
+    var flyout = [
+        { label: "Compress", keys: "", section: 1, where: "", menuAction: "compress" },
+        { label: "Compress to .zip", keys: "", section: 1, where: "", menuAction: "compress:zip", parentAction: "compress" },
+        { label: "Open with", keys: "", section: 1, where: "", menuAction: "openWith" }
+    ]
+    check("the leaf holds the first row under comp", SheetQuery.rank(flyout, "comp").map(function (row) { return row.label }).join("|"), "Compress to .zip")
+    check("a parent no leaf matched keeps its row", SheetQuery.rank(flyout, "open w").map(function (row) { return row.label }).join("|"), "Open with")
     // The matched run is what the sheet washes.
     var at = SheetQuery.matchOf("Compress to .zip", "comp")
     check("a match names its run start", at && at.start, 0)
@@ -81,7 +95,9 @@ function run(check) {
     // A key that works in one place only says where, from the key table's own context.
     check("listing names no place", SheetQuery.whereForContext("listing"), "")
     check("a multi-context key names none either", SheetQuery.whereForContext("rail,menu"), "")
-    check("a single place is named", SheetQuery.whereForContext("media"), "media")
+    check("the media preview is named as the UI names it", SheetQuery.whereForContext("media"), "Preview")
+    check("a context the UI never names is left out", SheetQuery.whereForContext("pdf"), "")
+    check("a raw id is never the suffix", SheetQuery.whereForContext("all"), "")
 
     // A sheet menu row closes then the holder runs it, but it refuses while a listing is out.
     var calls = []
@@ -98,45 +114,45 @@ function run(check) {
     check("a menu row refuses while a listing is out", blocked.join(","), "message:A directory is already loading.:false")
 
     // A printable key types into the query; DEL never does, so Delete types nothing invisible.
-    check("a letter is printable", SheetQuery.isPrintable("c"), true)
-    check("a space is printable", SheetQuery.isPrintable(" "), true)
-    check("DEL is not printable", SheetQuery.isPrintable("\u007f"), false)
-    check("empty is not printable", SheetQuery.isPrintable(""), false)
-    check("two chars are not printable", SheetQuery.isPrintable("ab"), false)
+    check("a letter is printable", SheetKeys.isPrintable("c"), true)
+    check("a space is printable", SheetKeys.isPrintable(" "), true)
+    check("DEL is not printable", SheetKeys.isPrintable("\u007f"), false)
+    check("empty is not printable", SheetKeys.isPrintable(""), false)
+    check("two chars are not printable", SheetKeys.isPrintable("ab"), false)
     // A bare modifier press is no query edit and never closes the sheet, so a shifted letter types.
-    check("Shift alone is a bare modifier", SheetQuery.isBareModifier(Qt.Key_Shift), true)
-    check("Control alone is a bare modifier", SheetQuery.isBareModifier(Qt.Key_Control), true)
-    check("Alt alone is a bare modifier", SheetQuery.isBareModifier(Qt.Key_Alt), true)
-    check("AltGr alone is a bare modifier", SheetQuery.isBareModifier(Qt.Key_AltGr), true)
-    check("Meta alone is a bare modifier", SheetQuery.isBareModifier(Qt.Key_Meta), true)
-    check("CapsLock alone is a bare modifier", SheetQuery.isBareModifier(Qt.Key_CapsLock), true)
-    check("Delete is no bare modifier", SheetQuery.isBareModifier(Qt.Key_Delete), false)
-    check("Escape is no bare modifier", SheetQuery.isBareModifier(Qt.Key_Escape), false)
+    check("Shift alone is a bare modifier", SheetKeys.isBareModifier(Qt.Key_Shift), true)
+    check("Control alone is a bare modifier", SheetKeys.isBareModifier(Qt.Key_Control), true)
+    check("Alt alone is a bare modifier", SheetKeys.isBareModifier(Qt.Key_Alt), true)
+    check("AltGr alone is a bare modifier", SheetKeys.isBareModifier(Qt.Key_AltGr), true)
+    check("Meta alone is a bare modifier", SheetKeys.isBareModifier(Qt.Key_Meta), true)
+    check("CapsLock alone is a bare modifier", SheetKeys.isBareModifier(Qt.Key_CapsLock), true)
+    check("Delete is no bare modifier", SheetKeys.isBareModifier(Qt.Key_Delete), false)
+    check("Escape is no bare modifier", SheetKeys.isBareModifier(Qt.Key_Escape), false)
     // The key decision the sheet's Keys.onPressed runs: CommandPalette callout 2, Esc closes the sheet from any state.
-    check("Esc closes from a standing query", SheetQuery.sheetKey("co", 2, 0, Qt.Key_Escape, ""), "close")
-    check("Esc with none closes", SheetQuery.sheetKey("", 0, 0, Qt.Key_Escape, ""), "close")
+    check("Esc closes from a standing query", SheetKeys.sheetKey("co", 2, 0, Qt.Key_Escape, ""), "close")
+    check("Esc with none closes", SheetKeys.sheetKey("", 0, 0, Qt.Key_Escape, ""), "close")
     // The header reads "esc closes" in every state, and no branch of the sheet still empties a query on Esc.
     var sheetText = Source.source("ui/KeymapSheet.qml")
     check("the header never reads esc clears", sheetText.indexOf("esc clears"), -1)
     check("the header reads esc closes in every state", sheetText.indexOf('text: "esc closes"') >= 0, true)
     check("the sheet has no clear branch", sheetText.indexOf('decision === "clear"'), -1)
     // Backspace shortening the query a character at a time is driven through the sheet's own handler, in tests/sheet-query.qml.
-    check("Up moves the cursor", SheetQuery.sheetKey("c", 3, 1, Qt.Key_Up, ""), "up")
-    check("Down moves the cursor", SheetQuery.sheetKey("c", 3, 1, Qt.Key_Down, ""), "down")
-    check("Return runs the row", SheetQuery.sheetKey("c", 3, 0, Qt.Key_Return, ""), "activate")
-    check("Enter runs the row too", SheetQuery.sheetKey("c", 3, 0, Qt.Key_Enter, ""), "activate")
-    check("Backspace shortens a query", SheetQuery.sheetKey("c", 1, 0, Qt.Key_Backspace, ""), "backspace")
-    check("Backspace with none closes", SheetQuery.sheetKey("", 0, 0, Qt.Key_Backspace, ""), "close")
-    check("a letter types", SheetQuery.sheetKey("", 0, 0, Qt.Key_C, "c"), "type")
-    check("Shift alone is ignored", SheetQuery.sheetKey("co", 2, 0, Qt.Key_Shift, ""), "ignore")
-    check("Shift first is ignored too", SheetQuery.sheetKey("", 0, 0, Qt.Key_Shift, ""), "ignore")
-    check("Delete never types DEL", SheetQuery.sheetKey("co", 2, 0, Qt.Key_Delete, "\u007f"), "ignore")
-    check("an unbound key closes", SheetQuery.sheetKey("co", 2, 0, Qt.Key_F1, ""), "close")
+    check("Up moves the cursor", SheetKeys.sheetKey("c", 3, 1, Qt.Key_Up, ""), "up")
+    check("Down moves the cursor", SheetKeys.sheetKey("c", 3, 1, Qt.Key_Down, ""), "down")
+    check("Return runs the row", SheetKeys.sheetKey("c", 3, 0, Qt.Key_Return, ""), "activate")
+    check("Enter runs the row too", SheetKeys.sheetKey("c", 3, 0, Qt.Key_Enter, ""), "activate")
+    check("Backspace shortens a query", SheetKeys.sheetKey("c", 1, 0, Qt.Key_Backspace, ""), "backspace")
+    check("Backspace with none closes", SheetKeys.sheetKey("", 0, 0, Qt.Key_Backspace, ""), "close")
+    check("a letter types", SheetKeys.sheetKey("", 0, 0, Qt.Key_C, "c"), "type")
+    check("Shift alone is ignored", SheetKeys.sheetKey("co", 2, 0, Qt.Key_Shift, ""), "ignore")
+    check("Shift first is ignored too", SheetKeys.sheetKey("", 0, 0, Qt.Key_Shift, ""), "ignore")
+    check("Delete never types DEL", SheetKeys.sheetKey("co", 2, 0, Qt.Key_Delete, "\u007f"), "ignore")
+    check("an unbound key closes", SheetKeys.sheetKey("co", 2, 0, Qt.Key_F1, ""), "close")
     // The cursor wraps at both ends, the way the sheet's arrows move.
-    check("Up at the top wraps to the last", SheetQuery.stepCursor(0, -1, 3), 2)
-    check("Down at the end wraps to the first", SheetQuery.stepCursor(2, 1, 3), 0)
-    check("a middle step does not wrap", SheetQuery.stepCursor(1, -1, 3), 0)
-    check("no rows parks the cursor", SheetQuery.stepCursor(0, 1, 0), 0)
+    check("Up at the top wraps to the last", SheetKeys.stepCursor(0, -1, 3), 2)
+    check("Down at the end wraps to the first", SheetKeys.stepCursor(2, 1, 3), 0)
+    check("a middle step does not wrap", SheetKeys.stepCursor(1, -1, 3), 0)
+    check("no rows parks the cursor", SheetKeys.stepCursor(0, 1, 0), 0)
     // The place lookup answers the rail's own index, never the first label match.
     var dupes = [
         { label: "src", group: "favourite", kind: "favourite", path: "/a/src", original: { label: "src", path: "/a/src" } },
@@ -219,9 +235,10 @@ function run(check) {
     check("the sheet the cap column measures does not narrow with the query", tableSource.indexOf("root.query"), -1)
     check("the ranked results are the only thing the query narrows", tableSource.indexOf("SheetQuery.rank"), -1)
     // A place or recent result says where inline, muted, right after its name.
-    var hitSource = Source.slice(sheetText, "id: hitLabel", "id: hitWhere")
+    var resultText = Source.source("ui/KeymapSheetResult.qml")
+    var hitSource = Source.slice(resultText, "id: hitLabel", "id: hitWhere")
     check("the name does not stop at a right-anchored suffix", hitSource.indexOf("anchors.right: hitWhere.left"), -1)
-    var whereSource = Source.slice(sheetText, "id: hitWhere", "visible: root.query.length === 0")
+    var whereSource = Source.slice(resultText, "id: hitWhere", "elide: Text.ElideRight\n    }\n}")
     check("the suffix follows the name", whereSource.indexOf("anchors.left: hitLabel.right") >= 0, true)
     check("the suffix reads as a space then in, inline with the name", whereSource.indexOf('" in " + hit.whereText') >= 0, true)
 }

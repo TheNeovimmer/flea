@@ -5,6 +5,7 @@ import "js/Keymap.js" as Keymap
 import "js/Menu.js" as Menu
 import "js/Places.js" as Places
 import "js/RailKeys.js" as RailKeys
+import "js/SheetKeys.js" as SheetKeys
 import "js/SheetQuery.js" as SheetQuery
 
 // The keymap sheet ? opens, drawn as the Keys panel on Operations.dc.html draws it. Every row comes
@@ -186,7 +187,11 @@ Item {
     }
     readonly property int cellFloor: root.capWidth + root.capGap + Math.ceil(labelFloor.width)
     // Two columns is what the canvas draws, and what keeps the whole map on one panel where it fits.
-    readonly property int columns: body.width >= 2 * root.cellFloor + Theme.spacing.rowPaddingX ? 2 : 1
+    readonly property int columns: root.contentWidth >= 2 * root.cellFloor + Theme.spacing.rowPaddingX ? 2 : 1
+
+    // The body spans the card's inner width so a result's lift can run edge to edge; the text keeps its padded columns.
+    readonly property real textInset: Theme.spacing.rowPaddingX - Theme.spacing.hairline
+    readonly property real contentWidth: body.width - 2 * root.textInset
 
     TextMetrics {
         id: capMetrics
@@ -276,12 +281,27 @@ Item {
         }
     }
 
+    // The resting card's body: the title, then the taller of the two columns of the key grid.
+    readonly property real restBodyHeight: {
+        var tall = 0
+        for (var c = 0; c < root.columnSlots.length; c++) {
+            var column = 0
+            for (var r = 0; r < root.columnSlots[c].length; r++)
+                column += root.columnSlots[c][r].heading.length > 0 ? root.headingPitch : root.rowPitch
+            tall = Math.max(tall, column)
+        }
+        return title.implicitHeight + Theme.spacing.gap + tall
+    }
+    readonly property real restCardHeight: Math.min(root.restBodyHeight + 2 * Theme.spacing.rowPaddingX, root.height - 2 * root.clampMargin)
+
     Rectangle {
         id: card
-        anchors.centerIn: parent
+        anchors.horizontalCenter: parent.horizontalCenter
+        // The rest card centres, and a query grows or shrinks it from its bottom, so the title never moves.
+        y: Math.round((root.height - root.restCardHeight) / 2)
         width: Math.max(0, Math.min(Theme.space(root.sheetWidth) * Theme.dialogWidthRatio, root.width - 2 * root.clampMargin))
-        // Clamped to the window; the body scrolls whatever the clamp cut, see ui/CardScroll.qml.
-        height: Math.min(body.wanted + 2 * Theme.spacing.rowPaddingX, root.height - 2 * root.clampMargin)
+        // Clamped to the window below its top; the body scrolls whatever the clamp cut, see ui/CardScroll.qml.
+        height: Math.min(body.wanted + 2 * Theme.spacing.rowPaddingX, root.height - card.y - root.clampMargin)
         color: Theme.color.surface
         border.width: Theme.spacing.hairline
         border.color: Theme.color.muted
@@ -291,10 +311,14 @@ Item {
         Flea.CardScroll {
             id: body
             anchors.fill: parent
-            anchors.margins: Theme.spacing.rowPaddingX
+            anchors.topMargin: Theme.spacing.rowPaddingX
+            anchors.bottomMargin: Theme.spacing.rowPaddingX
+            anchors.leftMargin: card.border.width
+            anchors.rightMargin: card.border.width
 
         Column {
-            width: parent.width
+            x: root.textInset
+            width: root.contentWidth
             spacing: Theme.spacing.gap
 
             // Rule 2: the one clause a reader needs, in the corner every other surface puts it in.
@@ -385,69 +409,16 @@ Item {
                 visible: root.query.length > 0
                 Repeater {
                     model: root.queryResults
-                    delegate: Item {
-                        id: hit
-                        required property var modelData
-                        required property int index
+                    delegate: Flea.KeymapSheetResult {
                         width: parent.width
-                        height: root.rowPitch
-                        clip: true
-                        // What a row has left of its width after the cap column.
-                        readonly property real labelColumn: hit.width - root.capWidth - root.capGap
-                        readonly property string whereText: String(hit.modelData.where || "")
-                        Rectangle {
-                            anchors.fill: parent
-                            visible: hit.index === root.resultCursor
-                            color: Qt.alpha(Theme.color.foreground, Theme.washHover)
-                        }
-                        Rectangle {
-                            id: hitCap
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: root.capWidth
-                            height: root.capSize
-                            color: "transparent"
-                            border.width: hit.modelData.keys.length > 0 ? Theme.spacing.hairline : 0
-                            border.color: Theme.color.muted
-                            Text {
-                                anchors.fill: parent
-                                anchors.margins: Theme.spacing.hairline
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                text: hit.modelData.keys
-                                color: hit.modelData.disabled === true ? Theme.color.muted : Theme.color.foreground
-                                font.family: Theme.font.family
-                                font.pixelSize: Theme.font.caption
-                                textFormat: Text.PlainText
-                                elide: Text.ElideRight
-                            }
-                        }
-                        Flea.MatchText {
-                            id: hitLabel
-                            anchors.left: hitCap.right
-                            anchors.leftMargin: root.capGap
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: Math.min(implicitWidth, hit.labelColumn - hitWhere.width)
-                            text: hit.modelData.label
-                            color: hit.modelData.disabled === true ? Theme.color.muted : Theme.color.foreground
-                            pixelSize: Theme.font.caption
-                            matchStart: SheetQuery.matchOf(hit.modelData.label, root.query) ? SheetQuery.matchOf(hit.modelData.label, root.query).start : -1
-                            matchLength: SheetQuery.matchOf(hit.modelData.label, root.query) ? SheetQuery.matchOf(hit.modelData.label, root.query).length : 0
-                        }
-                        // Where the result lives, muted and inline right after its name, as the board draws it; it keeps its width, so a long name elides instead.
-                        Text {
-                            id: hitWhere
-                            anchors.left: hitLabel.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: hit.whereText.length > 0 ? Math.min(implicitWidth, hit.labelColumn * root.whereShare) : 0
-                            visible: hit.whereText.length > 0
-                            text: hit.whereText.length > 0 ? " in " + hit.whereText : ""
-                            color: Theme.color.muted
-                            font.family: Theme.font.family
-                            font.pixelSize: Theme.font.caption
-                            textFormat: Text.PlainText
-                            elide: Text.ElideRight
-                        }
+                        resultCursor: root.resultCursor
+                        query: root.query
+                        capWidth: root.capWidth
+                        capSize: root.capSize
+                        capGap: root.capGap
+                        rowPitch: root.rowPitch
+                        textInset: root.textInset
+                        whereShare: root.whereShare
                     }
                 }
             }
@@ -462,7 +433,7 @@ Item {
                     delegate: Column {
                         id: block
                         required property var modelData
-                        width: (body.width - (root.columns - 1) * Theme.spacing.rowPaddingX) / root.columns
+                        width: (root.contentWidth - (root.columns - 1) * Theme.spacing.rowPaddingX) / root.columns
 
                         Repeater {
                             model: block.modelData
@@ -545,11 +516,11 @@ Item {
         anchors.fill: parent
         focus: true
 
-        // Esc closes the sheet from any state; every key answers through SheetQuery.sheetKey.
+        // Esc closes the sheet from any state; every key answers through SheetKeys.sheetKey.
         Keys.onPressed: function (event) {
-            var decision = SheetQuery.sheetKey(root.query, root.queryResults.length, root.resultCursor, event.key, event.text)
+            var decision = SheetKeys.sheetKey(root.query, root.queryResults.length, root.resultCursor, event.key, event.text)
             if (decision === "up" || decision === "down") {
-                root.resultCursor = SheetQuery.stepCursor(root.resultCursor, decision === "up" ? -1 : 1, root.queryResults.length)
+                root.resultCursor = SheetKeys.stepCursor(root.resultCursor, decision === "up" ? -1 : 1, root.queryResults.length)
             }
             else if (decision === "activate") { root.activateResult() }
             else if (decision === "backspace") { root.query = root.query.substring(0, root.query.length - 1) }

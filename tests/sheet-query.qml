@@ -55,7 +55,13 @@ ShellRoot {
         implicitWidth: 900
         implicitHeight: 700
         color: "#303030"
-        Flea.KeymapSheet { id: sheet; anchors.fill: parent }
+        // The stage stands in for the window's height, which an offscreen window never changes.
+        Item {
+            id: stage
+            width: parent.width
+            height: parent.height
+            Flea.KeymapSheet { id: sheet; anchors.fill: parent }
+        }
         Item { anchors.fill: parent; TestEvent { id: driver } }
     }
 
@@ -73,13 +79,19 @@ ShellRoot {
             root.restLabelX = sheet.cardItem.x
             root.phase = 1
         } else if (root.phase === 1) {
+            root.restTitleY = root.titleY()
+            root.restCardTop = sheet.cardItem.y
+            root.checkTop("rest")
             sheet.query = "perm"
             root.phase = 2
         } else if (root.phase === 2) {
+            root.checkTop("perm")
+            root.checkLift()
             root.checkPerm()
             sheet.query = "trash"
             root.phase = 3
         } else if (root.phase === 3) {
+            root.checkTop("trash")
             root.checkPlace()
             root.checkBackspace()
             sheet.open(holder)
@@ -87,13 +99,54 @@ ShellRoot {
             sheet.query = "open"
             root.phase = 4
         } else if (root.phase === 4) {
+            root.checkTop("open")
             root.checkLongName()
             sheet.open(holder)
             sheet.query = "comp"
             root.phase = 5
         } else if (root.phase === 5) {
+            root.checkTop("comp")
             root.checkCompress()
+            // A query whose rows outgrow the window keeps the title and scrolls inside the clamp.
+            sheet.query = "e"
             root.phase = 6
+        } else if (root.phase === 6) {
+            root.checkTop("a taller state than the window")
+            root.expect("the tall state is clamped, so it scrolls inside", sheet.cardItem.height < root.tallWanted(), sheet.cardItem.height)
+            sheet.query = ""
+            root.phase = 7
+        } else if (root.phase === 7) {
+            root.checkTop("the empty query")
+            // A window taller than the rest card, where the card sits centred and its top is no clamp's.
+            stage.height = root.tallWindowHeight
+            sheet.open(holder)
+            root.phase = 8
+        } else if (root.phase === 8) {
+            root.restTitleY = root.titleY()
+            root.restCardTop = sheet.cardItem.y
+            root.expect("the window took its new height", sheet.height === root.tallWindowHeight, sheet.height)
+            root.expect("a tall window centres the rest card", sheet.cardItem.y > sheet.clampMargin, sheet.cardItem.y)
+            sheet.query = "perm"
+            root.phase = 9
+        } else if (root.phase === 9) {
+            root.checkTop("tall window perm")
+            sheet.query = "comp"
+            root.phase = 10
+        } else if (root.phase === 10) {
+            root.checkTop("tall window comp")
+            sheet.query = "e"
+            root.phase = 11
+        } else if (root.phase === 11) {
+            root.checkTop("tall window crossing its bottom")
+            sheet.query = ""
+            root.phase = 12
+        } else if (root.phase === 12) {
+            root.checkTop("tall window empty query")
+            sheet.query = "mute"
+            root.phase = 13
+        } else if (root.phase === 13) {
+            root.checkMute()
+            root.phase = 14
             root.report()
         }
     }
@@ -101,6 +154,42 @@ ShellRoot {
     readonly property string longRecent: "/home/probe/Documents/" + "a-very-long-recent-file-name-".repeat(8) + "end.txt"
     readonly property int keyDelayMs: -1
     property int restWidth: 0
+    readonly property int tallWindowHeight: 1000
+    property real restTitleY: -1
+    property real restCardTop: -1
+    // CommandPalette callout 1: the title and the card's top stay where the rest card put them, and the card grows from its bottom.
+    function titleY() {
+        var title = root.texts("Keys")
+        return title.length === 1 ? title[0].mapToItem(sheet, 0, 0).y : -2
+    }
+    function checkTop(state) {
+        root.expect(state + ": the title stays where the rest card put it", root.titleY() === root.restTitleY, root.titleY() + " vs " + root.restTitleY)
+        root.expect(state + ": the card's top stays", sheet.cardItem.y === root.restCardTop, sheet.cardItem.y + " vs " + root.restCardTop)
+        root.expect(state + ": the card stays inside the window", sheet.cardItem.y + sheet.cardItem.height <= sheet.height - sheet.clampMargin, (sheet.cardItem.y + sheet.cardItem.height) + " of " + sheet.height)
+    }
+    // CommandPalette "the cursor lift": the wash runs edge to edge across the card's inner width, while the text keeps its columns.
+    function checkLift() {
+        var lifts = root.walk(sheet.cardItem, []).filter(function (item) {
+            return item.visible && item.height === sheet.rowPitch && item.color !== undefined
+                && item.color.toString() === Qt.alpha(Flea.Theme.color.foreground, Flea.Theme.washHover).toString() })
+        root.expect("one cursor lift is drawn", lifts.length === 1, lifts.length)
+        if (lifts.length !== 1)
+            return
+        var edge = Flea.Theme.spacing.hairline
+        var painted = lifts[0].mapToItem(sheet.cardItem, 0, 0)
+        root.expect("the lift starts at the card's inner left edge", painted.x === edge, painted.x)
+        root.expect("and spans its inner width", lifts[0].width === sheet.cardItem.width - 2 * edge, lifts[0].width + " of " + sheet.cardItem.width)
+        var caps = root.walk(sheet.cardItem, []).filter(function (item) { return item.visible && item.text === "shift-delete" })
+        var capLeft = caps.length === 1 ? caps[0].mapToItem(sheet.cardItem, 0, 0).x : -1
+        root.expect("the cap keeps its column inside the lift", capLeft >= Flea.Theme.spacing.rowPaddingX, capLeft)
+    }
+    // CommandPalette callout 3: the preview's own key says where in the muted ink, in the name the UI shows.
+    function checkMute() {
+        var wheres = root.texts(" in Preview")
+        root.expect("mute carries its muted in Preview suffix", wheres.length === 1 && wheres[0].color.toString() === Flea.Theme.color.muted.toString(), wheres.length)
+        root.expect("and no raw context id is drawn", root.texts(" in media").length === 0, root.rowsOf().join("|"))
+    }
+    function tallWanted() { return sheet.queryResults.length * sheet.rowPitch }
     property real restLabelX: 0
 
     function checkPerm() {
@@ -211,6 +300,7 @@ ShellRoot {
     function checkCompress() {
         var rows = root.rowsOf()
         root.expect("the comp query lists the Compress leaf as its own row", rows.indexOf(" Compress to .zip") >= 0, rows.join("|"))
+        root.expect("the leaf holds the cursor and no Compress parent row stands first", rows[0] === " Compress to .zip" && rows.indexOf(" Compress") < 0 && sheet.resultCursor === 0, rows.join("|"))
         root.expect("no leaf row carries a cap", rows.filter(function (row) { return row.indexOf("Compress to .") >= 0 && row.charAt(0) !== " " }).length === 0, rows.join("|"))
         var suffixes = root.walk(sheet.cardItem, []).filter(function (item) {
             return item.visible && typeof item.text === "string" && item.text.indexOf(" in Compress") >= 0 })

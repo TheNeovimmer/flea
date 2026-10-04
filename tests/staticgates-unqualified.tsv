@@ -447,19 +447,6 @@ ui/Ipc.qml	839	root	Declared QML id; component context access is valid at runtim
 ui/Ipc.qml	842	root	Declared QML id; component context access is valid at runtime.
 ui/Ipc.qml	846	root	Declared QML id; component context access is valid at runtime.
 ui/JumpPath.qml	33	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	289	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/KeymapSheet.qml	393	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	396	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	400	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	407	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	408	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	428	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	442	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	465	body	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	473	block	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	499	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	500	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	521	root	Declared QML id; component context access is valid at runtime.
 ui/KindStack.qml	29	root	Declared QML id; component context access is valid at runtime.
 ui/KindStack.qml	30	root	Declared QML id; component context access is valid at runtime.
 ui/KindStack.qml	31	root	Declared QML id; component context access is valid at runtime.
@@ -1113,6 +1100,20 @@ ui/boot/tabtearoff.qml	30	ExclusionMode	Quickshell import exports this runtime s
 ui/boot/tabtearoff.qml	33	WlrKeyboardFocus	Quickshell import exports this runtime singleton or enum.
 ui/boot/tabtearoff.qml	39	modelData	Declared QML property; enclosing component context supplies it.
 ui/boot/tabtearoff.qml	45	modelData	Declared QML property; enclosing component context supplies it.
+ui/KeymapSheet.qml	309	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/KeymapSheet.qml	414	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	415	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	416	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	417	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	418	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	419	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	420	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	421	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	436	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	444	block	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	470	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	471	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	492	root	Declared QML id; component context access is valid at runtime.
 # profile quickshell-present
 ui/ChromeBar.qml	275	root	Declared QML id; component context access is valid at runtime.
 ui/ChromeBar.qml	278	crumbSlot	Declared QML id; component context access is valid at runtime.
@@ -1384,28 +1385,6 @@ ui/Header.qml	215	root	Declared QML id; component context access is valid at run
 ui/Ipc.qml	59	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/JumpPath.qml	33	root	Declared QML id; component context access is valid at runtime.
 ui/JumpPath.qml	33	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	289	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/KeymapSheet.qml	393	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	396	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	396	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	400	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	407	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	408	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	428	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	434	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	434	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	435	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	435	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	442	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	465	body	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	465	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	465	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	473	block	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	474	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	474	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	499	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	500	root	Declared QML id; component context access is valid at runtime.
-ui/KeymapSheet.qml	521	root	Declared QML id; component context access is valid at runtime.
 ui/KindStack.qml	29	root	Declared QML id; component context access is valid at runtime.
 ui/KindStack.qml	30	root	Declared QML id; component context access is valid at runtime.
 ui/KindStack.qml	30	root	Declared QML id; component context access is valid at runtime.
@@ -2407,3 +2386,21 @@ ui/boot/tabtearoff.qml	43	root	Declared QML id; component context access is vali
 ui/boot/tabtearoff.qml	45	root	Declared QML id; component context access is valid at runtime.
 ui/boot/tabtearoff.qml	45	modelData	Declared QML property; enclosing component context supplies it.
 ui/boot/tabtearoff.qml	45	modelData	Declared QML property; enclosing component context supplies it.
+ui/KeymapSheet.qml	309	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/KeymapSheet.qml	414	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	415	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	416	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	417	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	418	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	419	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	420	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	421	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	436	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	436	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	436	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	444	block	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	445	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	445	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	470	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	471	root	Declared QML id; component context access is valid at runtime.
+ui/KeymapSheet.qml	492	root	Declared QML id; component context access is valid at runtime.

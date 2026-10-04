@@ -583,14 +583,18 @@ action = "tabMoveRight"
 # Keys040: [ and ] step to the previous and next tab. Bare text like { and }
 # above; the only BracketLeft/BracketRight rows in any preset are mac's
 # super-modified history chords, a different modifier state, so both are free
-# in all four presets.
+# in all four presets. CommandPalette draws the tab rows with the chord alone (ctrl-pagedown,
+# ctrl-pageup), since "] / ctrl-pagedown" outgrows the sheet's cap budget; sheet = false keeps these
+# two off the sheet while they stay bound and hinted.
 [[text]]
 char = "["
 action = "tabPrevious"
+sheet = false
 
 [[text]]
 char = "]"
 action = "tabNext"
+sheet = false
 
 # KeymapSheet.html rule 1: a binding gets a group and the sheet reads it. The group is named by
 # action rather than written on every binding, because one action is spelled four different ways

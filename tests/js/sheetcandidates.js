@@ -136,20 +136,61 @@ function run(check) {
           "compress:zip|compress:tar|openWith:a.desktop|openWith:b.desktop")
     check("flyout leaves survive the dedupe", merged.filter(function (row) { return row.where === "Compress" }).length,
           realMenus.filter(function (row) { return row.where === "Compress" }).length)
-    // CommandPalette "After typing comp": the Compress flyout's leaves list as rows under the parent, in archive.rs's order, with no muted suffix.
+    // CommandPalette callout 3: a key that works in the media preview only says so, in the name the UI shows for it.
+    var muteRow = SheetQuery.rank(realActions, "mute").filter(function (row) { return row.action === "mute" })[0]
+    check("mute is listed with its own key", muteRow ? muteRow.keys : "none", "m")
+    check("and says where it works", muteRow ? muteRow.where : "none", "Preview")
+    check("a listing key says nothing", realActions.filter(function (row) { return row.action === "rename" })[0].where, "")
+    check("no row carries a raw context id", realActions.some(function (row) { return row.where === "media" || row.where === "all" }), false)
+    // CommandPalette "After typing comp": the Compress flyout's leaves list alone, in archive.rs's order, with no muted suffix and no parent row.
     var archiveOrder = ["zip", "tar", "tar.gz", "tar.bz2", "tar.xz", "tar.zst", "7z"]
     var compressContext = {}
     for (var field in cursorOnFile) compressContext[field] = cursorOnFile[field]
     compressContext.archiveFormats = archiveOrder
     compressContext.openWithApps = [{ id: "alpha.desktop", label: "Alpha" }]
-    var compressRows = SheetQuery.menuCandidates(Menu.listingEntries(compressContext), function (a) { return Keymap.hintFor(a) })
-    var comp = SheetQuery.rank(SheetQuery.actionCandidates(Keymap.sheetFor("default", "gui", false)).concat(compressRows), "comp")
-    var compressWanted = ["Compress"].concat(archiveOrder.map(function (fmt) { return "Compress to ." + fmt }))
-    check("comp lists the parent row then every leaf in archive.rs's order",
+    compressContext.scripts = [{ id: "run.sh", label: "Run me" }]
+    compressContext.taildropPeers = [{ id: "phone", label: "Phone" }]
+    compressContext.hasFolderSort = true
+    var compressEntries = Menu.listingEntries(compressContext)
+    var compressRows = SheetQuery.menuCandidates(compressEntries, function (a) { return Keymap.hintFor(a) })
+    var everyRow = SheetQuery.actionCandidates(Keymap.sheetFor("default", "gui", false)).concat(compressRows)
+    var comp = SheetQuery.rank(everyRow, "comp")
+    var compressWanted = archiveOrder.map(function (fmt) { return "Compress to ." + fmt })
+    check("comp lists every leaf in archive.rs's order and no parent row",
           comp.map(function (row) { return row.label }).join("|"), compressWanted.join("|"))
-    check("a Compress leaf carries no muted suffix", comp.length > 1 && comp.slice(1).every(function (row) { return row.where === "" }), true)
+    check("a Compress leaf carries no muted suffix", comp.length > 0 && comp.every(function (row) { return row.where === "" }), true)
     check("and no cap", comp.every(function (row) { return row.keys === "" }), true)
-    check("a Compress leaf still runs its format", comp.length > 1 ? comp[1].menuAction : "none", "compress:zip")
+    check("a Compress leaf still runs its format", comp.length > 0 ? comp[0].menuAction : "none", "compress:zip")
+    // Every flyout parent the menu builds: a query that lists one of its leaves lists no row of the parent, while a query only the parent matches keeps it.
+    var parents = compressEntries.filter(function (entry) { return Menu.hasSubmenu(entry) })
+    check("the menu builds several flyout parents", parents.length >= 5, true)
+    parents.forEach(function (parent) {
+        var action = String(parent.action || parent.id)
+        var leaf = (parent.submenu || []).filter(function (item) { return item.separator !== true && String(item.label || "").length > 0 })[0]
+        if (leaf === undefined) return
+        var leafLabel = String(leaf.sheetLabel || leaf.label)
+        var listed = SheetQuery.rank(everyRow, leafLabel)
+        check(parent.label + ": its leaf " + leafLabel + " is listed", listed.some(function (row) { return row.menuAction === action + ":" + String(leaf.id) }), true)
+        check(parent.label + ": no pure menu row of the parent stands beside its leaf",
+              listed.filter(function (row) { return row.section === 1 && row.menuAction === action }).length, 0)
+        // Whatever wording a leaf carries, one that matches beside its parent's name leaves the parent out.
+        var twin = SheetQuery.menuCandidates([{ id: action, action: action, label: parent.label,
+            submenu: [{ id: "more", label: String(parent.label) + " more" }] }], function () { return "" })
+        var twinRows = SheetQuery.rank(twin, String(parent.label).toLowerCase())
+        check(parent.label + ": a leaf matching beside its parent leaves the parent out", twinRows.map(function (row) { return row.menuAction }).join("|"), action + ":more")
+        var alone = SheetQuery.rank(everyRow, String(parent.label).toLowerCase())
+        var aloneLeaves = alone.filter(function (row) { return row.parentAction === action }).length
+        check(parent.label + ": the parent's own name lists the parent or its leaves, never neither",
+              alone.some(function (row) { return row.menuAction === action }) || aloneLeaves > 0, true)
+    })
+    // Sort by lives in the background menu; its leaves list without it the same way.
+    var sortParent = Menu.listingEntries({ hasRow: false, hiddenActions: [], selectionCount: 0, hasFolderSort: true }).filter(function (entry) { return entry.action === "sort" })[0]
+    check("the background menu builds the Sort by flyout", sortParent !== undefined && Menu.hasSubmenu(sortParent), true)
+    var sortRows = SheetQuery.rank(SheetQuery.menuCandidates([sortParent], function () { return "" }), "name")
+    check("a sort leaf lists without a Sort by row", sortRows.length > 0 && sortRows.every(function (row) { return row.menuAction !== "sort" }), true)
+    // A parent with no leaves is its own row.
+    var bare = SheetQuery.menuCandidates([{ id: "compress", action: "compress", label: "Compress", submenu: [] }], function () { return "" })
+    check("a flyout with no leaves keeps its own row", SheetQuery.rank(bare, "comp").map(function (row) { return row.label }).join("|"), "Compress")
     var openWithLeaf = compressRows.filter(function (row) { return row.label === "Alpha" })[0]
     check("an Open with leaf keeps its own label", openWithLeaf !== undefined, true)
     check("and its muted flyout suffix", openWithLeaf ? openWithLeaf.where : "none", "Open with")

@@ -96,7 +96,7 @@ ui/ContextMenu.qml 709
 ui/ConvertDialog.qml 433
 ui/GridArea.qml 412
 ui/Ipc.qml 859
-ui/KeymapSheet.qml 567
+ui/KeymapSheet.qml 537
 ui/List.qml 437
 tests/touchpad-edge.qml 438
 ui/FastScrollHandler.qml 529
@@ -136,7 +136,6 @@ ui/js/Drag.js 342
 ui/js/Ops.js 426
 ui/js/Picker.js 328
 ui/js/Settings.js 455
-ui/js/SheetQuery.js 324
 ui/js/Tabs.js 719
 ui/js/UiState.js 447
 ui/TabBar.qml 632

@@ -1,6 +1,4 @@
 .pragma library
-.import "Input.js" as Input
-
 .import "Recent.js" as Recent
 .import "Swap.js" as Swap
 .import "Places.js" as Places
@@ -11,13 +9,17 @@
 // Sample query: "down" matches "Open Downloads" but not "trash".
 var RESULT_LIMIT = 50
 
-// A key that works in one place only says where, from the key table's own context.
+// The one non-listing context a sheet row can carry, named as the UI names that surface; the others have no name on screen.
+var CONTEXT_NAMES = { media: "Preview" }
+
+// Sample input: whereForContext("media") is "Preview", whereForContext("listing") is "".
+// A key that works in one place only says where, in that place's name; a context the UI never names says nothing.
 function whereForContext(context) {
     var text = String(context || "")
-    if (text.length === 0 || text === "listing" || text.indexOf(",") >= 0) {
+    if (text.indexOf(",") >= 0 || !Object.prototype.hasOwnProperty.call(CONTEXT_NAMES, text)) {
         return ""
     }
-    return text
+    return CONTEXT_NAMES[text]
 }
 
 // Section 0 from the generated sheet; the caller hands in sheetFor rows.
@@ -56,7 +58,7 @@ function menuCandidates(entries, hintFor) {
             var sheetLabel = String(sub[j].sheetLabel || "")
             out.push({ label: sheetLabel.length > 0 ? sheetLabel : String(sub[j].label || ""), keys: "",
                 section: 1, where: sheetLabel.length > 0 ? "" : String(entry.label || ""),
-                menuAction: actionWithSub(action, leafId),
+                menuAction: actionWithSub(action, leafId), parentAction: action,
                 disabled: entry.disabled === true || sub[j].disabled === true,
                 danger: entry.danger === true })
         }
@@ -212,7 +214,20 @@ function rank(candidates, query) {
             keyed.push(list[i])
         }
     }
-    return exactPlace.concat(exact, matched, keyed).slice(0, RESULT_LIMIT)
+    return withoutListedParents(exactPlace.concat(exact, matched, keyed)).slice(0, RESULT_LIMIT)
+}
+
+// A flyout parent whose leaves are listed is not itself a row; a key row, a leafless parent and a parent only its own name matched stay.
+function withoutListedParents(rows) {
+    var listed = {}
+    for (var i = 0; i < rows.length; i++) {
+        if (String(rows[i].parentAction || "").length > 0) {
+            listed[rows[i].parentAction] = true
+        }
+    }
+    return rows.filter(function (row) {
+        return !(row.section === 1 && !row.parentAction && listed[String(row.menuAction || "")] === true)
+    })
 }
 
 // Enter runs the highlighted row as its own surface would.
@@ -259,50 +274,6 @@ function runMenu(holder, menuAction, close) {
     if (typeof close === "function")
         close()
     holder.sheetMenuAction(menuAction)
-}
-
-// Sample input: isPrintable("c") is true, isPrintable("\u007f") is false.
-// The Delete keysym carries DEL as its text through libxkbcommon, so the bare range test would type it.
-function isPrintable(text) {
-    return Input.isPrintable(text)
-}
-
-// Sample input: isBareModifier(Qt.Key_Shift) is true, isBareModifier(Qt.Key_A) is false.
-// A bare modifier carries no text, so without this the sheet would close under a shifted letter.
-function isBareModifier(key) {
-    return key === Qt.Key_Shift || key === Qt.Key_Control || key === Qt.Key_Alt
-        || key === Qt.Key_AltGr || key === Qt.Key_Meta || key === Qt.Key_CapsLock
-}
-
-// Sample input: sheetKey("co", 2, 0, Qt.Key_Shift, "") is "ignore".
-// The one decision the sheet's Keys.onPressed runs, so the handler owns no key meaning of its own.
-function sheetKey(query, resultCount, cursor, key, text) {
-    if (key === Qt.Key_Escape)
-        return "close"
-    if (String(query).length > 0) {
-        if (key === Qt.Key_Up)
-            return "up"
-        if (key === Qt.Key_Down)
-            return "down"
-        if (key === Qt.Key_Return || key === Qt.Key_Enter)
-            return "activate"
-    }
-    if (key === Qt.Key_Backspace)
-        return String(query).length > 0 ? "backspace" : "close"
-    if (isPrintable(text))
-        return "type"
-    // Delete edits nothing forward, so it is ignored rather than typed or closed on.
-    if (key === Qt.Key_Delete || isBareModifier(key))
-        return "ignore"
-    return "close"
-}
-
-// Sample input: stepCursor(0, -1, 3) is 2, stepCursor(2, 1, 3) is 0.
-// The cursor wraps at both ends; with no rows it parks at the first.
-function stepCursor(cursor, delta, count) {
-    if (!(count > 0))
-        return 0
-    return (((cursor + delta) % count) + count) % count
 }
 
 // Sample input: entries two favourites both labelled "src", decided with railIndex 1 answers 1.

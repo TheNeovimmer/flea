@@ -99,7 +99,8 @@ def generate(data):
                 fail(f'shared listing key {caps(mods, key)} claims {seen[key]} and {row["action"]}')
             seen[key] = row['action']
             shared.append(dict(name='all', mods=mods, key=key, keys=row.get('keys', caps(mods, key)),
-                               action=row['action'], context='listing', frontend='all'))
+                               action=row['action'], context='listing', frontend='all',
+                               **({} if row.get('sheet', True) else {'sheet': False})))
     lines = ['.pragma library', '', '// Generated from keys.toml by tools/flea-keymap-gen. Do not edit.']
     def emit(name, value):
         lines.append('var ' + name + ' = ' + json.dumps(value, ensure_ascii=True, separators=(',', ':')))
@@ -130,7 +131,7 @@ def generate(data):
     listing_actions = {ARMS.get(row['action'], row['action']) for row in bindings + shared
                        if row['action'] and 'listing' in row['context'].split(',')}
     emit('SHEET_EXTRA', [dict(preset=row['name'], mods=row['mods'], keys=row['keys'],
-                              action=row['action'], label=row['label'])
+                              action=row['action'], label=row['label'], context=row['context'])
                          for row in bindings + shared
                          if row['action'] in claimed(data)
                          and ARMS.get(row['action'], row['action']) not in listing_actions
@@ -214,7 +215,7 @@ function capRank(row, preset) {
 
 function sheetFor(name, frontend, dual) {
     var result = [], groups = {}
-    var rows = bindingRows(name, frontend || "gui").concat(SHEET_EXTRA)
+    var rows = bindingRows(name, frontend || "gui").concat(SHEET_EXTRA).filter(function (row) { return row.sheet !== false })
     for (var i = 0; i < rows.length; i++) {
         var row = rows[i], action = actionGroup(row.action)
         var group = groups[action]

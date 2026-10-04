@@ -362,15 +362,30 @@ cap_sheet_expect() {
     fail "cap_sheet: $what, last value '$got'"
 }
 
-# CommandPalette: the sheet at rest, then its query with a place, with capless rows, and with the cursor on a file.
+# CommandPalette: the sheet at rest, then its query with a place, a place beside a recent file, leaves alone, the cursor on a file, and the delete card.
 case_cap_sheet() {
     local dir="$fixture_root/cap-sheet"
-    local sheet_rows
+    local places="$fixture_root/cap-sheet-places"
+    local fixture_home="$fixture_root/cap-sheet-home" real_home="$HOME" real_data="${XDG_DATA_HOME-}"
+    local sheet_rows flea_at mix_at
     sandbox_scratch "$dir"
     : > "$dir/a.txt"
     : > "$dir/b.txt"
-    seed_ui_state "$fixture_root/cap-sheet-state" '{"keys":"default","view":"list"}'
+    # The favourite flea and the recent file mix.flac stand in the case's own fixture home, so no other bookmark moves the rows.
+    mkdir -p "$places/flea" "$fixture_home/Documents/claude" "$fixture_home/.local/share"
+    : > "$fixture_home/Documents/claude/mix.flac"
+    cat > "$fixture_home/.local/share/recently-used.xbel" <<EOS
+<?xml version="1.0" encoding="UTF-8"?>
+<xbel version="1.0">
+  <bookmark href="file://$fixture_home/Documents/claude/mix.flac" added="2026-09-26T10:00:00Z" modified="2026-09-26T10:00:00Z" visited="2026-09-26T10:00:00Z"/>
+</xbel>
+EOS
+    fixture_home_make "$fixture_home"
+    seed_ui_state "$fixture_root/cap-sheet-state" "$(printf '{"keys":"default","view":"list","places":{"favourites":[{"label":"flea","path":"%s/flea"}]}}' "$places")"
+    export HOME="$fixture_home" XDG_DATA_HOME="$fixture_home/.local/share"
     launch "$dir"
+    export HOME="$real_home"
+    if [[ -n "$real_data" ]]; then export XDG_DATA_HOME="$real_data"; else unset XDG_DATA_HOME; fi
     wait_listing 2
     key '?' >/dev/null
     omarchy-drive wait ipc -p "$flea_ui/boot" flea keymapSheetOpen true --timeout "$cap_sheet_wait_s" >/dev/null \
@@ -386,13 +401,29 @@ case_cap_sheet() {
     shot cap-sheet-query-trash
     key -k Escape >/dev/null
     cap_sheet_expect keymapSheetOpen false "Escape did not close the sheet after trash"
-    # The cursor row's Compress flyout answers with rows that carry no cap.
+    # A favourite and a recent file answer one query, the place first, each with its muted where.
+    key '?' >/dev/null
+    cap_sheet_expect keymapSheetOpen true "? did not reopen the sheet"
+    cap_sheet_type fl
+    sheet_rows=$(ipc keymapSheetRows)
+    grep -Fxq ' Open flea' <<< "$sheet_rows" \
+        || fail "cap_sheet: the fl query lists no favourite flea: ${sheet_rows//$'\n'/ | }"
+    grep -Fxq ' Open mix.flac' <<< "$sheet_rows" \
+        || fail "cap_sheet: the fl query lists no recent file mix.flac: ${sheet_rows//$'\n'/ | }"
+    flea_at=$(grep -Fxn ' Open flea' <<< "$sheet_rows" | head -n 1 | cut -d: -f1)
+    mix_at=$(grep -Fxn ' Open mix.flac' <<< "$sheet_rows" | head -n 1 | cut -d: -f1)
+    (( flea_at < mix_at )) || fail "cap_sheet: the fl query does not lead with the favourite: ${sheet_rows//$'\n'/ | }"
+    shot cap-sheet-query-fl
+    key -k Escape >/dev/null
+    cap_sheet_expect keymapSheetOpen false "Escape did not close the sheet after fl"
+    # The cursor row's Compress flyout answers with its leaves alone, the zip leaf holding the cursor and no row with a cap.
     key '?' >/dev/null
     cap_sheet_expect keymapSheetOpen true "? did not reopen the sheet"
     cap_sheet_type comp
     sheet_rows=$(ipc keymapSheetRows)
-    grep -Fxq ' Compress to .zip' <<< "$sheet_rows" \
-        || fail "cap_sheet: the comp query lists no Compress to .zip leaf row: ${sheet_rows//$'\n'/ | }"
+    [[ "$(head -n 1 <<< "$sheet_rows")" == ' Compress to .zip' ]] \
+        || fail "cap_sheet: the comp query lists no Compress to .zip leaf row first: ${sheet_rows//$'\n'/ | }"
+    ! grep -Fxq ' Compress' <<< "$sheet_rows" || fail "cap_sheet: the comp query lists the Compress parent: ${sheet_rows//$'\n'/ | }"
     ! grep -q '^[^ ]' <<< "$sheet_rows" || fail "cap_sheet: the comp query lists a row with a cap: ${sheet_rows//$'\n'/ | }"
     shot cap-sheet-query-comp
     key -k Escape >/dev/null
@@ -419,7 +450,24 @@ case_cap_sheet() {
     cap_sheet_expect permissionsState true "Enter on Permissions opened no dialog" .opened
     key -k Escape >/dev/null
     cap_sheet_expect permissionsState false "Escape did not close the Permissions dialog" .opened
-    printf 'CAP_SHEET rest=ok queries=trash,comp,perm permissions=opened\n'
+    # Enter on the first perm row, Delete permanently, opens the menu's own card with Cancel's ring; Tab moves the ring to Delete and Escape deletes nothing.
+    key '?' >/dev/null
+    cap_sheet_expect keymapSheetOpen true "? did not reopen the sheet"
+    cap_sheet_type perm
+    key -k Return >/dev/null
+    cap_sheet_expect menuDialogState true "Enter on Delete permanently opened no card" .confirmation.opened
+    [[ "$(ipc menuDialogState | jq -r '.confirmation.count')|$(ipc menuDialogState | jq -r '.confirmation.title')" == '1|Delete 1 item permanently?' ]] \
+        || fail "cap_sheet: the delete card does not ask about 1 item: $(ipc menuDialogState | jq -c '.confirmation | {count, title}')"
+    [[ "$(ipc menuDialogState | jq -r '.confirmation.destructiveFocus')" == false ]] \
+        || fail "cap_sheet: the delete card opens with its ring off Cancel"
+    shot cap-sheet-delete-card
+    key -k Tab >/dev/null
+    cap_sheet_expect menuDialogState true "Tab did not move the delete card's focus to Delete" .confirmation.destructiveFocus
+    shot cap-sheet-delete-tab
+    key -k Escape >/dev/null
+    cap_sheet_expect menuDialogState false "Escape did not close the delete card" .confirmation.opened
+    [[ -e "$dir/a.txt" ]] || fail "cap_sheet: Escape on the delete card still deleted a.txt"
+    printf 'CAP_SHEET rest=ok queries=trash,fl,comp,perm permissions=opened delete=cancel-then-delete\n'
     kill_flea
 }
 
