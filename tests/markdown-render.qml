@@ -281,8 +281,9 @@ ShellRoot {
     // The probes and the reference column live in the grab below the document, so a long document must never reach them.
     function probesClear() {
         var last = md.blockItem(md.blockList.length - 1)
-        var bottom = last ? last.mapToItem(grabRoot, 0, 0).y + last.height : 0
-        shell.check(Centre.probeOverlapError(centreProbes.mapToItem(grabRoot, 0, 0).y, bottom), "probe grid lies below the document's last block")
+        var top = centreProbes.mapToItem(grabRoot, 0, 0).y
+        shell.check(last ? Centre.probeOverlapError(top, last.mapToItem(grabRoot, 0, 0).y + last.height) : "the document's last block is absent",
+            "probe grid lies below the document's last block")
     }
 
     // The board's geometry against the live tree: insets, rhythm, headings, line boxes, the code surface and the bar.
