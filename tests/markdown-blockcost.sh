@@ -5,6 +5,8 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 kinds="run heading table list quote fence remote image"
+# The parts the probe can name (foreignParts in tests/markdown-blockcost.qml); any other name in a report is refused.
+known_parts='Repeater|Column|Row|Rectangle|Image|MarkdownFigure|TextMetrics|Glyph'
 # Object counts of one block, measured on the shipped delegate in this fixture: the remote box's dashes follow the pane width.
 limit_for() {
     case $1 in
@@ -52,6 +54,10 @@ check_report() {
             printf 'FAIL a %s block reported no part list: %s\n' "$kind" "$line"
             return 1
         fi
+        if [ "$foreign" != none ] && printf '%s\n' "$foreign" | tr '+' '\n' | grep -qvxE "$known_parts"; then
+            printf 'FAIL a %s block reported a part the probe never names: %s\n' "$kind" "$foreign"
+            return 1
+        fi
         if printf '%s\n' "$foreign" | tr '+' '\n' | grep -qxE "$(forbidden_for "$kind")"; then
             printf 'FAIL a %s block builds the parts of other kinds: %s\n' "$kind" "$foreign"
             return 1
@@ -60,7 +66,7 @@ check_report() {
     printf 'PASS each block kind builds only its own parts within its object count\n'
 }
 
-# Controls: a report at every limit passes, and each kind is refused over its count, with a forbidden part, or with no count.
+# Controls: a report at every limit passes, and each kind is refused over its count, with a forbidden or unknown part, or with no count or part list.
 control_report() {
     local kind
     for kind in $kinds; do
@@ -78,8 +84,12 @@ for kind in $kinds; do
     if check_report "$over" >/dev/null; then echo "FAIL the gate accepted a $kind block over its count"; exit 1; fi
     if check_report "$mixed" >/dev/null; then echo "FAIL the gate accepted a $kind block holding $part"; exit 1; fi
     if check_report "$blank" >/dev/null; then echo "FAIL the gate accepted a $kind block with no count"; exit 1; fi
+    nolist=$(printf '%s\n' "$control_all" | sed "s/kind=$kind objects=$limit foreign=none/kind=$kind objects=$limit foreign= /")
+    unknown=$(printf '%s\n' "$control_all" | sed "s/kind=$kind objects=$limit foreign=none/kind=$kind objects=$limit foreign=Loader/")
+    if check_report "$nolist" >/dev/null; then echo "FAIL the gate accepted a $kind block with no part list"; exit 1; fi
+    if check_report "$unknown" >/dev/null; then echo "FAIL the gate accepted a $kind block naming an unknown part"; exit 1; fi
 done
-printf 'ok the gate refuses every kind over its count, with a foreign part, or with no count\n'
+printf 'ok the gate refuses every kind over its count, with a foreign or unknown part, or with no count or part list\n'
 
 if ! command -v qs >/dev/null; then
     echo "markdown-blockcost.sh: qs is not installed, cannot build the blocks"
