@@ -115,7 +115,7 @@ function run(check) {
         "ui/MenuActionDialog.qml": accentFrame,
         "ui/OpenWithDialog.qml": accentFrame,
         "ui/PickerSave.qml": accentFrame,
-        "ui/PermissionsDialog.qml": "border.color: octal.activeFocus ? Theme.color.accent : Theme.color.muted",
+        "ui/PermissionsDialog.qml": "border.color: octal.activeFocus ? (errorLabel.visible && !root.busy ? Theme.color.error : Theme.color.accent) : Theme.color.muted",
         "ui/RenameField.qml": "border.color: root.errorText.length > 0 ? Theme.color.error : Theme.color.accent"
     }
     for (var file in fields) {

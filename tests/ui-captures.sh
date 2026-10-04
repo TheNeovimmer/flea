@@ -273,9 +273,24 @@ cap_permissions_box() {
     shot "$shot_name"
 }
 
-# Permissions040 pointer states: a hover or a held press proven through ipc, the press let go off the control so nothing acts.
+# Permissions040: one jq predicate over the permissions reader, asserted before a shot is taken.
+cap_permissions_expect() {
+    local filter="$1" message="$2" state
+    state=$(ipc permissionsState) || fail "cap_permissions: the permissions reader failed"
+    jq -e "$filter" <<< "$state" >/dev/null || fail "cap_permissions: $message, state $state"
+}
+# Permissions040: wait until the card has closed, as a result arrives and Apply dismisses it.
+cap_permissions_closed() {
+    local end=$((SECONDS + 15))
+    while (( SECONDS < end )); do
+        [[ "$(ipc permissionsState | jq -r .opened)" == "false" ]] && return 0
+        sleep 0.05
+    done
+    fail "cap_permissions: the card never closed after Apply"
+}
+# Permissions040 pointer states: a hover or a held press proven through ipc, the press let go off the control so nothing acts; an optional jq predicate holds before the shot.
 cap_permissions_pointer() {
-    local name="$1" mode="$2" shot_name="$3" centre cx cy wx wy ww wh
+    local name="$1" mode="$2" shot_name="$3" expect="${4:-}" centre cx cy wx wy ww wh
     local settle_limit_s=5 away_px=150 nudge_px=1
     centre=$(ipc permissionsState | jq -er --arg name "$name" '.controls[] | select(.name == $name and .visible) | .centre') \
         || fail "cap_permissions: no visible $name control to point at"
@@ -290,12 +305,14 @@ cap_permissions_pointer() {
     cap_permissions_wait_pointer "$name" hovered true "$settle_limit_s"
     if [[ "$mode" == hover ]]; then
         settle
+        [[ -z "$expect" ]] || cap_permissions_expect "$expect" "$name hover state before $shot_name"
         shot "$shot_name"
         return 0
     fi
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 || fail "cap_permissions: pointer press on $name failed"
     cap_permissions_wait_pointer "$name" pressed true "$settle_limit_s"
     settle
+    [[ -z "$expect" ]] || cap_permissions_expect "$expect" "$name press state before $shot_name"
     shot "$shot_name"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 0 -y "-$away_px" >/dev/null 2>&1 || fail "cap_permissions: pointer move off $name failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 || fail "cap_permissions: pointer release failed"
@@ -402,24 +419,94 @@ cap_permissions_open() {
     fail "cap_permissions: Permissions never settled open and idle, last $state"
 }
 
+# Permissions040: Apply on a selection that holds skips, the status line it leaves and the card that stays when every file is skipped, then a file this user does not own.
+cap_permissions_skips() {
+    local applied="Permissions changed for 1 of 2, and special.txt keeps its mode because its setuid bit is set."
+    local all="Permissions changed for 0 of 2, and 2 items keep their modes because a special bit is set: special.txt, x-special.txt."
+    local foreign="y-foreign.txt keeps its mode because you do not own it."
+    click_row 0 left
+    settle
+    click_row 5 left --mods ctrl
+    settle
+    cap_permissions_open 0
+    cap_permissions_focus Apply forward
+    key -k Return >/dev/null
+    cap_permissions_closed
+    [[ "$(ipc statusPrimary)" == "$applied" ]] || fail "cap_permissions: the status line after Apply reads $(ipc statusPrimary), not $applied"
+    shot cap-permissions-applied-skip
+    click_row 5 left
+    settle
+    click_row 6 left --mods ctrl
+    settle
+    cap_permissions_open 5
+    cap_permissions_expect ".displayedError == \"2 items keep their modes because a special bit is set: special.txt, x-special.txt.\"" "the two setuid files draw another note than the card note"
+    shot cap-permissions-all-skipped-note
+    cap_permissions_focus Apply forward
+    key -k Return >/dev/null
+    cap_permissions_expect ".opened and (.busy | not) and .displayedError == \"$all\"" "Apply over two skipped files does not leave the card with $all"
+    shot cap-permissions-all-skipped
+    key -k Escape >/dev/null
+    settle
+    click_row 0 left
+    settle
+    click_row 7 left --mods ctrl
+    settle
+    cap_permissions_open 0
+    cap_permissions_expect ".displayedError == \"$foreign\"" "the foreign file draws no ownership note"
+    shot cap-permissions-multi-note-foreign
+    cap_permissions_focus Apply forward
+    key -k Return >/dev/null
+    cap_permissions_closed
+    [[ "$(ipc statusPrimary)" == "Permissions changed for 1 of 2, and $foreign" ]] || fail "cap_permissions: the status line after Apply reads $(ipc statusPrimary) beside a foreign file"
+    shot cap-permissions-applied-foreign
+}
+# Permissions040: Apply held in flight by a paused owned backend leaves Cancel and the close mark disabled, then the backend resumes.
+cap_permissions_inflight() {
+    click_row 1 left
+    settle
+    cap_permissions_open 1
+    mapfile -t pids < <(backend_pids)
+    [[ "${#pids[@]}" == 1 ]] || fail "cap_permissions: the in-flight shot needs one owned backend"
+    pid="${pids[0]}"
+    permissions_stopped="$pid"
+    trap 'permissions_resume_stopped "$permissions_stopped"; kill_flea' EXIT
+    convert_pause_backend "$pid"
+    cap_permissions_focus Apply forward
+    key -k Return >/dev/null
+    cap_permissions_expect '.opened and .busy and ([.controls[] | select(.name == "Cancel" or .name == "Close")] | length == 2 and all(.enabled | not))' "Cancel and the close mark stay live while Apply is in flight"
+    settle
+    shot cap-permissions-apply-inflight
+    permissions_resume_stopped "$pid" || fail "cap_permissions: the owned backend did not resume"
+    permissions_stopped=""
+    trap - EXIT
+    cap_permissions_closed
+}
+
 # Permissions040: the several-items card with a focused check box in each state, the single-item card with an invalid octal, the errored symlink row and the note.
 case_cap_permissions() {
-    local dir="$fixture_root/cap-permissions" state
+    local dir="$fixture_root/cap-permissions" permissions_listing="$fixture_root/cap-permissions" state pid permissions_stopped=""
+    local -a pids
     sandbox_scratch "$dir"
     printf 'one\n' > "$dir/a.txt"
     printf 'two\n' > "$dir/b.txt"
     printf 'three\n' > "$dir/c.txt"
     printf 'special\n' > "$dir/special.txt"
+    printf 'second special\n' > "$dir/x-special.txt"
+    printf 'foreign\n' > "$dir/y-foreign.txt"
     printf '#!/bin/sh\necho run\n' > "$dir/run.sh"
     chmod 0644 "$dir/run.sh" || fail "cap_permissions: the shebang fixture mode failed"
     ln -s a.txt "$dir/link.txt" || fail "cap_permissions: the symlink fixture failed"
     chmod 0644 "$dir/a.txt" || fail "cap_permissions: the 644 fixture mode failed"
     chmod 0600 "$dir/b.txt" || fail "cap_permissions: the 600 fixture mode failed"
     chmod 0755 "$dir/c.txt" || fail "cap_permissions: the 755 fixture mode failed"
-    chmod 4644 "$dir/special.txt" || fail "cap_permissions: the setuid fixture mode failed"
+    chmod 4644 "$dir/special.txt" "$dir/x-special.txt" || fail "cap_permissions: the setuid fixture mode failed"
+    chmod 0644 "$dir/y-foreign.txt" || fail "cap_permissions: the foreign fixture mode failed"
+    # A file another uid owns, made inside this fixture by a rootless user namespace: its owner maps to a sub-uid, so this user cannot change its mode.
+    unshare --map-auto --map-root-user chown 1:1 "$dir/y-foreign.txt" || fail "cap_permissions: unshare could not give the foreign fixture another owner"
+    [[ "$(stat -c '%u' "$dir/y-foreign.txt")" != "$(id -u)" ]] || fail "cap_permissions: the foreign fixture is still owned by this user"
     seed_ui_state "$fixture_root/cap-permissions-state" '{"keys":"default","view":"list","menu":{"hidden":["delete","openTerminal","moveto","copyto","properties","copyAs","pasteAs","invertSelection"]}}'
     launch "$dir"
-    wait_listing 6
+    wait_listing 8
     cap_resize 904 699
     click_row 0 left
     settle
@@ -447,6 +534,7 @@ case_cap_permissions() {
     cap_permissions_focus Apply forward
     shot cap-permissions-apply-focus
     cap_permissions_focus Close forward
+    cap_permissions_expect '([.controls[] | select(.name == "Close")][0] | .focused and .ring) and ([.controls[] | select(.name != "Close" and .ring)] | length == 0)' "the focused close mark draws no ring"
     shot cap-permissions-close-focus
     cap_permissions_focus Octal back
     shot cap-permissions-octal-focus
@@ -471,6 +559,14 @@ case_cap_permissions() {
     cap_permissions_open 0
     cap_permissions_pointer Apply hover cap-permissions-apply-hover
     cap_permissions_pointer Apply press cap-permissions-apply-pressed
+    # The keyboard moves to Apply, so Cancel and the close mark are shot hovered and pressed with no ring of their own.
+    cap_permissions_focus Apply forward
+    cap_permissions_expect '[.controls[] | select(.name == "Close")][0] | (.hovered | not) and (.ring | not)' "the close mark is not at rest before its rest shot"
+    shot cap-permissions-close-rest
+    cap_permissions_pointer Cancel hover cap-permissions-cancel-hover-apply-focus '([.controls[] | select(.name == "Apply")][0].focused) and ([.controls[] | select(.name == "Cancel")][0] | .hovered and (.focused | not))'
+    cap_permissions_pointer Cancel press cap-permissions-cancel-pressed-apply-focus '([.controls[] | select(.name == "Apply")][0].focused) and ([.controls[] | select(.name == "Cancel")][0] | .pressed and (.focused | not))'
+    cap_permissions_pointer Close hover cap-permissions-close-hover '[.controls[] | select(.name == "Close")][0] | .hovered and (.focused | not) and (.ring | not)'
+    cap_permissions_pointer Close press cap-permissions-close-pressed '[.controls[] | select(.name == "Close")][0] | .pressed and (.focused | not) and (.ring | not)'
     key -k Escape >/dev/null
     settle
     click_row 3 right
@@ -492,7 +588,9 @@ case_cap_permissions() {
     shot cap-permissions-multi-note
     key -k Escape >/dev/null
     settle
-    printf 'CAP_PERMISSIONS mixed=3rows boxes=on,mixed,off,hover,pressed,click1,click2 single=apply,octal,error,disabled,close,special,pointer symlink=errored note=setuid menu=makeexec\n'
+    cap_permissions_skips
+    cap_permissions_inflight
+    printf 'CAP_PERMISSIONS mixed=3rows boxes=on,mixed,off,hover,pressed,click1,click2 single=apply,octal,error,disabled,close,special,pointer symlink=errored note=setuid menu=makeexec skips=applied,note,all,foreign inflight=disabled closemark=rest,hover,pressed,focus\n'
     kill_flea
 }
 

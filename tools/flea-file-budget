@@ -96,7 +96,7 @@ ui/ColumnsArea.qml 479
 ui/ContextMenu.qml 703
 ui/ConvertDialog.qml 435
 ui/GridArea.qml 412
-ui/Ipc.qml 859
+ui/Ipc.qml 864
 ui/KeymapSheet.qml 524
 ui/List.qml 437
 tests/touchpad-edge.qml 438
@@ -108,7 +108,7 @@ ui/OpenWithDialog.qml 599
 ui/Pane.qml 1024
 ui/PaneMenuActions.qml 465
 ui/PaneWire.qml 584
-ui/PermissionsDialog.qml 661
+ui/PermissionsDialog.qml 680
 ui/PickerWindow.qml 779
 ui/Preview.qml 647
 ui/PreviewColumn.qml 585

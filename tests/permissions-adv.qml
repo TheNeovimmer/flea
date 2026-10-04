@@ -3,6 +3,7 @@
 import QtQuick
 import Quickshell
 import "flea" as Flea
+import "permissions-columns.js" as Columns
 
 // tests/permissions-adv.sh's harness: the multi-row Permissions card's advloop findings, red first.
 ShellRoot {
@@ -82,6 +83,8 @@ ShellRoot {
         var lead = (box - probeNote.implicitHeight) / 2
         shell.check(tag + " note glyphs are centred in the line box", Math.abs(note.topPadding - lead) <= 0.5, "topPadding " + note.topPadding + " want " + lead)
     }
+    // check() takes a verdict; same() compares what was read with what the board draws and names both on a miss.
+    function same(name, actual, expected) { shell.check(name, String(actual) === String(expected), String(actual) + " want " + String(expected)) }
     // Theme.cardSpan and cardOrigin give every card a whole size inside its room and a whole origin, in odd and even rooms.
     function checkHelper() {
         var ready = typeof Flea.Theme.cardSpan === "function" && typeof Flea.Theme.cardOrigin === "function"
@@ -364,6 +367,9 @@ ShellRoot {
             shell.checkWholeCard(tag, dialog.cardItem)
             shell.checkWholeBoxes(tag, dialog)
             shell.checkNote(tag, dialog)
+            Columns.checkColumns(shell, tag, dialog, stop)
+            Columns.checkHeading(shell, tag, dialog, probeNote.implicitHeight, Flea.Theme.font.caption)
+            if (shell.cardKind === 0) Columns.checkOctalFrame(shell, tag, dialog, Flea.Theme)
             if (shell.cardKind === 1 && stop === shell.boardStop)
                 shell.check(tag + " card is the board's 275", dialog.cardItem.height === shell.boardSeveralHeight, String(dialog.cardItem.height))
             if (shell.cardKind === 1) shell.checkMixedBar(tag, dialog, stop)

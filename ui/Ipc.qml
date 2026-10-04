@@ -34,6 +34,10 @@ QtObject {
             && (item.available === undefined || item.available), focused: !!item && item.activeFocus,
             centre: item ? root.fleaWindow.centreOf(item) : "", rect: item ? root.fleaWindow.rectOf(item) : ""}
     }
+    // Which role a frame draws in, so a capture asserts the frame's colour without knowing the theme.
+    function roleOf(color) {
+        return Qt.colorEqual(color, Theme.color.error) ? "error" : Qt.colorEqual(color, Theme.color.accent) ? "accent" : Qt.colorEqual(color, Theme.color.muted) ? "muted" : "other"
+    }
     function confirmationState(item) {
         return item ? {opened: item.opened, token: item.snapshot.token || 0, count: item.snapshot.count || 0,
             all: item.snapshot.all === true, destructiveFocus: item.destructiveFocus, title: item.titleText,
@@ -234,12 +238,13 @@ QtObject {
             return JSON.stringify({opened: dialog.opened, inputReady: !dialog.opened && !dialog.visible && inputReady, facts: dialog.facts, path: dialog.path, mode: dialog.modeText,
                 title: root.firstVisibleText(dialog.cardItem), paths: dialog.multiPaths,
                 displayedError: dialog.displayedError, displayedSummary: dialog.displayedSummary,
-                bodyRect: root.fleaWindow.rectOf(dialog.bodyItem),
+                bodyRect: root.fleaWindow.rectOf(dialog.bodyItem), octalFrame: root.roleOf(dialog.octalFrame.border.color),
                 editable: dialog.editable, busy: dialog.busy, error: dialog.errorText, rect: root.fleaWindow.rectOf(dialog.cardItem),
                 controls: dialog.controls().map(function(control) {
                     var box = control.item.children.find(function(child) { return typeof child.value === "string" }), point = typeof control.item.hovered === "boolean" ? control.item : control.item.children.find(function(child) { return typeof child.hovered === "boolean" })
                     return Object.assign(root.controlState(control.name, control.item), {checked: control.checked, bit: control.bit,
                         value: box ? box.value : undefined, hovered: !!point && point.hovered, pressed: !!point && point.pressed,
+                        ring: !!control.item.ringItem && control.item.ringItem.visible,
                         enabled: dialog.isMulti || control.enabled === undefined ? control.item.enabled : control.enabled})
                 })})
         }

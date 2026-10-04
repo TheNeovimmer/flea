@@ -107,8 +107,13 @@ function skipKind(why) {
     return why === "Read-only: you are not the owner." ? "owner" : "other"
 }
 
-// One line per skip set, whose own words hold at most one colon: "special.txt keeps its mode because its setuid bit is set."
-// or "2 items keep their modes because a special bit is set: a, b"; any other lone reason follows its colon as the backend wrote it.
+// Sample input: "Gone" answers "Gone."; "Gone." answers "Gone."; a backend reason's own words are never changed, only closed.
+function closed(text) {
+    return /\.$/.test(text) ? text : text + "."
+}
+
+// One sentence per skip set, ending in a period, whose own words hold at most one colon: "special.txt keeps its mode because its setuid bit is set."
+// or "2 items keep their modes because a special bit is set: a, b."; any other lone reason follows its colon as the backend wrote it.
 function skipNote(skipped) {
     var list = skipped || []
     if (list.length === 0)
@@ -121,7 +126,7 @@ function skipNote(skipped) {
             return leaf + " keeps its mode because its " + specialLabel(list[0].why) + " bit is set."
         if (kinds[0] === "owner")
             return leaf + " keeps its mode because you do not own it."
-        return leaf + " keeps its mode: " + list[0].why
+        return closed(leaf + " keeps its mode: " + list[0].why)
     }
     var names = []
     for (var i = 0; i < list.length && i < SKIP_NAMES_SHOWN; i++)
@@ -129,18 +134,14 @@ function skipNote(skipped) {
     var tail = list.length > SKIP_NAMES_SHOWN ? " and " + (list.length - SKIP_NAMES_SHOWN) + " more" : ""
     var cause = same && kinds[0] === "special" ? "a special bit is set"
         : same && kinds[0] === "owner" ? "you do not own them" : "they cannot be changed"
-    return list.length + " items keep their modes because " + cause + ": " + names.join(", ") + tail
+    return list.length + " items keep their modes because " + cause + ": " + names.join(", ") + tail + "."
 }
 
-// A batch with a skip names every count and reason, never a plain success.
+// Sample input: (1, 2, [{ path: "/d/special.txt", why: "Read-only: setuid bit is present." }]) answers "Permissions changed for 1 of 2, and special.txt keeps its mode because its setuid bit is set."
+// A batch with a skip is one sentence carrying every count and the card note's own words, never a plain success.
 function multiResult(changed, total, skipped) {
     var list = skipped || []
     if (list.length === 0)
         return "Permissions changed."
-    var shown = []
-    for (var i = 0; i < list.length && i < 3; i++)
-        shown.push(leafOf(list[i].path) + ": " + list[i].why)
-    var tail = list.length > 3 ? "; and " + (list.length - 3) + " more" : ""
-    var left = list.length === 1 ? "1 left alone: " : list.length + " left alone: "
-    return "Permissions changed for " + changed + " of " + total + "; " + left + shown.join("; ") + tail
+    return "Permissions changed for " + changed + " of " + total + ", and " + skipNote(list)
 }

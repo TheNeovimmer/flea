@@ -39,20 +39,43 @@ function run(check) {
         Permissions.skipNote([{ path: "/d/a.txt", why: "Could not read /mnt/c:d." }]), "a.txt keeps its mode: Could not read /mnt/c:d.")
     check("several special-bit skips share one cause and list the names",
         Permissions.skipNote([{ path: "/d/a", why: setuid }, { path: "/d/b", why: "Read-only: sticky bit is present." }]),
-        "2 items keep their modes because a special bit is set: a, b")
+        "2 items keep their modes because a special bit is set: a, b.")
     check("several foreign files share one cause",
         Permissions.skipNote([{ path: "/d/a", why: owner }, { path: "/d/b", why: owner }]),
-        "2 items keep their modes because you do not own them: a, b")
+        "2 items keep their modes because you do not own them: a, b.")
     check("mixed causes fall back to the plain cause",
         Permissions.skipNote([{ path: "/d/a", why: setuid }, { path: "/d/b", why: "Gone." }]),
-        "2 items keep their modes because they cannot be changed: a, b")
+        "2 items keep their modes because they cannot be changed: a, b.")
     check("four skips show three names and an and-1-more tail",
         Permissions.skipNote([{ path: "/d/a.txt", why: setuid }, { path: "/d/b.txt", why: setuid },
                               { path: "/d/c.txt", why: setuid }, { path: "/d/d.txt", why: setuid }]),
-        "4 items keep their modes because a special bit is set: a.txt, b.txt, c.txt and 1 more")
+        "4 items keep their modes because a special bit is set: a.txt, b.txt, c.txt and 1 more.")
     var lines = [Permissions.skipNote([{ path: "/d/a", why: setuid }]),
                  Permissions.skipNote([{ path: "/d/a", why: owner }, { path: "/d/b", why: setuid }]),
-                 Permissions.skipNote([{ path: "/d/a", why: "Gone." }])]
-    check("every skip line holds at most one colon and one sentence",
-        lines.every(function (line) { return line.split(":").length - 1 <= 1 && line.split(". ").length === 1 }), true)
+                 Permissions.skipNote([{ path: "/d/a", why: "Gone." }]),
+                 Permissions.skipNote([{ path: "/d/a", why: "Gone" }]),
+                 Permissions.multiResult(1, 2, [{ path: "/d/special.txt", why: setuid }]),
+                 Permissions.multiResult(1, 5, [{ path: "/d/a", why: setuid }, { path: "/d/b", why: setuid }, { path: "/d/c", why: setuid }, { path: "/d/d", why: setuid }])]
+    check("every skip line holds at most one colon and ends in one period",
+        lines.every(function (line) { return line.split(":").length - 1 <= 1 && line.split(". ").length === 1 && /[^.]\.$/.test(line) }), true)
+    // The post-Apply line is one sentence whose skip clause is the card note's own words.
+    check("a lone special-bit skip after Apply reads as the card note does",
+        Permissions.multiResult(1, 2, [{ path: "/d/special.txt", why: setuid }]),
+        "Permissions changed for 1 of 2, and special.txt keeps its mode because its setuid bit is set.")
+    check("a lone foreign file after Apply reads as the card note does",
+        Permissions.multiResult(1, 2, [{ path: "/d/a.txt", why: owner }]),
+        "Permissions changed for 1 of 2, and a.txt keeps its mode because you do not own it.")
+    check("three skips after Apply list all three names and end with a period",
+        Permissions.multiResult(1, 4, [{ path: "/d/a", why: setuid }, { path: "/d/b", why: setuid }, { path: "/d/c", why: setuid }]),
+        "Permissions changed for 1 of 4, and 3 items keep their modes because a special bit is set: a, b, c.")
+    check("more than three skips after Apply count the rest",
+        Permissions.multiResult(1, 5, [{ path: "/d/a", why: setuid }, { path: "/d/b", why: setuid }, { path: "/d/c", why: setuid }, { path: "/d/d", why: setuid }]),
+        "Permissions changed for 1 of 5, and 4 items keep their modes because a special bit is set: a, b, c and 1 more.")
+    check("a backend reason with a path colon is quoted verbatim after Apply",
+        Permissions.multiResult(1, 2, [{ path: "/d/a.txt", why: "Could not read /mnt/c:d." }]),
+        "Permissions changed for 1 of 2, and a.txt keeps its mode: Could not read /mnt/c:d.")
+    check("a lone backend reason without a period still ends the line with one",
+        Permissions.multiResult(0, 1, [{ path: "/d/a.txt", why: "Gone" }]),
+        "Permissions changed for 0 of 1, and a.txt keeps its mode: Gone.")
+    check("an untouched batch is still the plain success", Permissions.multiResult(2, 2, []), "Permissions changed.")
 }

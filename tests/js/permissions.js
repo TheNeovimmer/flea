@@ -153,15 +153,15 @@ function run(check) {
     check("a batch with skips names every count and reason",
         Permissions.multiResult(1, 3, [{ path: "/d/secret.txt", why: "Read-only: setgid bit is present." },
                                        { path: "/d/gone.txt", why: "Could not change permissions." }]),
-        "Permissions changed for 1 of 3; 2 left alone: secret.txt: Read-only: setgid bit is present.; gone.txt: Could not change permissions.")
+        "Permissions changed for 1 of 3, and 2 items keep their modes because they cannot be changed: secret.txt, gone.txt.")
     check("a batch with nothing applicable still answers every item",
         Permissions.multiResult(0, 1, [{ path: "/d/secret.txt", why: "Read-only: setgid bit is present." }]),
-        "Permissions changed for 0 of 1; 1 left alone: secret.txt: Read-only: setgid bit is present.")
+        "Permissions changed for 0 of 1, and secret.txt keeps its mode because its setgid bit is set.")
 
     check("four skips ride multiResult with the same tail",
         Permissions.multiResult(1, 5, [{ path: "/d/a.txt", why: "r1" }, { path: "/d/b.txt", why: "r2" },
                                        { path: "/d/c.txt", why: "r3" }, { path: "/d/d.txt", why: "r4" }]),
-        "Permissions changed for 1 of 5; 4 left alone: a.txt: r1; b.txt: r2; c.txt: r3; and 1 more")
+        "Permissions changed for 1 of 5, and 4 items keep their modes because they cannot be changed: a.txt, b.txt, c.txt and 1 more.")
 
     // noteMode answers done once, on the last reply, and calls summarize never.
     var REPLY_COUNT = 5000
@@ -242,7 +242,7 @@ function run(check) {
     var noted = { modes: ["0644", "0644", ""], reasons: ["", "Read-only: you are not the owner.", "Gone."], skipped: [], pending: 0 }
     check("reasoned and refused rows share one note",
         Permissions.inspectNote(noted, ["/d/a.txt", "/d/b.txt", "/d/c.txt"]),
-        "2 items keep their modes because they cannot be changed: b.txt, c.txt")
+        "2 items keep their modes because they cannot be changed: b.txt, c.txt.")
     check("and an applicable selection names nothing",
         Permissions.inspectNote({ modes: ["0644"], reasons: [""], skipped: [], pending: 0 }, ["/d/a.txt"]), "")
     // Every card that centres itself takes a whole size and origin from Theme, so none sits on a half pixel in an odd or an even window.

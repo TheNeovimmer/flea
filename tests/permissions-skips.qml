@@ -80,7 +80,7 @@ ShellRoot {
             shell.phase = 1
         } else if (shell.phase === 1) {
             shell.open(["/d/a.txt", "/d/b.txt", "/d/c.txt"], [["0644", ""], ["2755", "Read-only: setgid bit is present."], ["1777", "Read-only: sticky bit is present."]])
-            shell.check("two-skipped-files-share-one-line", dialog.displayedError === "2 items keep their modes because a special bit is set: b.txt, c.txt", dialog.displayedError)
+            shell.check("two-skipped-files-share-one-line", dialog.displayedError === "2 items keep their modes because a special bit is set: b.txt, c.txt.", dialog.displayedError)
             shell.check("two-skipped-files-mix-nothing", dialog.multiSummary.mixed === false, String(dialog.multiSummary.mixed))
             shell.phase = 2
         } else if (shell.phase === 2) {

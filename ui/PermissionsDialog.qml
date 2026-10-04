@@ -51,8 +51,15 @@ FocusScope {
     readonly property int headingHeight: Math.round(26 * Theme.font.bodySmall / 13)
     // Permissions040, several items: the surface's one 8 px gap, and the 6 px its button row adds above itself.
     readonly property int multiGap: Theme.spacing.rowPaddingY + Theme.spacing.hairline
-    // A bit column is a whole third of what the label column leaves, so each check box lands on whole pixels.
-    readonly property int bitWidth: Math.floor((body.holderWidth - root.labelWidth) / 3)
+    // The board's three flex:1 columns are exact thirds of this span; whole-number arithmetic rounds each start half up, as the board's paint does.
+    readonly property real bitSpan: body.holderWidth - root.labelWidth
+    function bitStart(column) { return Math.floor((2 * column * root.bitSpan + 3) / 6) }
+    function bitWidth(column) { return root.bitStart(column + 1) - root.bitStart(column) }
+    // The box sits at the rounded exact centre of its third, so it lands on whole pixels where the board's does.
+    function boxLead(column, box) { return Math.floor((2 * column * root.bitSpan + root.bitSpan - 3 * box + 3) / 6) - root.bitStart(column) }
+    // lib.py note(): a caption's line box is 1.5 x its size and its glyphs sit centred in it; the note and the column headings share it.
+    readonly property int captionLineBox: Math.round(root.noteLineRatio * Theme.font.caption)
+    readonly property int captionLead: Math.round((root.captionLineBox - noteFont.height) / 2)
     // Permissions040's strip draws the title and "esc" glyphs one row above where Qt's line box seats them (board rows 7-16 and 10-16, the build's 8-17 and 11-17 once centred above the rule).
     readonly property int stripTextRise: Theme.spacing.hairline
     readonly property int railHalf: Math.round(Theme.settings.railPaddingY / 2)
@@ -61,6 +68,7 @@ FocusScope {
     // The title strip's four marks, so a probe reads where each sits against the board's rows.
     readonly property var stripItems: ({ lock: lockMark, title: title, esc: escHint, close: closeMark })
     readonly property var noteItem: scopeLabel
+    readonly property var octalFrame: octalBox
     readonly property var bodyItem: body
     readonly property string displayedError: errorLabel.text
     readonly property string displayedSummary: (isMulti ? "" : changeSummary.text + "\n") + scopeLabel.text
@@ -377,7 +385,7 @@ FocusScope {
                 anchors.rightMargin: Theme.spacing.rowPaddingX
                 anchors.verticalCenter: titleBand.verticalCenter
                 glyph: "x"; gesturePolicy: TapHandler.ReleaseWithinBounds
-                // The one chrome control here, so brightness is all it has to say where the keyboard is: muted at rest, foreground under focus.
+                // Muted at rest as the board draws the strip; the keyboard adds ChromeButton's own ring.
                 restingColor: Theme.color.muted
                 enabled: !root.applyLocked
                 accessName: "Close permissions"
@@ -422,7 +430,17 @@ FocusScope {
                     Item { width: root.labelWidth; height: parent.height }
                     Repeater {
                         model: ["READ", "WRITE", root.isMulti || !root.facts.directory ? "EXEC" : "ENTER"]
-                        Text { required property string modelData; width: root.bitWidth; height: parent.height; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; text: modelData; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.caption; letterSpacing: Theme.font.caption / 10 } }
+                        // The board's row centres a one-line box in the heading and the glyphs in that box, so a floor, not Qt's half pixel, sets its top.
+                        Text {
+                            required property string modelData
+                            required property int index
+                            width: root.bitWidth(index); height: root.captionLineBox
+                            y: Math.floor((parent.height - height) / 2)
+                            lineHeight: height; lineHeightMode: Text.FixedHeight; topPadding: root.captionLead
+                            horizontalAlignment: Text.AlignHCenter
+                            text: modelData; textFormat: Text.PlainText; color: Theme.color.foreground
+                            font { family: Theme.font.family; pixelSize: Theme.font.caption; letterSpacing: Theme.font.caption / 10 }
+                        }
                     }
                 }
                 Repeater {
@@ -445,7 +463,7 @@ FocusScope {
                                 readonly property int bit: 1 << (8 - permissionRow.index * 3 - index)
                                 readonly property bool checked: root.isMulti ? root.multiChecked(bit)
                                     : (root.modeValue >= 0 ? root.modeValue : parseInt(root.facts.mode || "0", 8)) & bit
-                                width: root.bitWidth
+                                width: root.bitWidth(index)
                                 height: permissionRow.height
                                 activeFocusOnTab: true
                                 enabled: root.editable
@@ -467,7 +485,7 @@ FocusScope {
                                 Keys.onTabPressed: function(event) { root.stepFocus((event.modifiers & Qt.ShiftModifier) !== 0) }
                                 Keys.onBacktabPressed: root.stepFocus(true)
                                 Flea.CheckBox {
-                                    x: Math.round((parent.width - width) / 2)
+                                    x: root.boxLead(checkbox.index, width)
                                     y: Math.round((parent.height - height) / 2)
                                     // A bit differing across the files shows a bar until it is clicked.
                                     value: root.isMulti ? root.multiValue(bit) : checkbox.checked ? "on" : "off"
@@ -495,10 +513,12 @@ FocusScope {
                     visible: !root.isMulti
                     Text { width: root.labelWidth; anchors.verticalCenter: parent.verticalCenter; text: "Octal"; textFormat: Text.PlainText; color: Theme.color.foreground; font { family: Theme.font.family; pixelSize: Theme.font.body } }
                     Rectangle {
+                        id: octalBox
                         width: body.holderWidth - root.labelWidth - parent.spacing
                         height: parent.height
                         color: Theme.color.background
-                        border.color: octal.activeFocus ? Theme.color.accent : Theme.color.muted
+                        // A focused field is its own frame in the accent, and the error role where its line reports an error, as RenameField draws it.
+                        border.color: octal.activeFocus ? (errorLabel.visible && !root.busy ? Theme.color.error : Theme.color.accent) : Theme.color.muted
                         TextInput {
                             id: octal
                             anchors.fill: parent
@@ -602,11 +622,10 @@ FocusScope {
                     id: scopeLabel
                     width: parent.width
                     // Fixed line boxes put the spare height under the glyphs, so the top padding centres them as CSS line-height does.
-                    readonly property int lineBox: Math.round(root.noteLineRatio * Theme.font.caption)
-                    height: lineCount * lineBox
-                    lineHeight: lineBox
+                    height: lineCount * root.captionLineBox
+                    lineHeight: root.captionLineBox
                     lineHeightMode: Text.FixedHeight
-                    topPadding: Math.round((lineBox - noteFont.height) / 2)
+                    topPadding: root.captionLead
                     // A box whose bit differs across the files shows a bar until it is clicked.
                     text: root.isMulti ? Permissions.mixedNote() : root.scopeText
                     textFormat: Text.PlainText

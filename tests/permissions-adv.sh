@@ -28,6 +28,7 @@ ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/permissions-adv.qml "$test_root/config/shell.qml" || exit 1
+cp tests/permissions-columns.js "$test_root/config/permissions-columns.js" || exit 1
 
 output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
@@ -49,7 +50,7 @@ if [ "$done_count" -ne 1 ]; then
     printf 'FAIL completion receipts %s, want exactly 1 DONE beside the PASS\n' "$done_count"
     verdict=1
 fi
-expected_checks=158
+expected_checks=258
 if [ "$pass_count" -ne "$expected_checks" ] || [ "$fail_count" -ne 0 ]; then
     printf 'FAIL the permissions dialog missed a finding: pass=%s fail=%s want %s/0\n' "$pass_count" "$fail_count" "$expected_checks"
     printf '%s\n' "$output" | grep -aE 'PERMADV|ERROR|error'
