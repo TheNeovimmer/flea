@@ -93,6 +93,20 @@ function takeList(line, view, marker) {
     takeIndent(line, view, marker.gap)
 }
 
+// Sample input: "\tbar" read at column 2 answers "  bar": the leading tab expands to its own stop, so no importer miscounts it.
+function expandLead(text, column) {
+    var out = ""
+    var at = 0
+    var col = column
+    while (at < text.length && (text.charAt(at) === " " || text.charAt(at) === "\t")) {
+        var step = text.charAt(at) === "\t" ? CODE_INDENT - col % CODE_INDENT : 1
+        out += " ".repeat(step)
+        col += step
+        at++
+    }
+    return out + text.slice(at)
+}
+
 function textAt(line, view) {
     return " ".repeat(view.padding) + line.slice(view.at)
 }

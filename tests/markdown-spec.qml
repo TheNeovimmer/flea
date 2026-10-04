@@ -4,8 +4,7 @@ import "mdspec-blocks.js" as Blocks
 import "mdspec-canon.js" as Canon
 import "mdspec-rules.js" as Rules
 
-// Feeds every CommonMark 0.31.2 example and every GFM extension example through Flea's parser and Qt's drawing of its text,
-// and compares the structure drawn with the spec's HTML. Per-section pass counts only ever go up: RECORDED is the ratchet.
+// Feeds every CommonMark 0.31.2 and GFM example through Flea's parser and Qt's drawing, comparing structure with the spec's HTML.
 Item {
     id: gate
 
@@ -13,39 +12,44 @@ Item {
     readonly property string dir: "/spec"
     readonly property string chrome: "#181825"
     readonly property string ink: "#c0caf5"
+    // The cmark spec fences each example in this many backticks.
+    readonly property int exampleFenceTicks: 32
     // Sections in spec order, each with the count of examples that pass today; a section below its count fails the suite.
     readonly property var recorded: ({
-        "Tabs": 8,
+        "Tabs": 11,
         "Backslash escapes": 13,
-        "Entity and numeric character references": 14,
+        "Entity and numeric character references": 17,
         "Precedence": 1,
         "Thematic breaks": 19,
-        "ATX headings": 17,
-        "Setext headings": 25,
+        "ATX headings": 18,
+        "Setext headings": 27,
         "Indented code blocks": 12,
         "Fenced code blocks": 29,
-        "HTML blocks": 14,
-        "Link reference definitions": 23,
+        "HTML blocks": 16,
+        "Link reference definitions": 26,
         "Paragraphs": 8,
         "Blank lines": 1,
-        "Block quotes": 22,
-        "List items": 43,
+        "Block quotes": 24,
+        "List items": 45,
         "Lists": 26,
         "Inlines": 1,
         "Code spans": 21,
         "Emphasis and strong emphasis": 131,
-        "Links": 84,
+        "Links": 86,
         "Images": 8,
         "Autolinks": 11,
         "Raw HTML": 14,
         "Hard line breaks": 15,
         "Soft line breaks": 2,
         "Textual content": 3,
-        "GFM table": 7,
+        "GFM table": 8,
         "GFM task list items": 2,
         "GFM strikethrough": 2,
         "GFM autolink": 11,
-        "GFM tagfilter": 0
+        "GFM tagfilter": 0,
+        "GFM table forms": 13,
+        "Entity forms": 7,
+        "Definition forms": 1
     })
 
     TextEdit {
@@ -71,10 +75,11 @@ Item {
         return request.responseText
     }
 
-    // Sample input: the cmark spec writes a tab as an arrow, "→", inside its examples.
+    // Sample input: a 32-tick fence "example strikethrough", Markdown, a "." line, HTML and a closing fence answers one example.
     function gfmExamples(text) {
         var lines = text.split("\n")
-        var fence = "`".repeat(32) + " example"
+        var ticks = "`".repeat(gate.exampleFenceTicks)
+        var fence = ticks + " example"
         var out = []
         var section = ""
         var number = 0
@@ -90,7 +95,7 @@ Item {
             var md = []
             var html = []
             var target = md
-            for (i++; i < lines.length && lines[i].indexOf("`".repeat(32)) !== 0; i++) {
+            for (i++; i < lines.length && lines[i].indexOf(ticks) !== 0; i++) {
                 if (lines[i] === ".")
                     target = html
                 else
@@ -119,11 +124,25 @@ Item {
             got = "THROW " + e
         }
         var rule = Rules.exceptionFor(example)
-        if (rule !== "" && Rules.RULES[rule].varies === true)
-            return { state: "exception", rule: rule, got: got, want: want }
         if (got === want)
             return { state: rule === "" ? "pass" : "stale", rule: rule, got: got, want: want }
         return { state: rule === "" ? "fail" : "exception", rule: rule, got: got, want: want }
+    }
+
+    // The adapter's own checks: a tight item keeps the paragraphs of a list or quote nested in its text, and loses only its own.
+    function adapterFailures() {
+        var texts = ["a\n\n- b\n\n  b2\n\n- c", "a\n\n> q\n>\n> r"]
+        var wants = ["<ul><li>a<ul><li>b<p>b2</p></li><li>c</li></ul></li></ul>", "<ul><li>a<blockquote><p>q</p><p>r</p></blockquote></li></ul>"]
+        var failures = 0
+        for (var t = 0; t < texts.length; t++) {
+            var nested = { type: "list", ordered: false, start: 0, items: [texts[t]], depths: [0], markers: ["\u2022"], gaps: [false] }
+            var got = Blocks.blocksHtml([nested], gate.exported, gate.dir)
+            if (got !== wants[t]) {
+                console.log("FAIL adapter: a tight item holding a nested block drew " + got)
+                failures++
+            }
+        }
+        return failures
     }
 
     Component.onCompleted: {
@@ -143,10 +162,27 @@ Item {
             gfm[g].example = "gfm" + gfm[g].example
             examples.push(gfm[g])
         }
+        // The table forms GitHub draws that the spec's eight examples leave open, written by hand against GFM's table rules.
+        var forms = JSON.parse(gate.read("gfm-table-forms.json"))
+        for (var f = 0; f < forms.length; f++) {
+            forms[f].kind = "table-forms"
+            forms[f].example = "table-" + forms[f].example
+            examples.push(forms[f])
+        }
+        // Hand-written forms the spec leaves open: a character a reference spells stays literal, and a definition's angle destination never spans a line.
+        var handForms = [{ file: "entity-forms.json", kind: "entity-forms" }, { file: "definition-forms.json", kind: "definition-forms" }]
+        for (var h = 0; h < handForms.length; h++) {
+            var written = JSON.parse(gate.read(handForms[h].file))
+            for (var w = 0; w < written.length; w++) {
+                written[w].kind = handForms[h].kind
+                written[w].example = handForms[h].kind + "-" + written[w].example
+                examples.push(written[w])
+            }
+        }
         var order = []
         var tally = {}
         var rules = {}
-        var failed = 0
+        var failed = gate.adapterFailures()
         for (var i = 0; i < examples.length; i++) {
             var ex = examples[i]
             if (showAt >= 0 && String(ex.example) !== args[showAt + 1])

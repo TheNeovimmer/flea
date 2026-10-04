@@ -477,10 +477,10 @@ Item {
             // Only the drawn block lends its height, and a list or table chunk lies flush by its own negative y.
             height: kind.item ? kind.item.height + kind.item.y : 0
 
-            // A block builds only the parts its own kind draws, and they sit on the delegate so a reader of the block finds them there.
+            // A block builds only the parts its own kind draws, on the delegate; an empty heading or quote builds none, so it has no height.
             Loader {
                 id: kind
-                sourceComponent: block.type === "run" && block.maths !== undefined ? mathsBlock
+                sourceComponent: block.text === "" && (block.type === "heading" || block.type === "quote") ? null : block.type === "run" && block.maths !== undefined ? mathsBlock
                     : block.type === "run" || block.type === "heading" ? textBlock
                     : block.type === "fence" ? fenceBlock
                     : block.type === "figure" ? figureBlock

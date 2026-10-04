@@ -54,3 +54,10 @@ function headerInkError(table, bright, foreground) {
     return bold === 0 || plain === 0 ? "the table drew " + bold + " header and " + plain + " body cells" : error;
 }
 
+// Sample input: blocks 1 and 2 of a drawn document, an empty heading and quote, answer true only when each delegate is 0 high.
+function emptiesTakeNoHeight(preview, indexes) {
+    return indexes.every(function (index) {
+        var item = preview.blockItem(index)
+        return item !== null && item.height === 0
+    })
+}

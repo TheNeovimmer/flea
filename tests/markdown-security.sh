@@ -25,6 +25,7 @@ ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/markdown-security.qml "$test_root/config/shell.qml" || exit 1
+cp tests/mdfence.js "$test_root/config/mdfence.js" || exit 1
 
 # A free loopback port, then the counter. Each GET appends its path, so the hits file both counts and names the vector that leaked.
 port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')

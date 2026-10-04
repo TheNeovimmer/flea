@@ -8,7 +8,8 @@ import "flea/js/MdUrl.js" as Url
 import "flea/js/MdResolve.js" as Resolve
 import "flea/js/MdHtml.js" as Html
 import "flea/js/MdBlocks.js" as Blocks
-import "flea/js/MdInline.js" as Inline
+import "flea/js/MdLink.js" as Link
+import "mdfence.js" as Fence
 
 // Render the preview and every emitted block offscreen; the shell checks the counter after the control GET handshake.
 ShellRoot {
@@ -47,12 +48,12 @@ ShellRoot {
         return true
     }
 
-    // Sample: ![x](file:///pic.png) and <img src="file:///pic.png"> expose Text image resources, unless inside a closed fence (code).
+    // Sample: ![x](file:///pic.png) and <img src="file:///pic.png"> expose Text image resources, unless inside a fence (code).
     function resourceUrls(item, urls) {
         if (item.textFormat === Text.MarkdownText) {
             var re = /!\[[^\]]*\]\(([^)]+)\)|<img\b[^>]*\bsrc=["']([^"']*)["']/g
             var hit = null
-            var drawnText = String(item.text).replace(/^```[^\n]*\n[\s\S]*?\n```$/gm, "")
+            var drawnText = Fence.withoutFences(item.text)
             while ((hit = re.exec(drawnText)) !== null)
                 urls.push(hit[1] || hit[2])
         }
@@ -74,7 +75,7 @@ ShellRoot {
             if (use === null)
                 continue
             var label = use[2] || use[1]
-            var key = Inline.normalizeLabel(label)
+            var key = Link.normalizeLabel(label)
             var path = /(f[0-9]+c[0-9]+)$/.exec(key)
             var expected = path === null ? "" : counter + "/" + path[1] + "/x.png"
             if (expected === "" || defs[key] !== expected)
@@ -128,6 +129,21 @@ ShellRoot {
             if (links[l].indexOf("[") >= 0 || links[l].indexOf("<a ") >= 0)
                 validationFailures.push("rejected target emitted anchor syntax " + l)
         }
+        // A destination spelled through references reads as a refused scheme after one decode or several, so none becomes a link, even around an image.
+        var spelled = ["&amp;#106;avascript:alert(1)", "javascript&amp;colon;alert(1)", "&amp;#x6a;avascript&amp;colon;alert(1)", "java&amp;Tab;script:alert(1)",
+            "javascript&amp;amp;colon;alert(1)", "data&amp;colon;text/html,x"]
+        for (var sp = 0; sp < spelled.length; sp++) {
+            var spelledText = JSON.stringify(Blocks.blocks("[![a](p.png)](" + spelled[sp] + ")\n[b](" + spelled[sp] + ")\n", dir, "#181825", "#c0caf5"))
+            if (spelledText.indexOf("](") >= 0 || spelledText.indexOf("<a ") >= 0)
+                validationFailures.push("refused scheme spelled through references became a link " + sp)
+        }
+        // A character a reference spells reaches Qt as an entity, never as the syntax mark: no link, emphasis or indented code forms from it.
+        var entitySpelled = ["&#91;x&#93;&#40;javascript&#58;alert&#40;1&#41;&#41;", "&ast;a&ast;", "&#32;&#32;&#32;&#32;code"]
+        for (var es = 0; es < entitySpelled.length; es++) {
+            var entityRuns = Blocks.blocks(entitySpelled[es] + "\n", dir, "#181825", "#c0caf5").map(function (block) { return block.text }).join("")
+            if (/[\[\]*]|<a |^ /.test(entityRuns))
+                validationFailures.push("a reference-spelled mark reached Qt as syntax " + es)
+        }
         log("blocks=" + md.blockList.length)
         // Build resource probes after delegates, then wait for their native Image completion signals.
         Qt.callLater(function () {
@@ -169,6 +185,15 @@ ShellRoot {
             validationFailures.push("Source view Text is not plain text")
         else if (String(drawn.text).indexOf("![front](") < 0 || String(drawn.text).indexOf("![math](") < 0)
             validationFailures.push("Source view Text lacks the front matter and display math placements")
+        // A fence opened in a list item or a quote ends with its container, so the prose and image after it are drawn, and the fence's own lines are not.
+        var fenceCases = [{ text: "- ```\n  code\nafter ![x](u)\n", drawn: true }, { text: "> ```\n> code\nafter ![x](u)\n", drawn: true },
+            { text: "1. a\n   - ```\n     code\n   after ![x](u)\n", drawn: true }, { text: "- ```\n  ![x](u)\n\n  ![y](v)\n  ```\nafter\n", drawn: false },
+            { text: "> ```\n> ![x](u)\n> ```\nafter\n", drawn: false }, { text: "- a\n  ```\n  code\nafter ![x](u)\n", drawn: true },
+            { text: "- a\n  ```\n  code\n  ```\nmore ![x](u)\n", drawn: true }]
+        for (var fc = 0; fc < fenceCases.length; fc++) {
+            if ((Fence.withoutFences(fenceCases[fc].text).indexOf("![x](u)") >= 0) !== fenceCases[fc].drawn)
+                validationFailures.push("container fence extent wrong for case " + fc)
+        }
         control.text = "![control](" + counter + "/control.png)"
         var request = new XMLHttpRequest()
         request.onreadystatechange = function () {

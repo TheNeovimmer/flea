@@ -7,6 +7,7 @@
 .import "MdDocument.js" as Document
 .import "MdHtml.js" as Html
 .import "MdMath.js" as Maths
+.import "MdFront.js" as Front
 
 var CODE_INDENT = 4
 var MIN_RULE_MARKS = 3
@@ -55,12 +56,6 @@ function referenceState() {
         hidden: {}, escaped: {}, code: {}, dropped: [] }
 }
 
-function hideDefinition(state, from, to) {
-    for (var i = from; i <= to; i++)
-        state.hidden[i] = true
-    state.dropped.push([from, to])
-}
-
 // Sample: "- > ```\n  > [id]: literal\n  > ```" matches an item, then a quote, before its fence.
 function blockPass(lines, state, emit, collect) {
     var frames = []
@@ -69,7 +64,7 @@ function blockPass(lines, state, emit, collect) {
     var serial = 0
     var lastQuote = -1
     // Leading frames now open that share frame 0's type (items or quotes), where the line's text starts after them, and the frames found open.
-    var lead = { n: 0, here: 0, lazy: false, retained: 0, at: 0, pad: 0, raw: "" }
+    var lead = { n: 0, here: 0, lazy: false, retained: 0, at: 0, pad: 0, col: 0, raw: "" }
     function send(kind, index, text, top, display, info) {
         if (emit !== undefined)
             emit({ type: "line", kind: kind, index: index, text: text,
@@ -87,7 +82,7 @@ function blockPass(lines, state, emit, collect) {
         var rawBlank = raw.trim().length === 0
         var matched = 0
         var leadHere = 0
-        lead = { n: lead.n, here: 0, lazy: false, retained: 0, at: 0, pad: 0, raw: raw }
+        lead = { n: lead.n, here: 0, lazy: false, retained: 0, at: 0, pad: 0, col: 0, raw: raw }
         var display = raw
         var rule = ruleSuffix(raw)
         var previousTop = frames.length > 0 ? frames[0] : null
@@ -100,9 +95,12 @@ function blockPass(lines, state, emit, collect) {
                 Container.takeQuote(raw, view, quote)
             } else {
                 var indent = Container.indentationAt(raw, view, frame.contentCol).width
-                if (indent >= frame.contentCol) {
+                if (indent >= frame.contentCol && frame.sealed !== true) {
                     Container.takeIndent(raw, view, frame.contentCol)
                 } else if (rawBlank || raw.slice(view.at).trim().length === 0) {
+                    // An item opened on a blank line holds at most that one blank line, so a second seals it against more content.
+                    if (frame.bareAt === i - 1)
+                        frame.sealed = true
                     if (matched > lastQuote) {
                         matched = frames.length
                         break
@@ -115,6 +113,7 @@ function blockPass(lines, state, emit, collect) {
                 lead.here = ++leadHere
                 lead.at = view.at
                 lead.pad = view.padding
+                lead.col = view.column
             }
             if (matched === 0)
                 display = Container.textAt(raw, view)
@@ -162,6 +161,7 @@ function blockPass(lines, state, emit, collect) {
                     next.ordered = marker.ordered
                     next.mark = marker.mark
                     next.start = marker.start
+                    next.bareAt = raw.slice(marker.markerEnd).trim().length === 0 ? i : -1
                     next.group = frames.length === 0 && previousTop !== null
                         && previousTop.type === "list" && previousTop.mark === marker.mark
                         ? previousTop.group : next.id
@@ -172,6 +172,7 @@ function blockPass(lines, state, emit, collect) {
                     leadHere = lead.n
                     lead.at = view.at
                     lead.pad = view.padding
+                    lead.col = view.column
                 }
                 frames.push(next)
                 owner = next.id
@@ -200,7 +201,7 @@ function blockPass(lines, state, emit, collect) {
             if (collect && pending.owner === owner && pending.note !== undefined
                     && Container.indentationAt(raw, view).width >= CODE_INDENT) {
                 pending.body.push(text.replace(/^\s+/, ""))
-                hideDefinition(state, i, i)
+                Refs.hideDefinition(state, i, i)
                 send("hidden", i, text, top, display)
                 continue
             }
@@ -209,7 +210,7 @@ function blockPass(lines, state, emit, collect) {
                 var destination = Refs.readDefinitionParts(text.trim())
                 if (destination.target !== "") {
                     Refs.storeDefinition(state.defs, pending.ref.key, destination.target)
-                    hideDefinition(state, pending.index, i)
+                    Refs.hideDefinition(state, pending.index, i)
                     Refs.hideTitle(lines, i + 1, state, owner === 0 && !destination.titled)
                     // Replay the opener's paragraph state so its lazy destination keeps the same containers.
                     state.hidden[pending.index] = "paragraph"
@@ -226,22 +227,11 @@ function blockPass(lines, state, emit, collect) {
             send("hidden", i, text, top, display)
             continue
         }
-        if (i === 0 && raw === "---") {
-            var front = i + 1
-            while (front < lines.length && lines[front] !== "---" && lines[front] !== "...")
-                front++
-            if (front < lines.length) {
-                send("fenceOpen", i, "", null, raw)
-                state.code[i] = true
-                for (i++; i < front; i++) {
-                    send("fenceBody", i, lines[i], null, lines[i])
-                    state.code[i] = true
-                }
-                send("fenceClose", i, "", null, lines[i])
-                state.code[i] = true
-                leaf = null
-                continue
-            }
+        var front = i === 0 ? Front.closeAt(lines) : -1
+        if (front > 0) {
+            i = Front.sendFront(lines, front, send, state)
+            leaf = null
+            continue
         }
         var open = Leaf.fenceOpen(text)
         if (open !== null) {
@@ -284,7 +274,15 @@ function blockPass(lines, state, emit, collect) {
         }
         if (collect && leaf === null && !blank) {
             var note = Refs.readFootnoteDefinition(text)
-            var ref = note === null ? Refs.readDefinition(text) : null
+            // Outside a container a definition may span lines; inside one it is read a line at a time.
+            var multi = note === null && top === null ? Refs.definitionAt(lines, i) : null
+            var ref = note === null && top !== null ? Refs.readDefinition(text) : null
+            if (multi !== null) {
+                Refs.storeDefinition(state.defs, multi.key, multi.target)
+                Refs.hideDefinition(state, i, multi.end)
+                i = multi.end
+                continue
+            }
             if (note !== null) {
                 var stored = hasOwn.call(state.notes, note.id) ? null : { text: note.text }
                 if (stored !== null) {
@@ -292,14 +290,14 @@ function blockPass(lines, state, emit, collect) {
                     state.numbers[note.id] = 0
                 }
                 pending = { owner: owner, note: stored || {}, body: [note.text] }
-                hideDefinition(state, i, i)
+                Refs.hideDefinition(state, i, i)
                 send("hidden", i, text, top, display)
                 continue
             }
             if (ref !== null) {
                 if (ref.target !== "") {
                     Refs.storeDefinition(state.defs, ref.key, ref.target)
-                    hideDefinition(state, i, i)
+                    Refs.hideDefinition(state, i, i)
                     Refs.hideTitle(lines, i + 1, state, owner === 0 && !ref.titled)
                     send("hidden", i, text, top, display)
                     continue

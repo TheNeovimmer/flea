@@ -2,6 +2,7 @@
 
 // MdMath: where a display formula starts and ends in the block reader's lines, and which formulas a paragraph holds.
 .import "MdInline.js" as Md
+var INLINE_DELIMITER_LENGTH = 1
 var DISPLAY_DELIMITER_LENGTH = 2
 
 // Sample input: "$$x^2$$ tail" answers { source: "x^2", tail: " tail", to: i }; a lone "$$" opener reads on to its closer line.
@@ -34,9 +35,6 @@ function displayAt(lines, i, text) {
     return source.length > 0 ? { source: source, tail: tail, to: to } : null
 }
 
-var DISPLAY_KIND = 2
-var MATH_KIND = 1
-
 // Sample input: "a $$x$$ b" answers [{ text: "a " }, { math: "x" }, { text: " b" }]; text without a display pair answers null.
 function splitDisplay(text) {
     if (text.indexOf("$$") < 0)
@@ -45,10 +43,10 @@ function splitDisplay(text) {
     var pieces = []
     var at = 0
     for (var k = 0; k < spans.length; k += Md.INTERVAL_STRIDE) {
-        if (spans[k + 3] !== MATH_KIND || spans[k + 2] !== DISPLAY_KIND)
+        if (spans[k + 3] !== Md.MATH_SPAN || spans[k + 2] !== DISPLAY_DELIMITER_LENGTH)
             continue
         pieces.push({ text: text.slice(at, spans[k]) })
-        pieces.push({ math: text.slice(spans[k] + DISPLAY_KIND, spans[k + 1] - DISPLAY_KIND).trim() })
+        pieces.push({ math: text.slice(spans[k] + DISPLAY_DELIMITER_LENGTH, spans[k + 1] - DISPLAY_DELIMITER_LENGTH).trim() })
         at = spans[k + 1]
     }
     pieces.push({ text: text.slice(at) })
@@ -62,8 +60,8 @@ function inlineSources(text) {
         return out
     var spans = Md.spanIntervals(text)
     for (var k = 0; k < spans.length; k += Md.INTERVAL_STRIDE) {
-        if (spans[k + 3] === MATH_KIND && spans[k + 2] === 1)
-            out.push(text.slice(spans[k] + 1, spans[k + 1] - 1).trim())
+        if (spans[k + 3] === Md.MATH_SPAN && spans[k + 2] === INLINE_DELIMITER_LENGTH)
+            out.push(text.slice(spans[k] + INLINE_DELIMITER_LENGTH, spans[k + 1] - INLINE_DELIMITER_LENGTH).trim())
     }
     return out
 }

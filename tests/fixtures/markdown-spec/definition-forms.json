@@ -1,0 +1,8 @@
+[
+ {
+  "example": "angle-backslash-line-ending",
+  "section": "Definition forms",
+  "markdown": "[a]: <x\\\ny>\n",
+  "html": "<p>[a]: &lt;x<br />\ny&gt;</p>\n"
+ }
+]

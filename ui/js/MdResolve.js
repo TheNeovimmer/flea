@@ -4,22 +4,43 @@
 .import "MdUrl.js" as MdUrl
 .import "MdHtml.js" as MdHtml
 .import "MdInline.js" as Md
+.import "MdLink.js" as Link
 .import "MdRefs.js" as Refs
 .import "MdEntity.js" as Ent
 
 var MAX_STYLED_SPANS = 1024
+// A target that still changes after this many decodings is refused: no real address nests that deep.
+var MAX_DECODE_PASSES = 8
 var hasOwn = Object.prototype.hasOwnProperty
-// The bytes a markdown destination cannot hold, as percent escapes.
+// The bytes a markdown destination cannot hold as written, as percent escapes.
 var PERCENT_ESCAPE = { " ": "%20", "(": "%28", ")": "%29" }
+// The characters the renderer decodes in a destination, written so it reads back the text it was given.
+var DESTINATION_ESCAPE = { "\\": "\\\\", "&": "&amp;", "<": "&lt;", ">": "&gt;" }
 
-// Links never fetch, but javascript: and data: hrefs must never be emitted: only http, https, mailto, relative and #anchor targets become anchors.
+// Only http, https, mailto, relative and #anchor targets link, checked through every decoding, so no javascript: href is emitted.
 function isLinkTarget(url) {
-    var seen = MdHtml.normalizedTarget(MdUrl.canonicalUrl(url))
-    var m = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.exec(seen)
-    if (m === null)
-        return true
-    var scheme = m[0].toLowerCase()
-    return scheme === "http:" || scheme === "https:" || scheme === "mailto:"
+    var seen = String(url)
+    for (var pass = 0; pass <= MAX_DECODE_PASSES; pass++) {
+        var shown = MdHtml.normalizedTarget(MdUrl.canonicalUrl(seen))
+        var m = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.exec(shown)
+        if (m !== null) {
+            var scheme = m[0].toLowerCase()
+            if (scheme !== "http:" && scheme !== "https:" && scheme !== "mailto:")
+                return false
+        }
+        var next = Ent.decodeReferences(shown)
+        if (next === seen || next === shown)
+            return true
+        seen = next
+    }
+    return false
+}
+
+// A destination as the markdown the renderer reads back to exactly this text: it decodes references and escapes once more.
+function markdownDestination(target) {
+    return String(target).replace(/[ ()\\&<>]/g, function (c) {
+        return PERCENT_ESCAPE.hasOwnProperty(c) ? PERCENT_ESCAPE[c] : DESTINATION_ESCAPE[c]
+    })
 }
 
 // Sample input: "https://a.example" and "mailto:a@b.example" are external; "./x.md", "#top" and "ftp://h/f" are not.
@@ -35,18 +56,18 @@ function readDestination(body, j, raw, defs) {
 }
 
 function readRawDestination(body, j, raw, defs) {
-    var inline = body.charAt(j) === "(" ? Md.readInlineTarget(body, j) : null
+    var inline = body.charAt(j) === "(" ? Link.readInlineTarget(body, j) : null
     if (inline !== null)
         return { url: inline.url, end: inline.end }
     if (body.charAt(j) === "[") {
-        var ref = Md.readLabelRef(body, j)
+        var ref = Link.readLabelRef(body, j)
         var label = ref === null ? "" : ref.label.length > 0 ? ref.label : raw
-        if (label.length > 0 && hasOwn.call(defs, Md.normalizeLabel(label)))
-            return { url: defs[Md.normalizeLabel(label)], end: ref.end }
+        if (label.length > 0 && hasOwn.call(defs, Link.normalizeLabel(label)))
+            return { url: defs[Link.normalizeLabel(label)], end: ref.end }
         return null
     }
-    if (raw.length > 0 && hasOwn.call(defs, Md.normalizeLabel(raw)))
-        return { url: defs[Md.normalizeLabel(raw)], end: j }
+    if (raw.length > 0 && hasOwn.call(defs, Link.normalizeLabel(raw)))
+        return { url: defs[Link.normalizeLabel(raw)], end: j }
     return null
 }
 
@@ -68,8 +89,7 @@ function resolvePair(raw, target, bang, dir, ink, tokens, label) {
             return "\n\n" + MdUrl.placeholder(Md.escapeHtmlText(cls.host)) + "\n\n"
         if (cls.kind === "local") {
             var alt = Md.escapeHtmlText(clean)
-            var url = cls.url.replace(/\(/g, "%28").replace(/\)/g, "%29")
-            tokens.push("![" + alt + "](" + url + ")")
+            tokens.push("![" + alt + "](" + markdownDestination(cls.url) + ")")
             return -1 - (tokens.length - 1)
         }
         return Md.escapeHtmlText(clean)
@@ -80,7 +100,7 @@ function resolvePair(raw, target, bang, dir, ink, tokens, label) {
     var shown = label === undefined ? clean : label()
     // Inside an html link the renderer would draw a linked image's alt text beside it, so its own link syntax carries that label.
     var html = label !== undefined && shown.indexOf("![") >= 0
-        ? "[" + shown + "](" + target.replace(/[ ()]/g, function (c) { return PERCENT_ESCAPE[c] }) + ")"
+        ? "[" + shown + "](" + markdownDestination(target) + ")"
         : Md.linkHtml(shown, target, ink, label !== undefined)
     if (html === null)
         return Md.escapeHtmlText("[" + clean + "](" + target + ")")
@@ -152,7 +172,7 @@ function styledSpan(kind, content, chrome, cache) {
 
 // Sample input: '<img src="pic.png">' at its "<" resolves a tag; '<https://a.example>' resolves an autolink.
 function parseAngle(body, i, dir, ink, styleLinks, dead, tokens, out) {
-    var auto = Md.readAutolink(body, i)
+    var auto = Link.readAutolink(body, i)
     if (auto !== null && !isLinkTarget(auto.href))
         auto = null
     if (auto !== null) {
@@ -213,7 +233,7 @@ function parseAngle(body, i, dir, ink, styleLinks, dead, tokens, out) {
 
 // Sample input: "see https://a.example/x now" at the "h" answers the index after the address; no bare address answers -1.
 function bareAt(body, i, ink, styleLinks, tokens, out) {
-    var bare = Md.readBarelink(body, i)
+    var bare = Link.readBarelink(body, i)
     if (bare === null || !isLinkTarget(bare.href))
         return -1
     var url = bare.url

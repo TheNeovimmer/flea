@@ -22,6 +22,7 @@ function esc(text) {
 var BOLD_WEIGHT = 600
 var MONO_FAMILY = /mono|courier/i
 var QUOTE_INDENT_PX = 40
+var BODY_OPEN = "<body>"
 
 function isMono(style) {
     return MONO_FAMILY.test(style["font-family"] || "")
@@ -95,6 +96,7 @@ function plain(node) {
     return out
 }
 
+// Sample input: the export's '<ul><li><p>a</p></li></ul>' node answers "<ul><li>a</li></ul>".
 function listOf(node, dir, state) {
     var tag = node.tag
     var start = node.attrs.start
@@ -124,6 +126,7 @@ function listOf(node, dir, state) {
     return out + (open ? "</li>" : "") + "</" + tag + ">"
 }
 
+// Sample input: '<table><tr><td><p align="center">a</p></td></tr></table>' answers a table whose one header cell "a" is centred.
 function tableOf(node, dir) {
     var rows = []
     function collect(n) {
@@ -145,7 +148,8 @@ function tableOf(node, dir) {
                 continue
             var p = cell.kids.filter(function (x) { return x.tag === "p" })[0]
             var align = p !== undefined && p.attrs.align !== undefined && p.attrs.align !== "left" ? " align=\"" + p.attrs.align + "\"" : ""
-            out += "<" + (head ? "th" : "td") + align + ">" + (p !== undefined ? inlineOf(p.kids, dir) : "") + "</" + (head ? "th" : "td") + ">"
+            // Qt draws a header cell bold, so a head cell drops that bold as a heading does.
+            out += "<" + (head ? "th" : "td") + align + ">" + (p !== undefined ? inlineOf(p.kids, dir, head) : "") + "</" + (head ? "th" : "td") + ">"
         }
         out += "</tr>" + (head ? "</thead>" : "")
     }
@@ -155,12 +159,12 @@ function tableOf(node, dir) {
 // Qt keeps no element for a code block, and a lone html paragraph has the same zero margin, so only source with code syntax can hold one.
 var CODE_SYNTAX = /```|~~~|(^|\n)[ \t>]*(?: {4}|\t)/
 
-// The export's body as semantic HTML; a block's left margin counts the quotes around it.
+// Sample input: '<body><p>a <span style=" font-weight:700;">b</span></p></body>' answers "<p>a <strong>b</strong></p>".
 function fromExport(exported, dir, source) {
     var codeAllowed = CODE_SYNTAX.test(source || "")
-    var at = exported.indexOf("<body>")
+    var at = exported.indexOf(BODY_OPEN)
     var end = exported.lastIndexOf("</body>")
-    var tree = Canon.parse(exported.slice(at + 6, end < 0 ? exported.length : end))
+    var tree = Canon.parse(exported.slice(at + BODY_OPEN.length, end < 0 ? exported.length : end))
     tree.kids = tree.kids.filter(function (k) { return k.tag !== undefined })
     var out = ""
     var depth = 0

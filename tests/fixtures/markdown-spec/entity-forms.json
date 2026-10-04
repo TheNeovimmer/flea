@@ -1,0 +1,44 @@
+[
+ {
+  "example": "link-syntax",
+  "section": "Entity forms",
+  "markdown": "&#91;x&#93;&#40;javascript&#58;alert&#40;1&#41;&#41;\n",
+  "html": "<p>[x](javascript:alert(1))</p>\n"
+ },
+ {
+  "example": "emphasis-marks",
+  "section": "Entity forms",
+  "markdown": "&ast;a&ast; &#42;&#42;b&#42;&#42; &#95;c&#95;\n",
+  "html": "<p>*a* **b** _c_</p>\n"
+ },
+ {
+  "example": "image-syntax",
+  "section": "Entity forms",
+  "markdown": "&#33;&#91;a&#93;&#40;p.png&#41;\n",
+  "html": "<p>![a](p.png)</p>\n"
+ },
+ {
+  "example": "heading-and-code-marks",
+  "section": "Entity forms",
+  "markdown": "&#35; h &#96;c&#96; &#126;&#126;s&#126;&#126;\n",
+  "html": "<p># h `c` ~~s~~</p>\n"
+ },
+ {
+  "example": "spaces-are-not-indent",
+  "section": "Entity forms",
+  "markdown": "&#32;&#32;&#32;&#32;code\n",
+  "html": "<p>    code</p>\n"
+ },
+ {
+  "example": "spaces-are-not-a-break",
+  "section": "Entity forms",
+  "markdown": "a&#32;&#32;\nb\n",
+  "html": "<p>a  \nb</p>\n"
+ },
+ {
+  "example": "quote-and-list-marks",
+  "section": "Entity forms",
+  "markdown": "&#62; q\n\n&#45; i\n",
+  "html": "<p>&gt; q</p>\n<p>- i</p>\n"
+ }
+]

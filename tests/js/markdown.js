@@ -1,7 +1,9 @@
 .import "../../ui/js/Markdown.js" as Markdown
 .import "../../ui/js/MdInline.js" as Inline
+.import "../../ui/js/MdLink.js" as Link
 .import "../../ui/js/MdLeaf.js" as Leaf
 .import "sourcefixture.js" as Source
+.import "../markdown-board.js" as Board
 
 function run(check) {
     var quickLook = Source.slice(Source.source("ui/Preview.qml"), "id: markdownLoader", "item.closeRequested.connect")
@@ -17,7 +19,7 @@ function run(check) {
 
     var loadBody = Source.slice(Source.source("tests/markdown-render.qml"),
         "if (shell.loadStep < shell.loadCases.length) {", "if (shell.fixture.length === 0)")
-    var settleLoad = new Function("shell", "md", "settle", loadBody)
+    var settleLoad = new Function("shell", "md", "settle", "Board", loadBody)
     function loadMock(text, fresh) {
         var before = 7
         var shell = { loadStep: 1, loadSeq: before, fixture: "/notes.md", loadFailures: [],
@@ -25,7 +27,7 @@ function run(check) {
             log: function () {}, fail: function (why) { this.failure = why }, failure: "" }
         var md = { contentReady: true, rawText: text, status: "ready", parseSeq: before + (fresh ? 1 : 0),
             appliedSeq: before + (fresh ? 1 : 0), path: "/notes.md.first" }
-        settleLoad(shell, md, { restart: function () {} })
+        settleLoad(shell, md, { restart: function () {} }, Board)
         return shell
     }
     check("stale identical load is rejected", loadMock("# Identical\n", false).failure.length > 0, true)
@@ -266,7 +268,7 @@ function run(check) {
     for (var bareIndex = 0; bareIndex < barelinks.length; bareIndex++) {
         var bare = barelinks[bareIndex]
         var bareStart = "See ".length
-        var read = Inline.readBarelink(bare.text, bareStart)
+        var read = Link.readBarelink(bare.text, bareStart)
         check("barelink URL and end offset " + bareIndex,
             read && read.url === bare.url && read.end === bareStart + bare.url.length, true)
     }
@@ -291,6 +293,6 @@ function run(check) {
     check("a blank line between items keeps the list", lists("1. a\n\n2. b\n").length, 1)
     check("a blank line before prose ends the list",
         Markdown.blocks("1. a\n\nText\n", dir).map(function (b) { return b.type }).join(","), "list,run")
-    check("a ragged table spans its widest row",
-        Markdown.blocks("| a | b |\n|---|---|\n| 1 | 2 | 3 |\n", dir)[0].cols, 3)
+    check("a ragged table keeps the header's width",
+        Markdown.blocks("| a | b |\n|---|---|\n| 1 | 2 | 3 |\n", dir)[0].cols, 2)
 }

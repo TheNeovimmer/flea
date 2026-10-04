@@ -4,6 +4,7 @@
 .import "MdUrl.js" as MdUrl
 .import "MdHtml.js" as MdHtml
 .import "MdInline.js" as Md
+.import "MdLink.js" as Link
 
 // The limits MdContainer names for list markers; the worker bundle shares only functions between files, so each holds its own.
 var MAX_MARKER_INDENT = 3
@@ -33,7 +34,6 @@ function isThematic(line) {
     return /^ {0,3}([*_-])(?:[ \t]*\1){2,}[ \t]*$/.test(String(line))
 }
 
-// An ATX heading: up to 3 spaces, 1 to 6 hashes, a space or the end, the text and an optional closing run of hashes. Linear, no backtracking.
 // Sample input: "## Second level ##" answers { level: 2, text: "Second level" }; "#hashtag" answers null.
 function atxHeading(line) {
     var s = String(line)
@@ -61,7 +61,6 @@ function atxHeading(line) {
     return { level: level, text: s.slice(i, end) }
 }
 
-// The heading's text is drawn as its own document, so a leading block marker must stay literal.
 // Sample input: 1. Intro answers 1\. Intro; - item answers \- item; _Plain_ is unchanged.
 function headingSafe(text) {
     var t = String(text)
@@ -162,10 +161,14 @@ function longestCell(cells) {
 // The board's table as data (Qt's importer drops style attributes); measure is each column's widest cell, so chunks share widths.
 function tableBlock(head, aligns, rows, inlineOf) {
     var cols = head.length
-    for (var i = 0; i < rows.length; i++)
-        cols = Math.max(cols, rows[i].length)
     var shownHead = head.map(inlineOf)
-    var shownRows = rows.map(function (cells) { return cells.map(inlineOf) })
+    // GFM: a row's cells beyond the header's are dropped, and a short row is padded with empty cells.
+    var shownRows = rows.map(function (cells) {
+        var row = cells.slice(0, cols).map(inlineOf)
+        while (row.length < cols)
+            row.push("")
+        return row
+    })
     var measure = []
     for (var c = 0; c < cols; c++) {
         var column = [c < shownHead.length ? shownHead[c] : ""]
@@ -196,20 +199,20 @@ function standaloneImage(line, dir, defs) {
         var after = end + 1
         var target = null
         if (text.charAt(after) === "(") {
-            var t = Md.readInlineTarget(text, after)
+            var t = Link.readInlineTarget(text, after)
             if (t === null || t.end !== text.length)
                 return null
             target = t.url
         } else if (text.charAt(after) === "[") {
-            var r = Md.readLabelRef(text, after)
+            var r = Link.readLabelRef(text, after)
             if (r === null || r.end !== text.length)
                 return null
-            var key = Md.normalizeLabel(r.label.length > 0 ? r.label : alt)
+            var key = Link.normalizeLabel(r.label.length > 0 ? r.label : alt)
             if (!hasOwn.call(defs, key))
                 return null
             target = defs[key]
         } else if (after === text.length) {
-            var skey = Md.normalizeLabel(alt)
+            var skey = Link.normalizeLabel(alt)
             if (alt.length === 0 || !hasOwn.call(defs, skey))
                 return null
             target = defs[skey]

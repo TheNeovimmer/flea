@@ -1,0 +1,80 @@
+[
+ {
+  "example": "left-aligned",
+  "section": "GFM table forms",
+  "markdown": "| a | b |\n|:--|:--|\n| 1 | 2 |\n",
+  "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</tbody>\n</table>\n"
+ },
+ {
+  "example": "three-alignments",
+  "section": "GFM table forms",
+  "markdown": "| l | c | r |\n|:--|:-:|--:|\n| 1 | 2 | 3 |\n",
+  "html": "<table>\n<thead>\n<tr>\n<th>l</th>\n<th align=\"center\">c</th>\n<th align=\"right\">r</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n<td align=\"center\">2</td>\n<td align=\"right\">3</td>\n</tr>\n</tbody>\n</table>\n"
+ },
+ {
+  "example": "inline-markup",
+  "section": "GFM table forms",
+  "markdown": "| *a* | **b** | `c` | [d](http://x.io) |\n| - | - | - | - |\n| ~~e~~ | f | g | h |\n",
+  "html": "<table>\n<thead>\n<tr>\n<th><em>a</em></th>\n<th><strong>b</strong></th>\n<th><code>c</code></th>\n<th><a href=\"http://x.io\">d</a></th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><del>e</del></td>\n<td>f</td>\n<td>g</td>\n<td>h</td>\n</tr>\n</tbody>\n</table>\n"
+ },
+ {
+  "example": "pipe-in-code-and-escaped",
+  "section": "GFM table forms",
+  "markdown": "| a |\n| - |\n| `x\\|y` |\n| p\\|q |\n",
+  "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><code>x|y</code></td>\n</tr>\n<tr>\n<td>p|q</td>\n</tr>\n</tbody>\n</table>\n"
+ },
+ {
+  "example": "empty-cells",
+  "section": "GFM table forms",
+  "markdown": "| a | b |\n| - | - |\n|  | 2 |\n| 3 |  |\n",
+  "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td></td>\n<td>2</td>\n</tr>\n<tr>\n<td>3</td>\n<td></td>\n</tr>\n</tbody>\n</table>\n"
+ },
+ {
+  "example": "ends-at-blank",
+  "section": "GFM table forms",
+  "markdown": "| a |\n| - |\n| 1 |\n\ntext\n",
+  "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n</tr>\n</tbody>\n</table>\n<p>text</p>\n"
+ },
+ {
+  "example": "ends-at-heading",
+  "section": "GFM table forms",
+  "markdown": "| a |\n| - |\n| 1 |\n# H\n",
+  "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n</tr>\n</tbody>\n</table>\n<h1>H</h1>\n"
+ },
+ {
+  "example": "ends-at-fence",
+  "section": "GFM table forms",
+  "markdown": "| a |\n| - |\n| 1 |\n```\ncode\n```\n",
+  "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n</tr>\n</tbody>\n</table>\n<pre><code>code\n</code></pre>\n"
+ },
+ {
+  "example": "ends-at-list",
+  "section": "GFM table forms",
+  "markdown": "| a |\n| - |\n| 1 |\n- x\n",
+  "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n</tr>\n</tbody>\n</table>\n<ul>\n<li>x</li>\n</ul>\n"
+ },
+ {
+  "example": "after-paragraph",
+  "section": "GFM table forms",
+  "markdown": "text\n| a |\n| - |\n| 1 |\n",
+  "html": "<p>text</p>\n<table>\n<thead>\n<tr>\n<th>a</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n</tr>\n</tbody>\n</table>\n"
+ },
+ {
+  "example": "in-list-item",
+  "section": "GFM table forms",
+  "markdown": "- item\n\n  | a |\n  | - |\n  | 1 |\n",
+  "html": "<ul>\n<li>\n<p>item</p>\n<table>\n<thead>\n<tr>\n<th>a</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n</tr>\n</tbody>\n</table>\n</li>\n</ul>\n"
+ },
+ {
+  "example": "in-quote",
+  "section": "GFM table forms",
+  "markdown": "> | a | b |\n> | - | - |\n> | 1 | 2 |\n",
+  "html": "<blockquote>\n<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</tbody>\n</table>\n</blockquote>\n"
+ },
+ {
+  "example": "header-only-then-text",
+  "section": "GFM table forms",
+  "markdown": "| a | b |\n| - | - |\ntext\n",
+  "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>text</td>\n<td></td>\n</tr>\n</tbody>\n</table>\n"
+ }
+]
