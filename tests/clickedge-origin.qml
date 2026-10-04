@@ -160,8 +160,7 @@ ShellRoot {
         }
     }
 
-    // A turn after the error: the row holds its own height while the editor opens, so the error line is
-    // the only growth, and a scroll in the same turn runs before Qt lays that growth out and shifts no origin.
+    // A turn after the error, because the error line is the row's only growth and a same-turn scroll runs before Qt lays it out.
     function scrollToEnd() {
         var grown = list.itemAtIndex(0)
         if (grown === null || grown.height <= Flea.Theme.fileRowHeight) {
