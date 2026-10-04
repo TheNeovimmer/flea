@@ -26,14 +26,14 @@ function run(check) {
     var menus = SheetQuery.menuCandidates(entries, hint)
     // Five top-level entries plus two flyout leaves, the flyout separator skipped.
     check("every non-separator entry becomes a candidate", menus.length, 7)
-    // The sheet keeps hidden rows findable by asking the menu with no hidden set.
+    // The sheet keeps hidden rows findable by asking the menu for its hidden rows too.
     var sheet = Source.source("ui/KeymapSheet.qml")
     var menuSlice = Source.slice(sheet, "function menuModel()", "function railModel()")
     var codeLines = menuSlice.split("\n").filter(function (line) { return line.trim().indexOf("//") !== 0 })
     var codeSlice = codeLines.join("\n")
-    var hiddenCount = codeSlice.split("context.hiddenActions =").length - 1
-    check("the sheet asks with no hidden set once", hiddenCount, 1)
-    check("and it is the empty set", codeSlice.indexOf("context.hiddenActions = []") >= 0, true)
+    var hiddenCount = codeSlice.split('listingContext("", true)').length - 1
+    check("the sheet asks for the hidden rows once", hiddenCount, 1)
+    check("and never trims the set itself", codeSlice.indexOf("context.hiddenActions") >= 0, false)
     check("a row with a key keeps its cap",
           menus.filter(function (row) { return row.label === "Delete permanently"; })[0].keys, "shift-delete")
     check("a keyless row draws no cap",

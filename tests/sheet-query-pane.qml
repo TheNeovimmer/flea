@@ -7,12 +7,14 @@ import "flea/js/SheetQuery.js" as SheetQuery
 
 // tests/sheet-query.sh's pane half: the real WindowBody, Pane, ContextMenu and PaneMenuActions behind the real sheet.
 // A menu-only row Enter runs must reach the surface the menu row reaches, with no menu ever opened.
+// The profile is the shipped defaults, so Permissions, Move to, Delete permanently and Copy as are hidden rows the sheet lists.
 ShellRoot {
     id: root
     readonly property var pane: body.currentPane
     readonly property var sheet: pane.keymapSheet.item
     readonly property string fixture: Quickshell.env("FLEA_PATH")
     readonly property int fixtureRows: 4
+    readonly property string copiedName: "b.txt"
     readonly property int cursorRow: 1
     readonly property int pollMs: 20
     readonly property int stageLimitMs: 8000
@@ -21,6 +23,7 @@ ShellRoot {
         { name: "Permissions", query: "perm", label: "Permissions" },
         { name: "Move to", query: "move to", label: "Move to" },
         { name: "Delete permanently confirm", action: "deletePermanently" },
+        { name: "Copy as leaf", query: "shell-quoted", label: "Shell-quoted" },
         { name: "Compress leaf", query: "compress to .", label: "Compress to .zip" }
     ]
     property int caseIndex: 0
@@ -35,12 +38,18 @@ ShellRoot {
     property int startsBefore: 0
     property string lastMessage: ""
     readonly property var current: cases[caseIndex]
+    readonly property string hiddenAction: "permissions"
+    readonly property string rightClickName: "Right-click menu"
+    readonly property string copierMarker: "wl-copy"
+    readonly property int copierTextArg: 4
+    readonly property real menuPointX: 120
+    readonly property real menuPointY: 120
 
     function check(name, actual, expected) {
         checks += 1
         var equal = actual === expected
         if (!equal) failures += 1
-        console.log("SHEETPANE " + (equal ? "ok " : "FAIL ") + current.name + " " + name + ": got " + actual + ", expected " + expected)
+        console.log("SHEETPANE " + (equal ? "ok " : "FAIL ") + (current ? current.name : rightClickName) + " " + name + ": got " + actual + ", expected " + expected)
     }
     function ipcObject() {
         for (var i = 0; i < body.data.length; i++)
@@ -51,10 +60,20 @@ ShellRoot {
         var state = JSON.parse(ipcObject().seam.permissionsState())
         return state.opened === true && state.busy !== true
     }
+    // The text the Opener last handed wl-copy, "" before any copy; the Process is the Opener's own child.
+    function copiedText() {
+        var kids = pane.opener.data
+        for (var i = 0; i < kids.length; i++) {
+            var command = kids[i].command
+            if (command !== undefined && String(command).indexOf(copierMarker) >= 0) return String(command[copierTextArg])
+        }
+        return ""
+    }
     // True once the case's own surface is up: the Permissions dialog, a started compress, or the menu's dialog card.
     function observed() {
         if (current.name === "Permissions") return permissionsOpen()
         if (current.name === "Compress leaf") return archiveStarts > startsBefore
+        if (current.name === "Copy as leaf") return copiedText().indexOf(copiedName) >= 0
         if (current.name === "Move to") return pane.menuActions.opened && pane.menuActions.dialogFor === "moveTo"
         return pane.menuActions.opened && pane.menuActions.dialogFor === "deletePermanently"
     }
@@ -95,6 +114,8 @@ ShellRoot {
             next("open")
         } else if (stage === "open") {
             if (!idle() && !timedOut) return
+            if (caseIndex === 0)
+                check("the profile hides " + hiddenAction + " as shipped", pane.contextMenu().listingContext().hiddenActions.indexOf(hiddenAction) >= 0, true)
             pane.setCursor(cursorRow)
             pane.listArea.forceActiveFocus()
             lastMessage = ""
@@ -135,8 +156,20 @@ ShellRoot {
             if (!idle() && !timedOut) return
             check("the pane came back to idle", idle(), true)
             caseIndex += 1
-            if (caseIndex === cases.length) finish()
+            if (caseIndex === cases.length) next("rightclick")
             else next("open")
+        } else if (stage === "rightclick") {
+            // A sheet activation must leave nothing behind: the pane's own menu still hides the row and still refuses it.
+            pane.setCursor(cursorRow)
+            var menu = pane.contextMenu()
+            menu.openAt(pane.listArea.mapToItem(null, menuPointX, menuPointY))
+            var shown = []
+            for (var i = 0; i < menu.entries.length; i++) shown.push(menu.entries[i].action)
+            check("the menu opened", menu.opened, true)
+            check("the menu still omits the hidden row", shown.indexOf(hiddenAction) >= 0, false)
+            check("the menu still refuses the hidden row", menu.validateChoice(hiddenAction, ""), false)
+            menu.close()
+            finish()
         }
     }
 

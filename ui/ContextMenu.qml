@@ -145,8 +145,8 @@ Item {
     // Issue 179: the background menu's Sort by flyout offers its forget row only for this folder.
     property bool hasFolderSort: false
 
-    // Menu.js builds entries from the context shared by the row menu and query.
-    function buildEntries(flyoutAction) {
+    // Menu.js builds entries from the context shared by the row menu and query; includeHidden is the keymap sheet's.
+    function buildEntries(flyoutAction, includeHidden) {
         // Rail rows arrive built with their own release verdicts.
         if (root.forRail)
             return root.railEntries
@@ -155,9 +155,9 @@ Item {
         // Locked rows address the denied folder rather than its covered parent.
         if (root.forLocked)
             return LockedMenu.lockedEntries({ lockedMode: root.lockedMode, hiddenActions: ViewState.menuHidden })
-        return Menu.listingEntries(root.listingContext(flyoutAction))
+        return Menu.listingEntries(root.listingContext(flyoutAction, includeHidden))
     }
-    function listingContext(flyoutAction) {
+    function listingContext(flyoutAction, includeHidden) {
         var view = MenuRefresh.providerView(root.lastProviderAnswer, MenuRefresh.live(root))
         return {
             showHidden: root.showHidden,
@@ -187,7 +187,7 @@ Item {
             hasShebang: root.rowHasShebang, cursorIsTarget: root.cursorIsTarget,
             scripts: Flea.Scripts.entries, localSendInstalled: root.localSend.installed, localSendPeers: root.localSend.peers, localSendChecking: view.localSendChecking,
             // The Menus settings section's stored set; ui/js/Menu.js applyHidden is what reads it.
-            hiddenActions: ViewState.menuHidden.filter(function(id) { return id !== flyoutAction }),
+            hiddenActions: includeHidden === true ? [] : ViewState.menuHidden.filter(function(id) { return id !== flyoutAction }),
             // ExtThumbs: the class row's presence and label read these, never "this drive".
             storageClass: root.storageClass, thumbPreview: ViewState.preview,
             updateVersion: UpdateCheck.menuVersion, hasFolderSort: root.hasFolderSort
@@ -448,11 +448,11 @@ Item {
     }
 
     // Rebuild only to validate; rows stay fixed while the menu is open under the pointer.
-    function validateChoice(action, subId) {
+    function validateChoice(action, subId, includeHidden) {
         var identityChanged = !root.forRail && !root.forHeader && root.hasRow
                               && root.openedIdentity !== root.selectionIdentity
         root.preparing = true
-        var live = root.buildEntries(subId && Menu.flyoutEntries(action).length ? action : "")
+        var live = root.buildEntries(subId && Menu.flyoutEntries(action).length ? action : "", includeHidden)
         root.preparing = false
         for (var i = 0; !identityChanged && i < live.length; i++) {
             var entry = live[i]

@@ -63,7 +63,7 @@ tests/js/previewswap.js 386
 tests/js/mdstructure.js 596
 tests/js/focus.js 745
 tests/js/mounts.js 262
-tests/js/menu.js 508
+tests/js/menu.js 515
 tests/js/nav.js 361
 tests/picker-grid.qml 450
 tests/picker-hunt.qml 445
@@ -104,8 +104,8 @@ ui/NetworkDialog.qml 445
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 849
 ui/OpenWithDialog.qml 608
-ui/Pane.qml 1035
-ui/PaneMenuActions.qml 465
+ui/Pane.qml 1036
+ui/PaneMenuActions.qml 467
 ui/PaneWire.qml 584
 ui/PermissionsDialog.qml 634
 ui/PickerWindow.qml 779

@@ -409,7 +409,7 @@ function providerRefresh(check) {
     var refusalBody = contextSrc.indexOf("function refuseLone(") >= 0
         ? functionBody(contextSrc, "function refuseLone(") : ""
     var refuseLone = eval("(function (root, kind) {" + refusalBody + "})")
-    var validateChoice = eval("(function (root, action, subId) {" + functionBody(contextSrc, "function validateChoice(") + "})")
+    var validateChoice = eval("(function (root, action, subId, includeHidden) {" + functionBody(contextSrc, "function validateChoice(") + "})")
     var refusalCases = [
         { id: "copyPath", identity: "changed", reason: "Selected items changed; reopen the menu." },
         { id: "unknown", identity: "original", reason: "That action is no longer available; reopen the menu." }
@@ -438,6 +438,13 @@ function providerRefresh(check) {
         check("normal " + test.id + " shares the lone refusal sentence", menu.reasons.join("|"), test.reason)
         check("normal " + test.id + " validation closes", menu.opened, false)
     })
+    var buildArgs = []
+    var sheetMenu = { entries: [], forRail: false, forHeader: false, hasRow: true, openedIdentity: "a", selectionIdentity: "a",
+        close: function () {}, refused: function () {}, refuseLone: function () {},
+        buildEntries: function (flyout, include) { buildArgs.push(include); return [{ action: "permissions" }] } }
+    check("a sheet choice validates against the rows it listed", validateChoice(sheetMenu, "permissions", "", true), true)
+    validateChoice(sheetMenu, "permissions", "")
+    check("only the sheet asks the build for hidden rows", buildArgs.join("|"), "true|")
     check("the brace scan lives in one helper, not three inline loops", selfText.split("Depth +=" + " 1").length - 1, 0)
     var linkText = Source.source("ui/PaneWire.qml")
     var onLinkTarget = eval("(function (pane, path, directory, name, id) {"

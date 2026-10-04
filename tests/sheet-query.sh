@@ -72,14 +72,14 @@ mkdir -p "$pane_root"/{home,config,state,data,cache,runtime} "$pane_root/home/fi
 chmod 700 "$pane_root/runtime" || exit 1
 for name in a-special.txt b.txt c.txt d.txt; do printf 'sheet query fixture\n' > "$pane_root/home/fixture/$name"; done
 env HOME="$pane_root/home" XDG_STATE_HOME="$pane_root/state" "$bin" --ui-state \
-    '{"view":"list","keys":"default","menu":{"hidden":[]},"preview":{"column":false,"thumbnails":"off"},"updates":{"autoCheck":false},"display":{"textSize":{"mode":14}}}' >/dev/null || exit 1
+    '{"view":"list","keys":"default","preview":{"column":false,"thumbnails":"off"},"updates":{"autoCheck":false},"display":{"textSize":{"mode":14}}}' >/dev/null || exit 1
 ln -s "$PWD/ui" "$pane_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$pane_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$pane_root/config/Ui" || exit 1
 ln -s "$PWD/ui/boot/fleatab.qml" "$pane_root/config/fleatab.qml" || exit 1
 cp tests/sheet-query-pane.qml "$pane_root/config/shell.qml" || exit 1
 pane_log="$pane_root/qs.log"
-readonly paneLimitSeconds=60 paneChecks=21 paneQsStatus=143
+readonly paneLimitSeconds=60 paneChecks=31 paneQsStatus=143
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
     HOME="$pane_root/home" XDG_STATE_HOME="$pane_root/state" XDG_CONFIG_HOME="$pane_root/config" \
     XDG_DATA_HOME="$pane_root/data" XDG_CACHE_HOME="$pane_root/cache" XDG_RUNTIME_DIR="$pane_root/runtime" \

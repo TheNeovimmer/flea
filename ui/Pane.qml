@@ -508,6 +508,7 @@ FocusScope {
         menu.hasRow = true
         menu.openedIdentity = root.menuSelectionIdentity
         menuActions.snapshot()
+        menuActions.sheetRequest = menuActions.requestId
         menuActions.activate(action, true)
     }
 

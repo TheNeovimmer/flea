@@ -48,9 +48,8 @@ Item {
         var holder = root.focusHolder
         if (holder && holder.sheetMenuModel) return holder.sheetMenuModel()
         if (!holder || !holder.cursorRow) return []
-        var context = holder.contextMenu().listingContext()
+        var context = holder.contextMenu().listingContext("", true)
         context.hasRow = true
-        context.hiddenActions = []
         return Menu.listingEntries(context)
     }
     function railModel() {
