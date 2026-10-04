@@ -345,6 +345,9 @@ c_link_refused() {
   check "$mnt $kind refusal names the link op" "link" "$(printf '%s' "$line" | jq -r '.where')"
   check "$mnt $kind refusal names the capability" "$mnt/lt.txt: this drive cannot hold links" "$(printf '%s' "$line" | jq -r '.msg')"
   check "$mnt $kind refusal names the destination" "$mnt/linkdest" "$(printf '%s' "$line" | jq -r '.path')"
+  # A linked line written after the error would follow it in the stream, so a later request's own answer closes the window first.
+  send '{"c":"fsinfo"}'
+  await '"t":"fsinfo"' || { check "$mnt $kind sentinel answers" "fsinfo" "timeout"; return 1; }
   check "$mnt no $kind linked line" "0" "$(seenf '"t":"linked"')"
   check "$mnt no $kind left behind" "0" "$(find "$mnt/linkdest" -mindepth 1 | wc -l | tr -d ' ')"
 }

@@ -347,8 +347,8 @@ answers a `slow` line and moves on, never marking the mount stuck for a write st
 stays tracked and reports through the op channel when it lands, journalled exactly as the in-time path
 would, so one journal entry per request and one undo reverses it. A `link` claims the one-operation slot
 through `start_link` and runs every item on a worker from the start, so the loop stays responsive with
-no `slow` line; one `linked` line and one journal entry land with the batch and release the slot, and a batch in which every link failed answers one `error` line naming the
-capability instead.
+no `slow` line; one `linked` line and one journal entry land with the batch and release the slot. A batch in which every link failed answers one `error` line
+instead (`<source>: this drive cannot hold links` for EPERM on vfat or exfat, else the failure's own reason, as EEXIST or ENOENT give), records no journal entry and still releases the slot.
 Only `rename` and `mkdir` answer `slow`. A worker that dies before answering marks nothing,
 like a dead read worker.
 

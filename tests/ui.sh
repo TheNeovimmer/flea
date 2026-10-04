@@ -10560,6 +10560,17 @@ case_fsdevice() {
     fs_row_device() { ipc railEntries | jq -r --arg l "$1" '.[] | select(.group == "device" and .label == $l) | .device'; }
     fs_row_path() { ipc railEntries | jq -r --arg l "$1" '.[] | select(.group == "device" and .label == $l) | .path'; }
     fs_row_mounted() { ipc railEntries | jq -r --arg l "$1" '.[] | select(.group == "device" and .label == $l) | .mounted'; }
+    # The operation's own "... · z undoes" line is written after the drive confirms and the journal holds it; undo before that answers busy.
+    local confirm_wait_s=90
+    fs_wait_said() {
+        local want="$1" said_end=$((SECONDS + confirm_wait_s)) seen=""
+        while (( SECONDS < said_end )); do
+            seen=$(ipc lastMessage)
+            [[ "$seen" == "$want" ]] && return 0
+            sleep 0.2
+        done
+        fail "fsdevice: the status bar never said: $want, last message: $seen"
+    }
 
     # Unmount any expected row first, so the switch-off leg below reads rows that stay marked unmounted.
     seed_ui_state "$fixture_root/fsdevice-state-off" '{"places":{"showUnmounted":false}}'
@@ -10655,6 +10666,11 @@ case_fsdevice() {
         while (( SECONDS < end )); do [[ "$(ipc lastMessage)" == *"cannot be written"* ]] && break; sleep 0.5; done
         [[ "$(ipc lastMessage)" == *"cannot be written"* ]] || fail "fsdevice: the read-only paste said $(ipc lastMessage)"
         [[ ! -e "$mnt/copy-me.bin" ]] || fail "fsdevice: the read-only paste landed on $mnt"
+        # The refusal is an error that stands until Escape, and a standing error hides every later notice, the eject verdict included.
+        key -k Escape >/dev/null
+        end=$((SECONDS + 10))
+        while (( SECONDS < end )); do [[ "$(ipc statusError)" == "false" ]] && break; sleep 0.2; done
+        [[ "$(ipc statusError)" == "false" ]] || fail "fsdevice: Escape left the refusal standing: $(ipc lastMessage)"
         click_row 0 right
         settle
         [[ "$(ipc contextMenuEntries)" != *"Move to Trash"* ]] || fail "fsdevice: a read-only volume offers Move to Trash"
@@ -10664,14 +10680,13 @@ case_fsdevice() {
     else
     # One copy in through the clipboard, verified by bytes, then undone.
     key p >/dev/null
-    end=$((SECONDS + 30))
-    while (( SECONDS < end )); do [[ -f "$mnt/copy-me.bin" ]] && break; sleep 0.2; done
+    fs_wait_said "Copied 1 item · z undoes"
     [[ -f "$mnt/copy-me.bin" ]] || fail "fsdevice: the paste never landed on $mnt"
     cmp -s "$dir/copy-me.bin" "$mnt/copy-me.bin" || fail "fsdevice: the pasted bytes differ"
     key z >/dev/null
     end=$((SECONDS + 20))
     while (( SECONDS < end )); do [[ ! -e "$mnt/copy-me.bin" ]] && break; sleep 0.2; done
-    [[ ! -e "$mnt/copy-me.bin" ]] || fail "fsdevice: undo left the pasted copy behind"
+    [[ ! -e "$mnt/copy-me.bin" ]] || fail "fsdevice: undo left the pasted copy behind, last message: $(ipc lastMessage)"
     printf 'FSDEVICE %s copy-in undo=ok\n' "$layout"
 
     # Trash through dd, proving the volume's own trash dir, then restore from the Trash view.
@@ -10687,17 +10702,14 @@ case_fsdevice() {
     trash_before=$(ipc trashState | jq -r '.count')
     key d >/dev/null
     key d >/dev/null
-    end=$((SECONDS + 20))
-    while (( SECONDS < end )); do [[ ! -e "$mnt/trash-me.txt" ]] && break; sleep 0.2; done
+    fs_wait_said "Moved 1 item to Trash · z undoes"
     [[ ! -e "$mnt/trash-me.txt" ]] || fail "fsdevice: dd left trash-me.txt on the volume"
     trash_uid=$(id -u)
     [[ -d "$mnt/.Trash-$trash_uid" ]] || fail "fsdevice: no .Trash-$trash_uid at the volume root"
-    [[ "$(ipc trashState | jq -r '.count')" == "$((trash_before + 1))" ]] \
-        || fail "fsdevice: the trash count did not move by one"
+    trash_wait ".count == $((trash_before + 1))" "trash count moves by one"
     click_rail_row "$(rail_row_of Trash)" left
-    end=$((SECONDS + 20))
-    while (( SECONDS < end )); do [[ "$(ipc trashState | jq -r '.opened')" == "true" ]] && break; sleep 0.2; done
-    [[ "$(ipc trashState | jq -r '.opened')" == "true" ]] || fail "fsdevice: the Trash view never opened"
+    # The view is opened before its list reply, so wait for the row itself with the view idle, which restore needs.
+    trash_wait ".opened == true and .busy == false and any(.rows[]?; .original == $(jq -Rn --arg o "$mnt/trash-me.txt" '$o'))" "the Trash view lists trash-me.txt"
     trash_idx=$(ipc trashState | jq -r --arg o "$mnt/trash-me.txt" '.rows | to_entries[] | select(.value.original == $o) | .key' | head -1)
     [[ -n "$trash_idx" && "$trash_idx" != "null" ]] || fail "fsdevice: trash-me.txt is no row in the Trash view"
     trash_click trashRowCentre "$trash_idx" right
