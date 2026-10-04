@@ -583,12 +583,11 @@ action = "tabMoveRight"
 # Keys040: [ and ] step to the previous and next tab. Bare text like { and }
 # above; the only BracketLeft/BracketRight rows in any preset are mac's
 # super-modified history chords, a different modifier state, so both are free
-# in all four presets. CommandPalette draws the tab rows with the chord alone (ctrl-pagedown,
-# ctrl-pageup), since "] / ctrl-pagedown" outgrows the sheet's cap budget; sheet = false keeps these
-# two off the sheet while they stay bound and hinted.
+# in all four presets.
 [[text]]
 char = "["
 action = "tabPrevious"
+# CommandPalette draws the tab rows by their chords alone, so [ and ] stay bound but off the sheet.
 sheet = false
 
 [[text]]

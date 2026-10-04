@@ -87,6 +87,13 @@ function run(check) {
     ]
     check("the leaf holds the first row under comp", SheetQuery.rank(flyout, "comp").map(function (row) { return row.label }).join("|"), "Compress to .zip")
     check("a parent no leaf matched keeps its row", SheetQuery.rank(flyout, "open w").map(function (row) { return row.label }).join("|"), "Open with")
+    // A parent stays when the bound cuts its leaves, so a long list never loses both.
+    var crowded = [{ label: "Compress", keys: "", section: 1, where: "", menuAction: "compress" }]
+    for (var k = 0; k < SheetQuery.RESULT_LIMIT; k++)
+        crowded.push(candidate("compress note " + k, "", 2))
+    crowded.push({ label: "Compress to .zip", keys: "", section: 1, where: "", menuAction: "compress:zip", parentAction: "compress" })
+    var crowdedLabels = SheetQuery.rank(crowded, "comp").map(function (row) { return row.label })
+    check("a parent whose leaves the bound cut keeps its row", crowdedLabels.indexOf("Compress") >= 0 && crowdedLabels.indexOf("Compress to .zip") < 0, true)
     // The matched run is what the sheet washes.
     var at = SheetQuery.matchOf("Compress to .zip", "comp")
     check("a match names its run start", at && at.start, 0)

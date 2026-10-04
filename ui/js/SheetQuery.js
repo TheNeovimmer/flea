@@ -214,10 +214,10 @@ function rank(candidates, query) {
             keyed.push(list[i])
         }
     }
-    return withoutListedParents(exactPlace.concat(exact, matched, keyed)).slice(0, RESULT_LIMIT)
+    return withoutListedParents(exactPlace.concat(exact, matched, keyed).slice(0, RESULT_LIMIT))
 }
 
-// A flyout parent whose leaves are listed is not itself a row; a key row, a leafless parent and a parent only its own name matched stay.
+// A flyout parent whose leaves the bounded list shows is not itself a row; a key row, a leafless parent and a parent whose leaves the bound cut stay.
 function withoutListedParents(rows) {
     var listed = {}
     for (var i = 0; i < rows.length; i++) {
