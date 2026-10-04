@@ -1,5 +1,11 @@
 .import "../../ui/js/Anchor.js" as Anchor
 .import "../../ui/js/Nav.js" as Nav
+.import "../../ui/js/Ops.js" as Ops
+.import "../../ui/js/Errors.js" as Errors
+.import "../../ui/js/Swap.js" as Swap
+.import "../../ui/js/Sort.js" as Sort
+.import "../../ui/js/SlowOp.js" as SlowOp
+.import "sourcefixture.js" as Source
 
 // Issue 68's watched re-read: a change another program made under the open listing is read again
 // without moving the user off the file they were on. Its own suite because tests/js/nav.js sits at
@@ -351,4 +357,178 @@ function run(check) {
     clampedPref.held = 0
     var clampedAnchor = { name: "gone", index: 4001, start: 4000, path: "/home/gm", selected: [] }
     check("a listing clamped past the asked window still resolves", Anchor.applyPreference(clampedPref, clampedAnchor) === null && clampedPref.cursorSetTo === 1, true)
+    renameReplies(check)
+}
+
+// The rename request, reply and refresh handlers, compiled from the shipped ui/ source so a changed handler is what runs.
+// Sample input: "function refreshRename(request, selected, pointer) {" up to the "Connections {" that follows it.
+function handler(file, from, to) {
+    var text = Source.slice(Source.source(file), from, to)
+    return eval("(function (pane, root, watchSettle, Anchor, Nav, SlowOp, Errors, Ops, Swap, Sort) { return (" + text + ") })")
+}
+
+// What the pane showed, re-read and windowed, reset per editing(); closure arrays so every stub field is a real Pane property.
+var messages = [], refreshed = [], windowed = []
+// One editing pane with the cursor on before.txt (index 7, top of the list), Return already committed after.txt.
+function editing() {
+    messages = []
+    refreshed = []
+    windowed = []
+    var wireFile = "ui/PaneWire.qml"
+    var p = { path: "/fixture/list", cursorIndex: 7, held: 0, windowSize: 350, shown: null, renameRequest: null, renameSource: "", renameError: "",
+              renameMenuId: 42, renameKeepsPointerRow: false, listInFlight: false, searchMode: "", listingState: "ready",
+              sent: [] }
+    var cursorRow = "before.txt"
+    p.cursorOn = function (name) { cursorRow = name }
+    p.setCursor = function (index) { p.cursorIndex = index }
+    p.rowFor = function () { return { n: cursorRow } }
+    p.renameEditor = function () { return p.renamingIndex >= 0 ? {} : null }
+    p.join = function (base, name) { return base + "/" + name }
+    p.swap = { drop: function () {} }
+    p.message = function (text, error) { messages.push(text + "|" + error) }
+    p.sticky = function () {}
+    p.refresh = function (selected) { refreshed.push(selected) }
+    p.renamingIndexValue = -1
+    var clearEditor = eval("(function (root, Sort) { " + Source.slice(Source.source("ui/Pane.qml"),
+        "onRenamingIndexChanged: ", "// A navigation during a slow rename").replace("onRenamingIndexChanged: ", "") + " })")
+    Object.defineProperty(p, "renamingIndex", { get: function () { return p.renamingIndexValue },
+        set: function (value) { p.renamingIndexValue = value; clearEditor(p, Sort) } })
+    Object.defineProperty(p, "renamePending", { get: function () { return p.renameRequest !== null } })
+    p.backend = { rename: function (a, b, c) { p.sent.push([a, b, c].join("|")) }, window: function (start, count) { windowed.push(start + "," + count) } }
+    var root = { stale: false, anchor: null }
+    var stop = { stop: function () {} }
+    var refresh = handler(wireFile, "function refreshRename(request, selected, pointer) {", "\n    Connections {")(p, root, stop, Anchor, Nav, SlowOp, Errors, Ops, Swap, Sort)
+    root.refreshRename = refresh
+    var failed = handler(wireFile, "function onFailed(where, input, message, mode) {", "\n    }\n\n    // flea --ui-state")
+    var renamed = handler(wireFile, "function onRenamed(ok, path) {", "// A remote write past its deadline")(p, root, stop, Anchor, Nav, SlowOp, Errors, Ops, Swap, Sort)
+    p.fail = function (where, input, message) { failed(p, root, stop, Anchor, Nav, SlowOp, Errors, Ops, Swap, Sort)(where, input, message, 0) }
+    p.done = function (name) { renamed(true, name) }
+    p.wire = root
+    p.startAt = function () { Ops.startRename(p, 42); Ops.commitRename(p, "after.txt") }
+    p.startAt()
+    return p
+}
+
+function renameReplies(check) {
+    // A missing anchor reads as empty fields, so the red run names the check instead of throwing.
+    function anchored(pane) { return pane.wire.anchor === null ? {} : pane.wire.anchor }
+    function same(label, actual, expected) { check(label, JSON.stringify(actual), JSON.stringify(expected)) }
+    var p = editing()
+    same("Return sends the rename once", p.sent, ["/fixture/list/before.txt|after.txt|42"])
+    p.done("/fixture/list/after.txt")
+    same("a reply with the cursor still on the renamed row re-reveals it under its new name",
+         [p.renamePending, p.renamingIndex, refreshed, p.wire.anchor, windowed], [false, -1, ["/fixture/list/after.txt"], null, []])
+
+    // A click or a key that left the renamed row while the write was pending keeps its row, at the top and deep in the list.
+    var shapes = [[0, "clicked.txt"], [900, "clicked.txt"], [0, "key-moved.txt"], [900, "key-moved.txt"]]
+    for (var i = 0; i < shapes.length; i++) {
+        var held = shapes[i][0], name = shapes[i][1]
+        p = editing()
+        p.cursorIndex = held + 3
+        p.held = held
+        p.cursorOn(name)
+        p.done("/fixture/list/after.txt")
+        same("a cursor moved while the rename was pending keeps its row at held " + held + ": " + name, refreshed, [""])
+        same("and anchors on that row at held " + held,
+             [anchored(p).name, anchored(p).index, anchored(p).start, anchored(p).select], [name, held + 3, held, true])
+        same("and asks for its window only when it is deep, held " + held, windowed, held > 0 ? [held + ",350"] : [])
+        // The failure replies that re-read the listing keep the moved cursor the same way.
+        p = editing()
+        p.cursorIndex = held + 3
+        p.held = held
+        p.cursorOn(name)
+        p.fail("journal", "/fixture/list/after.txt", "permission denied")
+        same("a destination-side journal failure keeps the moved cursor at held " + held, [refreshed, anchored(p).name], [[""], name])
+    }
+
+    // A cursor on the destination name is the renamed row, so the reply still reveals it; deep, the window comes back too.
+    p = editing()
+    p.cursorOn("after.txt")
+    p.done("/fixture/list/after.txt")
+    same("a cursor on the destination name reveals the renamed row", [refreshed, p.wire.anchor], [["/fixture/list/after.txt"], null])
+    p = editing()
+    p.cursorIndex = 900
+    p.held = 900
+    p.done("/fixture/list/after.txt")
+    same("a deep Enter reveals the renamed row and asks for its window",
+         [refreshed, anchored(p).name, anchored(p).start, windowed], [["/fixture/list/after.txt"], "after.txt", 900, ["900,350"]])
+
+    // A click-away commit keeps the pointer's row: no pendingSelect, anchor on that name, deep ones ask for their window.
+    p = editing()
+    p.renameKeepsPointerRow = true
+    p.cursorIndex = 3
+    p.cursorOn("clicked.txt")
+    p.done("/fixture/list/after.txt")
+    same("a click-away commit keeps the clicked row", [refreshed, anchored(p).name, anchored(p).select, windowed], [[""], "clicked.txt", true, []])
+    p = editing()
+    p.renameKeepsPointerRow = true
+    p.cursorIndex = 900
+    p.held = 900
+    p.cursorOn("f1198.txt")
+    p.done("/fixture/list/after.txt")
+    same("a deep click-away asks for its old window too", [refreshed, anchored(p).name, anchored(p).start, windowed], [[""], "f1198.txt", 900, ["900,350"]])
+    var kept = [["journal", "/fixture/list/after.txt"], ["rename-kept", "/fixture/list/before.txt"]]
+    for (var k = 0; k < kept.length; k++) {
+        p = editing()
+        p.renameKeepsPointerRow = true
+        p.cursorIndex = 3
+        p.cursorOn("clicked.txt")
+        p.fail(kept[k][0], kept[k][1], "permission denied")
+        same("a pointer " + kept[k][0] + " keeps the click, never the destination", [refreshed, anchored(p).name], [[""], "clicked.txt"])
+    }
+    p = editing()
+    p.renameKeepsPointerRow = true
+    p.cursorIndex = 3
+    p.cursorOn("clicked.txt")
+    p.fail("rename", "/fixture/list/before.txt", "permission denied")
+    same("a pointer refusal keeps the editor on the clicked row with no re-list",
+         [p.renamePending, p.renamingIndex, refreshed.length, p.renameError], [false, 7, 0, "Permission denied."])
+
+    // The replies and refusals that end the request without a moved cursor.
+    p = editing()
+    p.fail("journal", "/fixture/list/before.txt", "file or folder not found")
+    same("a source-side refusal keeps the editor open with the plain cause",
+         [p.renamePending, p.renamingIndex, p.renameError, refreshed.length], [false, 7, "File or folder not found.", 0])
+    Ops.commitRename(p, "retry.txt")
+    same("and the retry sends a second request", [p.renamePending, p.sent.length, p.renameRequest.destination], [true, 2, "/fixture/list/retry.txt"])
+    p = editing()
+    p.fail("journal", "/fixture/list/after.txt", "permission denied")
+    same("a destination-side journal failure re-reads with the new name selected",
+         [p.renamePending, p.renamingIndex, refreshed, messages], [false, -1, ["/fixture/list/after.txt"], ["Renamed, but Undo was not recorded: permission denied.|true"]])
+    p = editing()
+    p.fail("rename-kept", "/fixture/list/before.txt", "permission denied")
+    same("a kept twin re-reads selecting nothing", [p.renamePending, p.renamingIndex, refreshed, messages],
+         [false, -1, [""], [Errors.sentence("rename-kept", "permission denied") + "|true"]])
+    var inputs = ["", "/fixture/list/after.txt", "/fixture/list/after.txt/child"]
+    for (var q = 0; q < inputs.length; q++) {
+        p = editing()
+        p.fail("rename", inputs[q], "permission denied")
+        same("a refusal naming the request closes it on the editor: " + inputs[q], [p.renamePending, p.renamingIndex, p.renameError], [false, 7, "Permission denied."])
+    }
+    var wheres = ["rename", "journal", "rename-kept"]
+    for (var w = 0; w < wheres.length; w++) {
+        p = editing()
+        p.fail(wheres[w], "/fixture/unrelated", "permission denied")
+        same("a failure for another path leaves the request open: " + wheres[w], [p.renamePending, p.renamingIndex, p.renameError], [true, 7, ""])
+    }
+    p = editing()
+    p.done("/fixture/unrelated")
+    same("a reply for another path leaves it open", [p.renamePending, p.renamingIndex, refreshed.length], [true, 7, 0])
+    p = editing()
+    p.path = "/fixture/another-directory"
+    p.renamingIndex = -1
+    same("a navigation during the write leaves the request pending", [p.renamePending, p.renameSource, p.renameError], [true, "", ""])
+    p.done("/fixture/list/after.txt")
+    same("and its late reply re-lists nothing in the new directory", [p.renamePending, p.renamingIndex, refreshed.length], [false, -1, 0])
+    var dead = ["backend", "read"]
+    for (var d = 0; d < dead.length; d++) {
+        p = editing()
+        p.fail(dead[d], "", "the backend stopped")
+        same("a " + dead[d] + " failure ends the request without a verdict", [p.renamePending, p.renamingIndex, messages],
+             [false, -1, ["Backend stopped; rename outcome unknown.|true"]])
+    }
+    p = editing()
+    p.searchMode = "results"
+    p.done("/fixture/list/after.txt")
+    same("a reply during a search marks the listing stale instead of re-reading", [p.renamePending, refreshed.length, p.wire.stale], [false, 0, true])
 }

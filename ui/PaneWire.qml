@@ -154,9 +154,11 @@ Item {
         root.stale = false
         watchSettle.stop()
         var anchor = Anchor.pointerRow(pane, request)
-        var keep = pointer || anchor.start > 0
+        // A cursor a click or key moved off the renamed row while the write was pending is the operator's, so it wins at any scroll.
+        var keepsCursor = pointer || anchor.moved
+        var keep = keepsCursor || anchor.start > 0
         if (keep) root.anchor = anchor
-        pane.refresh(selected)
+        pane.refresh(keepsCursor ? "" : selected)
         if (keep && anchor.start > 0) pane.backend.window(anchor.start, pane.windowSize)
     }
 
@@ -339,7 +341,7 @@ Item {
         }
 
         // The listing is re-read with the new name selected, so the row the operator was on stays
-        // under the cursor; a rename the pointer committed keeps the pointer's own row instead.
+        // under the cursor; a cursor a click or key moved meanwhile keeps its own row instead.
         function onRenamed(ok, path) {
             var request = pane.renameRequest
             if (!SlowOp.closesRename(request, path)) return
