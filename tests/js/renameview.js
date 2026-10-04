@@ -8,6 +8,8 @@ var FOOTER_H = 27
 var TOTAL = 1202
 var WINDOW = 350
 var CONTEXT_ROWS = 3
+// The grid view's top margin, Theme.spacing.gap: at rest it holds contentY at minus the margin.
+var GRID_TOP_MARGIN = 9
 
 function wireSource() {
     var request = new XMLHttpRequest()
@@ -25,8 +27,8 @@ function refreshRename(source) {
 }
 
 // The list's scrolling surface and the rows it holds, kept apart from the pane stub so the stub carries only the pane's own members.
-function makeView(contentY) {
-    var view = { contentY: contentY, originY: 0, height: AREA_H, asked: undefined, names: [] }
+function makeView(contentY, topMargin) {
+    var view = { contentY: contentY, originY: 0, topMargin: topMargin, bottomMargin: 0, height: AREA_H, asked: undefined, names: [] }
     view.laidOutHeight = TOTAL * ROW_H + FOOTER_H
     view.contentHeight = view.laidOutHeight
     // A re-list leaves contentHeight at the empty count's until the view lays out, as a ListView does before its next polish.
@@ -43,9 +45,9 @@ function fill(p, from) {
 }
 
 // One list the way ui/List.qml draws it: a reset to the top on a re-list, a contain-style reveal on setCursor, a clamp at the footer's end.
-function makeList(start, cursor, contentY) {
+function makeList(start, cursor, contentY, topMargin) {
     var p = Fixture.watched(start, [], cursor, TOTAL)
-    var view = makeView(contentY)
+    var view = makeView(contentY, topMargin)
     p.path = "/dir"
     p.viewMode = "list"
     p.searchMode = ""
@@ -55,11 +57,11 @@ function makeList(start, cursor, contentY) {
     fill(p, start)
     p.refresh = function (select) {
         p.pendingSelect = select
-        view.contentY = 0
+        view.contentY = -view.topMargin
         view.contentHeight = FOOTER_H
         fill(p, 0)
     }
-    function clamp(y) { return Math.max(0, Math.min(view.contentHeight - AREA_H, y)) }
+    function clamp(y) { return Math.max(-view.topMargin, Math.min(view.contentHeight - AREA_H, y)) }
     p.setCursor = function (index, context) {
         p.cursorIndex = index
         var top = index * ROW_H
@@ -85,7 +87,7 @@ function deliver(p, wire) {
 }
 
 function commit(check, label, refresh, spec) {
-    var p = makeList(spec.start, spec.cursor, spec.contentY)
+    var p = makeList(spec.start, spec.cursor, spec.contentY, spec.topMargin || 0)
     var view = p.listArea
     var wire = { stale: false, anchor: null }
     var before = p.cursorIndex * ROW_H - view.contentY
@@ -122,4 +124,8 @@ function run(check) {
     check("an Enter that re-sorts the row keeps the cursor on it", sorted.cursorIndex, 310)
     commit(check, "an Enter at the top", refresh,
         { start: 0, cursor: 0, contentY: 0, from: 0, to: "f1000-new", pointer: false, name: "/dir/f1000-new" })
+    commit(check, "a click-away at the top of a view with a top margin", refresh,
+        { start: 0, cursor: 1, contentY: -GRID_TOP_MARGIN, topMargin: GRID_TOP_MARGIN, from: 0, to: "f1000-new", pointer: true, name: "" })
+    commit(check, "an Enter at the top of a view with a top margin", refresh,
+        { start: 0, cursor: 0, contentY: -GRID_TOP_MARGIN, topMargin: GRID_TOP_MARGIN, from: 0, to: "f1000-new", pointer: false, name: "/dir/f1000-new" })
 }

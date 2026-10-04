@@ -138,8 +138,10 @@ function restoreView(pane, anchor, rowH) {
     // A restore past either end draws a blank strip, so clamp to the area's valid range when it names one.
     if (typeof area.contentY === "number") {
         if (typeof area.contentHeight === "number" && typeof area.height === "number") {
-            var hi = Math.max(originY, area.contentHeight - area.height + originY)
-            y = Math.max(originY, Math.min(hi, y))
+            // The grid's top margin holds its resting contentY at originY less the margin, so the valid range takes both margins.
+            var lo = originY - (typeof area.topMargin === "number" ? area.topMargin : 0)
+            var hi = Math.max(lo, area.contentHeight - area.height + originY + (typeof area.bottomMargin === "number" ? area.bottomMargin : 0))
+            y = Math.max(lo, Math.min(hi, y))
         }
         area.contentY = y
     }
