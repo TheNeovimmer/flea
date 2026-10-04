@@ -92,9 +92,12 @@ for kind in $kinds; do
     part=$(forbidden_for "$kind" | cut -d'|' -f1)
     # The forbidden part trails a part the kind may hold, so a gate reading only the first name still fails.
     lead=$(printf '%s\n' "$known_parts" | tr '|' '\n' | grep -vxE "$(forbidden_for "$kind")" | head -1)
+    # Run and heading forbid every known part, so there a second forbidden part leads; any name refuses those kinds.
+    [ -n "$lead" ] || lead=$(forbidden_for "$kind" | cut -d'|' -f2)
+    [ -n "$lead" ] || { echo "FAIL no part to lead the $kind control"; exit 1; }
     at="kind=$kind objects=$limit foreign=none"
     expect_refusal "$(printf '%s\n' "$control_all" | sed "s/$at/kind=$kind objects=$((limit + 1)) foreign=none/")" "objects, the limit is"
-    expect_refusal "$(printf '%s\n' "$control_all" | sed "s/$at/kind=$kind objects=$limit foreign=${lead:-Column}+$part/")" "builds the parts of other kinds"
+    expect_refusal "$(printf '%s\n' "$control_all" | sed "s/$at/kind=$kind objects=$limit foreign=$lead+$part/")" "builds the parts of other kinds"
     expect_refusal "$(printf '%s\n' "$control_all" | sed "s/$at/kind=$kind objects= foreign=none/")" "reported no object count"
     expect_refusal "$(printf '%s\n' "$control_all" | sed "s/$at/kind=$kind objects=$limit foreign= /")" "reported no part list"
     expect_refusal "$(printf '%s\n' "$control_all" | sed "s/$at/kind=$kind objects=$limit foreign=Loader/")" "a part the probe never names"
