@@ -133,7 +133,7 @@ function quoteBlocks(all, state, inlineOf) {
             to++
         var quote = visibleLines(all.slice(at, to), state)
         // A quote with nothing to draw is still a block: a browser gives it its margin.
-        var title = at === 0 && !quote.raw[0] ? Leaf.alertTitle(quote[0]) : null
+        var title = at === 0 && quote.length > 0 && !quote.raw[0] ? Leaf.alertTitle(quote[0]) : null
         if (title !== null)
             quote[0] = title
         var block = { type: "quote", text: quote.join("\n").trim().length > 0 ? inlineLines(quote, inlineOf) : "" }

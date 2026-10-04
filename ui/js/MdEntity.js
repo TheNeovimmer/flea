@@ -2,6 +2,7 @@
 
 // MdEntity: backslash escapes and character references in destinations, info strings and running text, decoded here.
 .import "MdEntityTable.js" as Names
+.import "MdInline.js" as Md
 
 var REPLACEMENT_CHARACTER = 0xfffd
 var MAX_CODE_POINT = 0x10ffff
@@ -41,4 +42,30 @@ function referenceAt(text, i) {
     var decoded = hit[3] !== undefined ? Names.namedValue(hit[3])
         : codePointText(hit[1] !== undefined ? parseInt(hit[1], 10) : parseInt(hit[2], 16))
     return decoded === null ? null : { text: decoded, end: i + hit[0].length }
+}
+
+// Sample input: "", " " or "  " is a piece with nothing drawn on its line.
+var BLANK_PIECE = /^ *$/
+// Pieces of output looked back over, so a flood of references stays linear.
+var BLANK_WINDOW = 8
+
+// Sample input: out ["a", "\n", " "] is blank after its last newline; ["a ", "b"] is not; longer than the window answers false, a long leading run is code already.
+function blankLineTail(out) {
+    var floor = Math.max(0, out.length - BLANK_WINDOW)
+    for (var k = out.length - 1; k >= floor; k--) {
+        var cut = out[k].lastIndexOf("\n")
+        var tail = cut < 0 ? out[k] : out[k].slice(cut + 1)
+        if (!BLANK_PIECE.test(tail))
+            return false
+        if (cut >= 0)
+            return true
+    }
+    return floor === 0
+}
+
+// A decoded reference reaches Qt as numeric entities; Qt drops an entity space, so a space stays raw unless it would open indented code or end a line as a hard break, where it is dropped.
+function decodedReference(text, out, next) {
+    if (text === " " && (next === " " || next === "\n" || next === "" || blankLineTail(out)))
+        return ""
+    return Md.escapeHtmlText(text)
 }

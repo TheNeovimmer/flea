@@ -29,6 +29,23 @@ function skipBlanks(text, j, cap) {
     return j
 }
 
+// Sample input: `a\>b> c` read from 0 answers 4, the ">" that closes an angle destination; a line ending, even after a backslash, answers -1; strict refuses "<".
+function angleClose(text, from, limit, strict) {
+    var j = from
+    while (j < text.length && j < limit) {
+        var c = text.charAt(j)
+        if (c === ">")
+            return j
+        if (c === "\n" || c === "\r" || (strict === true && c === "<"))
+            return -1
+        // A backslash before a line ending is no escape, so the destination ends there unclosed.
+        if (c === "\\" && (text.charAt(j + 1) === "\n" || text.charAt(j + 1) === "\r"))
+            return -1
+        j += c === "\\" ? 2 : 1
+    }
+    return -1
+}
+
 // Sample input: (b "t") after a label's "]"; answers {url, end} past ")", or null; blanks, a line ending and the title may span lines.
 function readInlineTarget(text, i) {
     if (text.charAt(i) !== "(")
@@ -42,16 +59,8 @@ function readInlineTarget(text, i) {
     if (text.charAt(j) === "<") {
         j++
         var start = j
-        while (j < text.length && j < cap) {
-            var angleChar = text.charAt(j)
-            if (angleChar === ">" || angleChar === "\n" || angleChar === "\r")
-                break
-            // A backslash before a line ending is no escape, so the destination ends there unclosed.
-            if (angleChar === "\\" && (text.charAt(j + 1) === "\n" || text.charAt(j + 1) === "\r"))
-                break
-            j += angleChar === "\\" ? 2 : 1
-        }
-        if (j >= text.length || j >= cap || text.charAt(j) !== ">")
+        j = angleClose(text, j, cap)
+        if (j < 0)
             return null
         url = text.slice(start, j)
         j++

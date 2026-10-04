@@ -1,10 +1,10 @@
-//@ pragma ShellId flea-mdspec-sheets
+//@ pragma ShellId flea-mdspec-shots
 
 import QtQuick
 import Quickshell
 import "flea" as Flea
 
-// One PNG of the real ui/PreviewMarkdown.qml per spec example, grabbed offscreen at the board's body size; tools/mdspec-sheets/run.sh sets it up.
+// One PNG of the real ui/PreviewMarkdown.qml per spec example, grabbed offscreen at the board's body size; tests/mdspec-shots.sh sets it up.
 ShellRoot {
     id: shell
 
@@ -16,6 +16,10 @@ ShellRoot {
     readonly property int stableReads: 3
     readonly property int pollMs: 60
     readonly property int failAfterReads: 400
+    // A frame never shrinks below this many pixels, and the document's inset counts on both sides of it.
+    readonly property int minFrameHeight: 1
+    readonly property int insetSides: 2
+    readonly property color windowGround: "#101315"
     property string outDir: Quickshell.env("FLEA_SHEET_OUT")
     property string mdDir: Quickshell.env("FLEA_SHEET_MD")
     property var manifest: []
@@ -29,7 +33,7 @@ ShellRoot {
     // The ListView's contentHeight is an estimate until every delegate exists, so the document ends where its last delegate does.
     function contentEnd() {
         var last = md.blockList.length > 0 ? md.blockItem(md.blockList.length - 1) : null
-        return last === null ? 0 : last.y + last.height + md.insetY * 2
+        return last === null ? 0 : last.y + last.height + md.insetY * shell.insetSides
     }
 
     function log(line) { console.log("MDSHEET " + line) }
@@ -66,12 +70,12 @@ ShellRoot {
     FloatingWindow {
         implicitWidth: shell.sheetWidth
         implicitHeight: shell.sheetMaxHeight
-        color: "#101315"
+        color: shell.windowGround
 
         Rectangle {
             id: grabRoot
             width: shell.sheetWidth
-            height: Math.max(1, Math.min(shell.sheetMaxHeight, Math.ceil(shell.contentEnd())))
+            height: Math.max(shell.minFrameHeight, Math.min(shell.sheetMaxHeight, Math.ceil(shell.contentEnd())))
             color: Flea.Theme.color.background
             clip: true
 

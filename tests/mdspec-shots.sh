@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The capture half of tools/mdspec-sheets: every spec example drawn by the real preview offscreen at body 14, judged on nothing but that each was captured.
+# Every spec example drawn by the real preview offscreen at body 14, judged on nothing but that each was captured; the contact sheets are built from these PNGs outside the repo.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
@@ -15,12 +15,12 @@ cleanup() { sandbox_remove "$test_root"; }
 trap cleanup EXIT
 mkdir -p "$test_root/config" "$test_root/home" "$test_root/state" "$test_root/cache" "$test_root/runtime" "$test_root/shots" || exit 1
 chmod 700 "$test_root/runtime" || exit 1
-python3 tools/mdspec-sheets/sheets.py manifest "$test_root" "${MDSPEC_SHEET_LIMIT:-0}" || exit 1
+python3 tests/mdspec-manifest.py "$test_root" "${MDSPEC_SHEET_LIMIT:-0}" || exit 1
 # The shell imports ui/ as Flea, and ui/'s qs.Commons resolves against this root, as it does from ui/boot.
 ln -s "$root/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
-cp tools/mdspec-sheets/shell.qml "$test_root/config/shell.qml" || exit 1
+cp tests/mdspec-shots.qml "$test_root/config/shell.qml" || exit 1
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" XDG_RUNTIME_DIR="$test_root/runtime" \
     FLEA_SHEET_OUT="$test_root/shots" FLEA_SHEET_MD="$test_root/md" QML_XHR_ALLOW_FILE_READ=1 \

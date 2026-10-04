@@ -250,7 +250,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
         if (c === "&") {
             var reference = Ent.referenceAt(body, i)
             // Qt's own table is short and keeps a newline reference, so the character is decoded here; a drawn line break is a space.
-            out.push(reference === null ? c : Md.escapeHtmlText(reference.text.replace(WHITESPACE_REFERENCE, " ")))
+            out.push(reference === null ? c : Ent.decodedReference(reference.text.replace(WHITESPACE_REFERENCE, " "), out, body.charAt(reference.end)))
             i = reference === null ? i + 1 : reference.end
             continue
         }

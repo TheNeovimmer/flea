@@ -47,7 +47,9 @@ Item {
         "GFM strikethrough": 2,
         "GFM autolink": 11,
         "GFM tagfilter": 0,
-        "GFM table forms": 13
+        "GFM table forms": 13,
+        "Entity forms": 7,
+        "Definition forms": 1
     })
 
     TextEdit {
@@ -127,6 +129,22 @@ Item {
         return { state: rule === "" ? "fail" : "exception", rule: rule, got: got, want: want }
     }
 
+    // The adapter's own checks: a tight item keeps the paragraphs of a list or quote nested in its text, and loses only its own.
+    function adapterFailures() {
+        var texts = ["a\n\n- b\n\n  b2\n\n- c", "a\n\n> q\n>\n> r"]
+        var wants = ["<ul><li>a<ul><li>b<p>b2</p></li><li>c</li></ul></li></ul>", "<ul><li>a<blockquote><p>q</p><p>r</p></blockquote></li></ul>"]
+        var failures = 0
+        for (var t = 0; t < texts.length; t++) {
+            var nested = { type: "list", ordered: false, start: 0, items: [texts[t]], depths: [0], markers: ["\u2022"], gaps: [false] }
+            var got = Blocks.blocksHtml([nested], gate.exported, gate.dir)
+            if (got !== wants[t]) {
+                console.log("FAIL adapter: a tight item holding a nested block drew " + got)
+                failures++
+            }
+        }
+        return failures
+    }
+
     Component.onCompleted: {
         var args = Qt.application.arguments
         var listAt = args.indexOf("list")
@@ -151,10 +169,20 @@ Item {
             forms[f].example = "table-" + forms[f].example
             examples.push(forms[f])
         }
+        // Hand-written forms the spec leaves open: a character a reference spells stays literal, and a definition's angle destination never spans a line.
+        var handForms = [{ file: "entity-forms.json", kind: "entity-forms" }, { file: "definition-forms.json", kind: "definition-forms" }]
+        for (var h = 0; h < handForms.length; h++) {
+            var written = JSON.parse(gate.read(handForms[h].file))
+            for (var w = 0; w < written.length; w++) {
+                written[w].kind = handForms[h].kind
+                written[w].example = handForms[h].kind + "-" + written[w].example
+                examples.push(written[w])
+            }
+        }
         var order = []
         var tally = {}
         var rules = {}
-        var failed = 0
+        var failed = gate.adapterFailures()
         for (var i = 0; i < examples.length; i++) {
             var ex = examples[i]
             if (showAt >= 0 && String(ex.example) !== args[showAt + 1])

@@ -137,6 +137,13 @@ ShellRoot {
             if (spelledText.indexOf("](") >= 0 || spelledText.indexOf("<a ") >= 0)
                 validationFailures.push("refused scheme spelled through references became a link " + sp)
         }
+        // A character a reference spells reaches Qt as an entity, never as the syntax mark: no link, emphasis or indented code forms from it.
+        var entitySpelled = ["&#91;x&#93;&#40;javascript&#58;alert&#40;1&#41;&#41;", "&ast;a&ast;", "&#32;&#32;&#32;&#32;code"]
+        for (var es = 0; es < entitySpelled.length; es++) {
+            var entityRuns = Blocks.blocks(entitySpelled[es] + "\n", dir, "#181825", "#c0caf5").map(function (block) { return block.text }).join("")
+            if (/[\[\]*]|<a |^ /.test(entityRuns))
+                validationFailures.push("a reference-spelled mark reached Qt as syntax " + es)
+        }
         log("blocks=" + md.blockList.length)
         // Build resource probes after delegates, then wait for their native Image completion signals.
         Qt.callLater(function () {
@@ -178,6 +185,15 @@ ShellRoot {
             validationFailures.push("Source view Text is not plain text")
         else if (String(drawn.text).indexOf("![front](") < 0 || String(drawn.text).indexOf("![math](") < 0)
             validationFailures.push("Source view Text lacks the front matter and display math placements")
+        // A fence opened in a list item or a quote ends with its container, so the prose and image after it are drawn, and the fence's own lines are not.
+        var fenceCases = [{ text: "- ```\n  code\nafter ![x](u)\n", drawn: true }, { text: "> ```\n> code\nafter ![x](u)\n", drawn: true },
+            { text: "1. a\n   - ```\n     code\n   after ![x](u)\n", drawn: true }, { text: "- ```\n  ![x](u)\n\n  ![y](v)\n  ```\nafter\n", drawn: false },
+            { text: "> ```\n> ![x](u)\n> ```\nafter\n", drawn: false }, { text: "- a\n  ```\n  code\nafter ![x](u)\n", drawn: true },
+            { text: "- a\n  ```\n  code\n  ```\nmore ![x](u)\n", drawn: true }]
+        for (var fc = 0; fc < fenceCases.length; fc++) {
+            if ((Fence.withoutFences(fenceCases[fc].text).indexOf("![x](u)") >= 0) !== fenceCases[fc].drawn)
+                validationFailures.push("container fence extent wrong for case " + fc)
+        }
         control.text = "![control](" + counter + "/control.png)"
         var request = new XMLHttpRequest()
         request.onreadystatechange = function () {

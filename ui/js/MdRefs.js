@@ -65,12 +65,8 @@ function readLabel(text, from) {
 function readDestinationAt(text, from) {
     var at = from
     if (text.charAt(at) === "<") {
-        for (at++; at < text.length && text.charAt(at) !== ">"; at++) {
-            if (text.charAt(at) === "<" || text.charAt(at) === "\n")
-                return null
-            at += text.charAt(at) === "\\" ? 1 : 0
-        }
-        return text.charAt(at) === ">" ? { target: text.slice(from + 1, at), end: at + 1 } : null
+        at = Link.angleClose(text, from + 1, text.length, true)
+        return at >= 0 ? { target: text.slice(from + 1, at), end: at + 1 } : null
     }
     var depth = 0
     while (at < text.length && !/[\s\x00-\x1f]/.test(text.charAt(at))) {
