@@ -10,7 +10,7 @@ ShellRoot {
     id: root
 
     property var failures: []
-    property int rowCount: 60
+    property int rowCount: 80
     function fail(text) { root.failures.push(text) }
     function near(a, b) { return Math.abs(Number(a) - Number(b)) <= 1 }
 
@@ -26,6 +26,7 @@ ShellRoot {
     Component {
         id: backendStub
         QtObject {
+            property int dirDev: 0
             function peek(path, size, hidden) {}
             function thumb(rows, cacheOnly) {}
             function thumbcancel(rows) {}
@@ -41,8 +42,8 @@ ShellRoot {
             property string path: "/probe"
             property var rows: []
             property var shown: null
-            property int shownTotal: 60
-            property int total: 60
+            property int shownTotal: 80
+            property int total: 80
             property int held: 0
             property int cursorIndex: 0
             property int renamingIndex: -1
@@ -73,6 +74,8 @@ ShellRoot {
             property int buffer: 150
             property int windowSize: 35
             property var backend: null
+            property var trash: ({ opened: false })
+            property string dropPath: "/probe"
             property var statusBar: null
             function join(base, name) { return String(base) + "/" + String(name) }
             function rowFor(index) { var o = index - held; return (o >= 0 && o < rows.length) ? rows[o] : null }
@@ -107,6 +110,36 @@ ShellRoot {
         y: 320
         width: 400
         height: 200
+        rows: root.stubPane.rows
+        selectedIndex: -1
+    }
+
+    Flea.List {
+        id: endList
+        y: 540
+        width: 700
+        height: 700
+        pane: root.stubPane
+        menu: root.stubMenu
+    }
+
+    Flea.ColumnPane {
+        id: endCol
+        x: 720
+        y: 540
+        width: 400
+        height: 700
+        rows: root.stubPane.rows
+        selectedIndex: -1
+    }
+
+    Flea.ColumnPane {
+        id: endColPane
+        x: 1140
+        y: 540
+        width: 400
+        height: 700
+        pane: root.stubPane
         rows: root.stubPane.rows
         selectedIndex: -1
     }
@@ -174,9 +207,53 @@ ShellRoot {
         if (!root.near(col.contentY(), wantCol * rowH))
             root.fail("columns keyboard contentY " + col.contentY() + ", want " + (wantCol * rowH))
 
+        // End parks on the true end, a second End and three Ups keep it, Home returns; at a non-multiple, an exact-multiple and a short-remainder height.
+        if (700 % rowH === 0)
+            root.fail("the 700 px fixture is a multiple of the row height " + rowH)
+        root.endChecks("list", endList, endList, 700)
+        root.endChecks("list exact", endList, endList, 22 * rowH)
+        root.endChecks("list short remainder", endList, endList, 22 * rowH + 5)
+        root.endChecks("column", endCol, endCol.viewport, 700)
+        root.endChecks("column exact", endCol, endCol.viewport, 22 * rowH)
+        root.endChecks("column pane", endColPane, endColPane.viewport, 700)
+        root.endChecks("column pane exact", endColPane, endColPane.viewport, 22 * rowH)
+        root.endChecks("column pane short remainder", endColPane, endColPane.viewport, 22 * rowH + 2)
+
         if (root.failures.length === 0)
             console.log("SCROLLOFFVIEW PASS rows=" + root.rowCount + " listV=" + listV + " colV=" + colV)
         root.report()
+    }
+
+    // End parks the last row flush on the view's bottom edge and whole; the footer's bare ground stays one wheel step beyond.
+    function endChecks(label, pane, view, height) {
+        var rowH = Flea.Theme.fileRowHeight
+        var last = root.rowCount - 1
+        pane.height = height
+        view.contentY = view.originY
+        pane.showCursor(last, 3)
+        var tail = view.contentHeight - root.rowCount * rowH
+        var flushY = view.originY + root.rowCount * rowH - view.height
+        var lastBottom = view.originY + root.rowCount * rowH - view.contentY
+        if (Math.abs(view.contentY - flushY) > 0.5)
+            root.fail(label + " End contentY " + view.contentY + ", want the last row flush at " + flushY)
+        if (Math.abs(lastBottom - view.height) > 0.5)
+            root.fail(label + " End last row bottom " + lastBottom + ", want the view's bottom " + view.height)
+        if (tail === 0 && Math.abs(view.contentY + view.height - (view.originY + view.contentHeight)) > 0.5)
+            root.fail(label + " End is short of the true end by " + (view.originY + view.contentHeight - view.contentY - view.height))
+        console.log("SCROLLOFFVIEW INFO " + label + " rowH=" + rowH + " height=" + view.height + " footer=" + tail + " flush=" + flushY)
+        var atEnd = view.contentY
+        for (var up = 1; up <= 3; up++) {
+            pane.showCursor(last - up, 3)
+            if (Math.abs(view.contentY - atEnd) > 0.01)
+                root.fail(label + " Up " + up + " moved the view from " + atEnd + " to " + view.contentY)
+        }
+        pane.showCursor(last, 3)
+        pane.showCursor(last, 3)
+        if (Math.abs(view.contentY - atEnd) > 0.01)
+            root.fail(label + " a second End moved the view from " + atEnd + " to " + view.contentY)
+        pane.showCursor(0, 3)
+        if (Math.abs(view.contentY - view.originY) > 0.5)
+            root.fail(label + " Home contentY " + view.contentY + ", want " + view.originY)
     }
 
     function report() {

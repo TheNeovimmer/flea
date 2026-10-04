@@ -42,3 +42,16 @@ function containY(top, rowH, contentY, height) {
         return top + rowH - height
     return contentY
 }
+
+// The keyboard move in pixels: row aligned, but a window that wants the last first row parks the last row flush on the bottom edge.
+function keyY(visible, cursor, total, context, rowH, rel, height, contentHeight) {
+    var first = Math.floor(rel / rowH)
+    var want = firstFor(first, visible, cursor, total, context)
+    var span = Math.max(0, contentHeight - height)
+    // The row-aligned stop leaves up to a row of bare ground under the last row; a wheel parked in the footer stays.
+    if (total > visible && want === total - visible)
+        return Math.max(rel, Math.min(span, Math.max(0, total * rowH - height)))
+    if (want === first && !needsAlign(cursor, want, visible, rel, height, rowH))
+        return rel
+    return Math.min(span, want * rowH)
+}
