@@ -49,7 +49,7 @@ if [ "$done_count" -ne 1 ]; then
     printf 'FAIL completion receipts %s, want exactly 1 DONE beside the PASS\n' "$done_count"
     verdict=1
 fi
-expected_checks=24
+expected_checks=25
 if [ "$pass_count" -ne "$expected_checks" ] || [ "$fail_count" -ne 0 ]; then
     printf 'FAIL the permissions card missed a skipped-file or strip check: pass=%s fail=%s want %s/0\n' "$pass_count" "$fail_count" "$expected_checks"
     printf '%s\n' "$output" | grep -aE 'PERMSKIP|ERROR|error'

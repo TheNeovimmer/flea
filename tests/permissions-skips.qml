@@ -125,6 +125,15 @@ ShellRoot {
         dialog.receiveMany({ op: "applyMany", id: dialog.requestId, ok: false, error: refused })
         shell.answer(reread, [["0644", ""], ["", "", "Could not inspect permissions: file or folder not found."]])
         shell.check("other-failed-batch-keeps-its-error-beside-a-skip", dialog.displayedError === refused, dialog.displayedError)
+        // An Apply-time skip stays named when the held note replaces the batch error, since the re-read reasons every file again.
+        var gone = "Could not inspect permissions: file or folder not found."
+        shell.open(["/d/a.txt", "/d/special.txt", "/d/zz-gone.txt"], [["0644", ""], ["4644", "Read-only: setuid bit is present."], ["0644", ""]])
+        dialog.multiToggle(shell.ownerExecute)
+        dialog.applyMany()
+        reread = shell.sent.length
+        dialog.receiveMany({ op: "applyMany", id: dialog.requestId, ok: false, error: gone })
+        shell.answer(reread, [["0644", ""], ["4644", "Read-only: setuid bit is present."], ["", "", gone]])
+        shell.check("mixed-skip-note-names-the-apply-skip-and-the-vanished-file", dialog.displayedError === "2 items keep their modes because they cannot be changed: special.txt, zz-gone.txt.", dialog.displayedError)
     }
 
     FloatingWindow {
