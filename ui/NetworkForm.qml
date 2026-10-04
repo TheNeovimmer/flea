@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import "." as Flea
+import "js/Buttons.js" as Buttons
 import "js/Protocols.js" as Protocols
 
 // The Add-network-place form: a protocol picks the scheme, prefills the port and swaps the field set,
@@ -187,7 +188,7 @@ Column {
 
     Row {
         id: chips
-        spacing: Theme.spacing.hairline * 6
+        spacing: Theme.spacing.hairline * Buttons.SET_GAP
 
         Repeater {
             model: Protocols.PROTOCOLS
