@@ -185,6 +185,7 @@ ShellRoot {
             var first = pane.visibleItemFor(0)
             if (!first) return false
             check("recent-used: Used is the XBEL visit date", first.dateText(), Format.date(Date.parse("2026-09-23T10:47:00Z") / 1000))
+            check("Sidebar040 Recent Location is the folder under home, no home and no tilde slash", first.locationText, "fixture")
             pane.closeRecent()
             return true
         },

@@ -1473,7 +1473,11 @@ its path under it, which is why `ui/PickerList.qml` draws a Recent row by its ow
 `Picker.rowPath` answers with the whole path. Recent is a location and never a directory: it is
 named by the token `flea:recent`, which no absolute path can equal, Parent refuses in it, Back
 works out of it, a caller's own `folder` still wins at startup, and a save is not offered it at all
-because a history is not a directory to write into.
+because a history is not a directory to write into. The window's Recent listing draws each file's folder in its
+Location column through `Recent.locationUnder`: relative to home with no leading `~/` ("Documents/claude"), `~` for a
+file directly in home, and the absolute parent outside home (Sidebar040 draws no such row); it uses `Format.tilde`, the
+home test every path display shares, and Settings, Places draws a favourite's path through the same function while the
+row's `value` keeps the stored path for removal, reorder and the keyboard seam.
 
 **Why the backend is Python.** It is the second non-Rust helper in this tree, after
 `tools/flea-gio-auth`. A portal backend has to own a bus name, export objects, answer calls out of

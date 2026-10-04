@@ -1,6 +1,7 @@
 .pragma library
 .import "TextSize.js" as TextSize
 .import "Places.js" as Places
+.import "Format.js" as Format
 .import "Keymap.js" as Keymap
 .import "SettingsShelf.js" as Shelf
 .import "SettingsAbout.js" as About
@@ -428,7 +429,7 @@ function placesRows(state) {
     var rows = [{ kind: "group", label: "Favorites", id: "addFavourite", action: "addFavourite", value: "Add this folder" }]
     for (var i = 0; i < entries.length; i++) {
         rows.push({ kind: "favourite", id: "favourite:" + i, label: entries[i].label,
-            value: entries[i].storedPath, glyph: entries[i].glyph, error: entries[i].error || (state.favouriteStatuses || {})[i] || "", favouriteIndex: i })
+            value: entries[i].storedPath, display: Format.tilde(entries[i].storedPath, state.home || ""), glyph: entries[i].glyph, error: entries[i].error || (state.favouriteStatuses || {})[i] || "", favouriteIndex: i })
     }
     rows.push({ kind: "group", label: "Built in" })
     // Sidebar040: Recent sits beside Home, Network, Devices and Trash, and ships off.

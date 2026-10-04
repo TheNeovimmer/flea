@@ -126,6 +126,20 @@ function run(check) {
     check("a bare name sits in the root", Recent.locationOf("a.txt"), "/")
     check("a root-level file sits in the root", Recent.locationOf("/a.txt"), "/")
 
+    // Sidebar040: the Location column reads the folder relative to home, no leading "~/", and keeps the absolute parent elsewhere.
+    check("Location is a function of the path and home", typeof Recent.locationUnder, "function")
+    if (typeof Recent.locationUnder === "function") {
+        var gm = "/home/gm"
+        check("a nested folder drops home and its slash", Recent.locationUnder("/home/gm/Documents/claude/a.md", gm), "Documents/claude")
+        check("a first-level folder is its own name", Recent.locationUnder("/home/gm/Downloads/receipt.pdf", gm), "Downloads")
+        check("a file directly in home reads as home", Recent.locationUnder("/home/gm/a.txt", gm), "~")
+        check("a path outside home keeps its absolute parent", Recent.locationUnder("/srv/data/a.txt", gm), "/srv/data")
+        check("a sibling named like home is outside it", Recent.locationUnder("/home/gmx/a.txt", gm), "/home/gmx")
+        check("the root stays the root", Recent.locationUnder("/a.txt", gm), "/")
+        check("no home published keeps the absolute parent", Recent.locationUnder("/home/gm/Downloads/a.txt", ""), "/home/gm/Downloads")
+        check("an empty path has no location", Recent.locationUnder("", gm), "")
+    }
+
     // The rail joins every asker waiting on one history read, null naming the rail pane itself.
     check("the asker join lives in Recent", typeof Recent.joinRequesters, "function")
     if (typeof Recent.joinRequesters === "function") {

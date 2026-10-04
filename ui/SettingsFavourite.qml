@@ -42,7 +42,8 @@ Item {
         anchors.rightMargin: Theme.spacing.gap
         anchors.verticalCenter: parent.verticalCenter
         width: Math.min(implicitWidth, root.width * 0.46)
-        text: root.row.value || ""
+        // Sidebar040: a favourite reads as the person writes it; row.value stays the stored path for every action.
+        text: root.row.display !== undefined ? root.row.display : (root.row.value || "")
         font.family: Theme.font.family
         font.pixelSize: Theme.font.caption
         color: root.row.error ? Theme.color.error : Theme.color.muted

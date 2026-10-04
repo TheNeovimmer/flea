@@ -198,6 +198,16 @@ function runCompletionRows(check) {
           "addFavourite|Add this folder|true")
     check("and the two buttons under the list are gone",
           places.filter(function (row) { return row.kind === "favouriteActions" }).length, 0)
+    // Sidebar040: a favourite's path reads as the person writes it, while value keeps the stored absolute path.
+    var homed = Settings.rows("places", { home: "/home/gm", data: { places: { favourites: [
+        { label: "Projects", path: "/home/gm/Projects" }, { label: "flea", path: "~/Documents/claude/flea" },
+        { label: "Archive", path: "/srv/archive" }, { label: "Sibling", path: "/home/gmx/s" }] } } })
+    check("a favourite inside home shows ~/ and keeps the absolute value",
+          [find(homed, "favourite:0").display, find(homed, "favourite:0").value].join("|"), "~/Projects|/home/gm/Projects")
+    check("a stored tilde path shows the same tilde form", find(homed, "favourite:1").display, "~/Documents/claude/flea")
+    check("a favourite outside home shows its absolute path", find(homed, "favourite:2").display, "/srv/archive")
+    check("a sibling named like home is outside it", find(homed, "favourite:3").display, "/home/gmx/s")
+    check("no home published shows the stored path", find(Settings.rows("places", { data: { places: { favourites: [{ label: "P", path: "/home/gm/P" }] } } }), "favourite:0").display, "/home/gm/P")
     check("optional rail details default off", [find(places, "places.driveSize").on, find(places, "places.trashCount").on].join(","), "false,false")
     // GM's 0.3.3 ruling: unmounted drives ship on, and an off the file stored is still the operator's.
     check("Show unmounted drives defaults on and a stored off reads off", [find(places, "places.showUnmounted").on,

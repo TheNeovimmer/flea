@@ -62,8 +62,34 @@ ShellRoot {
         return out
     }
 
+    // Every visible Text under an item, depth first; a favourite row's path is one of them.
+    function visibleTexts(item, out) {
+        if (!item.visible)
+            return out
+        if (item.text !== undefined && item.elide !== undefined)
+            out.push(item.text)
+        for (var i = 0; i < item.children.length; i++)
+            root.visibleTexts(item.children[i], out)
+        return out
+    }
+
+    // Sidebar040: a favourite's drawn path is home-relative with "~/", and the row keeps the stored absolute path.
+    function favouritePaths() {
+        var state = Object.assign({}, root.probeState, { data: { places: { favourites: [
+            { label: "Projects", path: "/probe/Projects" }, { label: "Archive", path: "/srv/archive" }] } } })
+        var rows = Settings.rows("places", state).filter(function (row) { return row.kind === "favourite" })
+        var out = { drawn: [], values: rows.map(function (row) { return row.value }) }
+        for (var i = 0; i < rows.length; i++) {
+            var item = rowComponent.createObject(holder, { row: rows[i], width: holder.width })
+            out.drawn.push(root.visibleTexts(item, []).filter(function (text) { return text.indexOf("/") >= 0 }))
+            item.destroy()
+        }
+        return out
+    }
+
     Component.onCompleted: {
         var found = root.measure()
+        var paths = root.favouritePaths()
         var labelX = found.label.length > 0 ? found.label[0].x : null
         var failures = found.failures
         function expect(list, x, what) {
@@ -81,6 +107,10 @@ ShellRoot {
                 || found.ruler.length === 0 || found.footer.length === 0)
             failures.push("nothing to compare: label " + labelX + ", " + found.hint.length + " hints, "
                           + found.ruler.length + " rulers, " + found.footer.length + " footers")
+        if (JSON.stringify(paths.drawn) !== JSON.stringify([["~/Projects"], ["/srv/archive"]]))
+            failures.push("favourite paths draw " + JSON.stringify(paths.drawn) + ", not ~/Projects then /srv/archive")
+        if (JSON.stringify(paths.values) !== JSON.stringify(["/probe/Projects", "/srv/archive"]))
+            failures.push("favourite values are " + JSON.stringify(paths.values) + ", the stored absolute paths")
         for (var f = 0; f < failures.length; f++)
             console.log("SETTINGS_COLUMNS FAIL " + failures[f])
         if (failures.length === 0)

@@ -70,7 +70,7 @@ tests/picker-hunt.qml 445
 tests/js/network.js 306
 tests/js/ops.js 511
 tests/js/slowclick.js 308
-tests/js/settings.js 342
+tests/js/settings.js 352
 tests/js/tap.js 333
 tests/js/uistate.js 370
 tests/js/watch.js 354
@@ -88,6 +88,7 @@ tests/rename-grid-bottom.qml 424
 tests/rename-grid-bottom.js 305
 tests/rename-lifecycle-check.js 356
 tests/ring-bounds.qml 576
+tests/sidebar-flows.qml 401
 tests/touchpad.qml 747
 tests/xwsettings-tabs.qml 444
 ui/Backend.qml 469
@@ -114,10 +115,10 @@ ui/Preview.qml 645
 ui/PreviewColumn.qml 582
 ui/DeviceMounts.qml 496
 ui/PreviewMarkdown.qml 784
-ui/Row.qml 482
+ui/Row.qml 483
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 410
-ui/Sidebar.qml 668
+ui/Sidebar.qml 669
 ui/StatusBar.qml 456
 ui/Theme.qml 419
 ui/TrashView.qml 479
@@ -136,7 +137,7 @@ ui/js/Menu.js 454
 ui/js/Drag.js 342
 ui/js/Ops.js 426
 ui/js/Picker.js 328
-ui/js/Settings.js 455
+ui/js/Settings.js 456
 ui/js/Tabs.js 719
 ui/js/UiState.js 447
 ui/TabBar.qml 632

@@ -1,5 +1,6 @@
 //@ pragma ShellId flea-sidebarcost-count-test
 import QtQuick
+import QtTest
 import Quickshell
 import "flea" as Flea
 import "flea/js/Picker.js" as Picker
@@ -13,6 +14,17 @@ ShellRoot {
     property var calls: ({modes: 0, selection: 0})
     property int phase: 0
     property var replies: []
+    // Sidebar040 specimen 1: the 3 px bar lies 1 px in the row above its boundary and 2 px under it.
+    readonly property int barAboveBoundary: 1
+    readonly property int barBelowBoundary: 2
+    readonly property int dragOneRow: 1
+    readonly property int dragTwoRows: 2
+    readonly property int dragUpNudge: -5
+    // Past Qt's 10 px drag threshold, so the first move activates the handler on its own.
+    readonly property int dragLead: 14
+    property var dragRows: []
+    property real dragStartX: 0
+    property real dragStartY: 0
 
     function check(name, actual, expected) {
         checks += 1
@@ -39,6 +51,37 @@ ShellRoot {
                 && String(o.color) === String(Flea.Theme.color.accent)
         })
     }
+    function dragHandler(item) {
+        return objects(item, []).filter(function(o) { return String(o).indexOf("QQuickDragHandler") >= 0 })[0]
+    }
+    function visibleLines() { return lines().filter(function(o) { return o.visible }) }
+    // The bar's edges against one boundary, whole pixels, in the rail's own coordinates.
+    function checkBar(name, boundary) {
+        var line = visibleLines()
+        check(name + " has one visible bar", line.length, 1)
+        if (line.length === 0) return
+        var top = line[0].mapToItem(sidebar, 0, 0).y
+        check(name + " starts " + barAboveBoundary + " px above its boundary", boundary - top, barAboveBoundary)
+        check(name + " ends " + barBelowBoundary + " px under its boundary", top + line[0].height - boundary, barBelowBoundary)
+    }
+    function favouriteRow(slot) { return sidebar.railItemFor(sidebar.entries.length - 3 + slot) }
+    function boundaryOf(line) {
+        var row = favouriteRow(Math.min(line, 2))
+        return row.mapToItem(sidebar, 0, line === 3 ? row.height : 0).y
+    }
+    // Every rail row's opacity, favourites first: the held one draws at the ghost value, the rest at 1.
+    function opacities() {
+        var out = []
+        for (var i = 0; i < sidebar.entries.length; i++) out.push(sidebar.railItemFor(i).opacity)
+        return out
+    }
+    // The pointer moves to dy under its press; the handler counts from its press, and Qt holds the newest move until
+    // another event arrives, so three moves leave the last one delivered.
+    readonly property int dragMoves: 3
+    function dragTo(dy) {
+        for (var i = 0; i < dragMoves; i++)
+            pointer.mouseMove(favouriteRow(0), dragStartX, dragStartY + dy + i, 1, Qt.LeftButton, Qt.NoModifier)
+    }
     FloatingWindow {
         implicitWidth: 900
         implicitHeight: 700
@@ -48,6 +91,7 @@ ShellRoot {
             height: 700
             onRecentRequested: function(paths, requester, visits) { shell.replies.push({paths: paths, requester: requester, visits: visits}) }
         }
+        TestEvent { id: pointer }
         Flea.Backend { id: probeBackend }
         Flea.Pane {
             id: pane
@@ -90,9 +134,8 @@ ShellRoot {
             check("slot " + slot + " has one visible line", line.length, 1)
             var base = sidebar.entries.length - 3
             var row = sidebar.railItemFor(base + Math.min(slot, 2))
-            var expected = row.mapToItem(sidebar, 0, slot === 3 ? row.height : 0).y
-                - (slot === 3 ? Flea.Theme.accentEdge * Flea.Theme.spacing.hairline : 0)
-            check("slot " + slot + " line position", line.length ? line[0].mapToItem(sidebar, 0, 0).y : -1, expected)
+            var boundary = row.mapToItem(sidebar, 0, slot === 3 ? row.height : 0).y
+            checkBar("slot " + slot, boundary)
             check("line accent thickness", line.length ? line[0].height : -1, Flea.Theme.accentEdge * Flea.Theme.spacing.hairline)
             sidebar.reorderLine = phase === 1 ? 1 : phase === 2 ? 3 : -1
             phase += 1
@@ -139,6 +182,44 @@ ShellRoot {
             check("Recent cache answers without a parse", sidebar.recentReads, 1)
             check("cached Recent asker answered", replies.length, 3)
             check("cached Recent reply preserves visit time", replies[2].visits[recentFile], visited)
+            phase = 8
+        } else if (phase === 8) {
+            // Sidebar040 specimen 1, driven through the real DragHandler: lift the first favourite and take it two rows down.
+            check("idle rows are all at full ink", opacities().every(function(o) { return o === 1 }), true)
+            var row = favouriteRow(0)
+            dragStartX = row.width / 2
+            dragStartY = row.height / 2
+            pointer.mousePress(row, dragStartX, dragStartY, Qt.LeftButton, Qt.NoModifier, 1)
+            dragTo(dragLead)
+            phase = 9
+        } else if (phase === 9) {
+            if (!dragHandler(favouriteRow(0)).active) return
+            var held = opacities()
+            var firstFavourite = sidebar.entries.length - 3
+            check("the held favourite draws at the ghost value", held[firstFavourite], Flea.Theme.disabledOpacity)
+            check("every other rail row stays at 1", held.filter(function(o, i) { return i !== firstFavourite && o !== 1 }).length, 0)
+            dragTo(dragTwoRows * Flea.Theme.railRowHeight)
+            phase = 10
+        } else if (phase === 10) {
+            if (sidebar.reorderLine !== 3) return
+            checkBar("drag under the last favourite", boundaryOf(3))
+            dragTo(dragOneRow * Flea.Theme.railRowHeight)
+            phase = 11
+        } else if (phase === 11) {
+            if (sidebar.reorderLine !== 2) return
+            checkBar("drag between two favourites", boundaryOf(2))
+            check("the held row is still the ghost", favouriteRow(0).opacity, Flea.Theme.disabledOpacity)
+            dragTo(dragUpNudge)
+            phase = 12
+        } else if (phase === 12) {
+            if (sidebar.reorderLine !== 0) return
+            checkBar("drag above the first favourite", boundaryOf(0))
+            pointer.mouseRelease(favouriteRow(0), dragStartX, dragStartY + dragUpNudge, Qt.LeftButton, Qt.NoModifier, 1)
+            phase = 13
+        } else if (phase === 13) {
+            if (sidebar.reorderLine !== -1) return
+            check("release returns every rail row to full ink", opacities().every(function(o) { return o === 1 }), true)
+            check("release leaves no visible bar", visibleLines().length, 0)
             console.log("BOOTLOAD DONE " + checks + " checks, " + failures + " failed")
             Qt.quit()
         }

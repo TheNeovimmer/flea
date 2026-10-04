@@ -56,6 +56,10 @@ Item {
     // The canvas's own value for a bookmark nothing has mounted yet.
     readonly property real unmountedOpacity: 0.5
 
+    // The favourite under the pointer while its reorder drag runs; it ghosts the way a dragged tab does, the bar says where it lands.
+    property bool held: false
+    opacity: root.held ? Theme.disabledOpacity : 1
+
     width: parent ? parent.width : 0
     // The rail reads denser than the list it sits beside; see Theme.qml's railRowHeight comment.
     height: Theme.railRowHeight
@@ -304,6 +308,7 @@ Item {
                 xAxis.enabled: false
                 property real startY: 0
                 onActiveChanged: {
+                    root.held = active
                     if (active) {
                         startY = persistentTranslation.y
                         return
