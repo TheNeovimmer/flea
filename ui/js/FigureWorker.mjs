@@ -460,14 +460,16 @@ function tightenCanvas(svg) {
             valid = false;
         var pad = strokePad(attrs, "text");
         var font = number(attrs, "font-size", NaN);
-        var baseline = number(attrs, "y", NaN) + shift(attrs, font);
+        var baseline = number(attrs, "y", NaN);
+        var textShift = shift(attrs, font);
         lines.forEach(function (line, index) {
             // Without its own x, only the first line starts at the text's; a later one continues from an unknown pen position.
             if (/\sstyle=/.test(line.attrs) || (index > 0 && !/\sx=/.test(line.attrs)))
                 valid = false;
             var size = number(line.attrs, "font-size", font);
-            var drop = /\sy=/.test(line.attrs) ? number(line.attrs, "y", NaN) : baseline;
-            baseline = drop + shift(line.attrs, size);
+            var pen = /\sy=/.test(line.attrs) ? number(line.attrs, "y", NaN) : baseline;
+            // SVG takes a glyph's dy from the nearest element naming one, so the text's own dy moves only a first line that names none.
+            baseline = pen + (/\sdy=/.test(line.attrs) ? shift(line.attrs, size) : index === 0 ? textShift : 0);
             var linePad = Math.max(pad, strokePad(line.attrs, "text"));
             include(baseline - size, baseline + TEXT_DESCENT_RATIO * size, linePad);
             var anchor = line.attrs.match(/\stext-anchor="([^"]*)"/) || attrs.match(/\stext-anchor="([^"]*)"/);

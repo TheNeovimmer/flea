@@ -197,7 +197,7 @@ fi
 # The canvas trim over real library output and hand-built shapes: no broken viewBox, no label cut, tspan lines read.
 tighten_output=$(timeout 45 "$qjs" tests/markdown-figtighten.mjs 2>&1)
 tighten_status=$?
-expected_tighten_checks=141 # Unreadable texts alone and beside a rect, tspan lines with inherited anchor and size, real multi-line figures, wide and narrow labels, every ASCII glyph run at its measured maximum, a long CJK message.
+expected_tighten_checks=144 # Unreadable texts alone and beside a rect, tspan lines with inherited anchor and size, real multi-line figures, wide and narrow labels, every ASCII glyph run at its measured maximum, a long CJK message.
 # Sample input: MARKDOWN_FIGTIGHTEN 141 checks, 0 failed
 if [ "$tighten_status" -ne 0 ] || ! printf '%s\n' "$tighten_output" | grep -qE "^MARKDOWN_FIGTIGHTEN $expected_tighten_checks checks, 0 failed$"; then
     printf 'FAIL markdown-figures-render: figtighten expected %s checks, 0 failed; exited %s; arrived [%s]\n' "$expected_tighten_checks" "$tighten_status" "${tighten_output:-<empty>}" >&2

@@ -138,6 +138,8 @@ ipc() {
     esac
 }
 . "$MD_GATE_CAPTURE"
+# The stub answers at once, so a refused hover or press needs only one second of its deadline.
+capmarkdown_close_wait_s=1
 case_cap_markdown
 ''')
     env = dict(os.environ, MD_GATE_FIXTURE=str(fixture), MD_GATE_CAPTURE=str(REPO / "tests/ui-captures-markdown.sh"),

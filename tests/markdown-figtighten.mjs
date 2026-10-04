@@ -109,6 +109,13 @@ check(box(own)[0] === 20, 'tspan with its own x and anchor: the canvas starts at
 const stack = postMermaid(canvas('<text x="125" y="30" font-size="13" text-anchor="middle"><tspan x="125" dy="-30">top</tspan><tspan x="125" dy="40">bottom</tspan></text>'), theme);
 sound(stack, 'two stacked tspans');
 check(box(stack)[1] <= 30 - 30 - LABEL_FONT_PX && box(stack)[1] + box(stack)[3] >= 30 + 10, 'two stacked tspans: the canvas holds both lines, got [' + box(stack).join(' ') + ']');
+// SVG takes the first glyph's dy from the nearest element naming one: a tspan's dy replaces its text's, and a text's dy still moves a tspan that names only y.
+for (const [name, label] of [['a first tspan dy replacing the text dy', '<text x="125" y="60" dy="40" font-size="13" text-anchor="middle"><tspan x="125" dy="-30">top</tspan></text>'],
+    ['a text dy moving a first tspan with its own y', '<text x="125" y="90" dy="-30" font-size="13" text-anchor="middle"><tspan x="125" y="60">top</tspan></text>']]) {
+    const out = postMermaid(canvas(label), theme);
+    sound(out, name);
+    check(box(out)[1] <= 30 - LABEL_FONT_PX && box(out)[1] + box(out)[3] >= 30, name + ': the canvas holds the line at baseline 30, got [' + box(out).join(' ') + ']');
+}
 
 // A tspan takes its anchor and size from its text: the oracle must read them there, and the trim must reach the label.
 const inherited = postMermaid(canvas(frame + '<text x="125" y="30" font-size="26" text-anchor="middle"><tspan x="125">会議室会議</tspan><tspan x="125" dy="30">会議室会議室会</tspan></text>'), theme);
@@ -139,9 +146,10 @@ for (const [name, word] of [['CJK', '会議室会議室会議室会議室'], ['c
 }
 // Every printable ASCII glyph, in a run, must stay inside the canvas at its measured maximum advance.
 const escapes = { '<': '&lt;', '>': '&gt;', '&': '&amp;' };
-for (const glyph of Object.keys(MAX_ADVANCE_EM)) {
+// A space alone draws nothing, so it has no reach to check.
+for (const glyph of Object.keys(MAX_ADVANCE_EM).filter((g) => /\S/.test(g))) {
     const out = wide((escapes[glyph] || glyph).repeat(12));
-    check(box(out)[0] <= reachLeft(out), 'the glyph "' + glyph + '" run: no label cut, canvas ' + box(out)[0] + ' reach ' + reachLeft(out));
+    check(Number.isFinite(reachLeft(out)) && box(out)[0] <= reachLeft(out), 'the glyph "' + glyph + '" run: no label cut, canvas ' + box(out)[0] + ' reach ' + reachLeft(out));
 }
 // A narrow label keeps a tight estimate: the digit and lowercase price, not the widest class's.
 const narrow = box(wide('iiiiiiiiiiii'))[0];

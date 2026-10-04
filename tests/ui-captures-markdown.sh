@@ -37,7 +37,7 @@ capmarkdown_pointer() {
         px=$((wx + sx + sw / 2)); py=$((wy + sy + sh / 2))
     fi
     # Two moves so the first lands as the resting point, then a seat nudge there and back, since Hyprland's cursor move sends Qt no pointer frame.
-    omarchy-drive move "$((px - capmarkdown_nudge_px * 6))" "$py" >/dev/null || fail "capmarkdown: pointer approach to the $where failed"
+    omarchy-drive move "$((px - capmarkdown_nudge_px * capmarkdown_approach_nudges))" "$py" >/dev/null || fail "capmarkdown: pointer approach to the $where failed"
     omarchy-drive move "$px" "$py" >/dev/null || fail "capmarkdown: pointer move to the $where failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x "$capmarkdown_nudge_px" -y 0 >/dev/null 2>&1 || fail "capmarkdown: pointer nudge failed"
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x "-$capmarkdown_nudge_px" -y 0 >/dev/null 2>&1 || fail "capmarkdown: pointer nudge back failed"
@@ -46,11 +46,12 @@ capmarkdown_pointer() {
 }
 # The close button's own pointer state, polled until it reads as wanted: a shot of a hover or a press is taken only once it holds.
 capmarkdown_wait_close() {
-    local field="$1" want="$2" state=""
-    for _attempt in $(seq 1 "$capmarkdown_close_polls"); do
+    local field="$1" want="$2" state="" end
+    end=$((SECONDS + capmarkdown_close_wait_s))
+    while (( SECONDS < end )); do
         state="$(ipc previewCloseState)"
         [[ "$(jq -r --arg field "$field" '.[$field]' <<< "$state" 2>/dev/null)" == "$want" ]] && return 0
-        sleep 0.05
+        sleep "$capmarkdown_close_poll_s"
     done
     fail "capmarkdown: the close button never reported $field=$want, last [$state]"
 }
@@ -65,9 +66,13 @@ capmarkdown_scroll() {
 }
 # 14 px of rowPaddingX plus half of the 24 px hit box.
 capmarkdown_close_inset=26
-# One px each way is enough for Hyprland to send Qt a pointer frame; 100 reads at 50 ms give a state change five seconds.
+# One px each way is enough for Hyprland to send Qt a pointer frame.
 capmarkdown_nudge_px=1
-capmarkdown_close_polls=100
+# The approach starts this many nudges short of the target, so the second move is a real motion onto it.
+capmarkdown_approach_nudges=6
+# A hover or a press must read as wanted within this many seconds, read again after each pause.
+capmarkdown_close_wait_s=5
+capmarkdown_close_poll_s=0.05
 # A notch is 288 px: three reach the figures region below the quote and tables, twelve more clamp at the tail with the picture and the placeholder.
 capmarkdown_notches_mid=3
 capmarkdown_notches_end=12
