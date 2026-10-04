@@ -61,9 +61,11 @@ for line in sys.stdin:
         break
 PYEND
 chmod +x "$test_root/stub-backend" || exit 1
-# The probe's own timeout is 30 s (probeTimeoutMs), so the shell waits a margin longer and a hung stage reports itself.
+# The probe's own timeout is read from probeTimeoutMs, so the shell waits a margin longer and a hung stage reports itself.
+probe_timeout_ms=$(sed -n 's/.*readonly property int probeTimeoutMs: *\([0-9][0-9]*\).*/\1/p' tests/picker-header.qml)
+[ -n "$probe_timeout_ms" ] || { echo "picker-header.sh: probeTimeoutMs not found in tests/picker-header.qml"; exit 1; }
 probe_timeout_margin=10
-probe_timeout=$((30 + probe_timeout_margin))
+probe_timeout=$((probe_timeout_ms / 1000 + probe_timeout_margin))
 output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
     FLEA_BIN="$test_root/stub-backend" \
