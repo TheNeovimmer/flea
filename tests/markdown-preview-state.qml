@@ -260,13 +260,15 @@ QtObject {
                 held.root.holdEnd()
             }
         })
+        // The stub's own first holdEnd primed these, so the growth below reaches the snap and no earlier exit.
+        var primed = held.root.endBuilt && held.root.seenHeight === endContentPx
         var error = ""
         try {
             held.root.grow(endGrowPx)
         } catch (thrown) {
             error = String(thrown)
         }
-        check(error === "" && writes === 1 && !held.root.snappingToEnd, "N1 a height that settles under the snap does not re-enter it (writes " + writes + " " + error + ")")
+        check(primed && error === "" && writes === 1 && !held.root.snappingToEnd, "N1 a height that settles under the snap does not re-enter it (writes " + writes + " " + error + ")")
     }
 
     function lazyChecks() {

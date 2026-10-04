@@ -24,6 +24,8 @@ QtObject {
     readonly property int layoutPassLimit: 12
     // A late picture grows the last block by this much.
     readonly property int pictureGrowPx: 80
+    // How far from the drawn end still counts as at it once the last block has grown.
+    readonly property real followTolerancePx: 1
 
     function readSource(path) {
         var request = new XMLHttpRequest()
@@ -62,9 +64,14 @@ QtObject {
         return found ? found[1] : ""
     }
 
+    // Sample input: readonly property int blockCachePixels: 600, answering 600, NaN when the source has none.
+    function shippedCache(source) {
+        var found = source.match(/readonly property int blockCachePixels: (\d+)/)
+        return found ? parseInt(found[1]) : NaN
+    }
+
     // The shipped functions on a stand-in root, over a real ListView built from the shipped cache and list geometry.
-    function build(source, heights) {
-        var cache = parseInt(source.match(/blockCachePixels: (\d+)/)[1])
+    function build(source, cache, heights) {
         var list = Qt.createQmlObject('import QtQuick\nListView { width: ' + viewWidthPx + '; height: ' + viewPx + '; clip: true\n'
             + 'spacing: ' + gapPx + '; topMargin: ' + insetPx + '; bottomMargin: ' + insetPx + '; cacheBuffer: ' + cache + '\n'
             + 'property int tailPx: 0\n'
@@ -112,9 +119,12 @@ QtObject {
         return heights
     }
 
-    function walkChecks(source) {
-        var shown = build(source, document())
+    function walkChecks(source, cache) {
+        var shown = build(source, cache, document())
         var list = shown.list
+        // The hazard must arise: the last block starts unbuilt and the height grows as the walk builds toward it.
+        var unbuiltAtStart = shown.root.blockItem(list.count - 1) === null
+        var heightAtStart = list.contentHeight
         var moved = true
         var written = list.contentY
         for (var n = 0; n < notches && moved; n++) {
@@ -123,14 +133,17 @@ QtObject {
             settle(list)
             moved = list.contentY === written
         }
+        check(unbuiltAtStart && list.contentHeight > heightAtStart,
+            "the walk meets the hazard: the last block unbuilt at the start and the height grown by the end (unbuilt " + unbuiltAtStart + ", "
+            + heightAtStart + " to " + list.contentHeight + ")")
         check(moved, "a reader scrolling through unbuilt blocks moves only by the wheel steps (at " + list.contentY + " after writing " + written + ")")
         check(list.contentY < endOf(list), "the reader scrolling through unbuilt blocks is not run to the document's end (at " + list.contentY + " of " + endOf(list) + ")")
         list.destroy()
     }
 
     // The control: a reader who reached the drawn end of a built last block keeps it in view when that block grows.
-    function followChecks(source) {
-        var shown = build(source, document())
+    function followChecks(source, cache) {
+        var shown = build(source, cache, document())
         var list = shown.list
         var reached = false
         for (var n = 0; n < reachLimit && !reached; n++) {
@@ -141,15 +154,22 @@ QtObject {
         var before = endOf(list)
         list.tailPx = pictureGrowPx
         settle(list)
-        check(list.atYEnd && endOf(list) === before + pictureGrowPx && Math.abs(list.contentY - endOf(list)) < 1,
+        check(list.atYEnd && endOf(list) === before + pictureGrowPx && Math.abs(list.contentY - endOf(list)) < followTolerancePx,
             "a reader at the drawn end follows the last block when a picture grows it (at " + list.contentY + " of " + endOf(list) + ")")
         list.destroy()
     }
 
     function run() {
         var source = readSource("../ui/PreviewMarkdown.qml")
-        walkChecks(source)
-        followChecks(source)
+        var cache = shippedCache(source)
+        check(cache > 0, "PreviewMarkdown.qml declares blockCachePixels")
+        if (!(cache > 0)) {
+            console.log("MARKDOWN_ENDHOLD " + checks + " checks, " + failures + " failed")
+            Qt.exit(1)
+            return
+        }
+        walkChecks(source, cache)
+        followChecks(source, cache)
         console.log("MARKDOWN_ENDHOLD " + checks + " checks, " + failures + " failed")
         Qt.exit(failures ? 1 : 0)
     }
