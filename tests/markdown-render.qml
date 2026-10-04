@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 import "markdown-render.js" as Checks
+import "markdown-centre.js" as Centre
 import "markdown-board.js" as Board
 import "markdown-bar.js" as Bar
 
@@ -28,6 +29,11 @@ ShellRoot {
     property int driveStep: 0
     property int failures: 0
     property var savedState: ({})
+    // The probe's word is wider than any two of its letters beside a space, so each of its three copies wraps onto its own line.
+    readonly property string probeWord: "HEHEH"
+    readonly property int probeLines: 3
+    readonly property int probeGap: 6
+    readonly property int probeColumns: 4
     property int suiteBody: 0
     property bool larger: false
 
@@ -92,6 +98,7 @@ ShellRoot {
             }
 
             Column {
+                id: referenceColumn
                 anchors.bottom: parent.bottom
                 anchors.left: parent.left
                 anchors.leftMargin: md.insetX
@@ -104,6 +111,35 @@ ShellRoot {
                         textFormat: Text.RichText
                         text: sample.marker + "&nbsp;&nbsp;&nbsp;&nbsp;" + sample.text
                         wrapMode: Text.NoWrap
+                    }
+                }
+            }
+
+            // Flat capitals, one word a line: the real MarkdownText as a body, heading, quote and table cell set it, judged on every wrapped line.
+            Grid {
+                id: centreProbes
+                anchors.bottom: referenceColumn.top
+                anchors.left: referenceColumn.left
+                columns: shell.probeColumns
+                spacing: shell.probeGap
+                Repeater {
+                    id: centres
+                    // px 0 follows the suite's text size; the others are the board's own 14 px body and 20 px heading.
+                    model: [{ name: "body", px: 0, pad: 0, bold: false }, { name: "h1", px: -1, pad: 0, bold: true },
+                        { name: "quote", px: 0, pad: 0, bold: false }, { name: "cell", px: 0, pad: 2, bold: false },
+                        { name: "board body", px: 14, pad: 0, bold: false }, { name: "board h1", px: 20, pad: 0, bold: true },
+                        { name: "board quote", px: 14, pad: 0, bold: false }, { name: "board cell", px: 14, pad: 2, bold: false }]
+                    delegate: Flea.MarkdownText {
+                        id: centreText
+                        required property var modelData
+                        readonly property real centred: (box - probeMetrics.height) / 2 + probeMetrics.ascent
+                        width: Math.ceil(probeMetrics.advanceWidth(shell.probeWord)) + shell.probeGap
+                        bodyPx: modelData.px > 0 ? modelData.px : modelData.px < 0 ? md.headingPx(1) : Flea.Theme.font.body
+                        cellPad: modelData.pad
+                        font.bold: modelData.bold
+                        color: Flea.Theme.color.foreground
+                        text: [shell.probeWord, shell.probeWord, shell.probeWord].join(" ")
+                        FontMetrics { id: probeMetrics; font: centreText.font }
                     }
                 }
             }
@@ -210,6 +246,34 @@ ShellRoot {
             if (block.type === "list")
                 shell.check(Checks.listBaselineError(md.blockItem(i), md, block.items.length, body, grabRoot, inkAt, shell.referenceLine),
                     (block.ordered ? "ordered" : "bullet") + " baselines at body " + body)
+        }
+    }
+
+    // CSS half-leading: the baseline sits half the leftover box above the font's ascent, read off the item's own font.
+    function centredBaseline(t) {
+        realMetrics.font = t.font
+        return (t.box - realMetrics.height) / 2 + realMetrics.ascent
+    }
+
+    FontMetrics { id: realMetrics }
+
+    // Every line of the probes, and the first line of the real h1, paragraph, quote and table cells, sits where CSS centres it in its 1.7 box.
+    function lineCentres(inkAt) {
+        for (var i = 0; i < centres.count; i++) {
+            var probe = centres.itemAt(i)
+            shell.check(Centre.lineCentreError(probe, grabRoot, inkAt, shell.probeLines, probe.centred, "probe " + probe.modelData.name),
+                "centred lines of the " + probe.modelData.name + " probe at " + probe.font.pixelSize + " px")
+        }
+        var h1 = md.blockItem(shell.blockIndex("heading"))
+        var quote = md.blockItem(shell.blockIndex("quote"))
+        var para = md.blockItem(shell.blockIndex("run"))
+        var cells = Centre.cellsOf(md.blockItem(shell.blockIndex("table")))
+        var real = [{ name: "heading", text: Checks.textOf(h1) }, { name: "paragraph", text: Checks.textOf(para) },
+            { name: "quote", text: Centre.quoteTextOf(quote) }, { name: "table header cell", text: cells[0] }, { name: "table body cell", text: cells[3] }]
+        for (var r = 0; r < real.length; r++) {
+            var t = real[r].text
+            shell.check(t ? Centre.lineCentreError(t, grabRoot, inkAt, 1, shell.centredBaseline(t), "real " + real[r].name) : "real " + real[r].name + " is absent",
+                "centred first line of the real " + real[r].name)
         }
     }
 
@@ -435,6 +499,7 @@ ShellRoot {
             return toInk < toGround
         }
         shell.listBaselines(inkAt)
+        shell.lineCentres(inkAt)
         if (shell.larger) {
             shell.check(Flea.Theme.font.body > shell.suiteBody ? "" : "text size did not grow", "larger text size")
             Flea.ViewState.state = shell.savedState

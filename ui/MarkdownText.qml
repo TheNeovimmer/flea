@@ -1,6 +1,6 @@
 import QtQuick
 
-// First-line padding keeps every Markdown line centred in the prescribed line box.
+// The padding places the text's baseline where CSS puts it, half the leading above the font's ascent, on every wrapped line.
 Text {
     id: root
 
@@ -10,6 +10,11 @@ Text {
     readonly property real box: Math.round(root.font.pixelSize * root.boxRatio)
     // QTextLine rounds the font's height up, so the first line is ceil(height) tall.
     readonly property real lead: Math.max(0, root.box - Math.ceil(metrics.height))
+    // Qt's FixedHeight line puts its baseline this share down the box whatever the font, so the padding moves it to the centred one.
+    readonly property real fixedBaselineShare: 0.8
+    readonly property int centredBaseline: Math.round((root.box - metrics.height) / 2 + metrics.ascent)
+    // Rich text shifts by the gap between the two baselines (negative when Qt sits it low); plain text sits at the top of its natural line.
+    readonly property int lift: root.rich ? root.centredBaseline - Math.round(root.box * root.fixedBaselineShare) : Math.floor(root.lead / 2)
     // The document's body size; the preview column scales it down from Quick Look's.
     property int bodyPx: Theme.font.body
     // Rows of a table add their own cell padding on top of the box.
@@ -31,8 +36,8 @@ Text {
     font.pixelSize: root.bodyPx
     lineHeight: root.rich ? root.box : 1
     lineHeightMode: root.rich ? Text.FixedHeight : Text.ProportionalHeight
-    topPadding: root.cellPad + Math.floor(root.lead / 2)
-    bottomPadding: root.cellPad + root.lead - Math.floor(root.lead / 2)
+    topPadding: root.cellPad + root.lift
+    bottomPadding: root.cellPad + root.lead - root.lift
 
     FontMetrics {
         id: metrics
