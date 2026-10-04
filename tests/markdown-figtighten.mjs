@@ -30,6 +30,8 @@ const ASCII_LIMIT = 0x7f;
 const LABEL_FONT_PX = 13;
 // A centred label of twelve narrow glyphs at 13 px reaches 125 less about 50, so about 75, inside these bounds with the stroke pad.
 const NARROW_FLOOR = 70;
+// The canvas margin and stroke pad a trimmed canvas keeps above a glyph's top, so an untrimmed canvas at 0 fails.
+const DY_SLACK = 2;
 const NARROW_CEILING = 76;
 const failures = [];
 let checks = 0;
@@ -114,7 +116,8 @@ for (const [name, label] of [['a first tspan dy replacing the text dy', '<text x
     ['a text dy moving a first tspan with its own y', '<text x="125" y="90" dy="-30" font-size="13" text-anchor="middle"><tspan x="125" y="60">top</tspan></text>']]) {
     const out = postMermaid(canvas(label), theme);
     sound(out, name);
-    check(box(out)[1] <= 30 - LABEL_FONT_PX && box(out)[1] + box(out)[3] >= 30, name + ': the canvas holds the line at baseline 30, got [' + box(out).join(' ') + ']');
+    const top = 30 - LABEL_FONT_PX;
+    check(box(out)[1] <= top && box(out)[1] >= top - DY_SLACK && box(out)[1] + box(out)[3] >= 30, name + ': the trimmed canvas holds the line at baseline 30, got [' + box(out).join(' ') + ']');
 }
 
 // A tspan takes its anchor and size from its text: the oracle must read them there, and the trim must reach the label.

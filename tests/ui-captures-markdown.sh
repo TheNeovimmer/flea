@@ -47,8 +47,8 @@ capmarkdown_pointer() {
 # The close button's own pointer state, polled until it reads as wanted: a shot of a hover or a press is taken only once it holds.
 capmarkdown_wait_close() {
     local field="$1" want="$2" state="" end
-    end=$((SECONDS + capmarkdown_close_wait_s))
-    while (( SECONDS < end )); do
+    end=$(( $(date +%s%3N) + capmarkdown_close_wait_s * 1000 ))
+    while (( $(date +%s%3N) < end )); do
         state="$(ipc previewCloseState)"
         [[ "$(jq -r --arg field "$field" '.[$field]' <<< "$state" 2>/dev/null)" == "$want" ]] && return 0
         sleep "$capmarkdown_close_poll_s"
