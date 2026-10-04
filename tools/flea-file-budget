@@ -105,7 +105,7 @@ ui/FastScrollHandler.qml 529
 ui/NetworkDialog.qml 446
 ui/NetworkForm.qml 405
 ui/NetworkMounts.qml 849
-ui/OpenWithDialog.qml 605
+ui/OpenWithDialog.qml 607
 ui/Pane.qml 1036
 ui/PaneMenuActions.qml 467
 ui/PaneWire.qml 586

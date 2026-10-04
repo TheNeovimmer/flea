@@ -7,37 +7,10 @@ cd "$(dirname "$0")/.." || exit 1
 verdict=0
 fail() { printf 'FAIL %s\n' "$1"; verdict=1; }
 
-# Static sweep: a Rectangle without its own colour paints Qt's default white, so none may enclose a Flea.CheckBox (Permissions, Settings and the group rows host theirs bare).
-# Sample input: "ui/OpenWithDialog.qml:451 Rectangle { id: box ... Flea.CheckBox {" names the wrapper that drew the white box.
-colourless=$(python3 - <<'PY'
-import glob
-import re
-
-OPEN = re.compile(r"^(\s*)([A-Za-z.]+)\s*\{\s*$")
-DIRECT_COLOR = re.compile(r"^\s*(color|gradient)\s*:")
-for path in sorted(glob.glob("ui/*.qml")):
-    lines = open(path, encoding="utf-8").read().splitlines()
-    for number, line in enumerate(lines):
-        if not re.match(r"^\s*Flea\.CheckBox\s*\{", line):
-            continue
-        indent = len(line) - len(line.lstrip())
-        for back in range(number - 1, -1, -1):
-            match = OPEN.match(lines[back])
-            if not match or len(match.group(1)) >= indent:
-                continue
-            indent = len(match.group(1))
-            if match.group(2) != "Rectangle":
-                continue
-            body = []
-            for ahead in range(back + 1, len(lines)):
-                if lines[ahead].strip() and len(lines[ahead]) - len(lines[ahead].lstrip()) <= indent:
-                    break
-                if len(lines[ahead]) - len(lines[ahead].lstrip()) == indent + 4:
-                    body.append(lines[ahead])
-            if not any(DIRECT_COLOR.match(row) for row in body):
-                print("%s:%d" % (path, back + 1))
-PY
-)
+# A Rectangle without its own colour paints Qt's default white, so none may enclose a Flea.CheckBox; a script, not a grep, since it follows nesting by indent.
+colourless=$(python3 -B tests/dialog-board-sweep.py ui)
+sweep_status=$?
+[ "$sweep_status" -eq 0 ] || fail "the static sweep (tests/dialog-board-sweep.py) exited $sweep_status instead of reporting"
 [ -z "$colourless" ] || fail "a colourless Rectangle wraps a Flea.CheckBox (Qt paints it white): $colourless"
 
 if ! command -v qs >/dev/null; then

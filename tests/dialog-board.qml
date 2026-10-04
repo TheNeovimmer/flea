@@ -40,7 +40,14 @@ ShellRoot {
     property bool acted: false
     property var script: []
     property int backRequests: 0
+    property int upActivations: 0
     property var read: ({})
+
+    // Up's own signal, counted where it fires: a dead Up wires no handler, so the view's Back count alone could never see it.
+    Connections {
+        target: view.upItem
+        function onActivated() { shell.upActivations += 1 }
+    }
 
     function log(line) { console.log("DIALOGBOARD " + line) }
     function check(name, actual, expected) {
@@ -260,7 +267,7 @@ ShellRoot {
                             [back.width, up.width, back.height], [hit, hit, view.stripItem.height])
             } },
             { name: "up-inert", act: function () { shell.hoverOn(view.upItem); driver.mouseClick(view.upItem, view.upItem.width / 2, view.upItem.height / 2, Qt.LeftButton, Qt.NoModifier, shell.noDelay) },
-              record: function () { shell.check("strip: a click on the dead Up goes nowhere", shell.backRequests, 0) } },
+              record: function () { shell.check("strip: a click on the dead Up never activates it", [shell.upActivations, shell.backRequests], [0, 0]) } },
             { name: "back-pressed", act: function () { shell.hoverOn(view.backItem); shell.pressOn(view.backItem) }, record: function () {
                 shell.check("strip: Back takes the 0.96 press", view.backItem.scale, shell.pressScale)
             } },

@@ -112,7 +112,7 @@ case_openwithdesign() (
         'the list ends on a row boundary at seven applications'
     menus_expect openWithState '(.rect | split(" ")[2] | tonumber) > 0' "the card takes the Convert family's own width"
     # DialogButtons040: the field is two gaps under the title rule, and the list starts the board's trail under the field.
-    menus_expect openWithState '(.titleRect | split(" ") | map(tonumber)) as $t | (.searchRect | split(" ") | map(tonumber)) as $f | $f[1] - ($t[1] + $t[3]) == 2 * .gap' \
+    menus_expect openWithState '(.titleRuleRect | split(" ") | map(tonumber)) as $t | (.searchRect | split(" ") | map(tonumber)) as $f | $f[1] - ($t[1] + $t[3]) == 2 * .gap' \
         'the search field sits two gaps under the title rule'
     menus_expect openWithState '(.searchRect | split(" ") | map(tonumber)) as $f | (.listRect | split(" ") | map(tonumber)) as $l | $l[1] - ($f[1] + $f[3]) == .searchTrail' \
         'the list starts the board trail under the search field'

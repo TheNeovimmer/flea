@@ -45,7 +45,7 @@ Item {
     readonly property var closeItem: cancelButton
     readonly property var submitItem: openButton
     readonly property var fieldItem: field
-    readonly property var titleItem: title
+    readonly property var titleRuleItem: titleRule
     readonly property var searchItem: searchBox
     readonly property var applicationsItem: list
     readonly property var alwaysItem: alwaysBox
@@ -60,7 +60,8 @@ Item {
     // DialogButtons040 at size 14: the field is 18 px under the title rule (two gaps) and 31 px over the eyebrow's ink (the row's own 15 plus 16).
     readonly property int searchLead: 2 * Theme.spacing.gap
     readonly property real eyebrowLeadBoard: 16
-    readonly property int searchTrail: Math.round(root.eyebrowLeadBoard * Theme.font.bodySmall / 13)
+    readonly property real bodySmallBoard: 13
+    readonly property int searchTrail: Math.round(root.eyebrowLeadBoard * Theme.font.bodySmall / root.bodySmallBoard)
 
     anchors.fill: parent
     visible: root.opened
@@ -234,6 +235,7 @@ Item {
                 textFormat: Text.PlainText
                 elide: Text.ElideMiddle
                 Rectangle {
+                    id: titleRule
                     anchors.bottom: parent.bottom
                     width: parent.width
                     height: Theme.spacing.hairline
