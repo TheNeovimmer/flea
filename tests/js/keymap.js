@@ -304,6 +304,6 @@ function run(check) {
     var tabsDefault = Keymap.sheetFor("default", "gui")
     check("next and prev tab draw one spelling each on Default",
           tabsDefault.filter(function (r) { return r.action === "tabNext" })[0].keys + "|"
-          + tabsDefault.filter(function (r) { return r.action === "tabPrevious" })[0].keys, "]|[")
+          + tabsDefault.filter(function (r) { return r.action === "tabPrevious" })[0].keys, "ctrl-pagedown|ctrl-pageup")
     check("the generator names the pairs it evens", (Keymap.SHEET_MIRRORS || []).length > 0, true)
 }
