@@ -29,6 +29,8 @@ FocusScope {
     property int explicitSet: 0
     property int explicitClear: 0
     property bool applyingMany: false
+    // A failed batch's own error until its re-read lands, so the held note may replace it when it names that refusal.
+    property string failedBatchError: ""
     // The Apply skips, carried to the applyMany reply for the final message.
     property var multiApplySkipped: []
     property int multiApplySent: 0
@@ -101,6 +103,7 @@ FocusScope {
         multiPending = 0
         multiApplySkipped = []
         multiApplySent = 0
+        failedBatchError = ""
         explicitSet = 0
         explicitClear = 0
         applyingMany = false
@@ -126,6 +129,7 @@ FocusScope {
         multiPending = paths.length
         multiApplySkipped = []
         multiApplySent = 0
+        failedBatchError = ""
         explicitSet = 0
         explicitClear = 0
         applyingMany = false
@@ -203,6 +207,7 @@ FocusScope {
             if (multiApplySkipped.length > 0)
                 errorText += "\n" + Permissions.skipNote(multiApplySkipped)
             // A failed batch re-reads every mode so the grid and a retry start from disk.
+            failedBatchError = message.error || ""
             multiStore = ({ modes: [], reasons: [], skipped: [], pending: multiPaths.length })
             multiModes = []
             multiPending = multiPaths.length
@@ -223,7 +228,10 @@ FocusScope {
             multiModes = multiStore.modes.slice()
             busy = false
             var note = Permissions.inspectNote(multiStore, multiPaths)
-            if (note.length > 0 && errorText.length === 0) errorText = note
+            // A batch refused for a file the re-read cannot inspect is named by the held note, which quotes that refusal; any other batch error stays.
+            var refused = failedBatchError.length > 0 && multiStore.skipped.some(function (skip) { return skip.why === failedBatchError })
+            if (note.length > 0 && (errorText.length === 0 || refused)) errorText = note
+            failedBatchError = ""
             cancelFocus.forceActiveFocus()
         } else {
             multiPending = multiStore.pending

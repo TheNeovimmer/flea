@@ -15,6 +15,8 @@ failed=0
 foreign="y-foreign.txt keeps its mode because you do not own it."
 foreign_applied="y-foreign.txt kept its mode."
 other="Could not inspect permissions: file or folder not found."
+held="zz-gone.txt keeps its mode: $other"
+left="zz-gone.txt kept its mode."
 applied="special.txt kept its mode."
 note="2 items keep their modes because a special bit is set: special.txt, x-special.txt."
 
@@ -79,13 +81,19 @@ ipc() {
         previewSwapState/faded-never) printf '{"look":{},"lookVisible":true}\n' ;;
         contextMenuVisible/*) printf 'true\n' ;;
         menuState/*) printf '{"entries":[{"action":"permissions","disabled":false}]}\n' ;;
-        permissionsState/vanish|permissionsState/vanishwrong|permissionsState/vanishbox)
+        statusPrimary/vanish|statusPrimary/vanishnoreapply) printf '%s\n' "$left" ;;
+        statusPrimary/vanishwrongleft) printf '%s\n' "zz-gone.txt kept its mode" ;;
+        permissionsState/vanish|permissionsState/vanishwrong|permissionsState/vanishbox|permissionsState/vanishnoreapply|permissionsState/vanishwrongleft)
             if (( returns == 0 )); then
                 # Before Apply the box reads off, and the Space turns it on unless the key never landed.
                 if [[ "$mode" == vanishbox ]]; then printf '{"opened":true,"busy":false,"displayedError":"","controls":[{"name":"Owner execute","value":"off"}]}\n'
                 else printf '{"opened":true,"busy":false,"displayedError":"","controls":[{"name":"Owner execute","value":"on"}]}\n'; fi
-            elif [[ "$mode" == vanishwrong ]]; then printf '{"opened":true,"busy":false,"displayedError":"zz-gone.txt keeps its mode: %s"}\n' "$other"
-            else printf '{"opened":true,"busy":false,"displayedError":"%s"}\n' "$other"; fi ;;
+            elif (( returns == 1 )); then
+                # The defect: the card keeps the bare batch error where the note naming the file belongs.
+                if [[ "$mode" == vanishwrong ]]; then printf '{"opened":true,"busy":false,"displayedError":"%s"}\n' "$other"
+                else printf '{"opened":true,"busy":false,"displayedError":"%s"}\n' "$held"; fi
+            elif [[ "$mode" == vanishnoreapply ]]; then printf '{"opened":true,"busy":false,"displayedError":"%s"}\n' "$held"
+            else printf '%s\n' "$closed_state"; fi ;;
         permissionsState/flight|permissionsState/flightnow|permissionsState/never)
             if (( resumed == 1 )); then printf '%s\n' "$closed_state"
             elif [[ "$mode" == never ]] || (( returns == 0 )); then printf '%s\n' "$idle_state"
@@ -138,11 +146,15 @@ expect "skips fail when the all-skipped card keeps a live Apply or an enabled bo
 # One call of the helper against the file the stub's fixture would hold, named after the 8 rows left once it goes.
 vanish_case() { : > "$fixture_root/zz-gone.txt"; cap_permissions_vanished 0 "$fixture_root/zz-gone.txt" 8; }
 run vanished vanish vanish_case
-expect "a file removed under the open card, the listing waited at 8 rows, then the Apply error line settles with no paused backend" "$rc $(tr '\n' ' ' < "$log")" "0 listing 8 removed "
+expect "a file removed under the open card, the listing waited at 8 rows, the note naming it, then a second Apply that closes the card and names the file it left" "$rc $(tr '\n' ' ' < "$log")" "0 listing 8 removed "
 run vanished-wrong vanishwrong vanish_case
-expect "a line that is not the Apply error fails the vanished-file shot" "$rc $(grep -c 'draws another line than the backend' "$sdir/out")" "1 1"
+expect "the bare batch error with no file name fails the vanished-file shot" "$rc $(grep -c 'draws another line than the note naming it' "$sdir/out")" "1 1"
 run vanished-box vanishbox vanish_case
 expect "a box that never turns on fails before Apply" "$rc $(grep -c 'Owner execute did not turn on before Apply' "$sdir/out")" "1 1"
+run vanished-noreapply vanishnoreapply vanish_case
+expect "a second Apply that never closes the card fails at its deadline" "$rc $(grep -c 'the card never closed after Apply' "$sdir/out")" "1 1"
+run vanished-wrong-left vanishwrongleft vanish_case
+expect "a second Apply whose status line does not name the file it left fails" "$rc $(grep -c 'the status line after the second Apply reads' "$sdir/out")" "1 1"
 
 # The Quick Look wait before a listing shot: it returns once the overlay stops drawing, and fails at its deadline while it still does.
 overlay_gone() { pdf_overlay_gone listing; }

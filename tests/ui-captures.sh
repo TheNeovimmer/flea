@@ -433,10 +433,11 @@ cap_permissions_settled() {
     done
     fail "cap_permissions: Permissions never settled open and idle, last $state"
 }
-# Permissions040: a selected file removed under the open card, so Apply fails on it and the card draws the backend's own words, with no paused backend.
+# Permissions040: a selected file removed under the open card, so Apply fails on it, the card names the file in the backend's own words, and a second Apply changes the rest and names the one it left.
 cap_permissions_vanished() {
     local row="$1" gone="$2" listed_after="$3"
-    local want="Could not inspect permissions: file or folder not found."
+    local want="zz-gone.txt keeps its mode: Could not inspect permissions: file or folder not found."
+    local left="zz-gone.txt kept its mode."
     [[ "$gone" == /?*/zz-gone.txt && "$gone" == "$fixture_root"/* ]] || fail "cap_permissions: the vanishing file is not inside the case's fixture"
     cap_permissions_open "$row"
     rm -f -- "$gone" || fail "cap_permissions: the fixture file could not be removed"
@@ -447,10 +448,13 @@ cap_permissions_vanished() {
     cap_permissions_await '[.controls[] | select(.name == "Owner execute")][0].value == "on"' "Owner execute did not turn on before Apply"
     cap_permissions_focus Apply forward
     key -k Return >/dev/null
-    cap_permissions_await ".opened and (.busy | not) and .displayedError == \"$want\"" "the vanished file draws another line than the backend's own words"
+    cap_permissions_await ".opened and (.busy | not) and .displayedError == \"$want\"" "the vanished file draws another line than the note naming it"
     shot cap-permissions-other-note
-    key -k Escape >/dev/null
-    settle
+    cap_permissions_focus Apply forward
+    key -k Return >/dev/null
+    cap_permissions_closed
+    [[ "$(ipc statusPrimary)" == "$left" ]] || fail "cap_permissions: the status line after the second Apply reads $(ipc statusPrimary), not $left"
+    shot cap-permissions-other-reapply
 }
 
 # Permissions040: Apply on a selection that holds skips, the status line it leaves and the card that stays when every file is skipped, then a file this user does not own.

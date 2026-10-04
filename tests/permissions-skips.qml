@@ -82,9 +82,10 @@ ShellRoot {
             bar.primaryItem.text + "|truncated=" + bar.primaryItem.truncated + "|width=" + bar.primaryItem.width + "/" + bar.primaryItem.implicitWidth)
     }
 
-    // The batch fails on a file that went after the card read it: the Apply error stays on the card, the re-read keeps every box, and zz-gone.txt's own refusal is held beside it.
+    // The batch fails on a file that went after the card read it: the re-read keeps every box and the card's line becomes zz-gone.txt's own refusal, the file named, and a second Apply changes the rest.
     function checkVanished() {
         var gone = "Could not inspect permissions: file or folder not found."
+        var heldNote = "zz-gone.txt keeps its mode: " + gone
         shell.open(["/d/a.txt", "/d/zz-gone.txt"], [["0644", ""], ["0644", ""]])
         dialog.multiToggle(shell.ownerExecute)
         var marked = shell.sent.length
@@ -95,10 +96,35 @@ ShellRoot {
         dialog.receiveMany({ op: "applyMany", id: dialog.requestId, ok: false, error: gone })
         shell.check("vanished-batch-keeps-the-card-open-and-reads-both-again", dialog.opened && dialog.busy && shell.sent.length - reread === 2, dialog.opened + "/" + dialog.busy + "/" + (shell.sent.length - reread))
         shell.answer(reread, [["0644", ""], ["", "", gone]])
-        shell.check("vanished-card-draws-the-apply-error-line", dialog.displayedError === gone, dialog.displayedError)
+        shell.check("vanished-card-draws-the-note-naming-the-file", dialog.displayedError === heldNote, dialog.displayedError)
         shell.check("vanished-card-settles-idle-and-open", dialog.opened && !dialog.busy, dialog.opened + "/" + dialog.busy)
         var note = Permissions.inspectNote(dialog.multiStore, dialog.multiPaths)
-        shell.check("vanished-card-holds-the-skip-note-as-the-backend-worded-it", note === "zz-gone.txt keeps its mode: " + gone, note)
+        shell.check("vanished-card-holds-the-skip-note-as-the-backend-worded-it", note === heldNote, note)
+        // The second Apply changes the file it can and leaves the vanished one out of the batch.
+        marked = shell.sent.length
+        dialog.applyMany()
+        var again = shell.sent[marked]
+        shell.check("vanished-second-apply-sends-the-readable-file-alone", !!again && again.c === "permissionsBatch" && again.paths.join(",") === "/d/a.txt" && again.modes.join(",") === "0744", JSON.stringify(again))
+        shell.appliedNote = ""
+        dialog.receiveMany({ op: "applyMany", id: dialog.requestId, ok: true })
+        shell.check("vanished-second-apply-closes-and-names-the-file-it-left", !dialog.opened && shell.appliedNote === "zz-gone.txt kept its mode.", dialog.opened + "/" + shell.appliedNote)
+        // A batch that fails with every file still readable keeps its own error line.
+        shell.open(["/d/a.txt", "/d/b.txt"], [["0644", ""], ["0644", ""]])
+        dialog.multiToggle(shell.ownerExecute)
+        dialog.applyMany()
+        var refused = "Could not change mode: the mode changed since, so it was left in place. No change was applied."
+        reread = shell.sent.length
+        dialog.receiveMany({ op: "applyMany", id: dialog.requestId, ok: false, error: refused })
+        shell.answer(reread, [["0644", ""], ["0644", ""]])
+        shell.check("readable-failed-batch-keeps-its-own-error-line", dialog.displayedError === refused, dialog.displayedError)
+        // A batch refused for another reason keeps that error even when the re-read cannot inspect a file.
+        shell.open(["/d/a.txt", "/d/b.txt"], [["0644", ""], ["0644", ""]])
+        dialog.multiToggle(shell.ownerExecute)
+        dialog.applyMany()
+        reread = shell.sent.length
+        dialog.receiveMany({ op: "applyMany", id: dialog.requestId, ok: false, error: refused })
+        shell.answer(reread, [["0644", ""], ["", "", "Could not inspect permissions: file or folder not found."]])
+        shell.check("other-failed-batch-keeps-its-error-beside-a-skip", dialog.displayedError === refused, dialog.displayedError)
     }
 
     FloatingWindow {
