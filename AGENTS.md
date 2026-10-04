@@ -1935,9 +1935,10 @@ failure fails the check rather than passing it.
   inside the frame so all four sides are whole. The rename editor is one field in every view (GM 2026-10-03):
   `ui/RenameField.qml` owns its height (`lineBox`, the row's text line box, or the typed line and its two hairlines
   where a small stop is shorter), and a host only places it, centred on whole pixels, never sets another height and
-  never covers a neighbouring cell, as `tests/rename-frame.sh` pins for the list, dual, columns, grid and rail: in
-  every host the mapped frame stays inside its own row or cell and overlaps no other row, cell or column drawn beside it,
-  except at a stop where the row is shorter than the frame, where the frame overhangs it by the same amount top and bottom.
+  never covers a neighbouring cell wherever its row can hold it, as `tests/rename-frame.sh` pins for the list, dual,
+  columns, grid and rail: in every host whose row or cell is at least the frame's height, the mapped frame stays inside
+  it and overlaps no other row, cell or column drawn beside it. At a stop where the row is shorter than the frame, the
+  frame overhangs the row by the same amount top and bottom, and so reaches that far into the rows beside it.
   The stem selection is one box filling the frame's interior edge to edge (`RenameField.selectionBox`, the field's own
   is transparent), the grid centres the field on its caption's first line, and in the columns the renaming row grows by
   the error line as the list's does (`ColumnRow.errorGrowth`), the line running from the label column to the column's
