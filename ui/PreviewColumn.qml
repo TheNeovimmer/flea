@@ -257,6 +257,7 @@ Item {
                             && root.rowState === Facts.TEXT && root.isMarkdownRow
                     })
                     item.truncate = Qt.binding(function () { return root.truncateText })
+                    item.compact = true
                 }
             }
             // The PDF's own page, which is the frame's whole content for that state. QtPdf is

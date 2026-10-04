@@ -10,6 +10,8 @@ Text {
     readonly property real box: Math.round(root.font.pixelSize * root.boxRatio)
     // QTextLine rounds the font's height up, so the first line is ceil(height) tall.
     readonly property real lead: Math.max(0, root.box - Math.ceil(metrics.height))
+    // The document's body size; the preview column scales it down from Quick Look's.
+    property int bodyPx: Theme.font.body
     // Rows of a table add their own cell padding on top of the box.
     property int cellPad: 0
 
@@ -26,7 +28,7 @@ Text {
     color: Theme.color.foreground
     linkColor: Theme.color.foreground
     font.family: Theme.font.family
-    font.pixelSize: Theme.font.body
+    font.pixelSize: root.bodyPx
     lineHeight: root.rich ? root.box : 1
     lineHeightMode: root.rich ? Text.FixedHeight : Text.ProportionalHeight
     topPadding: root.cellPad + Math.floor(root.lead / 2)

@@ -283,9 +283,15 @@ function inlineClasses(svg) {
 const MERMAID_BODY_PX = 13;
 // A diagram scales to the theme's body size; this size in px stands in when the request carries none.
 const MERMAID_FALLBACK_BODY_PX = 14;
-// The padding in px the diagram library lays round the drawing; tightenVertical re-fits the canvas after it.
+// The padding in px the diagram library lays round the drawing; tightenCanvas re-fits the canvas after it.
 const MERMAID_PADDING = 1;
 const CANVAS_MARGIN = 1;
+// The drawing starts on the canvas's left edge, the content column's, like an image; the library's own 30 unit left margin goes.
+const LEFT_MARGIN = 0;
+// A label's glyph advance in em, the monospace face's own, which is what bounds a text's left reach.
+const TEXT_ADVANCE_EM = 0.6;
+// A centred label reaches half its width left of its x.
+const MIDDLE_SHARE = 0.5;
 const BOUNDS_PRECISION = 10;
 const TEXT_DESCENT_RATIO = 0.3;
 const DEFAULT_STROKE_WIDTH = 1;
@@ -313,8 +319,8 @@ function scaleCanvas(svg, px) {
     });
 }
 
-// Trim vertical SVG canvas padding where every painted primitive has explicit bounds.
-function tightenVertical(svg) {
+// Trim the SVG canvas padding above, below and left of the drawing where every painted primitive has explicit bounds.
+function tightenCanvas(svg) {
     var root = svg.match(/<svg\s[^<>]*>/);
     if (!root)
         return svg;
@@ -327,6 +333,7 @@ function tightenVertical(svg) {
         return svg;
     var top = Infinity;
     var bottom = -Infinity;
+    var left = Infinity;
     var valid = true;
     // Sample input: <rect height="80"/> reads 80 from its height attribute.
     function number(tag, name, fallback) {
@@ -340,6 +347,13 @@ function tightenVertical(svg) {
         }
         top = Math.min(top, low - pad);
         bottom = Math.max(bottom, high + pad);
+    }
+    function includeLeft(x, pad) {
+        if (!Number.isFinite(x) || !Number.isFinite(pad)) {
+            valid = false;
+            return;
+        }
+        left = Math.min(left, x - pad);
     }
     // Sample input: <polygon stroke="#fff" stroke-width="8" stroke-linejoin="miter"/> includes its joins.
     function strokePad(tag, kind) {
@@ -377,20 +391,25 @@ function tightenVertical(svg) {
         if (kind === "rect") {
             var y = number(tag, "y", 0);
             include(y, y + number(tag, "height", NaN), pad);
+            includeLeft(number(tag, "x", 0), pad);
         } else if (kind === "line") {
             var y1 = number(tag, "y1", 0), y2 = number(tag, "y2", 0);
             include(Math.min(y1, y2), Math.max(y1, y2), pad);
+            includeLeft(Math.min(number(tag, "x1", 0), number(tag, "x2", 0)), pad);
         } else if (kind === "circle" || kind === "ellipse") {
             var cy = number(tag, "cy", 0);
             var radius = number(tag, kind === "circle" ? "r" : "ry", NaN);
             include(cy - radius, cy + radius, pad);
+            includeLeft(number(tag, "cx", 0) - (kind === "circle" ? radius : number(tag, "rx", NaN)), pad);
         } else if (kind === "polygon" || kind === "polyline") {
             var points = tag.match(/\spoints="([^"]*)"/);
             var numbers = points ? points[1].trim().split(/[\s,]+/).map(Number) : [];
             if (numbers.length < 2 || numbers.length % 2 !== 0)
                 valid = false;
-            for (var i = 1; i < numbers.length; i += 2)
+            for (var i = 1; i < numbers.length; i += 2) {
                 include(numbers[i], numbers[i], pad);
+                includeLeft(numbers[i - 1], pad);
+            }
         } else {
             var font = number(tag, "font-size", NaN);
             var baseline = number(tag, "y", NaN);
@@ -400,12 +419,23 @@ function tightenVertical(svg) {
         }
         return tag;
     });
+    // Sample input: <text x="70" font-size="13" text-anchor="middle">Alice</text> reaches 70 less half its advance.
+    body.replace(/<text\b([^<>]*)>([^<]*)<\/text>/g, function (all, attrs, content) {
+        var anchor = attrs.match(/\stext-anchor="([^"]*)"/);
+        var share = !anchor || anchor[1] === "start" ? 0 : anchor[1] === "middle" ? MIDDLE_SHARE : anchor[1] === "end" ? 1 : NaN;
+        includeLeft(number(attrs, "x", NaN), share * content.length * number(attrs, "font-size", NaN) * TEXT_ADVANCE_EM);
+        return all;
+    });
     if (!valid || !Number.isFinite(top) || !(bottom > top))
         return svg;
     var y = Math.floor((top - CANVAS_MARGIN) * BOUNDS_PRECISION) / BOUNDS_PRECISION;
     var height = Math.ceil((bottom + CANVAS_MARGIN - y) * BOUNDS_PRECISION) / BOUNDS_PRECISION;
     var head = root[0].replace(/height="[^"]*"/, 'height="' + height + '"');
-    head = head.replace(/viewBox="[^"]*"/, 'viewBox="' + box[0] + ' ' + y + ' ' + box[2] + ' ' + height + '"');
+    // Only ever shrink: a primitive painted left of the library's canvas keeps the canvas it had.
+    var x = Math.max(box[0], Math.floor((left - LEFT_MARGIN) * BOUNDS_PRECISION) / BOUNDS_PRECISION);
+    var width = box[2] - (x - box[0]);
+    head = head.replace(/\swidth="[\d.]+"/, ' width="' + width + '"');
+    head = head.replace(/viewBox="[^"]*"/, 'viewBox="' + x + ' ' + y + ' ' + width + ' ' + height + '"');
     return svg.replace(root[0], head);
 }
 
@@ -473,7 +503,7 @@ export function postMermaid(svg, t) {
     out = out.replace(/<svg([^<>]*?)\sstyle="[^"]*"/, "<svg$1");
     // A click directive unwraps to its content; the link never ships.
     out = out.replace(/<a\s[^<>]*>/g, "").replace(/<\/a>/g, "");
-    out = scaleCanvas(tightenVertical(forceText(out, t.font || "sans-serif", t.fg)), t.bodyPx || MERMAID_FALLBACK_BODY_PX);
+    out = scaleCanvas(tightenCanvas(forceText(out, t.font || "sans-serif", t.fg)), t.bodyPx || MERMAID_FALLBACK_BODY_PX);
     out = markerPaths(out);
     var bad = checkSafe(out);
     if (bad)

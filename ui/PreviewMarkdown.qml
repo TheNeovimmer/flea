@@ -45,10 +45,18 @@ Item {
     readonly property int blockGap: Theme.spacing.rowPaddingY
     readonly property int fencePadX: Theme.spacing.rowPaddingX
     readonly property int fencePadY: Theme.spacing.gap
+    // The preview column sets the document one token under Quick Look's body (RenderedPreviews 13 against 14).
+    property bool compact: false
+    readonly property int bodyPx: root.compact ? Theme.font.bodySmall : Theme.font.body
+    // The faint rule wash the Quick Look bar's bottom hairline draws, shared by the table's header and row rules.
+    readonly property real ruleOpacity: 0.12
+    // RenderedPreviews' remote box is a 1 px CSS dashed border: 3 px dashes with 3 px gaps.
+    readonly property int dashPx: 3
+    readonly property int dashPitch: 2 * root.dashPx
     // Headings are 20 and 15 px over the 14 px body, kept as ratios so every text size scales them; deeper levels are body bold.
     readonly property var headingRatio: [20 / 14, 15 / 14]
     function headingPx(level) {
-        return Math.round(Theme.font.body * (level >= 1 && level <= root.headingRatio.length ? root.headingRatio[level - 1] : 1))
+        return Math.round(root.bodyPx * (level >= 1 && level <= root.headingRatio.length ? root.headingRatio[level - 1] : 1))
     }
     // Only the active file in Rendered view may request figures.
     readonly property bool figuresArmed: root.active && root.view !== Markdown.SOURCE
@@ -382,7 +390,7 @@ Item {
             wrapMode: Text.Wrap
             color: Theme.color.foreground
             font.family: Theme.font.family
-            font.pixelSize: Theme.font.body
+            font.pixelSize: root.bodyPx
         }
     }
 
@@ -446,8 +454,10 @@ Item {
                         visible: block.type === "run" || block.type === "heading"
                         width: parent.width
                         text: block.type === "run" || block.type === "heading" ? block.text : ""
-                        font.pixelSize: block.type === "heading" ? root.headingPx(block.level) : Theme.font.body
+                        font.pixelSize: block.type === "heading" ? root.headingPx(block.level) : root.bodyPx
                         font.bold: block.type === "heading"
+                        // h1 and h2 take the bright foreground; deeper levels and body stay the foreground.
+                        color: block.type === "heading" && block.level <= root.headingRatio.length ? Theme.color.foregroundBright : Theme.color.foreground
                     }
 
                     // Tables hug their cells with Grid, Column and Row, never QtQuick.Layouts, so the preview never loads it.
@@ -468,6 +478,7 @@ Item {
                                 delegate: Flea.MarkdownText {
                                     linkGate: Markdown.isExternalLink
                                     width: tableGrid.colWidth(index)
+                                    bodyPx: root.bodyPx
                                     cellPad: 2
                                     text: block.head[index]
                                     horizontalAlignment: tableGrid.alignAt(index)
@@ -480,7 +491,8 @@ Item {
                             visible: block.type === "table" && block.head.length > 0
                             width: tableGrid.tableWidth()
                             height: Theme.spacing.hairline
-                            color: Theme.color.muted
+                            color: Theme.color.foreground
+                            opacity: root.ruleOpacity
                         }
 
                         Repeater {
@@ -498,6 +510,7 @@ Item {
                                         delegate: Flea.MarkdownText {
                                             linkGate: Markdown.isExternalLink
                                             width: tableGrid.colWidth(index)
+                                            bodyPx: root.bodyPx
                                             cellPad: 2
                                             text: tableGrid.cellAt(row, index)
                                             horizontalAlignment: tableGrid.alignAt(index)
@@ -508,7 +521,8 @@ Item {
                                 Rectangle {
                                     width: tableGrid.tableWidth()
                                     height: Theme.spacing.hairline
-                                    color: Theme.color.muted
+                                    color: Theme.color.foreground
+                                    opacity: root.ruleOpacity
                                 }
                             }
                         }
@@ -556,7 +570,7 @@ Item {
                             text: block.type === "table" && index < block.measure.length ? block.measure[index] : ""
                             textFormat: Text.MarkdownText
                             font.family: Theme.font.family
-                            font.pixelSize: Theme.font.body
+                            font.pixelSize: root.bodyPx
                         }
                     }
 
@@ -581,7 +595,7 @@ Item {
                             wrapMode: Text.Wrap
                             color: Theme.color.foreground
                             font.family: Theme.font.family
-                            font.pixelSize: Theme.font.body
+                            font.pixelSize: root.bodyPx
                         }
                     }
 
@@ -611,7 +625,7 @@ Item {
                             surfaceHex: root.surfaceHex
                             fallbackColor: root.codeSurface
                             fontFamily: Theme.font.family
-                            bodyPx: Theme.font.body
+                            bodyPx: root.bodyPx
                         }
                     }
 
@@ -631,6 +645,7 @@ Item {
                             id: quoteText
                             linkGate: Markdown.isExternalLink
                             width: parent.width - 2 - parent.spacing
+                            bodyPx: root.bodyPx
                             text: block.type === "quote" ? block.text : ""
                         }
                     }
@@ -649,7 +664,7 @@ Item {
                             text: block.type !== "list" ? "" : block.ordered
                                 ? (block.last !== undefined ? block.last : block.start + block.items.length - 1) + "." : "•"
                             font.family: Theme.font.family
-                            font.pixelSize: Theme.font.body
+                            font.pixelSize: root.bodyPx
                         }
 
                         Repeater {
@@ -661,6 +676,7 @@ Item {
                                 Flea.MarkdownText {
                                     id: marker
                                     width: listMarkerMetrics.advanceWidth
+                                    bodyPx: root.bodyPx
                                     text: block.ordered ? (block.start + index) + "." : "•"
                                     // The marker shares the item's line box and first-line leading.
                                     textFormat: Text.RichText
@@ -671,6 +687,7 @@ Item {
                                 Flea.MarkdownText {
                                     linkGate: Markdown.isExternalLink
                                     width: parent.width - marker.width - parent.spacing
+                                    bodyPx: root.bodyPx
                                     text: block.items[index]
                                 }
                             }
@@ -688,10 +705,10 @@ Item {
                             anchors.top: parent.top
                             anchors.left: parent.left
                             anchors.right: parent.right
-                            spacing: 6
+                            spacing: root.dashPx
                             Repeater {
-                                model: Math.max(1, Math.floor((remoteBox.width + 6) / 14))
-                                delegate: Rectangle { width: 8; height: Theme.spacing.hairline; color: Theme.color.muted }
+                                model: Math.max(1, Math.floor((remoteBox.width + root.dashPx) / root.dashPitch))
+                                delegate: Rectangle { width: root.dashPx; height: Theme.spacing.hairline; color: Theme.color.muted }
                             }
                         }
 
@@ -699,10 +716,10 @@ Item {
                             anchors.bottom: parent.bottom
                             anchors.left: parent.left
                             anchors.right: parent.right
-                            spacing: 6
+                            spacing: root.dashPx
                             Repeater {
-                                model: Math.max(1, Math.floor((remoteBox.width + 6) / 14))
-                                delegate: Rectangle { width: 8; height: Theme.spacing.hairline; color: Theme.color.muted }
+                                model: Math.max(1, Math.floor((remoteBox.width + root.dashPx) / root.dashPitch))
+                                delegate: Rectangle { width: root.dashPx; height: Theme.spacing.hairline; color: Theme.color.muted }
                             }
                         }
 
@@ -710,10 +727,10 @@ Item {
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
                             anchors.left: parent.left
-                            spacing: 6
+                            spacing: root.dashPx
                             Repeater {
-                                model: Math.max(1, Math.floor((remoteBox.height + 6) / 14))
-                                delegate: Rectangle { width: Theme.spacing.hairline; height: 8; color: Theme.color.muted }
+                                model: Math.max(1, Math.floor((remoteBox.height + root.dashPx) / root.dashPitch))
+                                delegate: Rectangle { width: Theme.spacing.hairline; height: root.dashPx; color: Theme.color.muted }
                             }
                         }
 
@@ -721,10 +738,10 @@ Item {
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
                             anchors.right: parent.right
-                            spacing: 6
+                            spacing: root.dashPx
                             Repeater {
-                                model: Math.max(1, Math.floor((remoteBox.height + 6) / 14))
-                                delegate: Rectangle { width: Theme.spacing.hairline; height: 8; color: Theme.color.muted }
+                                model: Math.max(1, Math.floor((remoteBox.height + root.dashPx) / root.dashPitch))
+                                delegate: Rectangle { width: Theme.spacing.hairline; height: root.dashPx; color: Theme.color.muted }
                             }
                         }
 
@@ -765,6 +782,8 @@ Item {
                         visible: block.type === "image"
                         width: parent.width
                         fillMode: Image.PreserveAspectFit
+                        // A picture narrower than the content sits on the text's left edge, as the board's stand-in does.
+                        horizontalAlignment: Image.AlignLeft
                         asynchronous: true
                         autoTransform: true
                         source: block.type === "image" ? block.url : ""

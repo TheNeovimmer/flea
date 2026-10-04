@@ -26,6 +26,10 @@ printf 'Alpha text.\n' > "$test_root/fixture/pc-a.md"
 printf 'Beta text.\n' > "$test_root/fixture/pc-b.md"
 printf 'Beta text.\n' > "$test_root/fixture/pc-c.md"
 printf '![local](wide.png)\n' > "$test_root/fixture/local-image.md"
+# A picture narrower than the content, under a paragraph, so its left edge is read against the text's.
+printf '%s\n' 'Text above the picture.' '' '![bench](./bench.png)' > "$test_root/fixture/local-image-narrow.md"
+# One of each block whose size the column scales: heading, paragraph, list, table and fence.
+printf '%s\n' '# Column heading' '' '## Second heading' '' 'Body text with `code`.' '' '- item' '' '| A |' '| --- |' '| 1 |' '' '```' 'fence' '```' > "$test_root/fixture/column-scale.md"
 # Offscreen Qt has no platform URL service. Interpose only that native dispatch, with a positive control.
 cc -shared -fPIC tests/markdown-link-spy.c -o "$test_root/link-spy.so" || exit 1
 python3 - "$test_root/fixture" <<'PY'
@@ -51,6 +55,10 @@ for name in ('disk-scroll','disk-fail','disk-partial','disk-shrink','disk-switch
 (root/'disk-worker.md').write_text('\n\n'.join(f'scroll paragraph {i}.' for i in range(3200))+'\n')
 (root/'pc-fb.md').write_text('\n'.join(f'- fallback item {i} with enough plain text to force the worker parse path.' for i in range(1500))+'\n')
 (root/'wide.png').write_bytes(png)
+# The board's own 160 by 80 stand-in beside the document.
+bench=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',160,80,8,2,0,0,0))
+bench+=chunk(b'IDAT',zlib.compress((b'\0'+b'\x40\x80\xc0'*160)*80))+chunk(b'IEND',b'')
+(root/'bench.png').write_bytes(bench)
 for name in ('alpha','beta'):
  (root/('pc-big-'+name[0]+'.md')).write_text('\n'.join(f'- {name} item {i} with enough plain text to force the worker parse path.' for i in range(1500))+'\n')
 PY
@@ -64,11 +72,12 @@ printf '%s\n' 'WorkerScript.onMessage = function (msg) {};' > "$fallback_ui/Mark
 sed -i 's/^function blocks(source, dir, chrome, ink) {$/&\n    if (String(source).indexOf("FLEA-SCRATCH-THROW") >= 0) throw new Error("scratch parse failure")/' "$fallback_ui/js/Markdown.js"
 grep -q 'FLEA-SCRATCH-THROW' "$fallback_ui/js/Markdown.js" || { echo 'FAIL scratch ui: parser not patched'; exit 1; }
 failures=0
-scenarios=(control tasks reference table scroll source-key size-key theme links disk disk-rename disk-scroll disk-stale local-image long-list long-table disk-fail disk-partial disk-shrink disk-switch disk-worker disk-stream disk-regrow disk-uneven parse-quick parse-column parse-worker parse-fallback)
+scenarios=(control tasks reference table scroll source-key size-key theme links disk disk-rename disk-scroll disk-stale local-image long-list long-table disk-fail disk-partial disk-shrink disk-switch disk-worker disk-stream disk-regrow disk-uneven local-image-narrow column-scale parse-quick parse-column parse-worker parse-fallback)
 for scenario in "${scenarios[@]}"; do
     link_preload=""
     case "$scenario" in
         theme|links|disk|disk-rename|disk-scroll|disk-stale|local-image|long-list|long-table) cp tests/markdown-hunt.qml "$test_root/config/shell.qml" ;;
+        local-image-narrow|column-scale) cp tests/markdown-fit.qml "$test_root/config/shell.qml" ;;
         disk-fail|disk-partial|disk-shrink|disk-switch|disk-worker) cp tests/markdown-disk.qml "$test_root/config/shell.qml" ;;
         disk-stream|disk-regrow|disk-uneven) cp tests/markdown-disk-reader.qml "$test_root/config/shell.qml" ;;
         parse-*) cp tests/markdown-parse-count.qml "$test_root/config/shell.qml" ;;

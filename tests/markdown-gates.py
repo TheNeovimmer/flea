@@ -83,6 +83,10 @@ settle() { :; }
 shot() { printf 'SHOT %s\\n' "$1"; }
 switch_view() { :; }
 kill_flea() { :; }
+window_box() { echo '0 0 800 600'; }
+omarchy-drive() { :; }
+ydotool() { :; }
+XDG_RUNTIME_DIR=$MD_GATE_FIXTURE
 seq() { echo 1; }
 sleep() { :; }
 fail() {
@@ -100,6 +104,8 @@ ipc() {
         previewOpen) echo "$opened" ;;
         previewFigures) echo '1=ready,2=ready,3=ready,4=ready,5=failed' ;;
         columnMarkdownView) echo "$MD_GATE_COLUMN_VIEW" ;;
+        previewSurfaceRect) echo '40 40 700 500' ;;
+        chromeHeight) echo 20 ;;
     esac
 }
 . "$MD_GATE_CAPTURE"

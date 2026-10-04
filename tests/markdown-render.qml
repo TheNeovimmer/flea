@@ -223,8 +223,11 @@ ShellRoot {
         }
         shell.check(Checks.insetError(rects, md.width, md.insetX, md.insetY, body), "document inset")
         shell.check(Checks.rhythmError(rects, Flea.Theme.spacing.rowPaddingY), "block rhythm")
-        shell.check(Checks.headingError(h1, h2, para, body, ink), "heading sizes and ink")
+        shell.check(Checks.headingError(h1, h2, para, body, ink, String(Flea.Theme.color.foregroundBright)), "heading sizes and ink")
         shell.check(Checks.lineBoxError(texts), "line boxes")
+        var ruleTable = md.blockItem(shell.blockIndex("table"))
+        shell.check(Checks.ruleError(ruleTable, pane.barGeometry ? pane.barGeometry().bar : null, Flea.Theme.spacing.hairline),
+            "table rules take the bar's hairline")
         shell.check(Checks.quoteBoxError(md.blockItem(shell.blockIndex("quote")), md), "quote bar spans line box")
         var tableIndex = shell.blockIndex("table")
         var table = md.blockList[tableIndex]
@@ -379,6 +382,11 @@ ShellRoot {
         // off the component beside the border rather than off a hardcoded token.
         var fg = parse(String(md.inkHex).toLowerCase())
         var ground = parse(String(window.color).toLowerCase())
+        // The table's rules are the foreground at the bar's wash, and the grab composites over black, so the pixel is that share of the ink, within the renderer's rounding.
+        var ruleWash = 0.12
+        var rule = [0, 1, 2].map(function (k) { return Math.round(fg[k] * ruleWash) })
+        var ruleSlack = 2
+        function isRule(c) { return Math.abs(c[0] - rule[0]) <= ruleSlack && Math.abs(c[1] - rule[1]) <= ruleSlack && Math.abs(c[2] - rule[2]) <= ruleSlack }
         function inkAt(x, y) {
             if (x < 0 || x >= w || y < 0 || y >= h)
                 return false
@@ -464,7 +472,7 @@ ShellRoot {
         for (var ry = table.y; ry < table.y + table.h; ry++) {
             var span = 0
             for (var rx = table.x; rx < table.x + table.w; rx++)
-                if (same(at(rx, ry), border))
+                if (isRule(at(rx, ry)))
                     span++
             if (span >= 100)
                 rules++
@@ -473,7 +481,7 @@ ShellRoot {
         for (var cx = table.x; cx < table.x + table.w; cx++) {
             var drop = 0
             for (var cy = table.y; cy < table.y + table.h; cy++)
-                if (same(at(cx, cy), border))
+                if (isRule(at(cx, cy)))
                     drop++
             if (drop >= table.h * 0.75)
                 verticals++
@@ -492,7 +500,7 @@ ShellRoot {
             var qfirst = -1
             var qlast = -1
             for (var qx = table.x; qx < table.x + table.w; qx++)
-                if (same(at(qx, qy), border)) {
+                if (isRule(at(qx, qy))) {
                     if (qfirst < 0)
                         qfirst = qx
                     qlast = qx
@@ -607,6 +615,38 @@ ShellRoot {
         var left = dashSpan(false, box.x, box.y, box.y + box.h)
         var right = dashSpan(false, box.x + box.w - 1, box.y, box.y + box.h)
         shell.log("remote top=" + top + " bottom=" + bottom + " left=" + left + " right=" + right)
+        // The runs of one dashed edge over a window short of the opposite corner, first dash on, the window's cut last run dropped.
+        var dashWindow = 60
+        function dashRuns(horizontal, fixed, from, to) {
+            var runs = []
+            var on = null
+            var len = 0
+            for (var i = from; i < to; i++) {
+                var hit = same(horizontal ? at(i, fixed) : at(fixed, i), border)
+                if (on === null && !hit)
+                    continue
+                if (on === null || hit !== on) {
+                    if (on !== null)
+                        runs.push(len)
+                    on = hit
+                    len = 0
+                }
+                len++
+            }
+            return runs
+        }
+        var topRuns = dashRuns(true, box.y, box.x, box.x + Math.min(dashWindow, Math.floor(box.w / 2)))
+        var leftRuns = dashRuns(false, box.x, box.y, box.y + Math.floor(box.h / 2))
+        shell.log("remote dash runs top=" + topRuns.join(",") + " left=" + leftRuns.join(","))
+        var dashFail = Checks.dashError(topRuns, "the top edge") || Checks.dashError(leftRuns, "the left edge")
+        if (dashFail !== "")
+            return shell.fail(dashFail)
+        var deep = 0
+        for (var tx = box.x + 4; tx < box.x + box.w - 4; tx++)
+            if (same(at(tx, box.y + 1), border))
+                deep++
+        if (deep > 0)
+            return shell.fail("the remote box's dashed edge is thicker than one pixel")
         if (top[0] - box.x > 8 || box.x + box.w - 1 - top[1] > 20
                 || bottom[0] - box.x > 8 || box.x + box.w - 1 - bottom[1] > 20
                 || left[0] - box.y > 8 || box.y + box.h - 1 - left[1] > 20

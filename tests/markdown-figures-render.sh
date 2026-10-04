@@ -160,6 +160,40 @@ if ! printf '%s\n' "$mathgap_output" | grep -qE "(^|: )MARKDOWN_MATHGAP $expecte
     exit 1
 fi
 
+# Every figure starts flush on the content column: a flowchart and a sequence diagram, whose own canvas padding the helper trims.
+cat > "$test_root/figflush.md" <<'EOF'
+# Flush figures
+
+```mermaid
+flowchart TD
+    A --> B
+```
+
+```mermaid
+sequenceDiagram
+    A->>B: hi
+```
+EOF
+cp tests/markdown-figflush.qml "$test_root/config/shell.qml" || exit 1
+figflush_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIGURE_FIXTURE="$test_root/figflush.md" \
+    FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 25 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+printf '%s\n' "$figflush_output" | grep -oE 'MARKDOWN_FIGFLUSH .*'
+warnings=$(printf '%s\n' "$figflush_output" | grep -aE 'TypeError|ReferenceError|WARN|invalid nullptr parameter' | grep -vF "$platform_warning")
+[ -z "$warnings" ] || { printf 'FAIL figure flush harness warning: %s\n' "$warnings"; exit 1; }
+expected_figflush_checks=3 # One grab, then one first-painted-column check for each of the two figures.
+# Sample input: MARKDOWN_FIGFLUSH 3 checks, 0 failed
+if ! printf '%s\n' "$figflush_output" | grep -qE "(^|: )MARKDOWN_FIGFLUSH $expected_figflush_checks checks, 0 failed$"; then
+    printf 'FAIL markdown-figures-render: figflush expected %s checks, 0 failed; arrived [%s]\n' "$expected_figflush_checks" "${figflush_output:-<empty>}" >&2
+    exit 1
+fi
+if [ -n "${FLEA_CI_SUITE_LOGS:-}" ] && [ -f "$test_root/runtime/markdown-figflush.png" ]; then
+    cp "$test_root/runtime/markdown-figflush.png" "$FLEA_CI_SUITE_LOGS/markdown-figflush.png" || exit 1
+fi
+
 # The parsed positions read stdout alone; stderr goes to a file and prints on failure.
 paths_output=$("$qjs" tests/markdown-figures-render-paths.mjs 2>"$test_root/paths-stderr.log")
 paths_status=$?

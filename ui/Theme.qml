@@ -47,6 +47,8 @@ Singleton {
     readonly property QtObject color: QtObject {
         readonly property color background: Color.background
         readonly property color foreground: Color.foreground
+        // The heading ink: a brighter step of the foreground, applyColors derives it from the palette.
+        property color foregroundBright: Color.foreground
         property color muted: Qt.darker(Color.foreground, 1.4)
         readonly property color accent: Color.accent
         property color error: Color.urgent
@@ -318,6 +320,9 @@ Singleton {
         // caption needs, rose-pine's at 1.48, so it is lifted the way the two ladder colours below are.
         root.color.muted = Contrast.ensureRatio(
             Palette.pick(found, ["muted"], Qt.darker(Color.foreground, 1.4)), bg, 3);
+        // Headings take the palette's bright foreground (the ANSI ring's color15 without one) when it has more contrast than the foreground.
+        var bright = Palette.pick(found, ["bright_foreground", "color15"], String(Color.foreground));
+        root.color.foregroundBright = Contrast.ratio(bright, bg) > Contrast.ratio(String(Color.foreground), bg) ? bright : Color.foreground;
         root.color.accentFrame = Contrast.ensureRatio(Color.accent, surface, 3);
         root.color.symlink = Contrast.ensureRatio(
             Palette.pick(found, ["cyan", "color6"], root.fallbackColor.symlink), bg, 4.5);

@@ -198,8 +198,8 @@ function rhythmError(rects, gap) {
     return "";
 }
 
-// h1 and h2 are bold foreground at the board's sizes, and body text stays body.
-function headingError(h1, h2, para, body, foreground) {
+// h1 and h2 are bold in the bright foreground at the board's sizes; body text and its links stay the foreground.
+function headingError(h1, h2, para, body, foreground, bright) {
     if (!h1 || !h2 || !para)
         return "the document drew no h1 (" + !!h1 + "), h2 (" + !!h2 + ") or paragraph (" + !!para + ")";
     var want1 = Math.round(body * BOARD_H1 / BOARD_BODY);
@@ -209,8 +209,47 @@ function headingError(h1, h2, para, body, foreground) {
             + ", want " + want1 + " " + want2 + " " + body;
     if (!h1.font.bold || !h2.font.bold || para.font.bold)
         return "bold h1 " + h1.font.bold + " h2 " + h2.font.bold + " body " + para.font.bold + ", want true true false";
-    if (String(h1.color) !== foreground || String(h2.color) !== foreground)
-        return "heading ink " + h1.color + " " + h2.color + ", want " + foreground;
+    if (String(h1.color) !== bright || String(h2.color) !== bright)
+        return "heading ink " + h1.color + " " + h2.color + ", want the bright foreground " + bright;
+    if (String(para.color) !== foreground || String(para.linkColor) !== foreground)
+        return "body ink " + para.color + " and link ink " + para.linkColor + ", want the foreground " + foreground;
+    return "";
+}
+
+// Every hairline rectangle under an item: the table's header and row rules (shown ones only, its delegate also holds the hidden dashes), or the bar's one bottom rule (its pane is hidden in the harness).
+function rulesOf(item, hairline, out, shown) {
+    for (var i = 0; i < item.children.length; i++) {
+        var kid = item.children[i];
+        if ((kid.visible || !shown) && kid.color !== undefined && kid.box === undefined && kid.height === hairline && kid.width > 0)
+            out.push(kid);
+        rulesOf(kid, hairline, out, shown);
+    }
+    return out;
+}
+
+// RenderedPreviews draws the table's rules in the same #262b40 as the bar's bottom hairline: one foreground wash.
+function ruleError(table, bar, hairline) {
+    if (!table || !bar)
+        return "no table block or bar arrived for the rule comparison";
+    var barRules = rulesOf(bar, hairline, [], false);
+    var tableRules = rulesOf(table, hairline, [], true);
+    if (barRules.length !== 1 || tableRules.length < 2)
+        return "read " + barRules.length + " bar rules and " + tableRules.length + " table rules";
+    for (var i = 0; i < tableRules.length; i++)
+        if (String(tableRules[i].color) !== String(barRules[0].color) || tableRules[i].opacity !== barRules[0].opacity)
+            return "table rule " + i + " is " + tableRules[i].color + " at " + tableRules[i].opacity
+                + ", the bar's is " + barRules[0].color + " at " + barRules[0].opacity;
+    return "";
+}
+
+// A 1 px dashed edge draws 3 px dashes with 3 px gaps; every run read off one edge, first to last border pixel, must be the dash or the gap.
+var DASH_PX = 3;
+function dashError(runs, edge) {
+    if (runs.length < 3)
+        return edge + " drew " + runs.length + " runs, want a dashed edge";
+    for (var i = 0; i < runs.length; i++)
+        if (runs[i] !== DASH_PX)
+            return edge + " run " + i + " is " + runs[i] + " px, want " + DASH_PX + " (runs " + runs.join(",") + ")";
     return "";
 }
 

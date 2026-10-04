@@ -44,6 +44,8 @@ function roles(body) {
              // ui/Theme.qml's own rule, key for key: the palette's muted or a darkened foreground, lifted
              // to the caption floor on the ground it sits on.
              muted: Contrast.ensureRatio(Palette.pick(found, ["muted"], darker(foreground)), background, CAPTION_MIN),
+             // ui/Theme.qml: the heading ink is the palette's bright_foreground (color15 without one) when it has more contrast on the ground than the foreground.
+             foregroundBright: brighter(foreground, Palette.pick(found, ["bright_foreground", "color15"], foreground), background),
              surface: surface,
              accentFrame: Contrast.ensureRatio(accent, surface, MARK_MIN),
              // ui/Theme.qml: a red with no chroma of its own reads as switched off, so it is dropped
@@ -62,6 +64,10 @@ function darker(hex) {
         return hex
     var scale = (hi / 1.4) / hi
     return Contrast.hexOf([c[0] * scale, c[1] * scale, c[2] * scale])
+}
+
+function brighter(foreground, candidate, background) {
+    return Contrast.ratio(candidate, background) > Contrast.ratio(foreground, background) ? candidate : foreground
 }
 
 function saturation(hex) {
@@ -98,6 +104,21 @@ function mirrorFallbacks(check) {
           eight.muted, none.muted)
 }
 
+// The heading ink: no bright key keeps the foreground, a dimmer one keeps it too, a brighter one wins; color15 stands in for an ANSI-ring palette.
+function brightSamples(check) {
+    var applied = Source.source("ui/Theme.qml")
+    check("Theme.qml derives the heading ink as color.foregroundBright from bright_foreground",
+          applied.indexOf("foregroundBright") >= 0 && applied.indexOf('["bright_foreground", "color15"]') >= 0, true)
+    var dark = "background = \"#1a1b26\"\nforeground = \"#a9b1d6\"\n"
+    check("a palette with no bright key keeps the foreground", roles(dark).foregroundBright, "#a9b1d6")
+    check("a bright_foreground with less contrast keeps the foreground", roles(dark + "bright_foreground = \"#445066\"\n").foregroundBright, "#a9b1d6")
+    check("Tokyo Night's bright_foreground beats its foreground, the board's #c0caf5", roles(dark + "bright_foreground = \"#c0caf5\"\n").foregroundBright, "#c0caf5")
+    check("an ANSI-ring palette's color15 stands in when it sets no bright_foreground", roles(dark + "color15 = \"#c0caf5\"\n").foregroundBright, "#c0caf5")
+    check("bright_foreground wins over color15 when both are set", roles(dark + "color15 = \"#ffffff\"\nbright_foreground = \"#c0caf5\"\n").foregroundBright, "#c0caf5")
+    var light = "background = \"#eff1f5\"\nforeground = \"#4c4f69\"\n"
+    check("on a light ground a lighter bright_foreground loses to the foreground", roles(light + "bright_foreground = \"#bcc0cc\"\n").foregroundBright, "#4c4f69")
+}
+
 // The status bar draws error ink on the surface, where the background lift lands under 4.5.
 var ERROR_ON_SURFACE_SAMPLES = [
     "background = \"#eff1f5\"\ndark_background = \"#e6e9ef\"\nforeground = \"#4c4f69\"\nred = \"#d20f39\"\n",
@@ -122,6 +143,7 @@ function errorOnSurfaceSamples(check) {
 
 function run(check) {
     mirrorFallbacks(check)
+    brightSamples(check)
     errorOnSurfaceSamples(check)
     // A truncated table would iterate few times and report every check it did run as green, so the
     // table's own size is checked first; tests/themes.sh compares it with the directory itself.
@@ -141,6 +163,13 @@ function run(check) {
         atLeast(check, name, "foreground on background", Contrast.ratio(r.foreground, r.background), TEXT_MIN)
         atLeast(check, name, "foreground on surface", Contrast.ratio(r.foreground, r.surface), TEXT_MIN)
         atLeast(check, name, "muted caption on background", Contrast.ratio(r.muted, r.background), CAPTION_MIN)
+
+        // The heading ink never reads weaker than the body ink it sits over.
+        atLeast(check, name, "heading ink against the foreground",
+                Contrast.ratio(r.foregroundBright, r.background), Contrast.ratio(r.foreground, r.background))
+
+        if (name === "tokyo-night")
+            check(name + ": the heading ink is the board's #c0caf5 over the body's " + r.foreground, r.foregroundBright, "#c0caf5")
 
         // Disabled is muted at 0.55 on the ground: still legible, and visibly weaker than muted.
         var disabled = washed(r.muted, DISABLED, r.background)
