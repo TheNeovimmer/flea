@@ -30,8 +30,7 @@ ShellRoot {
     readonly property var allStops: TextSize.STOPS
     readonly property var densities: ["tight", "compact", "normal", "comfortable"]
     readonly property string errorSample: "A file by that name exists"
-    // Each host is a view the editor opens in and the fixture name it renames; the rail has no name, it renames a place.
-    // A host with onlyStop runs at that text stop alone: the last row's error needs no sweep of the ladder.
+    // Each host is a view the editor opens in and the name it renames (the rail renames a place); onlyStop runs a host at that stop alone.
     readonly property var hosts: [
         { name: "list", view: "list", target: "a.txt" },
         { name: "dual", view: "dual", target: "a.txt" },

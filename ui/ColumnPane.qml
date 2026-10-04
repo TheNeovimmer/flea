@@ -204,8 +204,8 @@ Item {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         onContentYChanged: if (root.pane !== null) { coalesce.start(); settle.restart() }
-        // The renaming row's growth lands in contentHeight after layout; the row, error line included, is contained then.
-        onContentHeightChanged: if (root.renameErrorHeight > 0) view.positionViewAtIndex(root.renameViewIndex, ListView.Contain)
+        // The error line's growth lands in contentHeight after layout, so the row is contained once then, never on a later scroll's estimate.
+        onContentHeightChanged: if (root.containRenameError) { root.containRenameError = false; view.positionViewAtIndex(root.renameViewIndex, ListView.Contain) }
         reuseItems: true
 
         // G7 needs an empty press target below the final row even when a long column fills the viewport.
@@ -353,6 +353,9 @@ Item {
     // The editor owns its height, one line box; the column centres it in the row on whole pixels.
     readonly property real renameY: root.renameTop + Math.round((Theme.fileRowHeight - (renameLoader.item ? renameLoader.item.fieldHeight : 0)) / 2)
     readonly property real renameErrorHeight: renameLoader.item ? renameLoader.item.errorHeight : 0
+    // Set when an error line appears or changes height, and spent by the view's next contentHeight change.
+    property bool containRenameError: false
+    onRenameErrorHeightChanged: root.containRenameError = root.renameErrorHeight > 0
 
     // Opaque, and painted in the row's own roles: the row underneath goes on drawing its name, and
     // without this the two texts overprinted each other. The renaming row is always the cursor row.

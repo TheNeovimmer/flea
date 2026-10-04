@@ -208,7 +208,9 @@ cap_seek_named() {
     local want="$1" n
     [[ "$(ipc viewMode)" == grid ]] || { seek_row_named "$want"; return; }
     n=$(ipc total)
+    [[ "$n" =~ ^[0-9]+$ ]] || fail "cap_rename: the grid reported no row total, got [$n]"
     key g >/dev/null
+    settle
     for _ in $(seq 0 "$n"); do
         [[ "$(ipc renameState | jq -r .cursorName)" == "$want" ]] && return 0
         key l >/dev/null
