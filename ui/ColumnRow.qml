@@ -92,11 +92,18 @@ Item {
         }
     }
 
+    // The row's first line: its content centres here, so an error line that grows the row never moves the name.
+    Item {
+        id: line
+        width: parent.width
+        height: Theme.fileRowHeight
+    }
+
     Item {
         id: markSlot
         anchors.left: parent.left
         anchors.leftMargin: Theme.spacing.rowPaddingX
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenter: line.verticalCenter
         width: Theme.iconSize
         height: Theme.iconSize
 
@@ -131,7 +138,7 @@ Item {
         anchors.leftMargin: Theme.spacing.gap
         anchors.right: sizeCell.left
         anchors.rightMargin: (root.showSize ? Theme.spacing.gap : 0) + (root.clipMark.length > 0 ? Theme.spacing.gap + root.clipPx : 0)
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenter: line.verticalCenter
         text: root.row && root.nameBudget >= 0 ? Format.middleElide(root.row.n, Math.max(0, root.nameBudget - (root.clipMark.length > 0 ? Math.ceil((Theme.spacing.gap + root.clipPx) / Theme.bodyAdvance) : 0))) : (root.row ? root.row.n : "")
         color: root.ink
         font.family: Theme.font.family
@@ -145,7 +152,7 @@ Item {
         id: sizeCell
         anchors.right: parent.right
         anchors.rightMargin: Theme.spacing.rowPaddingX + chevronSlot.width + (root.showSize ? Theme.spacing.gap : 0)
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenter: line.verticalCenter
         visible: root.showSize && !root.dropTarget
         width: visible ? Theme.column.size : 0
         text: root.showSize && root.row ? root.sizeText() : ""
@@ -161,7 +168,7 @@ Item {
     Loader {
         id: dropClipLoader
         active: root.dropTarget || root.clipMark.length > 0
-        anchors.fill: parent
+        anchors.fill: line
         sourceComponent: Item {
             property alias label: dropLabel
             property alias mark: clipMarkGlyph
@@ -206,7 +213,7 @@ Item {
         id: chevronSlot
         anchors.right: parent.right
         anchors.rightMargin: Theme.spacing.rowPaddingX
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenter: line.verticalCenter
         width: root.dropTarget && dropClipLoader.item && dropClipLoader.item.label ? dropClipLoader.item.label.implicitWidth : root.showChevron ? Theme.font.caption : 0
         height: root.dropTarget && dropClipLoader.item && dropClipLoader.item.label ? dropClipLoader.item.label.implicitHeight : Theme.font.caption
 
