@@ -35,7 +35,10 @@ Item {
     visible: !root.renaming || !renameLoader.item
         || renameLoader.item.editIndex < 0 || !renameLoader.item.viewport
         || renameLoader.item.viewport.renameEditor === renameLoader.item
-    readonly property real editorExtraHeight: root.renaming && renameLoader.item ? Math.max(0, renameLoader.item.implicitHeight - Math.max(Theme.grid.captionHeight, Math.ceil(nameLabel.contentHeight)) - Density.gridPadY(Theme.spacing.rowPaddingX, ViewState.density)) : 0
+    // The editor's one line box, centred on the caption's first line on whole pixels: it stands a little over the line's top.
+    readonly property real renameLineBox: renameLoader.item ? renameLoader.item.lineBox : Theme.rowHeight - 2 * Theme.spacing.rowPaddingY
+    readonly property real renameY: Math.round(nameLabel.y + (Theme.grid.captionLineHeight - root.renameLineBox) / 2)
+    readonly property real editorExtraHeight: root.renaming && renameLoader.item ? Math.max(0, root.renameY - nameLabel.y + renameLoader.item.implicitHeight - Math.max(Theme.grid.captionHeight, Math.ceil(nameLabel.contentHeight)) - Density.gridPadY(Theme.spacing.rowPaddingX, ViewState.density)) : 0
     property real renameExtraHeight: 0
     // Grid layout can pool this Loader while reading its implicit height. Defer and coalesce per tile.
     onEditorExtraHeightChanged: Qt.callLater(root.applyRenameHeight)
@@ -172,7 +175,8 @@ Item {
     Loader {
         id: renameLoader
         active: root.renaming
-        anchors { top: nameLabel.top; left: nameLabel.left; right: nameLabel.right }
+        anchors { left: nameLabel.left; right: nameLabel.right }
+        y: root.renameY
         // A normal editor's expansion starts and stays zero, so no height-change signal measures it.
         onLoaded: Qt.callLater(root.applyRenameHeight)
         sourceComponent: Flea.RenameField {

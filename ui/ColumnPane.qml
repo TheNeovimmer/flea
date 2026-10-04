@@ -204,12 +204,14 @@ Item {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         onContentYChanged: if (root.pane !== null) { coalesce.start(); settle.restart() }
+        // The renaming row's growth lands in contentHeight after layout; the row, error line included, is contained then.
+        onContentHeightChanged: if (root.renameErrorHeight > 0) view.positionViewAtIndex(root.renameViewIndex, ListView.Contain)
         reuseItems: true
 
         // G7 needs an empty press target below the final row even when a long column fills the viewport.
         footer: Item {
             width: Scroll.contentWidth(view.width, Theme.spacing.rowPaddingX)
-            height: root.pane ? Theme.spacing.rowPaddingY + root.renameErrorHeight : 0
+            height: root.pane ? Theme.spacing.rowPaddingY : 0
         }
 
         Flea.FastScrollHandler {
@@ -268,6 +270,7 @@ Item {
             lifted: root.liftedName.length > 0 && row !== null && row.n === root.liftedName
             dim: root.dim && !lifted
             // The column's own budget, so no row measures its own text to elide it.
+            errorGrowth: cell.cursor && root.renameErrorHeight > 0 ? Math.max(root.renameErrorHeight, renameLoader.y + renameLoader.height - root.renameTop - Theme.fileRowHeight) : 0
             nameBudget: cell.showChevron ? root.nameBudgetChevron : root.nameBudgetPlain
 
             TapHandler {
@@ -359,8 +362,7 @@ Item {
         x: root.renameLeft
         y: root.renameTop
         width: root.renameWidth
-        // A rename error outgrows the row, so this ground grows over the next row's name with it.
-        height: Math.max(Theme.fileRowHeight, renameLoader.y + renameLoader.height - root.renameTop)
+        height: Theme.fileRowHeight
         z: 1
         color: Theme.color.surface
 
@@ -368,13 +370,6 @@ Item {
             anchors.fill: parent
             color: Style.selectedAccentFill
         }
-    }
-
-    // Brings a rename error under the last row into view; the scroll waits a turn because contentHeight follows the footer after layout.
-    onRenameErrorHeightChanged: if (root.renameErrorHeight > 0) Qt.callLater(root.showRenameError)
-    function showRenameError() {
-        var cut = renameLoader.y + renameLoader.height - (view.contentY + view.height)
-        if (renameLoader.item && cut > 0) view.contentY = Math.min(view.contentHeight - view.height + view.originY, view.contentY + cut)
     }
 
     Loader {
@@ -390,6 +385,7 @@ Item {
         sourceComponent: Flea.RenameField {
             height: implicitHeight
             pane: root.pane
+            errorSpan: Math.max(0, root.renameWidth + root.renameRight - Theme.spacing.rowPaddingX)
             name: root.pane && root.pane.rowFor(root.pane.renamingIndex)
                   ? String(root.pane.rowFor(root.pane.renamingIndex).n).split("/").pop() : ""
             onCommitted: function (newName) { root.pane.commitRename(newName) }

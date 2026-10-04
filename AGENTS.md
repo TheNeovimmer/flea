@@ -1935,7 +1935,12 @@ failure fails the check rather than passing it.
   inside the frame so all four sides are whole. The rename editor is one field in every view (GM 2026-10-03):
   `ui/RenameField.qml` owns its height (`lineBox`, the row's text line box, or the typed line and its two hairlines
   where a small stop is shorter), and a host only places it, centred on whole pixels, never sets another height and
-  never covers a neighbouring cell, as `tests/rename-frame.sh` pins for the list, dual, columns, grid and rail. A button's ring is never cut: `CardScroll` carries `bleed`,
+  never covers a neighbouring cell, as `tests/rename-frame.sh` pins for the list, dual, columns, grid and rail: in
+  every host the mapped frame stays inside its own row or cell and overlaps no other row, cell or column drawn beside it.
+  The stem selection is one box filling the frame's interior edge to edge (`RenameField.selectionBox`, the field's own
+  is transparent), the grid centres the field on its caption's first line, and in the columns the renaming row grows by
+  the error line as the list's does (`ColumnRow.errorGrowth`), the line running from the label column to the column's
+  right inset. A button's ring is never cut: `CardScroll` carries `bleed`,
   room inside its clip that the caller's margins give back, on every dialog that holds a `Flea.DialogButton`
   or `Flea.CheckBox` (all of them: Collide, Trash, menu action, open with, convert, permissions, network and
   the save picker). `tests/ring-bounds.sh` pins all of it from the real window at every text stop, with the

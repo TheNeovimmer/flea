@@ -4,6 +4,7 @@ import QtTest
 import Quickshell
 import "flea" as Flea
 import "flea/js/TextSize.js" as TextSize
+import "rename-frame-checks.js" as Checks
 
 // GM 2026-10-03: the rename editor is one field in every view, pinned in six hosts at every text stop and density.
 ShellRoot {
@@ -11,7 +12,15 @@ ShellRoot {
     readonly property string fixture: Quickshell.env("HOME") + "/fixture"
     readonly property var pane: body.currentPane
     readonly property int hairline: Flea.Theme.spacing.hairline
+    // The column cut to its rows while the last row's error is measured, null otherwise.
+    property var squeezed: null
     readonly property int gap: Flea.Theme.spacing.gap
+    readonly property int rowInset: Flea.Theme.spacing.rowPaddingX
+    // What the checks in rename-frame-checks.js read: the window's body, the caption line and the list's body size.
+    readonly property Item windowBody: body
+    readonly property real captionLineHeight: Flea.Theme.grid.captionLineHeight
+    readonly property int bodyPx: Flea.Theme.font.body
+    readonly property alias metrics: metricsProbe
     // A step that waits gives up after this many ticks of the stepper, so a stuck probe fails instead of hanging.
     readonly property int stallTicks: 200
     // The row's text line box, which every host's frame is unless the typed line plus its two hairlines is taller.
@@ -22,11 +31,13 @@ ShellRoot {
     readonly property var densities: ["tight", "compact", "normal", "comfortable"]
     readonly property string errorSample: "A file by that name exists"
     // Each host is a view the editor opens in and the fixture name it renames; the rail has no name, it renames a place.
+    // A host with onlyStop runs at that text stop alone: the last row's error needs no sweep of the ladder.
     readonly property var hosts: [
         { name: "list", view: "list", target: "a.txt" },
         { name: "dual", view: "dual", target: "a.txt" },
         { name: "columns file", view: "columns", target: "a.txt" },
         { name: "columns folder", view: "columns", target: "sub" },
+        { name: "columns last", view: "columns", target: "link.txt", last: true, onlyStop: 14 },
         { name: "grid", view: "grid", target: "a.txt" },
         { name: "rail", view: "list", target: "" }
     ]
@@ -38,6 +49,11 @@ ShellRoot {
     property int checks: 0
     property int measured: 0
     property int overhung: 0
+    property int overhungAtStart: 0
+    // The smallest stop at Tight, where the row is shorter than the typed line and the frame overhangs it.
+    readonly property int overhangStop: 9
+    // Room left under the frame in its column before the error shows, read to prove the last row needs the scroll.
+    property real roomBelow: 0
     property bool errorMeasured: false
     property var failures: []
 
@@ -75,7 +91,6 @@ ShellRoot {
     // Sample input: inside({x: 4, y: 4, width: 20, height: 23}, 100, 31) is true.
     function inside(box, w, h) { return box.x >= 0 && box.y >= 0 && box.x + box.width <= w && box.y + box.height <= h }
     function boxText(box) { return box.x + "," + box.y + " " + box.width + "x" + box.height }
-
     // The host's live editor and the cell it draws in: a row, a tile or a rail row, and for the columns the one row's delegate.
     function hostOf(host) {
         if (host.name === "rail") {
@@ -121,6 +136,10 @@ ShellRoot {
         root.check(line <= frame.height - 2 * root.hairline, tag + " text line " + line + " does not fit the frame " + frame.height + " less its two hairlines")
         root.check(root.whole(scene), tag + " frame " + root.boxText(scene) + " is not on whole pixels")
         root.checkPatch(tag + " at rest", editor, host)
+        Checks.neighbours(root, tag, found, scene, want)
+        Checks.selection(root, tag, editor)
+        if (host.name !== "grid") root.check(Math.abs(box.y + box.height / 2 - cell.height / 2) <= 0.5, tag + " frame " + root.boxText(box) + " is not centred in its " + cell.height + " px row")
+        if (host.name === "grid") Checks.grid(root, tag, found, box)
         var text = field.mapToItem(frame, 0, 0)
         root.check(text.x === root.gap, tag + " text starts " + text.x + " inside the frame, not one gap " + root.gap)
         if (found.column) {
@@ -161,6 +180,8 @@ ShellRoot {
         var found = root.hostOf(host)
         if (!found) return false
         if (!root.errorMeasured) {
+            var rest = found.editor.frame.mapToItem(found.column || found.cell, 0, 0, found.editor.frame.width, found.editor.frame.height)
+            root.roomBelow = found.column ? found.column.height - (rest.y + rest.height) : 0
             pane.renameError = root.errorSample
             root.errorMeasured = true
             return false
@@ -177,7 +198,7 @@ ShellRoot {
             var under = frame.mapToItem(null, 0, 0, frame.width, frame.height)
             root.check(line.y >= under.y + under.height, tag + " error line " + line.y + " is not under the frame ending " + (under.y + under.height))
             root.check(root.inside(line, window.width, window.height), tag + " error line " + root.boxText(line) + " leaves the window")
-            if (found.column) root.check(root.inside(labels[0].mapToItem(found.column, 0, 0, labels[0].width, labels[0].height), found.column.width, found.column.height), tag + " error line leaves its column")
+            if (found.column) Checks.columnError(root, tag, host, found, labels[0], line)
         }
         root.check(root.whole(frame.mapToItem(null, 0, 0, frame.width, frame.height)), tag + " error frame is not on whole pixels")
         root.check(box.y >= 0, tag + " error frame moved above its row")
@@ -194,6 +215,16 @@ ShellRoot {
                 out.push({ stop: root.allStops[i], density: root.densities[d] })
         root.combos = out
     }
+
+    // The column takes its parent's height back, the binding ColumnsArea gave it.
+    function releaseColumn() {
+        var column = root.squeezed
+        column.height = Qt.binding(function () { return column.parent.height })
+        root.squeezed = null
+    }
+
+    function runsAt(host, combo) { return host.onlyStop === undefined || host.onlyStop === combo.stop }
+    function hostsAt(combo) { return root.hosts.filter(function (h) { return root.runsAt(h, combo) }).length }
 
     function closeEditor(host) {
         if (host.name === "rail") pane.sidebar.cancelRename()
@@ -212,6 +243,7 @@ ShellRoot {
             Flea.ViewState.changeKey("density", combo.density)
             root.hostIndex = 0
             root.comboHeight = -1
+            root.overhungAtStart = root.overhung
             root.stage = 1
             return true
         }
@@ -240,7 +272,17 @@ ShellRoot {
         if (root.stage === 3) {
             if (!root.measure(tag, host)) return false
             // The rail has no error line: its editor has no pane to read one from, so it is measured at rest only.
-            root.stage = host.name === "rail" ? 5 : 4
+            root.stage = host.name === "rail" ? 5 : host.last ? 7 : 4
+            return true
+        }
+        if (root.stage === 7) {
+            // The last row's error only needs the scroll when the viewport ends where the rows do, so the column is cut to that.
+            var found = root.hostOf(host)
+            if (!found || !found.column) return false
+            var column = found.column
+            column.height = pane.shownTotal * Flea.Theme.fileRowHeight + Flea.Theme.spacing.rowPaddingY
+            root.squeezed = column
+            root.stage = 4
             return true
         }
         if (root.stage === 4) {
@@ -250,11 +292,16 @@ ShellRoot {
         }
         if (root.stage === 5) {
             root.closeEditor(host)
+            if (root.squeezed) root.releaseColumn()
             root.hostIndex++
+            while (root.hostIndex < root.hosts.length && !root.runsAt(root.hosts[root.hostIndex], combo)) root.hostIndex++
             root.stage = root.hostIndex >= root.hosts.length ? 6 : 1
             return true
         }
         if (root.stage === 6) {
+            // The overhang arm is only worth its code while a stop still exercises it, so the smallest Tight stop must.
+            if (combo.stop === root.overhangStop && combo.density === "tight")
+                root.check(root.overhung > root.overhungAtStart, "stop " + combo.stop + " tight overhung no frame, so the overhang arm went unmeasured")
             root.stage = 0
             root.comboIndex++
             return true
@@ -264,8 +311,9 @@ ShellRoot {
 
     function report() {
         stepper.running = false
-        // A host that never opened its editor is a failure: every combo measures every host.
-        var want = root.combos.length * root.hosts.length
+        // A host that never opened its editor is a failure: every combo measures every host that runs at its stop.
+        var want = 0
+        for (var c = 0; c < root.combos.length; c++) want += root.hostsAt(root.combos[c])
         root.check(root.measured === want, "measured " + root.measured + " editors, not " + want + " (" + root.combos.length + " stops and densities, " + root.hosts.length + " hosts)")
         console.log("RENAMEFRAME OVERHANG measured=" + root.overhung)
         console.log("RENAMEFRAME DONE checks=" + root.checks + " failed=" + root.failures.length)
@@ -281,6 +329,8 @@ ShellRoot {
         Flea.WindowBody { id: body; host: window }
         Item { anchors.fill: parent; TestEvent { id: driver } }
     }
+
+    TextMetrics { id: metricsProbe }
 
     Timer {
         id: stepper
@@ -302,7 +352,7 @@ ShellRoot {
             root.stageTicks++
             if (root.stageTicks > root.stallTicks) {
                 root.failures.push("stage " + before + " of combo " + beforeCombo + " host " + beforeHost + " never completed")
-                console.log("RENAMEFRAME FAIL stalled at stage " + before + " combo " + beforeCombo + " host " + root.hosts[beforeHost].name + " index=" + pane.renamingIndex + " cursor=" + pane.cursorIndex + " view=" + Flea.ViewState.state.view)
+                console.log("RENAMEFRAME FAIL stalled at stage " + before + " combo " + beforeCombo + " host " + root.hosts[Math.min(beforeHost, root.hosts.length - 1)].name + " index=" + pane.renamingIndex + " cursor=" + pane.cursorIndex + " view=" + Flea.ViewState.state.view)
                 root.report()
             }
         }

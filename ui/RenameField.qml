@@ -27,6 +27,10 @@ Item {
     // The editor's frame and the extension's patch, so a test measures the patch against the frame's four sides.
     readonly property alias frame: editFrame
     readonly property alias extensionPatch: mutedExtension
+    // The selection drawn as one box that fills the frame's interior, so a test measures it against the frame.
+    readonly property alias selectionBox: selectionFill
+    // The error line's width where the host gives it more than the field, or -1 for the field's own.
+    property real errorSpan: -1
     // The one height every host draws: the row's line box, or the typed line and two hairlines where a small stop's is shorter.
     readonly property real lineBox: Math.max(Theme.rowHeight - 2 * Theme.spacing.rowPaddingY,
                                              Math.ceil(typedLine.height) + 2 * Theme.spacing.hairline)
@@ -243,6 +247,24 @@ Item {
         font: field.font
     }
 
+    // The extra arguments are read only so a layout or a scroll re-runs the binding, as mutedExtension's x does.
+    function edgeX(position, laidOut, scrolled) { return field.x + field.positionToRectangle(position).x }
+    Item {
+        id: selectionFill
+        visible: field.selectionEnd > field.selectionStart && (field.activeFocus || field.persistentSelection)
+        readonly property real fromX: Math.max(field.x, root.edgeX(field.selectionStart, field.contentWidth, field.cursorRectangle.x))
+        readonly property real toX: Math.min(field.x + field.width, root.edgeX(field.selectionEnd, field.contentWidth, field.cursorRectangle.x))
+        x: fromX
+        y: Theme.spacing.hairline
+        width: Math.max(0, toX - fromX)
+        height: root.fieldHeight - 2 * Theme.spacing.hairline
+
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.color.accent
+        }
+    }
+
     TextInput {
         id: field
         anchors { left: parent.left; right: parent.right; top: parent.top }
@@ -251,7 +273,8 @@ Item {
         anchors.rightMargin: Theme.spacing.gap
         verticalAlignment: TextInput.AlignVCenter
         color: Theme.color.foreground
-        selectionColor: Theme.color.accent
+        // The selection is painted by selectionFill, which fills the interior where the field's own stops at its line.
+        selectionColor: "transparent"
         selectedTextColor: Theme.color.background
         font.family: Theme.font.family
         font.pixelSize: Theme.font.body
@@ -283,8 +306,9 @@ Item {
 
     Text {
         id: errorLabel
-        anchors { top: field.bottom; left: parent.left; right: parent.right }
+        anchors { top: field.bottom; left: parent.left }
         anchors.topMargin: Theme.spacing.gap
+        width: root.errorSpan >= 0 ? root.errorSpan : root.width
         visible: root.errorText.length > 0
         text: root.errorText
         color: Theme.color.error

@@ -132,8 +132,7 @@ case_cap_click() {
     kill_flea
 }
 
-# ClickAndRefresh "slow click rename": the one editor in every view at text size 14, GM 2026-10-03. List, columns on a
-# file and on a folder (the folder with a rename error), grid, dual and the rail on a Network place; the rail draws no error.
+# ClickAndRefresh slow click rename: the one editor in every view at text size 14 (GM 2026-10-03), the rail on a Network place.
 case_cap_rename() {
     local dir="$fixture_root/cap-rename" fixture_home="$fixture_root/cap-rename-home"
     local real_home="$HOME" saved_path="$PATH" waited
@@ -204,11 +203,25 @@ case_cap_rename() {
     kill_flea
 }
 
+# The cursor on a named row; the grid steps tiles with l, since j moves a whole tile row and a one-row grid never reaches the second tile.
+cap_seek_named() {
+    local want="$1" n
+    [[ "$(ipc viewMode)" == grid ]] || { seek_row_named "$want"; return; }
+    n=$(ipc total)
+    key g >/dev/null
+    for _ in $(seq 0 "$n"); do
+        [[ "$(ipc renameState | jq -r .cursorName)" == "$want" ]] && return 0
+        key l >/dev/null
+        settle
+    done
+    fail "cap_rename: could not put the grid cursor on $want"
+}
+
 # The cursor on a named row, F2, and a shot once the editor holds the caret; Escape closes it unless the caller goes on to type.
 cap_rename_open() {
     local view="$1" name="$2" shot_name="$3" waited
     [[ "$(ipc viewMode)" == "$view" || "$view" == dual ]] || fail "cap_rename: the chrome drew '$(ipc viewMode)', not $view"
-    seek_row_named "$name"
+    cap_seek_named "$name"
     key -k F2 >/dev/null
     for waited in $(seq 1 100); do
         [[ "$(ipc renameState | jq -r .focused)" == "true" ]] && break

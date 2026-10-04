@@ -54,9 +54,10 @@ Item {
     // The cut dim lives in the ink, so no child carries its own opacity binding.
     readonly property color ink: root.dimmed(root.cursor ? Theme.color.accent : root.dim ? Theme.color.muted : Theme.color.foreground)
 
-    // One height for every row: ui/ColumnPane.qml draws the editor over the row rather than inside
-    // it, so no row grows and the overlay's own y is plain arithmetic on this height.
-    implicitHeight: Theme.fileRowHeight
+    // ui/ColumnPane.qml sets it on the renaming (cursor) row: the error line pushes the rows below down as ui/Row.qml's does.
+    property real errorGrowth: 0
+    // The editor is drawn over the row by ui/ColumnPane.qml, so its y is plain arithmetic on this row height.
+    implicitHeight: Theme.fileRowHeight + root.errorGrowth
 
     Rectangle {
         width: root.paintWidth > 0 ? root.paintWidth : parent.width

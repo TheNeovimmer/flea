@@ -68,6 +68,7 @@ ln -s "$(readlink -f ui/boot/Ui)" "$probe/config/Ui"
 # The window loads its tab catcher from the shell directory, so the probe ships it as the product does.
 ln -s "$PWD/ui/boot/fleatab.qml" "$probe/config/fleatab.qml"
 cp tests/rename-frame.qml "$probe/config/shell.qml"
+cp tests/rename-frame-checks.js "$probe/config/rename-frame-checks.js"
 log="$probe/qs.log"
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
     PATH="$probe/bin:$PATH" HOME="$probe/home" XDG_STATE_HOME="$probe/state" XDG_CONFIG_HOME="$probe/config" \
@@ -75,7 +76,7 @@ env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT 
     FLEA_PATH="$probe/home/fixture" FLEA_BIN="$bin" QT_QPA_PLATFORM=offscreen \
     QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 setsid dbus-run-session -- qs -p "$probe/config" >"$log" 2>&1 </dev/null &
 qs_pid=$!
-# 28 stops and densities across six hosts, polled every 0.1 s for at most three minutes.
+# 28 stops and densities across six hosts, a seventh at one stop, polled every 0.1 s for at most three minutes.
 receipt_ticks=1800
 for ((tick = 0; tick < receipt_ticks; tick++)); do
     grep -aq 'RENAMEFRAME DONE checks=[0-9]* failed=[0-9]*' "$log" && break
