@@ -349,18 +349,18 @@ cap_sheet_type() {
     [[ "$(ipc keymapQuery)" == "$word" ]] || fail "cap_sheet: the query is '$(ipc keymapQuery)', not $word"
 }
 
-# Waits until a reader (or its jq field) answers the exact word, or fails naming the last value.
 # Waits until the sheet lists the given row, so a query's async section is read after it lands.
 cap_sheet_rows_hold() {
-    local row="$1" end
+    local row="$1" what="$2" end
     end=$((SECONDS + cap_sheet_wait_s))
     while (( SECONDS < end )); do
         grep -Fxq "$row" <<< "$(ipc keymapSheetRows)" && return 0
         settle
     done
-    return 0
+    fail "cap_sheet: $what: $(ipc keymapSheetRows | tr '\n' '|')"
 }
 
+# Waits until a reader (or its jq field) answers the exact word, or fails naming the last value.
 cap_sheet_expect() {
     local reader="$1" want="$2" what="$3" field="${4:-.}" end got=""
     end=$((SECONDS + cap_sheet_wait_s))
@@ -417,12 +417,10 @@ EOS
     cap_sheet_expect keymapSheetOpen true "? did not reopen the sheet"
     cap_sheet_type fl
     # The recent file arrives from an async xbel read the first key starts, so the rows are read once it has landed.
-    cap_sheet_rows_hold ' Open mix.flac'
+    cap_sheet_rows_hold ' Open mix.flac' "the fl query lists no recent file mix.flac"
     sheet_rows=$(ipc keymapSheetRows)
     grep -Fxq ' Open flea' <<< "$sheet_rows" \
         || fail "cap_sheet: the fl query lists no favourite flea: ${sheet_rows//$'\n'/ | }"
-    grep -Fxq ' Open mix.flac' <<< "$sheet_rows" \
-        || fail "cap_sheet: the fl query lists no recent file mix.flac: ${sheet_rows//$'\n'/ | }"
     flea_at=$(grep -Fxn ' Open flea' <<< "$sheet_rows" | head -n 1 | cut -d: -f1)
     mix_at=$(grep -Fxn ' Open mix.flac' <<< "$sheet_rows" | head -n 1 | cut -d: -f1)
     (( flea_at < mix_at )) || fail "cap_sheet: the fl query does not lead with the favourite: ${sheet_rows//$'\n'/ | }"
