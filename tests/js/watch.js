@@ -377,7 +377,7 @@ function editing() {
     var wireFile = "ui/PaneWire.qml"
     var p = { path: "/fixture/list", cursorIndex: 7, held: 0, windowSize: 350, shown: null, renameRequest: null, renameSource: "", renameError: "",
               renameMenuId: 42, renameKeepsPointerRow: false, listInFlight: false, searchMode: "", listingState: "ready",
-              sent: [] }
+              total: 40, sent: [] }
     var cursorRow = "before.txt"
     p.cursorOn = function (name) { cursorRow = name }
     p.setCursor = function (index) { p.cursorIndex = index }
@@ -520,12 +520,18 @@ function renameReplies(check) {
     same("a navigation during the write leaves the request pending", [p.renamePending, p.renameSource, p.renameError], [true, "", ""])
     p.done("/fixture/list/after.txt")
     same("and its late reply re-lists nothing in the new directory", [p.renamePending, p.renamingIndex, refreshed.length], [false, -1, 0])
+    p = editing()
+    p.path = "/fixture/another-directory"
+    p.renamingIndex = -1
+    Ops.startRename(p, 99)
+    same("and a Rename started while it is pending is refused with no second request", [p.renamingIndex, p.sent.length], [-1, 1])
     var dead = ["backend", "read"]
     for (var d = 0; d < dead.length; d++) {
         p = editing()
         p.fail(dead[d], "", "the backend stopped")
         same("a " + dead[d] + " failure ends the request without a verdict", [p.renamePending, p.renamingIndex, messages],
              [false, -1, ["Backend stopped; rename outcome unknown.|true"]])
+        same("and leaves the listing in the error state with no rows: " + dead[d], [p.listingState, p.total], ["error", 0])
     }
     p = editing()
     p.searchMode = "results"

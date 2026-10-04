@@ -73,7 +73,7 @@ tests/js/slowclick.js 308
 tests/js/settings.js 337
 tests/js/tap.js 333
 tests/js/uistate.js 370
-tests/js/watch.js 534
+tests/js/watch.js 540
 tests/js/xwwatch.js 310
 tests/js/tabs.js 686
 tests/columnrow-geom.qml 409
