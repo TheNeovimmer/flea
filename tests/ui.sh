@@ -10490,6 +10490,24 @@ EOS
     sandbox_remove "$fixture_home"
 }
 
+# Show unmounted off governs internal partitions only: a stick keeps its unmounted rows (Devices.js
+# collectVolumes, pulls), marked unmounted, and no hidden partition of its disk joins them.
+fsdevice_switch_off() {
+    local layout="$1" expected="$2" label dev pk disk="" others want
+    for label in $expected; do
+        [[ "$(fs_row_mounted "$label")" == "false" ]] \
+            || fail "fsdevice: $label is not a rail row marked unmounted with showUnmounted off, rows are: $(fs_rail_labels | tr '\n' ',')"
+        dev=$(fs_row_device "$label")
+        [[ -n "$dev" && "$dev" != "null" ]] || fail "fsdevice: $label carries no device node with showUnmounted off"
+        pk=$(lsblk -no PKNAME "$dev" 2>/dev/null) || fail "fsdevice: lsblk cannot name the parent of $dev"
+        if [[ -z "$disk" ]]; then disk="$pk"; elif [[ "$disk" != "$pk" ]]; then fail "fsdevice: expected rows span two disks, $disk and $pk"; fi
+    done
+    others=$(ipc railEntries | jq -r --arg d "/dev/$disk" '[.[] | select(.group == "device" and (.device | startswith($d))) | .label] | sort | join(",")')
+    want=$(sort <<< "$expected" | paste -sd, -)
+    [[ "$others" == "$want" ]] || fail "fsdevice: disk $disk carries [$others] with showUnmounted off, not just [$want]"
+    printf 'FSDEVICE %s switch-off=ok\n' "$layout"
+}
+
 # The native filesystem round (ROOTCAUSE.md section 5, piece 3), driven on minipc against the real
 # stick the controller prepared from tests/fs-stick-images.sh. Given FLEA_FS_LAYOUT (one of vfat,
 # exfat, ntfs3, espdata, espmsrswap, isohybrid) and FLEA_FS_EXPECTED (that layout's expected-rows
@@ -10525,7 +10543,7 @@ case_fsdevice() {
     fs_row_path() { ipc railEntries | jq -r --arg l "$1" '.[] | select(.group == "device" and .label == $l) | .path'; }
     fs_row_mounted() { ipc railEntries | jq -r --arg l "$1" '.[] | select(.group == "device" and .label == $l) | .mounted'; }
 
-    # Unmount any expected row first, so the switch-off leg below sees unmounted rows, not udiskie's.
+    # Unmount any expected row first, so the switch-off leg below reads rows that stay marked unmounted.
     seed_ui_state "$fixture_root/fsdevice-state-off" '{"places":{"showUnmounted":false}}'
     export HOME="$fixture_home"
     launch "$dir"
@@ -10545,14 +10563,7 @@ case_fsdevice() {
         while (( SECONDS < end )); do [[ "$(fs_row_mounted "$label")" != "true" ]] && break; sleep 0.5; done
         [[ "$(fs_row_mounted "$label")" != "true" ]] || fail "fsdevice: $label is still mounted after the unmount"
     done
-    # Switch off: an unmounted data row stays off the rail, the 0.2.1 rail this switch promises.
-    for label in $expected; do
-        end=$((SECONDS + unmount_wait_s))
-        while (( SECONDS < end )); do fs_rail_labels | grep -Fxq "$label" || break; sleep 0.5; done
-        fs_rail_labels | grep -Fxq "$label" \
-            && fail "fsdevice: $label is a row with showUnmounted off while unmounted"
-    done
-    printf 'FSDEVICE %s switch-off=ok\n' "$layout"
+    fsdevice_switch_off "$layout" "$expected"
     kill_flea
 
     # Switch on: expected rows only, same-disk scope keeps the host ESP and swap out.

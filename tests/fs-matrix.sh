@@ -335,32 +335,45 @@ c_moves() {
   await '"t":"undone"' || { check "$mnt cross-device undo answers" "undone" "timeout"; return; }
   check "$mnt cross-device undone" "yes" "$([ -f "$other/x.txt" ] && echo yes || echo no)"
 }
+# Sample all-failed link answer: {"t":"error","where":"link","path":"/mnt/x/linkdest","msg":"/mnt/x/lt.txt: this drive cannot hold links"}
+link_refusal() { tail -n "+$((FRESH_FROM + 1))" "$HARNESS/out" 2>/dev/null | grep '"t":"error","where":"link"' | tail -1; }
+# A vfatlike batch where every link failed answers the error line, never a linked line.
+c_link_refused() {
+  local mnt="$1" kind="$2" line
+  await '"t":"error","where":"link"' || { check "$mnt $kind answers" "error line" "timeout"; return 1; }
+  line=$(link_refusal)
+  check "$mnt $kind refusal names the link op" "link" "$(printf '%s' "$line" | jq -r '.where')"
+  check "$mnt $kind refusal names the capability" "$mnt/lt.txt: this drive cannot hold links" "$(printf '%s' "$line" | jq -r '.msg')"
+  check "$mnt $kind refusal names the destination" "$mnt/linkdest" "$(printf '%s' "$line" | jq -r '.path')"
+  check "$mnt no $kind left behind" "0" "$(find "$mnt/linkdest" -mindepth 1 | wc -l | tr -d ' ')"
+}
 # Defect 16: EPERM on vfat/exfat names the capability; the link lands in its own dir.
 c_links() {
-  local mnt="$1" class="$2" want_ok
+  local mnt="$1" class="$2"
   [ "$class" = "readonly" ] && { skip_line "$mnt links are read-only media"; return; }
-  case "$class" in vfatlike) want_ok="0" ;; *) want_ok="1" ;; esac
   mkdir -p "$mnt/linkdest"
   printf 'link-target' > "$mnt/lt.txt"
   fresh
   send "{\"c\":\"link\",\"op\":\"relative\",\"paths\":[\"$mnt/lt.txt\"],\"dest\":\"$mnt/linkdest\"}"
-  await '"t":"linked"' || { check "$mnt symlink answers" "linked" "timeout"; return; }
-  # Sample linked line: {"t":"linked","ok":2,"failed":0,"skipped":1}
-  check "$mnt symlink ok count" "$want_ok" "$(tail -n "+$((FRESH_FROM + 1))" "$HARNESS/out" | grep '"t":"linked"' | tail -1 | grep -oE '"ok":[0-9]+' | cut -d: -f2)"
-  if [ "$want_ok" = "1" ]; then
+  if [ "$class" = "vfatlike" ]; then
+    c_link_refused "$mnt" symlink || return
+  else
+    await '"t":"linked"' || { check "$mnt symlink answers" "linked" "timeout"; return; }
+    # Sample linked line: {"t":"linked","ok":2,"failed":0,"skipped":1}
+    check "$mnt symlink ok count" "1" "$(tail -n "+$((FRESH_FROM + 1))" "$HARNESS/out" | grep '"t":"linked"' | tail -1 | grep -oE '"ok":[0-9]+' | cut -d: -f2)"
     check "$mnt symlink on disk" "yes" "$([ -L "$mnt/linkdest/lt.txt" ] && echo yes || echo no)"
     fresh
     send '{"c":"undo"}'
     await '"t":"undone"' || { check "$mnt symlink undo answers" "undone" "timeout"; return; }
     check "$mnt symlink undone" "no" "$([ -e "$mnt/linkdest/lt.txt" ] && echo yes || echo no)"
-  else
-    check "$mnt no symlink left behind" "0" "$(find "$mnt/linkdest" -mindepth 1 | wc -l | tr -d ' ')"
   fi
   fresh
   send "{\"c\":\"link\",\"op\":\"hard\",\"paths\":[\"$mnt/lt.txt\"],\"dest\":\"$mnt/linkdest\"}"
-  await '"t":"linked"' || { check "$mnt hardlink answers" "linked" "timeout"; return; }
-  check "$mnt hardlink ok count" "$want_ok" "$(tail -n "+$((FRESH_FROM + 1))" "$HARNESS/out" | grep '"t":"linked"' | tail -1 | grep -oE '"ok":[0-9]+' | cut -d: -f2)"
-  if [ "$want_ok" = "1" ]; then
+  if [ "$class" = "vfatlike" ]; then
+    c_link_refused "$mnt" hardlink || return
+  else
+    await '"t":"linked"' || { check "$mnt hardlink answers" "linked" "timeout"; return; }
+    check "$mnt hardlink ok count" "1" "$(tail -n "+$((FRESH_FROM + 1))" "$HARNESS/out" | grep '"t":"linked"' | tail -1 | grep -oE '"ok":[0-9]+' | cut -d: -f2)"
     fresh
     send '{"c":"undo"}'
     await '"t":"undone"' || { check "$mnt hardlink undo answers" "undone" "timeout"; return; }
