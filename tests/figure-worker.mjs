@@ -36,6 +36,17 @@ if (process.argv[2] === "cycle") {
     const classes = postMermaid('<svg><style>rect.node { fill: var(--fg); stroke-width: 2; }</style><rect class="node"/></svg>', theme);
     check(classes.includes('fill="#ffffff"') && classes.includes('stroke-width="2"') && !classes.includes("<style>"), "style classes become SVG presentation attributes");
     check(postMath('<svg width="1.234ex" height="-2ex" fill="currentColor"/>', theme).includes('width="7.64px" height="-12.38px"'), "ex conversion uses MathJax's 0.442 em and rounds to hundredths");
+    // Sample input: MathJax's x^2 SVG, 2.025ex tall over a 894.9 unit viewBox at 442 units per ex.
+    const formula = '<svg width="2.282ex" height="2.025ex" viewBox="0 -883.9 1008.6 894.9"><path fill="currentColor"/></svg>';
+    const MATH_UNITS_PER_EX = 442;
+    const EX_TOLERANCE = 0.1;
+    // The helper receives the body font's measured x-height, and a display formula's ex is that height at any body size.
+    for (const [bodyPx, xHeight] of [[12, 6.6], [14, 7.7], [14, 9]]) {
+        const drawn = postMath(formula, { fg: "#ffffff", bodyPx, exPx: xHeight }, true);
+        const height = Number(drawn.match(/height="([\d.]+)px"/)[1]);
+        const exPx = height / (894.9 / MATH_UNITS_PER_EX);
+        check(Math.abs(exPx - xHeight) <= EX_TOLERANCE * xHeight, `display maths ex ${exPx.toFixed(2)}px follows the body x-height ${xHeight}px at body ${bodyPx}px`);
+    }
     console.log(`figure-worker: ${checks} check(s), ${failures} failed`);
     process.exitCode = failures > 0 ? 1 : 0;
 }

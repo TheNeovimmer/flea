@@ -11,8 +11,6 @@ var RESOLVER_DEPTH_MAX = 12;
 var DEFAULT_BODY_PX = 16;
 // MathJax's TeX SVG sizes one ex at 442 thousandths of an em.
 var EX_PER_EM = 0.442;
-// A display formula sets 1.2 times the body size.
-var DISPLAY_SCALE = 1.2;
 // Keep converted SVG dimensions to two decimal places.
 var PX_ROUNDING_FACTOR = 100;
 // CSS color-mix stops express each share as a percentage.
@@ -29,7 +27,7 @@ const BYTE_MASK = 255;
 
 export function themeKey(t) {
     return [t.bg, t.fg, t.accent || "", t.muted || "", t.line || "", t.surface || "",
-        t.border || "", t.font || "", t.bodyPx || 0].join("|");
+        t.border || "", t.font || "", t.bodyPx || 0, t.exPx || 0].join("|");
 }
 
 export function cacheKey(kind, source, t, display) {
@@ -605,8 +603,8 @@ export function postMath(svg, t, display) {
     if (svg.indexOf("merror") >= 0 || svg.indexOf("data-mjx-error") >= 0)
         throw new Error("formula did not render");
     var out = svg.split("currentColor").join(t.fg);
-    // MathJax's TeX SVG has 1000 units per em and 442 per ex, independent of the input metrics.
-    var exPx = (t.bodyPx || DEFAULT_BODY_PX) * (display ? DISPLAY_SCALE : 1) * EX_PER_EM;
+    // MathJax's TeX SVG has 442 units per ex; a display formula draws its ex at the body x-height the pane measured, the rest at the em rule.
+    var exPx = display && t.exPx > 0 ? t.exPx : (t.bodyPx || DEFAULT_BODY_PX) * EX_PER_EM;
     out = out.replace(/(-?\d+(?:\.\d+)?)ex/g, function (m, v) {
         var px = Math.round(parseFloat(v) * exPx * PX_ROUNDING_FACTOR) / PX_ROUNDING_FACTOR;
         return String(px) + "px";
