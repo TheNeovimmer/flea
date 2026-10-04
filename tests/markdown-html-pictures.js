@@ -12,6 +12,14 @@ var BADGE_HEIGHT = 20;
 // The wrapping row holds this many pictures, of which this many fit one line of the pane.
 var WRAP_BADGES = 6;
 var WRAP_PER_LINE = 4;
+// The pictures the size rule is judged on, in pixels: tests/md-fixtures.py's SMALL_SIZE and BIG_SIZE, the width attribute past the small one, and both attributes.
+var SMALL_H = 30;
+var SMALL_W = 40;
+var GROWN_WIDTH = 120;
+var BIG_W = 2000;
+var BIG_H = 40;
+var BOX_WIDTH = 70;
+var BOX_HEIGHT = 20;
 // Local images inside raw HTML that must draw as a picture in place, and whether their wrapper centres them.
 var PICTURE_DOCS = { "21-linked-logo.md": true, "22-table-logo.md": false, "23-open-wrapper.md": true,
     "24-empty-closer.md": true, "25-wide-logo.md": false };
@@ -22,6 +30,7 @@ function verdict(all) {
     function check(label, ok) { out.push([label, ok === true]); }
     pictureChecks(all, check);
     badgeChecks(all, check);
+    sizeChecks(all, check);
     headerChecks(all["26-readme-header.md"], all["27-break.md"], check);
     return out;
 }
@@ -140,4 +149,45 @@ function badgeChecks(all, check) {
         check("29 all six pictures keep a link of their own", wat >= 0 && wrap.geo.blocks[wat].row.length === WRAP_BADGES
             && wrap.geo.blocks[wat].row.every(function (l, i) { return l.link === "https://example.com/w" + (i + 1) && l.tap; }));
     }
+}
+
+// One size rule for a lone picture and for a row: an attribute is honoured past the natural size, none draws it whole, both draw their box.
+function sizeChecks(all, check) {
+    function inkSize(f, at) {
+        var box = f === undefined || at < 0 ? null : f.blocks[at].box;
+        return box === null ? [0, 0] : [box.x1 - box.x0 + 1, box.y1 - box.y0 + 1];
+    }
+    function near(got, want) { return Math.abs(got - want) <= Base.SIZE_SLACK; }
+    function lineOf(f, line) {
+        var at = f === undefined ? -1 : Base.blockOf(f, "images");
+        return at < 0 || f.blocks[at].lines.length <= line ? { clusters: [], y0: 0, y1: -1 } : f.blocks[at].lines[line];
+    }
+    function widths(line) { return line.clusters.map(function (c) { return c.x1 - c.x0 + 1; }); }
+    function high(line) { return line.y1 - line.y0 + 1; }
+    function wholeWidth(f, at) { return f === undefined || at < 0 ? 0 : f.geo.blocks[at].w; }
+    var grownHeight = GROWN_WIDTH * SMALL_H / SMALL_W;
+    var single = all["30-grow-single.md"];
+    var s = inkSize(single, single === undefined ? -1 : Base.blockOf(single, "image"));
+    check("30 a width past the natural size is honoured by a lone picture", near(s[0], GROWN_WIDTH) && near(s[1], grownHeight));
+    var grown = lineOf(all["31-grow-row.md"], 0);
+    check("31 a width past the natural size is honoured in a row, both pictures on a line", widths(grown).length === 2
+        && widths(grown).every(function (w) { return near(w, GROWN_WIDTH); }) && near(high(grown), grownHeight));
+    var natural = all["32-natural-single.md"];
+    var nAt = natural === undefined ? -1 : Base.blockOf(natural, "image");
+    var n = inkSize(natural, nAt);
+    check("32 a picture with no attribute is capped at the pane width by a lone picture, its ratio kept",
+        near(n[0], wholeWidth(natural, nAt)) && near(n[1], wholeWidth(natural, nAt) * BIG_H / BIG_W));
+    // A box taller than its picture leaves a gap of its own inside the block, so the block holds the picture and the pane's block gap, no more.
+    check("32 the block is as tall as the picture it holds", nAt >= 0 && natural.geo.blocks[nAt].h - n[1] <= natural.geo.blockGap + Base.SIZE_SLACK);
+    var rowFacts = all["33-natural-row.md"];
+    var rowAt = rowFacts === undefined ? -1 : Base.blockOf(rowFacts, "images");
+    var top = lineOf(rowFacts, 0), under = lineOf(rowFacts, 1);
+    check("33 a picture with no attribute is capped at the pane width in a row, the next picture below it",
+        widths(top).length === 1 && near(widths(top)[0], wholeWidth(rowFacts, rowAt)) && near(high(top), wholeWidth(rowFacts, rowAt) * BIG_H / BIG_W)
+        && widths(under).length === 1 && near(widths(under)[0], BADGE_WIDTHS[0]));
+    var box = all["34-box-single.md"];
+    var b = inkSize(box, box === undefined ? -1 : Base.blockOf(box, "image"));
+    check("34 both attributes draw their box on a lone picture", near(b[0], BOX_WIDTH) && near(b[1], BOX_HEIGHT));
+    var pair = lineOf(all["35-box-row.md"], 0);
+    check("35 both attributes draw their box in a row", widths(pair).length === 2 && widths(pair).every(function (w) { return near(w, BOX_WIDTH); }) && near(high(pair), BOX_HEIGHT));
 }

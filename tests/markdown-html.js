@@ -29,7 +29,7 @@ var MIN_PICTURE_RUN = 48;
 var REQUIRED = ["07-rawhtml.md", "15-pathological.md", "16-sub-base.md", "16-sub-low.md", "16-sub-high.md",
     "17-plain-title.md", "18-bold-title.md", "19-key.md", "19-nokey.md", "20-summary.md",
     "21-linked-logo.md", "22-table-logo.md", "23-open-wrapper.md", "24-empty-closer.md", "25-wide-logo.md", "26-readme-header.md", "27-break.md",
-    "28-badge-row.md", "29-badge-wrap.md"];
+    "28-badge-row.md", "29-badge-wrap.md", "30-grow-single.md", "31-grow-row.md", "32-natural-single.md", "33-natural-row.md", "34-box-single.md", "35-box-row.md"];
 // The block types whose delegates draw text or a picture the moment they are built, and so are never empty.
 var DRAWN_TYPES = ["heading", "run", "quote", "list", "table", "image", "remote"];
 

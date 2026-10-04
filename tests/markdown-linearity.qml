@@ -489,6 +489,13 @@ QtObject {
                 var badge = '<a href="https://x.example/a"><img src="img/a.png"></a>';
                 return '<p align="center">' + badge.repeat(Math.floor(n / badge.length)) + '</p>';
             },
+            // Many image wrappers nested in one another, each opener with its own image and the closers at the end.
+            htmlNested: function (n) {
+                var open = '<div align="center">\n<img src="img/a.png">\n';
+                var close = "</div>\n";
+                var depth = Math.floor(n / (open.length + close.length));
+                return open.repeat(depth) + close.repeat(depth);
+            },
             backtickRun: function (n) {
                 var s = "";
                 while (s.length < n)
@@ -498,7 +505,7 @@ QtObject {
         };
         var names = ["codeDense", "codeOnly", "bangOpen", "bracketOpen", "angleOpen",
             "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent", "punctTail",
-            "htmlBlocks", "htmlLines", "htmlRow"];
+            "htmlBlocks", "htmlLines", "htmlRow", "htmlNested"];
         Work.install();
         Work.work = 0;
         var uppercaseInput = "Note";

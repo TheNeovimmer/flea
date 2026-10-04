@@ -3,6 +3,7 @@ import Quickshell.Io
 import "." as Flea
 import "js/Icons.js" as Icons
 import "js/Markdown.js" as Markdown
+import "js/MdHtmlImage.js" as HtmlImage
 
 // Rendered and Source previews share document insets, and only images beside the document can load.
 Item {
@@ -850,13 +851,12 @@ Item {
                     Image {
                         id: localImage
                         visible: block.type === "image"
-                        // An HTML width attribute sets the picture's width; its paragraph's align="center" centres it.
-                        readonly property real wantWidth: block.type === "image" && block.width > 0 ? Math.min(block.width, parent.width) : 0
-                        width: localImage.wantWidth > 0 ? localImage.wantWidth : parent.width
+                        // The size rule of the badge row (HtmlImage.pictureSize); its paragraph's align="center" centres it.
+                        readonly property var fit: HtmlImage.pictureSize(block.type === "image" ? block : ({}), localImage.implicitWidth, localImage.implicitHeight, parent.width)
+                        width: localImage.fit.w
+                        height: localImage.fit.h
                         x: block.type === "image" && block.align === "center" ? Math.round((parent.width - localImage.width) / 2) : 0
-                        fillMode: Image.PreserveAspectFit
-                        // A picture narrower than the content sits on the text's left edge, as the board's stand-in does.
-                        horizontalAlignment: Image.AlignLeft
+                        fillMode: localImage.fit.stretch ? Image.Stretch : Image.PreserveAspectFit
                         asynchronous: true
                         autoTransform: true
                         source: block.type === "image" ? block.url : ""

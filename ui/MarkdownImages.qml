@@ -1,10 +1,11 @@
 import QtQuick
+import "js/MdHtmlImage.js" as HtmlImage
 
 // A row of local images from one HTML block, wrapped at the pane width with each line centred or left, every image keeping its own link.
 Item {
     id: root
 
-    // Each image as the parser hands it: { url, alt, width (optional), link (optional) }.
+    // Each image as the parser hands it: { url, alt, width and height (optional), link (optional) }.
     property var images: []
     property bool centred: false
     // The space between neighbours on a line and between lines.
@@ -52,13 +53,13 @@ Item {
         delegate: Image {
             id: pic
             readonly property var spec: root.images[index]
-            // An HTML width attribute sets the picture's width, else it keeps its own, never wider than the pane; the height keeps the picture's ratio.
-            readonly property real fitWidth: Math.min(pic.spec.width > 0 ? pic.spec.width : pic.implicitWidth, root.width)
-            width: pic.fitWidth
-            height: pic.implicitWidth > 0 ? pic.fitWidth * pic.implicitHeight / pic.implicitWidth : 0
+            // The size rule of a lone picture too (HtmlImage.pictureSize): the HTML width and height are honoured, the pane width caps it.
+            readonly property var fit: HtmlImage.pictureSize(pic.spec, pic.implicitWidth, pic.implicitHeight, root.width)
+            width: pic.fit.w
+            height: pic.fit.h
             x: index < root.arrangement.places.length ? root.arrangement.places[index].x : 0
             y: index < root.arrangement.places.length ? root.arrangement.places[index].y : 0
-            fillMode: Image.PreserveAspectFit
+            fillMode: pic.fit.stretch ? Image.Stretch : Image.PreserveAspectFit
             asynchronous: true
             autoTransform: true
             source: pic.spec.url

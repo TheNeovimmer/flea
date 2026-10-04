@@ -56,4 +56,36 @@ function run(check) {
         HtmlImage.imageUnit(['<p align="center"><img src="img/logo.png"></div>'], 0, dir), null)
     var doc = blocks('<div align="center">\n<img src="img/logo.png">\n<p>\nnote\n</p>\n</div>\n\nAfter')
     check("R2-1 the wrapper's rest is one balanced run, then the text", doc.map(function (b) { return b.type }).join(",") + "|" + String(at(doc, 1).text), 'image,run|<div align="center"><p>\nnote\n</p></div>\n\nAfter')
+    // R3-2: paragraphs inside one div stack one per line, as GitHub draws them; pictures within one paragraph share a row.
+    function shape(source) { return blocks(source).filter(function (b) { return b.type !== "run" }).map(function (b) { return b.type + (b.items ? ":" + b.items.length : "") }).join(",") }
+    function two(a, b) { return badge(a, false) + badge(b, false) }
+    var pair = "<div>\n<p>\n" + badge("a", false) + "\n" + badge("b", false) + "\n</p>\n<p>\n" + badge("c", false) + "\n" + badge("d", false) + "\n</p>\n</div>"
+    check("R3-2 two paragraphs of two pictures on lines are two rows", shape(pair), "images:2,images:2")
+    check("R3-2 two one-line paragraphs of two pictures are two rows", shape("<div>\n<p>" + two("a", "b") + "</p>\n<p>" + two("c", "d") + "</p>\n</div>"), "images:2,images:2")
+    check("R3-2 a row then a paragraph of its own", shape("<div>\n<p>" + two("a", "b") + "</p>\n<p>" + badge("c", false) + "</p>\n</div>"), "images:2,image")
+    check("R3-2 the pictures of one paragraph share a row", shape("<div>\n<p>\n" + badge("a", false) + "\n" + badge("b", false) + "\n</p>\n</div>"), "images:2")
+    check("R3-2 a tag that opens no block between pictures keeps one row", shape("<div>\n<b>" + badge("a", false) + "</b>\n<span>" + badge("b", false) + "</span>\n</div>"), "images:2")
+    // R3-3: tag names compare in lower case on both sides, so an upper-case wrapper is a unit.
+    var upper = blocks('<P ALIGN="center"><IMG SRC="img/logo.png" WIDTH="64"></P>\n\nAfter')
+    check("R3-3 an upper-case one-line wrapper is a centred image block", upper.map(function (b) { return b.type + ":" + b.align + ":" + b.width }).join(",").replace(/,run.*/, ""), "image:center:64")
+    var shouted = HtmlImage.imageUnit(['<DIV ALIGN="center">', '<IMG SRC="img/logo.png">', "<P>", "note", "</P>", "</DIV>"], 0, dir)
+    check("R3-3 an upper-case div wrapper ends at its own upper-case closer", shouted === null ? -1 : shouted.end, 5)
+    check("R3-3 and keeps its nested upper-case paragraph", shouted === null ? "" : shouted.wrapper.join("|"), '<DIV ALIGN="center"><P>\nnote\n</P></div>')
+    check("R3-3 a mixed-case opener and closer match", HtmlImage.imageUnit(['<P align="center">', '<img src="img/logo.png">', "</p>"], 0, dir) !== null, true)
+    // Both size attributes name the picture's box; one makes the other follow the ratio.
+    function sized(attrs) { return at(blocks('<p align="center">\n<img src="img/a.png" ' + attrs + ">\n</p>"), 0) }
+    check("S1 width and height are both kept", [sized('width="70" height="20"').width, sized('width="70" height="20"').height].join("x"), "70x20")
+    check("S1 a height alone is kept", [sized('height="20"').width, sized('height="20"').height].join("x"), "x20")
+    check("S1 a non-pixel height is dropped", sized('width="70" height="50%"').height, undefined)
+    var fit = HtmlImage.pictureSize
+    function box(spec, nw, nh, limit) { var r = typeof fit === "function" ? fit(spec, nw, nh, limit) : { w: -1, h: -1 }; return Math.round(r.w) + "x" + Math.round(r.h) + (r.stretch ? "s" : "") }
+    check("S2 a width past the natural size is honoured, the height follows the ratio", box({ width: 120 }, 40, 30, 500), "120x90")
+    check("S2 a width past the pane is capped at the pane", box({ width: 5000 }, 40, 30, 500), "500x375")
+    check("S2 no attribute draws the natural size", box({}, 96, 64, 500), "96x64")
+    check("S2 no attribute draws a wide picture at the pane width", box({}, 2000, 40, 548), "548x11")
+    check("S2 a height alone sets the width by the ratio", box({ height: 20 }, 96, 48, 500), "40x20")
+    check("S2 both attributes draw their box, stretched", box({ width: 70, height: 20 }, 96, 48, 500), "70x20s")
+    check("S2 a box wider than the pane keeps its aspect at the pane width", box({ width: 1000, height: 100 }, 96, 48, 500), "500x50s")
+    check("S2 a picture not yet decoded has no box without attributes", box({}, 0, 0, 500), "0x0")
+    check("S2 a width alone before decode keeps its width", box({ width: 70 }, 0, 0, 500), "70x0")
 }

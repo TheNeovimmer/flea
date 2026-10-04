@@ -22,6 +22,8 @@ var CASE_OFFSET = "a".charCodeAt(0) - "A".charCodeAt(0)
 var CENTRED_OPEN = /^\s*<(?:p|div|center)\b[^<>]*>/i
 // Sample input: 'a <div>b</div>' and '<h1 align="center">' hold a block tag that centres itself; '<b>x</b>' holds none.
 var BLOCK_TAG = /<(?:p|div|h[1-6]|table|ul|ol|blockquote|pre)\b/i
+// Sample input: '</p><p>' and '<div align="center">' open or close a block, so pictures either side of them sit on lines of their own; '<b>' and '</td><td>' do not.
+var BLOCK_BOUNDARY = /<\/?(?:p|div|h[1-6]|table|tr|ul|ol|li|blockquote|pre)\b/i
 // Sample input: '<br>' and '<BR />' break a line.
 var BREAK_TAG = /<br\b[^<>]*>/i
 // The most pictures one images block holds.
@@ -131,8 +133,9 @@ function splitBlock(group, dir) {
     var found = false
     function flush() {
         var lines = remainder(kept, centred)
-        // A line break between two images starts the next row.
-        var broke = BREAK_TAG.test(kept.join("\n"))
+        // A line break or a block boundary between two images starts the next row.
+        var between = kept.join("\n")
+        var broke = BREAK_TAG.test(between) || BLOCK_BOUNDARY.test(between)
         kept = []
         if (lines.length > 0)
             parts.push({ lines: lines })

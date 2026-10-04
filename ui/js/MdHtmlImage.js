@@ -12,9 +12,11 @@ var WRAPPER_OPEN = /^<(?:p|div)\b[^<>]*>$/i
 var WRAPPER_CLOSE = /^<\/(p|div)>$/i
 // Sample input: '<div class="x">' and '</div>' in a line each count once for div, with the slash captured; '<divider>' counts for none.
 var WRAPPER_NESTING = { p: /<(\/?)p(?=[\s>\/])[^<>]*>/gi, div: /<(\/?)div(?=[\s>\/])[^<>]*>/gi }
+// Sample input: '<p>text <img src="b.png"></p>' holds a second image; '<p>text</p>' and '<imgs>' hold none.
+var SECOND_IMAGE = /<img\b/i
 // Sample input: "<br>" or "<br />" at the start of a line; the image above it already ends its line.
 var LEADING_BREAK = /^\s*(?:<br\s*\/?>\s*)+/i
-// Sample input: " 64", "64px" and "64 " are widths; "50%", "6.4" and "abc" are not.
+// Sample input: " 64", "64px" and "64 " are sizes; "50%", "6.4" and "abc" are not.
 var WIDTH_VALUE = /^\s*(\d{1,4})(?:px)?\s*$/i
 
 // Sample input: '<p align="center">' is centred; '<p>' and '<div align="left">' are not.
@@ -27,7 +29,7 @@ function isCentred(open) {
     return false
 }
 
-// Sample input: '<img src="a.png" width="64" alt="x">' answers an image block with its width; null when the tag draws nothing.
+// Sample input: '<img src="a.png" width="64" height="20" alt="x">' answers an image block with its width and height; null when the tag draws nothing.
 function rawImage(text, dir) {
     var tag = MdHtml.readTag(text, 0)
     if (tag === null)
@@ -39,6 +41,7 @@ function rawImage(text, dir) {
     var src = null
     var alt = null
     var width = null
+    var height = null
     for (var a = 0; a < head.attributes.length; a++) {
         var attr = head.attributes[a]
         var value = attr.value === null ? "" : attr.value
@@ -48,6 +51,8 @@ function rawImage(text, dir) {
             alt = value
         if (attr.name === "width" && width === null)
             width = value
+        if (attr.name === "height" && height === null)
+            height = value
     }
     var cls = MdUrl.classifyImage(src === null ? "" : src, dir)
     if (cls.kind === "remote")
@@ -58,7 +63,31 @@ function rawImage(text, dir) {
     var sized = width === null ? null : WIDTH_VALUE.exec(width)
     if (sized !== null && Number(sized[1]) > 0)
         block.width = Number(sized[1])
+    var tall = height === null ? null : WIDTH_VALUE.exec(height)
+    if (tall !== null && Number(tall[1]) > 0)
+        block.height = Number(tall[1])
     return block
+}
+
+// Sample input: { width: 120 } on a 40x30 picture in a 500 pane answers { w: 120, h: 90, stretch: false }; { width: 70, height: 20 } answers { w: 70, h: 20, stretch: true }.
+// One size rule for a lone picture and a row: a width or height attribute is honoured past the natural size, both name the box, none keeps the natural size; the pane width caps it, the ratio kept.
+function pictureSize(spec, naturalW, naturalH, limit) {
+    var w = spec.width > 0 ? spec.width : 0
+    var h = spec.height > 0 ? spec.height : 0
+    var stretch = w > 0 && h > 0
+    if (w === 0 && h === 0) {
+        w = naturalW
+        h = naturalH
+    } else if (h === 0) {
+        h = naturalW > 0 ? w * naturalH / naturalW : 0
+    } else if (w === 0) {
+        w = naturalH > 0 ? h * naturalW / naturalH : 0
+    }
+    if (w > limit && w > 0) {
+        h = h * limit / w
+        w = limit
+    }
+    return { w: w, h: h, stretch: stretch }
 }
 
 // Sample input: '<a href="https://x/y">' answers "https://x/y"; a javascript: or relative target answers null.
@@ -75,12 +104,15 @@ function linkOf(open) {
 
 // Sample input: lines ['<p>', 'note', '</p>', '</div>'] from 0 for "div" answer { rest: ['<p>', 'note', '</p>'], end: 3 }; a blank line or a missing closer answers null.
 // The lines after a wrapper's image up to the closer of the wrapper's own tag, nested openers of that tag counted, none blank.
+// A line holding another image answers null on the spot (the block is a row the splitter draws whole), so each opener's scan stops at the next image.
 function wrapperTail(lines, from, name) {
     var rest = []
     var depth = 1
     for (var j = from; j < lines.length; j++) {
         var line = lines[j].trim()
         if (line === "")
+            return null
+        if (SECOND_IMAGE.test(line))
             return null
         var closer = WRAPPER_CLOSE.exec(line)
         if (depth === 1 && closer !== null && closer[1].toLowerCase() === name)
@@ -129,9 +161,6 @@ function imageUnit(lines, at, dir) {
             return null
         rest = tail.rest
         last = tail.end
-        // Another image in the wrapper makes the block a row of images, which the block splitter draws whole.
-        if (/<img\b/i.test(rest.join("\n")))
-            return null
     }
     var block = rawImage(parts[3], dir)
     if (block === null)

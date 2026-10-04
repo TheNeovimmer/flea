@@ -78,6 +78,13 @@ printf 'Line one.<br>\nA line after a break.\n' > "$docs/27-break.md"
     done
     printf '</p>\n\nAfter\n'
 } > "$docs/29-badge-wrap.md"
+# One picture size rule for a lone picture and for a row: a width past the natural size, no attribute on a wide picture, and both attributes.
+printf '<p align="center"><img src="img/small.png" width="120" alt="s"></p>\n\nAfter\n' > "$docs/30-grow-single.md"
+printf '<p align="center">\n<img src="img/small.png" width="120" alt="s">\n<img src="img/small.png" width="120" alt="s">\n</p>\n\nAfter\n' > "$docs/31-grow-row.md"
+printf '<p align="center"><img src="img/big.png" alt="b"></p>\n\nAfter\n' > "$docs/32-natural-single.md"
+printf '<p align="center">\n<img src="img/big.png" alt="b">\n<img src="img/badge-a.png" alt="a">\n</p>\n\nAfter\n' > "$docs/33-natural-row.md"
+printf '<p align="center"><img src="img/logo.png" width="70" height="20" alt="l"></p>\n\nAfter\n' > "$docs/34-box-single.md"
+printf '<p align="center">\n<img src="img/logo.png" width="70" height="20" alt="l">\n<img src="img/logo.png" width="70" height="20" alt="l">\n</p>\n\nAfter\n' > "$docs/35-box-row.md"
 doc_list=$(cd "$docs" && ls -- *.md | paste -sd, -)
 
 # The harness ends itself with a kill, so the subshell keeps bash's "Terminated" notice out of the report.

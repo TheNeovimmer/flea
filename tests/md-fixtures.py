@@ -22,9 +22,12 @@ EMPHASIS_PAIRS = 5000
 LARGE_SEED = 38
 # Size of every generated PNG, in pixels.
 PNG_W, PNG_H = 96, 64
-# The badge strip: each picture is this tall and as wide as its letter says, in pixels (tests/markdown-html.js reads the same widths).
+# The badge strip: each picture is this tall and as wide as its letter says, in pixels (tests/markdown-html-pictures.js reads the same widths).
 BADGE_H = 20
 BADGE_WIDTHS = {"a": 70, "b": 110, "c": 90, "d": 130, "w": 120}
+# The picture a width attribute draws past its natural size, and the one wider than any pane (tests/markdown-html-pictures.js reads both).
+SMALL_SIZE = (40, 30)
+BIG_SIZE = (2000, 40)
 
 WORDS = ("alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega "
          "folder window preview render column paragraph heading cursor sidebar thumbnail archive listing watcher settle").split()
@@ -395,6 +398,8 @@ def main(argv):
     png(docs / "img" / "with space.png", (200, 160, 40))
     for letter, width in BADGE_WIDTHS.items():
         png(docs / "img" / ("badge-%s.png" % letter), (200, 120, 60), (width, BADGE_H))
+    png(docs / "img" / "small.png", (60, 140, 200), SMALL_SIZE)
+    png(docs / "img" / "big.png", (200, 160, 40), BIG_SIZE)
     png(docs / "sub" / "deep" / "deeper.png", (60, 180, 100))
     png(root / "shared" / "up.png", (150, 80, 190))
     for name in NAMES:
