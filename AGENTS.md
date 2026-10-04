@@ -7679,6 +7679,8 @@ Pickfix records `tests/picker-grid.qml` 448 to 450 for the real grid stub's mark
 
 038-stage8 2026-10-04 sets seven ceilings back to their files' `wc -l`, because a merge that keeps the larger side's ceiling loosens a row whose file the other side shrank: `ui/TrashView.qml` 475 to 466, `ui/ViewState.qml` 538 to 536, `ui/PermissionsDialog.qml` 680 to 674, `ui/PreviewColumn.qml` 585 to 583, `ui/SettingsRow.qml` 410 to 409, `src/backend/undo.rs` 612 to 606 and `src/backend/undoshare.rs` 431 to 403. `ui/ColumnPane.qml` is 400 lines, inside the global QML cap, so it carries no row.
 
+038-setfocus 2026-10-04 (a focused protocol chip draws its own accent frame where the accent has a hue, A's ring where it has none) moves one ceiling, re-derived with `wc -l`: `ui/Theme.qml` 427 to 433 for the named `hueFloor`, the `accentHasHue` role and its `applyColors` line; the hueless checks sit in the new `tests/button-hueless.qml` at 97 lines, inside the global QML cap.
+
 md3 brings the Markdown view to the RenderedPreviews board's rhythm, each re-derived with `wc -l`:
 `tests/markdown-render.qml` 422 to 493 for the inset, rhythm, heading, line-box, surface, fence-padding and bar
 geometry checks, and `ui/js/MdBlocks.js` at 359 lines (`wc -l`, matching its budget row) for ATX headings as a block of their own. Headings now render bold

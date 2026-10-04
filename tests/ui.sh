@@ -8039,8 +8039,12 @@ EOS
     key -k Tab >/dev/null
     key -k Tab >/dev/null
     key -k Tab >/dev/null
+    settle
+    # networkFocus names fields only, so the chip's focus is shot, not asserted.
+    shot network-chip-focus
     key -k Return >/dev/null
     settle
+    shot network-chip-picked-focus
     [[ "$(ipc networkUri)" == "sftp://uu@hh/ss" ]] \
         || fail "network: Enter on a tabbed-to chip did not pick SFTP, URI is $(ipc networkUri)"
 

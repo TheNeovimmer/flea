@@ -19,7 +19,7 @@ for name in OpenWithDialog ConvertDialog PermissionsDialog; do
 done
 # A set's current member takes a foreground frame and foreground text and the rest muted ones: SettingsSegment.qml:38 ships it, and a protocol member is the one control as a set member.
 grep -q 'border.color: segment.current ? Theme.color.foreground : Theme.color.muted' ui/SettingsSegment.qml || fail 'ui/SettingsSegment.qml: the set member recipe moved'
-grep -q 'readonly property color frame: root.setMember ? (root.current ? Theme.color.foreground : Theme.color.muted)' ui/DialogButton.qml || fail 'ui/DialogButton.qml: the set member recipe moved'
+grep -q 'readonly property color frame: root.setMember ? (root.focused && root.available && root.accentFocus ? Theme.color.accent : root.current ? Theme.color.foreground : Theme.color.muted)' ui/DialogButton.qml || fail 'ui/DialogButton.qml: the set member recipe moved'
 grep -q 'setMember: true' ui/ProtocolChip.qml || fail 'ui/ProtocolChip.qml is no longer a set member of the one control'
 # The picker's answers are the one control and its marks are Tier A chrome marks; only the filter chips keep Framed.
 grep -q 'component Answer: Flea.DialogButton' ui/PickerChrome.qml || fail 'ui/PickerChrome.qml: the answers are no longer the one control'
@@ -66,7 +66,7 @@ chmod 700 "$test_root/runtime" || exit 1
 # The outer cap, passed to the harness as BUTTONSYS_TIMEOUT_S so its own cap, half of it, lands first.
 run_timeout_s=60
 # Each harness runs in its own config dir with the same pinned roots: "<qml file>:<report tag>:<checks a full green run makes>".
-harnesses="button-system.qml:BUTTONSYS:110 button-members.qml:MEMBERS:130"
+harnesses="button-system.qml:BUTTONSYS:110 button-members.qml:MEMBERS:135 button-hueless.qml:HUELESS:11"
 total=0
 verdict_output=""
 for spec in $harnesses; do
