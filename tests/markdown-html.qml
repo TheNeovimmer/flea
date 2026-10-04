@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 import "markdown-html.js" as Checks
+import "markdown-html-pictures.js" as Pictures
 
 // tests/markdown-html.sh's harness: each fixture document through the real ui/PreviewMarkdown.qml, grabbed offscreen and judged on what it draws.
 ShellRoot {
@@ -92,18 +93,43 @@ ShellRoot {
         return { x: p.x, y: p.y, w: item.width, h: item.height }
     }
 
+    // The pictures of one delegate, the badge row's own included: a row is an item holding an images list, and its children are the pictures.
+    function pictures(item) {
+        var found = []
+        for (var k = 0; k < item.children.length; k++) {
+            var kid = item.children[k]
+            if (kid.visible && kid.status !== undefined && kid.paintedWidth !== undefined)
+                found.push(kid)
+            else if (kid.visible && kid.images !== undefined)
+                found = found.concat(pictures(kid))
+        }
+        return found
+    }
+
     function imagesReady() {
         for (var i = 0; i < md.blockList.length; i++) {
             var item = md.blockItem(i)
             if (!item)
                 continue
-            for (var k = 0; k < item.children.length; k++) {
-                var kid = item.children[k]
-                if (kid.visible && kid.status !== undefined && kid.paintedWidth !== undefined && kid.status !== Image.Ready)
+            var pics = pictures(item)
+            for (var k = 0; k < pics.length; k++) {
+                if (pics[k].status !== Image.Ready)
                     return false
             }
         }
         return true
+    }
+
+    // One row picture's link and whether a tap and a hover handler answer for it.
+    function linkOf(pic) {
+        var tap = false, hover = false
+        for (var d = 0; d < pic.data.length; d++) {
+            if (pic.data[d].gesturePolicy !== undefined)
+                tap = tap || pic.data[d].enabled
+            if (pic.data[d].cursorShape !== undefined)
+                hover = hover || pic.data[d].enabled
+        }
+        return { link: pic.spec.link === undefined ? "" : pic.spec.link, tap: tap, hover: hover }
     }
 
     function next() {
@@ -161,8 +187,9 @@ ShellRoot {
             var b = md.blockList[i]
             var r = rectOf(i)
             plainProbe.text = b.type === "run" ? String(b.text) : ""
+            var row = b.type === "images" ? shell.pictures(md.blockItem(i)).map(shell.linkOf) : []
             blocks.push({ type: b.type, text: b.text, width: b.width, align: b.align, x: r.x, y: r.y, w: r.w, h: r.h,
-                plain: plainProbe.getText(0, plainProbe.length) })
+                plain: plainProbe.getText(0, plainProbe.length), row: row })
         }
         var notice = md.noticeItem === undefined ? null : md.noticeItem
         var noticeRect = notice !== null && notice.visible ? { x: notice.x, y: notice.y, w: notice.width, h: notice.height } : null
@@ -204,7 +231,7 @@ ShellRoot {
     function finish() {
         shell.done = true
         var chromeEqualsGround = String(md.chromeHex).toLowerCase() === "#101315"
-        var results = Checks.verdict(allFacts)
+        var results = Checks.verdict(allFacts).concat(Pictures.verdict(allFacts))
         if (chromeEqualsGround)
             results.push(["the theme chrome differs from the harness ground", false])
         var failures = 0

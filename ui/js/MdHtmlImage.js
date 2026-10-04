@@ -6,8 +6,12 @@
 
 // Sample input: '<p align="center"><a href="https://x"><img src="a.png"></a></p>' splits into wrapper, link, image, link end and closer.
 var IMAGE_LINE = /^(<(?:p|div)\b[^<>]*>)?\s*(<a\b[^<>]*>)?\s*(<img\b[^<>]*>)\s*(<\/a>)?\s*(<\/(?:p|div)>)?$/i
+// Sample input: '<div align="center">' and '<p>' open a wrapper; '<div>text' and '<span>' do not.
 var WRAPPER_OPEN = /^<(?:p|div)\b[^<>]*>$/i
-var WRAPPER_CLOSE = /^<\/(?:p|div)>$/i
+// Sample input: '</div>' and '</P>' close a wrapper and answer its tag name; '</div> text' does not.
+var WRAPPER_CLOSE = /^<\/(p|div)>$/i
+// Sample input: '<div class="x">' and '</div>' in a line each count once for div, with the slash captured; '<divider>' counts for none.
+var WRAPPER_NESTING = { p: /<(\/?)p(?=[\s>\/])[^<>]*>/gi, div: /<(\/?)div(?=[\s>\/])[^<>]*>/gi }
 // Sample input: "<br>" or "<br />" at the start of a line; the image above it already ends its line.
 var LEADING_BREAK = /^\s*(?:<br\s*\/?>\s*)+/i
 // Sample input: " 64", "64px" and "64 " are widths; "50%", "6.4" and "abc" are not.
@@ -69,14 +73,24 @@ function linkOf(open) {
     return null
 }
 
-// The lines after a wrapper's image up to its closer, none blank: { rest, end }, or null when the closer is missing.
-function wrapperTail(lines, from) {
+// Sample input: lines ['<p>', 'note', '</p>', '</div>'] from 0 for "div" answer { rest: ['<p>', 'note', '</p>'], end: 3 }; a blank line or a missing closer answers null.
+// The lines after a wrapper's image up to the closer of the wrapper's own tag, nested openers of that tag counted, none blank.
+function wrapperTail(lines, from, name) {
     var rest = []
+    var depth = 1
     for (var j = from; j < lines.length; j++) {
         var line = lines[j].trim()
-        if (WRAPPER_CLOSE.test(line))
-            return { rest: rest, end: j }
         if (line === "")
+            return null
+        var closer = WRAPPER_CLOSE.exec(line)
+        if (depth === 1 && closer !== null && closer[1].toLowerCase() === name)
+            return { rest: rest, end: j }
+        line.replace(WRAPPER_NESTING[name], function (tag, slash) {
+            depth += slash === "/" ? -1 : 1
+            return tag
+        })
+        // A closer sharing its line with text, or one with no opener, ends the wrapper where no unit can follow.
+        if (depth < 1)
             return null
         rest.push(line)
     }
@@ -104,13 +118,20 @@ function imageUnit(lines, at, dir) {
     }
     if ((parts[2] === undefined) !== (parts[4] === undefined))
         return null
+    var name = MdHtml.tagHead(open).name
     var rest = []
-    if (parts[5] === undefined) {
-        var tail = wrapperTail(lines, last + 1)
+    if (parts[5] !== undefined) {
+        if (WRAPPER_CLOSE.exec(parts[5])[1].toLowerCase() !== name)
+            return null
+    } else {
+        var tail = wrapperTail(lines, last + 1, name)
         if (tail === null)
             return null
         rest = tail.rest
         last = tail.end
+        // Another image in the wrapper makes the block a row of images, which the block splitter draws whole.
+        if (/<img\b/i.test(rest.join("\n")))
+            return null
     }
     var block = rawImage(parts[3], dir)
     if (block === null)
@@ -126,6 +147,5 @@ function imageUnit(lines, at, dir) {
         if (rest[r].length > 0)
             shown.push(rest[r])
     }
-    var name = MdHtml.tagHead(open).name
     return { block: block, end: last, wrapper: shown.length === 0 ? [] : [open + shown.join("\n") + "</" + name + ">"] }
 }

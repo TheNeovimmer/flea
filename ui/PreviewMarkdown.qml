@@ -502,7 +502,9 @@ Item {
                 : block.type === "quote" ? quoteRow.height
                 : block.type === "remote" ? remoteBox.height
                 : block.type === "list" ? listGrid.height + listGrid.y
-                : block.type === "table" ? tableGrid.height + tableGrid.y : localImage.height
+                : block.type === "table" ? tableGrid.height + tableGrid.y
+                // A picture followed by another block keeps the pane's block gap under it too, as a paragraph does, so what follows never touches it.
+                : (block.type === "images" ? imageRow.height : localImage.height) + (blockDelegate.blockIndex < root.blockList.length - 1 ? root.blockGap : 0)
 
                     // Headings use the prescribed bold text size and line box.
                     Flea.MarkdownText {
@@ -835,6 +837,16 @@ Item {
                         }
                     }
 
+                    Flea.MarkdownImages {
+                        id: imageRow
+                        visible: block.type === "images"
+                        width: parent.width
+                        images: block.type === "images" ? block.items : []
+                        centred: block.type === "images" && block.align === "center"
+                        gap: root.blockGap
+                        linkGate: Markdown.isExternalLink
+                    }
+
                     Image {
                         id: localImage
                         visible: block.type === "image"
@@ -850,7 +862,7 @@ Item {
                         source: block.type === "image" ? block.url : ""
 
                         // A logo wrapped in a link opens it through the pane's link gate.
-                        TapHandler { enabled: block.link !== undefined; onTapped: if (Markdown.isExternalLink(block.link)) Qt.openUrlExternally(block.link) }
+                        TapHandler { enabled: block.link !== undefined; gesturePolicy: TapHandler.ReleaseWithinBounds; onTapped: if (Markdown.isExternalLink(block.link)) Qt.openUrlExternally(block.link) }
                         HoverHandler { enabled: block.link !== undefined; cursorShape: Qt.PointingHandCursor }
                     }
                 }

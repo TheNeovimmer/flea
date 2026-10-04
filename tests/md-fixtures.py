@@ -22,25 +22,29 @@ EMPHASIS_PAIRS = 5000
 LARGE_SEED = 38
 # Size of every generated PNG, in pixels.
 PNG_W, PNG_H = 96, 64
+# The badge strip: each picture is this tall and as wide as its letter says, in pixels (tests/markdown-html.js reads the same widths).
+BADGE_H = 20
+BADGE_WIDTHS = {"a": 70, "b": 110, "c": 90, "d": 130, "w": 120}
 
 WORDS = ("alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega "
          "folder window preview render column paragraph heading cursor sidebar thumbnail archive listing watcher settle").split()
 
 
-def png(path, rgb):
+def png(path, rgb, size=(PNG_W, PNG_H)):
     """A solid colour with a diagonal gradient, written as a valid PNG with the standard library only."""
+    width, height = size
     rows = bytearray()
-    for y in range(PNG_H):
+    for y in range(height):
         rows.append(0)
-        for x in range(PNG_W):
-            shade = (x + y) * 255 // (PNG_W + PNG_H)
+        for x in range(width):
+            shade = (x + y) * 255 // (width + height)
             rows += bytes(((rgb[0] + shade) // 2, (rgb[1] + shade) // 2, (rgb[2] + shade) // 2))
 
     def chunk(tag, data):
         body = tag + data
         return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
 
-    head = struct.pack(">IIBBBBB", PNG_W, PNG_H, 8, 2, 0, 0, 0)
+    head = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
     path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", head) + chunk(b"IDAT", zlib.compress(bytes(rows), 6)) + chunk(b"IEND", b""))
 
 
@@ -389,6 +393,8 @@ def main(argv):
     png(docs / "img" / "logo.png", (200, 60, 60))
     png(docs / "img" / "local.png", (60, 140, 200))
     png(docs / "img" / "with space.png", (200, 160, 40))
+    for letter, width in BADGE_WIDTHS.items():
+        png(docs / "img" / ("badge-%s.png" % letter), (200, 120, 60), (width, BADGE_H))
     png(docs / "sub" / "deep" / "deeper.png", (60, 180, 100))
     png(root / "shared" / "up.png", (150, 80, 190))
     for name in NAMES:

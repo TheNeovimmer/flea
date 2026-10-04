@@ -1,4 +1,5 @@
 .import "../../ui/js/Markdown.js" as Markdown
+.import "../../ui/js/MdHtmlImage.js" as HtmlImage
 
 // GitHub's sanitized raw HTML subset and the nesting cap, as the parser hands them to the pane.
 function run(check) {
@@ -70,13 +71,20 @@ function run(check) {
     check("H14 an image in a table cell leaves the HTML block as an image block", cell.map(function (b) { return b.type }).join(","), "image,run")
     check("H14 no Markdown image text is left in an HTML block", JSON.stringify(cell).indexOf("!["), -1)
     var badges = blocks('<p align="center">\n<a href="' + url + '"><img src="img/logo.png" alt="a"></a>\n<a href="' + url + 'y"><img src="img/logo.png" alt="b"></a>\n</p>')
-    check("H14 two linked badges in one block are two linked image blocks", badges.map(function (b) { return b.type + ":" + b.link }).join(","), "image:" + url + ",image:" + url + "y")
+    check("H14 two linked badges in one block are one row, each linked", badges.map(function (b) { return b.type }).join(",") + ":" + (at(badges, 0).items || []).map(function (i) { return i.link }).join(","),
+        "images:" + url + "," + url + "y")
     var open = blocks('<p align="center"><img src="img/logo.png" width="64" alt="logo">\n<br><b>Name</b>\n</p>\n\nAfter')
     check("H15 an opener with the image and the closer later is the image then a centred run", open.map(function (b) { return b.type }).join(","), "image,run")
     check("H15 the rest of the wrapper is a centred paragraph with no leading break", at(open, 1).text, '<p align="center"><b>Name</b></p>\n\nAfter')
     var empty = blocks('<p align=center><img src="img/logo.png" width="64">\n</p>\n\nAfter')
     check("H15 a wrapper holding only the image leaves no empty or closer-only run", empty.map(function (b) { return b.type + ":" + String(b.text).trim() }).join(","), "image:undefined,run:After")
-    check("H15 an opener with no closer is no unit and draws no stray closer", JSON.stringify(blocks('<p align="center"><img src="img/logo.png">\n\nAfter')).indexOf("</p>"), -1)
+    var noCloser = ['<p align="center"><img src="img/logo.png">', "", "After"]
+    check("H15 an opener with no closer is no unit", HtmlImage.imageUnit(noCloser, 0, dir), null)
+    check("H15 and draws no closer of its own", JSON.stringify(blocks(noCloser.join("\n"))).indexOf("</p>"), -1)
+    // The closer shares a line with text, so the unit declines and the importer path draws one balanced paragraph.
+    var shared = ['<p align="center"><img src="img/logo.png">', "<b>Name</b></p>", "", "After"]
+    check("H15 a closer that shares its line with text is no unit", HtmlImage.imageUnit(shared, 0, dir), null)
+    check("H15 the stray closer is drawn once, balanced with its centring wrapper", runs(shared.join("\n")), '<p align="center"><b>Name</b></p>\n\nAfter')
     check("H16 an inline image in a paragraph stays inline", types('text <a href="' + url + '"><img src="img/logo.png"></a> tail'), "run")
     check("H4 a width past the pane is kept for the pane to clamp", at(blocks('<img src="img/logo.png" width="5000">'), 0).width, 5000)
     check("H17 a heading and a paragraph on adjacent lines are two runs", types('<h1 align="center">Flea</h1>\n<p align="center"><b>A file manager</b> for <i>Omarchy</i></p>'), "run,run")

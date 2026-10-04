@@ -20,6 +20,7 @@ PreviewLines 1.0 PreviewLines.qml
 PreviewMarkdown 1.0 PreviewMarkdown.qml
 MarkdownPane 1.0 MarkdownPane.qml
 MarkdownText 1.0 MarkdownText.qml
+MarkdownImages 1.0 MarkdownImages.qml
 MarkdownFigure 1.0 MarkdownFigure.qml
 singleton FigureService 1.0 FigureService.qml
 PreviewPdf 1.0 PreviewPdf.qml

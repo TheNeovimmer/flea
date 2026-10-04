@@ -6,23 +6,44 @@
 
 // The names CommonMark starts an HTML block with, and one complete tag alone on its line, which starts one only outside a paragraph.
 var BLOCK_NAMES = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|section|source|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul"
+// Sample input: '<div align="center">' and '  </table>' start an HTML block; '<span>x</span>' and 'text <div>' do not.
 var BLOCK_START = new RegExp("^ {0,3}<\\/?(?:" + BLOCK_NAMES + ")(?:[\\s>]|\\/>|$)", "i")
+// Sample input: '<a href="x">' and '</span>' alone on a line are complete tags; '<a href="x">text' is not.
 var COMPLETE_TAG = /^ {0,3}(?:<[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?\/?>|<\/[A-Za-z][A-Za-z0-9-]*\s*>)\s*$/
+// Sample input: 'x <a href="https://y">' ends with a link opener, which the text before an image holds when the image sits in a link.
 var LINK_BEFORE = /<a\b[^<>]*>\s*$/i
-var LINK_AFTER = /^\s*<\/a>/i
+// Sample input: '</a>' and '</A>' close the link around an image; the four characters after the image are tested against it.
+var LINK_CLOSE = /^<\/a>$/i
+var LINK_CLOSE_LENGTH = "</a>".length
+// Sample input: 'A<IMG' holds the capital letters asciiLower lowers, by their distance from lower case.
+var UPPER_ASCII = /[A-Z]/g
+var CASE_OFFSET = "a".charCodeAt(0) - "A".charCodeAt(0)
+// Sample input: '<p align="center"><b>x</b>' and '<center>' open a block that may centre; '<span>' and 'text' do not.
 var CENTRED_OPEN = /^\s*<(?:p|div|center)\b[^<>]*>/i
+// Sample input: 'a <div>b</div>' and '<h1 align="center">' hold a block tag that centres itself; '<b>x</b>' holds none.
 var BLOCK_TAG = /<(?:p|div|h[1-6]|table|ul|ol|blockquote|pre)\b/i
+// Sample input: '<br>' and '<BR />' break a line.
+var BREAK_TAG = /<br\b[^<>]*>/i
+// The most pictures one images block holds.
+var ROW_IMAGE_CAP = 64
 var CENTRED_WRAP = '<p align="center">'
 // The elements that start their own line, and the ones that nest and so are counted open and closed.
+// Sample input: '<h1 align="center">Flea</h1>' and '  <details open>' start a line of their own; '<b>x</b>' does not.
 var LINE_OPENER = /^ {0,3}<(?:p|div|h[1-6]|details|summary|hr|table|ul|ol|blockquote|pre)(?=[\s>\/])/i
+// Sample input: '<div class="x">' answers slash "" and '</div>' answers "/"; '<b>' and '<divider>' match nothing.
 var NESTING_TAG = /<(\/?)(?:p|div|h[1-6]|details|summary|table|ul|ol|blockquote|pre)(?=[\s>\/])[^<>]*>/gi
+// Sample input: '<b>' answers slash "" and name "b"; '</p>' answers "/" and "p"; text with no angle bracket matches nothing.
 var ANY_TAG = /<(\/?)([A-Za-z][A-Za-z0-9]*)[^<>]*>/g
 
-// Sample input: '<td><img src="a.png"></td>' at 0 answers { start: 4, end: 24, block }; remote and unreadable images answer null.
-function findImage(line, dir) {
-    var lower = line.toLowerCase()
-    var dead = { tagDead: -1 }
-    var at = lower.indexOf("<img")
+// Sample input: '<IMG SRC>' after a U+0130 answers '<img src>'; only A to Z change, so an index in the answer is an index in the text.
+function asciiLower(text) {
+    return text.replace(UPPER_ASCII, function (letter) { return String.fromCharCode(letter.charCodeAt(0) + CASE_OFFSET) })
+}
+
+// Sample input: '<td><img src="a.png"></td>' from 0 answers { start: 4, end: 24, block }; remote and unreadable images answer null.
+// lower is the line in asciiLower form and dead its tag cache, made once per line, so a row of many images costs one pass.
+function findImage(line, lower, from, dead, dir) {
+    var at = lower.indexOf("<img", from)
     while (at >= 0) {
         var tag = MdHtml.readTag(line, at, dead)
         var block = tag === null ? null : HtmlImage.rawImage(tag.tag, dir)
@@ -57,7 +78,8 @@ function remainder(kept, centred) {
     // A line that holds a block tag of its own centres itself; wrapping it would nest the paragraphs.
     var nests = false
     for (var i = 0; i < split.length; i++) {
-        if (split[i].replace(ANY_TAG, "").trim().length === 0 && !/<hr\b/i.test(split[i]))
+        // A line holding an image the splitter did not take (a remote one) draws its placeholder, so it stays.
+        if (split[i].replace(ANY_TAG, "").trim().length === 0 && !/<(?:hr|img)\b/i.test(split[i]))
             continue
         lines.push(split[i])
         nests = nests || BLOCK_TAG.test(split[i])
@@ -65,6 +87,40 @@ function remainder(kept, centred) {
     if (lines.length > 0)
         lines[0] = lines[0].replace(HtmlImage.LEADING_BREAK, "")
     return lines.length === 0 ? [] : centred && !nests ? [CENTRED_WRAP + lines.join("\n") + "</p>"] : lines
+}
+
+// Sample input: images a and b with nothing between them answer [{ block: { type: "images", items: [a, b] } }]; one image, text or a row break keeps them apart.
+// A row longer than ROW_IMAGE_CAP continues in the next block, so no block builds an unbounded number of pictures at once.
+function imageRows(parts) {
+    var out = []
+    var row = []
+    function close() {
+        for (var at = 0; at < row.length; at += ROW_IMAGE_CAP) {
+            var items = row.slice(at, at + ROW_IMAGE_CAP)
+            if (items.length === 1) {
+                out.push({ block: items[0] })
+                continue
+            }
+            var rows = { type: "images", items: items }
+            if (items[0].align !== undefined)
+                rows.align = items[0].align
+            for (var r = 0; r < items.length; r++)
+                delete items[r].align
+            out.push({ block: rows })
+        }
+        row = []
+    }
+    for (var i = 0; i < parts.length; i++) {
+        if (parts[i].block !== undefined) {
+            row.push(parts[i].block)
+        } else {
+            close()
+            if (parts[i].lines !== undefined)
+                out.push(parts[i])
+        }
+    }
+    close()
+    return out
 }
 
 // One HTML block's lines as parts, each a { lines } to parse or a { block } image; the block's wrappers do not outlive its image.
@@ -75,21 +131,33 @@ function splitBlock(group, dir) {
     var found = false
     function flush() {
         var lines = remainder(kept, centred)
+        // A line break between two images starts the next row.
+        var broke = BREAK_TAG.test(kept.join("\n"))
         kept = []
         if (lines.length > 0)
             parts.push({ lines: lines })
+        else if (broke)
+            parts.push({ rowBreak: true })
     }
     for (var i = 0; i < group.length; i++) {
         var line = group[i]
-        for (var hit = findImage(line, dir); hit !== null; hit = findImage(line, dir)) {
-            var before = line.slice(0, hit.start)
-            var after = line.slice(hit.end)
+        var lower = asciiLower(line)
+        var dead = { tagDead: -1 }
+        // The scan walks the line by position, so a line of many images is cut once, never once per image.
+        var from = 0
+        for (var hit = findImage(line, lower, from, dead, dir); hit !== null; hit = findImage(line, lower, from, dead, dir)) {
+            var before = line.slice(from, hit.start)
             var wrap = LINK_BEFORE.exec(before)
-            if (wrap !== null && LINK_AFTER.test(after)) {
+            // The link closer follows the image after optional whitespace.
+            var next = hit.end
+            while (next < line.length && /\s/.test(line.charAt(next)))
+                next++
+            from = hit.end
+            if (wrap !== null && LINK_CLOSE.test(line.slice(next, next + LINK_CLOSE_LENGTH))) {
                 if (HtmlImage.linkOf(wrap[0]) !== null)
                     hit.block.link = HtmlImage.linkOf(wrap[0])
                 before = before.slice(0, wrap.index)
-                after = after.replace(LINK_AFTER, "")
+                from = next + LINK_CLOSE_LENGTH
             }
             kept.push(before)
             flush()
@@ -97,12 +165,11 @@ function splitBlock(group, dir) {
                 hit.block.align = "center"
             parts.push({ block: hit.block })
             found = true
-            line = after
         }
-        kept.push(line)
+        kept.push(line.slice(from))
     }
     flush()
-    return found ? parts : [{ lines: group }]
+    return found ? imageRows(parts) : [{ lines: group }]
 }
 
 // Sample input: ['<table><tr><td><img src="a.png"></td></tr></table>'] answers [{ block }]; a paragraph's inline image stays in its lines.

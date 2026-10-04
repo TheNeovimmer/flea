@@ -20,7 +20,7 @@ ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/markdown-html.qml "$test_root/config/shell.qml" || exit 1
-cp tests/markdown-html.js "$test_root/config/" || exit 1
+cp tests/markdown-html.js tests/markdown-html-pictures.js "$test_root/config/" || exit 1
 
 # The head-to-head fixtures: fifteen documents, the logo and the 400-deep pathological one among them.
 python3 tests/md-fixtures.py "$test_root/fx" > "$test_root/names" || exit 1
@@ -63,6 +63,21 @@ Hidden body text.
 <div align="right">Right aligned</div>
 MD
 printf 'Line one.<br>\nA line after a break.\n' > "$docs/27-break.md"
+# A centred badge row of four linked pictures of different widths, and one row wider than the pane that wraps.
+{
+    printf '<p align="center">\n'
+    for letter in a b c d; do
+        printf '<a href="https://example.com/%s"><img src="img/badge-%s.png" alt="%s"></a>\n' "$letter" "$letter" "$letter"
+    done
+    printf '</p>\n\nAfter\n'
+} > "$docs/28-badge-row.md"
+{
+    printf '<p align="center">\n'
+    for n in 1 2 3 4 5 6; do
+        printf '<a href="https://example.com/w%s"><img src="img/badge-w.png" alt="w%s"></a>\n' "$n" "$n"
+    done
+    printf '</p>\n\nAfter\n'
+} > "$docs/29-badge-wrap.md"
 doc_list=$(cd "$docs" && ls -- *.md | paste -sd, -)
 
 # The harness ends itself with a kill, so the subshell keeps bash's "Terminated" notice out of the report.
