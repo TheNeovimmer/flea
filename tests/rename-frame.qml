@@ -142,6 +142,11 @@ ShellRoot {
         var text = field.mapToItem(frame, 0, 0)
         root.check(text.x === root.gap, tag + " text starts " + text.x + " inside the frame, not one gap " + root.gap)
         if (found.column) {
+            // The row hides its own name, so nothing but the row's wash lies under the editor: no ground of another shade.
+            var named = cell.children.filter(function (c) { return c.visible && c.text !== undefined && String(c.text).indexOf(host.target) >= 0 })
+            root.check(cell.renaming === true && named.length === 0, tag + " the row still draws its name under the editor")
+            var grounds = cell.parent.children.filter(function (c) { return c.visible && String(c).indexOf("QQuickRectangle") === 0 && Checks.overlaps(scene, Checks.sceneBox(c)) })
+            root.check(grounds.length === 0, tag + " " + grounds.length + " item(s) besides the row lie under the editor: " + grounds.join(","))
             var cells = root.trailing(cell)
             root.check(cells[0].width > 0, tag + " the size cell is empty, so the trailing cell was not measured")
             root.check(host.target !== "sub" || cells.length === 2, tag + " the chosen folder draws no chevron")

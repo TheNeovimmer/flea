@@ -56,6 +56,8 @@ Item {
 
     // ui/ColumnPane.qml sets it on the renaming (cursor) row: the error line pushes the rows below down as ui/Row.qml's does.
     property real errorGrowth: 0
+    // Set by ui/ColumnPane.qml while its editor stands over this row, so the name under it is not drawn twice.
+    property bool renaming: false
     // The editor is drawn over the row by ui/ColumnPane.qml, so its y is plain arithmetic on this row height.
     implicitHeight: Theme.fileRowHeight + root.errorGrowth
 
@@ -139,6 +141,7 @@ Item {
         anchors.right: sizeCell.left
         anchors.rightMargin: (root.showSize ? Theme.spacing.gap : 0) + (root.clipMark.length > 0 ? Theme.spacing.gap + root.clipPx : 0)
         anchors.verticalCenter: line.verticalCenter
+        visible: !root.renaming
         text: root.row && root.nameBudget >= 0 ? Format.middleElide(root.row.n, Math.max(0, root.nameBudget - (root.clipMark.length > 0 ? Math.ceil((Theme.spacing.gap + root.clipPx) / Theme.bodyAdvance) : 0))) : (root.row ? root.row.n : "")
         color: root.ink
         font.family: Theme.font.family
