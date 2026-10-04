@@ -28,7 +28,7 @@ const MAX_ADVANCE_EM = {
 };
 const ASCII_LIMIT = 0x7f;
 const LABEL_FONT_PX = 13;
-// A label of twelve narrow glyphs reaches 125 less about 75 at 13 px, inside these bounds with the stroke pad.
+// A centred label of twelve narrow glyphs at 13 px reaches 125 less about 50, so about 75, inside these bounds with the stroke pad.
 const NARROW_FLOOR = 70;
 const NARROW_CEILING = 76;
 const failures = [];
