@@ -194,6 +194,17 @@ if [ -n "${FLEA_CI_SUITE_LOGS:-}" ] && [ -f "$test_root/runtime/markdown-figflus
     cp "$test_root/runtime/markdown-figflush.png" "$FLEA_CI_SUITE_LOGS/markdown-figflush.png" || exit 1
 fi
 
+# The canvas trim over real library output and hand-built shapes: no broken viewBox, no label cut, tspan lines read.
+tighten_output=$(timeout 45 "$qjs" tests/markdown-figtighten.mjs 2>&1)
+tighten_status=$?
+expected_tighten_checks=25 # Four unreadable texts, tspan lines, two real multi-line figures, wide and narrow labels and a long CJK message.
+# Sample input: MARKDOWN_FIGTIGHTEN 25 checks, 0 failed
+if [ "$tighten_status" -ne 0 ] || ! printf '%s\n' "$tighten_output" | grep -qE "^MARKDOWN_FIGTIGHTEN $expected_tighten_checks checks, 0 failed$"; then
+    printf 'FAIL markdown-figures-render: figtighten expected %s checks, 0 failed; exited %s; arrived [%s]\n' "$expected_tighten_checks" "$tighten_status" "${tighten_output:-<empty>}" >&2
+    exit 1
+fi
+printf '%s\n' "$tighten_output" | head -1
+
 # The parsed positions read stdout alone; stderr goes to a file and prints on failure.
 paths_output=$("$qjs" tests/markdown-figures-render-paths.mjs 2>"$test_root/paths-stderr.log")
 paths_status=$?

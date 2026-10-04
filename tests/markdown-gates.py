@@ -84,8 +84,35 @@ shot() { printf 'SHOT %s\\n' "$1"; }
 switch_view() { :; }
 kill_flea() { :; }
 window_box() { echo '0 0 800 600'; }
-omarchy-drive() { :; }
-ydotool() { :; }
+# Sample input: omarchy-drive move 714 50 puts the pointer on the 24 px close button the surface rect and chrome height imply.
+hit=false
+held=false
+scroll_y=0
+scroll_max=5760
+close_reach=12
+bar_reach=10
+omarchy-drive() {
+    case "$1" in
+        move)
+            hit=false
+            if [ "$2" -ge $((MD_GATE_CLOSE_X - close_reach)) ] && [ "$2" -le $((MD_GATE_CLOSE_X + close_reach)) ] \
+                    && [ "$3" -ge $((50 - bar_reach)) ] && [ "$3" -le $((50 + bar_reach)) ]; then hit=true; fi ;;
+        scroll)
+            [ -z "${MD_GATE_SCROLL_FAIL:-}" ] || return 1
+            [ -z "${MD_GATE_NO_SCROLL:-}" ] || return 0
+            if [ "$2" = down ]; then scroll_y=$((scroll_y + $3 * 288)); else scroll_y=$((scroll_y - $3 * 288)); fi
+            [ "$scroll_y" -ge 0 ] || scroll_y=0
+            [ "$scroll_y" -le "$scroll_max" ] || scroll_y=$scroll_max ;;
+    esac
+}
+# Sample input: ydotool click 0x40 presses the left button, 0x80 releases it, 0xC0 does both.
+ydotool() {
+    case "$2" in
+        0x40) if $hit; then held=true; fi ;;
+        0x80) if $held && $hit && [ -z "${MD_GATE_CLOSE_DEAD:-}" ]; then opened=false; fi; held=false ;;
+        0xC0) if $hit && [ -z "${MD_GATE_CLOSE_DEAD:-}" ]; then opened=false; fi ;;
+    esac
+}
 XDG_RUNTIME_DIR=$MD_GATE_FIXTURE
 seq() { echo 1; }
 sleep() { :; }
@@ -106,12 +133,15 @@ ipc() {
         columnMarkdownView) echo "$MD_GATE_COLUMN_VIEW" ;;
         previewSurfaceRect) echo '40 40 700 500' ;;
         chromeHeight) echo 20 ;;
+        previewClosePressed) echo "$held" ;;
+        previewScrollY) echo "$scroll_y" ;;
     esac
 }
 . "$MD_GATE_CAPTURE"
 case_cap_markdown
 ''')
-    env = dict(os.environ, MD_GATE_FIXTURE=str(fixture), MD_GATE_CAPTURE=str(REPO / "tests/ui-captures-markdown.sh"))
+    env = dict(os.environ, MD_GATE_FIXTURE=str(fixture), MD_GATE_CAPTURE=str(REPO / "tests/ui-captures-markdown.sh"),
+               MD_GATE_CLOSE_X="714")
     for view in ["rendered", "source"]:
         env["MD_GATE_COLUMN_VIEW"] = view
         result = subprocess.run(["/bin/bash", str(capture)], env=env, text=True,
@@ -124,6 +154,19 @@ case_cap_markdown
             check(result.returncode == 0 and "SHOT cap-markdown-column-after-flip" in result.stdout
                   and "column-after-flip=ok" in result.stdout,
                   "md3z F5 Rendered column captured after IPC proof")
+
+    # The close-button and scroll steps each refuse on the evidence they lack, and the faithful stub passes them all.
+    env["MD_GATE_COLUMN_VIEW"] = "rendered"
+
+    def refusal(extra, text, label):
+        result = subprocess.run(["/bin/bash", str(capture)], env=dict(env, **extra), text=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=PROBE_TIMEOUT_SECONDS)
+        check(result.returncode != 0 and ("REFUSED " + text) in result.stdout and "CAPMARKDOWN quicklook=ok" not in result.stdout, label)
+
+    refusal({"MD_GATE_CLOSE_X": "600"}, "capmarkdown: the press did not land on the close button", "mdfid B2 a press that misses the close button is refused")
+    refusal({"MD_GATE_CLOSE_DEAD": "1"}, "capmarkdown: a press and release on the close button did not close Quick Look", "mdfid B2 a close button that never closes is refused")
+    refusal({"MD_GATE_NO_SCROLL": "1"}, "capmarkdown: the wheel did not move the view", "mdfid B4 a scroll that moves nothing is refused")
+    refusal({"MD_GATE_SCROLL_FAIL": "1"}, "capmarkdown: scroll down", "mdfid B4 a failed scroll call is refused")
 
 print(f"MARKDOWN_GATES {checks} checks, {failures} failed")
 raise SystemExit(1 if failures else 0)

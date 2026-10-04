@@ -93,6 +93,8 @@ Item {
         || (root.active && !root.readFailed && file.loaded && root.rawText.length === 0)
 
     readonly property Item bodyItem: body
+    // The offset the wheel moved, in whichever view shows, for Quick Look's IPC.
+    readonly property real scrollY: root.view === Markdown.SOURCE ? sourceFlick.contentY : body.contentY
     // The render suite reads live delegate geometry; only visible blocks plus the cache exist, so offscreen blocks answer null.
     function blockItem(i) {
         var kids = body.contentItem.children

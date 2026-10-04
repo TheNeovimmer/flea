@@ -79,6 +79,12 @@ ShellRoot {
         for (var i = 0; i < shell.captured.length; i++) {
             var rect = shell.captured[i]
             var first = -1
+            // A rect past the grab would read beyond the buffer, and an undefined byte is not bare, so it fails here instead of counting as painted.
+            if (rect.x < 0 || rect.y < 0 || rect.x + rect.w > shell.windowWidth || rect.y + rect.h > shell.windowHeight) {
+                shell.check("block " + rect.name + " spans " + rect.x + "," + rect.y + " " + rect.w + "x" + rect.h + ", outside the "
+                    + shell.windowWidth + "x" + shell.windowHeight + " grab", rect.name + " starts flush on the content edge")
+                continue
+            }
             for (var x = rect.x; x < rect.x + rect.w && first < 0; x++)
                 for (var y = rect.y; y < rect.y + rect.h; y++) {
                     var o = (y * shell.windowWidth + x) * 4

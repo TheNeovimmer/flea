@@ -38,6 +38,15 @@ capmarkdown_pointer() {
     fi
     settle
 }
+# One wheel step run, its exit status kept, and the view proved to have moved: a shot taken after it is a scrolled shot.
+capmarkdown_scroll() {
+    local direction="$1" notches="$2" before after
+    before="$(ipc previewScrollY)"
+    omarchy-drive scroll "$direction" "$notches" >/dev/null || fail "capmarkdown: scroll $direction $notches failed"
+    settle
+    after="$(ipc previewScrollY)"
+    [[ -n "$after" && "$after" != "$before" ]] || fail "capmarkdown: the wheel did not move the view, scrollY stayed [$before] after scroll $direction $notches"
+}
 # 14 px of rowPaddingX plus half of the 24 px hit box.
 capmarkdown_close_inset=26
 # A notch is 288 px; three reach the table and quote region of the fixture, then the tail with the picture and the placeholder.
@@ -121,14 +130,11 @@ PY
     shot "cap-markdown-rendered"
     # Rendered scrolled: the wheel shows the scroll bar on use, so each shot holds it.
     capmarkdown_pointer document
-    omarchy-drive scroll down "$capmarkdown_notches_mid" >/dev/null
-    settle
+    capmarkdown_scroll down "$capmarkdown_notches_mid"
     shot "cap-markdown-rendered-scrolled"
-    omarchy-drive scroll down "$capmarkdown_notches_end" >/dev/null
-    settle
+    capmarkdown_scroll down "$capmarkdown_notches_end"
     shot "cap-markdown-rendered-end"
-    omarchy-drive scroll up "$((capmarkdown_notches_mid + capmarkdown_notches_end))" >/dev/null
-    settle
+    capmarkdown_scroll up "$((capmarkdown_notches_mid + capmarkdown_notches_end))"
     # The close button in each state the bar can show: hover, keyboard focus after Tab, then pressed and released off the button.
     capmarkdown_pointer close
     shot "cap-markdown-close-hover"
@@ -139,16 +145,26 @@ PY
     capmarkdown_pointer close
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 || fail "capmarkdown: pointer press on the close button failed"
     settle
+    [[ "$(ipc previewClosePressed)" == "true" ]] || fail "capmarkdown: the press did not land on the close button"
     shot "cap-markdown-close-press"
     capmarkdown_pointer document
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 || fail "capmarkdown: pointer release failed"
     settle
     [[ "$(ipc previewOpen)" == "true" ]] || fail "capmarkdown: a press released off the close button closed Quick Look"
+    # The control: a press and release both on the close button closes, then Space opens the document again for the Source steps.
+    capmarkdown_pointer close
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0xC0 >/dev/null 2>&1 || fail "capmarkdown: pointer click on the close button failed"
+    settle
+    [[ "$(ipc previewOpen)" == "false" ]] || fail "capmarkdown: a press and release on the close button did not close Quick Look"
+    key -k Space >/dev/null
+    for _attempt in $(seq 1 40); do [[ "$(ipc previewOpen)" == "true" ]] && break; sleep 0.1; done
+    [[ "$(ipc previewOpen)" == "true" ]] || fail "capmarkdown: Space did not reopen Quick Look after the close button closed it"
+    settle
+    capmarkdown_wait_figures >/dev/null
     key r >/dev/null
     settle
     shot "cap-markdown-source"
-    omarchy-drive scroll down "$capmarkdown_notches_mid" >/dev/null
-    settle
+    capmarkdown_scroll down "$capmarkdown_notches_mid"
     shot "cap-markdown-source-scrolled"
     key r >/dev/null
     settle

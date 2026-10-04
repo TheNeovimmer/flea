@@ -154,3 +154,19 @@ fi
 if [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then
     cp "$test_root/runtime/markdown-source.png" "$FLEA_CI_SUITE_LOGS/markdown-source.png" || exit 1
 fi
+
+# The heading ink as ui/Theme.qml derives it, over palettes where each source wins and where none does.
+cp tests/markdown-headink.qml "$test_root/config/shell.qml" || exit 1
+headink_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 20 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+printf '%s\n' "$headink_output" | grep -oE 'MARKDOWN_HEADINK .*'
+check_warnings "$headink_output" 0 || exit 1
+expected_headink_checks=9
+# Sample input: MARKDOWN_HEADINK 9 checks, 0 failed
+if ! printf '%s\n' "$headink_output" | grep -qF "MARKDOWN_HEADINK $expected_headink_checks checks, 0 failed"; then
+    printf 'FAIL markdown-render: heading ink expected %s checks, 0 failed; arrived [%s]\n' "$expected_headink_checks" "${headink_output:-<empty>}" >&2
+    exit 1
+fi

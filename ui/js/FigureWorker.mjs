@@ -288,8 +288,12 @@ const MERMAID_PADDING = 1;
 const CANVAS_MARGIN = 1;
 // The drawing starts on the canvas's left edge, the content column's, like an image; the library's own 30 unit left margin goes.
 const LEFT_MARGIN = 0;
-// A label's glyph advance in em, the monospace face's own, which is what bounds a text's left reach.
+// A label's glyph advance in em: the monospace cell's, which most glyphs stay inside.
 const TEXT_ADVANCE_EM = 0.6;
+// A full-width glyph, or a W or M in a proportional face, advances up to one em, so the left reach never under-reads them.
+const WIDE_ADVANCE_EM = 1;
+const WIDE_ASCII = "WMwm@%";
+const ASCII_LIMIT = 0x7f;
 // A centred label reaches half its width left of its x.
 const MIDDLE_SHARE = 0.5;
 const BOUNDS_PRECISION = 10;
@@ -319,6 +323,21 @@ function scaleCanvas(svg, px) {
     });
 }
 
+// Sample input: dy="1.5em" at font 13 shifts a baseline 19.5, and a bare dy="4" shifts 4.
+function shift(tag, font) {
+    var dy = tag.match(/\sdy="(-?[\d.]+)(em|%)?"/);
+    return dy ? Number(dy[1]) * (dy[2] === "em" ? font : dy[2] === "%" ? font / PERCENT_SCALE : 1) : 0;
+}
+
+// Sample input: "WMi" advances 2.6 em, the two wide glyphs at one em and the narrow one at a monospace cell.
+function advance(words) {
+    var em = 0;
+    Array.from(words).forEach(function (glyph) {
+        em += glyph.codePointAt(0) > ASCII_LIMIT || WIDE_ASCII.indexOf(glyph) >= 0 ? WIDE_ADVANCE_EM : TEXT_ADVANCE_EM;
+    });
+    return em;
+}
+
 // Trim the SVG canvas padding above, below and left of the drawing where every painted primitive has explicit bounds.
 function tightenCanvas(svg) {
     var root = svg.match(/<svg\s[^<>]*>/);
@@ -327,8 +346,8 @@ function tightenCanvas(svg) {
     var view = root[0].match(/viewBox="([^"]+)"/);
     var box = view ? view[1].trim().split(/\s+/).map(Number) : [];
     var body = svg.replace(/<defs>[\s\S]*?<\/defs>/g, "");
-    // Unknown paths, inherited text positions and transforms retain the library's safe canvas.
-    if (box.length !== 4 || !box.every(Number.isFinite) || /\btransform=|<path\b|<tspan\b/.test(body)
+    // Unknown paths and transforms retain the library's safe canvas.
+    if (box.length !== 4 || !box.every(Number.isFinite) || /\btransform=|<path\b/.test(body)
             || /<(?:g|svg)\b[^>]*\sstroke(?:-width)?=|\sstyle="[^"]*stroke/.test(body))
         return svg;
     var top = Infinity;
@@ -386,7 +405,7 @@ function tightenCanvas(svg) {
             pad += MARKER_EXTENT * width;
         return pad;
     }
-    body.replace(/<(rect|line|circle|ellipse|polygon|polyline|text)\b[^<>]*>/g, function (tag, kind) {
+    body.replace(/<(rect|line|circle|ellipse|polygon|polyline)\b[^<>]*>/g, function (tag, kind) {
         var pad = strokePad(tag, kind);
         if (kind === "rect") {
             var y = number(tag, "y", 0);
@@ -410,23 +429,49 @@ function tightenCanvas(svg) {
                 include(numbers[i], numbers[i], pad);
                 includeLeft(numbers[i - 1], pad);
             }
-        } else {
-            var font = number(tag, "font-size", NaN);
-            var baseline = number(tag, "y", NaN);
-            var dy = tag.match(/\sdy="(-?[\d.]+)(em|%)?"/);
-            baseline += dy ? Number(dy[1]) * (dy[2] === "em" ? font : dy[2] === "%" ? font / PERCENT_SCALE : 1) : 0;
-            include(baseline - font, baseline + TEXT_DESCENT_RATIO * font, pad);
         }
         return tag;
     });
-    // Sample input: <text x="70" font-size="13" text-anchor="middle">Alice</text> reaches 70 less half its advance.
-    body.replace(/<text\b([^<>]*)>([^<]*)<\/text>/g, function (all, attrs, content) {
-        var anchor = attrs.match(/\stext-anchor="([^"]*)"/);
-        var share = !anchor || anchor[1] === "start" ? 0 : anchor[1] === "middle" ? MIDDLE_SHARE : anchor[1] === "end" ? 1 : NaN;
-        includeLeft(number(attrs, "x", NaN), share * content.length * number(attrs, "font-size", NaN) * TEXT_ADVANCE_EM);
+    // Sample input: <text x="70" y="50" font-size="13" text-anchor="middle"><tspan x="70" dy="-4">a</tspan><tspan x="70" dy="17">b</tspan></text> holds two lines.
+    var texts = body.match(/<text\b/g) || [];
+    var read = 0;
+    body.replace(/<text\b([^<>]*)>((?:[^<]|<tspan\b[^<>]*>[^<]*<\/tspan>)*)<\/text>/g, function (all, attrs, content) {
+        read++;
+        var lines = [];
+        content.replace(/<tspan\b([^<>]*)>([^<]*)<\/tspan>/g, function (m, own, words) {
+            lines.push({ attrs: own, words: words });
+            return m;
+        });
+        var bare = content.replace(/<tspan\b[^<>]*>[^<]*<\/tspan>/g, "");
+        // A line of its own sits in a tspan, and a text mixing bare words with tspans has no position the scan can read.
+        if (lines.length === 0)
+            lines.push({ attrs: "", words: content });
+        else if (/\S/.test(bare))
+            valid = false;
+        if (/\sstyle=/.test(attrs))
+            valid = false;
+        var pad = strokePad(attrs, "text");
+        var font = number(attrs, "font-size", NaN);
+        var baseline = number(attrs, "y", NaN) + shift(attrs, font);
+        lines.forEach(function (line, index) {
+            // Without its own x, only the first line starts at the text's; a later one continues from an unknown pen position.
+            if (/\sstyle=/.test(line.attrs) || (index > 0 && !/\sx=/.test(line.attrs)))
+                valid = false;
+            var size = number(line.attrs, "font-size", font);
+            var drop = /\sy=/.test(line.attrs) ? number(line.attrs, "y", NaN) : baseline;
+            baseline = drop + shift(line.attrs, size);
+            var linePad = Math.max(pad, strokePad(line.attrs, "text"));
+            include(baseline - size, baseline + TEXT_DESCENT_RATIO * size, linePad);
+            var anchor = line.attrs.match(/\stext-anchor="([^"]*)"/) || attrs.match(/\stext-anchor="([^"]*)"/);
+            var share = !anchor || anchor[1] === "start" ? 0 : anchor[1] === "middle" ? MIDDLE_SHARE : anchor[1] === "end" ? 1 : NaN;
+            includeLeft(number(line.attrs, "x", number(attrs, "x", NaN)), share * advance(line.words) * size + linePad);
+        });
         return all;
     });
-    if (!valid || !Number.isFinite(top) || !(bottom > top))
+    // A text the scan could not read whole, a self-closing one or one holding another element, keeps the library's canvas.
+    if (read !== texts.length)
+        valid = false;
+    if (!valid || !Number.isFinite(top) || !(bottom > top) || !Number.isFinite(left))
         return svg;
     var y = Math.floor((top - CANVAS_MARGIN) * BOUNDS_PRECISION) / BOUNDS_PRECISION;
     var height = Math.ceil((bottom + CANVAS_MARGIN - y) * BOUNDS_PRECISION) / BOUNDS_PRECISION;

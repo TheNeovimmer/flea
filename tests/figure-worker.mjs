@@ -35,7 +35,7 @@ if (process.argv[2] === "cycle") {
     check(mixed.includes('fill="#404040"'), "nested variable stops resolve inside color-mix");
     const classes = postMermaid('<svg><style>rect.node { fill: var(--fg); stroke-width: 2; }</style><rect class="node"/></svg>', theme);
     check(classes.includes('fill="#ffffff"') && classes.includes('stroke-width="2"') && !classes.includes("<style>"), "style classes become SVG presentation attributes");
-    check(postMath('<svg width="1.234ex" height="-2ex" fill="currentColor"/>', theme).includes('width="8.64px" height="-14px"'), "ex conversion uses half the body size and rounds to hundredths");
+    check(postMath('<svg width="1.234ex" height="-2ex" fill="currentColor"/>', theme).includes('width="7.64px" height="-12.38px"'), "ex conversion uses MathJax's 0.442 em and rounds to hundredths");
     console.log(`figure-worker: ${checks} check(s), ${failures} failed`);
     process.exitCode = failures > 0 ? 1 : 0;
 }
