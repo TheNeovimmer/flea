@@ -61,7 +61,7 @@ for line in sys.stdin:
         break
 PYEND
 chmod +x "$test_root/stub-backend" || exit 1
-# The probe's own timeout is read from probeTimeoutMs, so the shell waits a margin longer and a hung stage reports itself.
+# Sample input: '    readonly property int probeTimeoutMs: 30000'; the shell waits a margin longer so a hung stage reports itself.
 probe_timeout_ms=$(sed -n 's/.*readonly property int probeTimeoutMs: *\([0-9][0-9]*\).*/\1/p' tests/picker-header.qml)
 [ -n "$probe_timeout_ms" ] || { echo "picker-header.sh: probeTimeoutMs not found in tests/picker-header.qml"; exit 1; }
 probe_timeout_margin=10
