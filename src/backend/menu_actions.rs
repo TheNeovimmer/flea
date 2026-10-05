@@ -1,7 +1,7 @@
 // Menu snapshots own selected identities; registry work runs only after an explicit menu action.
 use crate::backend::opsreq::OpMsg;
 use super::menu_registry::{self, Registry};
-use super::menu_slot::MenuSlot;
+use super::menu_slot::{CloseOnExit, MenuSlot, Sent};
 use super::trashmanifest::Cancellation;
 use crate::json::{escape, field_bool, field_str, field_usize};
 use std::fs::{Metadata, OpenOptions};
@@ -14,7 +14,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct MenuActions {
     slot: Arc<MenuSlot>,
-    worker: std::thread::JoinHandle<()>,
     replies: Sender<OpMsg>,
     snapshot: Arc<Mutex<Snapshot>>,
     cancellation: Mutex<Cancellation>,
@@ -34,7 +33,8 @@ impl MenuActions {
         let queries = registry.clone();
         let restoration = Arc::new(Mutex::new((0, Vec::new())));
         let completed = Arc::clone(&restoration);
-        let worker = std::thread::spawn(move || {
+        std::thread::spawn(move || {
+            let _close = CloseOnExit(Arc::clone(&queued));
             while let Some((line, paths, cursor, cancel)) = queued.take() {
                 let mut state = published.lock().unwrap().clone();
                 let mut reply = if cancel.check().is_ok() {
@@ -56,7 +56,7 @@ impl MenuActions {
                 if output.send(message).is_err() { break; }
             }
         });
-        Self { slot, worker, replies, snapshot, cancellation: Mutex::new(Cancellation::default()), registry, requested_id: AtomicUsize::new(0), restoration }
+        Self { slot, replies, snapshot, cancellation: Mutex::new(Cancellation::default()), registry, requested_id: AtomicUsize::new(0), restoration }
     }
     pub(crate) fn retain_survivors(&self, id: usize, matches: &mut Vec<(&str, usize)>) -> Result<(), String> {
         let restoration = self.restoration.lock().map_err(|_| "The menu service stopped; refresh this window.")?;
@@ -108,21 +108,20 @@ impl MenuActions {
                 return false;
             }
         }
-        // The slot never disconnects, so a dead worker is refused here or its request would never be answered.
-        if self.worker.is_finished() {
-            let reply = response(&line, Err("The menu service stopped; reopen this window.".into()));
-            let _ = self.replies.send(OpMsg::Meta { line: reply });
-            return false;
-        }
-        match self.slot.send((line, paths, cursor, cancellation.clone())) {
-            Ok(()) => true,
-            Err((refused, _, _, _)) => {
-                let reason = if self.worker.is_finished() { "The menu service stopped; reopen this window." } else { "A menu request is still running; try again when it finishes." };
-                let reply = response(&refused, Err(reason.into()));
+        let refusal = match self.slot.send((line, paths, cursor, cancellation.clone())) {
+            Sent::Queued => return true,
+            Sent::Displaced(older) => {
+                let mut reply = response(&older.0, Err("Menu request cancelled.".into()));
+                reply.insert_str(reply.len() - 1, r#", "cancelled":true"#);
                 let _ = self.replies.send(OpMsg::Meta { line: reply });
-                false
+                return true;
             }
-        }
+            Sent::Busy(refused) => (refused.0, "A menu request is still running; try again when it finishes."),
+            Sent::Closed(refused) => (refused.0, "The menu service stopped; reopen this window."),
+        };
+        let reply = response(&refusal.0, Err(refusal.1.into()));
+        let _ = self.replies.send(OpMsg::Meta { line: reply });
+        false
     }
 }
 
@@ -372,7 +371,6 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         let menu = MenuActions {
             slot: Arc::new(MenuSlot::default()),
-            worker: std::thread::spawn(|| loop { std::thread::park(); }),
             replies: tx,
             snapshot: Arc::new(Mutex::new(Snapshot::default())),
             cancellation: Mutex::new(Cancellation::default()),
@@ -385,11 +383,15 @@ mod tests {
 
     #[test]
     fn a_queued_snapshot_yields_its_slot_to_a_newer_snapshot() {
-        let (menu, _rx) = unstarted_menu();
+        let (menu, rx) = unstarted_menu();
         let line = |id: usize| format!(r#"{{"c":"menuaction","op":"snapshot","id":{}}}"#, id);
         assert!(menu.request(line(41), vec![], None));
         assert!(menu.request(line(42), vec![], None),
             "a reopen during its own snapshot must not refuse while that snapshot is still queued");
+        match rx.try_recv().expect("the displaced snapshot must still be answered") {
+            OpMsg::Meta { line } => assert!(field_usize(&line, "id") == Some(41) && field_bool(&line, "cancelled")),
+            _ => panic!("a displaced snapshot is answered as Meta"),
+        }
         let queued = menu.slot.take().expect("the newer snapshot must hold the slot");
         assert_eq!(field_usize(&queued.0, "id"), Some(42), "the older snapshot must be displaced, not answered");
         menu.slot.close();
