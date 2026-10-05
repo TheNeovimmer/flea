@@ -43,7 +43,7 @@ Item {
             linkGate: Markdown.isExternalLink
             width: view.width
             bodyPx: view.preview.bodyPx
-            text: view.block.text
+            markdown: view.block.text
             font.pixelSize: view.block.type === "heading" ? view.preview.headingPx(view.block.level) : view.preview.bodyPx
             font.bold: view.block.type === "heading"
             // h1 and h2 take the bright foreground; deeper levels and body stay the foreground.

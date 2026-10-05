@@ -33,7 +33,7 @@ Row {
         linkGate: root.linkGate
         width: root.contentWidth
         bodyPx: root.bodyPx
-        text: root.text
+        markdown: root.text
     }
 
     // The blocks load by file name: MarkdownBlocks draws quotes and lists again, and a type reference would close the cycle.

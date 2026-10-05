@@ -56,7 +56,7 @@ Column {
                 linkGate: root.linkGate
                 width: parent.width - marker.width - parent.spacing
                 bodyPx: root.bodyPx
-                text: root.list.items[index]
+                markdown: root.list.items[index]
             }
 
             // An item that holds more than prose draws its blocks in order; they load by file name since MarkdownBlocks draws lists again.

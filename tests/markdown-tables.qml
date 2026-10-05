@@ -121,7 +121,15 @@ ShellRoot {
         return Tables.all(body.contentItem, "tableGrid").map(function (table) { return Tables.geometry(table, body.width, Math.round(table.mapToItem(body.contentItem, 0, 0).x)) })
     }
 
-    function judge(name, pane, label) {
+    // Where every text and rule of a case's pane sits in its grabbed frame, for the picture-line judge that reads the pixels.
+    function logInk(name, label, pane, frame) {
+        var ink = Tables.inkRects(pane.bodyItem.contentItem, frame)
+        ink.bg = String(Flea.Theme.color.background)
+        shell.log("INK " + name + " " + label + " " + JSON.stringify(ink))
+    }
+
+    function judge(name, pane, label, frame) {
+        shell.logInk(name, label, pane, frame)
         var geos = shell.measure(pane)
         shell.geos[name + "-" + label] = geos
         shell.log("GEO " + name + " " + label + " " + JSON.stringify(geos))
@@ -137,7 +145,8 @@ ShellRoot {
             var over = refGlyph < 0 ? "no mid table weighs picturewide against" : geos[0].glyph <= shell.pictureRatio * refGlyph ? "" : "picturewide glyph " + geos[0].glyph + " is past " + shell.pictureRatio + "x the text-only " + refGlyph
             shell.check(over, name + " " + label + " prices glyphs by text, not by picture")
         }
-        shell.check(Tables.lineError(name, label, geos), name + " " + label + " draws its lines")
+        if (!Tables.tableless(name))
+            shell.check(Tables.lineError(name, label, geos), name + " " + label + " draws its lines")
     }
 
     function shotHeight(pane, bar) {
@@ -185,8 +194,8 @@ ShellRoot {
                 shell.lastHeights = heights
                 if (shell.quiet >= shell.quietFrames) {
                     var name = shell.cases[shell.at]
-                    shell.judge(name, card, "card")
-                    shell.judge(name, column, "column")
+                    shell.judge(name, card, "card", cardFrame)
+                    shell.judge(name, column, "column", columnFrame)
                     shell.cardShot = shell.shotHeight(card, Flea.Theme.chromeHeight)
                     shell.columnShot = shell.shotHeight(column, 0)
                     shell.save(cardFrame, shell.outDir + "/tables-" + name + "-card.png")
