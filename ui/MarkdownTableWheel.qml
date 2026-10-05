@@ -39,7 +39,7 @@ MouseArea {
     }
 
     function remove(scroller) {
-        root.scrollers = root.scrollers.filter(function (s) { return s !== scroller })
+        root.scrollers = root.scrollers.filter(function (s) { return s && s !== scroller })
         if (root.held === scroller)
             root.held = null
     }

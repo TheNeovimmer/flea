@@ -1,4 +1,4 @@
-# Sourced by markdown-tables.sh and ui-captures-markdown.sh so both render the same assets: a 12 px dot, a 160 by 40 picture, a 400 by 40 one wider than the narrow column, 500 rows of three cells, and 60 rows of 12 long words that chunk and overflow.
+# Sourced by markdown-tables.sh and ui-captures-markdown.sh so both render the same assets: a 12 px dot, a 160 by 40 picture, a 400 by 40 one wider than the narrow column, 500 rows of three cells, 60 rows of 12 long words that chunk and overflow, and a pair of tables of which only one fits a very wide pane.
 markdown_tables_assets_write() {
     python3 - "$1" <<'PY' || return 1
 import struct, sys, zlib
@@ -19,5 +19,10 @@ words = ['Categorization', 'Initialization', 'Configuration', 'Authentication', 
 wide = '| ' + ' | '.join(words) + ' |\n| ' + ' | '.join(['---'] * len(words)) + ' |\n'
 wide += ''.join('| ' + ' | '.join('%s%d' % (w[:6].lower(), i) for w in words) + ' |\n' for i in range(60))
 open(root + '/chunkwide.md', 'w').write('# Chunked\n\n' + wide)
+# Two tables: twelve long words that fit a 4000 px pane, then forty that overflow even that, so a widened pane drops the first scroll and keeps the second.
+many = (words * 4)[:40]
+def table(cols):
+    return '| ' + ' | '.join(c + str(i) for i, c in enumerate(cols)) + ' |\n| ' + ' | '.join(['---'] * len(cols)) + ' |\n| ' + ' | '.join(['x'] * len(cols)) + ' |\n'
+open(root + '/pair.md', 'w').write('# Pair\n\n' + table(words) + '\n' + table(many))
 PY
 }

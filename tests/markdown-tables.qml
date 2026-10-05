@@ -27,6 +27,10 @@ ShellRoot {
     readonly property int wheelPaneMargin: 12
     // The panes widen to this for the resize check, wide enough that most tables fit.
     readonly property int wideFrame: 4000
+    // The hosted column's offset in its host and the spacer above its table, none zero so a dropped offset shows.
+    readonly property int hostX: 11
+    readonly property int hostY: 23
+    readonly property int hostSpacer: 17
     // Tables that stopped overflowing in the widen check, which must be at least one.
     property int drops: 0
     property var scrollsBefore: [0, 0]
@@ -183,6 +187,26 @@ ShellRoot {
         shell.check(Markers.markerBaselineError(pane.bodyItem.contentItem, frame, name), name + " " + label + " marker is placed on its item text's drawnBaseline")
     }
 
+    // A column at an offset holding a spacer and a wide table: the positioner a table's scroll must not be stacked by.
+    property Item hosted: null
+    Component {
+        id: hostComponent
+        Item {
+            property alias stack: hostColumn
+            Column {
+                id: hostColumn
+                x: shell.hostX
+                y: shell.hostY
+                Item { width: 1; height: shell.hostSpacer }
+                Flea.MarkdownTable {
+                    block: column.blockList.filter(function (b) { return b.type === "table" })[0]
+                    preview: column
+                    availableWidth: shell.columnWidth
+                }
+            }
+        }
+    }
+
     function sendWheel(item, x, y, angleX, angleY, modifiers) {
         driver.mouseWheel(item, x, y, Qt.NoButton, modifiers, angleX, angleY, 1)
     }
@@ -234,6 +258,11 @@ ShellRoot {
         if (error === "" && pane.tableWheel.scrollers.filter(function (s) { return s }).length !== scrollers.length)
             error = "the router holds " + pane.tableWheel.scrollers.filter(function (s) { return s }).length + " scrollers for " + scrollers.length + " flickables"
         shell.check(error, name + " " + label + " drops its scroll when it stops overflowing")
+        // The IPC's table is the first live one, whichever tables dropped theirs.
+        var first = pane.tableScroller()
+        var ipc = scrollers.length > 0 && (first === null || first.table.firstRow() === null) ? "tableScroller answers " + first + " while " + scrollers.length + " tables still scroll"
+            : scrollers.length === 0 && first !== null ? "tableScroller answers a scroller while no table scrolls" : ""
+        shell.check(ipc, name + " " + label + " tableScroller answers the first live scroll")
         if (before > scrollers.length)
             shell.drops++
         return scrollers.length
@@ -333,7 +362,22 @@ ShellRoot {
                 shell.judgeWiden(dName, column, "column", shell.scrollsBefore[1])
                 cardFrame.width = Qt.binding(function () { return shell.cardWidth })
                 columnFrame.width = Qt.binding(function () { return shell.columnWidth })
-                shell.stage = "next"
+                // The extreme table, rebuilt in a positioner, gets two frames to measure and lay out.
+                if (dName === "extreme") {
+                    shell.hosted = hostComponent.createObject(columnFrame)
+                    shell.waited = 0
+                    shell.stage = "hosting"
+                } else {
+                    shell.stage = "next"
+                }
+            } else if (shell.stage === "hosting") {
+                shell.waited++
+                if (shell.waited > 2) {
+                    shell.check(Sideways.hostError(shell.hosted, shell.hosted.stack), "extreme table in a positioner keeps its scroll over it and its bar at its foot")
+                    shell.hosted.destroy()
+                    shell.hosted = null
+                    shell.stage = "next"
+                }
             } else if (shell.stage === "end") {
                 shell.finish()
             }

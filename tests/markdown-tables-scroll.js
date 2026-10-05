@@ -1,5 +1,4 @@
-// Readers and judges of the sideways scroll a table wider than its pane owns: its flickable and bar, the chunks that share a position, and the wheel and touchpad routes.
-// The reading helpers and the tolerance come from the table readers, the router's state from the app's own Scroll.js.
+// Judges of the sideways scroll a table wider than its pane owns, over the table readers and the app's own Scroll.js state.
 .import "markdown-tables.js" as Tables
 .import "flea/js/Scroll.js" as Scroll
 
@@ -71,28 +70,57 @@ function flowError(table, scroller, bars) {
     return ""
 }
 
-// Blank when the live chunks of every chunked table share one sideways position after a wheel over each of two of them, else the first that differs.
-// Sample input: chunkError(tables, send) with 3 chunks answers "" when a wheel over chunk 1 and then chunk 3 leaves all three at one contentX and one x of their first cell.
+// Blank when a wheel over each live chunk of a table, from every chunk at 0, moves that chunk and leaves every sibling at its position, else the first that does not.
+// Sample input: chunkError(tables, route, send) with 3 chunks answers "" when each of three wheels, one over each chunk, leaves all three at one contentX and one x of their first cell.
 function chunkError(tables, route, send) {
     var chunks = tables.filter(function (t) { return t.overflows && t.block.tableKey !== undefined })
     if (chunks.length < 2)
         return chunks.length + " chunks of a table alive, two are needed"
-    var pick = [chunks[0], chunks[chunks.length - 1]]
-    for (var w = 0; w < pick.length; w++) {
-        var scroller = pick[w].scroller
+    var wheeled = 0
+    for (var w = 0; w < chunks.length; w++) {
+        for (var r = 0; r < chunks.length; r++)
+            chunks[r].scroller.contentX = 0
+        var scroller = chunks[w].scroller
         var at = scroller.mapToItem(route, scroller.width / 2, WHEEL_ROW_PX)
+        // A chunk below the view cannot be wheeled; the ones in view must be two or more.
+        if (at.y >= route.height)
+            continue
+        wheeled++
         send(route, at.x, at.y, -WHEEL_NOTCH, 0, Qt.NoModifier)
         var x = scroller.contentX
         if (x <= 0)
-            return "a wheel over chunk " + (w === 0 ? "first" : "last") + " left it at " + x
+            return "a wheel over chunk " + w + " left it at " + x
         for (var c = 0; c < chunks.length; c++) {
             var first = Tables.cellsOf(chunks[c])[0].mapToItem(chunks[c], 0, 0).x
             if (chunks[c].scroller.contentX !== x || Math.abs(first + x) > Tables.TOLERANCE)
-                return "chunk " + c + " is at " + chunks[c].scroller.contentX + " and draws its first cell at " + first + " after chunk " + (w === 0 ? "first" : "last") + " moved to " + x
+                return "chunk " + c + " is at " + chunks[c].scroller.contentX + " and draws its first cell at " + first + " after chunk " + w + " moved to " + x
         }
     }
-    for (var r = 0; r < chunks.length; r++)
-        chunks[r].scroller.contentX = 0
+    for (var z = 0; z < chunks.length; z++)
+        chunks[z].scroller.contentX = 0
+    return wheeled >= 2 ? "" : wheeled + " chunks in view to wheel, two are needed"
+}
+
+// Blank when a table inside a positioner (host holds the positioner at an offset) has its flickable exactly over it and its bar at its foot, and the positioner stacked nothing.
+// Sample input: hostError(host, column) answers "" when a Column at 11,23 holding a 17 px spacer and a table puts the flickable at 11,40 in host.
+function hostError(host, column) {
+    var tables = Tables.all(host, "tableGrid")
+    var scrollers = Tables.all(host, "tableScroll")
+    var bars = barsIn(host)
+    if (tables.length !== 1 || !tables[0].overflows)
+        return tables.length + " tables, overflowing " + (tables.length > 0 && tables[0].overflows) + ", in the hosted column"
+    if (scrollers.length !== 1 || bars.length !== 1)
+        return scrollers.length + " flickables and " + bars.length + " bars in the hosted column"
+    var table = tables[0]
+    var over = table.mapToItem(host, 0, 0)
+    var flick = scrollers[0].mapToItem(host, 0, 0)
+    if (scrollers[0].parent !== host || Math.abs(flick.x - over.x) > Tables.TOLERANCE || Math.abs(flick.y - over.y) > Tables.TOLERANCE)
+        return "flickable sits at " + flick.x + "," + flick.y + " in the host, the table at " + over.x + "," + over.y
+    var foot = bars[0].mapToItem(host, 0, 0)
+    if (Math.abs(foot.x - over.x) > Tables.TOLERANCE || Math.abs(foot.y - (over.y + table.height - bars[0].height)) > Tables.TOLERANCE)
+        return "bar sits at " + foot.x + "," + foot.y + " in the host, not at the table's foot " + over.x + "," + (over.y + table.height - bars[0].height)
+    if (column.children.length !== HOST_CHILDREN)
+        return "the positioner holds " + column.children.length + " children, not " + HOST_CHILDREN
     return ""
 }
 
@@ -107,6 +135,9 @@ function barsIn(item) {
     }
     return found
 }
+
+// The hosted column's children: its spacer and its table, so a stacked scroller or bar would make more.
+var HOST_CHILDREN = 2
 
 // A wheel notch of Qt's angle delta, and how far under a table's top the wheel points.
 var WHEEL_NOTCH = 120
