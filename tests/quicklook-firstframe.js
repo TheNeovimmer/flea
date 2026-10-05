@@ -103,13 +103,19 @@ function answerControl(root) {
     p.answered({ seq: seq, blocks: [{ type: "run", text: "stale" }], error: "" })
     if (p.preparedPath !== request.path || p.workerAnswers !== 1) root.fail("an answer for the resting cursor was dropped")
     root.answersBefore = p.workerAnswers
-    // A recount while the stat child still sizes the pictures settles nothing: only its own answer and the held pictures can.
+    // A recount while the stat child still sizes the pictures settles nothing; the same recount with no child out settles, so only the child held it.
+    var sizerBefore = p.sizer
+    var settledBefore = p.picturesSettled
     p.sizer = { destroy: function () {} }
     p.picturesSettled = false
     p.recount()
     if (p.picturesSettled) root.fail("a recount settled the pictures while the stat child was still sizing them")
     p.sizer = null
-    p.picturesSettled = true
+    p.picturesSettled = false
+    p.recount()
+    if (!p.picturesSettled) root.fail("the sizer probe's control did not settle, so something else held the pictures and the probe proved nothing")
+    p.sizer = sizerBefore
+    p.picturesSettled = settledBefore
 }
 
 // The checks of one finished step, run once its document's first block is in the card.
