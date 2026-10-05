@@ -113,8 +113,8 @@ ui/Favourites.qml	81	inspector	Declared QML id; component context access is vali
 ui/Favourites.qml	83	inspectTimeout	Declared QML property; enclosing component context supplies it.
 ui/Favourites.qml	107	running	Enclosing Quickshell StdioCollector, Process or FileView supplies this member.
 ui/Favourites.qml	115	writer	Declared QML id; component context access is valid at runtime.
-ui/FigureService.qml	111	Quickshell	Quickshell import exports this runtime singleton or enum.
-ui/FigureStore.qml	37	Quickshell	Quickshell import exports this runtime singleton or enum.
+ui/FigureService.qml	113	Quickshell	Quickshell import exports this runtime singleton or enum.
+ui/FigureStore.qml	39	Quickshell	Quickshell import exports this runtime singleton or enum.
 ui/FleaMark.qml	41	Shape	Imported Qt module supplies this type or attached property.
 ui/FleaMark.qml	49	ShapePath	Imported Qt module supplies this type or attached property.
 ui/FleaMark.qml	50	ShapePath	Imported Qt module supplies this type or attached property.

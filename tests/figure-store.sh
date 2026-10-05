@@ -43,14 +43,30 @@ if ! printf '%s\n' "$probe" | grep -q '"svg"'; then
     exit 1
 fi
 
+# A store whose reply the held case withholds: with a marker file armed, the stub's next store start waits on a gate fifo before it execs Flea's own store.
+mkdir -p "$test_root/gate-bin" || exit 1
+mkfifo "$test_root/gate" || exit 1
+cat > "$test_root/gate-bin/flea" <<STUB
+#!/bin/bash
+if [ "\$1" = "--figure-store" ] && [ -e "$test_root/hold" ]; then
+    rm -f "$test_root/hold"
+    read -r _ < "$test_root/gate"
+fi
+exec "$fleabin" "\$@"
+STUB
+chmod +x "$test_root/gate-bin/flea" || exit 1
+# A document with one maths and one Mermaid figure no other case draws, for the pane that draws it and the fresh pane that only warms.
+printf '# Placed\n\n```math\n\\frac{p}{q}+\\sqrt{r}\n```\n\n```mermaid\nflowchart TD\n    P --> Q\n```\n' > "$test_root/placed.md"
+
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
-    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$test_root/gate-bin/flea" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
+    FLEA_FIGURE_STORE_DOC="$test_root/placed.md" FLEA_STORE_HOLD="$test_root/hold" FLEA_STORE_GATE="$test_root/gate" \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 120 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$output" | grep -aoE 'FIGURE_STORE .*'
-# Sample input: FIGURE_STORE 15 checks, 0 failed.
-expected=15
+# Sample input: FIGURE_STORE 21 checks, 0 failed.
+expected=21
 if ! printf '%s\n' "$output" | grep -qE "FIGURE_STORE $expected checks, 0 failed$"; then
     printf 'figure-store.sh: FAIL expected %s checks, 0 failed\n' "$expected"
     printf '%s\n' "$output" | grep -aE 'ERROR|TypeError|ReferenceError|flea:' | head -10
@@ -90,3 +106,34 @@ if ! printf '%s\n' "$output" | grep -qE "FIGURE_STORE_HUNG $hung_expected checks
     exit 1
 fi
 echo "figure-store: $hung_expected hung-store check(s), 0 failed"
+
+# A store that answers every line but ignores EOF: the same service, with Flea's own binary behind a stub whose store mode never ends its drain.
+mkdir -p "$test_root/drain-config" "$test_root/drain-bin" || exit 1
+ln -s "$PWD/ui" "$test_root/drain-config/flea" || exit 1
+ln -s "$(readlink -f ui/boot/Commons)" "$test_root/drain-config/Commons" || exit 1
+ln -s "$(readlink -f ui/boot/Ui)" "$test_root/drain-config/Ui" || exit 1
+cp tests/figure-store-drain.qml "$test_root/drain-config/shell.qml" || exit 1
+cat > "$test_root/drain-bin/flea" <<STUB
+#!/bin/bash
+if [ "\$1" = "--figure-store" ]; then
+    # Sample input: {"op":"get","id":3,"key":"..."} answers {"id":3,"miss":true}; a put has no id and no reply.
+    sed -u -n 's/.*"id":\([0-9]*\).*/{"id":\1,"miss":true}/p'
+    exec sleep 120
+fi
+exec "$fleabin" "\$@"
+STUB
+chmod +x "$test_root/drain-bin/flea" || exit 1
+output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$test_root/drain-bin/flea" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 120 qs -p "$test_root/drain-config" 2>&1 ) 2>/dev/null )
+printf '%s\n' "$output" | grep -aoE 'FIGURE_STORE_DRAIN .*'
+# Sample input: FIGURE_STORE_DRAIN 4 checks, 0 failed.
+drain_expected=4
+if ! printf '%s\n' "$output" | grep -qE "FIGURE_STORE_DRAIN $drain_expected checks, 0 failed$"; then
+    printf 'figure-store.sh: FAIL the hung drain was not ended: expected %s checks, 0 failed\n' "$drain_expected"
+    printf '%s\n' "$output" | grep -aE 'ERROR|TypeError|ReferenceError|flea:' | head -10
+    exit 1
+fi
+echo "figure-store: $drain_expected drain check(s), 0 failed"

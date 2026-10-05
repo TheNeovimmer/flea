@@ -6,6 +6,7 @@ function store() {
     var fake = { now: 0, signals: [], writes: [], answers: [], knowns: [], starts: 0 }
     var root = { available: true, replyMs: 2000, hits: 0, misses: 0, puts: 0, exits: 0, starting: false, stopping: false,
         queued: [], outstanding: {}, owed: 0 }
+    root.drainMs = root.replyMs
     root.answered = function (id, svg) { fake.answers.push({ id: id, svg: svg }) }
     root.known = function (id, all) { fake.knowns.push({ id: id, all: all }) }
     var process = { running: false, stdinEnabled: true,
@@ -25,11 +26,12 @@ function store() {
     var functions = /\bfunction (\w+)\(([^)]*)\)\s*\{/g
     var match
     while ((match = functions.exec(source)) !== null)
-        root[match[1]] = compile(match[2], Source.block(source, match[0].slice(0, -1)))
-    var started = compile("", Source.block(source, "onStarted:"))
-    var runningChanged = compile("", Source.block(source, "onRunningChanged:"))
-    var exited = compile("", Source.block(source, "onExited:"))
-    fake.tick = compile("", Source.block(source.substring(source.indexOf("Timer {")), "onTriggered:"))
+        root[match[1]] = compile(match[2], Source.block(source, match[0].slice(0, -1), "ui/FigureStore.qml"))
+    var started = compile("", Source.block(source, "onStarted:", "ui/FigureStore.qml"))
+    var runningChanged = compile("", Source.block(source, "onRunningChanged:", "ui/FigureStore.qml"))
+    var exited = compile("", Source.block(source, "onExited:", "ui/FigureStore.qml"))
+    fake.tick = compile("", Source.block(source.substring(source.indexOf("Timer {")), "onTriggered:", "ui/FigureStore.qml"))
+    fake.drain = compile("", Source.block(source.substring(source.indexOf("interval: root.drainMs")), "onTriggered:", "ui/FigureStore.qml"))
     fake.start = function () {
         process.running = true
         fake.starts++
@@ -47,6 +49,20 @@ function store() {
 }
 
 function run(check) {
+    var named = ""
+    try {
+        Source.block("var a = 1", "onExited:", "ui/FigureStore.qml")
+    } catch (e) {
+        named = String(e)
+    }
+    check("a block missing from a file names that file", named.indexOf("ui/FigureStore.qml: missing onExited:") >= 0, true)
+    named = ""
+    try {
+        Source.block("onExited: { var a = 1", "onExited:", "ui/FigureStore.qml")
+    } catch (e) {
+        named = String(e)
+    }
+    check("an unterminated block names its file", named.indexOf("ui/FigureStore.qml: unterminated onExited:") >= 0, true)
     var key = "math\n#101315|#c0caf5|||||||monospace|14|7|0|0\ntrue\nx^2"
     var fake = store()
     fake.root.ask(7, [key])
@@ -88,6 +104,43 @@ function run(check) {
     fake.now = fake.root.replyMs - 1
     fake.tick()
     check("a reply inside replyMs is waited for", fake.root.available === true && fake.answers.length === 0, true)
+
+    // A line queued behind a drain is owed only once it is written, so a slow drain never ends the store.
+    fake = store()
+    fake.root.put(key, "<svg/>")
+    fake.start()
+    check("a stop with only a put in flight drains", fake.root.stop(), true)
+    fake.root.get(12, key)
+    fake.now = fake.root.replyMs * 3
+    fake.tick()
+    check("a line still waiting out a drain is never late", fake.root.available === true && fake.answers.length === 0 && fake.signals.length === 0, true)
+    fake.exit()
+    fake.start()
+    fake.tick()
+    check("its reply clock starts when it is written to the new store", fake.root.available === true && fake.answers.length === 0 && fake.writes.length === 2, true)
+    fake.now += fake.root.replyMs + 1
+    fake.tick()
+    check("and a reply that then outlasts replyMs still ends the store", fake.root.available === false && fake.answers.length === 1, true)
+
+    // A store that answers but ignores EOF never ends its drain: past drainMs it is killed, what waits behind it is a miss and its puts go to the next store.
+    fake = store()
+    fake.root.put(key, "<svg/>")
+    fake.start()
+    check("a stop with only a put in flight drains", fake.root.stop(), true)
+    fake.root.get(14, key)
+    fake.root.ask(15, [key])
+    fake.root.put(key, "<svg>2</svg>")
+    fake.drain()
+    check("a drain past its bound kills the store", fake.signals.length === 1 && fake.signals[0] === fake.root.killSignal, true)
+    check("what waited behind it is answered a miss, for the helper to draw", fake.answers.length === 1 && fake.answers[0].id === 14 && fake.answers[0].svg === "" && fake.knowns.length === 1 && fake.knowns[0].all === false && fake.root.owed === 0, true)
+    check("the hung drain latches nothing and keeps only the queued put", fake.root.available === true && fake.root.queued.length === 1 && fake.root.queued[0].id === undefined, true)
+    fake.exit()
+    check("the exit is no failure and starts a clean store with stdin open", fake.root.available === true && fake.root.starting && fake.process.stdinEnabled && !fake.root.stopping && fake.root.exits === 1, true)
+    fake.start()
+    check("the next store gets the put and nothing stale", fake.writes.length === 2 && fake.writes[1].op === "put" && fake.root.owed === 0 && fake.signals.length === 1, true)
+    fake.root.get(16, key)
+    fake.reply({ id: 16, miss: true })
+    check("and answers the next get itself", fake.answers.length === 2 && fake.answers[1].id === 16 && fake.root.misses === 1, true)
 
     fake = store()
     fake.root.ask(11, [key])

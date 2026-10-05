@@ -46,6 +46,8 @@ Item {
     property var warmKinds: []
     // The suite reads the persistent cache's counters and process through this.
     readonly property var persistent: disk
+    // The cache keys of the last warm query, which the suite compares with the keys placed figures put.
+    property var warmKeys: []
     // The warm query waiting on the persistent cache, if any.
     property int warmQuery: 0
     // The deadline timer stops between tickets so an idle session wakes for nothing.
@@ -187,7 +189,9 @@ Item {
         onTriggered: {
             if (Object.keys(root.waiting).length !== 0)
                 return;
-            disk.stop();
+            // A store refused for a reply it owes is asked again at the next idle, so it never runs on for the session.
+            if (!disk.stop() && disk.active && !disk.stopping)
+                idleTimer.restart();
             if (helper.running) {
                 root.stopping = true;
                 helper.running = false;
@@ -306,8 +310,7 @@ Item {
         root.sent(id, w.source);
     }
 
-    // A document with figures is on screen and none is asked for yet: start the helper now, so it is warm when they are asked.
-    // `themes` maps each kind to the theme the preview asks its figures under, so the warm query names the same cache keys an ask will.
+    // A document with figures is on screen and none is asked for yet: start the helper now, so it is warm when they are asked; `themes` maps each kind to the theme its figures are asked under, so the query names an ask's cache keys.
     function warm(blocks, themes) {
         if (!root.available || root.stopping || root.starting || helper.running)
             return false;
@@ -325,6 +328,7 @@ Item {
         if (kinds.length === 0)
             return false;
         root.warmKinds = kinds;
+        root.warmKeys = keys;
         // A document whose figures are all on disk likely needs no helper, so the cache is asked before one is started.
         if (disk.available) {
             root.warmQuery = ++root.seq;

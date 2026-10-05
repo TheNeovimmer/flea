@@ -15,6 +15,8 @@ Item {
     property bool available: true
     // A reply later than this ends the store: its figures draw by the helper.
     property int replyMs: 2000
+    // A drain that outlasts a reply's wait is a store that ignores EOF, so it is killed and what waits behind it is a miss.
+    property int drainMs: root.replyMs
     // The suite reads these to prove a repeat was served from disk and nothing else started.
     property int hits: 0
     property int misses: 0
@@ -52,7 +54,7 @@ Item {
             var lines = root.queued;
             root.queued = [];
             for (var i = 0; i < lines.length; i++)
-                process.write(lines[i]);
+                root.write(lines[i].line, lines[i].id);
         }
 
         // A spawn that fails raises runningChanged and never exited, so it latches here.
@@ -80,7 +82,9 @@ Item {
         running: root.owed > 0
         onTriggered: {
             for (var id in root.outstanding) {
-                if (Date.now() - root.outstanding[id].sentAt > root.replyMs) {
+                // A line not yet written to the process has no reply clock.
+                var sentAt = root.outstanding[id].sentAt;
+                if (sentAt !== null && Date.now() - sentAt > root.replyMs) {
                     root.fail();
                     return;
                 }
@@ -88,14 +92,17 @@ Item {
         }
     }
 
-    // Latches off, ends the process and releases everything waiting as a miss.
-    function fail() {
-        root.available = false;
-        root.queued = [];
-        if (process.running) {
-            root.stopping = true;
-            process.signal(root.killSignal);
+    // A stop that has not exited by drainMs is hung; the timer runs only while the store is stopping.
+    Timer {
+        interval: root.drainMs
+        running: root.stopping
+        onTriggered: {
+            root.abandon();
         }
+    }
+
+    // Releases everything waiting as a miss, so its figures draw by the helper.
+    function release() {
         var waiting = root.outstanding;
         root.outstanding = {};
         root.owed = 0;
@@ -107,8 +114,26 @@ Item {
         }
     }
 
-    // An idle stop closes the store's stdin and lets it drain: it answers every line already sent, commits every put and exits at EOF, so a kill never loses either.
-    // A store that still owes a reply or holds a queued line is left running; the service stops it at the next idle after the reply.
+    // Latches off, ends the process and releases everything waiting as a miss.
+    function fail() {
+        root.available = false;
+        root.queued = [];
+        if (process.running) {
+            root.stopping = true;
+            process.signal(root.killSignal);
+        }
+        root.release();
+    }
+
+    // Kills a store whose drain never ended and releases the lines behind it; no latch, and the queued puts go to the next store.
+    function abandon() {
+        if (process.running)
+            process.signal(root.killSignal);
+        root.queued = root.queued.filter(function (entry) { return entry.id === undefined; });
+        root.release();
+    }
+
+    // An idle stop closes stdin so the store drains (every reply sent, every put committed) and exits; a refused stop is retried at the service's next idle.
     function stop() {
         if (!process.running || root.starting || root.stopping || root.owed > 0 || root.queued.length > 0)
             return false;
@@ -125,7 +150,7 @@ Item {
     }
 
     function owe(id, op) {
-        root.outstanding[id] = { op: op, sentAt: Date.now() };
+        root.outstanding[id] = { op: op, sentAt: null };
         root.owed = Object.keys(root.outstanding).length;
     }
 
@@ -134,14 +159,21 @@ Item {
         root.owed = Object.keys(root.outstanding).length;
     }
 
-    function send(line) {
+    // Writes one line and starts its reply clock; a put has no id and no reply.
+    function write(line, id) {
+        process.write(line);
+        if (id !== undefined && root.outstanding[id] !== undefined)
+            root.outstanding[id].sentAt = Date.now();
+    }
+
+    function send(line, id) {
         if (!root.available)
             return false;
         if (process.running && !root.starting && !root.stopping) {
-            process.write(line);
+            root.write(line, id);
             return true;
         }
-        root.queued.push(line);
+        root.queued.push({ line: line, id: id });
         if (!root.starting && !root.stopping)
             root.begin();
         return true;
@@ -150,7 +182,7 @@ Item {
     // Sample input: {"op":"get","id":3,"key":"math\n#101315|...\ntrue\nx^2"}.
     function get(id, key) {
         root.owe(id, "get");
-        if (!root.send(JSON.stringify({ op: "get", id: id, key: key }) + "\n")) {
+        if (!root.send(JSON.stringify({ op: "get", id: id, key: key }) + "\n", id)) {
             root.settle(id);
             Qt.callLater(function () { root.answered(id, ""); });
         }
@@ -165,7 +197,7 @@ Item {
     // Sample input: {"op":"known","id":4,"keys":["math\n#101315|...\ntrue\nx^2","mermaid\n#101315|...\ntrue\nflowchart TD\n    A --> B"]}.
     function ask(id, keys) {
         root.owe(id, "known");
-        if (!root.send(JSON.stringify({ op: "known", id: id, keys: keys }) + "\n")) {
+        if (!root.send(JSON.stringify({ op: "known", id: id, keys: keys }) + "\n", id)) {
             root.settle(id);
             Qt.callLater(function () { root.known(id, false); });
         }

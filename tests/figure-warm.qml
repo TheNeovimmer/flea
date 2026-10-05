@@ -84,8 +84,7 @@ ShellRoot {
         size: 1
     }
 
-    // The check reads the cause: no warm query or ask was made and neither a store nor a helper was spawned.
-    // contentReady is the warm inputs' last change and every binding it feeds runs inside that turn, so one deferred turn covers the request side; the spawn itself is asynchronous.
+    // The check reads the cause (no warm query or ask, no store or helper spawned): contentReady is the warm inputs' last change, so one deferred turn covers the request side.
     function settledStopped(label) {
         Qt.callLater(function () {
             var service = Flea.FigureService

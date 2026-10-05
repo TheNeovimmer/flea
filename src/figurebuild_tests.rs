@@ -1,6 +1,6 @@
 use super::*;
 use crate::backend::testdir::TestDir;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 // A UI tree and engine of their own, and a cache root inside the same sandbox.
 struct Rig {
@@ -185,8 +185,20 @@ fn the_final_unlock_removes_only_the_lock_that_is_still_this_builders() {
     build(&first.root, &first.qjs, &first.ui, &takeover).expect("a build");
     assert_eq!(fs::read_to_string(&lock).expect("the rival's lock is still there"), "rival builder");
     let alone = rig("figure-build-owner-alone");
-    build(&alone.root, &alone.qjs, &alone.ui, &fake(&RefCell::new(Vec::new()), &figurecache::BLOBS, &healthy)).expect("a build");
-    assert!(!lock_path(&alone.root, &key).exists(), "a builder's own lock is removed");
+    let alone_key = figurecache::key(&alone.qjs, &alone.ui).expect("key");
+    let alone_lock = lock_path(&alone.root, &alone_key);
+    let held = Cell::new(false);
+    let alone_calls = RefCell::new(Vec::new());
+    let alone_inner = fake(&alone_calls, &figurecache::BLOBS, &healthy);
+    let watch = |argv: &[String], input: &str| {
+        if argv.iter().any(|a| a.ends_with(COMPILE_NAME)) {
+            held.set(alone_lock.exists());
+        }
+        alone_inner(argv, input)
+    };
+    build(&alone.root, &alone.qjs, &alone.ui, &watch).expect("a build");
+    assert!(held.get(), "the builder held its lock while it compiled");
+    assert!(!alone_lock.exists(), "a builder's own lock is removed");
 }
 
 #[test]

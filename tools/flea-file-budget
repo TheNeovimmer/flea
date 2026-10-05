@@ -102,6 +102,7 @@ ui/KeymapSheet.qml 549
 ui/List.qml 437
 tests/touchpad-edge.qml 438
 ui/FastScrollHandler.qml 529
+ui/FigureService.qml 404
 ui/NetworkDialog.qml 447
 ui/NetworkForm.qml 406
 ui/NetworkMounts.qml 849

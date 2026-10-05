@@ -25,6 +25,13 @@ ShellRoot {
     property int exitsMark: 0
     property int hitsMark: 0
     property int missesMark: 0
+    // The held warm case: the gate stub keeps the store from replying until the case lets it.
+    property bool heldRan: false
+    property var placedKeys: []
+    property int placedDone: 0
+    readonly property string document: Quickshell.env("FLEA_FIGURE_STORE_DOC")
+    readonly property string holdPath: Quickshell.env("FLEA_STORE_HOLD")
+    readonly property string gatePath: Quickshell.env("FLEA_STORE_GATE")
     readonly property int idleExitMs: 150
     readonly property int watchdogMs: 90000
     readonly property var theme: ({ bg: "#101315", fg: "#c0caf5", accent: "#7aa2f7", font: "monospace", bodyPx: 14, exPx: 7 })
@@ -113,10 +120,13 @@ ShellRoot {
           known: function (all, service) {
               shell.check(all === true && !service.helperRunning && !service.starting && service.sends === shell.sendsMark, "a document whose figures are all on disk starts no helper")
           } },
-        // The same figure under a theme never drawn is not known, so the helper starts warm; an idle stop meanwhile is refused and the reply still lands.
-        { act: function () {
-              Flea.FigureService.warm([shell.figureBlock], { math: shell.unseenTheme })
-              shell.check(Flea.FigureService.persistent.stop() === false, "an idle stop is refused while the store owes the warm query's reply")
+        // The same figure under a theme never drawn is not known, so the helper starts warm; the gate stub holds the store's reply, so the refusal is judged with the reply owed.
+        { hold: true,
+          act: function () { Flea.FigureService.warm([shell.figureBlock], { math: shell.unseenTheme }) },
+          held: function (disk) {
+              shell.check(!!disk.pid && !disk.starting && !disk.stopping && disk.owed > 0 && disk.queued.length === 0, "the store is running, not starting, with the warm reply owed and nothing queued")
+              shell.check(disk.stop() === false, "an idle stop is refused while the store owes the warm query's reply")
+              shell.check(!!disk.pid && !disk.stopping, "the refused stop leaves the store running")
           },
           known: function (all, service) {
               shell.check(all === false && (service.helperRunning || service.starting), "a figure drawn under another accent does not keep the helper from starting warm")
@@ -137,6 +147,23 @@ ShellRoot {
         { act: function () { shell.ask("math", "put then stop", shell.theme) },
           verify: function (svg, error, service, disk) {
               shell.check(svg === shell.largeSvg && service.sends === shell.sendsMark && disk.hits === shell.hitsMark + 1, "the put that an idle stop followed at once is on disk")
+          } },
+        // A document's maths and Mermaid figures are drawn by a real pane and land on disk under the keys its placed figures asked.
+        { act: function () { shell.forgetMemory(); drawPane.active = true },
+          drawn: function (service) {
+              shell.placedDone++
+              if (shell.placedDone < 2)
+                  return
+              shell.placedKeys = Object.keys(service.answerCache).sort()
+              shell.check(shell.placedKeys.length === 2 && shell.placedKeys[0].indexOf("math\n") === 0 && shell.placedKeys[1].indexOf("mermaid\n") === 0, "a pane's placed maths and Mermaid figures are both drawn, under two keys")
+              shell.verdictDone()
+          } },
+        // A fresh pane of the same document, with nothing in memory, warms by the keys the placed figures put: the store knows them all and no helper starts.
+        { act: function () { shell.forgetMemory(); drawPane.active = false; probePane.active = true },
+          known: function (all, service) {
+              shell.check(all === true, "a fresh pane's warm query finds every placed figure already on disk")
+              shell.check(service.warmKeys.slice().sort().join("\u0001") === shell.placedKeys.join("\u0001"), "the warm query names exactly the keys the placed figures put")
+              shell.check(!service.helperRunning && !service.starting && service.sends === shell.sendsMark, "a document whose figures are on disk starts no helper")
           } }
     ]
 
@@ -150,7 +177,14 @@ ShellRoot {
             return
         }
         shell.mark()
-        shell.cases[shell.index].act()
+        shell.heldRan = false
+        shell.placedDone = 0
+        var current = shell.cases[shell.index]
+        // The hold is armed by a marker file the gate stub consumes at its next store start, so the arming lands before the case acts.
+        if (current.hold)
+            arm.running = true
+        else
+            current.act()
     }
 
     // The next case starts once the helper and the store have both stopped at their idle exit, so each case begins from nothing running.
@@ -169,6 +203,11 @@ ShellRoot {
         target: Flea.FigureService
         function onDone(ticket, svg, error) {
             var current = shell.cases[shell.index]
+            if (current && current.drawn) {
+                if (svg !== "" && error === "")
+                    current.drawn(Flea.FigureService)
+                return
+            }
             if (ticket !== shell.ticket || !current || !current.verify)
                 return
             current.verify(svg, error, Flea.FigureService, Flea.FigureService.persistent)
@@ -181,6 +220,17 @@ ShellRoot {
         target: Flea.FigureService.persistent
         // Deferred, so the next case never starts inside the change that announced the stop.
         function onActiveChanged() { Qt.callLater(shell.settle) }
+        // Deferred past onStarted, which writes the queued lines after it clears starting, so the held state has nothing queued.
+        function onStartingChanged() {
+            var current = shell.cases[shell.index]
+            if (Flea.FigureService.persistent.starting || !current || !current.held || shell.heldRan)
+                return
+            shell.heldRan = true
+            Qt.callLater(function () {
+                current.held(Flea.FigureService.persistent)
+                Quickshell.execDetached(["sh", "-c", "echo > \"$1\"", "sh", shell.gatePath])
+            })
+        }
         function onAnswered(id, svg) {
             var current = shell.cases[shell.index]
             if (id === shell.probeId && current && current.answered)
@@ -195,6 +245,39 @@ ShellRoot {
                 current.known(all, Flea.FigureService)
                 shell.verdictDone()
             })
+        }
+    }
+
+    Process {
+        id: arm
+        command: ["touch", shell.holdPath]
+        onExited: shell.cases[shell.index].act()
+    }
+
+    // The same document in two panes, each inactive until its case: the first draws its figures, the second is a fresh pane that only warms.
+    FloatingWindow {
+        implicitWidth: 1120
+        implicitHeight: 600
+        color: "#101315"
+
+        Flea.PreviewMarkdown {
+            id: drawPane
+            width: 560
+            height: 600
+            active: false
+            view: "rendered"
+            path: shell.document
+            size: 1
+        }
+        Flea.PreviewMarkdown {
+            id: probePane
+            x: 560
+            width: 560
+            height: 600
+            active: false
+            view: "rendered"
+            path: shell.document
+            size: 1
         }
     }
 

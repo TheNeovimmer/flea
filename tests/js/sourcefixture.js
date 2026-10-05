@@ -26,11 +26,11 @@ function source(path) {
         throw new Error("sourcefixture: cannot read " + path)
     return body
 }
-// Sample input: function ask(kind, source, display, theme) { ... } or onExited: function (...) { ... }.
-function block(source, marker) {
+// Sample input: block(text, "onExited:", "ui/FigureStore.qml") answers the braces after onExited:, and names that file when the marker is missing.
+function block(source, marker, file) {
     var at = source.indexOf(marker)
     if (at < 0)
-        throw new Error("figureservice: missing " + marker)
+        throw new Error(file + ": missing " + marker)
     var begin = source.indexOf("{", at + marker.length)
     var depth = 1
     var quote = ""
@@ -57,6 +57,6 @@ function block(source, marker) {
         }
     }
     if (begin < 0 || depth !== 0)
-        throw new Error("figureservice: unterminated " + marker)
+        throw new Error(file + ": unterminated " + marker)
     return source.substring(begin + 1, i - 1)
 }
