@@ -91,7 +91,7 @@ run_harness() {
         HOME="$test_root/home" XDG_RUNTIME_DIR="$runtime" TMPDIR="$test_root/tmp" \
         XDG_CONFIG_HOME="$test_root/home/.config" XDG_STATE_HOME="$test_root/home/.local/state" \
         XDG_CACHE_HOME="$test_root/home/.cache" \
-        QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=16 \
+        QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=16 \
         QT_FORCE_STDERR_LOGGING=1 \
         CW_DIR="$fx" CW_CACHE="$cache" CW_WATCHLOG="$watchlog" CW_SWALLOW_REPLY="$swallow" \
         timeout "$qs_deadline_s" qs -p "$config_dir" > "$output" 2>&1 )

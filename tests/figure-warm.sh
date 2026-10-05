@@ -50,7 +50,7 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
     FLEA_FIGURE_WARM_FIGURES="$test_root/figures.md" FLEA_FIGURE_WARM_PLAIN="$test_root/plain.md" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 120 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$output" | grep -aoE 'FIGURE_WARM .*'
 # Sample input: FIGURE_WARM 10 checks, 0 failed.

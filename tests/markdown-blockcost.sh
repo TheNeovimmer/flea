@@ -195,7 +195,7 @@ probe_timeout=$((watchdog_ms / 1000 + probe_timeout_margin))
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BLOCKCOST_LIST="$test_root/docs/kinds.md" FLEA_BIN="$test_root/stub/flea" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout "$probe_timeout" qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
 printf '%s\n' "$output" | grep -aE 'MARKDOWN_BLOCKCOST (doc|kind)=' | sed 's/ parts=.*//'

@@ -85,7 +85,7 @@ trap 'rm -rf "$scratch"' EXIT
 cp ui/FileDrag.qml "$scratch/FileDrag.qml" || exit 1
 ln -s "$PWD/ui/js" "$scratch/js" || exit 1
 offer_timeout_seconds=15
-file_offer=$(env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 timeout "$offer_timeout_seconds" qml6 tests/dragwire-offer.qml -- "$scratch/FileDrag.qml" 2>&1)
+file_offer=$(env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 timeout "$offer_timeout_seconds" qml6 tests/dragwire-offer.qml -- "$scratch/FileDrag.qml" 2>&1)
 offer_status=$?
 if [[ "$offer_status" == 0 ]] && grep -q 'file offers: 5 checks, 0 failed' <<< "$file_offer"; then
     ok "file lift offers copy for plain, ctrl and ctrl plus shift without link; shift offers move and link takes priority"
@@ -95,7 +95,7 @@ fi
 
 # Exercise the shipped floor bindings and handler while a listing is held and after it settles.
 floor_probe_seconds=15
-floor_output=$(env QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+floor_output=$(env QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
     timeout "$floor_probe_seconds" qml6 tests/dragwire-floor.qml 2>&1)
 floor_status=$?
 if [[ "$floor_status" == 0 ]] && grep -q 'floor drops: 21 checks, 0 failed' <<< "$floor_output"; then

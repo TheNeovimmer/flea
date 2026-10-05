@@ -11,7 +11,7 @@ if ! command -v qml6 >/dev/null; then
     exit 1
 fi
 
-out=$(QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 timeout "$harness_seconds" qml6 tests/markdown-spec.qml 2>&1)
+out=$(QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 timeout "$harness_seconds" qml6 tests/markdown-spec.qml 2>&1)
 code=$?
 # Qt warns about fonts and plugins on a headless box; the harness lines are the verdict.
 printf '%s\n' "$out" | grep -a -E 'MDSPEC|FAIL|markdown-spec:' | sed 's/^qml: //'

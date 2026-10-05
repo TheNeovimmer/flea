@@ -62,7 +62,7 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$test_root/gate-bin/flea" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
     FLEA_FIGURE_STORE_DOC="$test_root/placed.md" FLEA_STORE_HOLD="$test_root/hold" FLEA_STORE_GATE="$test_root/gate" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 120 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$output" | grep -aoE 'FIGURE_STORE .*'
 # Sample input: FIGURE_STORE 21 checks, 0 failed.
@@ -95,7 +95,7 @@ chmod +x "$test_root/hung-bin/flea" || exit 1
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$test_root/hung-bin/flea" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 120 qs -p "$test_root/hung-config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$output" | grep -aoE 'FIGURE_STORE_HUNG .*'
 # Sample input: FIGURE_STORE_HUNG 3 checks, 0 failed.
@@ -137,7 +137,7 @@ run_drain() {
         HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
         XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$test_root/drain-bin/flea" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
         FLEA_DRAIN_MODE="$1" \
-        QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+        QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
         timeout 120 qs -p "$test_root/drain-config" 2>&1 ) 2>/dev/null )
     printf '%s\n' "$output" | grep -aoE 'FIGURE_STORE_DRAIN .*'
     # Sample input: FIGURE_STORE_DRAIN 5 checks, 0 failed.

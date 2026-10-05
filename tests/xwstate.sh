@@ -85,7 +85,7 @@ launch() {
         HOME="$box/home" XDG_CONFIG_HOME="$box/config" XDG_STATE_HOME="$box/state" \
         XDG_DATA_HOME="$box/data" XDG_CACHE_HOME="$box/cache" XDG_RUNTIME_DIR="$box/runtime" \
         FLEA_PATH="$box/$1" FLEA_BIN="$bin" FLEA_HUNT_ROOT="$box" QSG_RHI_BACKEND=opengl \
-        QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+        QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
         timeout "$WINDOW_TIMEOUT_SECONDS" qs -p "$box/ui/boot" > "$box/$1.log" 2>&1
 }
 call() {

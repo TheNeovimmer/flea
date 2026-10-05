@@ -56,7 +56,7 @@ run_surface() {
         HOME="$swap_work/home" XDG_RUNTIME_DIR="$swap_work/runtime" TMPDIR="$swap_work/tmp" \
         XDG_CONFIG_HOME="$swap_work/home/.config" XDG_STATE_HOME="$swap_work/home/.local/state" \
         XDG_CACHE_HOME="$swap_work/home/.cache" \
-        QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=16 \
+        QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=16 \
         QT_FORCE_STDERR_LOGGING=1 \
         PREVIEW_SWAP_UI="$PWD/ui" PREVIEW_SWAP_SURFACE="$surface" PREVIEW_SWAP_OUT="$out" \
         PREVIEW_SWAP_DIRECT="$direct" PREVIEW_SWAP_EARLY="$early" \
@@ -117,7 +117,7 @@ run_folderguard() {
         HOME="$swap_work/home" XDG_RUNTIME_DIR="$swap_work/runtime" TMPDIR="$swap_work/tmp" \
         XDG_CONFIG_HOME="$swap_work/home/.config" XDG_STATE_HOME="$swap_work/home/.local/state" \
         XDG_CACHE_HOME="$swap_work/home/.cache" \
-        QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=16 \
+        QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=16 \
         QT_FORCE_STDERR_LOGGING=1 \
         PREVIEW_SWAP_UI="$PWD/ui" PREVIEW_SWAP_SURFACE="column" PREVIEW_SWAP_OUT="$swap_work/frames-column" \
         PREVIEW_SWAP_DIRECT="0" PREVIEW_SWAP_FOLDERGUARD="1" \

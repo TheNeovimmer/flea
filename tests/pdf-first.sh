@@ -57,7 +57,7 @@ log="$first_root/column.log"
     HOME="$first_work/home" XDG_RUNTIME_DIR="$first_work/runtime" TMPDIR="$first_work/tmp" \
     XDG_CONFIG_HOME="$first_work/home/.config" XDG_STATE_HOME="$first_work/home/.local/state" \
     XDG_CACHE_HOME="$first_work/home/.cache" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 \
     QT_FORCE_STDERR_LOGGING=1 \
     PDF_FIRST_UI="$PWD/ui" PDF_FIRST_PDF="$pdf" \
     timeout 30 qs -p "$first_work/config" > "$log" 2>&1; exit $? ) 2>/dev/null

@@ -19,7 +19,7 @@ printf 'plain notes\n' > "$test_root/notes.txt"
 output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
     FLEA_BIN="$PWD/target/debug/flea" SHEBANG_SCRIPT="$test_root/build.sh" SHEBANG_NOTES="$test_root/notes.txt" \
-    QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 timeout 25 qs -p "$test_root/config" 2>&1)
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 timeout 25 qs -p "$test_root/config" 2>&1)
 status=$?
 backend_checks=14
 if [[ "$status" != 143 || $(grep -c 'MENUSHEBANG PASS' <<< "$output") != "$backend_checks" \

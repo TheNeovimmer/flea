@@ -74,7 +74,7 @@ for action in copy cut copyas-list copyas-grid copyas-columns terminal pasteas p
         FLEA_HUNT_ACTION="$action" FLEA_HUNT_DEST="$dest" FLEA_HUNT_CLIPBOARD="$test_root/clipboard" \
         FLEA_HUNT_SOURCE="$test_root/source" FLEA_HUNT_CHECKS="$PWD/tests/menu-clipboard-checks.py" \
         FLEA_HUNT_SOURCE_BYTES="$test_root/source-bytes.json" \
-        QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 timeout 30 qs -p "$test_root/config" 2>&1)
+        QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 timeout 30 qs -p "$test_root/config" 2>&1)
     code=$?
     printf '%s\n' "$output" | grep -a 'CLIPHUNT'
     probe_checks=$(printf '%s\n' "$output" | grep -acE 'CLIPHUNT (PASS|FAIL)' || true)

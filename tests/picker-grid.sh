@@ -91,7 +91,7 @@ output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
     FLEA_BIN="$test_root/stub-backend" FLEA_PICKER_REQUESTS="$test_root/requests" FLEA_PICKER_SETTLED="$test_root/settled" \
     FLEA_PICKER='{"mode":"open","title":"grid probe","folder":"/winprobe"}' FLEA_PICKER_REPLY="$test_root/reply.json" \
-    QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
     timeout "$probe_timeout" qs -p "$test_root/config" 2>&1)
 # Sample input, one probe line: 'PICKERGRID PASS screen=0..19 scrolled<=39 hidden=60 fsinfo="network"'.
 pass_count=$(printf '%s\n' "$output" | grep -c 'PICKERGRID PASS')

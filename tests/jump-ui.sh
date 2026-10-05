@@ -50,7 +50,7 @@ log="$fixture/qs.log"
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u YDOTOOL_SOCKET \
     HOME="$home" XDG_STATE_HOME="$home/.local/state" XDG_DATA_HOME="$home/.local/share" \
     XDG_CONFIG_HOME="$home/.config" XDG_CACHE_HOME="$fixture/cache" FLEA_BIN="$bin" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
     setsid qs -p "$fixture/shell.qml" >"$log" 2>&1 </dev/null &
 qs_pid=$!
 

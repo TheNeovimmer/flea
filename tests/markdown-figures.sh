@@ -349,7 +349,7 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u 
     HOME="$test_root" XDG_STATE_HOME="$test_root" XDG_CACHE_HOME="$test_root" \
     XDG_RUNTIME_DIR="$test_root" FLEA_QJS="$qjs" \
     FLEA_FIG_PHASE_FILE="$test_root/phase" PATH="$test_root/stubbin:$PATH" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
     timeout 150 qs -p "$test_root/qsconfig" 2>&1 ) 2>/dev/null )
 qs_status=$?
 if [ -f "$test_root/hang.pid" ]; then

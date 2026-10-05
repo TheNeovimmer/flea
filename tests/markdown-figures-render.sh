@@ -95,7 +95,7 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIGURE_FIXTURE="$test_root/notes.md" \
     FLEA_FIG_MODE=real FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 120 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
 # Sample input: MARKDOWN_FIGRENDER PASS (real) three figures, one mono fallback, widths fit, far figure unasked
@@ -147,7 +147,7 @@ mathgap_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNA
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIGURE_FIXTURE="$test_root/mathgap.md" \
     FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 25 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$mathgap_output" | grep -oE 'MARKDOWN_MATHGAP .*'
 warnings=$(printf '%s\n' "$mathgap_output" | grep -aE 'TypeError|ReferenceError|WARN|invalid nullptr parameter' | grep -vF "$platform_warning")
@@ -179,7 +179,7 @@ mathsize_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGN
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIGURE_FIXTURE="$test_root/mathsize.md" \
     FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 45 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$mathsize_output" | grep -oE 'MARKDOWN_MATHSIZE .*'
 warnings=$(printf '%s\n' "$mathsize_output" | grep -aE 'TypeError|ReferenceError|WARN|invalid nullptr parameter' | grep -vF "$platform_warning")
@@ -210,7 +210,7 @@ figflush_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGN
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIGURE_FIXTURE="$test_root/figflush.md" \
     FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 25 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$figflush_output" | grep -oE 'MARKDOWN_FIGFLUSH .*'
 warnings=$(printf '%s\n' "$figflush_output" | grep -aE 'TypeError|ReferenceError|WARN|invalid nullptr parameter' | grep -vF "$platform_warning")
@@ -250,7 +250,7 @@ arrow_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATU
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
     FLEA_ARROW_FIXTURE="$test_root/arrow-cases.json" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 25 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$arrow_output" | grep -oE 'MARKDOWN_ARROWS .*'
 warnings=$(printf '%s\n' "$arrow_output" | grep -aE 'TypeError|ReferenceError|WARN|invalid nullptr parameter' | grep -vF "$platform_warning")
@@ -270,7 +270,7 @@ cp tests/markdown-figures-render-ends.qml "$test_root/config/shell.qml" || exit 
 ends_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 25 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$ends_output" | grep -oE 'MARKDOWN_ENDS (MARKS|FAIL).*'
 warnings=$(printf '%s\n' "$ends_output" | grep -aE 'TypeError|ReferenceError|WARN|invalid nullptr parameter' | grep -vF "$platform_warning")
@@ -288,7 +288,7 @@ fi
 md3u_output=$(timeout 45 "$qjs" tests/markdown-advfix-md3u.mjs) || { printf '%s\n' "$md3u_output"; exit 1; }
 printf '%s\n' "$md3u_output" | head -1
 printf '%s\n' "$md3u_output" | tail -1 > "$test_root/md3u-cases.json" || exit 1
-md3u_native=$(QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QML_XHR_ALLOW_FILE_READ=1 QT_FORCE_STDERR_LOGGING=1 \
+md3u_native=$(QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QML_XHR_ALLOW_FILE_READ=1 QT_FORCE_STDERR_LOGGING=1 \
     XDG_RUNTIME_DIR="$test_root/runtime" timeout 25 qml6 tests/markdown-advfix-md3u.qml -- "file://$test_root/md3u-cases.json" 2>&1)
 md3u_status=$?
 printf '%s\n' "$md3u_native" | grep -E 'MD3U_GEOMETRY|MARKDOWN_MD3U_NATIVE|FAIL'
@@ -354,7 +354,7 @@ draw_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATUR
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_DRAW_DIR="$draw_dir" \
     FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 90 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$draw_output" | grep -oE 'MARKDOWN_DRAW .*'
 warnings=$(printf '%s\n' "$draw_output" | grep -aE 'TypeError|ReferenceError|WARN|invalid nullptr parameter' | grep -vF "$platform_warning")

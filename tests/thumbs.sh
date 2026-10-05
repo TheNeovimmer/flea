@@ -279,7 +279,7 @@ ln -s /usr/share/omarchy/shell/Ui "$prefetch_root/config/Ui" || { sandbox_remove
 ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$D" XDG_RUNTIME_DIR="$prefetch_root/runtime" TMPDIR="$D" \
     XDG_CONFIG_HOME="$D/.config" XDG_STATE_HOME="$D/.local/state" XDG_CACHE_HOME="$D/cache" \
-    QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
     PREVIEW_UI="$PWD/ui" \
     timeout 60 qs -p "$prefetch_root/config" > "$prefetch_log" 2>&1 )
 prefetch_pass=$(grep -ac 'THUMBPREFETCH PASS' "$prefetch_log")

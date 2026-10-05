@@ -84,7 +84,7 @@ for spec in $harnesses; do
         HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
         XDG_DATA_HOME="$test_root/data" XDG_CONFIG_HOME="$test_root/home/.config" \
         XDG_RUNTIME_DIR="$test_root/runtime" BUTTONSYS_ROOT="$test_root" BUTTONSYS_TIMEOUT_S="$run_timeout_s" \
-        QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+        QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
         timeout "$run_timeout_s" qs -p "$config" 2>&1 ) 2>/dev/null )
     # Sample input: "  INFO qml: BUTTONSYS ok rest: ..." once per check, and "  INFO qml: BUTTONSYS DONE checks=110 failed=0" once.
     passed=$(printf '%s\n' "$output" | grep -c "$tag ok ")

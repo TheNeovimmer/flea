@@ -18,7 +18,7 @@ cp ui/js/*.js "$scratch/selection/js/"
 cp tests/picker-selection.qml "$scratch/"
 status=0
 probe_timeout_seconds=15
-output=$(env QT_QPA_PLATFORM=offscreen QML_XHR_ALLOW_FILE_READ=1 QT_FORCE_STDERR_LOGGING=1 timeout "$probe_timeout_seconds" qml6 "$scratch/picker-selection.qml" 2>&1) || status=$?
+output=$(env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QML_XHR_ALLOW_FILE_READ=1 QT_FORCE_STDERR_LOGGING=1 timeout "$probe_timeout_seconds" qml6 "$scratch/picker-selection.qml" 2>&1) || status=$?
 printf '%s\n' "$output"
 if [ "$status" -ne 0 ]; then
     exit "$status"

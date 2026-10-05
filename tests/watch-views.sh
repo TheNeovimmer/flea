@@ -55,7 +55,7 @@ for mode in ${WATCHVIEWS_MODES:-list columns grid dual}; do
         HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
         XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$PWD/target/debug/flea" FLEA_PATH="$named" \
         WATCHVIEWS_UI="$PWD/ui" WATCHVIEWS_ROOT="$fixture" WATCHVIEWS_MODE="$mode" WATCHVIEWS_OUTSIDE="$test_root/bin/outside" \
-        QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
+        QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
         dbus-run-session -- bash -c 'timeout "$1" qs -p "$2" > "$3" 2>&1' _ "$timeout_seconds" "$test_root/config" "$log" 2> "$test_root/bus.log" ) 2>/dev/null
     status=$?
     # Sample input: "  INFO qml: WATCHVIEWS columns child-create updated total=4".

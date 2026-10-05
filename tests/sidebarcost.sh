@@ -23,7 +23,7 @@ fi
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$root/home" XDG_STATE_HOME="$root/state" XDG_CACHE_HOME="$root/cache" XDG_RUNTIME_DIR="$root/runtime" \
     XDG_DATA_HOME="$root/data" \
-    FLEA_BIN="$PWD/target/debug/flea" QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    FLEA_BIN="$PWD/target/debug/flea" QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
     timeout 20 qs -p "$root/config" > "$root/probe.log" 2>&1
 status=$?
 cat "$root/probe.log"

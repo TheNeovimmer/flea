@@ -112,7 +112,7 @@ cp "$test_root/notes.md" "$long_fixture" || exit 1
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIXTURE="$test_root/notes.md" FLEA_MARKDOWN_LONG="$long_fixture" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
 # Sample input, the verdict line: "  INFO qml: MARKDOWN_RENDER PASS chip, rules, bar and links all read"
@@ -142,7 +142,7 @@ cp tests/markdown-source-render.qml "$test_root/config/shell.qml" || exit 1
 source_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIXTURE="$test_root/notes.md" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 20 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$source_output" | grep -oE 'MARKDOWN_SOURCE .*'
 check_warnings "$source_output" 0 || exit 1
@@ -161,7 +161,7 @@ cp tests/markdown-headink.qml "$test_root/config/shell.qml" || exit 1
 headink_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 20 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$headink_output" | grep -oE 'MARKDOWN_HEADINK .*'
 check_warnings "$headink_output" 0 || exit 1
@@ -200,7 +200,7 @@ endfit_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNAT
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_ENDFIT_DOC="$endfit_dir/endfit.md" \
     FLEA_ENDFIT_BYTES="$endfit_dir/late.bytes" FLEA_ENDFIT_FIFO="$endfit_dir/late.png" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$endfit_output" | grep -oE 'MARKDOWN_ENDFIT .*'
 # Qt warns once that a pipe cannot seek, which is what holds the decode open, so that one line is not a defect.

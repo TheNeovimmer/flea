@@ -81,7 +81,7 @@ run_surface() {
         HOME="$turn_work/home" XDG_RUNTIME_DIR="$turn_work/runtime" TMPDIR="$turn_work/tmp" \
         XDG_CONFIG_HOME="$turn_work/home/.config" XDG_STATE_HOME="$turn_work/home/.local/state" \
         XDG_CACHE_HOME="$turn_work/home/.cache" \
-        QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 \
+        QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 \
         QT_FORCE_STDERR_LOGGING=1 \
         PDF_TURN_UI="$PWD/ui" PDF_TURN_SURFACE="$surface" PDF_TURN_PDF="$pdf" PDF_TURN_OTHER="$other" PDF_TURN_OUT="$out" \
         timeout 90 qs -p "$turn_work/config" > "$log" 2>&1; exit $? ) 2>/dev/null

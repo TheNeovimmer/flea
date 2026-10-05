@@ -31,7 +31,7 @@ chmod +x "$probe/bin/hyprctl"
 run_probe() {
     env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$probe/home" XDG_STATE_HOME="$probe/state" XDG_RUNTIME_DIR="$probe/runtime" \
-    QT_QPA_PLATFORM=offscreen QML_XHR_ALLOW_FILE_READ=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QML_XHR_ALLOW_FILE_READ=1 QT_FORCE_STDERR_LOGGING=1 \
     PATH="$probe/bin:$PATH" FLEA_GEOMETRY_MARKER="$probe/geometry-queries" \
     FLEA_BIN="$probe/flea-exits" FLEA_STUB_MARKER="$probe/child-exited" \
     timeout 15 qs -p "$probe/config" 2>&1

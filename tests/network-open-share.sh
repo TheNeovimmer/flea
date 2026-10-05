@@ -48,7 +48,7 @@ output=$(env \
     FLEA_TEST_LIST_STARTED="$list_started" \
     HOME="$test_root/home" \
     PATH="$test_root/bin:/usr/bin:/bin" \
-    QT_QPA_PLATFORM=offscreen \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic \
     QT_FORCE_STDERR_LOGGING=1 \
     timeout 7 qs -p "$test_root/config" 2>&1)
 

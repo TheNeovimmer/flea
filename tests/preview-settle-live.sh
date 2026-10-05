@@ -44,14 +44,14 @@ run_phase() {
             env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
             HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
             XDG_CONFIG_HOME="$test_root/home/.config" XDG_CACHE_HOME="$test_root/home/.cache" TMPDIR="$test_root/tmp" \
-            QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+            QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
             timeout 60 qs -p "$test_root/config" 2>&1)
     else
         output=$(FLEA_PREVIEWSETTLE_DIR="$test_root/images" \
             env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
             HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
             XDG_CONFIG_HOME="$test_root/home/.config" XDG_CACHE_HOME="$test_root/home/.cache" TMPDIR="$test_root/tmp" \
-            QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+            QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
             timeout 60 qs -p "$test_root/config" 2>&1)
     fi
     code=$?

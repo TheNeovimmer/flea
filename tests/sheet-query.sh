@@ -25,7 +25,7 @@ cp tests/sheet-query.qml "$test_root/config/shell.qml" || exit 1
 
 output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
-    QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
     timeout 30 qs -p "$test_root/config" 2>&1)
 qs_status=$?
 
@@ -83,7 +83,7 @@ readonly paneLimitSeconds=60 paneChecks=33 paneQsStatus=143
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
     HOME="$pane_root/home" XDG_STATE_HOME="$pane_root/state" XDG_CONFIG_HOME="$pane_root/config" \
     XDG_DATA_HOME="$pane_root/data" XDG_CACHE_HOME="$pane_root/cache" XDG_RUNTIME_DIR="$pane_root/runtime" \
-    FLEA_PATH="$pane_root/home/fixture" FLEA_BIN="$bin" GIO_USE_VOLUME_MONITOR=unix QT_QPA_PLATFORM=offscreen \
+    FLEA_PATH="$pane_root/home/fixture" FLEA_BIN="$bin" GIO_USE_VOLUME_MONITOR=unix QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic \
     QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
     timeout "$paneLimitSeconds" dbus-run-session -- qs -p "$pane_root/config" > "$pane_log" 2>&1
 pane_status=$?

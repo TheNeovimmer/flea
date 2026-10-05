@@ -28,7 +28,7 @@ cp tests/touchpad.qml "$test_root/config/shell.qml" || exit 1
 
 output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
-    QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
     timeout 30 qs -p "$test_root/config" 2>&1)
 
 # Sample input: "\e[34m DEBUG\e[97m qml\e[0m: TOUCHPAD PASS stroke=1200 lift=90 rest=4182 tail=2982.3 objs=580 delegates=26 edgeTop=-42.5 edgeBottom=77765.5 tailPeak=77823.0"

@@ -44,7 +44,7 @@ log="$test_root/startup.log"
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$PWD/target/debug/flea" \
     FLEA_PATH="$test_root/fixture" STARTUP_OBJECTS_UI="$PWD/ui" STARTUP_OBJECTS_DISK="$power_disk" \
     PATH="$test_root/bin:$PATH" STARTUP_OBJECTS_LEG_TIMEOUT_SECONDS="$leg_timeout_seconds" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 QML_IMPORT_TRACE=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 QML_IMPORT_TRACE=1 \
     QT_LOGGING_RULES='qt.qml.diskcache*=true' \
     dbus-run-session -- bash -c 'timeout "$1" qs -p "$2" > "$3" 2>&1' _ "$probe_timeout_seconds" "$test_root/config" "$log" 2> "$test_root/bus.log" ) 2>/dev/null
 status=$?

@@ -3,7 +3,7 @@
 set -u
 cd "$(dirname "$0")/.." || exit 1
 probe_seconds=15
-output=$(env QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+output=$(env QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
     timeout "$probe_seconds" qml6 tests/tabreceive.qml 2>&1)
 status=$?
 printf '%s\n' "$output"

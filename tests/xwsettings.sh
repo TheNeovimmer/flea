@@ -169,7 +169,7 @@ env XDG_STATE_HOME="$SANDBOX/state" "$BIN" --ui-state \
   '{"hidden":false,"view":"grid","lastPath":"/seed","density":"compact"}' >/dev/null 2>&1 \
   || { echo "FAIL xwsettings: the seed write failed"; exit 1; }
 
-env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/state" \
+env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/state" \
     FLEA_BIN="$BIN" timeout 60 qs -p "$QMLDIR/watcher.qml" > "$SANDBOX/watching.log" 2>&1 &
 watching_pid=$!
 waited=0
@@ -185,7 +185,7 @@ until grep -q 'PROBE watching' "$SANDBOX/watching.log" 2>/dev/null; do
   sleep 0.05
 done
 if [ "$fail" -eq 0 ]; then
-  env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/state" \
+  env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/state" \
       FLEA_BIN="$BIN" timeout 60 qs -p "$QMLDIR/writer.qml" > "$SANDBOX/writing.log" 2>&1
   wait "$watching_pid"
   applied=$(grep 'PROBE applied' "$SANDBOX/watching.log" | head -1)
@@ -210,7 +210,7 @@ if [ "$fail" -eq 0 ]; then
   env XDG_STATE_HOME="$SANDBOX/garbage/state" "$BIN" --ui-state \
     '{"hidden":false,"view":"grid","density":"compact"}' >/dev/null 2>&1 \
     || { echo "FAIL xwsettings: the garbage-phase seed write failed"; exit 1; }
-  env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/garbage/state" \
+  env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/garbage/state" \
       FLEA_BIN="$BIN" timeout 60 qs -p "$QMLDIR/watcher.qml" > "$SANDBOX/garbage.log" 2>&1 &
   garbage_pid=$!
   waited=0
@@ -268,7 +268,7 @@ ShellRoot {
 QML
     kill "$garbage_pid" 2>/dev/null || true
     wait "$garbage_pid" 2>/dev/null || true
-    env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/garbage/state" \
+    env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/garbage/state" \
         FLEA_BIN="$BIN" timeout 60 qs -p "$QMLDIR/stayer.qml" > "$SANDBOX/stayer.log" 2>&1 &
     stayer_pid=$!
     waited=0
@@ -351,7 +351,7 @@ ShellRoot {
     }
 }
 QML
-  env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/settled/state" \
+  env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/settled/state" \
       FLEA_BIN="$BIN" timeout 60 qs -p "$QMLDIR/settled.qml" > "$SANDBOX/settled.log" 2>&1 &
   settled_pid=$!
   waited=0
@@ -481,7 +481,7 @@ ShellRoot {
     }
 }
 QML
-  out=$(env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/refuse/state" \
+  out=$(env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/refuse/state" \
       FLEA_BIN="$BIN" timeout 60 qs -p "$QMLDIR/refuse.qml" 2>&1)
   check "the refused patch is reported once" "1" "$(echo "$out" | grep -c 'PROBE afterRefuse failures=1')"
   check "and a later valid write applies again in the same process" "1" "$(echo "$out" | grep -c 'PROBE final failures=1 patch={} density=normal')"
@@ -509,7 +509,7 @@ exec "$PROBE_REAL_BIN" "$@"
 SH
   chmod +x "$SANDBOX/prune/held-bin" || exit 1
   cp tests/xwsettings-prune.qml "$QMLDIR/prune.qml" || exit 1
-  out=$(env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/prune/state" \
+  out=$(env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/prune/state" \
       FLEA_BIN="$SANDBOX/prune/held-bin" PROBE_REAL_BIN="$BIN" PROBE_ENTERED="$SANDBOX/prune/entered" \
       PROBE_GATE="$SANDBOX/prune/gate" PROBE_POLL_S="$probe_poll_s" \
       timeout "$probe_timeout_s" qs -p "$QMLDIR/prune.qml" 2>&1)
@@ -543,7 +543,7 @@ if [ "$fail" -eq 0 ]; then
   env XDG_STATE_HOME="$SANDBOX/start/state" "$BIN" --ui-state \
     '{"hidden":false,"view":"list","density":"compact","updates":{"autoCheck":false}}' >/dev/null 2>&1 \
     || exit 1
-  env DISPLAY=flea-offscreen QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 QSG_RHI_BACKEND=opengl \
+  env DISPLAY=flea-offscreen QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 QSG_RHI_BACKEND=opengl \
       XDG_STATE_HOME="$SANDBOX/start/state" FLEA_UI="$SANDBOX/start/ui-a" FLEA_BIN="$BIN" \
       PROBE_BODY="$PWD/ui/WindowBody.qml" PROBE_STATE_HELPER="$PWD/tests/xwsettings-start-state.qml" \
       PROBE_ROLE=A PROBE_READY="$SANDBOX/start/ready" PROBE_DONE="$SANDBOX/start/done" PROBE_OTHER_PATH="$SANDBOX/start/files-b" \
@@ -562,7 +562,7 @@ if [ "$fail" -eq 0 ]; then
     sleep "$probe_poll_s"
   done
   if [ "$fail" -eq 0 ]; then
-    env DISPLAY=flea-offscreen QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 QSG_RHI_BACKEND=opengl \
+    env DISPLAY=flea-offscreen QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 QSG_RHI_BACKEND=opengl \
         XDG_STATE_HOME="$SANDBOX/start/state" FLEA_UI="$SANDBOX/start/ui-b" FLEA_BIN="$BIN" \
         PROBE_BODY="$PWD/ui/WindowBody.qml" PROBE_STATE_HELPER="$PWD/tests/xwsettings-start-state.qml" PROBE_ROLE=B PROBE_READY="$SANDBOX/start/ready" PROBE_DONE="$SANDBOX/start/done" \
         PROBE_POLL_S="$probe_poll_s" timeout "$probe_timeout_s" "$BIN" --gui "$SANDBOX/start/files-b" \
@@ -618,7 +618,7 @@ PY
     env XDG_STATE_HOME="$SANDBOX/tabs/$mode/state" "$BIN" --ui-state "$restored" >/dev/null 2>&1 || exit 1
     start_path=""
   fi
-  out=$(env DISPLAY=flea-offscreen QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 QSG_RHI_BACKEND=opengl \
+  out=$(env DISPLAY=flea-offscreen QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 QSG_RHI_BACKEND=opengl \
       XDG_STATE_HOME="$SANDBOX/tabs/$mode/state" FLEA_BIN="$SANDBOX/tabs/launcher" \
       FLEA_PATH="$start_path" PROBE_BASE="$SANDBOX/tabs/a" PROBE_OTHER_PATH="$SANDBOX/tabs/b" \
       PROBE_MODE="$mode" PROBE_REAL_BIN="$BIN" PROBE_LAUNCHES="$SANDBOX/tabs/$mode/launches" PROBE_SHOT="$SANDBOX/tabs/$mode/held.png" \

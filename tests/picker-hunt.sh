@@ -100,7 +100,7 @@ PY
             FLEA_BIN="$backend" FLEA_PICKER="$request" FLEA_PICKER_REPLY="$phase/reply.json" \
             FLEA_PICKER_HUNT_BASE_FILES="$base_fixture_files" FLEA_PICKER_HUNT_EXTRA_FILES="$wide_extra_files" \
             FLEA_PICKER_HUNT_REFUSAL_LOG="$phase/refused-operations" \
-            FLEA_PICKER_HUNT_CASE="$scenario" FLEA_PICKER_HUNT_PRESET="$preset" QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+            FLEA_PICKER_HUNT_CASE="$scenario" FLEA_PICKER_HUNT_PRESET="$preset" QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software \
             QT_FORCE_STDERR_LOGGING=1 timeout "$probe_timeout_seconds" qs -p "$test_root/config" 2>&1)
         code=$?
         phases=$((phases+1))

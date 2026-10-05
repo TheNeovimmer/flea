@@ -7289,7 +7289,7 @@ case_renderer() {
     cp "$repo/tests/renderer-retry.qml" "$proberoot/probe.qml"
     : > "$probe"
     env RETRY_HELPER="$flea_ui/RendererRetry.qml" RETRY_BACKEND=vulkan \
-        FLEA_RENDERER_AUTOMATIC=1 FLEA_BIN="$dir/flea-stub" QT_QPA_PLATFORM=offscreen \
+        FLEA_RENDERER_AUTOMATIC=1 FLEA_BIN="$dir/flea-stub" QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic \
         timeout 20 qs -p "$proberoot/probe.qml" > "$probe" 2>&1
     local want='RETRY argv ["/usr/bin/env","QSG_RHI_BACKEND=opengl","'"$dir/flea-stub"'","--gui"]'
     grep -aqF "$want" "$probe" \

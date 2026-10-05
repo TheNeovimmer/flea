@@ -29,7 +29,7 @@ readonly runLimitSeconds=60 expectedChecks=200 expectedQsStatus=143
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT \
     HOME="$probe/home" XDG_STATE_HOME="$probe/state" XDG_CONFIG_HOME="$probe/config" \
     XDG_DATA_HOME="$probe/data" XDG_CACHE_HOME="$probe/cache" XDG_RUNTIME_DIR="$probe/runtime" \
-    FLEA_PATH="$probe/home/fixture" FLEA_BIN="$bin" GIO_USE_VOLUME_MONITOR=unix QT_QPA_PLATFORM=offscreen \
+    FLEA_PATH="$probe/home/fixture" FLEA_BIN="$bin" GIO_USE_VOLUME_MONITOR=unix QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic \
     QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
     timeout "$runLimitSeconds" dbus-run-session -- qs -p "$probe/config" > "$log" 2>&1
 qs_status=$?

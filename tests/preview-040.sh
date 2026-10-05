@@ -24,7 +24,7 @@ output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CONFIG_HOME="$test_root/home/.config" \
     XDG_CACHE_HOME="$test_root/cache" XDG_DATA_HOME="$test_root/data" XDG_RUNTIME_DIR="$test_root/runtime" TMPDIR="$test_root/tmp" \
     FLEA_BIN="$PWD/target/debug/flea" FLEA_PREVIEW_040_DIR="$test_root/fixture" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
     timeout 15 qs -p "$test_root/config" 2>&1)
 code=$?
 printf '%s\n' "$output" | sed -n '/PREVIEW_040/p'

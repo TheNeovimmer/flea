@@ -59,7 +59,7 @@ magick \( -size 560x400 xc:white -fill black -font Liberation-Sans -pointsize 40
 output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     FLEA_PREVIEW_GEOMETRY_DIR="$fixture" FLEA_PREVIEW_GEOMETRY_OUT="$test_root/out" \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
     timeout 180 qs -p "$test_root/config" 2>&1)
 
 # Sample input, one probe line: "GEOMETRY columns-wide image 64x48 frame=736x460 drawn=64x48 rule=image-own-size ok".

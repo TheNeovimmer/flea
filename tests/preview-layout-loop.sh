@@ -65,7 +65,7 @@ for theme in dark light; do
         HOME="$theme_home" XDG_STATE_HOME="$test_root/state-$theme" XDG_CACHE_HOME="$test_root/cache-$theme" \
         XDG_RUNTIME_DIR="$test_root/runtime" FLEA_LAYOUT_DIR="$test_root" FLEA_REDUCED_MOTION=1 FLEA_LAYOUT_BACKGROUND="$background" \
         FLEA_BIN="${FLEA_BIN:-$PWD/target/debug/flea}" \
-        QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
+        QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
         timeout 75 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
     status=$?
     if [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then

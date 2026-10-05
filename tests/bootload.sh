@@ -47,7 +47,7 @@ python3 tests/bootkeys.py "${keys_files[@]}" || exit 1
 
 output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
-    QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
     FLEA_BOOTLOAD_FILES="$files" FLEA_BOOTLOAD_ENTRIES="$entries" \
     timeout 30 qs -p "$test_root/config" 2>&1)
 

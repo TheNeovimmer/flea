@@ -98,17 +98,17 @@ QtObject {
     property var spacing: ({ gap: 8 })
 }
 THEME
-    TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
         timeout 30 qml6 tests/markdown-preview-state.qml -- "$text_module" || exit 1
     # The end-follow over a real lazy list needs no Theme, so it takes no module.
-    TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
         timeout 30 qml6 tests/markdown-endhold.qml || exit 1
 fi
 
 run_once() {
     local output status
     # Check qml6 or timeout directly before extracting complete work records.
-    output=$(TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    output=$(TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
         timeout 280 qml6 tests/markdown-linearity.qml -- ui/js/Md*.js 2>&1)
     status=$?
     if [ "$status" != 0 ]; then
