@@ -752,7 +752,7 @@ def qml_duplicate_member(root, files):
     return len(qml) + len(js), errors
 
 
-# Sample input: ui/Sample.qml holding "WorkerScript { source: \"W.js\" }" in code is rejected; only ui/CountedWorker.qml, whose start lines the qs log gates count, may hold one.
+# Sample input: ui/Sample.qml holding "WorkerScript { source: \"W.js\" }" in code is rejected; only ui/CountedWorker.qml may hold one, and it must announce in code.
 def worker_announce(root, files):
     errors = []
     scanned = 0
@@ -761,9 +761,14 @@ def worker_announce(root, files):
         if not file.startswith('ui/') or path.suffix != '.qml' or not path.is_file():
             continue
         scanned += 1
+        text = path.read_text()
+        code = masked(text, '.qml')
         if file == COUNTED_WORKER:
+            # The call sits in code, so the literal at its argument offset is the real one, never a comment's copy.
+            call = re.search(r'\bconsole\.info\(\s*startLog\s*,\s*', code)
+            if call is None or not text.startswith('"WORKER_STARTED ', call.end()):
+                errors.append(f'{file}:1: no console.info(startLog, "WORKER_STARTED " ...) call in code')
             continue
-        code = masked(path.read_text(), '.qml')
         for m in re.finditer(r'\bWorkerScript\s*\{', code):
             errors.append(f'{location(file, code, m.start())}: WorkerScript outside {COUNTED_WORKER}')
     return scanned, errors
