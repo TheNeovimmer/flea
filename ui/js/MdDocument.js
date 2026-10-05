@@ -124,8 +124,8 @@ function writer(state, dir, chrome, ink, pass, shared) {
                 continue
             }
             // A heading in a lone wrapper lifts with it; one in other open HTML stays in its run, so no wrapper is ever split.
-            var lifted = depth === 0 ? HtmlHeading.headingUnit(run, i) : null
-            var htmlHead = lifted !== null ? lifted.head : depth === 0 ? HtmlBlock.htmlHeading(run[i]) : null
+            var lifted = depth === 0 ? HtmlHeading.headingUnit(run, i, dir) : null
+            var htmlHead = lifted !== null ? lifted.head : depth === 0 ? HtmlHeading.loneHeading(run[i], dir) : null
             if (htmlHead !== null) {
                 pushRun(plain)
                 plain = []
