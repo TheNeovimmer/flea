@@ -21,13 +21,13 @@ Column {
 
     Row {
         id: headerRow
-        spacing: 0
+        spacing: root.cellGap
 
         Repeater {
             model: root.block.head.length
             delegate: Flea.MarkdownText {
                 linkGate: Markdown.isExternalLink
-                width: root.colWidth(index)
+                width: root.textWidth(index)
                 bodyPx: root.bodyPx
                 cellPad: 2
                 text: root.block.head[index]
@@ -54,13 +54,13 @@ Column {
             spacing: 0
 
             Row {
-                spacing: 0
+                spacing: root.cellGap
 
                 Repeater {
                     model: root.columns
                     delegate: Flea.MarkdownText {
                         linkGate: Markdown.isExternalLink
-                        width: root.colWidth(index)
+                        width: root.textWidth(index)
                         bodyPx: root.bodyPx
                         cellPad: 2
                         text: root.cellAt(row, index)
@@ -78,8 +78,7 @@ Column {
         }
     }
 
-    // Invisible measurers carry each column's widest cell, measured by the parser over the whole table, so chunks share widths.
-    // A column with an image cell adds a second measurer for it, since the parser cannot know the image's width.
+    // Invisible measurers carry each column's widest cell plus a second for an image cell, since the parser cannot know the image's width.
     Repeater {
         id: measurers
         model: root.measureTexts
@@ -128,6 +127,16 @@ Column {
         }
         return widths
     }
+    // A column's text width beside its picture width: the parser weighs text alone, so the glyph price divides text by text.
+    readonly property var textPx: {
+        // Count and implicitWidth notify when a measurer arrives and lays out; itemAt alone notifies nothing.
+        var widths = []
+        for (var c = 0; c < root.columns; c++) {
+            var own = measurers.count > c ? measurers.itemAt(c) : null
+            widths.push(own ? own.implicitWidth : 0)
+        }
+        return widths
+    }
     // Pixels a column of the parser's width weight draws: the table's measured text over its weight, so the longest word converts to pixels.
     readonly property real glyphPx: {
         var px = 0
@@ -135,7 +144,7 @@ Column {
         var weights = root.block.weights || []
         for (var c = 0; c < root.columns; c++) {
             if (c < weights.length && weights[c] > 0) {
-                px += root.columnPx[c]
+                px += root.textPx[c]
                 weight += weights[c]
             }
         }
@@ -175,5 +184,9 @@ Column {
     }
     function colWidth(col) {
         return col < root.widths.length ? root.widths[col] : 0
+    }
+    // A cell's text stays inside its column's share minus the gap the next cell starts after, so the gap never holds ink.
+    function textWidth(col) {
+        return Math.max(0, root.colWidth(col) - root.cellGap)
     }
 }

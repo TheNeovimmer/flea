@@ -26,6 +26,10 @@ ShellRoot {
     readonly property int dropFrames: 30
     // The test gives up on its own verdict after this long, so a hung stage fails and the run ends.
     readonly property int watchdogMs: 120000
+    // A picture-wide column must price glyphs like a text-only one at the same size, never by its picture.
+    readonly property real pictureRatio: 1.5
+    // The text the panes showed before the path moved, so the drop ends only on the new file's own load.
+    property string prevText: ""
     property int checks: 0
     property int failures: 0
     property bool done: false
@@ -104,10 +108,17 @@ ShellRoot {
 
     function ready(pane) { return pane.contentReady && pane.blockList.length > 0 }
 
-    // The tables a pane built, in tree order, measured against the pane's block column.
+    // The drop never falls through to load: past the frame limit the run fails naming the case it never left.
+    function dropTimeout() {
+        shell.log("FAIL the drop never left " + shell.cases[shell.at] + " after " + shell.dropFrames + " frames")
+        shell.failures++
+        shell.finish()
+    }
+
+    // The tables a pane built, in tree order, measured against the pane's block column at their body offset.
     function measure(pane) {
         var body = pane.bodyItem
-        return Tables.all(body.contentItem, "tableGrid").map(function (table) { return Tables.geometry(table, body.width) })
+        return Tables.all(body.contentItem, "tableGrid").map(function (table) { return Tables.geometry(table, body.width, Math.round(table.mapToItem(body.contentItem, 0, 0).x)) })
     }
 
     function judge(name, pane, label) {
@@ -118,6 +129,13 @@ ShellRoot {
             // The narrow column cannot hold every column of the widest cases whatever the wrap; that is named, not checked.
             var skip = label === "column" && Tables.NARROW_OVERFLOW.indexOf(name) >= 0
             shell.check(skip ? "" : Tables.fitError(geos[i]), name + " " + label + " table " + i + " fits its column")
+            shell.check(Tables.gapError(geos[i]), name + " " + label + " table " + i + " keeps its column gap")
+        }
+        if (name === "picturewide" && geos.length > 0) {
+            var ref = shell.geos["mid-" + label]
+            var refGlyph = ref !== undefined && ref.length > 0 ? ref[0].glyph : -1
+            var over = refGlyph < 0 ? "no mid table weighs picturewide against" : geos[0].glyph <= shell.pictureRatio * refGlyph ? "" : "picturewide glyph " + geos[0].glyph + " is past " + shell.pictureRatio + "x the text-only " + refGlyph
+            shell.check(over, name + " " + label + " prices glyphs by text, not by picture")
         }
         shell.check(Tables.lineError(name, label, geos), name + " " + label + " draws its lines")
     }
@@ -144,6 +162,7 @@ ShellRoot {
                     shell.stage = "end"
                     return
                 }
+                shell.prevText = card.rawText
                 card.path = shell.dir + "/" + shell.cases[shell.at] + ".md"
                 column.path = card.path
                 shell.waited = 0
@@ -152,8 +171,11 @@ ShellRoot {
                 shell.stage = "drop"
             } else if (shell.stage === "drop") {
                 shell.waited++
-                if ((!shell.ready(card) && !shell.ready(column)) || shell.waited > shell.dropFrames)
+                // The old file's text survives until the new load lands, so only the new text ends the drop.
+                if (card.rawText !== shell.prevText && column.rawText !== shell.prevText)
                     shell.stage = "load"
+                else if (shell.waited > shell.dropFrames)
+                    shell.dropTimeout()
             } else if (shell.stage === "load") {
                 if (shell.ready(card) && shell.ready(column))
                     shell.stage = "settle"

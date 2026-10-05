@@ -369,12 +369,17 @@ case_cap_markdown_tables() {
     sandbox_scratch "$dir"
     mkdir -p "$dir/listing"
     cp "$repo"/tests/fixtures/markdown-tables/*.md "$dir/listing/"
+    # The same assets the headless table suite generates, so the inline shot shows the picture.
+    . "$repo/tests/markdown-tables-assets.sh" || fail "capmarkdowntables: the shared table assets helper did not load"
+    markdown_tables_assets_write "$dir/listing" || fail "capmarkdowntables: the shared table assets did not generate"
     launch "$dir/listing"
     wait_listing "$(find "$dir/listing" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
     for doc in "$dir"/listing/*.md; do
         name="${doc##*/}"
         capmarkdownkinds_open "$name"
         capmarkdownkinds_shoot "$name"
+        # A case counts as ok only with its shot on disk; the shot helper already fails an empty capture.
+        [[ -s "$evidence_dir/cap-markdown-kind-${name%.md}.png" ]] || fail "capmarkdowntables: shot for $name is missing, not recording ok"
         results+="${name%.md}=ok "
     done
     switch_view columns
@@ -384,6 +389,7 @@ case_cap_markdown_tables() {
         settle
         capmarkdown_wait_column_rendered
         shot "cap-markdown-kind-column-${name%.md}"
+        [[ -s "$evidence_dir/cap-markdown-kind-column-${name%.md}.png" ]] || fail "capmarkdowntables: column shot for $name is missing, not recording ok"
     done
     printf 'CAPMARKDOWNTABLES %scolumns=ok\n' "$results"
     kill_flea

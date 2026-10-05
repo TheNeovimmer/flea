@@ -143,7 +143,7 @@ var CELL_IMAGE = /!\[[^\]]*\]\([^)]*\)|<img\b[^>]*>/gi
 var CELL_GLYPH = /[\ud800-\udbff][\udc00-\udfff]|[\s\S]/g
 var WIDE_GLYPH = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6]/
 
-// Sample input: 'a<br>**bb** &#33; ![i](x.png)' draws lines "a" and "bb ! i": 3 columns of text, 11 with the image, a longest word of 8.
+// Sample input: 'a<br>**bb** &#33; ![i](x.png)' draws lines "a" and "bb ! \ue000": 5 columns of text, 13 with the image, a longest word of 8.
 // A wide glyph counts 2, a joiner and a variation selector 0, a break starts a line, and an image counts only in image.
 function cellExtent(cell) {
     var plain = String(cell).replace(/<br\s*\/?>/gi, "\n").replace(CELL_IMAGE, "\ue000").replace(/<[^>"]*("[^"]*"[^>"]*)*>/g, "").replace(/[*_~`]/g, "")
@@ -182,8 +182,7 @@ function widest(cells, drawn, key, imagesOnly) {
     return best
 }
 
-// The board's table as data (Qt's importer drops style attributes); measure is each column's widest cell, so chunks share widths.
-// pictures holds the widest cell that carries an image (its width is not known here), and words the longest unbreakable run in columns.
+// The board's table as data: measure is each column's widest cell so chunks share widths, pictures the widest image cell of unknown width, words the longest run.
 function tableBlock(head, aligns, rows, inlineOf) {
     var cols = head.length
     var shownHead = head.map(inlineOf)

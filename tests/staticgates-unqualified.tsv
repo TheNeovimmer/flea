@@ -626,6 +626,7 @@ ui/MarkdownTable.qml	33	root	Declared QML id; component context access is valid 
 ui/MarkdownTable.qml	34	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownTable.qml	52	index	Declared QML property; enclosing component context supplies it.
 ui/MarkdownTable.qml	53	root	Declared QML id; component context access is valid at runtime.
+ui/MarkdownTable.qml	57	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownTable.qml	60	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownTable.qml	63	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownTable.qml	64	root	Declared QML id; component context access is valid at runtime.
@@ -633,8 +634,8 @@ ui/MarkdownTable.qml	66	root	Declared QML id; component context access is valid 
 ui/MarkdownTable.qml	67	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownTable.qml	73	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownTable.qml	76	root	Declared QML id; component context access is valid at runtime.
-ui/MarkdownTable.qml	89	modelData	Delegate context supplies this model role at runtime.
-ui/MarkdownTable.qml	92	root	Declared QML id; component context access is valid at runtime.
+ui/MarkdownTable.qml	88	modelData	Delegate context supplies this model role at runtime.
+ui/MarkdownTable.qml	91	root	Declared QML id; component context access is valid at runtime.
 ui/MatchText.qml	60	root	Declared QML id; component context access is valid at runtime.
 ui/MatchText.qml	68	root	Declared QML id; component context access is valid at runtime.
 ui/MatchText.qml	69	root	Declared QML id; component context access is valid at runtime.
@@ -1207,7 +1208,6 @@ ui/PermissionsHeadings.qml	23	root	Declared QML id; component context access is 
 ui/PermissionsHeadings.qml	23	root	Declared QML id; component context access is valid at runtime.
 ui/PermissionsHeadings.qml	25	root	Declared QML id; component context access is valid at runtime.
 # profile quickshell-present
-
 ui/MarkdownBlockView.qml	44	view	Declared QML id; component context access is valid at runtime.
 ui/MarkdownBlockView.qml	45	view	Declared QML id; component context access is valid at runtime.
 ui/MarkdownBlockView.qml	46	view	Declared QML id; component context access is valid at runtime.
@@ -1705,6 +1705,7 @@ ui/MarkdownTable.qml	34	root	Declared QML id; component context access is valid 
 ui/MarkdownTable.qml	34	index	Declared QML property; enclosing component context supplies it.
 ui/MarkdownTable.qml	52	index	Declared QML property; enclosing component context supplies it.
 ui/MarkdownTable.qml	53	root	Declared QML id; component context access is valid at runtime.
+ui/MarkdownTable.qml	57	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownTable.qml	60	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownTable.qml	63	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownTable.qml	63	index	Declared QML property; enclosing component context supplies it.
@@ -1716,8 +1717,8 @@ ui/MarkdownTable.qml	67	root	Declared QML id; component context access is valid 
 ui/MarkdownTable.qml	67	index	Declared QML property; enclosing component context supplies it.
 ui/MarkdownTable.qml	73	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownTable.qml	76	root	Declared QML id; component context access is valid at runtime.
-ui/MarkdownTable.qml	89	modelData	Delegate context supplies this model role at runtime.
-ui/MarkdownTable.qml	92	root	Declared QML id; component context access is valid at runtime.
+ui/MarkdownTable.qml	88	modelData	Delegate context supplies this model role at runtime.
+ui/MarkdownTable.qml	91	root	Declared QML id; component context access is valid at runtime.
 ui/MatchText.qml	60	root	Declared QML id; component context access is valid at runtime.
 ui/MatchText.qml	60	root	Declared QML id; component context access is valid at runtime.
 ui/MatchText.qml	60	root	Declared QML id; component context access is valid at runtime.

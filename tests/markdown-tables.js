@@ -44,19 +44,21 @@ function measurersOf(table) {
     return found
 }
 
-// A rich text's lineCount stays 1, so lines are its content height over the 1.7 line box MarkdownText sets.
-// What one table drew in a pane whose block column is avail wide, in the table's own frame.
-function geometry(table, avail) {
+// Lines are content height over the 1.7 line box since lineCount stays 1; what one table drew in a pane avail wide at body offset tx.
+// Sample input: geometry(table, 812, 8) answers { w, tx: 8, avail: 812, glyph, gap, cells } with each cell's laid-out line width as content.
+function geometry(table, avail, tx) {
     var cells = cellsOf(table).map(function (cell) {
         var at = cell.mapToItem(table, 0, 0)
         return { text: cell.text, x: Math.round(at.x), y: Math.round(at.y), w: Math.round(cell.width), h: Math.round(cell.height),
             content: Math.round(cell.contentWidth), lines: Math.round(cell.contentHeight / cell.box) }
     })
-    return { measurers: all(table, "measurer").map(function (m) { return { text: m.text, w: Math.round(m.implicitWidth) } }), w: Math.round(table.width), h: Math.round(table.height), avail: Math.round(avail), cells: cells }
+    return { measurers: all(table, "measurer").map(function (m) { return { text: m.text, w: Math.round(m.implicitWidth) } }), w: Math.round(table.width), h: Math.round(table.height), tx: tx, avail: Math.round(avail), glyph: table.glyphPx, gap: table.cellGap, cells: cells }
 }
 
-// Blank when every cell sits inside the table and the table inside its block column, else the first offender.
+// Blank when the table sits inside its block column at its body offset and every cell inside the table, else the first offender.
 function fitError(geo) {
+    if (geo.tx + geo.w > geo.avail + TOLERANCE)
+        return "the table starts at " + geo.tx + " and is " + geo.w + " wide in a " + geo.avail + " column"
     if (geo.w > geo.avail + TOLERANCE)
         return "the table is " + geo.w + " wide in a " + geo.avail + " column"
     for (var i = 0; i < geo.cells.length; i++) {
@@ -69,35 +71,56 @@ function fitError(geo) {
     return ""
 }
 
+// Blank when every cell's drawn text ends a full gap before the next cell in its row, else the first overlap.
+function gapError(geo) {
+    var rows = {}
+    for (var i = 0; i < geo.cells.length; i++) {
+        var key = geo.cells[i].y
+        if (rows[key] === undefined)
+            rows[key] = []
+        rows[key].push(geo.cells[i])
+    }
+    for (var y in rows) {
+        var row = rows[y].sort(function (a, b) { return a.x - b.x })
+        for (var k = 0; k + 1 < row.length; k++) {
+            if (row[k].x + row[k].content + geo.gap > row[k + 1].x + TOLERANCE)
+                return "row at y " + y + " draws text to " + (row[k].x + row[k].content) + " with " + (row[k + 1].x - row[k].x - row[k].content) + " px before the next cell, not " + geo.gap
+        }
+    }
+    return ""
+}
+
 // Cases whose columns cannot all keep a glyph in the narrow column, so only Quick Look's card must hold them (a design question, not a fit).
 var NARROW_OVERFLOW = ["wide", "extreme"]
 // Cases Quick Look's card has room for, so no cell of them may wrap.
 var ONE_LINE = ["inline", "cjk", "align", "ragged", "adjacent", "headonly", "nested", "rows500"]
 
-// Blank when a table drew the lines the case promises in this pane, else what it drew.
+// Blank when every table the pane built drew the lines the case promises in this pane, else what table t drew.
 function lineError(name, label, geos) {
-    var geo = geos.length > 0 ? geos[0] : null
-    if (geo === null)
+    if (geos.length === 0)
         return "no table was built"
-    if (label === "card" && ONE_LINE.indexOf(name) >= 0) {
-        for (var i = 0; i < geo.cells.length; i++)
-            if (geo.cells[i].lines !== 1)
-                return "cell " + i + " (" + geo.cells[i].text + ") wrapped to " + geo.cells[i].lines + " lines in a card that has room"
-    }
-    if (name === "br") {
-        var broken = geo.cells.filter(function (c) { return c.text.indexOf("<br") >= 0 }).map(function (c) { return c.lines })
-        if (label === "card" && JSON.stringify(broken) !== "[3,2]")
-            return "break cells drew " + JSON.stringify(broken) + " lines, not [3,2]"
-        var plain = geo.cells.filter(function (c) { return c.text.indexOf("<br") < 0 && c.lines !== 1 })
-        if (label === "card" && plain.length > 0)
-            return "a plain cell wrapped because a break cell set the column: " + plain[0].text
+    for (var t = 0; t < geos.length; t++) {
+        var geo = geos[t]
+        if (label === "card" && ONE_LINE.indexOf(name) >= 0) {
+            for (var i = 0; i < geo.cells.length; i++)
+                if (geo.cells[i].lines !== 1)
+                    return "table " + t + " cell " + i + " (" + geo.cells[i].text + ") wrapped to " + geo.cells[i].lines + " lines in a card that has room"
+        }
+        if (name === "br") {
+            var broken = geo.cells.filter(function (c) { return c.text.indexOf("<br") >= 0 }).map(function (c) { return c.lines })
+            if (label === "card" && JSON.stringify(broken) !== "[3,2]")
+                return "table " + t + " break cells drew " + JSON.stringify(broken) + " lines, not [3,2]"
+            var plain = geo.cells.filter(function (c) { return c.text.indexOf("<br") < 0 && c.lines !== 1 })
+            if (label === "card" && plain.length > 0)
+                return "table " + t + " plain cell wrapped because a break cell set the column: " + plain[0].text
+        }
+        if (name === "sentence" || name === "path") {
+            var long = geo.cells.reduce(function (a, c) { return c.lines > a ? c.lines : a }, 0)
+            if (long < 2)
+                return "table " + t + " long cell stayed on one line"
+        }
     }
     if (name === "rows500" && label === "card" && geos.length > 4)
         return geos.length + " table chunks are alive in a screenful"
-    if (name === "sentence" || name === "path") {
-        var long = geo.cells.reduce(function (a, c) { return c.lines > a ? c.lines : a }, 0)
-        if (long < 2)
-            return "the long cell stayed on one line"
-    }
     return ""
 }
