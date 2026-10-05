@@ -307,11 +307,15 @@ world_cases = (
 )
 
 
-def late_window_wait(env_extra=None):
+# The late-window case's name, shared by its verdict line and the pin that reads it.
+LATE_WINDOW_CASE = "a wait begun before the window exists ends when it registers"
+
+
+def late_window_wait(run_name, env_extra=None):
     """The stub's wait call must block until a window another call registers exists, as the real one does."""
-    run = root / "late-window"
+    run = root / run_name
     guard(run)
-    (run / "state").mkdir(parents=True, exist_ok=True)
+    (run / "state").mkdir(parents=True)
     (run / ".flea-test-sandbox").write_text("private late window\n")
     env = {**os.environ, "FLEA_WORLD": str(run / "world"), "FLEA_TEST_RUN_ROOT": str(run),
            "XDG_STATE_HOME": str(run / "state"), "FLEA_UI": str(run / "ui"), **(env_extra or {})}
@@ -337,14 +341,22 @@ def late_window_wait(env_extra=None):
             pass
 
 
-def late_window_register_fail_pin():
-    """A register that exits non-zero raises out of late_window_wait, which the caller turns into the case FAIL line, and leaves no live waiter."""
+def late_window_case(run_name, env_extra=None):
+    """The case's verdict line: PASS when the wait ends on the registered window, else a FAIL naming why, never a traceback."""
     try:
-        late_window_wait(env_extra={"WORLD_REGISTER_FAIL": "1"})
-    except subprocess.CalledProcessError:
-        pass
-    else:
-        return False, "a failed register did not raise"
+        waited = late_window_wait(run_name, env_extra)
+    except Exception as exc:
+        return f"FAIL {LATE_WINDOW_CASE}: {exc}"
+    if waited != 0:
+        return f"FAIL {LATE_WINDOW_CASE}: exit={waited}"
+    return f"PASS {LATE_WINDOW_CASE}"
+
+
+def late_window_register_fail_pin():
+    """A register that exits non-zero, in a run dir of its own, gives the case's FAIL verdict and leaves no live waiter."""
+    line = late_window_case("late-window-refused", {"WORLD_REGISTER_FAIL": "1"})
+    if not (line.startswith(f"FAIL {LATE_WINDOW_CASE}: ") and "returned non-zero exit status 1" in line):
+        return False, f"a failed register gave the verdict {line[-200:]!r}"
     waiter = late_window_wait.last_waiter
     if waiter.poll() is None:
         return False, f"waiter pid {waiter.pid} still live after a failed register"
@@ -370,24 +382,16 @@ try:
             print(f"FAIL {name}: exit={result.returncode}, problem={problem!r}, output={output[-600:]!r}")
         else:
             print("PASS " + name)
-    try:
-        waited = late_window_wait()
-    except Exception as exc:
-        # A failed register or wait is the case's own failure, never a traceback.
+    verdict = late_window_case("late-window")
+    if verdict.startswith("FAIL"):
         failures += 1
-        print(f"FAIL a wait begun before the window exists ends when it registers: {exc}")
-    else:
-        if waited != 0:
-            failures += 1
-            print(f"FAIL a wait begun before the window exists ends when it registers: exit={waited}")
-        else:
-            print("PASS a wait begun before the window exists ends when it registers")
+    print(verdict)
     pin_ok, pin_detail = late_window_register_fail_pin()
     if pin_ok:
-        print("PASS a register that exits non-zero raises to the case FAIL path with no live waiter")
+        print("PASS a register that exits non-zero gives the case its FAIL verdict with no live waiter")
     else:
         failures += 1
-        print(f"FAIL a register that exits non-zero raises to the case FAIL path with no live waiter: {pin_detail}")
+        print(f"FAIL a register that exits non-zero gives the case its FAIL verdict with no live waiter: {pin_detail}")
     print(f"{len(cases) + len(world_cases) + 2} process ownership checks, {failures} failed; no real signals")
 finally:
     for child in root.iterdir():
