@@ -114,24 +114,46 @@ if [ "$(cat "$nestdest/log.txt")" = "first" ] && [ "$(cat "$nestdest.1/log.txt" 
 fi
 check "$status" "a second report for the same name gets the next free name instead of nesting"
 
-# A crash report the opening sandbox_make clears is from an earlier run: stale, never a FAIL for this run.
-cat > "$box/stale-suite.sh" <<'STUB'
+# A report an earlier run left, found by this run's opening sandbox_make, is stale: no FAIL, no copy.
+cat > "$box/left-suite.sh" <<'STUB'
 #!/usr/bin/env bash
 . "$1/tools/flea-sandbox-guard"
 root="$FIXTURE_ROOT/stale-root"
 sandbox_make "$root"
 mkdir -p "$root/leg/cache/quickshell/crashes/old1" && echo "backtrace stub" > "$root/leg/cache/quickshell/crashes/old1/log.txt"
-sandbox_make "$root"
 STUB
-out=$(env FLEA_FIXTURE_ROOT="$box/fixtures" FLEA_CI_SUITE_LOGS="$box/stalelogs" bash "$box/stale-suite.sh" "$PWD" 2>&1)
+cat > "$box/next-suite.sh" <<'STUB'
+#!/usr/bin/env bash
+. "$1/tools/flea-sandbox-guard"
+sandbox_make "$FIXTURE_ROOT/stale-root"
+STUB
+env FLEA_FIXTURE_ROOT="$box/fixtures" bash "$box/left-suite.sh" "$PWD" > /dev/null 2>&1
+earlier='2000-01-01 00:00:00'
+touch -d "$earlier" "$box/fixtures/stale-root/leg/cache/quickshell/crashes/old1"
+out=$(env FLEA_FIXTURE_ROOT="$box/fixtures" FLEA_CI_SUITE_LOGS="$box/stalelogs" bash "$box/next-suite.sh" "$PWD" 2>&1)
 status=bad
-if grep -q 'stale crash report from an earlier run' <<< "$out"; then
-    if ! grep -q 'FAIL' <<< "$out"; then
-        status=ok
-    fi
+if grep -q 'stale crash report from an earlier run' <<< "$out" && ! grep -q 'FAIL' <<< "$out"; then
+    status=ok
 fi
 [ -e "$box/stalelogs" ] && status=bad
-check "$status" "a report the opening sandbox_make clears is stale: no FAIL, no copy"
+check "$status" "a report an earlier run left is stale at the opening clear: no FAIL, no copy"
+
+# This run's crash found by a later leg's sandbox_make of the same root is a FAIL with its copy.
+cat > "$box/legs-suite.sh" <<'STUB'
+#!/usr/bin/env bash
+. "$1/tools/flea-sandbox-guard"
+root="$FIXTURE_ROOT/legs-root"
+sandbox_make "$root"
+mkdir -p "$root/leg/cache/quickshell/crashes/leg1" && echo "backtrace stub" > "$root/leg/cache/quickshell/crashes/leg1/log.txt"
+sandbox_make "$root"
+STUB
+out=$(env FLEA_FIXTURE_ROOT="$box/fixtures" FLEA_CI_SUITE_LOGS="$box/legslogs" bash "$box/legs-suite.sh" "$PWD" 2>&1)
+status=bad
+if grep -q 'FAIL legs-suite.sh: Quickshell has crashed, report leg/cache/quickshell/crashes/leg1$' <<< "$out" \
+    && [ -f "$box/legslogs/legs-suite.sh-crashes/leg_cache_quickshell_crashes_leg1/log.txt" ]; then
+    status=ok
+fi
+check "$status" "this run's crash found by a later leg's sandbox_make is a FAIL and keeps its copy"
 
 printf 'qslog-crash: %s checks, %s bad\n' "$checks" "$bad"
 [ "$bad" -eq 0 ]

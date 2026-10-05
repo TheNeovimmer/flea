@@ -11,6 +11,8 @@
 FIXTURE_ROOT=${FLEA_FIXTURE_ROOT:-/home/flea-sandbox}
 # The marker is what stands between a directory and rm -rf: no marker, no delete.
 SANDBOX_MARKER=.flea-test-sandbox
+# When this shell sourced the guard, never inherited: a crash report older than this is from an earlier run.
+SANDBOX_GUARD_START=$(date +%s)
 
 sandbox_refuse() {
   printf 'REFUSED: %s\n' "$*" >&2
@@ -138,17 +140,18 @@ sandbox_owned() {
   return 1
 }
 
-# Sample input: a sandbox holding leg/cache/quickshell/crashes/t2cdhbfmt answers "FAIL x.sh: Quickshell has crashed, report leg/cache/quickshell/crashes/t2cdhbfmt" and copies it under $FLEA_CI_SUITE_LOGS when set; with "opening" it answers "x.sh: stale crash report from an earlier run: ..." and copies nothing.
+# Sample input: a sandbox holding leg/cache/quickshell/crashes/t2cdhbfmt answers "FAIL x.sh: Quickshell has crashed, report leg/cache/quickshell/crashes/t2cdhbfmt" and copies it under $FLEA_CI_SUITE_LOGS when set; with "opening" it answers "x.sh: stale crash report from an earlier run: ..." and copies nothing when the report also predates this run.
 # Read-only, and run before every removal because Quickshell's crash handler reruns the config and a rerun can pass, so a crash report is the only trace a suite leaves.
 sandbox_crash_report() {
-  local root=$1 when=${2:-} crash rel dest n
+  local root=$1 when=${2:-} crash rel dest n mt
   if [ ! -d "$root" ]; then
     return 0
   fi
   while IFS= read -r crash; do
     rel=${crash#"$root"/}
-    # sandbox_make clears what an earlier run left before this run starts anything, so a report found then is not this run's.
-    if [ "$when" = opening ]; then
+    # Stale only when sandbox_make's clear finds a report older than this run; a later leg's clear of this run's crash still fails.
+    mt=$(stat -c %Y "$crash" 2>/dev/null) || mt=$SANDBOX_GUARD_START
+    if [ "$when" = opening ] && [ "$mt" -lt "$SANDBOX_GUARD_START" ]; then
       printf '%s: stale crash report from an earlier run: %s\n' "${0##*/}" "$rel"
       continue
     fi
