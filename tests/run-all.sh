@@ -13,6 +13,10 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
+# Omarchy exports gtk3, whose platform theme opens a display even for offscreen Qt.
+# The headless suites use Qt's generic theme so they can run with no display.
+export QT_QPA_PLATFORMTHEME=generic
+
 # Both profiles unconditionally, the debug binary for the suites that drive it and the release one for thumbs.sh: an `[ ! -x <path> ]` guard is satisfied by a stale binary from an older commit, and measured on 2026-09-05 the debug and release hashes were unchanged across a whole run-all over edited source.
 printf 'run-all: building target/debug/flea, the debug-binary suites need it\n'
 cargo build -q || { printf 'run-all: cargo build failed, nothing else was run\n' >&2; exit 1; }
