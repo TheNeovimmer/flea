@@ -394,14 +394,18 @@ capmarkdownkinds_shoot() {
     [[ "$(ipc previewOpen)" == "false" ]] || fail "capmarkdownkinds: Escape did not close Quick Look on $name"
 }
 # The table torture documents (tests/fixtures/markdown-tables) shot on the display box in Quick Look, then each in the narrow preview column.
-case_cap_markdown_tables() {
-    local dir="$fixture_root/capmarkdowntables" doc name results=""
+case_cap_markdown_tables() { capmarkdown_fixture_set markdown-tables CAPMARKDOWNTABLES; }
+# The inline picture lines (tests/fixtures/markdown-picline): a picture taller or wider than its line, in Quick Look and the column.
+case_cap_markdown_picline() { capmarkdown_fixture_set markdown-picline CAPMARKDOWNPICLINE; }
+# Shoots every document of one tests/fixtures set with the shared table assets beside it: capmarkdown_fixture_set SET TAG.
+capmarkdown_fixture_set() {
+    local set=$1 tag=$2 dir="$fixture_root/capmarkdown-$1" doc name results=""
     sandbox_scratch "$dir"
     mkdir -p "$dir/listing"
-    cp "$repo"/tests/fixtures/markdown-tables/*.md "$dir/listing/"
+    cp "$repo"/tests/fixtures/"$set"/*.md "$dir/listing/"
     # The same assets the headless table suite generates, so the inline shot shows the picture.
-    . "$repo/tests/markdown-tables-assets.sh" || fail "capmarkdowntables: the shared table assets helper did not load"
-    markdown_tables_assets_write "$dir/listing" || fail "capmarkdowntables: the shared table assets did not generate"
+    . "$repo/tests/markdown-tables-assets.sh" || fail "capmarkdown $set: the shared table assets helper did not load"
+    markdown_tables_assets_write "$dir/listing" || fail "capmarkdown $set: the shared table assets did not generate"
     launch "$dir/listing"
     wait_listing "$(find "$dir/listing" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
     for doc in "$dir"/listing/*.md; do
@@ -409,7 +413,7 @@ case_cap_markdown_tables() {
         capmarkdownkinds_open "$name"
         capmarkdownkinds_shoot "$name"
         # A case counts as ok only with its shot on disk; the shot helper already fails an empty capture.
-        [[ -s "$evidence_dir/cap-markdown-kind-${name%.md}.png" ]] || fail "capmarkdowntables: shot for $name is missing, not recording ok"
+        [[ -s "$evidence_dir/cap-markdown-kind-${name%.md}.png" ]] || fail "capmarkdown $set: shot for $name is missing, not recording ok"
         results+="${name%.md}=ok "
     done
     switch_view columns
@@ -419,9 +423,9 @@ case_cap_markdown_tables() {
         settle
         capmarkdown_wait_column_rendered
         shot "cap-markdown-kind-column-${name%.md}"
-        [[ -s "$evidence_dir/cap-markdown-kind-column-${name%.md}.png" ]] || fail "capmarkdowntables: column shot for $name is missing, not recording ok"
+        [[ -s "$evidence_dir/cap-markdown-kind-column-${name%.md}.png" ]] || fail "capmarkdown $set: column shot for $name is missing, not recording ok"
     done
-    printf 'CAPMARKDOWNTABLES %scolumns=ok\n' "$results"
+    printf '%s %scolumns=ok\n' "$tag" "$results"
     kill_flea
 }
 # Every Markdown kind the stage draws beyond notes.md, shot on the display box: GFM tables, a README in raw HTML, a badge row, nesting with pictures inside blocks, and figures. Cases ql-markdown-tables, -html, -badges, -nesting and -figures in ci/visual/lane/cases.sh draw the same text headless.
