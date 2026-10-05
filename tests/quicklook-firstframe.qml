@@ -19,7 +19,7 @@ ShellRoot {
     readonly property string forcedClass: Quickshell.env("QLFF_CLASS")
     readonly property bool realKey: Quickshell.env("QLFF_MODE") === "key"
     // The fixture documents that link a local picture, which a step on them must find drawn.
-    readonly property var pictureDocs: ["a-notes.md", "h-html.md"]
+    readonly property var pictureDocs: ["a-notes.md", "h-html.md", "i-maths.md"]
     // The documents whose inline formula makes the first picture decode of the process a cost the rest must pay, and whether the card found the decoder warm at the key.
     readonly property var mathsDocs: ["i-maths.md"]
     // QLFF_REENTER=1 runs one poll tick inside the close key's event loop, which a loaded host does by chance.
@@ -61,6 +61,7 @@ ShellRoot {
     property double lastTick: 0
     property bool sweeping: Quickshell.env("QLFF_SWEEP") === "1"
     property int readsBefore: 0
+    property int warmsBefore: 0
     property int answersBefore: 0
     property real blockedBefore: 0
     property double stageAt: Date.now()
@@ -157,14 +158,15 @@ ShellRoot {
             if (root.sweepLeft > 0 && now - root.lastTick >= root.sweepRestMs) {
                 root.log("SWEEP stalled, rerun")
                 root.readsBefore = root.prepare.reads
+                root.warmsBefore = root.prepare.decoderWarms
                 root.sweepLeft = root.sweepMoves
             }
             root.lastTick = now
             if (root.sweepLeft > 0) {
                 pane.cursorIndex = root.indexOf(names[root.sweepLeft % 2])
                 root.sweepLeft--
-                if (root.prepare.warmDecoder === true) {
-                    root.fail("a held key warmed the picture decoder before the cursor rested")
+                if (root.prepare.decoderWarms !== root.warmsBefore) {
+                    root.fail("a held key warmed the picture decoder " + (root.prepare.decoderWarms - root.warmsBefore) + " time(s) before the cursor rested")
                     root.sweepLeft = 0
                 }
                 if (root.prepare.reads !== root.readsBefore) {
@@ -328,6 +330,7 @@ ShellRoot {
                 if (++root.quiet < root.quietPolls) return
                 if (root.sweeping) {
                     root.readsBefore = root.prepare.reads
+                    root.warmsBefore = root.prepare.decoderWarms
                     root.sweepLeft = root.sweepMoves
                     root.restedMs = root.prepare.restMs
                     root.prepare.restMs = root.sweepRestMs

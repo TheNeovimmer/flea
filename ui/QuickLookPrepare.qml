@@ -30,6 +30,9 @@ Item {
     // A rested inline formula holds one decoded picture, so the process's first picture decode (about 20 ms of plugin set-up) is paid at rest.
     property bool warmDecoder: false
     readonly property bool decoderWarm: decoder.status === Image.Ready
+    // How many times a rest turned the warm on, which a suite reads to prove a held key never does.
+    property int decoderWarms: 0
+    onWarmDecoderChanged: if (root.warmDecoder) root.decoderWarms++
     // The one stat child sizing them (null when none), and a suite's counts of those started and alive.
     property var sizer: null
     property int sizersStarted: 0
@@ -99,9 +102,13 @@ Item {
             Component.onDestruction: root.sizersAlive--
             stdout: StdioCollector {
                 onStreamFinished: {
-                    root.sized(sizer.seq, sizer.urls, this.text)
+                    // The child is let go first: a recount settles nothing while it is out.
+                    var seq = sizer.seq
+                    var urls = sizer.urls
+                    var text = this.text
                     if (root.sizer === sizer)
                         root.releaseSizer()
+                    root.sized(seq, urls, text)
                 }
             }
         }
@@ -243,6 +250,10 @@ Item {
 
     // Settled once no held picture is still loading, a failed one included, and the decoder's picture and every typeset formula with them.
     function recount() {
+        if (root.sizer !== null) {
+            root.picturesSettled = false
+            return
+        }
         for (var f = 0; f < typeset.count; f++) {
             var figure = typeset.itemAt(f)
             if (figure !== null && figure.svg === "" && figure.error === "") {
