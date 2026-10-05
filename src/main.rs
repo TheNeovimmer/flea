@@ -23,7 +23,10 @@ mod uischema;
 mod uimigrate;
 mod uistate;
 mod favourites;
+mod figurebuild;
+mod figurecache;
 mod figurehelper;
+mod figurestore;
 mod gvfsprefetch;
 mod captures;
 mod shelf;
@@ -180,9 +183,9 @@ fn main() {
         exit(backend::thumbworker::run());
     }
 
-    // flea --figure-helper: maths and diagrams through quickjs-ng, jailed; see AGENTS.md "Markdown figures".
-    if args.len() == 2 && args[1] == "--figure-helper" {
-        exit(figurehelper::run());
+    // flea --figure-helper, --figure-compile and --figure-store: the figure engine's launcher modes; see AGENTS.md "Markdown figures".
+    if let Some(code) = figurehelper::dispatch(&args) {
+        exit(code);
     }
 
     // flea --launch-warm <list> <gvfs-path> <gvfs-dest>: one fork for both launch jobs, "-" skips one.

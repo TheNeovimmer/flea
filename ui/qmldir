@@ -30,6 +30,7 @@ MarkdownBlockView 1.0 MarkdownBlockView.qml
 MarkdownTable 1.0 MarkdownTable.qml
 MarkdownFigure 1.0 MarkdownFigure.qml
 singleton FigureService 1.0 FigureService.qml
+FigureStore 1.0 FigureStore.qml
 PreviewPdf 1.0 PreviewPdf.qml
 PreviewSwap 1.0 PreviewSwap.qml
 PreviewImage 1.0 PreviewImage.qml

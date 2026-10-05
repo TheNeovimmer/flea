@@ -4,6 +4,8 @@ set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
 export FLEA_UI="${FLEA_UI:-$PWD/ui}"
+# The service checks below are about tickets and the helper's life, so they run from source; the bytecode block turns the cache back on.
+export FLEA_FIGURE_CACHE=off
 
 fleabin="$PWD/target/debug/flea"
 [ -x "$fleabin" ] || {
@@ -12,6 +14,7 @@ fleabin="$PWD/target/debug/flea"
 }
 python3 tests/figure-helper-start.py "$fleabin" || exit 1
 python3 tests/figure-harness.py || exit 1
+env -u FLEA_FIGURE_CACHE python3 tests/figure-bytecode.py "$fleabin" || exit 1
 # FLEA_QJS names the engine: an absolute executable path wins, then the Arch system binary, then the dev tree copy.
 resolve_qjs() {
     if [ -n "${FLEA_QJS:-}" ] && [ "${FLEA_QJS#/}" != "${FLEA_QJS}" ] && [ -x "${FLEA_QJS}" ]; then
@@ -40,7 +43,9 @@ trap cleanup EXIT
 
 # Bound the jailed startup probe so a broken helper cannot hold the suite open.
 PROBE_BOUND_SECONDS=10
-probe_out=$(printf '%s\n' '{"id":1,"kind":"math","source":"x^2","display":false,"theme":{"bg":"#101315","fg":"#c0caf5"}}' | FLEA_QJS="$qjs" timeout "$PROBE_BOUND_SECONDS" "$fleabin" --figure-helper 2> "$test_root/probe.stderr")
+# The probe and the first drive run with no home, so the launcher builds no cache and the whole corpus runs from source.
+nocache=(env -u HOME -u XDG_CACHE_HOME)
+probe_out=$(printf '%s\n' '{"id":1,"kind":"math","source":"x^2","display":false,"theme":{"bg":"#101315","fg":"#c0caf5"}}' | FLEA_QJS="$qjs" timeout "$PROBE_BOUND_SECONDS" "${nocache[@]}" "$fleabin" --figure-helper 2> "$test_root/probe.stderr")
 probe_rc=$?
 # Sample input: {"id":1,"svg":"<svg/>"}, exactly one successful answer to the probe.
 if [ "$probe_rc" -eq 0 ] && [ ! -s "$test_root/probe.stderr" ] && printf '%s' "$probe_out" | python3 -c '
@@ -53,10 +58,12 @@ except (ValueError, AttributeError):
     valid = False
 sys.exit(not valid)
 '; then
-    engine=("$fleabin" --figure-helper)
+    engine=("${nocache[@]}" "$fleabin" --figure-helper)
+    jailed=1
     echo "markdown-figures.sh: driving the jailed helper"
 elif [ "$probe_rc" -ne 0 ] && grep -q '^bwrap: No permissions to create new namespace' "$test_root/probe.stderr"; then
     engine=("$qjs" "$PWD/ui/vendor/figure-helper.mjs")
+    jailed=0
     echo "markdown-figures.sh: SKIP no user namespaces in this container, driving qjs direct"
     cat "$test_root/probe.stderr"
 else
@@ -67,10 +74,10 @@ fi
 
 # One python driver builds every request, so the shell never quotes a formula.
 cat > "$test_root/drive.py" <<'EOF'
-import json, subprocess, sys
+import json, os, subprocess, sys
 import re
 from collections import Counter
-prog, arg, outdir = sys.argv[1], sys.argv[2], sys.argv[3]
+*command, outdir = sys.argv[1:]
 # xmlns is a namespace, never a fetch, so it is stripped before the check.
 def clean(svg):
     return re.sub(r'xmlns(?::\w+)?="[^"]*"', "", svg)
@@ -102,8 +109,14 @@ body = "".join(json.dumps(r) + "\n" for r in reqs[:3])
 # A line that is not JSON at all: it answers id 0 and the loop survives it.
 body += "this is not json\n"
 body += "".join(json.dumps(r) + "\n" for r in reqs[3:])
-p = subprocess.run([prog, arg], input=body, capture_output=True, text=True, timeout=300)
-lines = [json.loads(l) for l in p.stdout.splitlines()]
+p = subprocess.run(command, input=body, capture_output=True, text=True, timeout=300)
+# Sample input: {"id":0,"bundle":"math","from":"bytecode"}, the load report a helper prints under FLEA_FIGURE_REPORT=1; it is not an answer.
+raw = p.stdout.splitlines()
+parsed = [json.loads(l) for l in raw]
+reports = [(a["bundle"], a["from"]) for a in parsed if "bundle" in a]
+lines = [a for a in parsed if "bundle" not in a]
+# The tag names this run's answers, so a later run over the bytecode can be compared byte for byte.
+open(outdir + "/answers-" + os.environ.get("FIG_TAG", "source") + ".txt", "w").write("".join(l + "\n" for l, a in zip(raw, parsed) if "bundle" not in a))
 reply_counts = Counter(a["id"] for a in lines)
 by_id = {a["id"]: a for a in lines}
 fails = []
@@ -116,6 +129,9 @@ request_counts = Counter(r["id"] for r in reqs)
 request_counts[0] += 1
 check(reply_counts == request_counts, "every request answered once under its own id")
 check(len(lines) == len(reqs) + 1, "reply count equals request count including the malformed line")
+expect = os.environ.get("FIG_EXPECT_FROM")
+if expect:
+    check(reports == [("math", expect), ("mermaid", expect)], "the helper loaded math and mermaid from %s, reported %s" % (expect, reports))
 check(p.returncode == 0, "EOF ends the helper with exit 0")
 check(p.stderr == "", "a clean run writes nothing on stderr")
 forbidden = ["http:", "https:", "@import", "<script", "<image", "foreignObject", "127.0.0.1"]
@@ -153,6 +169,11 @@ for runner in "${js_runners[@]}"; do
         echo "markdown-figures.sh: $figure_test under $(basename "$runner")"
         "$runner" "tests/$figure_test.mjs" || exit 1
     done
+    # Bytecode is quickjs-ng's own, so node has nothing to run here.
+    if [ "$runner" = "$qjs" ]; then
+        echo "markdown-figures.sh: figure-bytecode under $(basename "$runner")"
+        "$runner" tests/figure-bytecode.mjs || exit 1
+    fi
     # A checkout path with a space, a percent sign or a literal %20 must not break module resolution or be decoded, so one test runs from a scratch copy at each.
     for spaced_name in "a tree" "50% tree" "a%20b tree"; do
         spaced="$test_root/$spaced_name"
@@ -164,9 +185,47 @@ for runner in "${js_runners[@]}"; do
     done
 done
 
-if ! FLEA_QJS="$qjs" python3 "$test_root/drive.py" "${engine[@]}" "$test_root"; then
+# Under the launcher, the helper says where each bundle came from; a direct qjs run has no launcher and reports nothing.
+report_env=(FLEA_FIGURE_REPORT=1)
+[ "$jailed" -eq 1 ] && source_expect=(FIG_EXPECT_FROM=source) || source_expect=()
+if ! env FLEA_QJS="$qjs" "${report_env[@]}" "${source_expect[@]}" python3 "$test_root/drive.py" "${engine[@]}" "$test_root"; then
     echo "markdown-figures.sh: the helper run failed"
     exit 1
+fi
+# The same corpus through the bytecode path: the real compile jail builds the cache, then the helper answers the same bytes from it; with no jail the SKIP above already said so.
+if [ "$jailed" -eq 1 ]; then
+    mkdir -p "$test_root/home" || exit 1
+    cached=(env -u FLEA_FIGURE_CACHE HOME="$test_root/home" XDG_CACHE_HOME="$test_root/cache" FLEA_QJS="$qjs")
+    # The launcher makes the cache root before it starts a build, so the foreground build is given one too.
+    mkdir -p "$test_root/cache/flea/figures" || exit 1
+    "${cached[@]}" "$fleabin" --figure-compile || {
+        echo "markdown-figures.sh: FAIL the compile jail built no cache"
+        exit 1
+    }
+    ls "$test_root"/cache/flea/figures/*/manifest > /dev/null 2>&1 || {
+        echo "markdown-figures.sh: FAIL no verified bytecode directory after the compile"
+        exit 1
+    }
+    echo "PASS the compile jail built a bytecode directory"
+    if ! env "${report_env[@]}" FIG_EXPECT_FROM=bytecode FIG_TAG=bytecode python3 "$test_root/drive.py" "${cached[@]}" "$fleabin" --figure-helper "$test_root"; then
+        echo "markdown-figures.sh: the bytecode helper run failed"
+        exit 1
+    fi
+    # The bytecode leg's own assertion must have teeth: a helper that ran from source, which answers the same bytes, is refused by it.
+    if env FLEA_QJS="$qjs" "${report_env[@]}" FIG_EXPECT_FROM=bytecode FIG_TAG=control python3 "$test_root/drive.py" "${engine[@]}" "$test_root" > "$test_root/control.log" 2>&1; then
+        echo "markdown-figures.sh: FAIL a helper that ran from source passed the bytecode leg's assertion"
+        exit 1
+    fi
+    grep -q 'FAIL the helper loaded math and mermaid from bytecode' "$test_root/control.log" || {
+        echo "markdown-figures.sh: FAIL the control run failed for another reason than the load report"
+        exit 1
+    }
+    echo "PASS the bytecode leg refuses a helper that answered from source"
+    cmp -s "$test_root/answers-source.txt" "$test_root/answers-bytecode.txt" || {
+        echo "markdown-figures.sh: FAIL the bytecode path answered other bytes than the source path"
+        exit 1
+    }
+    echo "PASS the bytecode path answers the source path's bytes for the corpus"
 fi
 
 # A missing engine refuses exactly, with both sandbox tools present on a controlled PATH.
@@ -259,10 +318,11 @@ cp tests/markdown-figures.qml "$test_root/qsconfig/shell.qml" || exit 1
 cp -R tests/figure-memory "$test_root/qsconfig/figure-memory" || exit 1
 mkdir -p "$test_root/stubbin" || exit 1
 printf 'answer\n' > "$test_root/phase" || exit 1
-# With FLEA_BIN unset the service's stub hangs, refuses or execs the selected engine according to the phase file.
+# With FLEA_BIN unset the service's stub hangs, refuses or execs the selected engine according to the phase file, and its store mode ends at once so the persistent cache latches off.
 printf -v engine_exec '%q ' "${engine[@]}"
 cat > "$test_root/stubbin/flea" <<EOF
 #!/bin/bash
+[ "\$1" = "--figure-store" ] && exit 127
 if [ "\$1" = "--figure-helper" ]; then
     phase=\$(cat "$test_root/phase" 2>/dev/null)
     case "\$phase" in

@@ -53,7 +53,7 @@ for package in ("root", "flea", "flea-git", "flea-bin"):
         print(f"FAIL {package}: depends must declare quickjs-ng exactly once, matching the other PKGBUILDs")
     ui = root / package / "pkg/usr/share/flea/ui"
     modules = sorted(ui.glob("vendor/*.mjs")) + sorted(ui.glob("js/*.mjs"))
-    required = ["js/FigureWorker.mjs", "vendor/figure-helper.mjs", "vendor/math.mjs", "vendor/mermaid.mjs"]
+    required = ["js/FigureWorker.mjs", "vendor/figure-helper.mjs", "vendor/figure-bytecode.mjs", "vendor/figure-compile.mjs", "vendor/math.mjs", "vendor/mermaid.mjs"]
     for relative in required:
         checks += 1
         if not (ui / relative).is_file():

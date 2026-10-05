@@ -127,7 +127,16 @@ pub fn wrap_readonly(inner: &[String], input: &Path) -> Vec<String> {
 
 // The same boundary with caller-chosen read-only binds and nothing writable, including a figure vendor tree or engine outside /usr.
 pub fn wrap_readonly_extra(inner: &[String], ro_binds: &[&Path]) -> Vec<String> {
-    let head_and_binds = READONLY_PREFIX_ARGS + ro_binds.len() * READONLY_BIND_ARGS;
+    wrap_extra(inner, ro_binds, None)
+}
+
+// The figure compile jail: the readonly boundary plus one writable directory, the cache's own scratch for this build.
+pub fn wrap_compile(inner: &[String], ro_binds: &[&Path], writable: &Path) -> Vec<String> {
+    wrap_extra(inner, ro_binds, Some(writable))
+}
+
+fn wrap_extra(inner: &[String], ro_binds: &[&Path], writable: Option<&Path>) -> Vec<String> {
+    let head_and_binds = READONLY_PREFIX_ARGS + ro_binds.len() * READONLY_BIND_ARGS + usize::from(writable.is_some()) * READONLY_BIND_ARGS;
     let mut a: Vec<String> = Vec::with_capacity(inner.len() + BWRAP_FLAGS.len() + head_and_binds);
     a.push(PRLIMIT.to_string());
     a.push(format!("--cpu={}", CPU_SECONDS));
@@ -140,6 +149,11 @@ pub fn wrap_readonly_extra(inner: &[String], ro_binds: &[&Path]) -> Vec<String> 
         a.push("--ro-bind".to_string());
         a.push(bind.to_string_lossy().to_string());
         a.push(bind.to_string_lossy().to_string());
+    }
+    if let Some(dir) = writable {
+        a.push("--bind".to_string());
+        a.push(dir.to_string_lossy().to_string());
+        a.push(dir.to_string_lossy().to_string());
     }
     a.extend_from_slice(inner);
     a

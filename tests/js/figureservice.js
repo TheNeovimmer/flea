@@ -1,39 +1,9 @@
 .import "sourcefixture.js" as Source
 .import "figureserviceexit.js" as ExitSuite
+.import "figureservicedisk.js" as DiskSuite
 
-// Sample input: function ask(kind, source, display, theme) { ... } or onExited: function (...) { ... }.
-function block(source, marker) {
-    var at = source.indexOf(marker)
-    if (at < 0)
-        throw new Error("figureservice: missing " + marker)
-    var begin = source.indexOf("{", at + marker.length)
-    var depth = 1
-    var quote = ""
-    var comment = false
-    var i = begin + 1
-    for (; i < source.length && depth > 0; i++) {
-        var ch = source.charAt(i)
-        if (comment) {
-            if (ch === "\n")
-                comment = false
-        } else if (quote !== "") {
-            if (ch === "\\")
-                i++
-            else if (ch === quote)
-                quote = ""
-        } else if (ch === "/" && source.charAt(i + 1) === "/") {
-            comment = true
-        } else if (ch === '"' || ch === "'") {
-            quote = ch
-        } else if (ch === "{") {
-            depth++
-        } else if (ch === "}") {
-            depth--
-        }
-    }
-    if (begin < 0 || depth !== 0)
-        throw new Error("figureservice: unterminated " + marker)
-    return source.substring(begin + 1, i - 1)
+function block(source, marker, file) {
+    return Source.block(source, marker, file)
 }
 
 function service() {
@@ -54,6 +24,13 @@ function service() {
     }
     var deadlineTimer = timer()
     var idleTimer = timer()
+    // The persistent cache stands off by default, so every case below meets the helper alone.
+    var disk = { available: false, active: false, stopping: false, refuse: false, gets: [], puts: [], asks: [], stops: 0,
+        stop: function () { this.stops++; if (this.refuse) return false; this.stopping = true; return true },
+        get: function (id, key) { this.gets.push({ id: id, key: key }) }, put: function (key, svg) { this.puts.push({ key: key, svg: svg }) },
+        ask: function (id, keys) { this.asks.push({ id: id, keys: keys }) } }
+    fake.disk = disk
+    fake.idleTimer = idleTimer
     var Qt = { callLater: function (callback) { fake.deferred.push(callback) } }
     var Date = { now: function () { return fake.now } }
     // Sample input: readonly property int killSignal: 9.
@@ -62,18 +39,19 @@ function service() {
     while ((constant = constants.exec(source)) !== null)
         root[constant[1]] = Number(constant[2])
     function compile(args, body) {
-        return new Function("root", "helper", "deadlineTimer", "idleTimer", "Qt", "Date",
-            "return function (" + args + ") {" + body + "}")(root, helper, deadlineTimer, idleTimer, Qt, Date)
+        return new Function("root", "helper", "deadlineTimer", "idleTimer", "Qt", "Date", "disk",
+            "return function (" + args + ") {" + body + "}")(root, helper, deadlineTimer, idleTimer, Qt, Date, disk)
     }
     // Sample input: function cacheKeyOf(kind, source, t, display) {
     var functions = /\bfunction (\w+)\(([^)]*)\)\s*\{/g
     var match
     while ((match = functions.exec(source)) !== null)
-        root[match[1]] = compile(match[2], block(source, match[0].slice(0, -1)))
-    fake.tick = compile("", block(source.substring(source.indexOf("id: deadlineTimer")), "onTriggered:"))
-    var started = compile("", block(source, "onStarted:"))
-    var runningChanged = compile("", block(source, "onRunningChanged:"))
-    var exited = compile("exitCode, exitStatus", block(source, "onExited:"))
+        root[match[1]] = compile(match[2], block(source, match[0].slice(0, -1), "ui/FigureService.qml"))
+    fake.tick = compile("", block(source.substring(source.indexOf("id: deadlineTimer")), "onTriggered:", "ui/FigureService.qml"))
+    fake.idle = compile("", block(source.substring(source.indexOf("id: idleTimer")), "onTriggered:", "ui/FigureService.qml"))
+    var started = compile("", block(source, "onStarted:", "ui/FigureService.qml"))
+    var runningChanged = compile("", block(source, "onRunningChanged:", "ui/FigureService.qml"))
+    var exited = compile("exitCode, exitStatus", block(source, "onExited:", "ui/FigureService.qml"))
     fake.start = function () {
         helper.running = true
         fake.starts++
@@ -111,7 +89,7 @@ function run(check) {
             finish: function (status) { this.finished.push(status) } }
         var Flea = { FigureService: { helperRunning: running, helperExits: exits } }
         var Date = { now: function () { return 0 } }
-        new Function("shell", "Flea", "Date", block(harness, "function drive()"))(shell, Flea, Date)
+        new Function("shell", "Flea", "Date", block(harness, "function drive()", "tests/markdown-figures.qml"))(shell, Flea, Date)
         return shell
     }
     var idle = idleProbe(false, 1)
@@ -124,7 +102,7 @@ function run(check) {
     if (hasWaitEvent) {
         idle = idleProbe(true, 0)
         var Flea = { FigureService: { helperRunning: true, helperExits: 0 } }
-        new Function("shell", "Flea", block(harness, "function idleWaitExpired()"))(idle, Flea)
+        new Function("shell", "Flea", block(harness, "function idleWaitExpired()", "tests/markdown-figures.qml"))(idle, Flea)
         check("idle wait event fails a helper with no observed exit", idle.results[0], false)
         check("idle wait failure ends the harness immediately", idle.finished.length, 1)
         check("idle wait failure sends no new request", idle.asked.length, 0)
@@ -137,7 +115,7 @@ function run(check) {
             writePhase: function () {} }
         var Flea = { FigureService: { available: true, deadlineExpirations: deadlines, helperExits: exits } }
         var Date = { now: function () { return 0 } }
-        new Function("shell", "Flea", "Date", "ticket", "svg", "error", block(harness, "else if (shell.step === 14)"))(
+        new Function("shell", "Flea", "Date", "ticket", "svg", "error", block(harness, "else if (shell.step === 14)", "tests/markdown-figures.qml"))(
             shell, Flea, Date, 1, "", "figure engine exited 42 (status 0)")
         return shell.results
     }
@@ -200,6 +178,7 @@ function run(check) {
     check("LRU revisit writes no helper line", fake.writes.length - writesBeforeRevisit, 0)
 
     ExitSuite.run(check, service)
+    DiskSuite.run(check, service)
 
     fake = service()
     var a = fake.ask("A", true)

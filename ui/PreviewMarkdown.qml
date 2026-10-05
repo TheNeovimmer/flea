@@ -71,6 +71,30 @@ Item {
     readonly property Item noticeItem: deepNotice
     // Only the active file in Rendered view may request figures.
     readonly property bool figuresArmed: root.active && root.shownView !== Markdown.SOURCE
+    // A parsed document that may ask for figures starts the helper at once, so it is warm when the first one is asked for.
+    readonly property var warmBlocks: root.figuresArmed && root.blocksReady && file.loaded && !root.tooLarge ? root.blockList : []
+    readonly property bool hasFigures: root.warmBlocks.some(function (block) { return block.type === "figure" })
+    // An unplaced figure, made only for a document with figures, whose theme is the one every figure here is asked under.
+    Loader {
+        id: themeProbe
+        active: root.hasFigures
+        sourceComponent: Flea.MarkdownFigure {
+            visible: false
+            askArmed: false
+            display: true
+            bgHex: root.hexOf(Theme.color.background)
+            fgHex: root.inkHex
+            accentHex: root.accentHex
+            mutedHex: root.mutedHex
+            surfaceHex: root.surfaceHex
+            fontFamily: Theme.font.family
+            bodyPx: root.bodyPx
+        }
+    }
+    // The blocks and the themes of both kinds, so the warm query names the cache keys the asks will use; null until the probe exists.
+    readonly property var warmRequest: root.hasFigures && themeProbe.item ? { blocks: root.warmBlocks,
+        themes: { math: themeProbe.item.themeOfKind("math"), mermaid: themeProbe.item.themeOfKind("mermaid") } } : null
+    onWarmRequestChanged: FigureService.warm(root.warmRequest ? root.warmRequest.blocks : [], root.warmRequest ? root.warmRequest.themes : ({}))
     // Parse sequence numbers reject replies for an older file.
     property var blockList: []
     property int parseSeq: 0
