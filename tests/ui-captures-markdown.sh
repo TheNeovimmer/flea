@@ -349,10 +349,12 @@ capmarkdownkinds_open() {
 capmarkdownkinds_end_runs=40
 # Wheels down a run at a time until the last block is built (previewEndGap past -1), failing by name if it never is.
 capmarkdownkinds_reach_end() {
-    local name="$1" run
+    local name="$1" run gap
     for ((run = 0; run < capmarkdownkinds_end_runs; run++)); do
         capmarkdown_scroll down "$((capmarkdown_notches_mid + capmarkdown_notches_end))"
-        [[ "$(ipc previewEndGap)" == "-1" ]] || return 0
+        gap="$(ipc previewEndGap)"
+        [[ "$gap" =~ ^-?[0-9]+$ ]] || fail "capmarkdownkinds: previewEndGap answered [$gap] for $name while wheeling to its end"
+        [[ "$gap" == "-1" ]] || return 0
     done
     fail "capmarkdownkinds: $name never built its last block after $capmarkdownkinds_end_runs wheel runs"
 }
