@@ -84,6 +84,8 @@ QtObject {
         var remember = new Function("root", "body", body(source, "function rememberScroll()"))
         var list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: 0, height: 0, contentY: 0 }
         root.dropParse = function () { drop(root) }
+        // The worker's release is the pane's own and has no worker to reach here.
+        root.releaseWorker = function () {}
         root.parseNow = function (text, dir, chrome, ink, deep) { landing(root, markdown, text, dir, chrome, ink, deep) }
         root.restoreScroll = function () { restore(root, list) }
         root.rememberScroll = function () { remember(root, list) }

@@ -49,7 +49,7 @@ var MdChunks = { chunkList: chunkList };
 var MdMath = { displayAt: displayAt, inlineSources: inlineSources, splitDisplay: splitDisplay };
 var MdFront = { closeAt: closeAt, sendFront: sendFront };
 var MdDocument = { writer: writer, preparedText: preparedText };
-var MdBlocks = { blocks: blocks, figureKind: figureKind };
+var MdBlocks = { blocks: blocks, blockJob: blockJob, sliceDue: sliceDue, SLICE_MS: SLICE_MS, figureKind: figureKind };
 // Short aliases the libraries use for each other, matching their `.import` names.
 var Names = MdEntityTable;
 var Md = MdInline;
@@ -73,22 +73,48 @@ var Html = MdHtml;
 var HtmlImage = MdHtmlImage;
 var HtmlBlock = MdHtmlBlock;
 
+// The live request's parse, run one slice a message so a newer request or a cancel is read between two slices.
+var held = null;
 WorkerScript.onMessage = function (msg) {
-    // Liveness is the pane's protocol: only a request carrying a head field is acked and beaten, other askers see full replies alone.
-    var live = msg.head !== undefined
-    if (live)
+    if (msg.cancel === true) {
+        held = null;
+        return;
+    }
+    // Liveness is the pane's protocol: only a request carrying a head field is acked, sliced and beaten, other askers see full replies alone.
+    if (msg.cont === true) {
+        if (held === null || held.seq !== msg.seq)
+            return;
+    } else if (msg.head !== undefined) {
         WorkerScript.sendMessage({ seq: msg.seq, ack: true });
+        held = { seq: msg.seq, parse: MdBlocks.blockJob(msg.source, msg.dir, msg.chrome, msg.ink, msg.head, function (head) {
+            // A first parse of a file sends its head ahead, so the first screen draws while the rest is still parsing.
+            WorkerScript.sendMessage({ seq: msg.seq, blocks: head, error: '', partial: true });
+        }, function () {
+            WorkerScript.sendMessage({ seq: msg.seq, progress: true });
+        }) };
+    } else {
+        var plain = [];
+        var failure = '';
+        try {
+            plain = MdBlocks.blocks(msg.source, msg.dir, msg.chrome, msg.ink, msg.head, undefined, undefined);
+        } catch (e) {
+            failure = String(e);
+        }
+        WorkerScript.sendMessage({ seq: msg.seq, blocks: plain, error: failure });
+        return;
+    }
     var blocks = [];
     var error = '';
     try {
-        // A first parse of a file sends its head ahead, so the first screen draws while the rest is still parsing.
-        blocks = MdBlocks.blocks(msg.source, msg.dir, msg.chrome, msg.ink, msg.head, function (head) {
-            WorkerScript.sendMessage({ seq: msg.seq, blocks: head, error: '', partial: true });
-        }, live ? function () {
-            WorkerScript.sendMessage({ seq: msg.seq, progress: true });
-        } : undefined);
+        blocks = held.parse.run(MdBlocks.sliceDue(MdBlocks.SLICE_MS));
     } catch (e) {
         error = String(e);
+        blocks = [];
     }
+    if (blocks === null) {
+        WorkerScript.sendMessage({ seq: msg.seq, yielded: true });
+        return;
+    }
+    held = null;
     WorkerScript.sendMessage({ seq: msg.seq, blocks: blocks, error: error });
 };

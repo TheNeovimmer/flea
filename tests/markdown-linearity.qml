@@ -101,15 +101,17 @@ QtObject {
         const parserLoader = { active: false, item: { sendMessage() {} } };
         const ask = new Function('root', 'file', 'Markdown', 'parseFallback', 'parserLoader', body('function askParse()'));
         const replyTimer = parseFallback;
-        const reply = new Function('root', 'messageObject', 'parseFallback', body('function landed(messageObject)'));
+        const reply = new Function('root', 'messageObject', 'parseFallback', 'parserLoader', body('function landed(messageObject)'));
         // The product's own dropParse, parseNow, rememberScroll and restoreScroll bodies, bound to each stub root; the list is an empty stub.
         const drop = new Function('root', body('function dropParse()'));
+        const release = new Function('root', 'parserLoader', body('function releaseWorker()'));
         const landing = new Function('root', 'Markdown', 'text', 'dir', 'chrome', 'ink', 'deep', body('function parseNow('));
         const restore = new Function('root', 'body', body('function restoreScroll()'));
         const remember = new Function('root', 'body', body('function rememberScroll()'));
         const list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: 0, height: 0, contentY: 0 };
         function wired(r) {
             r.dropParse = () => drop(r);
+            r.releaseWorker = () => release(r, parserLoader);
             r.pointFile = () => {}; // quicklook-firstframe judges the pointing, the path handler only needs it callable
             r.parseNow = (text, dir, chrome, ink, deep) => landing(r, Markdown, text, dir, chrome, ink, deep);
             r.restoreScroll = () => restore(r, list);
@@ -131,7 +133,11 @@ QtObject {
         reply(root, { seq: 5, blocks: ['A'], error: '' }, replyTimer);
         check(root.blockList.length === 0, 'F11 unloaded B rejects A worker reply');
         root = wired({ parseSeq: 5, parsing: true, askedText: 'B', askedDir: '/doc', path: '/doc/B.md', blockList: [] });
+        let told;
+        parserLoader.item.sendMessage = message => { told = message; };
         fallback(root, Markdown);
+        check(told !== undefined && told.cancel === true && told.seq === root.parseSeq, 'the fallback tells the worker to let go of the parse it recovered');
+        parserLoader.item.sendMessage = () => {};
         reply(root, { seq: 5, blocks: ['late'], error: '' }, replyTimer);
         check(root.blockList[0] === 'fallback', 'F10 fallback rejects late worker reply');
         root = wired({ active: true, tooLarge: false, parseSeq: 5, rawText: 'small', workerThreshold: 65536,
@@ -162,12 +168,25 @@ QtObject {
         check(replyTimer.restarts === heldRestarts + 2 && root.parsing, 'worker progress holds the parse while it works');
         reply(root, { seq: sent.seq, blocks: ['head'], error: '', partial: true }, replyTimer);
         check(replyTimer.restarts === heldRestarts + 3 && root.blockList[0] === 'head', 'the head restarts the fallback too');
+        // The worker parses one slice a message, so a newer request is read between two slices: each slice's yield asks for the next.
+        const live = sent;
+        sent = undefined;
+        reply(root, { seq: live.seq, yielded: true }, replyTimer, parserLoader);
+        check(sent !== undefined && sent.cont === true && sent.seq === live.seq && replyTimer.restarts === heldRestarts + 4 && root.parsing,
+            'a slice the worker yielded asks for the next one and restarts the fallback');
+        sent = undefined;
+        reply(root, { seq: live.seq - 1, yielded: true }, replyTimer, parserLoader);
+        check(sent === undefined && replyTimer.restarts === heldRestarts + 4, 'a yield for an old request asks for nothing');
+        sent = live;
         reply(root, { seq: sent.seq, blocks: ['head', 'tail'], error: '' }, replyTimer);
         check(root.blockList.length === 2 && !root.parsing && root.appliedSeq === root.parseSeq
-            && replyTimer.restarts === heldRestarts + 3, 'the whole parse lands over the head without restarting the fallback');
+            && replyTimer.restarts === heldRestarts + 4, 'the whole parse lands over the head without restarting the fallback');
         root.rawText += 'z';
         ask(root, file, Markdown, parseFallback, parserLoader);
         check(sent.head === 0, 'a reparse with blocks drawn asks for no head');
+        sent = undefined;
+        root.dropParse();
+        check(sent !== undefined && sent.cancel === true, 'dropping a parse tells the worker to let go of the one it holds');
         // A big text whose head is deep lands the sentinel from the verdict: no worker, no message, and no parse of the text.
         sent = undefined;
         const parsesBefore = parsed.length;
