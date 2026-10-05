@@ -61,7 +61,7 @@ fi
 } > "$probe_dir/probe.qml"
 
 # qml6 routes console.log to the systemd journal, not stderr, unless told otherwise.
-if QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 qml6 "$probe_dir/probe.qml" 2>&1; then
+if QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 qml6 "$probe_dir/probe.qml" 2>&1; then
   echo "ok   every key name in keys.toml is a real Qt key"
 else
   echo "FAIL keys.toml names a key Qt does not define"

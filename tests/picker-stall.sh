@@ -62,7 +62,7 @@ for scenario in navigate cancel early missing early-missing missing-order; do
     : > "$fixture/requests"
     helper="$fixture/helper"
     [[ $scenario != *missing* ]] || helper="$fixture/missing"
-    if ! QT_QPA_PLATFORM=offscreen FLEA_BIN="$helper" FLEA_PICKER_CASE="$scenario" FLEA_PICKER_FIXTURE="$fixture" \
+    if ! QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic FLEA_BIN="$helper" FLEA_PICKER_CASE="$scenario" FLEA_PICKER_FIXTURE="$fixture" \
         timeout 6 qs -p "$fixture/shell.qml" > "$fixture/output" 2>&1; then
         cat "$fixture/output"; exit 1
     fi

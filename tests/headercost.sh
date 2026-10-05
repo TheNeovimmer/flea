@@ -46,7 +46,7 @@ cp tests/headercost.qml "$test_root/config/shell.qml" || exit 1
 log="$test_root/headercost.log"
 ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime" \
-    QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
     timeout "${HEADERCOST_TIMEOUT:-20}" qs -p "$test_root/config" > "$log" 2>&1; exit $? ) 2>/dev/null
 status=$?
 

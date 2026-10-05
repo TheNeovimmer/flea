@@ -79,7 +79,7 @@ watcher=$!
 ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root" XDG_RUNTIME_DIR="$runtime" TMPDIR="$test_root" \
     XDG_CONFIG_HOME="$test_root/.config" XDG_STATE_HOME="$test_root/.local/state" XDG_CACHE_HOME="$test_root/.cache" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 \
     QT_FORCE_STDERR_LOGGING=1 \
     PREVIEW_UI="$PWD/ui" PREVIEW_PHOTOS="$photos" \
     timeout 120 qs -p "$config_dir" > "$log" 2>&1 )

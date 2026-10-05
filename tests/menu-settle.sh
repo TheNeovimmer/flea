@@ -26,7 +26,7 @@ cp tests/menu-settle.qml "$test_root/config/shell.qml" || exit 1
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 20 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
 # Sample input, the verdict line: "  INFO qml: MENU_SETTLE PASS the second place settled in 17 ms"

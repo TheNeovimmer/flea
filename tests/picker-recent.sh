@@ -27,7 +27,7 @@ cp tests/picker-recent.qml "$fixture/shell.qml"
 log="$fixture/qs.log"
 env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u YDOTOOL_SOCKET \
     HOME="$home" XDG_DATA_HOME="$fixture/data" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
     setsid qs -p "$fixture/shell.qml" >"$log" 2>&1 </dev/null &
 qs_pid=$!
 

@@ -219,7 +219,7 @@ QML
 # Each run gets its own empty state home, so the file under test is only ever this run's.
 drive() {
   sandbox_scratch "$SANDBOX/state" || exit 1
-  env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+  env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
       XDG_STATE_HOME="$SANDBOX/state" FLEA_BIN="$1" \
       timeout 60 qs -p "$QMLDIR/${2:-probe.qml}" 2>&1
 }
@@ -284,7 +284,7 @@ sandbox_scratch "$SANDBOX/newer" || exit 1
 mkdir -p "$SANDBOX/newer/state/flea" || exit 1
 printf '%s\n' '{"keys":"mac","display":{"textSize":{"mode":"system"},"aKeyThisBuildHasNeverHeardOf":true}}' \
   > "$SANDBOX/newer/state/flea/ui.json" || exit 1
-out=$(env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/newer/state" \
+out=$(env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/newer/state" \
       FLEA_BIN="$BIN" PROBE_CHANGE=display PROBE_TRIGGER="" timeout 60 qs -p "$QMLDIR/two.qml" 2>&1)
 newer_sent=$(echo "$out" | grep 'PROBE sent=' | head -1)
 check "the probe printed the patch it sent beside a newer Flea's sub-key" "1" "$([ -n "$newer_sent" ] && echo 1 || echo 0)"
@@ -311,7 +311,7 @@ two_windows() {
   mkdir -p "$state" || exit 1
   env XDG_STATE_HOME="$state" "$BIN" --ui-state "$SEED" >/dev/null 2>&1 \
     || { echo "FAIL two windows: the seed write failed"; fail=1; return 1; }
-  env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$state" \
+  env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$state" \
       FLEA_BIN="$BIN" PROBE_CHANGE="$waits" PROBE_TRIGGER="$trigger" \
       timeout 60 qs -p "$QMLDIR/two.qml" > "$SANDBOX/two/waiting.log" 2>&1 &
   # The only process this block kills is the one it started, and it is waited for rather than killed:
@@ -328,7 +328,7 @@ two_windows() {
     fi
     sleep 0.05
   done
-  env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$state" \
+  env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$state" \
       FLEA_BIN="$BIN" PROBE_CHANGE="$acts" PROBE_TRIGGER="" \
       timeout 60 qs -p "$QMLDIR/two.qml" > "$SANDBOX/two/acting.log" 2>&1
   # The ordering is proven and not assumed: the trigger is only released once the acting window's
@@ -496,7 +496,7 @@ wrap_start() {
   mkdir -p "$SANDBOX/wrap/state" "$SANDBOX/wrap/bin" || exit 1
   env XDG_STATE_HOME="$SANDBOX/wrap/state" "$BIN" --ui-state "$WRAPSEED" >/dev/null 2>&1 \
     || { echo "FAIL wrap: the seed write failed"; fail=1; return 1; }
-  env QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+  env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
       XDG_STATE_HOME="$SANDBOX/wrap/state" FLEA_BIN="$SANDBOX/wrapflea" \
       PROBE_WRAP_DIR="$SANDBOX/wrap/bin" PROBE_WRAP_REAL="$BIN" \
       PROBE_WRAP_HOLD="$hold" PROBE_WRAP_FAIL="$refuse" \

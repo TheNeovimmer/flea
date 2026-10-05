@@ -61,7 +61,7 @@ env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u FLEA_SELECT 
     XDG_STATE_HOME="$shellload_work/state" XDG_DATA_HOME="$shellload_work/data" \
     XDG_CACHE_HOME="$shellload_work/cache" XDG_RUNTIME_DIR="$shellload_work/runtime" TMPDIR="$shellload_work/tmp" \
     FLEA_PATH="$shellload_work/fixture" FLEA_BIN="$shellload_bin" \
-    QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
     timeout "$load_seconds" qs -p "$PWD/ui/boot" >"$log" 2>&1
 status=$?
 
