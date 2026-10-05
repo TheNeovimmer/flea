@@ -146,30 +146,53 @@ function splitRow(line) {
 var TABLE_CHUNK_ROWS = 24
 var LIST_CHUNK_ITEMS = 32
 
-// Sample input: '<a href="https://x.example/long"><font color="#eeeeee">a</font></a>' draws 1 character, "**bo**ld&#33;" draws 5.
-function renderedLength(cell) {
-    // Raw markers are markup (a literal one arrives as an entity), so they go before entities decode.
-    var plain = String(cell).replace(/<[^>"]*("[^"]*"[^>"]*)*>/g, "").replace(/[*_~`]/g, "")
-    return plain.replace(/&#(\d+);/g, function (m, n) {
-        return String.fromCharCode(parseInt(n, 10))
-    }).replace(/&(amp|lt|gt|quot);/g, "?").length
+// Columns an image holds in a cell's measure; its true width is only known once Qt decodes it.
+var IMAGE_COLUMNS = 8
+// One image, as the cell's Markdown or a raw tag; the private-use character stands for it while the text is counted.
+var CELL_IMAGE = /!\[[^\]]*\]\([^)]*\)|<img\b[^>]*>/gi
+var CELL_GLYPH = /[\ud800-\udbff][\udc00-\udfff]|[\s\S]/g
+var WIDE_GLYPH = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6]/
+
+// Sample input: 'a<br>**bb** &#33; ![i](x.png)' draws lines "a" and "bb ! \ue000": 5 columns of text, 13 with the image, a longest word of 8.
+// A wide glyph counts 2, a joiner and a variation selector 0, a break starts a line, and an image counts only in image.
+function cellExtent(cell) {
+    var plain = String(cell).replace(/<br\s*\/?>/gi, "\n").replace(CELL_IMAGE, "\ue000").replace(/<[^>"]*("[^"]*"[^>"]*)*>/g, "").replace(/[*_~`]/g, "")
+    plain = plain.replace(/&#(\d+);/g, function (m, n) { return String.fromCharCode(parseInt(n, 10)) }).replace(/&(amp|lt|gt|quot);/g, "?")
+    var out = { text: 0, image: 0, word: 0 }
+    for (var l = 0, lines = plain.split("\n"); l < lines.length; l++) {
+        var text = 0, image = 0, word = 0, joined = false
+        var glyphs = lines[l].match(CELL_GLYPH) || []
+        for (var i = 0; i < glyphs.length; i++) {
+            var g = glyphs[i]
+            var space = /\s/.test(g)
+            var picture = g === "\ue000"
+            var cols = joined || g === "\u200d" || g === "\ufe0f" ? 0 : picture ? IMAGE_COLUMNS : space ? 1 : g.length > 1 || WIDE_GLYPH.test(g) ? 2 : 1
+            joined = g === "\u200d"
+            image += cols
+            text += picture ? 0 : cols
+            word = space ? 0 : word + cols
+            out.word = Math.max(out.word, word)
+        }
+        out.text = Math.max(out.text, text)
+        out.image = Math.max(out.image, image)
+    }
+    return out
 }
 
-// Sample input: ["a", "b&#33;&#33;"] measures "b&#33;&#33;" (3 characters drawn) over "a" (1).
-function longestCell(cells) {
+// Sample input: widest(["ab", "cdef"], [{ text: 2 }, { text: 4 }], "text", false) is "cdef"; images only skips cells with no image.
+function widest(cells, drawn, key, imagesOnly) {
     var best = ""
-    var bestLength = 0
+    var bestColumns = 0
     for (var i = 0; i < cells.length; i++) {
-        var drawn = renderedLength(cells[i])
-        if (drawn > bestLength) {
+        if (drawn[i][key] > bestColumns && (!imagesOnly || drawn[i].image > drawn[i].text)) {
             best = cells[i]
-            bestLength = drawn
+            bestColumns = drawn[i][key]
         }
     }
     return best
 }
 
-// The board's table as data (Qt's importer drops style attributes); measure is each column's widest cell, so chunks share widths.
+// The board's table as data: measure is each column's widest cell so chunks share widths, pictures the widest image cell of unknown width, words the longest run.
 function tableBlock(head, aligns, rows, inlineOf) {
     var cols = head.length
     var shownHead = head.map(inlineOf)
@@ -181,13 +204,20 @@ function tableBlock(head, aligns, rows, inlineOf) {
         return row
     })
     var measure = []
+    var pictures = []
+    var weights = []
+    var words = []
     for (var c = 0; c < cols; c++) {
         var column = [c < shownHead.length ? shownHead[c] : ""]
         for (var r = 0; r < shownRows.length; r++)
             column.push(c < shownRows[r].length ? shownRows[r][c] : "")
-        measure.push(longestCell(column))
+        var drawn = column.map(cellExtent)
+        measure.push(widest(column, drawn, "text", false))
+        pictures.push(widest(column, drawn, "image", true))
+        weights.push(cellExtent(measure[c]).text)
+        words.push(cellExtent(widest(column, drawn, "word", false)).word)
     }
-    return { type: "table", head: shownHead, aligns: aligns, rows: shownRows, cols: cols, measure: measure }
+    return { type: "table", head: shownHead, aligns: aligns, rows: shownRows, cols: cols, measure: measure, pictures: pictures, weights: weights, words: words }
 }
 
 // Splits a long table into consecutive blocks: the header stays on the first, the rest are marked joined.
@@ -197,7 +227,8 @@ function chunkTable(table) {
     var chunks = []
     for (var at = 0; at < table.rows.length; at += TABLE_CHUNK_ROWS)
         chunks.push({ type: "table", head: at === 0 ? table.head : [], aligns: table.aligns,
-            rows: table.rows.slice(at, at + TABLE_CHUNK_ROWS), cols: table.cols, measure: table.measure, joined: at > 0 })
+            rows: table.rows.slice(at, at + TABLE_CHUNK_ROWS), cols: table.cols, measure: table.measure, pictures: table.pictures,
+            weights: table.weights, words: table.words, joined: at > 0 })
     return chunks
 }
 
