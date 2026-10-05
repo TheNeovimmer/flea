@@ -271,7 +271,8 @@ fn waiter_detail() -> String {
 }
 
 fn waiters_joined() -> bool {
-    let Ok(tasks) = std::fs::read_dir("/proc/self/task") else { return true; };
+    // An unreadable task list proves nothing, so it never passes as joined.
+    let Ok(tasks) = std::fs::read_dir("/proc/self/task") else { return false; };
     for task in tasks.flatten() {
         let Ok(comm) = std::fs::read_to_string(task.path().join("comm")) else { continue; };
         if comm.trim() != "flea-clip-end" { continue; }
@@ -342,6 +343,8 @@ fn t5_a_hundred_selections_leave_no_waiter_or_fd_leak() {
     crate::clip::end::STOP_HOLD_MS.store(WAITER_STOP_HOLD_MS, std::sync::atomic::Ordering::Relaxed);
     watching.finish();
     assert!(waiters_joined(), "the last waiter ends with the watcher: {}", waiter_detail());
+    // Cleared once checked, though this isolated process runs no other test.
+    crate::clip::end::STOP_HOLD_MS.store(0, std::sync::atomic::Ordering::Relaxed);
     assert_eq!(counts().1, 0, "all selection pidfds close");
     drop(watching);
     assert_eq!(counts().2, before.2, "no extra fd survives a hundred copies");
