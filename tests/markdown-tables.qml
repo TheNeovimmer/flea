@@ -21,8 +21,10 @@ ShellRoot {
     readonly property int cardWidth: 840
     readonly property int columnWidth: 250
     readonly property int paneHeight: 900
+    // Where the native capture points its sideways wheel, from tests/markdown-tables-assets.sh.
+    readonly property int aimPx: Number(Quickshell.env("FLEA_TABLES_AIM_PX"))
     // The panes shrink to this for the wheel checks, so a document of one table is taller than the view and a vertical wheel has room to move it.
-    readonly property int wheelPaneHeight: 160
+    readonly property int wheelPaneHeight: 100
     // A case is quiet once both panes' content height held still this many frames.
     readonly property int quietFrames: 8
     // Frames a path change may take to drop the old document before the new one is awaited anyway.
@@ -165,6 +167,8 @@ ShellRoot {
             shell.check(Tables.lineError(name, label, geos), name + " " + label + " draws its lines")
         var body = pane.bodyItem
         var tables = Tables.all(body.contentItem, "tableGrid")
+        if (name === "overflow" && label === "card")
+            shell.check(Tables.aimError(tables[0], body, shell.aimPx), name + " " + label + " capture wheel lands on the first body row")
         shell.check(Tables.scrollError(tables, Tables.all(body.contentItem, "tableScroll"), Tables.barsIn(body.contentItem), body.width), name + " " + label + " builds a sideways scroll only for a table that overflows")
         shell.check(Markers.markerBaselineError(pane.bodyItem.contentItem, frame, name), name + " " + label + " marker is placed on its item text's drawnBaseline")
     }

@@ -270,3 +270,13 @@ function wheelError(route, scroller, body, handler) {
         return "a vertical wheel over the table left the document at " + tops
     return ""
 }
+
+// Blank when the native capture's wheel point (aim px below the top of the view) lands inside the first body row of the table, else where that row is.
+// Sample input: aimError(table, body, 116) answers "" when the first body row spans 102 to 130 px.
+function aimError(table, body, aim) {
+    var cell = cellsOf(table)[table.block.head.length]
+    var top = cell.mapToItem(body, 0, 0).y
+    if (aim >= top && aim < top + cell.height)
+        return ""
+    return "the capture aims at " + aim + " px and the first body row spans " + Math.round(top) + " to " + Math.round(top + cell.height)
+}

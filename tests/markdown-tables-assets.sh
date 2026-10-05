@@ -1,4 +1,6 @@
 # Sourced by markdown-tables.sh and ui-captures-markdown.sh so both render the same assets: a 12 px dot, a 160 by 40 picture, a 400 by 40 one wider than the narrow column, 500 rows of three cells.
+# Where the sideways wheel of the native capture points, in px below the top of the document view: the middle of the first body row of overflow.md at text size 14, which tests/markdown-tables.qml proves.
+markdown_tables_aim_px=123
 markdown_tables_assets_write() {
     python3 - "$1" <<'PY' || return 1
 import struct, sys, zlib
