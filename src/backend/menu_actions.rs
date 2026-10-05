@@ -7,12 +7,13 @@ use std::fs::{Metadata, OpenOptions};
 use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{sync_channel, Sender, SyncSender, TrySendError};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct MenuActions {
-    requests: SyncSender<(String, Vec<String>, Option<String>, Cancellation)>,
+    slot: Arc<MenuSlot>,
+    worker: std::thread::JoinHandle<()>,
     replies: Sender<OpMsg>,
     snapshot: Arc<Mutex<Snapshot>>,
     cancellation: Mutex<Cancellation>,
@@ -23,16 +24,17 @@ pub struct MenuActions {
 impl MenuActions {
     pub fn new(replies: Sender<OpMsg>) -> Self {
         // One pending request bounds repeated activation while an application registry query runs.
-        let (requests, receiver) = sync_channel::<(String, Vec<String>, Option<String>, Cancellation)>(1);
+        let slot = Arc::new(MenuSlot::default());
         let output = replies.clone();
+        let queued = Arc::clone(&slot);
         let snapshot = Arc::new(Mutex::new(Snapshot::default()));
         let published = Arc::clone(&snapshot);
         let registry = Registry::default();
         let queries = registry.clone();
         let restoration = Arc::new(Mutex::new((0, Vec::new())));
         let completed = Arc::clone(&restoration);
-        std::thread::spawn(move || {
-            while let Ok((line, paths, cursor, cancel)) = receiver.recv() {
+        let worker = std::thread::spawn(move || {
+            while let Some((line, paths, cursor, cancel)) = queued.take() {
                 let mut state = published.lock().unwrap().clone();
                 let mut reply = if cancel.check().is_ok() {
                     state.handle_request(&line, paths, cursor.as_deref(), &queries, &cancel)
@@ -53,7 +55,7 @@ impl MenuActions {
                 if output.send(message).is_err() { break; }
             }
         });
-        Self { requests, replies, snapshot, cancellation: Mutex::new(Cancellation::default()), registry, requested_id: AtomicUsize::new(0), restoration }
+        Self { slot, worker, replies, snapshot, cancellation: Mutex::new(Cancellation::default()), registry, requested_id: AtomicUsize::new(0), restoration }
     }
     pub(crate) fn retain_survivors(&self, id: usize, matches: &mut Vec<(&str, usize)>) -> Result<(), String> {
         let restoration = self.restoration.lock().map_err(|_| "The menu service stopped; refresh this window.")?;
@@ -105,26 +107,95 @@ impl MenuActions {
                 return false;
             }
         }
-        if let Err(error) = self.requests.try_send((line, paths, cursor, cancellation.clone())) {
-            let (request, reason) = match error {
-                TrySendError::Full(request) => (request, "A menu request is still running; try again when it finishes."),
-                TrySendError::Disconnected(request) => (request, "The menu service stopped; reopen this window."),
-            };
-            let reply = response(&request.0, Err(reason.into()));
+        // The slot never disconnects, so a finished worker is checked up front: an accepted
+        // send behind a dead worker would never be answered, where the old channel refused it.
+        if self.worker.is_finished() {
+            let reply = response(&line, Err("The menu service stopped; reopen this window.".into()));
             let _ = self.replies.send(OpMsg::Meta { line: reply });
             return false;
         }
-        true
+        match self.slot.send((line, paths, cursor, cancellation.clone())) {
+            Ok(()) => true,
+            Err((refused, _, _, _)) => {
+                let reason = if self.worker.is_finished() { "The menu service stopped; reopen this window." } else { "A menu request is still running; try again when it finishes." };
+                let reply = response(&refused, Err(reason.into()));
+                let _ = self.replies.send(OpMsg::Meta { line: reply });
+                false
+            }
+        }
     }
 }
 
 impl Drop for MenuActions {
     fn drop(&mut self) {
         self.cancellation.lock().unwrap().next();
+        self.slot.close();
         if let Err(error) = self.registry.cancel() { eprintln!("flea: {}", error); }
     }
 }
 
+// Only a queued snapshot is ever displaced, behind a newer snapshot: a close never reaches
+// the slot (request() answers it synchronously), and any other queued line is work (activate,
+// applications) a newer line must not silently drop.
+fn supersedeable(line: &str) -> bool {
+    matches!(field_str(line, "op").as_deref(), Some("snapshot"))
+}
+
+// One pending request, like the sync_channel this replaces: it bounds repeated activation
+// while an application registry query runs, and a newer snapshot displaces a
+// still-queued one of its own kind, whose generation was already cancelled by request().
+type MenuJob = (String, Vec<String>, Option<String>, Cancellation);
+#[derive(Default)]
+struct MenuSlot {
+    state: Mutex<MenuSlotState>,
+    wake: Condvar,
+}
+#[derive(Default)]
+struct MenuSlotState {
+    job: Option<MenuJob>,
+    closed: bool,
+}
+impl MenuSlot {
+    fn send(&self, job: MenuJob) -> Result<(), MenuJob> {
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return Err(job);
+        }
+        match state.job.take() {
+            None => {
+                state.job = Some(job);
+                self.wake.notify_one();
+                Ok(())
+            }
+            Some(queued) if supersedeable(&job.0) && supersedeable(&queued.0) => {
+                state.job = Some(job);
+                self.wake.notify_one();
+                Ok(())
+            }
+            Some(queued) => {
+                state.job = Some(queued);
+                Err(job)
+            }
+        }
+    }
+    fn take(&self) -> Option<MenuJob> {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if state.closed {
+                return None;
+            }
+            if let Some(job) = state.job.take() {
+                return Some(job);
+            }
+            state = self.wake.wait(state).unwrap();
+        }
+    }
+    fn close(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        self.wake.notify_all();
+    }
+}
 #[derive(Clone, Default)]
 struct Snapshot {
     id: usize,
@@ -358,6 +429,76 @@ mod tests {
     use crate::backend::testdir::TestDir;
     use std::os::unix::fs::symlink;
 
+    // A menu whose worker never runs: no scheduling luck decides what stays queued.
+    fn unstarted_menu() -> (MenuActions, std::sync::mpsc::Receiver<OpMsg>) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let menu = MenuActions {
+            slot: Arc::new(MenuSlot::default()),
+            worker: std::thread::spawn(|| loop { std::thread::park(); }),
+            replies: tx,
+            snapshot: Arc::new(Mutex::new(Snapshot::default())),
+            cancellation: Mutex::new(Cancellation::default()),
+            registry: Registry::default(),
+            requested_id: AtomicUsize::new(0),
+            restoration: Arc::new(Mutex::new((0, Vec::new()))),
+        };
+        (menu, rx)
+    }
+
+    #[test]
+    fn a_queued_snapshot_yields_its_slot_to_a_newer_snapshot() {
+        let (menu, _rx) = unstarted_menu();
+        let line = |id: usize| format!(r#"{{"c":"menuaction","op":"snapshot","id":{}}}"#, id);
+        assert!(menu.request(line(41), vec![], None));
+        assert!(menu.request(line(42), vec![], None),
+            "a reopen during its own snapshot must not refuse while that snapshot is still queued");
+        let queued = menu.slot.take().expect("the newer snapshot must hold the slot");
+        assert_eq!(field_usize(&queued.0, "id"), Some(42), "the older snapshot must be displaced, not answered");
+        menu.slot.close();
+        assert!(menu.slot.take().is_none());
+    }
+
+    #[test]
+    fn queued_work_is_never_displaced_by_a_snapshot() {
+        let (menu, rx) = unstarted_menu();
+        let activate = r#"{"c":"menuaction","op":"activate","id":7,"action":"pasteAs:pasteLink"}"#.to_string();
+        assert!(menu.request(activate, vec![], None));
+        assert!(!menu.request(r#"{"c":"menuaction","op":"snapshot","id":8}"#.to_string(), vec![], None),
+            "work must keep its slot; only the refusal may answer");
+        match rx.try_recv().expect("the refusal must still answer rather than hang") {
+            OpMsg::Meta { line } => {
+                assert_eq!(field_usize(&line, "id"), Some(8));
+                assert!(!field_bool(&line, "ok") && line.contains("still running"));
+            }
+            _ => panic!("a refusal must arrive as Meta"),
+        }
+        let queued = menu.slot.take().expect("the activate must still be queued");
+        assert_eq!(field_usize(&queued.0, "id"), Some(7));
+    }
+
+    #[test]
+    fn a_reopened_snapshot_is_answered_end_to_end() {
+        let sandbox = TestDir::new("menu-resnapshot");
+        let path = sandbox.file("item", "body");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let menu = MenuActions::new(tx);
+        let line = |id: usize| format!(r#"{{"c":"menuaction","op":"snapshot","id":{}}}"#, id);
+        let paths = vec![path.to_string_lossy().into_owned()];
+        assert!(menu.request(line(41), paths.clone(), None));
+        assert!(menu.request(line(42), paths, None));
+        // At most two replies are owed; the reopened snapshot's answer must be among them.
+        let mut saw42 = false;
+        for _ in 0..2 {
+            let reply = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("a snapshot reply");
+            if let OpMsg::Meta { line } = reply {
+                if field_usize(&line, "id") == Some(42) && field_bool(&line, "ok") {
+                    saw42 = true;
+                    break;
+                }
+            }
+        }
+        assert!(saw42, "the reopened snapshot must still be answered");
+    }
     #[test]
     fn cancellation_at_publication_cannot_resurrect_a_closed_snapshot() {
         let published = Mutex::new(Snapshot::default());

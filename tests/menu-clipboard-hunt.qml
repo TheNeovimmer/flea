@@ -31,6 +31,19 @@ ShellRoot {
     readonly property var pane: body.currentPane
 
     function log(line) { console.log("CLIPHUNT " + line) }
+    // One line of menu evidence for a stall, so a timeout names the state it waited on.
+    function menuState() {
+        var menu = pane.contextMenu()
+        var openRow = menu.openSubmenuRow >= 0 && menu.entries[menu.openSubmenuRow] ? menu.entries[menu.openSubmenuRow].action : ""
+        return "opened=" + menu.opened + " submenuOpen=" + menu.submenuOpen + " submenu="
+            + (menu.loneFlyoutAction.length > 0 ? "lone:" + menu.loneFlyoutAction : openRow)
+            + " ready=" + pane.menuActions.ready + " req=" + pane.menuActions.requestId
+            + " pending=" + pane.menuActions.pendingAction + "/" + pane.menuActions.pendingActivation
+            + " provRefreshing=" + pane.menuActions.providersRefreshing
+            + " entries=" + menu.entries.length + " subEntries=" + menu.submenuEntries.length
+            + " clipPaths=" + pane.clipboard.paths.length + " cursor=" + pane.cursorIndex
+            + " listInFlight=" + pane.listInFlight + " messages=" + JSON.stringify(messages.slice(-3))
+    }
     function checkPublication() {
         var sets = clipReplies.filter(function (reply) { return reply.op === "set" })
         log((sets.length === 1 && sets[0].ok === false && sets[0].error === clipboardRefusal
@@ -87,7 +100,7 @@ ShellRoot {
     }
     function advance() {
         ticks += 1
-        if (ticks > 200) { log("FAIL timeout waiting for stage " + stage); quit(); return }
+        if (ticks > 200) { log("FAIL timeout waiting for stage " + stage + " " + menuState()); quit(); return }
         if (stage === 0 && action === "terminal" && !pane.listInFlight && pane.sidebar) {
             pane.contextMenu().openBackground(Qt.point(100, 100))
             pane.contextMenu().choose("openTerminal")
@@ -205,6 +218,7 @@ ShellRoot {
             pane.contextMenu().close()
             if (action.indexOf("pasteas") === 0) {
                 pane.act("pasteAs")
+                log("INFO pasteas-reopen " + menuState())
                 stage = 12
                 ticks = 0
                 return
