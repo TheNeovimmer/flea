@@ -170,14 +170,14 @@ ShellRoot {
               shell.check(service.warmKeys.slice().sort().join("\u0001") === shell.placedKeys.join("\u0001"), "the warm query names exactly the keys the placed figures put")
               shell.check(!service.helperRunning && !service.starting && service.sends === shell.sendsMark, "a document whose figures are on disk starts no helper")
           } },
-        // A document whose only figures sit inside an item and a quote, a quote in an item in a quote included, draws them all.
-        { act: function () { shell.drawNested(shell.nestedDocument, 4) },
-          drawn: function (service) { shell.nestedDrawn(service, 4, "nested-only") } },
+        // A document whose only figures sit inside an item, a quote, a quote in an item, an item in that quote and a quote in an item in a quote, draws them all.
+        { act: function () { shell.drawNested(shell.nestedDocument, 5) },
+          drawn: function (service) { shell.nestedDrawn(service, 5, "nested-only") } },
         { act: function () { shell.warmNested() },
           known: function (all, service) { shell.nestedWarmed(all, service, "nested-only") } },
         // A mixed document, a top-level figure and nested ones, draws them all too.
-        { act: function () { shell.drawNested(shell.mixedDocument, 5) },
-          drawn: function (service) { shell.nestedDrawn(service, 5, "mixed") } },
+        { act: function () { shell.drawNested(shell.mixedDocument, 6) },
+          drawn: function (service) { shell.nestedDrawn(service, 6, "mixed") } },
         { act: function () { shell.warmNested() },
           known: function (all, service) { shell.nestedWarmed(all, service, "mixed") } }
     ]
