@@ -23,6 +23,8 @@ check() {
 
 # The helper alone: the crash line with its colour codes, and a clean log.
 . tests/qslog-gate.sh
+# Direct calls below need the guard's own report function.
+. tools/flea-sandbox-guard
 printf '\033[31m ERROR\033[0m: Quickshell has crashed under pid 15810 (Coredumps will be available under that pid.)\n' > "$box/crashed.log"
 printf 'QLFF DONE steps=14 failures=0\n' > "$box/clean.log"
 line=$(qslog_crash "leg x" "$box/crashed.log"); rc=$?
@@ -60,6 +62,72 @@ grep -q 'FAIL stub-suite.sh: Quickshell has crashed, report leg/cache/quickshell
     && check ok "a suite that only removes its sandbox still prints the crash as a FAIL line" || check bad "a suite that only removes its sandbox still prints the crash as a FAIL line"
 [ -f "$box/logs/stub-suite.sh-crashes/leg_cache_quickshell_crashes_t2cdhbfmt/log.txt" ] \
     && check ok "and keeps the report" || check bad "and keeps the report"
+
+# A missing log is a FAIL of its own, never a clean log.
+qslog_crash "leg x" "$box/no-such.log" > "$box/missing.out" 2>&1
+rc=$?
+status=bad
+if grep -q 'FAIL leg x: cannot read log' "$box/missing.out"; then
+    if [ "$rc" -eq 1 ]; then
+        status=ok
+    fi
+fi
+check "$status" "a missing log is a FAIL with its own message"
+
+# A path grep cannot read as a file is the same FAIL.
+qslog_crash "leg x" "$box" > "$box/dir.out" 2>&1
+rc=$?
+status=bad
+if grep -q 'FAIL leg x: cannot read log' "$box/dir.out"; then
+    if [ "$rc" -eq 1 ]; then
+        status=ok
+    fi
+fi
+check "$status" "an unreadable log is a FAIL with its own message"
+
+# A crash report the suite cannot copy still names its source and destination.
+failroot="$box/failcopy/root"
+mkdir -p "$failroot/leg/cache/quickshell/crashes/aaa"
+echo "backtrace stub" > "$failroot/leg/cache/quickshell/crashes/aaa/log.txt"
+: > "$box/logsfile"
+out=$(FLEA_CI_SUITE_LOGS="$box/logsfile" sandbox_crash_report "$failroot" 2>&1)
+status=bad
+if grep -q 'FAIL .*cannot copy crash report .* to .*' <<< "$out"; then
+    status=ok
+fi
+check "$status" "a failed copy is a FAIL naming source and destination"
+
+# A second report for the same name gets the next free name: both kept, neither nested, nothing deleted.
+nestroot="$box/nest/root"
+mkdir -p "$nestroot/leg/cache/quickshell/crashes/aaa"
+echo "first" > "$nestroot/leg/cache/quickshell/crashes/aaa/log.txt"
+FLEA_CI_SUITE_LOGS="$box/nestlogs" sandbox_crash_report "$nestroot" > /dev/null 2>&1
+echo "second" > "$nestroot/leg/cache/quickshell/crashes/aaa/log.txt"
+FLEA_CI_SUITE_LOGS="$box/nestlogs" sandbox_crash_report "$nestroot" > /dev/null 2>&1
+unset FLEA_CI_SUITE_LOGS
+nestdest="$box/nestlogs/${0##*/}-crashes/leg_cache_quickshell_crashes_aaa"
+status=bad
+if [ "$(cat "$nestdest/log.txt")" = "first" ] && [ "$(cat "$nestdest.1/log.txt" 2>/dev/null)" = "second" ]; then
+    if [ ! -e "$nestdest/aaa" ]; then
+        status=ok
+    fi
+fi
+check "$status" "a second report for the same name gets the next free name instead of nesting"
+
+# A crash report older than this run is stale, never a FAIL for this run.
+staleroot="$box/stale/root"
+mkdir -p "$staleroot/leg/cache/quickshell/crashes/old1"
+echo "backtrace stub" > "$staleroot/leg/cache/quickshell/crashes/old1/log.txt"
+stale_date='2000-01-01 00:00:00'
+touch -d "$stale_date" "$staleroot/leg/cache/quickshell/crashes/old1" "$staleroot/leg/cache/quickshell/crashes/old1/log.txt"
+out=$(sandbox_crash_report "$staleroot" 2>&1)
+status=bad
+if grep -q 'stale crash report from an earlier run' <<< "$out"; then
+    if ! grep -q 'FAIL' <<< "$out"; then
+        status=ok
+    fi
+fi
+check "$status" "a stale crash report is reported without FAIL"
 
 printf 'qslog-crash: %s checks, %s bad\n' "$checks" "$bad"
 [ "$bad" -eq 0 ]

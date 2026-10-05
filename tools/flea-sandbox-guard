@@ -11,6 +11,8 @@
 FIXTURE_ROOT=${FLEA_FIXTURE_ROOT:-/home/flea-sandbox}
 # The marker is what stands between a directory and rm -rf: no marker, no delete.
 SANDBOX_MARKER=.flea-test-sandbox
+# The run started when this guard was sourced, so an older crash report is from an earlier run.
+SANDBOX_GUARD_START=${SANDBOX_GUARD_START:-$(date +%s)}
 
 sandbox_refuse() {
   printf 'REFUSED: %s\n' "$*" >&2
@@ -141,13 +143,37 @@ sandbox_owned() {
 # Sample input: a sandbox holding leg/cache/quickshell/crashes/t2cdhbfmt answers "FAIL x.sh: Quickshell has crashed, report leg/cache/quickshell/crashes/t2cdhbfmt" and copies it under $FLEA_CI_SUITE_LOGS when set.
 # Read-only, and run before every removal because Quickshell's crash handler reruns the config and a rerun can pass, so a crash report is the only trace a suite leaves.
 sandbox_crash_report() {
-  local root=$1 crash rel
-  [ -d "$root" ] || return 0
+  local root=$1 crash rel dest mt n
+  if [ ! -d "$root" ]; then
+    return 0
+  fi
   while IFS= read -r crash; do
     rel=${crash#"$root"/}
+    mt=$(stat -c %Y "$crash" 2>/dev/null)
+    if [ -z "$mt" ]; then
+      mt=$SANDBOX_GUARD_START
+    fi
+    if [ "$mt" -lt "$SANDBOX_GUARD_START" ]; then
+      printf '%s: stale crash report from an earlier run: %s\n' "${0##*/}" "$rel"
+      continue
+    fi
     printf 'FAIL %s: Quickshell has crashed, report %s\n' "${0##*/}" "$rel"
-    [ -n "${FLEA_CI_SUITE_LOGS:-}" ] || continue
-    mkdir -p "$FLEA_CI_SUITE_LOGS/${0##*/}-crashes" && cp -a "$crash" "$FLEA_CI_SUITE_LOGS/${0##*/}-crashes/${rel//\//_}" 2>/dev/null
+    if [ -z "${FLEA_CI_SUITE_LOGS:-}" ]; then
+      continue
+    fi
+    dest="$FLEA_CI_SUITE_LOGS/${0##*/}-crashes/${rel//\//_}"
+    if mkdir -p "$FLEA_CI_SUITE_LOGS/${0##*/}-crashes" 2>/dev/null; then
+      # A second report for one name gets the next free name, so a copy never nests inside the first and nothing is deleted.
+      if [ -e "$dest" ]; then
+        n=1
+        while [ -e "$dest.$n" ]; do n=$((n + 1)); done
+        dest="$dest.$n"
+      fi
+      if cp -a "$crash" "$dest" 2>/dev/null; then
+        continue
+      fi
+    fi
+    printf 'FAIL %s: cannot copy crash report %s to %s\n' "${0##*/}" "$crash" "$dest"
   done < <(find "$root" -mindepth 3 -type d -path '*/quickshell/crashes/*' -prune 2>/dev/null)
   return 0
 }

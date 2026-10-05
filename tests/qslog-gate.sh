@@ -29,10 +29,22 @@ qslog_nullptr() {
 
 QSLOG_CRASHED='Quickshell has crashed'
 
-# Sample input: a log holding "ERROR: Quickshell has crashed under pid 15810 (Coredumps will be available under that pid.)" answers "FAIL LABEL: <that line>" and status 1, whatever qs exited with; a log without it answers 0.
+# Sample input: a log holding "ERROR: Quickshell has crashed under pid 15810 (Coredumps will be available under that pid.)" answers "FAIL LABEL: <that line>" and status 1; a missing or unreadable log answers "FAIL LABEL: cannot read log <path>" and status 1; a log without it answers 0.
 qslog_crash() {
-  local label=$1 log=$2 line
-  line=$(grep -a -m1 -F -- "$QSLOG_CRASHED" "$log") || return 0
+  local label=$1 log=$2 line rc
+  if [ ! -r "$log" ]; then
+    printf 'FAIL %s: cannot read log %s\n' "$label" "$log"
+    return 1
+  fi
+  line=$(grep -a -m1 -F -- "$QSLOG_CRASHED" "$log" 2>/dev/null)
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    printf 'FAIL %s: cannot read log %s\n' "$label" "$log"
+    return 1
+  fi
+  if [ "$rc" -ne 0 ]; then
+    return 0
+  fi
   # The crash handler restarts the config and the rerun can exit 0, so the line itself is the failure.
   printf 'FAIL %s: %s\n' "$label" "$(sed 's/\x1b\[[0-9;]*m//g' <<< "$line")"
   return 1
