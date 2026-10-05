@@ -8,6 +8,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import time
 
 
 source = Path(__file__).with_name("ui.sh").read_text()
@@ -213,6 +214,8 @@ for name, windows, code in (
 world_script = Path(__file__).with_name("ui-xwsettings-world.py").resolve()
 # A hang guard for one whole case run, not an assertion: the world answers every call at once.
 world_hang_guard_s = 120
+# The gap between looks at a file another process writes, in a wait for a condition and never an assertion on time.
+late_poll_s = 0.01
 world_names = ("qs", "omarchy-drive", "hyprctl", "flea", "pgrep", "world")
 # The shipped functions case_xwsettings reaches, read from ui.sh so a stub never stands in for one of them.
 world_functions = "\n".join(function(name) for name in (
@@ -268,8 +271,10 @@ def world_run(index, knobs):
     env = {**os.environ, "PATH": f"{stub}:{os.environ['PATH']}", "FLEA_WORLD": str(run / "world"),
            "FLEA_TEST_RUN_ROOT": str(run), "XDG_STATE_HOME": str(run / "state"), **knobs}
     result = subprocess.run(["bash"], input=world_script_body(run), text=True, capture_output=True, timeout=world_hang_guard_s, env=env)
-    calls = [json.loads(line) for line in (run / "world/calls.jsonl").read_text().splitlines()]
-    return result, calls, (run / "world/pids").read_text().split()
+    # A world that failed before any window registered leaves no pids file; the caller reports the world's own output.
+    calls_file, pids_file = run / "world/calls.jsonl", run / "world/pids"
+    calls = [json.loads(line) for line in calls_file.read_text().splitlines()] if calls_file.exists() else []
+    return result, calls, pids_file.read_text().split() if pids_file.exists() else []
 
 
 def pid_routes(calls, window_pids):
@@ -297,7 +302,29 @@ world_cases = (
     ("a missing first-rows stamp is refused", {"WORLD_STAMP": "unavailable"}, 1, "no first-rows stamp", "XWSETTINGS route=ok", None),
     ("a window reported under the other window's pid is refused", {"WORLD_SWAP_PIDS": "1"}, 1, "does not run", "XWSETTINGS route=ok", None),
     ("a window pid this run does not own is refused", {"WORLD_FOREIGN": "1"}, 1, "not owned", "XWSETTINGS route=ok", None),
+    # No window means no pids file; the run must end in the world's own FAIL line, not a traceback of the harness.
+    ("a launch whose window never appears is reported by the world's own output", {"WORLD_NO_WINDOW": "1"}, 1, "FAIL", "Traceback", None),
 )
+
+
+def late_window_wait():
+    """The stub's wait call must block until a window another call registers exists, as the real one does."""
+    run = root / "late-window"
+    guard(run)
+    (run / "state").mkdir(parents=True)
+    (run / ".flea-test-sandbox").write_text("private late window\n")
+    env = {**os.environ, "FLEA_WORLD": str(run / "world"), "FLEA_TEST_RUN_ROOT": str(run),
+           "XDG_STATE_HOME": str(run / "state"), "FLEA_UI": str(run / "ui")}
+    calls = run / "world/calls.jsonl"
+    waiter = subprocess.Popen(["python3", str(world_script), "omarchy-drive", "wait", "window", "flea", "--timeout", str(world_hang_guard_s)], env=env)
+    # The waiter's own call line proves it began before the window exists; its next step is the one under test.
+    deadline = time.monotonic() + world_hang_guard_s
+    while time.monotonic() < deadline and not (calls.exists() and '"wait"' in calls.read_text()):
+        time.sleep(late_poll_s)
+    subprocess.run(["python3", str(world_script), "flea", "--gui", str(run)], env=env, timeout=world_hang_guard_s, check=True)
+    return waiter.wait(timeout=world_hang_guard_s)
+
+
 failures = 0
 try:
     for name, body, code, present, absent in cases:
@@ -317,7 +344,13 @@ try:
             print(f"FAIL {name}: exit={result.returncode}, problem={problem!r}, output={output[-600:]!r}")
         else:
             print("PASS " + name)
-    print(f"{len(cases) + len(world_cases)} process ownership checks, {failures} failed; no real signals")
+    waited = late_window_wait()
+    if waited != 0:
+        failures += 1
+        print(f"FAIL a wait begun before the window exists ends when it registers: exit={waited}")
+    else:
+        print("PASS a wait begun before the window exists ends when it registers")
+    print(f"{len(cases) + len(world_cases) + 1} process ownership checks, {failures} failed; no real signals")
 finally:
     for child in root.iterdir():
         if child.name == ".flea-test-sandbox":

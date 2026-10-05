@@ -72,8 +72,12 @@ printf '%s\n' 'WorkerScript.onMessage = function (msg) {};' > "$fallback_ui/Mark
 sed -i 's/^function blocks(source, dir, chrome, ink) {$/&\n    if (String(source).indexOf("FLEA-SCRATCH-THROW") >= 0) throw new Error("scratch parse failure")/' "$fallback_ui/js/Markdown.js"
 grep -q 'FLEA-SCRATCH-THROW' "$fallback_ui/js/Markdown.js" || { echo 'FAIL scratch ui: parser not patched'; exit 1; }
 failures=0
-scenarios=(control tasks reference table scroll source-key size-key theme links disk disk-rename disk-scroll disk-stale local-image long-list long-table disk-fail disk-partial disk-shrink disk-switch disk-worker disk-stream disk-regrow disk-uneven local-image-narrow column-scale parse-quick parse-column parse-worker parse-fallback)
-for scenario in "${scenarios[@]}"; do
+scenarios=(control tasks reference table scroll source-key size-key size-key@1 theme links disk disk-rename disk-scroll disk-stale local-image long-list long-table disk-fail disk-partial disk-shrink disk-switch disk-worker disk-stream disk-regrow disk-uneven local-image-narrow column-scale parse-quick parse-column parse-worker parse-fallback)
+# An entry "case@ms" runs the case with the probe timer at ms, so a tick lands inside a stage's own key events.
+for entry in "${scenarios[@]}"; do
+    scenario=${entry%@*}
+    tick=""
+    [ "$entry" = "$scenario" ] || tick=${entry#*@}
     link_preload=""
     case "$scenario" in
         theme|links|disk|disk-rename|disk-scroll|disk-stale|local-image|long-list|long-table) cp tests/markdown-hunt.qml "$test_root/config/shell.qml" ;;
@@ -85,18 +89,18 @@ for scenario in "${scenarios[@]}"; do
     esac
     [ "$scenario" != parse-fallback ] || ln -sfn "$fallback_ui" "$test_root/config/flea"
     [ "$scenario" != links ] || link_preload="$test_root/link-spy.so"
-    phase="$test_root/$scenario"
+    phase="$test_root/${entry/@/-tick}"
     mkdir -p "$phase"/{home,state,cache,data,runtime,tmp}
     chmod 700 "$phase/runtime"
     output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
         HOME="$phase/home" XDG_STATE_HOME="$phase/state" XDG_CONFIG_HOME="$phase/home/.config" \
         XDG_CACHE_HOME="$phase/cache" XDG_DATA_HOME="$phase/data" XDG_RUNTIME_DIR="$phase/runtime" TMPDIR="$phase/tmp" \
-        FLEA_BIN="$PWD/target/debug/flea" FLEA_PREVIEW_HUNT_CASE="$scenario" FLEA_PREVIEW_HUNT_DIR="$test_root/fixture" \
+        FLEA_BIN="$PWD/target/debug/flea" FLEA_PREVIEW_HUNT_CASE="$scenario" FLEA_PREVIEW_HUNT_TICK_MS="$tick" FLEA_PREVIEW_HUNT_DIR="$test_root/fixture" \
         LD_PRELOAD="$link_preload" FLEA_MARKDOWN_OPEN_LOG="$phase/open.log" \
         QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
         timeout 15 qs -p "$test_root/config" 2>&1)
     code=$?
-    printf 'PREVIEW_HUNT CASE %s exit=%s\n' "$scenario" "$code"
+    printf 'PREVIEW_HUNT CASE %s exit=%s\n' "$entry" "$code"
     printf '%s\n' "$output" | sed -n '/PREVIEW_HUNT/p'
     if [ "$code" -ne 0 ] || ! printf '%s\n' "$output" | grep -q 'PREVIEW_HUNT DONE.*0 failed'; then
         failures=$((failures+1))

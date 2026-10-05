@@ -4,6 +4,24 @@ set -uo pipefail
 script_path=$(readlink -f -- "$0") || exit 1
 cd "$(dirname "$0")/.." || exit 1
 
+# The harness run's hang guard grows with how slow a spin of fixed work ran on this box just now, never past a cap; the linearity bound itself is work counts and never moves.
+hang_guard_s=280
+spin_idle_ms=700
+guard_scale_cap=8
+spin_iterations=1000000
+scaled_guard_s() {
+    local base=$1 cal_ms=$2 idle_ms=$3 cap=$4 scaled
+    scaled=$(((base * cal_ms + idle_ms - 1) / idle_ms))
+    ((scaled < base)) && scaled=$base
+    ((scaled > base * cap)) && scaled=$((base * cap))
+    echo "$scaled"
+}
+spin_ms() {
+    local start=$(date +%s%N) i
+    for ((i = 0; i < spin_iterations; i++)); do :; done
+    echo $((($(date +%s%N) - start) / 1000000))
+}
+
 # Verify wrapper rejection with partial timeout, missing samples, malformed records and excessive work.
 if [ "${1:-}" != "--probe" ]; then
     probe_root=$(mktemp -d "${TMPDIR:-/tmp}/markdown-linearity.XXXXXX") || exit 1
@@ -74,6 +92,13 @@ STUB
         fi
         echo "ok wrapper regression $probe status=$status"
     done
+    # Each row: calibration ms, expected guard seconds; the idle spin takes 700 ms, so a box at that speed or faster keeps 280.
+    for row in "300 280" "700 280" "1400 560" "2000 800" "99999 2240"; do
+        read -r cal want <<< "$row"
+        got=$(scaled_guard_s 280 "$cal" 700 8)
+        [ "$got" = "$want" ] || { echo "FAIL wrapper regression guard for a ${cal} ms spin: got '$got', wanted $want"; exit 1; }
+        echo "ok wrapper regression guard for a ${cal} ms spin is ${got}s"
+    done
 fi
 
 if ! command -v qml6 >/dev/null; then
@@ -105,14 +130,22 @@ THEME
         timeout 30 qml6 tests/markdown-endhold.qml || exit 1
 fi
 
+# A probe child keeps the base guard; a real run spins once so a starved box is given the time it needs.
+guard_s=$hang_guard_s
+[ "${1:-}" = "--probe" ] || guard_s=$(scaled_guard_s "$hang_guard_s" "$(spin_ms)" "$spin_idle_ms" "$guard_scale_cap")
+
 run_once() {
-    local output status
+    local output status started
+    started=$SECONDS
     # Check qml6 or timeout directly before extracting complete work records.
     output=$(TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
-        timeout 280 qml6 tests/markdown-linearity.qml -- ui/js/Md*.js 2>&1)
+        timeout "$guard_s" qml6 tests/markdown-linearity.qml -- ui/js/Md*.js 2>&1)
     status=$?
     if [ "$status" != 0 ]; then
+        # Status 124 is the guard firing; any other is the harness's own exit, whose FAIL lines may sit past the head.
+        printf 'harness exit %s after %ss of a %ss guard\n' "$status" "$((SECONDS - started))" "$guard_s" >&2
         printf '%s\n' "$output" | head -12 >&2
+        printf '%s\n' "$output" | grep -a 'FAIL' | head -6 >&2
         return "$status"
     fi
     printf '%s\n' "$output" | sed -n 's/^qml: WORK //p'
