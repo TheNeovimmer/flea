@@ -345,6 +345,17 @@ capmarkdownkinds_open() {
     done
     fail "capmarkdownkinds: $name never rendered, previewMarkdownView read [$view]"
 }
+# Wheel runs a document gets to build its last block: a 500-row table takes several, so forty only stop a view that never ends.
+capmarkdownkinds_end_runs=40
+# Wheels down a run at a time until the last block is built (previewEndGap past -1), failing by name if it never is.
+capmarkdownkinds_reach_end() {
+    local name="$1" run
+    for ((run = 0; run < capmarkdownkinds_end_runs; run++)); do
+        capmarkdown_scroll down "$((capmarkdown_notches_mid + capmarkdown_notches_end))"
+        [[ "$(ipc previewEndGap)" == "-1" ]] || return 0
+    done
+    fail "capmarkdownkinds: $name never built its last block after $capmarkdownkinds_end_runs wheel runs"
+}
 # Shoots the open document, then its tail when it is taller than the card, then closes Quick Look.
 # Sample input: previewEndGap answers 0 when the last block and its inset are whole at the top, so nothing scrolls; any other number, -1 included, means the document runs past the card.
 capmarkdownkinds_shoot() {
@@ -355,7 +366,7 @@ capmarkdownkinds_shoot() {
     [[ "$gap" =~ ^-?[0-9]+$ ]] || fail "capmarkdownkinds: previewEndGap answered [$gap] for $name"
     if (( gap != 0 )); then
         capmarkdown_pointer document
-        capmarkdown_scroll down "$((capmarkdown_notches_mid + capmarkdown_notches_end))"
+        capmarkdownkinds_reach_end "$name"
         capmarkdown_end_fit
         shot "cap-markdown-kind-${name%.md}-end"
     fi
