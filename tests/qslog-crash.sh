@@ -114,20 +114,24 @@ if [ "$(cat "$nestdest/log.txt")" = "first" ] && [ "$(cat "$nestdest.1/log.txt" 
 fi
 check "$status" "a second report for the same name gets the next free name instead of nesting"
 
-# A crash report older than this run is stale, never a FAIL for this run.
-staleroot="$box/stale/root"
-mkdir -p "$staleroot/leg/cache/quickshell/crashes/old1"
-echo "backtrace stub" > "$staleroot/leg/cache/quickshell/crashes/old1/log.txt"
-stale_date='2000-01-01 00:00:00'
-touch -d "$stale_date" "$staleroot/leg/cache/quickshell/crashes/old1" "$staleroot/leg/cache/quickshell/crashes/old1/log.txt"
-out=$(sandbox_crash_report "$staleroot" 2>&1)
+# A crash report the opening sandbox_make clears is from an earlier run: stale, never a FAIL for this run.
+cat > "$box/stale-suite.sh" <<'STUB'
+#!/usr/bin/env bash
+. "$1/tools/flea-sandbox-guard"
+root="$FIXTURE_ROOT/stale-root"
+sandbox_make "$root"
+mkdir -p "$root/leg/cache/quickshell/crashes/old1" && echo "backtrace stub" > "$root/leg/cache/quickshell/crashes/old1/log.txt"
+sandbox_make "$root"
+STUB
+out=$(env FLEA_FIXTURE_ROOT="$box/fixtures" FLEA_CI_SUITE_LOGS="$box/stalelogs" bash "$box/stale-suite.sh" "$PWD" 2>&1)
 status=bad
 if grep -q 'stale crash report from an earlier run' <<< "$out"; then
     if ! grep -q 'FAIL' <<< "$out"; then
         status=ok
     fi
 fi
-check "$status" "a stale crash report is reported without FAIL"
+[ -e "$box/stalelogs" ] && status=bad
+check "$status" "a report the opening sandbox_make clears is stale: no FAIL, no copy"
 
 printf 'qslog-crash: %s checks, %s bad\n' "$checks" "$bad"
 [ "$bad" -eq 0 ]
