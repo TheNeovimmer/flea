@@ -43,6 +43,9 @@ import sys
 root = pathlib.Path(sys.argv[1])
 checks = 0
 failures = 0
+# Every file the repository keeps under ui/, so a package glob that misses one (ui/MarkdownWorker.js once) fails by name.
+source_ui = pathlib.Path(sys.argv[2]) / "ui"
+source_files = {path.relative_to(source_ui).as_posix() for path in source_ui.rglob("*") if path.is_file() and not path.is_symlink()}
 # Sample inputs: import { renderFigure } from "../js/FigureWorker.mjs"; await import("./math.mjs").
 imports = re.compile(r'\b(?:from\s*|import\s*\(\s*|import\s*)["\'](\.[^"\']+)["\']')
 for package in ("root", "flea", "flea-git", "flea-bin"):
@@ -59,6 +62,11 @@ for package in ("root", "flea", "flea-git", "flea-bin"):
         if not (ui / relative).is_file():
             failures += 1
             print(f"FAIL {package}: missing {relative}")
+    shipped = {path.relative_to(ui).as_posix() for path in ui.rglob("*") if path.is_file()}
+    for relative in sorted(source_files - shipped):
+        checks += 1
+        failures += 1
+        print(f"FAIL {package}: ui/{relative} is not installed")
     checks += 1
     if not list(ui.glob("vendor/LICENSES/*")):
         failures += 1
