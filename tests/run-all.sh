@@ -73,6 +73,7 @@ themes|needs the display: it launches the candidate once per stock theme, and te
 fs-matrix|needs root, loop devices and the mkfs tools for the loop-mount half; fs-matrix-smoke runs the rest
 fs-stick-images|needs root, loop devices, sfdisk and the mkfs tools to write the stick layouts
 mdspec-shots|draws every spec example for the contact sheets and judges nothing
+markdown-tables-assets|is the table assets library markdown-tables.sh and ui-captures-markdown.sh source, and judges nothing
 "
 
 printf '\nNot run here, and why:\n'
