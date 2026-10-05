@@ -81,13 +81,13 @@ FocusScope {
     }
     function open(action) {
         trashArmedAt = 0
-        if (operationActive) { opened = true; forceActiveFocus(); return }
+        if (operationActive) { opened = true; emptyAction.focus = false; forceActiveFocus(); return }
         opened = true; selected = ({}); selectionIdentities = ({}); allSelected = false; selectionToken = 0; selectionCount = 0; cursor = 0
         first = 0; rows = []; total = 0; errorText = ""; bytesReady = false
         confirming = false; confirmation.close(); refreshPending = false
         initialAction = action || ""
         send("list", {start: 0, count: windowRows, recover: true})
-        forceActiveFocus()
+        emptyAction.focus = false; forceActiveFocus() // Fresh open never keeps the strip button.
     }
     function close() {
         trashArmedAt = 0

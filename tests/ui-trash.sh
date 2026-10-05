@@ -322,6 +322,49 @@ case_trashrestore() { case_trash restore; }
 case_trashstale() { case_trash stale; }
 case_trashfailure() { case_trash failure; }
 
+# Reopening Trash gives the keyboard to the listing, never to the Empty Trash button.
+case_trashfocus() {
+    local trash_box payload root trash_checks=0 trash_case_label=trashfocus state focused
+    local trash_parent_bus_id="" trash_private_bus_id="" trash_bus_address="" trash_bus_pid="" trash_provider_pid=""
+    [[ "$(realpath -e "$(command -v gio)")" == /usr/bin/gio ]] || fail "trash: product gio resolves to a stub"
+    sandbox_require "$fixture_root"
+    trash_box=$(mktemp -d "$fixture_root/trash.XXXXXXXX") || fail "trash: fixture creation failed"
+    printf 'native private Trash\n' > "$trash_box/.flea-test-sandbox"
+    export XDG_DATA_HOME="$trash_box/data" XDG_CONFIG_HOME="$trash_box/config"
+    export XDG_STATE_HOME="$trash_box/state" XDG_CACHE_HOME="$trash_box/cache"
+    for root in "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME"; do
+        trash_guard "$root"
+        mkdir -p "$root" || fail "trash: writable root creation failed"
+    done
+    "$flea_bin" --ui-state '{"view":"list","keys":"default","preview":{"column":false},"menu":{"hidden":[]}}' >/dev/null \
+        || fail "trash: preferences could not be stored inside the fixture"
+    payload="$trash_box/payload"
+    trash_guard "$payload"
+    mkdir "$payload" || fail "trash: fixture creation failed"
+    trash_start_bus
+    printf 'alpha\n' > "$payload/alpha.txt"
+    printf 'beta\n' > "$payload/beta.txt"
+    launch "$payload"
+    wait_listing 2
+    trash_move alpha.txt 0 1
+    trash_move beta.txt 1 0
+    trash_rail
+    trash_wait '.opened and .total == 2 and (.busy == false)'
+    state=$(ipc trashFocusEmpty)
+    [[ "$state" == true ]] || fail "trash: the strip's Empty Trash did not take the keyboard"
+    trash_click trashControlCentre back
+    trash_wait '(.opened == false)'
+    wait_path "$payload"
+    trash_rail
+    trash_wait '.opened and .total == 2 and (.busy == false)'
+    state=$(ipc trashEmptyState)
+    focused=$(cut -d'|' -f2 <<< "$state")
+    [[ "$focused" == false ]] || fail "trash: reopening Trash kept the keyboard on Empty Trash, state $state"
+    key j >/dev/null
+    trash_wait '.opened and .cursor == 1 and (.busy == false)' 'reopened Trash answers listing keys'
+    trash_cleanup 0
+}
+
 # A live smoke of the Trash view's dd wiring; the prompt's timing and staleness are pinned headless in tests/arm-prompt.sh.
 case_trasharm() {
     local trash_box payload root trash_checks=0 trash_case_label=trasharm seen tries
