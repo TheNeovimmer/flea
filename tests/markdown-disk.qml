@@ -12,7 +12,10 @@ ShellRoot {
     property int loadsAtSwitch: 0
     property int stage: 0
     property int settle: 0
+    // When the current stage began, and the box's speed as the first stage's own length: both feed the give-up.
     property double stamp: Date.now()
+    property double born: Date.now()
+    property double firstStageMs: 0
     property int failures: 0
     property int checks: 0
     property bool editDone: false
@@ -25,7 +28,6 @@ ShellRoot {
     property int parseRunsBefore: 0
     property int saveEvents: 0
     property bool parsingAfterAsk: false
-    property int waited: 0
     property real scrolledY: 0
     property real scrolledColumnY: 0
     readonly property bool failCase: scenario === "disk-fail"
@@ -37,8 +39,17 @@ ShellRoot {
     readonly property int tallScreens: 3
     // Ticks of the probe timer a finished save stays quiet for before the place is read; counted, never timed.
     readonly property int settleTicks: 15
-    // Ticks the probe waits for one event to land before it fails that event by name; counted, never timed.
-    readonly property int landPollLimit: 300
+    // A stage gets the first stage's own length (startup plus the first parse of the same file) this many times over, and never less than probeGiveUpMs.
+    readonly property int giveUpScale: 10
+    // Milliseconds in one second, for the outer timeout below.
+    readonly property int msPerS: 1000
+    // Fallback matching the shell default, used only when the harness passes no outer timeout.
+    readonly property int fallbackOuterS: 15
+    // The shell's outer kill, in seconds; the probe caps its give-up below it so the timeout line lands first.
+    readonly property int outerTimeoutS: Number(Quickshell.env("FLEA_PREVIEW_HUNT_TIMEOUT_S")) || root.fallbackOuterS
+    // The probe gives up this far before the outer kill, so its own timeout line is what reports a stall.
+    readonly property int timeoutMarginMs: 2000
+    readonly property int giveUpMs: Math.min(Math.max(probeGiveUpMs, giveUpScale * firstStageMs), root.outerTimeoutS * root.msPerS - root.timeoutMarginMs)
     // The worker phase's save truncates, waits this long, then writes: two watcher events, as the kernel merges two that arrive unread together.
     readonly property int saveGapMs: 10
     // A shortened document that still fills the viewport yet ends far above scrollTargetY.
@@ -167,18 +178,6 @@ ShellRoot {
     }
     // Counted ticks, not a duration: the reparse lands and the list lays out over a few turns.
     function quiet() { return ++root.settle > root.settleTicks }
-    // True once an event has landed; a count of polls that never sees it fails the event by name.
-    function landedWithin(name, ready) {
-        if (ready) {
-            root.waited = 0
-            return true
-        }
-        if (++root.waited > root.landPollLimit) {
-            root.check(name + " lands within " + root.landPollLimit + " polls", "gave up", "landed")
-            root.finish()
-        }
-        return false
-    }
     // The preview's FileView, found among its non-visual children by the watcher it carries.
     function fileView() {
         var parts = md.resources
@@ -187,6 +186,11 @@ ShellRoot {
         return null
     }
     function tall(item) { return item && item.contentReady && item.flickContentHeight > item.height * root.tallScreens }
+
+    onStageChanged: {
+        if (root.stage === 1 && root.firstStageMs === 0) root.firstStageMs = Date.now() - root.born
+        root.stamp = Date.now()
+    }
 
     // Quick Look and the column each read the removed file as a failure, then the recreated one as text with the place kept.
     function failStep() {
@@ -313,8 +317,8 @@ ShellRoot {
             return
         }
         // The edit's own parse: asked once, still pending a turn after it was asked, and landed with the list in step.
-        if (root.stage === 1 && root.editDone && root.landedWithin("the edit's parse", md.parseRuns > root.parseRunsBefore
-                && md.rawText.indexOf("edited paragraph 0.") === 0 && md.contentReady)) {
+        if (root.stage === 1 && root.editDone && md.parseRuns > root.parseRunsBefore
+                && md.rawText.indexOf("edited paragraph 0.") === 0 && md.contentReady) {
             root.stage = 2
             root.settle = 0
             return
@@ -368,7 +372,8 @@ ShellRoot {
         running: true
         repeat: true
         onTriggered: {
-            if (Date.now() - root.stamp > root.probeGiveUpMs) {
+            // The outer timeout counts from process start, so a late stage's own give-up can sit past it; the born bound covers that.
+            if (Date.now() - root.stamp > root.giveUpMs || Date.now() - root.born > root.outerTimeoutS * root.msPerS - root.timeoutMarginMs) {
                 root.check("probe completes", "timeout stage " + root.stage, "complete")
                 root.finish()
                 return

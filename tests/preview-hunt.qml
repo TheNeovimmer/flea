@@ -16,6 +16,9 @@ ShellRoot {
     property var nativePane: null
     property var nativeKeys: null
     property bool scrollFramePending: false
+    property bool ticking: false
+    readonly property int probeTickMs: 20
+    readonly property int tickMs: Number(Quickshell.env("FLEA_PREVIEW_HUNT_TICK_MS")) || root.probeTickMs
     readonly property int fileAScrollY: 120
     readonly property int fileBScrollY: 240
     // The size-key case ends one settle after its chord check, on a stage the source-key case never reaches.
@@ -109,10 +112,16 @@ ShellRoot {
     }
 
     Timer {
-        interval: 20
+        interval: root.tickMs
         running: true
         repeat: true
+        // A key event can spin the event loop, so a tick may fire inside a stage; a nested stage would run twice.
         onTriggered: {
+            if (root.ticking) return
+            root.ticking = true
+            try { step() } finally { root.ticking = false }
+        }
+        function step() {
             if (Date.now() - root.stamp > 8000) {
                 root.check("probe completes", "timeout stage " + stage, "complete")
                 root.finish()

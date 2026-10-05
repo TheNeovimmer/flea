@@ -291,15 +291,14 @@ QML
       env XDG_STATE_HOME="$SANDBOX/garbage/state" "$BIN" --ui-state \
         '{"hidden":false,"view":"grid","density":"normal"}' >/dev/null 2>&1 \
         || { echo "FAIL xwsettings: the marker write failed"; fail=1; }
-      waited=0
+      # Only the probe's end (its stall backstop or timeout) stops the wait early.
       until grep -q 'PROBE live density=normal' "$SANDBOX/stayer.log" 2>/dev/null; do
-        waited=$((waited + 1))
-        if [ "$waited" -gt 200 ]; then
+        if ! kill -0 "$stayer_pid" 2>/dev/null; then
           echo "FAIL xwsettings: the watcher never answered the marker behind the garbage"
           fail=1
           break
         fi
-        sleep 0.05
+        sleep "$probe_poll_s"
       done
       check "the watcher answered a later event behind the garbage" "1" "$(grep -c 'PROBE live density=normal' "$SANDBOX/stayer.log")"
       check "and the half-written file applied nothing live" "0" "$(grep -c 'PROBE applied' "$SANDBOX/stayer.log")"
@@ -344,16 +343,18 @@ ShellRoot {
                         + " density=" + ViewState.density)
         }
     }
-    property var backstop: Timer {
-        interval: 30000
-        running: true
-        onTriggered: Qt.quit()
-    }
 }
 QML
   env QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 XDG_STATE_HOME="$SANDBOX/settled/state" \
-      FLEA_BIN="$BIN" timeout 60 qs -p "$QMLDIR/settled.qml" > "$SANDBOX/settled.log" 2>&1 &
+      FLEA_BIN="$BIN" timeout "$probe_timeout_s" qs -p "$QMLDIR/settled.qml" > "$SANDBOX/settled.log" 2>&1 &
   settled_pid=$!
+  # Waits for a live line carrying the marker after the given line count; only the probe's end (its timeout) stops the wait early.
+  settled_wait() {
+    until [ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -n +"$(($1 + 1))" | grep -c "$2")" -ge 1 ]; do
+      kill -0 "$settled_pid" 2>/dev/null || return 1
+      sleep "$probe_poll_s"
+    done
+  }
   waited=0
   until grep -q 'PROBE watching' "$SANDBOX/settled.log" 2>/dev/null; do
     waited=$((waited + 1))
@@ -377,12 +378,11 @@ doc["density"] = "normal"
 json.dump(doc, open(p, "w"))
 PY
     # The density marker rides the same write as the bogus edit, so only a line carrying it proves the watcher handled that write.
-    waited=0
-    until [ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -n +"$((live_before_bogus + 1))" | grep -c 'density=normal')" -ge 1 ]; do
-      waited=$((waited + 1))
-      if [ "$waited" -gt 200 ]; then break; fi
-      sleep 0.05
-    done
+    if ! settled_wait "$live_before_bogus" 'density=normal'; then
+      echo "FAIL xwsettings: the watcher never answered the bogus column edit; the log's last lines:"
+      tail -n 5 "$SANDBOX/settled.log" | cut -c1-200
+      fail=1
+    fi
     handled=$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -n +"$((live_before_bogus + 1))" | grep 'density=normal')
     check "a bogus column is never taken" "0" "$(printf '%s' "$handled" | grep -c 'bogus')"
     # The healed default appears live; on raw_bytes the bogus string stays in the log.
@@ -397,13 +397,7 @@ doc["density"] = "compact"
 json.dump(doc, open(p, "w"))
 PY
     # The compact marker rides the null write, so a periodic tick without it proves nothing about the edit.
-    waited=0
-    until [ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -n +"$((live_before + 1))" | grep -c 'density=compact')" -ge 1 ]; do
-      waited=$((waited + 1))
-      if [ "$waited" -gt 200 ]; then break; fi
-      sleep 0.05
-    done
-    if [ "$waited" -gt 200 ]; then
+    if ! settled_wait "$live_before" 'density=compact'; then
       echo "FAIL xwsettings: the watcher never answered the null places edit"
       fail=1
     fi
@@ -412,12 +406,7 @@ PY
     check "and the kept entries survive it" "1" "$([ "$(printf '%s' "$handled_null" | grep -c '/old')" -ge 1 ] && echo 1 || echo 0)"
     live_before=$(grep -c 'PROBE live' "$SANDBOX/settled.log")
     printf '%s' '{"density":"normal"}' > "$SANDBOX/settled/state/flea/ui.json" || exit 1
-    waited=0
-    until [ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -n +"$((live_before + 1))" | grep -c 'hidden=false')" -ge 1 ]; do
-      waited=$((waited + 1))
-      if [ "$waited" -gt 200 ]; then break; fi
-      sleep 0.05
-    done
+    settled_wait "$live_before" 'hidden=false' || true
     check "a removed key reads as its default" "1" "$([ "$(grep 'PROBE live' "$SANDBOX/settled.log" | tail -n +"$((live_before + 1))" | grep -c 'hidden=false')" -ge 1 ] && echo 1 || echo 0)"
     echo "settled tail:"
     grep 'PROBE live' "$SANDBOX/settled.log" | tail -3 || true
@@ -602,10 +591,20 @@ fi
 exec "$PROBE_REAL_BIN" "$@"
 SH
 chmod +x "$SANDBOX/tabs/launcher" || exit 1
-for mode in tabs window trash tabview restore openers watch quickdrag dragpreview; do
-  mkdir -p "$SANDBOX/tabs/$mode" || exit 1
-  : > "$SANDBOX/tabs/$mode/launches" || exit 1
-  env XDG_STATE_HOME="$SANDBOX/tabs/$mode/state" "$BIN" --ui-state \
+# An entry "mode@ms" runs the mode with the phase timer at ms, so a tick lands inside the phase's own pointer waits.
+for entry in tabs window trash tabview restore openers watch quickdrag quickdrag@1 middrag dragpreview; do
+  mode=${entry%@*}
+  tick=""
+  [ "$entry" = "$mode" ] || tick=${entry#*@}
+  label=${entry/@/-tick}
+  mkdir -p "$SANDBOX/tabs/$label" || exit 1
+  # The three drag shapes share one probe; every other mode shares the tabs probe.
+  case "$mode" in
+    quickdrag|middrag|dragpreview) cp tests/xwsettings-drag.qml "$SANDBOX/tabs/config/shell.qml" || exit 1 ;;
+    *) cp tests/xwsettings-tabs.qml "$SANDBOX/tabs/config/shell.qml" || exit 1 ;;
+  esac
+  : > "$SANDBOX/tabs/$label/launches" || exit 1
+  env XDG_STATE_HOME="$SANDBOX/tabs/$label/state" "$BIN" --ui-state \
     '{"keys":"default","view":"list","sort":{"key":"name","reverse":false},"updates":{"autoCheck":false}}' >/dev/null 2>&1 || exit 1
   start_path="$SANDBOX/tabs/a"
   if [ "$mode" = restore ] || [ "$mode" = dragpreview ]; then
@@ -615,25 +614,25 @@ a, b, mode = sys.argv[1:]
 print(json.dumps({"startIn": "last", "lastTabs": {"paths": [a, b, a + "/sub"], "index": 0 if mode == "dragpreview" else 1}}))
 PY
     ) || exit 1
-    env XDG_STATE_HOME="$SANDBOX/tabs/$mode/state" "$BIN" --ui-state "$restored" >/dev/null 2>&1 || exit 1
+    env XDG_STATE_HOME="$SANDBOX/tabs/$label/state" "$BIN" --ui-state "$restored" >/dev/null 2>&1 || exit 1
     start_path=""
   fi
   out=$(env DISPLAY=flea-offscreen QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 QSG_RHI_BACKEND=opengl \
-      XDG_STATE_HOME="$SANDBOX/tabs/$mode/state" FLEA_BIN="$SANDBOX/tabs/launcher" \
+      XDG_STATE_HOME="$SANDBOX/tabs/$label/state" FLEA_BIN="$SANDBOX/tabs/launcher" \
       FLEA_PATH="$start_path" PROBE_BASE="$SANDBOX/tabs/a" PROBE_OTHER_PATH="$SANDBOX/tabs/b" \
-      PROBE_MODE="$mode" PROBE_REAL_BIN="$BIN" PROBE_LAUNCHES="$SANDBOX/tabs/$mode/launches" PROBE_SHOT="$SANDBOX/tabs/$mode/held.png" \
+      PROBE_MODE="$mode" PROBE_TICK_MS="$tick" PROBE_REAL_BIN="$BIN" PROBE_LAUNCHES="$SANDBOX/tabs/$label/launches" PROBE_SHOT="$SANDBOX/tabs/$label/held.png" \
       PROBE_BODY="$PWD/ui/WindowBody.qml" timeout 30 qs -p "$SANDBOX/tabs/config" 2>&1)
   result=$?
   printf '%s\n' "$out" | grep -E 'TAB_HUNT (FAIL|DONE)|TypeError|ReferenceError|ERROR' || true
   printf '%s\n' "$out" | grep -E 'WARN' | sort -u | head -5 || true
-  check "the $mode key/pointer probe drains" "$qs_drained_exit" "$result"
-  check "the $mode key/pointer probe finishes without a failure" 1 \
+  check "the $label key/pointer probe drains" "$qs_drained_exit" "$result"
+  check "the $label key/pointer probe finishes without a failure" 1 \
     "$(printf '%s\n' "$out" | grep -cE "TAB_HUNT DONE $mode [0-9]+ checks, 0 failed")"
-  check "the $mode key/pointer probe has no script errors" 0 \
+  check "the $label key/pointer probe has no script errors" 0 \
     "$(printf '%s\n' "$out" | grep -cE 'TypeError|ReferenceError|ERROR')"
   if ! printf '%s\n' "$out" | grep -q "TAB_HUNT DONE $mode "; then printf '%s\n' "$out" | tail -15; fi
   if [ "$mode" = dragpreview ] && [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then
-    cp "$SANDBOX/tabs/$mode/held.png" "$FLEA_CI_SUITE_LOGS/cap-tabs-drag-held-offscreen.png" || fail=1
+    cp "$SANDBOX/tabs/$label/held.png" "$FLEA_CI_SUITE_LOGS/cap-tabs-drag-held-offscreen.png" || fail=1
   fi
 done
 

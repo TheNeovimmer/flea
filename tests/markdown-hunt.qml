@@ -19,15 +19,16 @@ ShellRoot {
     property string otherFixture: Quickshell.env("FLEA_PREVIEW_HUNT_DIR") + "/disk-stale-b.md"
     property real scrolledY: 0
     property int settleTicks: 0
+    property var lastPlaces: null
+    property int placesQuiet: 0
     property bool rewritten: false
     // About 2 x 50 text items fit the viewport and its cache, plus the chunks at both ends; a delegate per item would be 3000.
     readonly property int liveTextBound: 400
     // The lazy suite caps live block delegates at 150; one chunk needs the same bound.
     readonly property int chunkDelegateBound: 150
-    // The probe's own bounds: its give-up, the layout warm-up before a check, and how long the disk phase waits for a reload.
+    // The probe's own bounds: its give-up, and the layout warm-up before a check.
     readonly property int probeGiveUpMs: 8000
     readonly property int warmupMs: 350
-    readonly property int diskReloadWaitMs: 1600
     // A place deep inside the 300 paragraph disk-scroll file, past the first screen.
     readonly property int scrollTargetY: 1200
     // Viewports of content that mean a file really scrolls, and that a long container exceeds.
@@ -38,6 +39,8 @@ ShellRoot {
     readonly property int tableRowsTotal: 1200
     // Ticks of the probe timer a theme switch stays quiet for before its place is read; counted, never timed.
     readonly property int themeSettleTicks: 15
+    // Ticks a long container's row places hold before they are read; counted, never timed.
+    readonly property int settleQuietTicks: 15
 
     function check(label, actual, expected) {
         checks++
@@ -69,6 +72,55 @@ ShellRoot {
         reader.text = node.text
         reader.select(0, 1)
         return String(reader.cursorSelection.color)
+    }
+    readonly property string editedText: "After disk edit.\n"
+    function diskChecks() {
+        root.check("watched control sees disk edit", watchedControl.text(), root.editedText)
+        root.check("Quick Look follows document changed on disk", quick.textShown(), root.editedText)
+        root.check("column follows document changed on disk", column.markdown.rawText, root.editedText)
+    }
+    function chunkEdge() { return scenario === "long-list" ? Leaf.LIST_CHUNK_ITEMS : Leaf.TABLE_CHUNK_ROWS }
+    function rowText(n) { return textY((scenario === "long-list" ? "Item " : "Row ") + n, scenario === "long-list") }
+    // The rows the container checks read, the first two and both sides of the first chunk boundary, as their places; null until all are alive.
+    function rowPlaces() {
+        var edge = root.chunkEdge()
+        var places = [0, 1, edge - 1, edge].map(function (n) { return root.rowText(n) })
+        return places.every(function (y) { return y !== null }) ? JSON.stringify(places) : null
+    }
+    // True once those places have held for settleQuietTicks ticks: the chunks are placed over several layout turns, and a read between them sees a chunk at its estimate.
+    function rowsSettled() {
+        var places = root.rowPlaces()
+        if (places === null || places !== root.lastPlaces) {
+            root.lastPlaces = places
+            root.placesQuiet = 0
+            return false
+        }
+        return ++root.placesQuiet >= root.settleQuietTicks
+    }
+    function containerChecks() {
+        var isList = scenario === "long-list"
+        var total = 0
+        for (var b = 0; b < md.blockList.length; b++)
+            total += isList ? md.blockList[b].items.length : md.blockList[b].rows.length
+        var first = md.blockItem(0)
+        var firstNodes = liveText(first)
+        // The parser splits a long container into chunk blocks, so completeness is the sum over the chunks.
+        root.check("long container parsed completely", total, isList ? root.listItemsTotal : root.tableRowsTotal)
+        root.check("long container exceeds visible frame", md.flickContentHeight > md.height * root.containerScreens, true)
+        root.check("viewport bounds live " + scenario + " text delegates", firstNodes.length <= root.chunkDelegateBound, true)
+        var live = liveText(md.bodyItem.contentItem)
+        // Beside the first chunk, every chunk the list keeps alive for the viewport and its cache counts.
+        root.check("viewport bounds all live " + scenario + " text delegates", live.length <= liveTextBound, true)
+        // The chunk boundary keeps the inside-chunk pitch, with the second chunk starting at the parser's own chunk size.
+        var edge = root.chunkEdge()
+        var rowsAt = [0, 1, edge - 1, edge]
+        for (var r = 0; r < rowsAt.length; r++)
+            root.check(scenario + " row " + rowsAt[r] + " is alive", root.rowText(rowsAt[r]) !== null, true)
+        var pitch = root.rowText(1) - root.rowText(0)
+        root.check(scenario + " rows inside a chunk are a positive pitch apart", pitch > 0, true)
+        root.check("chunk boundary keeps the row pitch", root.rowText(edge) - root.rowText(edge - 1), pitch)
+        console.log("PREVIEW_HUNT CONTAINER " + scenario + " blocks=" + md.blockList.length
+            + " textDelegates=" + live.length + " height=" + md.flickContentHeight + " viewport=" + md.height)
     }
     function liveText(item) {
         return descendants(item).filter(function (node) {
@@ -164,6 +216,9 @@ ShellRoot {
         repeat: true
         onTriggered: {
             if (Date.now() - root.stamp > root.probeGiveUpMs) {
+                // A phase that waits for its condition names what it saw when the wait ran out.
+                if (scenario === "disk" && stage === 1) root.diskChecks()
+                if ((scenario === "long-list" || scenario === "long-table") && md.contentReady) root.containerChecks()
                 root.check("probe completes", "timeout stage " + stage, "complete")
                 root.finish()
                 return
@@ -177,10 +232,10 @@ ShellRoot {
                     root.stage = 1
                     return
                 }
-                if (stage === 1 && rewritten && Date.now() - stamp > root.diskReloadWaitMs) {
-                    root.check("watched control sees disk edit", watchedControl.text(), "After disk edit.\n")
-                    root.check("Quick Look follows document changed on disk", quick.textShown(), "After disk edit.\n")
-                    root.check("column follows document changed on disk", column.markdown.rawText, "After disk edit.\n")
+                // The edit is the event under test: wait until all three readers show it, the give-up reports a miss.
+                if (stage === 1 && rewritten && watchedControl.text() === root.editedText && quick.textShown() === root.editedText
+                        && column.markdown.rawText === root.editedText) {
+                    root.diskChecks()
                     root.finish()
                 }
                 return
@@ -267,33 +322,9 @@ ShellRoot {
                 return
             }
             if (scenario === "long-list" || scenario === "long-table") {
-                var isList = scenario === "long-list"
-                var total = 0
-                for (var b = 0; b < md.blockList.length; b++)
-                    total += isList ? md.blockList[b].items.length : md.blockList[b].rows.length
-                var first = md.blockItem(0)
-                var firstNodes = liveText(first)
-                // The parser splits a long container into chunk blocks, so completeness is the sum over the chunks.
-                root.check("long container parsed completely", total, isList ? root.listItemsTotal : root.tableRowsTotal)
-                root.check("long container exceeds visible frame", md.flickContentHeight > md.height * root.containerScreens, true)
-                root.check("viewport bounds live " + scenario + " text delegates", firstNodes.length <= root.chunkDelegateBound, true)
-                var live = liveText(md.bodyItem.contentItem)
-                // Beside the first chunk, every chunk the list keeps alive for the viewport and its cache counts.
-                root.check("viewport bounds all live " + scenario + " text delegates", live.length <= liveTextBound, true)
-                // Rows across a chunk boundary keep the pitch of rows inside a chunk, so the chunks read as one container.
-                var rowPrefix = isList ? "Item " : "Row "
-                var at = function (n) { return textY(rowPrefix + n, isList) }
-                // The first row of the second chunk, from the parser's own chunk size.
-                var edge = isList ? Leaf.LIST_CHUNK_ITEMS : Leaf.TABLE_CHUNK_ROWS
-                // A row that is not alive answers null, and null - null is 0 on both sides, so every row must be found first.
-                var rowsAt = [0, 1, edge - 1, edge]
-                for (var r = 0; r < rowsAt.length; r++)
-                    root.check(scenario + " row " + rowsAt[r] + " is alive", at(rowsAt[r]) !== null, true)
-                var pitch = at(1) - at(0)
-                root.check(scenario + " rows inside a chunk are a positive pitch apart", pitch > 0, true)
-                root.check("chunk boundary keeps the row pitch", at(edge) - at(edge - 1), pitch)
-                console.log("PREVIEW_HUNT CONTAINER " + scenario + " blocks=" + md.blockList.length
-                    + " textDelegates=" + live.length + " height=" + md.flickContentHeight + " viewport=" + md.height)
+                // The chunks build and are placed over turns after the parse lands; wait until the rows the checks read are alive and still, the give-up reports a miss.
+                if (!root.rowsSettled()) return
+                root.containerChecks()
                 root.finish()
                 return
             }

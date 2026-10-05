@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import sys
+import time
 from pathlib import Path
 
 FIRST_ROWS_BASE_MS = 1759400000000
@@ -21,6 +22,9 @@ WINDOW_CLASS = "com.thisisgm.flea"
 SECTIONS = ("view", "keys")
 CONTROLS = ("density", "rows")
 ROW_HEIGHTS = {"compact": 28, "normal": 32}
+# The poll gap of a wait that has to see a window another call registers, and its bound when the call names none.
+WAIT_POLL_S = 0.02
+WAIT_DEFAULT_S = 15
 
 home = Path(os.environ["FLEA_WORLD"])
 run_root = Path(os.environ["FLEA_TEST_RUN_ROOT"])
@@ -134,6 +138,9 @@ def clients():
 
 
 def register(ui, path):
+    # A launch whose window never appears, so the run leaves no pids file.
+    if os.environ.get("WORLD_NO_WINDOW"):
+        return
     state["seq"] += 1
     seq = state["seq"]
     pid = PID_BASE + seq
@@ -181,6 +188,9 @@ elif tool == "pgrep":
 elif tool == "flea" and args[0] == "--ui-state":
     ui_write(json.loads(args[1]))
 elif tool == "flea" and args[0] == "--gui":
+    # A register that fails, so the late-window wait is exercised against a launch that never delivers.
+    if os.environ.get("WORLD_REGISTER_FAIL"):
+        sys.exit(1)
     register(os.environ["FLEA_UI"], args[1])
 elif tool == "world" and args[0] == "kill":
     victim = window_with("pid", int(args[1]))
@@ -199,7 +209,18 @@ elif tool == "omarchy-drive" and args[0] == "ipc":
     # Sample: ipc -p /ui/boot flea cursor; every tree declares ShellId flea, so the newest instance answers a path.
     reply(newest(), args[4:])
 elif tool == "omarchy-drive" and args[0] == "wait":
-    sys.exit(0 if state["windows"] else 1)
+    # The real wait blocks until the window exists; the lock is let go so the launch that makes it can register.
+    # Sample: wait window flea --timeout 15
+    if os.environ.get("WORLD_NO_WINDOW"):
+        sys.exit(1)
+    bound = float(args[args.index("--timeout") + 1]) if "--timeout" in args else WAIT_DEFAULT_S
+    deadline = time.monotonic() + bound
+    fcntl.flock(lock, fcntl.LOCK_UN)
+    while time.monotonic() < deadline:
+        if state_file.exists() and json.loads(state_file.read_text()).get("windows"):
+            sys.exit(0)
+        time.sleep(WAIT_POLL_S)
+    sys.exit(1)
 elif tool == "omarchy-drive" and args[0] == "windows":
     fields = ("address", "class", "title", "at", "size")
     print(json.dumps({"ok": True, "windows": [{k: c[k] for k in fields} for c in clients()]}))

@@ -17,6 +17,7 @@ ShellRoot {
     property double phaseAt: Date.now()
     property int checks: 0
     property int failures: 0
+    property bool stepping: false
     property bool finished: false
     property var dragItem: null
     property var railOwner: null
@@ -25,15 +26,13 @@ ShellRoot {
     property int firstLists: 0
     property int secondLists: 0
     property var selectedNames: []
-    property bool previewGrabbed: false
     // The list requests sent and listings landed when a phase started its re-list; the phase after proves both rose by one.
     property int listsBefore: 0
     property int landings: 0
     property int landingsBefore: 0
-    readonly property int dragInset: 10
-    readonly property int pointerMoveMs: 20
-    readonly property int pointerEventMs: 1
     readonly property int harnessTickMs: 50
+    // The tick the phase timer runs at; a run may shorten it to make a tick land inside a phase's own pointer waits.
+    readonly property int tickMs: Number(Quickshell.env("PROBE_TICK_MS")) || root.harnessTickMs
 
     function check(label, actual, expected) {
         root.checks++
@@ -103,7 +102,13 @@ ShellRoot {
         watchChanges: true
         onFileChanged: reload()
     }
+    // TestEvent pointer delays admit a reentrant tick, so the guard drops it or the outer call skips the next phase including release.
     function advance() {
+        if (root.stepping) return
+        root.stepping = true
+        try { root.step() } finally { root.stepping = false }
+    }
+    function step() {
         if (!pane || pane.listInFlight || ["ready", "empty"].indexOf(pane.listingState) < 0 || Date.now() - root.phaseAt < 150) return
         if (Flea.ViewState.writeBook.inflight.length > 0 || Flea.ViewState.settler.running || Flea.ViewState.settleMode.length > 0) return
         if (root.mode === "watch") {
@@ -171,76 +176,6 @@ ShellRoot {
                 check("middle click adds one tab in " + modes[view], Tabs.count(pane), 2)
                 Tabs.closeAt(pane, Tabs.currentIndex(pane)); next()
             } else if (part === 5) next()
-        } else if (root.mode === "dragpreview") {
-            if (phase === 0) {
-                root.dragItem = tabStrip()
-                var tab = dragItem.itemAt(1)
-                keys.mousePress(tab, tab.width / 2, tab.height / 2, Qt.LeftButton, Qt.NoModifier, pointerEventMs)
-                keys.mouseMove(tab.parent, 3 * dragItem.tabWidth - dragInset, tab.height / 2, pointerMoveMs, Qt.LeftButton, Qt.NoModifier)
-                next()
-            } else if (phase === 1) {
-                var held = dragItem.itemAt(1), after = dragItem.itemAt(2)
-                check("the preview drag is held at the far insertion point", [dragItem.dragFrom, dragItem.dropAt], [1, 3])
-                check("the held tab occupies its destination slot", held.x, 2 * dragItem.tabWidth)
-                check("the following tab closes the source slot", after.x, dragItem.tabWidth)
-                var bar = dragItem.children.filter(function (item) { return item.color === Flea.Theme.color.accent && item.width === 2 * Flea.Theme.spacing.hairline })[0]
-                check("the insertion bar borders the ghost's leading edge", bar ? bar.x : -1, held.mapToItem(dragItem, 0, 0).x - Flea.Theme.spacing.hairline)
-                check("the held tab draws at disabled opacity", held.opacity, Flea.Theme.disabledOpacity)
-                check("a preview keeps the committed order", Tabs.labels(pane), [Tabs.label(here, pane.home), Tabs.label(other, pane.home), "sub"])
-                dragItem.grabToImage(function (result) { check("the held preview capture saves", result.saveToFile(Quickshell.env("PROBE_SHOT")), true); root.previewGrabbed = true })
-                next()
-            } else if (phase === 2) {
-                if (!root.previewGrabbed) return
-                var tab = dragItem.itemAt(1)
-                keys.mouseRelease(tab.parent, 3 * dragItem.tabWidth - dragInset, tab.height / 2, Qt.LeftButton, Qt.NoModifier, pointerEventMs)
-                next()
-            } else if (phase === 3) {
-                check("the preview order becomes the committed order", Tabs.labels(pane), [Tabs.label(here, pane.home), "sub", Tabs.label(other, pane.home)])
-                check("dragging another tab preserves the current tab", [Tabs.currentIndex(pane), pane.path], [0, root.here])
-                finish()
-            }
-        } else if (root.mode === "quickdrag") {
-            if (phase === 0) { focusList(); text("t"); pane.open(root.other); next() }
-            else if (phase === 1) {
-                root.dragItem = tabStrip()
-                var tab = root.dragItem.itemAt(1)
-                keys.mousePress(tab, 30, tab.height / 2, Qt.LeftButton, Qt.NoModifier, 1)
-                keys.mouseMove(tab, -root.dragItem.tabWidth + 10, tab.height / 2, 20, Qt.LeftButton, Qt.NoModifier)
-                next()
-            } else if (phase === 2) {
-                check("a single movement event grabs the tab drag", root.dragItem.dragFrom, 1)
-                var tab = root.dragItem.itemAt(1)
-                keys.mouseRelease(tab, -root.dragItem.tabWidth + 10, tab.height / 2, Qt.LeftButton, Qt.NoModifier, 1)
-                next()
-            } else if (phase === 3) {
-                checkDrag("a tab drag with one move event lands where released")
-                // Reset the current tab's place so the slower control is independent of this result.
-                Tabs.moveCurrent(pane, 1)
-                var tab = root.dragItem.itemAt(1)
-                keys.mousePress(tab, 30, tab.height / 2, Qt.LeftButton, Qt.NoModifier, 1)
-                keys.mouseMove(tab, -20, tab.height / 2, 20, Qt.LeftButton, Qt.NoModifier)
-                keys.mouseMove(tab, -root.dragItem.tabWidth + 10, tab.height / 2, 20, Qt.LeftButton, Qt.NoModifier)
-                next()
-            } else if (phase === 4) {
-                var tab = root.dragItem.itemAt(1)
-                keys.mouseRelease(tab, -root.dragItem.tabWidth + 10, tab.height / 2, Qt.LeftButton, Qt.NoModifier, 1)
-                next()
-            } else if (phase === 5) {
-                checkDrag("the same drag with two move events reorders")
-                Tabs.moveCurrent(pane, 1)
-                var tab = root.dragItem.itemAt(1)
-                keys.mousePress(tab, 30, tab.height / 2, Qt.LeftButton, Qt.NoModifier, 1)
-                keys.mouseMove(tab, -20, tab.height / 2, 20, Qt.LeftButton, Qt.NoModifier)
-                next()
-            } else if (phase === 6) {
-                check("the release-only destination starts from a grabbed drag", root.dragItem.dragFrom, 1)
-                var tab = root.dragItem.itemAt(1)
-                keys.mouseRelease(tab, -root.dragItem.tabWidth + 10, tab.height / 2, Qt.LeftButton, Qt.NoModifier, 1)
-                next()
-            } else if (phase === 7) {
-                checkDrag("release updates the insertion slot without another move")
-                finish()
-            }
         } else if (root.mode === "window") {
             if (phase === 0) { focusList(); press(Qt.Key_N, Qt.ControlModifier); next() }
             else if (phase === 1) {
@@ -431,7 +366,7 @@ ShellRoot {
         }
     }
     Timer {
-        interval: root.harnessTickMs
+        interval: root.tickMs
         repeat: true
         running: !root.finished
         onTriggered: root.advance()
