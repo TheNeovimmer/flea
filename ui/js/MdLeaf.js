@@ -191,17 +191,6 @@ function chunkTable(table) {
     return chunks
 }
 
-// Splits a long list into consecutive blocks: numbering continues through start, and last keeps one marker column width.
-function chunkList(list) {
-    if (list.items.length <= LIST_CHUNK_ITEMS)
-        return [list]
-    var chunks = []
-    for (var at = 0; at < list.items.length; at += LIST_CHUNK_ITEMS)
-        chunks.push({ type: "list", ordered: list.ordered, start: list.start + at,
-            items: list.items.slice(at, at + LIST_CHUNK_ITEMS), last: list.start + list.items.length - 1, joined: at > 0 })
-    return chunks
-}
-
 // Sample input: "![alt](a.png)", "![alt][ref]" or one raw <img> tag; balanced brackets nest, backslashes skip.
 function standaloneImage(line, dir, defs) {
     var text = String(line).trim()

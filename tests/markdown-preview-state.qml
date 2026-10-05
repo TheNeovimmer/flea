@@ -10,8 +10,6 @@ QtObject {
     readonly property int remoteLimitBytes: 256 * 1024
     readonly property int defaultReaderLimitBytes: 1024 * 1024
     readonly property int geometryWidth: 400
-    readonly property int geometryGap: 8
-    readonly property int geometryFontPixels: 16
     // The hold checks: a list of holdContentPx in a view of holdViewPx, a hold waiting at holdAtPx for a place at holdSavedPx, a reader who moves to holdReaderPx.
     readonly property int holdContentPx: 5000
     readonly property int holdViewPx: 500
@@ -356,24 +354,14 @@ QtObject {
             && quick.indexOf("cost nothing") < 0, "F45 comments state one-line constraints and null assertion")
     }
 
-    function geometryChecks(source) {
-        var marker = "                Column {\n                    id: listGrid"
-        var column = "Column {" + body(source, marker) + "}"
-        // The pane's Markdown module is not imported by the probe, so its link gate reads as a closed one.
-        column = column.replace(/Theme\./g, "theme.").replace(/Markdown\.isExternalLink/g, "(function () { return false })")
-            .replace(/blockDelegate\.width/g, "parent.width")
-        // The runner supplies the shipped text component beside a local Theme for pure qml6.
-        var textModule = Qt.resolvedUrl(Qt.application.arguments[Qt.application.arguments.length - 1])
-        var probe = Qt.createQmlObject('import QtQuick\nimport "' + textModule + '" as Flea\nItem {\nwidth: ' + geometryWidth + '\n'
-            + 'property var block: ({ type: "list", ordered: true, start: 9, items: ["nine", "ten"] })\n'
-            + 'QtObject {\nid: theme\nproperty var spacing: ({ gap: ' + geometryGap + ' })\n'
-            + 'property var color: ({ foreground: "#ffffff" })\n'
-            + 'property var font: ({ family: "sans-serif", body: ' + geometryFontPixels + ' })\n}\n'
-            + column + '}', gate.sandbox)
+    function geometryChecks() {
+        // The runner supplies the shipped list and text components beside a local Theme for pure qml6.
+        var module = Qt.resolvedUrl(Qt.application.arguments[Qt.application.arguments.length - 1])
+        var probe = Qt.createQmlObject('import QtQuick\nimport "' + module + '" as Flea\nFlea.MarkdownList {\nwidth: ' + geometryWidth + '\n'
+            + 'list: ({ type: "list", ordered: true, start: 9, items: ["nine", "ten"] })\n}', gate.sandbox)
         Qt.callLater(function () {
-            var list = probe.children[0]
-            var rows = Array.prototype.filter.call(list.children, function (child) {
-                return child.children.length === 2
+            var rows = Array.prototype.filter.call(probe.children, function (child) {
+                return child.objectName === "listRow"
             })
             check(rows.length === 2 && rows[0].children[1].x > 0
                 && rows[0].children[1].x === rows[1].children[1].x, "F44 ordered items 9 and 10 share text x")
@@ -394,6 +382,6 @@ QtObject {
         lazyChecks()
         bindingChecks(source)
         commentChecks(source)
-        geometryChecks(source)
+        geometryChecks()
     }
 }

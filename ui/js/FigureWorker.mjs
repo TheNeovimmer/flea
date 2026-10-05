@@ -613,12 +613,12 @@ export function postMermaid(svg, t) {
     return out;
 }
 
-export function postMath(svg, t, display) {
+export function postMath(svg, t) {
     if (svg.indexOf("merror") >= 0 || svg.indexOf("data-mjx-error") >= 0)
         throw new Error("formula did not render");
     var out = svg.split("currentColor").join(t.fg);
-    // MathJax's TeX SVG has 442 units per ex; a display formula draws its ex at the body x-height the pane measured, the rest at the em rule.
-    var exPx = display && t.exPx > 0 ? t.exPx : (t.bodyPx || DEFAULT_BODY_PX) * EX_PER_EM;
+    // MathJax's TeX SVG has 442 units per ex; a formula draws its ex at the body x-height the pane measured, or the em rule when none came.
+    var exPx = t.exPx > 0 ? t.exPx : (t.bodyPx || DEFAULT_BODY_PX) * EX_PER_EM;
     out = out.replace(/(-?\d+(?:\.\d+)?)ex/g, function (m, v) {
         var px = Math.round(parseFloat(v) * exPx * PX_ROUNDING_FACTOR) / PX_ROUNDING_FACTOR;
         return String(px) + "px";
@@ -638,7 +638,7 @@ export function renderFigure(kind, source, display, theme, apis) {
     if (kind === "mermaid" && source.length > MERMAID_LIMIT)
         throw new Error("diagram over 32 KiB");
     if (kind === "math")
-        return postMath(apis.texToSvg(source, !!display), theme, !!display);
+        return postMath(apis.texToSvg(source, !!display), theme);
     // The advance tables are the theme font's own, per printable ASCII character in thousandths of an em, so the library sizes every label from the font that is drawn.
     return postMermaid(apis.mermaidToSvg(source, theme.bg, theme.fg, { font: theme.font, padding: MERMAID_PADDING,
         charAdvances: theme.advances, boldCharAdvances: theme.boldAdvances }), theme);

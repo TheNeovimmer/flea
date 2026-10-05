@@ -4,28 +4,36 @@ set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
 
-kinds="run heading table list quote fence remote image images"
+# The fixture's maths run holds two distinct formulas, one of them twice, so its drawn state is two pictures.
+maths_drawn=2
+kinds="run maths heading table list quote fence remote image images"
 # The parts the probe can name (foreignParts in tests/markdown-blockcost.qml); any other name in a report is refused.
 known_parts='Repeater|Column|Row|Rectangle|Image|MarkdownFigure|TextMetrics|Glyph'
-# Object counts of one block on the shipped delegate, its nine inert Components included; the remote box draws its dashes as one Shape, whatever the pane width, and a badge row costs its pictures.
+# Object counts of one block on the shipped delegate, its ten inert Components included; the parts Loader adds 1 to a quote and 1 per list row, and a badge row adds its pictures.
 limit_for() {
     case $1 in
-        run|heading|fence) echo 13 ;;
-        table) echo 39 ;;
-        list) echo 24 ;;
-        quote) echo 15 ;;
-        remote) echo 19 ;;
-        image) echo 14 ;;
-        images) echo 19 ;;
+        run|heading|fence) echo 14 ;;
+        # A run with maths builds 10 objects per distinct formula (its figure holds two FontMetrics for a diagram's advances) on a base of 16, drawn: two formulas in the fixture.
+        maths) echo 36 ;;
+        table) echo 40 ;;
+        list) echo 27 ;;
+        quote) echo 18 ;;
+        # The remote box draws its dashes as one Shape, whatever the pane width.
+        remote) echo 20 ;;
+        image) echo 15 ;;
+        images) echo 20 ;;
     esac
 }
 # Parts each kind never draws, as an extended regex over the report's foreign list.
 forbidden_for() {
     case $1 in
         run|heading) echo 'Repeater|Column|Row|Rectangle|Image|MarkdownFigure|TextMetrics|Glyph' ;;
+        # A run with inline formulas builds one figure per distinct formula, and so its Repeater, Images and fallback Rectangle.
+        maths) echo 'Column|Row|TextMetrics|Glyph' ;;
         table) echo 'Image|MarkdownFigure|TextMetrics|Glyph' ;;
         list) echo 'Rectangle|Image|MarkdownFigure|Glyph' ;;
-        quote) echo 'Repeater|Column|Image|MarkdownFigure|TextMetrics|Glyph' ;;
+        # A quote draws one bar per level, so it may hold a Repeater beside its Row and Rectangle.
+        quote) echo 'Column|Image|MarkdownFigure|TextMetrics|Glyph' ;;
         fence) echo 'Repeater|Column|Row|Image|MarkdownFigure|TextMetrics|Glyph' ;;
         remote) echo 'Repeater|Rectangle|Image|MarkdownFigure|TextMetrics' ;;
         image) echo 'Repeater|Column|Row|Rectangle|MarkdownFigure|TextMetrics|Glyph' ;;
@@ -36,7 +44,7 @@ forbidden_for() {
 check_report() {
     local output=$1 kind line objects foreign limit
     for kind in $kinds; do
-        # Sample input: MARKDOWN_BLOCKCOST kind=run objects=9 foreign=none parts={"MarkdownText":1}.
+        # Sample input: MARKDOWN_BLOCKCOST kind=run objects=9 foreign=none drawn=0 parts={"MarkdownText":1}.
         line=$(printf '%s\n' "$output" | grep -aE "MARKDOWN_BLOCKCOST kind=$kind objects=" | head -1)
         if [ -z "$line" ]; then
             printf 'FAIL the harness never reported a %s block\n' "$kind"
@@ -50,6 +58,10 @@ check_report() {
         limit=$(limit_for "$kind")
         if [ "$objects" -gt "$limit" ]; then
             printf 'FAIL a %s block builds %s objects, the limit is %s\n' "$kind" "$objects" "$limit"
+            return 1
+        fi
+        if [ "$kind" = maths ] && ! printf '%s\n' "$line" | grep -qE " drawn=$maths_drawn( |$)"; then
+            printf 'FAIL the maths block did not draw its %s formulas: %s\n' "$maths_drawn" "$line"
             return 1
         fi
         if [ -z "$foreign" ]; then
@@ -72,7 +84,7 @@ check_report() {
 control_report() {
     local kind
     for kind in $kinds; do
-        printf 'MARKDOWN_BLOCKCOST kind=%s objects=%s foreign=none parts={}\n' "$kind" "$(limit_for "$kind")"
+        printf 'MARKDOWN_BLOCKCOST kind=%s objects=%s foreign=none drawn=%s parts={}\n' "$kind" "$(limit_for "$kind")" "$maths_drawn"
     done
 }
 control_all=$(control_report)
@@ -104,6 +116,7 @@ for kind in $kinds; do
     expect_refusal "$(printf '%s\n' "$control_all" | sed "s/$at/kind=$kind objects=$limit foreign= /")" "reported no part list"
     expect_refusal "$(printf '%s\n' "$control_all" | sed "s/$at/kind=$kind objects=$limit foreign=Loader/")" "a part the probe never names"
 done
+expect_refusal "$(printf '%s\n' "$control_all" | sed "s/kind=maths objects=$(limit_for maths) foreign=none drawn=$maths_drawn/kind=maths objects=$(limit_for maths) foreign=none drawn=0/")" "did not draw its"
 printf 'ok the gate refuses every kind over its count, with a foreign or unknown part, or with no count or part list\n'
 
 if ! command -v qs >/dev/null; then
@@ -137,6 +150,10 @@ cat > "$test_root/docs/kinds.md" <<'MD'
 
 A paragraph with `code` and [a link](https://example.com/guide).
 
+## A second heading
+
+An inline formula $x^2$ in a line, then $y_1$, and $x^2$ again.
+
 | Kind | Asks for |
 | :--- | :--- |
 | rows | the cursor |
@@ -158,6 +175,18 @@ var fenced = true;
 <p align="center"><a href="https://example.com/a"><img src="kinds.png" alt="a"></a> <img src="kinds.png" alt="b" width="40"></p>
 MD
 
+# A stand-in figure helper: it answers each request line with a small SVG, so the formula in kinds.md draws.
+mkdir -p "$test_root/stub" || exit 1
+cat > "$test_root/stub/flea" <<'PY'
+#!/usr/bin/env python3
+import json, sys
+SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="2ex" height="2ex" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>'
+for line in sys.stdin:
+    # Sample input: {"id":3,"kind":"math","source":"x^2","display":false,"theme":{"bg":"#101315"}}.
+    print(json.dumps({"id": json.loads(line)["id"], "svg": SVG}), flush=True)
+PY
+chmod +x "$test_root/stub/flea" || exit 1
+
 # Sample input: '    readonly property int watchdogMs: 50000'; qs gets a margin past it so a stuck load names itself.
 watchdog_ms=$(sed -n 's/.*readonly property int watchdogMs: *\([0-9][0-9]*\).*/\1/p' tests/markdown-blockcost.qml)
 [ -n "$watchdog_ms" ] || { echo "markdown-blockcost.sh: watchdogMs not found in tests/markdown-blockcost.qml"; exit 1; }
@@ -165,7 +194,7 @@ probe_timeout_margin=10
 probe_timeout=$((watchdog_ms / 1000 + probe_timeout_margin))
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
-    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BLOCKCOST_LIST="$test_root/docs/kinds.md" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BLOCKCOST_LIST="$test_root/docs/kinds.md" FLEA_BIN="$test_root/stub/flea" \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout "$probe_timeout" qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 

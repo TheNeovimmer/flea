@@ -302,3 +302,67 @@ fi
 if [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then
     cp "$test_root/md3u-cases.png" "$FLEA_CI_SUITE_LOGS/markdown-md3u-geometry.png" || exit 1
 fi
+
+# Nesting and inline maths: the controller's ql-markdown-nesting fixture, a formula pair for ink, a failing formula, a repeat and one far below the cache.
+draw_dir="$test_root/draw"
+mkdir -p "$draw_dir" || exit 1
+cat > "$draw_dir/nesting.md" <<'EOF'
+# Nesting
+
+- one
+  - two
+    - three
+- [ ] task
+  - [x] nested done
+
+1. first
+
+2. loose second
+
+> outer
+>> inner
+>>> innermost
+
+Inline maths $x^2 + y^2$ in a line.
+EOF
+cat > "$draw_dir/maths.md" <<'EOF'
+# One
+
+x $x$ x
+
+# Two
+
+y $y$ y
+
+# Three
+
+bad $\badmacro$ here
+
+# Four
+
+twice $a$ and $a$ again
+EOF
+{
+    for _filler in $(seq 1 60); do printf '## Filler %s\n\nA paragraph that only gives the document height.\n\n' "$_filler"; done
+    printf '## Far\n\nfar $z$ end\n'
+} > "$draw_dir/far.md"
+cp tests/markdown-draw.js "$test_root/config/" || exit 1
+cp tests/markdown-draw.qml "$test_root/config/shell.qml" || exit 1
+draw_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_DRAW_DIR="$draw_dir" \
+    FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 90 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+printf '%s\n' "$draw_output" | grep -oE 'MARKDOWN_DRAW .*'
+warnings=$(printf '%s\n' "$draw_output" | grep -aE 'TypeError|ReferenceError|WARN|invalid nullptr parameter' | grep -vF "$platform_warning")
+[ -z "$warnings" ] || { printf 'FAIL nesting and inline maths harness warning: %s\n' "$warnings"; exit 1; }
+expected_draw_checks=39 # Nesting visits 13 each, maths visits 4 each and 3 for the grab and ink, the far formula 2.
+# Sample input: MARKDOWN_DRAW 39 checks, 0 failed
+if ! printf '%s\n' "$draw_output" | grep -qE "(^|: )MARKDOWN_DRAW $expected_draw_checks checks, 0 failed$"; then
+    printf 'FAIL markdown-figures-render: nesting and inline maths expected %s checks, 0 failed; arrived [%s]\n' "$expected_draw_checks" "${draw_output:-<empty>}" >&2
+    exit 1
+fi
+if [ -n "${FLEA_CI_SUITE_LOGS:-}" ] && ls "$test_root/runtime"/markdown-draw-*.png >/dev/null 2>&1; then
+    cp "$(ls "$test_root/runtime"/markdown-draw-*.png | head -1)" "$FLEA_CI_SUITE_LOGS/markdown-draw.png" || exit 1
+fi
