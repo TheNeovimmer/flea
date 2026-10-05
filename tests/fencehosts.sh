@@ -55,7 +55,7 @@ ends = {"": "\n", "-crlf": "\r\n", "-cr": "\r"}
 for name, text in shapes.items():
     for suffix, end in ends.items():
         open("%s/syn-%s%s.md" % (out, name, suffix), "w", newline="").write(text.replace("\n", end))
-# A document of exactly size bytes: a fence at the top, one in the middle of the 96-block head, two just past it, then filler, then a last fence.
+# A document of exactly size bytes with four fences: one at the top under the heading, two just past the 96-block head, then filler, then a last one.
 def sized(size, end):
     paras = ["# T", TICK.rstrip("\n")] + ["para %d" % i for i in range(94)] + [TICK.rstrip("\n")] * 2
     text = ""
@@ -74,12 +74,14 @@ for size in (65535, 65537):
         open("%s/syn-size%s-%d.md" % (out, kind, size), "w", newline="").write(sized(size, end))
 PY
 docs=$(cd "$test_root/fixture" && for f in *.md; do printf '%s|%s\n' "$f" "$(stat -c %s "$f")"; done)
+# A ceiling for the whole run: 73 documents, each drawn in three hosts.
+readonly qs_limit_seconds=300
 log="$test_root/run.log"
 ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" XDG_RUNTIME_DIR="$test_root/runtime" \
     FENCEHOSTS_DOCS="$docs" FENCEHOSTS_DIR="$test_root/fixture" \
     QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES="$(qslog_rules)" \
-    dbus-run-session -- bash -c 'timeout "$1" qs -p "$2" > "$3" 2>&1' _ 300 "$test_root/config" "$log" 2> "$test_root/bus.log" ) 2>/dev/null
+    dbus-run-session -- bash -c 'timeout "$1" qs -p "$2" > "$3" 2>&1' _ "$qs_limit_seconds" "$test_root/config" "$log" 2> "$test_root/bus.log" ) 2>/dev/null
 status=$?
 [ -z "${FLEA_CI_SUITE_LOGS:-}" ] || cp "$log" "$FLEA_CI_SUITE_LOGS/fencehosts.log" 2>/dev/null
 failures=0

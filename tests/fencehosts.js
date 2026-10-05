@@ -13,8 +13,8 @@ function neutral(blocks) {
     return canon(blocks).replace(/background-color:#[0-9a-fA-F]{6}/g, "background-color:CHROME")
 }
 
-// A fence line as a rendered run would draw it: a run of 3 or more backticks or tildes opening a line, after at most a quote mark or an indent.
-var FENCE_LINE = /(^|\n)[ \t>]{0,8}(`{3,}|~{3,})/
+// A fence line as a rendered run would draw it: 3 or more backticks or tildes opening a line (after LF or a lone CR), after at most a quote mark or an indent.
+var FENCE_LINE = /(^|[\n\r])[ \t>]{0,8}(`{3,}|~{3,})/
 
 // Every string the document draws as text, a fence or a figure excluded: those hold their source verbatim, markers inside it are content.
 function drawnStrings(value, out) {

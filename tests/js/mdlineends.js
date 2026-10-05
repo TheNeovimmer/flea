@@ -15,11 +15,18 @@ function run(check) {
     function kinds(doc) {
         return Markdown.blocks(doc, dir).map(function (b) { return b.type }).join(",")
     }
+    // A fence block anywhere in the tree, a list item's or a quote's own blocks included.
+    function opensFence(doc) {
+        return JSON.stringify(Markdown.blocks(doc, dir)).indexOf('"type":"fence"') >= 0
+    }
     for (var name in shapes) {
         var lf = kinds(shapes[name])
-        check(name + " opens as a code block", lf.indexOf("fence") >= 0 || lf.indexOf("list") >= 0, true)
-        check(name + " draws the same in CRLF", kinds(shapes[name].replace(/\n/g, "\r\n")), lf)
-        check(name + " draws the same in CR", kinds(shapes[name].replace(/\n/g, "\r")), lf)
+        var crlf = shapes[name].replace(/\n/g, "\r\n"), cr = shapes[name].replace(/\n/g, "\r")
+        check(name + " opens as a code block", opensFence(shapes[name]), true)
+        check(name + " opens as a code block in CRLF", opensFence(crlf), true)
+        check(name + " opens as a code block in CR", opensFence(cr), true)
+        check(name + " draws the same in CRLF", kinds(crlf), lf)
+        check(name + " draws the same in CR", kinds(cr), lf)
     }
     check("a CRLF fence carries its text without the carriage returns", Markdown.blocks("```js\r\nvar a = 1;\r\n```\r\n", dir)[0].text, "var a = 1;")
     check("a CRLF heading carries no carriage return", Markdown.blocks("# Hi\r\n", dir)[0].text, "Hi")

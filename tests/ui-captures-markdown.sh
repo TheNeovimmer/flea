@@ -522,7 +522,8 @@ case_cap_markdown_kinds() {
 }
 # The fixture documents of case_cap_markdown_fences: each fence shape in LF and CRLF, a README, and a document past the 64 KiB line with fences on both sides of the head's cut.
 capmarkdownfences_fixture() {
-    local dir="$1" index filler
+    # Past Prepared.MAX_BYTES (64 KiB), so the big documents take Quick Look's headed, sliced parse.
+    local dir="$1" index filler filler_bytes=70000
     printf '# Fences\n\nBefore.\n\n```toml\n[preview]\nwidth = 240\n```\n\nBetween.\n\n~~~\nplain tilde fence\n~~~\n\nAfter.\n' > "$dir/fence-lf.md"
     sed 's/$/\r/' "$dir/fence-lf.md" > "$dir/fence-crlf.md"
     printf '# Four\n\n````md\n```\ninner\n```\n````\n\nAfter.\n' > "$dir/fence-four.md"
@@ -533,7 +534,7 @@ capmarkdownfences_fixture() {
         printf '# Big\n\n```toml\nk = 1\n```\n\n'
         for index in $(seq 1 94); do printf 'para %s\n\n' "$index"; done
         printf '```toml\nk = 2\n```\n\n'
-        yes "$filler" | head -c 70000
+        yes "$filler" | head -c "$filler_bytes"
         printf '\n```toml\nk = 3\n```\n'
     } > "$dir/fence-big.md" 2>/dev/null
     sed 's/$/\r/' "$dir/fence-big.md" > "$dir/fence-bigcrlf.md"
@@ -576,6 +577,7 @@ case_cap_markdown_fences() {
         shot "cap-mdfence-dual-${name%.md}"
         key -k Escape >/dev/null
         settle
+        [[ "$(ipc previewOpen)" == "false" ]] || fail "capmdfence: Escape did not close Quick Look on $name in dual"
     done
     printf 'CAPMDFENCE %scolumnpane=ok dual=ok\n' "$results"
     kill_flea
