@@ -26,11 +26,11 @@ cp tests/fixtures/markdown-tables/*.md tests/fixtures/markdown-picline/*.md "$te
 markdown_tables_assets_write "$test_root/docs" || exit 1
 
 # Each picture case has a twin whose picture is the 12 px dot, so the ink above the picture is read where the big one overdraws it.
-for doc in picturewide picfirst picsecond piclist picquote picwide picwidelist picordered; do
+for doc in picturewide picfirst picsecond piclist picquote picwide picwidelist picordered picparts; do
     sed 's#\(wide\|huge\)\.png#dot.png#' "$test_root/docs/$doc.md" > "$test_root/docs/$doc-dot.md" || exit 1
 done
 
-cases=wide,mid,extreme,sentence,path,br,inline,align,ragged,headonly,nested,cjk,adjacent,picturewide,picturewide-dot,picfirst,picfirst-dot,picsecond,picsecond-dot,piclist,piclist-dot,picquote,picquote-dot,picwide,picwide-dot,picwidelist,picwidelist-dot,picordered,picordered-dot,rows500
+cases=wide,mid,extreme,sentence,path,br,inline,align,ragged,headonly,nested,cjk,adjacent,picturewide,picturewide-dot,picfirst,picfirst-dot,picsecond,picsecond-dot,piclist,piclist-dot,picquote,picquote-dot,picwide,picwide-dot,picwidelist,picwidelist-dot,picordered,picordered-dot,picparts,picparts-dot,rows500
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_TABLES_DIR="$test_root/docs" FLEA_TABLES_CASES="$cases" \

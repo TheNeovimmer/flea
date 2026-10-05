@@ -120,10 +120,69 @@ def empty_below(rows, step, box_bottom, holder, background):
     return bottom - (last + 1)
 
 
-def judge(label, ink, frame, twin_ink, twin_frame, natural_file):
+def picture_runs(width, height, step, rows):
+    # One box per contiguous run of rows holding picture ink, so two stacked pictures answer two boxes.
+    runs = []
+    y = 0
+    while y < height:
+        has = False
+        for x in range(width):
+            if pixel(rows, step, x, y) == PICTURE:
+                has = True
+                break
+        if not has:
+            y += 1
+            continue
+        y0 = y
+        x0, x1 = width, -1
+        while y < height:
+            row_has = False
+            for x in range(width):
+                if pixel(rows, step, x, y) == PICTURE:
+                    row_has = True
+                    if x < x0:
+                        x0 = x
+                    if x > x1:
+                        x1 = x
+            if not row_has:
+                break
+            y += 1
+        runs.append((x0, y0, x1 + 1, y))
+    return runs
+
+
+def judge(name, label, ink, frame, twin_ink, twin_frame, natural_file):
     width, height, step, rows = read_png(frame)
     twin_width, twin_height, twin_step, twin_rows = read_png(twin_frame)
     holders = [t for t in ink["texts"] if t["picture"]]
+    # Picparts holds a bullet and an ordered multi-block item, so two texts hold a picture; every other case holds one.
+    if name == "picparts":
+        if len(holders) != 2:
+            return "%d texts hold a picture, not 2" % len(holders)
+        boxes = picture_runs(width, height, step, rows)
+        smalls = picture_runs(twin_width, twin_height, twin_step, twin_rows)
+        if len(boxes) == 0 or len(smalls) == 0:
+            return "no picture was drawn"
+        if len(boxes) != 2 or len(smalls) != 2:
+            return "%d picture runs, not 2" % len(boxes)
+        holders = sorted(holders, key=lambda t: t["y"])
+        boxes = sorted(boxes, key=lambda b: b[1])
+        smalls = sorted(smalls, key=lambda b: b[1])
+        natural_w, natural_h = natural_size(natural_file)
+        for holder, box, small in zip(holders, boxes, smalls):
+            above = ink_bottom_above(twin_rows, twin_step, small[1], (holder["x"], holder["x"] + holder["w"]), background_of(twin_ink))
+            if box[1] <= above:
+                return "the picture starts at y %d, over ink the line above draws down to y %d" % (box[1], above)
+            if box[3] > holder["y"] + holder["h"] + ROUNDING:
+                return "the picture ends at y %d, %d px below its block at y %d" % (box[3], box[3] - holder["y"] - holder["h"], holder["y"] + holder["h"])
+            wanted_w = min(natural_w, holder["w"])
+            wanted_h = natural_h * wanted_w / natural_w
+            if abs(box[2] - box[0] - wanted_w) > ROUNDING or abs(box[3] - box[1] - wanted_h) > ROUNDING:
+                return "the picture draws %d by %d, not %d by %d: it is not scaled to the %d px of its text" % (box[2] - box[0], box[3] - box[1], wanted_w, wanted_h, holder["w"])
+            gap = empty_below(rows, step, box[3], holder, background_of(ink))
+            if gap > TAIL:
+                return "the block keeps %d px under its picture, more than %d" % (gap, TAIL)
+        return ""
     if len(holders) != 1:
         return "%d texts hold a picture, not 1" % len(holders)
     holder = holders[0]
@@ -176,7 +235,7 @@ def main():
             continue
         judged += 1
         frame = lambda case: os.path.join(runtime, "tables-%s-%s.png" % (case, label))
-        error = judge(label, ink, frame(name), twin, frame(name + TWIN), os.path.join(docs, WIDE_PICTURE.get(name, "wide.png")))
+        error = judge(name, label, ink, frame(name), twin, frame(name + TWIN), os.path.join(docs, WIDE_PICTURE.get(name, "wide.png")))
         failed += 1 if error != "" else 0
         print(("FAIL" if error != "" else "ok") + " picture line %s %s: %s" % (name, label, error or "clear of the ink above, inside its own block"))
     if judged == 0:

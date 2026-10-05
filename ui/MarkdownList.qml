@@ -49,8 +49,8 @@ Column {
                 textFormat: Text.RichText
                 height: marker.box
                 wrapMode: Text.NoWrap
-                // The marker sits on the item's first baseline, 0 when the first line is not grown.
-                y: itemParts.active ? 0 : itemText.baselineOffset - marker.baselineOffset
+                // The marker sits on the item's first baseline, 0 for an ungrown line and for a non-text first block.
+                y: itemParts.active ? Lists.partsMarkerY(itemParts.item, marker.baselineOffset) : itemText.baselineOffset - marker.baselineOffset
             }
 
             MarkdownText {

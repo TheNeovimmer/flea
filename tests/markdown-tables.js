@@ -142,7 +142,7 @@ function lineError(name, label, geos) {
 // The pictures of these cases are judged beside a twin ("-dot") whose picture is small, so the ink above them is known.
 var CONTROL = "-dot"
 // Cases that hold no table: a picture in a paragraph, a list item or a quote, judged by the grabbed pixels alone.
-var TABLELESS = ["picfirst", "picsecond", "piclist", "picquote", "picwide", "picwidelist", "picordered"]
+var TABLELESS = ["picfirst", "picsecond", "piclist", "picquote", "picwide", "picwidelist", "picordered", "picparts"]
 
 function tableless(name) {
     return TABLELESS.indexOf(name.replace(CONTROL, "")) >= 0
@@ -151,22 +151,72 @@ function tableless(name) {
 // A list marker must sit on its item's first baseline; more than this far apart is a floating bullet.
 var MARKER_BASELINE_TOLERANCE = 1
 
+// List cases whose rows must judge at least one marker, so an all-skipped fixture fails instead of passing empty.
+var LIST_CASES = ["piclist", "picordered", "picparts"]
+
+// The first drawn text under an item's blocks, in tree order, skipping the hidden measurer.
+function firstPartsText(blocks) {
+    if (blocks.children === undefined)
+        return null
+    for (var i = 0; i < blocks.children.length; i++) {
+        var kid = blocks.children[i]
+        if (kid.box !== undefined && kid.baselineOffset !== undefined && kid.visible && typeof kid.text === "string" && kid.text.length > 0 && kid.objectName !== "measurer")
+            return kid
+        var deep = firstPartsText(kid)
+        if (deep !== null)
+            return deep
+    }
+    return null
+}
+
 // Blank when every drawn list row's marker shares its item text's first baseline, else the first row that does not.
-function markerBaselineError(root, frame) {
+function markerBaselineError(root, frame, name) {
     var rows = all(root, "listRow")
+    var judged = 0
     for (var i = 0; i < rows.length; i++) {
         var row = rows[i]
         if (row.children.length < 2 || row.children[0].box === undefined || row.children[1].box === undefined)
             continue
         var marker = row.children[0]
         var text = row.children[1]
-        if (!text.visible)
+        if (text.visible) {
+            judged++
+            var markY = marker.mapToItem(frame, 0, marker.baselineOffset).y
+            var textY = text.mapToItem(frame, 0, text.baselineOffset).y
+            if (Math.abs(markY - textY) > MARKER_BASELINE_TOLERANCE)
+                return "row " + i + " marker baseline " + markY + " differs from item " + textY + " by " + (markY - textY) + " px"
             continue
-        var markY = marker.mapToItem(frame, 0, marker.baselineOffset).y
-        var textY = text.mapToItem(frame, 0, text.baselineOffset).y
-        if (Math.abs(markY - textY) > MARKER_BASELINE_TOLERANCE)
-            return "row " + i + " marker baseline " + markY + " differs from item " + textY + " by " + (markY - textY) + " px"
+        }
+        // An item drawn through itemParts pins its marker at y 0; judge it when its first block is a paragraph run.
+        var loader = null
+        for (var k = 0; k < row.children.length; k++) {
+            var cand = row.children[k]
+            if (cand.active !== undefined && cand.item !== undefined) {
+                loader = cand
+                break
+            }
+        }
+        if (loader === null || !loader.active || loader.item === null || loader.item.blocks === undefined || loader.item.blocks.length === 0)
+            continue
+        var first = loader.item.blocks[0]
+        if (first.type !== "run" || first.maths !== undefined)
+            continue
+        var firstText = null
+        if (typeof loader.item.firstTextItem === "function")
+            firstText = loader.item.firstTextItem()
+        else
+            firstText = firstPartsText(loader.item)
+        if (firstText === null || !firstText.visible)
+            continue
+        judged++
+        var partMarkY = marker.mapToItem(frame, 0, marker.baselineOffset).y
+        var partTextY = firstText.mapToItem(frame, 0, firstText.baselineOffset).y
+        if (Math.abs(partMarkY - partTextY) > MARKER_BASELINE_TOLERANCE)
+            return "row " + i + " marker baseline " + partMarkY + " differs from parts item " + partTextY + " by " + (partMarkY - partTextY) + " px"
     }
+    var base = typeof name === "string" ? name.replace(CONTROL, "") : ""
+    if (LIST_CASES.indexOf(base) >= 0 && judged === 0)
+        return "case " + base + " judged no rows"
     return ""
 }
 

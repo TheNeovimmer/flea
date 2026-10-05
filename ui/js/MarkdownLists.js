@@ -10,6 +10,35 @@ function bulletAt(depth) {
     return BULLETS[Math.min(depth, BULLETS.length - 1)]
 }
 
+// The first drawn text under an item's blocks, in tree order, skipping the hidden measurer.
+function firstPartsText(blocks) {
+    if (blocks.children === undefined)
+        return null
+    for (var i = 0; i < blocks.children.length; i++) {
+        var kid = blocks.children[i]
+        if (kid.box !== undefined && kid.baselineOffset !== undefined && kid.visible && typeof kid.text === "string" && kid.text.length > 0 && kid.objectName !== "measurer")
+            return kid
+        var deep = firstPartsText(kid)
+        if (deep !== null)
+            return deep
+    }
+    return null
+}
+
+// The marker y for an item drawn through blocks, 0 when its first block is not a paragraph run.
+// Sample input: blocks holding a run then a fence answer the run text baseline less the marker baseline, else 0.
+function partsMarkerY(blocksRoot, markerBase) {
+    if (blocksRoot === null || blocksRoot === undefined || blocksRoot.blocks === undefined || blocksRoot.blocks.length === 0)
+        return 0
+    var first = blocksRoot.blocks[0]
+    if (first.type !== "run" || first.maths !== undefined)
+        return 0
+    var text = firstPartsText(blocksRoot)
+    if (text === null || !text.visible)
+        return 0
+    return text.baselineOffset - markerBase
+}
+
 // Sample input: items a (depth 0) and b (depth 1) answer cells at x 0 and at a's marker width plus spacing.
 // advance(text) is the marker font's advance width; spacing is the gap between a marker and its text.
 function layout(block, advance, spacing) {
