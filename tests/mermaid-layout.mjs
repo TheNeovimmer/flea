@@ -149,7 +149,7 @@ if (rowFrames.every((f) => f !== null)) {
 }
 
 // A frame holds only its own members, and frames that are not nested never cross: the clash sources fall back to the nested layout, so a stubbed clash check goes red here.
-// Sample input: "subgraph a [A]\nx --> y\nend\nsubgraph b\nsubgraph c\nz\nend\nend" reads members a: x y, b: z c, c: z and parents c: b.
+// Sample input: "flowchart TB\nsubgraph a [A]\nx --> y\nend\nsubgraph b\nsubgraph c\nz\nend\nend" reads members a: x y, b: z, c: z and parents a: null, b: null, c: b.
 function readFrames(source) {
     const members = new Map();
     const parents = new Map();
@@ -182,6 +182,7 @@ const clashSources = [
 for (const [name, clashSource] of clashSources) {
     const svg = render(clashSource, LAYOUT_FACE);
     const { members, parents } = readFrames(clashSource);
+    check(members.size > 0 && [...members.values()].every((m) => m.size > 0), `${name}: the reader finds frames that hold members, so the checks below can go red`);
     const frames = new Map([...members.keys()].map((id) => [id, frame(svg, id)]));
     const boxes = new Map(groups(svg, "node").map((n) => [text(n.attrs, "data-id"), bounds(n.body)]));
     const nested = (a, b) => { for (let at = a; at; at = parents.get(at)) if (at === b) return true; return false; };
