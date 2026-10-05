@@ -187,18 +187,33 @@ var SOURCE_CHUNK_CHARS = 4096
 // No chunk is longer than this: a line that runs past it is cut at its last space past SOURCE_CHUNK_CHARS, or at the limit when it has none.
 var SOURCE_CHUNK_MAX = 2 * SOURCE_CHUNK_CHARS
 
-// Sample: 20000 characters in lines of 100 answers [0, 4100, 8200, 12300]; a longer line is cut inside, after its last space.
+// A high surrogate that ends a hard cut steps the cut back one unit, so no chunk splits an astral pair.
+var HIGH_FIRST = 0xD800
+var HIGH_LAST = 0xDBFF
+
+// Sample: 20000 chars in lines of 100 answers [0, 4100, 8200, 12300]; a short line straddling the window ends before it, an 8192-char line ends at its newline, a spaceless astral run steps back off a split pair.
 function sourceChunkStarts(text) {
     var starts = [0]
     var from = 0
     while (text.length - from > SOURCE_CHUNK_MAX) {
         var cut = text.indexOf("\n", from + SOURCE_CHUNK_CHARS)
         var next
-        if (cut >= 0 && cut < from + SOURCE_CHUNK_MAX) {
+        if (cut >= 0 && cut <= from + SOURCE_CHUNK_MAX) {
             next = cut + 1
         } else {
-            var space = text.lastIndexOf(" ", from + SOURCE_CHUNK_MAX - 1)
-            next = space >= from + SOURCE_CHUNK_CHARS ? space + 1 : from + SOURCE_CHUNK_MAX
+            var back = text.lastIndexOf("\n", from + SOURCE_CHUNK_CHARS - 1)
+            if (back > from) {
+                next = back + 1
+            } else {
+                var space = text.lastIndexOf(" ", from + SOURCE_CHUNK_MAX - 1)
+                next = space >= from + SOURCE_CHUNK_CHARS ? space + 1 : from + SOURCE_CHUNK_MAX
+                if (next === from + SOURCE_CHUNK_MAX) {
+                    var unit = text.charCodeAt(next - 1)
+                    if (unit >= HIGH_FIRST && unit <= HIGH_LAST) {
+                        next--
+                    }
+                }
+            }
         }
         starts.push(next)
         from = next

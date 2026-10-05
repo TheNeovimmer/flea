@@ -69,7 +69,6 @@ function run(check) {
     check("interim shown is whole", PreviewSwap.lookReady("loading", false, false, false, true), true)
     check("interim over a PDF is whole too", PreviewSwap.lookReady("loading", true, false, false, true), true)
     check("a Markdown head drawn while the parse runs is whole", PreviewSwap.lookReady("loading", false, false, false, false, true), true)
-    check("a reparse of an open document keeps its drawn screen shown while its status loads", PreviewSwap.lookReady("loading", false, false, false, false, true), true)
     check("a Markdown pane with no head drawn still waits", PreviewSwap.lookReady("loading", false, false, false, false, false), false)
     check("without one a loading image still waits", PreviewSwap.lookReady("loading", false, false, false, false), false)
     check("an interim not yet visible at its rect still waits",
@@ -81,6 +80,7 @@ function run(check) {
     check("anything else not loading is whole", PreviewSwap.lookReady("image", false, false, false), true)
     runInterimRect(check)
     runInterimShown(check)
+    runFirstScreen(check)
     runFolderDataHold(check)
     runPictureHoldLeak(check)
     runPreviewSettle(check)
@@ -161,6 +161,25 @@ function runInterimShown(check) {
         shownScope.indexOf("imageLoader.item.interimReady === true") >= 0, true)
     check("that term is PreviewImage interimReady, never a local flag",
         squashed(imageScope).trim() === "readonly property bool interimReady: interimPicture.status === Image.Ready", true)
+}
+
+// Sample input: firstScreenOf("file.loaded && root.blockList.length > 0", true, "", ["a"], true) is true.
+function firstScreenOf(expr, loaded, parseError, blocks, parsing) {
+    var file = { loaded: loaded }
+    var root = { parseError: parseError, blockList: blocks, parsing: parsing }
+    return new Function("root", "file", "return " + expr)(root, file)
+}
+
+// A reparse keeps its drawn screen: firstScreen reads the real binding, so a parsing exclusion fails it.
+function runFirstScreen(check) {
+    var pane = Source.source("ui/PreviewMarkdown.qml")
+    var found = pane.match(/readonly property bool firstScreen:([^\n]*)/)
+    check("source: firstScreen counts drawn blocks", found !== null && found[1].indexOf("blockList.length") >= 0, true)
+    var expr = found !== null ? stripped(found[1]) : "false"
+    check("source: firstScreen names no reparse exclusion", expr.indexOf("parsing") < 0, true)
+    check("a reparse of an open document keeps its drawn screen", firstScreenOf(expr, true, "", ["a"], true), true)
+    check("with no blocks there is no first screen", firstScreenOf(expr, true, "", [], true), false)
+    check("control: a parsing exclusion loses the reparse screen", firstScreenOf(expr + " && !root.parsing", true, "", ["a"], true), false)
 }
 
 // A folder peek in Columns holds by data: an unanswered folder keeps the old column, and the landed peek shows it with its rows in one pass.

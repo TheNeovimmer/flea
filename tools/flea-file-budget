@@ -59,7 +59,7 @@ src/vulkan.rs 728
 tests/js/columns.js 666
 tests/js/drag.js 469
 tests/js/devices.js 303
-tests/js/previewswap.js 389
+tests/js/previewswap.js 408
 tests/js/mdstructure.js 596
 tests/js/keymap.js 309
 tests/js/focus.js 745

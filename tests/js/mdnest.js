@@ -223,4 +223,53 @@ function run(check) {
     check("a line of words is cut after a space", Markdown.sourceChunk(spaced, Markdown.sourceChunkStarts(spaced), 0).slice(-1), " ")
     check("a short text is one chunk", JSON.stringify(Markdown.sourceChunkStarts("a\nb\nc")), "[0]")
     check("lines of 100 characters cut at the first line end past the chunk size", JSON.stringify(Markdown.sourceChunkStarts(lines(200, 100, "\n"))), "[0,4100,8200,12300]")
+    // A line shorter than the maximum straddling the window is never split: short lines, one long spaceless line, then more.
+    var shortLines = 80
+    var shortWidth = 50
+    var shortHead = lines(shortLines, shortWidth, "\n")
+    var straddleLen = 5000
+    var straddleLine = new Array(straddleLen + 1).join("w")
+    var straddle = shortHead + straddleLine + "\n" + lines(shortLines, shortWidth, "\n")
+    var straddleStarts = Markdown.sourceChunkStarts(straddle)
+    var straddleEnd = shortHead.length + straddleLen
+    var straddleSplit = straddleStarts.filter(function (s) { return s > shortHead.length && s <= straddleEnd })
+    check("a 5000-char line past short lines is kept whole", JSON.stringify(straddleSplit), "[]")
+    var straddleGot = chunked(straddle)
+    check("straddling chunks are the text again", straddleGot.same, true)
+    check("straddling chunks are bounded", straddleGot.longest <= Markdown.SOURCE_CHUNK_MAX, true)
+    // A spaceless line exactly the maximum long ends at its newline, so no chunk starts on that newline.
+    var maxLine = new Array(Markdown.SOURCE_CHUNK_MAX + 1).join("w")
+    var maxText = maxLine + "\n" + lines(shortLines, shortWidth, "\n")
+    var maxStarts = Markdown.sourceChunkStarts(maxText)
+    var maxNl = maxStarts.filter(function (s) { return maxText.charAt(s) === "\n" })
+    check("a max-length line leaves no chunk starting with a newline", JSON.stringify(maxNl), "[]")
+    var maxGot = chunked(maxText)
+    check("max-line chunks are the text again", maxGot.same, true)
+    check("max-line chunks are bounded", maxGot.longest <= Markdown.SOURCE_CHUNK_MAX, true)
+    // An astral run cut at the hard limit never splits a surrogate: one leading char forces the cut mid-pair.
+    var emojiOne = "\uD83D\uDE00"
+    var emojiCount = 5000
+    var emojiRun = "w"
+    for (var e = 0; e < emojiCount; e++) {
+        emojiRun += emojiOne
+    }
+    var emojiStarts = Markdown.sourceChunkStarts(emojiRun)
+    var loneLow = 0
+    var loneHigh = 0
+    for (var c = 0; c < emojiStarts.length; c++) {
+        var emojiPiece = Markdown.sourceChunk(emojiRun, emojiStarts, c)
+        var firstUnit = emojiPiece.charCodeAt(0)
+        var lastUnit = emojiPiece.charCodeAt(emojiPiece.length - 1)
+        if (firstUnit >= 0xDC00 && firstUnit <= 0xDFFF) {
+            loneLow++
+        }
+        if (lastUnit >= 0xD800 && lastUnit <= 0xDBFF) {
+            loneHigh++
+        }
+    }
+    check("no chunk starts with a low surrogate", loneLow, 0)
+    check("no chunk ends with a high surrogate", loneHigh, 0)
+    var emojiGot = chunked(emojiRun)
+    check("astral chunks are the text again", emojiGot.same, true)
+    check("astral chunks are bounded", emojiGot.longest <= Markdown.SOURCE_CHUNK_MAX, true)
 }
