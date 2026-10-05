@@ -1,5 +1,5 @@
 // Mermaid lays out as mermaid.js does: dagre's cycle breaking in flowcharts, the mirrored boxes and message spacing of a sequence.
-import { FACES, bounds, edgePaths, frame, groups, layered, lifelines, load, notes, num, sequences, text, texts } from "./mermaid-corpus.mjs";
+import { FACES, bounds, edgePaths, frame, groups, layered, lifelines, load, notes, num, others, sequences, text, texts } from "./mermaid-corpus.mjs";
 import { argv, finish } from "./js-runtime.mjs";
 
 const render = await load(argv[0]);
@@ -144,6 +144,58 @@ if (rowFrames.every((f) => f !== null)) {
             const along = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
             check(a[2] + SIBLING_GAP_MIN <= b[0] || b[2] + SIBLING_GAP_MIN <= a[0], `docs example: ${rowIds[i]} and ${rowIds[j]} stand side by side, not on top of each other (${a} against ${b})`);
             check(along > 0, `docs example: ${rowIds[i]} and ${rowIds[j]} share a row, overlapping ${along.toFixed(1)} px`);
+        }
+    }
+}
+
+// A frame holds only its own members, and frames that are not nested never cross: the clash sources fall back to the nested layout, so a stubbed clash check goes red here.
+// Sample input: "subgraph a [A]\nx --> y\nend\nsubgraph b\nsubgraph c\nz\nend\nend" reads members a: x y, b: z c, c: z and parents c: b.
+function readFrames(source) {
+    const members = new Map();
+    const parents = new Map();
+    const open = [];
+    for (const line of source.split("\n").slice(1)) {
+        const header = line.match(/^subgraph (\w+)/);
+        if (header) {
+            members.set(header[1], new Set());
+            parents.set(header[1], open.length ? open[open.length - 1] : null);
+            open.push(header[1]);
+        } else if (line === "end") {
+            open.pop();
+        } else {
+            for (const piece of line.split(/\s*(?:-{2,}>|-{3,})(?:\|[^|]*\|)?\s*/)) {
+                const id = (piece.match(/^[A-Za-z0-9_]+/) ?? [null])[0];
+                for (const frameId of open)
+                    if (id) members.get(frameId).add(id);
+            }
+        }
+    }
+    return { members, parents };
+}
+const overlap = (a, b) => Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > EPSILON && Math.min(a[3], b[3]) - Math.max(a[1], b[1]) > EPSILON;
+const clashSources = [
+    ["flattened nested frames", "flowchart TB\nsubgraph outer\nsubgraph inner\nm --> k\nend\nn --> m\nend\nk --> z"],
+    ["nested frames with an outside edge", layered.find(([name]) => name === "nested subgraphs")[1]],
+    ["docs example left to right", "flowchart LR\nc1 --> a2\nsubgraph one\na1 --> a2\nend\nsubgraph two\nb1 --> b2\nend\nsubgraph three\nc1 --> c2\nend"],
+    ["right to left subgraph title", others.find(([name]) => name === "right to left subgraph title")[1]]
+];
+for (const [name, clashSource] of clashSources) {
+    const svg = render(clashSource, LAYOUT_FACE);
+    const { members, parents } = readFrames(clashSource);
+    const frames = new Map([...members.keys()].map((id) => [id, frame(svg, id)]));
+    const boxes = new Map(groups(svg, "node").map((n) => [text(n.attrs, "data-id"), bounds(n.body)]));
+    const nested = (a, b) => { for (let at = a; at; at = parents.get(at)) if (at === b) return true; return false; };
+    for (const [id, f] of frames) {
+        check(f !== null, `${name}: frame ${id} is drawn`);
+        if (f === null)
+            continue;
+        for (const [nodeId, box] of boxes)
+            check(members.get(id).has(nodeId) === overlap(f, box), `${name}: frame ${id} ${members.get(id).has(nodeId) ? "holds its member" : "keeps out the stranger"} ${nodeId}, frame ${f} against node ${box}`);
+    }
+    for (const a of frames.keys()) {
+        for (const b of frames.keys()) {
+            if (a < b && frames.get(a) && frames.get(b) && !nested(a, b) && !nested(b, a))
+                check(!overlap(frames.get(a), frames.get(b)), `${name}: sibling frames ${a} and ${b} do not cross, ${frames.get(a)} against ${frames.get(b)}`);
         }
     }
 }
