@@ -528,7 +528,8 @@ capmarkdownfences_fixture() {
     sed 's/$/\r/' "$dir/fence-lf.md" > "$dir/fence-crlf.md"
     printf '# Four\n\n````md\n```\ninner\n```\n````\n\nAfter.\n' > "$dir/fence-four.md"
     printf '# Item\n\n- item\n\n  ```sh\n  ls\n  ```\n- two\n\n> quoted\n>\n> ```\n> code\n> ```\n' > "$dir/fence-item.md"
-    cp "$repo/README.md" "$dir/fence-readme.md"
+    # The README's fences without its lines that name local pictures, which this listing does not hold, so no image load warns.
+    sed '/docs\/images\//d' "$repo/README.md" > "$dir/fence-readme.md"
     filler=$'A paragraph of filler text that runs long enough to wrap in a narrow card.\n\n'
     {
         printf '# Big\n\n```toml\nk = 1\n```\n\n'
