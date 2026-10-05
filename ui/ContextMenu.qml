@@ -138,10 +138,9 @@ Item {
 
     // The row list this menu currently offers; a test reads this back through shell.qml's IPC.
     property var entries: []
-    // True while the rows of a new list are being built: the card's fit reads no row then, so it
-    // is not re-run once per row built and reads them once, when the list stands.
+    // True while a new list's rows build, so the card's fit reads none then and reads them once when they stand.
     property bool rowsBuilding: false
-    function setEntries(next) { root.rowsBuilding = true; root.entries = next; root.rowsBuilding = false }
+    function setEntries(next) { root.rowsBuilding = true; try { root.entries = next } finally { root.rowsBuilding = false } }
     property bool canTrash: true
     // False in a read-only folder, off the listing's own w flag; true until the pane knows better.
     property bool dirWritable: true

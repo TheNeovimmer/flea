@@ -172,22 +172,22 @@ ui/ColumnsArea.qml	387	root	Declared QML id; component context access is valid a
 ui/ColumnsArea.qml	388	root	Declared QML id; component context access is valid at runtime.
 ui/ColumnsArea.qml	390	root	Declared QML id; component context access is valid at runtime.
 ui/ColumnsArea.qml	393	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	523	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/ContextMenu.qml	549	rows	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	551	root	Declared ContextMenu id; the pressed delegate reports its gesture to its owner.
+ui/ContextMenu.qml	522	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/ContextMenu.qml	548	rows	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	550	root	Declared ContextMenu id; the pressed delegate reports its gesture to its owner.
+ui/ContextMenu.qml	551	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	552	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	553	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	554	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	556	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	563	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	601	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/ContextMenu.qml	626	peers	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	643	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	644	root	Declared ContextMenu id; the pressed delegate reports its gesture to its owner.
+ui/ContextMenu.qml	555	root	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	562	root	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	600	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/ContextMenu.qml	625	peers	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	642	root	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	643	root	Declared ContextMenu id; the pressed delegate reports its gesture to its owner.
+ui/ContextMenu.qml	645	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	646	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	647	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	648	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	649	root	Declared QML id; component context access is valid at runtime.
 ui/ConvertDialog.qml	201	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/ConvertDialog.qml	253	body	Declared QML id; component context access is valid at runtime.
 ui/ConvertDialog.qml	254	root	Declared QML id; component context access is valid at runtime.
@@ -1500,33 +1500,33 @@ ui/ColumnsArea.qml	391	root	Declared QML id; component context access is valid a
 ui/ColumnsArea.qml	391	root	Declared QML id; component context access is valid at runtime.
 ui/ColumnsArea.qml	393	root	Declared QML id; component context access is valid at runtime.
 ui/ColumnsArea.qml	393	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	523	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/ContextMenu.qml	549	rows	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	551	root	Declared ContextMenu id; the pressed delegate reports its gesture to its owner.
-ui/ContextMenu.qml	552	root	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	522	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/ContextMenu.qml	548	rows	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	550	root	Declared ContextMenu id; the pressed delegate reports its gesture to its owner.
+ui/ContextMenu.qml	551	root	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	551	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	552	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	553	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	554	root	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	555	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	556	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	557	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	558	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	559	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	559	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	563	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	565	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	601	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
-ui/ContextMenu.qml	626	peers	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	558	root	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	562	root	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	564	root	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	600	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
+ui/ContextMenu.qml	625	peers	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	640	root	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	641	root	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	641	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	641	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	642	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	642	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	642	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	643	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	644	root	Declared ContextMenu id; the pressed delegate reports its gesture to its owner.
+ui/ContextMenu.qml	643	root	Declared ContextMenu id; the pressed delegate reports its gesture to its owner.
+ui/ContextMenu.qml	645	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	646	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	647	root	Declared QML id; component context access is valid at runtime.
+ui/ContextMenu.qml	647	root	Declared QML id; component context access is valid at runtime.
 ui/ContextMenu.qml	648	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	648	root	Declared QML id; component context access is valid at runtime.
-ui/ContextMenu.qml	649	root	Declared QML id; component context access is valid at runtime.
 ui/ConvertDialog.qml	201	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/ConvertDialog.qml	253	body	Declared QML id; component context access is valid at runtime.
 ui/ConvertDialog.qml	254	root	Declared QML id; component context access is valid at runtime.

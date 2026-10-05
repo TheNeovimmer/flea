@@ -24,6 +24,7 @@ ShellRoot {
     readonly property real clickInset: 40
     // One read per build, when its rows stand; a read per row built would be about twenty a build.
     readonly property int readsPerBuild: 1
+    readonly property string longLabel: "A label long enough that its row wants more than the card's base width, " + "so the fit has to widen the card to hold it whole"
 
     property string stage: "ready"
     property int sample: 0
@@ -81,8 +82,9 @@ ShellRoot {
             if (path === "key") {
                 driver.keyClickChar("m", Qt.NoModifier, -1)
             } else {
+                // The pane's own right-click handler, the one a mouse reaches.
                 var row = pane.visibleItemFor(clickRow)
-                menu.openAt(row.mapToItem(null, clickInset, row.height / 2))
+                driver.mouseClick(row, clickInset, row.height / 2, Qt.RightButton, Qt.NoModifier, -1)
             }
             next("shown")
         } else if (stage === "shown") {
@@ -92,7 +94,11 @@ ShellRoot {
             measuring = false
             var reads = MenuFit.reads - readsBefore
             check(path + " open " + sample + " opened", menu.opened)
-            check(path + " open " + sample + " read " + reads + " times for " + builds + " builds", reads <= readsPerBuild * builds)
+            // Equal is the target: fewer would mean the fit was not read, or this is not the library the menu imports.
+            check(path + " open " + sample + " read " + reads + " times for " + builds + " builds", builds >= 1 && reads === readsPerBuild * builds)
+            // A long label widens the card past its base width once the rows stand, so a fit held at the base fails here.
+            menu.setEntries([{ label: longLabel, action: "open" }, { label: "Short", action: "copy" }])
+            check(path + " open " + sample + " card widens for a long label", menu.frameItem.width > Flea.Theme.menuWidth)
             log("open " + sample + " " + path + " reads=" + reads + " builds=" + builds + " frame_ms=" + (tFrame - tPlace))
             menu.close()
             sample += 1
