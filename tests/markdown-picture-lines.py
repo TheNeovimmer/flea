@@ -104,7 +104,7 @@ def ink_bottom_above(rows, step, row, columns, background):
     return -1
 
 
-# Sample input: rows holding text under the box answer the rows from the picture's bottom edge to the block's, text and rules included.
+# Sample input: rows under the box answer the empty rows after the last text or rule row, or every row to the block's bottom when none is drawn.
 def empty_below(rows, step, box_bottom, holder, background):
     # Wrapped lines and rules below end the count, so only empty stretch fails it.
     last = -1

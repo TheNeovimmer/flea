@@ -1,3 +1,5 @@
+// Bound: the hidden images read this helper's root to note their sizes, and only its own Repeater builds them.
+pragma ComponentBehavior: Bound
 import QtQuick
 import "js/MarkdownPictures.js" as Pictures
 
