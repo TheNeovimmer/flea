@@ -345,18 +345,35 @@ capmarkdownkinds_open() {
     done
     fail "capmarkdownkinds: $name never rendered, previewMarkdownView read [$view]"
 }
-# Wheel runs a document gets to build its last block: a 500-row table takes several, so forty only stop a view that never ends.
+# Wheel runs a document gets to reach its end: a 500-row table takes several, so forty only stop a view that never ends.
 capmarkdownkinds_end_runs=40
-# Wheels down a run at a time until the last block is built (previewEndGap past -1), failing by name if it never is.
+# Fails by name when previewScrollY answered something other than a number; called in the main shell so the failure stops the case.
+capmarkdownkinds_need_number() {
+    [[ "$1" =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || fail "capmarkdownkinds: $2 answered [$1] for $3 while wheeling to its end"
+}
+# Wheels down a run at a time until the end gap is within the slack or the view stops, where capmarkdown_end_fit names a cut last block.
 capmarkdownkinds_reach_end() {
-    local name="$1" run gap
-    for ((run = 0; run < capmarkdownkinds_end_runs; run++)); do
-        capmarkdown_scroll down "$((capmarkdown_notches_mid + capmarkdown_notches_end))"
+    local name="$1" run gap before after
+    capmarkdown_scroll down "$((capmarkdown_notches_mid + capmarkdown_notches_end))"
+    for ((run = 1; ; run++)); do
         gap="$(ipc previewEndGap)"
         [[ "$gap" =~ ^-?[0-9]+$ ]] || fail "capmarkdownkinds: previewEndGap answered [$gap] for $name while wheeling to its end"
-        [[ "$gap" == "-1" ]] || return 0
+        (( gap >= 0 && gap <= capmarkdown_end_slack_px )) && return 0
+        (( run < capmarkdownkinds_end_runs )) || break
+        before="$(ipc previewScrollY)"
+        capmarkdownkinds_need_number "$before" previewScrollY "$name"
+        omarchy-drive scroll down "$((capmarkdown_notches_mid + capmarkdown_notches_end))" >/dev/null || fail "capmarkdown: scroll down failed on $name"
+        settle
+        after="$(ipc previewScrollY)"
+        capmarkdownkinds_need_number "$after" previewScrollY "$name"
+        [[ "$after" == "$before" ]] || continue
+        # A wheel run still in flight reads as stopped once; a second settle tells it from the view's real end.
+        settle
+        after="$(ipc previewScrollY)"
+        capmarkdownkinds_need_number "$after" previewScrollY "$name"
+        [[ "$after" != "$before" ]] || return 0
     done
-    fail "capmarkdownkinds: $name never built its last block after $capmarkdownkinds_end_runs wheel runs"
+    fail "capmarkdownkinds: $name never reached its end after $capmarkdownkinds_end_runs wheel runs"
 }
 # Shoots the open document, then its tail when it is taller than the card, then closes Quick Look.
 # Sample input: previewEndGap answers 0 when the last block and its inset are whole at the top, so nothing scrolls; any other number, -1 included, means the document runs past the card.

@@ -156,8 +156,9 @@ Column {
         var minimum = []
         var words = root.block.words || []
         for (var c = 0; c < root.columns; c++) {
-            natural.push(root.columnPx[c] + root.cellGap)
-            minimum.push((c < words.length ? words[c] : 0) * root.glyphPx + root.cellGap)
+            // Whole pixels up: Fit floors its shares, and a text box a fraction short of its word breaks the word.
+            natural.push(Math.ceil(root.columnPx[c]) + root.cellGap)
+            minimum.push(Math.ceil((c < words.length ? words[c] : 0) * root.glyphPx) + root.cellGap)
         }
         // A wide glyph takes two, so no column goes under two glyphs of text.
         var least = root.cellGap + Math.ceil(2 * root.glyphPx)

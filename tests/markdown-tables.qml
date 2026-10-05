@@ -30,6 +30,8 @@ ShellRoot {
     readonly property real pictureRatio: 1.5
     // The text the panes showed before the path moved, so the drop ends only on the new file's own load.
     property string prevText: ""
+    property var prevCardBlocks: null
+    property var prevColumnBlocks: null
     property int checks: 0
     property int failures: 0
     property bool done: false
@@ -172,6 +174,8 @@ ShellRoot {
                     return
                 }
                 shell.prevText = card.rawText
+                shell.prevCardBlocks = card.blockList
+                shell.prevColumnBlocks = column.blockList
                 card.path = shell.dir + "/" + shell.cases[shell.at] + ".md"
                 column.path = card.path
                 shell.waited = 0
@@ -186,7 +190,8 @@ ShellRoot {
                 else if (shell.waited > shell.dropFrames)
                     shell.dropTimeout()
             } else if (shell.stage === "load") {
-                if (shell.ready(card) && shell.ready(column))
+                // A pane that still holds the previous case's block list has not parsed the new text yet, whatever ready() reads.
+                if (shell.ready(card) && shell.ready(column) && card.blockList !== shell.prevCardBlocks && column.blockList !== shell.prevColumnBlocks)
                     shell.stage = "settle"
             } else if (shell.stage === "settle") {
                 var heights = card.bodyItem.contentHeight + column.bodyItem.contentHeight
