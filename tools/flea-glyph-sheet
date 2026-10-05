@@ -17,8 +17,7 @@ import sys
 # The app's own glyph stroke, ui/Theme.qml strokeWidth; the brand spiral keeps its own lighter line.
 STROKE = 2
 
-# The sheet's own palette. A static file cannot read the live Omarchy theme, so these are the
-# sheet's colours only; in the app every mark takes a palette role and never a hex.
+# The sheet's own colours: a static file cannot read the live theme, and in the app every mark takes a palette role.
 GROUND = "#16161e"
 PANEL = "#1a1b26"
 LINE = "#262b40"
