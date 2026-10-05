@@ -6,6 +6,8 @@ cd "$(dirname "$0")/.." || exit 1
 
 # The harness run is bounded by the CPU it may spend, not by wall time: a run is about 106 CPU seconds on a quiet box and the same CPU seconds when CI starves it, so only a spin or a runaway parse crosses the budget. The linearity bound itself is work counts and never moves.
 cpu_budget_s=600
+# The soft limit sends SIGXCPU at the budget (status 152); the hard limit this much later kills a process that survives it.
+cpu_kill_grace_s=5
 # A deadlock burns no CPU, so a far wall bound stays as the backstop only, under the lane's own 5400 s timeout.
 deadlock_backstop_s=3000
 # Only a probe child may name a smaller budget, to prove the budget kills a spinning harness.
@@ -54,17 +56,26 @@ for name in codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDee
 done
 STUB
     chmod +x "$probe_root/timeout"
+    # The real timeout bounds each probe child, so a CPU budget that never fires fails the cpu probe by name instead of spinning.
+    real_timeout=$(command -v timeout) || exit 1
+    probe_wall_s=60
     for probe in timeout cpu qml-error empty missing short nonlinear duplicate fields zero unknown diagnostics; do
         rm -f "$probe_root/counter"
         if env PATH="$probe_root:$PATH" LINEARITY_CASE="$probe" LINEARITY_COUNTER="$probe_root/counter" \
-            LINEARITY_CPU_BUDGET_S=1 bash "$script_path" --probe > "$probe_root/output" 2>&1; then
+            LINEARITY_CPU_BUDGET_S=1 "$real_timeout" "$probe_wall_s" bash "$script_path" --probe > "$probe_root/output" 2>&1; then
             status=0
         else
             status=$?
         fi
         expected_status=1
+        # Only the cpu probe must show the CPU limit's own kill status, so it cannot pass on another exit.
+        expected_exit=
         case "$probe" in
-            timeout|cpu|qml-error) expected_message='FAIL parser harness never finished (run 1)' ;;
+            timeout|qml-error) expected_message='FAIL parser harness never finished (run 1)' ;;
+            cpu)
+                expected_message='FAIL parser harness never finished (run 1)'
+                expected_exit='harness exit 152 '
+                ;;
             empty) expected_message='FAIL missing sample codeDense in run 1' ;;
             missing) expected_message='FAIL missing sample listDeep in run 1' ;;
             short) expected_message='FAIL missing sample listDeep in run 2' ;;
@@ -77,7 +88,8 @@ STUB
                 expected_message='PASS 25 pathological inputs, 3 complete repetitions'
                 ;;
         esac
-        if [ "$status" -ne "$expected_status" ] || ! grep -qF "$expected_message" "$probe_root/output"; then
+        if [ "$status" -ne "$expected_status" ] || ! grep -qF "$expected_message" "$probe_root/output" \
+            || { [ -n "$expected_exit" ] && ! grep -qF "$expected_exit" "$probe_root/output"; }; then
             echo "FAIL wrapper regression $probe status=$status"
             cat "$probe_root/output"
             exit 1
@@ -167,7 +179,7 @@ fi
 run_once() {
     local output status
     # Check qml6 or timeout directly before extracting complete work records; the limit is the subshell's own.
-    output=$(ulimit -t "$cpu_budget_s"; TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
+    output=$(ulimit -H -t "$((cpu_budget_s + cpu_kill_grace_s))"; ulimit -S -t "$cpu_budget_s"; TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \
         timeout "$deadlock_backstop_s" qml6 tests/markdown-linearity.qml -- ui/js/Md*.js 2>&1)
     status=$?
     if [ "$status" != 0 ]; then
