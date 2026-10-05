@@ -139,6 +139,10 @@ fn replace(mail: &Mutex<Mail>, wake: &OwnedFd, owner: Option<OwnerFd>, token: &s
     signal(wake);
 }
 
+// Test only: how long a stopped waiter lingers before it returns, so a test tells a joined waiter from one left running.
+#[cfg(test)]
+pub(crate) static STOP_HOLD_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn wait(mail: Arc<Mutex<Mail>>, wake: Arc<OwnedFd>, replies: Sender<OpMsg>, state: watch::Shared, socket: Option<PathBuf>) {
     let mut current: Option<Job> = None;
     loop {
@@ -158,7 +162,12 @@ fn wait(mail: Arc<Mutex<Mail>>, wake: Arc<OwnedFd>, replies: Sender<OpMsg>, stat
             let mut value = [0u8; 8];
             unsafe { read(wake.as_raw_fd(), value.as_mut_ptr().cast(), value.len()); }
             let mut mail = mail.lock().unwrap_or_else(|e| e.into_inner());
-            if mail.stopped { return; }
+            if mail.stopped {
+                drop(mail);
+                #[cfg(test)]
+                std::thread::sleep(std::time::Duration::from_millis(STOP_HOLD_MS.load(Ordering::Relaxed)));
+                return;
+            }
             if let Some(job) = mail.pending.take() { current = job; }
             continue;
         }

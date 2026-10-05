@@ -154,6 +154,7 @@ ShellRoot {
             if (looks().length !== 0 || pane.preview !== null)
                 return root.finish(false, "Quick Look is built before the first Space")
             var look = pane.quickLook()
+            console.log("STARTUP_OBJECTS QUICKLOOK CARD " + (root.census().total - sample.total))
             if (looks().length !== 1 || look === null || pane.preview !== look || body.item.quickLook !== look)
                 return root.finish(false, "pane.quickLook() did not build exactly one Quick Look and hand it to the pane")
             if (pane.quickLook() !== look || looks().length !== 1)

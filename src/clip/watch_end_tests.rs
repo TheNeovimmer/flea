@@ -15,10 +15,13 @@ const NEXT_OWNER_OFFER: u32 = INITIAL_OFFER + 1;
 const SELECTION_COUNT: u32 = 100;
 const FLEA_RECEIVES: usize = 2;
 const ONE_RECEIVE: usize = 1;
-// A joined thread can stay listed briefly, so the last check waits for its release.
-const WAITER_RELEASE_WAIT: Duration = Duration::from_secs(5);
-// Poll interval for the release wait above.
-const WAITER_RELEASE_POLL: Duration = Duration::from_millis(10);
+// PF_EXITING marks a task that started do_exit, before join wakes.
+const PF_EXITING: u32 = 0x00000004;
+// State and flags field indices after the last `)` in a task stat line.
+const STAT_STATE_INDEX: usize = 0;
+const STAT_FLAGS_INDEX: usize = 6;
+// A stopped waiter lingers this long before it returns, so a waiter left unjoined is still running at the check.
+const WAITER_STOP_HOLD_MS: u64 = 200;
 
 struct Child(std::process::Child);
 
@@ -254,21 +257,32 @@ fn waiter_detail() -> String {
         let Ok(comm) = std::fs::read_to_string(task.path().join("comm")) else { continue; };
         if comm.trim() != "flea-clip-end" { continue; }
         let tid = task.file_name().to_string_lossy().into_owned();
-        let state = std::fs::read_to_string(task.path().join("stat")).ok().and_then(|text| {
-            text.rfind(')').and_then(|end| text[end + 1..].split_whitespace().next().map(str::to_string))
-        }).unwrap_or_else(|| String::from("gone"));
+        // Sample: "1234 (flea-clip-end) S 1 1234 1234 0 -1 4194624 ...".
+        let (state, flags) = std::fs::read_to_string(task.path().join("stat")).ok().and_then(|text| {
+            text.rfind(')').and_then(|end| {
+                let fields: Vec<_> = text[end + 1..].split_whitespace().collect();
+                Some((fields.get(STAT_STATE_INDEX)?.to_string(), fields.get(STAT_FLAGS_INDEX)?.to_string()))
+            })
+        }).unwrap_or((String::from("gone"), String::from("gone")));
         let wchan = std::fs::read_to_string(task.path().join("wchan")).map(|s| s.trim().to_string()).unwrap_or_else(|_| String::from("nowchan"));
-        out.push(format!("tid={} state={} wchan={}", tid, state, wchan));
+        out.push(format!("tid={} state={} flags={} wchan={}", tid, state, flags, wchan));
     }
     if out.is_empty() { String::from("no flea-clip-end task") } else { out.join(" ") }
 }
 
-fn wait_for_release() {
-    // The kernel releases a joined task a little after join returns, wider under load.
-    let deadline = std::time::Instant::now() + WAITER_RELEASE_WAIT;
-    while counts().0 != 0 && std::time::Instant::now() < deadline {
-        std::thread::sleep(WAITER_RELEASE_POLL);
+fn waiters_joined() -> bool {
+    // An unreadable task list proves nothing, so it never passes as joined.
+    let Ok(tasks) = std::fs::read_dir("/proc/self/task") else { return false; };
+    for task in tasks.flatten() {
+        let Ok(comm) = std::fs::read_to_string(task.path().join("comm")) else { continue; };
+        if comm.trim() != "flea-clip-end" { continue; }
+        let Ok(text) = std::fs::read_to_string(task.path().join("stat")) else { continue; };
+        // Sample: "1234 (flea-clip-end) S 1 1234 1234 0 -1 4194624 ...".
+        let joined = text.rfind(')').and_then(|end| text[end + 1..].split_whitespace().nth(STAT_FLAGS_INDEX)?.parse::<u32>().ok())
+            .is_some_and(|flags| flags & PF_EXITING != 0);
+        if !joined { return false; }
     }
+    true
 }
 
 fn counts() -> (usize, usize, usize) {
@@ -326,9 +340,11 @@ fn t5_a_hundred_selections_leave_no_waiter_or_fd_leak() {
         assert_eq!(waiters, 1, "only one owner-exit waiter across copies");
         assert!((1..=2).contains(&pidfds), "only current and replacing pidfd can overlap");
     }
+    crate::clip::end::STOP_HOLD_MS.store(WAITER_STOP_HOLD_MS, std::sync::atomic::Ordering::Relaxed);
     watching.finish();
-    wait_for_release();
-    assert_eq!(counts().0, 0, "the last waiter ends with the watcher: {}", waiter_detail());
+    assert!(waiters_joined(), "the last waiter ends with the watcher: {}", waiter_detail());
+    // Cleared once checked, though this isolated process runs no other test.
+    crate::clip::end::STOP_HOLD_MS.store(0, std::sync::atomic::Ordering::Relaxed);
     assert_eq!(counts().1, 0, "all selection pidfds close");
     drop(watching);
     assert_eq!(counts().2, before.2, "no extra fd survives a hundred copies");
