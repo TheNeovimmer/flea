@@ -6,14 +6,16 @@ function run(check) {
     var dir = "/doc"
     var chrome = "#181825"
     var ink = "#c0caf5"
-    // Twelve thousand plain lines send one line event per pass, so both passes beat.
-    var wanted = 12000
+    // Each plain line sends one line event per pass, so this many lines beats several times whatever PROGRESS_EVENTS is.
+    var beatsWanted = 3
+    var wanted = beatsWanted * MdBlocks.PROGRESS_EVENTS
     var lines = []
     for (var i = 0; i < wanted; i++)
         lines.push("progress line " + i + " carries ordinary words")
     var source = lines.join("\n") + "\n"
     var sent = source.split("\n").length
     var floor = Math.floor(sent / MdBlocks.PROGRESS_EVENTS)
+    check("the fixture is long enough to beat", floor >= beatsWanted, true)
     var beats = 0
     var parsed = MdBlocks.blocks(source, dir, chrome, ink, 0, undefined, function () { beats++ })
     check("a parse beats at least once per PROGRESS_EVENTS line events", beats >= floor, true)
