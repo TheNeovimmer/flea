@@ -147,6 +147,8 @@ class StaticGateTests(unittest.TestCase):
             with self.subTest(body=body):
                 self.write('ui/CountedWorker.qml', body)
                 self.assertEqual(gates.worker_announce(self.root, ['ui/CountedWorker.qml']), (1, [missing]))
+        self.write('ui/CountedWorker.qml', 'WorkerScript {\n    function a() { console.info(startLog, "other") }\n    Component.onCompleted: console.info(startLog, "WORKER_STARTED " + source)\n}\n')
+        self.assertEqual(gates.worker_announce(self.root, ['ui/CountedWorker.qml']), (1, []))
 
     def test_F10_malformed_tsv_names_file_and_line(self):
         self.write('ui/A.qml', 'import QtQuick\nItem {}\n')

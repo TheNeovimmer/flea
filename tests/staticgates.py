@@ -765,8 +765,8 @@ def worker_announce(root, files):
         code = masked(text, '.qml')
         if file == COUNTED_WORKER:
             # The call sits in code, so the literal at its argument offset is the real one, never a comment's copy.
-            call = re.search(r'\bconsole\.info\(\s*startLog\s*,\s*', code)
-            if call is None or not text.startswith('"WORKER_STARTED ', call.end()):
+            calls = re.finditer(r'\bconsole\.info\(\s*startLog\s*,\s*', code)
+            if not any(text.startswith('"WORKER_STARTED ', call.end()) for call in calls):
                 errors.append(f'{file}:1: no console.info(startLog, "WORKER_STARTED " ...) call in code')
             continue
         for m in re.finditer(r'\bWorkerScript\s*\{', code):
