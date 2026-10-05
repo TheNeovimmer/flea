@@ -591,7 +591,8 @@ in the Markdown `WorkerScript` (a retired `Loader`, so no UI-thread parse), and 
 Quick Look's own parse is stored there too, so a reopen also hits. A hit needs the same path, folder, chrome, ink and
 text, which the Space read supplies, so an edited file never shows a stale parse. Known limits: a Space on a row whose
 size is stale reads the whole file blocking (`FileView` cannot cap), a symlink to a Markdown file is read ahead never,
-and a FUSE type outside the `extclass.rs` list classifies local.
+a FUSE type outside the `extclass.rs` list classifies local, and a Space before the folder's class lands takes the
+asynchronous path, so that card can draw before its first block.
 `tests/quicklook-firstframe.sh` pins it: the key's function returns with the card active and the blocks in the model
 (before the fix: card=true and 0 blocks), frame 1 holds block 0, no frame draws the card without it, the parse was taken
 from the entry, and a held key (twenty moves at 30 ms across event-loop turns, a 300 ms rest) reads no file, red with `rest.start()` for `rest.restart()`. Legs: reduced, motion, order, class-network, class-phone, class-usb, unknown (the class reply held back: no read at rest or inside the key), pipe (a FIFO listed at 900 bytes, refused only by its file type; a `head` child left on it fails the suite), capped.
