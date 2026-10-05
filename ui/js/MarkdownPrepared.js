@@ -83,6 +83,42 @@ function smallPictures(urls, statText) {
     })
 }
 
+// The most formulas a rested document typesets ahead, so a document full of them never queues a render per rest.
+var FORMULA_LIMIT = 8
+
+// Sample input: [{ type: "run", maths: ["x", "x"] }, { type: "figure", kind: "math", source: "y" }, { type: "quote", parts: [{ type: "run", maths: ["z"] }] }] answer [{ source: "x", display: false }, { source: "y", display: true }, { source: "z", display: false }].
+// The distinct maths a prepared document draws, in reading order and at most limit of them: inline formulas and display figures, a quote's or a list item's parts included.
+function formulasIn(blocks, limit) {
+    var out = []
+    var seen = {}
+    function add(source, display) {
+        var key = (display ? "d" : "i") + source
+        if (out.length < limit && seen[key] === undefined) {
+            seen[key] = true
+            out.push({ source: source, display: display })
+        }
+    }
+    function walk(list) {
+        for (var i = 0; i < list.length; i++) {
+            var b = list[i]
+            if (!b)
+                continue
+            if (Array.isArray(b)) {
+                walk(b)
+                continue
+            }
+            if (b.type === "figure" && b.kind === "math")
+                add(b.source, true)
+            for (var k = 0; b.maths !== undefined && k < b.maths.length; k++)
+                add(b.maths[k], false)
+            if (b.parts !== undefined)
+                walk(b.parts)
+        }
+    }
+    walk(blocks)
+    return out
+}
+
 // QML color components read 0..1, so the hex a style attribute needs is assembled, never coerced.
 // Sample input: a colour with r 0.0627, g 0.0745, b 0.0745 answers "#101313".
 function hexOf(c) {

@@ -65,6 +65,7 @@ printf '# d-small\n\nA second small document, so the held key has two rows to sw
 cp "$test_root/fixture/pixel.png" "$test_root/fixture/img/logo.png" || exit 1
 # The shapes of the h2h set that drew late: a table (02), task items with strike (03) and a centred picture in a folder beside the document (07).
 printf '# f-table\n\n| Name | Value |\n| :--- | :--- |\n| rows | 3 |\n| columns | 2 |\n' > "$test_root/fixture/f-table.md"
+printf '# i-maths\n\nAn inline formula $x^2 + y^2$ in a line, then plain text after it.\n\n$$\\int_0^1 x^2 dx$$\n\n![local](pixel.png)\n\nA last line.\n' > "$test_root/fixture/i-maths.md"
 printf '# g-tasks\n\n- [x] ~~done~~ item\n- [ ] open item\n- [ ] another open item\n' > "$test_root/fixture/g-tasks.md"
 printf '# h-html\n\n<p align="center"><img src="img/logo.png" width="64" alt="logo"></p>\n\nLine one<br>line two after a break.\n' > "$test_root/fixture/h-html.md"
 # A 1 MiB and a 300 KB document made of ordinary blocks, past the 64 KiB worker threshold and under the 1 MiB refusal.
@@ -127,7 +128,7 @@ run_leg() {
 notes=$(repeat "" "$cycles" a-notes.md:inline)
 run_leg reduced "$notes" "" 1 1 90
 run_leg motion "$notes" "" "" 1 90
-for shape in f-table g-tasks h-html; do
+for shape in f-table g-tasks h-html i-maths; do
     run_leg "shape-$shape" "$shape.md:inline" "" 1 "" 60
 done
 # Small then big then small, closed and reopened, then a move on the open card in both orders (small to big and big to small).

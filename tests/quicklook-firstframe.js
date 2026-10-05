@@ -52,11 +52,22 @@ function doc(root) {
     return root.pv() ? find(root.pv(), "PreviewMarkdown") : null
 }
 
-// Every picture the open document draws and how many have their pixels: one still loading in the first frame lands a frame later.
+// Every picture the open document names and how many have their pixels: one still loading in the first frame lands a frame later.
 function pictureState(root, ready) {
     var found = []
     collect(doc(root), "QQuickImage", found)
+    // A figure's drawing is a data URL its own check counts, so only the document's file pictures are held ones.
+    found = found.filter(function (one) { return String(one.source).indexOf("file:") === 0 })
     return { total: found.length, ready: found.filter(function (one) { return one.status === ready }).length }
+}
+
+// Every figure the open document builds (inline formulas and display ones) and how many already hold their drawing: counted as the key returns, before any event has run.
+function figureState(root) {
+    var found = []
+    collect(doc(root), "MarkdownFigure", found)
+    // The preview's own theme probe never asks, so it never draws.
+    found = found.filter(function (one) { return one.askArmed })
+    return { total: found.length, drawn: found.filter(function (one) { return one.svg !== "" }).length }
 }
 
 // The compiled units the idle warm holds: an open before them would compile inside the key, which a user's first Space never does.
@@ -107,6 +118,19 @@ function answerControl(root) {
     p.answered({ seq: seq, blocks: [{ type: "run", text: "stale" }], error: "" })
     if (p.preparedPath !== request.path || p.workerAnswers !== 1) root.fail("an answer for the resting cursor was dropped")
     root.answersBefore = p.workerAnswers
+    // A recount while the stat child still sizes the pictures settles nothing; the same recount with no child out settles, so only the child held it.
+    var sizerBefore = p.sizer
+    var settledBefore = p.picturesSettled
+    p.sizer = { destroy: function () {} }
+    p.picturesSettled = false
+    p.recount()
+    if (p.picturesSettled) root.fail("a recount settled the pictures while the stat child was still sizing them")
+    p.sizer = null
+    p.picturesSettled = false
+    p.recount()
+    if (!p.picturesSettled) root.fail("the sizer probe's control did not settle, so something else held the pictures and the probe proved nothing")
+    p.sizer = sizerBefore
+    p.picturesSettled = settledBefore
 }
 
 // The checks of one finished step, run once its document's first block is in the card.
@@ -118,6 +142,16 @@ function judge(root) {
     root.log("STEP " + n + " " + step.name + " " + step.expect + " frames=" + root.contentFrame + " empty=" + root.emptyFrames + " blocked=" + blocked
         + " pictures=" + root.syncPictures.ready + "/" + root.syncPictures.total
         + " keyMs=" + (root.returnedAt - root.keyAt) + " toFrameMs=" + (root.contentAt - root.keyAt))
+    // A rested formula's document finds the decoder warm at the key; any other document leaves it cold, so a cursor never pays for what the open does not need.
+    if (step.via === "space") {
+        var wantWarm = root.mathsDocs.indexOf(step.name) >= 0
+        if (root.warmAtKey !== wantWarm) root.fail("step " + n + " found the picture decoder " + (root.warmAtKey ? "warm" : "cold") + " at the key for " + step.name + ", want " + (wantWarm ? "warm" : "cold"))
+    }
+    // A formula typeset while the cursor rested is in the card the key returns, so its first frame is whole and no placeholder changes size after it.
+    if (step.via === "space" && root.mathsDocs.indexOf(step.name) >= 0) {
+        if (root.syncFigures.total === 0) root.fail("step " + n + " built no figure to check")
+        if (root.syncFigures.drawn !== root.syncFigures.total) root.fail("step " + n + " returned from the key with " + (root.syncFigures.total - root.syncFigures.drawn) + " of " + root.syncFigures.total + " figure(s) still undrawn")
+    }
     if (!d || (step.expect !== "deep" && d.sourceChars !== 0)) root.fail("step " + n + " laid out " + (d ? d.sourceChars : -1) + " characters of Source text while Rendered shows")
     if (step.expect === "inline") {
         if (root.emptyFrames !== 0) root.fail("step " + n + " drew the card " + root.emptyFrames + " time(s) without its first block")

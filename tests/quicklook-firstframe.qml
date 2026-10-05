@@ -20,7 +20,9 @@ ShellRoot {
     readonly property string forcedClass: Quickshell.env("QLFF_CLASS")
     readonly property bool realKey: Quickshell.env("QLFF_MODE") === "key"
     // The fixture documents that link a local picture, which a step on them must find drawn.
-    readonly property var pictureDocs: ["a-notes.md", "h-html.md"]
+    readonly property var pictureDocs: ["a-notes.md", "h-html.md", "i-maths.md"]
+    // The documents whose inline formula makes the first picture decode of the process a cost the rest must pay, and whether the card found the decoder warm at the key.
+    readonly property var mathsDocs: ["i-maths.md"]
     // QLFF_REENTER=1 runs one poll tick inside the close key's event loop, which a loaded host does by chance.
     readonly property bool reenter: Quickshell.env("QLFF_REENTER") === "1"
     // A keyClick delay pumps a nested loop, so the reenter kicker fires inside the key.
@@ -60,6 +62,7 @@ ShellRoot {
     property double lastTick: 0
     property bool sweeping: Quickshell.env("QLFF_SWEEP") === "1"
     property int readsBefore: 0
+    property int warmsBefore: 0
     property int answersBefore: 0
     property real blockedBefore: 0
     property double stageAt: Date.now()
@@ -76,6 +79,8 @@ ShellRoot {
     property int reentered: 0
     property int realBytes: 0
     property int lateRowsAt: -1
+    property bool warmAtKey: false
+    property var syncFigures: ({ total: 0, drawn: 0 })
 
     function log(line) { console.log("QLFF " + line) }
     // Sample input: "Pss:                 28438 kB" in /proc/self/smaps_rollup answers 28438; the window's own resident memory, logged and never judged.
@@ -163,18 +168,23 @@ ShellRoot {
         repeat: true
         onTriggered: {
             var pane = root.pane()
-            var names = ["a-notes.md", "d-small.md"]
+            var names = ["a-notes.md", "i-maths.md"]
             var now = Date.now()
             // A tick that came a whole rest late let the rest timer fire legitimately, so the sweep starts over.
             if (root.sweepLeft > 0 && now - root.lastTick >= root.sweepRestMs) {
                 root.log("SWEEP stalled, rerun")
                 root.readsBefore = root.prepare.reads
+                root.warmsBefore = root.prepare.decoderWarms
                 root.sweepLeft = root.sweepMoves
             }
             root.lastTick = now
             if (root.sweepLeft > 0) {
                 pane.cursorIndex = root.indexOf(names[root.sweepLeft % 2])
                 root.sweepLeft--
+                if (root.prepare.decoderWarms !== root.warmsBefore) {
+                    root.fail("a held key warmed the picture decoder " + (root.prepare.decoderWarms - root.warmsBefore) + " time(s) before the cursor rested")
+                    root.sweepLeft = 0
+                }
                 if (root.prepare.reads !== root.readsBefore) {
                     root.fail("a held key read " + (root.prepare.reads - root.readsBefore) + " file(s) before it rested")
                     root.sweepLeft = 0
@@ -212,12 +222,14 @@ ShellRoot {
         } else if (root.realKey) {
             root.press()
         } else {
+            root.warmAtKey = root.prepare.decoderWarm === true
             PreviewKeys.open(pane)
             // No event has run since the key: an inline document's blocks are already in the card, and a big one has not been read.
             var d = root.doc()
             var blocks = d ? d.blockList.length : 0
             var loads = d ? d.loadRuns : -1
             root.syncPictures = root.pictureState()
+            root.syncFigures = Fresh.figureState(root)
             root.log("SYNC " + (root.step + 1) + " card=" + root.pv().active + " blocks=" + blocks + " loads=" + loads
                 + " pictures=" + root.syncPictures.ready + "/" + root.syncPictures.total + " held=" + (root.prepare.pictures ? root.prepare.pictures.length : -1))
             if (!root.pv().active) root.fail("step " + (root.step + 1) + " returned from the key without the card")
@@ -345,6 +357,7 @@ ShellRoot {
                 if (++root.quiet < root.quietPolls) return
                 if (root.sweeping) {
                     root.readsBefore = root.prepare.reads
+                    root.warmsBefore = root.prepare.decoderWarms
                     root.sweepLeft = root.sweepMoves
                     root.restedMs = root.prepare.restMs
                     root.prepare.restMs = root.sweepRestMs

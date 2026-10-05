@@ -42,6 +42,17 @@ Item {
         askArmed: false
         width: 300
     }
+    // A figure whose request the service already holds, and one it does not.
+    Component {
+        id: heldComponent
+        MarkdownFigure {
+            inline: true
+            bgHex: "#202020"
+            fgHex: "#dddddd"
+            accentHex: "#445566"
+            width: 300
+        }
+    }
     // The advance of one character by an independent ruler, regular or bold, in thousandths of an em.
     readonly property int tableFirst: 32
     readonly property int tableLength: 95
@@ -173,7 +184,26 @@ Item {
         var rulerBold = regular.map(function (v, i) { return Math.round(probe.rulerAdvance(probe.tableFirst + i, true)); });
         var differs = probe.differing(regular, rulerBold);
         probe.check(differs > 0, "the face's bold advances differ from its regular ones in " + differs + " of " + probe.tableLength + " entries");
+        probe.verifyHeldAnswer();
         probe.finish();
+    }
+    // A formula typeset ahead is drawn the moment its figure is created, and sends nothing; a formula the service does not hold asks as always.
+    function verifyHeldAnswer() {
+        FigureService.requests = [];
+        var held = heldComponent.createObject(probe, { source: "held^1" });
+        probe.check(held.svg === "<svg/>" && held.ready, "a held formula is drawn at creation svg=" + held.svg);
+        probe.check(!held.askPending && FigureService.requests.length === 0, "a held formula asks nothing armed=" + held.askPending + " requests=" + FigureService.requests.length);
+        var fresh = heldComponent.createObject(probe, { source: "fresh^2" });
+        probe.check(fresh.svg === "" && fresh.askPending, "a formula the service does not hold waits to ask svg=" + fresh.svg + " armed=" + fresh.askPending);
+        probe.check(held.ticket === 0 && held.lastRequest !== "", "a held formula takes no ticket and remembers its request");
+        // A request still in flight when the figure changes to a held one never lands over the held drawing.
+        var late = heldComponent.createObject(probe, { source: "fresh^3" });
+        late.ask();
+        var inflight = late.ticket;
+        late.source = "held^1";
+        FigureService.done(inflight, "<svg id=\"late\"/>", "");
+        probe.check(inflight > 0 && late.svg === "<svg/>", "a reply in flight landed over the held drawing svg=" + late.svg);
+        probe.check(!late.working && !late.askPending, "a held drawing leaves a request working=" + late.working + " armed=" + late.askPending);
     }
     function finish() {
         console.log("figure-component: " + probe.checks + " check(s), " + probe.failures + " failed");

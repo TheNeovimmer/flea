@@ -111,7 +111,7 @@ Item {
     readonly property bool askPending: askTimer.running
     // Every property change lands on the one deferred ask, so the changes of one burst send one request.
     function schedule() {
-        if (root.created)
+        if (root.created && !root.takeRemembered())
             askTimer.restart();
     }
 
@@ -131,6 +131,22 @@ Item {
     onAskArmedChanged: root.schedule()
     // Entering the viewport requests an unsettled figure after layout.
     onInViewChanged: if (root.created && root.inView && root.askArmed && root.source !== "" && root.ticket === 0 && root.svg === "" && root.error === "") root.ask()
+    // The service's held answer for this exact request, taken on the change itself, so a formula typeset ahead is drawn in the first frame.
+    function takeRemembered() {
+        if (!root.askArmed || root.source === "" || !root.inView)
+            return false;
+        var theme = root.hexTheme();
+        var hit = FigureService.cached(root.kind, root.source, theme, root.display);
+        if (hit === undefined)
+            return false;
+        // A held answer drops any older request, so nothing in flight lands over it.
+        root.ticket = 0;
+        askTimer.stop();
+        root.lastRequest = JSON.stringify([root.kind, root.source, root.display, theme]);
+        root.svg = hit;
+        root.error = "";
+        return true;
+    }
     Component.onCompleted: {
         root.created = true;
         root.schedule();
