@@ -42,6 +42,9 @@ fi
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 flea_ui="$repo/ui"
+# Every Flea this run launches announces its WorkerScript starts, so the log check below can match them to Qt's null connect lines.
+. "$repo/tests/qslog-gate.sh"
+export QT_LOGGING_RULES="$(qslog_rules "${QT_LOGGING_RULES:-}")"
 flea_bin="${FLEA_BIN:-$repo/target/release/flea}"
 # Sample input: let finished = Command::new("gio")
 # Every opener stub below is named from the product's own exec target, the same derivation
@@ -14757,8 +14760,13 @@ while read -r want warning; do
         failures=$((failures + 1))
     fi
 done < <(sort "$expected_warnings" | uniq -c)
+# Qt 6.11.2 prints one null connect warning per WorkerScript started with a source: they leave the grep below only when they equal the WORKER_STARTED lines.
+checked_log="$run_root/run-checked.log"
+if ! qslog_filter "native run" < "$run_log" 2>&1 > "$checked_log"; then
+    failures=$((failures + 1))
+fi
 if grep -F -v -e "$expected_warning" -e "$vaapi_warning" -e "$unreadable_warning" -e "$unreadable_warning2" \
-    -e "$unreadable_warning3" -e "$unreadable_warning4" -e "$unreadable_state_warning" "$run_log" \
+    -e "$unreadable_warning3" -e "$unreadable_warning4" -e "$unreadable_state_warning" "$checked_log" \
     | grep -F -v -f "$expected_warnings" | grep -E 'WARN|ERROR|TypeError|ReferenceError|Cannot open'; then
     printf 'FAIL log\n'
     failures=$((failures + 1))

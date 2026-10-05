@@ -103,12 +103,24 @@ THEME
     # The qs log gate is exact: one null connect line per started WorkerScript, so a missing worker or a missing warning fails as an extra line does.
     . tests/qslog-gate.sh
     null_line='WARN qt.core.qobject.connect: QObject::connect(QJSEngine, QtObject): invalid nullptr parameter'
-    started_line='DEBUG qml: QSLOG_WORKER file:///x/MarkdownWorker.js'
+    started_line='INFO flea.worker: WORKER_STARTED file:///x/MarkdownWorker.js'
     printf '%s\n%s\n%s\n' "$null_line" "$started_line" "$null_line" | qslog_nullptr control > /dev/null && { echo "FAIL qs log gate accepted a null connect beyond the started workers"; exit 1; }
     printf '%s\n' "$null_line" | qslog_nullptr control > /dev/null && { echo "FAIL qs log gate accepted a null connect with no worker started"; exit 1; }
     printf '%s\n' "$started_line" | qslog_nullptr control > /dev/null && { echo "FAIL qs log gate accepted a started worker with no warning"; exit 1; }
     printf '%s\n%s\n' "$null_line" "$started_line" | qslog_nullptr control > /dev/null || { echo "FAIL qs log gate refused one warning for one worker"; exit 1; }
-    printf 'INFO clean\nDEBUG qml: QSLOG_WORKER \n' | qslog_nullptr control > /dev/null || { echo "FAIL qs log gate refused a clean log"; exit 1; }
+    printf 'INFO clean\nINFO flea.worker: WORKER_STARTED \n' | qslog_nullptr control > /dev/null || { echo "FAIL qs log gate refused a clean log"; exit 1; }
+    # The native run log goes through qslog_filter: a matched pair leaves no WARN for the generic grep, and any other pairing fails and keeps the null connect line.
+    kept=$(printf 'INFO clean\n%s\n%s\n' "$null_line" "$started_line" | qslog_filter control 2> /dev/null) || { echo "FAIL native log filter refused one warning for one worker"; exit 1; }
+    printf '%s\n' "$kept" | grep -qE 'WARN|ERROR' && { echo "FAIL native log filter left a matched null connect line for the generic grep"; exit 1; }
+    kept=$(printf '%s\n' "$null_line" | qslog_filter control 2> /dev/null) && { echo "FAIL native log filter accepted an unregistered null connect line"; exit 1; }
+    printf '%s\n' "$kept" | grep -q 'WARN' || { echo "FAIL native log filter hid an unregistered null connect line from the generic grep"; exit 1; }
+    said=$(printf '%s\n%s\n%s\n' "$null_line" "$started_line" "$null_line" | qslog_filter control 2>&1 > /dev/null)
+    case $said in *'2 "invalid nullptr parameter" lines for 1 WorkerScripts'*) ;; *) echo "FAIL native log filter did not name both counts"; exit 1 ;; esac
+    printf '%s\n' "$started_line" | qslog_filter control > /dev/null 2>&1 && { echo "FAIL native log filter accepted a start with no null connect line"; exit 1; }
+    [ "$(qslog_rules '')" = "flea.worker.info=true" ] && [ "$(qslog_rules 'a=true')" = "a=true;flea.worker.info=true" ] || { echo "FAIL qslog_rules dropped a rule the run already set"; exit 1; }
+    printf '%s\n' "$null_line" | qslog_silent control > /dev/null || { echo "FAIL silent gate refused a default run with a null connect line and no announcement"; exit 1; }
+    printf '%s\n%s\n' "$null_line" "$started_line" | qslog_silent control > /dev/null && { echo "FAIL silent gate accepted a default run that announced a start"; exit 1; }
+    printf 'INFO clean\n' | qslog_silent control > /dev/null && { echo "FAIL silent gate accepted a default run in which no worker started"; exit 1; }
     echo "ok qs log gate controls"
     # A decoded "1. ol" is laid out as text by the real MarkdownText, never as an ordered list item.
     TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_FORCE_STDERR_LOGGING=1 \

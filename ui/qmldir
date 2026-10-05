@@ -14,6 +14,7 @@ ChromeModes 1.0 ChromeModes.qml
 ColumnsArea 1.0 ColumnsArea.qml
 ColumnPane 1.0 ColumnPane.qml
 ColumnRow 1.0 ColumnRow.qml
+CountedWorker 1.0 CountedWorker.qml
 Crumb 1.0 Crumb.qml
 PreviewColumn 1.0 PreviewColumn.qml
 PreviewLines 1.0 PreviewLines.qml

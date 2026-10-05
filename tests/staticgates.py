@@ -12,7 +12,7 @@ import sys
 import tempfile
 import tarfile
 
-GATES = ('conflict-marker', 'fused-line', 'paneprops', 'del-printable', 'qml-undeclared-read', 'qml-duplicate-member')
+GATES = ('conflict-marker', 'fused-line', 'paneprops', 'del-printable', 'qml-undeclared-read', 'qml-duplicate-member', 'worker-announce')
 SUFFIXES = {'.rs', '.qml', '.js', '.sh'}
 # Bound alias propagation so pathological chains cannot keep a source gate running.
 ALIAS_FIXPOINT_CAP = 8
@@ -751,7 +751,24 @@ def qml_duplicate_member(root, files):
     return len(qml) + len(js), errors
 
 
-CHECKS = dict(zip(GATES, (conflict_marker, fused_line, paneprops, del_printable, qml_undeclared_read, qml_duplicate_member)))
+# Sample input: a ui QML file holding "WorkerScript {\n    source: \"W.js\"\n}" with no WORKER_STARTED inside its braces is rejected.
+def worker_announce(root, files):
+    errors = []
+    scanned = 0
+    for file in files:
+        path = root / file
+        if not file.startswith('ui/') or path.suffix != '.qml' or not path.is_file():
+            continue
+        scanned += 1
+        text = path.read_text()
+        code = masked(text, '.qml')
+        for m in re.finditer(r'\bWorkerScript\s*\{', code):
+            if 'WORKER_STARTED' not in text[m.start():closing(code, m.end() - 1, '{', '}')]:
+                errors.append(f'{location(file, code, m.start())}: WorkerScript without a WORKER_STARTED announcement')
+    return scanned, errors
+
+
+CHECKS = dict(zip(GATES, (conflict_marker, fused_line, paneprops, del_printable, qml_undeclared_read, qml_duplicate_member, worker_announce)))
 
 
 def negative_controls(root):
@@ -764,6 +781,7 @@ def negative_controls(root):
         'qml-duplicate-member': ('ui/Pane.qml', 'import QtQuick\nFocusScope {\n'
                                  '    readonly property alias wire: wire\n'
                                  '    readonly property alias wire: wire\n}\n'),
+        'worker-announce': ('ui/Sample.qml', 'import QtQuick\nItem { WorkerScript { source: "W.js" } }\n'),
     }
     errors = []
     script = root / 'tests/staticgates.py'
@@ -782,6 +800,7 @@ def negative_controls(root):
             expected = {'conflict-marker': 'unresolved conflict marker', 'fused-line': 'fused code gap',
                         'paneprops': 'pane.removedProperty absent', 'del-printable': 'printable event.text decision',
                         'qml-undeclared-read': 'new unqualified read asker',
+                        'worker-announce': 'WorkerScript without a WORKER_STARTED announcement',
                         'qml-duplicate-member': ('wire declared again (first at 2)' if file.endswith('.js') else 'Duplicate alias name')}[gate]
             if (result.returncode != 1 or expected not in diagnostic or file + ':' not in diagnostic
                     or 'STATICGATES FAIL gates=1' not in result.stdout):
