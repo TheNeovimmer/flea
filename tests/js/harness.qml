@@ -39,6 +39,7 @@ import "localsend.js" as LocalSendSuite
 import "markdown.js" as MarkdownSuite
 import "mdprepared.js" as MdPreparedSuite
 import "mdstructure.js" as MdStructureSuite
+import "mdliteral.js" as MdLiteralSuite
 import "mdspecfix.js" as MdSpecFixSuite
 import "mddraw.js" as MdDrawSuite
 import "mdnest.js" as MdNestSuite
@@ -153,7 +154,7 @@ Item {
             ["focus-lines", FocusLinesSuite], ["focus-wrap", FocusWrapSuite],
             ["format", FormatSuite], ["icons", IconsSuite],
             ["jump", JumpSuite], ["jump-heldout", JumpHeldoutSuite], ["keymap", KeymapSuite], ["localsend", LocalSendSuite], ["listbudget", ListBudgetSuite], ["match", MatchSuite], ["menu", MenuSuite], ["xwnewfile", XwNewFileSuite],
-            ["marks", MarksSuite], ["markdown", MarkdownSuite], ["mdstructure", MdStructureSuite], ["mdspecfix", MdSpecFixSuite], ["mddraw", MdDrawSuite], ["mdnest", MdNestSuite], ["mdhtml", MdHtmlSuite], ["mdhtmlgh", MdHtmlGhSuite], ["mdhtmlrow", MdHtmlRowSuite], ["mdr7", MdR7Suite], ["mdround4", MdRound4Suite], ["mounts", MountsSuite], ["motion", MotionSuite], ["names", NamesSuite], ["nav", NavSuite], ["crumbs", CrumbsSuite], ["devices", DevicesSuite], ["network", NetworkSuite], ["navmouse", NavMouseSuite],
+            ["marks", MarksSuite], ["markdown", MarkdownSuite], ["mdstructure", MdStructureSuite], ["mdliteral", MdLiteralSuite], ["mdspecfix", MdSpecFixSuite], ["mddraw", MdDrawSuite], ["mdnest", MdNestSuite], ["mdhtml", MdHtmlSuite], ["mdhtmlgh", MdHtmlGhSuite], ["mdhtmlrow", MdHtmlRowSuite], ["mdr7", MdR7Suite], ["mdround4", MdRound4Suite], ["mounts", MountsSuite], ["motion", MotionSuite], ["names", NamesSuite], ["nav", NavSuite], ["crumbs", CrumbsSuite], ["devices", DevicesSuite], ["network", NetworkSuite], ["navmouse", NavMouseSuite],
             ["openwith", OpenWithSuite], ["ops", OpsSuite], ["opstrash", OpsTrashSuite],
             ["palette", PaletteSuite], ["pathbar", PathBarSuite], ["places", PlacesSuite], ["placemenu", PlaceMenuSuite], ["rail", RailSuite], ["scripts", ScriptsSuite],
             ["phones", PhonesSuite],

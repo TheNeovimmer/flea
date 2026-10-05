@@ -2,6 +2,7 @@
 # Space on a small Markdown file draws a card that already holds its first block: no empty-card frame, content in frame 1.
 set -uo pipefail
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
+. "$(dirname "$0")/qslog-gate.sh"
 cd "$(dirname "$0")/.." || exit 1
 for tool in qs dbus-run-session; do
     command -v "$tool" >/dev/null || { printf 'FAIL quicklook-firstframe: %s is required\n' "$tool"; exit 1; }
@@ -88,6 +89,13 @@ run_leg() {
     legs=$((legs + 1))
     [ -z "${FLEA_CI_SUITE_LOGS:-}" ] || cp "$log" "$FLEA_CI_SUITE_LOGS/quicklook-firstframe-$leg.log" 2>/dev/null
     grep -a 'QLFF \(STEP\|FAIL\|DONE\)' "$log" | sed "s/^/$leg: /"
+    # Sample input: "QLFF WORKERS 8"; a leg that never reaches it allows none.
+    workers=$(grep -ao 'QLFF WORKERS [0-9]*' "$log" | grep -o '[0-9]*$')
+    # An async step may also start the open card's own parser WorkerScript, so each one adds an allowance.
+    async_steps=$(grep -o ':async' <<< "$steps" | wc -l)
+    if ! qslog_nullptr "$(( ${workers:-0} + async_steps ))" "quicklook-firstframe $leg" < "$log"; then
+        failures=$((failures + 1))
+    fi
     if [ "$status" -ne 0 ] || [ "$(grep -ac 'QLFF DONE' "$log")" -ne 1 ] || grep -aqE 'QLFF FAIL|TypeError|ReferenceError' "$log"; then
         printf 'FAIL quicklook-firstframe: %s leg did not hold (qs exit %s)\n' "$leg" "$status"
         failures=$((failures + 1))

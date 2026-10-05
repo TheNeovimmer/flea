@@ -312,8 +312,8 @@ function run(check) {
 
     var tasks = Markdown.blocks("- [ ] todo\n- [x] done\n", dir, chrome, ink)
     check("task items are one list", tasks.length === 1 && tasks[0].type === "list", true)
-    check("an open task draws its box", tasks[0].items[0].indexOf("☐ todo") >= 0, true)
-    check("a closed task draws its box", tasks[0].items[1].indexOf("☑ done") >= 0, true)
+    check("an open task draws its box", tasks[0].items[0].indexOf("☐</font> todo") >= 0, true)
+    check("a closed task draws its box", tasks[0].items[1].indexOf("☑</font> done") >= 0, true)
     var alert = Markdown.blocks("> [!NOTE]\n> Read this.\n", dir, chrome, ink)[0]
     check("an alert stays a quote", alert.type, "quote")
     check("an alert titles itself", alert.text.indexOf("<strong>Note</strong>") === 0, true)

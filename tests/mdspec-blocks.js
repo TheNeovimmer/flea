@@ -9,8 +9,8 @@ function unwrap(html) {
     return m !== null && m[1].indexOf("<p>") < 0 ? m[1] : html
 }
 
-var TASK_OPEN = "☐ "
-var TASK_DONE = "☑ "
+var TASK_BOX_OPEN = '<font face="Noto Sans Symbols 2">☐</font> '
+var TASK_BOX_DONE = '<font face="Noto Sans Symbols 2">☑</font> '
 
 // Sample input: "<p>a</p><ul><li><p>b</p></li></ul>" answers "a<ul><li><p>b</p></li></ul>"; only paragraphs outside a nested list or quote go bare.
 function bareParagraphs(html) {
@@ -28,8 +28,8 @@ function itemHtml(block, i, qt, dir, loose) {
     var parts = block.parts !== undefined && block.parts[i] ? block.parts[i] : null
     var text = parts !== null ? (parts[0].type === "run" ? parts[0].text : "") : block.items[i]
     var html = parts !== null ? blocksHtml(parts, qt, dir) : Qt.fromExport(qt(text), dir, text)
-    var done = text.indexOf(TASK_DONE) === 0
-    var box = done || text.indexOf(TASK_OPEN) === 0
+    var done = text.indexOf(TASK_BOX_DONE) === 0
+    var box = done || text.indexOf(TASK_BOX_OPEN) === 0
     if (!loose)
         html = bareParagraphs(html)
     if (box)

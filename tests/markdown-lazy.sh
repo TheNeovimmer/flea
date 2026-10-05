@@ -2,6 +2,9 @@
 # Gate off-thread parsing and viewport delegates for a generated README of about 560 KiB.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
+. "$(dirname "$0")/qslog-gate.sh"
+# The one PreviewMarkdown the harness opens starts one parser WorkerScript for its large fixture, and Qt logs one connect line for it.
+preview_workers=1
 cd "$(dirname "$0")/.." || exit 1
 
 check_report() {
@@ -88,6 +91,7 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
+printf '%s\n' "$output" | qslog_nullptr "$preview_workers" markdown-lazy || exit 1
 if printf '%s\n' "$output" | grep -q 'MARKDOWN_LAZY FAIL'; then
     printf 'FAIL the lazy harness refused its fixture\n'
     printf '%s\n' "$output" | grep -aE 'MARKDOWN_LAZY|ERROR' | head -10

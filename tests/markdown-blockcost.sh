@@ -2,6 +2,7 @@
 # Gate that a Markdown block builds only its own kind: no block holds another kind's parts, and every kind stays under its object count.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
+. "$(dirname "$0")/qslog-gate.sh"
 cd "$(dirname "$0")/.." || exit 1
 
 # The fixture's maths run holds two distinct formulas, one of them twice, so its drawn state is two pictures.
@@ -198,6 +199,7 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout "$probe_timeout" qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
+printf '%s\n' "$output" | qslog_nullptr 0 markdown-blockcost || exit 1
 printf '%s\n' "$output" | grep -aE 'MARKDOWN_BLOCKCOST (doc|kind)=' | sed 's/ parts=.*//'
 if printf '%s\n' "$output" | grep -q 'MARKDOWN_BLOCKCOST FAIL'; then
     printf 'FAIL the harness refused its fixture\n'

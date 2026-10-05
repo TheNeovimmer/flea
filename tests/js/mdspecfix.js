@@ -5,6 +5,10 @@
 .import "../mdfence.js" as Fence
 
 // The parser defects the CommonMark and GFM conformance run (tests/markdown-spec.qml) found in GM's audit documents.
+// The task boxes as the writer pins them: one font family holds both glyphs.
+var PIN_OPEN = '<font face="Noto Sans Symbols 2">\u2610</font>'
+var PIN_DONE = '<font face="Noto Sans Symbols 2">\u2611</font>'
+
 function run(check) {
     var dir = "/home/gm/notes"
     var chrome = "#181825"
@@ -32,7 +36,7 @@ function run(check) {
 
     // A nested task item is an entry with the same box glyph a top-level item has.
     var tasks = blocks("- a\n  - [ ] open\n  - [x] done\n- [ ] top\n")[0]
-    check("nested task items draw their boxes", JSON.stringify(tasks.items), JSON.stringify(["a", "☐ open", "☑ done", "☐ top"]))
+    check("nested task items draw their boxes", JSON.stringify(tasks.items), JSON.stringify(["a", PIN_OPEN + " open", PIN_DONE + " done", PIN_OPEN + " top"]))
     check("nested task items sit one level down", JSON.stringify(tasks.depths), "[0,1,1,0]")
 
     // A tight list has no gap at any depth; a blank line between items, or inside an item, loosens its own list only.

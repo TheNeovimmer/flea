@@ -47,11 +47,20 @@ ShellRoot {
     property double stageAt: Date.now()
     property var keys: null
     property var prepare: null
+    // The prepare's worker Loader turns active once per WorkerScript it starts, and Qt 6.11.2 logs one connect warning for each.
+    property var workerLoader: null
+    property int workerStarts: 0
     // The first prepared parse of a run is the worker's; later opens reuse the entry Quick Look stored itself.
     property bool compared: false
 
     function log(line) { console.log("QLFF " + line) }
+    Connections {
+        target: root.workerLoader
+        function onActiveChanged() { if (root.workerLoader.active) root.workerStarts++ }
+    }
+    function watchWorkers() { root.workerLoader = root.workerLoader || root.find(root.prepare, "QQuickLoader") }
     function finish() {
+        root.log("WORKERS " + root.workerStarts)
         root.log("DONE steps=" + root.step + " failures=" + root.failures)
         Qt.exit(root.failures ? 1 : 0)
     }
@@ -273,13 +282,14 @@ ShellRoot {
             // The first poll that finds the prepare holds it, long before a listing and its rest can complete.
             if (root.stage === 0 && pane && root.pv() && root.forcedClass !== "" && !root.prepare) {
                 var held = root.find(root.pv(), "QuickLookPrepare")
-                if (held) { held.resting = false; root.prepare = held }
+                if (held) { held.resting = false; root.prepare = held; root.watchWorkers() }
             }
             if (root.stage === 0) {
                 if (!pane || pane.listInFlight || pane.listingState !== "ready" || pane.total < 2 || !pane.storageKnown) return
                 root.keys = Qt.createQmlObject("import QtTest; TestEvent {}", pane.listArea)
                 root.prepare = root.prepare || root.find(root.pv(), "QuickLookPrepare")
                 if (!root.prepare) { root.fail("the preview has no QuickLookPrepare"); root.finish(); return }
+                root.watchWorkers()
                 root.forceClass()
                 // The class is forced, so the held prepare rests again and the cursor's rest starts over under it.
                 root.prepare.resting = true
