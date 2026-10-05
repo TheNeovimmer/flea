@@ -72,8 +72,8 @@ Item {
     // Only the active file in Rendered view may request figures.
     readonly property bool figuresArmed: root.active && root.shownView !== Markdown.SOURCE
     // A parsed document that may ask for figures starts the helper at once, so it is warm when the first one is asked for.
-    readonly property var warmBlocks: root.figuresArmed && root.blocksReady && file.loaded && !root.tooLarge ? root.blockList : []
-    readonly property bool hasFigures: root.warmBlocks.some(function (block) { return block.type === "figure" })
+    readonly property var warmBlocks: root.figuresArmed && root.blocksReady && file.loaded && !root.tooLarge ? Markdown.figuresIn(root.blockList, []) : []
+    readonly property bool hasFigures: root.warmBlocks.length > 0
     // An unplaced figure, made only for a document with figures, whose theme is the one every figure here is asked under.
     Loader {
         id: themeProbe

@@ -29,7 +29,12 @@ ShellRoot {
     property bool heldRan: false
     property var placedKeys: []
     property int placedDone: 0
+    property int placedWant: 2
+    // The nested and mixed documents' figures sit inside an item and a quote, two depths down.
+    property string nestPath: ""
     readonly property string document: Quickshell.env("FLEA_FIGURE_STORE_DOC")
+    readonly property string nestedDocument: Quickshell.env("FLEA_FIGURE_NEST_DOC")
+    readonly property string mixedDocument: Quickshell.env("FLEA_FIGURE_MIXED_DOC")
     readonly property string holdPath: Quickshell.env("FLEA_STORE_HOLD")
     readonly property string gatePath: Quickshell.env("FLEA_STORE_GATE")
     readonly property int idleExitMs: 150
@@ -149,10 +154,10 @@ ShellRoot {
               shell.check(svg === shell.largeSvg && service.sends === shell.sendsMark && disk.hits === shell.hitsMark + 1, "the put that an idle stop followed at once is on disk")
           } },
         // A document's maths and Mermaid figures are drawn by a real pane and land on disk under the keys its placed figures asked.
-        { act: function () { shell.forgetMemory(); drawPane.active = true },
+        { act: function () { shell.placedWant = 2; shell.forgetMemory(); drawPane.active = true },
           drawn: function (service) {
               shell.placedDone++
-              if (shell.placedDone < 2)
+              if (shell.placedDone < shell.placedWant)
                   return
               shell.placedKeys = Object.keys(service.answerCache).sort()
               shell.check(shell.placedKeys.length === 2 && shell.placedKeys[0].indexOf("math\n") === 0 && shell.placedKeys[1].indexOf("mermaid\n") === 0, "a pane's placed maths and Mermaid figures are both drawn, under two keys")
@@ -164,8 +169,56 @@ ShellRoot {
               shell.check(all === true, "a fresh pane's warm query finds every placed figure already on disk")
               shell.check(service.warmKeys.slice().sort().join("\u0001") === shell.placedKeys.join("\u0001"), "the warm query names exactly the keys the placed figures put")
               shell.check(!service.helperRunning && !service.starting && service.sends === shell.sendsMark, "a document whose figures are on disk starts no helper")
-          } }
+          } },
+        // A document whose only figures sit inside an item and a quote, a quote in an item in a quote included, draws them all.
+        { act: function () { shell.drawNested(shell.nestedDocument, 4) },
+          drawn: function (service) { shell.nestedDrawn(service, 4, "nested-only") } },
+        { act: function () { shell.warmNested() },
+          known: function (all, service) { shell.nestedWarmed(all, service, "nested-only") } },
+        // A mixed document, a top-level figure and nested ones, draws them all too.
+        { act: function () { shell.drawNested(shell.mixedDocument, 5) },
+          drawn: function (service) { shell.nestedDrawn(service, 5, "mixed") } },
+        { act: function () { shell.warmNested() },
+          known: function (all, service) { shell.nestedWarmed(all, service, "mixed") } }
     ]
+
+    function drawNested(path, want) {
+        shell.placedWant = want
+        shell.nestPath = path
+        shell.forgetMemory()
+        nestProbe.active = false
+        nestDraw.active = true
+    }
+
+    function nestedDrawn(service, want, label) {
+        shell.placedDone++
+        if (shell.placedDone < want)
+            return
+        shell.placedKeys = Object.keys(service.answerCache).sort()
+        shell.check(shell.placedKeys.length === want, "a " + label + " pane draws its " + want + " figures, under " + want + " keys")
+        shell.verdictDone()
+    }
+
+    function warmNested() {
+        shell.forgetMemory()
+        nestDraw.active = false
+        nestProbe.active = true
+    }
+
+    // The probe pane has no warm request once its document is parsed when the warm path never saw a figure, and then no reply comes.
+    function nestedGuard() {
+        var current = shell.cases[shell.index]
+        if (!current || !current.known || nestProbe.item === null || nestProbe.item.warmRequest !== null)
+            return
+        shell.check(false, "a warmed pane's document with figures makes a warm request")
+        shell.verdictDone()
+    }
+
+    function nestedWarmed(all, service, label) {
+        shell.check(all === true, "a fresh pane's warm query finds every " + label + " figure already on disk")
+        shell.check(service.warmKeys.slice().sort().join("\u0001") === shell.placedKeys.join("\u0001"), "the " + label + " warm query names exactly the keys the placed figures put")
+        shell.check(!service.helperRunning && !service.starting && service.sends === shell.sendsMark, "a " + label + " document whose figures are on disk starts no helper")
+    }
 
     function drew(svg, error) { return svg.indexOf("<svg") === 0 && error === "" }
 
@@ -278,6 +331,45 @@ ShellRoot {
             view: "rendered"
             path: shell.document
             size: 1
+        }
+    }
+
+    FloatingWindow {
+        implicitWidth: 1120
+        implicitHeight: 600
+        color: "#101315"
+
+        Loader {
+            id: nestDraw
+            active: false
+            width: 560
+            height: 600
+            sourceComponent: Flea.PreviewMarkdown {
+                active: true
+                view: "rendered"
+                path: shell.nestPath
+                size: 1
+            }
+        }
+        Loader {
+            id: nestProbe
+            active: false
+            x: 560
+            width: 560
+            height: 600
+            sourceComponent: Flea.PreviewMarkdown {
+                active: true
+                view: "rendered"
+                path: shell.nestPath
+                size: 1
+            }
+        }
+        Connections {
+            target: nestProbe.item
+            function onContentReadyChanged() {
+                if (nestProbe.item.contentReady)
+                    Qt.callLater(shell.nestedGuard)
+            }
         }
     }
 

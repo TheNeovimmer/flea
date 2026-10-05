@@ -144,4 +144,8 @@ function run(check) {
         var figure = held(wrap("See text\n```mermaid\ngraph TD\n```"))
         check(at + " draws a mermaid fence as a display figure part", JSON.stringify(figure.map(function (p) { return [p.type, p.kind, p.display] })), JSON.stringify([["run", undefined, undefined], ["figure", "mermaid", true]]))
     })
+
+    // The warm walk finds every figure in document order: top level, in an item, in a quote, and a quote in an item in a quote.
+    var walked = Markdown.figuresIn(blocks("$$\na\n$$\n\n- x\n  ```math\n  b\n  ```\n\n> ```mermaid\n> c\n> ```\n\n> - y\n>   > ```math\n>   > d\n>   > ```\n"), [])
+    check("the warm walk names every figure, nested ones included, in document order", walked.map(function (f) { return f.source.trim() }).join(","), "a,b,c,d")
 }

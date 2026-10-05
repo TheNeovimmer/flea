@@ -58,15 +58,19 @@ chmod +x "$test_root/gate-bin/flea" || exit 1
 # A document with one maths and one Mermaid figure no other case draws, for the pane that draws it and the fresh pane that only warms.
 printf '# Placed\n\n```math\n\\frac{p}{q}+\\sqrt{r}\n```\n\n```mermaid\nflowchart TD\n    P --> Q\n```\n' > "$test_root/placed.md"
 
+# Figures only inside an item and a quote (a quote in an item in a quote too), then the same with a top-level figure.
+printf '# Nested\n\n- point\n  ```math\n  \\frac{n}{m}\n  ```\n\n> ```mermaid\n> flowchart TD\n>     N --> M\n> ```\n\n- outer\n  > inner\n  >\n  > - leaf\n  >   ```math\n  >   \\sqrt{u}+v\n  >   ```\n  >\n  > ```mermaid\n  > flowchart TD\n  >     U --> V\n  > ```\n' > "$test_root/nested.md"
+{ printf '# Mixed\n\n```math\n\\frac{t}{w}\n```\n\n'; tail -n +3 "$test_root/nested.md" | sed 's/N --> M/X --> Y/;s/n}{m/s}{o/;s/sqrt{u}+v/sqrt{k}+j/;s/U --> V/J --> K/'; } > "$test_root/mixed.md"
+
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$test_root/gate-bin/flea" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
-    FLEA_FIGURE_STORE_DOC="$test_root/placed.md" FLEA_STORE_HOLD="$test_root/hold" FLEA_STORE_GATE="$test_root/gate" \
+    FLEA_FIGURE_STORE_DOC="$test_root/placed.md" FLEA_FIGURE_NEST_DOC="$test_root/nested.md" FLEA_FIGURE_MIXED_DOC="$test_root/mixed.md" FLEA_STORE_HOLD="$test_root/hold" FLEA_STORE_GATE="$test_root/gate" \
     QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 120 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$output" | grep -aoE 'FIGURE_STORE .*'
 # Sample input: FIGURE_STORE 21 checks, 0 failed.
-expected=21
+expected=29
 if ! printf '%s\n' "$output" | grep -qE "FIGURE_STORE $expected checks, 0 failed$"; then
     printf 'figure-store.sh: FAIL expected %s checks, 0 failed\n' "$expected"
     printf '%s\n' "$output" | grep -aE 'ERROR|TypeError|ReferenceError|flea:' | head -10
