@@ -107,13 +107,15 @@ QtObject {
         const landing = new Function('root', 'Markdown', 'text', 'dir', 'chrome', 'ink', 'deep', body('function parseNow('));
         const restore = new Function('root', 'body', body('function restoreScroll()'));
         const remember = new Function('root', 'body', body('function rememberScroll()'));
-        const list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: 0, height: 0, contentY: 0 };
+        const list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: 0, height: 0, contentY: 0, contentItem: { children: [] } };
+        const topBlock = new Function('root', 'body', body('function topBlockItem()'));
         function wired(r) {
             r.dropParse = () => drop(r);
             r.pointFile = () => {}; // quicklook-firstframe judges the pointing, the path handler only needs it callable
             r.parseNow = (text, dir, chrome, ink, deep) => landing(r, Markdown, text, dir, chrome, ink, deep);
             r.restoreScroll = () => restore(r, list);
             r.rememberScroll = () => remember(r, list);
+            r.topBlockItem = () => topBlock(r, list);
             return r;
         }
         // The fallback timer's handler, searched from its own id so an earlier Timer's handler is never the one found.

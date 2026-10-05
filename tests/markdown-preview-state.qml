@@ -82,7 +82,8 @@ QtObject {
         var landing = new Function("root", "Markdown", "text", "dir", "chrome", "ink", "deep", body(source, "function parseNow("))
         var restore = new Function("root", "body", body(source, "function restoreScroll()"))
         var remember = new Function("root", "body", body(source, "function rememberScroll()"))
-        var list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: 0, height: 0, contentY: 0 }
+        var list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: 0, height: 0, contentY: 0, contentItem: { children: [] } }
+        root.topBlockItem = function () { return placeHelper(source, "function topBlockItem()")(root, list) }
         root.dropParse = function () { drop(root) }
         root.parseNow = function (text, dir, chrome, ink, deep) { landing(root, markdown, text, dir, chrome, ink, deep) }
         root.restoreScroll = function () { restore(root, list) }
@@ -115,14 +116,20 @@ QtObject {
             && !root.loading && root.status === "This file could not be read.", "F42 throwing fallback settles error")
 
         // A path change or a failed load drops keepScroll and leaves heldY, so the next place taken must clear it.
-        var held = { keepScroll: false, heldY: 40, savedY: 0 }
+        var held = { keepScroll: false, heldY: 40, savedY: 0, topBlockItem: function () { return null } }
         remember(held, { contentY: 300 })
         check(held.keepScroll && held.savedY === 300 && isNaN(held.heldY), "F43 a new place starts with no hold waiting")
     }
 
+    // One shipped place helper bound to a stub root and list, run with the root's own helpers.
+    function placeHelper(source, header) {
+        var fn = new Function("root", "body", body(source, header))
+        return function (root, list) { return fn(root, list) }
+    }
+
     // A stub root and list running the shipped place functions; assigning blockList resets the list to its top, as the real model does.
     function holdStub(source) {
-        var list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: holdContentPx, height: holdViewPx, contentY: 0 }
+        var list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: holdContentPx, height: holdViewPx, contentY: 0, contentItem: { children: [] } }
         var root = { keepScroll: false, heldY: NaN, savedY: 0, settingBlocks: false, samePlacePx: 1, parseSeq: 3,
             appliedSeq: 2, parsing: true, parseError: "", parsedOffThread: false, askedAny: true, blocksSet: 0 }
         var blocks = []
@@ -132,6 +139,7 @@ QtObject {
         var remember = new Function("root", "body", body(source, "function rememberScroll()"))
         var restore = new Function("root", "body", body(source, "function restoreScroll()"))
         root.releaseHeldPlace = function () { release(root, list) }
+        root.topBlockItem = function () { return placeHelper(source, "function topBlockItem()")(root, list) }
         root.rememberScroll = function () { remember(root, list) }
         root.restoreScroll = function () { restore(root, list) }
         return { root: root, list: list }
