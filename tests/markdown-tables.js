@@ -50,7 +50,7 @@ function geometry(table, avail, tx) {
     var cells = cellsOf(table).map(function (cell) {
         var at = cell.mapToItem(table, 0, 0)
         return { text: cell.text, x: Math.round(at.x), y: Math.round(at.y), w: Math.round(cell.width), h: Math.round(cell.height),
-            content: Math.round(cell.contentWidth), lines: Math.round(cell.contentHeight / cell.box), align: cell.horizontalAlignment }
+            content: Math.round(cell.contentWidth), lines: Math.round(cell.contentHeight / cell.box), align: cell.effectiveHorizontalAlignment }
     })
     return { measurers: all(table, "measurer").map(function (m) { return { text: m.text, w: Math.round(m.implicitWidth) } }), w: Math.round(table.width), h: Math.round(table.height), tx: tx, avail: Math.round(avail), glyph: table.glyphPx, gap: table.cellGap, cells: cells }
 }
@@ -71,7 +71,7 @@ function fitError(geo) {
     return ""
 }
 
-// Where a cell's widest line starts and ends: Qt places it by the cell's alignment, so an overflowing right cell starts left of its x.
+// Where a cell's widest line starts and ends: Qt places it by the cell's effective alignment, so an overflowing right cell starts left of its x.
 function inkSpan(cell) {
     var start = cell.align === Qt.AlignRight ? cell.w - cell.content : cell.align === Qt.AlignHCenter ? (cell.w - cell.content) / 2 : 0
     return { start: cell.x + start, end: cell.x + start + cell.content }
