@@ -363,6 +363,31 @@ capmarkdownkinds_shoot() {
     settle
     [[ "$(ipc previewOpen)" == "false" ]] || fail "capmarkdownkinds: Escape did not close Quick Look on $name"
 }
+# The table torture documents (tests/fixtures/markdown-tables) shot on the display box in Quick Look, then each in the narrow preview column.
+case_cap_markdown_tables() {
+    local dir="$fixture_root/capmarkdowntables" doc name results=""
+    sandbox_scratch "$dir"
+    mkdir -p "$dir/listing"
+    cp "$repo"/tests/fixtures/markdown-tables/*.md "$dir/listing/"
+    launch "$dir/listing"
+    wait_listing "$(find "$dir/listing" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+    for doc in "$dir"/listing/*.md; do
+        name="${doc##*/}"
+        capmarkdownkinds_open "$name"
+        capmarkdownkinds_shoot "$name"
+        results+="${name%.md}=ok "
+    done
+    switch_view columns
+    for doc in "$dir"/listing/*.md; do
+        name="${doc##*/}"
+        goto_row "$(row_index_of "$name")"
+        settle
+        capmarkdown_wait_column_rendered
+        shot "cap-markdown-kind-column-${name%.md}"
+    done
+    printf 'CAPMARKDOWNTABLES %scolumns=ok\n' "$results"
+    kill_flea
+}
 # Every Markdown kind the stage draws beyond notes.md, shot on the display box: GFM tables, a README in raw HTML, a badge row, nesting with pictures inside blocks, and figures. Cases ql-markdown-tables, -html, -badges, -nesting and -figures in ci/visual/lane/cases.sh draw the same text headless.
 case_cap_markdown_kinds() {
     local dir="$fixture_root/capmarkdownkinds" figs="" name results=""
