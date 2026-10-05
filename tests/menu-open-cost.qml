@@ -96,9 +96,10 @@ ShellRoot {
             check(path + " open " + sample + " opened", menu.opened)
             // Equal is the target: fewer would mean the fit was not read, or this is not the library the menu imports.
             check(path + " open " + sample + " read " + reads + " times for " + builds + " builds", builds >= 1 && reads === readsPerBuild * builds)
-            // A long label widens the card past its base width once the rows stand, so a fit held at the base fails here.
+            // A long label widens the card past its base width and past the list it replaces, so a held or stale fit fails here.
+            var widthBefore = menu.frameItem.width
             menu.setEntries([{ label: longLabel, action: "open" }, { label: "Short", action: "copy" }])
-            check(path + " open " + sample + " card widens for a long label", menu.frameItem.width > Flea.Theme.menuWidth)
+            check(path + " open " + sample + " card widens for a long label", menu.frameItem.width > Math.max(Flea.Theme.menuWidth, widthBefore))
             log("open " + sample + " " + path + " reads=" + reads + " builds=" + builds + " frame_ms=" + (tFrame - tPlace))
             menu.close()
             sample += 1
