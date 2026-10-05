@@ -3510,6 +3510,8 @@ The columns-watch work records two ceilings, each re-derived with `wc -l` at the
 
 rflake 2026-10-05 (the exact-wait test compared least overshoots against a 2.5 ms bound and missed 3 in 12 loaded runs at 2.51, 4.44 and 3.49 ms, scheduler spikes under saturation, never the product) moves one ceiling, re-derived with `wc -l`: `src/backend/gvfslist.rs` 549 to 560 for the hardened estimator (64 samples with two warmup pairs, per-side lower quarter instead of least, same GAP, SLOWEST_CAUGHT, threshold and attempts; the restored 20 ms poll loop still fails it at 4.99 ms). Global limits and all checks remain intact.
 
+clipjoin 2026-10-05 records `src/clip/watch_end_tests.rs` at 406, re-derived with `wc -l`: the waiter-join pin reads each waiter thread's `PF_EXITING` flag from `/proc` (`waiters_joined`, three named stat constants) and holds a stopped waiter for `WAITER_STOP_HOLD_MS`, beside the end tests it guards rather than in a second file. Global limits and all checks remain intact.
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.
