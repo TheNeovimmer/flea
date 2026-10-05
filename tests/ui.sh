@@ -10490,6 +10490,42 @@ EOS
     sandbox_remove "$fixture_home"
 }
 
+# The expected rows sit on one disk and no other row of that disk is on the rail; both switch legs share this check.
+fsdevice_same_disk() {
+    local expected="$1" label dev pk disk="" others want
+    for label in $expected; do
+        dev=$(fs_row_device "$label")
+        [[ -n "$dev" && "$dev" != "null" ]] || fail "fsdevice: $label carries no device node"
+        # A whole-disk device (the isohybrid layout) has no parent, so it is its own disk.
+        pk=$(lsblk -dno PKNAME "$dev" 2>/dev/null) || fail "fsdevice: lsblk cannot name the parent of $dev"
+        if [[ -z "$pk" ]]; then pk=$(lsblk -dno KNAME "$dev" 2>/dev/null) || fail "fsdevice: lsblk cannot name the disk $dev"; fi
+        if [[ -z "$disk" ]]; then disk="$pk"; elif [[ "$disk" != "$pk" ]]; then fail "fsdevice: expected rows span two disks, $disk and $pk"; fi
+    done
+    # Both sides go through jq, so one byte order sorts them; a row with no device counts as none.
+    others=$(ipc railEntries | jq -r --arg d "/dev/$disk" '[.[] | select(.group == "device" and ((.device // "") | startswith($d))) | .label] | sort | join(",")')
+    want=$(printf '%s\n' "$expected" | jq -R . | jq -sr 'sort | join(",")')
+    [[ "$others" == "$want" ]] || fail "fsdevice: disk $disk carries [$others], not just [$want]"
+}
+
+# Show unmounted off keeps a stick's unmounted rows (Devices.js collectVolumes), and no hidden partition of its disk joins them.
+fsdevice_switch_off() {
+    local layout="$1" expected="$2" label end mounted
+    for label in $expected; do
+        # A row can be absent for a poll after the unmount, so read it until it reads false or the wait runs out.
+        end=$((SECONDS + unmount_wait_s)); mounted=""
+        while :; do
+            mounted=$(fs_row_mounted "$label")
+            [[ "$mounted" == "false" ]] && break
+            (( SECONDS < end )) || break
+            sleep 0.5
+        done
+        [[ "$mounted" == "false" ]] \
+            || fail "fsdevice: $label is not a rail row marked unmounted with showUnmounted off, last mounted value '$mounted', rows are: $(fs_rail_labels | tr '\n' ',')"
+    done
+    fsdevice_same_disk "$expected"
+    printf 'FSDEVICE %s switch-off=ok\n' "$layout"
+}
+
 # The native filesystem round (ROOTCAUSE.md section 5, piece 3), driven on minipc against the real
 # stick the controller prepared from tests/fs-stick-images.sh. Given FLEA_FS_LAYOUT (one of vfat,
 # exfat, ntfs3, espdata, espmsrswap, isohybrid) and FLEA_FS_EXPECTED (that layout's expected-rows
@@ -10500,7 +10536,7 @@ EOS
 # case's own fixture dir. Reads go through the existing Ipc readers and real ls and gio; every
 # action is a key or a click.
 case_fsdevice() {
-    local layout="${FLEA_FS_LAYOUT:-}" expected_json="${FLEA_FS_EXPECTED:-}"
+    local layout="${FLEA_FS_LAYOUT:-}" expected_json="${FLEA_FS_EXPECTED:-}" trash_checks=0
     case "$layout" in vfat|exfat|ntfs3|espdata|espmsrswap|isohybrid) ;;
         *) fail "fsdevice: set FLEA_FS_LAYOUT to a stick layout, got '$layout'" ;;
     esac
@@ -10524,14 +10560,25 @@ case_fsdevice() {
     fs_row_device() { ipc railEntries | jq -r --arg l "$1" '.[] | select(.group == "device" and .label == $l) | .device'; }
     fs_row_path() { ipc railEntries | jq -r --arg l "$1" '.[] | select(.group == "device" and .label == $l) | .path'; }
     fs_row_mounted() { ipc railEntries | jq -r --arg l "$1" '.[] | select(.group == "device" and .label == $l) | .mounted'; }
+    # The operation's own "... · z undoes" line is written after the drive confirms and the journal holds it; undo before that answers busy.
+    local confirm_wait_s=90
+    fs_wait_said() {
+        local want="$1" said_end=$((SECONDS + confirm_wait_s)) seen=""
+        while (( SECONDS < said_end )); do
+            seen=$(ipc lastMessage)
+            [[ "$seen" == "$want" ]] && return 0
+            sleep 0.2
+        done
+        fail "fsdevice: the status bar never said: $want, last message: $seen"
+    }
 
-    # Unmount any expected row first, so the switch-off leg below sees unmounted rows, not udiskie's.
+    # Unmount any expected row first, so the switch-off leg below reads rows that stay marked unmounted.
     seed_ui_state "$fixture_root/fsdevice-state-off" '{"places":{"showUnmounted":false}}'
     export HOME="$fixture_home"
     launch "$dir"
     export HOME="$real_home"
     wait_listing 1
-    local label dev mnt
+    local label mnt
     for label in $expected; do
         mnt=$(fs_row_path "$label")
         if [[ -n "$mnt" && "$mnt" != "null" && "$mnt" != "" ]]; then
@@ -10545,14 +10592,7 @@ case_fsdevice() {
         while (( SECONDS < end )); do [[ "$(fs_row_mounted "$label")" != "true" ]] && break; sleep 0.5; done
         [[ "$(fs_row_mounted "$label")" != "true" ]] || fail "fsdevice: $label is still mounted after the unmount"
     done
-    # Switch off: an unmounted data row stays off the rail, the 0.2.1 rail this switch promises.
-    for label in $expected; do
-        end=$((SECONDS + unmount_wait_s))
-        while (( SECONDS < end )); do fs_rail_labels | grep -Fxq "$label" || break; sleep 0.5; done
-        fs_rail_labels | grep -Fxq "$label" \
-            && fail "fsdevice: $label is a row with showUnmounted off while unmounted"
-    done
-    printf 'FSDEVICE %s switch-off=ok\n' "$layout"
+    fsdevice_switch_off "$layout" "$expected"
     kill_flea
 
     # Switch on: expected rows only, same-disk scope keeps the host ESP and swap out.
@@ -10561,20 +10601,19 @@ case_fsdevice() {
     launch "$dir"
     export HOME="$real_home"
     wait_listing 1
-    local disk pk
-    disk=""
+    local rows
     for label in $expected; do
-        fs_rail_labels | grep -Fxq "$label" || fail "fsdevice: $label is no row with showUnmounted on, rows are: $(fs_rail_labels | tr '\n' ',')"
-        dev=$(fs_row_device "$label")
-        [[ -n "$dev" && "$dev" != "null" ]] || fail "fsdevice: $label carries no device node"
-        pk=$(lsblk -no PKNAME "$dev" 2>/dev/null) || fail "fsdevice: lsblk cannot name the parent of $dev"
-        if [[ -z "$disk" ]]; then disk="$pk"; elif [[ "$disk" != "$pk" ]]; then fail "fsdevice: expected rows span two disks, $disk and $pk"; fi
+        # The row arrives on the 5 s device poll after launch, so poll for it; the failure names the rows last seen.
+        end=$((SECONDS + unmount_wait_s))
+        rows=$(fs_rail_labels)
+        until grep -Fxq "$label" <<< "$rows"; do
+            (( SECONDS < end )) || fail "fsdevice: $label is no row with showUnmounted on, rows are: $(tr '\n' ',' <<< "$rows")"
+            sleep 0.5
+            rows=$(fs_rail_labels)
+        done
     done
-    local others
-    others=$(ipc railEntries | jq -r --arg d "/dev/$disk" '[.[] | select(.group == "device" and (.device | startswith($d))) | .label] | join(",")')
-    [[ "$others" == "$(tr '\n' ',' <<< "$expected" | sed 's/,$//')" ]] \
-        || fail "fsdevice: disk $disk carries [$others], not just the expected rows"
-    printf 'FSDEVICE %s switch-on rows=%s\n' "$layout" "$others"
+    fsdevice_same_disk "$expected"
+    printf 'FSDEVICE %s switch-on rows=%s\n' "$layout" "$(tr '\n' ',' <<< "$expected" | sed 's/,$//')"
 
     # Mount on activation: the row opens at its mountpoint with no false timer message.
     seek_row_named copy-me.bin
@@ -10589,17 +10628,17 @@ case_fsdevice() {
     done
     [[ -n "$mnt" && "$mnt" != "null" ]] || fail "fsdevice: activating $want1 mounted nothing"
     wait_path "$mnt"
-    wait_listing 1
+    # The window now shows the stick root, which holds the seeded tree, so the listing settles at ls -A's count.
+    local want_sorted="$dir/ls-want" want_n have_n vis cap i row built built_names
+    ls -A "$mnt" | sort > "$want_sorted"
+    want_n=$(wc -l < "$want_sorted" | tr -d ' ')
+    wait_listing "$want_n"
     [[ "$(ipc lastMessage)" != *"mounted but never reported"* ]] \
         || fail "fsdevice: the 15 s timer fired over a mount that landed: $(ipc lastMessage)"
     [[ -f "$mnt/thumb.png" ]] || fail "fsdevice: $mnt holds no seeded tree, refusing to run against the wrong disk"
     printf 'FSDEVICE %s mount=%s\n' "$layout" "$mnt"
 
     # Open and list against ls: total matches ls -A, built first-screen rows are members.
-    local want_sorted="$dir/ls-want" want_n have_n vis cap i row built built_names
-    ls -A "$mnt" | sort > "$want_sorted"
-    want_n=$(wc -l < "$want_sorted" | tr -d ' ')
-    wait_listing "$want_n"
     have_n=$(ipc total)
     [[ "$have_n" == "$want_n" ]] || fail "fsdevice: the listing holds $have_n rows, ls -A holds $want_n"
     vis=$(ipc visibleRows)
@@ -10627,6 +10666,11 @@ case_fsdevice() {
         while (( SECONDS < end )); do [[ "$(ipc lastMessage)" == *"cannot be written"* ]] && break; sleep 0.5; done
         [[ "$(ipc lastMessage)" == *"cannot be written"* ]] || fail "fsdevice: the read-only paste said $(ipc lastMessage)"
         [[ ! -e "$mnt/copy-me.bin" ]] || fail "fsdevice: the read-only paste landed on $mnt"
+        # The refusal is an error that stands until Escape, and a standing error hides every later notice, the eject verdict included.
+        key -k Escape >/dev/null
+        end=$((SECONDS + 10))
+        while (( SECONDS < end )); do [[ "$(ipc statusError)" == "false" ]] && break; sleep 0.2; done
+        [[ "$(ipc statusError)" == "false" ]] || fail "fsdevice: Escape left the refusal standing: $(ipc lastMessage)"
         click_row 0 right
         settle
         [[ "$(ipc contextMenuEntries)" != *"Move to Trash"* ]] || fail "fsdevice: a read-only volume offers Move to Trash"
@@ -10636,14 +10680,13 @@ case_fsdevice() {
     else
     # One copy in through the clipboard, verified by bytes, then undone.
     key p >/dev/null
-    end=$((SECONDS + 30))
-    while (( SECONDS < end )); do [[ -f "$mnt/copy-me.bin" ]] && break; sleep 0.2; done
+    fs_wait_said "Copied 1 item · z undoes"
     [[ -f "$mnt/copy-me.bin" ]] || fail "fsdevice: the paste never landed on $mnt"
     cmp -s "$dir/copy-me.bin" "$mnt/copy-me.bin" || fail "fsdevice: the pasted bytes differ"
     key z >/dev/null
     end=$((SECONDS + 20))
     while (( SECONDS < end )); do [[ ! -e "$mnt/copy-me.bin" ]] && break; sleep 0.2; done
-    [[ ! -e "$mnt/copy-me.bin" ]] || fail "fsdevice: undo left the pasted copy behind"
+    [[ ! -e "$mnt/copy-me.bin" ]] || fail "fsdevice: undo left the pasted copy behind, last message: $(ipc lastMessage)"
     printf 'FSDEVICE %s copy-in undo=ok\n' "$layout"
 
     # Trash through dd, proving the volume's own trash dir, then restore from the Trash view.
@@ -10659,17 +10702,14 @@ case_fsdevice() {
     trash_before=$(ipc trashState | jq -r '.count')
     key d >/dev/null
     key d >/dev/null
-    end=$((SECONDS + 20))
-    while (( SECONDS < end )); do [[ ! -e "$mnt/trash-me.txt" ]] && break; sleep 0.2; done
+    fs_wait_said "Moved 1 item to Trash · z undoes"
     [[ ! -e "$mnt/trash-me.txt" ]] || fail "fsdevice: dd left trash-me.txt on the volume"
     trash_uid=$(id -u)
     [[ -d "$mnt/.Trash-$trash_uid" ]] || fail "fsdevice: no .Trash-$trash_uid at the volume root"
-    [[ "$(ipc trashState | jq -r '.count')" == "$((trash_before + 1))" ]] \
-        || fail "fsdevice: the trash count did not move by one"
+    trash_wait ".count == $((trash_before + 1))" "trash count moves by one"
     click_rail_row "$(rail_row_of Trash)" left
-    end=$((SECONDS + 20))
-    while (( SECONDS < end )); do [[ "$(ipc trashState | jq -r '.opened')" == "true" ]] && break; sleep 0.2; done
-    [[ "$(ipc trashState | jq -r '.opened')" == "true" ]] || fail "fsdevice: the Trash view never opened"
+    # The view is opened before its list reply, so wait for the row itself with the view idle, which restore needs.
+    trash_wait ".opened == true and .busy == false and any(.rows[]?; .original == $(jq -Rn --arg o "$mnt/trash-me.txt" '$o'))" "the Trash view lists trash-me.txt"
     trash_idx=$(ipc trashState | jq -r --arg o "$mnt/trash-me.txt" '.rows | to_entries[] | select(.value.original == $o) | .key' | head -1)
     [[ -n "$trash_idx" && "$trash_idx" != "null" ]] || fail "fsdevice: trash-me.txt is no row in the Trash view"
     trash_click trashRowCentre "$trash_idx" right
