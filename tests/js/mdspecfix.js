@@ -180,10 +180,10 @@ function run(check) {
     check("literal and reference spaces alternate into one line-end run", blocks("x " + (spaceRef + " ").repeat(floodLength) + "\ny\n")[0].text, "x\ny\n")
     // A line of only space references is not blank for Qt (it would split the paragraph), and draws nothing.
     var spaceLine = blocks("a\n" + spaceRef + "\nb\n")
-    check("a line of one space reference keeps one paragraph", spaceLine.length + ":" + spaceLine[0].text.indexOf("\n\n"), "1:-1")
+    check("a line of one space reference keeps one paragraph", spaceLine.length + ":" + spaceLine[0].text.search(/\n[ \t]*\n/), "1:-1")
     var spaceBreak = blocks("a\n" + spaceRef + "  \nb\n")
-    check("a space reference line with two spaces keeps one paragraph", spaceBreak.length + ":" + spaceBreak[0].text.indexOf("\n\n"), "1:-1")
+    check("a space reference line with two spaces keeps one paragraph", spaceBreak.length + ":" + spaceBreak[0].text.search(/\n[ \t]*\n/), "1:-1")
     check("a space reference line with two spaces draws one line break", (spaceBreak[0].text.match(/<br \/>|\\\n|  \n/g) || []).length, 1)
     var spaceLines = blocks("a\n" + spaceRef.repeat(floodLength) + "\nb\n")
-    check("a line of a space reference run keeps one paragraph", spaceLines.length + ":" + spaceLines[0].text.indexOf("\n\n"), "1:-1")
+    check("a line of a space reference run keeps one paragraph", spaceLines.length + ":" + spaceLines[0].text.search(/\n[ \t]*\n/), "1:-1")
 }

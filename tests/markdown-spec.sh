@@ -2,7 +2,7 @@
 # Feed every CommonMark 0.31.2 and GFM extension example through the Markdown parser and Qt's drawing, and hold each section to its recorded count.
 set -u
 cd "$(dirname "$0")/.." || exit 1
-# The CommonMark 0.31.2 examples (652), the GFM extension examples (24), the table forms (13) the entity forms (12) and the definition forms (1) in tests/fixtures/markdown-spec.
+# The CommonMark 0.31.2 examples (652), the GFM extension examples (24), the table forms (13) the entity forms (14) and the definition forms (1) in tests/fixtures/markdown-spec.
 expected_examples=704
 harness_seconds=280
 
