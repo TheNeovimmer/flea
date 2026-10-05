@@ -10,6 +10,8 @@ QtObject {
     readonly property int shortBlocks: 26
     readonly property int shortPx: 40
     readonly property int tallBlocks: 3
+    // A list of equal one-line blocks, where the list's estimate of its height is exact.
+    readonly property int uniformBlocks: 30
     readonly property int tallPx: 700
     readonly property int viewPx: 400
     readonly property int insetPx: 16
@@ -85,6 +87,7 @@ QtObject {
         var hold = new Function("root", "body", body(source, "function holdEnd()"))
         root.holdEnd = function () { hold(root, list) }
         list.contentHeightChanged.connect(new Function("root", handler(source, "onContentHeightChanged")).bind(null, root))
+        list.contentYChanged.connect(new Function("root", handler(source, "onContentYChanged")).bind(null, root))
         list.model = heights
         gate.settle(list)
         return { list: list, root: root }
@@ -159,6 +162,29 @@ QtObject {
         list.destroy()
     }
 
+    // The control with a list whose estimate is exact, so no height change is seen while the reader walks to the end and builds the last block.
+    function uniformChecks(source, cache) {
+        var heights = []
+        for (var i = 0; i < uniformBlocks; i++)
+            heights.push(shortPx)
+        var shown = build(source, cache, heights)
+        var list = shown.list
+        var changes = 0
+        list.contentHeightChanged.connect(function () { changes++ })
+        var reached = false
+        for (var n = 0; n < reachLimit && !reached; n++) {
+            gate.wheel(list)
+            reached = shown.root.blockItem(list.count - 1) !== null && list.atYEnd
+        }
+        check(reached && changes === 0, "the uniform reader reaches the end with the last block built and no height change seen (" + changes + " changes)")
+        var before = endOf(list)
+        list.tailPx = pictureGrowPx
+        settle(list)
+        check(list.atYEnd && endOf(list) === before + pictureGrowPx && Math.abs(list.contentY - endOf(list)) < followTolerancePx,
+            "a reader at a drawn end follows a picture that grows the last block after a quiet walk (at " + list.contentY + " of " + endOf(list) + ")")
+        list.destroy()
+    }
+
     function run() {
         var source = readSource("../ui/PreviewMarkdown.qml")
         var cache = shippedCache(source)
@@ -170,6 +196,7 @@ QtObject {
         }
         walkChecks(source, cache)
         followChecks(source, cache)
+        uniformChecks(source, cache)
         console.log("MARKDOWN_ENDHOLD " + checks + " checks, " + failures + " failed")
         Qt.exit(failures ? 1 : 0)
     }

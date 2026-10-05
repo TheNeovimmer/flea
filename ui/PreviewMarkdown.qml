@@ -231,6 +231,8 @@ Item {
         else if (want === "") root.loadedText = ""
     }
     Component.onCompleted: root.pointFile()
+    // The list builds its cache asynchronously, so a teardown mid-build drops the model first and no incubation outlives its context.
+    Component.onDestruction: body.model = null
     onTooLargeChanged: root.pointFile()
 
     // One reload per save: an editor's truncate, write and rename raise events within a few ms, and 50 ms is under what a reader notices.
@@ -308,7 +310,7 @@ Item {
     }
     // The content height last seen, which is where the end was before a block grew.
     property real seenHeight: 0
-    // Whether the last block had a delegate at the last height change, so the end then was a drawn end and no estimate.
+    // Whether the last block had a delegate at the last height change or move, so the end then was drawn, not estimated.
     property bool endBuilt: false
     // The snap below sets contentY itself, and the height can settle again under it.
     property bool snappingToEnd: false
@@ -564,7 +566,7 @@ Item {
         model: root.blockList
         // A new model resets the view to its origin, so the saved place is restored once that reset is done.
         onModelChanged: root.restoreScroll()
-        onContentYChanged: root.releaseHeldPlace()
+        onContentYChanged: { root.releaseHeldPlace(); root.noteEnd() }
         onContentHeightChanged: root.holdEnd()
         spacing: root.blockGap
         topMargin: root.insetY

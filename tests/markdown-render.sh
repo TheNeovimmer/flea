@@ -211,3 +211,39 @@ if ! printf '%s\n' "$endfit_output" | grep -qF "MARKDOWN_ENDFIT $expected_endfit
     printf 'FAIL markdown-render: end of a late picture expected %s checks, 0 failed; arrived [%s]\n' "$expected_endfit_checks" "${endfit_output:-<empty>}" >&2
     exit 1
 fi
+
+# The preview's Loader is torn down while the list builds its cache, which must leave no incubation warning, over a document of pictures in items and quotes.
+teardown_dir="$test_root/teardown"
+mkdir -p "$teardown_dir" || exit 1
+{
+    printf '# Picture\n\nText above.\n\n![wide](./wide.png) by hand.\n\n- An item.\n- ![wide](./wide.png) by hand.\n- ![wide](./wide.png) by hand.\n\n'
+    printf '> A quote.\n>\n> ![wide](./wide.png) by hand.\n\n1. ![wide](./wide.png) by hand.\n\n   Second paragraph.\n\n   ```js\n   var a = 1;\n   ```\n\n'
+    printf '| a | b |\n|--|--|\n| 1 | 2 |\n'
+    for _note in $(seq 1 40); do printf '\nNote %s plain text.\n\n- x ![wide](./wide.png)\n' "$_note"; done
+} > "$teardown_dir/teardown.md" || exit 1
+# A picture of 400 by 80, wider than the card is narrow, written inside the sandbox only.
+python3 - "$teardown_dir/wide.png" <<'PY' || exit 1
+import struct, sys, zlib
+def chunk(tag, body):
+    return struct.pack('>I', len(body)) + tag + body + struct.pack('>I', zlib.crc32(tag + body) & 0xffffffff)
+png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 400, 80, 8, 2, 0, 0, 0))
+png += chunk(b'IDAT', zlib.compress((b'\0' + b'\x40\x80\xc0' * 400) * 80)) + chunk(b'IEND', b'')
+open(sys.argv[1], 'wb').write(png)
+PY
+cp tests/markdown-teardown.qml "$test_root/config/shell.qml" || exit 1
+teardown_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_TEARDOWN_DOC="$teardown_dir/teardown.md" \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+printf '%s\n' "$teardown_output" | grep -oE 'MARKDOWN_TEARDOWN .*'
+check_warnings "$teardown_output" 0 || exit 1
+# Sample input: MARKDOWN_TEARDOWN 300 rounds
+if ! printf '%s\n' "$teardown_output" | grep -qF "MARKDOWN_TEARDOWN 300 rounds"; then
+    printf 'FAIL markdown-render: teardown expected 300 rounds; arrived [%s]\n' "${teardown_output:-<empty>}" >&2
+    exit 1
+fi
+if printf '%s\n' "$teardown_output" | grep -qE 'Cannot create delegate|destroyed during incubation'; then
+    printf 'FAIL markdown-render: the preview Loader was torn down mid-incubation\n' >&2
+    exit 1
+fi
