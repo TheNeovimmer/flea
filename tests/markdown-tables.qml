@@ -260,8 +260,10 @@ ShellRoot {
         shell.check(error, name + " " + label + " drops its scroll when it stops overflowing")
         // The IPC's table is the first live one, whichever tables dropped theirs.
         var first = pane.tableScroller()
+        var live = pane.tableWheel.scrollers.filter(function (s) { return s })
         var ipc = scrollers.length > 0 && (first === null || first.table.firstRow() === null) ? "tableScroller answers " + first + " while " + scrollers.length + " tables still scroll"
-            : scrollers.length === 0 && first !== null ? "tableScroller answers a scroller while no table scrolls" : ""
+            : scrollers.length === 0 && first !== null ? "tableScroller answers a scroller while no table scrolls"
+            : first !== null && (first !== live[0] || scrollers.indexOf(first) < 0) ? "tableScroller answers a scroller that is not the router's first live one in the document" : ""
         shell.check(ipc, name + " " + label + " tableScroller answers the first live scroll")
         if (before > scrollers.length)
             shell.drops++
@@ -372,7 +374,10 @@ ShellRoot {
                 }
             } else if (shell.stage === "hosting") {
                 shell.waited++
-                if (shell.waited > 2) {
+                if (shell.hosted === null) {
+                    shell.check("the positioner host was not created", "extreme table in a positioner keeps its scroll over it and its bar at its foot")
+                    shell.stage = "next"
+                } else if (shell.waited > 2) {
                     shell.check(Sideways.hostError(shell.hosted, shell.hosted.stack), "extreme table in a positioner keeps its scroll over it and its bar at its foot")
                     shell.hosted.destroy()
                     shell.hosted = null

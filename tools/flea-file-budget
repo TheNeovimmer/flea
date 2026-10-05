@@ -81,6 +81,7 @@ tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 399
 tests/quicklook-firstframe.qml 419
+tests/markdown-tables.qml 401
 tests/markdown-render.qml 793
 tests/markdown-linearity.qml 648
 tests/preview-settle-live.qml 457
