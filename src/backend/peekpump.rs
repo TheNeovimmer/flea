@@ -72,7 +72,9 @@ pub(crate) fn pump(fd: c_int, tx: Sender<Event>, stop: c_int) {
             return;
         }
         let burst = &buf[..n as usize];
-        let (changed, _unmounted) = classify_burst(burst);
+        // An unmounted column re-asks like a deleted one, so classify_burst's unmounted watches are named changed too.
+        let (mut changed, unmounted) = classify_burst(burst);
+        changed.extend(unmounted);
         let events = changed.into_iter().map(Event::PeekChanged).chain(dropped_in(burst).into_iter().map(Event::PeekGone));
         for event in events {
             if tx.send(event).is_err() {
@@ -100,5 +102,49 @@ mod tests {
             buf.extend_from_slice(&[0u8; 8]);
         }
         assert_eq!(dropped_in(&buf), vec![7, 8]);
+    }
+
+    extern "C" {
+        fn pipe(fds: *mut c_int) -> c_int;
+        fn write(fd: c_int, buf: *const c_void, count: usize) -> isize;
+        fn close(fd: c_int) -> c_int;
+    }
+    // IN_DELETE_SELF is private to the listed folder's watch; the kernel's value is 0x400.
+    const IN_DELETE_SELF_BITS: u32 = 0x400;
+
+    // The pump reads any descriptor, so one burst of synthetic events through a pipe is what the kernel would have queued; the pipe closing ends the pump.
+    // Sample input: wd 7 IN_UNMOUNT then IN_IGNORED with no name answers [("changed", 7), ("gone", 7)].
+    fn events_for(burst: &[(i32, u32)]) -> Vec<(&'static str, i32)> {
+        let mut ends = [0 as c_int; 2];
+        assert_eq!(unsafe { pipe(ends.as_mut_ptr()) }, 0);
+        let mut bytes = Vec::new();
+        for (wd, mask) in burst {
+            bytes.extend_from_slice(&wd.to_ne_bytes());
+            bytes.extend_from_slice(&mask.to_ne_bytes());
+            bytes.extend_from_slice(&[0u8; 8]);
+        }
+        assert_eq!(unsafe { write(ends[1], bytes.as_ptr().cast(), bytes.len()) }, bytes.len() as isize);
+        unsafe { close(ends[1]) };
+        let (tx, rx) = std::sync::mpsc::channel();
+        pump(ends[0], tx, SKIPPED);
+        unsafe { close(ends[0]) };
+        rx.try_iter()
+            .map(|event| match event {
+                Event::PeekChanged(wd) => ("changed", wd),
+                Event::PeekGone(wd) => ("gone", wd),
+                _ => ("other", -1),
+            })
+            .collect()
+    }
+
+    // An unmounted column must re-ask and draw the truth, so its last changed line goes out before the watch is forgotten.
+    #[test]
+    fn an_unmounted_peeked_directory_sends_its_changed_line_before_it_is_forgotten() {
+        assert_eq!(events_for(&[(7, IN_UNMOUNT), (7, IN_IGNORED)]), vec![("changed", 7), ("gone", 7)]);
+    }
+
+    #[test]
+    fn a_deleted_peeked_directory_sends_its_changed_line_before_it_is_forgotten() {
+        assert_eq!(events_for(&[(7, IN_DELETE_SELF_BITS), (7, IN_IGNORED)]), vec![("changed", 7), ("gone", 7)]);
     }
 }

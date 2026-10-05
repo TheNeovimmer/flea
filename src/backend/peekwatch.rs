@@ -235,8 +235,10 @@ mod tests {
         let wd = Watch::add_raw(watch.raw_fd(), &peeked);
         watch.register(wd, peeked.clone());
         std::fs::remove_dir(&peeked).unwrap();
+        let mut changed_first = false;
         loop {
             match rx.recv_timeout(EVENT_WAIT).expect("the kernel dropping a watch answers an event") {
+                Event::PeekChanged(seen) if seen == wd => changed_first = true,
                 Event::PeekGone(gone) => {
                     assert_eq!(gone, wd);
                     watch.forget(gone);
@@ -245,6 +247,7 @@ mod tests {
                 _ => {}
             }
         }
+        assert!(changed_first, "the column is told before its watch is forgotten");
         assert_eq!(watch.held.len(), 0, "a watch the kernel dropped is not held");
     }
 

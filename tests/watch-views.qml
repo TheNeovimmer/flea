@@ -19,6 +19,7 @@ ShellRoot {
     property double stepStarted: 0
     property bool settled: false
     property var steps: []
+    property var cacheBefore: null
 
     function finish(reason) {
         if (finished) return
@@ -117,6 +118,8 @@ ShellRoot {
             return
         }
         if (one.go !== undefined) {
+            // The cache before the move, so a later answer is told apart from one the earlier folder left behind.
+            root.cacheBefore = root.pane().columnsArea ? root.pane().columnsArea.peeked : null
             root.pane().open(one.go)
             return
         }
@@ -128,8 +131,16 @@ ShellRoot {
         if (one.go !== undefined) {
             // The new folder's listing and its neighbour columns land before the next outside change.
             var at = root.pane(), area = at.columnsArea
-            if (at.path !== one.go || at.listInFlight || at.listingState !== "ready" || !area || !area.answered(one.go === root.open ? root.open + "/sub" : root.open)) return
-            return root.begin(root.stepIndex + 1)
+            // A new cache holding the neighbour's answer is that folder's fresh peek, armed before its scan, so the next outside change can only arrive as an event.
+            var fresh = !!area && area.peeked !== root.cacheBefore
+            if (fresh && at.path === one.go && !at.listInFlight && at.listingState === "ready" && area.answered(one.go === root.open ? root.open + "/sub" : root.open))
+                return root.begin(root.stepIndex + 1)
+            if (Date.now() - root.stepStarted > root.stepBudgetMs) {
+                root.stale += 1
+                console.log("WATCHVIEWS " + root.mode + " " + one.label + " STALE no fresh peek answered after the move")
+                root.begin(root.stepIndex + 1)
+            }
+            return
         }
         if (one.focus !== undefined) {
             // The second pane lists its own folder; wait for it before the next outside change.
