@@ -26,3 +26,14 @@ qslog_nullptr() {
     return 1
   fi
 }
+
+QSLOG_CRASHED='Quickshell has crashed'
+
+# Sample input: a log holding "ERROR: Quickshell has crashed under pid 15810 (Coredumps will be available under that pid.)" answers "FAIL LABEL: <that line>" and status 1, whatever qs exited with; a log without it answers 0.
+qslog_crash() {
+  local label=$1 log=$2 line
+  line=$(grep -a -m1 -F -- "$QSLOG_CRASHED" "$log") || return 0
+  # The crash handler restarts the config and the rerun can exit 0, so the line itself is the failure.
+  printf 'FAIL %s: %s\n' "$label" "$(sed 's/\x1b\[[0-9;]*m//g' <<< "$line")"
+  return 1
+}
