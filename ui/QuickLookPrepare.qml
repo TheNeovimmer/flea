@@ -116,7 +116,7 @@ Item {
     Loader {
         id: parser
         active: false
-        sourceComponent: WorkerScript {
+        sourceComponent: CountedWorker {
             source: "MarkdownWorker.js"
             onMessage: function (messageObject) { root.answered(messageObject) }
         }

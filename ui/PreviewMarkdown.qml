@@ -323,7 +323,7 @@ Item {
     }
     Component {
         id: parserComponent
-        WorkerScript {
+        CountedWorker {
             source: "MarkdownWorker.js"
             onMessage: function (messageObject) { root.landed(messageObject) }
         }

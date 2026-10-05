@@ -67,7 +67,7 @@ trap cleanup EXIT
 
 mkdir -p "$test_root/config" "$test_root/home" "$test_root/state" "$test_root/cache" "$test_root/runtime" || exit 1
 chmod 700 "$test_root/runtime" || exit 1
-qslog_ui_copy "$test_root/config/flea" || exit 1
+cp -a ui "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/markdown-lazy.qml "$test_root/config/shell.qml" || exit 1
@@ -86,10 +86,17 @@ minimum_fixture_bytes=524288
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIXTURE="$test_root/notes.md" \
-    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES="$(qslog_rules "${QT_LOGGING_RULES:-}")" \
     timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
 printf '%s\n' "$output" | qslog_nullptr markdown-lazy || exit 1
+# The same document with no logging rules or qtlogging.ini: the announcement stays off, and the null connect lines prove a worker did start.
+quiet=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u QT_LOGGING_RULES -u QT_LOGGING_CONF \
+    HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/home/.config" XDG_CONFIG_DIRS="$test_root/xdg" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIXTURE="$test_root/notes.md" \
+    QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+printf '%s\n' "$quiet" | qslog_silent markdown-lazy || exit 1
 if printf '%s\n' "$output" | grep -q 'MARKDOWN_LAZY FAIL'; then
     printf 'FAIL the lazy harness refused its fixture\n'
     printf '%s\n' "$output" | grep -aE 'MARKDOWN_LAZY|ERROR' | head -10

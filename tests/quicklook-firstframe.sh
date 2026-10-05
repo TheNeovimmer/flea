@@ -15,7 +15,7 @@ mkdir -p "$test_root"/{config,fixture/img} || exit 1
 ln -s "$(readlink -m ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -m ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 ln -s "$test_root/config/flea/boot/fleatab.qml" "$test_root/config/fleatab.qml" || exit 1
-qslog_ui_copy "$test_root/config/flea" || exit 1
+cp -a ui "$test_root/config/flea" || exit 1
 cp tests/quicklook-firstframe.qml "$test_root/config/shell.qml" || exit 1
 cp tests/quicklook-firstframe.js "$test_root/config/quicklook-firstframe.js" || exit 1
 # A README-sized document: headings, paragraphs, a list, a fence, a quote and a table, well under the 64 KiB worker threshold.
@@ -90,8 +90,8 @@ run_leg() {
     ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u QML_DISABLE_DISK_CACHE \
         HOME="$leg_root/home" XDG_STATE_HOME="$leg_root/state" XDG_CACHE_HOME="$leg_root/cache" \
         XDG_RUNTIME_DIR="$leg_root/runtime" FLEA_BIN="$PWD/target/debug/flea" FLEA_PATH="$test_root/fixture" \
-        QT_LOGGING_RULES="qt.qml.diskcache.debug=true" FLEA_REDUCED_MOTION="$reduced" QLFF_UI="$test_root/config/flea" QLFF_DIR="$test_root/fixture" QLFF_STEPS="$steps" QLFF_CLASS="$class" QLFF_SWEEP="$sweep" QLFF_MODE="${QLFF_MODE:-call}" QLFF_REENTER="${QLFF_REENTER:-}" QLFF_LATEROWS="${QLFF_LATEROWS:-}" \
-        QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
+        FLEA_REDUCED_MOTION="$reduced" QLFF_UI="$test_root/config/flea" QLFF_DIR="$test_root/fixture" QLFF_STEPS="$steps" QLFF_CLASS="$class" QLFF_SWEEP="$sweep" QLFF_MODE="${QLFF_MODE:-call}" QLFF_REENTER="${QLFF_REENTER:-}" QLFF_LATEROWS="${QLFF_LATEROWS:-}" \
+        QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES="$(qslog_rules "qt.qml.diskcache.debug=true")" \
         dbus-run-session -- bash -c 'timeout "$1" qs -p "$2" > "$3" 2>&1' _ "$limit" "$test_root/config" "$log" 2> "$leg_root/bus.log" ) 2>/dev/null
     status=$?
     legs=$((legs + 1))

@@ -12,7 +12,8 @@ import sys
 import tempfile
 import tarfile
 
-GATES = ('conflict-marker', 'fused-line', 'paneprops', 'del-printable', 'qml-undeclared-read', 'qml-duplicate-member')
+COUNTED_WORKER = 'ui/CountedWorker.qml'
+GATES = ('conflict-marker', 'fused-line', 'paneprops', 'del-printable', 'qml-undeclared-read', 'qml-duplicate-member', 'worker-announce')
 SUFFIXES = {'.rs', '.qml', '.js', '.sh'}
 # Bound alias propagation so pathological chains cannot keep a source gate running.
 ALIAS_FIXPOINT_CAP = 8
@@ -751,7 +752,29 @@ def qml_duplicate_member(root, files):
     return len(qml) + len(js), errors
 
 
-CHECKS = dict(zip(GATES, (conflict_marker, fused_line, paneprops, del_printable, qml_undeclared_read, qml_duplicate_member)))
+# Sample input: ui/Sample.qml holding "WorkerScript { source: \"W.js\" }" in code is rejected; only ui/CountedWorker.qml may hold one, and it must announce in code.
+def worker_announce(root, files):
+    errors = []
+    scanned = 0
+    for file in files:
+        path = root / file
+        if not file.startswith('ui/') or path.suffix != '.qml' or not path.is_file():
+            continue
+        scanned += 1
+        text = path.read_text()
+        code = masked(text, '.qml')
+        if file == COUNTED_WORKER:
+            # The call sits in code, so the literal at its argument offset is the real one, never a comment's copy.
+            calls = re.finditer(r'\bconsole\.info\(\s*startLog\s*,\s*', code)
+            if not any(text.startswith('"WORKER_STARTED ', call.end()) for call in calls):
+                errors.append(f'{file}:1: no console.info(startLog, "WORKER_STARTED " ...) call in code')
+            continue
+        for m in re.finditer(r'\bWorkerScript\s*\{', code):
+            errors.append(f'{location(file, code, m.start())}: WorkerScript outside {COUNTED_WORKER}')
+    return scanned, errors
+
+
+CHECKS = dict(zip(GATES, (conflict_marker, fused_line, paneprops, del_printable, qml_undeclared_read, qml_duplicate_member, worker_announce)))
 
 
 def negative_controls(root):
@@ -764,6 +787,7 @@ def negative_controls(root):
         'qml-duplicate-member': ('ui/Pane.qml', 'import QtQuick\nFocusScope {\n'
                                  '    readonly property alias wire: wire\n'
                                  '    readonly property alias wire: wire\n}\n'),
+        'worker-announce': ('ui/Sample.qml', 'import QtQuick\nItem { WorkerScript { source: "W.js" } }\n'),
     }
     errors = []
     script = root / 'tests/staticgates.py'
@@ -782,6 +806,7 @@ def negative_controls(root):
             expected = {'conflict-marker': 'unresolved conflict marker', 'fused-line': 'fused code gap',
                         'paneprops': 'pane.removedProperty absent', 'del-printable': 'printable event.text decision',
                         'qml-undeclared-read': 'new unqualified read asker',
+                        'worker-announce': 'WorkerScript outside ui/CountedWorker.qml',
                         'qml-duplicate-member': ('wire declared again (first at 2)' if file.endswith('.js') else 'Duplicate alias name')}[gate]
             if (result.returncode != 1 or expected not in diagnostic or file + ':' not in diagnostic
                     or 'STATICGATES FAIL gates=1' not in result.stdout):

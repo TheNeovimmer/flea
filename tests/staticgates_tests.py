@@ -132,6 +132,24 @@ class StaticGateTests(unittest.TestCase):
                 index = next(i for i, line in enumerate(lines) if parser in line)
                 self.assertIn('# Sample input:', lines[index - 1])
 
+    def test_worker_announce_allows_only_the_counted_worker(self):
+        self.write('ui/Bare.qml', 'Item { WorkerScript { source: "W.js" } }\n')
+        self.write('ui/Said.qml', 'WorkerScript {\n    // WORKER_STARTED\n    Component.onCompleted: console.info(log, "WORKER_STARTED " + source)\n}\n')
+        self.write('ui/Prose.qml', 'Item { // a WorkerScript { here\n    property string s: "WorkerScript {"\n}\n')
+        self.write('ui/Named.qml', 'Item { CountedWorker { source: "W.js" } }\n')
+        self.write('ui/CountedWorker.qml', 'WorkerScript {\n    Component.onCompleted: console.info(startLog, "WORKER_STARTED " + source)\n}\n')
+        files = ['ui/Bare.qml', 'ui/Said.qml', 'ui/Prose.qml', 'ui/Named.qml', 'ui/CountedWorker.qml']
+        self.assertEqual(gates.worker_announce(self.root, files),
+                         (5, ['ui/Bare.qml:1: WorkerScript outside ui/CountedWorker.qml', 'ui/Said.qml:1: WorkerScript outside ui/CountedWorker.qml']))
+        missing = 'ui/CountedWorker.qml:1: no console.info(startLog, "WORKER_STARTED " ...) call in code'
+        for body in ('WorkerScript {\n}\n', 'WorkerScript {\n    // console.info(startLog, "WORKER_STARTED " + source)\n}\n',
+                     'WorkerScript {\n    Component.onCompleted: console.info(startLog, "started " + source)\n}\n'):
+            with self.subTest(body=body):
+                self.write('ui/CountedWorker.qml', body)
+                self.assertEqual(gates.worker_announce(self.root, ['ui/CountedWorker.qml']), (1, [missing]))
+        self.write('ui/CountedWorker.qml', 'WorkerScript {\n    function a() { console.info(startLog, "other") }\n    Component.onCompleted: console.info(startLog, "WORKER_STARTED " + source)\n}\n')
+        self.assertEqual(gates.worker_announce(self.root, ['ui/CountedWorker.qml']), (1, []))
+
     def test_F10_malformed_tsv_names_file_and_line(self):
         self.write('ui/A.qml', 'import QtQuick\nItem {}\n')
         for row in ('ui/A.qml\t1\tmissing_reason',
