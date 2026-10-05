@@ -3,11 +3,13 @@
 // MarkdownPictures: a Markdown text's inline pictures, read for their addresses and capped at the width the text has.
 var PICTURE = /!\[[^\]]*\]\(([^)\s]*)[^)]*\)/g
 
-// Sample input: "a ![x](file:///d/p.png) b ![y](file:///d/q.png)" answers ["file:///d/p.png", "file:///d/q.png"].
+// Sample input: "`![t](https://tracker.example/p.png)` and ![l](file:///d/p.png)" answers ["file:///d/p.png"].
+// Only file: addresses load (the parser leaves every other picture as a placeholder), so a remote address never reaches an Image.
 function urls(source) {
     var found = []
     String(source).replace(PICTURE, function (whole, url) {
-        found.push(url)
+        if (/^file:/i.test(url))
+            found.push(url)
         return whole
     })
     return found

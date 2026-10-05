@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-# Judges the picture lines the table suite grabbed: a picture sits inside its own line, row and block, and a table's header stays visible.
-# Reads one "name label json" record per line on stdin (the rects markdown-tables.qml logs), the PNG frames in argv[1] and the pictures in argv[2].
+# Judges the picture lines the table suite grabbed from one name label json record per stdin line: each picture sits inside its own line, row and block.
 import json
 import os
 import struct
@@ -20,6 +19,7 @@ TWIN = "-dot"
 COLOR_TYPE_RGBA = 6
 
 
+# Sample input: "tables-picfirst-card.png" answers (width, height, step, rows) for that frame.
 def read_png(path):
     data = open(path, "rb").read()
     at = 8
@@ -90,6 +90,7 @@ def ink_pixels(rows, step, rect, background):
     return count
 
 
+# Sample input: {"bg": "#101315"} answers (0x10, 0x13, 0x15).
 def background_of(ink):
     return tuple(int(ink["bg"][-6:][i:i + 2], 16) for i in (0, 2, 4))
 
@@ -101,6 +102,22 @@ def ink_bottom_above(rows, step, row, columns, background):
             if pixel(rows, step, x, y) != background:
                 return y
     return -1
+
+
+# Sample input: rows holding text under the box answer the rows from the picture's bottom edge to the block's, text and rules included.
+def empty_below(rows, step, box_bottom, holder, background):
+    # Wrapped lines and rules below end the count, so only empty stretch fails it.
+    last = -1
+    bottom = min(len(rows), holder["y"] + holder["h"])
+    for y in range(max(0, box_bottom), bottom):
+        for x in range(max(0, holder["x"]), min(len(rows[0]) // step, holder["x"] + holder["w"])):
+            px = pixel(rows, step, x, y)
+            if px != PICTURE and px != background:
+                last = y
+                break
+    if last < 0:
+        return bottom - box_bottom
+    return bottom - (last + 1)
 
 
 def judge(label, ink, frame, twin_ink, twin_frame, natural_file):
@@ -124,8 +141,13 @@ def judge(label, ink, frame, twin_ink, twin_frame, natural_file):
     natural_w, natural_h = natural_size(natural_file)
     wanted_w = min(natural_w, holder["w"])
     wanted_h = natural_h * wanted_w / natural_w
-    if box[2] - box[0] > wanted_w + ROUNDING or box[3] - box[1] > wanted_h + ROUNDING:
+    # A capped picture draws within ROUNDING of the wanted width on both sides; a narrower one is a scale the pane never asked for.
+    if abs(box[2] - box[0] - wanted_w) > ROUNDING or abs(box[3] - box[1] - wanted_h) > ROUNDING:
         return "the picture draws %d by %d, not %d by %d: it is not scaled to the %d px of its text" % (box[2] - box[0], box[3] - box[1], wanted_w, wanted_h, holder["w"])
+    # A one-line text keeps no more than the tail below its picture inside its own block, the same bound the table tail check uses.
+    gap = empty_below(rows, step, box[3], holder, background_of(ink))
+    if gap > TAIL:
+        return "the block keeps %d px under its picture, more than %d" % (gap, TAIL)
     rules = sorted(ink["rules"], key=lambda r: r["y"])
     below = [r for r in rules if r["y"] >= box[3] - ROUNDING]
     # The narrow column may legitimately wrap the text after a picture capped to its width, so only the card's row is held to the tail.
@@ -143,6 +165,7 @@ def main():
     runtime, docs = sys.argv[1], sys.argv[2]
     records = {}
     for line in sys.stdin:
+        # Sample input: "picfirst card {\"texts\": [...], \"rules\": [...]}" names the case, the label and its rects.
         name, label, body = line.rstrip("\n").split(" ", 2)
         records[(name, label)] = json.loads(body)
     failed = 0

@@ -18,7 +18,7 @@ Text {
     // A text whose picture is taller than the box draws on proportional lines, which grow with it; the ratio keeps every other line at the box.
     // Sample input: "Built with ![logo](file:///d/p.png) here" holds one picture; the parser writes every local inline picture this way.
     property bool growsForPictures: true
-    readonly property bool holdsPicture: root.growsForPictures && root.rich && /!\[[^\]]*\]\(/.test(root.markdown)
+    readonly property bool holdsPicture: root.growsForPictures && root.rich && /!\[[^\]]*\]\(file:/i.test(root.markdown)
     // Built the first time a text holds a picture: a text without one owns no object for it, which the block cost gates count.
     property Item pictures: null
     function syncPictures() {
