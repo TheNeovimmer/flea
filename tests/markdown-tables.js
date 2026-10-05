@@ -106,6 +106,12 @@ function lineError(name, label, geos) {
                 if (geo.cells[i].lines !== 1)
                     return "table " + t + " cell " + i + " (" + geo.cells[i].text + ") wrapped to " + geo.cells[i].lines + " lines in a card that has room"
         }
+        // The path's long column takes the squeeze, so the name column is held at its longest word and never breaks it.
+        if (name === "path") {
+            for (var w = 0; w < geo.cells.length; w++)
+                if (geo.cells[w].x === 0 && geo.cells[w].lines !== 1)
+                    return "table " + t + " name cell (" + geo.cells[w].text + ") broke a word its column holds, " + geo.cells[w].lines + " lines"
+        }
         if (name === "br") {
             var broken = geo.cells.filter(function (c) { return c.text.indexOf("<br") >= 0 }).map(function (c) { return c.lines })
             if (label === "card" && JSON.stringify(broken) !== "[3,2]")
