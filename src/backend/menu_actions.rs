@@ -1,6 +1,7 @@
 // Menu snapshots own selected identities; registry work runs only after an explicit menu action.
 use crate::backend::opsreq::OpMsg;
 use super::menu_registry::{self, Registry};
+use super::menu_slot::MenuSlot;
 use super::trashmanifest::Cancellation;
 use crate::json::{escape, field_bool, field_str, field_usize};
 use std::fs::{Metadata, OpenOptions};
@@ -8,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct MenuActions {
@@ -107,8 +108,7 @@ impl MenuActions {
                 return false;
             }
         }
-        // The slot never disconnects, so a finished worker is checked up front: an accepted
-        // send behind a dead worker would never be answered, where the old channel refused it.
+        // The slot never disconnects, so a dead worker is refused here or its request would never be answered.
         if self.worker.is_finished() {
             let reply = response(&line, Err("The menu service stopped; reopen this window.".into()));
             let _ = self.replies.send(OpMsg::Meta { line: reply });
@@ -134,68 +134,6 @@ impl Drop for MenuActions {
     }
 }
 
-// Only a queued snapshot is ever displaced, behind a newer snapshot: a close never reaches
-// the slot (request() answers it synchronously), and any other queued line is work (activate,
-// applications) a newer line must not silently drop.
-fn supersedeable(line: &str) -> bool {
-    matches!(field_str(line, "op").as_deref(), Some("snapshot"))
-}
-
-// One pending request, like the sync_channel this replaces: it bounds repeated activation
-// while an application registry query runs, and a newer snapshot displaces a
-// still-queued one of its own kind, whose generation was already cancelled by request().
-type MenuJob = (String, Vec<String>, Option<String>, Cancellation);
-#[derive(Default)]
-struct MenuSlot {
-    state: Mutex<MenuSlotState>,
-    wake: Condvar,
-}
-#[derive(Default)]
-struct MenuSlotState {
-    job: Option<MenuJob>,
-    closed: bool,
-}
-impl MenuSlot {
-    fn send(&self, job: MenuJob) -> Result<(), MenuJob> {
-        let mut state = self.state.lock().unwrap();
-        if state.closed {
-            return Err(job);
-        }
-        match state.job.take() {
-            None => {
-                state.job = Some(job);
-                self.wake.notify_one();
-                Ok(())
-            }
-            Some(queued) if supersedeable(&job.0) && supersedeable(&queued.0) => {
-                state.job = Some(job);
-                self.wake.notify_one();
-                Ok(())
-            }
-            Some(queued) => {
-                state.job = Some(queued);
-                Err(job)
-            }
-        }
-    }
-    fn take(&self) -> Option<MenuJob> {
-        let mut state = self.state.lock().unwrap();
-        loop {
-            if state.closed {
-                return None;
-            }
-            if let Some(job) = state.job.take() {
-                return Some(job);
-            }
-            state = self.wake.wait(state).unwrap();
-        }
-    }
-    fn close(&self) {
-        let mut state = self.state.lock().unwrap();
-        state.closed = true;
-        self.wake.notify_all();
-    }
-}
 #[derive(Clone, Default)]
 struct Snapshot {
     id: usize,

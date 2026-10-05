@@ -3508,13 +3508,7 @@ The columns-watch work records two ceilings, each re-derived with `wc -l` at the
 
 rflake 2026-10-05 (the exact-wait test compared least overshoots against a 2.5 ms bound and missed 3 in 12 loaded runs at 2.51, 4.44 and 3.49 ms, scheduler spikes under saturation, never the product) moves one ceiling, re-derived with `wc -l`: `src/backend/gvfslist.rs` 549 to 560 for the hardened estimator (64 samples with two warmup pairs, per-side lower quarter instead of least, same GAP, SLOWEST_CAUGHT, threshold and attempts; the restored 20 ms poll loop still fails it at 4.99 ms). Global limits and all checks remain intact.
 
-cliphunt moves one ceiling, re-derived with `wc -l`: `src/backend/menu_actions.rs` 560 to 701 for
-replacing the worker's `sync_channel` with a one-slot `Mutex` plus `Condvar` a newer snapshot
-displaces a still-queued snapshot through (the Paste As reopen was refused while its own snapshot
-was still queued), the `JoinHandle` liveness check keeping the dead-service refusal, and the three
-tests pinning displacement, work preservation and the end-to-end answer. `tests/menu-clipboard-hunt.qml`
-244 to 258 for the stage-12 menu-state evidence the stall was caught with, over the soft budget with
-a warning only. `tools/flea-file-budget` keeps every other recorded ceiling.
+cliphunt 2026-10-05 moves one ceiling, re-derived with `wc -l`: `src/backend/menu_actions.rs` 560 to 639 for the dead-worker refusal in `request()` (the new one-slot queue never disconnects, so a finished worker is checked first) and three tests pinning a queued snapshot displaced by a newer one, queued work kept, and the reopened snapshot answered end to end. The queue itself lives in `src/backend/menu_slot.rs`. `tests/menu-clipboard-hunt.qml` is 258 lines, over the soft budget with a warning only, for the menu-state evidence its stage-12 timeout prints. Global limits and all checks remain intact.
 
 ## The key table is generated
 
