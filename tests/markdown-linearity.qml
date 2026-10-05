@@ -606,11 +606,11 @@ QtObject {
             return;
         }
         console.log("ok toUpperCase counted work=" + Work.work);
-        // A filter visits every element, so one that keeps none still costs its whole input.
+        // A filter visits every element, so it costs its whole input plus the one element it keeps.
         Work.work = 0;
-        var filterInput = ["a", "", "b", ""];
+        var filterInput = ["a", "", "bb", ""];
         var filterCode = Work.instrument("return lines.filter(function (line) { return line.length > 1 })", [], "filter probe");
-        if (new Function("lines", filterCode)(filterInput).length !== 0 || Work.work !== filterInput.length) {
+        if (new Function("lines", filterCode)(filterInput).length !== 1 || Work.work !== filterInput.length + 1) {
             console.log("FAIL filter work=" + Work.work);
             Qt.exit(1);
             return;
