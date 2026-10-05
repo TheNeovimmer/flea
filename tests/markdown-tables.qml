@@ -171,8 +171,8 @@ ShellRoot {
                 shell.stage = "drop"
             } else if (shell.stage === "drop") {
                 shell.waited++
-                // The old file's text survives until the new load lands, so only the new text ends the drop.
-                if (card.rawText !== shell.prevText && column.rawText !== shell.prevText)
+                // The old text survives until the new load lands and a reload may pass through empty text, so only new text ends the drop.
+                if (card.rawText.length > 0 && card.rawText !== shell.prevText && column.rawText.length > 0 && column.rawText !== shell.prevText)
                     shell.stage = "load"
                 else if (shell.waited > shell.dropFrames)
                     shell.dropTimeout()

@@ -3,8 +3,7 @@
 // MarkdownTableFit: how a table shares the width its block gives it, a pure function of column widths in pixels.
 
 // Sample input: fit([100, 400], [50, 100], 300, 10) is [71, 228]: each column keeps its longest word, the rest goes by want.
-// A table that fits keeps its natural widths; past that no column falls under the least a glyph needs, so a hopeless one overflows.
-// A column narrower than least keeps its natural width: raising it would add width no share accounts for.
+// A table that fits keeps its natural widths; past that no column falls under least (one narrower keeps its natural), so a hopeless one overflows.
 function fit(natural, minimum, avail, least) {
     function heldAt(c) {
         return natural[c] < least ? natural[c] : Math.max(least, Math.min(minimum[c], natural[c]))

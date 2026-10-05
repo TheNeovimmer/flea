@@ -34,12 +34,11 @@ function run(assert) {
     check("no columns share nothing", Fit.fit([], [], 300, 10), [])
     var leastHeld = Fit.fit([30, 500], [5, 200], 300, 20)
     check("least joins each column floor, so the split shares 300 with none under 20", [sum(leastHeld) <= 300, leastHeld[0] >= 20, leastHeld[1] >= 20], [true, true, true])
-    // A fixed seed keeps the sweep deterministic across runs and machines.
+    // A fixed seed keeps the sweep deterministic; the Park-Miller step stays under 2^53, so doubles hold it exactly.
     var sweepSeed = 1917
     var sweepTrials = 5000
-    function sweepNext(bound) { sweepSeed = (sweepSeed * 1103515245 + 12345) % 2147483648; return sweepSeed % bound }
-    // Every swept split whose floors with least fit avail must sum inside it: a hopeless one may overflow.
-    // Word runs stay small beside column wants, so the sweep draws them from a tighter range where the old end-add bit.
+    function sweepNext(bound) { sweepSeed = sweepSeed * 48271 % 2147483647; return sweepSeed % bound }
+    // Every swept split whose floors with least fit avail sums inside it (a hopeless one may overflow); word runs draw from a tighter range.
     var sweepOver = 0
     for (var trial = 0; trial < sweepTrials; trial++) {
         var count = 1 + sweepNext(4)

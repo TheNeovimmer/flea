@@ -1,5 +1,4 @@
-# Sourced by markdown-tables.sh and ui-captures-markdown.sh: both suites render the same table documents, so both generate the same assets.
-# The inline image is a 12 by 12 dot, the wide picture 160 by 40, and the cost case is 500 rows of three cells.
+# Sourced by markdown-tables.sh and ui-captures-markdown.sh so both render the same assets: a 12 px dot, a 160 by 40 picture, 500 rows of three cells.
 markdown_tables_assets_write() {
     python3 - "$1" <<'PY' || return 1
 import struct, sys, zlib
