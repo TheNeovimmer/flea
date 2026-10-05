@@ -15,8 +15,12 @@ Item {
     property bool available: true
     // A reply later than this ends the store: its figures draw by the helper.
     property int replyMs: 2000
-    // A drain that outlasts a reply's wait is a store that ignores EOF, so it is killed and what waits behind it is a miss.
+    // A get or known queued behind a drain or a start waits this long, then it is a miss for the helper to draw; the store itself is left alone.
     property int drainMs: root.replyMs
+    // A drain still running at this bound is a hung store and is killed, never latched: 60 s commits 15 puts of the 4 MiB entry cap (MAX_ENTRY_BYTES, src/figurestore.rs) at a 1 MiB/s slow-disk write rate.
+    property int drainHangMs: 60000
+    // The suite reads this to prove a hung drain was killed and a slow one was not.
+    property int hangKills: 0
     // The suite reads these to prove a repeat was served from disk and nothing else started.
     property int hits: 0
     property int misses: 0
@@ -81,23 +85,29 @@ Item {
         repeat: true
         running: root.owed > 0
         onTriggered: {
+            var lapsed = [];
             for (var id in root.outstanding) {
-                // A line not yet written to the process has no reply clock.
-                var sentAt = root.outstanding[id].sentAt;
-                if (sentAt !== null && Date.now() - sentAt > root.replyMs) {
+                var asked = root.outstanding[id];
+                // A line not yet written to the process has no reply clock, only the wait for a drain or a start.
+                if (asked.sentAt === null) {
+                    if (Date.now() - asked.queuedAt > root.drainMs)
+                        lapsed.push(id);
+                } else if (Date.now() - asked.sentAt > root.replyMs) {
                     root.fail();
                     return;
                 }
             }
+            for (var i = 0; i < lapsed.length; i++)
+                root.lapse(lapsed[i]);
         }
     }
 
-    // A stop that has not exited by drainMs is hung; the timer runs only while the store is stopping.
+    // The drain's hang bound; the timer runs only while the store is stopping, and a drain that ends restarts it.
     Timer {
-        interval: root.drainMs
+        interval: root.drainHangMs
         running: root.stopping
         onTriggered: {
-            root.abandon();
+            root.hang();
         }
     }
 
@@ -125,15 +135,27 @@ Item {
         root.release();
     }
 
-    // Kills a store whose drain never ended and releases the lines behind it; no latch, and the queued puts go to the next store.
-    function abandon() {
+    // Answers a line that waited past drainMs as a miss and drops it from the queue, so the store never sees it.
+    function lapse(id) {
+        var asked = root.outstanding[id];
+        root.settle(id);
+        root.queued = root.queued.filter(function (entry) { return String(entry.id) !== id; });
+        if (asked.op === "get")
+            root.answered(Number(id), "");
+        else
+            root.known(Number(id), false);
+    }
+
+    // Kills a store whose drain outlasted drainHangMs and releases anything still waiting; no latch, and the queued puts go to the next store.
+    function hang() {
+        root.hangKills++;
         if (process.running)
             process.signal(root.killSignal);
         root.queued = root.queued.filter(function (entry) { return entry.id === undefined; });
         root.release();
     }
 
-    // An idle stop closes stdin so the store drains (every reply sent, every put committed) and exits; a refused stop is retried at the service's next idle.
+    // An idle stop closes stdin so the store drains (every reply sent, every put committed) and exits at EOF; a drain is killed only at drainHangMs, and a refused stop is retried at the service's next idle.
     function stop() {
         if (!process.running || root.starting || root.stopping || root.owed > 0 || root.queued.length > 0)
             return false;
@@ -150,7 +172,7 @@ Item {
     }
 
     function owe(id, op) {
-        root.outstanding[id] = { op: op, sentAt: null };
+        root.outstanding[id] = { op: op, queuedAt: Date.now(), sentAt: null };
         root.owed = Object.keys(root.outstanding).length;
     }
 

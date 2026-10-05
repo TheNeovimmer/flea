@@ -5,7 +5,7 @@ import Quickshell
 import Quickshell.Io
 import "flea" as Flea
 
-// A store that answers but ignores EOF never ends its drain: past drainMs it is killed, what waits behind it is drawn by the helper, and the next store starts clean.
+// A line queued behind a drain is drawn by the helper within drainMs and the draining store is left alone; only a store still draining at drainHangMs is killed, and one that commits slowly keeps its put.
 ShellRoot {
     id: shell
 
@@ -18,8 +18,13 @@ ShellRoot {
     property int step: 0
     property int ticket: 0
     property var hungPid: 0
-    // Short, so the bound is a quick one; the check is that the drain timer runs at all, so no duration is asserted.
+    property bool released: false
+    property int sendsMark: 0
+    // "hang" is a store that answers every line and ignores EOF; "slow" commits its puts for longer than drainMs after EOF and then exits.
+    readonly property string mode: Quickshell.env("FLEA_DRAIN_MODE")
+    // Short, so the bounds are quick ones; the checks are on what each bound does, so no duration is asserted.
     readonly property int drainMs: 300
+    readonly property int drainHangMs: shell.mode === "hang" ? 4000 : 600000
     readonly property int idleExitMs: 150
     readonly property int watchdogMs: 90000
     readonly property var theme: ({ bg: "#101315", fg: "#c0caf5", accent: "#7aa2f7", font: "monospace", bodyPx: 14, exPx: 7 })
@@ -27,6 +32,7 @@ ShellRoot {
         Flea.ViewState.setTextSize({ mode: 14 })
         Flea.FigureService.idleExitMs = shell.idleExitMs
         Flea.FigureService.persistent.drainMs = shell.drainMs
+        Flea.FigureService.persistent.drainHangMs = shell.drainHangMs
     }
 
     function check(passed, why) {
@@ -62,23 +68,43 @@ ShellRoot {
         shell.ticket = Flea.FigureService.ask("math", source, true, shell.theme)
     }
 
+    // The hung store is gone and the next one starts clean; the slow store has exited and its put reads back.
+    function drainEnded() {
+        var disk = Flea.FigureService.persistent
+        if (shell.step !== 4)
+            return
+        if (shell.mode === "hang" && disk.exits >= 1) {
+            shell.check(disk.hangKills === 1 && !shell.alive(shell.hungPid) && disk.available, "the store that ignored EOF is killed at the hang bound, gone and not latched")
+            shell.step = 5
+            shell.askNext("x^4")
+        } else if (shell.mode === "slow" && !disk.active) {
+            shell.step = 6
+            shell.sendsMark = Flea.FigureService.sends
+            Flea.FigureService.answerCache = ({})
+            Flea.FigureService.answerOrder = []
+            shell.askNext("x^2")
+        }
+    }
+
     Connections {
         target: Flea.FigureService
         function onDone(ticket, svg, error) {
             if (ticket !== shell.ticket)
                 return
             var service = Flea.FigureService
+            var disk = service.persistent
             if (shell.step === 1) {
                 shell.check(shell.drew(svg, error), "a figure the stub store missed is drawn by the helper")
                 shell.step = 2
             } else if (shell.step === 3) {
-                shell.check(shell.drew(svg, error), "a figure that waited behind the hung drain is drawn by the helper")
-                shell.check(!shell.alive(shell.hungPid), "the store that ignored EOF is gone")
+                shell.check(shell.drew(svg, error), "a figure that waited behind the drain is drawn by the helper")
                 shell.step = 4
-                shell.askNext("x^4")
-            } else if (shell.step === 4) {
-                var fresh = service.persistent
-                shell.check(shell.drew(svg, error) && fresh.available && fresh.misses === 2 && fresh.hits === 0, "the next store starts clean and answers itself, and the hung drain latched nothing")
+                shell.drainEnded()
+            } else if (shell.step === 5) {
+                shell.check(shell.drew(svg, error) && disk.available && disk.misses === 2 && disk.hits === 0, "the next store starts clean and answers itself")
+                shell.finish()
+            } else if (shell.step === 6) {
+                shell.check(shell.drew(svg, error) && disk.hits === 1 && service.sends === shell.sendsMark, "the put the slow drain committed reads back from disk with no helper")
                 shell.finish()
             }
         }
@@ -86,7 +112,7 @@ ShellRoot {
 
     Connections {
         target: Flea.FigureService.persistent
-        // The idle stop closed stdin and the stub ignores EOF: a get now queues behind the hung drain.
+        // The idle stop closed stdin and the stub keeps draining: a get now queues behind the drain.
         function onStoppingChanged() {
             var disk = Flea.FigureService.persistent
             if (!disk.stopping || shell.step !== 2)
@@ -96,6 +122,16 @@ ShellRoot {
             // Deferred past the service's idle handler, which is still stopping the helper when the store announces its stop.
             Qt.callLater(function () { shell.askNext("x^3") })
         }
+        // The line behind the drain is answered a miss while the store is still draining, alive and not killed.
+        function onAnswered(id, svg) {
+            var disk = Flea.FigureService.persistent
+            if (id !== shell.ticket || shell.step !== 3 || shell.released)
+                return
+            shell.released = true
+            shell.check(svg === "" && disk.stopping && disk.hangKills === 0 && shell.alive(shell.hungPid), "a line queued behind the drain is answered a miss while the store is still draining, alive")
+        }
+        function onExitsChanged() { shell.drainEnded() }
+        function onActiveChanged() { shell.drainEnded() }
     }
 
     Timer {

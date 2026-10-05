@@ -7,6 +7,8 @@ function store() {
     var root = { available: true, replyMs: 2000, hits: 0, misses: 0, puts: 0, exits: 0, starting: false, stopping: false,
         queued: [], outstanding: {}, owed: 0 }
     root.drainMs = root.replyMs
+    root.drainHangMs = root.replyMs * 30
+    root.hangKills = 0
     root.answered = function (id, svg) { fake.answers.push({ id: id, svg: svg }) }
     root.known = function (id, all) { fake.knowns.push({ id: id, all: all }) }
     var process = { running: false, stdinEnabled: true,
@@ -31,7 +33,7 @@ function store() {
     var runningChanged = compile("", Source.block(source, "onRunningChanged:", "ui/FigureStore.qml"))
     var exited = compile("", Source.block(source, "onExited:", "ui/FigureStore.qml"))
     fake.tick = compile("", Source.block(source.substring(source.indexOf("Timer {")), "onTriggered:", "ui/FigureStore.qml"))
-    fake.drain = compile("", Source.block(source.substring(source.indexOf("interval: root.drainMs")), "onTriggered:", "ui/FigureStore.qml"))
+    fake.hang = compile("", Source.block(source.substring(source.indexOf("interval: root.drainHangMs")), "onTriggered:", "ui/FigureStore.qml"))
     fake.start = function () {
         process.running = true
         fake.starts++
@@ -105,15 +107,15 @@ function run(check) {
     fake.tick()
     check("a reply inside replyMs is waited for", fake.root.available === true && fake.answers.length === 0, true)
 
-    // A line queued behind a drain is owed only once it is written, so a slow drain never ends the store.
+    // A line queued behind a drain that ends at once is owed only once it is written, so the drain never counts against its reply.
     fake = store()
     fake.root.put(key, "<svg/>")
     fake.start()
     check("a stop with only a put in flight drains", fake.root.stop(), true)
     fake.root.get(12, key)
-    fake.now = fake.root.replyMs * 3
+    fake.now = 1
     fake.tick()
-    check("a line still waiting out a drain is never late", fake.root.available === true && fake.answers.length === 0 && fake.signals.length === 0, true)
+    check("a line queued behind a drain is not late inside drainMs", fake.root.available === true && fake.answers.length === 0 && fake.signals.length === 0, true)
     fake.exit()
     fake.start()
     fake.tick()
@@ -122,7 +124,7 @@ function run(check) {
     fake.tick()
     check("and a reply that then outlasts replyMs still ends the store", fake.root.available === false && fake.answers.length === 1, true)
 
-    // A store that answers but ignores EOF never ends its drain: past drainMs it is killed, what waits behind it is a miss and its puts go to the next store.
+    // A slow honest drain keeps its store: past drainMs what waits behind it is a miss for the helper, the store is not killed and its put reaches disk.
     fake = store()
     fake.root.put(key, "<svg/>")
     fake.start()
@@ -130,10 +132,31 @@ function run(check) {
     fake.root.get(14, key)
     fake.root.ask(15, [key])
     fake.root.put(key, "<svg>2</svg>")
-    fake.drain()
-    check("a drain past its bound kills the store", fake.signals.length === 1 && fake.signals[0] === fake.root.killSignal, true)
-    check("what waited behind it is answered a miss, for the helper to draw", fake.answers.length === 1 && fake.answers[0].id === 14 && fake.answers[0].svg === "" && fake.knowns.length === 1 && fake.knowns[0].all === false && fake.root.owed === 0, true)
-    check("the hung drain latches nothing and keeps only the queued put", fake.root.available === true && fake.root.queued.length === 1 && fake.root.queued[0].id === undefined, true)
+    fake.now = fake.root.drainMs - 1
+    fake.tick()
+    check("a queued line inside drainMs is still waiting", fake.answers.length === 0 && fake.knowns.length === 0 && fake.root.owed === 2, true)
+    fake.now = fake.root.drainMs + 1
+    fake.tick()
+    check("past drainMs a queued get and known are misses, for the helper to draw", fake.answers.length === 1 && fake.answers[0].id === 14 && fake.answers[0].svg === "" && fake.knowns.length === 1 && fake.knowns[0].all === false && fake.root.owed === 0, true)
+    check("the draining store is not killed, latched or stopped early", fake.signals.length === 0 && fake.root.hangKills === 0 && fake.root.available === true && fake.root.stopping === true && fake.process.running, true)
+    check("only the queued put waits for the next store", fake.root.queued.length === 1 && fake.root.queued[0].id === undefined, true)
+    fake.exit()
+    fake.start()
+    check("the drain's exit starts a clean store that gets the put", fake.root.available === true && fake.writes.length === 2 && fake.writes[1].op === "put" && fake.root.owed === 0 && fake.signals.length === 0, true)
+
+    // A store that ignores EOF is hung at drainHangMs and killed, never latched; its lines were answered at drainMs and its queued puts go to the next store.
+    fake = store()
+    fake.root.put(key, "<svg/>")
+    fake.start()
+    check("a stop with only a put in flight drains", fake.root.stop(), true)
+    fake.root.get(14, key)
+    fake.root.put(key, "<svg>2</svg>")
+    fake.now = fake.root.drainMs + 1
+    fake.tick()
+    check("the line behind the hung drain is a miss at drainMs, before any kill", fake.answers.length === 1 && fake.signals.length === 0, true)
+    fake.hang()
+    check("the drain hang bound kills the store", fake.signals.length === 1 && fake.signals[0] === fake.root.killSignal && fake.root.hangKills === 1, true)
+    check("it latches nothing and keeps only the queued put", fake.root.available === true && fake.root.queued.length === 1 && fake.root.queued[0].id === undefined, true)
     fake.exit()
     check("the exit is no failure and starts a clean store with stdin open", fake.root.available === true && fake.root.starting && fake.process.stdinEnabled && !fake.root.stopping && fake.root.exits === 1, true)
     fake.start()

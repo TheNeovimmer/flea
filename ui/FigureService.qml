@@ -189,8 +189,9 @@ Item {
         onTriggered: {
             if (Object.keys(root.waiting).length !== 0)
                 return;
-            // A store refused for a reply it owes is asked again at the next idle, so it never runs on for the session.
-            if (!disk.stop() && disk.active && !disk.stopping)
+            disk.stop();
+            // A store still active (refused, or draining and maybe restarted for a queued put) is asked again at the next idle, so it never runs on for the session.
+            if (disk.active)
                 idleTimer.restart();
             if (helper.running) {
                 root.stopping = true;

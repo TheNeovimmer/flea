@@ -107,33 +107,49 @@ if ! printf '%s\n' "$output" | grep -qE "FIGURE_STORE_HUNG $hung_expected checks
 fi
 echo "figure-store: $hung_expected hung-store check(s), 0 failed"
 
-# A store that answers every line but ignores EOF: the same service, with Flea's own binary behind a stub whose store mode never ends its drain.
+# Two drains the service must tell apart: a store that answers every line and ignores EOF, and one that commits its puts slowly after EOF and then exits.
 mkdir -p "$test_root/drain-config" "$test_root/drain-bin" || exit 1
 ln -s "$PWD/ui" "$test_root/drain-config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/drain-config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/drain-config/Ui" || exit 1
 cp tests/figure-store-drain.qml "$test_root/drain-config/shell.qml" || exit 1
+# The hung stub never ends; the slow stub keeps every line, answers a miss for each get, waits out its commit after EOF and only then replays the lines into Flea's own store, so a kill before the end loses the put. Its first start only is slow.
 cat > "$test_root/drain-bin/flea" <<STUB
 #!/bin/bash
 if [ "\$1" = "--figure-store" ]; then
-    # Sample input: {"op":"get","id":3,"key":"..."} answers {"id":3,"miss":true}; a put has no id and no reply.
-    sed -u -n 's/.*"id":\([0-9]*\).*/{"id":\1,"miss":true}/p'
-    exec sleep 120
+    if [ "\$FLEA_DRAIN_MODE" = hang ]; then
+        # Sample input: {"op":"get","id":3,"key":"..."} answers {"id":3,"miss":true}; a put has no id and no reply.
+        sed -u -n 's/.*"id":\([0-9]*\).*/{"id":\1,"miss":true}/p'
+        exec sleep 120
+    elif [ ! -e "$test_root/slow-used" ]; then
+        : > "$test_root/slow-used"
+        tee "$test_root/slow-lines" | sed -u -n 's/.*"id":\([0-9]*\).*/{"id":\1,"miss":true}/p'
+        sleep 4
+        exec "$fleabin" "\$@" < "$test_root/slow-lines"
+    fi
 fi
 exec "$fleabin" "\$@"
 STUB
 chmod +x "$test_root/drain-bin/flea" || exit 1
-output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
-    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
-    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$test_root/drain-bin/flea" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
-    timeout 120 qs -p "$test_root/drain-config" 2>&1 ) 2>/dev/null )
-printf '%s\n' "$output" | grep -aoE 'FIGURE_STORE_DRAIN .*'
-# Sample input: FIGURE_STORE_DRAIN 4 checks, 0 failed.
-drain_expected=4
-if ! printf '%s\n' "$output" | grep -qE "FIGURE_STORE_DRAIN $drain_expected checks, 0 failed$"; then
-    printf 'figure-store.sh: FAIL the hung drain was not ended: expected %s checks, 0 failed\n' "$drain_expected"
-    printf '%s\n' "$output" | grep -aE 'ERROR|TypeError|ReferenceError|flea:' | head -10
-    exit 1
-fi
-echo "figure-store: $drain_expected drain check(s), 0 failed"
+run_drain() {
+    output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+        HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+        XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$test_root/drain-bin/flea" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
+        FLEA_DRAIN_MODE="$1" \
+        QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+        timeout 120 qs -p "$test_root/drain-config" 2>&1 ) 2>/dev/null )
+    printf '%s\n' "$output" | grep -aoE 'FIGURE_STORE_DRAIN .*'
+    # Sample input: FIGURE_STORE_DRAIN 5 checks, 0 failed.
+    if ! printf '%s\n' "$output" | grep -qE "FIGURE_STORE_DRAIN $2 checks, 0 failed$"; then
+        printf 'figure-store.sh: FAIL the %s drain: expected %s checks, 0 failed\n' "$1" "$2"
+        printf '%s\n' "$output" | grep -aE 'ERROR|TypeError|ReferenceError|flea:' | head -10
+        drain_failed=1
+        return
+    fi
+    echo "figure-store: $2 $1 drain check(s), 0 failed"
+}
+drain_failed=0
+run_drain hang 5
+# The slow drain reads its put back from the store directory the stub's real store wrote.
+run_drain slow 4
+[ "$drain_failed" = 0 ] || exit 1

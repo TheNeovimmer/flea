@@ -48,7 +48,7 @@ function run(check, service) {
     fake.root.storeAnswered(other, "")
     check("each ticket still with the disk is failed once and none twice", fake.answers.length === 2 && fake.answers[1].id === other && Object.keys(fake.root.waiting).length === 0, true)
 
-    // A store that refuses its idle stop for a reply it owes is asked again at the next idle, so it never runs on for the session.
+    // A store still active after its idle stop (refused for a reply it owes, or draining and perhaps restarted for a queued put) is asked again at the next idle, so it never runs on for the session.
     fake = service()
     fake.disk.available = true
     fake.disk.active = true
@@ -59,13 +59,13 @@ function run(check, service) {
     fake.idleTimer.stop()
     fake.idle()
     check("the next idle, with the reply landed, stops the store", fake.disk.stops === 2 && fake.disk.stopping, true)
-    check("an accepted stop leaves the idle timer alone", fake.idleTimer.running, false)
+    check("an accepted stop still re-arms it, for a store the drain may restart to commit a queued put", fake.idleTimer.running, true)
     fake = service()
     fake.disk.stopping = true
     fake.disk.active = true
     fake.disk.refuse = true
     fake.idle()
-    check("a store already draining is not asked again", fake.idleTimer.running, false)
+    check("a store still draining is asked again at the next idle", fake.idleTimer.running, true)
     fake = service()
     fake.idle()
     check("a store that is not running is not asked again", fake.idleTimer.running, false)
