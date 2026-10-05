@@ -363,22 +363,23 @@ ShellRoot {
                     openLog.waitForJob()
                     if (launchLines().length < 1) return
                     root.check("positive control reached native URL dispatch", launchLines(), ["called"])
-                    // Paragraphs in one run share a Text; click each native anchor by its URL hit region.
-                    var node = textOf(md.blockItem(0))
+                    // A blank line ends a paragraph, so each link sits in the Text of the block that draws it: scan every block.
                     var urls = ["http://example.invalid/http", "https://example.invalid/https", "mailto:test@example.invalid", "./other.md", "#heading"]
                     var points = ({})
-                    for (var y = 0; y < Math.ceil(node.height); y++)
-                        for (var x = 0; x < Math.ceil(node.width); x++) {
-                            var url = node.linkAt(x, y)
-                            if (url !== "" && points[url] === undefined) points[url] = { x: x, y: y }
-                        }
-                    node.linkActivated.connect(function (url) { root.clicked.push(String(url)) })
+                    for (var b = 0; b < md.blockList.length; b++) {
+                        var node = md.blockItem(b) === null ? undefined : textOf(md.blockItem(b))
+                        if (node === undefined) continue
+                        node.linkActivated.connect(function (url) { root.clicked.push(String(url)) })
+                        for (var y = 0; y < Math.ceil(node.height); y++)
+                            for (var x = 0; x < Math.ceil(node.width); x++)
+                                if (node.linkAt(x, y) !== "" && points[node.linkAt(x, y)] === undefined) points[node.linkAt(x, y)] = { node: node, x: x, y: y }
+                    }
                     for (var i = 0; i < urls.length; i++) {
                         var point = points[urls[i]]
                         root.check("native link hit region exists " + urls[i], point !== undefined, true)
                         var before = launchLines().length
                         if (point !== undefined)
-                            keys.mouseClick(node, point.x, point.y, Qt.LeftButton, Qt.NoModifier, -1)
+                            keys.mouseClick(point.node, point.x, point.y, Qt.LeftButton, Qt.NoModifier, -1)
                         openLog.reload()
                         openLog.waitForJob()
                         root.check("click dispatch increment " + urls[i], launchLines().length - before, i < 3 ? 1 : 0)
