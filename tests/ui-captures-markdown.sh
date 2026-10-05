@@ -350,10 +350,11 @@ capmarkdownkinds_end_runs=40
 # Wheels down a run at a time until the last block and its inset are in view (previewEndGap within the slack), failing by name if never.
 capmarkdownkinds_reach_end() {
     local name="$1" run gap
-    for ((run = 0; run < capmarkdownkinds_end_runs; run++)); do
+    for ((run = 0; ; run++)); do
         gap="$(ipc previewEndGap)"
         [[ "$gap" =~ ^-?[0-9]+$ ]] || fail "capmarkdownkinds: previewEndGap answered [$gap] for $name while wheeling to its end"
         (( gap >= 0 && gap <= capmarkdown_end_slack_px )) && return 0
+        (( run < capmarkdownkinds_end_runs )) || break
         capmarkdown_scroll down "$((capmarkdown_notches_mid + capmarkdown_notches_end))"
     done
     fail "capmarkdownkinds: $name never reached its end after $capmarkdownkinds_end_runs wheel runs"
