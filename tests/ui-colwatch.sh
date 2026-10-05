@@ -8,19 +8,38 @@ colwatch_poll_s=0.05
 # More folders than the backend's watch cap of eight, so walking the cursor over them draws more folders than it can watch at once.
 colwatch_folders=10
 
-# Wait until a drawn side column (parent or child) has or lacks a name, read from the window's own column rows.
+# The row each side column keeps through every step, so a read that lacks it is an undrawn column and not a verdict.
+colwatch_anchor() {
+    case "$1" in
+        child) printf 'seed.txt' ;;
+        parent) printf 'beside.txt' ;;
+        *) return 1 ;;
+    esac
+}
+
+# Wait until a drawn side column (parent or child) has or lacks a name; only a successful read of a drawn column counts, and a failed one keeps polling.
 colwatch_wait() {
-    local step="$1" slot="$2" verdict="$3" name="$4" names deadline
+    local step="$1" slot="$2" verdict="$3" name="$4" anchor names read_status deadline last="no read answered"
+    anchor=$(colwatch_anchor "$slot") || fail "colwatch: step $step names no known column: $slot"
     deadline=$((SECONDS + colwatch_budget_s))
     while (( SECONDS <= deadline )); do
-        names="|$(ipc columnNames "$slot" 2>/dev/null || true)|"
-        case "$verdict" in
-            has) [[ "$names" == *"|$name|"* ]] && return 0 ;;
-            gone) [[ "$names" != *"|$name|"* ]] && return 0 ;;
-        esac
+        read_status=0
+        names=$(ipc columnNames "$slot" 2>/dev/null) || read_status=$?
+        if (( read_status != 0 )); then
+            last="ipc columnNames $slot exited $read_status"
+        elif [[ "|$names|" != *"|$anchor|"* ]]; then
+            last="the $slot column is not drawn, it read: $names"
+        else
+            names="|$names|"
+            case "$verdict" in
+                has) [[ "$names" == *"|$name|"* ]] && return 0 ;;
+                gone) [[ "$names" != *"|$name|"* ]] && return 0 ;;
+            esac
+            last="the $slot column holds $names"
+        fi
         sleep "$colwatch_poll_s"
     done
-    fail "colwatch: step $step never showed $name $verdict in the $slot column, it holds $(ipc columnNames "$slot")"
+    fail "colwatch: step $step never showed $name $verdict in the $slot column, last read: $last"
 }
 
 # Move the cursor to a folder row by name and wait until the child column draws that folder's seed file.

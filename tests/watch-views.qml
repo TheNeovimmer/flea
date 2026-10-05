@@ -19,7 +19,8 @@ ShellRoot {
     property double stepStarted: 0
     property bool settled: false
     property var steps: []
-    property var cacheBefore: null
+    property string awaitedKey: ""
+    property var entryBefore: undefined
 
     function finish(reason) {
         if (finished) return
@@ -118,8 +119,10 @@ ShellRoot {
             return
         }
         if (one.go !== undefined) {
-            // The cache before the move, so a later answer is told apart from one the earlier folder left behind.
-            root.cacheBefore = root.pane().columnsArea ? root.pane().columnsArea.peeked : null
+            // The awaited neighbour's cached entry before the move, so only a later peek reply tells as fresh.
+            var area = root.pane().columnsArea
+            root.awaitedKey = area ? area.peekKey(one.go === root.open ? root.open + "/sub" : root.open) : ""
+            root.entryBefore = area ? area.peeked[root.awaitedKey] : undefined
             root.pane().open(one.go)
             return
         }
@@ -131,9 +134,10 @@ ShellRoot {
         if (one.go !== undefined) {
             // The new folder's listing and its neighbour columns land before the next outside change.
             var at = root.pane(), area = at.columnsArea
-            // A new cache holding the neighbour's answer is that folder's fresh peek, armed before its scan, so the next outside change can only arrive as an event.
-            var fresh = !!area && area.peeked !== root.cacheBefore
-            if (fresh && at.path === one.go && !at.listInFlight && at.listingState === "ready" && area.answered(one.go === root.open ? root.open + "/sub" : root.open))
+            // A reply replaces the cache whole, late ones for the folder just left included, so only a new entry for the awaited neighbour is its fresh peek, armed before its scan.
+            var entry = area ? area.peeked[root.awaitedKey] : undefined
+            var fresh = entry !== undefined && entry !== root.entryBefore
+            if (fresh && at.path === one.go && !at.listInFlight && at.listingState === "ready")
                 return root.begin(root.stepIndex + 1)
             if (Date.now() - root.stepStarted > root.stepBudgetMs) {
                 root.stale += 1
