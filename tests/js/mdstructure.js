@@ -1,7 +1,8 @@
 .import "../../ui/js/Markdown.js" as Markdown
 .import "../../ui/js/MdInline.js" as MdInline
 .import "../../ui/js/MdLink.js" as MdLink
-.import "../../ui/js/MdParagraphs.js" as MdParagraphs.import "../../ui/js/MdBlocks.js" as MdBlocks
+.import "../../ui/js/MdParagraphs.js" as MdParagraphs
+.import "../../ui/js/MdBlocks.js" as MdBlocks
 .import "../../ui/js/MdContainer.js" as MdContainer
 .import "../../ui/js/MdLeaf.js" as MdLeaf
 .import "../../ui/js/MdRefs.js" as MdRefs
