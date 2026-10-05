@@ -37,7 +37,9 @@ function run(assert) {
     // A fixed seed keeps the sweep deterministic; the Park-Miller step stays under 2^53, so doubles hold it exactly.
     var sweepSeed = 1917
     var sweepTrials = 5000
-    function sweepNext(bound) { sweepSeed = sweepSeed * 48271 % 2147483647; return sweepSeed % bound }
+    var parkMillerMultiplier = 48271
+    var parkMillerModulus = 2147483647
+    function sweepNext(bound) { sweepSeed = sweepSeed * parkMillerMultiplier % parkMillerModulus; return sweepSeed % bound }
     // Every swept split whose floors with least fit avail sums inside it (a hopeless one may overflow); word runs draw from a tighter range.
     var sweepOver = 0
     for (var trial = 0; trial < sweepTrials; trial++) {
