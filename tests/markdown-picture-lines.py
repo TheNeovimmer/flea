@@ -164,7 +164,7 @@ def judge(name, label, ink, frame, twin_ink, twin_frame, natural_file):
         if len(boxes) == 0 or len(smalls) == 0:
             return "no picture was drawn"
         if len(boxes) != 2 or len(smalls) != 2:
-            return "%d picture runs, not 2" % len(boxes)
+            return "%d picture runs in the frame and %d in its dot twin, not 2 each" % (len(boxes), len(smalls))
         holders = sorted(holders, key=lambda t: t["y"])
         boxes = sorted(boxes, key=lambda b: b[1])
         smalls = sorted(smalls, key=lambda b: b[1])
