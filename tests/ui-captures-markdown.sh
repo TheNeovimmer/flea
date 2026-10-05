@@ -394,12 +394,13 @@ capmarkdownkinds_shoot() {
     [[ "$(ipc previewOpen)" == "false" ]] || fail "capmarkdownkinds: Escape did not close Quick Look on $name"
 }
 # The table torture documents (tests/fixtures/markdown-tables) shot on the display box in Quick Look, then each in the narrow preview column.
-case_cap_markdown_tables() { capmarkdown_fixture_set markdown-tables CAPMARKDOWNTABLES; }
+case_cap_markdown_tables() { capmarkdown_fixture_set markdown-tables CAPMARKDOWNTABLES rows500.md; }
 # The inline picture lines (tests/fixtures/markdown-picline): a picture taller or wider than its line, in Quick Look and the column.
 case_cap_markdown_picline() { capmarkdown_fixture_set markdown-picline CAPMARKDOWNPICLINE; }
-# Shoots every document of one tests/fixtures set with the shared table assets beside it: capmarkdown_fixture_set SET TAG.
+# Shoots one set's own documents with the shared table assets beside it: capmarkdown_fixture_set SET TAG [EXTRA...].
 capmarkdown_fixture_set() {
     local set=$1 tag=$2 dir="$fixture_root/capmarkdown-$1" doc name results=""
+    shift 2
     sandbox_scratch "$dir"
     mkdir -p "$dir/listing"
     cp "$repo"/tests/fixtures/"$set"/*.md "$dir/listing/"
@@ -408,7 +409,8 @@ capmarkdown_fixture_set() {
     markdown_tables_assets_write "$dir/listing" || fail "capmarkdown $set: the shared table assets did not generate"
     launch "$dir/listing"
     wait_listing "$(find "$dir/listing" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
-    for doc in "$dir"/listing/*.md; do
+    # Each set shoots only its own fixture names plus explicit extras, so the picline set never shoots the tables assets rows500.
+    for doc in "$repo"/tests/fixtures/"$set"/*.md "$@"; do
         name="${doc##*/}"
         capmarkdownkinds_open "$name"
         capmarkdownkinds_shoot "$name"
@@ -417,7 +419,7 @@ capmarkdown_fixture_set() {
         results+="${name%.md}=ok "
     done
     switch_view columns
-    for doc in "$dir"/listing/*.md; do
+    for doc in "$repo"/tests/fixtures/"$set"/*.md "$@"; do
         name="${doc##*/}"
         goto_row "$(row_index_of "$name")"
         settle

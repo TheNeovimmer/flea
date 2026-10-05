@@ -49,9 +49,12 @@ Column {
                 textFormat: Text.RichText
                 height: marker.box
                 wrapMode: Text.NoWrap
+                // The marker sits on the item's first baseline, 0 when the first line is not grown.
+                y: itemParts.active ? 0 : itemText.baselineOffset - marker.baselineOffset
             }
 
             MarkdownText {
+                id: itemText
                 visible: !itemParts.active
                 linkGate: root.linkGate
                 width: parent.width - marker.width - parent.spacing

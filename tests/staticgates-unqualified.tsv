@@ -79,10 +79,10 @@ ui/MarkdownList.qml	39	root	Declared QML id; component context access is valid a
 ui/MarkdownList.qml	45	cell	Declared QML property; enclosing component context supplies it.
 ui/MarkdownList.qml	46	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownList.qml	47	cell	Declared QML property; enclosing component context supplies it.
-ui/MarkdownList.qml	56	root	Declared QML id; component context access is valid at runtime.
-ui/MarkdownList.qml	58	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownList.qml	59	root	Declared QML id; component context access is valid at runtime.
-ui/MarkdownList.qml	65	root	Declared QML id; component context access is valid at runtime.
+ui/MarkdownList.qml	61	root	Declared QML id; component context access is valid at runtime.
+ui/MarkdownList.qml	62	root	Declared QML id; component context access is valid at runtime.
+ui/MarkdownList.qml	68	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownMathsText.qml	76	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownMathsText.qml	77	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownMathsText.qml	78	root	Declared QML id; component context access is valid at runtime.
@@ -1306,17 +1306,17 @@ ui/MarkdownList.qml	40	root	Declared QML id; component context access is valid a
 ui/MarkdownList.qml	45	cell	Declared QML property; enclosing component context supplies it.
 ui/MarkdownList.qml	46	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownList.qml	47	cell	Declared QML property; enclosing component context supplies it.
-ui/MarkdownList.qml	56	root	Declared QML id; component context access is valid at runtime.
-ui/MarkdownList.qml	58	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownList.qml	59	root	Declared QML id; component context access is valid at runtime.
-ui/MarkdownList.qml	59	index	Declared QML property; enclosing component context supplies it.
-ui/MarkdownList.qml	65	root	Declared QML id; component context access is valid at runtime.
-ui/MarkdownList.qml	65	root	Declared QML id; component context access is valid at runtime.
-ui/MarkdownList.qml	65	root	Declared QML id; component context access is valid at runtime.
-ui/MarkdownList.qml	65	index	Declared QML property; enclosing component context supplies it.
-ui/MarkdownList.qml	65	index	Declared QML property; enclosing component context supplies it.
-ui/MarkdownList.qml	71	root	Declared QML id; component context access is valid at runtime.
-ui/MarkdownList.qml	72	root	Declared QML id; component context access is valid at runtime.
+ui/MarkdownList.qml	61	root	Declared QML id; component context access is valid at runtime.
+ui/MarkdownList.qml	62	root	Declared QML id; component context access is valid at runtime.
+ui/MarkdownList.qml	62	index	Declared QML property; enclosing component context supplies it.
+ui/MarkdownList.qml	68	root	Declared QML id; component context access is valid at runtime.
+ui/MarkdownList.qml	68	root	Declared QML id; component context access is valid at runtime.
+ui/MarkdownList.qml	68	root	Declared QML id; component context access is valid at runtime.
+ui/MarkdownList.qml	68	index	Declared QML property; enclosing component context supplies it.
+ui/MarkdownList.qml	68	index	Declared QML property; enclosing component context supplies it.
+ui/MarkdownList.qml	74	root	Declared QML id; component context access is valid at runtime.
+ui/MarkdownList.qml	75	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownMathsText.qml	76	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownMathsText.qml	77	root	Declared QML id; component context access is valid at runtime.
 ui/MarkdownMathsText.qml	78	root	Declared QML id; component context access is valid at runtime.

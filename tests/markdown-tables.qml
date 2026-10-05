@@ -149,6 +149,7 @@ ShellRoot {
         }
         if (!Tables.tableless(name))
             shell.check(Tables.lineError(name, label, geos), name + " " + label + " draws its lines")
+        shell.check(Tables.markerBaselineError(pane.bodyItem.contentItem, frame), name + " " + label + " marker sits on its item baseline")
     }
 
     function shotHeight(pane, bar) {

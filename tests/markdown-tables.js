@@ -142,10 +142,32 @@ function lineError(name, label, geos) {
 // The pictures of these cases are judged beside a twin ("-dot") whose picture is small, so the ink above them is known.
 var CONTROL = "-dot"
 // Cases that hold no table: a picture in a paragraph, a list item or a quote, judged by the grabbed pixels alone.
-var TABLELESS = ["picfirst", "picsecond", "piclist", "picquote", "picwide", "picwidelist"]
+var TABLELESS = ["picfirst", "picsecond", "piclist", "picquote", "picwide", "picwidelist", "picordered"]
 
 function tableless(name) {
     return TABLELESS.indexOf(name.replace(CONTROL, "")) >= 0
+}
+
+// A list marker must sit on its item's first baseline; more than this far apart is a floating bullet.
+var MARKER_BASELINE_TOLERANCE = 1
+
+// Blank when every drawn list row's marker shares its item text's first baseline, else the first row that does not.
+function markerBaselineError(root, frame) {
+    var rows = all(root, "listRow")
+    for (var i = 0; i < rows.length; i++) {
+        var row = rows[i]
+        if (row.children.length < 2 || row.children[0].box === undefined || row.children[1].box === undefined)
+            continue
+        var marker = row.children[0]
+        var text = row.children[1]
+        if (!text.visible)
+            continue
+        var markY = marker.mapToItem(frame, 0, marker.baselineOffset).y
+        var textY = text.mapToItem(frame, 0, text.baselineOffset).y
+        if (Math.abs(markY - textY) > MARKER_BASELINE_TOLERANCE)
+            return "row " + i + " marker baseline " + markY + " differs from item " + textY + " by " + (markY - textY) + " px"
+    }
+    return ""
 }
 
 // A table's rules are the rectangles in it thinner than this; its cells draw no other.
