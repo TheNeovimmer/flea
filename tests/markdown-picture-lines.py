@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Judges the picture lines the table suite grabbed from one name label json record per stdin line: each picture sits inside its own line, row and block.
+# Judges the picture lines the table suite grabbed from one name label json record per stdin line: each picture sits inside its own line, row and block, and each list marker sits where a plain row's does.
 import json
 import os
 import struct
@@ -17,6 +17,8 @@ WIDE_PICTURE = {"picwide": "huge.png", "picwidelist": "huge.png"}
 # A case's twin draws the same document with the 12 px dot where the picture is, as markdown-tables.sh writes it.
 TWIN = "-dot"
 COLOR_TYPE_RGBA = 6
+# A marker's ink bottom may sit this far from where a plain row's marker has it, measured from the line's own text baseline.
+MARKER_INK_TOLERANCE = 1
 
 
 # Sample input: "tables-picfirst-card.png" answers (width, height, step, rows) for that frame.
@@ -220,6 +222,71 @@ def judge(name, label, ink, frame, twin_ink, twin_frame, natural_file):
     return ""
 
 
+# Sample input: a rect over "An item. [picture] by hand." answers the row its first line rests on, the picture's bottom edge and the text's baseline.
+def first_baseline(rows, step, rect, background):
+    # The first line is the first run of rows holding any ink; the baseline is the row most columns end on, since glyphs end there and a picture rests on it, while descenders are few.
+    top = max(0, rect["y"])
+    bottom = min(len(rows), rect["y"] + rect["h"])
+    left = max(0, rect["x"])
+    right = min(len(rows[0]) // step, rect["x"] + rect["w"])
+    def inked(y):
+        return any(pixel(rows, step, x, y) != background for x in range(left, right))
+    y = top
+    while y < bottom and not inked(y):
+        y += 1
+    band_end = y
+    while band_end < bottom and inked(band_end):
+        band_end += 1
+    ends = {}
+    for x in range(left, right):
+        low = max((r for r in range(y, band_end) if pixel(rows, step, x, r) != background), default=-1)
+        if low >= 0:
+            ends[low] = ends.get(low, 0) + 1
+    if not ends:
+        return None
+    return min(ends, key=lambda row: (-ends[row], row))
+
+
+def marker_bottom(rows, step, rect, background):
+    # The lowest row of ink in the marker's own rect.
+    for y in range(min(len(rows), rect["y"] + rect["h"]) - 1, max(0, rect["y"]) - 1, -1):
+        for x in range(max(0, rect["x"]), min(len(rows[0]) // step, rect["x"] + rect["w"])):
+            if pixel(rows, step, x, y) != background:
+                return y
+    return None
+
+
+# Sample input: a row {"marker": {x, y, w, h}, "text": {x, y, w, h}} answers the marker's ink bottom minus its first line's baseline, or None when a rect holds no ink.
+def marker_drop(rows, step, row, background):
+    bottom = marker_bottom(rows, step, row["marker"], background)
+    baseline = first_baseline(rows, step, row["text"], background)
+    return None if bottom is None or baseline is None else bottom - baseline
+
+
+def marker_error(name, ink, frame, twin_ink, twin_frame):
+    # Blank when every list row's marker ink sits as far from its first line's baseline as a plain row's and as its dot twin's, else the first row that does not.
+    lists = ink["lists"]
+    if lists["required"] and not lists["rows"]:
+        return "case %s judged no rows" % name
+    if not lists["rows"]:
+        return ""
+    width, height, step, rows = read_png(frame)
+    twin_width, twin_height, twin_step, twin_rows = read_png(twin_frame)
+    drops = [marker_drop(rows, step, row, background_of(ink)) for row in lists["rows"]]
+    twins = [marker_drop(twin_rows, twin_step, row, background_of(twin_ink)) for row in twin_ink["lists"]["rows"]]
+    if len(twins) != len(drops):
+        return "%d rows judged and %d in the dot twin" % (len(drops), len(twins))
+    plain = [d for d, row in zip(drops, lists["rows"]) if not row["picture"] and d is not None]
+    for i, drop in enumerate(drops):
+        if drop is None or twins[i] is None:
+            return "row %d drew no ink to judge its marker by" % i
+        if abs(drop - twins[i]) > MARKER_INK_TOLERANCE:
+            return "row %d marker ink bottom sits %d px from its line's baseline, %d in the dot twin" % (i, drop, twins[i])
+        if plain and abs(drop - plain[0]) > MARKER_INK_TOLERANCE:
+            return "row %d marker ink bottom sits %d px from its line's baseline, %d on a plain row" % (i, drop, plain[0])
+    return ""
+
+
 def main():
     runtime, docs = sys.argv[1], sys.argv[2]
     records = {}
@@ -238,6 +305,9 @@ def main():
         error = judge(name, label, ink, frame(name), twin, frame(name + TWIN), os.path.join(docs, WIDE_PICTURE.get(name, "wide.png")))
         failed += 1 if error != "" else 0
         print(("FAIL" if error != "" else "ok") + " picture line %s %s: %s" % (name, label, error or "clear of the ink above, inside its own block"))
+        marker = marker_error(name, ink, frame(name), twin, frame(name + TWIN))
+        failed += 1 if marker != "" else 0
+        print(("FAIL" if marker != "" else "ok") + " marker ink %s %s: %s" % (name, label, marker or "as far from its line's baseline as a plain row's"))
     if judged == 0:
         print("FAIL picture line: no case had a twin to judge against")
         failed += 1

@@ -18,7 +18,7 @@ chmod 700 "$test_root/runtime" || exit 1
 ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
-cp tests/markdown-tables.js "$test_root/config/" || exit 1
+cp tests/markdown-tables.js tests/markdown-markers.js "$test_root/config/" || exit 1
 cp tests/markdown-tables.qml "$test_root/config/shell.qml" || exit 1
 cp tests/fixtures/markdown-tables/*.md tests/fixtures/markdown-picline/*.md "$test_root/docs/" || exit 1
 . "$(dirname "$0")/markdown-tables-assets.sh" || exit 1
@@ -48,7 +48,7 @@ if [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then
     printf '%s\n' "$output" | grep -a ' GEO ' | sed 's/^.*MARKDOWN_TABLES GEO //' > "$FLEA_CI_SUITE_LOGS/tables/geometry.txt"
 fi
 if [ "$picture_status" -ne 0 ]; then
-    printf 'FAIL markdown-tables: a picture line overlaps what is above it or leaves a stretch below it\n'
+    printf 'FAIL markdown-tables: a picture line overlaps what is above it or leaves a stretch below it, or a list marker sits off the baseline of its line\n'
     exit 1
 fi
 if ! printf '%s\n' "$output" | grep -aq 'MARKDOWN_TABLES [0-9]* checks, 0 failed'; then

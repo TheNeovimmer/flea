@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import "flea" as Flea
 import "markdown-tables.js" as Tables
+import "markdown-markers.js" as Markers
 
 // Every table case document, set in Quick Look's MarkdownPane and in the preview column's compact PreviewMarkdown at the board's text size 14, judged on geometry and grabbed.
 ShellRoot {
@@ -127,6 +128,7 @@ ShellRoot {
     function logInk(name, label, pane, frame) {
         var ink = Tables.inkRects(pane.bodyItem.contentItem, frame)
         ink.bg = String(Flea.Theme.color.background)
+        ink.lists = Markers.listInk(pane.bodyItem.contentItem, frame, name)
         shell.log("INK " + name + " " + label + " " + JSON.stringify(ink))
     }
 
@@ -149,7 +151,7 @@ ShellRoot {
         }
         if (!Tables.tableless(name))
             shell.check(Tables.lineError(name, label, geos), name + " " + label + " draws its lines")
-        shell.check(Tables.markerBaselineError(pane.bodyItem.contentItem, frame, name), name + " " + label + " marker sits on its item baseline")
+        shell.check(Markers.markerBaselineError(pane.bodyItem.contentItem, frame, name), name + " " + label + " marker sits on its item baseline")
     }
 
     function shotHeight(pane, bar) {

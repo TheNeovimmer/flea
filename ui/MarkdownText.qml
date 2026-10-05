@@ -38,6 +38,8 @@ Text {
     readonly property real stretch: root.grown && root.contentHeight < root.pictureLine * root.box / root.naturalLine + root.box / 2 ? root.contentHeight - root.pictureLine : 0
     // Rich text shifts by the gap between the two baselines (negative when Qt sits it low); plain text sits at the top of its natural line.
     readonly property int lift: root.rich ? root.centredBaseline - root.restBaseline : Math.floor(root.lead / 2)
+    // The first line's drawn baseline: Qt reports a FixedHeight line's baselineOffset at the ascent, short of where it draws.
+    readonly property real drawnBaseline: root.rich && !root.grown ? root.topPadding + root.restBaseline : root.baselineOffset
     // The document's body size; the preview column scales it down from Quick Look's.
     property int bodyPx: Theme.font.body
     // Rows of a table add their own cell padding on top of the box.
