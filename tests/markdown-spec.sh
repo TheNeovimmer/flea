@@ -3,7 +3,7 @@
 set -u
 cd "$(dirname "$0")/.." || exit 1
 # The CommonMark 0.31.2 examples (652), the GFM extension examples (24), the table forms (13) the entity forms (12) and the definition forms (1) in tests/fixtures/markdown-spec.
-expected_examples=702
+expected_examples=704
 harness_seconds=280
 
 if ! command -v qml6 >/dev/null; then

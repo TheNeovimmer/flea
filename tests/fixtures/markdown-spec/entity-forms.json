@@ -66,6 +66,18 @@
   "html": "<p>     code</p>\n"
  },
  {
+  "example": "space-line-is-not-blank",
+  "section": "Entity forms",
+  "markdown": "a\n&#32;\nb\n",
+  "html": "<p>a\n \nb</p>\n"
+ },
+ {
+  "example": "space-line-then-two-spaces-is-a-break",
+  "section": "Entity forms",
+  "markdown": "a\n&#32;  \nb\n",
+  "html": "<p>a\n <br />\nb</p>\n"
+ },
+ {
   "example": "quote-and-list-marks",
   "section": "Entity forms",
   "markdown": "&#62; q\n\n&#45; i\n",
