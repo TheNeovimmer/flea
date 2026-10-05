@@ -29,7 +29,8 @@ function run(check) {
     function ask(msg) {
         var seen = []
         var stubWorker = { sendMessage: function (m) { seen.push(m) } }
-        var stubBlocks = { blocks: function () { return [{ type: "run", text: "stub" }] } }
+        // The stub beats whenever it is handed a listener, so a beat the worker forwards for a headless request shows up.
+        var stubBlocks = { blocks: function (source, dir, chrome, ink, headCount, onHead, onProgress) { if (onProgress !== undefined) onProgress(); return [{ type: "run", text: "stub" }] } }
         new Function("WorkerScript", "MdBlocks", "msg", onMessage)(stubWorker, stubBlocks, msg)
         return seen
     }
@@ -38,4 +39,6 @@ function run(check) {
     var headless = ask({ seq: 8, source: "hi", dir: dir, chrome: chrome, ink: ink })
     var acked = headless.filter(function (m) { return m.ack === true })
     check("a headless request is never acked", acked.length, 0)
+    check("a headed request forwards the parse's beats", headed.filter(function (m) { return m.progress === true && m.seq === 7 }).length, 1)
+    check("a headless request never beats", headless.filter(function (m) { return m.progress === true }).length, 0)
 }

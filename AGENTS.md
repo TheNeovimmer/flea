@@ -7968,10 +7968,12 @@ never answers, a 200 ms fallback wait, and a parser that throws on one marker) s
 find the fallback handler from its own id so an earlier Timer is never the one read, and give the list-grid probe a closed link gate; they had failed since the previous round's `dropParse` and `linkGate`.
 
 mlazy 2026-10-05: a slow worker is never a lost one. `MarkdownWorker.js` acks a request that carries a head field at once and beats every
-`PROGRESS_EVENTS` (4000) block-pass sends (`MdBlocks.blocks` takes the beat as `onProgress`); `landed` restarts `parseFallback` on an ack, a beat
+`PROGRESS_EVENTS` (4000) line events on both block passes, the reference-collecting one included (`MdBlocks.blocks` takes the beat as
+`onProgress`); `landed` restarts `parseFallback` on an ack, a beat
 or a head, never on the full reply, so the UI-thread parse runs only after `parseFallbackMs` (10000) with no message from the worker. Under load the
 560 KiB `markdown-lazy` fixture took 6.1 to 9.0 s in the worker against 2.4 to 2.7 s on the UI thread, and the old rule froze the window to parse
-it there; quiet, the beat costs nothing measurable (3.1 to 3.4 s either way). `tests/markdown-linearity.qml` runs the product `landed` body against a
+it there; quiet, the beat costs nothing measurable (the worker with render-pass beats 3.1 to 3.4 s, the same text
+parsed on the UI thread with none 2.9 to 3.6 s; with both passes beating 2.1 to 4.0 s, n=3). A request without `head` (another asker than the pane) gets neither the ack nor a beat. `tests/markdown-linearity.qml` runs the product `landed` body against a
 counting fallback stub (red with the restarts removed). Ceilings: `tests/markdown-linearity.qml` 648 (was 638), `ui/PreviewMarkdown.qml` 559
 (553), `ui/js/MdBlocks.js` 380 (365).
 
