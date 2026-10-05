@@ -4,7 +4,7 @@ import Quickshell
 
 ShellRoot {
     id: root
-    readonly property int startupObjectLimit: 714
+    readonly property int startupObjectLimit: 618
     readonly property int sectorsWrittenField: 6
     readonly property int deadlineProbeMs: 1200
     readonly property int sectorChangeDelayMs: 600
@@ -147,6 +147,19 @@ ShellRoot {
                     return root.finish(false, "date stamp is not deferred: rows[" + rowIndex + "]="
                         + String(rows[rowIndex]) + " dateStamp type=" + typeof rows[rowIndex].dateStamp)
             }
+            // Sample input: "Preview_QMLTYPE_77(0x55d0)" is Quick Look's root; "PreviewText_..." is one of its panes.
+            var looks = function () {
+                return root.census().objects.filter(function (object) { return /^Preview_/.test(String(object)) })
+            }
+            if (looks().length !== 0 || pane.preview !== null)
+                return root.finish(false, "Quick Look is built before the first Space")
+            var look = pane.quickLook()
+            if (looks().length !== 1 || look === null || pane.preview !== look || body.item.quickLook !== look)
+                return root.finish(false, "pane.quickLook() did not build exactly one Quick Look and hand it to the pane")
+            if (pane.quickLook() !== look || looks().length !== 1)
+                return root.finish(false, "a second pane.quickLook() built another Quick Look")
+            if (look.pane !== pane || look.active !== false)
+                return root.finish(false, "the built Quick Look is not wired to the current pane, closed")
             var devices = sample.objects.filter(function (object) {
                 return String(object).indexOf("DeviceMounts_") === 0
             })

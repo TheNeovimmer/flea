@@ -80,6 +80,7 @@ function entered(row) {
     p.join = function (base, name) { return base + "/" + name }
     p.open = function (target) { went[0] = target }
     p.preview = { open: function (path, icon, size) { went[1] = path + " " + icon + " " + size } }
+    p.quickLook = function () { return p.preview }
     Nav.openCursor(p, { open: function (path) { went[2] = path } })
     return went.join("|")
 }

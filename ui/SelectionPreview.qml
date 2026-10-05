@@ -30,8 +30,9 @@ Flea.PreviewColumn {
     signal thumbsApplied(var work)
     onExpandRequested: {
         if (!root.row || !root.pane) return
-        root.pane.preview.open(root.path, root.row.i, root.row.s, root.kindName)
-        root.pane.preview.pdfItem.expandFrom(root.pdfPage(), root.pdfZoom)
+        var look = root.pane.quickLook()
+        look.open(root.path, root.row.i, root.row.s, root.kindName)
+        look.pdfItem.expandFrom(root.pdfPage(), root.pdfZoom)
     }
 
     Keys.onPressed: function(event) {
@@ -44,7 +45,7 @@ Flea.PreviewColumn {
         else if (action === "preview") {
             var strip = root.mediaStripItem()
             if (strip) strip.toggled()
-            else if (root.row && !root.row.d) root.pane.preview.open(root.path, root.row.i, root.row.s, root.kindName)
+            else if (root.row && !root.row.d) root.pane.quickLook().open(root.path, root.row.i, root.row.s, root.kindName)
         } else if (action === "seekBack" || action === "seekForward") {
             var direction = action === "seekBack" ? -1 : 1
             if (root.rowState === Facts.PDF) root.turnPage(direction)

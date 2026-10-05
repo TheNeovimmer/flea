@@ -23,6 +23,9 @@ Rectangle {
     property var host
     readonly property bool dualMode: ViewState.state.view === "dual"
     property int focusSide: (ViewState.state.dual || {}).focus === 1 ? 1 : 0
+    // Null until the first Quick Look opens, see previewLoader below.
+    readonly property var quickLook: previewLoader.item
+    readonly property bool quickLookActive: view.quickLook !== null && view.quickLook.active
     readonly property var currentPane: dualMode && focusSide === 1 && secondPane.item ? secondPane.item.pane : primaryPane
     property bool initialized: false
     property bool closing: false
@@ -123,7 +126,7 @@ Rectangle {
     // the right. The path lives here, which is why the status bar below carries counts instead.
     Flea.ChromeBar {
         id: chrome
-        inputLive: !preview.active
+        inputLive: !view.quickLookActive
         visible: view.dualMode || !view.currentPane.trash.opened
         height: visible ? Theme.chromeHeight : 0
         anchors.left: parent.left
@@ -257,7 +260,8 @@ Rectangle {
         onTabsChanged: view.queueTabStrip()
         onClipboardChanged: if (secondPane.item && secondPane.item.pane.clipboard !== clipboard) secondPane.item.pane.clipboard = clipboard
         overlayParent: view
-        preview: preview
+        preview: view.quickLook
+        previewLoader: previewLoader
         shareBrowser: shareBrowser
         keymapSheet: keymapSheet
         settingsPanel: settingsPanel
@@ -306,6 +310,7 @@ Rectangle {
                 paneFocused: view.currentPane === otherPane
                 overlayParent: view
                 preview: primaryPane.preview
+                previewLoader: previewLoader
                 shareBrowser: primaryPane.shareBrowser
                 keymapSheet: primaryPane.keymapSheet
                 settingsPanel: primaryPane.settingsPanel
@@ -371,7 +376,15 @@ Rectangle {
         onTransferCancelRequested: function (id) { bar.transferOwner.backend.transfercancel(id) }
     }
 
-    Flea.Preview { id: preview; pane: view.currentPane }
+    // Quick Look is built by the first Space, so a window that never previews pays nothing for it; Pane.quickLook() turns it on.
+    Loader {
+        id: previewLoader
+        anchors.fill: parent
+        z: 1
+        active: false
+        source: "Preview.qml"
+        onLoaded: item.pane = Qt.binding(function () { return view.currentPane })
+    }
 
     MouseArea {
         anchors.fill: parent
@@ -570,7 +583,7 @@ Rectangle {
         acceptedButtons: Qt.BackButton
         onTapped: {
             if (view.currentPane.menuActions.opened || settingsPanel.opened || view.currentPane.trash.confirming || chrome.editing || convertDialog.opened || permissionsDialog.opened || keymapSheet.opened
-                    || networkDialog.opened || (shareBrowser.active && shareBrowser.owner === view.currentPane) || preview.active
+                    || networkDialog.opened || (shareBrowser.active && shareBrowser.owner === view.currentPane) || view.quickLookActive
                     || view.currentPane.renameEditor() !== null || (view.currentPane.sidebar && view.currentPane.sidebar.renameEditor() !== null))
                 return
             if (view.currentPane.trash.opened) view.currentPane.trash.close()

@@ -38,7 +38,7 @@ function pdfAction(action, viewer) {
 function open(root) {
     var row = root.rowFor(root.cursorIndex)
     if (row && !row.d)
-        root.preview.open(root.join(root.path, row.n), row.i, row.s, root.kindNames[row.k] || "",
+        root.quickLook().open(root.join(root.path, row.n), row.i, row.s, root.kindNames[row.k] || "",
             root.thumbState && root.thumbState.file ? Thumbs.fileFor(root.thumbState, root.cursorIndex) : "")
 }
 
