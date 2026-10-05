@@ -42,6 +42,7 @@ function handlePane(row) {
     p.shown = null
     p.said = ""
     p.renameEditor = function () { return null }
+    p.quickLook = function () { return p.preview }
     p.message = function (text) { p.said = text }
     return p
 }
@@ -88,6 +89,22 @@ function run(check) {
     check("l on an unloaded row is consumed without a filter hint",
           Focus.handleKey(l, unloaded, sidebar()) + "|" + unloaded.said, "true|")
     check("unloaded handling still asks only for the held cursor row", unloaded.rowsRead.join(","), "37")
+
+    // Quick Look is built by the first Space, so a pane holds no preview object until then.
+    var unbuilt = handlePane({ d: false, p: 0o100644, n: "a.txt", i: "text-x-generic", s: 1, k: 0, t: false })
+    unbuilt.preview = null
+    unbuilt.path = "/d"
+    unbuilt.kindNames = ["text"]
+    unbuilt.join = function (base, name) { return base + "/" + name }
+    var built = []
+    unbuilt.act = function (action) { Focus.act(action, unbuilt) }
+    unbuilt.quickLook = function () {
+        unbuilt.preview = { active: false, open: function (path) { built.push(path) } }
+        return unbuilt.preview
+    }
+    check("l reads a pane with no Quick Look built as the listing", Focus.lookup(l, unbuilt), "preview")
+    check("the key is consumed with no Quick Look built", Focus.handleKey(l, unbuilt, sidebar()), true)
+    check("and Space builds Quick Look and opens the row in it", built.join("|"), "/d/a.txt")
 
     var rail = pane(null, "rail")
     check("l activates the selected rail row", Focus.lookup(l, rail), "open")

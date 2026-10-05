@@ -3,6 +3,7 @@
 import QtQuick
 import QtTest
 import Quickshell
+import Quickshell.Io
 import "quicklook-firstframe.js" as Fresh
 import "flea/js/PreviewKeys.js" as PreviewKeys
 
@@ -62,6 +63,11 @@ ShellRoot {
     property double stageAt: Date.now()
     property var keys: null
     property var prepare: null
+    // The window's QuickLookWarm, built by the cursor's first landing on a Markdown file, long before Quick Look.
+    property var warm: null
+    // QLFF_RELEASE=1 moves the rested cursor to a folder and back once before the first key: Quick Look must go and come again.
+    readonly property bool releaseWanted: Quickshell.env("QLFF_RELEASE") === "1"
+    property bool released: false
     // The first prepared parse of a run is the worker's; later opens reuse the entry Quick Look stored itself.
     property bool compared: false
     // True while a real key's event loop runs: a poll tick inside it must not finish the run, as Qt.exit there tears the root down under the key's own handler.
@@ -70,6 +76,16 @@ ShellRoot {
     property int lateRowsAt: -1
 
     function log(line) { console.log("QLFF " + line) }
+    // Sample input: "Pss:                 28438 kB" in /proc/self/smaps_rollup answers 28438; the window's own resident memory, logged and never judged.
+    function pssKb() {
+        smaps.reload()
+        var m = /Pss:\s+(\d+) kB/.exec(smaps.text())
+        return m ? Number(m[1]) : -1
+    }
+    FileView { id: smaps; path: "/proc/self/smaps_rollup"; blockLoading: true }
+    property double keyAt: 0
+    property double returnedAt: 0
+    property double contentAt: 0
     function finish() {
         root.log("DONE steps=" + root.step + " failures=" + root.failures)
         Qt.exit(root.failures ? 1 : 0)
@@ -129,6 +145,7 @@ ShellRoot {
             if (!block) root.emptyFrames++
             else if (block.height > 0 && root.contentFrame === 0) {
                 root.contentFrame = root.frames
+                root.contentAt = Date.now()
                 root.atContent = { parsing: root.doc().parsing, look: root.pv().lookReady, delegates: root.doc().delegateCount() }
             }
             if (root.doc()) root.maxSourceChars = Math.max(root.maxSourceChars, root.doc().sourceChars)
@@ -185,7 +202,9 @@ ShellRoot {
         root.blockedBefore = before ? Number(before.blockedReads) : 0
         root.stage = 2
         root.stageAt = Date.now()
-        root.log("KEY " + (root.step + 1) + " " + step.name + " " + step.via)
+        root.keyAt = Date.now()
+        root.log("KEY " + (root.step + 1) + " " + step.name + " " + step.via + " built=" + (root.pv() !== null))
+        if (root.pv() === null) root.fail("step " + (root.step + 1) + " found no Quick Look built by the rested cursor on " + step.name)
         if (step.via === "move") {
             PreviewKeys.act(root.indexOf(step.name) > pane.cursorIndex ? "cursorDown" : "cursorUp", pane)
         } else if (root.realKey) {
@@ -205,6 +224,7 @@ ShellRoot {
             if ((step.expect === "async" || step.expect === "partial" || step.expect === "deep") && loads !== 0)
                 root.fail("step " + (root.step + 1) + " read " + step.name + " inside the key (" + loads + " load(s) landed before the event loop turned)")
         }
+        root.returnedAt = Date.now()
         root.log("KEYRETURNED " + (root.step + 1))
     }
 
@@ -251,17 +271,26 @@ ShellRoot {
                 root.finish()
                 return
             }
-            // The first poll that finds the prepare holds it, long before a listing and its rest can complete.
-            if (root.stage === 0 && pane && root.pv() && root.forcedClass !== "" && !root.prepare) {
-                var held = root.find(root.pv(), "QuickLookPrepare")
-                if (held) { held.resting = false; root.prepare = held }
-            }
             if (root.stage === 0) {
-                if (!pane || pane.listInFlight || pane.listingState !== "ready" || pane.total < 2 || !pane.storageKnown) return
+                if (!pane || pane.listInFlight || pane.listingState !== "ready" || pane.total < 2) return
+                if (!root.prepare) {
+                    // The class reply is awaited once; a leg that forces it unknown holds it so from then on.
+                    if (!pane.storageKnown) return
+                    // A user's cursor lands on the file first, which builds the warm and none of Quick Look; it is held before any event turn, so no rest can read under the class.
+                    if (root.pv() !== null) { root.fail("Quick Look is built before the first Space"); root.finish(); return }
+                    root.forceClass()
+                    root.log("PSS rest-no-markdown " + root.pssKb())
+                    pane.cursorIndex = root.indexOf(root.cur().name)
+                    root.warm = root.find(body.item, "QuickLookWarm")
+                    root.prepare = root.find(body.item, "QuickLookPrepare")
+                    if (!root.warm || !root.prepare) { root.fail("the cursor rests on " + root.cur().name + " and no prepare or unit warm is built before the first Space"); root.finish(); return }
+                    root.prepare.resting = false
+                    return
+                }
                 if (!root.unitsReady()) return
+                if (root.pv() !== null) { root.fail("Quick Look is built before the first Space"); root.finish(); return }
+                root.log("PSS rest-markdown " + root.pssKb())
                 root.keys = Qt.createQmlObject("import QtTest; TestEvent {}", pane.listArea)
-                root.prepare = root.prepare || root.find(root.pv(), "QuickLookPrepare")
-                if (!root.prepare) { root.fail("the preview has no QuickLookPrepare"); root.finish(); return }
                 root.forceClass()
                 // The class is forced, so the held prepare rests again and the cursor's rest starts over under it.
                 root.prepare.resting = true
@@ -277,7 +306,7 @@ ShellRoot {
             if (sweepTimer.running) return
             if (root.stage === 1) {
                 var step = root.cur()
-                var open = root.pv().active
+                var open = root.pv() !== null && root.pv().active
                 // A move keeps the card open on the previous file; any other step starts from a closed card with the cursor on its file.
                 if (step.via === "move" ? !open : open) { root.quiet = 0; return }
                 var row = pane.rowFor(pane.cursorIndex)
@@ -308,6 +337,7 @@ ShellRoot {
                     return
                 }
                 if (++root.quiet < root.quietPolls) return
+                if (root.releaseWanted && !root.released) { Fresh.release(root); return }
                 if (root.sweeping) {
                     root.readsBefore = root.prepare.reads
                     root.sweepLeft = root.sweepMoves

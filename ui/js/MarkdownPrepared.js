@@ -10,6 +10,12 @@ var MAX_BYTES = 65536
 var S_IFMT = 0xF000
 var S_IFREG = 0x8000
 
+// Sample input: the row { n: "a.md", d: false } answers true; { n: "a.md", d: true }, { n: "a.txt", d: false } and null answer false.
+// Whether the cursor row is a Markdown file by name, the one trigger Quick Look's warm and its ahead-of-Space build share.
+function isMarkdownRow(row) {
+    return row !== null && row !== undefined && !row.d && Kinds.isMarkdown(row.n)
+}
+
 // Sample input: a 900 byte regular "a.md" row on class "" with the class known answers true; a named pipe row, class "network" or an unknown class answers false.
 // Only a regular local file under MAX_BYTES in a folder whose class has landed is read ahead or inside the key; cifs, nfs and listed FUSE shares classify "network" in extclass.rs.
 function readsInline(row, storageClass, storageKnown) {

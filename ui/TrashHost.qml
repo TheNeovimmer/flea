@@ -101,7 +101,7 @@ Loader {
         if (confirming) return
         root.sweepStop()
         if (opened) { root.action(action || "openTrash"); return }
-        pane.preview.close()
+        if (pane.preview) pane.preview.close()
         pane.shareBrowser.close()
         pane.clearSelection()
         pane.focusView = Focus.LIST

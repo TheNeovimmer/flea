@@ -72,7 +72,7 @@ function canUndo(pane, sidebar) {
 // filtering it here, not in Keymap.js, keeps the generated file a pure keys.toml mirror.
 // seekBack/seekForward get the same treatment, scoped to an open MEDIA preview instead of the rail.
 function lookup(event, root) {
-    var context = root.preview.active ? (root.preview.isPdf ? "pdf" : root.preview.isMedia ? "media" : "preview")
+    var context = (root.preview && root.preview.active) ? (root.preview.isPdf ? "pdf" : root.preview.isMedia ? "media" : "preview")
                   : shareBrowserHere(root) ? "menu" : root.focusView === RAIL ? "rail" : "listing"
     // Grid arrows address visual neighbours even when the preset uses them to open folders in List.
     // Issue 114, muellan: h and l are the arrows spelled as letters, so in the grid they mean what
@@ -91,12 +91,12 @@ function lookup(event, root) {
     // place the map binds either action now that the browsing pair is parent and browse-in; the grid
     // takes the bare arrows above, before the map is consulted.
     if (action === "seekBack" || action === "seekForward")
-        return root.preview.active && (root.preview.isMedia || root.preview.isPdf) ? action : ""
+        return root.preview && root.preview.active && (root.preview.isMedia || root.preview.isPdf) ? action : ""
     // Minus, plus and e mean nothing outside a PDF. l is h's forward: page, else enter or preview.
     if (action === "zoomOut" || action === "zoomIn" || action === "expand")
-        return (root.preview.active && root.preview.isPdf) ? action : ""
+        return (root.preview && root.preview.active && root.preview.isPdf) ? action : ""
     if (action === "pageForward") {
-        if (root.preview.active)
+        if (root.preview && root.preview.active)
             return root.preview.isPdf ? action : ""
         if (shareBrowserHere(root) || root.focusView === RAIL)
             return "open"
@@ -355,7 +355,7 @@ function handleKey(event, root, sidebar) {
     if (action !== "trashArm") {
         root.trashArmedAt = 0
     }
-    if (root.preview.active) {
+    if (root.preview && root.preview.active) {
         PreviewKeys.act(action, root)
         return true
     }

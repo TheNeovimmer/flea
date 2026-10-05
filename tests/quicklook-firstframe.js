@@ -61,10 +61,20 @@ function pictureState(root, ready) {
 
 // The compiled units the idle warm holds: an open before them would compile inside the key, which a user's first Space never does.
 function unitsReady(root, ready) {
-    var p = root.pv()
-    // A preview with no swap unit is waited for on the Markdown one alone, so the compile gate in the script is what fails it.
-    var units = p ? (p.swapUnit === undefined ? [p.markdownUnit] : [p.markdownUnit, p.swapUnit]) : []
-    return units.length > 0 && units.every(function (u) { return u !== null && u !== undefined && u.status === ready })
+    var w = root.warm
+    var units = w ? [w.previewUnit, w.markdownUnit, w.swapUnit] : []
+    return units.every(function (u) { return u !== null && u !== undefined && u.status === ready })
+}
+
+// A move off the rested Markdown file releases the closed Quick Look and the move back builds it again, so only a resting window holds one.
+function release(root) {
+    var pane = root.pane()
+    if (root.pv() === null) root.fail("the rested cursor on " + root.cur().name + " built no Quick Look before the move")
+    pane.cursorIndex = indexOf(root, "img")
+    if (root.pv() !== null) root.fail("a move to a folder row left Quick Look built")
+    root.released = true
+    pane.cursorIndex = indexOf(root, root.cur().name)
+    root.quiet = 0
 }
 
 // The first block of the document named by the step: a block left over from the previous file never counts.
@@ -101,7 +111,8 @@ function judge(root) {
     var d = doc(root)
     var blocked = d ? d.blockedReads - root.blockedBefore : -1
     root.log("STEP " + n + " " + step.name + " " + step.expect + " frames=" + root.contentFrame + " empty=" + root.emptyFrames + " blocked=" + blocked
-        + " pictures=" + root.syncPictures.ready + "/" + root.syncPictures.total)
+        + " pictures=" + root.syncPictures.ready + "/" + root.syncPictures.total
+        + " keyMs=" + (root.returnedAt - root.keyAt) + " toFrameMs=" + (root.contentAt - root.keyAt))
     if (!d || (step.expect !== "deep" && d.sourceChars !== 0)) root.fail("step " + n + " laid out " + (d ? d.sourceChars : -1) + " characters of Source text while Rendered shows")
     if (step.expect === "inline") {
         if (root.emptyFrames !== 0) root.fail("step " + n + " drew the card " + root.emptyFrames + " time(s) without its first block")

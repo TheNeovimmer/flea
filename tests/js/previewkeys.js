@@ -143,6 +143,7 @@ function thumbRoot(thumbValue) {
         preview: { open: function (p, i, s, k, t) { calls.push(["open", p, t]) },
             follow: function (p, i, s, k, t) { calls.push(["follow", p, t]) } } }
     root.thumbState.file[5] = thumbValue
+    root.quickLook = function () { return root.preview }
     root.rowFor = function (i) { return i === 5 ? { n: "b.jpg", d: false, i: "image-x-generic", s: 10, k: 0 } : null }
     root.join = function (b, n) { return b + "/" + n }
     return { root: root, calls: calls }
