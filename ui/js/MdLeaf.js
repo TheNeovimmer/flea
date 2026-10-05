@@ -156,8 +156,7 @@ var CELL_GLYPH = /[\ud800-\udbff][\udc00-\udfff]|[\s\S]/g
 var WIDE_GLYPH = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6]/
 
 // Sample input: 'a<br>**bb** &#33; ![i](x.png)' draws lines "a" and "bb ! \ue000": 5 columns of text, 13 with the image, a longest word of 8.
-// A wide glyph counts 2, a joiner and a variation selector 0, a break starts a line, and an image counts only in image.
-// A chip's pad span holds no column, so '<span style="font-size:chippad">&nbsp;</span>x' counts 1.
+// A wide glyph counts 2, a joiner, a variation selector and a chip's pad span 0, a break starts a line, and an image counts only in image.
 function cellExtent(cell) {
     var plain = String(cell).replace(CHIP_PAD_CELL, "").replace(/<br\s*\/?>/gi, "\n").replace(CELL_IMAGE, "\ue000").replace(/<[^>"]*("[^"]*"[^>"]*)*>/g, "").replace(/[*_~`]/g, "")
     plain = plain.replace(/&#(\d+);/g, function (m, n) { return String.fromCharCode(parseInt(n, 10)) }).replace(/&(amp|lt|gt|quot);/g, "?")
