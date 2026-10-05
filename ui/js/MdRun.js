@@ -6,20 +6,26 @@
 .import "MdInline.js" as Md
 .import "MdRefs.js" as Refs
 .import "MdResolve.js" as Res
+.import "MdEmph.js" as Emph
+.import "MdBreak.js" as Brk
+.import "MdEntity.js" as Ent
+.import "MdHold.js" as Hold
 
 var hasOwn = Object.prototype.hasOwnProperty
 // The work gate replaces this no-op to count each frame visited.
 var countFrameStep = function () {}
 
-// The driver: held spans first, then one forward scan. defs maps normalised labels to targets; numbers maps footnote ids to numbers.
-function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, literalPlain) {
+// The driver: held spans first, then one forward scan; bareText says no container holds the text (its ">" is never a quote mark); fragment says the text starts and ends mid-line (an image's alt text).
+function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, literalPlain, bareText, fragment) {
     var body = MdHtml.documentText(text)
     // Plain prose returns directly; plain table cells use the bulk escaper before any markup is emitted.
-    if (!/[`$[\]<>\\!]|https?:\/\/|www\./.test(body)
-            && (!literalPlain || !/[*_~]|&(?:#(?:[0-9]+|[xX][0-9a-fA-F]+)|[A-Za-z][A-Za-z0-9]*);/.test(body)))
+    if (!/[`$[\]<>\\!*_]| {2}\n|https?:\/\/|www\./.test(body)
+            && (literalPlain ? !/[*_~]|&(?:#(?:[0-9]+|[xX][0-9a-fA-F]+)|[A-Za-z][A-Za-z0-9]*);/.test(body) : !/&[#A-Za-z]/.test(body)))
         return literalPlain ? Md.escapeHtmlText(body) : body
     var spans = Md.spanIntervals(body)
     var out = []
+    var delims = []
+    delims.bottom = 0
     var citationTokens = {}
     var frames = []
     var activeLinks = []
@@ -27,66 +33,94 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
     var styleLinks = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(ink || ""))
     var chromeOk = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(chrome || ""))
     var styleCache = {}
-    // Compare the last span in place to reuse its held token without slicing; the cache covers other repeats.
-    var lastStart = -1
-    var lastLen = -1
-    var lastOpen = -1
-    var lastKind = -1
-    var lastHeld = null
-    var lastRef = 0
+    // The span held last, so a repeat reuses its token without slicing.
+    var lastSpan = { start: -1, length: -1, open: -1, kind: "", ref: 0 }
     // Exact dead flags: the first scan to find no "-->" or ">" ahead proves no later opener can close either, so dense hostile inputs pay once.
     var dead = { tagDead: -1, commentDead: false }
     var i = 0
     var sp = 0
+    var lastQuote = -1
+    // out[0, numbered) holds no citation still to number; imageMark is where the outermost open image's alt text begins, or -1.
+    var numbered = 0
+    var imageMark = -1
+    var imageDepth = -1
+    var line = Ent.lineState(fragment !== true)
+
+    // Join strings, -1-index token references and emphasis marks; inside an emphasis tag or a label a newline is a space, which the renderer would drop.
+    function renderFrom(from, flat, alt) {
+        var parts = []
+        var depth = flat ? 1 : 0
+        for (var k = from; k < out.length; k++) {
+            var piece = out[k]
+            if (typeof piece === "string") {
+                parts.push(depth > 0 && piece === "\n" ? " " : piece)
+                continue
+            }
+            if (typeof piece === "object") {
+                depth -= piece.closes
+                parts.push(piece.before + Emph.literal(piece) + piece.after)
+                depth += piece.opens
+                continue
+            }
+            var tokenIndex = -1 - piece
+            if (alt === true && citationTokens.hasOwnProperty(tokenIndex)) {
+                parts.push("[^" + citationTokens[tokenIndex] + "]")
+                continue
+            }
+            if (citationTokens.hasOwnProperty(tokenIndex))
+                cite(tokenIndex)
+            parts.push(tokens[tokenIndex])
+        }
+        return parts.join("")
+    }
+
+    // The open brackets of a finished paragraph never pair with a later "]", so they stay literal.
+    function endParagraph() {
+        frames.length = 0
+        activeLinks.length = 0
+        imageMark = -1
+    }
+
+    // Number a footnote citation the first time it is read, so its superscript is the next free number.
+    function cite(tokenIndex) {
+        var id = citationTokens[tokenIndex]
+        if (cited !== undefined && numbers[id] === 0) {
+            cited.push(id)
+            numbers[id] = cited.length
+        }
+        tokens[tokenIndex] = "<sup>" + numbers[id] + "</sup>"
+    }
+
+    // Number the citations before out[limit], which a label rendered now would otherwise number ahead of; an image's alt text draws none.
+    function citeBefore(limit) {
+        var to = Math.min(limit, imageMark < 0 ? limit : imageMark)
+        for (; numbered < to; numbered++) {
+            var piece = out[numbered]
+            if (typeof piece === "number" && citationTokens.hasOwnProperty(-1 - piece))
+                cite(-1 - piece)
+        }
+    }
+
+    // The label of the bracket pair opened at out[mark], its emphasis resolved first.
+    function labelHtml(mark, alt) {
+        citeBefore(mark)
+        var from = delims.length
+        while (from > 0 && delims[from - 1].at > mark)
+            from--
+        Emph.process(delims, from)
+        return renderFrom(mark + 1, true, alt)
+    }
 
     while (i < body.length) {
         if (sp < spans.length && i === spans[sp]) {
             var spanTo = spans[sp + 1]
             var spanLen = spans[sp + 2]
-            var spanKind = spans[sp + 3] === 1 ? "math" : ""
+            var spanKind = spans[sp + 3] === Md.MATH_SPAN ? "math" : ""
             if (!chromeOk && spanKind === "math") {
                 sp += Md.INTERVAL_STRIDE
                 continue
             }
-            var held = null
-            if (chromeOk) {
-                var innerStart = i + spanLen
-                var innerEnd = spanTo - spanLen
-                var same = lastStart >= 0 && spanKind === lastKind && spanLen === lastOpen
-                    && innerEnd - innerStart === lastLen
-                if (same) {
-                    for (var e = 0; e < lastLen; e++) {
-                        if (body.charAt(innerStart + e) !== body.charAt(lastStart + e)) {
-                            same = false
-                            break
-                        }
-                    }
-                }
-                if (same) {
-                    out.push(lastRef)
-                    i = spanTo
-                    sp += Md.INTERVAL_STRIDE
-                    continue
-                }
-                var innerText = body.slice(innerStart, innerEnd)
-                if (innerText.length > 0 && innerText.charAt(0) === " "
-                        && innerText.charAt(innerText.length - 1) === " ")
-                    innerText = innerText.slice(1, -1)
-                held = Res.styledSpan(spanKind, innerText, chrome, styleCache)
-                lastStart = innerStart
-                lastLen = innerEnd - innerStart
-                lastOpen = spanLen
-                lastKind = spanKind
-                lastHeld = held
-                tokens.push(held)
-                lastRef = -1 - (tokens.length - 1)
-                out.push(lastRef)
-            }
-            if (held === null) {
-                held = body.slice(i, spanTo)
-                tokens.push(held)
-                out.push(-1 - (tokens.length - 1))
-            }
+            Hold.hold(body, i, spanTo, spanLen, spanKind, chromeOk ? chrome : null, styleCache, lastSpan, tokens, out)
             i = spanTo
             sp += Md.INTERVAL_STRIDE
             continue
@@ -101,13 +135,35 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
             i += 2
             continue
         }
+        if (c === "\n" || (c === "\\" && body.charAt(i + 1) === "\n")) {
+            i = Brk.lineBreak(body, i, out, delims, endParagraph)
+            continue
+        }
         if (c === "`" || c === "$") {
             out.push(c)
             i++
             continue
         }
+        if ((c === "*" || c === "_") && Brk.isRuleLine(body, i)) {
+            var ruleEnd = body.indexOf("\n", i)
+            ruleEnd = ruleEnd < 0 ? body.length : ruleEnd
+            out.push(c + c + c)
+            i = ruleEnd
+            continue
+        }
+        if (c === "*" || c === "_") {
+            var mark = Emph.runAt(body, i, out.length)
+            delims.push(mark)
+            out.push(mark)
+            i = mark.end
+            continue
+        }
         if (c === "!" && body.charAt(i + 1) === "[") {
             out.push("!")
+            if (imageMark < 0) {
+                imageMark = out.length
+                imageDepth = frames.length
+            }
             frames.push({ bang: true, mark: out.length, rawStart: i + 2, active: true })
             out.push("&#91;")
             i += 2
@@ -145,6 +201,8 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
         if (c === "]" && frames.length > 0) {
             var frame = frames.pop()
             countFrameStep()
+            if (frames.length === imageDepth)
+                imageMark = -1
             if (!frame.bang && frame.active)
                 activeLinks.pop()
             if (frame.passthrough) {
@@ -152,33 +210,17 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
                 i++
                 continue
             }
-            frame.rawEnd = i
-            var raw = body.slice(frame.rawStart, frame.rawEnd)
+            var raw = body.slice(frame.rawStart, i)
             var j = i + 1
             var made = null
             if (frame.active) {
-                var inline = null
-                if (body.charAt(j) === "(")
-                    inline = Md.readInlineTarget(body, j)
-                if (inline !== null) {
-                    made = Res.resolvePair(raw, inline.url, frame.bang, dir, ink, tokens)
-                    j = inline.end
-                } else if (body.charAt(j) === "[") {
-                    var ref = Md.readLabelRef(body, j)
-                    if (ref !== null) {
-                        var label = ref.label.length > 0 ? ref.label : raw
-                        if (label.length > 0) {
-                            var key = Md.normalizeLabel(label)
-                            if (hasOwn.call(defs, key)) {
-                                made = Res.resolvePair(raw, defs[key], frame.bang, dir, ink, tokens)
-                                j = ref.end
-                            }
-                        }
-                    }
-                } else if (raw.length > 0) {
-                    var skey = Md.normalizeLabel(raw)
-                    if (hasOwn.call(defs, skey))
-                        made = Res.resolvePair(raw, defs[skey], frame.bang, dir, ink, tokens)
+                var found = Res.readDestination(body, j, raw, defs)
+                if (found !== null) {
+                    // Emphasis inside the label pairs now, so the link or image takes the label's own markup.
+                    made = Res.resolvePair(raw, found.url, frame.bang, dir, ink, tokens, function () {
+                        return labelHtml(frame.mark, frame.bang)
+                    })
+                    j = found.end
                 }
                 if (made !== null && !frame.bang) {
                     while (activeLinks.length > 0) {
@@ -189,7 +231,11 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
             }
             if (made !== null) {
                 out.length = frame.bang ? frame.mark - 1 : frame.mark
+                numbered = Math.min(numbered, out.length)
+                while (delims.length > 0 && delims[delims.length - 1].at >= out.length)
+                    delims.pop()
                 out.push(made)
+                Ent.lineRestart(line, out, made)
                 i = j
             } else {
                 out.push("&#93;")
@@ -202,36 +248,39 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
             i++
             continue
         }
+        if (c === "&") {
+            var spaces = Ent.spaceRunAt(body, i, out, Ent.lineBlank(line, out), fragment !== true)
+            if (spaces !== null) {
+                out.length -= spaces.trim
+                out.push(spaces.text)
+                i = spaces.end
+                continue
+            }
+            // Qt's own table is short and keeps a newline reference, so the character is decoded here.
+            var reference = Ent.referenceAt(body, i)
+            out.push(reference === null ? c : Md.escapeHtmlText(reference.text))
+            i = reference === null ? i + 1 : reference.end
+            continue
+        }
         if (c === "<") {
             i = Res.parseAngle(body, i, dir, ink, styleLinks, dead, tokens, out, chrome)
             continue
         }
         if (c === "h" || c === "w") {
-            var bare = Md.readBarelink(body, i)
-            if (bare !== null && !Res.isLinkTarget(bare.url))
-                bare = null
-            if (bare !== null) {
-                if (!styleLinks) {
-                    out.push(Md.escapeHtmlText(bare.url))
-                    i = bare.end
-                    continue
-                }
-                var bhtml = Md.linkHtml(bare.url, bare.url, ink)
-                if (bhtml === null) {
-                out.push(Md.escapeHtmlText(bare.url))
+            var bareEnd = Res.bareAt(body, i, ink, styleLinks, tokens, out)
+            if (bareEnd < 0) {
+                out.push(c)
+                i++
             } else {
-                tokens.push(bhtml)
-                out.push(-1 - (tokens.length - 1))
+                i = bareEnd
             }
-                i = bare.end
-                continue
-            }
-            out.push(c)
-            i++
             continue
         }
         if (c === ">") {
-            out.push("&#62;")
+            // A mark that opens a quote inside a list item stays for the renderer; table cells never hold one.
+            var quoting = !literalPlain && bareText !== true && Brk.quoteMarkAt(body, i, lastQuote)
+            lastQuote = quoting ? i : lastQuote
+            out.push(quoting ? ">" : "&#62;")
             i++
             continue
         }
@@ -244,23 +293,6 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
         out.push(c)
         i++
     }
-    // Join strings and -1-index token references without per-span objects or another interpreted output scan.
-    var parts = new Array(out.length)
-    for (var k = 0; k < out.length; k++) {
-        if (typeof out[k] === "string") {
-            parts[k] = out[k]
-            continue
-        }
-        var tokenIndex = -1 - out[k]
-        if (citationTokens.hasOwnProperty(tokenIndex)) {
-            var id = citationTokens[tokenIndex]
-            if (cited !== undefined && numbers[id] === 0) {
-                cited.push(id)
-                numbers[id] = cited.length
-            }
-            tokens[tokenIndex] = "<sup>" + numbers[id] + "</sup>"
-        }
-        parts[k] = tokens[tokenIndex]
-    }
-    return parts.join("")
+    Emph.process(delims, delims.bottom)
+    return renderFrom(0, false)
 }

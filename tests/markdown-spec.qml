@@ -1,0 +1,245 @@
+import QtQuick
+import "../ui/js/Markdown.js" as Markdown
+import "mdspec-blocks.js" as Blocks
+import "mdspec-canon.js" as Canon
+import "mdspec-rules.js" as Rules
+
+// Feeds every CommonMark 0.31.2 and GFM example through Flea's parser and Qt's drawing, comparing structure with the spec's HTML.
+Item {
+    id: gate
+
+    readonly property string fixtures: Qt.resolvedUrl("fixtures/markdown-spec/")
+    readonly property string dir: "/spec"
+    readonly property string chrome: "#181825"
+    readonly property string ink: "#c0caf5"
+    // The cmark spec fences each example in this many backticks.
+    readonly property int exampleFenceTicks: 32
+    // Sections in spec order, each with the count of examples that pass today; a section below its count fails the suite.
+    readonly property var recorded: ({
+        "Tabs": 11,
+        "Backslash escapes": 13,
+        "Entity and numeric character references": 17,
+        "Precedence": 1,
+        "Thematic breaks": 19,
+        "ATX headings": 18,
+        "Setext headings": 27,
+        "Indented code blocks": 12,
+        "Fenced code blocks": 29,
+        "HTML blocks": 17,
+        "Link reference definitions": 26,
+        "Paragraphs": 8,
+        "Blank lines": 1,
+        "Block quotes": 24,
+        "List items": 45,
+        "Lists": 26,
+        "Inlines": 1,
+        "Code spans": 21,
+        "Emphasis and strong emphasis": 131,
+        "Links": 86,
+        "Images": 8,
+        "Autolinks": 11,
+        "Raw HTML": 14,
+        "Hard line breaks": 15,
+        "Soft line breaks": 2,
+        "Textual content": 3,
+        "GFM table": 8,
+        "GFM task list items": 2,
+        "GFM strikethrough": 2,
+        "GFM autolink": 11,
+        "GFM tagfilter": 0,
+        "GFM table forms": 13,
+        "Entity forms": 15,
+        "Definition forms": 2
+    })
+
+    TextEdit {
+        id: engine
+        textFormat: TextEdit.MarkdownText
+        font.family: "Sans Serif"
+    }
+
+    // Qt's HTML export of a Markdown string: the structure the Text item draws, as the document holds it.
+    function exported(markdown) {
+        engine.textFormat = TextEdit.MarkdownText
+        engine.text = markdown
+        engine.textFormat = TextEdit.RichText
+        var html = engine.getFormattedText(0, engine.length)
+        engine.textFormat = TextEdit.MarkdownText
+        return html
+    }
+
+    function read(name) {
+        var request = new XMLHttpRequest()
+        request.open("GET", gate.fixtures + name, false)
+        request.send()
+        return request.responseText
+    }
+
+    // Sample input: a 32-tick fence "example strikethrough", Markdown, a "." line, HTML and a closing fence answers one example.
+    function gfmExamples(text) {
+        var lines = text.split("\n")
+        var ticks = "`".repeat(gate.exampleFenceTicks)
+        var fence = ticks + " example"
+        var out = []
+        var section = ""
+        var number = 0
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i]
+            if (line.indexOf(fence) !== 0) {
+                var h = /^## (.*)$/.exec(line)
+                if (h !== null)
+                    section = h[1]
+                continue
+            }
+            var kind = line.slice(fence.length).trim()
+            var md = []
+            var html = []
+            var target = md
+            for (i++; i < lines.length && lines[i].indexOf(ticks) !== 0; i++) {
+                if (lines[i] === ".")
+                    target = html
+                else
+                    target.push(lines[i])
+            }
+            number++
+            if (kind === "")
+                continue
+            out.push({ markdown: md.join("\n").replace(/→/g, "\t") + "\n", html: html.join("\n").replace(/→/g, "\t") + (html.length > 0 ? "\n" : ""),
+                section: section, example: number, kind: kind })
+        }
+        return out
+    }
+
+    function drawn(example) {
+        var blocks = Markdown.blocks(example.markdown, gate.dir, gate.chrome, gate.ink)
+        return Canon.canon(Blocks.blocksHtml(blocks, gate.exported, gate.dir), false)
+    }
+
+    function verdict(example) {
+        var want = Canon.canon(example.html, true)
+        var got = ""
+        try {
+            got = gate.drawn(example)
+        } catch (e) {
+            got = "THROW " + e
+        }
+        var rule = Rules.exceptionFor(example)
+        if (got === want)
+            return { state: rule === "" ? "pass" : "stale", rule: rule, got: got, want: want }
+        return { state: rule === "" ? "fail" : "exception", rule: rule, got: got, want: want }
+    }
+
+    // The adapter's own checks, from the parser's own block model: a tight item keeps the paragraphs of a nested loose list or quote, and loses only its own.
+    function adapterFailures() {
+        var quote = { type: "list", ordered: false, start: 0, items: ["a\n\n> q\n>\n> r"], depths: [0], markers: ["\u2022"], gaps: [false] }
+        var cases = [
+            { blocks: Markdown.blocks("- a\n  - b\n\n    b2\n\n  - c\n", gate.dir, gate.chrome, gate.ink),
+                want: "<ul><li>a<ul><li><p>b</p><p>b2</p></li><li><p>c</p></li></ul></li></ul>" },
+            { blocks: Markdown.blocks("- a\n\n  - b\n\n    b2\n\n  - c\n", gate.dir, gate.chrome, gate.ink),
+                want: "<ul><li><p>a</p><ul><li><p>b</p><p>b2</p></li><li><p>c</p></li></ul></li></ul>" },
+            { blocks: [quote], want: "<ul><li>a<blockquote><p>q</p><p>r</p></blockquote></li></ul>" }
+        ]
+        var failures = 0
+        for (var t = 0; t < cases.length; t++) {
+            var got = Blocks.blocksHtml(cases[t].blocks, gate.exported, gate.dir)
+            if (got !== cases[t].want) {
+                console.log("FAIL adapter: a tight item holding a nested block drew " + got)
+                failures++
+            }
+        }
+        return failures
+    }
+
+    Component.onCompleted: {
+        var args = Qt.application.arguments
+        var listAt = args.indexOf("list")
+        var showAt = args.indexOf("show")
+        var cm = JSON.parse(gate.read("commonmark-0.31.2-spec.json"))
+        var examples = []
+        for (var c = 0; c < cm.length; c++)
+            examples.push({ markdown: cm[c].markdown, html: cm[c].html, section: cm[c].section, example: cm[c].example, kind: "commonmark" })
+        var gfm = gate.gfmExamples(gate.read("gfm-spec.txt"))
+        for (var g = 0; g < gfm.length; g++) {
+            if (gfm[g].kind === "disabled")
+                gfm[g].section = "GFM task list items"
+            else
+                gfm[g].section = "GFM " + gfm[g].kind
+            gfm[g].example = "gfm" + gfm[g].example
+            examples.push(gfm[g])
+        }
+        // The table forms GitHub draws that the spec's eight examples leave open, written by hand against GFM's table rules.
+        var forms = JSON.parse(gate.read("gfm-table-forms.json"))
+        for (var f = 0; f < forms.length; f++) {
+            forms[f].kind = "table-forms"
+            forms[f].example = "table-" + forms[f].example
+            examples.push(forms[f])
+        }
+        // Hand-written forms the spec leaves open: a character a reference spells stays literal, and a definition's angle destination never spans a line.
+        var handForms = [{ file: "entity-forms.json", kind: "entity-forms" }, { file: "definition-forms.json", kind: "definition-forms" }]
+        for (var h = 0; h < handForms.length; h++) {
+            var written = JSON.parse(gate.read(handForms[h].file))
+            for (var w = 0; w < written.length; w++) {
+                written[w].kind = handForms[h].kind
+                written[w].example = handForms[h].kind + "-" + written[w].example
+                examples.push(written[w])
+            }
+        }
+        var order = []
+        var tally = {}
+        var rules = {}
+        var failed = gate.adapterFailures()
+        for (var i = 0; i < examples.length; i++) {
+            var ex = examples[i]
+            if (showAt >= 0 && String(ex.example) !== args[showAt + 1])
+                continue
+            var v = gate.verdict(ex)
+            if (!tally.hasOwnProperty(ex.section)) {
+                tally[ex.section] = { pass: 0, exception: 0, fail: 0, stale: 0 }
+                order.push(ex.section)
+            }
+            tally[ex.section][v.state]++
+            if (v.state === "exception")
+                rules[v.rule] = (rules[v.rule] || 0) + 1
+            if (v.state === "stale")
+                console.log("FAIL example " + ex.example + " now draws as the spec's HTML, so rule " + v.rule + " no longer names it")
+            if (showAt >= 0)
+                console.log("MDSPEC show " + ex.example + " " + v.state + "\nmd:   " + JSON.stringify(ex.markdown) + "\nwant: " + v.want + "\ngot:  " + v.got)
+            else if (listAt >= 0 && v.state === "fail")
+                console.log("MDSPEC fail " + ex.section + " " + ex.example + (args.indexOf("dump") >= 0
+                    ? "\nmd:   " + JSON.stringify(ex.markdown) + "\nwant: " + v.want + "\ngot:  " + v.got : ""))
+        }
+        var total = 0
+        var passes = 0
+        var snapshot = []
+        for (var s = 0; s < order.length; s++) {
+            var name = order[s]
+            var t = tally[name]
+            var count = t.pass + t.exception + t.fail + t.stale
+            var record = gate.recorded.hasOwnProperty(name) ? gate.recorded[name] : -1
+            total += count
+            passes += t.pass
+            snapshot.push("        \"" + name + "\": " + t.pass)
+            console.log("MDSPEC " + name + ": pass " + t.pass + " of " + count + " (exceptions " + t.exception + ", failing " + t.fail + "), recorded " + record)
+            if (showAt >= 0)
+                continue
+            if (t.pass < record) {
+                console.log("FAIL " + name + ": " + t.pass + " pass, the recorded count is " + record)
+                failed++
+            } else if (record < 0) {
+                console.log("FAIL " + name + ": no recorded count")
+                failed++
+            }
+            if (t.fail > 0) {
+                console.log("FAIL " + name + ": " + t.fail + " examples fail and no rule names them")
+                failed++
+            }
+            failed += t.stale
+        }
+        if (args.indexOf("record") >= 0)
+            console.log("MDSPEC recorded {\n" + snapshot.join(",\n") + "\n    }")
+        for (var rule in rules)
+            console.log("MDSPEC exception " + rule + ": " + rules[rule] + " examples, " + Rules.RULES[rule].text)
+        console.log("markdown-spec: " + passes + " of " + total + " examples drawn as the spec's HTML, " + failed + " failures")
+        Qt.exit(failed === 0 && (showAt >= 0 || total > 0) ? 0 : 1)
+    }
+}

@@ -35,7 +35,7 @@ QtObject {
         { source: '<img src="pic.png"><span title="\uE0020\uE003">tail</span>', dir: "/doc" },
         { source: "before <svg/> rest\n\nbefore <svg><svg/></svg> tail", dir: "/doc" },
         { source: 'before <svg a=b/>hidden</svg> tail\n\nbefore <svg><svg a=b/>hidden</svg>hidden</svg> tail', dir: "/doc" },
-        { source: '<svg a=b\u00A0/>hidden</svg> tail\n\n<svg\u2003a=b/>hidden</svg> tail\n\n<svg ==/>hidden</svg> tail\n\n<svg =a/>hidden</svg> tail', dir: "/doc" }
+        { source: '<svg a=b\u00A0/>hidden</svg> tail\n\n<svg\u2003a=b/>hidden</svg> tail\n\n<svg ==/>hidden</svg> tail\n\n<svg =a/>hidden</svg> tail', dir: "/doc" }, { source: "- ```\n  ![x](http://h/a.png)\n  <img src=\"http://h/b.png\">\n  ```\n\n> ```\n> ![x](http://h/c.png)\n> ```\n\n- a\n  - ```\n    ![x](http://h/d.png)\n    ```", dir: "/doc" }, { source: "[Foo\n  bar]: pic.png '\nt\nu\n'\n\n![x][foo bar]\n\n[a](\n/u)", dir: "/doc" }, { source: "> [a]: /u\n\ntail", dir: "/doc" }, { source: "> [a]: /u\n> [b]: /v\n\n- > [c]: /w", dir: "/doc" }, { source: "[a]: <x\\\ny>\n\n[b](<x\\\ny>)", dir: "/doc" }
     ]
     property int workerReplies: 0
     readonly property int workerDeadlineMs: 10000
@@ -169,7 +169,7 @@ QtObject {
         const drain = new Function('started', 'md', 'fixture', 'Url', 'Html', 'Resolve',
             'validationFailures', 'log', 'Qt', 'control', 'counter', 'XMLHttpRequest', 'root',
             'imagesSettled', 'resourceUrls', 'resourceProbes', 'finishDrain',
-            'referenceResolution', 'expectedReferences', 'fail',
+            'referenceResolution', 'expectedReferences', 'fail', 'Blocks', 'HtmlSecurity',
             body('function startDrain()', security));
         function tryDrain() {
             drain(false, { contentReady: true, blockList: ['corpus'] }, '/doc/a.md',
@@ -181,7 +181,7 @@ QtObject {
                     this.send = () => {};
                 }, corpus, settled,
                 () => {}, { model: [] }, () => { control.text = 'control'; },
-                () => ({ total: 0, resolved: 0 }), 0, () => { control.text = 'failed'; });
+                () => ({ total: 0, resolved: 0 }), 0, () => { control.text = 'failed'; }, { blocks: () => [] }, { failures: () => [] });
         }
         tryDrain();
         check(control.text === '', 'R2 control waits for every Loading corpus Image');
@@ -465,6 +465,23 @@ QtObject {
                 var half = Math.floor(n / 2);
                 return "- parent\n" + "\n".repeat(half) + " ".repeat(half) + "x";
             },
+            spaceFlood: function (n) {
+                var unit = "&#32;";
+                return "x" + unit.repeat(Math.floor(n / unit.length)) + "y";
+            },
+            spaceAlternate: function (n) {
+                var unit = "&#32; ";
+                return unit.repeat(Math.floor(n / unit.length)) + "y";
+            },
+            spaceTrail: function (n) {
+                var unit = " &#32;";
+                return "x" + unit.repeat(Math.floor(n / unit.length)) + "\ny";
+            },
+            spaceIndent: function (n) {
+                var longIndent = 10;
+                var unit = "\n" + " ".repeat(longIndent) + "&#32;";
+                return "a" + unit.repeat(Math.floor(n / unit.length)) + "\nb";
+            },
             punctTail: function (n) {
                 var url = "https://example.com/x";
                 var tailLength = n - url.length;
@@ -504,7 +521,7 @@ QtObject {
             }
         };
         var names = ["codeDense", "codeOnly", "bangOpen", "bracketOpen", "angleOpen",
-            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent", "punctTail",
+            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent", "spaceFlood", "spaceAlternate", "spaceTrail", "spaceIndent", "punctTail",
             "htmlBlocks", "htmlLines", "htmlRow", "htmlNested"];
         Work.install();
         Work.work = 0;

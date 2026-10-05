@@ -25,6 +25,8 @@ ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/markdown-security.qml "$test_root/config/shell.qml" || exit 1
+cp tests/mdfence.js "$test_root/config/mdfence.js" || exit 1
+cp tests/mdhtmlsecurity.js "$test_root/config/mdhtmlsecurity.js" || exit 1
 
 # A free loopback port, then the counter. Each GET appends its path, so the hits file both counts and names the vector that leaked.
 port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
@@ -194,6 +196,14 @@ lines.append(f"![fenced]({H}/fenced/x.png)")
 lines.append("<img src=\"%s/fencedtag/x.png\">" % H)
 lines.append("```")
 lines.append("")
+# A fence inside an item or a quote stays verbatim for the renderer, so an image or a tag written there must not load.
+for fence_name, fence_prefix in (("fencedlist", "- "), ("fencedquote", "> "), ("fencedordered", "1. "), ("fencednested", "- a\n  - ")):
+    pad = " " * len(fence_prefix.rsplit("\n", 1)[-1]) if fence_prefix.startswith("-") or fence_prefix[0].isdigit() else fence_prefix
+    first = fence_prefix + "```"
+    inner = [f"![x]({H}/{fence_name}/x.png)", f'<img src="{H}/{fence_name}/tag.png">', "```"]
+    lines.append("<!-- %s -->" % fence_name)
+    lines.extend([first] + [(pad if fence_prefix[0] != ">" else "> ") + row for row in inner])
+    lines.append("")
 lines.append("Use `![span](%s/spancode/x.png)` for art." % H)
 lines.append("")
 lines.append("<!-- display math lines stay literal -->")

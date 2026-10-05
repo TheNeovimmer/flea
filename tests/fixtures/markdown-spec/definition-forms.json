@@ -1,0 +1,14 @@
+[
+ {
+  "example": "angle-backslash-line-ending",
+  "section": "Definition forms",
+  "markdown": "[a]: <x\\\ny>\n",
+  "html": "<p>[a]: &lt;x<br />\ny&gt;</p>\n"
+ },
+ {
+  "example": "inline-angle-destination-with-less-than",
+  "section": "Definition forms",
+  "markdown": "[a](<b<1>)\n",
+  "html": "<p>[a](&lt;b&lt;1&gt;)</p>\n"
+ }
+]

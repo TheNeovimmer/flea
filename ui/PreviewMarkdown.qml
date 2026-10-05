@@ -515,6 +515,10 @@ Item {
             Component {
                 id: textBlock
                 Flea.MarkdownText {
+                    // An empty heading draws nothing and has no height, so it takes only the gap a browser gives it.
+                    readonly property bool blank: block.type === "heading" && block.text === ""
+                    visible: !blank
+                    height: blank ? 0 : implicitHeight
                     linkGate: Markdown.isExternalLink
                     width: blockDelegate.width
                     text: block.text
@@ -698,6 +702,9 @@ Item {
             Component {
                 id: quoteBlock
                 Row {
+                    // An empty quote draws nothing and has no height, as an empty heading has none.
+                    visible: block.text !== ""
+                    height: block.text === "" ? 0 : implicitHeight
                     width: blockDelegate.width
                     spacing: Theme.spacing.gap
 

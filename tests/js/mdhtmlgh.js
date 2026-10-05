@@ -98,7 +98,8 @@ function run(check) {
         'use <code style="background-color:#181825">&#60;b&#62;x&#60;&#47;b&#62;</code> here')
     check("H13 HTML in a fence stays verbatim", JSON.stringify(blocks('```html\n<div onclick="x">hi</div>\n```')),
         JSON.stringify([{ type: "fence", text: '<div onclick="x">hi</div>', info: "html" }]))
-    check("H13 an escaped entity stays text", runs("x &lt;b&gt; y"), "x &lt;b&gt; y")
+    // The parser spells every escaped punctuation as a numeric reference (mdspec), so the entity stays text in that form.
+    check("H13 an escaped entity stays text", runs("x &lt;b&gt; y"), "x &#60;b&#62; y")
     function quote(depth) {
         var lines = []
         for (var d = 1; d <= depth; d++)
@@ -112,7 +113,8 @@ function run(check) {
         return lines.join("\n")
     }
     check("H11 the nesting limit is 32", Markdown.NESTING_LIMIT, 32)
-    check("H11 a quote at the limit still renders", types(quote(32)), "quote")
+    // Each nesting level is one quote block (mdspec), so a quote at the limit renders as 32 of them.
+    check("H11 a quote at the limit still renders", types(quote(32)), new Array(32 + 1).join("quote,").slice(0, -1))
     check("H11 a quote past the limit is the nesting sentinel", JSON.stringify(blocks(quote(33))), JSON.stringify([{ type: "deep", limit: 32 }]))
     check("H11 400 nested quotes are the sentinel", types(quote(400)), "deep")
     check("H11 a list at the limit still renders", types(list(32)), "list")

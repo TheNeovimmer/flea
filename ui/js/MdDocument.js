@@ -2,9 +2,14 @@
 
 // Serialize the block reader's events; all container and code decisions belong to MdBlocks.
 .import "MdLeaf.js" as Leaf
+.import "MdContainer.js" as Container
 .import "MdRun.js" as Run
 .import "MdHtmlImage.js" as HtmlImage
 .import "MdHtmlBlock.js" as HtmlBlock
+.import "MdItems.js" as Items
+.import "MdResolve.js" as Res
+.import "MdMath.js" as Maths
+.import "MdEntity.js" as Ent
 
 // The importer joins an HTML block onto the paragraph above it, so a block-level raw tag after a blank line starts its own run.
 // Sample input: "Body.\n\n<div>x</div>" splits before the div; "<table>\n<tr>" keeps its rows together.
@@ -13,47 +18,52 @@ var HTML_BLOCK_AFTER_BLANK = /\n[ \t]*\n+(?= {0,3}<(?:p|div|h[1-6]|hr|table|ul|o
 // Sample input: "one<br />\n  two" collapses to "one<br />two"; a blank line after the break stays a paragraph break.
 var BREAK_SOFT_NEWLINE = /(<br \/>)[ \t]*\n(?![ \t]*\n)[ \t]*/g
 
-function visibleLines(lines, state) {
-    var kept = []
-    for (var i = 0; i < lines.length; i++) {
-        var line = lines[i]
-        if (state.hidden.hasOwnProperty(line.index))
-            continue
-        var text = line.text
-        if (state.escaped.hasOwnProperty(line.index)) {
-            var at = text.indexOf("[")
-            text = text.slice(0, at) + "\\[" + text.slice(at + 1)
-        }
-        kept.push(text)
-    }
-    return kept
-}
-
 function writer(state, dir, chrome, ink) {
     var out = []
     var run = []
     var tokens = []
     var cited = []
-    function inlineOf(text, citations, literalPlain) {
+    function inlineOf(text, citations, literalPlain, bareText, fragment) {
         return Run.parseInline(text, dir, state.defs, state.numbers, chrome, ink, tokens,
-            citations === false ? undefined : cited, literalPlain)
+            citations === false ? undefined : cited, literalPlain, bareText, fragment)
     }
+    // Prose outside every container: a ">" in it, even after a formula's figure, is text and never a quote mark.
     function pushPiece(lines) {
+        var text = HtmlBlock.separateBlocks(lines).join("\n")
         // A soft break after a line break collapses, as in a browser, so the next line starts at the text column.
-        var pieces = inlineOf(HtmlBlock.separateBlocks(lines).join("\n")).replace(BREAK_SOFT_NEWLINE, "$1").split(HTML_BLOCK_AFTER_BLANK)
+        var pieces = inlineOf(text, undefined, false, true).replace(BREAK_SOFT_NEWLINE, "$1").split(HTML_BLOCK_AFTER_BLANK)
+        var maths = Maths.inlineSources(text)
         for (var p = 0; p < pieces.length; p++) {
-            if (pieces[p].trim().length > 0)
-                out.push({ type: "run", text: pieces[p] })
+            if (pieces[p].trim().length === 0)
+                continue
+            var block = { type: "run", text: pieces[p] }
+            // The text's formulas are listed on its first block, so a split never lists one twice.
+            if (maths.length > 0)
+                block.maths = maths
+            maths = []
+            out.push(block)
         }
     }
     // An image inside an HTML block leaves it as an image block, since the importer draws no Markdown there.
-    function pushRun(lines) {
+    function pushImages(lines) {
         var parts = HtmlBlock.splitHtmlImages(lines, dir)
         for (var p = 0; p < parts.length; p++) {
             if (parts[p].block !== undefined)
                 out.push(parts[p].block)
             else
                 pushPiece(parts[p].lines)
+        }
+    }
+    // A display formula inside a paragraph stands on its own as a figure, the way a display block does.
+    function pushRun(lines) {
+        var pieces = Maths.splitDisplay(lines.join("\n"))
+        if (pieces === null)
+            return pushImages(lines)
+        for (var p = 0; p < pieces.length; p++) {
+            if (pieces[p].math === undefined)
+                pushImages(pieces[p].text.split("\n"))
+            else if (pieces[p].math !== "")
+                out.push({ type: "figure", kind: "math", source: pieces[p].math, display: true })
         }
     }
     function pushAll(blocks) {
@@ -69,6 +79,8 @@ function writer(state, dir, chrome, ink) {
             // A raw image inside its own paragraph or div, on one line or three, is an image block too.
             var unit = image === null ? HtmlImage.imageUnit(run, i, dir) : null
             if (image !== null || unit !== null) {
+                if (image !== null)
+                    image.alt = Res.plainText(inlineOf(image.alt, false, false, false, true))
                 pushRun(plain)
                 plain = []
                 out.push(image !== null ? image : unit.block)
@@ -84,9 +96,23 @@ function writer(state, dir, chrome, ink) {
         pushRun(plain)
         run = []
     }
+    // The underline of a setext heading takes the paragraph above it out of the pending run and draws it as a heading.
+    function setext(event) {
+        var at = run.length
+        while (at > 0 && run[at - 1].trim().length > 0 && !Leaf.isThematic(run[at - 1]))
+            at--
+        var paragraph = run.slice(at)
+        run.length = at
+        flushRun()
+        var text = Leaf.headingSafe(paragraph.join("\n").trim())
+        if (text !== "")
+            out.push({ type: "heading", level: Leaf.setextLevel(event.text), text: inlineOf(text) })
+    }
     function emit(event) {
+        if (event.type === "setext")
+            return setext(event)
         if (event.type === "run") {
-            var lines = visibleLines(event.lines, state)
+            var lines = Items.visibleLines(event.lines, state)
             for (var l = 0; l < lines.length; l++)
                 run.push(lines[l])
             return
@@ -97,34 +123,31 @@ function writer(state, dir, chrome, ink) {
             if (event.figureKind !== "")
                 out.push({ type: "figure", kind: event.figureKind, source: source, display: true })
             else
-                out.push({ type: "fence", text: source, info: event.info })
+                out.push({ type: "fence", text: source, info: Ent.decodeReferences(event.info) })
         } else if (event.type === "heading") {
-            if (event.text !== "")
-                out.push({ type: "heading", level: event.level, text: inlineOf(Leaf.headingSafe(event.text)) })
+            out.push({ type: "heading", level: event.level, text: inlineOf(Leaf.headingSafe(event.text)) })
         } else if (event.type === "table") {
             pushAll(Leaf.chunkTable(Leaf.tableBlock(event.head, event.aligns, event.rows,
                 function (text) { return inlineOf(text, true, true) })))
         } else if (event.type === "quote") {
-            var quote = visibleLines(event.lines, state)
-            if (quote.join("\n").trim().length === 0)
-                return
-            var title = Leaf.alertTitle(quote[0])
-            if (title !== null)
-                quote[0] = title
-            out.push({ type: "quote", text: inlineOf(quote.join("\n")) })
+            pushAll(Items.quoteBlocks(event.lines, state, inlineOf))
         } else if (event.type === "list") {
-            var items = []
-            for (var k = 0; k < event.items.length; k++) {
-                var item = visibleLines(event.items[k], state)
-                if (item.length > 0)
-                    item[0] = Leaf.taskText(item[0])
-                items.push(inlineOf(item.join("\n")))
-            }
-            if (items.length > 0)
-                pushAll(Leaf.chunkList({ type: "list", ordered: event.ordered, start: event.start, items: items }))
+            var list = Items.listBlock(event, state, inlineOf)
+            if (list.items.length > 0)
+                pushAll(Leaf.chunkList(list))
         } else {
             out.push(event)
         }
+    }
+    // The line's text once the list markers and indents around it are gone; a lazy line has none to remove.
+    function leadText(event) {
+        var lead = event.lead
+        return lead.here === lead.n && !lead.lazy
+            ? " ".repeat(lead.pad) + Container.expandLead(lead.raw.slice(lead.at), lead.col + lead.pad) : event.text
+    }
+    // A delimiter row the block reader refused as a table keeps its first dash from the renderer, which would make a table of it.
+    function tableless(text) {
+        return text.indexOf("|") >= 0 && Leaf.delimAligns(text) !== null ? text.replace("-", "\\-") : text
     }
     var outer = null
     var code = null
@@ -157,19 +180,14 @@ function writer(state, dir, chrome, ink) {
         if (top !== null) {
             flushCode()
             if (outer === null)
-                outer = { type: top.type, group: group, lines: [], items: [], ordered: top.ordered, start: top.start }
+                outer = { type: top.type, group: group, lines: [], ordered: top.ordered, start: top.start,
+                    builder: top.type === "list" ? Items.builder() : null }
             if (event.kind === "codeEnd")
                 return
-            var line = { text: event.display, index: event.index }
-            if (top.type === "quote") {
-                outer.lines.push(line)
-            } else {
-                if (outer.item !== top.id) {
-                    outer.items.push([])
-                    outer.item = top.id
-                }
-                outer.items[outer.items.length - 1].push(line)
-            }
+            if (top.type === "quote")
+                outer.lines.push({ text: leadText(event), index: event.index, depth: event.lead.n, raw: Items.isRaw(event.kind) })
+            else
+                outer.builder.add(event, leadText(event))
             return
         }
         if (event.kind === "hidden")
@@ -183,13 +201,19 @@ function writer(state, dir, chrome, ink) {
             code.lines.push({ text: event.text, index: event.index })
         } else if (event.kind === "fenceClose" || event.kind === "codeEnd") {
             flushCode()
+        } else if (event.kind === "setext") {
+            flushCode()
+            emit({ type: "setext", text: event.text })
         } else {
             flushCode()
-            emit({ type: "run", lines: [{ text: event.text, index: event.index }] })
+            emit({ type: "run", lines: [{ text: tableless(event.text), index: event.index }] })
         }
     }
     function finish() {
         flushOuter()
+        // A fence left open at the end of the text holds no line for the final newline.
+        if (code !== null && !code.indented && code.lines.length > 0 && code.lines[code.lines.length - 1].text === "")
+            code.lines.pop()
         flushCode()
         flushRun()
         var footItems = []
@@ -225,7 +249,7 @@ function preparedText(lines, state, dir, defs, chrome, ink) {
             flush()
             out.push(line.text)
         } else {
-            prose.push(visibleLines([line], state)[0])
+            prose.push(Items.visibleLines([line], state)[0])
         }
     }
     flush()

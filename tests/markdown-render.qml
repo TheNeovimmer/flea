@@ -62,7 +62,8 @@ ShellRoot {
     property var loadCases: [
         { suffix: ".empty.md", text: "", name: "empty Markdown" },
         { suffix: ".first.md", text: "# Identical\n", name: "first identical Markdown" },
-        { suffix: ".second.md", text: "# Identical\n", name: "second identical Markdown" }
+        { suffix: ".second.md", text: "# Identical\n", name: "second identical Markdown" },
+        { suffix: ".gaps.md", text: "before\n\n## \n\n>\n\nafter\n", name: "empty heading and quote", empties: [1, 2] }
     ]
     property int loadStep: 0
     property int loadSeq: 0
@@ -380,9 +381,8 @@ ShellRoot {
         onTriggered: {
             if (shell.loadStep < shell.loadCases.length) {
                 var test = shell.loadCases[shell.loadStep]
-                var ready = md.contentReady && md.rawText === test.text && md.appliedSeq > shell.loadSeq
-                shell.log((ready ? "ok " : "FAIL ") + test.name + " contentReady=" + md.contentReady
-                    + " status=" + md.status + " parseSeq=" + md.parseSeq + " appliedSeq=" + md.appliedSeq)
+                var ready = md.contentReady && md.rawText === test.text && md.appliedSeq > shell.loadSeq && Board.emptiesTakeNoHeight(md, test.empties || [])
+                shell.log((ready ? "ok " : "FAIL ") + test.name + " contentReady=" + md.contentReady + " status=" + md.status + " parseSeq=" + md.parseSeq + " appliedSeq=" + md.appliedSeq)
                 if (!ready) {
                     shell.fail("load completion missed " + test.name)
                     return

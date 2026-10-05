@@ -2,9 +2,12 @@
 
 // MdUrl: linear URL decoding and image classification, with anchored scans and lexical folder containment.
 .import "Format.js" as Format
+.import "MdEntity.js" as Ent
 
 var MAX_UNICODE_SCALAR = 1114111
 var PERCENT_ESCAPE_LENGTH = 3
+// A target that still changes after this many decodings is refused: no real address nests that deep.
+var MAX_DECODE_PASSES = 8
 
 // An http(s) URL, or a protocol-relative one (which inherits https), loads from the network.
 function isRemoteUrl(url) {
@@ -196,4 +199,28 @@ function srcsetPick(value, dir) {
     if (remote !== null)
         return { kind: "remote", host: remote }
     return null
+}
+
+// Sample input: " \thttps://a.example/x\n " strips URL padding and embedded tab, CR and LF.
+function strippedTarget(value) {
+    return String(value).replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, "").replace(/[\t\r\n]/g, "")
+}
+
+// Sample input: "java&Tab;script:x" and "&amp;#106;avascript:x" are refused, "https://a.example/?a=1&amp;b=2" and "./x.md" pass.
+function targetAllowed(url) {
+    var seen = String(url)
+    for (var pass = 0; pass <= MAX_DECODE_PASSES; pass++) {
+        var shown = strippedTarget(canonicalUrl(seen))
+        var m = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.exec(shown)
+        if (m !== null) {
+            var scheme = m[0].toLowerCase()
+            if (scheme !== "http:" && scheme !== "https:" && scheme !== "mailto:")
+                return false
+        }
+        var next = Ent.decodeReferences(shown)
+        if (next === seen || next === shown)
+            return true
+        seen = next
+    }
+    return false
 }

@@ -1,7 +1,9 @@
 .import "../../ui/js/Markdown.js" as Markdown
 .import "../../ui/js/MdInline.js" as Inline
+.import "../../ui/js/MdLink.js" as Link
 .import "../../ui/js/MdLeaf.js" as Leaf
 .import "sourcefixture.js" as Source
+.import "../markdown-board.js" as Board
 
 function run(check) {
     var quickLook = Source.slice(Source.source("ui/Preview.qml"), "id: markdownLoader", "item.closeRequested.connect")
@@ -17,7 +19,7 @@ function run(check) {
 
     var loadBody = Source.slice(Source.source("tests/markdown-render.qml"),
         "if (shell.loadStep < shell.loadCases.length) {", "if (shell.fixture.length === 0)")
-    var settleLoad = new Function("shell", "md", "settle", loadBody)
+    var settleLoad = new Function("shell", "md", "settle", "Board", loadBody)
     function loadMock(text, fresh) {
         var before = 7
         var shell = { loadStep: 1, loadSeq: before, fixture: "/notes.md", loadFailures: [],
@@ -25,7 +27,7 @@ function run(check) {
             log: function () {}, fail: function (why) { this.failure = why }, failure: "" }
         var md = { contentReady: true, rawText: text, status: "ready", parseSeq: before + (fresh ? 1 : 0),
             appliedSeq: before + (fresh ? 1 : 0), path: "/notes.md.first" }
-        settleLoad(shell, md, { restart: function () {} })
+        settleLoad(shell, md, { restart: function () {} }, Board)
         return shell
     }
     check("stale identical load is rejected", loadMock("# Identical\n", false).failure.length > 0, true)
@@ -193,7 +195,7 @@ function run(check) {
     check("GFM 200 header unescapes pipe", escapedTable.head[0], "f&#124;oo")
     check("GFM 200 code span unescapes pipe", escapedTable.rows[0][0],
         'b <code style="background-color:#181825">&#124;</code> az')
-    check("GFM 200 strong row unescapes pipe", escapedTable.rows[1][0], "b **&#124;** im")
+    check("GFM 200 strong row unescapes pipe", escapedTable.rows[1][0], "b <strong>&#124;</strong> im")
     // The backtick sends prose down the scan path, where only a table cell turns its pipe into an entity.
     check("a pipe outside a table stays prose", Markdown.prepare("a | `b`", dir, undefined, chrome),
         'a | <code style="background-color:#181825">b</code>')
@@ -255,8 +257,8 @@ function run(check) {
     check("a bad ink escapes link brackets",
         Markdown.prepare("See [a](https://example.com/x) here.", dir, undefined, chrome, "red"),
         "See &#91;a&#93;(https&#58;&#47;&#47;example&#46;com&#47;x) here.")
-    check("emphasis cannot form inside a link label",
-        linked("See [*hi*](https://example.com/x) here.").indexOf("&#42;hi&#42;") >= 0, true)
+    check("emphasis forms inside a link label",
+        linked("See [*hi*](https://example.com/x) here.").indexOf("<font color=\"#c0caf5\"><em>hi</em></font></a>") >= 0, true)
 
     var barelinks = [
         { text: "See https://example.com/x. here.", url: "https://example.com/x" },
@@ -267,7 +269,7 @@ function run(check) {
     for (var bareIndex = 0; bareIndex < barelinks.length; bareIndex++) {
         var bare = barelinks[bareIndex]
         var bareStart = "See ".length
-        var read = Inline.readBarelink(bare.text, bareStart)
+        var read = Link.readBarelink(bare.text, bareStart)
         check("barelink URL and end offset " + bareIndex,
             read && read.url === bare.url && read.end === bareStart + bare.url.length, true)
     }
@@ -285,13 +287,13 @@ function run(check) {
     check("a later start survives", lists("3. a\n4. b\n")[0].start, 3)
     check("a marker kind change splits", lists("1. a\n- b\n").length, 2)
     var nested = lists("1. a\n   - sub\n2. b\n")
-    check("a nested marker joins its item", nested.length === 1 && nested[0].items.length === 2, true)
-    check("nested content survives", nested[0].items[0].indexOf("sub") >= 0, true)
+    check("a nested marker joins its list", nested.length === 1 && nested[0].items.length === 3, true)
+    check("a nested item is its own entry one level down", JSON.stringify(nested[0].depths) + " " + nested[0].items[1], "[0,1,0] sub")
     var lazy = lists("1. a\nlazy line\n2. b\n")
     check("a lazy line joins its item", lazy.length === 1 && lazy[0].items[0].indexOf("lazy") >= 0, true)
     check("a blank line between items keeps the list", lists("1. a\n\n2. b\n").length, 1)
     check("a blank line before prose ends the list",
         Markdown.blocks("1. a\n\nText\n", dir).map(function (b) { return b.type }).join(","), "list,run")
-    check("a ragged table spans its widest row",
-        Markdown.blocks("| a | b |\n|---|---|\n| 1 | 2 | 3 |\n", dir)[0].cols, 3)
+    check("a ragged table keeps the header's width",
+        Markdown.blocks("| a | b |\n|---|---|\n| 1 | 2 | 3 |\n", dir)[0].cols, 2)
 }

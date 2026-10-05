@@ -51,6 +51,9 @@ var VOID = { br: 1, hr: 1, img: 1, source: 1 }
 var CHROME_PATTERN = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i
 var DISCLOSURE_OPEN = "\u25be"
 
+// Qt draws a raw s tag struck on every build but drops del and strike, so all three are emitted as s.
+var STRIKE_AS = { del: "s", strike: "s" }
+
 function isNameChar(c) {
     return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9")
 }
@@ -184,7 +187,7 @@ function tagHead(tag) {
 
 // Sample input: " \thttps://a.example/x\n " strips URL padding and embedded tab, CR and LF.
 function normalizedTarget(value) {
-    return String(value).replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, "").replace(/[\t\r\n]/g, "")
+    return MdUrl.strippedTarget(value)
 }
 
 // One attribute value with entities decoded for the safety checks below.
@@ -196,11 +199,8 @@ function attrKept(name, value, tagName) {
     if (name === "href") {
         if (tagName !== "a")
             return false
-        // Links never fetch: http, https, mailto, relative and #anchor stay.
-        if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(seen))
-            return seen.indexOf("http:") === 0 || seen.indexOf("https:") === 0
-                || seen.indexOf("mailto:") === 0 ? true : false
-        return true
+        // Links never fetch: http, https, mailto, relative and #anchor stay, through every decoding.
+        return MdUrl.targetAllowed(value)
     }
     if (name === "src")
         return tagName === "img" || tagName === "source"
@@ -224,7 +224,7 @@ function sanitizeTag(tag, dir, tokens, chrome) {
         return holdToken(tokens, html)
     }
     var head = tagHead(tag)
-    var name = head.name
+    var name = STRIKE_AS.hasOwnProperty(head.name) ? STRIKE_AS[head.name] : head.name
     if (name.length === 0)
         return { emit: "&#60;", drop: null }
     if (DROP_CONTENT.hasOwnProperty(name))
