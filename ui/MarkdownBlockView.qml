@@ -16,6 +16,8 @@ Item {
     // Only a figure intersecting the viewport may send a render request.
     property bool inView: true
 
+    // The drawn run text this view built, else null for any other kind or a maths run.
+    readonly property Item runText: view.block.type === "run" && view.block.maths === undefined ? kind.item : null
     // A picture followed by another block keeps the pane's block gap under it too, as a paragraph does, so what follows never touches it.
     readonly property int pictureGap: (view.block.type === "images" || view.block.type === "image") && view.blockIndex < view.blockCount - 1 ? view.preview.blockGap : 0
     // Only the drawn block lends its height, and a list or table chunk lies flush by its own negative y.

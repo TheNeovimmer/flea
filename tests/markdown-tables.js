@@ -201,11 +201,14 @@ function markerBaselineError(root, frame, name) {
         var first = loader.item.blocks[0]
         if (first.type !== "run" || first.maths !== undefined)
             continue
-        var firstText = null
-        if (typeof loader.item.firstTextItem === "function")
-            firstText = loader.item.firstTextItem()
-        else
-            firstText = firstPartsText(loader.item)
+        var firstView = null
+        for (var v = 0; v < loader.item.children.length; v++) {
+            if (loader.item.children[v].block !== undefined) {
+                firstView = loader.item.children[v]
+                break
+            }
+        }
+        var firstText = firstView !== null ? firstPartsText(firstView) : null
         if (firstText === null || !firstText.visible)
             continue
         judged++
