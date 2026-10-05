@@ -3,7 +3,7 @@
 var STRING_METHODS = ["charAt", "charCodeAt", "indexOf", "lastIndexOf", "slice", "substring",
     "match", "replace", "split", "search", "trim", "toLowerCase", "toUpperCase", "repeat"]
 var REGEX_METHODS = ["exec", "test"]
-var ARRAY_METHODS = ["slice", "join", "map", "concat"]
+var ARRAY_METHODS = ["slice", "join", "map", "concat", "filter"]
 var CONSTANT_TIME_METHODS = ["push", "pop", "hasOwnProperty"]
 // hasOwn is each parser file's alias of Object.prototype.hasOwnProperty, one hashed lookup; Object.create(null) makes one empty map.
 var CONSTANT_TIME_CALLS = ["Math.max", "Math.min", "String.fromCharCode", "String.fromCodePoint", "hasOwn.call", "Object.create"]
@@ -223,7 +223,7 @@ function install() {
             return function () {
                 "use strict"
                 var result = original.apply(this, arguments)
-                work += method === "join" ? this.length + result.length : result.length
+                work += method === "join" || method === "filter" ? this.length + result.length : result.length
                 return result
             }
         })(Array.prototype[arrayMethod], arrayMethod)
