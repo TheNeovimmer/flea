@@ -67,8 +67,8 @@ function blockPass(lines, state, emit, collect, nested, onProgress) {
     var pending = null
     var serial = 0
     var lastQuote = -1
-    // Zero disables the heartbeat: collecting passes and synchronous parses never beat.
-    var beatEvery = onProgress !== undefined && collect !== true ? PROGRESS_EVENTS : 0
+    // No listener means no heartbeat: a parse without onProgress never beats.
+    var beatEvery = onProgress !== undefined ? PROGRESS_EVENTS : 0
     var sinceBeat = 0
     // Leading frames now open that share frame 0's type (items or quotes), where the line's text starts after them, and the frames found open.
     var lead = { n: 0, here: 0, lazy: false, retained: 0, at: 0, pad: 0, col: 0, raw: "" }
@@ -77,7 +77,7 @@ function blockPass(lines, state, emit, collect, nested, onProgress) {
             emit({ type: "line", kind: kind, index: index, text: text,
                 outer: top, display: display, info: info || "", chain: frames, lead: lead,
                 figureKind: kind === "fenceOpen" ? figureKind(info) : "" })
-        // A render pass with a heartbeat proves it is moving every few thousand sends.
+        // A pass carrying the heartbeat proves it is moving every few thousand sends.
         if (beatEvery !== 0) {
             sinceBeat++
             if (sinceBeat >= beatEvery) {
@@ -362,7 +362,8 @@ function collectReferences(source) {
 function blocks(source, dir, chrome, ink, headCount, onHead, onProgress) {
     var lines = Html.documentText(source).split("\n")
     var state = referenceState()
-    blockPass(lines, state, undefined, true)
+    // The collecting pass carries the heartbeat too, so a slow reference scan still proves it is moving.
+    blockPass(lines, state, undefined, true, undefined, onProgress)
     if (state.deep === true)
         return [{ type: "deep", limit: NESTING_LIMIT }]
     var writer = Document.writer(state, dir, chrome, ink, blockPass)

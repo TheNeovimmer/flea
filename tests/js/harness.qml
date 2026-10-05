@@ -50,6 +50,7 @@ import "mdgates.js" as MdGatesSuite
 import "mdr7.js" as MdR7Suite
 import "mdtable.js" as MdTableSuite
 import "mdround4.js" as MdRound4Suite
+import "mdprogress.js" as MdProgressSuite
 import "listbudget.js" as ListBudgetSuite
 import "marks.js" as MarksSuite
 import "match.js" as MatchSuite
@@ -155,7 +156,7 @@ Item {
             ["focus-lines", FocusLinesSuite], ["focus-wrap", FocusWrapSuite],
             ["format", FormatSuite], ["icons", IconsSuite],
             ["jump", JumpSuite], ["jump-heldout", JumpHeldoutSuite], ["keymap", KeymapSuite], ["localsend", LocalSendSuite], ["listbudget", ListBudgetSuite], ["match", MatchSuite], ["menu", MenuSuite], ["xwnewfile", XwNewFileSuite],
-            ["marks", MarksSuite], ["markdown", MarkdownSuite], ["mdstructure", MdStructureSuite], ["mdliteral", MdLiteralSuite], ["mdspecfix", MdSpecFixSuite], ["mddraw", MdDrawSuite], ["mdnest", MdNestSuite], ["mdhtml", MdHtmlSuite], ["mdhtmlgh", MdHtmlGhSuite], ["mdhtmlrow", MdHtmlRowSuite], ["mdr7", MdR7Suite], ["mdround4", MdRound4Suite], ["mounts", MountsSuite], ["motion", MotionSuite], ["names", NamesSuite], ["nav", NavSuite], ["crumbs", CrumbsSuite], ["devices", DevicesSuite], ["network", NetworkSuite], ["navmouse", NavMouseSuite], ["mdtable", MdTableSuite],
+            ["marks", MarksSuite], ["markdown", MarkdownSuite], ["mdstructure", MdStructureSuite], ["mdliteral", MdLiteralSuite], ["mdspecfix", MdSpecFixSuite], ["mddraw", MdDrawSuite], ["mdnest", MdNestSuite], ["mdhtml", MdHtmlSuite], ["mdhtmlgh", MdHtmlGhSuite], ["mdhtmlrow", MdHtmlRowSuite], ["mdr7", MdR7Suite], ["mdround4", MdRound4Suite], ["mdprogress", MdProgressSuite], ["mounts", MountsSuite], ["motion", MotionSuite], ["names", NamesSuite], ["nav", NavSuite], ["crumbs", CrumbsSuite], ["devices", DevicesSuite], ["network", NetworkSuite], ["navmouse", NavMouseSuite], ["mdtable", MdTableSuite],
             ["openwith", OpenWithSuite], ["ops", OpsSuite], ["opstrash", OpsTrashSuite],
             ["palette", PaletteSuite], ["pathbar", PathBarSuite], ["places", PlacesSuite], ["placemenu", PlaceMenuSuite], ["rail", RailSuite], ["scripts", ScriptsSuite],
             ["phones", PhonesSuite],

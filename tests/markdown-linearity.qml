@@ -102,7 +102,6 @@ QtObject {
         const ask = new Function('root', 'file', 'Markdown', 'parseFallback', 'parserLoader', body('function askParse()'));
         const replyTimer = parseFallback;
         const reply = new Function('root', 'messageObject', 'parseFallback', body('function landed(messageObject)'));
-        // The fallback a live worker holds off: every proof of life restarts it, a full reply never does.
         // The product's own dropParse, parseNow, rememberScroll and restoreScroll bodies, bound to each stub root; the list is an empty stub.
         const drop = new Function('root', body('function dropParse()'));
         const landing = new Function('root', 'Markdown', 'text', 'dir', 'chrome', 'ink', 'deep', body('function parseNow('));
@@ -155,6 +154,7 @@ QtObject {
         check(sent.head === Markdown.HEAD_BLOCKS, 'a first parse asks the worker for the head');
         reply(root, { seq: sent.seq, blocks: ['head'], error: '', partial: true }, replyTimer);
         check(root.blockList[0] === 'head' && root.parsing && root.appliedSeq !== root.parseSeq, 'the head draws while the parse still runs');
+        // The fallback a live worker holds off: every proof of life restarts it, a full reply never does.
         const heldRestarts = replyTimer.restarts;
         reply(root, { seq: sent.seq, ack: true }, replyTimer);
         check(replyTimer.restarts === heldRestarts + 1 && root.parsing, 'a worker ack holds the parse and restarts the fallback');
