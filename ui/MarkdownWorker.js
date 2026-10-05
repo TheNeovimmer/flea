@@ -86,12 +86,18 @@ WorkerScript.onMessage = function (msg) {
             return;
     } else if (msg.head !== undefined) {
         WorkerScript.sendMessage({ seq: msg.seq, ack: true });
-        held = { seq: msg.seq, parse: MdBlocks.blockJob(msg.source, msg.dir, msg.chrome, msg.ink, msg.head, function (head) {
-            // A first parse of a file sends its head ahead, so the first screen draws while the rest is still parsing.
-            WorkerScript.sendMessage({ seq: msg.seq, blocks: head, error: '', partial: true });
-        }, function () {
-            WorkerScript.sendMessage({ seq: msg.seq, progress: true });
-        }) };
+        try {
+            held = { seq: msg.seq, parse: MdBlocks.blockJob(msg.source, msg.dir, msg.chrome, msg.ink, msg.head, function (head) {
+                // A first parse of a file sends its head ahead, so the first screen draws while the rest is still parsing.
+                WorkerScript.sendMessage({ seq: msg.seq, blocks: head, error: '', partial: true });
+            }, function () {
+                WorkerScript.sendMessage({ seq: msg.seq, progress: true });
+            }) };
+        } catch (e) {
+            held = null;
+            WorkerScript.sendMessage({ seq: msg.seq, blocks: [], error: String(e) });
+            return;
+        }
     } else {
         var plain = [];
         var failure = '';

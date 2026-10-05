@@ -194,6 +194,10 @@ function parseState(root) {
         + " offthread=" + d.parsedOffThread + " err=" + d.parseError + " path=" + d.path + prep + frames
 }
 
+// A poll gap this long is a held event loop (polls come every pollMs), and the failing line keeps this many timeline entries.
+var HELD_LOOP_MS = 500
+var TIMELINE_KEPT = 30
+
 // One timeline entry per change of the parse counters, and one per gap between polls long enough to be a held event loop.
 function trace(root) {
     var d = doc(root)
@@ -201,7 +205,7 @@ function trace(root) {
     var gap = root.lastPollAt ? now - root.lastPollAt : 0
     root.lastPollAt = now
     var at = now - root.stageAt
-    if (gap > 500) root.timeline.push("gap" + gap + "@" + at)
+    if (gap > HELD_LOOP_MS) root.timeline.push("gap" + gap + "@" + at)
     if (!d) return
     var key = d.ackSeq + "/" + d.beatCount + "/" + d.headSeq + "/" + d.replySeq + "/" + d.fallbackFires + "/" + d.parsing
     if (key === root.traceKey) return

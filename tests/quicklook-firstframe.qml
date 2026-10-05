@@ -303,7 +303,7 @@ ShellRoot {
                 root.fail("stage " + root.stage + " stalled in step " + (root.step + 1) + " reads=" + (root.prepare ? root.prepare.reads : -1)
                     + " prepared=" + (root.prepare ? root.prepare.preparedPath : "") + " quiet=" + root.quiet
                     + " cursor=" + (at ? at.n + ":" + at.s : "none") + " resting=" + (root.prepare ? root.prepare.resting : "") + " listInFlight=" + (pane ? pane.listInFlight : "")
-                    + " storageKnown=" + (pane ? pane.storageKnown : "") + " class=" + (pane ? pane.storageClass : "") + " " + Fresh.parseState(root) + " timeline=" + root.timeline.slice(-30).join(" "))
+                    + " storageKnown=" + (pane ? pane.storageKnown : "") + " class=" + (pane ? pane.storageClass : "") + " " + Fresh.parseState(root) + " timeline=" + root.timeline.slice(-Fresh.TIMELINE_KEPT).join(" "))
                 root.finish()
                 return
             }
@@ -425,7 +425,7 @@ ShellRoot {
             }
             if (root.stage === 4) {
                 if (root.doc().parsing) return
-                root.log("WHOLE " + (root.step + 1) + " parse landed " + (Date.now() - root.stageAt) + " ms after the head " + Fresh.parseState(root) + " timeline=" + root.timeline.slice(-30).join(" "))
+                root.log("WHOLE " + (root.step + 1) + " parse landed " + (Date.now() - root.stageAt) + " ms after the head " + Fresh.parseState(root) + " timeline=" + root.timeline.slice(-Fresh.TIMELINE_KEPT).join(" "))
                 root.leave()
                 return
             }

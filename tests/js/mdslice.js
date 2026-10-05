@@ -72,4 +72,40 @@ function run(check) {
     send({ seq: 7, source: "four", dir: dir, chrome: chrome, ink: ink, head: 96 })
     send({ seq: 7, cancel: true })
     check("a cancel drops the held parse", send({ seq: 7, cont: true }).length, 0)
+    stubBlocks.blockJob = function () { throw new Error("probe parse fault") }
+    var thrown = send({ seq: 8, source: "five", dir: dir, chrome: chrome, ink: ink, head: 96 })
+    check("a job that throws on construction answers one error reply after the ack",
+        thrown.length === 2 && thrown[0].ack === true && thrown[1].seq === 8 && thrown[1].blocks.length === 0 && /probe parse fault/.test(thrown[1].error), true)
+    check("a continue after a construction error is ignored", send({ seq: 8, cont: true }).length, 0)
+    // The real slice test on a stepped clock: it asks the clock only every CLOCK_EVENTS calls, and answers true once SLICE_MS has also passed.
+    var now = 0
+    var tickMs = 0
+    MdBlocks.useClock(function () { now += tickMs; return now })
+    try {
+        tickMs = MdBlocks.SLICE_MS
+        var due = MdBlocks.sliceDue(MdBlocks.SLICE_MS)
+        var early = false
+        for (var k = 1; k < MdBlocks.CLOCK_EVENTS; k++)
+            early = early || due()
+        check("a slice is never due before CLOCK_EVENTS calls, whatever the clock says", early, false)
+        check("a slice is due at CLOCK_EVENTS calls once the clock passed SLICE_MS", due(), true)
+        tickMs = 0
+        var idle = MdBlocks.sliceDue(MdBlocks.SLICE_MS)
+        var late = false
+        for (var m = 0; m < 3 * MdBlocks.CLOCK_EVENTS; m++)
+            late = late || idle()
+        check("a slice is not due while the clock stands still", late, false)
+        tickMs = MdBlocks.SLICE_MS
+        var stopped = 0
+        var resumed = MdBlocks.blockJob(source, dir, chrome, ink, 0, undefined, undefined)
+        var finished = null
+        while (finished === null && stopped < 10000) {
+            finished = resumed.run(MdBlocks.sliceDue(MdBlocks.SLICE_MS))
+            if (finished === null)
+                stopped++
+        }
+        check("a job on the real slice test stops more than once and resumes to the whole parse", stopped > 1 && JSON.stringify(finished) === whole, true)
+    } finally {
+        MdBlocks.useClock(Date.now)
+    }
 }
