@@ -153,6 +153,20 @@ named_running() {
   return 0
 }
 
+# A stub that ends a process waits until it is gone, so a loaded host cannot show it running to the next step.
+end_named_poll_s=0.05
+end_named_polls=100
+end_named() {
+  local pid=$1 polls=0
+  command kill "$pid" 2>/dev/null || true
+  while named_running "$pid"; do
+    [ "$polls" -lt "$end_named_polls" ] \
+      || { printf 'stub: pid %s outlived SIGTERM for %s polls\n' "$pid" "$polls"; return 1; }
+    sleep "$end_named_poll_s"
+    polls=$(( polls + 1 ))
+  done
+}
+
 # Hermetic process lookup exposes only sandbox-named sleeps, never operator processes.
 pgrep() {
   local comm=${!#} pid
@@ -188,18 +202,18 @@ process_identity() {
   if [ "$late_fork_mode" = yes ] \
     && [ "$pid" = "$late_parent_pid" ] \
     && [ "$(< "$late_capture_file")" -ge 2 ]; then
-    command kill "$pid" 2>/dev/null || true
+    end_named "$pid"
     return 1
   fi
   if [ "$rolling_fork_mode" = yes ]; then
     if [ "$pid" = "$rolling_parent_pid" ] \
       && [ "$(< "$rolling_capture_file")" -ge 2 ]; then
-      command kill "$pid" 2>/dev/null || true
+      end_named "$pid"
       return 1
     fi
     if [ "$pid" = "$rolling_child1_pid" ] \
       && [ "$(< "$rolling_capture_file")" -ge 3 ]; then
-      command kill "$pid" 2>/dev/null || true
+      end_named "$pid"
       return 1
     fi
   fi
@@ -273,11 +287,11 @@ stop_unit_boundary() {
   [ "$unit" = "$test_unit_name" ] || return 1
   test_stop_calls=$(( test_stop_calls + 1 ))
   if [ "$late_fork_mode" = yes ]; then
-    command kill "$late_parent_pid" 2>/dev/null || true
+    end_named "$late_parent_pid"
   fi
   if [ "$rolling_fork_mode" = yes ]; then
-    command kill "$rolling_parent_pid" 2>/dev/null || true
-    command kill "$rolling_child1_pid" 2>/dev/null || true
+    end_named "$rolling_parent_pid"
+    end_named "$rolling_child1_pid"
   fi
   for pid in "${named_pids[@]}"; do
     [ "$pid" = "$OWNED_ROOT_PID" ] && continue
@@ -368,7 +382,7 @@ post_launch_report="$test_root/post-launch-cleanup"
   }
   stop_unit_boundary() {
     [ "$1" = "$test_unit_name" ] || return 1
-    command kill "$post_launch_pid" 2>/dev/null || true
+    end_named "$post_launch_pid"
     test_unit_loaded=no
   }
   cap_cleanup() {
