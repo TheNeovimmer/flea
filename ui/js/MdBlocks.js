@@ -13,8 +13,24 @@ var CODE_INDENT = 4
 var MIN_RULE_MARKS = 3
 var MAX_RULE_INDENT = 3
 var LIST_INTERRUPT_START = 1
-// A working parse proves it every few thousand block-pass events, so the pane's fallback waits for silence, never for speed.
+// A working parse proves it every few thousand block-pass events or PROGRESS_MS, so the pane's fallback waits for silence, never speed.
 var PROGRESS_EVENTS = 4000
+// Events cost more or less as the box is loaded, so a parse also beats once PROGRESS_MS passed, the clock read every CLOCK_EVENTS events.
+var PROGRESS_MS = 500
+var CLOCK_EVENTS = 64
+// A live request is parsed SLICE_MS at a time, so a newer request is read between slices (a running parse cannot be cancelled).
+var SLICE_MS = 200
+var clock = Date.now
+// A suite replaces the clock with a stepped one, so the clock beat is proved without waiting.
+function useClock(now) {
+    clock = now
+}
+// A slice's stop test: true once ms have passed, the clock read every CLOCK_EVENTS lines.
+function sliceDue(ms) {
+    var from = clock()
+    var seen = 0
+    return function () { return ++seen % CLOCK_EVENTS === 0 && clock() - from >= ms }
+}
 // A document nesting containers deeper than this is not rendered: blocks answers one sentinel and the pane shows the source.
 var NESTING_LIMIT = 32
 var SETEXT_MARK = /^(\s*)([=-])/
@@ -61,7 +77,8 @@ function referenceState() {
 }
 
 // Sample: "- > ```\n  > [id]: literal\n  > ```" matches an item, then a quote, before its fence; nested lines hold no front matter.
-function blockPass(lines, state, emit, collect, nested, onProgress) {
+function blockPass(lines, state, emit, collect, nested, onProgress, job) {
+    // A job's due() stops the pass at a line boundary, and its saved state is what the next slice resumes with.
     var frames = []
     var leaf = null
     var pending = null
@@ -70,6 +87,7 @@ function blockPass(lines, state, emit, collect, nested, onProgress) {
     // No listener means no heartbeat: a parse without onProgress never beats.
     var beatEvery = onProgress !== undefined ? PROGRESS_EVENTS : 0
     var sinceBeat = 0
+    var beatAt = beatEvery !== 0 ? clock() : 0
     // Leading frames now open that share frame 0's type (items or quotes), where the line's text starts after them, and the frames found open.
     var lead = { n: 0, here: 0, lazy: false, retained: 0, at: 0, pad: 0, col: 0, raw: "" }
     function send(kind, index, text, top, display, info) {
@@ -77,11 +95,12 @@ function blockPass(lines, state, emit, collect, nested, onProgress) {
             emit({ type: "line", kind: kind, index: index, text: text,
                 outer: top, display: display, info: info || "", chain: frames, lead: lead,
                 figureKind: kind === "fenceOpen" ? figureKind(info) : "" })
-        // A pass carrying the heartbeat proves it is moving every few thousand sends.
+        // A pass carrying the heartbeat proves it is moving every few thousand sends or every half second.
         if (beatEvery !== 0) {
             sinceBeat++
-            if (sinceBeat >= beatEvery) {
+            if (sinceBeat >= beatEvery || (sinceBeat % CLOCK_EVENTS === 0 && clock() - beatAt >= PROGRESS_MS)) {
                 sinceBeat = 0
+                beatAt = clock()
                 onProgress()
             }
         }
@@ -91,7 +110,23 @@ function blockPass(lines, state, emit, collect, nested, onProgress) {
             pending.note.text = pending.body.join("\n")
         pending = null
     }
-    for (var i = 0; i < lines.length; i++) {
+    var due = job !== undefined ? job.due : undefined
+    var from = 0
+    if (job !== undefined && job.saved !== null) {
+        from = job.saved.at
+        frames = job.saved.frames
+        leaf = job.saved.leaf
+        pending = job.saved.pending
+        serial = job.saved.serial
+        lastQuote = job.saved.lastQuote
+        lead = job.saved.lead
+    }
+    for (var i = from; i < lines.length; i++) {
+        if (due !== undefined && due()) {
+            job.saved = { at: i, frames: frames, leaf: leaf, pending: pending, serial: serial, lastQuote: lastQuote, lead: lead }
+            job.paused = true
+            return
+        }
         var raw = lines[i]
         var view = { at: 0, padding: 0, column: 0 }
         var rawBlank = raw.trim().length === 0
@@ -359,17 +394,46 @@ function collectReferences(source) {
     return state
 }
 
-function blocks(source, dir, chrome, ink, headCount, onHead, onProgress) {
+// A parse that stops between lines: run(due) answers the blocks when both passes are done, or null when due() stopped it.
+function blockJob(source, dir, chrome, ink, headCount, onHead, onProgress) {
     var lines = Html.documentText(source).split("\n")
     var state = referenceState()
-    // The collecting pass carries the heartbeat too, so a slow reference scan still proves it is moving.
-    blockPass(lines, state, undefined, true, undefined, onProgress)
-    if (state.deep === true)
-        return [{ type: "deep", limit: NESTING_LIMIT }]
-    var writer = Document.writer(state, dir, chrome, ink, blockPass)
-    var project = onHead !== undefined && headCount > 0 ? writer.headed(headCount, onHead) : writer.project
-    blockPass(lines, state, project, false, undefined, onProgress)
-    return writer.finish()
+    var collecting = { due: undefined, saved: null, paused: false }
+    var rendering = { due: undefined, saved: null, paused: false }
+    var writer = null
+    var project = null
+    var answer = null
+    function run(due) {
+        if (answer !== null)
+            return answer
+        if (writer === null) {
+            collecting.due = due
+            collecting.paused = false
+            // The collecting pass carries the heartbeat too, so a slow reference scan still proves it is moving.
+            blockPass(lines, state, undefined, true, undefined, onProgress, collecting)
+            if (collecting.paused)
+                return null
+            if (state.deep === true) {
+                answer = [{ type: "deep", limit: NESTING_LIMIT }]
+                return answer
+            }
+            writer = Document.writer(state, dir, chrome, ink, blockPass)
+            project = onHead !== undefined && headCount > 0 ? writer.headed(headCount, onHead) : writer.project
+        }
+        rendering.due = due
+        rendering.paused = false
+        blockPass(lines, state, project, false, undefined, onProgress, rendering)
+        if (rendering.paused)
+            return null
+        answer = writer.finish()
+        return answer
+    }
+    return { run: run }
+}
+
+function blocks(source, dir, chrome, ink, headCount, onHead, onProgress) {
+    var job = blockJob(source, dir, chrome, ink, headCount, onHead, onProgress)
+    return job.run(undefined)
 }
 
 function prepare(source, dir, defs, chrome, ink) {

@@ -897,12 +897,12 @@ ui/PreviewMarkdown.qml	90	root	Declared QML id; component context access is vali
 ui/PreviewMarkdown.qml	91	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	92	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	94	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	357	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	570	modelData	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	571	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	572	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	573	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	574	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	365	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	596	modelData	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	597	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	598	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	599	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	600	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMedia.qml	88	anchors	Inherited QtQuick Item property in the enclosing item scope.
 ui/PreviewMedia.qml	88	parent	Inherited QtQuick Item property in the enclosing item scope.
 ui/PreviewPdf.qml	175	anchors	Inherited QtQuick Item property in the enclosing item scope.
@@ -2205,12 +2205,12 @@ ui/PreviewMarkdown.qml	90	root	Declared QML id; component context access is vali
 ui/PreviewMarkdown.qml	91	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	92	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewMarkdown.qml	94	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	357	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	570	modelData	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	571	index	Delegate context supplies this model role at runtime.
-ui/PreviewMarkdown.qml	572	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	573	root	Declared QML id; component context access is valid at runtime.
-ui/PreviewMarkdown.qml	574	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	365	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	596	modelData	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	597	index	Delegate context supplies this model role at runtime.
+ui/PreviewMarkdown.qml	598	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	599	root	Declared QML id; component context access is valid at runtime.
+ui/PreviewMarkdown.qml	600	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewSwap.qml	191	content	Declared QML id; component context access is valid at runtime.
 ui/PreviewSwap.qml	191	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewSwap.qml	191	root	Declared QML id; component context access is valid at runtime.

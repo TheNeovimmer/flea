@@ -23,6 +23,33 @@ function run(check) {
     check("the beating parse still lands its blocks", parsed.length > 0, true)
     var landed = MdBlocks.blocks(source, dir, chrome, ink, 0, undefined)
     check("no listener means no heartbeat and no throw", landed.length === parsed.length, true)
+    // A slow stretch beats by the clock too: a few hundred events cost seconds when the box is loaded, and the pane waits only for silence.
+    var clock = 0
+    var tick = 0
+    MdBlocks.useClock(function () { clock += tick; return clock })
+    var clocked = []
+    // A heading before each paragraph writes a block at once, so the head goes out early in the rendering pass.
+    for (var c = 0; c < 4 * MdBlocks.CLOCK_EVENTS; c++)
+        clocked.push("# clock heading " + c, "clock line " + c + " carries ordinary words")
+    var clockedSource = clocked.join("\n") + "\n"
+    var still = 0
+    var slow = 0
+    var rendering = 0
+    var headSent = false
+    try {
+        tick = 0
+        MdBlocks.blocks(clockedSource, dir, chrome, ink, 0, undefined, function () { still++ })
+        tick = MdBlocks.PROGRESS_MS
+        MdBlocks.blocks(clockedSource, dir, chrome, ink, 0, undefined, function () { slow++ })
+        // The head is sent from the rendering pass, so a beat after it came from that pass and not the collecting one.
+        MdBlocks.blocks(clockedSource, dir, chrome, ink, 1, function () { headSent = true }, function () { if (headSent) rendering++ })
+    } finally {
+        MdBlocks.useClock(Date.now)
+    }
+    check("the clocked fixture is short of the event beat", clocked.length < MdBlocks.PROGRESS_EVENTS, true)
+    check("a parse on a stopped clock never beats", still, 0)
+    check("a parse whose events each cost PROGRESS_MS beats in both passes", slow >= 2, true)
+    check("the rendering pass beats by the clock after its head", rendering >= 1, true)
     // A headed request is acked before any other message, a headless one never is.
     var workerSource = Source.source("ui/MarkdownWorker.js")
     var onMessage = Source.block(workerSource, "WorkerScript.onMessage = function (msg)", "ui/MarkdownWorker.js")
@@ -30,8 +57,11 @@ function run(check) {
         var seen = []
         var stubWorker = { sendMessage: function (m) { seen.push(m) } }
         // The stub beats whenever it is handed a listener, so a beat the worker forwards for a headless request shows up.
-        var stubBlocks = { blocks: function (source, dir, chrome, ink, headCount, onHead, onProgress) { if (onProgress !== undefined) onProgress(); return [{ type: "run", text: "stub" }] } }
-        new Function("WorkerScript", "MdBlocks", "msg", onMessage)(stubWorker, stubBlocks, msg)
+        var beat = function (onProgress) { if (onProgress !== undefined) onProgress(); return [{ type: "run", text: "stub" }] }
+        var stubBlocks = { blocks: function (source, dir, chrome, ink, headCount, onHead, onProgress) { return beat(onProgress) },
+            sliceDue: function () { return function () { return false } },
+            blockJob: function (source, dir, chrome, ink, headCount, onHead, onProgress) { return { run: function () { return beat(onProgress) } } } }
+        new Function("WorkerScript", "MdBlocks", "msg", "state", onMessage.replace(/\bheld\b/g, "state.held"))(stubWorker, stubBlocks, msg, { held: null })
         return seen
     }
     var headed = ask({ seq: 7, source: "hi", dir: dir, chrome: chrome, ink: ink, head: 96 })

@@ -110,6 +110,14 @@ Item {
     // A worker reply landed for this file; the lazy suite asserts the parse left the UI thread.
     property bool parsedOffThread: false
     property string parseError: ""
+    // Worker liveness for the quicklook-firstframe watchdog line: last seq of each message kind (-1 none), beats, fallback fires.
+    property int ackSeq: -1
+    property int beatSeq: -1
+    property int beatCount: 0
+    property int headSeq: -1
+    property int replySeq: -1
+    property int fallbackFires: 0
+    readonly property bool fallbackRunning: parseFallback.running
     // Give the worker ten seconds to answer before the synchronous recovery parse.
     readonly property int parseFallbackMs: 10000
     // Keep this many pixels of blocks warm beyond the visible ListView window.
@@ -361,12 +369,21 @@ Item {
         if (messageObject.seq !== root.parseSeq)
             return
         // A live worker proves it with messages, so the fallback below fires only after 10 s of none, never for slowness.
+        if (messageObject.yielded === true) {
+            // One slice a message: only the live request asks for the next, so a newer request is read first.
+            parseFallback.restart()
+            parserLoader.item.sendMessage({ seq: messageObject.seq, cont: true })
+            return
+        }
         if (messageObject.ack === true || messageObject.progress === true) {
+            if (messageObject.ack === true) root.ackSeq = messageObject.seq
+            else { root.beatSeq = messageObject.seq; root.beatCount++ }
             parseFallback.restart()
             return
         }
         // The head of a first parse draws the first screen; the parse goes on, and the whole list replaces it when it lands.
         if (messageObject.partial === true) {
+            root.headSeq = messageObject.seq
             parseFallback.restart()
             root.settingBlocks = true
             root.blockList = messageObject.blocks
@@ -375,6 +392,7 @@ Item {
         }
         root.parsing = false
         root.appliedSeq = messageObject.seq
+        root.replySeq = messageObject.seq
         if (messageObject.error !== "") {
             root.parseError = messageObject.error
             root.askedAny = false
@@ -399,8 +417,10 @@ Item {
         onTriggered: {
             if (!root.parsing)
                 return
+            root.fallbackFires++
             // A late worker reply for the request being recovered is voided by the new number.
             root.parseSeq++
+            root.releaseWorker()
             root.parseNow(root.askedText, root.askedDir, root.askedChrome, root.askedInk)
         }
     }
@@ -411,9 +431,15 @@ Item {
     property string askedChrome: ""
     property string askedInk: ""
     property bool askedAny: false
+    function releaseWorker() {
+        // The worker holds a live request's parse between slices; a cancel frees it.
+        if (parserLoader.item !== null)
+            parserLoader.item.sendMessage({ seq: root.parseSeq, cancel: true })
+    }
     // Forget the last request and void any worker reply in flight, so the next ask always parses.
     function dropParse() {
         root.parseSeq++
+        root.releaseWorker()
         root.parsing = false
         root.askedAny = false
         root.askedText = ""

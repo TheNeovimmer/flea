@@ -81,11 +81,12 @@ tests/js/tabs.js 686
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 399
-tests/quicklook-firstframe.qml 432
+tests/quicklook-firstframe.qml 438
 tests/markdown-render.qml 795
-tests/markdown-linearity.qml 650
-tests/markdown-preview-state.qml 467
+tests/markdown-linearity.qml 669
+tests/markdown-preview-state.qml 469
 tests/markdown-tables.qml 401
+tests/quicklook-firstframe.js 214
 tests/preview-settle-live.qml 457
 tests/preview-decode.qml 507
 tests/js/status.js 354
@@ -119,7 +120,7 @@ ui/PickerWindow.qml 779
 ui/Preview.qml 669
 ui/PreviewColumn.qml 583
 ui/DeviceMounts.qml 496
-ui/PreviewMarkdown.qml 595
+ui/PreviewMarkdown.qml 621
 ui/Row.qml 482
 ui/SettingsPanel.qml 543
 ui/SettingsRow.qml 409
@@ -136,7 +137,7 @@ ui/js/Focus.js 435
 ui/js/Keymap.js 355
 ui/js/Nav.js 308
 ui/js/Markdown.js 155
-ui/js/MdBlocks.js 380
+ui/js/MdBlocks.js 444
 ui/js/MdDocument.js 341
 ui/js/MdLeaf.js 314
 ui/js/MdInline.js 295

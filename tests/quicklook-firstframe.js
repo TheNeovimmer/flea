@@ -180,3 +180,35 @@ function judge(root) {
     if (step.expect === "deep" && (!d.tooDeep || d.parsedOffThread || root.maxSourceChars === 0 || root.maxSourceChars > root.firstScreenChunks * Markdown.SOURCE_CHUNK_CHARS))
         root.fail("step " + n + " deep=" + d.tooDeep + " offthread=" + d.parsedOffThread + " laid out up to " + root.maxSourceChars + " Source characters")
 }
+
+// The parse state for the watchdog line: seqs, which worker messages landed and for which seq, the fallback, the blocks and the frames.
+function parseState(root) {
+    var d = doc(root)
+    var frames = " frames=" + root.frames + " empty=" + root.emptyFrames + " content=" + root.contentFrame
+    var p = root.prepare
+    var prep = p ? " prepareAsked=" + (p.asked ? p.asked.path : "none") + " workerAnswers=" + p.workerAnswers : ""
+    if (!d) return "parse=none" + prep + frames
+    return "parseSeq=" + d.parseSeq + " appliedSeq=" + d.appliedSeq + " parsing=" + d.parsing + " runs=" + d.parseRuns + " loads=" + d.loadRuns
+        + " ack=" + d.ackSeq + " beats=" + d.beatCount + "@" + d.beatSeq + " head=" + d.headSeq + " reply=" + d.replySeq
+        + " fallbackRunning=" + d.fallbackRunning + " fallbackFires=" + d.fallbackFires + " blocks=" + d.blockList.length
+        + " offthread=" + d.parsedOffThread + " err=" + d.parseError + " path=" + d.path + prep + frames
+}
+
+// A poll gap this long is a held event loop (polls come every pollMs), and the failing line keeps this many timeline entries.
+var HELD_LOOP_MS = 500
+var TIMELINE_KEPT = 30
+
+// One timeline entry per change of the parse counters, and one per gap between polls long enough to be a held event loop.
+function trace(root) {
+    var d = doc(root)
+    var now = Date.now()
+    var gap = root.lastPollAt ? now - root.lastPollAt : 0
+    root.lastPollAt = now
+    var at = now - root.stageAt
+    if (gap > HELD_LOOP_MS) root.timeline.push("gap" + gap + "@" + at)
+    if (!d) return
+    var key = d.ackSeq + "/" + d.beatCount + "/" + d.headSeq + "/" + d.replySeq + "/" + d.fallbackFires + "/" + d.parsing
+    if (key === root.traceKey) return
+    root.traceKey = key
+    root.timeline.push("ack" + d.ackSeq + ",b" + d.beatCount + ",h" + d.headSeq + ",r" + d.replySeq + ",f" + d.fallbackFires + (d.parsing ? "" : ",done") + "@" + at)
+}
