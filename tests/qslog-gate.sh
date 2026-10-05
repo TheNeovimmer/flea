@@ -6,9 +6,9 @@ QSLOG_STARTED='QSLOG_WORKER [^ ]'
 qslog_ui_copy() {
   local dest=$1 sites patched
   cp -a ui "$dest" || return 1
-  sites=$(grep -rhcE 'WorkerScript \{$' ui --include='*.qml' | awk '{ n += $1 } END { print n + 0 }')
+  sites=$(grep -rhE 'WorkerScript \{$' ui --include='*.qml' | wc -l)
   find "$dest" -name '*.qml' -exec sed -i 's/WorkerScript {$/WorkerScript { Component.onCompleted: console.log("QSLOG_WORKER " + source)/' {} +
-  patched=$(grep -rhc 'QSLOG_WORKER' "$dest" --include='*.qml' | awk '{ n += $1 } END { print n + 0 }')
+  patched=$(grep -rh 'QSLOG_WORKER' "$dest" --include='*.qml' | wc -l)
   if [ "$sites" -eq 0 ] || [ "$sites" -ne "$patched" ]; then
     printf 'FAIL qslog: %s WorkerScript sites in ui/, %s instrumented in the copy\n' "$sites" "$patched"
     return 1
