@@ -2,7 +2,6 @@
 
 // Raw HTML spelled through character references: refused addresses stay refused and marks stay entity-escaped.
 .import "flea/js/MdBlocks.js" as Blocks
-.import "flea/js/MdResolve.js" as Resolve
 
 var CHROME_BACKGROUND = "#181825"
 var CHROME_INK = "#c0caf5"
@@ -42,11 +41,11 @@ function failures(dir) {
     if (plain.length !== 1 || plain[0] !== "https://a.example/")
         out.push("the anchor check does not see a plain raw HTML link")
     for (var s = 0; s < SPELLED_ADDRESSES.length; s++) {
-        // A refused address leaves the anchor's text unlinked, and the product's own gate must pass every address that stays.
+        // Every spelled address is hostile, so none may be emitted as an href, and the anchor's text stays unlinked.
         for (var w = 0; w < ANCHOR_WRAPPERS.length; w++) {
             var anchored = blocksOf(ANCHOR_WRAPPERS[w].replace("H", SPELLED_ADDRESSES[s]), dir)
             var hrefs = emittedHrefs(anchored)
-            if (!hrefs.every(Resolve.isLinkTarget) || JSON.stringify(anchored).indexOf("LTX") < 0)
+            if (hrefs.length !== 0 || JSON.stringify(anchored).indexOf("LTX") < 0)
                 out.push("raw HTML anchor spelled through references kept a refused address " + s + "/" + w + " " + JSON.stringify(hrefs))
         }
         var pictured = blocksOf('<img src="' + SPELLED_ADDRESSES[s] + '">\n\n<p align="center"><img src="' + SPELLED_ADDRESSES[s] + '"></p>', dir)
