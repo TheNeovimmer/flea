@@ -1,4 +1,4 @@
-# Sourced by markdown-tables.sh and ui-captures-markdown.sh so both render the same assets: a 12 px dot, a 160 by 40 picture, 500 rows of three cells.
+# Sourced by markdown-tables.sh and ui-captures-markdown.sh so both render the same assets: a 12 px dot, a 160 by 40 picture, a 400 by 40 one wider than the narrow column, 500 rows of three cells.
 markdown_tables_assets_write() {
     python3 - "$1" <<'PY' || return 1
 import struct, sys, zlib
@@ -11,6 +11,7 @@ def solid(path, width, height):
     open(path, 'wb').write(png)
 solid(root + '/dot.png', 12, 12)
 solid(root + '/wide.png', 160, 40)
+solid(root + '/huge.png', 400, 40)
 rows = ''.join('| row %d | a plain cell number %d | %d |\n' % (i, i, i * 7) for i in range(500))
 open(root + '/rows500.md', 'w').write('# Rows\n\n| Name | Cell | Number |\n| --- | --- | ---: |\n' + rows)
 PY

@@ -49,14 +49,17 @@ Column {
                 textFormat: Text.RichText
                 height: marker.box
                 wrapMode: Text.NoWrap
+                // The marker sits on the item's first drawn baseline, 0 for an ungrown line and for a first block with no run text.
+                y: itemParts.active ? (itemParts.item !== null && itemParts.item.firstRunText !== null ? itemParts.item.firstRunText.drawnBaseline - marker.drawnBaseline : 0) : itemText.drawnBaseline - marker.drawnBaseline
             }
 
             MarkdownText {
+                id: itemText
                 visible: !itemParts.active
                 linkGate: root.linkGate
                 width: parent.width - marker.width - parent.spacing
                 bodyPx: root.bodyPx
-                text: root.list.items[index]
+                markdown: root.list.items[index]
             }
 
             // An item that holds more than prose draws its blocks in order; they load by file name since MarkdownBlocks draws lists again.

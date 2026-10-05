@@ -11,7 +11,15 @@ Column {
 
     spacing: root.preview !== null ? root.preview.blockGap : 0
 
+    // The first block's view, tracked without one object per item.
+    property Item firstView: null
+    // The first block's run text, null unless that block is a plain run.
+    readonly property Item firstRunText: root.firstView !== null ? root.firstView.runText : null
+
     Repeater {
+        id: partsRepeater
+        onItemAdded: function (index, item) { if (index === 0) root.firstView = item }
+        onItemRemoved: function (index, item) { if (item === root.firstView) root.firstView = null }
         model: root.blocks
         delegate: MarkdownBlockView {
             required property var modelData

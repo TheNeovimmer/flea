@@ -138,3 +138,37 @@ function lineError(name, label, geos) {
         return geos.length + " table chunks are alive in a screenful"
     return ""
 }
+
+// The pictures of these cases are judged beside a twin ("-dot") whose picture is small, so the ink above them is known.
+var CONTROL = "-dot"
+// Cases that hold no table: a picture in a paragraph, a list item or a quote, judged by the grabbed pixels alone.
+var TABLELESS = ["picfirst", "picsecond", "piclist", "picquote", "picwide", "picwidelist", "picordered", "picparts"]
+
+function tableless(name) {
+    return TABLELESS.indexOf(name.replace(CONTROL, "")) >= 0
+}
+
+// A table's rules are the rectangles in it thinner than this; its cells draw no other.
+var RULE_MAX = 3
+
+// Every drawn text and table rule of a pane in the frame's coordinates; a text holding a picture says so.
+// Sample input: inkRects(body.contentItem, frame) answers { texts: [{ x, y, w, h, picture }], rules: [{ x, y, w, h }] }.
+function inkRects(root, frame) {
+    var texts = []
+    var rules = []
+    function walk(item, inTable) {
+        for (var i = 0; i < item.children.length; i++) {
+            var kid = item.children[i]
+            var at = kid.mapToItem(frame, 0, 0)
+            if (inTable && kid.radius !== undefined && kid.height < RULE_MAX) {
+                rules.push({ x: Math.round(at.x), y: Math.round(at.y), w: Math.round(kid.width), h: Math.round(kid.height) })
+            } else if (kid.textFormat !== undefined && kid.visible && typeof kid.text === "string" && kid.text.length > 0 && kid.objectName !== "measurer") {
+                texts.push({ x: Math.round(at.x), y: Math.round(at.y), w: Math.round(kid.width), h: Math.round(kid.height), picture: typeof kid.markdown === "string" && kid.markdown.indexOf("![") >= 0 })
+            } else {
+                walk(kid, inTable || kid.objectName === "tableGrid")
+            }
+        }
+    }
+    walk(root, false)
+    return { texts: texts, rules: rules }
+}

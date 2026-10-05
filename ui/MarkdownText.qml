@@ -13,8 +13,33 @@ Text {
     // Qt's FixedHeight line puts its baseline this share down the box whatever the font, so the padding moves it to the centred one.
     readonly property real fixedBaselineShare: 0.8
     readonly property int centredBaseline: Math.round((root.box - metrics.height) / 2 + metrics.ascent)
+    // The hosts set the Markdown here; a text with a picture draws it with the pictures wider than the text scaled to its width.
+    property string markdown: ""
+    // A text whose picture is taller than the box draws on proportional lines, which grow with it; the ratio keeps every other line at the box.
+    // Sample input: "Built with ![logo](file:///d/p.png) here" holds one picture; the parser writes every local inline picture this way.
+    property bool growsForPictures: true
+    readonly property bool holdsPicture: root.growsForPictures && root.rich && /!\[[^\]]*\]\(file:/i.test(root.markdown)
+    // Built the first time a text holds a picture: a text without one owns no object for it, which the block cost gates count.
+    property Item pictures: null
+    function syncPictures() {
+        if (root.pictures === null && root.holdsPicture)
+            root.pictures = Qt.createComponent("MarkdownPictures.qml").createObject(root, { host: root })
+    }
+    onHoldsPictureChanged: root.syncPictures()
+    Component.onCompleted: root.syncPictures()
+    readonly property bool grown: root.pictures !== null && root.holdsPicture && root.pictures.tallest > root.box
+    readonly property real naturalLine: Math.ceil(metrics.height)
+    // Proportional lines keep the font's own ascent above the baseline and put the stretch below it.
+    readonly property int naturalBaseline: Math.round(metrics.ascent)
+    readonly property int restBaseline: root.grown ? root.naturalBaseline : Math.round(root.box * root.fixedBaselineShare)
+    // The tallest picture's line rests on its bottom edge at the baseline, so it is the picture plus the font's own descent.
+    readonly property real pictureLine: root.grown ? root.pictures.tallest + root.naturalLine - root.naturalBaseline : 0
+    // A one-line text takes back the stretch the ratio put under its picture; a second line would be half a box taller at least.
+    readonly property real stretch: root.grown && root.contentHeight < root.pictureLine * root.box / root.naturalLine + root.box / 2 ? root.contentHeight - root.pictureLine : 0
     // Rich text shifts by the gap between the two baselines (negative when Qt sits it low); plain text sits at the top of its natural line.
-    readonly property int lift: root.rich ? root.centredBaseline - Math.round(root.box * root.fixedBaselineShare) : Math.floor(root.lead / 2)
+    readonly property int lift: root.rich ? root.centredBaseline - root.restBaseline : Math.floor(root.lead / 2)
+    // The first line's drawn baseline: Qt reports a FixedHeight line's baselineOffset at the ascent, short of where it draws.
+    readonly property real drawnBaseline: root.rich && !root.grown ? root.topPadding + root.restBaseline : root.baselineOffset
     // The document's body size; the preview column scales it down from Quick Look's.
     property int bodyPx: Theme.font.body
     // Rows of a table add their own cell padding on top of the box.
@@ -28,16 +53,17 @@ Text {
             Qt.openUrlExternally(link)
     }
 
+    text: root.pictures !== null ? root.pictures.shown : root.markdown
     textFormat: Text.MarkdownText
     wrapMode: Text.Wrap
     color: Theme.color.foreground
     linkColor: Theme.color.foreground
     font.family: Theme.font.family
     font.pixelSize: root.bodyPx
-    lineHeight: root.rich ? root.box : 1
-    lineHeightMode: root.rich ? Text.FixedHeight : Text.ProportionalHeight
+    lineHeight: root.grown ? root.box / root.naturalLine : root.rich ? root.box : 1
+    lineHeightMode: root.rich && !root.grown ? Text.FixedHeight : Text.ProportionalHeight
     topPadding: root.cellPad + root.lift
-    bottomPadding: root.cellPad + root.lead - root.lift
+    bottomPadding: root.cellPad + root.lead - root.lift - root.stretch
 
     FontMetrics {
         id: metrics

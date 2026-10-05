@@ -86,4 +86,7 @@ MarkdownText {
             onErrorChanged: root.landed(modelData, svg, svg !== "" || error !== "")
         }
     }
+
+    // Its formulas are padded to sit on the fixed line's baseline, so a picture beside them keeps that line.
+    growsForPictures: false
 }

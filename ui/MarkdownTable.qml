@@ -30,7 +30,7 @@ Column {
                 width: root.textWidth(index)
                 bodyPx: root.bodyPx
                 cellPad: 2
-                text: root.block.head[index]
+                markdown: root.block.head[index]
                 horizontalAlignment: root.alignAt(index)
                 font.bold: true
                 color: Theme.color.foregroundBright
@@ -63,7 +63,7 @@ Column {
                         width: root.textWidth(index)
                         bodyPx: root.bodyPx
                         cellPad: 2
-                        text: root.cellAt(row, index)
+                        markdown: root.cellAt(row, index)
                         horizontalAlignment: root.alignAt(index)
                     }
                 }
