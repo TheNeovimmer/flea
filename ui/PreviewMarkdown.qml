@@ -230,8 +230,11 @@ Item {
         onTriggered: root.reloadFromDisk()
     }
 
-    // A reparse of the shown file (disk edit, theme change) puts the reader back where they were.
+    // A reparse of the shown file (disk edit, theme change) puts the reader back where they were, by block or else by pixels.
     property real savedY: 0
+    // The place by block: the block at the view's top and the pixels past its top edge, -1 when none is built there.
+    property int savedIndex: -1
+    property real savedOffset: 0
     property bool keepScroll: false
     // Where a restore left the view when the content was too short for the saved place, NaN when none waits.
     property real heldY: NaN
@@ -254,15 +257,37 @@ Item {
         root.keepScroll = true
         // A path change or a failed load ends a hold without clearing its place, so a new place starts with none.
         root.heldY = NaN
+        var item = root.topBlockItem()
+        root.savedIndex = item === null ? -1 : item.blockIndex
+        root.savedOffset = item === null ? 0 : body.contentY - item.y
     }
-    // The view rests between the list's own resting top and the end of the new content, and a model too short for the place keeps it.
+    // The first built block that ends below the view's top, so a view in a gap or above the first block still has one.
+    function topBlockItem() {
+        var kids = body.contentItem.children
+        var found = null
+        for (var k = 0; k < kids.length; k++) {
+            var kid = kids[k]
+            if (kid.blockIndex === undefined || kid.y + kid.height <= body.contentY)
+                continue
+            if (found === null || kid.blockIndex < found.blockIndex)
+                found = kid
+        }
+        return found
+    }
+    // A place by block is restored by block: the list estimates an unbuilt document, and only a built end may clamp it.
     function restoreScroll() {
         if (!root.keepScroll)
             return
+        var byBlock = root.savedIndex >= 0 && root.savedIndex < root.blockList.length
+        if (byBlock)
+            body.positionViewAtIndex(root.savedIndex, ListView.Beginning)
+        var item = byBlock ? root.blockItem(root.savedIndex) : null
         var top = body.originY - body.topMargin
         var end = Math.max(top, body.originY + body.contentHeight - body.height + body.bottomMargin)
-        var at = Math.max(top, Math.min(root.savedY, end))
-        var settled = root.savedY <= end
+        var place = item === null ? root.savedY : item.y + root.savedOffset
+        var endExact = item === null || root.blockItem(root.blockList.length - 1) !== null
+        var at = Math.max(top, endExact ? Math.min(place, end) : place)
+        var settled = !endExact || place <= end
         // The hold is recorded before the move, so the move itself reads as the same place.
         root.heldY = settled ? NaN : at
         body.contentY = at

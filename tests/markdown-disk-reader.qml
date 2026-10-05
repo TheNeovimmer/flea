@@ -17,6 +17,8 @@ ShellRoot {
     property bool editDone: false
     property string fullText: ""
     property real scrolledY: 0
+    // The uneven phase: the block at the view's top and its offset before the edit.
+    property var placeBefore: null
     // The stream phase: the writer's state, and the reloads that landed while it was still running.
     property bool writerDone: true
     property int reloadsWhileRunning: 0
@@ -30,7 +32,11 @@ ShellRoot {
     property real heightAtReset: 0
     property real smallestHeight: Infinity
     property bool measuring: false
+    // Every contentY the list took after the model reset, kept as harness evidence for the INFO line.
+    property var moves: []
     readonly property int tickMs: 20
+    // The most contentY moves the INFO line lists.
+    readonly property int moveLogLimit: 40
     readonly property int probeGiveUpMs: 12000
     // A place deep inside a 300 paragraph file, well past the first screen.
     readonly property int scrollTargetY: 1200
@@ -113,6 +119,10 @@ ShellRoot {
         function onContentHeightChanged() {
             if (root.measuring && md.bodyItem.contentHeight > 0)
                 root.smallestHeight = Math.min(root.smallestHeight, md.bodyItem.contentHeight)
+        }
+        function onContentYChanged() {
+            if (root.measuring && root.moves.length < root.moveLogLimit)
+                root.moves.push(Math.round(md.bodyItem.contentY))
         }
         // The turn the model is replaced, where restoreScroll bounds the place by what the list reports.
         function onModelChanged() {
@@ -216,6 +226,11 @@ ShellRoot {
         }
     }
 
+    // The place by block: the one at the view's top and the pixels the view lies past its top edge; the list's own contentY is an estimate that moves when blocks are built.
+    function placeOf() {
+        var item = md.topBlockItem()
+        return item === null ? null : [item.blockIndex, Math.round(md.bodyItem.contentY - item.y)]
+    }
     // A list of blocks of very different heights: the place is kept exactly, though the list's own height is an estimate after a reset.
     function unevenStep() {
         var list = md.bodyItem
@@ -236,14 +251,15 @@ ShellRoot {
             return
         }
         if (root.stage === 2) {
-            list.contentY = Math.floor(root.unevenDepth * root.realHeight)
+            list.contentY = list.originY + Math.floor(root.unevenDepth * root.realHeight)
             root.stage = 3
             root.settle = 0
             return
         }
         if (root.stage === 3 && root.quiet()) {
             root.scrolledY = list.contentY
-            root.check("the reader is past three quarters of the real height", root.scrolledY > root.unevenPastShare * root.realHeight, true)
+            root.placeBefore = root.placeOf()
+            root.check("the reader is past three quarters of the real height", root.scrolledY - list.originY > root.unevenPastShare * root.realHeight, true)
             root.loadsBefore = md.loadRuns
             root.measuring = true
             root.edit(root.unevenScript)
@@ -259,8 +275,9 @@ ShellRoot {
         if (root.stage === 5 && root.quiet()) {
             console.log("PREVIEW_HUNT INFO uneven: height at the model reset " + Math.round(root.heightAtReset)
                 + ", smallest height seen while reloading " + Math.round(root.smallestHeight)
-                + ", real height " + Math.round(root.realHeight) + ", place " + Math.round(root.scrolledY))
-            root.check("the place is kept exactly across a same-length edit", list.contentY, root.scrolledY)
+                + ", real height " + Math.round(root.realHeight) + ", place " + JSON.stringify(root.placeBefore) + " at y " + Math.round(root.scrolledY)
+                + ", moves " + root.moves.join(" "))
+            root.check("the place is kept exactly across a same-length edit", root.placeOf(), root.placeBefore)
             root.finish()
         }
     }
