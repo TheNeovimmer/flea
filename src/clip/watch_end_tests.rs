@@ -15,6 +15,10 @@ const NEXT_OWNER_OFFER: u32 = INITIAL_OFFER + 1;
 const SELECTION_COUNT: u32 = 100;
 const FLEA_RECEIVES: usize = 2;
 const ONE_RECEIVE: usize = 1;
+// A joined thread can stay listed briefly, so the last check waits for its release.
+const WAITER_RELEASE_WAIT: Duration = Duration::from_secs(5);
+// Poll interval for the release wait above.
+const WAITER_RELEASE_POLL: Duration = Duration::from_millis(10);
 
 struct Child(std::process::Child);
 
@@ -242,12 +246,39 @@ fn t3_a_new_report_wins_in_both_reply_orders() {
     }
 }
 
+fn waiter_detail() -> String {
+    // One entry per task named flea-clip-end, with the state and wchan as evidence.
+    let mut out = Vec::new();
+    let Ok(tasks) = std::fs::read_dir("/proc/self/task") else { return String::from("no task dir"); };
+    for task in tasks.flatten() {
+        let Ok(comm) = std::fs::read_to_string(task.path().join("comm")) else { continue; };
+        if comm.trim() != "flea-clip-end" { continue; }
+        let tid = task.file_name().to_string_lossy().into_owned();
+        let state = std::fs::read_to_string(task.path().join("stat")).ok().and_then(|text| {
+            text.rfind(')').and_then(|end| text[end + 1..].split_whitespace().next().map(str::to_string))
+        }).unwrap_or_else(|| String::from("gone"));
+        let wchan = std::fs::read_to_string(task.path().join("wchan")).map(|s| s.trim().to_string()).unwrap_or_else(|_| String::from("nowchan"));
+        out.push(format!("tid={} state={} wchan={}", tid, state, wchan));
+    }
+    if out.is_empty() { String::from("no flea-clip-end task") } else { out.join(" ") }
+}
+
+fn wait_for_release() {
+    // The kernel releases a joined task a little after join returns, wider under load.
+    let deadline = std::time::Instant::now() + WAITER_RELEASE_WAIT;
+    while counts().0 != 0 && std::time::Instant::now() < deadline {
+        std::thread::sleep(WAITER_RELEASE_POLL);
+    }
+}
+
 fn counts() -> (usize, usize, usize) {
     let fds: Vec<_> = std::fs::read_dir("/proc/self/fd").unwrap().flatten().collect();
     let pidfds = fds.iter().filter(|fd| std::fs::read_link(fd.path()).ok()
         .is_some_and(|path| path == std::path::Path::new("anon_inode:[pidfd]"))).count();
+    // A task that exits while it is read is gone, so only a readable comm counts.
     let waiters = std::fs::read_dir("/proc/self/task").unwrap().flatten().filter(|task|
-        std::fs::read_to_string(task.path().join("comm")).unwrap().trim() == "flea-clip-end").count();
+        std::fs::read_to_string(task.path().join("comm")).ok()
+            .is_some_and(|comm| comm.trim() == "flea-clip-end")).count();
     (waiters, pidfds, fds.len())
 }
 
@@ -296,7 +327,8 @@ fn t5_a_hundred_selections_leave_no_waiter_or_fd_leak() {
         assert!((1..=2).contains(&pidfds), "only current and replacing pidfd can overlap");
     }
     watching.finish();
-    assert_eq!(counts().0, 0, "the last waiter ends with the watcher");
+    wait_for_release();
+    assert_eq!(counts().0, 0, "the last waiter ends with the watcher: {}", waiter_detail());
     assert_eq!(counts().1, 0, "all selection pidfds close");
     drop(watching);
     assert_eq!(counts().2, before.2, "no extra fd survives a hundred copies");
