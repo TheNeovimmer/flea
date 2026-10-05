@@ -70,6 +70,10 @@ cleanup() {
   [ ! -d "$test_root/escape-member" ] || rmdir "$test_root/escape-member"
   [ ! -d "$test_root/stale-watch" ] || rmdir "$test_root/stale-watch"
   [ ! -d "$test_root/interrupted" ] || rmdir "$test_root/interrupted"
+  [ -z "${stubborn_pid:-}" ] || command kill -KILL "$stubborn_pid" 2>/dev/null
+  [ ! -e "$test_root/stubborn-ready" ] || unlink "$test_root/stubborn-ready"
+  [ ! -e "$test_root/stubborn-failures" ] || unlink "$test_root/stubborn-failures"
+  [ ! -e "$test_root/stub-failures" ] || unlink "$test_root/stub-failures"
   [ ! -e "$test_root/sleeper" ] || unlink "$test_root/sleeper"
   rmdir "$test_root"
 }
@@ -153,6 +157,27 @@ named_running() {
   return 0
 }
 
+# A stub that ends a process waits until it is gone; a deadline miss goes to a file the summary counts, so no subshell drops it.
+end_named_poll_s=0.05
+end_named_polls=100
+end_named_failures="$test_root/stub-failures"
+stub_failure_count() {
+  [ -e "$1" ] || { printf '0'; return; }
+  printf '%d' "$(wc -l < "$1")"
+}
+end_named() {
+  local pid=$1 polls=0
+  command kill "$pid" 2>/dev/null || true
+  while named_running "$pid"; do
+    if [ "$polls" -ge "$end_named_polls" ]; then
+      printf 'FAIL stubbed pid %s exits on SIGTERM\n' "$pid" | tee -a "$end_named_failures" >&2
+      return 1
+    fi
+    sleep "$end_named_poll_s"
+    polls=$(( polls + 1 ))
+  done
+}
+
 # Hermetic process lookup exposes only sandbox-named sleeps, never operator processes.
 pgrep() {
   local comm=${!#} pid
@@ -188,18 +213,18 @@ process_identity() {
   if [ "$late_fork_mode" = yes ] \
     && [ "$pid" = "$late_parent_pid" ] \
     && [ "$(< "$late_capture_file")" -ge 2 ]; then
-    command kill "$pid" 2>/dev/null || true
+    end_named "$pid"
     return 1
   fi
   if [ "$rolling_fork_mode" = yes ]; then
     if [ "$pid" = "$rolling_parent_pid" ] \
       && [ "$(< "$rolling_capture_file")" -ge 2 ]; then
-      command kill "$pid" 2>/dev/null || true
+      end_named "$pid"
       return 1
     fi
     if [ "$pid" = "$rolling_child1_pid" ] \
       && [ "$(< "$rolling_capture_file")" -ge 3 ]; then
-      command kill "$pid" 2>/dev/null || true
+      end_named "$pid"
       return 1
     fi
   fi
@@ -273,11 +298,11 @@ stop_unit_boundary() {
   [ "$unit" = "$test_unit_name" ] || return 1
   test_stop_calls=$(( test_stop_calls + 1 ))
   if [ "$late_fork_mode" = yes ]; then
-    command kill "$late_parent_pid" 2>/dev/null || true
+    end_named "$late_parent_pid"
   fi
   if [ "$rolling_fork_mode" = yes ]; then
-    command kill "$rolling_parent_pid" 2>/dev/null || true
-    command kill "$rolling_child1_pid" 2>/dev/null || true
+    end_named "$rolling_parent_pid"
+    end_named "$rolling_child1_pid"
   fi
   for pid in "${named_pids[@]}"; do
     [ "$pid" = "$OWNED_ROOT_PID" ] && continue
@@ -368,7 +393,7 @@ post_launch_report="$test_root/post-launch-cleanup"
   }
   stop_unit_boundary() {
     [ "$1" = "$test_unit_name" ] || return 1
-    command kill "$post_launch_pid" 2>/dev/null || true
+    end_named "$post_launch_pid"
     test_unit_loaded=no
   }
   cap_cleanup() {
@@ -688,9 +713,29 @@ unlink "$test_root/interrupted/flea"
 unlink "$term_state"
 rmdir "$test_root/interrupted"
 
+stubborn_ready="$test_root/stubborn-ready"
+(trap '' TERM; : > "$stubborn_ready"; exec sleep 60) &
+stubborn_pid=$!
+stubborn_polls=0
+while [ ! -e "$stubborn_ready" ] && [ "$stubborn_polls" -lt "$end_named_polls" ]; do
+  sleep "$end_named_poll_s"
+  stubborn_polls=$(( stubborn_polls + 1 ))
+done
+stubborn_failures="$test_root/stubborn-failures"
+stubborn_status=$(end_named_failures=$stubborn_failures; end_named_polls=2; end_named "$stubborn_pid" 2>/dev/null; printf '%s' "$?")
+command kill -KILL "$stubborn_pid" 2>/dev/null
+wait "$stubborn_pid" 2>/dev/null
+stubborn_seen="status $stubborn_status, $(stub_failure_count "$stubborn_failures") counted, $(cat "$stubborn_failures" 2>/dev/null)"
+check "a stubbed exit past its deadline is counted from a subshell" \
+  "status 1, 1 counted, FAIL stubbed pid $stubborn_pid exits on SIGTERM" "$stubborn_seen"
+unset stubborn_pid
+unlink "$stubborn_ready"
+[ ! -e "$stubborn_failures" ] || unlink "$stubborn_failures"
+
 qs() { return 7; }
 require_flea_enumeration >/dev/null 2>&1
 check "failed qs enumeration is refused" 1 "$?"
 
+failures=$(( failures + $(stub_failure_count "$end_named_failures") ))
 printf '%s checks, %s failed\n' "$checks" "$failures"
 exit "$failures"
