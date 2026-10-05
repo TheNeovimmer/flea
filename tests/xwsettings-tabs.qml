@@ -102,8 +102,7 @@ ShellRoot {
         watchChanges: true
         onFileChanged: reload()
     }
-    // TestEvent's pointer delays spin the event loop, so a tick can fire inside a phase. Without this guard the
-    // nested call runs the same phase again and the outer call then skips the next one, release included.
+    // TestEvent pointer delays admit a reentrant tick, so the guard drops it or the outer call skips the next phase including release.
     function advance() {
         if (root.stepping) return
         root.stepping = true

@@ -111,8 +111,7 @@ ShellRoot {
         var live = liveText(md.bodyItem.contentItem)
         // Beside the first chunk, every chunk the list keeps alive for the viewport and its cache counts.
         root.check("viewport bounds all live " + scenario + " text delegates", live.length <= liveTextBound, true)
-        // Rows across a chunk boundary keep the pitch of rows inside a chunk, so the chunks read as one container.
-        // The first row of the second chunk, from the parser's own chunk size.
+        // The chunk boundary keeps the inside-chunk pitch, with the second chunk starting at the parser's own chunk size.
         var edge = root.chunkEdge()
         var rowsAt = [0, 1, edge - 1, edge]
         for (var r = 0; r < rowsAt.length; r++)

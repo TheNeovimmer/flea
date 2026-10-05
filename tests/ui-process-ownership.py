@@ -307,22 +307,48 @@ world_cases = (
 )
 
 
-def late_window_wait():
+def late_window_wait(env_extra=None):
     """The stub's wait call must block until a window another call registers exists, as the real one does."""
     run = root / "late-window"
     guard(run)
-    (run / "state").mkdir(parents=True)
+    (run / "state").mkdir(parents=True, exist_ok=True)
     (run / ".flea-test-sandbox").write_text("private late window\n")
     env = {**os.environ, "FLEA_WORLD": str(run / "world"), "FLEA_TEST_RUN_ROOT": str(run),
-           "XDG_STATE_HOME": str(run / "state"), "FLEA_UI": str(run / "ui")}
+           "XDG_STATE_HOME": str(run / "state"), "FLEA_UI": str(run / "ui"), **(env_extra or {})}
     calls = run / "world/calls.jsonl"
     waiter = subprocess.Popen(["python3", str(world_script), "omarchy-drive", "wait", "window", "flea", "--timeout", str(world_hang_guard_s)], env=env)
-    # The waiter's own call line proves it began before the window exists; its next step is the one under test.
-    deadline = time.monotonic() + world_hang_guard_s
-    while time.monotonic() < deadline and not (calls.exists() and '"wait"' in calls.read_text()):
-        time.sleep(late_poll_s)
-    subprocess.run(["python3", str(world_script), "flea", "--gui", str(run)], env=env, timeout=world_hang_guard_s, check=True)
-    return waiter.wait(timeout=world_hang_guard_s)
+    late_window_wait.last_waiter = waiter
+    try:
+        # The waiter's own call line proves it began before the window exists; its next step is the one under test.
+        deadline = time.monotonic() + world_hang_guard_s
+        while time.monotonic() < deadline and not (calls.exists() and '"wait"' in calls.read_text()):
+            time.sleep(late_poll_s)
+        subprocess.run(["python3", str(world_script), "flea", "--gui", str(run)], env=env, timeout=world_hang_guard_s, check=True)
+        return waiter.wait(timeout=world_hang_guard_s)
+    finally:
+        # A failed register or wait must not leave the waiter behind for the run-dir sweep.
+        try:
+            waiter.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            waiter.wait(timeout=world_hang_guard_s)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def late_window_register_fail_pin():
+    """A register that exits non-zero raises out of late_window_wait, which the caller turns into the case FAIL line, and leaves no live waiter."""
+    try:
+        late_window_wait(env_extra={"WORLD_REGISTER_FAIL": "1"})
+    except subprocess.CalledProcessError:
+        pass
+    else:
+        return False, "a failed register did not raise"
+    waiter = late_window_wait.last_waiter
+    if waiter.poll() is None:
+        return False, f"waiter pid {waiter.pid} still live after a failed register"
+    return True, ""
 
 
 failures = 0
@@ -344,13 +370,25 @@ try:
             print(f"FAIL {name}: exit={result.returncode}, problem={problem!r}, output={output[-600:]!r}")
         else:
             print("PASS " + name)
-    waited = late_window_wait()
-    if waited != 0:
+    try:
+        waited = late_window_wait()
+    except Exception as exc:
+        # A failed register or wait is the case's own failure, never a traceback.
         failures += 1
-        print(f"FAIL a wait begun before the window exists ends when it registers: exit={waited}")
+        print(f"FAIL a wait begun before the window exists ends when it registers: {exc}")
     else:
-        print("PASS a wait begun before the window exists ends when it registers")
-    print(f"{len(cases) + len(world_cases) + 1} process ownership checks, {failures} failed; no real signals")
+        if waited != 0:
+            failures += 1
+            print(f"FAIL a wait begun before the window exists ends when it registers: exit={waited}")
+        else:
+            print("PASS a wait begun before the window exists ends when it registers")
+    pin_ok, pin_detail = late_window_register_fail_pin()
+    if pin_ok:
+        print("PASS a register that exits non-zero raises to the case FAIL path with no live waiter")
+    else:
+        failures += 1
+        print(f"FAIL a register that exits non-zero raises to the case FAIL path with no live waiter: {pin_detail}")
+    print(f"{len(cases) + len(world_cases) + 2} process ownership checks, {failures} failed; no real signals")
 finally:
     for child in root.iterdir():
         if child.name == ".flea-test-sandbox":

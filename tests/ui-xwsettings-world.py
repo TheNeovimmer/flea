@@ -188,6 +188,9 @@ elif tool == "pgrep":
 elif tool == "flea" and args[0] == "--ui-state":
     ui_write(json.loads(args[1]))
 elif tool == "flea" and args[0] == "--gui":
+    # A register that fails, so the late-window wait is exercised against a launch that never delivers.
+    if os.environ.get("WORLD_REGISTER_FAIL"):
+        sys.exit(1)
     register(os.environ["FLEA_UI"], args[1])
 elif tool == "world" and args[0] == "kill":
     victim = window_with("pid", int(args[1]))

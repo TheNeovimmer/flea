@@ -9,6 +9,8 @@ hang_guard_s=280
 spin_idle_ms=700
 guard_scale_cap=8
 spin_iterations=1000000
+# Nanoseconds in one millisecond, for the spin calibration below.
+ns_per_ms=1000000
 scaled_guard_s() {
     local base=$1 cal_ms=$2 idle_ms=$3 cap=$4 scaled
     scaled=$(((base * cal_ms + idle_ms - 1) / idle_ms))
@@ -19,7 +21,7 @@ scaled_guard_s() {
 spin_ms() {
     local start=$(date +%s%N) i
     for ((i = 0; i < spin_iterations; i++)); do :; done
-    echo $((($(date +%s%N) - start) / 1000000))
+    echo $((($(date +%s%N) - start) / ns_per_ms))
 }
 
 # Verify wrapper rejection with partial timeout, missing samples, malformed records and excessive work.

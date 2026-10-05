@@ -71,6 +71,8 @@ grep -q "parseFallbackMs: $fallback_wait_ms\$" "$fallback_ui/PreviewMarkdown.qml
 printf '%s\n' 'WorkerScript.onMessage = function (msg) {};' > "$fallback_ui/MarkdownWorker.js"
 sed -i 's/^function blocks(source, dir, chrome, ink) {$/&\n    if (String(source).indexOf("FLEA-SCRATCH-THROW") >= 0) throw new Error("scratch parse failure")/' "$fallback_ui/js/Markdown.js"
 grep -q 'FLEA-SCRATCH-THROW' "$fallback_ui/js/Markdown.js" || { echo 'FAIL scratch ui: parser not patched'; exit 1; }
+# The outer kill for one phase; the probe caps its give-up below this, so its timeout line lands first.
+probe_timeout_s=15
 failures=0
 scenarios=(control tasks reference table scroll source-key size-key size-key@1 theme links disk disk-rename disk-scroll disk-stale local-image long-list long-table disk-fail disk-partial disk-shrink disk-switch disk-worker disk-stream disk-regrow disk-uneven local-image-narrow column-scale parse-quick parse-column parse-worker parse-fallback)
 # An entry "case@ms" runs the case with the probe timer at ms, so a tick lands inside a stage's own key events.
@@ -96,9 +98,10 @@ for entry in "${scenarios[@]}"; do
         HOME="$phase/home" XDG_STATE_HOME="$phase/state" XDG_CONFIG_HOME="$phase/home/.config" \
         XDG_CACHE_HOME="$phase/cache" XDG_DATA_HOME="$phase/data" XDG_RUNTIME_DIR="$phase/runtime" TMPDIR="$phase/tmp" \
         FLEA_BIN="$PWD/target/debug/flea" FLEA_PREVIEW_HUNT_CASE="$scenario" FLEA_PREVIEW_HUNT_TICK_MS="$tick" FLEA_PREVIEW_HUNT_DIR="$test_root/fixture" \
+        FLEA_PREVIEW_HUNT_TIMEOUT_S="$probe_timeout_s" \
         LD_PRELOAD="$link_preload" FLEA_MARKDOWN_OPEN_LOG="$phase/open.log" \
         QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
-        timeout 15 qs -p "$test_root/config" 2>&1)
+        timeout "$probe_timeout_s" qs -p "$test_root/config" 2>&1)
     code=$?
     printf 'PREVIEW_HUNT CASE %s exit=%s\n' "$entry" "$code"
     printf '%s\n' "$output" | sed -n '/PREVIEW_HUNT/p'

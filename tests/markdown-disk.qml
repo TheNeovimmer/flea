@@ -41,7 +41,15 @@ ShellRoot {
     readonly property int settleTicks: 15
     // A stage gets the first stage's own length (startup plus the first parse of the same file) this many times over, and never less than probeGiveUpMs.
     readonly property int giveUpScale: 10
-    readonly property int giveUpMs: Math.max(probeGiveUpMs, giveUpScale * firstStageMs)
+    // Milliseconds in one second, for the outer timeout below.
+    readonly property int msPerS: 1000
+    // Fallback matching the shell default, used only when the harness passes no outer timeout.
+    readonly property int fallbackOuterS: 15
+    // The shell's outer kill, in seconds; the probe caps its give-up below it so the timeout line lands first.
+    readonly property int outerTimeoutS: Number(Quickshell.env("FLEA_PREVIEW_HUNT_TIMEOUT_S")) || root.fallbackOuterS
+    // The probe gives up this far before the outer kill, so its own timeout line is what reports a stall.
+    readonly property int timeoutMarginMs: 2000
+    readonly property int giveUpMs: Math.min(Math.max(probeGiveUpMs, giveUpScale * firstStageMs), root.outerTimeoutS * root.msPerS - root.timeoutMarginMs)
     // The worker phase's save truncates, waits this long, then writes: two watcher events, as the kernel merges two that arrive unread together.
     readonly property int saveGapMs: 10
     // A shortened document that still fills the viewport yet ends far above scrollTargetY.
@@ -364,7 +372,8 @@ ShellRoot {
         running: true
         repeat: true
         onTriggered: {
-            if (Date.now() - root.stamp > root.giveUpMs) {
+            // The outer timeout counts from process start, so a late stage's own give-up can sit past it; the born bound covers that.
+            if (Date.now() - root.stamp > root.giveUpMs || Date.now() - root.born > root.outerTimeoutS * root.msPerS - root.timeoutMarginMs) {
                 root.check("probe completes", "timeout stage " + root.stage, "complete")
                 root.finish()
                 return
