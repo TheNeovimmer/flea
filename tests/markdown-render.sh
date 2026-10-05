@@ -238,7 +238,7 @@ teardown_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGN
     timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$teardown_output" | grep -oE 'MARKDOWN_TEARDOWN .*'
 check_warnings "$teardown_output" 0 || exit 1
-# Sample input: MARKDOWN_TEARDOWN 300 rounds, 300 torn down with a parsed list
+# Sample input: MARKDOWN_TEARDOWN 300 rounds, 300 torn down with a parsed list; the stage logs FAIL instead of this line when no round had one.
 if ! printf '%s\n' "$teardown_output" | grep -qF "MARKDOWN_TEARDOWN 300 rounds"; then
     printf 'FAIL markdown-render: teardown expected 300 rounds; arrived [%s]\n' "${teardown_output:-<empty>}" >&2
     exit 1

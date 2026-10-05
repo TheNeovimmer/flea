@@ -21,7 +21,7 @@ ShellRoot {
     property bool on: false
     property int round: 0
     property int ticks: 0
-    // Rounds switched off after the parse landed, so the list was building delegates; none would mean nothing was torn down mid-build.
+    // Rounds switched off after the parse landed, when the list holds blocks to build; none would mean every round tore down an empty list.
     property int builtRounds: 0
 
     // The board's text size and palette, so the blocks lay out as they do on the card.
@@ -61,7 +61,7 @@ ShellRoot {
                 if (shell.builtRounds > 0)
                     shell.log(shell.rounds + " rounds, " + shell.builtRounds + " torn down with a parsed list")
                 else
-                    shell.log("FAIL no round tore down a parsed list, so no build was ever cut short")
+                    shell.log("FAIL no round was switched off after the parse landed")
                 shell.quit()
                 return
             }
